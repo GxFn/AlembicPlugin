@@ -18,7 +18,7 @@ import {
   isValidTransition,
   Lifecycle,
   normalizeLifecycle,
-} from '../../lib/domain/knowledge/Lifecycle.js';
+} from '@alembic/core/domain/knowledge/Lifecycle';
 import { ConfidenceRouter } from '../../lib/service/knowledge/ConfidenceRouter.js';
 
 describe('Knowledge Governance Integration', () => {

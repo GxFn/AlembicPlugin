@@ -12,7 +12,7 @@ import Lifecycle, {
   isValidLifecycle,
   isValidTransition,
   normalizeLifecycle,
-} from '../../lib/domain/knowledge/Lifecycle.js';
+} from '@alembic/core/domain/knowledge/Lifecycle';
 
 describe('Lifecycle — 六态状态机', () => {
   it('should define 6 states', () => {
