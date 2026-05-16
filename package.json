@@ -66,8 +66,9 @@
     }
   },
   "scripts": {
-    "build": "node scripts/clean-dist.mjs && tsc",
-    "build:check": "tsc --noEmit",
+    "build": "npm run build:core && node scripts/clean-dist.mjs && tsc",
+    "build:check": "npm run build:core && tsc --noEmit",
+    "build:core": "tsc -p vendor/AlembicCore/tsconfig.json",
     "postbuild": "node scripts/postbuild.mjs",
     "prepublishOnly": "npm run release:codex-plugin",
     "build:dashboard": "cd dashboard && npm run build",
@@ -141,6 +142,7 @@
     "url": "git+https://github.com/GxFn/AlembicPlugin.git"
   },
   "dependencies": {
+    "@alembic/core": "file:vendor/AlembicCore",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.20.0",
     "better-sqlite3": "^12.6.2",
