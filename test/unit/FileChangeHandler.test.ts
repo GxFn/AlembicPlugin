@@ -1,6 +1,6 @@
+import type { FileChangeEvent, ImpactLevel } from '@alembic/core/types/reactive-evolution';
 import { vi } from 'vitest';
 import { FileChangeHandler } from '../../lib/service/evolution/FileChangeHandler.js';
-import type { FileChangeEvent, ImpactLevel } from '../../lib/types/reactive-evolution.js';
 
 /* ════════════════════════════════════════════
  *  Mock ContentImpactAnalyzer — 控制 diff 返回

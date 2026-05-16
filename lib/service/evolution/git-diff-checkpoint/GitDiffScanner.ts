@@ -3,7 +3,10 @@ import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
-import type { FileChangeEvent, FileChangeEventSource } from '../../../types/reactive-evolution.js';
+import type {
+  FileChangeEvent,
+  FileChangeEventSource,
+} from '@alembic/core/types/reactive-evolution';
 import type { GitDiffScanStatus } from './GitDiffCheckpointStatus.js';
 import {
   isSafeProjectRelativePath,

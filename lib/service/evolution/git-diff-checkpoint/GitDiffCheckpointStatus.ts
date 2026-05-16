@@ -1,4 +1,4 @@
-import type { FileChangeEventSource } from '../../../types/reactive-evolution.js';
+import type { FileChangeEventSource } from '@alembic/core/types/reactive-evolution';
 
 export type GitDiffCheckpointErrorCode =
   | 'DISPATCH_FAILED'

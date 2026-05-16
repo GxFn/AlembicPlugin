@@ -6,7 +6,7 @@
  *   - ConfidenceRouter 升级 (targetState + gracePeriod)
  *   - RedundancyAnalyzer + DecayDetector
  */
-import { describe, expect, it } from 'vitest';
+
 import {
   CANDIDATE_STATES,
   CONSUMABLE_STATES,
@@ -19,7 +19,8 @@ import {
   Lifecycle,
   normalizeLifecycle,
 } from '@alembic/core/domain/knowledge/Lifecycle';
-import { ConfidenceRouter } from '../../lib/service/knowledge/ConfidenceRouter.js';
+import { ConfidenceRouter } from '@alembic/core/service/knowledge/ConfidenceRouter';
+import { describe, expect, it } from 'vitest';
 
 describe('Knowledge Governance Integration', () => {
   describe('Lifecycle 6-state consistency', () => {

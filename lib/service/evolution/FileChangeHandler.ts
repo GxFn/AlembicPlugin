@@ -20,6 +20,8 @@ import Logger from '@alembic/core/infrastructure/logging/Logger';
 import type { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
 import type KnowledgeRepositoryImpl from '@alembic/core/repository/knowledge/KnowledgeRepository.impl';
 import type { RecipeSourceRefRepositoryImpl } from '@alembic/core/repository/sourceref/RecipeSourceRefRepository';
+import type { ContentPatcher } from '@alembic/core/service/evolution/ContentPatcher';
+import type { EvolutionGateway } from '@alembic/core/service/evolution/EvolutionGateway';
 import type {
   FileChangeEvent,
   ImpactLevel,
@@ -28,8 +30,6 @@ import type {
 import type { FileChangeSubscriber } from '../FileChangeDispatcher.js';
 import { rewriteRecipePaths } from '../knowledge/RecipePathRewriter.js';
 import { assessFileImpact, extractRecipeTokens } from './ContentImpactAnalyzer.js';
-import type { ContentPatcher } from './ContentPatcher.js';
-import type { EvolutionGateway } from './EvolutionGateway.js';
 
 /** impactLevel → quality signal 权重映射（文档 §5.3）
  *
