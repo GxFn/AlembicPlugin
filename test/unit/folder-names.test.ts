@@ -1,10 +1,10 @@
 import path from 'node:path';
-import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_FOLDER_NAMES,
   resolveFolderNames,
   validateFolderNameSegment,
-} from '../../lib/shared/folder-names.js';
+} from '@alembic/core/shared/folder-names';
+import { describe, expect, test } from 'vitest';
 import {
   CONFIG_DIR,
   DASHBOARD_DIR,

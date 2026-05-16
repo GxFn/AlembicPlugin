@@ -42,7 +42,7 @@ const PROJECTS = [
 const { getDiscovererRegistry, resetDiscovererRegistry } = await import(
   '../lib/core/discovery/index.js'
 );
-const { LanguageService } = await import('../lib/shared/LanguageService.js');
+const { LanguageService } = await import('@alembic/core/shared/LanguageService');
 const { DimensionCopy } = await import('../lib/domain/dimension/DimensionCopy.js');
 
 // AST

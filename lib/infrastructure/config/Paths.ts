@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_FOLDER_NAMES } from '../../shared/folder-names.js';
+import { DEFAULT_FOLDER_NAMES } from '@alembic/core/shared/folder-names';
 import pathGuard from '../../shared/PathGuard.js';
 import {
   detectKnowledgeBaseDir,

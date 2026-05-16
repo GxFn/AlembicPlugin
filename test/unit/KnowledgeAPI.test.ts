@@ -105,10 +105,6 @@ vi.mock('@alembic/core/shared/developer-identity', () => ({
   getDeveloperIdentity: vi.fn(() => 'mcp'),
   clearDeveloperIdentityCache: vi.fn(),
 }));
-vi.mock('../../lib/shared/developer-identity.js', () => ({
-  getDeveloperIdentity: vi.fn(() => 'mcp'),
-  clearDeveloperIdentityCache: vi.fn(),
-}));
 
 const { submitKnowledge, submitKnowledgeBatch, knowledgeLifecycle } = await import(
   '../../lib/external/mcp/handlers/knowledge.js'
@@ -502,7 +498,7 @@ vi.mock('../../lib/http/utils/routeHelpers.js', () => ({
   safeInt: vi.fn((val, def) => parseInt(val, 10) || def),
 }));
 
-vi.mock('../../lib/shared/errors/index.js', () => ({
+vi.mock('@alembic/core/shared/errors/index', () => ({
   ValidationError: class ValidationError extends Error {
     constructor(msg) {
       super(msg);
