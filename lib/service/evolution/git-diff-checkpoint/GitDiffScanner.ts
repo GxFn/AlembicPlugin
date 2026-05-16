@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import Logger from '../../../infrastructure/logging/Logger.js';
+import Logger from '@alembic/core/infrastructure/logging/Logger';
 import type { FileChangeEvent, FileChangeEventSource } from '../../../types/reactive-evolution.js';
 import type { GitDiffScanStatus } from './GitDiffCheckpointStatus.js';
 import {

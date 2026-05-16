@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import Logger from '../../../infrastructure/logging/Logger.js';
+import Logger from '@alembic/core/infrastructure/logging/Logger';
 import type { FileChangeDispatcher } from '../../FileChangeDispatcher.js';
 import type {
   GitDiffCheckpointError,

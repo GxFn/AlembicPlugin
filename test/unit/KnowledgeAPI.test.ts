@@ -5,9 +5,9 @@
  * 使用轻量级 mock 验证路由/handler 正确委托给 KnowledgeService
  */
 
-import { vi } from 'vitest';
 import { KnowledgeEntry } from '@alembic/core/domain/knowledge/KnowledgeEntry';
 import { Lifecycle } from '@alembic/core/domain/knowledge/Lifecycle';
+import { vi } from 'vitest';
 
 /* ════════════════════════════════════════════
  *  Mock 工厂
@@ -489,7 +489,7 @@ vi.mock('../../lib/injection/ServiceContainer.js', () => ({
   })),
 }));
 
-vi.mock('../../lib/infrastructure/logging/Logger.js', () => ({
+vi.mock('@alembic/core/infrastructure/logging/Logger', () => ({
   default: {
     getInstance: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() }),
   },

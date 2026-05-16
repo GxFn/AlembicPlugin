@@ -8,7 +8,23 @@
  */
 
 import type DimensionCopy from '@alembic/core/domain/dimension/DimensionCopy';
+import type DatabaseConnection from '@alembic/core/infrastructure/database/DatabaseConnection';
 import type { WriteZone } from '@alembic/core/infrastructure/io/WriteZone';
+import type Logger from '@alembic/core/infrastructure/logging/Logger';
+import type { BootstrapRepositoryImpl } from '@alembic/core/repository/bootstrap/BootstrapRepository';
+import type { ProposalRepository } from '@alembic/core/repository/evolution/ProposalRepository';
+import type { WarningRepository } from '@alembic/core/repository/evolution/WarningRepository';
+import type { GuardViolationRepositoryImpl } from '@alembic/core/repository/guard/GuardViolationRepository';
+import type { KnowledgeEdgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeEdgeRepository';
+// ── Repository Types ──
+import type { KnowledgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeRepository.impl';
+import type { MemoryRepositoryImpl } from '@alembic/core/repository/memory/MemoryRepository';
+import type { SessionRepositoryImpl } from '@alembic/core/repository/session/SessionRepository';
+import type { RecipeSourceRefRepositoryImpl } from '@alembic/core/repository/sourceref/RecipeSourceRefRepository';
+import type { TokenUsageStore } from '@alembic/core/repository/token/TokenUsageStore';
+import type { KnowledgeFileWriter } from '@alembic/core/service/knowledge/KnowledgeFileWriter';
+// ── 初始化服务类型 ──
+import type { KnowledgeSyncService } from '@alembic/core/service/knowledge/KnowledgeSyncService';
 // ── Shared Types ──
 import type { LanguageService } from '@alembic/core/shared/LanguageService';
 // ── Service Types ──
@@ -23,8 +39,6 @@ import type {
   AgentStageFactoryRegistry,
   SystemRunContextFactory,
 } from '../agent/service/index.js';
-// ── 初始化服务类型 ──
-import type { KnowledgeSyncService } from '../cli/KnowledgeSyncService.js';
 // ── Core AST / Discovery / Enhancement ──
 import type ProjectGraph from '../core/ast/ProjectGraph.js';
 // ── Core Types ──
@@ -39,25 +53,12 @@ import type { AiProviderManager } from '../external/ai/AiProviderManager.js';
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
 import type { CacheCoordinator } from '../infrastructure/cache/CacheCoordinator.js';
-import type DatabaseConnection from '../infrastructure/database/DatabaseConnection.js';
 import type { EventBus } from '../infrastructure/event/EventBus.js';
-import type Logger from '../infrastructure/logging/Logger.js';
 import type { SignalBus } from '../infrastructure/signal/SignalBus.js';
 import type { IndexingPipeline } from '../infrastructure/vector/IndexingPipeline.js';
 import type { VectorStore } from '../infrastructure/vector/VectorStore.js';
 import type { AuditRepositoryImpl } from '../repository/audit/AuditRepository.js';
-import type { BootstrapRepositoryImpl } from '../repository/bootstrap/BootstrapRepository.js';
 import type { CodeEntityRepositoryImpl } from '../repository/code/CodeEntityRepository.js';
-import type { ProposalRepository } from '../repository/evolution/ProposalRepository.js';
-import type { WarningRepository } from '../repository/evolution/WarningRepository.js';
-import type { GuardViolationRepositoryImpl } from '../repository/guard/GuardViolationRepository.js';
-import type { KnowledgeEdgeRepositoryImpl } from '../repository/knowledge/KnowledgeEdgeRepository.js';
-// ── Repository Types ──
-import type { KnowledgeRepositoryImpl } from '../repository/knowledge/KnowledgeRepository.impl.js';
-import type { MemoryRepositoryImpl } from '../repository/memory/MemoryRepository.js';
-import type { SessionRepositoryImpl } from '../repository/session/SessionRepository.js';
-import type { RecipeSourceRefRepositoryImpl } from '../repository/sourceref/RecipeSourceRefRepository.js';
-import type { TokenUsageStore } from '../repository/token/TokenUsageStore.js';
 import type { BootstrapTaskManager } from '../service/bootstrap/BootstrapTaskManager.js';
 import type { ComplianceReporter } from '../service/guard/ComplianceReporter.js';
 import type { ExclusionManager } from '../service/guard/ExclusionManager.js';
@@ -68,7 +69,6 @@ import type { RuleLearner } from '../service/guard/RuleLearner.js';
 import type { ViolationsStore } from '../service/guard/ViolationsStore.js';
 import type { CodeEntityGraph } from '../service/knowledge/CodeEntityGraph.js';
 import type { ConfidenceRouter } from '../service/knowledge/ConfidenceRouter.js';
-import type { KnowledgeFileWriter } from '../service/knowledge/KnowledgeFileWriter.js';
 import type { KnowledgeGraphService } from '../service/knowledge/KnowledgeGraphService.js';
 import type { KnowledgeService } from '../service/knowledge/KnowledgeService.js';
 // ── Context Types ──

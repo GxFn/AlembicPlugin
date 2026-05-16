@@ -8,7 +8,7 @@
  * 返回给调用方；当前主要由 git diff checkpoint 在明确触发时使用。
  */
 
-import Logger from '../infrastructure/logging/Logger.js';
+import Logger from '@alembic/core/infrastructure/logging/Logger';
 import type {
   FileChangeEvent,
   FileChangeEventSource,

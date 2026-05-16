@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 /** ActiveContext (原 ReasoningTrace) + ExplorationTracker 单元测试 */
 // ── mock Logger ──────────────────────────────────────────
 const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-vi.mock('../../lib/infrastructure/logging/Logger.js', () => ({
+vi.mock('@alembic/core/infrastructure/logging/Logger', () => ({
   default: { getInstance: () => mockLogger },
 }));
 
