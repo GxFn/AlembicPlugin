@@ -3,8 +3,8 @@
  * 管理代码质量防护规则的 CRUD 和生命周期操作
  */
 
+import { ioLimit } from '@alembic/core/shared/concurrency';
 import express, { type Request, type Response } from 'express';
-import { ioLimit } from '#shared/concurrency.js';
 import {
   BatchDisableBody,
   BatchEnableBody,

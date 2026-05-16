@@ -101,7 +101,7 @@ vi.mock('#domain/knowledge/RecipeReadinessChecker.js', () => ({
 }));
 
 // Mock developer-identity — CI 环境下 git/OS username 不确定，固定为 'mcp'
-vi.mock('#shared/developer-identity.js', () => ({
+vi.mock('@alembic/core/shared/developer-identity', () => ({
   getDeveloperIdentity: vi.fn(() => 'mcp'),
   clearDeveloperIdentityCache: vi.fn(),
 }));
