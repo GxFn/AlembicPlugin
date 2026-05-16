@@ -15,10 +15,14 @@
  *   - AI 不可用时自动降级到 Jaccard
  */
 
+import type {
+  SearchCrossEncoder,
+  SearchResultItem,
+} from '@alembic/core/service/search/SearchTypes';
+import { tokenize } from '@alembic/core/service/search/tokenizer';
 import { jaccardSimilarity } from '@alembic/core/shared/similarity';
-import { tokenize } from './tokenizer.js';
 
-interface RerankCandidate {
+interface RerankCandidate extends SearchResultItem {
   title?: string;
   trigger?: string;
   description?: string;
@@ -32,7 +36,7 @@ interface RerankCandidate {
 const MAX_CANDIDATES = 40; // 超过此数量截断（控制 prompt 大小）
 const MAX_DOC_LEN = 300; // 每个文档最大字符数
 
-export class CrossEncoderReranker {
+export class CrossEncoderReranker implements SearchCrossEncoder {
   #aiProvider;
   #logger;
 
@@ -58,7 +62,8 @@ export class CrossEncoderReranker {
    * @param candidates Layer 1 输出的候选列表
    * @returns 附带 semanticScore 的候选列表（降序）
    */
-  async rerank(query: string, candidates: RerankCandidate[]) {
+  async rerank(query: string, candidates: SearchResultItem[]): Promise<SearchResultItem[]> {
+    const rerankCandidates = candidates as RerankCandidate[];
     if (!candidates || candidates.length === 0) {
       return [];
     }
@@ -68,12 +73,12 @@ export class CrossEncoderReranker {
 
     // 如果 AI Provider 不可用，降级到 Jaccard
     if (!this.#aiProvider || typeof this.#aiProvider.chatWithStructuredOutput !== 'function') {
-      return this.#jaccardFallback(query, candidates);
+      return this.#jaccardFallback(query, rerankCandidates);
     }
 
     // 截取前 MAX_CANDIDATES 个候选，剩余保持原始顺序
-    const head = candidates.slice(0, MAX_CANDIDATES);
-    const tail = candidates.slice(MAX_CANDIDATES);
+    const head = rerankCandidates.slice(0, MAX_CANDIDATES);
+    const tail = rerankCandidates.slice(MAX_CANDIDATES);
 
     try {
       const scored = await this.#batchScore(query, head);
@@ -91,12 +96,16 @@ export class CrossEncoderReranker {
       this.#logger.warn?.(
         `[CrossEncoderReranker] AI scoring failed, falling back to Jaccard: ${(err as Error).message}`
       );
-      return this.#jaccardFallback(query, candidates);
+      return this.#jaccardFallback(query, rerankCandidates);
     }
   }
 
   /** 批量 AI 评分 — 单次 chatWithStructuredOutput 调用 */
   async #batchScore(query: string, candidates: RerankCandidate[]) {
+    if (!this.#aiProvider) {
+      throw new Error('AI provider unavailable');
+    }
+
     const pairs = candidates.map((c: RerankCandidate, i: number) => {
       const doc = this.#extractDocText(c);
       return `[${i}] ${doc.substring(0, MAX_DOC_LEN)}`;
@@ -125,7 +134,7 @@ Score guidelines:
 
 Return ONLY a JSON array, no markdown or explanation.`;
 
-    const result = await this.#aiProvider!.chatWithStructuredOutput(prompt, {
+    const result = await this.#aiProvider.chatWithStructuredOutput(prompt, {
       openChar: '[',
       closeChar: ']',
       temperature: 0.1,

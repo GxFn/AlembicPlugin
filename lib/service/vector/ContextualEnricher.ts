@@ -16,6 +16,11 @@
  */
 
 import Logger from '@alembic/core/infrastructure/logging/Logger';
+import type {
+  VectorChunkData,
+  VectorChunkEnricher,
+  VectorDocumentInfo,
+} from '@alembic/core/service/vector/EnrichmentTypes';
 
 // ── Types ──
 
@@ -27,17 +32,8 @@ export interface AiProviderLike {
   ): Promise<string>;
 }
 
-export interface ChunkData {
-  content: string;
-  metadata: Record<string, unknown>;
-}
-
-export interface DocumentInfo {
-  title: string;
-  content: string;
-  kind: string;
-  sourcePath?: string;
-}
+export type ChunkData = VectorChunkData;
+export type DocumentInfo = VectorDocumentInfo;
 
 export interface EnricherConfig {
   aiProvider: AiProviderLike;
@@ -47,7 +43,7 @@ export interface EnricherConfig {
 
 // ── Enricher ──
 
-export class ContextualEnricher {
+export class ContextualEnricher implements VectorChunkEnricher {
   #aiProvider: AiProviderLike;
   #cache: Map<string, string>;
   #cacheEnabled: boolean;
@@ -91,7 +87,7 @@ export class ContextualEnricher {
 
         let context: string | undefined;
         if (this.#cacheEnabled && this.#cache.has(cacheKey)) {
-          context = this.#cache.get(cacheKey)!;
+          context = this.#cache.get(cacheKey);
         } else {
           context = await this.#generateContext(systemPrompt, chunk.content);
           if (this.#cacheEnabled && context) {
