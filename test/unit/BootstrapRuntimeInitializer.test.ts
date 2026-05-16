@@ -1,10 +1,9 @@
+import type { IncrementalPlan, RestoredEpisodicMemory } from '@alembic/core/types/workflows';
 import { describe, expect, test, vi } from 'vitest';
 import {
   type BootstrapRuntimeContainer,
   initializeBootstrapRuntime,
 } from '#workflows/capabilities/execution/internal-agent/BootstrapRuntimeInitializer.js';
-import type { SessionStore } from '../../lib/agent/memory/SessionStore.js';
-import type { IncrementalPlan } from '../../lib/external/mcp/handlers/types.js';
 
 function makeContainer(
   overrides: Partial<BootstrapRuntimeContainer> = {}
@@ -16,7 +15,7 @@ function makeContainer(
   };
 }
 
-function makeIncrementalPlan(restoredEpisodic: SessionStore): IncrementalPlan {
+function makeIncrementalPlan(restoredEpisodic: RestoredEpisodicMemory): IncrementalPlan {
   return {
     canIncremental: true,
     mode: 'incremental',
@@ -68,11 +67,12 @@ describe('initializeBootstrapRuntime', () => {
     expect(runtime.memoryCoordinator).toBeTruthy();
   });
 
-  test('uses restored incremental SessionStore and syncs digests into DimensionContext', async () => {
+  test('uses restored incremental summary to sync digests into DimensionContext', async () => {
     const restoredEpisodic = {
       getCompletedDimensions: () => ['api'],
       getDimensionReport: () => ({ digest: { summary: 'restored api' } }),
-    } as unknown as SessionStore;
+      toJSON: () => ({}),
+    } satisfies RestoredEpisodicMemory;
 
     const runtime = await initializeBootstrapRuntime({
       container: makeContainer(),
@@ -85,7 +85,8 @@ describe('initializeBootstrapRuntime', () => {
       incrementalPlan: makeIncrementalPlan(restoredEpisodic),
     });
 
-    expect(runtime.sessionStore).toBe(restoredEpisodic);
+    expect(runtime.sessionStore).not.toBe(restoredEpisodic);
+    expect(runtime.sessionStore.getStats()).toMatchObject({ completedDimensions: 0 });
     expect(runtime.dimContext.completedDimensions.get('api')).toMatchObject({
       summary: 'restored api',
       dimId: 'api',

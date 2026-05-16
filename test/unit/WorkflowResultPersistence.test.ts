@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { IncrementalPlan } from '@alembic/core/types/workflows';
 import { describe, expect, test, vi } from 'vitest';
-import type { IncrementalPlan } from '#types/workflows.js';
 import type { SessionStore } from '../../lib/agent/memory/SessionStore.js';
 import type {
   CandidateResults,

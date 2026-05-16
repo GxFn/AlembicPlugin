@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { IncrementalPlan } from '@alembic/core/types/workflows';
 import { describe, expect, test, vi } from 'vitest';
 import type { SessionStore } from '#agent/memory/SessionStore.js';
 import {
@@ -9,7 +10,6 @@ import {
 } from '#workflows/capabilities/execution/internal-agent/BootstrapDimensionAdmission.js';
 import type { BootstrapRescanContext } from '#workflows/capabilities/execution/internal-agent/BootstrapRescanState.js';
 import type { DimensionContext } from '#workflows/capabilities/execution/internal-agent/DimensionContext.js';
-import type { IncrementalPlan } from '../../lib/external/mcp/handlers/types.js';
 import type { BootstrapEventEmitter } from '../../lib/service/bootstrap/BootstrapEventEmitter.js';
 
 function makeIncrementalPlan(partial: Partial<IncrementalPlan> = {}): IncrementalPlan {

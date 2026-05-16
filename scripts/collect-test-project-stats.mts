@@ -42,7 +42,7 @@ const PROJECTS = [
 
 // ── 加载 Alembic 模块 ─────────────────────────────────────────
 const { getDiscovererRegistry, resetDiscovererRegistry } = await import(
-  '../lib/core/discovery/index.js'
+  '@alembic/core/core/discovery'
 );
 const { LanguageService } = await import('@alembic/core/shared/LanguageService');
 

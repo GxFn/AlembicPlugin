@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { IncrementalPlan } from '@alembic/core/types/workflows';
 import { describe, expect, test, vi } from 'vitest';
 import type {
   CandidateResults,
@@ -16,7 +17,6 @@ import {
   syncRestoredSessionStoreDigests,
 } from '#workflows/capabilities/persistence/DimensionCheckpoint.js';
 import type { SessionStore } from '../../lib/agent/memory/SessionStore.js';
-import type { IncrementalPlan } from '../../lib/external/mcp/handlers/types.js';
 import type { BootstrapEventEmitter } from '../../lib/service/bootstrap/BootstrapEventEmitter.js';
 
 function makePlan(partial: Partial<IncrementalPlan>): IncrementalPlan {

@@ -1,12 +1,12 @@
 import path from 'node:path';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
+import type { IncrementalPlan } from '@alembic/core/types/workflows';
 import { MemoryCoordinator } from '#agent/memory/MemoryCoordinator.js';
 import { MemoryEmbeddingStore } from '#agent/memory/MemoryEmbeddingStore.js';
 import { PersistentMemory } from '#agent/memory/PersistentMemory.js';
 import { SessionStore } from '#agent/memory/SessionStore.js';
-import type { IncrementalPlan } from '#types/workflows.js';
 import { DimensionContext } from '#workflows/capabilities/execution/internal-agent/DimensionContext.js';
-import { syncRestoredSessionStoreDigests } from '#workflows/capabilities/persistence/DimensionCheckpoint.js';
+import { syncRestoredEpisodicMemoryDigests } from '#workflows/capabilities/persistence/DimensionCheckpoint.js';
 
 const logger = Logger.getInstance();
 
@@ -77,17 +77,17 @@ export async function initializeBootstrapRuntime({
     astMetrics: (astProjectSummary?.projectMetrics as Record<string, unknown>) ?? undefined,
     guardSummary: (guardAudit?.summary as Record<string, unknown>) ?? undefined,
   });
-  const sessionStore =
-    isIncremental && incrementalPlan?.restoredEpisodic
-      ? incrementalPlan.restoredEpisodic
-      : new SessionStore({
-          projectName: projectInfo.name,
-          primaryLang: projectInfo.lang,
-          fileCount: projectInfo.fileCount,
-          modules,
-        });
+  const sessionStore = new SessionStore({
+    projectName: projectInfo.name,
+    primaryLang: projectInfo.lang,
+    fileCount: projectInfo.fileCount,
+    modules,
+  });
   if (isIncremental && incrementalPlan?.restoredEpisodic) {
-    syncRestoredSessionStoreDigests({ sessionStore, dimContext });
+    syncRestoredEpisodicMemoryDigests({
+      restoredEpisodic: incrementalPlan.restoredEpisodic,
+      dimContext,
+    });
   }
 
   const semanticMemory = createBootstrapSemanticMemory({
