@@ -1,9 +1,9 @@
 import { resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import express from 'express';
-import { getPackageVersion } from '../../daemon/DaemonState.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
+import { getPackageVersion } from '../../shared/package-root.js';
 
 const router = express.Router();
 

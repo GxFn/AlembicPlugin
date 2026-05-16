@@ -52,6 +52,16 @@ function findPackageRoot(): string {
 /** Alembic 包的根目录（包含 package.json 的目录） */
 export const PACKAGE_ROOT = findPackageRoot();
 
+export function getPackageVersion(): string {
+  try {
+    const raw = readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf-8');
+    const pkg = JSON.parse(raw) as { version?: string };
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 /** `<root>/config/` — 配置文件目录 */
 export const CONFIG_DIR = path.join(PACKAGE_ROOT, DEFAULT_FOLDER_NAMES.package.config);
 

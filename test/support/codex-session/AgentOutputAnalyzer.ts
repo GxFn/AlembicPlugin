@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { JobStore } from '@alembic/core/daemon/JobStore';
 import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import Database from 'better-sqlite3';
 import { inspectCodexAiConfig } from '../../../lib/codex/AiConfigState.js';
@@ -8,7 +9,6 @@ import {
   getCodexSavedProjectRootPath,
   readCodexInitMarker,
 } from '../../../lib/codex/ProjectRootResolver.js';
-import { JobStore } from '../../../lib/daemon/JobStore.js';
 import type { AlembicMcpHarness } from './McpHarness.js';
 import type {
   CodexScenarioRunFacts,

@@ -1,6 +1,8 @@
 import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
+import { type DaemonState, resolveDaemonPaths } from '@alembic/core/daemon/DaemonState';
+import { JobStore } from '@alembic/core/daemon/JobStore';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -36,9 +38,7 @@ import {
   writeCodexInitMarker,
   writeCodexSavedProjectRoot,
 } from '../../codex/index.js';
-import { type DaemonState, resolveDaemonPaths } from '../../daemon/DaemonState.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
-import { JobStore } from '../../daemon/JobStore.js';
 import { PROVIDER_KEY_ENV, WorkspaceSettingsStore } from '../../shared/WorkspaceSettingsStore.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from './tools.js';
 

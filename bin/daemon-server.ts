@@ -8,20 +8,19 @@ import { existsSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
+import {
+  DAEMON_STATE_SCHEMA_VERSION,
+  resolveDaemonPaths,
+  writeDaemonState,
+} from '@alembic/core/daemon/DaemonState';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import { timerRegistry } from '@alembic/core/shared/TimerRegistry';
 import Bootstrap from '../lib/bootstrap.js';
 import { markInterruptedDaemonJobs } from '../lib/daemon/DaemonJobRunner.js';
-import {
-  DAEMON_STATE_SCHEMA_VERSION,
-  getPackageVersion,
-  resolveDaemonPaths,
-  writeDaemonState,
-} from '../lib/daemon/DaemonState.js';
 import HttpServer from '../lib/http/HttpServer.js';
 import { getServiceContainer } from '../lib/injection/ServiceContainer.js';
 import { GitDiffCheckpointService } from '../lib/service/evolution/git-diff-checkpoint/index.js';
-import { DASHBOARD_DIR } from '../lib/shared/package-root.js';
+import { DASHBOARD_DIR, getPackageVersion } from '../lib/shared/package-root.js';
 import { shutdown } from '../lib/shared/shutdown.js';
 
 shutdown.install();

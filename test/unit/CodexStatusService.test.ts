@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test, vi } from 'vitest';
-import { buildCodexStatus } from '../../lib/codex/index.js';
 import {
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
-  getPackageVersion,
   resolveDaemonPaths,
-} from '../../lib/daemon/DaemonState.js';
+} from '@alembic/core/daemon/DaemonState';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { buildCodexStatus } from '../../lib/codex/index.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import { getPackageVersion } from '../../lib/shared/package-root.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 const ORIGINAL_DEEPSEEK_KEY = process.env.ALEMBIC_DEEPSEEK_API_KEY;

@@ -5,6 +5,7 @@
  *   - agentService, toolRegistry, toolForge, skillHooks
  */
 
+import type { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import {
   AgentProfileCompiler,
@@ -34,7 +35,6 @@ import { V2CapabilityCatalog } from '#tools/v2/adapter/V2CapabilityCatalog.js';
 import { V2ToolRouterAdapter } from '#tools/v2/adapter/V2ToolRouterAdapter.js';
 import { WorkflowRegistry } from '#tools/workflow/WorkflowRegistry.js';
 import { ToolForge } from '../../agent/forge/ToolForge.js';
-import type { SignalBus } from '../../infrastructure/signal/SignalBus.js';
 import { SkillHooks } from '../../service/skills/SkillHooks.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
