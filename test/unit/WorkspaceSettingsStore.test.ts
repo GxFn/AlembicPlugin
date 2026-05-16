@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
 import { afterEach, describe, expect, test } from 'vitest';
 import { Bootstrap } from '../../lib/bootstrap.js';
-import { ProjectRegistry } from '../../lib/shared/ProjectRegistry.js';
 import { WorkspaceSettingsStore } from '../../lib/shared/WorkspaceSettingsStore.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;

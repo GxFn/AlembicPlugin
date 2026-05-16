@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getProjectSkillsPath } from '#infra/config/Paths.js';
-import type { WriteZone } from '#infra/io/WriteZone.js';
+import { getProjectSkillsPath } from '@alembic/core/infrastructure/config/Paths';
+import type { WriteZone } from '@alembic/core/infrastructure/io/WriteZone';
+import pathGuard from '@alembic/core/shared/PathGuard';
+import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
 import Logger from '#infra/logging/Logger.js';
-import pathGuard from '#shared/PathGuard.js';
 import { INJECTABLE_SKILLS_DIR } from '#shared/package-root.js';
-import { resolveDataRoot } from '#shared/resolveProjectRoot.js';
 
 const logger = Logger.getInstance();
 

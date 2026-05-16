@@ -1,4 +1,4 @@
-import { WorkspaceResolver } from '../shared/WorkspaceResolver.js';
+import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import {
   collectAiRuntimeOverrideDiff,
   maskAiRuntimeConfig,

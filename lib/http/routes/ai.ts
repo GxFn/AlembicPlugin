@@ -4,6 +4,7 @@
  */
 
 import { ValidationError } from '@alembic/core/shared/errors/index';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import express, { type Request, type Response } from 'express';
 import {
   type AgentRunInput,
@@ -29,7 +30,6 @@ import { PROVIDER_CONFIGS } from '../../external/ai/registry/ProviderConfig.js';
 import Logger from '../../infrastructure/logging/Logger.js';
 import { getRealtimeService } from '../../infrastructure/realtime/RealtimeService.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
-import { resolveDataRoot, resolveProjectRoot } from '../../shared/resolveProjectRoot.js';
 import {
   AiChatBody,
   AiConfigBody,

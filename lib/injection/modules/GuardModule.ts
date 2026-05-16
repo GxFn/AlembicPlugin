@@ -9,7 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveDataRoot } from '#shared/resolveProjectRoot.js';
+import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
 import type { SignalBus } from '../../infrastructure/signal/SignalBus.js';
 import type { GuardViolationRepositoryImpl } from '../../repository/guard/GuardViolationRepository.js';
 import type { KnowledgeRepositoryImpl } from '../../repository/knowledge/KnowledgeRepository.impl.js';
@@ -86,7 +86,7 @@ export function register(c: ServiceContainer) {
   c.singleton('exclusionManager', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
     const wz = ct.singletons.writeZone as
-      | import('../../infrastructure/io/WriteZone.js').WriteZone
+      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
       | undefined;
     return new ExclusionManager(dataRoot, { wz });
   });
@@ -94,7 +94,7 @@ export function register(c: ServiceContainer) {
   c.singleton('ruleLearner', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
     const wz = ct.singletons.writeZone as
-      | import('../../infrastructure/io/WriteZone.js').WriteZone
+      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
       | undefined;
     return new RuleLearner(dataRoot, {
       signalBus: (ct.singletons.signalBus as SignalBus | undefined) || undefined,

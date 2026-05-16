@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   getCodexSavedProjectRootPath,
@@ -15,7 +16,6 @@ import {
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { JobStore } from '../../lib/daemon/JobStore.js';
 import { CodexMcpServer, getVisibleCodexTools } from '../../lib/external/mcp/CodexMcpServer.js';
-import { getGhostWorkspaceDir, ProjectRegistry } from '../../lib/shared/ProjectRegistry.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 const ORIGINAL_ALEMBIC_PROJECT_DIR = process.env.ALEMBIC_PROJECT_DIR;

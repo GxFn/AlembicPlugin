@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import pathGuard from '../../../lib/shared/PathGuard.js';
-import { ProjectRegistry } from '../../../lib/shared/ProjectRegistry.js';
-import { WorkspaceResolver } from '../../../lib/shared/WorkspaceResolver.js';
-import { WorkspaceSettingsStore } from '../../../lib/shared/WorkspaceSettingsStore.js';
+import pathGuard from '@alembic/core/shared/PathGuard';
+import { ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
+import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
+import { WorkspaceSettingsStore } from '@alembic/core/shared/WorkspaceSettingsStore';
 import type {
   CodexScenarioFixtureRunConfig,
   CodexScenarioRunOptions,

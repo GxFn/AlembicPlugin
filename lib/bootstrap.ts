@@ -1,4 +1,6 @@
 import path from 'node:path';
+import pathGuard from '@alembic/core/shared/PathGuard';
+import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import Constitution from './core/constitution/Constitution.js';
 import ConstitutionValidator from './core/constitution/ConstitutionValidator.js';
 import Gateway, { type GatewayConfig } from './core/gateway/Gateway.js';
@@ -10,9 +12,7 @@ import DatabaseConnection from './infrastructure/database/DatabaseConnection.js'
 import Logger from './infrastructure/logging/Logger.js';
 import { unwrapRawDb } from './repository/search/SearchRepoAdapter.js';
 import { SkillHooks } from './service/skills/SkillHooks.js';
-import pathGuard from './shared/PathGuard.js';
 import { CONFIG_DIR, PACKAGE_ROOT } from './shared/package-root.js';
-import { WorkspaceResolver } from './shared/WorkspaceResolver.js';
 import { WorkspaceSettingsStore } from './shared/WorkspaceSettingsStore.js';
 
 /** Bootstrap - 应用程序启动器 */

@@ -5,6 +5,7 @@
  *   - agentService, toolRegistry, toolForge, skillHooks
  */
 
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import {
   AgentProfileCompiler,
   AgentProfileRegistry,
@@ -14,7 +15,6 @@ import {
   AgentStageFactoryRegistry,
   SystemRunContextFactory,
 } from '#agent/service/index.js';
-import { resolveDataRoot, resolveProjectRoot } from '#shared/resolveProjectRoot.js';
 import { DashboardOperationAdapter } from '#tools/adapters/DashboardOperationAdapter.js';
 import {
   DASHBOARD_OPERATION_HANDLERS,

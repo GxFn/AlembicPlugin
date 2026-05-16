@@ -55,15 +55,15 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { isExcludedProject } from '../shared/isOwnDevRepo.js';
+import { isExcludedProject } from '@alembic/core/shared/isOwnDevRepo';
 import {
   DEFAULT_KNOWLEDGE_BASE_DIR,
   DEFAULT_SUB_REPO_DIR,
   isGitRepo,
-} from '../shared/ProjectMarkers.js';
-import { ProjectRegistry } from '../shared/ProjectRegistry.js';
+} from '@alembic/core/shared/ProjectMarkers';
+import { ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
+import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import { PACKAGE_ROOT } from '../shared/package-root.js';
-import { WorkspaceResolver } from '../shared/WorkspaceResolver.js';
 
 /** Alembic 源码仓库根目录（定位 templates/ 等资源） */
 const REPO_ROOT = PACKAGE_ROOT;
