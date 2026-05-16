@@ -1,0 +1,214 @@
+{
+  "name": "alembic-ai",
+  "version": "0.1.2",
+  "description": "Alembic plugin integration repository for Codex and future IDE or agent host plugins.",
+  "type": "module",
+  "main": "dist/lib/bootstrap.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "imports": {
+    "#shared/*": {
+      "alembic-dev": "./lib/shared/*",
+      "default": "./dist/lib/shared/*"
+    },
+    "#infra/*": {
+      "alembic-dev": "./lib/infrastructure/*",
+      "default": "./dist/lib/infrastructure/*"
+    },
+    "#service/*": {
+      "alembic-dev": "./lib/service/*",
+      "default": "./dist/lib/service/*"
+    },
+    "#agent/*": {
+      "alembic-dev": "./lib/agent/*",
+      "default": "./dist/lib/agent/*"
+    },
+    "#domain/*": {
+      "alembic-dev": "./lib/domain/*",
+      "default": "./dist/lib/domain/*"
+    },
+    "#inject/*": {
+      "alembic-dev": "./lib/injection/*",
+      "default": "./dist/lib/injection/*"
+    },
+    "#core/*": {
+      "alembic-dev": "./lib/core/*",
+      "default": "./dist/lib/core/*"
+    },
+    "#external/*": {
+      "alembic-dev": "./lib/external/*",
+      "default": "./dist/lib/external/*"
+    },
+    "#repo/*": {
+      "alembic-dev": "./lib/repository/*",
+      "default": "./dist/lib/repository/*"
+    },
+    "#types/*": {
+      "alembic-dev": "./lib/types/*",
+      "default": "./dist/lib/types/*"
+    },
+    "#http/*": {
+      "alembic-dev": "./lib/http/*",
+      "default": "./dist/lib/http/*"
+    },
+    "#workflows/*": {
+      "alembic-dev": "./lib/workflows/*",
+      "default": "./dist/lib/workflows/*"
+    },
+    "#tools/*": {
+      "alembic-dev": "./lib/tools/*",
+      "default": "./dist/lib/tools/*"
+    },
+    "#codex/*": {
+      "alembic-dev": "./lib/codex/*",
+      "default": "./dist/lib/codex/*"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/clean-dist.mjs && tsc",
+    "build:check": "tsc --noEmit",
+    "postbuild": "node scripts/postbuild.mjs",
+    "prepublishOnly": "npm run release:codex-plugin",
+    "build:dashboard": "cd dashboard && npm run build",
+    "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run test/integration",
+    "test:e2e": "vitest run test/e2e",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "dev:link": "npm run build && npm install -g .",
+    "dev:codex-plugin:sync": "node scripts/sync-codex-plugin-cache.mjs",
+    "dev:codex-plugin:local-mcp": "node scripts/sync-codex-plugin-cache.mjs --local-mcp",
+    "dev:codex-plugin:refresh": "node scripts/dev-verify-codex-plugin.mjs --refresh-only",
+    "dev:codex-plugin:probe-installed": "node scripts/dev-verify-codex-plugin.mjs --probe-only",
+    "dev:codex-plugin:verify": "node scripts/dev-verify-codex-plugin.mjs",
+    "dev:codex-plugin:watch": "node scripts/dev-watch-codex-plugin.mjs",
+    "prepare:codex-plugin-runtime": "node scripts/prepare-codex-plugin-runtime.mjs",
+    "release:check": "npm run build && node dist/scripts/release.js check",
+    "release:codex-channel": "node scripts/release-codex-channel.mjs",
+    "release:codex-channel:daemon": "node scripts/release-codex-channel.mjs --daemon",
+    "release:codex-plugin": "node scripts/release-codex-plugin.mjs",
+    "release:codex-plugin:daemon": "node scripts/release-codex-plugin.mjs --daemon",
+    "sync:gxfn-marketplace": "npm --prefix plugins/alembic-codex run sync:gxfn-marketplace --",
+    "sync:gxfn-marketplace:commit": "npm --prefix plugins/alembic-codex run sync:gxfn-marketplace:commit --",
+    "sync:gxfn-marketplace:push": "npm --prefix plugins/alembic-codex run sync:gxfn-marketplace:push --",
+    "release:patch": "npm run build && node dist/scripts/release.js patch",
+    "release:minor": "npm run build && node dist/scripts/release.js minor",
+    "release:major": "npm run build && node dist/scripts/release.js major",
+    "verify:codex-channel": "node scripts/verify-codex-channel.mjs",
+    "verify:codex-plugin": "node scripts/verify-codex-plugin.mjs",
+    "verify:codex-session": "node scripts/verify-codex-session-scenarios.mjs --all",
+    "smoke:codex-plugin": "node scripts/smoke-codex-plugin.mjs",
+    "lint": "biome check lib/ bin/ config/ scripts/",
+    "lint:fix": "biome check --fix lib/ bin/ config/ scripts/",
+    "lint:repo-boundary": "node scripts/lint-repo-boundary.mjs",
+    "format": "biome format --write lib/ bin/ config/ scripts/",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run lint",
+    "prepare": "husky"
+  },
+  "author": "gaoxuefeng",
+  "license": "MIT",
+  "bin": {
+    "alembic-codex-mcp": "dist/bin/codex-mcp.js"
+  },
+  "keywords": [
+    "knowledge-base",
+    "ai",
+    "ai-agent",
+    "mcp",
+    "codex",
+    "codex-plugin",
+    "openai-codex",
+    "copilot",
+    "cursor",
+    "code-review",
+    "guard",
+    "ast",
+    "tree-sitter",
+    "typescript",
+    "javascript",
+    "python",
+    "swift",
+    "rust",
+    "kotlin",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/GxFn/AlembicPlugin#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GxFn/AlembicPlugin.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "ajv": "^8.20.0",
+    "better-sqlite3": "^12.6.2",
+    "commander": "^14.0.3",
+    "cors": "^2.8.6",
+    "drizzle-orm": "^0.45.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "js-yaml": "^4.1.1",
+    "minimist": "^1.2.8",
+    "ora": "^9.3.0",
+    "p-limit": "^7.3.0",
+    "socket.io": "^4.8.3",
+    "undici": "^7.22.0",
+    "uuid": "^13.0.0",
+    "web-tree-sitter": "^0.26.6",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
+  },
+  "bugs": {
+    "url": "https://github.com/GxFn/AlembicPlugin/issues"
+  },
+  "files": [
+    ".agents/plugins/marketplace.json",
+    "channels",
+    "dist",
+    "config",
+    "scripts/postbuild.mjs",
+    "scripts/verify-codex-channel.mjs",
+    "scripts/verify-codex-plugin.mjs",
+    "scripts/smoke-codex-plugin.mjs",
+    "scripts/prepare-codex-plugin-runtime.mjs",
+    "scripts/release-codex-channel.mjs",
+    "scripts/release-codex-plugin.mjs",
+    "injectable-skills",
+    "plugins",
+    "templates",
+    "dashboard/dist",
+    "template.json",
+    "resources/grammars"
+  ],
+  "directories": {
+    "doc": "docs",
+    "lib": "lib",
+    "test": "test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.6",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/js-yaml": "^4.0.9",
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^22.19.18",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "minimatch": "^10.2.2",
+    "diff": "^8.0.3",
+    "glob": "^11.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,js,mjs,cjs}": [
+      "biome check --fix --no-errors-on-unmatched --diagnostic-level=error",
+      "biome format --write --no-errors-on-unmatched"
+    ]
+  }
+}

@@ -1,0 +1,83 @@
+# Alembic 发布：推送 v* tag 后，由 GitHub Actions 构建、测试并发布到 npm
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # npm provenance / trusted publishing
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify tag matches package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          echo "Tag version:     ${TAG_VERSION}"
+          echo "Package version: ${PACKAGE_VERSION}"
+          test "${TAG_VERSION}" = "${PACKAGE_VERSION}"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install dashboard dependencies
+        run: npm ci --prefix dashboard
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Build Dashboard
+        run: npm run build:dashboard
+
+      - name: Prepare Codex plugin runtime
+        run: npm run prepare:codex-plugin-runtime
+
+      - name: Verify Codex channel
+        run: npm run verify:codex-channel
+
+      - name: Verify Codex plugin packaging
+        run: npm run verify:codex-plugin
+
+      - name: Lint
+        run: npm run lint -- --diagnostic-level=error
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          ASD_DISABLE_WRITE_GUARD: '1'
+          ASD_DISABLE_RATE_LIMIT: '1'
+
+      - name: Preview npm package
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        # Build artifacts are produced above; skip prepublishOnly to avoid duplicate builds.
+        run: npm publish --provenance --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
