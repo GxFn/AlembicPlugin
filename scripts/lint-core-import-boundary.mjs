@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { extname, join, relative, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
-const allowlistPath = join(root, 'docs', 'core-import-boundary-allowlist.json');
+const allowlistPath = join(root, 'config', 'core-import-boundary-allowlist.json');
 const ignoredDirectories = new Set(['.git', 'coverage', 'dist', 'node_modules', 'vendor']);
 const sourceExtensions = new Set(['.cjs', '.cts', '.js', '.mjs', '.mts', '.ts', '.tsx']);
 const staticFromPattern =
