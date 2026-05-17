@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DimensionCopy } from '@alembic/core/domain/dimension/DimensionCopy';
 import { LanguageService } from '@alembic/core/shared/LanguageService';
+import { detectPrimaryLanguage } from '@alembic/core/workflows/capabilities/presentation/LanguageExtensionBuilder';
 import type { ProjectAnalysisResult } from '#core/AstAnalyzer.js';
 import {
   analyzeProject,
@@ -33,7 +34,6 @@ import {
   baseDimensions,
   resolveActiveDimensions,
 } from '#workflows/capabilities/planning/dimensions/BaseDimensions.js';
-import { detectPrimaryLanguage } from '#workflows/capabilities/presentation/LanguageExtensionBuilder.js';
 import { evaluateProjectAnalysisIncrementalPlan } from '#workflows/capabilities/project-intelligence/ProjectIntelligenceIncrementalPlanner.js';
 import {
   buildProjectAnalysisLocalPackageModules,
