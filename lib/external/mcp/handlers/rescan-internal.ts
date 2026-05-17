@@ -1,7 +1,8 @@
 /**
  * Compatibility export for the internal knowledge-rescan path.
  *
- * The workflow implementation lives in `#workflows/knowledge-rescan/internal`.
+ * The Core workflow primitives live in `@alembic/core/workflows/knowledge-rescan`;
+ * this wrapper owns Plugin internal-agent execution and MCP response shaping.
  */
 
-export { runInternalKnowledgeRescanWorkflow as rescanInternal } from '#workflows/knowledge-rescan/internal/InternalKnowledgeRescanWorkflow.js';
+export { runInternalKnowledgeRescanWorkflow as rescanInternal } from '#external/mcp/handlers/rescan/InternalKnowledgeRescanWorkflow.js';

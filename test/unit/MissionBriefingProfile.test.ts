@@ -81,7 +81,7 @@ describe('MissionBriefing profiles', () => {
     const source = readFileSync(
       join(
         process.cwd(),
-        'lib/workflows/knowledge-rescan/external/ExternalKnowledgeRescanWorkflow.ts'
+        'lib/external/mcp/handlers/rescan/ExternalKnowledgeRescanWorkflow.ts'
       ),
       'utf8'
     );

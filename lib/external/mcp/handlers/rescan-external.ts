@@ -1,7 +1,8 @@
 /**
  * Compatibility export for the external knowledge-rescan path.
  *
- * The workflow implementation lives in `#workflows/knowledge-rescan/external`.
+ * The Core workflow primitives live in `@alembic/core/workflows/knowledge-rescan`;
+ * this wrapper owns Plugin transport cleanup and MCP response shaping.
  */
 
-export { runExternalKnowledgeRescanWorkflow as rescanExternal } from '#workflows/knowledge-rescan/external/ExternalKnowledgeRescanWorkflow.js';
+export { runExternalKnowledgeRescanWorkflow as rescanExternal } from '#external/mcp/handlers/rescan/ExternalKnowledgeRescanWorkflow.js';

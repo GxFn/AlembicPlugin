@@ -1,10 +1,11 @@
 /**
  * Compatibility exports for the external cold-start path.
  *
- * The workflow implementation lives in `#workflows/cold-start/external`.
+ * The Core workflow primitives live in `@alembic/core/workflows/cold-start`;
+ * this wrapper owns Plugin transport cleanup and MCP response shaping.
  */
 
 export {
   getActiveSession,
   runExternalColdStartWorkflow as bootstrapExternal,
-} from '#workflows/cold-start/external/ExternalColdStartWorkflow.js';
+} from '#external/mcp/handlers/bootstrap/ExternalColdStartWorkflow.js';

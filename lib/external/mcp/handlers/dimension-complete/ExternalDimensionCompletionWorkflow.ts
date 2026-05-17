@@ -3,16 +3,17 @@ import Logger from '@alembic/core/infrastructure/logging/Logger';
 import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
 import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
 import type { DimensionDef } from '@alembic/core/types/project-snapshot';
+import { saveDimensionCheckpoint } from '@alembic/core/workflows/capabilities/persistence/DimensionCheckpoint';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {
   runWorkflowCompletionFinalizer,
   type WorkflowCompletionFinalizerDependencies,
 } from '#workflows/capabilities/completion/WorkflowCompletionFinalizer.js';
-import { BOOTSTRAP_COMPLETE_ACTIONS } from '#workflows/capabilities/execution/external/MissionBriefingSupport.js';
 import { generateSkill as generateWorkflowSkill } from '#workflows/capabilities/execution/WorkflowSkillCompletionCapability.js';
-import { saveDimensionCheckpoint } from '#workflows/capabilities/persistence/DimensionCheckpoint.js';
 
 const logger = Logger.getInstance();
+
+const BOOTSTRAP_COMPLETE_ACTIONS: Array<{ action: string; prompt: string; tool: string }> = [];
 
 export interface ExternalDimensionCompleteArgs {
   sessionId?: unknown;
@@ -425,7 +426,7 @@ async function getActiveExternalWorkflowSession(
   sessionId?: string
 ): Promise<ExternalWorkflowSession | null> {
   const { getActiveExternalWorkflowSession } = await import(
-    '#workflows/capabilities/execution/external/ExternalMissionWorkflow.js'
+    '@alembic/core/workflows/capabilities/execution/external/ExternalMissionWorkflow'
   );
   return getActiveExternalWorkflowSession(
     container as never,

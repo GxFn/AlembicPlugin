@@ -66,8 +66,8 @@ import {
 import type {
   EvolutionAuditRecipe as AgentEvolutionAuditRecipe,
   EvolutionAuditResult,
-} from '../../../agent/runs/evolution/EvolutionAgentRun.js';
-import { runEvolutionAudit } from '../../../agent/runs/evolution/EvolutionAgentRun.js';
+} from '#agent/runs/evolution/EvolutionAgentRun.js';
+import { runEvolutionAudit } from '#agent/runs/evolution/EvolutionAgentRun.js';
 
 type RescanMcpContext = WorkflowMcpContext & McpContext;
 
@@ -345,7 +345,7 @@ export async function runInternalKnowledgeRescanWorkflow(
         if (auditRecipes.length > 0) {
           evolutionAuditResult = await runEvolutionAudit({
             agentService:
-              agentService as import('../../../agent/service/AgentService.js').AgentService,
+              agentService as import('#agent/service/AgentService.js').AgentService,
             recipes: agentAuditRecipes,
             projectOverview: {
               primaryLang: primaryLang || 'unknown',

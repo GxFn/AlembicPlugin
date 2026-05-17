@@ -1,22 +1,11 @@
-/**
- * DimensionCheckpoint — 维度执行断点存储与恢复
- *
- * 在维度级粒度保存/加载/清理执行进度，支持意外中断后恢复。
- *
- * 调用方:
- *   - BootstrapConsumers (内部 Agent) — 每个维度完成后保存
- *   - ExternalDimensionCompletionWorkflow (外部 Agent) — 维度完成时保存
- *   - WorkflowResultPersistence — clearDimensionCheckpoints() 全量重建前清理
- */
-
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
-import pathGuard from '@alembic/core/shared/PathGuard';
 import type { IncrementalPlan, RestoredEpisodicMemory } from '@alembic/core/types/workflows';
+import {
+  loadDimensionCheckpoints,
+  type DimensionCheckpoint,
+} from '@alembic/core/workflows/capabilities/persistence/DimensionCheckpoint';
 import type { SessionStore } from '#agent/memory/SessionStore.js';
 import type { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
-import type { DimensionCheckpointResult } from '#types/workflows.js';
 import type {
   CandidateResults,
   DimensionCandidateData,
@@ -26,98 +15,7 @@ import type { DimensionContext } from '#workflows/capabilities/execution/interna
 
 const logger = Logger.getInstance();
 
-const CHECKPOINT_TTL_MS = 3600_000; // 1小时内有效
-
-// ─── Checkpoint Store ────────────────────────────────────────────────
-
-/**
- * 保存维度级 checkpoint
- * @param result 维度执行结果
- * @param [digest] DimensionDigest
- */
-export async function saveDimensionCheckpoint(
-  dataRoot: string,
-  sessionId: string,
-  dimId: string,
-  result: Record<string, unknown>,
-  digest = null
-) {
-  try {
-    const checkpointDir = path.join(dataRoot, '.asd', 'bootstrap-checkpoint');
-    await fs.mkdir(checkpointDir, { recursive: true });
-    await fs.writeFile(
-      path.join(checkpointDir, `${dimId}.json`),
-      JSON.stringify({ dimId, sessionId, ...result, digest, completedAt: Date.now() })
-    );
-  } catch (err: unknown) {
-    logger.warn(
-      `[Bootstrap-v3] checkpoint save failed for "${dimId}": ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
-}
-
-/**
- * 加载有效的 checkpoints
- * @returns dimId → checkpoint data
- */
-export async function loadDimensionCheckpoints(dataRoot: string) {
-  const checkpoints = new Map();
-  try {
-    const checkpointDir = path.join(dataRoot, '.asd', 'bootstrap-checkpoint');
-    const files = await fs.readdir(checkpointDir).catch(() => []);
-    const now = Date.now();
-    for (const file of files) {
-      if (!file.endsWith('.json')) {
-        continue;
-      }
-      try {
-        const content = await fs.readFile(path.join(checkpointDir, file), 'utf-8');
-        const data = JSON.parse(content);
-        if (data.completedAt && now - data.completedAt < CHECKPOINT_TTL_MS) {
-          checkpoints.set(data.dimId, data);
-        }
-      } catch {
-        /* skip corrupt checkpoint */
-      }
-    }
-  } catch {
-    /* checkpoint dir doesn't exist */
-  }
-  return checkpoints;
-}
-
-/** 清理 checkpoint 目录 */
-export async function clearDimensionCheckpoints(dataRoot: string) {
-  try {
-    const checkpointDir = path.join(dataRoot, '.asd', 'bootstrap-checkpoint');
-    pathGuard.assertSafe(checkpointDir);
-    await fs.rm(checkpointDir, { recursive: true, force: true });
-  } catch (err: unknown) {
-    if ((err as { name?: string })?.name === 'PathGuardError') {
-      throw err;
-    }
-    /* ignore other errors */
-  }
-}
-
-export const loadCheckpoints = loadDimensionCheckpoints;
-export const clearCheckpoints = clearDimensionCheckpoints;
-
-// ─── Dimension Restore State ─────────────────────────────────────────
-
-export interface DimensionCheckpoint extends DimensionCheckpointResult {
-  dimId?: string;
-  candidateCount?: number;
-  rejectedCount?: number;
-  analysisChars?: number;
-  referencedFiles?: number;
-  durationMs?: number;
-  toolCallCount?: number;
-  tokenUsage?: { input: number; output: number };
-  analysisText?: string;
-  referencedFilesList?: string[];
-  digest?: unknown;
-}
+export type { DimensionCheckpoint };
 
 export function syncRestoredSessionStoreDigests({
   sessionStore,
@@ -204,8 +102,8 @@ export function resolveIncrementalSkippedDimensions({
   }
   if (incrementalSkippedDims.length > 0) {
     logger.info(
-      `[Insight-v3] ⏩ Incremental skip: [${incrementalSkippedDims.join(', ')}] ` +
-        `(using historical results)`
+      `[Insight-v3] Incremental skip: [${incrementalSkippedDims.join(', ')}] ` +
+        '(using historical results)'
     );
   }
   return incrementalSkippedDims;
@@ -224,10 +122,7 @@ export async function restoreCheckpointDimensions({
   sessionStore: SessionStore;
   emitter: BootstrapEventEmitter;
 }) {
-  const completedCheckpoints = (await loadDimensionCheckpoints(dataRoot)) as Map<
-    string,
-    DimensionCheckpoint
-  >;
+  const completedCheckpoints = await loadDimensionCheckpoints(dataRoot);
   const skippedDims: string[] = [];
   for (const [dimId, checkpoint] of completedCheckpoints) {
     if (!activeDimIds.includes(dimId)) {
@@ -248,7 +143,7 @@ export async function restoreCheckpointDimensions({
       ...checkpoint,
     });
     skippedDims.push(dimId);
-    logger.info(`[Insight-v3] ⏩ 跳过已完成维度 (checkpoint): "${dimId}"`);
+    logger.info(`[Insight-v3] skipped completed checkpoint dimension: "${dimId}"`);
   }
   return { completedCheckpoints, skippedDims };
 }
@@ -310,7 +205,7 @@ function restoreIncrementalSkippedDimension({
     restoredFromIncremental: true,
   };
   dimensionStats[dimId] = dimResult;
-  logger.info(`[Insight-v3] ⏩ "${dimId}" — incremental skip (historical result)`);
+  logger.info(`[Insight-v3] "${dimId}" incremental skip restored from historical result`);
 }
 
 function restoreCheckpointDimension({
@@ -361,7 +256,7 @@ function restoreCheckpointDimension({
       candidatesSummary: [],
     });
     logger.info(
-      `[Insight-v3] ✅ Checkpoint "${dimId}": analysisText restored (${cp.analysisText.length} chars) — Skill generation enabled`
+      `[Insight-v3] checkpoint "${dimId}" analysis restored (${cp.analysisText.length} chars)`
     );
   }
 }

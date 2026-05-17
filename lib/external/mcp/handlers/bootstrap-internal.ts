@@ -1,8 +1,9 @@
 /**
  * Compatibility exports for the internal cold-start path.
  *
- * The workflow implementation lives in `#workflows/cold-start/internal`.
+ * The Core workflow primitives live in `@alembic/core/workflows/cold-start`;
+ * this wrapper owns Plugin internal-agent execution and MCP response shaping.
  */
 
-export { runInternalColdStartWorkflow as bootstrapKnowledge } from '#workflows/cold-start/internal/InternalColdStartWorkflow.js';
+export { runInternalColdStartWorkflow as bootstrapKnowledge } from '#external/mcp/handlers/bootstrap/InternalColdStartWorkflow.js';
 export { bootstrapRefine } from './bootstrap/refine.js';
