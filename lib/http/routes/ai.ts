@@ -3,9 +3,8 @@
  * AI 提供商管理、摘要、翻译、对话、工作区 LLM 配置
  */
 
-import Logger from '@alembic/core/infrastructure/logging/Logger';
+import Logger from '@alembic/core/logging';
 import { ValidationError } from '@alembic/core/shared/errors/index';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import {
   collectAiEnvOverrides,
   isAiEnvReady,
@@ -13,6 +12,7 @@ import {
   PROVIDER_KEY_ENV,
   WorkspaceSettingsStore,
 } from '@alembic/core/shared/WorkspaceSettingsStore';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import express, { type Request, type Response } from 'express';
 import {
   type AgentRunInput,

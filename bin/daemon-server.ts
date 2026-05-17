@@ -13,8 +13,8 @@ import {
   resolveDaemonPaths,
   writeDaemonState,
 } from '@alembic/core/daemon';
-import Logger from '@alembic/core/infrastructure/logging/Logger';
-import { timerRegistry } from '@alembic/core/shared/TimerRegistry';
+import { timerRegistry } from '@alembic/core/events';
+import Logger from '@alembic/core/logging';
 import Bootstrap from '../lib/bootstrap.js';
 import { markInterruptedDaemonJobs } from '../lib/daemon/DaemonJobRunner.js';
 import HttpServer from '../lib/http/HttpServer.js';

@@ -9,13 +9,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Signal } from '@alembic/core/events';
+import { SignalBus } from '@alembic/core/events';
 import type { ReportStore } from '@alembic/core/infrastructure/report/ReportStore';
 import { SignalAggregator } from '@alembic/core/infrastructure/signal/SignalAggregator';
 import { SignalBridge } from '@alembic/core/infrastructure/signal/SignalBridge';
-import type { Signal } from '@alembic/core/infrastructure/signal/SignalBus';
-import { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
 import { SignalTraceWriter } from '@alembic/core/infrastructure/signal/SignalTraceWriter';
-import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveDataRoot } from '@alembic/core/workspace';
 import { HitRecorder } from '../../service/signal/HitRecorder.js';
 import { shutdown } from '../../shared/shutdown.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
@@ -27,7 +27,7 @@ import type { ServiceContainer } from '../ServiceContainer.js';
 function registerIntentPersistence(
   signalBus: SignalBus,
   projectRoot: string,
-  writeZone?: import('@alembic/core/infrastructure/io/WriteZone').WriteZone
+  writeZone?: import('@alembic/core/io').WriteZone
 ): void {
   signalBus.subscribe('intent', (signal: Signal) => {
     try {
@@ -81,18 +81,14 @@ export function register(c: ServiceContainer) {
   // Register after signalBus is created — subscribe for JSONL persistence
   const signalBus = c.get('signalBus');
   const dataRoot = resolveDataRoot(c);
-  const wz = c.get('writeZone') as
-    | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
-    | null;
+  const wz = c.get('writeZone') as import('@alembic/core/io').WriteZone | null;
   registerIntentPersistence(signalBus, dataRoot, wz ?? undefined);
 
   // ═══ SignalBridge — SignalBus → EventBus 桥接 ═══
 
   c.singleton('signalBridge', (ct: ServiceContainer) => {
     const bus = ct.get('signalBus') as SignalBus;
-    const eventBus = ct.get(
-      'eventBus'
-    ) as import('@alembic/core/infrastructure/event/EventBus').EventBus;
+    const eventBus = ct.get('eventBus') as import('@alembic/core/events').EventBus;
     return new SignalBridge(bus, eventBus);
   });
 
@@ -101,9 +97,7 @@ export function register(c: ServiceContainer) {
   c.singleton('signalTraceWriter', (ct: ServiceContainer) => {
     const bus = ct.get('signalBus') as SignalBus;
     const root = resolveDataRoot(ct);
-    const wz = ct.get('writeZone') as
-      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
-      | null;
+    const wz = ct.get('writeZone') as import('@alembic/core/io').WriteZone | null;
     return new SignalTraceWriter(bus, path.join(root, '.asd', 'logs', 'signals'), wz ?? undefined);
   });
 

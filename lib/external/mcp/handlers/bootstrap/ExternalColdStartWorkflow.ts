@@ -27,7 +27,7 @@ import {
   buildProjectSnapshot,
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 
 interface McpContext {

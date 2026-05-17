@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { DatabaseConnection } from '@alembic/core/database';
-import Logger from '@alembic/core/infrastructure/logging/Logger';
+import { pathGuard } from '@alembic/core/io';
+import Logger from '@alembic/core/logging';
 import { unwrapRawDb } from '@alembic/core/search';
-import pathGuard from '@alembic/core/shared/PathGuard';
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import { WorkspaceSettingsStore } from '@alembic/core/shared/WorkspaceSettingsStore';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 import Constitution from './core/constitution/Constitution.js';
 import ConstitutionValidator from './core/constitution/ConstitutionValidator.js';
 import Gateway, { type GatewayConfig } from './core/gateway/Gateway.js';

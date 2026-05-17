@@ -17,14 +17,13 @@ import {
   isValidLifecycle,
   isValidTransition,
   Lifecycle,
-  normalizeLifecycle,
-} from '@alembic/core/domain/knowledge/Lifecycle';
+} from '@alembic/core/knowledge';
 import { ConfidenceRouter } from '@alembic/core/service/knowledge/ConfidenceRouter';
 import { describe, expect, it } from 'vitest';
 
 describe('Knowledge Governance Integration', () => {
   describe('Lifecycle 6-state consistency', () => {
-    it('all 6 states are recognized and normalized', () => {
+    it('all 6 states are recognized through the public facade', () => {
       const states = [
         Lifecycle.PENDING,
         Lifecycle.STAGING,
@@ -35,7 +34,6 @@ describe('Knowledge Governance Integration', () => {
       ];
       for (const s of states) {
         expect(isValidLifecycle(s)).toBe(true);
-        expect(normalizeLifecycle(s)).toBe(s);
       }
     });
 

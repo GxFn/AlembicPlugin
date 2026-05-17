@@ -9,6 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { SignalBus } from '@alembic/core/events';
 import {
   ComplianceReporter,
   CoverageAnalyzer,
@@ -19,10 +20,9 @@ import {
   RuleLearner,
   ViolationsStore,
 } from '@alembic/core/guard';
-import type { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
 import type { GuardViolationRepository, KnowledgeRepository } from '@alembic/core/repositories';
 import { unwrapRawDb } from '@alembic/core/search';
-import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveDataRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {
@@ -86,17 +86,13 @@ export function register(c: ServiceContainer) {
 
   c.singleton('exclusionManager', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
-    const wz = ct.singletons.writeZone as
-      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
-      | undefined;
+    const wz = ct.singletons.writeZone as import('@alembic/core/io').WriteZone | undefined;
     return new ExclusionManager(dataRoot, { wz });
   });
 
   c.singleton('ruleLearner', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
-    const wz = ct.singletons.writeZone as
-      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
-      | undefined;
+    const wz = ct.singletons.writeZone as import('@alembic/core/io').WriteZone | undefined;
     return new RuleLearner(dataRoot, {
       signalBus: (ct.singletons.signalBus as SignalBus | undefined) || undefined,
       wz,

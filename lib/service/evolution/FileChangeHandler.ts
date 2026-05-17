@@ -15,9 +15,9 @@
  * @module service/evolution/FileChangeHandler
  */
 
-import { isConsumable, isDegraded } from '@alembic/core/domain/knowledge/Lifecycle';
-import Logger from '@alembic/core/infrastructure/logging/Logger';
-import type { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
+import type { SignalBus } from '@alembic/core/events';
+import { isConsumable, isDegraded } from '@alembic/core/knowledge';
+import Logger from '@alembic/core/logging';
 import type { KnowledgeRepository, SourceRefRepository } from '@alembic/core/repositories';
 import {
   assessFileImpact,

@@ -43,7 +43,7 @@ const { getDiscovererRegistry, resetDiscovererRegistry } = await import(
   '@alembic/core/project-intelligence'
 );
 const { LanguageService } = await import('@alembic/core/project-intelligence');
-const { DimensionCopy } = await import('@alembic/core/domain/dimension/DimensionCopy');
+const { DimensionCopy } = await import('@alembic/core/dimensions');
 
 // AST
 await import('@alembic/core/project-intelligence');

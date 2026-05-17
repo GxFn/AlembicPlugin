@@ -3,11 +3,11 @@ import { extname as pathExtname, join as pathJoin, relative as pathRelative } fr
 // ─── v3.1: Multi-Language Discovery + Enhancement ────────
 import { initEnhancementRegistry } from '@alembic/core/core/enhancement';
 // ─── P3: Infrastructure ──────────────────────────────
-import Logger from '@alembic/core/infrastructure/logging/Logger';
+import Logger from '@alembic/core/logging';
 // ─── v3.0: AST ProjectGraph ──────────────────────────
 import { ProjectGraph } from '@alembic/core/project-intelligence';
 import { unwrapRawDb } from '@alembic/core/search';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { CacheCoordinator } from '../infrastructure/cache/CacheCoordinator.js';
 import { GraphCache } from '../infrastructure/cache/GraphCache.js';
 import * as AgentModule from './modules/AgentModule.js';
@@ -346,9 +346,7 @@ export class ServiceContainer {
 
     // GraphCache 使用 dataRoot 存储缓存（Ghost 模式下写到外置工作区）
     const cacheRoot = resolveDataRoot(this);
-    const wz = this.singletons.writeZone as
-      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
-      | undefined;
+    const wz = this.singletons.writeZone as import('@alembic/core/io').WriteZone | undefined;
     const cache = new GraphCache(cacheRoot, wz ?? undefined);
     const startTime = Date.now();
 

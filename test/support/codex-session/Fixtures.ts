@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import pathGuard from '@alembic/core/shared/PathGuard';
-import { ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
+import { pathGuard } from '@alembic/core/io';
+import { ProjectRegistry } from '@alembic/core/workspace';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 import { WorkspaceSettingsStore } from '@alembic/core/shared/WorkspaceSettingsStore';
 import type {
   CodexScenarioFixtureRunConfig,

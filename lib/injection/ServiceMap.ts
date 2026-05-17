@@ -9,7 +9,8 @@
 
 import type { JobStore } from '@alembic/core/daemon';
 import type { DatabaseConnection } from '@alembic/core/database';
-import type DimensionCopy from '@alembic/core/domain/dimension/DimensionCopy';
+import type { DimensionCopy } from '@alembic/core/dimensions';
+import type { EventBus, SignalBus } from '@alembic/core/events';
 import type {
   ComplianceReporter,
   ExclusionManager,
@@ -19,10 +20,9 @@ import type {
   RuleLearner,
   ViolationsStore,
 } from '@alembic/core/guard';
-import type { EventBus } from '@alembic/core/infrastructure/event/EventBus';
-import type { WriteZone } from '@alembic/core/infrastructure/io/WriteZone';
-import type Logger from '@alembic/core/infrastructure/logging/Logger';
-import type { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
+import type { WriteZone } from '@alembic/core/io';
+import type { KnowledgeService, RecipeProductionGateway } from '@alembic/core/knowledge';
+import type Logger from '@alembic/core/logging';
 // ── Core AST / Discovery / Enhancement ──
 // ── Shared Types ──
 import type {
@@ -54,12 +54,10 @@ import type { CodeEntityGraph } from '@alembic/core/service/knowledge/CodeEntity
 import type { ConfidenceRouter } from '@alembic/core/service/knowledge/ConfidenceRouter';
 import type { KnowledgeFileWriter } from '@alembic/core/service/knowledge/KnowledgeFileWriter';
 import type { KnowledgeGraphService } from '@alembic/core/service/knowledge/KnowledgeGraphService';
-import type { KnowledgeService } from '@alembic/core/service/knowledge/KnowledgeService';
 // ── 初始化服务类型 ──
 import type { KnowledgeSyncService } from '@alembic/core/service/knowledge/KnowledgeSyncService';
 // ── Context Types ──
 import type { RecipeExtractor } from '@alembic/core/service/knowledge/RecipeExtractor';
-import type { RecipeProductionGateway } from '@alembic/core/service/knowledge/RecipeProductionGateway';
 import type { FeedbackCollector } from '@alembic/core/service/quality/FeedbackCollector';
 import type { QualityScorer } from '@alembic/core/service/quality/QualityScorer';
 import type { RecipeCandidateValidator } from '@alembic/core/service/recipe/RecipeCandidateValidator';

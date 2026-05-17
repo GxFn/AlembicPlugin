@@ -60,9 +60,9 @@ import {
   DEFAULT_KNOWLEDGE_BASE_DIR,
   DEFAULT_SUB_REPO_DIR,
   isGitRepo,
-} from '@alembic/core/shared/ProjectMarkers';
-import { ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
+  ProjectRegistry,
+  WorkspaceResolver,
+} from '@alembic/core/workspace';
 import { PACKAGE_ROOT } from '../shared/package-assets.js';
 
 /** Alembic 源码仓库根目录（定位 templates/ 等资源） */

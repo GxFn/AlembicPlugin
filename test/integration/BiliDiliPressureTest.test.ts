@@ -28,8 +28,8 @@ const BILIDILI_DB_PATH = path.join(BILIDILI_ROOT, '.asd/alembic.db');
 const DB_EXISTS = fs.existsSync(BILIDILI_DB_PATH);
 
 /* ── 动态 import（避免顶层副作用） ── */
-let Lifecycle: typeof import('@alembic/core/domain/knowledge/Lifecycle');
-let LifecycleFns: typeof import('@alembic/core/domain/knowledge/Lifecycle');
+let Lifecycle: typeof import('@alembic/core/knowledge');
+let LifecycleFns: typeof import('@alembic/core/knowledge');
 let GuardCheckEngine: typeof import('@alembic/core/guard').GuardCheckEngine;
 let UncertaintyCollector: typeof import('@alembic/core/guard').UncertaintyCollector;
 let CoverageAnalyzer: typeof import('@alembic/core/guard').CoverageAnalyzer;
@@ -39,7 +39,7 @@ let StagingManager: typeof import('@alembic/core/service/evolution/StagingManage
 let RedundancyAnalyzer: typeof import('@alembic/core/service/evolution/RedundancyAnalyzer').RedundancyAnalyzer;
 let ConfidenceRouter: typeof import('@alembic/core/service/knowledge/ConfidenceRouter').ConfidenceRouter;
 let SourceRefReconciler: typeof import('@alembic/core/service/knowledge/SourceRefReconciler').SourceRefReconciler;
-let SignalBus: typeof import('@alembic/core/infrastructure/signal/SignalBus').SignalBus;
+let SignalBus: typeof import('@alembic/core/events').SignalBus;
 let RuleLearner: typeof import('@alembic/core/guard').RuleLearner;
 let KnowledgeRepositoryImpl: typeof import('@alembic/core/repository/knowledge/KnowledgeRepository.impl').KnowledgeRepositoryImpl;
 let RecipeSourceRefRepositoryImpl: typeof import('@alembic/core/repository/sourceref/RecipeSourceRefRepository').RecipeSourceRefRepositoryImpl;
@@ -72,7 +72,7 @@ describe.skipIf(!DB_EXISTS)('BiliDili 真实项目压力测试', () => {
       sourceRefRepoMod,
       drizzleMod,
     ] = await Promise.all([
-      import('@alembic/core/domain/knowledge/Lifecycle'),
+      import('@alembic/core/knowledge'),
       import('@alembic/core/guard'),
       import('@alembic/core/guard'),
       import('@alembic/core/guard'),
@@ -82,7 +82,7 @@ describe.skipIf(!DB_EXISTS)('BiliDili 真实项目压力测试', () => {
       import('@alembic/core/service/evolution/RedundancyAnalyzer'),
       import('@alembic/core/service/knowledge/ConfidenceRouter'),
       import('@alembic/core/service/knowledge/SourceRefReconciler'),
-      import('@alembic/core/infrastructure/signal/SignalBus'),
+      import('@alembic/core/events'),
       import('@alembic/core/guard'),
       import('@alembic/core/repository/knowledge/KnowledgeRepository.impl'),
       import('@alembic/core/repository/sourceref/RecipeSourceRefRepository'),

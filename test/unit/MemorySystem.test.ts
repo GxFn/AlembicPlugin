@@ -17,7 +17,7 @@ const mockLogger = {
   error: vi.fn(),
   debug: vi.fn(),
 };
-vi.mock('@alembic/core/infrastructure/logging/Logger', () => ({
+vi.mock('@alembic/core/logging', () => ({
   default: { getInstance: () => mockLogger },
 }));
 

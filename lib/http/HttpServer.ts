@@ -7,8 +7,8 @@
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 import { CapabilityProbe } from '@alembic/core/core/capability/CapabilityProbe';
-import Logger from '@alembic/core/infrastructure/logging/Logger';
-import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
+import Logger from '@alembic/core/logging';
+import { resolveDataRoot } from '@alembic/core/workspace';
 import cors from 'cors';
 import express, { type Application, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
@@ -136,9 +136,7 @@ export class HttpServer {
         // 初始化错误追踪（Ghost-aware）
         const container = getServiceContainer();
         const dataRoot = resolveDataRoot(container);
-        const wz = container.get(
-          'writeZone'
-        ) as import('@alembic/core/infrastructure/io/WriteZone').WriteZone;
+        const wz = container.get('writeZone') as import('@alembic/core/io').WriteZone;
         this.errorTracker = initErrorTracker({
           logDirectory: join(dataRoot, '.asd', 'logs', 'errors'),
           writeZone: wz,

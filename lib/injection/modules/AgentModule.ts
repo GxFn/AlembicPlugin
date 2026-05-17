@@ -5,8 +5,8 @@
  *   - agentService, toolRegistry, toolForge, skillHooks
  */
 
-import type { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import type { SignalBus } from '@alembic/core/events';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import {
   AgentProfileCompiler,
   AgentProfileRegistry,

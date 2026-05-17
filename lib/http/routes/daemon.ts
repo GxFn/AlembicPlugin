@@ -1,5 +1,4 @@
-import { resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
+import { resolveProjectRoot, WorkspaceResolver } from '@alembic/core/workspace';
 import express from 'express';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';

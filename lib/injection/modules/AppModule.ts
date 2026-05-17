@@ -15,7 +15,7 @@ import { FeedbackCollector } from '@alembic/core/service/quality/FeedbackCollect
 import { QualityScorer } from '@alembic/core/service/quality/QualityScorer';
 import { RecipeCandidateValidator } from '@alembic/core/service/recipe/RecipeCandidateValidator';
 import { RecipeParser } from '@alembic/core/service/recipe/RecipeParser';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { ModuleService } from '../../service/module/ModuleService.js';
 import { PrimeSearchPipeline } from '../../service/task/PrimeSearchPipeline.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
@@ -30,9 +30,7 @@ export function register(c: ServiceContainer) {
 
   c.singleton('feedbackCollector', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
-    const wz = ct.singletons.writeZone as
-      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
-      | undefined;
+    const wz = ct.singletons.writeZone as import('@alembic/core/io').WriteZone | undefined;
     return new FeedbackCollector(dataRoot as ConstructorParameters<typeof FeedbackCollector>[0], {
       wz,
     });

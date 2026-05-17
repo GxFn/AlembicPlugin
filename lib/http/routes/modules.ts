@@ -7,8 +7,8 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import Logger from '@alembic/core/infrastructure/logging/Logger';
-import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
+import Logger from '@alembic/core/logging';
+import { resolveDataRoot } from '@alembic/core/workspace';
 import express, { type Request, type Response } from 'express';
 import {
   ModuleBootstrapBody,

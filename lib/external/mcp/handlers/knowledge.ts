@@ -3,10 +3,10 @@
  * submitKnowledge, submitKnowledgeBatch, knowledgeLifecycle
  */
 
-import { dimensionTags } from '@alembic/core/domain/dimension/RecipeDimension';
+import { dimensionTags } from '@alembic/core/dimensions';
 import { UnifiedValidator } from '@alembic/core/domain/knowledge/UnifiedValidator';
 import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
-import { resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import { envelope } from '../envelope.js';
 import type { McpContext, McpServiceContainer } from './types.js';
 
@@ -215,7 +215,7 @@ export async function submitKnowledgeBatch(ctx: McpContext, args: SubmitBatchArg
       }
     } catch (err: unknown) {
       // CandidateAggregator 加载失败时降级：不去重，但记录日志
-      const { default: Logger } = await import('@alembic/core/infrastructure/logging/Logger');
+      const { default: Logger } = await import('@alembic/core/logging');
       Logger.getInstance().warn(
         `[submitKnowledgeBatch] CandidateAggregator 加载失败，跳过去重: ${err instanceof Error ? err.message : String(err)}`
       );

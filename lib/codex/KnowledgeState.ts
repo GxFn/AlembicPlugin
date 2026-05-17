@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DaemonJobKind, DaemonJobRecord, DaemonJobStatus } from '@alembic/core/daemon';
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 
 export type CodexKnowledgeStatus =

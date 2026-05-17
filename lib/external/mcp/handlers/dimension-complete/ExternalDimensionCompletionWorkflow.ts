@@ -1,9 +1,9 @@
-import { dimensionTags } from '@alembic/core/domain/dimension/RecipeDimension';
+import { dimensionTags } from '@alembic/core/dimensions';
 import { saveDimensionCheckpoint } from '@alembic/core/host-agent-workflows';
-import Logger from '@alembic/core/infrastructure/logging/Logger';
+import Logger from '@alembic/core/logging';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
-import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveDataRoot } from '@alembic/core/workspace';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {
   runWorkflowCompletionFinalizer,

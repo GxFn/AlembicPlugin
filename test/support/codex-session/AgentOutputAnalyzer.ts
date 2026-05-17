@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { JobStore } from '@alembic/core/daemon';
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { inspectCodexAiConfig } from '../../../lib/codex/AiConfigState.js';
 import { inspectCodexKnowledge } from '../../../lib/codex/KnowledgeState.js';

@@ -9,8 +9,8 @@
  */
 
 import { GuardCheckEngine } from '@alembic/core/guard';
-import type { Signal } from '@alembic/core/infrastructure/signal/SignalBus';
-import { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
+import type { Signal } from '@alembic/core/events';
+import { SignalBus } from '@alembic/core/events';
 import { SearchEngine } from '@alembic/core/search';
 import { createTestBootstrap } from '../fixtures/factory.js';
 

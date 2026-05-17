@@ -9,7 +9,7 @@
  * alembic_bootstrap 已迁移到 bootstrap-external.js（外部 Agent 路径）。
  */
 
-import { dimensionTags } from '@alembic/core/domain/dimension/RecipeDimension';
+import { dimensionTags } from '@alembic/core/dimensions';
 import { getRequiredFieldsDescription } from '@alembic/core/domain/knowledge/FieldSpec';
 import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
 import { envelope } from '../envelope.js';
@@ -232,9 +232,7 @@ export async function consolidatedSkill(ctx: McpContext, args: ConsolidatedSkill
  *   - 单条/批量完全一致的校验与融合逻辑
  */
 export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<string, unknown>) {
-  const { RecipeProductionGateway } = await import(
-    '@alembic/core/service/knowledge/RecipeProductionGateway'
-  );
+  const { RecipeProductionGateway } = await import('@alembic/core/knowledge');
   const { findSimilarRecipes } = await import('@alembic/core/service/candidate/SimilarityService');
 
   const items = args.items as Record<string, unknown>[] | undefined;
@@ -255,9 +253,7 @@ export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<stri
 
   // ── Step 1: 限流 ──
   const { checkRecipeSave } = await import('#http/middleware/RateLimiter.js');
-  const { resolveDataRoot, resolveProjectRoot } = await import(
-    '@alembic/core/shared/resolveProjectRoot'
-  );
+  const { resolveDataRoot, resolveProjectRoot } = await import('@alembic/core/workspace');
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveDataRoot(ctx.container as never) || projectRoot;
   const limitCheck = checkRecipeSave(projectRoot, clientId || process.env.USER || 'mcp-client');
@@ -335,8 +331,7 @@ export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<stri
 
   const gatewayResult = await gateway.create({
     source: 'mcp-external',
-    items:
-      items as import('@alembic/core/service/knowledge/RecipeProductionGateway').CreateRecipeItem[],
+    items: items as import('@alembic/core/knowledge').CreateRecipeItem[],
     options: {
       skipConsolidation,
       supersedes,

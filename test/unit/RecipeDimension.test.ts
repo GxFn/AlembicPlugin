@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   recipeBelongsToDimension,
   resolveRecipeDimensionId,
-} from '@alembic/core/domain/dimension/RecipeDimension';
+} from '@alembic/core/dimensions';
 
 describe('RecipeDimension resolver', () => {
   test('uses explicit dimensionId as the canonical owner', () => {

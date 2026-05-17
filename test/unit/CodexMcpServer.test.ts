@@ -7,7 +7,7 @@ import {
   JobStore,
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
-import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
+import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   getCodexSavedProjectRootPath,

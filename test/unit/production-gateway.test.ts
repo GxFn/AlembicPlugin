@@ -7,7 +7,7 @@ import {
   type CreateRecipeItem,
   type GatewayDeps,
   RecipeProductionGateway,
-} from '@alembic/core/service/knowledge/RecipeProductionGateway';
+} from '@alembic/core/knowledge';
 import { describe, expect, it, vi } from 'vitest';
 
 /* ═══════════════════ Mock Helpers ═══════════════════ */

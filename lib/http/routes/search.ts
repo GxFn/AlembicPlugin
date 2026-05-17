@@ -3,7 +3,7 @@
  * 统一搜索接口 - 搜 Recipe（含所有知识类型）
  */
 
-import Logger from '@alembic/core/infrastructure/logging/Logger';
+import Logger from '@alembic/core/logging';
 import express, { type Request, type Response } from 'express';
 import {
   ContextAwareSearchBody,
@@ -370,7 +370,7 @@ router.post(
     const { code, targetName, candidateId, candidate } = req.body;
     let dataRoot: string;
     try {
-      const { resolveDataRoot } = await import('@alembic/core/shared/resolveProjectRoot');
+      const { resolveDataRoot } = await import('@alembic/core/workspace');
       const container = getServiceContainer();
       dataRoot = resolveDataRoot(container) || process.env.ALEMBIC_PROJECT_DIR || process.cwd();
     } catch {

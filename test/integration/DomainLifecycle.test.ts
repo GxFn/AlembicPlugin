@@ -6,20 +6,18 @@
  *   - Lifecycle 状态流转: pending → active → deprecated → pending
  *   - 无效转移拒绝
  *   - kind 推断 (knowledgeType → rule / pattern / fact)
- *   - normalizeLifecycle
  *   - isCandidate / isValidLifecycle
  *   - KnowledgeEntry 值对象整合
  */
 
-import { KnowledgeEntry } from '@alembic/core/domain/knowledge/KnowledgeEntry';
+import { KnowledgeEntry } from '@alembic/core/knowledge';
 import {
   inferKind,
   isCandidate,
   isValidLifecycle,
   isValidTransition,
   Lifecycle,
-  normalizeLifecycle,
-} from '@alembic/core/domain/knowledge/Lifecycle';
+} from '@alembic/core/knowledge';
 
 describe('Integration: KnowledgeEntry & Lifecycle', () => {
   // ─── Lifecycle State Machine ─────────────────
@@ -55,20 +53,6 @@ describe('Integration: KnowledgeEntry & Lifecycle', () => {
 
     test.each(invalidCases)('%s → %s should be invalid', (from, to) => {
       expect(isValidTransition(from, to)).toBe(false);
-    });
-  });
-
-  describe('normalizeLifecycle', () => {
-    test('should pass through valid lifecycle values', () => {
-      expect(normalizeLifecycle('pending')).toBe('pending');
-      expect(normalizeLifecycle('active')).toBe('active');
-      expect(normalizeLifecycle('deprecated')).toBe('deprecated');
-    });
-
-    test('should default invalid values to pending', () => {
-      expect(normalizeLifecycle('invalid')).toBe('pending');
-      expect(normalizeLifecycle('')).toBe('pending');
-      expect(normalizeLifecycle('draft')).toBe('pending');
     });
   });
 

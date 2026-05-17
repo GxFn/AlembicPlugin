@@ -6,10 +6,10 @@
  *   创建 → 查询 → 更新 → 发布 → 弃用 → 重新激活 → 删除
  */
 
-import { KnowledgeEntry } from '@alembic/core/domain/knowledge/KnowledgeEntry';
-import { Lifecycle } from '@alembic/core/domain/knowledge/Lifecycle';
+import { KnowledgeEntry } from '@alembic/core/knowledge';
+import { Lifecycle } from '@alembic/core/knowledge';
 import { KnowledgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeRepository.impl';
-import { KnowledgeService } from '@alembic/core/service/knowledge/KnowledgeService';
+import { KnowledgeService } from '@alembic/core/knowledge';
 import { createTestBootstrap } from '../fixtures/factory.js';
 
 describe('Integration: KnowledgeService CRUD + Lifecycle', () => {

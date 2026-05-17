@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { DEFAULT_FOLDER_NAMES } from '@alembic/core/shared/folder-names';
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import { WorkspaceSettingsStore } from '@alembic/core/shared/WorkspaceSettingsStore';
+import { DEFAULT_FOLDER_NAMES, WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import { DaemonSupervisor } from '../daemon/DaemonSupervisor.js';
 import type { GitDiffCheckpointStatus } from '../service/evolution/git-diff-checkpoint/index.js';

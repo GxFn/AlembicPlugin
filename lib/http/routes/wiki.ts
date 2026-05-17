@@ -5,8 +5,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
-import { DEFAULT_FOLDER_NAMES } from '@alembic/core/shared/folder-names';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { DEFAULT_FOLDER_NAMES, resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import express, { type Request, type Response } from 'express';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import { WikiGenerator } from '../../service/wiki/WikiGenerator.js';

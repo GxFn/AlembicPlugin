@@ -1,5 +1,5 @@
-import { KnowledgeEntry } from '@alembic/core/domain/knowledge/KnowledgeEntry';
-import { inferKind, isValidTransition } from '@alembic/core/domain/knowledge/Lifecycle';
+import { KnowledgeEntry } from '@alembic/core/knowledge';
+import { inferKind, isValidTransition } from '@alembic/core/knowledge';
 import { Constraints } from '@alembic/core/domain/knowledge/values/Constraints';
 import { Content } from '@alembic/core/domain/knowledge/values/Content';
 import { Quality } from '@alembic/core/domain/knowledge/values/Quality';

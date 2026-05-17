@@ -21,9 +21,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { WriteZone } from '@alembic/core/infrastructure/io/WriteZone';
-import Logger from '@alembic/core/infrastructure/logging/Logger';
-import pathGuard from '@alembic/core/shared/PathGuard';
+import { pathGuard, type WriteZone } from '@alembic/core/io';
+import Logger from '@alembic/core/logging';
 import { estimateTokens as _estimateTokens } from '@alembic/core/shared/token-utils';
 
 /** 对话索引中的条目 */

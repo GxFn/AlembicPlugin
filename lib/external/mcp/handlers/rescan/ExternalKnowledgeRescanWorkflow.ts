@@ -31,7 +31,7 @@ import {
   buildProjectSnapshot,
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 

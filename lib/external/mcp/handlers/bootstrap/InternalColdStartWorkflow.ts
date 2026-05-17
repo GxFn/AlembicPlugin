@@ -52,7 +52,6 @@ import {
   buildProjectSnapshot,
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import {
   applyTestDimensionFilter,
   type DimensionDef as TestModeDimensionDef,
@@ -62,6 +61,7 @@ import type {
   WorkflowDatabaseLike,
   WorkflowSkillHooks,
 } from '@alembic/core/types/workflows';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import {
   dispatchInternalDimensionExecution,
   startInternalDimensionExecutionSession,

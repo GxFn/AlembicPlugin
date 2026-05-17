@@ -24,7 +24,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { recipeDimensionIdOrUnknown } from '@alembic/core/domain/dimension';
-import { CONSUMABLE_LIFECYCLES, lifecycleInSql } from '@alembic/core/domain/knowledge/Lifecycle';
 import { CANDIDATES_DIR } from '@alembic/core/infrastructure/config/Defaults';
 import {
   getContextIndexPath,
@@ -32,7 +31,8 @@ import {
   getProjectRecipesPath,
   getProjectSkillsPath,
 } from '@alembic/core/infrastructure/config/Paths';
-import type { WriteZone } from '@alembic/core/infrastructure/io/WriteZone';
+import type { WriteZone } from '@alembic/core/io';
+import { CONSUMABLE_LIFECYCLES, lifecycleInSql } from '@alembic/core/knowledge';
 
 // ── 类型定义 ────────────────────────────────────────────────
 

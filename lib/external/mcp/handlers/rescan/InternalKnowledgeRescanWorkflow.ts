@@ -49,7 +49,6 @@ import {
   toEvolutionAuditRecipe,
 } from '@alembic/core/service/evolution/RecipeImpactPlanner';
 import { SourceRefReconciler } from '@alembic/core/service/knowledge/SourceRefReconciler';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import {
   applyTestDimensionFilter,
   type DimensionDef as TestModeDimensionDef,
@@ -60,6 +59,7 @@ import type {
   WorkflowDatabaseLike,
   WorkflowSkillHooks,
 } from '@alembic/core/types/workflows';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import type {
   EvolutionAuditRecipe as AgentEvolutionAuditRecipe,
   EvolutionAuditResult,
@@ -219,7 +219,7 @@ export async function runInternalKnowledgeRescanWorkflow(
     const repos = resolveKnowledgeRepos(ctx.container);
     if (repos) {
       const signalBus = ctx.container.get('signalBus') as
-        | import('@alembic/core/infrastructure/signal/SignalBus').SignalBus
+        | import('@alembic/core/events').SignalBus
         | undefined;
       const reconciler = new SourceRefReconciler(
         projectRoot,

@@ -9,7 +9,8 @@
  */
 
 import { getEnhancementRegistry } from '@alembic/core/core/enhancement';
-import { DimensionCopy } from '@alembic/core/domain/dimension/DimensionCopy';
+import { DimensionCopy } from '@alembic/core/dimensions';
+import { KnowledgeService, RecipeProductionGateway } from '@alembic/core/knowledge';
 import { getDiscovererRegistry, LanguageService } from '@alembic/core/project-intelligence';
 import type {
   EvolutionLifecycleEventRepository,
@@ -32,15 +33,13 @@ import { StagingManager } from '@alembic/core/service/evolution/StagingManager';
 import { CodeEntityGraph } from '@alembic/core/service/knowledge/CodeEntityGraph';
 import { ConfidenceRouter } from '@alembic/core/service/knowledge/ConfidenceRouter';
 import { KnowledgeGraphService } from '@alembic/core/service/knowledge/KnowledgeGraphService';
-import { KnowledgeService } from '@alembic/core/service/knowledge/KnowledgeService';
-import { RecipeProductionGateway } from '@alembic/core/service/knowledge/RecipeProductionGateway';
 import { SourceRefReconciler } from '@alembic/core/service/knowledge/SourceRefReconciler';
+import { HnswVectorAdapter, IndexingPipeline, JsonVectorAdapter } from '@alembic/core/vector';
 import {
   resolveDataRoot,
   resolveKnowledgeScanDirs,
   resolveProjectRoot,
-} from '@alembic/core/shared/resolveProjectRoot';
-import { HnswVectorAdapter, IndexingPipeline, JsonVectorAdapter } from '@alembic/core/vector';
+} from '@alembic/core/workspace';
 import { FileChangeHandler } from '../../service/evolution/FileChangeHandler.js';
 import { FileChangeDispatcher } from '../../service/FileChangeDispatcher.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
@@ -121,9 +120,7 @@ export function register(c: ServiceContainer) {
 
   c.singleton('vectorStore', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
-    const wz = ct.singletons.writeZone as
-      | import('@alembic/core/infrastructure/io/WriteZone').WriteZone
-      | undefined;
+    const wz = ct.singletons.writeZone as import('@alembic/core/io').WriteZone | undefined;
     const config =
       ((ct.singletons._config as Record<string, unknown> | undefined)?.vector as
         | Record<string, unknown>
@@ -221,9 +218,8 @@ export function register(c: ServiceContainer) {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new SourceRefReconciler(projectRoot, sourceRefRepo, knowledgeRepo, {
       signalBus:
-        (ct.singletons.signalBus as
-          | import('@alembic/core/infrastructure/signal/SignalBus').SignalBus
-          | undefined) || undefined,
+        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
+        undefined,
     });
   });
 
@@ -231,9 +227,8 @@ export function register(c: ServiceContainer) {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new StagingManager(knowledgeRepo, {
       signalBus:
-        (ct.singletons.signalBus as
-          | import('@alembic/core/infrastructure/signal/SignalBus').SignalBus
-          | undefined) || undefined,
+        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
+        undefined,
     });
   });
 
@@ -241,9 +236,8 @@ export function register(c: ServiceContainer) {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new DecayDetector(knowledgeRepo, {
       signalBus:
-        (ct.singletons.signalBus as
-          | import('@alembic/core/infrastructure/signal/SignalBus').SignalBus
-          | undefined) || undefined,
+        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
+        undefined,
       knowledgeEdgeRepo: ct.services.knowledgeEdgeRepository
         ? (ct.get('knowledgeEdgeRepository') as KnowledgeEdgeRepository)
         : undefined,
@@ -257,9 +251,8 @@ export function register(c: ServiceContainer) {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new RedundancyAnalyzer(knowledgeRepo, {
       signalBus:
-        (ct.singletons.signalBus as
-          | import('@alembic/core/infrastructure/signal/SignalBus').SignalBus
-          | undefined) || undefined,
+        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
+        undefined,
     });
   });
 
@@ -267,9 +260,8 @@ export function register(c: ServiceContainer) {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new EnhancementSuggester(knowledgeRepo, {
       signalBus:
-        (ct.singletons.signalBus as
-          | import('@alembic/core/infrastructure/signal/SignalBus').SignalBus
-          | undefined) || undefined,
+        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
+        undefined,
     });
   });
 
@@ -284,9 +276,7 @@ export function register(c: ServiceContainer) {
     const lifecycleEventRepo = ct.get(
       'lifecycleEventRepository'
     ) as EvolutionLifecycleEventRepository;
-    const signalBus = ct.get(
-      'signalBus'
-    ) as import('@alembic/core/infrastructure/signal/SignalBus').SignalBus;
+    const signalBus = ct.get('signalBus') as import('@alembic/core/events').SignalBus;
     const proposalRepo = ct.get('proposalRepository') as EvolutionProposalRepository;
     return new LifecycleStateMachine(knowledgeRepo, lifecycleEventRepo, signalBus, proposalRepo);
   });
@@ -360,9 +350,8 @@ export function register(c: ServiceContainer) {
     const projectRoot = resolveProjectRoot(ct);
     return new FileChangeHandler(sourceRefRepo, knowledgeRepo, contentPatcher, {
       signalBus:
-        (ct.singletons.signalBus as
-          | import('@alembic/core/infrastructure/signal/SignalBus').SignalBus
-          | undefined) || undefined,
+        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
+        undefined,
       evolutionGateway: gateway,
       dataRoot,
       projectRoot,
@@ -422,8 +411,7 @@ export function initializeKnowledgeServices(c: ServiceContainer): void {
 function await_import_EventBus() {
   // EventBus 类型已经通过 container 解析，此处只用于 TS 类型
   return {
-    EventBus:
-      Object as unknown as typeof import('@alembic/core/infrastructure/event/EventBus').EventBus,
+    EventBus: Object as unknown as typeof import('@alembic/core/events').EventBus,
   };
 }
 

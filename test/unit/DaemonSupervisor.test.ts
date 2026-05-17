@@ -11,7 +11,7 @@ import {
   resolveDaemonPaths,
   writeDaemonState,
 } from '@alembic/core/daemon';
-import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
+import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { DaemonSupervisor } from '../../lib/daemon/DaemonSupervisor.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';

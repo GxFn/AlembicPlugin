@@ -1,10 +1,10 @@
-import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import {
   collectAiEnvOverrides,
   maskAiEnvConfig,
   PROVIDER_KEY_ENV,
   WorkspaceSettingsStore,
 } from '@alembic/core/shared/WorkspaceSettingsStore';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 
 export type CodexAiConfigSource = 'empty' | 'runtime-overrides' | 'workspace-settings';
 

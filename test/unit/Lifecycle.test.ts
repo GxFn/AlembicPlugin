@@ -2,7 +2,7 @@
  * 六态 Lifecycle 单元测试
  */
 import { describe, expect, it } from 'vitest';
-import Lifecycle, {
+import {
   CANDIDATE_STATES,
   CONSUMABLE_STATES,
   DEGRADED_STATES,
@@ -11,8 +11,8 @@ import Lifecycle, {
   isDegraded,
   isValidLifecycle,
   isValidTransition,
-  normalizeLifecycle,
-} from '@alembic/core/domain/knowledge/Lifecycle';
+  Lifecycle,
+} from '@alembic/core/knowledge';
 
 describe('Lifecycle — 六态状态机', () => {
   it('should define 6 states', () => {
@@ -30,13 +30,6 @@ describe('Lifecycle — 六态状态机', () => {
       expect(isValidLifecycle(state)).toBe(true);
     }
     expect(isValidLifecycle('unknown')).toBe(false);
-  });
-
-  it('should normalize unknown states to pending', () => {
-    expect(normalizeLifecycle('staging')).toBe('staging');
-    expect(normalizeLifecycle('evolving')).toBe('evolving');
-    expect(normalizeLifecycle('decaying')).toBe('decaying');
-    expect(normalizeLifecycle('invalid')).toBe('pending');
   });
 
   describe('transition table', () => {
