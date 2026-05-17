@@ -7,7 +7,7 @@ describe('Insight producer prompt', () => {
     label: 'Testing Quality',
     allowedKnowledgeTypes: ['best-practice', 'code-pattern'],
   };
-  const projectInfo = { name: 'BiliDili' };
+  const projectInfo = { name: 'SampleApp' };
 
   test('v1 prompt requires dimensionId and forbids category as dimension owner', () => {
     const prompt = buildProducerPrompt(
