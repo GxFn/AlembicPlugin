@@ -1,45 +1,32 @@
-import { evaluateProjectAnalysisIncrementalPlan } from '@alembic/core/workflows/capabilities/project-intelligence/ProjectIntelligenceIncrementalPlanner';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { evaluateProjectAnalysisIncrementalPlan } from '@alembic/core/project-intelligence';
+import { describe, expect, test, vi } from 'vitest';
 
-const fileDiffPlannerMock = vi.hoisted(() => {
-  const evaluate = vi.fn();
-  const constructorArgs: unknown[][] = [];
-  class FileDiffPlanner {
-    constructor(...args: unknown[]) {
-      constructorArgs.push(args);
-    }
-
-    evaluate(...args: unknown[]) {
-      return evaluate(...args);
-    }
-  }
-  return { evaluate, constructorArgs, FileDiffPlanner };
-});
-
-vi.mock('@alembic/core/workflows/capabilities/project-intelligence/FileDiffPlanner', () => ({
-  FileDiffPlanner: fileDiffPlannerMock.FileDiffPlanner,
-}));
+function createDb(marker: string) {
+  const drizzleAccesses: string[] = [];
+  const emptyLatestSnapshotQuery = {
+    from: () => emptyLatestSnapshotQuery,
+    get: () => null,
+    limit: () => emptyLatestSnapshotQuery,
+    orderBy: () => emptyLatestSnapshotQuery,
+    where: () => emptyLatestSnapshotQuery,
+  };
+  return {
+    db: {
+      getDrizzle: () => {
+        drizzleAccesses.push(marker);
+        return {
+          select: () => emptyLatestSnapshotQuery,
+        };
+      },
+    },
+    drizzleAccesses,
+  };
+}
 
 describe('ProjectIntelligenceIncrementalPlanner', () => {
-  beforeEach(() => {
-    fileDiffPlannerMock.evaluate.mockReset();
-    fileDiffPlannerMock.constructorArgs.length = 0;
-  });
-
   test('resolves the workflow database from container.get("database")', async () => {
-    const db = { marker: 'database' };
-    const plan = {
-      canIncremental: true,
-      mode: 'incremental',
-      affectedDimensions: ['architecture'],
-      skippedDimensions: [],
-      previousSnapshot: null,
-      diff: null,
-      reason: 'test',
-      restoredEpisodic: null,
-    };
+    const { db, drizzleAccesses } = createDb('database');
     const report = { phases: {}, startTime: Date.now() };
-    fileDiffPlannerMock.evaluate.mockReturnValue(plan);
 
     const result = await evaluateProjectAnalysisIncrementalPlan({
       enabled: true,
@@ -52,29 +39,19 @@ describe('ProjectIntelligenceIncrementalPlanner', () => {
       report,
     });
 
-    expect(fileDiffPlannerMock.constructorArgs[0]?.[0]).toBe(db);
-    expect(result).toEqual({ incrementalPlan: plan, warnings: [] });
-    expect(report.phases.incremental).toEqual({ plan });
+    expect(drizzleAccesses).toEqual(['database']);
+    expect(result.incrementalPlan?.mode).toBe('full');
+    expect(result.warnings).toEqual([]);
+    expect(report.phases.incremental?.plan).toBe(result.incrementalPlan);
   });
 
   test('preserves this binding when resolving database from a ServiceContainer-like object', async () => {
-    const db = { marker: 'bound-database' };
-    const plan = {
-      canIncremental: true,
-      mode: 'incremental',
-      affectedDimensions: ['architecture'],
-      skippedDimensions: [],
-      previousSnapshot: null,
-      diff: null,
-      reason: 'bound',
-      restoredEpisodic: null,
-    };
+    const { db, drizzleAccesses } = createDb('bound-database');
     const container = {
       get(name: string) {
         return this === container && name === 'database' ? db : null;
       },
     };
-    fileDiffPlannerMock.evaluate.mockReturnValue(plan);
 
     const result = await evaluateProjectAnalysisIncrementalPlan({
       enabled: true,
@@ -87,22 +64,13 @@ describe('ProjectIntelligenceIncrementalPlanner', () => {
       report: null,
     });
 
-    expect(fileDiffPlannerMock.constructorArgs[0]?.[0]).toBe(db);
-    expect(result).toEqual({ incrementalPlan: plan, warnings: [] });
+    expect(drizzleAccesses).toEqual(['bound-database']);
+    expect(result.incrementalPlan?.mode).toBe('full');
+    expect(result.warnings).toEqual([]);
   });
 
   test('falls back through resolver aliases before reporting missing db', async () => {
-    const db = { marker: 'ctx-db' };
-    fileDiffPlannerMock.evaluate.mockReturnValue({
-      canIncremental: false,
-      mode: 'full',
-      affectedDimensions: [],
-      skippedDimensions: [],
-      previousSnapshot: null,
-      diff: null,
-      reason: 'full',
-      restoredEpisodic: null,
-    });
+    const { db, drizzleAccesses } = createDb('ctx-db');
 
     await evaluateProjectAnalysisIncrementalPlan({
       enabled: true,
@@ -120,7 +88,7 @@ describe('ProjectIntelligenceIncrementalPlanner', () => {
       report: null,
     });
 
-    expect(fileDiffPlannerMock.constructorArgs[0]?.[0]).toBe(db);
+    expect(drizzleAccesses).toEqual(['ctx-db']);
 
     const result = await evaluateProjectAnalysisIncrementalPlan({
       enabled: true,

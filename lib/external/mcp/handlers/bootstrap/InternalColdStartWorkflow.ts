@@ -34,15 +34,22 @@
  *
  */
 
+import type { DimensionDef, ProjectSnapshot } from '@alembic/core/project-intelligence';
+import {
+  buildProjectSnapshot,
+  ProjectIntelligenceCapability,
+} from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
 import {
   applyTestDimensionFilter,
   type DimensionDef as TestModeDimensionDef,
 } from '@alembic/core/shared/test-mode';
-import type { DimensionDef, ProjectSnapshot } from '@alembic/core/types/project-snapshot';
-import { buildProjectSnapshot } from '@alembic/core/types/project-snapshot-builder';
+import type {
+  McpContext,
+  WorkflowDatabaseLike,
+  WorkflowSkillHooks,
+} from '@alembic/core/types/workflows';
 import { cacheProjectAnalysisSession } from '@alembic/core/workflows/capabilities/execution/external/SessionSupport';
-import { ProjectIntelligenceCapability } from '@alembic/core/workflows/capabilities/project-intelligence/ProjectIntelligenceCapability';
 import { runFullResetPolicy } from '@alembic/core/workflows/capabilities/WorkflowCleanupPolicies';
 import {
   createInternalColdStartIntent,
@@ -58,11 +65,6 @@ import {
   presentInternalColdStartEmptyProject,
   presentInternalColdStartResponse,
 } from '@alembic/core/workflows/cold-start/ColdStartPresenters';
-import type {
-  McpContext,
-  WorkflowDatabaseLike,
-  WorkflowSkillHooks,
-} from '@alembic/core/types/workflows';
 import type { WorkflowMcpContext } from '@alembic/core/workflows/shared/WorkflowTypes';
 import {
   dispatchInternalDimensionExecution,

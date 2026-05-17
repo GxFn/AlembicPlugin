@@ -29,18 +29,18 @@ let analyzeProject, astIsAvailable;
 let initEnhancementRegistry;
 
 beforeAll(async () => {
-  const dMod = await import('@alembic/core/core/discovery');
+  const dMod = await import('@alembic/core/project-intelligence');
   getDiscovererRegistry = dMod.getDiscovererRegistry;
   resetDiscovererRegistry = dMod.resetDiscovererRegistry;
 
-  const lsMod = await import('@alembic/core/shared/LanguageService');
+  const lsMod = await import('@alembic/core/project-intelligence');
   LanguageService = lsMod.LanguageService;
 
   const dcMod = await import('@alembic/core/domain/dimension/DimensionCopy');
   DimensionCopy = dcMod.DimensionCopy;
 
-  await import('@alembic/core/core/ast');
-  const astMod = await import('@alembic/core/core/AstAnalyzer');
+  await import('@alembic/core/project-intelligence');
+  const astMod = await import('@alembic/core/project-intelligence');
   analyzeProject = astMod.analyzeProject;
   astIsAvailable = astMod.isAvailable;
 

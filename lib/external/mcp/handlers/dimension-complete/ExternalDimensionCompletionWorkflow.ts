@@ -1,8 +1,8 @@
 import { dimensionTags } from '@alembic/core/domain/dimension/RecipeDimension';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
+import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
 import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
-import type { DimensionDef } from '@alembic/core/types/project-snapshot';
 import { saveDimensionCheckpoint } from '@alembic/core/workflows/capabilities/persistence/DimensionCheckpoint';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {

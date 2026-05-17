@@ -40,15 +40,15 @@ const PROJECTS = [
 
 // ── 加载模块 ──────────────────────────────────────────────────────
 const { getDiscovererRegistry, resetDiscovererRegistry } = await import(
-  '@alembic/core/core/discovery'
+  '@alembic/core/project-intelligence'
 );
-const { LanguageService } = await import('@alembic/core/shared/LanguageService');
+const { LanguageService } = await import('@alembic/core/project-intelligence');
 const { DimensionCopy } = await import('@alembic/core/domain/dimension/DimensionCopy');
 
 // AST
-await import('@alembic/core/core/ast');
+await import('@alembic/core/project-intelligence');
 const { analyzeProject, isAvailable: astIsAvailable } = await import(
-  '@alembic/core/core/AstAnalyzer'
+  '@alembic/core/project-intelligence'
 );
 
 // Enhancement

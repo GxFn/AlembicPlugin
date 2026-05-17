@@ -16,6 +16,12 @@
  *   7. 前端通过 Socket.io 接收维度完成进度
  */
 
+import type { DimensionDef, ProjectSnapshot } from '@alembic/core/project-intelligence';
+import {
+  buildProjectSnapshot,
+  FileDiffPlanner,
+  ProjectIntelligenceCapability,
+} from '@alembic/core/project-intelligence';
 import type { KnowledgeRepository, SourceRefRepository } from '@alembic/core/repositories';
 import {
   type EvolutionCandidatePlan,
@@ -30,8 +36,6 @@ import {
   applyTestDimensionFilter,
   type DimensionDef as TestModeDimensionDef,
 } from '@alembic/core/shared/test-mode';
-import type { DimensionDef, ProjectSnapshot } from '@alembic/core/types/project-snapshot';
-import { buildProjectSnapshot } from '@alembic/core/types/project-snapshot-builder';
 import type { PipelineFillView } from '@alembic/core/types/snapshot-views';
 import type {
   McpContext,
@@ -47,8 +51,6 @@ import {
   projectInternalRescanPromptRecipes,
   syncKnowledgeStoreForRescan,
 } from '@alembic/core/workflows/capabilities/planning/knowledge/KnowledgeRescanPlanner';
-import { FileDiffPlanner } from '@alembic/core/workflows/capabilities/project-intelligence/FileDiffPlanner';
-import { ProjectIntelligenceCapability } from '@alembic/core/workflows/capabilities/project-intelligence/ProjectIntelligenceCapability';
 import {
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,

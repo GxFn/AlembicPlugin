@@ -21,17 +21,17 @@ let _LanguageService;
 
 beforeAll(async () => {
   // 加载 AST 插件
-  await import('@alembic/core/core/ast');
-  const astMod = await import('@alembic/core/core/AstAnalyzer');
+  await import('@alembic/core/project-intelligence');
+  const astMod = await import('@alembic/core/project-intelligence');
   analyzeFile = astMod.analyzeFile;
   analyzeProject = astMod.analyzeProject;
   _astIsAvailable = astMod.isAvailable;
 
-  const dMod = await import('@alembic/core/core/discovery');
+  const dMod = await import('@alembic/core/project-intelligence');
   getDiscovererRegistry = dMod.getDiscovererRegistry;
   resetDiscovererRegistry = dMod.resetDiscovererRegistry;
 
-  const lsMod = await import('@alembic/core/shared/LanguageService');
+  const lsMod = await import('@alembic/core/project-intelligence');
   _LanguageService = lsMod.LanguageService;
 });
 
