@@ -1,9 +1,9 @@
+import {
+  type DimensionCheckpoint,
+  loadDimensionCheckpoints,
+} from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import type { IncrementalPlan, RestoredEpisodicMemory } from '@alembic/core/types/workflows';
-import {
-  loadDimensionCheckpoints,
-  type DimensionCheckpoint,
-} from '@alembic/core/workflows/capabilities/persistence/DimensionCheckpoint';
 import type { SessionStore } from '#agent/memory/SessionStore.js';
 import type { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import type {

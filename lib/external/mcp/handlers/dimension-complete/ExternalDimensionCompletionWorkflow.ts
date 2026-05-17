@@ -1,9 +1,9 @@
 import { dimensionTags } from '@alembic/core/domain/dimension/RecipeDimension';
+import { saveDimensionCheckpoint } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
 import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
-import { saveDimensionCheckpoint } from '@alembic/core/workflows/capabilities/persistence/DimensionCheckpoint';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {
   runWorkflowCompletionFinalizer,
@@ -425,9 +425,7 @@ async function getActiveExternalWorkflowSession(
   container: ExternalSessionContainer,
   sessionId?: string
 ): Promise<ExternalWorkflowSession | null> {
-  const { getActiveExternalWorkflowSession } = await import(
-    '@alembic/core/workflows/capabilities/execution/external/ExternalMissionWorkflow'
-  );
+  const { getActiveExternalWorkflowSession } = await import('@alembic/core/host-agent-workflows');
   return getActiveExternalWorkflowSession(
     container as never,
     sessionId

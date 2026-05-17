@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { IncrementalPlan } from '@alembic/core/types/workflows';
-import { writeWorkflowReportHistory } from '@alembic/core/workflows/capabilities/persistence/WorkflowReportHistoryStore';
-import { buildWorkflowReport } from '@alembic/core/workflows/capabilities/persistence/WorkflowReportWriter';
 import {
+  buildWorkflowReport,
   persistWorkflowResult,
   summarizeWorkflowDimensionStats,
-} from '@alembic/core/workflows/capabilities/persistence/WorkflowResultPersistence';
+  writeWorkflowReportHistory,
+} from '@alembic/core/host-agent-workflows';
+import type { IncrementalPlan } from '@alembic/core/types/workflows';
 import { describe, expect, test, vi } from 'vitest';
 import type { SessionStore } from '../../lib/agent/memory/SessionStore.js';
 import type {

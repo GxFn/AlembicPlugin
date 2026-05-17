@@ -1,3 +1,5 @@
+import type { WorkflowSnapshotSummary } from '@alembic/core/host-agent-workflows';
+import { persistWorkflowResult } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import {
   runWorkflowCompletionFinalizer,
@@ -15,8 +17,6 @@ import {
   consumeInternalDimensionCandidateRelations,
   type InternalDimensionFillSessionResult,
 } from '#workflows/capabilities/execution/internal-agent/InternalDimensionFillSessionRunner.js';
-import type { WorkflowSnapshotSummary } from '@alembic/core/workflows/capabilities/persistence/WorkflowReportTypes';
-import { persistWorkflowResult } from '@alembic/core/workflows/capabilities/persistence/WorkflowResultPersistence';
 
 type InternalDimensionFillRuntime = Awaited<ReturnType<typeof initializeBootstrapRuntime>>;
 

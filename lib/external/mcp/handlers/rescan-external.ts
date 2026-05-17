@@ -1,7 +1,7 @@
 /**
  * Compatibility export for the external knowledge-rescan path.
  *
- * The Core workflow primitives live in `@alembic/core/workflows/knowledge-rescan`;
+ * The Core workflow primitives live in `@alembic/core/host-agent-workflows`;
  * this wrapper owns Plugin transport cleanup and MCP response shaping.
  */
 
