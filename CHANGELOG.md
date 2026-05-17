@@ -190,7 +190,7 @@
 
 ### 改进
 
-- **架构重构**：提取 `agent/` 为顶层模块（从 `service/agent/`）；提取 `external/lark/`；提取 `service/delivery/`（从 `service/cursor/`）
+- **架构重构**：提取 `agent/` 为顶层模块（从 `service/agent/`）；提取旧远程集成模块；提取 `service/delivery/`（从 `service/cursor/`）
 - **平台层整理**：`ClipboardManager`、`NativeUi`、`OpenBrowser` 迁移到 `platform/`；iOS 路径工具迁移到 `platform/ios/`
 - **领域实体新增**：`FieldSpec`、`UnifiedValidator`、`StyleGuide`、`RecipeReadinessChecker` 迁移到 `domain/knowledge/`
 - **npm 包体积优化**：移除 `declarationMap` 和 `sourceMap`，包文件数 1890 → 858（-55%），包大小 5.3 → 4.6 MB（-13%）
@@ -234,8 +234,8 @@
 - **模块扫描 `f.split is not a function` 崩溃**：后端 `scannedFiles` 返回 `{ name, path }` 对象数组，但 Dashboard 模块扫描路径错误地当作 `string[]` 调用 `.split('/')`，导致扫描完成后 UI 报错
 - **模块扫描管线 0 提交问题**：`produceForcedSummary` 对 analyst pipeline 始终输出 JSON digest 格式，但 Analyst 质量门控期望 Markdown 分析报告，导致校验失败 → 重试 → 放弃。新增 `pipelineType` 感知分支
 - **SUMMARIZE 阶段 grace 竞态**：`shouldExit()` 在 `phaseRounds >= 2` 时终止循环，AI 实际只有 1 次 LLM 尝试机会，改为 `>= 3` 确保至少 2 次尝试
-- **飞书 SDK 日志统一**：恢复 `larkSdkLogger` 适配器，将 Lark SDK 内部 `error/warn/info/debug/trace` 全部路由到项目 Logger（`[Remote/Lark/SDK]` 前缀），替代 SDK 默认 `console` 直出
-- **飞书连接延迟启动优化**：自动启动从 `setTimeout(3000)` 改为 `setImmediate(() => setTimeout(8000))`，确保 HTTP listen、DB init、路由注册完成后再启动
+- **旧远程 SDK 日志统一**：恢复 SDK logger 适配器，将内部 `error/warn/info/debug/trace` 全部路由到项目 Logger（`[Remote/SDK]` 前缀），替代 SDK 默认 `console` 直出
+- **旧远程连接延迟启动优化**：自动启动从 `setTimeout(3000)` 改为 `setImmediate(() => setTimeout(8000))`，确保 HTTP listen、DB init、路由注册完成后再启动
 
 ### 改进
 
