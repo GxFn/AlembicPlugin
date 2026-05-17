@@ -13,15 +13,15 @@ import type { SignalBus } from '@alembic/core/infrastructure/signal/SignalBus';
 import type { GuardViolationRepositoryImpl } from '@alembic/core/repository/guard/GuardViolationRepository';
 import type { KnowledgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeRepository.impl';
 import { unwrapRawDb } from '@alembic/core/repository/search/SearchRepoAdapter';
+import { ComplianceReporter } from '@alembic/core/service/guard/ComplianceReporter';
+import { CoverageAnalyzer } from '@alembic/core/service/guard/CoverageAnalyzer';
+import { ExclusionManager } from '@alembic/core/service/guard/ExclusionManager';
+import { GuardCheckEngine } from '@alembic/core/service/guard/GuardCheckEngine';
+import { GuardFeedbackLoop } from '@alembic/core/service/guard/GuardFeedbackLoop';
+import { GuardService } from '@alembic/core/service/guard/GuardService';
+import { RuleLearner } from '@alembic/core/service/guard/RuleLearner';
+import { ViolationsStore } from '@alembic/core/service/guard/ViolationsStore';
 import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
-import { ComplianceReporter } from '../../service/guard/ComplianceReporter.js';
-import { CoverageAnalyzer } from '../../service/guard/CoverageAnalyzer.js';
-import { ExclusionManager } from '../../service/guard/ExclusionManager.js';
-import { GuardCheckEngine } from '../../service/guard/GuardCheckEngine.js';
-import { GuardFeedbackLoop } from '../../service/guard/GuardFeedbackLoop.js';
-import { GuardService } from '../../service/guard/GuardService.js';
-import { RuleLearner } from '../../service/guard/RuleLearner.js';
-import { ViolationsStore } from '../../service/guard/ViolationsStore.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {

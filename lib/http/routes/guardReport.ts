@@ -64,7 +64,7 @@ router.get('/coverage', async (_req: Request, res: Response): Promise<void> => {
   try {
     const container = getServiceContainer();
 
-    const { CoverageAnalyzer } = await import('../../service/guard/CoverageAnalyzer.js');
+    const { CoverageAnalyzer } = await import('@alembic/core/service/guard/CoverageAnalyzer');
 
     let analyzer: InstanceType<typeof CoverageAnalyzer>;
     try {
