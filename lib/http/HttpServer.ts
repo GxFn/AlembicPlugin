@@ -47,6 +47,7 @@ import searchRouter from './routes/search.js';
 import signalsRouter from './routes/signals.js';
 import skillsRouter from './routes/skills.js';
 import violationsRouter from './routes/violations.js';
+import wikiRouter from './routes/wiki.js';
 
 interface HttpServerConfig {
   port: number;
@@ -316,6 +317,9 @@ export class HttpServer {
 
     // Skills 路由
     this.app.use(`${apiPrefix}/skills`, skillsRouter);
+
+    // Wiki 路由（共享 Dashboard 插件模式兼容）
+    this.app.use(`${apiPrefix}/wiki`, wikiRouter);
 
     // Candidates 路由（AI 补齐/润色）
     this.app.use(`${apiPrefix}/candidates`, candidatesRouter);

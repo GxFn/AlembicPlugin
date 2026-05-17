@@ -897,6 +897,14 @@ function readLlmConfig() {
 }
 
 /**
+ * GET /api/v1/ai/env-config
+ * 共享 Dashboard 兼容别名：读取工作区 LLM 配置。
+ */
+router.get('/env-config', async (_req: Request, res: Response): Promise<void> => {
+  res.json({ success: true, data: readLlmConfig() });
+});
+
+/**
  * GET /api/v1/ai/workspace-config
  * 读取工作区 LLM 配置。
  */
@@ -904,115 +912,119 @@ router.get('/workspace-config', async (_req: Request, res: Response): Promise<vo
   res.json({ success: true, data: readLlmConfig() });
 });
 
+async function saveLlmConfig(req: Request, res: Response): Promise<void> {
+  if (!requireDeveloperRole(req, res)) {
+    return;
+  }
+
+  const {
+    provider,
+    model,
+    apiKey,
+    proxy,
+    reasoningEffort,
+    embedProvider,
+    embedModel,
+    embedBaseUrl,
+    embedApiKey,
+    providerKeys,
+  } = req.body;
+
+  const updates: Record<string, string> = {
+    ALEMBIC_AI_PROVIDER: provider,
+  };
+  if (model) {
+    updates.ALEMBIC_AI_MODEL = model;
+  }
+  if (proxy) {
+    updates.ALEMBIC_AI_PROXY = proxy;
+  }
+  if (reasoningEffort) {
+    updates.ALEMBIC_AI_REASONING_EFFORT = reasoningEffort;
+  }
+
+  const providerKeyMap: Record<string, string> = {
+    ...PROVIDER_KEY_ENV,
+  };
+
+  // 多 provider key 同时保存
+  if (providerKeys && typeof providerKeys === 'object') {
+    for (const [pid, key] of Object.entries(providerKeys as Record<string, string>)) {
+      const envKey = providerKeyMap[pid];
+      if (envKey && key) {
+        updates[envKey] = String(key);
+      }
+    }
+  }
+
+  // 兼容旧模式: 单个 apiKey 写入当前 provider 的 env key
+  const keyName = providerKeyMap[provider];
+  if (keyName && apiKey) {
+    updates[keyName] = apiKey;
+  }
+
+  if (embedProvider) {
+    updates.ALEMBIC_EMBED_PROVIDER = embedProvider;
+    if (embedModel) {
+      updates.ALEMBIC_EMBED_MODEL = embedModel;
+    }
+    if (embedBaseUrl) {
+      updates.ALEMBIC_EMBED_BASE_URL = embedBaseUrl;
+    }
+    if (embedApiKey) {
+      updates.ALEMBIC_EMBED_API_KEY = embedApiKey;
+    }
+  }
+
+  const container = getServiceContainer();
+  const gateway = container.get('gateway') as GatewayCheckOnlyLike;
+  if (!(await ensureAiConfigUpdateAllowed(req, res, gateway, updates))) {
+    return;
+  }
+
+  const store = getWorkspaceSettingsStore();
+  store.writeAiConfig(updates);
+  logger.info('LLM workspace config updated', { provider, model });
+
+  // 同步到当前进程环境变量（热生效）
+  for (const [k, v] of Object.entries(updates)) {
+    process.env[k] = String(v);
+  }
+
+  // 尝试热切换 AI Provider（通过 AiProviderManager 统一处理）
+  try {
+    const newProvider = createProvider({
+      provider: provider.toLowerCase(),
+      model: model || undefined,
+    });
+    const container = getServiceContainer();
+    container.reloadAiProvider(newProvider as unknown as Record<string, unknown>);
+    logger.info('AI provider hot-swapped via AiProviderManager after env update', {
+      provider,
+      model: newProvider.model,
+    });
+  } catch (err: unknown) {
+    logger.debug('Hot-swap AI provider failed (will take effect on restart)', {
+      error: (err as Error).message,
+    });
+  }
+
+  res.json({ success: true, data: readLlmConfig() });
+}
+
+/**
+ * POST /api/v1/ai/env-config
+ * 共享 Dashboard 兼容别名：写入 / 更新工作区 LLM 配置。
+ */
+router.post('/env-config', validate(AiWorkspaceConfigBody), saveLlmConfig);
+
 /**
  * POST /api/v1/ai/workspace-config
  * 写入 / 更新工作区 LLM 配置。
  *
  * Body: { provider, model, apiKey, proxy? }
  */
-router.post(
-  '/workspace-config',
-  validate(AiWorkspaceConfigBody),
-  async (req: Request, res: Response): Promise<void> => {
-    if (!requireDeveloperRole(req, res)) {
-      return;
-    }
-
-    const {
-      provider,
-      model,
-      apiKey,
-      proxy,
-      reasoningEffort,
-      embedProvider,
-      embedModel,
-      embedBaseUrl,
-      embedApiKey,
-      providerKeys,
-    } = req.body;
-
-    const updates: Record<string, string> = {
-      ALEMBIC_AI_PROVIDER: provider,
-    };
-    if (model) {
-      updates.ALEMBIC_AI_MODEL = model;
-    }
-    if (proxy) {
-      updates.ALEMBIC_AI_PROXY = proxy;
-    }
-    if (reasoningEffort) {
-      updates.ALEMBIC_AI_REASONING_EFFORT = reasoningEffort;
-    }
-
-    const providerKeyMap: Record<string, string> = {
-      ...PROVIDER_KEY_ENV,
-    };
-
-    // 多 provider key 同时保存
-    if (providerKeys && typeof providerKeys === 'object') {
-      for (const [pid, key] of Object.entries(providerKeys as Record<string, string>)) {
-        const envKey = providerKeyMap[pid];
-        if (envKey && key) {
-          updates[envKey] = String(key);
-        }
-      }
-    }
-
-    // 兼容旧模式: 单个 apiKey 写入当前 provider 的 env key
-    const keyName = providerKeyMap[provider];
-    if (keyName && apiKey) {
-      updates[keyName] = apiKey;
-    }
-
-    if (embedProvider) {
-      updates.ALEMBIC_EMBED_PROVIDER = embedProvider;
-      if (embedModel) {
-        updates.ALEMBIC_EMBED_MODEL = embedModel;
-      }
-      if (embedBaseUrl) {
-        updates.ALEMBIC_EMBED_BASE_URL = embedBaseUrl;
-      }
-      if (embedApiKey) {
-        updates.ALEMBIC_EMBED_API_KEY = embedApiKey;
-      }
-    }
-
-    const container = getServiceContainer();
-    const gateway = container.get('gateway') as GatewayCheckOnlyLike;
-    if (!(await ensureAiConfigUpdateAllowed(req, res, gateway, updates))) {
-      return;
-    }
-
-    const store = getWorkspaceSettingsStore();
-    store.writeAiConfig(updates);
-    logger.info('LLM workspace config updated', { provider, model });
-
-    // 同步到当前进程环境变量（热生效）
-    for (const [k, v] of Object.entries(updates)) {
-      process.env[k] = String(v);
-    }
-
-    // 尝试热切换 AI Provider（通过 AiProviderManager 统一处理）
-    try {
-      const newProvider = createProvider({
-        provider: provider.toLowerCase(),
-        model: model || undefined,
-      });
-      const container = getServiceContainer();
-      container.reloadAiProvider(newProvider as unknown as Record<string, unknown>);
-      logger.info('AI provider hot-swapped via AiProviderManager after env update', {
-        provider,
-        model: newProvider.model,
-      });
-    } catch (err: unknown) {
-      logger.debug('Hot-swap AI provider failed (will take effect on restart)', {
-        error: (err as Error).message,
-      });
-    }
-
-    res.json({ success: true, data: readLlmConfig() });
-  }
-);
+router.post('/workspace-config', validate(AiWorkspaceConfigBody), saveLlmConfig);
 
 // ═══════════════════════════════════════════════════════
 //  SSE Streaming — 流式对话（Session + EventSource 架构）
