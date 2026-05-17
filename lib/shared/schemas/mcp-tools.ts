@@ -20,7 +20,7 @@ import {
   ScopeEnum,
   StrictKindEnum,
   TitleField,
-} from './common.js';
+} from '@alembic/core/shared/schemas/common';
 
 // ══════════════════════════════════════════════════════
 //  1. alembic_health — 无参数
