@@ -1,9 +1,24 @@
 import Logger from '@alembic/core/logging';
-import type { ToolCapabilityManifest } from '#tools/catalog/CapabilityManifest.js';
-import type { ToolExecutionRequest } from '#tools/core/ToolContracts.js';
 import type { ServiceContainer } from '../../injection/ServiceContainer.js';
 
-export type DashboardOperationHandler = (request: ToolExecutionRequest) => Promise<unknown>;
+export type DashboardOperationHandler = (request: DashboardOperationRequest) => Promise<unknown>;
+
+export interface DashboardOperationRequest {
+  args: Record<string, unknown>;
+  context: {
+    actor?: { role?: string; sessionId?: string; user?: string };
+    services: ServiceContainer;
+    surface?: string;
+  };
+}
+
+export interface DashboardOperationManifest {
+  description: string;
+  id: string;
+  policyProfile: 'analysis' | 'system' | 'write';
+  timeoutMs: number;
+  title: string;
+}
 
 const logger = Logger.getInstance();
 
@@ -16,7 +31,7 @@ export const DASHBOARD_OPERATION_IDS = {
   rescanProject: 'dashboard.rescan_project',
 } as const;
 
-export const DASHBOARD_OPERATION_MANIFESTS: ToolCapabilityManifest[] = [
+export const DASHBOARD_OPERATION_MANIFESTS: DashboardOperationManifest[] = [
   manifest({
     id: DASHBOARD_OPERATION_IDS.updateModuleMap,
     title: 'Update Module Map',
@@ -33,14 +48,14 @@ export const DASHBOARD_OPERATION_MANIFESTS: ToolCapabilityManifest[] = [
   manifest({
     id: DASHBOARD_OPERATION_IDS.scanProject,
     title: 'Scan Project',
-    description: 'Run a full project AI scan from Dashboard.',
+    description: 'Run a full project scan from Dashboard.',
     policyProfile: 'analysis',
     timeoutMs: 300_000,
   }),
   manifest({
     id: DASHBOARD_OPERATION_IDS.bootstrapProject,
     title: 'Bootstrap Project Knowledge',
-    description: 'Start internal project bootstrap from Dashboard.',
+    description: 'Start host-driven project bootstrap from Dashboard.',
     policyProfile: 'write',
     timeoutMs: 300_000,
   }),
@@ -53,7 +68,7 @@ export const DASHBOARD_OPERATION_MANIFESTS: ToolCapabilityManifest[] = [
   manifest({
     id: DASHBOARD_OPERATION_IDS.rescanProject,
     title: 'Rescan Project Knowledge',
-    description: 'Run internal project rescan from Dashboard.',
+    description: 'Run host-driven project rescan from Dashboard.',
     policyProfile: 'write',
     timeoutMs: 300_000,
   }),
@@ -69,55 +84,22 @@ export const DASHBOARD_OPERATION_HANDLERS: Record<string, DashboardOperationHand
 };
 
 function manifest(input: {
-  id: string;
-  title: string;
   description: string;
-  policyProfile: ToolCapabilityManifest['governance']['policyProfile'];
+  id: string;
+  policyProfile: DashboardOperationManifest['policyProfile'];
   timeoutMs?: number;
-}): ToolCapabilityManifest {
+  title: string;
+}): DashboardOperationManifest {
   return {
     id: input.id,
     title: input.title,
-    kind: 'dashboard-operation',
     description: input.description,
-    owner: 'dashboard',
-    lifecycle: 'active',
-    surfaces: ['dashboard'],
-    inputSchema: { type: 'object', properties: {}, additionalProperties: true },
-    risk: {
-      sideEffect: true,
-      dataAccess: 'project',
-      writeScope: 'data-root',
-      network: 'none',
-      credentialAccess: 'none',
-      requiresHumanConfirmation: 'on-risk',
-      owaspTags: ['excessive-agency'],
-    },
-    execution: {
-      adapter: 'dashboard',
-      timeoutMs: input.timeoutMs || 60_000,
-      maxOutputBytes: 256_000,
-      abortMode: 'cooperative',
-      cachePolicy: 'none',
-      concurrency: 'single',
-      artifactMode: 'inline',
-    },
-    governance: {
-      gatewayAction: `dashboard:${input.id.split('.').at(-1) || input.id}`,
-      gatewayResource: 'dashboard_operations',
-      auditLevel: 'checkOnly',
-      policyProfile: input.policyProfile,
-      approvalPolicy: 'explain-then-run',
-      allowedRoles: ['admin', 'developer', 'owner'],
-      allowInComposer: false,
-      allowInRemoteMcp: false,
-      allowInNonInteractive: false,
-    },
-    evals: { required: false, cases: [] },
+    policyProfile: input.policyProfile,
+    timeoutMs: input.timeoutMs || 60_000,
   };
 }
 
-async function updateModuleMap(request: ToolExecutionRequest) {
+async function updateModuleMap(request: DashboardOperationRequest) {
   const container = getContainer(request);
   const moduleService = container.get('moduleService') as {
     updateModuleMap(options: Record<string, unknown>): Promise<unknown>;
@@ -125,15 +107,19 @@ async function updateModuleMap(request: ToolExecutionRequest) {
   const result = await moduleService.updateModuleMap({
     aggressive: request.args.aggressive ?? true,
   });
-  logger.info('Module map updated via dashboard router', { result });
+  logger.info('Module map updated via dashboard operation', { result });
   return result;
 }
 
-async function rebuildSemanticIndex(request: ToolExecutionRequest) {
+async function rebuildSemanticIndex(request: DashboardOperationRequest) {
   const container = getContainer(request);
   const manager = container.singletons?._aiProviderManager as { isMock?: boolean } | undefined;
   if (manager?.isMock) {
-    return { error: 'AI Provider 未配置，当前为 Mock 模式。Embedding 不可用。' };
+    return {
+      error:
+        'Embedding provider 由宿主管理，当前插件未收到可执行 embedding provider，索引重建已跳过。',
+      hostManaged: true,
+    };
   }
 
   const clear = request.args.clear !== false;
@@ -166,7 +152,7 @@ async function rebuildSemanticIndex(request: ToolExecutionRequest) {
     result = await indexingPipeline.run({ clear, force });
   }
 
-  logger.info('Semantic index rebuilt via dashboard router', { result });
+  logger.info('Semantic index rebuilt via dashboard operation', { result });
   return {
     scanned: result.scanned || 0,
     chunked: result.chunked || 0,
@@ -177,20 +163,20 @@ async function rebuildSemanticIndex(request: ToolExecutionRequest) {
   };
 }
 
-async function scanProject(request: ToolExecutionRequest) {
+async function scanProject(request: DashboardOperationRequest) {
   const container = getContainer(request);
   const moduleService = container.get('moduleService') as {
     load(): Promise<void>;
     scanProject(options: Record<string, unknown>): Promise<unknown>;
   };
   await moduleService.load();
-  logger.info('Full project scan started via dashboard router');
+  logger.info('Full project scan started via dashboard operation');
   return moduleService.scanProject(
     (request.args.options as Record<string, unknown> | undefined) || {}
   );
 }
 
-async function bootstrapProject(request: ToolExecutionRequest) {
+async function bootstrapProject(request: DashboardOperationRequest) {
   const container = getContainer(request);
   const { createDaemonJob, runDaemonJob } = await import('../../daemon/DaemonJobRunner.js');
   const args = {
@@ -210,7 +196,7 @@ async function bootstrapProject(request: ToolExecutionRequest) {
   return { ...asRecord(result.result), job: result.job, jobId: job.id };
 }
 
-async function cancelBootstrap(request: ToolExecutionRequest) {
+async function cancelBootstrap(request: DashboardOperationRequest) {
   const container = getContainer(request);
   const taskManager = getOptionalService<{
     isRunning: boolean;
@@ -229,11 +215,11 @@ async function cancelBootstrap(request: ToolExecutionRequest) {
   } else {
     taskManager.markCancelled();
   }
-  logger.info('Bootstrap session cancelled via dashboard router', { reason });
+  logger.info('Bootstrap session cancelled via dashboard operation', { reason });
   return taskManager.getSessionStatus();
 }
 
-async function rescanProject(request: ToolExecutionRequest) {
+async function rescanProject(request: DashboardOperationRequest) {
   const container = getContainer(request);
   const { createDaemonJob, runDaemonJob } = await import('../../daemon/DaemonJobRunner.js');
   const args = {
@@ -244,7 +230,7 @@ async function rescanProject(request: ToolExecutionRequest) {
         )
       : undefined,
   };
-  logger.info('Rescan initiated via dashboard router', {
+  logger.info('Rescan initiated via dashboard operation', {
     reason: args.reason,
     dimensions: args.dimensions,
   });
@@ -260,8 +246,8 @@ async function rescanProject(request: ToolExecutionRequest) {
   return { ...asRecord(result.result), job: result.job, jobId: job.id };
 }
 
-function getContainer(request: ToolExecutionRequest) {
-  return request.context.services as ServiceContainer;
+function getContainer(request: DashboardOperationRequest) {
+  return request.context.services;
 }
 
 function getOptionalService<T>(container: ServiceContainer, name: string): T | null {
@@ -281,10 +267,10 @@ function numberArg(value: unknown, fallback: number) {
 }
 
 interface BuildResultLike {
-  scanned?: unknown;
-  chunked?: unknown;
-  embedded?: unknown;
-  upserted?: unknown;
-  skipped?: unknown;
+  chunked?: number;
+  embedded?: number;
   errors?: unknown;
+  scanned?: number;
+  skipped?: number;
+  upserted?: number;
 }

@@ -1,17 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
-import type {
-  ToolResultDiagnostics,
-  ToolResultEnvelope,
-  ToolResultTrust,
-} from '#tools/core/ToolResultEnvelope.js';
-import { sendToolEnvelopeResponse } from './tool-envelope-response.js';
+import { type HttpToolResultEnvelope, sendToolEnvelopeResponse } from './tool-envelope-response.js';
 
 export interface DashboardOperationContainer {
   get(name: string): unknown;
 }
 
-const EMPTY_DIAGNOSTICS: ToolResultDiagnostics = {
+const EMPTY_DIAGNOSTICS = {
   degraded: false,
   fallbackUsed: false,
   warnings: [],
@@ -23,7 +18,7 @@ const EMPTY_DIAGNOSTICS: ToolResultDiagnostics = {
   gateFailures: [],
 };
 
-const DEFAULT_TRUST: ToolResultTrust = {
+const DEFAULT_TRUST = {
   source: 'internal',
   sanitized: true,
   containsUntrustedText: false,
@@ -32,21 +27,21 @@ const DEFAULT_TRUST: ToolResultTrust = {
 
 /**
  * Dashboard Operations 直接分派到 DASHBOARD_OPERATION_HANDLERS，
- * 不经过 V2 ToolRouter（dashboard 操作不是 LLM 工具）。
+ * 不经过本地 LLM 工具路由。
  */
 export async function executeDashboardOperation(
   container: DashboardOperationContainer,
   req: Request,
   toolId: string,
   args: Record<string, unknown>
-): Promise<ToolResultEnvelope> {
+): Promise<HttpToolResultEnvelope> {
   const callId = randomUUID();
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
 
   try {
     const { DASHBOARD_OPERATION_HANDLERS, DASHBOARD_OPERATION_MANIFESTS } = await import(
-      '#tools/adapters/DashboardOperations.js'
+      '../dashboard/DashboardOperations.js'
     );
     const handler = DASHBOARD_OPERATION_HANDLERS[toolId];
     if (!handler) {
@@ -97,7 +92,7 @@ export async function executeDashboardOperation(
   }
 }
 
-export function sendDashboardOperationResponse(res: Response, envelope: ToolResultEnvelope) {
+export function sendDashboardOperationResponse(res: Response, envelope: HttpToolResultEnvelope) {
   if (!envelope.ok) {
     sendToolEnvelopeResponse(res, envelope);
     return;
@@ -115,7 +110,7 @@ function errorEnvelope(
   startedAt: string,
   error: string,
   durationMs = 0
-): ToolResultEnvelope {
+): HttpToolResultEnvelope {
   return {
     ok: false,
     toolId,

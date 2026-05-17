@@ -2,7 +2,7 @@
  * ModuleService — 多语言统一模块扫描服务
  *
  * 通过 DiscovererRegistry 自动检测项目类型，
- * 统一 SPM / Node / Go / JVM / Python / Generic 等语言的模块扫描、依赖分析、AI 提取管线。
+ * 统一 SPM / Node / Go / JVM / Python / Generic 等语言的模块扫描和依赖分析。
  * 语言特有操作（如 SPM 依赖管理）由对应的 Discoverer / Service 直接暴露，不经此类代理。
  */
 
@@ -16,11 +16,6 @@ import {
 } from 'node:path';
 import Logger from '@alembic/core/logging';
 import { getDiscovererRegistry } from '@alembic/core/project-intelligence';
-import {
-  type AgentService,
-  runScanAgentTask,
-  type SystemRunContextFactory,
-} from '#agent/service/index.js';
 import { inferLang } from '../../external/mcp/handlers/LanguageExtensions.js';
 
 /** 全局排除目录 */
@@ -92,9 +87,6 @@ export class ModuleService {
 
   #logger;
 
-  // AI pipeline deps
-  #agentService;
-  #systemRunContextFactory;
   #container;
   #qualityScorer;
   #recipeExtractor;
@@ -104,8 +96,6 @@ export class ModuleService {
   constructor(
     projectRoot: string,
     options: {
-      agentService?: AgentService | null;
-      systemRunContextFactory?: SystemRunContextFactory | null;
       container?: Record<string, unknown> | null;
       qualityScorer?: Record<string, unknown> | null;
       recipeExtractor?: Record<string, unknown> | null;
@@ -116,8 +106,6 @@ export class ModuleService {
     this.#projectRoot = projectRoot;
     this.#registry = getDiscovererRegistry();
     this.#logger = Logger.getInstance();
-    this.#agentService = options.agentService || null;
-    this.#systemRunContextFactory = options.systemRunContextFactory || null;
     this.#container = options.container || null;
     this.#qualityScorer = options.qualityScorer || null;
     this.#recipeExtractor = options.recipeExtractor || null;
@@ -384,12 +372,11 @@ export class ModuleService {
   }
 
   // ═══════════════════════════════════════════════════════
-  //  Scanning — AI Pipeline
+  //  Scanning
   // ═══════════════════════════════════════════════════════
 
   /**
-   * AI 扫描 Target 发现候选项
-   * 完整管线: 读文件 → AI 提取 → Header 解析 → 工具增强
+   * 扫描 Target。插件模式不再本地执行 AI 提取，只返回文件和 host-managed 边界状态。
    */
   async scanTarget(
     target: string | Record<string, unknown>,
@@ -446,48 +433,22 @@ export class ModuleService {
     const scannedFiles = files.map((f) => ({ name: f.name, path: f.relativePath }));
     this.#logger.info(`[ModuleService] scanTarget: ${targetName}, ${files.length} files`);
 
-    // 3. AI 提取 — mock 模式或无 AgentService 时直接跳过
-    const aiManager = (this.#container?.singletons as Record<string, unknown> | undefined)
-      ?._aiProviderManager as { isMock: boolean } | undefined;
-    if (!this.#agentService || !this.#systemRunContextFactory || aiManager?.isMock) {
-      return {
-        recipes: [],
-        scannedFiles,
-        noAi: true,
-        message:
-          'AI 未配置，已跳过智能提取。请在 Alembic Dashboard 的 AI Settings 中设置 API Key 后重试。',
-      };
-    }
-
-    onProgress?.({ type: 'scan:ai-extracting', fileCount: files.length, targetName });
-    let recipes = await this.#aiExtractRecipes(targetName, files as Record<string, unknown>[]);
-
-    if (!Array.isArray(recipes)) {
-      recipes = [];
-    }
-
-    // 3.5 moduleName 注入
-    for (const recipe of recipes) {
-      recipe.moduleName = targetName;
-    }
-
-    // 4. 工具增强
-    onProgress?.({ type: 'scan:enriching', recipeCount: recipes.length });
-    this.#enrichRecipes(recipes);
-
-    const result: Record<string, unknown> = { recipes, scannedFiles };
-    if (recipes.length === 0) {
-      result.message = `AI 提取完成，但未发现可复用的代码模式（${targetName}, ${files.length} 个文件）`;
-    }
+    const result: Record<string, unknown> = {
+      recipes: [],
+      scannedFiles,
+      noAi: true,
+      hostManaged: true,
+      message: 'AlembicPlugin 不再本地执行模块 AI 提取；请由宿主 agent 使用扫描文件完成候选提交。',
+    };
     onProgress?.({
       type: 'scan:completed',
-      recipeCount: recipes.length,
+      recipeCount: 0,
       fileCount: scannedFiles.length,
     });
     return result;
   }
 
-  /** 全项目扫描 — 遍历所有 Target，AI 提取候选 + Guard 审计 */
+  /** 全项目扫描 — 遍历所有 Target + Guard 审计 */
   async scanProject(
     options: {
       maxFiles?: number;
@@ -572,49 +533,7 @@ export class ModuleService {
       targetName: f.targetName,
     }));
 
-    // 3. AI 提取 Recipes — mock 模式跳过
-    const allRecipes: Record<string, unknown>[] = [];
-    const PER_BATCH_TIMEOUT = options.batchTimeout || 90000;
-    const startTime = Date.now();
-    const TOTAL_TIMEOUT = options.totalTimeout || 540000;
-    let timedOut = false;
-    const scanAiMgr = (this.#container?.singletons as Record<string, unknown> | undefined)
-      ?._aiProviderManager as { isMock: boolean } | undefined;
-
-    if (this.#agentService && this.#systemRunContextFactory && !scanAiMgr?.isMock) {
-      const BATCH_SIZE = options.batchSize || 20;
-
-      for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
-        if (Date.now() - startTime > TOTAL_TIMEOUT) {
-          this.#logger.warn(
-            `[ModuleService] scanProject: total timeout reached after ${Math.floor((Date.now() - startTime) / 1000)}s`
-          );
-          timedOut = true;
-          break;
-        }
-        const batch = allFiles.slice(i, i + BATCH_SIZE);
-        const batchLabel = `project-batch-${Math.floor(i / BATCH_SIZE) + 1}`;
-        try {
-          const recipes = await Promise.race([
-            this.#aiExtractRecipes(batchLabel, batch),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('batch timeout')), PER_BATCH_TIMEOUT)
-            ),
-          ]);
-          if (Array.isArray(recipes)) {
-            allRecipes.push(...recipes);
-          }
-        } catch (err: unknown) {
-          this.#logger.warn(
-            `[ModuleService] scanProject batch ${batchLabel} failed: ${(err as Error).message}`
-          );
-        }
-      }
-
-      this.#enrichRecipes(allRecipes);
-    }
-
-    // 4. Guard 审计
+    // 3. Guard 审计
     let guardAudit: Record<string, unknown> | null = null;
     if (this.#guardCheckEngine) {
       try {
@@ -653,15 +572,16 @@ export class ModuleService {
     }
 
     this.#logger.info(
-      `[ModuleService] scanProject complete: ${allRecipes.length} recipes, ${(guardAudit?.summary as Record<string, unknown> | undefined)?.totalViolations || 0} violations${timedOut ? ' (partial — timed out)' : ''}`
+      `[ModuleService] scanProject complete: 0 local recipes, ${(guardAudit?.summary as Record<string, unknown> | undefined)?.totalViolations || 0} violations`
     );
 
     return {
       targets: allTargets.map((t) => t.name),
-      recipes: allRecipes,
+      recipes: [],
       guardAudit,
       scannedFiles,
-      partial: timedOut,
+      hostManaged: true,
+      message: 'AlembicPlugin 不再本地执行项目 AI 提取；请由宿主 agent 使用扫描结果完成候选提交。',
     };
   }
 
@@ -711,7 +631,7 @@ export class ModuleService {
   }
 
   /**
-   * 扫描任意文件夹 — 创建虚拟 Target 并走标准 AI 管线
+   * 扫描任意文件夹 — 创建虚拟 Target 并走标准扫描管线
    * 用于 Discoverer 未覆盖的目录（自定义目录名、新语言等）
    * @param folderPath 相对/绝对路径
    * @param [options] scanTarget options (onProgress 等)
@@ -774,51 +694,6 @@ export class ModuleService {
       generic: 'unknown',
     };
     return map[id] || 'unknown';
-  }
-
-  /**
-   * AI 提取 Recipes — 委托 AgentService.run(scan-extract)
-   *
-   * Agent(LLM) 直接分析代码 + 使用 AST 工具，输出 Recipe JSON。
-   */
-  async #aiExtractRecipes(targetName: string, files: Record<string, unknown>[]) {
-    if (!this.#agentService || !this.#systemRunContextFactory) {
-      return [];
-    }
-
-    try {
-      const result = await runScanAgentTask({
-        agentService: this.#agentService,
-        systemRunContextFactory: this.#systemRunContextFactory,
-        label: targetName,
-        files: files.map((file) => ({
-          name: (file.name || file.relativePath || file.path) as string | undefined,
-          relativePath: (file.relativePath || file.path || file.name) as string | undefined,
-          content: (file.content || '') as string,
-        })),
-        task: 'extract',
-      });
-      const recipes = (result.recipes || []) as Record<string, unknown>[];
-
-      if (recipes.length === 0) {
-        this.#logger.info(
-          `[ModuleService] Agent 未产出 recipe (${targetName}, ${files.length} files)`
-        );
-      } else {
-        this.#logger.info(`[ModuleService] Agent 提取 ${recipes.length} recipes (${targetName})`);
-      }
-      return recipes;
-    } catch (err: unknown) {
-      if (
-        (err as Record<string, unknown>).code === 'API_KEY_MISSING' ||
-        /API_KEY_MISSING|API.Key.未配置|unregistered callers/i.test((err as Error).message)
-      ) {
-        this.#logger.info(`[ModuleService] AI 未启用（未配置 API Key），跳过 AI 提取。`);
-      } else {
-        this.#logger.warn(`[ModuleService] AI extraction failed: ${(err as Error).message}`);
-      }
-      return [];
-    }
   }
 
   /** 质量评分 enrichment */

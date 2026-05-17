@@ -3,31 +3,19 @@
  *
  * 注册:
  *   - vectorService: 统一向量服务层
- *   - contextualEnricher: 上下文增强器（可选，AI dependent）
+ *   - contextualEnricher: 插件模式下禁用的上下文增强边界
  *
  * 依赖 KnowledgeModule 先注册: vectorStore, indexingPipeline, hybridRetriever
  * 依赖 InfraModule 先注册: eventBus, database
  */
 
 import { VectorService } from '@alembic/core/vector';
-import { ContextualEnricher } from '../../service/vector/ContextualEnricher.js';
+import type { ContextualEnricher } from '../../service/vector/ContextualEnricher.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {
-  // ═══ ContextualEnricher (可选, AI dependent) ═══
-  c.singleton(
-    'contextualEnricher',
-    (ct: ServiceContainer) => {
-      const aiProvider = ct.singletons.aiProvider || null;
-      if (!aiProvider) {
-        return null;
-      }
-      return new ContextualEnricher({
-        aiProvider: aiProvider as ConstructorParameters<typeof ContextualEnricher>[0]['aiProvider'],
-      });
-    },
-    { aiDependent: true }
-  );
+  // ═══ ContextualEnricher (host-managed; local AI enrichment disabled) ═══
+  c.singleton('contextualEnricher', (_ct: ServiceContainer) => null, { aiDependent: true });
 
   // ═══ VectorService ═══
   c.singleton(

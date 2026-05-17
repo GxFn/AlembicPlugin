@@ -49,7 +49,7 @@ router.post('/call', validate(McpCallBody), async (req: Request, res: Response):
         sessionId: actor?.sessionId,
       },
     });
-    res.status(result.ok ? 200 : 400).json(result);
+    res.status(result.isError ? 400 : 200).json(result);
   } catch (err: unknown) {
     res.status(500).json({
       success: false,

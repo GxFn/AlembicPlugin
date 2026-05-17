@@ -182,7 +182,6 @@ function createWikiGenerator() {
     moduleService: getOptionalService(container, 'moduleService'),
     knowledgeService: getOptionalService(container, 'knowledgeService'),
     projectGraph: getOptionalService(container, 'projectGraph'),
-    aiProvider: getOptionalService(container, 'aiProvider'),
     writeZone: getOptionalService(container, 'writeZone'),
     onProgress(phase, progress, message) {
       task = { ...task, phase, progress, message };

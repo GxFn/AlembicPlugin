@@ -8,7 +8,7 @@
 
 边界：
 
-- 不承载 Alembic core 能力本身；AgentRuntime、tools、daemon、Guard、Recipes、bootstrap/rescan 仍在各自模块。
+- 不承载 Alembic core 能力本身；daemon、Guard、Recipes、bootstrap/rescan 仍在各自模块。
 - 不把插件化解释成削减能力；这里只统一入口和诊断，不替代成熟主链路。
 - 不从安装路径推断功能；通用插件判断使用 `ALEMBIC_RUNTIME_MODE=plugin`，Codex 宿主判断使用 `ALEMBIC_PLUGIN_HOST=codex`，渠道判断使用稳定 channel id。
 - 不把 `.env` 当基础配置；Codex 入口只使用进程级 runtime overrides 和 workspace settings/secrets。

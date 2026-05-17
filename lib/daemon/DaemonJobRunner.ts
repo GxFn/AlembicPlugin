@@ -69,7 +69,7 @@ export async function runDaemonJob(options: RunDaemonJobOptions): Promise<RunDae
   });
 
   try {
-    const result = await executeInternalWorkflow(options);
+    const result = await executeHostDrivenWorkflow(options);
     const bootstrapSessionId = extractBootstrapSessionId(result);
 
     if (bootstrapSessionId && isBootstrapSessionRunning(result, options.container)) {
@@ -151,37 +151,29 @@ export function getJobStore(container: ServiceContainer): JobStore {
   }
 }
 
-async function executeInternalWorkflow(options: RunDaemonJobOptions): Promise<unknown> {
+async function executeHostDrivenWorkflow(options: RunDaemonJobOptions): Promise<unknown> {
   if (options.kind === 'bootstrap') {
-    const { bootstrapKnowledge } = await import('../external/mcp/handlers/bootstrap-internal.js');
-    const raw = await bootstrapKnowledge(
-      { container: options.container, logger: options.logger },
-      {
-        maxFiles: numberArg(options.args?.maxFiles, 500),
-        skipGuard: Boolean(options.args?.skipGuard || false),
-        contentMaxLines: numberArg(options.args?.contentMaxLines, 120),
-        loadSkills: true,
-      }
+    const { bootstrapExternal } = await import('../external/mcp/handlers/bootstrap-external.js');
+    return unwrapEnvelope(
+      await bootstrapExternal({ container: options.container, logger: options.logger })
     );
-    const result = unwrapEnvelope(raw);
-    return { ...asRecord(result), asyncFill: true };
   }
 
-  const { rescanInternal } = await import('../external/mcp/handlers/rescan-internal.js');
-  const raw = await rescanInternal(
-    { container: options.container, logger: options.logger },
-    {
-      reason:
-        (options.args?.reason as string | undefined) || `${options.source || 'daemon'}-rescan`,
-      dimensions: Array.isArray(options.args?.dimensions)
-        ? options.args.dimensions.filter(
-            (dimension): dimension is string => typeof dimension === 'string'
-          )
-        : undefined,
-    }
+  const { rescanExternal } = await import('../external/mcp/handlers/rescan-external.js');
+  return unwrapEnvelope(
+    await rescanExternal(
+      { container: options.container, logger: options.logger },
+      {
+        reason:
+          (options.args?.reason as string | undefined) || `${options.source || 'daemon'}-rescan`,
+        dimensions: Array.isArray(options.args?.dimensions)
+          ? options.args.dimensions.filter(
+              (dimension): dimension is string => typeof dimension === 'string'
+            )
+          : undefined,
+      }
+    )
   );
-  const result = unwrapEnvelope(raw);
-  return { ...asRecord(result), asyncFill: true };
 }
 
 function linkBootstrapSessionCompletion(options: {
@@ -241,15 +233,19 @@ function linkBootstrapSessionCompletion(options: {
 }
 
 function extractBootstrapSessionId(result: unknown): string | undefined {
-  const session = asRecord(result).bootstrapSession;
-  return typeof session === 'object' &&
-    session &&
-    typeof (session as { id?: unknown }).id === 'string'
-    ? (session as { id: string }).id
-    : undefined;
+  const record = asRecord(result);
+  const session =
+    asRecordOrNull(record.bootstrapSession) ||
+    asRecordOrNull(record.session) ||
+    asRecordOrNull(asRecordOrNull(record.briefing)?.session);
+  const id = stringField(session, 'id') || stringField(record, 'sessionId');
+  return id || undefined;
 }
 
 function isBootstrapSessionRunning(result: unknown, container: ServiceContainer): boolean {
+  if (asRecord(result).asyncFill !== true) {
+    return false;
+  }
   const bootstrapSessionId = extractBootstrapSessionId(result);
   if (!bootstrapSessionId) {
     return false;
@@ -290,6 +286,14 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : { value };
 }
 
-function numberArg(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+function asRecordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function stringField(
+  value: Record<string, unknown> | null | undefined,
+  key: string
+): string | undefined {
+  const field = value?.[key];
+  return typeof field === 'string' && field.length > 0 ? field : undefined;
 }

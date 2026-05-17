@@ -416,9 +416,6 @@ export class SetupService {
           '  - id: "external_agent"',
           '    name: "External Agent"',
           '    permissions: ["read:recipes", "read:guard_rules", "create:candidates", "submit:knowledge"]',
-          '  - id: "chat_agent"',
-          '    name: "AgentRuntime"',
-          '    permissions: ["read:recipes", "read:candidates", "create:candidates", "read:guard_rules"]',
           '',
         ].join('\n')
       );

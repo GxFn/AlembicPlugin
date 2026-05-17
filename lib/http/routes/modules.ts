@@ -17,9 +17,9 @@ import {
   ScanProjectBody,
   ScanTargetBody,
 } from '#shared/schemas/http-requests.js';
-import { DASHBOARD_OPERATION_IDS } from '#tools/adapters/DashboardOperations.js';
 import { getJobStore } from '../../daemon/DaemonJobRunner.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
+import { DASHBOARD_OPERATION_IDS } from '../dashboard/DashboardOperations.js';
 import { validate } from '../middleware/validate.js';
 import {
   executeDashboardOperation,

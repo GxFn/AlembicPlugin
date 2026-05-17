@@ -20,10 +20,6 @@
       "alembic-dev": "./lib/service/*",
       "default": "./dist/lib/service/*"
     },
-    "#agent/*": {
-      "alembic-dev": "./lib/agent/*",
-      "default": "./dist/lib/agent/*"
-    },
     "#inject/*": {
       "alembic-dev": "./lib/injection/*",
       "default": "./dist/lib/injection/*"
@@ -43,10 +39,6 @@
     "#workflows/*": {
       "alembic-dev": "./lib/workflows/*",
       "default": "./dist/lib/workflows/*"
-    },
-    "#tools/*": {
-      "alembic-dev": "./lib/tools/*",
-      "default": "./dist/lib/tools/*"
     },
     "#codex/*": {
       "alembic-dev": "./lib/codex/*",

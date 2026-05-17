@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import { runWorkflowCompletionFinalizer } from '#workflows/capabilities/completion/WorkflowCompletionFinalizer.js';
-import { buildInternalDimensionCompletionSummary } from '#workflows/capabilities/execution/internal-agent/InternalDimensionFillFinalizer.js';
 
 describe('WorkflowCompletionFinalizer', () => {
   test('runs panorama before immediate semantic memory', async () => {
@@ -62,66 +60,6 @@ describe('WorkflowCompletionFinalizer', () => {
     expect(scheduled).toHaveLength(1);
     expect(result).toMatchObject({
       panoramaStatus: 'skipped',
-    });
-  });
-
-  test('internal finalizer delegates completion side effects to workflow finalizer', () => {
-    const source = readFileSync(
-      join(
-        process.cwd(),
-        'lib/workflows/capabilities/execution/internal-agent/InternalDimensionFillFinalizer.ts'
-      ),
-      'utf8'
-    );
-
-    expect(source).toContain('runWorkflowCompletionFinalizer');
-    expect(source).not.toContain('consumeBootstrapDeliveryAndWiki');
-    expect(source).not.toContain('consumeBootstrapSemanticMemory');
-  });
-
-  test('summarizes rescan finalizer as pipeline isolation', () => {
-    expect(
-      buildInternalDimensionCompletionSummary({
-        pipelineMode: 'rescan',
-        workflowCompletion: { semanticMemoryResult: null },
-      })
-    ).toMatchObject({
-      mode: 'rescan',
-      isolation: 'pipeline-isolation',
-      semanticMemory: { status: 'skipped' },
-    });
-  });
-
-  test('summarizes bootstrap finalizer as full completion', () => {
-    expect(
-      buildInternalDimensionCompletionSummary({
-        pipelineMode: 'bootstrap',
-        workflowCompletion: {
-          semanticMemoryResult: {
-            total: { added: 1, updated: 0, merged: 0, skipped: 0 },
-            durationMs: 10,
-          },
-        },
-      })
-    ).toMatchObject({
-      mode: 'bootstrap',
-      isolation: 'full-completion',
-      semanticMemory: { status: 'completed' },
-    });
-  });
-
-  test('summarizes skipped bootstrap semantic memory from finalizer result', () => {
-    expect(
-      buildInternalDimensionCompletionSummary({
-        pipelineMode: 'bootstrap',
-        workflowCompletion: {
-          semanticMemoryResult: null,
-        },
-      })
-    ).toMatchObject({
-      mode: 'bootstrap',
-      isolation: 'full-completion',
-      semanticMemory: { status: 'skipped' },
     });
   });
 

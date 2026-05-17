@@ -5,10 +5,8 @@
  * 构建 Mission Briefing 一次性返回，不启动异步 AI pipeline。
  * 等待 IDE 插件宿主中的外部 Agent 主动提交知识 + 完成维度。
  *
- * 与 InternalColdStartWorkflow 的关系：
- *   - 本文件: 外部 Agent 路径 — Agent 自行分析代码 + 提交知识，不需要 AI Provider
- *   - InternalColdStartWorkflow: 内部 Agent 路径 — AgentRuntime 自动执行，需要 API Key
- *   - 两者共享 Phase 1-4 分析逻辑 → ProjectIntelligenceRunner
+ * 本文件只返回外部 Agent Mission Briefing；插件侧不启动本地 AI pipeline。
+ * Phase 1-4 分析逻辑由 ProjectIntelligenceRunner 执行。
  */
 
 import type { WorkflowLogger } from '@alembic/core/host-agent-workflows';

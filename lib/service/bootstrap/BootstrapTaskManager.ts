@@ -299,8 +299,7 @@ export class BootstrapTaskManager {
   /**
    * 获取当前 session 的 AbortSignal
    *
-   * 用于传入 AgentRuntime.execute()，使得 abortSession() 可以立即中断正在执行的 AI 调用，
-   * 而不是等到下一个维度边界才检测到取消。
+   * 供外部宿主工作流在可取消步骤中读取，避免等到下一个维度边界才检测到取消。
    */
   getSessionAbortSignal(): AbortSignal | null {
     return this.#sessionAbortController?.signal ?? null;

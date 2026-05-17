@@ -1,7 +1,24 @@
 import type { Response } from 'express';
-import type { ToolResultEnvelope, ToolResultStatus } from '#tools/core/ToolResultEnvelope.js';
 
-export function httpStatusForToolEnvelope(status: ToolResultStatus) {
+export type HttpToolResultStatus =
+  | 'aborted'
+  | 'blocked'
+  | 'error'
+  | 'needs-confirmation'
+  | 'success'
+  | 'timeout';
+
+export interface HttpToolResultEnvelope {
+  callId: string;
+  diagnostics?: unknown;
+  ok: boolean;
+  status: HttpToolResultStatus;
+  text: string;
+  toolId: string;
+  [key: string]: unknown;
+}
+
+export function httpStatusForToolEnvelope(status: HttpToolResultStatus) {
   switch (status) {
     case 'blocked':
       return 403;
@@ -18,7 +35,7 @@ export function httpStatusForToolEnvelope(status: ToolResultStatus) {
   }
 }
 
-export function sendToolEnvelopeResponse(res: Response, envelope: ToolResultEnvelope) {
+export function sendToolEnvelopeResponse(res: Response, envelope: HttpToolResultEnvelope) {
   if (envelope.ok) {
     res.json({ success: true, data: envelope });
     return;

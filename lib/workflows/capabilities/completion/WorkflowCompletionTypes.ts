@@ -53,9 +53,7 @@ export interface PanoramaServiceLike {
 
 export type LoadServiceContainer = () => Promise<ServiceContainerLike> | ServiceContainerLike;
 export type ScheduleTask = (task: () => Promise<void>) => void;
-export type PersistentMemoryDb =
-  | import('#agent/memory/MemoryStore.js').SqliteDatabase
-  | { getDb(): import('#agent/memory/MemoryStore.js').SqliteDatabase };
+export type PersistentMemoryDb = unknown;
 
 export type ShouldAbortFn = () => boolean;
 

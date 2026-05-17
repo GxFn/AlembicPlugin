@@ -7,9 +7,8 @@
  * V3.3 整合：39 → 16 工具（14 agent + 2 admin）
  * 通过 ALEMBIC_MCP_TIER 环境变量控制可见工具集（agent/admin）
  *
- * 冷启动双路径:
- *   - 外部 Agent 路径: bootstrap (Mission Briefing) → dimension_complete × N
- *   - 内部 Agent 路径: bootstrap.js bootstrapKnowledge() → orchestrator.js AI pipeline (Phase 5)
+ * 冷启动路径:
+ *   - 外部宿主 Agent 路径: bootstrap (Mission Briefing) → dimension_complete × N
  *
  * Gateway 权限 gating: 写操作经过 Gateway 权限/宪法/审计检查（支持动态 resolver）
  *
@@ -21,21 +20,17 @@
 
 import { CapabilityProbe } from '@alembic/core/core/capability/CapabilityProbe';
 import Logger from '@alembic/core/logging';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { CapabilityCatalog } from '#tools/catalog/CapabilityCatalog.js';
-import { LightweightRouter } from '#tools/core/LightweightRouter.js';
-import type { ToolActor, ToolCallSource, ToolSurface } from '#tools/core/ToolCallContext.js';
-import type { ToolRouterContract } from '#tools/core/ToolContracts.js';
-import type { ToolResultEnvelope } from '#tools/core/ToolResultEnvelope.js';
+import {
+  CallToolRequestSchema,
+  type CallToolResult,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { envelope } from './envelope.js';
 import { wrapHandler } from './errorHandler.js';
 import type { IntentState, McpContext, McpServiceContainer } from './handlers/types.js';
 import { createIdleIntent } from './handlers/types.js';
-import { buildMcpToolCapabilities } from './McpCapabilityProjection.js';
-import { McpToolAdapter } from './McpToolAdapter.js';
 import { TIER_ORDER, TOOL_GATEWAY_MAP, TOOLS, withMcpToolAnnotations } from './tools.js';
 
 // ─── TypeScript Interfaces ──────────────────────────────────
@@ -63,6 +58,35 @@ export interface McpToolCallOptions {
   actor?: ToolActor;
   source?: ToolCallSource;
   surface?: ToolSurface;
+}
+
+interface ToolActor {
+  role?: string;
+  user?: string;
+  sessionId?: string;
+}
+
+interface ToolCallSource {
+  kind: string;
+  name: string;
+}
+
+type ToolSurface = 'mcp' | string;
+
+type McpToolResponse = CallToolResult;
+
+function isMcpToolResponse(value: unknown): value is McpToolResponse {
+  return (
+    !!value && typeof value === 'object' && Array.isArray((value as { content?: unknown }).content)
+  );
+}
+
+function isErrorResult(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as { errorCode?: unknown; ok?: unknown; success?: unknown };
+  return record.ok === false || record.success === false || Boolean(record.errorCode);
 }
 
 /** Bootstrap instance minimal shape */
@@ -114,7 +138,6 @@ export class McpServer {
   _defaultSource: ToolCallSource;
   _defaultSurface: ToolSurface;
   _lastTaskOperation: string;
-  _toolRouter: ToolRouterContract | null;
   _session: McpSession;
   _startedAt: number;
   bootstrap: BootstrapLike | null;
@@ -131,7 +154,6 @@ export class McpServer {
     this._defaultSource = options.source || { kind: 'mcp', name: 'tools/call' };
     this._defaultSurface = options.surface || 'mcp';
     this._lastTaskOperation = '';
-    this._toolRouter = null;
 
     // ── Session 管理 (with intent lifecycle) ──
     this._session = {
@@ -255,16 +277,7 @@ export class McpServer {
       const { name, arguments: args } = request.params;
       const t0 = Date.now();
       try {
-        const result = await this._handleToolCall(name, args || {});
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          isError: result.ok ? undefined : true,
-        };
+        return await this._handleToolCall(name, args || {});
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.logger?.error(`MCP tool error: ${name}`, { error: errMsg });
@@ -283,54 +296,44 @@ export class McpServer {
     name: string,
     args: Record<string, unknown>,
     options: McpToolCallOptions = {}
-  ): Promise<ToolResultEnvelope> {
-    const router = this._getToolRouter();
-    const gatewayMapping = this._resolveMcpGatewayMapping(name, args);
+  ): Promise<McpToolResponse> {
     const actorRole = options.actor?.role || this._defaultActorRole || this._resolveMcpActorRole();
-    return router.execute({
-      toolId: name,
-      args,
-      surface: options.surface || this._defaultSurface,
+    const source = options.source || this._defaultSource;
+    const surface = options.surface || this._defaultSurface;
+    const result = await this._executeMcpHandler(name, args, {
       actor: {
         role: actorRole,
         user: options.actor?.user || process.env.USER || undefined,
         sessionId: options.actor?.sessionId || this._session.id,
       },
-      source: options.source || this._defaultSource,
-      governance: gatewayMapping
-        ? {
-            gatewayAction: gatewayMapping.action,
-            gatewayResource: gatewayMapping.resource,
-            gatewayData: args || {},
-          }
-        : undefined,
+      source,
+      surface,
     });
-  }
-
-  _getToolRouter() {
-    if (!this._toolRouter) {
-      const { manifests } = buildMcpToolCapabilities(TOOLS);
-      const catalog = new CapabilityCatalog(manifests);
-      this._toolRouter = new LightweightRouter({
-        catalog,
-        adapters: [new McpToolAdapter((toolName, args) => this._executeMcpHandler(toolName, args))],
-        projectRoot: resolveProjectRoot(this.container),
-        dataRoot: resolveDataRoot(this.container),
-        services: {
-          get: <T = unknown>(serviceName: string) => {
-            if (!this.container) {
-              throw new Error(`Service '${serviceName}' is not available before MCP initialize()`);
-            }
-            return this.container.get(serviceName) as T;
-          },
-        },
-      });
+    if (isMcpToolResponse(result)) {
+      return result;
     }
-    return this._toolRouter;
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      isError: isErrorResult(result) ? true : undefined,
+    };
   }
 
-  async _executeMcpHandler(name: string, args: Record<string, unknown>) {
+  async _executeMcpHandler(
+    name: string,
+    args: Record<string, unknown>,
+    runtime: {
+      actor?: ToolActor;
+      source?: ToolCallSource;
+      surface?: ToolSurface;
+    } = {}
+  ) {
     const ctx = this._ctx;
+    Object.assign(ctx, {
+      actor: runtime.actor,
+      source: runtime.source,
+      surface: runtime.surface,
+      gateway: this._resolveMcpGatewayMapping(name, args),
+    });
 
     // 查找 handler 并通过 wrapHandler 统一错误处理
     const handler = this._resolveHandler(name);

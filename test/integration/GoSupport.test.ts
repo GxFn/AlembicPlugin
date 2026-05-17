@@ -9,7 +9,7 @@
  *  L3 — Enhancement: go-web pack 匹配、extraDimensions、guardRules
  *  L4 — (removed: language reference skills no longer bundled)
  *  L5 — 新增基础设施: SUMMARY_EXTRACTORS[go]、IndexingPipeline、extForLang
- *  L6 — Bootstrap 条件维度: go-module-scan
+ *  L6 — External bootstrap 条件维度: go-module-scan
  *
  * 前置条件: 上级目录中存在 gin 项目（自动推导路径）
  */
@@ -465,13 +465,13 @@ describe('L5b: Go IndexingPipeline Support', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// L6: Bootstrap Go Conditional Dimension
+// L6: External Bootstrap Go Conditional Dimension
 // ══════════════════════════════════════════════════════════════════
-describe('L6: Bootstrap go-module-scan dimension', () => {
-  it('bootstrap module should load without error', async () => {
-    // Just verify the bootstrap module loads without errors
+describe('L6: External bootstrap go-module-scan dimension', () => {
+  it('external bootstrap module should load without error', async () => {
+    // Just verify the external bootstrap module loads without errors
     // (verifies go-module-scan dimension definition is valid)
-    const mod = await import('../../lib/external/mcp/handlers/bootstrap-internal.js');
+    const mod = await import('../../lib/external/mcp/handlers/bootstrap-external.js');
     expect(mod).toBeDefined();
   });
 });

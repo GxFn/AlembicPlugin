@@ -63,18 +63,6 @@ import type { QualityScorer } from '@alembic/core/service/quality/QualityScorer'
 import type { RecipeCandidateValidator } from '@alembic/core/service/recipe/RecipeCandidateValidator';
 import type { RecipeParser } from '@alembic/core/service/recipe/RecipeParser';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
-// ── Service Types ──
-import type { InMemoryTerminalSessionManager } from '#tools/adapters/TerminalSessionManager.js';
-import type { UnifiedToolCatalog } from '#tools/catalog/UnifiedToolCatalog.js';
-import type {
-  AgentProfileCompiler,
-  AgentProfileRegistry,
-  AgentRunCoordinator,
-  AgentRuntimeBuilder,
-  AgentService,
-  AgentStageFactoryRegistry,
-  SystemRunContextFactory,
-} from '../agent/service/index.js';
 // ── Domain Types ──
 // ── External Types ──
 import type { HostAiProvider, HostAiProviderManager } from '../codex/HostAiAdapter.js';
@@ -125,7 +113,6 @@ export interface ServiceMap {
   recipeSourceRefRepository: SourceRefRepository;
   knowledgeFileWriter: KnowledgeFileWriter;
   knowledgeSyncService: KnowledgeSyncService;
-  terminalSessionManager: InMemoryTerminalSessionManager;
 
   // ═══ AppModule ═══
   qualityScorer: QualityScorer;
@@ -170,14 +157,14 @@ export interface ServiceMap {
   guardFeedbackLoop: GuardFeedbackLoop;
 
   // ═══ AgentModule ═══
-  toolRegistry: UnifiedToolCatalog;
-  agentProfileRegistry: AgentProfileRegistry;
-  agentStageFactoryRegistry: AgentStageFactoryRegistry;
-  agentProfileCompiler: AgentProfileCompiler;
-  agentRunCoordinator: AgentRunCoordinator;
-  systemRunContextFactory: SystemRunContextFactory;
-  agentRuntimeBuilder: AgentRuntimeBuilder;
-  agentService: AgentService;
+  toolRegistry: unknown;
+  agentProfileRegistry: unknown;
+  agentStageFactoryRegistry: unknown;
+  agentProfileCompiler: unknown;
+  agentRunCoordinator: unknown;
+  systemRunContextFactory: unknown;
+  agentRuntimeBuilder: unknown;
+  agentService: unknown;
   skillHooks: SkillHooks;
 
   // ═══ SignalModule ═══
