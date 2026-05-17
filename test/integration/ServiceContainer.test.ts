@@ -3,7 +3,7 @@
  *
  * 覆盖范围:
  *   - ServiceContainer 构造 & register / singleton / get
- *   - initialize() 完整模块注册链 (Infra → App → Knowledge → Guard → Agent)
+ *   - initialize() 完整模块注册链 (Infra → App → Knowledge → Guard → SkillHooks)
  *   - 服务惰性创建 & 单例缓存
  *   - reset() 清除单例
  *   - 核心服务可解析性验证
@@ -136,12 +136,13 @@ describe('Integration: ServiceContainer', () => {
       expect(gce).toBeDefined();
     });
 
-    // ─── Agent Module 服务 ──────────────────────
+    // ─── Plugin Skill Hooks ─────────────────────
 
-    test('should resolve toolRegistry', () => {
-      const tr = container.get('toolRegistry');
-      expect(tr).toBeDefined();
-      expect(typeof tr.has).toBe('function');
+    test('should resolve skillHooks without local agent runtime services', () => {
+      const hooks = container.get('skillHooks');
+      expect(hooks).toBeDefined();
+      expect(typeof hooks.has).toBe('function');
+      expect(() => container.get('toolRegistry')).toThrow("Service 'toolRegistry' not found");
     });
 
     // ─── 服务一致性 ────────────────────────────

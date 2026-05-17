@@ -156,15 +156,7 @@ export interface ServiceMap {
   complianceReporter: ComplianceReporter;
   guardFeedbackLoop: GuardFeedbackLoop;
 
-  // ═══ AgentModule ═══
-  toolRegistry: unknown;
-  agentProfileRegistry: unknown;
-  agentStageFactoryRegistry: unknown;
-  agentProfileCompiler: unknown;
-  agentRunCoordinator: unknown;
-  systemRunContextFactory: unknown;
-  agentRuntimeBuilder: unknown;
-  agentService: unknown;
+  // ═══ Plugin Skill Hooks ═══
   skillHooks: SkillHooks;
 
   // ═══ SignalModule ═══
