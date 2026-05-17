@@ -41,16 +41,15 @@ let ConfidenceRouter: typeof import('@alembic/core/service/knowledge/ConfidenceR
 let SourceRefReconciler: typeof import('@alembic/core/service/knowledge/SourceRefReconciler').SourceRefReconciler;
 let SignalBus: typeof import('@alembic/core/events').SignalBus;
 let RuleLearner: typeof import('@alembic/core/guard').RuleLearner;
-let KnowledgeRepositoryImpl: typeof import('@alembic/core/repository/knowledge/KnowledgeRepository.impl').KnowledgeRepositoryImpl;
-let RecipeSourceRefRepositoryImpl: typeof import('@alembic/core/repository/sourceref/RecipeSourceRefRepository').RecipeSourceRefRepositoryImpl;
+let createAlembicRepositories: typeof import('@alembic/core/repositories').createAlembicRepositories;
 let initDrizzle: typeof import('@alembic/core/infrastructure/database/drizzle').initDrizzle;
 
 describe.skipIf(!DB_EXISTS)('BiliDili 真实项目压力测试', () => {
   let db: InstanceType<typeof Database>;
   let tmpDbPath: string;
   let signalBus: InstanceType<typeof SignalBus>;
-  let knowledgeRepo: InstanceType<typeof KnowledgeRepositoryImpl>;
-  let sourceRefRepo: InstanceType<typeof RecipeSourceRefRepositoryImpl>;
+  let knowledgeRepo: import('@alembic/core/repositories').KnowledgeRepository;
+  let sourceRefRepo: import('@alembic/core/repositories').SourceRefRepository;
   let drizzleDb: ReturnType<typeof initDrizzle>;
 
   beforeAll(async () => {
@@ -68,8 +67,7 @@ describe.skipIf(!DB_EXISTS)('BiliDili 真实项目压力测试', () => {
       sourceRefMod,
       signalBusMod,
       ruleLearnerMod,
-      knowledgeRepoMod,
-      sourceRefRepoMod,
+      repositoriesMod,
       drizzleMod,
     ] = await Promise.all([
       import('@alembic/core/knowledge'),
@@ -84,8 +82,7 @@ describe.skipIf(!DB_EXISTS)('BiliDili 真实项目压力测试', () => {
       import('@alembic/core/service/knowledge/SourceRefReconciler'),
       import('@alembic/core/events'),
       import('@alembic/core/guard'),
-      import('@alembic/core/repository/knowledge/KnowledgeRepository.impl'),
-      import('@alembic/core/repository/sourceref/RecipeSourceRefRepository'),
+      import('@alembic/core/repositories'),
       import('@alembic/core/infrastructure/database/drizzle'),
     ]);
 
@@ -102,8 +99,7 @@ describe.skipIf(!DB_EXISTS)('BiliDili 真实项目压力测试', () => {
     SourceRefReconciler = sourceRefMod.SourceRefReconciler;
     SignalBus = signalBusMod.SignalBus;
     RuleLearner = ruleLearnerMod.RuleLearner;
-    KnowledgeRepositoryImpl = knowledgeRepoMod.KnowledgeRepositoryImpl;
-    RecipeSourceRefRepositoryImpl = sourceRefRepoMod.RecipeSourceRefRepositoryImpl;
+    createAlembicRepositories = repositoriesMod.createAlembicRepositories;
     initDrizzle = drizzleMod.initDrizzle;
 
     // 复制 BiliDili DB 到临时目录（不影响原始数据）
@@ -137,8 +133,12 @@ describe.skipIf(!DB_EXISTS)('BiliDili 真实项目压力测试', () => {
 
     signalBus = new SignalBus();
     drizzleDb = initDrizzle(db);
-    knowledgeRepo = new KnowledgeRepositoryImpl({ getDb: () => db });
-    sourceRefRepo = new RecipeSourceRefRepositoryImpl(drizzleDb);
+    const repositories = createAlembicRepositories({
+      getDb: () => db,
+      getDrizzle: () => drizzleDb,
+    });
+    knowledgeRepo = repositories.knowledgeRepository;
+    sourceRefRepo = repositories.recipeSourceRefRepository;
   });
 
   afterAll(() => {

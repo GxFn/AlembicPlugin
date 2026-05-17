@@ -5,10 +5,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { timerRegistry } from '@alembic/core/events';
+import { type Disposable, timerRegistry } from '@alembic/core/events';
 import type { DataPath, WriteZone } from '@alembic/core/io';
 import Logger from '@alembic/core/logging';
-import type { Disposable } from '@alembic/core/shared/lifecycle';
 import { resolveDataRoot } from '@alembic/core/workspace';
 
 interface ErrorTrackerConfig {

@@ -8,8 +8,8 @@
 
 import { KnowledgeEntry } from '@alembic/core/knowledge';
 import { Lifecycle } from '@alembic/core/knowledge';
-import { KnowledgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeRepository.impl';
 import { KnowledgeService } from '@alembic/core/knowledge';
+import { createAlembicRepositories } from '@alembic/core/repositories';
 import { createTestBootstrap } from '../fixtures/factory.js';
 
 describe('Integration: KnowledgeService CRUD + Lifecycle', () => {
@@ -38,7 +38,7 @@ describe('Integration: KnowledgeService CRUD + Lifecycle', () => {
   beforeAll(async () => {
     ({ bootstrap, components } = await createTestBootstrap());
     db = components.db;
-    repo = new KnowledgeRepositoryImpl(db);
+    repo = createAlembicRepositories(db).knowledgeRepository;
     service = new KnowledgeService(
       repo,
       components.auditLogger,

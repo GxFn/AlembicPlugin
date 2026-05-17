@@ -10,7 +10,7 @@
 import type { BootstrapRepositoryImpl } from '@alembic/core/repository/bootstrap/BootstrapRepository';
 import type { CodeEntityRepositoryImpl } from '@alembic/core/repository/code/CodeEntityRepository';
 import type { KnowledgeEdgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeEdgeRepository';
-import type { KnowledgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeRepository.impl';
+import type { KnowledgeRepository } from '@alembic/core/repositories';
 
 /* ═══ Types ═══════════════════════════════════════════════ */
 
@@ -239,7 +239,7 @@ export function createMockBootstrapRepo(opts: MockRepoOptions = {}): BootstrapRe
 
 /* ═══ KnowledgeRepository Mock ════════════════════════════ */
 
-export function createMockKnowledgeRepo(opts: MockRepoOptions = {}): KnowledgeRepositoryImpl {
+export function createMockKnowledgeRepo(opts: MockRepoOptions = {}): KnowledgeRepository {
   return {
     countByCountableLifecycles() {
       return opts.recipeCount ?? 0;
@@ -255,7 +255,7 @@ export function createMockKnowledgeRepo(opts: MockRepoOptions = {}): KnowledgeRe
     ) {
       return [];
     },
-  } as unknown as KnowledgeRepositoryImpl;
+  } as unknown as KnowledgeRepository;
 }
 
 /* ═══ Bundle Helper ═══════════════════════════════════════ */

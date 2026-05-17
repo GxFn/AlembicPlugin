@@ -21,6 +21,7 @@ import {
   submitRescanImpactDecisions,
   toRescanImpactDecision,
 } from '@alembic/core/service/evolution/RecipeImpactPlanner';
+import type { KnowledgeRepository } from '@alembic/core/repositories';
 import { describe, expect, it, vi } from 'vitest';
 
 // ── Mock factories ──
@@ -83,9 +84,7 @@ function makeKnowledgeRepo(
   return {
     findById: vi.fn((id: string) => entries[id] ?? null),
     findAllIdAndReasoning: vi.fn(() => []),
-  } as unknown as InstanceType<
-    typeof import('@alembic/core/repository/knowledge/KnowledgeRepository.impl').default
-  >;
+  } as unknown as KnowledgeRepository;
 }
 
 // ── Tests ──

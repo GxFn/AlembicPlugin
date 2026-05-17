@@ -3,17 +3,10 @@
   "phase": "Phase 1 baseline with Phase 2/3/4/5/6/7/8/9 gates",
   "generatedAt": "2026-05-17",
   "sourcePlan": "workspace docs/alembic-core-public-api-boundary-construction-plan-2026-05-17.md",
-  "scanRoots": [
-    "lib",
-    "bin",
-    "scripts",
-    "test"
-  ],
-  "allowedRootSpecifiers": [
-    "@alembic/core"
-  ],
-  "referenceCount": 764,
-  "uniqueSpecifierCount": 102,
+  "scanRoots": ["lib", "bin", "scripts", "test"],
+  "allowedRootSpecifiers": ["@alembic/core"],
+  "referenceCount": 669,
+  "uniqueSpecifierCount": 96,
   "referenceLimits": {
     "@alembic/core/domain/dimension": 1,
     "@alembic/core/domain/dimension/DimensionSop": 2,
@@ -36,7 +29,6 @@
     "@alembic/core/repository/code/CodeEntityRepository": 1,
     "@alembic/core/repository/evolution/ProposalRepository": 3,
     "@alembic/core/repository/knowledge/KnowledgeEdgeRepository": 1,
-    "@alembic/core/repository/knowledge/KnowledgeRepository.impl": 5,
     "@alembic/core/repository/memory/MemoryRepository": 2,
     "@alembic/core/repository/sourceref/RecipeSourceRefRepository": 3,
     "@alembic/core/repository/sync/SyncRepoAdapter": 1,
@@ -99,7 +91,6 @@
     "@alembic/core/repository/code/CodeEntityRepository",
     "@alembic/core/repository/evolution/ProposalRepository",
     "@alembic/core/repository/knowledge/KnowledgeEdgeRepository",
-    "@alembic/core/repository/knowledge/KnowledgeRepository.impl",
     "@alembic/core/repository/memory/MemoryRepository",
     "@alembic/core/repository/sourceref/RecipeSourceRefRepository",
     "@alembic/core/repository/sync/SyncRepoAdapter",
@@ -140,7 +131,6 @@
     "@alembic/core/shared/errors/BaseError",
     "@alembic/core/shared/errors/index",
     "@alembic/core/shared/isOwnDevRepo",
-    "@alembic/core/shared/lifecycle",
     "@alembic/core/shared/markdown-utils",
     "@alembic/core/shared/recipe-tokens",
     "@alembic/core/shared/schemas/common",
