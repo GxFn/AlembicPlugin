@@ -296,14 +296,30 @@ describe('agent module boundaries', () => {
     expect(offenders).toEqual([]);
     expect(
       existsSync(
-        join(repoRoot, 'lib/workflows/capabilities/project-intelligence/FileDiffPlanner.ts')
+        join(
+          repoRoot,
+          'vendor/AlembicCore/src/workflows/capabilities/project-intelligence/FileDiffPlanner.ts'
+        )
       )
     ).toBe(true);
     expect(
       existsSync(
-        join(repoRoot, 'lib/workflows/capabilities/project-intelligence/FileDiffSnapshotStore.ts')
+        join(
+          repoRoot,
+          'vendor/AlembicCore/src/workflows/capabilities/project-intelligence/FileDiffSnapshotStore.ts'
+        )
       )
     ).toBe(true);
+    expect(
+      existsSync(
+        join(repoRoot, 'lib/workflows/capabilities/project-intelligence/FileDiffPlanner.ts')
+      )
+    ).toBe(false);
+    expect(
+      existsSync(
+        join(repoRoot, 'lib/workflows/capabilities/project-intelligence/FileDiffSnapshotStore.ts')
+      )
+    ).toBe(false);
   });
 });
 
