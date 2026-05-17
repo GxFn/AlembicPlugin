@@ -25,6 +25,9 @@ const distributionMarketplaceJson = readJson(distributionMarketplacePath);
 const runtimePackageJson = readJson(runtimePackagePath);
 const errors = [];
 const iface = pluginJson.interface || {};
+const wrapperSource = existsSync(join(pluginRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs'))
+  ? readFileSync(join(pluginRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs'), 'utf8')
+  : '';
 
 const packageVersion = packageJson.version;
 const expectedRuntime = `alembic-ai@${packageVersion}`;
@@ -164,10 +167,12 @@ expect(
   'plugin MCP wrapper must exist'
 );
 expect(
-  readFileSync(join(pluginRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs'), 'utf8').includes(
-    expectedEmbeddedRuntimeSpecifier
-  ),
+  wrapperSource.includes(expectedEmbeddedRuntimeSpecifier),
   `plugin MCP wrapper must launch embedded runtime ${expectedEmbeddedRuntimeSpecifier}`
+);
+expect(
+  wrapperSource.includes("'--offline'") && wrapperSource.includes('npm_config_offline'),
+  'plugin MCP wrapper must force npx runtime install to use the self-contained offline package'
 );
 expect(server?.cwd === '.', '.mcp.json must run from the installed plugin root');
 expect(existsSync(runtimeTarballPath), 'embedded runtime tarball runtime.tgz must exist');
@@ -216,6 +221,17 @@ expect(
   'embedded runtime package must carry production dependencies'
 );
 expect(
+  runtimePackageJson.dependencies?.['@alembic/core'] === 'file:vendor/AlembicCore',
+  'embedded runtime package must resolve @alembic/core from packaged vendor/AlembicCore'
+);
+for (const dependency of Object.keys(runtimePackageJson.dependencies || {})) {
+  expect(
+    Array.isArray(runtimePackageJson.bundledDependencies) &&
+      runtimePackageJson.bundledDependencies.includes(dependency),
+    `embedded runtime package must bundle production dependency ${dependency}`
+  );
+}
+expect(
   runtimePackageJson.imports?.['#codex/*'],
   'embedded runtime package must carry package imports used by compiled dist'
 );
@@ -228,6 +244,9 @@ for (const requiredRuntimeFile of [
   'templates/constitution.yaml',
   'injectable-skills/alembic-guard/SKILL.md',
   'resources/grammars/tree-sitter-typescript.wasm',
+  'vendor/AlembicCore/package.json',
+  'vendor/AlembicCore/dist/index.js',
+  'vendor/AlembicCore/resources/grammars/tree-sitter-typescript.wasm',
   'channels/codex/channel.json',
   '.agents/plugins/marketplace.json',
   'plugins/alembic-codex/.agents/plugins/marketplace.json',

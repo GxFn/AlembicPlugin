@@ -48,6 +48,8 @@ copyFile('README.md', 'README.md', { optional: true });
 copyFile('README_CN.md', 'README_CN.md', { optional: true });
 copyTree('channels', 'channels');
 copyTree('.agents', '.agents');
+copyEmbeddedCorePackage();
+copyBundledRuntimeDependencies();
 copyPluginShellSnapshot();
 const runtimeTarballPath = packRuntimeTarball();
 
@@ -85,6 +87,7 @@ function writeRuntimePackageJson() {
     license: packageJson.license,
     dependencies: packageJson.dependencies,
     overrides: packageJson.overrides,
+    bundledDependencies: Object.keys(packageJson.dependencies || {}),
     files: [
       '.agents',
       'channels',
@@ -96,6 +99,7 @@ function writeRuntimePackageJson() {
       'resources',
       'templates',
       'template.json',
+      'vendor/AlembicCore',
       'README.md',
       'README_CN.md',
     ],
@@ -137,7 +141,7 @@ function packRuntimeTarball() {
   try {
     const result = spawnSync(
       'npm',
-      ['pack', runtimeRoot, '--json', '--pack-destination', packRoot, '--ignore-scripts'],
+      ['pack', runtimeRoot, '--pack-destination', packRoot, '--ignore-scripts'],
       {
         cwd: root,
         encoding: 'utf8',
@@ -153,11 +157,11 @@ function packRuntimeTarball() {
         `npm pack embedded runtime failed (${result.status})\n${result.stdout}\n${result.stderr}`
       );
     }
-    const packInfo = parseNpmPackJson(result.stdout)[0];
-    if (!packInfo?.filename) {
+    const filename = parseNpmPackFilename(result.stdout);
+    if (!filename) {
       throw new Error(`npm pack embedded runtime did not return a filename\n${result.stdout}`);
     }
-    const packedPath = join(packRoot, packInfo.filename);
+    const packedPath = join(packRoot, filename);
     if (!existsSync(packedPath)) {
       throw new Error(`npm pack embedded runtime did not create ${packedPath}`);
     }
@@ -214,6 +218,62 @@ function resolveCoreGrammarSource() {
   );
 }
 
+function copyEmbeddedCorePackage() {
+  const source = resolveEmbeddedCoreSource();
+  const destination = join(runtimeRoot, 'vendor', 'AlembicCore');
+  for (const entry of ['package.json', 'README.md', 'dist', 'resources', 'config', 'scripts']) {
+    const sourcePath = join(source, entry);
+    if (!existsSync(sourcePath)) {
+      if (entry === 'README.md') {
+        continue;
+      }
+      throw new Error(`Required embedded Core entry is missing: ${sourcePath}`);
+    }
+    const targetPath = join(destination, entry);
+    mkdirSync(dirname(targetPath), { recursive: true });
+    cpSync(sourcePath, targetPath, {
+      force: true,
+      recursive: true,
+      filter(sourcePath) {
+        return (
+          !sourcePath.includes(`${source}/node_modules/`) && !sourcePath.includes(`${source}/.git/`)
+        );
+      },
+    });
+  }
+}
+
+function resolveEmbeddedCoreSource() {
+  const source = join(root, 'vendor', 'AlembicCore');
+  if (existsSync(join(source, 'package.json')) && existsSync(join(source, 'dist'))) {
+    return source;
+  }
+  throw new Error('Embedded runtime requires built vendor/AlembicCore with package.json and dist.');
+}
+
+function copyBundledRuntimeDependencies() {
+  const source = join(root, 'node_modules');
+  const destination = join(runtimeRoot, 'node_modules');
+  if (!existsSync(source)) {
+    throw new Error('Embedded runtime dependency bundling requires root node_modules.');
+  }
+  cpSync(source, destination, {
+    force: true,
+    recursive: true,
+    filter(sourcePath) {
+      return !sourcePath.includes(`${source}/.cache/`);
+    },
+  });
+
+  const bundledCore = join(destination, '@alembic', 'core');
+  rmSync(bundledCore, { force: true, recursive: true });
+  mkdirSync(dirname(bundledCore), { recursive: true });
+  cpSync(join(runtimeRoot, 'vendor', 'AlembicCore'), bundledCore, {
+    force: true,
+    recursive: true,
+  });
+}
+
 function copyFile(sourceRelative, destinationRelative, options = {}) {
   const source = join(root, sourceRelative);
   const destination = join(runtimeRoot, destinationRelative);
@@ -231,12 +291,12 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
-function parseNpmPackJson(stdout) {
-  try {
-    return JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(`npm pack embedded runtime did not emit JSON output: ${error.message}`);
-  }
+function parseNpmPackFilename(stdout) {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.endsWith('.tgz'))
+    .at(-1);
 }
 
 function normalizeRuntimeImports(imports) {

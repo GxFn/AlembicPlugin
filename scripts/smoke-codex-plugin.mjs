@@ -314,6 +314,9 @@ function requiredPackageFiles(version) {
     'package/plugins/alembic-codex/runtime/dist/lib/external/mcp/CodexMcpServer.js',
     'package/plugins/alembic-codex/runtime/dashboard/dist/index.html',
     'package/plugins/alembic-codex/runtime/resources/grammars/tree-sitter-typescript.wasm',
+    'package/plugins/alembic-codex/runtime/vendor/AlembicCore/package.json',
+    'package/plugins/alembic-codex/runtime/vendor/AlembicCore/dist/index.js',
+    'package/plugins/alembic-codex/runtime/vendor/AlembicCore/resources/grammars/tree-sitter-typescript.wasm',
     'package/plugins/alembic-codex/runtime/plugins/alembic-codex/.codex-plugin/plugin.json',
     'package/plugins/alembic-codex/runtime/plugins/alembic-codex/bin/alembic-codex-mcp-wrapper.mjs',
     'package/plugins/alembic-codex/RELEASE-PLAYBOOK.md',
@@ -421,6 +424,14 @@ function simulateMarketplaceInstall({ packageRoot, packageVersion }) {
     existsSync(join(installedRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs')),
     'installed plugin MCP wrapper file missing'
   );
+  const wrapperSource = readFileSync(
+    join(installedRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs'),
+    'utf8'
+  );
+  assert(
+    wrapperSource.includes("'--offline'") && wrapperSource.includes('npm_config_offline'),
+    'installed plugin MCP wrapper must force offline npx runtime install'
+  );
   assert(mcp.mcpServers?.alembic?.cwd === '.', 'installed plugin MCP cwd must be plugin root');
   assert(
     env.ALEMBIC_CODEX_PLUGIN_ROOT === '.',
@@ -439,6 +450,16 @@ function simulateMarketplaceInstall({ packageRoot, packageVersion }) {
   const runtimeRoot = join(installedRoot, 'runtime');
   const runtimeTarballPath = join(installedRoot, 'runtime.tgz');
   assert(existsSync(runtimeTarballPath), 'embedded runtime tarball missing');
+  const runtimeTarballListing = run('tar', ['-tzf', runtimeTarballPath])
+    .stdout.split('\n')
+    .filter(Boolean);
+  for (const bundled of [
+    'package/node_modules/@alembic/core/package.json',
+    'package/node_modules/@modelcontextprotocol/sdk/package.json',
+    'package/node_modules/better-sqlite3/package.json',
+  ]) {
+    assert(runtimeTarballListing.includes(bundled), `embedded runtime tarball missing ${bundled}`);
+  }
   const distributionMarketplace = readJson(
     join(installedRoot, '.agents', 'plugins', 'marketplace.json')
   );
@@ -463,11 +484,25 @@ function simulateMarketplaceInstall({ packageRoot, packageVersion }) {
     runtimePackage.bin?.['alembic-codex-mcp'] === 'dist/bin/codex-mcp.js',
     'embedded runtime MCP bin missing'
   );
+  assert(
+    runtimePackage.dependencies?.['@alembic/core'] === 'file:vendor/AlembicCore',
+    'embedded runtime package must resolve @alembic/core from packaged vendor/AlembicCore'
+  );
+  for (const dependency of Object.keys(runtimePackage.dependencies || {})) {
+    assert(
+      Array.isArray(runtimePackage.bundledDependencies) &&
+        runtimePackage.bundledDependencies.includes(dependency),
+      `embedded runtime package must bundle production dependency ${dependency}`
+    );
+  }
   for (const required of [
     'dist/bin/codex-mcp.js',
     'dist/lib/external/mcp/CodexMcpServer.js',
     'dashboard/dist/index.html',
     'resources/grammars/tree-sitter-typescript.wasm',
+    'vendor/AlembicCore/package.json',
+    'vendor/AlembicCore/dist/index.js',
+    'vendor/AlembicCore/resources/grammars/tree-sitter-typescript.wasm',
     'plugins/alembic-codex/.codex-plugin/plugin.json',
   ]) {
     assert(existsSync(join(runtimeRoot, required)), `embedded runtime missing ${required}`);
