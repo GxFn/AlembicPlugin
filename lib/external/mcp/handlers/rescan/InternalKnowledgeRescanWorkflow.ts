@@ -16,6 +16,7 @@
  *   7. 前端通过 Socket.io 接收维度完成进度
  */
 
+import type { KnowledgeRepository, SourceRefRepository } from '@alembic/core/repositories';
 import {
   type EvolutionCandidatePlan,
   RecipeImpactPlanner,
@@ -32,6 +33,11 @@ import {
 import type { DimensionDef, ProjectSnapshot } from '@alembic/core/types/project-snapshot';
 import { buildProjectSnapshot } from '@alembic/core/types/project-snapshot-builder';
 import type { PipelineFillView } from '@alembic/core/types/snapshot-views';
+import type {
+  McpContext,
+  WorkflowDatabaseLike,
+  WorkflowSkillHooks,
+} from '@alembic/core/types/workflows';
 import { cacheProjectAnalysisSession } from '@alembic/core/workflows/capabilities/execution/external/SessionSupport';
 import {
   auditRecipesForRescan,
@@ -57,32 +63,23 @@ import {
   presentInternalKnowledgeRescanResponse,
 } from '@alembic/core/workflows/knowledge-rescan/KnowledgeRescanPresenters';
 import { buildKnowledgeRescanWorkflowPlan } from '@alembic/core/workflows/knowledge-rescan/KnowledgeRescanWorkflowPlan';
-import type {
-  McpContext,
-  WorkflowDatabaseLike,
-  WorkflowSkillHooks,
-} from '@alembic/core/types/workflows';
 import type { WorkflowMcpContext } from '@alembic/core/workflows/shared/WorkflowTypes';
-import {
-  dispatchInternalDimensionExecution,
-  startInternalDimensionExecutionSession,
-} from '#workflows/capabilities/execution/internal-agent/InternalDimensionExecutionWorkflow.js';
 import type {
   EvolutionAuditRecipe as AgentEvolutionAuditRecipe,
   EvolutionAuditResult,
 } from '#agent/runs/evolution/EvolutionAgentRun.js';
 import { runEvolutionAudit } from '#agent/runs/evolution/EvolutionAgentRun.js';
+import {
+  dispatchInternalDimensionExecution,
+  startInternalDimensionExecutionSession,
+} from '#workflows/capabilities/execution/internal-agent/InternalDimensionExecutionWorkflow.js';
 
 type RescanMcpContext = WorkflowMcpContext & McpContext;
 
 // ── Helpers ──────────────────────────────────────────
 
-type SourceRefRepoT = InstanceType<
-  typeof import('@alembic/core/repository/sourceref/RecipeSourceRefRepository').RecipeSourceRefRepositoryImpl
->;
-type KnowledgeRepoT = InstanceType<
-  typeof import('@alembic/core/repository/knowledge/KnowledgeRepository.impl').default
->;
+type SourceRefRepoT = SourceRefRepository;
+type KnowledgeRepoT = KnowledgeRepository;
 
 interface KnowledgeRepos {
   sourceRefRepo: SourceRefRepoT;
@@ -348,8 +345,7 @@ export async function runInternalKnowledgeRescanWorkflow(
         const agentAuditRecipes = auditRecipes.map(toAgentEvolutionAuditRecipe);
         if (auditRecipes.length > 0) {
           evolutionAuditResult = await runEvolutionAudit({
-            agentService:
-              agentService as import('#agent/service/AgentService.js').AgentService,
+            agentService: agentService as import('#agent/service/AgentService.js').AgentService,
             recipes: agentAuditRecipes,
             projectOverview: {
               primaryLang: primaryLang || 'unknown',

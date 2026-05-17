@@ -15,8 +15,10 @@
  */
 
 import Logger from '@alembic/core/infrastructure/logging/Logger';
-import type { ProposalRepository } from '@alembic/core/repository/evolution/ProposalRepository';
-import type { WarningRepository } from '@alembic/core/repository/evolution/WarningRepository';
+import type {
+  EvolutionProposalRepository,
+  EvolutionWarningRepository,
+} from '@alembic/core/repositories';
 import type { ProposalExecutor } from '@alembic/core/service/evolution/ProposalExecutor';
 import express, { type Request, type Response } from 'express';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
@@ -32,7 +34,7 @@ const logger = Logger.getInstance();
 router.get('/proposals', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('proposalRepository') as ProposalRepository;
+    const repo = container.get('proposalRepository') as EvolutionProposalRepository;
 
     const filter: Record<string, unknown> = {};
     if (req.query.status) {
@@ -50,7 +52,7 @@ router.get('/proposals', (req: Request, res: Response) => {
 
     const limit = Math.min(Number(req.query.limit) || 100, 500);
     const proposals = repo
-      .find(filter as Parameters<ProposalRepository['find']>[0])
+      .find(filter as Parameters<EvolutionProposalRepository['find']>[0])
       .slice(0, limit);
 
     res.json({ success: true, data: proposals });
@@ -66,7 +68,7 @@ router.get('/proposals', (req: Request, res: Response) => {
 router.get('/proposals/stats', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('proposalRepository') as ProposalRepository;
+    const repo = container.get('proposalRepository') as EvolutionProposalRepository;
 
     const pending = repo.find({ status: 'pending' }).length;
     const observing = repo.find({ status: 'observing' }).length;
@@ -87,7 +89,7 @@ router.get('/proposals/stats', (req: Request, res: Response) => {
 router.post('/proposals/:id/execute', async (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('proposalRepository') as ProposalRepository;
+    const repo = container.get('proposalRepository') as EvolutionProposalRepository;
     const executor = container.get('proposalExecutor') as ProposalExecutor;
 
     const id = String(req.params.id);
@@ -116,7 +118,7 @@ router.post('/proposals/:id/execute', async (req: Request, res: Response) => {
 router.post('/proposals/:id/observe', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('proposalRepository') as ProposalRepository;
+    const repo = container.get('proposalRepository') as EvolutionProposalRepository;
 
     const id = String(req.params.id);
     const ok = repo.startObserving(id);
@@ -142,7 +144,7 @@ router.post('/proposals/:id/observe', (req: Request, res: Response) => {
 router.post('/proposals/:id/reject', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('proposalRepository') as ProposalRepository;
+    const repo = container.get('proposalRepository') as EvolutionProposalRepository;
 
     const id = String(req.params.id);
     const { reason } = req.body as { reason?: string };
@@ -173,7 +175,7 @@ router.post('/proposals/:id/reject', (req: Request, res: Response) => {
 router.get('/warnings', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('warningRepository') as WarningRepository;
+    const repo = container.get('warningRepository') as EvolutionWarningRepository;
 
     const filter: Record<string, unknown> = {};
     if (req.query.status) {
@@ -187,7 +189,7 @@ router.get('/warnings', (req: Request, res: Response) => {
     }
 
     const limit = Math.min(Number(req.query.limit) || 100, 500);
-    const warnings = repo.find(filter as Parameters<WarningRepository['find']>[0], limit);
+    const warnings = repo.find(filter as Parameters<EvolutionWarningRepository['find']>[0], limit);
 
     res.json({ success: true, data: warnings });
   } catch (err: unknown) {
@@ -202,7 +204,7 @@ router.get('/warnings', (req: Request, res: Response) => {
 router.get('/warnings/stats', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('warningRepository') as WarningRepository;
+    const repo = container.get('warningRepository') as EvolutionWarningRepository;
 
     const stats = repo.countOpen();
 
@@ -219,7 +221,7 @@ router.get('/warnings/stats', (req: Request, res: Response) => {
 router.post('/warnings/:id/resolve', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('warningRepository') as WarningRepository;
+    const repo = container.get('warningRepository') as EvolutionWarningRepository;
 
     const id = String(req.params.id);
     const { resolution } = req.body as { resolution?: string };
@@ -246,7 +248,7 @@ router.post('/warnings/:id/resolve', (req: Request, res: Response) => {
 router.post('/warnings/:id/dismiss', (req: Request, res: Response) => {
   try {
     const container = getServiceContainer();
-    const repo = container.get('warningRepository') as WarningRepository;
+    const repo = container.get('warningRepository') as EvolutionWarningRepository;
 
     const id = String(req.params.id);
     const { reason } = req.body as { reason?: string };

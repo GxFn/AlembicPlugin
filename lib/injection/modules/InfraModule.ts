@@ -13,15 +13,11 @@ import { EventBus } from '@alembic/core/infrastructure/event/EventBus';
 import { WriteZone } from '@alembic/core/infrastructure/io/WriteZone';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import { ReportStore } from '@alembic/core/infrastructure/report/ReportStore';
-import { BootstrapRepositoryImpl } from '@alembic/core/repository/bootstrap/BootstrapRepository';
-import { CodeEntityRepositoryImpl } from '@alembic/core/repository/code/CodeEntityRepository';
-import { ProposalRepository } from '@alembic/core/repository/evolution/ProposalRepository';
-import { GuardViolationRepositoryImpl } from '@alembic/core/repository/guard/GuardViolationRepository';
-import { KnowledgeEdgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeEdgeRepository';
-import { KnowledgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeRepository.impl';
+import {
+  type AlembicRepositoryBundle,
+  createAlembicRepositories,
+} from '@alembic/core/repositories';
 import { MemoryRepositoryImpl } from '@alembic/core/repository/memory/MemoryRepository';
-import { SessionRepositoryImpl } from '@alembic/core/repository/session/SessionRepository';
-import { RecipeSourceRefRepositoryImpl } from '@alembic/core/repository/sourceref/RecipeSourceRefRepository';
 import { KnowledgeFileWriter } from '@alembic/core/service/knowledge/KnowledgeFileWriter';
 import { KnowledgeSyncService } from '@alembic/core/service/knowledge/KnowledgeSyncService';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
@@ -99,44 +95,23 @@ export function register(c: ServiceContainer) {
   // ═══ Repositories ═══
 
   c.singleton('knowledgeRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as ConstructorParameters<typeof KnowledgeRepositoryImpl>[0];
-    const drizzle = (db as unknown as { getDrizzle(): unknown }).getDrizzle();
-    return new KnowledgeRepositoryImpl(
-      db,
-      drizzle as ConstructorParameters<typeof KnowledgeRepositoryImpl>[1]
-    );
+    return getCoreRepositories(ct).knowledgeRepository;
   });
 
   c.singleton('knowledgeEdgeRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new KnowledgeEdgeRepositoryImpl(
-      drizzle as ConstructorParameters<typeof KnowledgeEdgeRepositoryImpl>[0]
-    );
+    return getCoreRepositories(ct).knowledgeEdgeRepository;
   });
 
   c.singleton('codeEntityRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new CodeEntityRepositoryImpl(
-      drizzle as ConstructorParameters<typeof CodeEntityRepositoryImpl>[0]
-    );
+    return getCoreRepositories(ct).codeEntityRepository;
   });
 
   c.singleton('bootstrapRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new BootstrapRepositoryImpl(
-      drizzle as ConstructorParameters<typeof BootstrapRepositoryImpl>[0]
-    );
+    return getCoreRepositories(ct).bootstrapRepository;
   });
 
   c.singleton('guardViolationRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new GuardViolationRepositoryImpl(
-      drizzle as ConstructorParameters<typeof GuardViolationRepositoryImpl>[0]
-    );
+    return getCoreRepositories(ct).guardViolationRepository;
   });
 
   c.singleton('auditRepository', (ct: ServiceContainer) => {
@@ -154,25 +129,23 @@ export function register(c: ServiceContainer) {
   });
 
   c.singleton('sessionRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new SessionRepositoryImpl(
-      drizzle as ConstructorParameters<typeof SessionRepositoryImpl>[0]
-    );
+    return getCoreRepositories(ct).sessionRepository;
   });
 
   c.singleton('proposalRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new ProposalRepository(drizzle as ConstructorParameters<typeof ProposalRepository>[0]);
+    return getCoreRepositories(ct).proposalRepository;
+  });
+
+  c.singleton('warningRepository', (ct: ServiceContainer) => {
+    return getCoreRepositories(ct).warningRepository;
+  });
+
+  c.singleton('lifecycleEventRepository', (ct: ServiceContainer) => {
+    return getCoreRepositories(ct).lifecycleEventRepository;
   });
 
   c.singleton('recipeSourceRefRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new RecipeSourceRefRepositoryImpl(
-      drizzle as ConstructorParameters<typeof RecipeSourceRefRepositoryImpl>[0]
-    );
+    return getCoreRepositories(ct).recipeSourceRefRepository;
   });
 
   c.singleton('knowledgeFileWriter', (ct: ServiceContainer) => {
@@ -200,4 +173,17 @@ export function register(c: ServiceContainer) {
     const wz = ct.get('writeZone') as WriteZone | null;
     return new ReportStore(path.join(dataRoot, '.asd', 'logs', 'reports'), wz ?? undefined);
   });
+}
+
+function getCoreRepositories(ct: ServiceContainer): AlembicRepositoryBundle {
+  const cached = ct.singletons.coreRepositories as AlembicRepositoryBundle | undefined;
+  if (cached) {
+    return cached;
+  }
+
+  const repositories = createAlembicRepositories(
+    ct.get('database') as Parameters<typeof createAlembicRepositories>[0]
+  );
+  ct.singletons.coreRepositories = repositories;
+  return repositories;
 }
