@@ -5,7 +5,7 @@ import {
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
   resolveDaemonPaths,
-} from '@alembic/core/daemon/DaemonState';
+} from '@alembic/core/daemon';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildCodexStatus } from '../../lib/codex/index.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';

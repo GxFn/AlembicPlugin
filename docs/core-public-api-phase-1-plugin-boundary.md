@@ -16,14 +16,14 @@ Phase 1 在 AlembicPlugin 侧只建立边界门禁和反馈记录，不做大规
 
 扫描方式：`scripts/lint-core-import-boundary.mjs` 只统计静态 `import` / `export from` 和动态 `import()` 的 `@alembic/core` specifier，不把普通字符串、文档文本或插件运行时产物当成新增调用。
 
-当前基线：
+Phase 1 起始基线：
 
 | 项目 | 数量 |
 | --- | ---: |
 | Core import refs | 906 |
 | unique Core specifiers | 208 |
 
-当前允许集合固化在 `docs/core-import-boundary-allowlist.json`。这个 allowlist 不是稳定公开 API 清单，只表示 Phase 1 开始前 AlembicPlugin 已存在的 Core 依赖集合。新增 `@alembic/core/...` specifier 必须先通过边界说明，不能因为 Core wildcard export 当前可用就直接接入。
+当前允许集合固化在 `docs/core-import-boundary-allowlist.json`。这个 allowlist 不是稳定公开 API 清单，只表示 Phase 1 开始前 AlembicPlugin 已存在的 Core 依赖集合，以及后续阶段已经完成收敛的稳定入口。新增 `@alembic/core/...` specifier 必须先通过边界说明，不能因为 Core wildcard export 当前可用就直接接入。
 
 ## 新增 Core 引用规则
 

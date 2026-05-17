@@ -12,8 +12,8 @@
   "allowedRootSpecifiers": [
     "@alembic/core"
   ],
-  "referenceCount": 906,
-  "uniqueSpecifierCount": 208,
+  "referenceCount": 904,
+  "uniqueSpecifierCount": 207,
   "allowedSpecifiers": [
     "@alembic/core/core/AstAnalyzer",
     "@alembic/core/core/analysis/CallEdgeResolver",
@@ -43,8 +43,7 @@
     "@alembic/core/core/discovery/parsers/StarlarkParser",
     "@alembic/core/core/discovery/parsers/YamlConfigParser",
     "@alembic/core/core/enhancement",
-    "@alembic/core/daemon/DaemonState",
-    "@alembic/core/daemon/JobStore",
+    "@alembic/core/daemon",
     "@alembic/core/domain/dimension",
     "@alembic/core/domain/dimension/DimensionCopy",
     "@alembic/core/domain/dimension/DimensionSop",

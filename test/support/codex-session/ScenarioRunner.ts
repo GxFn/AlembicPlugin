@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { type DaemonJobRecord, JobStore } from '@alembic/core/daemon/JobStore';
+import { type DaemonJobRecord, JobStore } from '@alembic/core/daemon';
 import { analyzeScenarioResult, buildScenarioFacts } from './AgentOutputAnalyzer.js';
 import { CodexScenarioAgentSimulator } from './AgentSimulator.js';
 import { readScenarioSecretWritten, setupCodexScenarioFixture } from './Fixtures.js';

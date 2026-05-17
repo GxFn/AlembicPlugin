@@ -4,9 +4,9 @@ import path from 'node:path';
 import {
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
+  JobStore,
   resolveDaemonPaths,
-} from '@alembic/core/daemon/DaemonState';
-import { JobStore } from '@alembic/core/daemon/JobStore';
+} from '@alembic/core/daemon';
 import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {

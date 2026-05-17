@@ -3,7 +3,7 @@ import {
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
   resolveDaemonPaths,
-} from '@alembic/core/daemon/DaemonState';
+} from '@alembic/core/daemon';
 import type { DaemonStatus } from '../../../lib/daemon/DaemonSupervisor.js';
 import { getPackageVersion } from '../../../lib/shared/package-assets.js';
 import type { ScenarioDaemonState } from './ScenarioTypes.js';
