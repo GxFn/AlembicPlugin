@@ -24,10 +24,6 @@
       "alembic-dev": "./lib/agent/*",
       "default": "./dist/lib/agent/*"
     },
-    "#domain/*": {
-      "alembic-dev": "./lib/domain/*",
-      "default": "./dist/lib/domain/*"
-    },
     "#inject/*": {
       "alembic-dev": "./lib/injection/*",
       "default": "./dist/lib/injection/*"
