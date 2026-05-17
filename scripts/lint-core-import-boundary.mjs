@@ -14,13 +14,19 @@ const dynamicPattern = /\bimport\s*\(\s*['"](@alembic\/core(?:\/[^'"]+)?)['"]\s*
 
 const allowlist = readJson(allowlistPath);
 const allowedSpecifiers = allowlist.allowedSpecifiers ?? [];
+const referenceLimits = allowlist.referenceLimits ?? {};
 const scanRoots = allowlist.scanRoots ?? ['lib', 'bin', 'scripts', 'test'];
 
 validateAllowlist(allowedSpecifiers);
+validateReferenceLimits(referenceLimits);
 
 const allowed = new Set(['@alembic/core', ...allowedSpecifiers]);
 const references = collectReferences(scanRoots);
 const unknownReferences = references.filter((reference) => !allowed.has(reference.specifier));
+const referenceCounts = countBySpecifier(references);
+const limitViolations = Object.entries(referenceLimits).filter(
+  ([specifier, limit]) => (referenceCounts.get(specifier) ?? 0) > limit
+);
 const uniqueSpecifiers = new Set(references.map((reference) => reference.specifier));
 
 if (unknownReferences.length > 0) {
@@ -38,6 +44,17 @@ if (unknownReferences.length > 0) {
   stderr('  - desired import path');
   stderr('  - deterministic Core API vs Codex adapter/tool/delivery logic');
   stderr('  - whether Core needs a stable facade instead of another deep path');
+  process.exit(1);
+}
+
+if (limitViolations.length > 0) {
+  stderr('\nCore import boundary check failed.\n');
+  stderr('Existing transitional Core imports gained new references:');
+  for (const [specifier, limit] of limitViolations) {
+    stderr(`  - ${specifier}: ${referenceCounts.get(specifier) ?? 0} refs, limit ${limit}`);
+  }
+  stderr('\nDo not add new references to transitional Core deep paths.');
+  stderr('Use a stable Core facade when available, or record the Core facade blocker first.');
   process.exit(1);
 }
 
@@ -77,6 +94,33 @@ function validateAllowlist(specifiers) {
   }
 }
 
+function validateReferenceLimits(limits) {
+  if (!isPlainObject(limits)) {
+    stderr(`${relative(root, allowlistPath)} referenceLimits must be an object.`);
+    process.exit(1);
+  }
+  const keys = Object.keys(limits);
+  const sortedKeys = [...keys].sort();
+  const unsorted = keys.some((key, index) => key !== sortedKeys[index]);
+  const invalid = Object.entries(limits).filter(
+    ([specifier, limit]) =>
+      !specifier.startsWith('@alembic/core/') ||
+      !Number.isInteger(limit) ||
+      limit < 0 ||
+      !allowedSpecifiers.includes(specifier)
+  );
+
+  if (unsorted || invalid.length > 0) {
+    stderr(
+      `${relative(root, allowlistPath)} referenceLimits must be sorted valid allowlist entries.`
+    );
+    if (invalid.length > 0) {
+      stderr(`Invalid entries: ${invalid.map(([specifier]) => specifier).join(', ')}`);
+    }
+    process.exit(1);
+  }
+}
+
 function collectReferences(rootNames) {
   const files = rootNames.flatMap((rootName) => {
     const absoluteRoot = join(root, rootName);
@@ -94,6 +138,18 @@ function collectReferences(rootNames) {
       ...findMatches(source, file, dynamicPattern),
     ];
   });
+}
+
+function countBySpecifier(references) {
+  const counts = new Map();
+  for (const reference of references) {
+    counts.set(reference.specifier, (counts.get(reference.specifier) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function collectSourceFiles(directory) {
