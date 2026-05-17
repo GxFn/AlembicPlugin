@@ -36,10 +36,6 @@
       "alembic-dev": "./lib/external/*",
       "default": "./dist/lib/external/*"
     },
-    "#types/*": {
-      "alembic-dev": "./lib/types/*",
-      "default": "./dist/lib/types/*"
-    },
     "#http/*": {
       "alembic-dev": "./lib/http/*",
       "default": "./dist/lib/http/*"

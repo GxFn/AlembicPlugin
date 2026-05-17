@@ -57,8 +57,12 @@ import {
   presentInternalKnowledgeRescanResponse,
 } from '@alembic/core/workflows/knowledge-rescan/KnowledgeRescanPresenters';
 import { buildKnowledgeRescanWorkflowPlan } from '@alembic/core/workflows/knowledge-rescan/KnowledgeRescanWorkflowPlan';
+import type {
+  McpContext,
+  WorkflowDatabaseLike,
+  WorkflowSkillHooks,
+} from '@alembic/core/types/workflows';
 import type { WorkflowMcpContext } from '@alembic/core/workflows/shared/WorkflowTypes';
-import type { McpContext, WorkflowDatabaseLike, WorkflowSkillHooks } from '#types/workflows.js';
 import {
   dispatchInternalDimensionExecution,
   startInternalDimensionExecutionSession,

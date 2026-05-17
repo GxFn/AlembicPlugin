@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { JobStore } from '@alembic/core/daemon/JobStore';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -121,9 +122,6 @@ try {
 
   const { CodexMcpServer } = await import(
     pathToFileURL(join(runtimeRoot, 'dist', 'lib', 'external', 'mcp', 'CodexMcpServer.js')).href
-  );
-  const { JobStore } = await import(
-    pathToFileURL(join(runtimeRoot, 'dist', 'lib', 'daemon', 'JobStore.js')).href
   );
 
   server = new CodexMcpServer({ projectRoot, waitUntilReadyMs: 5000 });

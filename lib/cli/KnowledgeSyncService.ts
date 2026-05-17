@@ -17,6 +17,9 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CANDIDATES_DIR, RECIPES_DIR } from '@alembic/core/infrastructure/config/Defaults';
+import Logger from '@alembic/core/infrastructure/logging/Logger';
+import { unwrapRawDb } from '@alembic/core/repository/search/SearchRepoAdapter';
+import { RawDbSyncAdapter, type SyncRepo } from '@alembic/core/repository/sync/SyncRepoAdapter';
 import {
   computeKnowledgeHash,
   parseKnowledgeMarkdown,
@@ -27,9 +30,6 @@ import type {
   RepairReport,
   SourceRefReconciler,
 } from '@alembic/core/service/knowledge/SourceRefReconciler';
-import Logger from '../infrastructure/logging/Logger.js';
-import { unwrapRawDb } from '../repository/search/SearchRepoAdapter.js';
-import { RawDbSyncAdapter, type SyncRepo } from '../repository/sync/SyncRepoAdapter.js';
 
 export interface SyncAllReport {
   synced: number;
