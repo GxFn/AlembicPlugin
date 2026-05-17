@@ -91,6 +91,7 @@
     "smoke:codex-plugin": "node scripts/smoke-codex-plugin.mjs",
     "lint": "biome check lib/ bin/ config/ scripts/",
     "lint:fix": "biome check --fix lib/ bin/ config/ scripts/",
+    "lint:core-import-boundary": "node scripts/lint-core-import-boundary.mjs",
     "lint:repo-boundary": "node scripts/lint-repo-boundary.mjs",
     "format": "biome format --write lib/ bin/ config/ scripts/",
     "typecheck": "tsc --noEmit",
