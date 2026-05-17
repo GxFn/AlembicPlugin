@@ -30,7 +30,6 @@
 
 import { randomUUID } from 'node:crypto';
 import Logger from '@alembic/core/logging';
-import type { LLMGateway } from '#external/ai/gateway/LLMGateway.js';
 import type { ToolSchemaProjection } from '#tools/catalog/CapabilityManifest.js';
 import { isToolResultEnvelope } from '#tools/core/ToolResultPresenter.js';
 import { Capability, CapabilityRegistry } from '../capabilities/index.js';
@@ -60,6 +59,7 @@ import { HookSystem, registerDefaultHooks } from './HookSystem.js';
 import { continueResult, LLMResultType } from './LLMResultType.js';
 import { LoopContext } from './LoopContext.js';
 import { createMessageAdapter } from './MessageAdapter.js';
+import type { RuntimeLlmBridge, ToolSchema, UnifiedMessage } from './RuntimeAiTypes.js';
 import { SystemPromptBuilder } from './SystemPromptBuilder.js';
 import { createToolPipeline } from './ToolExecutionPipeline.js';
 
@@ -108,7 +108,7 @@ export class AgentRuntime {
   #toolPipeline;
   #promptBuilder;
   /** 可选 Gateway — 启用后走 Gateway 路径替代 aiProvider 直接调用 */
-  #gateway: LLMGateway | null;
+  #gateway: RuntimeLlmBridge | null;
   #modelRef: string;
   /** 统一事件钩子系统 */
   #hookSystem: HookSystem;
@@ -809,14 +809,11 @@ export class AgentRuntime {
             : undefined;
 
       // 构建 LLM 输入消息 — projected messages + ephemeral dynamic context
-      const projected =
-        ctx.messages.toProjectedMessages() as import('#external/ai/AiProvider.js').UnifiedMessage[];
+      const projected = ctx.messages.toProjectedMessages() as UnifiedMessage[];
       const unifiedMessages = dynamicContext
         ? [...projected, { role: 'user' as const, content: dynamicContext }]
         : projected;
-      const unifiedTools = effectiveToolSchemas as
-        | import('#external/ai/AiProvider.js').ToolSchema[]
-        | undefined;
+      const unifiedTools = effectiveToolSchemas as ToolSchema[] | undefined;
 
       if (this.#gateway) {
         llmResult = (await this.#gateway.chatWithTools({
@@ -1197,8 +1194,7 @@ export class AgentRuntime {
 
     // 检查预算 (非 tracker 模式)
     if (!tracker && ctx.iteration >= ctx.maxIterations) {
-      const summaryMessages =
-        messages.toMessages() as import('#external/ai/AiProvider.js').UnifiedMessage[];
+      const summaryMessages = messages.toMessages() as UnifiedMessage[];
       const summary: LLMResult = this.#gateway
         ? ((await this.#gateway.chatWithTools({
             modelRef: this.#modelRef,

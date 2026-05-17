@@ -23,7 +23,6 @@
 
 import Logger from '@alembic/core/logging';
 import { estimateTokensFast } from '@alembic/core/shared/token-utils';
-import { getModelRegistry } from '../../external/ai/registry/ModelRegistry.js';
 
 // ─── 类型定义 ──────────────────────────────────────────
 
@@ -184,20 +183,13 @@ export class ContextWindow {
     const { isSystem = false, provider } = opts;
 
     // 1. 查找模型上下文窗口大小
-    //    优先从 ModelRegistry 查询（声明式数据源），回退到旧的正则匹配
     let contextSize = 32_000;
     if (modelName) {
-      const registry = getModelRegistry();
       const providerHint = provider || process.env.ALEMBIC_AI_PROVIDER || '';
-      const regDef = providerHint ? registry.resolve(providerHint, modelName) : undefined;
-      if (regDef) {
-        contextSize = regDef.contextWindow;
-      } else {
-        for (const [pattern, size] of ContextWindow.MODEL_CONTEXT_WINDOWS) {
-          if ((pattern as RegExp).test(modelName)) {
-            contextSize = size as number;
-            break;
-          }
+      for (const [pattern, size] of ContextWindow.MODEL_CONTEXT_WINDOWS) {
+        if ((pattern as RegExp).test(`${providerHint}:${modelName}`)) {
+          contextSize = size as number;
+          break;
         }
       }
     }

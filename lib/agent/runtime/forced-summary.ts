@@ -13,8 +13,8 @@
  */
 
 import Logger from '@alembic/core/logging';
-import type { AiProvider, ChatWithToolsResult } from '#external/ai/AiProvider.js';
 import { cleanFinalAnswer } from './final-answer.js';
+import type { ChatWithToolsResult, RuntimeAiProvider } from './RuntimeAiTypes.js';
 
 /* ── Local types ────────────────────────────────────────── */
 
@@ -53,7 +53,7 @@ interface TokenUsage {
 
 /** Options for {@link produceForcedSummary} */
 interface ForcedSummaryOpts {
-  aiProvider: AiProvider;
+  aiProvider: RuntimeAiProvider;
   source?: string;
   toolCalls?: ToolCallRecord[];
   tracker?: { iteration?: number; pipelineType?: string };

@@ -32,9 +32,11 @@ import {
   taskGuardFullScan,
   taskQualityAudit,
 } from '../../agent/tasks/AgentTaskHandlers.js';
-import { createProvider } from '../../external/ai/AiFactory.js';
-import { getModelRegistry } from '../../external/ai/registry/ModelRegistry.js';
-import { PROVIDER_CONFIGS } from '../../external/ai/registry/ProviderConfig.js';
+import {
+  createHostManagedProvider,
+  listHostAiProviders,
+  readHostAiConfigInfo,
+} from '../../codex/HostAiAdapter.js';
 import { getRealtimeService } from '../../infrastructure/realtime/RealtimeService.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import {
@@ -141,10 +143,12 @@ function getContainer() {
 /** 检查 AI Provider 是否可用（非 mock），不可用则抛 ValidationError */
 function requireAiReady() {
   const container = getContainer();
-  const manager = container.singletons?._aiProviderManager as { isMock: boolean } | undefined;
-  if (manager?.isMock) {
+  const manager = container.singletons?._aiProviderManager as
+    | { isMock: boolean; isReady?: boolean; name?: string }
+    | undefined;
+  if (manager?.isMock || manager?.isReady === false) {
     throw new ValidationError(
-      'AI Provider 未配置，当前为 Mock 模式。请先在 Alembic Dashboard 的 AI Settings 中配置 API Key。'
+      `AI Provider 由宿主 agent 提供，当前插件未收到可执行 provider。当前配置: ${manager?.name || 'mock'}。`
     );
   }
   return container;
@@ -265,8 +269,6 @@ router.post('/lang', validate(AiLangBody), async (req: Request, res: Response): 
  * 获取可用的 AI 提供商列表（增强版 — 含模型能力、约束、连接状态）
  */
 router.get('/providers', async (req: Request, res: Response): Promise<void> => {
-  const registry = getModelRegistry();
-
   const container = getServiceContainer();
   const manager = container.singletons?._aiProviderManager as
     | {
@@ -274,49 +276,15 @@ router.get('/providers', async (req: Request, res: Response): Promise<void> => {
         model?: string;
       }
     | undefined;
-  const activeProvider = manager?.name || process.env.ALEMBIC_AI_PROVIDER || '';
-  const activeModel = manager?.model || process.env.ALEMBIC_AI_MODEL || '';
-
-  const providers = [
-    ...PROVIDER_CONFIGS.map((cfg) => {
-      const hasKey = cfg.keyEnvVar ? !!process.env[cfg.keyEnvVar] : true;
-      const models = registry.listByProvider(cfg.id).map((m) => ({
-        id: m.apiModelId,
-        name: m.displayName,
-        contextWindow: m.contextWindow,
-        maxOutputTokens: m.maxOutputTokens,
-        deprecated: !!m.deprecated,
-        capabilities: m.capabilities,
-        reasoning: {
-          supported: m.reasoning.supported,
-          mode: m.reasoning.mode,
-          defaultEffort: m.reasoning.defaultEffort,
-          effortLevels: m.reasoning.effortLevels,
-        },
-      }));
-      return {
-        id: cfg.id,
-        label: cfg.displayName,
-        defaultModel:
-          registry.get(cfg.defaultModelId)?.apiModelId ?? cfg.defaultModelId.split(':')[1],
-        models,
-        hasKey,
-        isActive: cfg.id === activeProvider,
-        keyEnvVar: cfg.keyEnvVar,
-        baseUrl: cfg.baseUrl,
-      };
-    }),
-    {
-      id: 'mock',
-      label: 'Mock (测试)',
-      defaultModel: 'mock-l3',
-      models: [],
-      hasKey: true,
-      isActive: activeProvider === 'mock',
-      keyEnvVar: '',
-      baseUrl: '',
-    },
-  ];
+  const configInfo = readHostAiConfigInfo(resolveProjectRoot(container));
+  const activeProvider =
+    manager?.name || configInfo.provider || process.env.ALEMBIC_AI_PROVIDER || '';
+  const activeModel = manager?.model || configInfo.model || process.env.ALEMBIC_AI_MODEL || '';
+  const providers = listHostAiProviders({
+    activeProvider,
+    activeModel,
+    env: process.env,
+  });
 
   res.json({
     success: true,
@@ -340,44 +308,22 @@ router.post('/probe', async (req: Request, res: Response): Promise<void> => {
       .json({ success: false, error: { message: 'provider is required' } });
   }
 
-  try {
-    const opts: Record<string, unknown> = { provider: providerName.toLowerCase() };
-    if (apiKey) {
-      opts.apiKey = apiKey;
-    }
-    const provider = createProvider(opts);
-
-    const start = Date.now();
-    await provider.probe();
-    const latencyMs = Date.now() - start;
-
-    res.json({
-      success: true,
-      data: {
-        provider: providerName,
-        status: 'connected',
-        latencyMs,
-        model: provider.model,
-      },
-    });
-  } catch (err: unknown) {
-    const errMsg = (err as Error).message || 'Unknown error';
-    const statusCode = (err as { status?: number }).status;
-    res.json({
-      success: true,
-      data: {
-        provider: providerName,
-        status: 'error',
-        error: errMsg,
-        statusCode,
-      },
-    });
-  }
+  const normalized = String(providerName).toLowerCase();
+  res.json({
+    success: true,
+    data: {
+      provider: normalized,
+      status: 'host-managed',
+      canProbe: false,
+      hasProvidedKey: Boolean(apiKey),
+      message: 'AlembicPlugin 不再内置 provider 探测，连通性由宿主 agent 验证。',
+    },
+  });
 });
 
 /**
  * GET /api/v1/ai/config
- * 获取当前 AI 配置（优先从 AiProviderManager 读取）
+ * 获取当前宿主 AI 配置选择
  */
 router.get('/config', async (req: Request, res: Response): Promise<void> => {
   const container = getServiceContainer();
@@ -394,7 +340,7 @@ router.get('/config', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * POST /api/v1/ai/config
- * 更新 AI 配置（切换提供商/模型）— 通过 AiProviderManager 统一热切换
+ * 更新宿主 AI 配置选择（不在插件内创建 provider）
  */
 router.post(
   '/config',
@@ -402,21 +348,13 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const { provider, model } = req.body;
 
-    // 创建新的 provider 实例验证配置有效
-    let newProvider: ReturnType<typeof createProvider>;
-    try {
-      newProvider = createProvider({
-        provider: provider.toLowerCase(),
-        model: model || undefined,
-      });
-    } catch (error: unknown) {
-      throw new ValidationError(`Invalid provider: ${(error as Error).message}`);
-    }
-
-    // 通过 reloadAiProvider → AiProviderManager.switchProvider() 统一热切换
+    const newProvider = createHostManagedProvider({
+      provider: provider.toLowerCase(),
+      model: model || undefined,
+    });
     const container = getServiceContainer();
     container.reloadAiProvider(newProvider as unknown as Record<string, unknown>);
-    logger.info('AI provider switched via AiProviderManager', {
+    logger.info('AI provider selection updated for host agent', {
       provider: provider.toLowerCase(),
       model: newProvider.model,
     });
@@ -427,6 +365,7 @@ router.post(
         provider: provider.toLowerCase(),
         model: newProvider.model,
         name: newProvider.name,
+        hostManaged: true,
       },
     });
   }
@@ -991,23 +930,16 @@ async function saveLlmConfig(req: Request, res: Response): Promise<void> {
     process.env[k] = String(v);
   }
 
-  // 尝试热切换 AI Provider（通过 AiProviderManager 统一处理）
-  try {
-    const newProvider = createProvider({
+  container.reloadAiProvider(
+    createHostManagedProvider({
       provider: provider.toLowerCase(),
       model: model || undefined,
-    });
-    const container = getServiceContainer();
-    container.reloadAiProvider(newProvider as unknown as Record<string, unknown>);
-    logger.info('AI provider hot-swapped via AiProviderManager after env update', {
-      provider,
-      model: newProvider.model,
-    });
-  } catch (err: unknown) {
-    logger.debug('Hot-swap AI provider failed (will take effect on restart)', {
-      error: (err as Error).message,
-    });
-  }
+    }) as unknown as Record<string, unknown>
+  );
+  logger.info('AI provider selection refreshed for host agent after env update', {
+    provider,
+    model,
+  });
 
   res.json({ success: true, data: readLlmConfig() });
 }

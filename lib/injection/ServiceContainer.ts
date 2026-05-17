@@ -117,6 +117,14 @@ export class ServiceContainer {
         this.singletons.skillHooks = bootstrapComponents.skillHooks;
       }
 
+      if (bootstrapComponents.aiProvider) {
+        this.singletons.aiProvider = bootstrapComponents.aiProvider;
+      }
+
+      if (bootstrapComponents.embedProvider) {
+        this.singletons._embedProvider = bootstrapComponents.embedProvider;
+      }
+
       // ═══ AI Provider 初始化（委托 AiModule）═══
       await AiModule.initialize(this);
 
@@ -175,14 +183,7 @@ export class ServiceContainer {
   }
 
   /**
-   * 热重载 AI Provider（API Key 变更后调用，无需重启进程）
-   *
-   * 委托给 AiProviderManager.switchProvider() — 原子操作:
-   *  1. 替换 provider 引用 + DI 数据管道同步
-   *  2. Token 追踪 AOP 重新挂载
-   *  3. Embedding fallback 重建
-   *  4. 清除已缓存的依赖 AI 的 singleton（SearchEngine 等）
-   *  5. 监听器回调通知
+   * 热重载宿主 AI Provider 引用或配置选择。
    */
   reloadAiProvider(newProvider: Record<string, unknown> | null) {
     if (!newProvider) {

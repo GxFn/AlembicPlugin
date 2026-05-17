@@ -1,4 +1,3 @@
-import type { AiProvider } from '#external/ai/AiProvider.js';
 import { ContextWindow } from '../context/ContextWindow.js';
 import { ExplorationTracker } from '../context/ExplorationTracker.js';
 import { MemoryCoordinator } from '../memory/MemoryCoordinator.js';
@@ -16,11 +15,11 @@ export interface BuildSystemContextOptions {
 }
 
 export interface SystemRunContextFactoryOptions {
-  aiProvider?: Pick<AiProvider, 'model'> | null;
+  aiProvider?: { model?: string } | null;
 }
 
 export class SystemRunContextFactory {
-  #aiProvider: Pick<AiProvider, 'model'> | null;
+  #aiProvider: { model?: string } | null;
 
   constructor({ aiProvider = null }: SystemRunContextFactoryOptions = {}) {
     this.#aiProvider = aiProvider;

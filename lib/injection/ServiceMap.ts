@@ -75,13 +75,12 @@ import type {
   AgentStageFactoryRegistry,
   SystemRunContextFactory,
 } from '../agent/service/index.js';
+// ── Domain Types ──
+// ── External Types ──
+import type { HostAiProvider, HostAiProviderManager } from '../codex/HostAiAdapter.js';
 // ── Core Types ──
 import type Constitution from '../core/constitution/Constitution.js';
 import type Gateway from '../core/gateway/Gateway.js';
-// ── Domain Types ──
-// ── External Types ──
-import type { AiProvider } from '../external/ai/AiProvider.js';
-import type { AiProviderManager } from '../external/ai/AiProviderManager.js';
 // ── InfraModule Types ──
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
@@ -153,8 +152,8 @@ export interface ServiceMap {
   languageService: typeof LanguageService;
   dimensionCopy: typeof DimensionCopy;
   constitution: Constitution | null;
-  aiProvider: AiProvider | null;
-  aiProviderManager: AiProviderManager;
+  aiProvider: HostAiProvider | null;
+  aiProviderManager: HostAiProviderManager;
   projectGraph: ProjectGraph | null;
 
   // ═══ VectorModule ═══

@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveProjectRoot } from '@alembic/core/workspace';
+import { readHostAiConfigInfo } from '#codex/HostAiAdapter.js';
 import { PACKAGE_ROOT } from '#shared/package-assets.js';
 import { envelope } from '../envelope.js';
 import type { KnowledgeBaseStats, McpContext } from './types.js';
@@ -18,8 +19,8 @@ export async function health(ctx: McpContext) {
   // 1) AI 配置
   let aiInfo = { provider: 'unknown', hasKey: false };
   try {
-    const { getAiConfigInfo } = await import('#external/ai/AiFactory.js');
-    aiInfo = getAiConfigInfo();
+    const hostAiInfo = readHostAiConfigInfo(resolveProjectRoot(ctx.container));
+    aiInfo = { ...hostAiInfo, provider: hostAiInfo.provider || 'unknown' };
   } catch (e: unknown) {
     issues.push(`ai: ${e instanceof Error ? e.message : String(e)}`);
   }
