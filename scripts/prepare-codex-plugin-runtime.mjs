@@ -42,7 +42,7 @@ copyTree('dashboard/dist', 'dashboard/dist');
 copyTree('config', 'config');
 copyTree('templates', 'templates');
 copyTree('injectable-skills', 'injectable-skills');
-copyTree('resources/grammars', 'resources/grammars');
+copyCoreGrammars();
 copyFile('template.json', 'template.json', { optional: true });
 copyFile('README.md', 'README.md', { optional: true });
 copyFile('README_CN.md', 'README_CN.md', { optional: true });
@@ -170,12 +170,16 @@ function packRuntimeTarball() {
 
 function copyTree(sourceRelative, destinationRelative, options = {}) {
   const source = join(root, sourceRelative);
+  copyTreeFromPath(source, destinationRelative, options, sourceRelative);
+}
+
+function copyTreeFromPath(source, destinationRelative, options = {}, label = source) {
   const destination = join(runtimeRoot, destinationRelative);
   if (!existsSync(source)) {
     if (options.optional) {
       return;
     }
-    throw new Error(`Required source path is missing: ${sourceRelative}`);
+    throw new Error(`Required source path is missing: ${label}`);
   }
   mkdirSync(dirname(destination), { recursive: true });
   cpSync(source, destination, {
@@ -185,6 +189,29 @@ function copyTree(sourceRelative, destinationRelative, options = {}) {
       return !(options.skipDeclarations && sourcePath.endsWith('.d.ts'));
     },
   });
+}
+
+function copyCoreGrammars() {
+  const source = resolveCoreGrammarSource();
+  assert(
+    existsSync(join(source, 'tree-sitter-typescript.wasm')),
+    `Core grammar source is missing tree-sitter-typescript.wasm: ${source}`
+  );
+  copyTreeFromPath(source, 'resources/grammars', {}, source);
+}
+
+function resolveCoreGrammarSource() {
+  for (const source of [
+    join(root, 'vendor', 'AlembicCore', 'resources', 'grammars'),
+    join(root, 'node_modules', '@alembic', 'core', 'resources', 'grammars'),
+  ]) {
+    if (existsSync(source)) {
+      return source;
+    }
+  }
+  throw new Error(
+    'Core grammar resources are missing. Expected vendor/AlembicCore/resources/grammars or node_modules/@alembic/core/resources/grammars.'
+  );
 }
 
 function copyFile(sourceRelative, destinationRelative, options = {}) {

@@ -169,8 +169,7 @@
     "plugins",
     "templates",
     "dashboard/dist",
-    "template.json",
-    "resources/grammars"
+    "template.json"
   ],
   "directories": {
     "doc": "docs",
