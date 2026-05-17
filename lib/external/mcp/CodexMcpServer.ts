@@ -3,6 +3,10 @@ import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { type DaemonState, resolveDaemonPaths } from '@alembic/core/daemon/DaemonState';
 import { JobStore } from '@alembic/core/daemon/JobStore';
+import {
+  PROVIDER_KEY_ENV,
+  WorkspaceSettingsStore,
+} from '@alembic/core/shared/WorkspaceSettingsStore';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -39,7 +43,6 @@ import {
   writeCodexSavedProjectRoot,
 } from '../../codex/index.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
-import { PROVIDER_KEY_ENV, WorkspaceSettingsStore } from '../../shared/WorkspaceSettingsStore.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from './tools.js';
 
 interface CodexMcpServerOptions {

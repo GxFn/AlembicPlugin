@@ -5,7 +5,7 @@ import {
   resolveDaemonPaths,
 } from '@alembic/core/daemon/DaemonState';
 import type { DaemonStatus } from '../../../lib/daemon/DaemonSupervisor.js';
-import { getPackageVersion } from '../../../lib/shared/package-root.js';
+import { getPackageVersion } from '../../../lib/shared/package-assets.js';
 import type { ScenarioDaemonState } from './ScenarioTypes.js';
 
 export class FakeDaemonSupervisor {

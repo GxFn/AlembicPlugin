@@ -20,7 +20,7 @@ import { markInterruptedDaemonJobs } from '../lib/daemon/DaemonJobRunner.js';
 import HttpServer from '../lib/http/HttpServer.js';
 import { getServiceContainer } from '../lib/injection/ServiceContainer.js';
 import { GitDiffCheckpointService } from '../lib/service/evolution/git-diff-checkpoint/index.js';
-import { DASHBOARD_DIR, getPackageVersion } from '../lib/shared/package-root.js';
+import { DASHBOARD_DIR, getPackageVersion } from '../lib/shared/package-assets.js';
 import { shutdown } from '../lib/shared/shutdown.js';
 
 shutdown.install();

@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
+import { WorkspaceSettingsStore } from '@alembic/core/shared/WorkspaceSettingsStore';
 import { afterEach, describe, expect, test } from 'vitest';
 import { Bootstrap } from '../../lib/bootstrap.js';
-import { WorkspaceSettingsStore } from '../../lib/shared/WorkspaceSettingsStore.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 const ORIGINAL_PROJECT_DIR = process.env.ALEMBIC_PROJECT_DIR;
@@ -61,7 +61,7 @@ describe('WorkspaceSettingsStore', () => {
       ALEMBIC_GOOGLE_API_KEY: 'secret-google-key',
     });
 
-    expect(result.runtimeValues).toMatchObject({
+    expect(result.env).toMatchObject({
       ALEMBIC_AI_PROVIDER: 'google',
       ALEMBIC_AI_MODEL: 'gemini-3-flash-preview',
       ALEMBIC_GOOGLE_API_KEY: 'secret-google-key',

@@ -12,7 +12,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { DASHBOARD_DIR, PACKAGE_ROOT } from '../lib/shared/package-root.js';
+import { DASHBOARD_DIR, PACKAGE_ROOT } from '../lib/shared/package-assets.js';
 
 const require = createRequire(import.meta.url);
 // 颜色输出

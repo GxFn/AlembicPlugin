@@ -9,7 +9,7 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
-import { getPackageVersion, PACKAGE_ROOT } from '../shared/package-root.js';
+import { getPackageVersion, PACKAGE_ROOT } from '../shared/package-assets.js';
 import { CODEX_PLUGIN_ROOT_ENV, CODEX_SETUP_PROFILE } from './RuntimeContext.js';
 
 export type CodexProjectRootSource =

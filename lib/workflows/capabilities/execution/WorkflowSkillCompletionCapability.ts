@@ -5,7 +5,7 @@ import type { WriteZone } from '@alembic/core/infrastructure/io/WriteZone';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import pathGuard from '@alembic/core/shared/PathGuard';
 import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
-import { INJECTABLE_SKILLS_DIR } from '#shared/package-root.js';
+import { INJECTABLE_SKILLS_DIR } from '#shared/package-assets.js';
 
 const logger = Logger.getInstance();
 

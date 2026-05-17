@@ -6,6 +6,13 @@
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import { ValidationError } from '@alembic/core/shared/errors/index';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';
+import {
+  collectAiEnvOverrides,
+  isAiEnvReady,
+  maskAiEnvConfig,
+  PROVIDER_KEY_ENV,
+  WorkspaceSettingsStore,
+} from '@alembic/core/shared/WorkspaceSettingsStore';
 import express, { type Request, type Response } from 'express';
 import {
   type AgentRunInput,
@@ -42,13 +49,6 @@ import {
   AiTranslateBody,
   AiWorkspaceConfigBody,
 } from '../../shared/schemas/http-requests.js';
-import {
-  collectAiRuntimeOverrideDiff,
-  isAiRuntimeConfigReady,
-  maskAiRuntimeConfig,
-  PROVIDER_KEY_ENV,
-  WorkspaceSettingsStore,
-} from '../../shared/WorkspaceSettingsStore.js';
 import { validate } from '../middleware/validate.js';
 import { createStreamSession, getStreamSession } from '../utils/sse-sessions.js';
 import { sendToolEnvelopeResponse } from '../utils/tool-envelope-response.js';
@@ -872,12 +872,12 @@ function getWorkspaceSettingsStore() {
 function readLlmConfig() {
   const store = getWorkspaceSettingsStore();
   const settingsConfig = store.readAiConfig();
-  const processConfig = collectAiRuntimeOverrideDiff(settingsConfig.runtimeValues, process.env);
+  const processConfig = collectAiEnvOverrides(settingsConfig.env, process.env);
   const rawVars = {
-    ...settingsConfig.runtimeValues,
+    ...settingsConfig.env,
     ...processConfig,
   };
-  const vars = maskAiRuntimeConfig(rawVars);
+  const vars = maskAiEnvConfig(rawVars);
   const hasSettings = settingsConfig.hasSettingsFile || settingsConfig.hasSecretsFile;
   const hasProcessConfig = Object.keys(processConfig).length > 0;
 
@@ -892,7 +892,7 @@ function readLlmConfig() {
       : hasSettings
         ? 'workspace-settings'
         : 'empty',
-    llmReady: isAiRuntimeConfigReady(rawVars),
+    llmReady: isAiEnvReady(rawVars),
   };
 }
 

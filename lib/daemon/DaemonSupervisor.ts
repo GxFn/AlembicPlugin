@@ -18,7 +18,7 @@ import {
   removeDaemonState,
   resolveDaemonPaths,
 } from '@alembic/core/daemon/DaemonState';
-import { getPackageVersion, PACKAGE_ROOT } from '../shared/package-root.js';
+import { getPackageVersion, PACKAGE_ROOT } from '../shared/package-assets.js';
 
 export type DaemonStatusKind = 'ready' | 'starting' | 'stopped' | 'stale' | 'failed';
 

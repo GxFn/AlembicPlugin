@@ -63,7 +63,7 @@ import {
 } from '@alembic/core/shared/ProjectMarkers';
 import { ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
 import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
-import { PACKAGE_ROOT } from '../shared/package-root.js';
+import { PACKAGE_ROOT } from '../shared/package-assets.js';
 
 /** Alembic 源码仓库根目录（定位 templates/ 等资源） */
 const REPO_ROOT = PACKAGE_ROOT;
@@ -587,7 +587,7 @@ export class SetupService {
   /* ═══ Step 3: 数据库初始化 ═══════════════════════════ */
 
   async stepDatabase() {
-    const ConfigLoader = (await import('../infrastructure/config/ConfigLoader.js')).default;
+    const ConfigLoader = (await import('#infra/config/AppConfigLoader.js')).default;
     const Bootstrap = (await import('../bootstrap.js')).default;
 
     const previousCwd = process.cwd();

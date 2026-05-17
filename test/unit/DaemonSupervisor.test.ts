@@ -14,7 +14,7 @@ import {
 import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/shared/ProjectRegistry';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { DaemonSupervisor } from '../../lib/daemon/DaemonSupervisor.js';
-import { getPackageVersion } from '../../lib/shared/package-root.js';
+import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 

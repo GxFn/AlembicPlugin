@@ -19,7 +19,7 @@ import path from 'node:path';
 import { getProjectSkillsPath } from '@alembic/core/infrastructure/config/Paths';
 import Logger from '@alembic/core/infrastructure/logging/Logger';
 import { resolveDataRoot } from '@alembic/core/shared/resolveProjectRoot';
-import { INJECTABLE_SKILLS_DIR } from '../../shared/package-root.js';
+import { INJECTABLE_SKILLS_DIR } from '../../shared/package-assets.js';
 import type { HookDefinition, HookHandlerOptions, HookMode, RegisteredHandler } from './types.js';
 
 // ═══════════════════════════════════════════════════════

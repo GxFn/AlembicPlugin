@@ -1,10 +1,10 @@
 import { WorkspaceResolver } from '@alembic/core/shared/WorkspaceResolver';
 import {
-  collectAiRuntimeOverrideDiff,
-  maskAiRuntimeConfig,
+  collectAiEnvOverrides,
+  maskAiEnvConfig,
   PROVIDER_KEY_ENV,
   WorkspaceSettingsStore,
-} from '../shared/WorkspaceSettingsStore.js';
+} from '@alembic/core/shared/WorkspaceSettingsStore';
 
 export type CodexAiConfigSource = 'empty' | 'runtime-overrides' | 'workspace-settings';
 
@@ -31,9 +31,9 @@ export function inspectCodexAiConfig(
   const resolver = WorkspaceResolver.fromProject(projectRoot);
   const store = new WorkspaceSettingsStore(resolver);
   const workspaceConfig = store.readAiConfig();
-  const processConfig = collectAiRuntimeOverrideDiff(workspaceConfig.runtimeValues, env);
+  const processConfig = collectAiEnvOverrides(workspaceConfig.env, env);
   const rawVars = {
-    ...workspaceConfig.runtimeValues,
+    ...workspaceConfig.env,
     ...processConfig,
   };
   const explicitProvider = normalizeProvider(rawVars.ALEMBIC_AI_PROVIDER);
@@ -64,7 +64,7 @@ export function inspectCodexAiConfig(
         : workspaceConfig.hasSettingsFile || workspaceConfig.hasSecretsFile
           ? 'workspace-settings'
           : 'empty',
-    vars: maskAiRuntimeConfig(rawVars),
+    vars: maskAiEnvConfig(rawVars),
   };
 }
 

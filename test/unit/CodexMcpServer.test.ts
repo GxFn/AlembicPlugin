@@ -15,7 +15,7 @@ import {
 } from '../../lib/codex/ProjectRootResolver.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { CodexMcpServer, getVisibleCodexTools } from '../../lib/external/mcp/CodexMcpServer.js';
-import { getPackageVersion } from '../../lib/shared/package-root.js';
+import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 const ORIGINAL_ALEMBIC_PROJECT_DIR = process.env.ALEMBIC_PROJECT_DIR;
