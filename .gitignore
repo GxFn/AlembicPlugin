@@ -8,6 +8,8 @@ node_modules/
 # ─── Build outputs ───────────────────────────────────
 dist/
 dashboard/dist/
+vendor/AlembicDashboard/dist/
+vendor/AlembicDashboard/node_modules/
 plugins/alembic-codex/runtime/
 
 # ─── Native build products ───────────────────────────
