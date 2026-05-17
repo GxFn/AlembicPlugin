@@ -3,7 +3,7 @@
  * 为共享 Dashboard 提供插件模式下的 Repo Wiki 读写与生成入口。
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { DEFAULT_FOLDER_NAMES } from '@alembic/core/shared/folder-names';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/shared/resolveProjectRoot';

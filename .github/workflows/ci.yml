@@ -34,6 +34,7 @@ jobs:
       - run: cd dashboard && npm ci
       - run: npm run build
       - run: npm run lint -- --diagnostic-level=error
+      - run: npm run lint:core-import-boundary
       - run: npm run build:dashboard
 
   api-smoke:
