@@ -108,13 +108,13 @@ lib/
 - 测试框架：Vitest。
 - Dashboard 前端已迁出到 `AlembicDashboard`。
 - MCP/Codex tool 返回结构必须保持明确 schema 和向后兼容。
-- 可以使用中文注释解释 Codex 边界、插件交付约束、复杂状态机或兼容原因；不要给自解释代码堆注释。
+- 必要时在代码旁补充简体中文说明，写清 Codex 边界、插件交付约束、复杂状态机或兼容原因；自解释代码无需额外说明。
 
 ## 类型安全与代码规则
 
 - `catch` 块使用 `catch (err: unknown)` + 类型守卫，禁止 `catch (err: any)`。
 - Dashboard 前端问题在 `AlembicDashboard` 仓库处理；本仓库不新增或修改 Dashboard 源码。
-- 避免 `as any`；不得已时加注释说明原因。
+- 避免 `as any`；不得已时在附近说明原因。
 - `throw` 只能抛出 `Error` 实例。
 - if/else/for/while 必须使用花括号。
 - 不要回退其他窗口或用户已有改动；如果工作区已有无关变更，只处理当前任务需要的文件。
