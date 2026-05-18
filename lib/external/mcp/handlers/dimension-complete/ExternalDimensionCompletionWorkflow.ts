@@ -4,6 +4,7 @@ import Logger from '@alembic/core/logging';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import { resolveDataRoot } from '@alembic/core/workspace';
+import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {
   runWorkflowCompletionFinalizer,
@@ -590,7 +591,7 @@ async function createExternalDimensionSkill({
     effectiveAnalysis,
     referencedFiles,
     keyFindings,
-    'external-agent-bootstrap'
+    CODEX_HOST_AGENT_SOURCE
   );
   if (!skillResult.success) {
     logger.warn(`[DimensionComplete] Skill skipped for "${dimensionId}": ${skillResult.error}`);
@@ -737,7 +738,7 @@ async function persistKeyFindings({
         finding.substring(0, 80),
         'finding',
         'discovered_in',
-        { source: 'external-agent-bootstrap', sessionId: session.id }
+        { source: CODEX_HOST_AGENT_SOURCE, sessionId: session.id }
       );
     }
   } catch (err: unknown) {
@@ -780,10 +781,10 @@ function emitExternalCompletionProgress({
     recipesBound,
     progress: `${progress.completed}/${progress.total}`,
     isBootstrapComplete: isComplete,
-    source: 'external-agent',
+    source: CODEX_HOST_AGENT_SOURCE,
   });
   if (isComplete) {
-    emitter.emitAllComplete(session.id, progress.total, 'external-agent');
+    emitter.emitAllComplete(session.id, progress.total, CODEX_HOST_AGENT_SOURCE);
   }
 }
 

@@ -10,6 +10,7 @@
  */
 
 import type { EvolutionGateway } from '@alembic/core/service/evolution/EvolutionGateway';
+import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { EvolveInput } from '#shared/schemas/mcp-tools.js';
 import { envelope } from '../envelope.js';
@@ -95,7 +96,7 @@ export async function evolveExternal(ctx: McpContext, args: EvolveInput) {
           const gResult = await gateway.submit({
             recipeId: decision.recipeId,
             action: 'update',
-            source: 'ide-agent',
+            source: CODEX_HOST_AGENT_SOURCE,
             confidence: 0.8,
             description: decision.evidence.suggestedChanges,
             evidence: [
@@ -104,7 +105,7 @@ export async function evolveExternal(ctx: McpContext, args: EvolveInput) {
                 currentCode: decision.evidence.codeSnippet,
                 filePath: decision.evidence.filePath,
                 suggestedChanges: decision.evidence.suggestedChanges,
-                verifiedBy: 'ide-agent',
+                verifiedBy: CODEX_HOST_AGENT_SOURCE,
                 verifiedAt: Date.now(),
               },
             ],
@@ -130,7 +131,7 @@ export async function evolveExternal(ctx: McpContext, args: EvolveInput) {
           const gResult = await gateway.submit({
             recipeId: decision.recipeId,
             action: 'deprecate',
-            source: 'ide-agent',
+            source: CODEX_HOST_AGENT_SOURCE,
             confidence: 0.9,
             reason,
           });
@@ -156,7 +157,7 @@ export async function evolveExternal(ctx: McpContext, args: EvolveInput) {
             const gResult = await gateway.submit({
               recipeId: decision.recipeId,
               action: 'valid',
-              source: 'ide-agent',
+              source: CODEX_HOST_AGENT_SOURCE,
               confidence: 0.5,
               reason: decision.skipReason,
             });

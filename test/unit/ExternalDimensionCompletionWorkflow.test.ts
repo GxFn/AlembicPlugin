@@ -114,7 +114,7 @@ describe('ExternalDimensionCompletionWorkflow', () => {
       extracted: 2,
       progress: '1/2',
       recipesBound: 2,
-      source: 'external-agent',
+      source: 'host-agent',
     });
   });
 });

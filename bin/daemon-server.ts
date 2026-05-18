@@ -240,12 +240,14 @@ function mountDashboardIfAvailable(httpServer: HttpServer): boolean {
   const distDir = join(DASHBOARD_DIR, 'dist');
   const indexPath = join(distDir, 'index.html');
   if (!existsSync(indexPath)) {
+    delete process.env.ALEMBIC_DAEMON_DASHBOARD_MOUNTED;
     Logger.getInstance().warn('Dashboard dist is missing; daemon will serve API routes only', {
       indexPath,
     });
     return false;
   }
   httpServer.mountDashboard(distDir);
+  process.env.ALEMBIC_DAEMON_DASHBOARD_MOUNTED = '1';
   return true;
 }
 

@@ -50,7 +50,7 @@ describe('Consolidated Proposal creation logic', () => {
         type: 'update',
         targetRecipeId: advice.targetRecipe.id,
         confidence: advice.confidence,
-        source: 'ide-agent',
+        source: 'host-agent',
         description: advice.reason,
         evidence,
       });
@@ -67,7 +67,7 @@ describe('Consolidated Proposal creation logic', () => {
         type: 'update',
         targetRecipeId: target.id,
         confidence: advice.confidence,
-        source: 'ide-agent',
+        source: 'host-agent',
         description: advice.reason,
         evidence,
       });
@@ -109,7 +109,7 @@ describe('Consolidated Proposal creation logic', () => {
       expect(result).not.toBeNull();
       expect(result?.type).toBe('update');
       expect(result?.targetRecipeId).toBe('r-001');
-      expect(result?.source).toBe('ide-agent');
+      expect(result?.source).toBe('host-agent');
       expect(result?.confidence).toBe(0.85);
       // update confidence 0.85 >= 0.7 → observing
       expect(result?.status).toBe('observing');
@@ -121,7 +121,7 @@ describe('Consolidated Proposal creation logic', () => {
         type: 'update',
         targetRecipeId: 'r-001',
         confidence: 0.85,
-        source: 'ide-agent',
+        source: 'host-agent',
         description: 'first',
       });
 
@@ -178,7 +178,7 @@ describe('Consolidated Proposal creation logic', () => {
       expect(result).not.toBeNull();
       expect(result?.type).toBe('update');
       expect(result?.targetRecipeId).toBe('r-005');
-      expect(result?.source).toBe('ide-agent');
+      expect(result?.source).toBe('host-agent');
       // update confidence 0.75 >= 0.7 → observing
       expect(result?.status).toBe('observing');
     });
@@ -207,7 +207,7 @@ describe('Consolidated Proposal creation logic', () => {
         targetRecipeId: 'r-old',
         relatedRecipeIds: ['r-new-001'],
         confidence: 0.8,
-        source: 'ide-agent',
+        source: 'host-agent',
         description: 'Agent declares new recipe replaces old',
         evidence: [{ snapshotAt: Date.now(), newRecipeIds: ['r-new-001'], declaredBy: 'agent' }],
       });

@@ -12,6 +12,10 @@
 import { dimensionTags } from '@alembic/core/dimensions';
 import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
 import { getDeveloperIdentity } from '@alembic/core/shared';
+import {
+  CODEX_HOST_AGENT_SOURCE,
+  normalizeCodexHostAgentWriteSource,
+} from '#codex/SourceBoundary.js';
 import { envelope } from '../envelope.js';
 import * as browseHandlers from './browse.js';
 import * as guardHandlers from './guard.js';
@@ -246,7 +250,7 @@ export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<stri
   }
 
   const skipConsolidation = (args.skipConsolidation as boolean) === true;
-  const source = (args.source as string) || 'mcp';
+  const source = normalizeCodexHostAgentWriteSource(args.source);
   const dimensionId = args.dimensionId as string | undefined;
   const clientId = args.client_id as string | undefined;
   const supersedes = args.supersedes as string | undefined;
@@ -269,9 +273,7 @@ export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<stri
   // ── Step 2: MCP 特有预处理 ──
   // 注入批次级选项到各条目
   for (const item of items) {
-    if (!item.source) {
-      item.source = source;
-    }
+    item.source = normalizeCodexHostAgentWriteSource(item.source || source);
     if (dimensionId && !item.dimensionId) {
       item.dimensionId = dimensionId;
     }
@@ -330,7 +332,7 @@ export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<stri
   });
 
   const gatewayResult = await gateway.create({
-    source: 'mcp-external',
+    source: CODEX_HOST_AGENT_SOURCE,
     items: items as import('@alembic/core/knowledge').CreateRecipeItem[],
     options: {
       skipConsolidation,

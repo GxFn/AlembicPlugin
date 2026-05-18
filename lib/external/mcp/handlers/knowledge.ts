@@ -7,6 +7,7 @@ import { dimensionTags } from '@alembic/core/dimensions';
 import { UnifiedValidator } from '@alembic/core/knowledge';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
+import { normalizeCodexHostAgentWriteSource } from '#codex/SourceBoundary.js';
 import { envelope } from '../envelope.js';
 import type { McpContext, McpServiceContainer } from './types.js';
 
@@ -35,7 +36,7 @@ async function _checkRateLimit(
 
 /**
  * 将 MCP wire format 增强为 V3 KnowledgeEntry 数据：
- *   - 确保 source 为 'mcp'
+ *   - 确保 Codex/外部宿主 Agent 新写入 source 为 'host-agent'
  *   - RecipeExtractor 语义标签（程序化）
  *   - 其余 V3 字段由调用方生成，缺失即留空（KnowledgeEntry 构造函数填默认值）
  *
@@ -57,9 +58,7 @@ function _enrichToV3(args: EnrichInput, container: McpServiceContainer | null): 
   const data: EnrichInput = { ...args };
 
   // 来源标记（非调用方职责）
-  if (!data.source) {
-    data.source = 'mcp';
-  }
+  data.source = normalizeCodexHostAgentWriteSource(data.source);
 
   // RecipeExtractor 语义标签（程序化）
   try {
@@ -101,7 +100,7 @@ function _enrichToV3(args: EnrichInput, container: McpServiceContainer | null): 
  * 单条知识提交 (alembic_submit_knowledge)
  *
  * MCP wire format → V3 增强 → KnowledgeService.create()
- * 增强包括：source='mcp'、reasoning 默认值、插件适配字段补齐、QualityScorer、语义标签。
+ * 增强包括：source='host-agent'、reasoning 默认值、插件适配字段补齐、QualityScorer、语义标签。
  */
 export async function submitKnowledge(
   ctx: McpContext,
@@ -223,7 +222,7 @@ export async function submitKnowledgeBatch(ctx: McpContext, args: SubmitBatchArg
   }
 
   const service = ctx.container.get('knowledgeService');
-  const source = typeof args.source === 'string' ? args.source : 'cursor-scan';
+  const source = normalizeCodexHostAgentWriteSource(args.source);
   let count = 0;
   const itemErrors: { index: number; title: string; error: string }[] = [];
   const rejectedItems: {

@@ -3,6 +3,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import type { GitDiffCheckpointStatus } from '../service/evolution/git-diff-checkpoint/index.js';
+import type { CodexAiConfigState } from './AiConfigState.js';
+import {
+  buildCodexEnhancementRouteChoice,
+  type CodexEnhancementRouteChoice,
+} from './EnhancementRoute.js';
 import { asString, CODEX_REQUIRED_SKILLS, loadCodexPluginRegistry } from './PluginRegistry.js';
 import {
   buildCodexProjectRootRequiredMessage,
@@ -61,7 +66,9 @@ export interface CodexPluginDiagnostics {
 }
 
 export interface CodexRuntimeDiagnosticsOptions {
+  aiConfig?: CodexAiConfigState | null;
   autoInit?: Record<string, unknown>;
+  enhancementRoute?: CodexEnhancementRouteChoice;
   projectRootResolution?: CodexProjectRootResolution;
 }
 
@@ -83,6 +90,14 @@ export function buildCodexRuntimeDiagnostics(
   const npmAvailable = npm.available === true;
   const npxAvailable = npx.available === true;
   const plugin = buildCodexPluginDiagnostics(context);
+  const enhancementRoute =
+    options.enhancementRoute ||
+    buildCodexEnhancementRouteChoice({
+      aiConfig: options.aiConfig,
+      daemonStatus,
+      runtime: context,
+      requirement: 'status',
+    });
   const checks = {
     adminGate: context.requestedTier !== 'admin' || context.adminEnabled,
     node: nodeMajor >= 22,
@@ -158,6 +173,7 @@ export function buildCodexRuntimeDiagnostics(
       ? summarizeCodexProjectRootResolution(options.projectRootResolution)
       : null,
     autoInit: options.autoInit || null,
+    enhancementRoute,
     gitDiffCheckpoint: readHealthGitDiffCheckpoint(daemonStatus.health),
     plugin,
     daemon: {

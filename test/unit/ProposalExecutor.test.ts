@@ -21,7 +21,7 @@ function makeProposal(overrides: Partial<ProposalRecord> = {}): ProposalRecord {
     targetRecipeId: 'r-001',
     relatedRecipeIds: [],
     confidence: 0.8,
-    source: 'ide-agent',
+    source: 'host-agent',
     description: 'test proposal',
     evidence: [],
     status: 'observing',

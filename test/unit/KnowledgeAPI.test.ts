@@ -150,19 +150,19 @@ describe('MCP Knowledge Handlers', () => {
       expect(result.success).toBe(true);
       expect(result.data.id).toBe('test-api-001');
       expect(result.data.lifecycle).toBe(Lifecycle.PENDING);
-      // _enrichToV3 only adds source='mcp', no other field inference
+      // _enrichToV3 only adds source='host-agent', no other field inference
       expect(svc.create).toHaveBeenCalledWith(
-        expect.objectContaining({ ...validArgs, source: 'mcp' }),
+        expect.objectContaining({ ...validArgs, source: 'host-agent' }),
         { userId: 'mcp' }
       );
     });
 
-    test('应传入 source 字段', async () => {
-      const args = { ...validArgs, source: 'cursor-scan' };
+    test('应保留非旧值的自定义 source 字段', async () => {
+      const args = { ...validArgs, source: 'manual-import' };
       await submitKnowledge(ctx, args);
       // caller-provided source is preserved
       expect(svc.create).toHaveBeenCalledWith(
-        expect.objectContaining({ ...validArgs, source: 'cursor-scan' }),
+        expect.objectContaining({ ...validArgs, source: 'manual-import' }),
         { userId: 'mcp' }
       );
     });

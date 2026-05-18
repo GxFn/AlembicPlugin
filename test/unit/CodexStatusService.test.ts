@@ -119,6 +119,16 @@ describe('Codex status service', () => {
       ready: false,
       source: 'empty',
     });
+    expect(status.enhancementRoute).toMatchObject({
+      hostAgentRoute: {
+        requiresAiProvider: false,
+        source: 'host-agent',
+      },
+      internalAiProvider: {
+        available: false,
+        configSource: 'empty',
+      },
+    });
     expect(status.nextActions).toContain('Initialize Ghost workspace: call alembic_codex_init');
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
@@ -156,6 +166,11 @@ describe('Codex status service', () => {
       provider: 'deepseek',
       ready: true,
       source: 'runtime-overrides',
+    });
+    expect(status.enhancementRoute.internalAiProvider).toMatchObject({
+      available: true,
+      configSource: 'runtime-overrides',
+      provider: 'deepseek',
     });
     expect(status.policy.state).toBe('needs_bootstrap');
     expect(status.nextActions).toContain(

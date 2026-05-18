@@ -24,7 +24,7 @@ function makeInput(overrides: Partial<CreateProposalInput> = {}): CreateProposal
     type: 'update',
     targetRecipeId: 'r-001',
     confidence: 0.85,
-    source: 'ide-agent',
+    source: 'host-agent',
     description: 'Test update proposal',
     ...overrides,
   };
@@ -57,7 +57,7 @@ describe('ProposalRepository', () => {
       expect(result?.type).toBe('update');
       expect(result?.targetRecipeId).toBe('r-001');
       expect(result?.confidence).toBe(0.85);
-      expect(result?.source).toBe('ide-agent');
+      expect(result?.source).toBe('host-agent');
       expect(result?.description).toBe('Test update proposal');
       expect(result?.relatedRecipeIds).toEqual([]);
       expect(result?.evidence).toEqual([]);

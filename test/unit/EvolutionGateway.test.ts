@@ -294,13 +294,13 @@ describe('EvolutionGateway', () => {
   });
 
   describe('submit — deprecate', () => {
-    it('high confidence + agent source → immediate execution', async () => {
+    it('high confidence + host-agent source → immediate execution', async () => {
       const { gateway, lifecycle } = createGateway();
 
       const result = await gateway.submit({
         recipeId: 'r1',
         action: 'deprecate',
-        source: 'ide-agent',
+        source: 'host-agent',
         confidence: 0.9,
         reason: 'source deleted',
       });
@@ -337,7 +337,7 @@ describe('EvolutionGateway', () => {
       const result = await gateway.submit({
         recipeId: 'r1',
         action: 'deprecate',
-        source: 'ide-agent',
+        source: 'host-agent',
         confidence: 0.9,
         reason: 'deleted',
       });
