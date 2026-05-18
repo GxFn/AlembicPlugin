@@ -17,12 +17,14 @@ const readmeCnPath = join(pluginRoot, 'README.zh-CN.md');
 const releasePlaybookPath = join(pluginRoot, 'RELEASE-PLAYBOOK.md');
 const runtimeRoot = join(pluginRoot, 'runtime');
 const runtimePackagePath = join(runtimeRoot, 'package.json');
+const runtimeCoreSourcePath = join(runtimeRoot, 'vendor', 'AlembicCore', '.alembic-source.json');
 const runtimeTarballPath = join(pluginRoot, 'runtime.tgz');
 const pluginJson = readJson(pluginJsonPath);
 const mcpJson = readJson(mcpJsonPath);
 const marketplaceJson = readJson(marketplacePath);
 const distributionMarketplaceJson = readJson(distributionMarketplacePath);
 const runtimePackageJson = readJson(runtimePackagePath);
+const runtimeCoreSourceJson = readJson(runtimeCoreSourcePath);
 const errors = [];
 const iface = pluginJson.interface || {};
 const wrapperSource = existsSync(join(pluginRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs'))
@@ -77,8 +79,9 @@ expect(
   'package.json files[] must include scripts/release-codex-plugin.mjs'
 );
 expect(
-  packageJson.scripts?.prepublishOnly === 'npm run release:codex-plugin',
-  'prepublishOnly must run release:codex-plugin'
+  packageJson.scripts?.prepublishOnly ===
+    'npm run release:package-boundary:publish && npm run release:codex-plugin',
+  'prepublishOnly must run the package boundary publish gate before release:codex-plugin'
 );
 expect(
   packageJson.scripts?.['release:codex-plugin'] === 'node scripts/release-codex-plugin.mjs',
@@ -224,6 +227,18 @@ expect(
   runtimePackageJson.dependencies?.['@alembic/core'] === 'file:vendor/AlembicCore',
   'embedded runtime package must resolve @alembic/core from packaged vendor/AlembicCore'
 );
+expect(
+  typeof runtimeCoreSourceJson.source === 'string' && runtimeCoreSourceJson.source.length > 0,
+  'embedded runtime Core source metadata must record source'
+);
+expect(
+  /^[0-9a-f]{40}$/i.test(runtimeCoreSourceJson.commit || ''),
+  'embedded runtime Core source metadata must record a 40-character source commit'
+);
+expect(
+  runtimeCoreSourceJson.packageDependency === 'file:vendor/AlembicCore',
+  'embedded runtime Core source metadata must record packageDependency=file:vendor/AlembicCore'
+);
 for (const dependency of Object.keys(runtimePackageJson.dependencies || {})) {
   expect(
     Array.isArray(runtimePackageJson.bundledDependencies) &&
@@ -245,6 +260,7 @@ for (const requiredRuntimeFile of [
   'injectable-skills/alembic-guard/SKILL.md',
   'resources/grammars/tree-sitter-typescript.wasm',
   'vendor/AlembicCore/package.json',
+  'vendor/AlembicCore/.alembic-source.json',
   'vendor/AlembicCore/dist/index.js',
   'vendor/AlembicCore/resources/grammars/tree-sitter-typescript.wasm',
   'channels/codex/channel.json',

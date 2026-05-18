@@ -22,16 +22,36 @@ jobs:
     strategy:
       matrix:
         node-version: ['22']
+    defaults:
+      run:
+        working-directory: AlembicPlugin
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout AlembicPlugin
+        uses: actions/checkout@v5
         with:
+          path: AlembicPlugin
           submodules: true
+      - name: Checkout AlembicCore sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicCore
+          path: AlembicCore
+      - name: Checkout AlembicDashboard sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicDashboard
+          path: AlembicDashboard
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
+          cache-dependency-path: |
+            AlembicPlugin/package-lock.json
+            AlembicCore/package-lock.json
+            AlembicDashboard/package-lock.json
       - run: npm ci
-      - run: cd dashboard && npm ci
+      - run: npm ci --prefix ../AlembicCore
+      - run: npm ci --prefix ../AlembicDashboard
       - run: npm run build
       - run: npm run lint -- --diagnostic-level=error
       - run: npm run lint:core-import-boundary
@@ -41,22 +61,42 @@ jobs:
     name: API Smoke Test
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AlembicPlugin
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout AlembicPlugin
+        uses: actions/checkout@v5
         with:
+          path: AlembicPlugin
           submodules: true
+      - name: Checkout AlembicCore sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicCore
+          path: AlembicCore
+      - name: Checkout AlembicDashboard sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicDashboard
+          path: AlembicDashboard
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            AlembicPlugin/package-lock.json
+            AlembicCore/package-lock.json
+            AlembicDashboard/package-lock.json
       - run: npm ci
+      - run: npm ci --prefix ../AlembicCore
       - run: npm run build
-      - run: cd dashboard && npm ci
+      - run: npm ci --prefix ../AlembicDashboard
       - run: npm run build:dashboard
 
       - name: Start API Server
         run: |
-          ALEMBIC_PROJECT_DIR="$GITHUB_WORKSPACE" \
+          ALEMBIC_PROJECT_DIR="$GITHUB_WORKSPACE/AlembicPlugin" \
             ALEMBIC_DAEMON_HOST=127.0.0.1 \
             ALEMBIC_DAEMON_PORT=3100 \
             ASD_SKIP_ENTRY_CHECK=1 \
@@ -110,15 +150,29 @@ jobs:
     name: Unit Tests
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AlembicPlugin
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout AlembicPlugin
+        uses: actions/checkout@v5
         with:
+          path: AlembicPlugin
           submodules: true
+      - name: Checkout AlembicCore sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicCore
+          path: AlembicCore
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            AlembicPlugin/package-lock.json
+            AlembicCore/package-lock.json
       - run: npm ci
+      - run: npm ci --prefix ../AlembicCore
       - run: npm run build
       - run: npm run test:unit
 
@@ -126,15 +180,29 @@ jobs:
     name: Integration Tests
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AlembicPlugin
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout AlembicPlugin
+        uses: actions/checkout@v5
         with:
+          path: AlembicPlugin
           submodules: true
+      - name: Checkout AlembicCore sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicCore
+          path: AlembicCore
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            AlembicPlugin/package-lock.json
+            AlembicCore/package-lock.json
       - run: npm ci
+      - run: npm ci --prefix ../AlembicCore
       - run: npm run build
 
       - name: Show Node/npm version

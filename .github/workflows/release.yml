@@ -19,17 +19,37 @@ jobs:
     permissions:
       id-token: write   # npm provenance / trusted publishing
       contents: read
+    defaults:
+      run:
+        working-directory: AlembicPlugin
     steps:
-      - name: Checkout
+      - name: Checkout AlembicPlugin
         uses: actions/checkout@v5
         with:
+          path: AlembicPlugin
           submodules: true
+
+      - name: Checkout AlembicCore sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicCore
+          path: AlembicCore
+
+      - name: Checkout AlembicDashboard sibling
+        uses: actions/checkout@v5
+        with:
+          repository: GxFn/AlembicDashboard
+          path: AlembicDashboard
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            AlembicPlugin/package-lock.json
+            AlembicCore/package-lock.json
+            AlembicDashboard/package-lock.json
           registry-url: 'https://registry.npmjs.org'
 
       - name: Verify tag matches package version
@@ -43,8 +63,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Core dependencies
+        run: npm ci --prefix ../AlembicCore
+
       - name: Install dashboard dependencies
-        run: npm ci --prefix dashboard
+        run: npm ci --prefix ../AlembicDashboard
 
       - name: Build TypeScript
         run: npm run build
@@ -60,6 +83,9 @@ jobs:
 
       - name: Verify Codex plugin packaging
         run: npm run verify:codex-plugin
+
+      - name: Verify release package boundary
+        run: npm run verify:release-package-boundary
 
       - name: Lint
         run: npm run lint -- --diagnostic-level=error
@@ -78,6 +104,7 @@ jobs:
 
       - name: Publish to npm
         # Build artifacts are produced above; skip prepublishOnly to avoid duplicate builds.
-        run: npm publish --provenance --access public --ignore-scripts
+        # The boundary gate blocks publish while root package.json contains workspace-local file:../ dependencies.
+        run: npm run release:package-boundary:publish && npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
