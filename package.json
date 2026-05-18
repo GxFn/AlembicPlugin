@@ -48,7 +48,7 @@
   "scripts": {
     "build": "npm run build:core && node scripts/clean-dist.mjs && tsc",
     "build:check": "npm run build:core && tsc --noEmit",
-    "build:core": "tsc -p vendor/AlembicCore/tsconfig.json",
+    "build:core": "node scripts/build-core.mjs",
     "postbuild": "node scripts/postbuild.mjs",
     "prepublishOnly": "npm run release:codex-plugin",
     "build:dashboard": "node scripts/build-dashboard.mjs",
@@ -83,7 +83,7 @@
     "smoke:codex-plugin": "node scripts/smoke-codex-plugin.mjs",
     "lint": "biome check lib/ bin/ config/ scripts/",
     "lint:fix": "biome check --fix lib/ bin/ config/ scripts/",
-    "lint:consumer-core-imports": "node vendor/AlembicCore/scripts/lint-consumer-core-imports.mjs . --config config/core-import-boundary-allowlist.json",
+    "lint:consumer-core-imports": "node scripts/lint-consumer-core-imports.mjs",
     "lint:core-import-boundary": "npm run lint:consumer-core-imports",
     "lint:repo-boundary": "node scripts/lint-repo-boundary.mjs",
     "report:agent-extraction-boundary": "node scripts/report-agent-extraction-boundary.mjs",
@@ -125,7 +125,7 @@
     "url": "git+https://github.com/GxFn/AlembicPlugin.git"
   },
   "dependencies": {
-    "@alembic/core": "file:vendor/AlembicCore",
+    "@alembic/core": "file:../AlembicCore",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.20.0",
     "better-sqlite3": "^12.6.2",
@@ -154,7 +154,11 @@
     "dist",
     "config",
     "scripts/postbuild.mjs",
+    "scripts/build-core.mjs",
     "scripts/build-dashboard.mjs",
+    "scripts/lint-consumer-core-imports.mjs",
+    "scripts/local-source-paths.mjs",
+    "scripts/resolve-local-sources.mjs",
     "scripts/verify-codex-channel.mjs",
     "scripts/verify-codex-plugin.mjs",
     "scripts/smoke-codex-plugin.mjs",

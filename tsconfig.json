@@ -12,8 +12,16 @@
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "drizzle-orm": ["node_modules/@alembic/core/node_modules/drizzle-orm/index.d.ts"],
+      "drizzle-orm/*": ["node_modules/@alembic/core/node_modules/drizzle-orm/*"],
+      "zod": ["node_modules/@alembic/core/node_modules/zod/index.d.ts"],
+      "zod/*": ["node_modules/@alembic/core/node_modules/zod/*"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "preserveSymlinks": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },

@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { resolveCoreGrammarSource, resolveCoreSource } from './local-source-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
@@ -85,7 +86,7 @@ function writeRuntimePackageJson() {
     repository: packageJson.repository,
     bugs: packageJson.bugs,
     license: packageJson.license,
-    dependencies: packageJson.dependencies,
+    dependencies: normalizeRuntimeDependencies(packageJson.dependencies),
     overrides: packageJson.overrides,
     bundledDependencies: Object.keys(packageJson.dependencies || {}),
     files: [
@@ -196,7 +197,7 @@ function copyTreeFromPath(source, destinationRelative, options = {}, label = sou
 }
 
 function copyCoreGrammars() {
-  const source = resolveCoreGrammarSource();
+  const { path: source } = resolveCoreGrammarSource();
   assert(
     existsSync(join(source, 'tree-sitter-typescript.wasm')),
     `Core grammar source is missing tree-sitter-typescript.wasm: ${source}`
@@ -204,25 +205,11 @@ function copyCoreGrammars() {
   copyTreeFromPath(source, 'resources/grammars', {}, source);
 }
 
-function resolveCoreGrammarSource() {
-  for (const source of [
-    join(root, 'vendor', 'AlembicCore', 'resources', 'grammars'),
-    join(root, 'node_modules', '@alembic', 'core', 'resources', 'grammars'),
-  ]) {
-    if (existsSync(source)) {
-      return source;
-    }
-  }
-  throw new Error(
-    'Core grammar resources are missing. Expected vendor/AlembicCore/resources/grammars or node_modules/@alembic/core/resources/grammars.'
-  );
-}
-
 function copyEmbeddedCorePackage() {
   const source = resolveEmbeddedCoreSource();
   const destination = join(runtimeRoot, 'vendor', 'AlembicCore');
   for (const entry of ['package.json', 'README.md', 'dist', 'resources', 'config', 'scripts']) {
-    const sourcePath = join(source, entry);
+    const sourcePath = join(source.path, entry);
     if (!existsSync(sourcePath)) {
       if (entry === 'README.md') {
         continue;
@@ -241,14 +228,26 @@ function copyEmbeddedCorePackage() {
       },
     });
   }
+  writeEmbeddedCoreSourceMetadata(source);
 }
 
 function resolveEmbeddedCoreSource() {
-  const source = join(root, 'vendor', 'AlembicCore');
-  if (existsSync(join(source, 'package.json')) && existsSync(join(source, 'dist'))) {
-    return source;
-  }
-  throw new Error('Embedded runtime requires built vendor/AlembicCore with package.json and dist.');
+  return resolveCoreSource({ requireDist: true });
+}
+
+function writeEmbeddedCoreSourceMetadata(source) {
+  writeFileSync(
+    join(runtimeRoot, 'vendor', 'AlembicCore', '.alembic-source.json'),
+    `${JSON.stringify(
+      {
+        source: source.label,
+        commit: source.commit,
+        packageDependency: 'file:vendor/AlembicCore',
+      },
+      null,
+      2
+    )}\n`
+  );
 }
 
 function copyBundledRuntimeDependencies() {
@@ -317,6 +316,16 @@ function normalizeRuntimeImports(imports) {
     }
   }
   return normalized;
+}
+
+function normalizeRuntimeDependencies(dependencies) {
+  if (!dependencies || typeof dependencies !== 'object' || Array.isArray(dependencies)) {
+    return dependencies;
+  }
+  return {
+    ...dependencies,
+    '@alembic/core': 'file:vendor/AlembicCore',
+  };
 }
 
 function assert(condition, message) {

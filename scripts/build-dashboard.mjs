@@ -4,30 +4,36 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveDashboardSource } from './local-source-paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const dashboardRoot = join(root, 'vendor', 'AlembicDashboard');
+const dashboardSource = resolveDashboardSource();
+const dashboardRoot = dashboardSource.path;
 const sourceDist = join(dashboardRoot, 'dist');
 const targetDist = join(root, 'dashboard', 'dist');
 
-assertExists(join(dashboardRoot, 'package.json'), 'vendor/AlembicDashboard/package.json');
-assertExists(join(dashboardRoot, 'src'), 'vendor/AlembicDashboard/src');
+assertExists(join(dashboardRoot, 'package.json'), `${dashboardSource.label}/package.json`);
+assertExists(join(dashboardRoot, 'src'), `${dashboardSource.label}/src`);
 
 if (!existsSync(join(dashboardRoot, 'node_modules'))) {
   throw new Error(
-    'Dashboard dependencies are missing. Run npm ci --prefix vendor/AlembicDashboard first.'
+    `Dashboard dependencies are missing. Run npm ci --prefix ${dashboardSource.label} first.`
   );
 }
 
-run('npm', ['--prefix', 'vendor/AlembicDashboard', 'run', 'build']);
+run('npm', ['--prefix', dashboardRoot, 'run', 'build']);
 
 rmSync(targetDist, { force: true, recursive: true });
 mkdirSync(join(root, 'dashboard'), { recursive: true });
 cpSync(sourceDist, targetDist, { force: true, recursive: true });
 assertExists(join(targetDist, 'index.html'), 'dashboard/dist/index.html');
 
-process.stdout.write('Dashboard build copied from vendor/AlembicDashboard to dashboard/dist.\n');
+process.stdout.write(
+  `Dashboard build copied from ${dashboardSource.label}${
+    dashboardSource.commit ? ` @ ${dashboardSource.commit}` : ''
+  } to dashboard/dist.\n`
+);
 
 function run(command, args) {
   const result = spawnSync(command, args, {

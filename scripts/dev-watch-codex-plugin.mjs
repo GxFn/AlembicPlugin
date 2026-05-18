@@ -4,9 +4,16 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  repoRoot,
+  resolveCoreGrammarSource,
+  resolveDashboardSource,
+} from './local-source-paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
+const dashboardSource = resolveDashboardSource();
+const coreGrammarSource = resolveCoreGrammarSource();
 const options = parseArgs(process.argv.slice(2));
 const watchEntries = [
   '.agents',
@@ -27,17 +34,8 @@ const watchEntries = [
   'plugins/alembic-codex/skills',
   'README.md',
   'README_CN.md',
-  'vendor/AlembicDashboard/index.html',
-  'vendor/AlembicDashboard/package.json',
-  'vendor/AlembicDashboard/package-lock.json',
-  'vendor/AlembicDashboard/public',
-  'vendor/AlembicDashboard/src',
-  'vendor/AlembicDashboard/tailwind.config.cjs',
-  'vendor/AlembicDashboard/postcss.config.cjs',
-  'vendor/AlembicDashboard/tsconfig.json',
-  'vendor/AlembicDashboard/tsconfig.node.json',
-  'vendor/AlembicDashboard/vite.config.ts',
-  'vendor/AlembicCore/resources/grammars',
+  ...dashboardWatchEntries(dashboardSource),
+  relative(repoRoot, coreGrammarSource.path),
   'node_modules/@alembic/core/resources/grammars',
   'scripts/build-dashboard.mjs',
   'scripts/dev-verify-codex-plugin.mjs',
@@ -349,6 +347,21 @@ function parseArgs(args) {
     }
   }
   return parsed;
+}
+
+function dashboardWatchEntries(source) {
+  return [
+    'index.html',
+    'package.json',
+    'package-lock.json',
+    'public',
+    'src',
+    'tailwind.config.cjs',
+    'postcss.config.cjs',
+    'tsconfig.json',
+    'tsconfig.node.json',
+    'vite.config.ts',
+  ].map((entry) => relative(repoRoot, join(source.path, entry)));
 }
 
 function printHelp() {
