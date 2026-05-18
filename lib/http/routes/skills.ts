@@ -40,39 +40,6 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/v1/skills/suggest
- * 共享 Dashboard 兼容端点。完整 SignalCollector 未启用时返回空推荐，避免 UI 404。
- */
-router.get('/suggest', async (_req: Request, res: Response): Promise<void> => {
-  res.json({
-    success: true,
-    data: {
-      suggestions: [],
-      analysisContext: {
-        source: 'alembic-plugin-compat',
-        mode: 'empty',
-      },
-    },
-  });
-});
-
-/**
- * GET /api/v1/skills/signal-status
- * 共享 Dashboard 兼容端点。插件模式暂不启动 Dashboard 侧 SignalCollector。
- */
-router.get('/signal-status', async (_req: Request, res: Response): Promise<void> => {
-  res.json({
-    success: true,
-    data: {
-      running: false,
-      mode: 'plugin-compat',
-      snapshot: null,
-      suggestions: [],
-    },
-  });
-});
-
-/**
  * GET /api/v1/skills/:name
  * 加载指定 Skill 的完整文档
  * Query: ?section=xxx 可只返回指定章节
