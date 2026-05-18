@@ -21,7 +21,7 @@ import {
   submitRescanImpactDecisions,
   toRescanImpactDecision,
 } from '@alembic/core/service/evolution/RecipeImpactPlanner';
-import type { KnowledgeRepository } from '@alembic/core/repositories';
+import type { KnowledgeRepository, SourceRefRepository } from '@alembic/core/repositories';
 import { describe, expect, it, vi } from 'vitest';
 
 // ── Mock factories ──
@@ -63,9 +63,7 @@ function makeSourceRefRepo(data: {
     upsert: vi.fn(),
     deleteOne: vi.fn(),
     isAccessible: vi.fn(() => true),
-  } as unknown as InstanceType<
-    typeof import('@alembic/core/repository/sourceref/RecipeSourceRefRepository').RecipeSourceRefRepositoryImpl
-  >;
+  } as unknown as SourceRefRepository;
 }
 
 function makeKnowledgeRepo(

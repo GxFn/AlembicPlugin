@@ -4,7 +4,7 @@
  */
 
 import { dimensionTags } from '@alembic/core/dimensions';
-import { UnifiedValidator } from '@alembic/core/domain/knowledge/UnifiedValidator';
+import { UnifiedValidator } from '@alembic/core/knowledge';
 import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { envelope } from '../envelope.js';

@@ -23,6 +23,7 @@ import type {
 import type { WriteZone } from '@alembic/core/io';
 import type { KnowledgeService, RecipeProductionGateway } from '@alembic/core/knowledge';
 import type Logger from '@alembic/core/logging';
+import type { MemoryRepositoryImpl } from '@alembic/core/memory';
 // ── Core AST / Discovery / Enhancement ──
 // ── Shared Types ──
 import type {
@@ -47,7 +48,6 @@ import type {
   SourceRefRepository,
 } from '@alembic/core/repositories';
 // ── Repository Types ──
-import type { MemoryRepositoryImpl } from '@alembic/core/repository/memory/MemoryRepository';
 import type { TokenUsageStore } from '@alembic/core/repository/token/TokenUsageStore';
 import type { HybridRetriever, SearchEngine } from '@alembic/core/search';
 import type { CodeEntityGraph } from '@alembic/core/service/knowledge/CodeEntityGraph';

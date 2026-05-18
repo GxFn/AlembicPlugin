@@ -13,11 +13,11 @@ import { EventBus } from '@alembic/core/events';
 import { ReportStore } from '@alembic/core/infrastructure/report/ReportStore';
 import { WriteZone } from '@alembic/core/io';
 import Logger from '@alembic/core/logging';
+import { MemoryRepositoryImpl } from '@alembic/core/memory';
 import {
   type AlembicRepositoryBundle,
   createAlembicRepositories,
 } from '@alembic/core/repositories';
-import { MemoryRepositoryImpl } from '@alembic/core/repository/memory/MemoryRepository';
 import { KnowledgeFileWriter } from '@alembic/core/service/knowledge/KnowledgeFileWriter';
 import { KnowledgeSyncService } from '@alembic/core/service/knowledge/KnowledgeSyncService';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
