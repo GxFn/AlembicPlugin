@@ -45,7 +45,7 @@ rules:
 roles:
   - id: "external_agent"
     name: "External Agent"
-    description: "IDE 中的外部 AI Agent（Cursor / Copilot / Claude Code）"
+    description: "Codex 或外部宿主 Agent"
     permissions:
       - "read:recipes"
       - "read:guard_rules"

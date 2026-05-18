@@ -22,5 +22,5 @@ Runtime code should branch on the stable channel id, for example
 
 Use `ALEMBIC_RUNTIME_MODE=plugin` for behavior that applies to any packaged
 plugin runtime, regardless of host. Use `ALEMBIC_PLUGIN_HOST=codex` only for
-Codex-specific behavior. A future Claude Code plugin should keep
-`ALEMBIC_RUNTIME_MODE=plugin` and set its own plugin host id.
+Codex-specific behavior. Future plugin hosts should keep
+`ALEMBIC_RUNTIME_MODE=plugin` and set their own host id.
