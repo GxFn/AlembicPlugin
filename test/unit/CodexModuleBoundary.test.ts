@@ -14,6 +14,7 @@ describe('Codex module boundary status', () => {
       'portable-runtime-packaging',
       'dashboard-url-handoff',
     ]);
+    expect(status.phase).toBe('runtime-contract-consumption-wave-2');
     expect(externalOwned).toContain('alembic-daemon-main');
     expect(externalOwned).toContain('project-registry-main');
     expect(externalOwned).toContain('job-store-main');
@@ -37,6 +38,9 @@ describe('Codex module boundary status', () => {
       '../AlembicDashboard',
       'vendor/AlembicDashboard',
     ]);
+    expect(status.dashboard.releaseAssetSwitchChecks).toContain(
+      'Artifact metadata records AlembicDashboard source version or release tag.'
+    );
   });
 
   it('marks embedded runtime as a Plugin adapter rather than daemon source of truth', () => {
@@ -72,6 +76,8 @@ describe('Codex module boundary status', () => {
               apiAvailable: null,
               dashboardAvailable: null,
               dashboardUrl: null,
+              fileMonitorAvailable: null,
+              fileMonitorMode: null,
               internalAiAvailable: null,
               jobsAvailable: null,
               jobKinds: [],
@@ -81,6 +87,49 @@ describe('Codex module boundary status', () => {
             packageName: null,
             ready: false,
             route: null,
+            runtimeBoundary: {
+              available: false,
+              dashboard: {
+                frontendOwner: null,
+                handoff: null,
+                serverOwner: null,
+                url: null,
+              },
+              daemon: {
+                apiBaseUrl: null,
+                mode: null,
+                owner: null,
+                stateContract: null,
+              },
+              fileMonitor: {
+                available: null,
+                longLivedOwner: null,
+                mode: null,
+              },
+              internalAi: {
+                available: null,
+                owner: null,
+                runtimeOwner: null,
+              },
+              jobs: {
+                kinds: [],
+                owner: null,
+                store: null,
+              },
+              owner: null,
+              route: null,
+              source: null,
+              workspace: {
+                contract: null,
+                databasePath: null,
+                dataRoot: null,
+                dataRootSource: null,
+                mode: null,
+                projectId: null,
+                projectRoot: null,
+                runtimeDir: null,
+              },
+            },
             status: 'stopped',
             version: null,
           },
@@ -106,5 +155,10 @@ describe('Codex module boundary status', () => {
       selected: 'embedded-plugin-runtime',
     });
     expect(status.adapters.embeddedRuntime.role).toContain('not the long-term Alembic daemon');
+    expect(status.adapters.runtimeContract).toMatchObject({
+      capabilitySummarySource: '@alembic/core/daemon#summarizeAlembicRuntimeCapabilities',
+      healthPath: '/api/v1/daemon/health',
+      runtimeBoundaryAvailable: false,
+    });
   });
 });

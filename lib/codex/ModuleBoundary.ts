@@ -27,6 +27,7 @@ export interface CodexDashboardArtifactBoundary {
   buildCommand: 'npm run build:dashboard';
   deletionAllowedThisWave: false;
   pluginRole: 'dashboard-url-handoff-and-portable-artifact-packaging';
+  releaseAssetSwitchChecks: string[];
   releaseAssetSwitchCondition: string;
   sourceCandidates: readonly ['../AlembicDashboard', 'vendor/AlembicDashboard'];
   sourceOwner: 'AlembicDashboard';
@@ -52,9 +53,16 @@ export interface CodexModuleBoundaryStatus {
       role: string;
       sourceOfTruth: 'Codex host and @alembic/core/workspace';
     };
+    runtimeContract: {
+      capabilitySummarySource: '@alembic/core/daemon#summarizeAlembicRuntimeCapabilities';
+      fileMonitorMode: string | null;
+      healthPath: '/api/v1/daemon/health';
+      runtimeBoundarySource: string | null;
+      runtimeBoundaryAvailable: boolean;
+    };
   };
   dashboard: CodexDashboardArtifactBoundary;
-  phase: 'module-boundary-foundation-wave-1';
+  phase: 'runtime-contract-consumption-wave-2';
   pluginDoesNotOwn: CodexModuleBoundaryEntry[];
   pluginOwns: CodexModuleBoundaryEntry[];
   nextWaveGaps: string[];
@@ -65,6 +73,11 @@ export const CODEX_DASHBOARD_ARTIFACT_BOUNDARY: CodexDashboardArtifactBoundary =
   buildCommand: 'npm run build:dashboard',
   deletionAllowedThisWave: false,
   pluginRole: 'dashboard-url-handoff-and-portable-artifact-packaging',
+  releaseAssetSwitchChecks: [
+    'Dashboard artifact includes index.html and hashed assets without requiring Plugin-owned frontend source.',
+    'Artifact metadata records AlembicDashboard source version or release tag.',
+    'Codex plugin runtime can package the artifact without running AlembicDashboard build locally.',
+  ],
   releaseAssetSwitchCondition:
     'Switch after Alembic/AlembicDashboard publish a stable Dashboard release artifact that the Codex plugin runtime can consume without rebuilding frontend source.',
   sourceCandidates: ['../AlembicDashboard', 'vendor/AlembicDashboard'],
@@ -169,7 +182,7 @@ export function buildCodexModuleBoundaryStatus(
 ): CodexModuleBoundaryStatus {
   const route = input.enhancementRoute || null;
   return {
-    phase: 'module-boundary-foundation-wave-1',
+    phase: 'runtime-contract-consumption-wave-2',
     pluginOwns: PLUGIN_OWNED_BOUNDARIES.map(copyBoundary),
     pluginDoesNotOwn: EXTERNAL_OWNED_BOUNDARIES.map(copyBoundary),
     adapters: {
@@ -192,11 +205,18 @@ export function buildCodexModuleBoundaryStatus(
         role: 'Plugin-owned portable adapter that launches compiled daemon-server.js for Codex delivery, not the long-term Alembic daemon source of truth.',
         startCommand: CODEX_RUNTIME_BIN,
       },
+      runtimeContract: {
+        capabilitySummarySource: '@alembic/core/daemon#summarizeAlembicRuntimeCapabilities',
+        fileMonitorMode: route?.localAlembic.daemon.capabilities.fileMonitorMode ?? null,
+        healthPath: '/api/v1/daemon/health',
+        runtimeBoundaryAvailable: route?.localAlembic.daemon.runtimeBoundary.available ?? false,
+        runtimeBoundarySource: route?.localAlembic.daemon.runtimeBoundary.source ?? null,
+      },
     },
     dashboard: { ...CODEX_DASHBOARD_ARTIFACT_BOUNDARY },
     nextWaveGaps: [
       'Replace Plugin-built dashboard/dist with a stable AlembicDashboard or Alembic release asset after that artifact contract exists.',
-      'Consume any new Core runtime/capability/file-monitor public shape instead of adding Plugin-local permanent contracts.',
+      'Continue consuming Alembic daemon health runtimeBoundary fields as they stabilize instead of adding Plugin-local permanent contracts.',
       'Keep git-diff checkpoint and JobStore usage marked as embedded runtime compatibility until Alembic daemon contracts can fully cover them.',
     ],
   };

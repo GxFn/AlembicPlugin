@@ -67,6 +67,47 @@ describe('Codex enhancement route resolver', () => {
           api: { available: true },
           dashboard: { available: true, url: 'http://127.0.0.1:39127' },
           fileMonitor: { available: true, mode: 'daemon-git-worktree' },
+          runtimeBoundary: {
+            owner: 'alembic',
+            route: 'local-alembic',
+            workspace: {
+              contract: '@alembic/core/workspace',
+              databasePath: '/tmp/project/.asd/alembic.db',
+              dataRoot: '/tmp/project/.asd',
+              dataRootSource: 'project',
+              mode: 'standard',
+              projectId: 'project-id',
+              projectRoot: '/tmp/project',
+              runtimeDir: '/tmp/project/.asd/runtime',
+            },
+            daemon: {
+              apiBaseUrl: 'http://127.0.0.1:39127',
+              mode: 'daemon',
+              owner: 'alembic',
+              stateContract: '@alembic/core/daemon',
+            },
+            dashboard: {
+              frontendOwner: 'AlembicDashboard',
+              handoff: 'url',
+              serverOwner: 'alembic',
+              url: 'http://127.0.0.1:39127',
+            },
+            fileMonitor: {
+              available: true,
+              longLivedOwner: 'alembic-daemon',
+              source: 'daemon-git-worktree',
+            },
+            internalAi: {
+              available: true,
+              owner: 'alembic-internal-ai',
+              runtimeOwner: 'AlembicAgent',
+            },
+            jobs: {
+              kinds: ['bootstrap', 'rescan'],
+              owner: 'alembic',
+              store: '@alembic/core/daemon/JobStore',
+            },
+          },
           internalAi: {
             available: true,
             configSource: 'workspace-settings',
@@ -97,6 +138,84 @@ describe('Codex enhancement route resolver', () => {
     expect(route.localAlembic.daemon.capabilities).toMatchObject({
       fileMonitorAvailable: true,
       fileMonitorMode: 'daemon-git-worktree',
+    });
+    expect(route.localAlembic.daemon.runtimeBoundary).toMatchObject({
+      available: true,
+      source: 'capabilities.runtimeBoundary',
+      route: 'local-alembic',
+      workspace: {
+        databasePath: '/tmp/project/.asd/alembic.db',
+        dataRootSource: 'project',
+      },
+      fileMonitor: {
+        longLivedOwner: 'alembic-daemon',
+        mode: 'daemon-git-worktree',
+      },
+      jobs: {
+        owner: 'alembic',
+        kinds: ['bootstrap', 'rescan'],
+      },
+    });
+    expect(route.reason).toContain('Runtime boundary source: capabilities.runtimeBoundary');
+    expect(route.missingCapabilities).toEqual([]);
+  });
+
+  it('uses runtimeBoundary as compatibility fallback when canonical capability sections are partial', () => {
+    const daemonStatus = makeDaemonStatus(
+      {},
+      {
+        version: '0.9.0',
+        enhancement: {
+          apiVersion: 'v1',
+          packageName: 'alembic-ai',
+          route: 'local-alembic',
+          version: '0.9.0',
+        },
+        capabilities: {
+          runtimeBoundary: {
+            owner: 'alembic',
+            route: 'local-alembic',
+            dashboard: {
+              frontendOwner: 'AlembicDashboard',
+              handoff: 'url',
+              serverOwner: 'alembic',
+              url: 'http://127.0.0.1:39127',
+            },
+            fileMonitor: {
+              available: true,
+              longLivedOwner: 'alembic-daemon',
+              source: 'daemon-git-worktree',
+            },
+            internalAi: {
+              available: false,
+              owner: 'alembic-internal-ai',
+              runtimeOwner: 'AlembicAgent',
+            },
+            jobs: {
+              kinds: ['bootstrap', 'rescan'],
+              owner: 'alembic',
+              store: '@alembic/core/daemon/JobStore',
+            },
+          },
+        },
+      }
+    );
+
+    const route = buildCodexEnhancementRouteChoice({
+      daemonStatus,
+      localInstall: LOCAL_INSTALL_UNAVAILABLE,
+      requirement: 'dashboard',
+    });
+
+    expect(route.selected).toBe('local-alembic-daemon');
+    expect(route.localAlembic.daemon.capabilities).toMatchObject({
+      dashboardAvailable: true,
+      dashboardUrl: 'http://127.0.0.1:39127',
+      fileMonitorAvailable: true,
+      fileMonitorMode: 'daemon-git-worktree',
+      internalAiAvailable: false,
+      jobsAvailable: true,
+      jobKinds: ['bootstrap', 'rescan'],
     });
     expect(route.missingCapabilities).toEqual([]);
   });
