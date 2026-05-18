@@ -13,6 +13,10 @@ import {
 } from './EnhancementRoute.js';
 import { type CodexKnowledgeState, inspectCodexKnowledge } from './KnowledgeState.js';
 import {
+  buildCodexModuleBoundaryStatus,
+  type CodexModuleBoundaryStatus,
+} from './ModuleBoundary.js';
+import {
   buildCodexProjectRootRequiredActions,
   buildCodexProjectRootRequiredMessage,
   type CodexProjectRootResolution,
@@ -68,6 +72,7 @@ export interface CodexStatusData {
   knowledge: CodexKnowledgeState;
   autoInit: Record<string, unknown>;
   mcp: Record<string, unknown>;
+  moduleBoundary: CodexModuleBoundaryStatus;
   nextActions: string[];
   ok: boolean;
   onboarding: Record<string, unknown>;
@@ -131,6 +136,7 @@ export async function buildCodexStatus(
     runtime,
     requirement: 'status',
   });
+  const moduleBoundary = buildCodexModuleBoundaryStatus({ enhancementRoute });
   const projectRootResolution =
     options.projectRootResolution || resolveCodexProjectRoot({ projectRoot: projectRootInput });
   const autoInit = buildCodexAutoInitStatus(projectRoot, knowledge, projectRootResolution, {
@@ -140,6 +146,7 @@ export async function buildCodexStatus(
     aiConfig,
     autoInit,
     enhancementRoute,
+    moduleBoundary,
     projectRootResolution,
   });
   const policyInput = {
@@ -220,6 +227,7 @@ export async function buildCodexStatus(
     },
     gitDiffCheckpoint,
     enhancementRoute,
+    moduleBoundary,
     daemon: {
       ...summarizeCodexDaemonStatus(daemonStatus),
       implemented: true,
@@ -575,9 +583,7 @@ export function buildCodexStatusOnboarding(input: {
   };
 }
 
-function buildCodexRouteBoundaryNotes(
-  enhancementRoute?: CodexEnhancementRouteChoice
-): string[] {
+function buildCodexRouteBoundaryNotes(enhancementRoute?: CodexEnhancementRouteChoice): string[] {
   if (!enhancementRoute) {
     return [
       'Codex host-agent workflows write source=host-agent and remain separate from Alembic internal AI provider configuration.',

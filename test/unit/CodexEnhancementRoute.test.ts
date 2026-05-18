@@ -1,9 +1,9 @@
-import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import { describe, expect, it } from 'vitest';
 import {
   buildCodexEnhancementRouteChoice,
   summarizeEnhancementDaemon,
 } from '../../lib/codex/EnhancementRoute.js';
-import { describe, expect, it } from 'vitest';
+import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 
 const LOCAL_INSTALL_UNAVAILABLE = {
   available: false,
@@ -52,27 +52,31 @@ function makeDaemonStatus(
 
 describe('Codex enhancement route resolver', () => {
   it('selects a local Alembic daemon when the daemon advertises enhancement capabilities', () => {
-    const daemonStatus = makeDaemonStatus({}, {
-      version: '0.9.0',
-      dashboardUrl: 'http://127.0.0.1:39127',
-      enhancement: {
-        apiVersion: 'v1',
-        packageName: 'alembic-ai',
-        route: 'local-alembic',
+    const daemonStatus = makeDaemonStatus(
+      {},
+      {
         version: '0.9.0',
-      },
-      capabilities: {
-        api: { available: true },
-        dashboard: { available: true, url: 'http://127.0.0.1:39127' },
-        internalAi: {
-          available: true,
-          configSource: 'workspace-settings',
-          model: 'deepseek-chat',
-          provider: 'deepseek',
+        dashboardUrl: 'http://127.0.0.1:39127',
+        enhancement: {
+          apiVersion: 'v1',
+          packageName: 'alembic-ai',
+          route: 'local-alembic',
+          version: '0.9.0',
         },
-        jobs: { available: true, kinds: ['bootstrap', 'rescan'] },
-      },
-    });
+        capabilities: {
+          api: { available: true },
+          dashboard: { available: true, url: 'http://127.0.0.1:39127' },
+          fileMonitor: { available: true, mode: 'daemon-git-worktree' },
+          internalAi: {
+            available: true,
+            configSource: 'workspace-settings',
+            model: 'deepseek-chat',
+            provider: 'deepseek',
+          },
+          jobs: { available: true, kinds: ['bootstrap', 'rescan'] },
+        },
+      }
+    );
 
     const route = buildCodexEnhancementRouteChoice({
       daemonStatus,
@@ -90,27 +94,34 @@ describe('Codex enhancement route resolver', () => {
       configSource: 'workspace-settings',
       provider: 'deepseek',
     });
+    expect(route.localAlembic.daemon.capabilities).toMatchObject({
+      fileMonitorAvailable: true,
+      fileMonitorMode: 'daemon-git-worktree',
+    });
     expect(route.missingCapabilities).toEqual([]);
   });
 
   it('keeps provider config separate from host-agent source when capabilities are missing', () => {
-    const daemonStatus = makeDaemonStatus({}, {
-      enhancement: {
-        packageName: 'alembic-ai',
-        route: 'local-alembic',
-        version: '0.9.0',
-      },
-      capabilities: {
-        dashboard: { available: false, url: null },
-        internalAi: {
-          available: false,
-          configSource: 'empty',
-          model: null,
-          provider: null,
+    const daemonStatus = makeDaemonStatus(
+      {},
+      {
+        enhancement: {
+          packageName: 'alembic-ai',
+          route: 'local-alembic',
+          version: '0.9.0',
         },
-        jobs: { available: true, kinds: ['bootstrap', 'rescan'] },
-      },
-    });
+        capabilities: {
+          dashboard: { available: false, url: null },
+          internalAi: {
+            available: false,
+            configSource: 'empty',
+            model: null,
+            provider: null,
+          },
+          jobs: { available: true, kinds: ['bootstrap', 'rescan'] },
+        },
+      }
+    );
 
     const route = buildCodexEnhancementRouteChoice({
       daemonStatus,

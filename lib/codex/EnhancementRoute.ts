@@ -1,4 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import {
+  type AlembicRuntimeCapabilitySummary,
+  type AlembicRuntimeRouteKind,
+  summarizeAlembicRuntimeCapabilities,
+} from '@alembic/core/daemon';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import type { CodexAiConfigState } from './AiConfigState.js';
@@ -10,11 +15,7 @@ import {
 
 export type CodexEnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
 
-export type CodexEnhancementRouteKind =
-  | 'embedded-plugin-runtime'
-  | 'local-alembic-daemon'
-  | 'local-alembic-install'
-  | 'unavailable';
+export type CodexEnhancementRouteKind = AlembicRuntimeRouteKind;
 
 export const CODEX_HOST_AGENT_ROUTE_TOOLS = [
   'alembic_bootstrap',
@@ -23,14 +24,7 @@ export const CODEX_HOST_AGENT_ROUTE_TOOLS = [
   'alembic_dimension_complete',
 ] as const;
 
-export interface CodexDaemonCapabilitySummary {
-  apiAvailable: boolean | null;
-  dashboardAvailable: boolean | null;
-  dashboardUrl: string | null;
-  internalAiAvailable: boolean | null;
-  jobsAvailable: boolean | null;
-  jobKinds: string[];
-}
+export type CodexDaemonCapabilitySummary = AlembicRuntimeCapabilitySummary;
 
 export interface CodexEnhancementDaemonProbe {
   available: boolean;
@@ -66,12 +60,7 @@ export interface CodexEnhancementRouteChoice {
   };
   internalAiProvider: {
     available: boolean;
-    configSource:
-      | 'empty'
-      | 'process-env'
-      | 'runtime-overrides'
-      | 'workspace-settings'
-      | null;
+    configSource: 'empty' | 'process-env' | 'runtime-overrides' | 'workspace-settings' | null;
     model: string | null;
     provider: string | null;
   };
@@ -137,9 +126,7 @@ export function buildCodexEnhancementRouteChoice(input: {
   };
 }
 
-export function probeLocalAlembicInstall(
-  command = 'alembic'
-): CodexLocalAlembicInstallProbe {
+export function probeLocalAlembicInstall(command = 'alembic'): CodexLocalAlembicInstallProbe {
   const versionResult = spawnSync(command, ['--version'], {
     encoding: 'utf8',
     timeout: 1500,
@@ -149,8 +136,7 @@ export function probeLocalAlembicInstall(
     return {
       available: false,
       command,
-      error:
-        versionResult.error?.message || output || `Unable to run ${command} --version`,
+      error: versionResult.error?.message || output || `Unable to run ${command} --version`,
       version: null,
     };
   }
@@ -163,12 +149,11 @@ export function probeLocalAlembicInstall(
   return {
     available: hasAlembicDaemonCommand,
     command,
-    error:
-      hasAlembicDaemonCommand
-        ? null
-        : daemonHelpResult.error?.message ||
-          daemonHelp ||
-          `${command} is present but does not expose Alembic daemon commands`,
+    error: hasAlembicDaemonCommand
+      ? null
+      : daemonHelpResult.error?.message ||
+        daemonHelp ||
+        `${command} is present but does not expose Alembic daemon commands`,
     version: output,
   };
 }
@@ -177,24 +162,18 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
   const data = asRecord(status.health?.data);
   const enhancement = asRecord(data?.enhancement);
   const capabilities = asRecord(data?.capabilities);
-  const dashboard = asRecord(capabilities?.dashboard);
-  const jobs = asRecord(capabilities?.jobs);
-  const api = asRecord(capabilities?.api);
-  const internalAi = asRecord(capabilities?.internalAi);
-  const jobKinds = Array.isArray(jobs?.kinds)
-    ? jobs.kinds.filter((kind): kind is string => typeof kind === 'string')
-    : [];
-  const dashboardUrl = firstString(dashboard?.url, data?.dashboardUrl, status.state?.dashboardUrl);
+  const capabilitySummary = summarizeAlembicRuntimeCapabilities(capabilities);
+  const dashboardUrl = firstString(
+    capabilitySummary.dashboardUrl,
+    data?.dashboardUrl,
+    status.state?.dashboardUrl
+  );
 
   return {
     available: status.ready === true && Boolean(status.state),
     capabilities: {
-      apiAvailable: booleanOrNull(api?.available),
-      dashboardAvailable: booleanOrNull(dashboard?.available),
+      ...capabilitySummary,
       dashboardUrl,
-      internalAiAvailable: booleanOrNull(internalAi?.available),
-      jobsAvailable: booleanOrNull(jobs?.available),
-      jobKinds,
     },
     dashboardUrl,
     healthVersion: firstString(data?.version),
@@ -336,8 +315,4 @@ function firstString(...values: unknown[]): string | null {
     }
   }
   return null;
-}
-
-function booleanOrNull(value: unknown): boolean | null {
-  return typeof value === 'boolean' ? value : null;
 }

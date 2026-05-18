@@ -3,6 +3,7 @@ export * from './Diagnostics.js';
 export * from './EnhancementRoute.js';
 export * from './JobContext.js';
 export * from './KnowledgeState.js';
+export * from './ModuleBoundary.js';
 export * from './PluginRegistry.js';
 export * from './Preflight.js';
 export * from './ProjectRootResolver.js';

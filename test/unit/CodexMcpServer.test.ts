@@ -325,7 +325,10 @@ describe('CodexMcpServer', () => {
       data: {
         initialized: boolean;
         daemon: { ready: boolean };
-        diagnostics: { node: { ok: boolean } };
+        diagnostics: {
+          moduleBoundary: { dashboard: { artifactPath: string; sourceOwner: string } };
+          node: { ok: boolean };
+        };
         nextActions: string[];
         onboarding: {
           primaryAction: { startsDaemon: boolean; tool: string };
@@ -338,6 +341,10 @@ describe('CodexMcpServer', () => {
     expect(result.data.initialized).toBe(false);
     expect(result.data.daemon.ready).toBe(false);
     expect(result.data.diagnostics.node.ok).toBe(true);
+    expect(result.data.diagnostics.moduleBoundary.dashboard).toMatchObject({
+      artifactPath: 'dashboard/dist',
+      sourceOwner: 'AlembicDashboard',
+    });
     expect(result.data.onboarding).toMatchObject({
       state: 'needs_init',
       primaryAction: { startsDaemon: false, tool: 'alembic_codex_init' },

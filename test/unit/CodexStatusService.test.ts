@@ -129,6 +129,22 @@ describe('Codex status service', () => {
         configSource: 'empty',
       },
     });
+    expect(status.moduleBoundary.dashboard).toMatchObject({
+      artifactPath: 'dashboard/dist',
+      deletionAllowedThisWave: false,
+      sourceOwner: 'AlembicDashboard',
+    });
+    expect(status.moduleBoundary.adapters.embeddedRuntime.role).toContain(
+      'not the long-term Alembic daemon'
+    );
+    expect(status.diagnostics).toMatchObject({
+      moduleBoundary: {
+        dashboard: {
+          artifactPath: 'dashboard/dist',
+          sourceOwner: 'AlembicDashboard',
+        },
+      },
+    });
     expect(status.nextActions).toContain('Initialize Ghost workspace: call alembic_codex_init');
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
