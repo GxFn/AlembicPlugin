@@ -2,7 +2,7 @@ import { dimensionTags } from '@alembic/core/dimensions';
 import { saveDimensionCheckpoint } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
-import { getDeveloperIdentity } from '@alembic/core/shared/developer-identity';
+import { getDeveloperIdentity } from '@alembic/core/shared';
 import { resolveDataRoot } from '@alembic/core/workspace';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {

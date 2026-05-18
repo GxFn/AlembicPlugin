@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathGuard } from '@alembic/core/io';
 import { ProjectRegistry } from '@alembic/core/workspace';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import { WorkspaceSettingsStore } from '@alembic/core/shared/WorkspaceSettingsStore';
+import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import type {
   CodexScenarioFixtureRunConfig,
   CodexScenarioRunOptions,

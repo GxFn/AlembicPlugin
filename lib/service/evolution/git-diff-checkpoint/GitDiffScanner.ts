@@ -6,7 +6,7 @@ import Logger from '@alembic/core/logging';
 import type {
   FileChangeEvent,
   FileChangeEventSource,
-} from '@alembic/core/types/reactive-evolution';
+} from '@alembic/core/types';
 import type { GitDiffScanStatus } from './GitDiffCheckpointStatus.js';
 import {
   isSafeProjectRelativePath,

@@ -13,7 +13,7 @@ import {
   maskAiEnvConfig,
   PROVIDER_KEY_ENV,
   WorkspaceSettingsStore,
-} from '@alembic/core/shared/WorkspaceSettingsStore';
+} from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import express, { type Request, type Response } from 'express';
 import {

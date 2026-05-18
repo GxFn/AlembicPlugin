@@ -93,10 +93,21 @@ vi.mock('#http/middleware/RateLimiter.js', () => ({
 }));
 
 // Mock developer-identity — CI 环境下 git/OS username 不确定，固定为 'mcp'
-vi.mock('@alembic/core/shared/developer-identity', () => ({
-  getDeveloperIdentity: vi.fn(() => 'mcp'),
-  clearDeveloperIdentityCache: vi.fn(),
-}));
+vi.mock('@alembic/core/shared', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+
+  return {
+    ...actual,
+    getDeveloperIdentity: vi.fn(() => 'mcp'),
+    clearDeveloperIdentityCache: vi.fn(),
+    ValidationError: class ValidationError extends Error {
+      constructor(msg) {
+        super(msg);
+        this.name = 'ValidationError';
+      }
+    },
+  };
+});
 
 const { submitKnowledge, submitKnowledgeBatch, knowledgeLifecycle } = await import(
   '../../lib/external/mcp/handlers/knowledge.js'
@@ -482,15 +493,6 @@ vi.mock('@alembic/core/logging', () => ({
 vi.mock('../../lib/http/utils/routeHelpers.js', () => ({
   getContext: vi.fn(() => ({ userId: 'test-user', ip: '127.0.0.1' })),
   safeInt: vi.fn((val, def) => parseInt(val, 10) || def),
-}));
-
-vi.mock('@alembic/core/shared/errors/index', () => ({
-  ValidationError: class ValidationError extends Error {
-    constructor(msg) {
-      super(msg);
-      this.name = 'ValidationError';
-    }
-  },
 }));
 
 describe('HTTP Knowledge Route Handlers', () => {

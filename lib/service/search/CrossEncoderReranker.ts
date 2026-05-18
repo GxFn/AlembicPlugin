@@ -7,7 +7,7 @@
 
 import type { SearchCrossEncoder, SearchResultItem } from '@alembic/core/search';
 import { tokenize } from '@alembic/core/search';
-import { jaccardSimilarity } from '@alembic/core/shared/similarity';
+import { jaccardSimilarity } from '@alembic/core/search';
 
 interface RerankCandidate extends SearchResultItem {
   title?: string;

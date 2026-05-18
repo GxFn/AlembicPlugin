@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { WorkspaceSettingsStore } from '@alembic/core/shared/WorkspaceSettingsStore';
+import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { DEFAULT_FOLDER_NAMES, WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import { DaemonSupervisor } from '../daemon/DaemonSupervisor.js';

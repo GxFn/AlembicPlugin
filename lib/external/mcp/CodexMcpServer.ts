@@ -5,7 +5,7 @@ import { type DaemonState, JobStore, resolveDaemonPaths } from '@alembic/core/da
 import {
   PROVIDER_KEY_ENV,
   WorkspaceSettingsStore,
-} from '@alembic/core/shared/WorkspaceSettingsStore';
+} from '@alembic/core/shared';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
