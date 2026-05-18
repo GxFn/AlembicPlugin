@@ -158,7 +158,9 @@ describe('Codex status service', () => {
       source: 'runtime-overrides',
     });
     expect(status.policy.state).toBe('needs_bootstrap');
-    expect(status.nextActions).toContain('Start bootstrap: call alembic_codex_bootstrap');
+    expect(status.nextActions).toContain(
+      'Start Codex host-agent bootstrap: call alembic_bootstrap'
+    );
     expect(serialized).not.toContain('secret-token');
     expect(serialized).not.toContain('secret-deepseek-key');
   });

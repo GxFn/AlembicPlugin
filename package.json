@@ -2,7 +2,7 @@
   "name": "alembic-ai",
   "version": "0.1.2",
   "private": true,
-  "description": "Alembic plugin integration repository for Codex and future IDE or agent host plugins.",
+  "description": "Alembic Codex plugin integration repository.",
   "type": "module",
   "main": "dist/lib/bootstrap.js",
   "engines": {
@@ -108,8 +108,6 @@
     "codex",
     "codex-plugin",
     "openai-codex",
-    "copilot",
-    "cursor",
     "code-review",
     "guard",
     "ast",

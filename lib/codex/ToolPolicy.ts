@@ -82,11 +82,19 @@ export const CODEX_INIT_TOOL_NAMES = new Set([
   'alembic_codex_ai_config',
 ]);
 
+export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
+  'alembic_bootstrap',
+  'alembic_rescan',
+  'alembic_submit_knowledge',
+  'alembic_dimension_complete',
+]);
+
 export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
   'alembic_codex_rescan',
   'alembic_codex_job',
+  ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 
 export const CODEX_COLD_START_TOOL_NAMES = new Set([
@@ -113,7 +121,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_init',
     tier: 'agent',
     description:
-      'Initialize Alembic for Codex plugin use. Defaults to Ghost mode, skips IDE file deployment, and returns next actions for bootstrap or priming.',
+      'Initialize Alembic for Codex plugin use. Defaults to Ghost mode, skips IDE file deployment, and returns next actions for Codex host-agent bootstrap/rescan or priming.',
     inputSchema: codexInputSchema({
       force: {
         type: 'boolean',
@@ -130,7 +138,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_ai_config',
     tier: 'agent',
     description:
-      'Inspect or configure Alembic Codex workspace AI settings. Use status to check masked provider/key readiness, or configure after explicit user confirmation to store API keys in the workspace secrets file.',
+      'Inspect or configure Alembic internal AI settings from Codex. This is only for Alembic internal bootstrap/rescan daemon jobs; Codex host-agent bootstrap/rescan does not require an AI Provider.',
     inputSchema: codexInputSchema({
       mode: {
         type: 'string',
@@ -168,7 +176,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_bootstrap',
     tier: 'agent',
     description:
-      'Start or connect to the daemon and enqueue an internal Alembic bootstrap job. If the workspace is not initialized yet, this first performs safe Ghost initialization. Returns immediately with a recoverable job id.',
+      'Explicit internal Alembic AI bootstrap job. Requires a configured AI Provider, starts or connects to the daemon, and returns a recoverable job id. This is not the default Codex host-agent cold-start path; use alembic_bootstrap for that.',
     inputSchema: codexInputSchema({
       maxFiles: { type: 'number', description: 'Maximum files to include in project analysis.' },
       skipGuard: { type: 'boolean', description: 'Skip Guard audit during bootstrap analysis.' },
@@ -182,7 +190,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_rescan',
     tier: 'agent',
     description:
-      'Start or connect to the daemon and enqueue an internal Alembic rescan job. If the workspace is not initialized yet, this first performs safe Ghost initialization. Returns immediately with a recoverable job id.',
+      'Explicit internal Alembic AI rescan job. Requires a configured AI Provider, starts or connects to the daemon, and returns a recoverable job id. This is not the default Codex host-agent rescan path; use alembic_rescan for that.',
     inputSchema: codexInputSchema({
       reason: { type: 'string', description: 'Short reason for the rescan.' },
       dimensions: {
@@ -242,7 +250,9 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
   const maxTier = input.tierOrder[effectiveTier] ?? input.tierOrder[CODEX_DEFAULT_MCP_TIER] ?? 0;
   const localTools = CODEX_LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
   const coreTools = input.coreTools.filter(
-    (tool) => input.knowledge.usable && (input.tierOrder[tool.tier || 'agent'] ?? 0) <= maxTier
+    (tool) =>
+      (input.knowledge.usable || CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name)) &&
+      (input.tierOrder[tool.tier || 'agent'] ?? 0) <= maxTier
   );
   const state = resolveCodexToolPolicyState(input);
   return {
@@ -257,7 +267,10 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
 
 export function allowedCodexToolNames(knowledge: CodexKnowledgeState): Set<string> {
   if (knowledge.usable) {
-    return new Set(CODEX_LOCAL_TOOLS.map((tool) => tool.name));
+    return new Set([
+      ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
+      ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
+    ]);
   }
   if (knowledge.initialized) {
     return CODEX_COLD_START_TOOL_NAMES;

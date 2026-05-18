@@ -1,6 +1,6 @@
 {
-  "id": "bootstrap-missing-ai-fails-closed",
-  "description": "已初始化但缺 AI Provider 时，bootstrap 必须 fail closed，不能启动 daemon 或创建 job。",
+  "id": "bootstrap-missing-ai-uses-host-agent",
+  "description": "已初始化但缺 AI Provider 时，Codex 默认 bootstrap 走宿主 Agent workflow，不能因 internal AI Provider 缺失而失败。",
   "fixture": {
     "ai": "missing",
     "daemon": "stopped",
@@ -26,26 +26,26 @@
         }
       },
       {
-        "name": "alembic_codex_bootstrap",
+        "name": "alembic_bootstrap",
         "arguments": {
           "projectRoot": "$projectRoot"
         },
         "result": {
-          "success": false,
-          "data.errorCode": "AI_PROVIDER_REQUIRED"
+          "success": true,
+          "data.session.id": "scenario_host_bootstrap"
         }
       }
     ],
     "sideEffects": {
-      "daemonEnsureCalled": false,
+      "daemonEnsureCalled": true,
       "initMarkerWritten": false,
       "jobCreated": false,
       "savedProjectRootWritten": true,
       "secretWritten": false
     },
     "assistant": {
-      "mustMention": ["没有启动", "AI Provider", "alembic_codex_ai_config"],
-      "mustNotMention": ["知识挖掘任务已入队"]
+      "mustMention": ["host-agent bootstrap", "Mission Briefing"],
+      "mustNotMention": ["AI Provider", "alembic_codex_ai_config", "知识挖掘任务已入队"]
     }
   }
 }

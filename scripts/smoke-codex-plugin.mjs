@@ -168,8 +168,8 @@ try {
   assertResult(init, 'codex init');
   assert(init.data?.status?.initialized === true, 'codex init did not produce initialized status');
   assert(
-    init.data?.nextActions?.some((action) => action?.tool === 'alembic_codex_bootstrap'),
-    'codex init should recommend bootstrap'
+    init.data?.nextActions?.some((action) => action?.tool === 'alembic_bootstrap'),
+    'codex init should recommend host-agent bootstrap'
   );
 
   const afterStatus = await server.handleToolCall('alembic_codex_status', {});
@@ -181,8 +181,8 @@ try {
     'initialized empty workspace should still require bootstrap'
   );
   assert(
-    afterStatus.data?.onboarding?.primaryAction?.tool === 'alembic_codex_bootstrap',
-    'initialized empty workspace should recommend bootstrap'
+    afterStatus.data?.onboarding?.primaryAction?.tool === 'alembic_bootstrap',
+    'initialized empty workspace should recommend host-agent bootstrap'
   );
 
   const store = new JobStore({ projectRoot });
@@ -582,6 +582,10 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      'alembic_submit_knowledge',
+      'alembic_bootstrap',
+      'alembic_rescan',
+      'alembic_dimension_complete',
     ]) {
       assert(toolNames.has(required), `MCP stdio tools/list missing ${required}`);
     }
@@ -672,8 +676,8 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
       'MCP stdio initialized empty workspace should still require bootstrap'
     );
     assert(
-      afterStatus.data?.onboarding?.primaryAction?.tool === 'alembic_codex_bootstrap',
-      'MCP stdio initialized empty workspace should recommend bootstrap'
+      afterStatus.data?.onboarding?.primaryAction?.tool === 'alembic_bootstrap',
+      'MCP stdio initialized empty workspace should recommend host-agent bootstrap'
     );
 
     const afterInitTools = await withTimeout(
@@ -683,8 +687,13 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
     );
     const afterInitToolNames = new Set(afterInitTools.tools.map((tool) => tool.name));
     assert(
-      afterInitToolNames.has('alembic_codex_bootstrap'),
-      'MCP stdio initialized empty workspace should expose bootstrap'
+      afterInitToolNames.has('alembic_bootstrap'),
+      'MCP stdio initialized empty workspace should expose host-agent bootstrap'
+    );
+    assert(
+      afterInitToolNames.has('alembic_submit_knowledge') &&
+        afterInitToolNames.has('alembic_dimension_complete'),
+      'MCP stdio initialized empty workspace should expose host-agent knowledge submission tools'
     );
     assert(
       afterInitToolNames.has('alembic_codex_job'),

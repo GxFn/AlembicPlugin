@@ -1,18 +1,16 @@
 # AlembicPlugin
 
-AlembicPlugin is the unified plugin repository for Alembic host integrations.
+AlembicPlugin is the Codex plugin repository for Alembic host integration.
 
-This repository currently carries the Codex plugin runtime and development
-tooling migrated from `GxFn/Alembic`. Future host integrations should be added
-as plugin submodules under `plugins/`, rather than being mixed into the core
-runtime repository.
+This repository carries the Codex plugin runtime and development tooling
+migrated from `GxFn/Alembic`. It does not publish a root npm registry package
+and does not maintain non-Codex host plugin delivery paths.
 
 ## Repository Model
 
 - Root repository: shared plugin tooling, channel metadata, release checks, and
   integration verification.
 - `plugins/alembic-codex`: Codex plugin submodule.
-- Future plugins: add as `plugins/<host-or-plugin-name>` submodules.
 
 Clone with submodules:
 
@@ -31,9 +29,8 @@ submodules, the recursive update command will initialize those too.
 
 ## Codex 插件
 
-The current Codex plugin remains at `plugins/alembic-codex`. The root runtime
-keeps the current Alembic Codex MCP implementation while the project is being
-split into:
+The Codex plugin remains at `plugins/alembic-codex`. The root runtime keeps the
+Alembic Codex MCP implementation while the project is split into:
 
 - `GxFn/AlembicPlugin`: plugin integration repository.
 - `GxFn/Alembic`: standalone full-capability local product.

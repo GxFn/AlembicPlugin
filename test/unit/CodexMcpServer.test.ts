@@ -27,6 +27,12 @@ const ORIGINAL_INIT_CWD = process.env.INIT_CWD;
 const ORIGINAL_MCP_TIER = process.env.ALEMBIC_MCP_TIER;
 const ORIGINAL_PWD = process.env.PWD;
 const ORIGINAL_PROVIDER = process.env.ALEMBIC_AI_PROVIDER;
+const CODEX_HOST_AGENT_TOOL_NAMES = [
+  'alembic_submit_knowledge',
+  'alembic_bootstrap',
+  'alembic_rescan',
+  'alembic_dimension_complete',
+];
 
 function useTempAlembicHome(): string {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-codex-home-'));
@@ -176,6 +182,8 @@ describe('CodexMcpServer', () => {
     expect(names).toContain('alembic_codex_bootstrap');
     expect(names).toContain('alembic_codex_job');
     expect(names).toContain('alembic_codex_cleanup');
+    expect(names).toContain('alembic_bootstrap');
+    expect(names).toContain('alembic_rescan');
     expect(names).toContain('alembic_health');
     expect(names).not.toContain('alembic_knowledge_lifecycle');
   });
@@ -221,10 +229,11 @@ describe('CodexMcpServer', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      ...CODEX_HOST_AGENT_TOOL_NAMES,
     ]);
   });
 
-  test('exposes only cold-start tools when initialized workspace has no usable knowledge', () => {
+  test('exposes cold-start plus Codex host-agent workflow tools when initialized workspace has no usable knowledge', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
@@ -238,6 +247,7 @@ describe('CodexMcpServer', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      ...CODEX_HOST_AGENT_TOOL_NAMES,
     ]);
     expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_health');
@@ -264,6 +274,7 @@ describe('CodexMcpServer', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      ...CODEX_HOST_AGENT_TOOL_NAMES,
     ]);
 
     fs.writeFileSync(
@@ -462,7 +473,7 @@ describe('CodexMcpServer', () => {
     expect(result.data.knowledge).toMatchObject({ usable: false, recipeCount: 0, skillCount: 0 });
     expect(result.data.onboarding).toMatchObject({
       state: 'needs_bootstrap',
-      primaryAction: { tool: 'alembic_codex_bootstrap' },
+      primaryAction: { tool: 'alembic_bootstrap' },
     });
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
@@ -910,6 +921,42 @@ describe('CodexMcpServer', () => {
       needsUserInput: true,
     });
     expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('Codex host-agent bootstrap forwards without requiring an internal AI provider', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    delete process.env.ALEMBIC_AI_PROVIDER;
+    delete process.env.ALEMBIC_DEEPSEEK_API_KEY;
+    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { briefing: { session: { id: 'host_bootstrap_test' } } },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+    );
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = await server.handleToolCall('alembic_bootstrap', {});
+    const [url, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      success: true,
+      data: { briefing: { session: { id: 'host_bootstrap_test' } } },
+    });
+    expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
+    expect(String(url)).toBe('http://127.0.0.1:39127/api/v1/mcp/call');
+    expect(body).toMatchObject({
+      name: 'alembic_bootstrap',
+      args: {},
+      actor: { role: 'external_agent' },
+    });
   });
 
   test('Codex bootstrap job ensures daemon and posts to the daemon jobs API', async () => {

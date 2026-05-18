@@ -6,7 +6,19 @@ import {
 } from '../../lib/codex/index.js';
 
 const tierOrder = { agent: 0, admin: 1 };
+const hostWorkflowToolNames = [
+  'alembic_bootstrap',
+  'alembic_rescan',
+  'alembic_submit_knowledge',
+  'alembic_dimension_complete',
+];
 const coreTools = [
+  ...hostWorkflowToolNames.map((name) => ({
+    name,
+    tier: 'agent',
+    description: name,
+    inputSchema: { type: 'object' },
+  })),
   {
     name: 'alembic_health',
     tier: 'agent',
@@ -65,10 +77,11 @@ describe('Codex tool policy', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      ...hostWorkflowToolNames,
     ]);
   });
 
-  test('exposes cold-start job tools after initialization and before usable knowledge', () => {
+  test('exposes Codex host-agent workflow tools after initialization and before usable knowledge', () => {
     const result = resolveCodexToolPolicy({
       coreTools,
       knowledge: initializedEmpty,
@@ -86,6 +99,7 @@ describe('Codex tool policy', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      ...hostWorkflowToolNames,
     ]);
   });
 
@@ -99,7 +113,11 @@ describe('Codex tool policy', () => {
     const names = result.visibleTools.map((tool) => tool.name);
 
     expect(result.state).toBe('ready');
-    expect(names).toEqual([...CODEX_LOCAL_TOOLS.map((tool) => tool.name), 'alembic_health']);
+    expect(names).toEqual([
+      ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
+      ...hostWorkflowToolNames,
+      'alembic_health',
+    ]);
     expect(names).not.toContain('alembic_knowledge_lifecycle');
   });
 
@@ -174,6 +192,7 @@ describe('Codex tool policy', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      ...hostWorkflowToolNames,
     ]);
   });
 

@@ -83,22 +83,17 @@ export class CodexScenarioAgentSimulator {
     }
 
     if (this.#asksForBootstrap(userText)) {
-      const result = await this.harness.callTool(turn, 'alembic_codex_bootstrap', {
+      const result = await this.harness.callTool(turn, 'alembic_bootstrap', {
         ...projectRootArgs,
         ...(this.scenario.fixture.bootstrapArgs || {}),
       });
-      const errorCode = extractErrorCode(result);
-      if (errorCode === 'AI_PROVIDER_REQUIRED') {
+      if (isSuccess(result)) {
         this.#reply(
           turn,
-          '知识挖掘没有启动。Alembic internal bootstrap 需要先配置真实 AI Provider 和 API key，可以使用 alembic_codex_ai_config 配置，或改走外部 Agent 路线。'
+          'Alembic Codex host-agent bootstrap 已启动。请按 Mission Briefing 分析项目、提交知识并完成维度。'
         );
-        return;
-      }
-      if (isSuccess(result)) {
-        this.#reply(turn, 'Alembic 知识挖掘任务已入队，可以通过 alembic_codex_job 查询进度。');
       } else {
-        this.#reply(turn, 'Alembic 知识挖掘没有启动，请查看工具返回的错误信息。');
+        this.#reply(turn, 'Alembic Codex host-agent bootstrap 没有启动，请查看工具返回的错误信息。');
       }
       return;
     }
@@ -170,21 +165,6 @@ export class CodexScenarioAgentSimulator {
     this.#lastAssistant = text;
     this.transcript.record({ text, turn, type: 'assistant.final' });
   }
-}
-
-function extractErrorCode(result: unknown): string {
-  if (!result || typeof result !== 'object') {
-    return '';
-  }
-  const data = (result as { data?: unknown }).data;
-  if (
-    data &&
-    typeof data === 'object' &&
-    typeof (data as { errorCode?: unknown }).errorCode === 'string'
-  ) {
-    return (data as { errorCode: string }).errorCode;
-  }
-  return '';
 }
 
 function isSuccess(result: unknown): boolean {

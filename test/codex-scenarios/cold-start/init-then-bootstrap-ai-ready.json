@@ -1,14 +1,13 @@
 {
-  "id": "init-then-bootstrap-ai-ready",
-  "description": "用户先初始化再要求知识挖掘，AI 已就绪时应启动 daemon 并创建 bootstrap job。",
+  "id": "init-then-bootstrap-host-agent",
+  "description": "用户先初始化再要求知识挖掘，Codex 默认应启动 host-agent bootstrap workflow，不依赖 internal AI Provider 或创建 internal job。",
   "fixture": {
-    "ai": "deepseek",
+    "ai": "missing",
     "daemon": "stopped",
     "initialized": false,
     "knowledge": "none",
     "project": "minimal-node",
-    "projectRoot": "explicit",
-    "redactions": ["scenario-secret-deepseek-key"]
+    "projectRoot": "explicit"
   },
   "turns": [
     {
@@ -40,26 +39,26 @@
         }
       },
       {
-        "name": "alembic_codex_bootstrap",
+        "name": "alembic_bootstrap",
         "arguments": {
           "projectRoot": "$projectRoot"
         },
         "result": {
           "success": true,
-          "data.jobId": "scenario_bootstrap_job"
+          "data.session.id": "scenario_host_bootstrap"
         }
       }
     ],
     "sideEffects": {
       "daemonEnsureCalled": true,
       "initMarkerWritten": true,
-      "jobCreated": true,
+      "jobCreated": false,
       "savedProjectRootWritten": true,
       "secretWritten": false
     },
     "state": {
-      "aiProvider": "deepseek",
-      "aiReady": true,
+      "aiProvider": null,
+      "aiReady": false,
       "initializedAfterRun": true,
       "workspace": {
         "configExists": true,
@@ -69,11 +68,8 @@
       }
     },
     "assistant": {
-      "mustMention": ["知识挖掘任务已入队"],
-      "mustNotMention": ["没有启动", "scenario-secret-deepseek-key"]
-    },
-    "redaction": {
-      "mustNotContain": ["scenario-secret-deepseek-key"]
+      "mustMention": ["host-agent bootstrap", "Mission Briefing"],
+      "mustNotMention": ["没有启动", "AI Provider", "知识挖掘任务已入队"]
     }
   }
 }

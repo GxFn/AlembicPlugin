@@ -106,6 +106,27 @@ export class AlembicInProcessMcpHarness implements AlembicMcpHarness {
       if (url.includes('/api/v1/jobs')) {
         return jsonResponse(200, { success: true, data: { jobs: [] } });
       }
+      if (url.includes('/api/v1/mcp/call')) {
+        const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+        if (record.name === 'alembic_bootstrap') {
+          return jsonResponse(200, {
+            success: true,
+            data: {
+              briefing: { session: { id: 'scenario_host_bootstrap' } },
+              session: { id: 'scenario_host_bootstrap' },
+            },
+          });
+        }
+        if (record.name === 'alembic_rescan') {
+          return jsonResponse(200, {
+            success: true,
+            data: {
+              briefing: { session: { id: 'scenario_host_rescan' } },
+              session: { id: 'scenario_host_rescan' },
+            },
+          });
+        }
+      }
       return jsonResponse(404, { success: false, message: `Unhandled scenario fetch: ${url}` });
     };
   }
