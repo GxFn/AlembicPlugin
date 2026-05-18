@@ -26,6 +26,7 @@ const distributionMarketplaceJson = readJson(distributionMarketplacePath);
 const runtimePackageJson = readJson(runtimePackagePath);
 const runtimeCoreSourceJson = readJson(runtimeCoreSourcePath);
 const errors = [];
+const legacyRootRegistryScript = ['release', 'package-boundary', 'publish'].join(':');
 const iface = pluginJson.interface || {};
 const wrapperSource = existsSync(join(pluginRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs'))
   ? readFileSync(join(pluginRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs'), 'utf8')
@@ -52,13 +53,17 @@ expect(
   'package.json must expose bin.alembic-codex-mcp -> dist/bin/codex-mcp.js'
 );
 expect(
+  packageJson.private === true,
+  'root package.json must stay private because AlembicPlugin releases Codex plugin artifacts only'
+);
+expect(
   Array.isArray(packageJson.files) &&
     packageJson.files.includes('.agents/plugins/marketplace.json'),
   'package.json files[] must include .agents/plugins/marketplace.json'
 );
 expect(
   Array.isArray(packageJson.files) && packageJson.files.includes('plugins'),
-  'package.json files[] must include plugins so the Codex plugin ships with npm package'
+  'package.json files[] must include plugins so the Codex plugin artifact contains the installable plugin'
 );
 expect(
   Array.isArray(packageJson.files) && packageJson.files.includes('scripts/verify-codex-plugin.mjs'),
@@ -79,9 +84,17 @@ expect(
   'package.json files[] must include scripts/release-codex-plugin.mjs'
 );
 expect(
-  packageJson.scripts?.prepublishOnly ===
-    'npm run release:package-boundary:publish && npm run release:codex-plugin',
-  'prepublishOnly must run the package boundary publish gate before release:codex-plugin'
+  packageJson.scripts?.prepublishOnly === 'npm run release:root-npm-publish:disabled',
+  'prepublishOnly must point at the disabled root registry publication guard'
+);
+expect(
+  packageJson.scripts?.['release:root-npm-publish:disabled'] ===
+    'node scripts/verify-release-package-boundary.mjs --publish',
+  'package.json must expose release:root-npm-publish:disabled'
+);
+expect(
+  !packageJson.scripts?.[legacyRootRegistryScript],
+  'package.json must not expose the legacy root registry publication script'
 );
 expect(
   packageJson.scripts?.['release:codex-plugin'] === 'node scripts/release-codex-plugin.mjs',

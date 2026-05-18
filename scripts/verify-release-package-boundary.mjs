@@ -5,7 +5,9 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const publishMode = process.argv.includes('--publish');
+const legacyRootRegistryScript = ['release', 'package-boundary', 'publish'].join(':');
 const packageJsonPath = join(root, 'package.json');
+const releaseWorkflowPath = join(root, '.github', 'workflows', 'release.yml');
 const runtimePackageJsonPath = join(root, 'plugins', 'alembic-codex', 'runtime', 'package.json');
 const runtimeCoreSourcePath = join(
   root,
@@ -18,6 +20,9 @@ const runtimeCoreSourcePath = join(
 );
 
 const packageJson = readJson(packageJsonPath);
+const releaseWorkflowSource = existsSync(releaseWorkflowPath)
+  ? readFileSync(releaseWorkflowPath, 'utf8')
+  : '';
 const runtimePackageJson = readJson(runtimePackageJsonPath);
 const runtimeCoreSource = existsSync(runtimeCoreSourcePath)
   ? readJson(runtimeCoreSourcePath)
@@ -25,6 +30,7 @@ const runtimeCoreSource = existsSync(runtimeCoreSourcePath)
 const rootParentFileDependencies = collectFileParentDependencies(packageJson);
 const errors = [];
 
+expect(packageJson.private === true, 'root package must be private and unavailable to registry');
 expect(
   packageJson.dependencies?.['@alembic/core'] === 'file:../AlembicCore',
   'root package must keep local development dependency @alembic/core: file:../AlembicCore'
@@ -50,20 +56,47 @@ if (runtimeCoreSource) {
 }
 
 expect(
-  packageJson.scripts?.prepublishOnly ===
-    'npm run release:package-boundary:publish && npm run release:codex-plugin',
-  'prepublishOnly must run the package boundary publish gate before release:codex-plugin'
+  packageJson.scripts?.prepublishOnly === 'npm run release:root-npm-publish:disabled',
+  'prepublishOnly must point at the disabled root registry publication guard'
+);
+expect(
+  packageJson.scripts?.['release:root-npm-publish:disabled'] ===
+    'node scripts/verify-release-package-boundary.mjs --publish',
+  'package.json must expose release:root-npm-publish:disabled'
+);
+expect(
+  !packageJson.scripts?.[legacyRootRegistryScript],
+  'legacy root registry publication script must be removed'
+);
+expect(Boolean(releaseWorkflowSource), 'Release workflow must exist');
+expect(
+  !/\bnpm\s+publish\b/.test(releaseWorkflowSource),
+  'Release workflow must not invoke the root package registry publication command'
+);
+expect(
+  releaseWorkflowSource.includes('actions/upload-artifact'),
+  'Release workflow must upload Codex plugin artifacts instead of publishing the root package'
+);
+expect(
+  releaseWorkflowSource.includes('plugins/alembic-codex/runtime.tgz'),
+  'Release workflow must keep runtime.tgz as the portable plugin runtime artifact'
 );
 
-if (publishMode && rootParentFileDependencies.length > 0) {
+if (publishMode) {
   errors.push(
     [
-      'Blocked npm publish: root package.json still contains workspace-local file dependencies.',
-      ...rootParentFileDependencies.map(
-        (dependency) => `- ${dependency.field}.${dependency.name}: ${dependency.value}`
-      ),
-      'Create a publish staging manifest with registry dependencies after the Core package baseline is accepted, or keep this release unpublished.',
-      'The embedded Codex runtime may continue to use @alembic/core: file:vendor/AlembicCore.',
+      'Blocked root registry publication: AlembicPlugin is artifact-only.',
+      'Publish Codex plugin snapshots through the channel, marketplace, and portable runtime artifact release path.',
+      'The root package is intentionally private; runtime.tgz is the portable runtime artifact.',
+      'The embedded Codex runtime must continue to use @alembic/core: file:vendor/AlembicCore.',
+      rootParentFileDependencies.length > 0
+        ? [
+            'Root workspace-local file dependencies remain for development only:',
+            ...rootParentFileDependencies.map(
+              (dependency) => `- ${dependency.field}.${dependency.name}: ${dependency.value}`
+            ),
+          ].join('\n')
+        : '',
     ].join('\n')
   );
 }
@@ -82,8 +115,10 @@ process.stdout.write(
       ok: true,
       publishMode,
       rootPackage: `${packageJson.name}@${packageJson.version}`,
+      private: packageJson.private === true,
       rootParentFileDependencies,
-      rootPublishBlocked: rootParentFileDependencies.length > 0,
+      rootRegistryPublish: 'disabled',
+      codexPluginArtifactRelease: true,
       embeddedRuntimeCoreDependency: runtimePackageJson.dependencies?.['@alembic/core'],
       embeddedCoreSource: runtimeCoreSource,
     },

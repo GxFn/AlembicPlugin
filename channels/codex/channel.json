@@ -1,7 +1,7 @@
 {
   "id": "codex",
   "displayName": "Codex",
-  "description": "Codex distribution entry for the Alembic Codex plugin and embedded npm runtime.",
+  "description": "Codex distribution entry for the Alembic Codex plugin and embedded portable runtime artifact.",
   "marketplace": {
     "name": "gxfn",
     "displayName": "GxFn",
@@ -36,8 +36,9 @@
   "packages": [
     {
       "name": "alembic-ai",
-      "registry": "npm",
+      "registry": "portable-artifact",
       "installScope": "embedded-plugin-runtime",
+      "artifact": "plugins/alembic-codex/runtime.tgz",
       "version": "0.1.2",
       "binaries": [
         "alembic-codex-mcp"

@@ -208,12 +208,9 @@ function copyCoreGrammars() {
 function copyEmbeddedCorePackage() {
   const source = resolveEmbeddedCoreSource();
   const destination = join(runtimeRoot, 'vendor', 'AlembicCore');
-  for (const entry of ['package.json', 'README.md', 'dist', 'resources', 'config', 'scripts']) {
+  for (const entry of ['package.json', 'dist', 'resources', 'config', 'scripts']) {
     const sourcePath = join(source.path, entry);
     if (!existsSync(sourcePath)) {
-      if (entry === 'README.md') {
-        continue;
-      }
       throw new Error(`Required embedded Core entry is missing: ${sourcePath}`);
     }
     const targetPath = join(destination, entry);

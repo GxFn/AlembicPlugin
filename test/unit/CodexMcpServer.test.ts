@@ -763,7 +763,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('diagnostics reports runtime version and offline fallback without starting daemon', async () => {
+  test('diagnostics reports runtime version and artifact guidance without starting daemon', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     const supervisor = makeSupervisor(
@@ -782,7 +782,7 @@ describe('CodexMcpServer', () => {
         cleanup: { automaticOnUninstall: boolean; command: string };
         checks: { packagePin: boolean; pluginAssets: boolean; pluginSkills: boolean };
         nextActions: string[];
-        offlineFallback: { globalInstall: string };
+        offlineFallback: { localPackage: string; registryPackageFallback: boolean };
         package: { pinnedSpecifier: string; version: string };
         plugin: { mcp: { ok: boolean; packagePin: boolean }; skills: { ok: boolean } };
         primaryAction: { tool: string };
@@ -802,9 +802,10 @@ describe('CodexMcpServer', () => {
     expect(result.data.nextActions).toContain('Alembic Codex runtime checks passed.');
     expect(result.data.primaryAction.tool).toBe('alembic_codex_status');
     expect(result.data.summary).toContain('runtime checks passed');
-    expect(result.data.offlineFallback.globalInstall).toBe(
-      `npm install -g alembic-ai@${getPackageVersion()}`
-    );
+    expect(result.data.offlineFallback).toMatchObject({
+      localPackage: './runtime.tgz',
+      registryPackageFallback: false,
+    });
     expect(result.data.cleanup).toMatchObject({
       automaticOnUninstall: false,
       command: 'alembic_codex_cleanup',

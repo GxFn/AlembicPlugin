@@ -54,7 +54,7 @@ expect(plugins[0]?.name === 'alembic-codex', 'Codex channel plugin must be alemb
 expect(packages[0]?.name === 'alembic-ai', 'Codex channel package must be alembic-ai');
 expect(
   channel.description ===
-    'Codex distribution entry for the Alembic Codex plugin and embedded npm runtime.',
+    'Codex distribution entry for the Alembic Codex plugin and embedded portable runtime artifact.',
   'Codex channel description must stay scoped to the current plugin/runtime'
 );
 
@@ -140,10 +140,21 @@ for (const pkg of packages) {
     pkg.version === packageVersion,
     `channel package ${pkg.name} version must match package.json`
   );
-  expect(pkg.registry === 'npm', `channel package ${pkg.name} registry must be npm`);
+  expect(
+    pkg.registry === 'portable-artifact',
+    `channel package ${pkg.name} registry must be portable-artifact`
+  );
   expect(
     pkg.installScope === 'embedded-plugin-runtime',
     `channel package ${pkg.name} installScope must be embedded-plugin-runtime`
+  );
+  expect(
+    pkg.artifact === 'plugins/alembic-codex/runtime.tgz',
+    `channel package ${pkg.name} artifact must point to plugins/alembic-codex/runtime.tgz`
+  );
+  expect(
+    existsSync(join(root, pkg.artifact || '')),
+    `channel package ${pkg.name} artifact must exist`
   );
   for (const bin of pkg.binaries || []) {
     expect(

@@ -5,7 +5,8 @@
  * 用途：自动化发布前检查、版本提交和 tag 推送
  * 使用：node dist/scripts/release.js [check|patch|minor|major]
  *
- * npm 包发布由 .github/workflows/release.yml 在 v* tag 推送后完成。
+ * Codex 插件 artifact 发布由 .github/workflows/release.yml 在 v* tag 推送后完成。
+ * AlembicPlugin root package 保持 private，不走 registry 发布链路。
  */
 
 import { execSync } from 'node:child_process';
@@ -202,7 +203,7 @@ class ReleaseChecker {
     header('检查总结');
 
     if (this.errors.length === 0 && this.warnings.length === 0) {
-      success('所有检查通过，可以发布！');
+      success('所有检查通过，可以准备 Codex 插件 artifact 发布！');
       return true;
     }
 
@@ -261,10 +262,10 @@ function release(versionType: any, checker: any) {
     exec(`git tag ${newVersion}`);
     success('Release commit 和 tag 已创建');
 
-    info('推送到 GitHub（触发 Release Action 自动发布 npm 包）...');
+    info('推送到 GitHub（触发 Release Action 构建并上传 Codex 插件 artifact）...');
     exec('git push origin HEAD');
     exec(`git push origin ${newVersion}`);
-    success('已推送到 GitHub，等待 Actions 构建、测试并发布 npm 包');
+    success('已推送到 GitHub，等待 Actions 构建、测试并上传 Codex 插件 artifact');
 
     header('🎉 发布流程完成！');
   } catch (err: any) {

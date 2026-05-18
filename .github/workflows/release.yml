@@ -1,4 +1,4 @@
-# Alembic 发布：推送 v* tag 后，由 GitHub Actions 构建、测试并发布到 npm
+# AlembicPlugin 发布：推送 v* tag 后，由 GitHub Actions 构建、测试并上传 Codex 插件产物
 name: Release
 
 on:
@@ -14,10 +14,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-test-publish:
+  build-test-artifacts:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # npm provenance / trusted publishing
       contents: read
     defaults:
       run:
@@ -50,7 +49,6 @@ jobs:
             AlembicPlugin/package-lock.json
             AlembicCore/package-lock.json
             AlembicDashboard/package-lock.json
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Verify tag matches package version
         run: |
@@ -87,6 +85,12 @@ jobs:
       - name: Verify release package boundary
         run: npm run verify:release-package-boundary
 
+      - name: Verify portable runtime artifact
+        run: |
+          test -s plugins/alembic-codex/runtime.tgz
+          test -f plugins/alembic-codex/runtime/vendor/AlembicCore/.alembic-source.json
+          node -e "const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('plugins/alembic-codex/runtime/package.json', 'utf8')); const src = JSON.parse(fs.readFileSync('plugins/alembic-codex/runtime/vendor/AlembicCore/.alembic-source.json', 'utf8')); if (pkg.dependencies['@alembic/core'] !== 'file:vendor/AlembicCore') throw new Error('embedded runtime must keep @alembic/core: file:vendor/AlembicCore'); if (src.packageDependency !== 'file:vendor/AlembicCore') throw new Error('embedded runtime source metadata must record file:vendor/AlembicCore'); if (!/^[0-9a-f]{40}$/i.test(src.commit || '')) throw new Error('embedded runtime source metadata must record a 40-character commit');"
+
       - name: Lint
         run: npm run lint -- --diagnostic-level=error
 
@@ -99,12 +103,18 @@ jobs:
           ASD_DISABLE_WRITE_GUARD: '1'
           ASD_DISABLE_RATE_LIMIT: '1'
 
-      - name: Preview npm package
-        run: npm pack --dry-run
+      - name: Smoke Codex plugin package
+        run: npm run smoke:codex-plugin
 
-      - name: Publish to npm
-        # Build artifacts are produced above; skip prepublishOnly to avoid duplicate builds.
-        # The boundary gate blocks publish while root package.json contains workspace-local file:../ dependencies.
-        run: npm run release:package-boundary:publish && npm publish --provenance --access public --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Upload Codex plugin artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: alembic-codex-plugin-${{ github.ref_name }}
+          path: |
+            AlembicPlugin/plugins/alembic-codex/runtime.tgz
+            AlembicPlugin/plugins/alembic-codex/.codex-plugin/plugin.json
+            AlembicPlugin/plugins/alembic-codex/.mcp.json
+            AlembicPlugin/plugins/alembic-codex/README.md
+            AlembicPlugin/plugins/alembic-codex/README.zh-CN.md
+            AlembicPlugin/channels/codex/channel.json
+            AlembicPlugin/.agents/plugins/marketplace.json

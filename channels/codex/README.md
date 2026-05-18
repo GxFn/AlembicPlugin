@@ -5,7 +5,7 @@ The Codex channel is the stable entrypoint for the current Alembic Codex plugin.
 Current scope is intentionally narrow:
 
 - exactly one Codex plugin: `alembic-codex`
-- exactly one embedded npm runtime package: `alembic-ai`
+- exactly one embedded portable runtime artifact: `alembic-ai` packed as `runtime.tgz`
 - exactly one MCP runtime bin used by the plugin: `alembic-codex-mcp`
 - exactly one generic runtime mode for plugin-packaged execution: `plugin`
 - exactly one current plugin host id: `codex`
