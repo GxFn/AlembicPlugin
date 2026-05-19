@@ -91,20 +91,27 @@ export async function consolidateSemanticMemory({
   if (!db || !session.sessionStore) {
     return null;
   }
-  const semanticMemory = await dependencies.createPersistentMemory(
-    db as PersistentMemoryDb,
-    dataRoot,
-    log
-  );
-  const consolidator = await dependencies.createConsolidator(semanticMemory, log);
-  const result = await consolidator.consolidate(
-    session.sessionStore as CompletionSessionStoreLike,
-    {
-      bootstrapSession: session.id,
-      clearPrevious: true,
-    }
-  );
-  return result && typeof result === 'object'
-    ? (result as WorkflowSemanticMemoryConsolidationResult)
-    : null;
+  try {
+    const semanticMemory = await dependencies.createPersistentMemory(
+      db as PersistentMemoryDb,
+      dataRoot,
+      log
+    );
+    const consolidator = await dependencies.createConsolidator(semanticMemory, log);
+    const result = await consolidator.consolidate(
+      session.sessionStore as CompletionSessionStoreLike,
+      {
+        bootstrapSession: session.id,
+        clearPrevious: true,
+      }
+    );
+    return result && typeof result === 'object'
+      ? (result as WorkflowSemanticMemoryConsolidationResult)
+      : null;
+  } catch (err: unknown) {
+    log.warn(
+      `[DimensionComplete] Semantic Memory consolidation failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`
+    );
+    return null;
+  }
 }

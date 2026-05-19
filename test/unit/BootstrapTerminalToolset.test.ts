@@ -4,25 +4,15 @@ const envBackup = { ...process.env };
 
 afterEach(() => {
   process.env = { ...envBackup };
-  vi.doUnmock('@alembic/core/shared');
   vi.resetModules();
 });
 
 async function loadModule() {
-  return await import(
-    '../../lib/workflows/capabilities/planning/dimensions/BootstrapTerminalToolset.js'
-  );
+  return await import('@alembic/core/host-agent-workflows');
 }
 
 function mockTerminalToolset(toolset = 'terminal-run') {
-  vi.doMock('@alembic/core/shared', () => ({
-    getTestModeConfig: () => ({
-      enabled: false,
-      bootstrapDims: [],
-      rescanDims: [],
-      terminal: { enabled: toolset !== 'baseline', toolset },
-    }),
-  }));
+  process.env.ALEMBIC_TERMINAL_TOOLSET = toolset;
 }
 
 describe('BootstrapTerminalToolset', () => {

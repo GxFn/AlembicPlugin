@@ -66,6 +66,7 @@ export interface WikiDeps {
   projectRoot: string;
   /** Ghost 模式下的数据根目录（Wiki 文件写入此处），不传则默认 projectRoot */
   dataRoot?: string;
+  aiProvider?: WikiAiProvider | null;
   moduleService?: WikiModuleService | null;
   knowledgeService?: WikiKnowledgeService | null;
   projectGraph?: WikiProjectGraph | null;
@@ -74,6 +75,10 @@ export interface WikiDeps {
   options?: Partial<WikiOptions>;
   writeZone?: WriteZone | null;
   [key: string]: unknown;
+}
+
+export interface WikiAiProvider {
+  chat(prompt: string): Promise<string>;
 }
 
 /** Minimal ProjectGraph interface */
@@ -184,6 +189,7 @@ export class WikiGenerator {
   projectRoot: string;
   wikiDir: string;
   _aborted: boolean;
+  aiProvider: WikiAiProvider | null;
   codeEntityGraph: Record<string, unknown> | null;
   knowledgeService: WikiKnowledgeService | null;
   metaPath: string;
@@ -199,6 +205,7 @@ export class WikiGenerator {
   constructor(deps: WikiDeps) {
     this.projectRoot = deps.projectRoot;
     const dataRoot = deps.dataRoot || deps.projectRoot;
+    this.aiProvider = deps.aiProvider || null;
     this.moduleService = deps.moduleService || null;
     this.knowledgeService = deps.knowledgeService || null;
     this.projectGraph = deps.projectGraph || null;

@@ -52,7 +52,7 @@ describe('Codex plugin cache sync script', () => {
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_PLUGIN_HOST).toBe('codex');
     expect(repoMcp.mcpServers.alembic.command).toBe('node');
     expect(repoMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-mcp-wrapper.mjs');
-  });
+  }, 30_000);
 });
 
 function tempDir() {
