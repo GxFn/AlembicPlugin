@@ -142,9 +142,9 @@ describe('Codex status service', () => {
       },
     });
     expect(status.moduleBoundary.dashboard).toMatchObject({
-      artifactPath: 'dashboard/dist',
-      deletionAllowedThisWave: false,
-      sourceOwner: 'AlembicDashboard',
+      artifactPath: null,
+      deletionCompletedThisWave: true,
+      sourceOwner: 'Alembic/AlembicDashboard',
     });
     expect(status.moduleBoundary.adapters.embeddedRuntime.role).toContain(
       'not the long-term Alembic daemon'
@@ -152,8 +152,8 @@ describe('Codex status service', () => {
     expect(status.diagnostics).toMatchObject({
       moduleBoundary: {
         dashboard: {
-          artifactPath: 'dashboard/dist',
-          sourceOwner: 'AlembicDashboard',
+          artifactPath: null,
+          sourceOwner: 'Alembic/AlembicDashboard',
         },
       },
     });

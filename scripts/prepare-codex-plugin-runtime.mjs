@@ -24,14 +24,10 @@ const requiredBuildArtifacts = [
   'dist/bin/codex-mcp.js',
   'dist/bin/daemon-server.js',
   'dist/lib/external/mcp/CodexMcpServer.js',
-  'dashboard/dist/index.html',
 ];
 
 for (const artifact of requiredBuildArtifacts) {
-  assert(
-    existsSync(join(root, artifact)),
-    `${artifact} is missing. Run npm run build and npm run build:dashboard first.`
-  );
+  assert(existsSync(join(root, artifact)), `${artifact} is missing. Run npm run build first.`);
 }
 
 rmSync(runtimeRoot, { force: true, recursive: true });
@@ -39,7 +35,6 @@ mkdirSync(runtimeRoot, { recursive: true });
 
 writeRuntimePackageJson();
 copyTree('dist', 'dist', { skipDeclarations: true });
-copyTree('dashboard/dist', 'dashboard/dist');
 copyTree('config', 'config');
 copyTree('templates', 'templates');
 copyTree('injectable-skills', 'injectable-skills');
@@ -93,7 +88,6 @@ function writeRuntimePackageJson() {
       '.agents',
       'channels',
       'config',
-      'dashboard/dist',
       'dist',
       'injectable-skills',
       'plugins/alembic-codex',

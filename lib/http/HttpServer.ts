@@ -58,9 +58,6 @@ interface HttpServerConfig {
   [key: string]: unknown;
 }
 
-/** Express internal router layer shape (private API, used in mountDashboard) */
-type RouterLayer = { route?: unknown };
-
 /** Type for the winston Logger instance returned by Logger.getInstance() */
 type AppLogger = ReturnType<typeof Logger.getInstance>;
 
@@ -549,67 +546,6 @@ export class HttpServer {
   /** 获取 Express 应用实例 */
   getApp() {
     return this.app;
-  }
-
-  /**
-   * 挂载 Dashboard 静态资源（生产模式：直接托管预构建产物）
-   * 必须在 initialize() + start() 之后调用
-   * @param distDir dashboard/dist 目录的绝对路径
-   */
-  mountDashboard(distDir: string) {
-    // 从路由栈中移除最后的 404 catch-all 和根路径 handler
-    // Express 5 使用 app.router（Express 4 为 app._router）
-    const router =
-      (
-        this.app as unknown as {
-          router?: { stack: RouterLayer[] };
-          _router?: { stack: RouterLayer[] };
-        }
-      ).router ?? (this.app as unknown as { _router?: { stack: RouterLayer[] } })._router;
-    if (!router) {
-      this.logger.warn(
-        'mountDashboard: Express router not available, mounting without route reordering'
-      );
-      this.app.use(express.static(distDir));
-      this.app.get('{*path}', (req: Request, res: Response, next: NextFunction) => {
-        if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
-          return next();
-        }
-        res.sendFile(join(distDir, 'index.html'));
-      });
-      this.logger.info('Dashboard mounted (production mode, fallback)', { distDir });
-      return;
-    }
-    const layers: RouterLayer[] = router.stack;
-    // 倒序弹出最后 2 层（404 + root handler）
-    const removedLayers: RouterLayer[] = [];
-    for (let i = layers.length - 1; i >= 0; i--) {
-      const layer = layers[i];
-      if (layer.route) {
-        removedLayers.unshift(layers.splice(i, 1)[0]);
-        if (removedLayers.length >= 2) {
-          break;
-        }
-      }
-    }
-
-    // 注入 express.static 托管 dist 目录
-    this.app.use(express.static(distDir));
-
-    // SPA fallback: 非 API / 非 socket.io 请求返回 index.html
-    this.app.get('{*path}', (req: Request, res: Response, next: NextFunction) => {
-      if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
-        return next();
-      }
-      res.sendFile(join(distDir, 'index.html'));
-    });
-
-    // 放回 404 handler（SPA fallback 之后，作为兜底）
-    for (const layer of removedLayers) {
-      layers.push(layer);
-    }
-
-    this.logger.info('Dashboard mounted (production mode)', { distDir });
   }
 
   /** 获取服务器实例 */

@@ -357,8 +357,8 @@ describe('CodexMcpServer', () => {
     expect(result.data.daemon.ready).toBe(false);
     expect(result.data.diagnostics.node.ok).toBe(true);
     expect(result.data.diagnostics.moduleBoundary.dashboard).toMatchObject({
-      artifactPath: 'dashboard/dist',
-      sourceOwner: 'AlembicDashboard',
+      artifactPath: null,
+      sourceOwner: 'Alembic/AlembicDashboard',
     });
     expect(result.data.onboarding).toMatchObject({
       state: 'needs_init',
@@ -923,6 +923,30 @@ describe('CodexMcpServer', () => {
       },
       needsUserInput: true,
     });
+    expect(supervisor.status).toHaveBeenCalledTimes(1);
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('dashboard handoff fails closed without local Dashboard daemon or API URL fallback', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(projectRoot);
+    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_codex_dashboard', {})) as {
+      data: {
+        dashboardUrl?: string;
+        errorCode: string;
+        enhancementRoute: { selected: string };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data.errorCode).toBe('CODEX_DASHBOARD_HANDOFF_UNAVAILABLE');
+    expect(result.data.enhancementRoute.selected).not.toBe('local-alembic-daemon');
+    expect(result.data.dashboardUrl).toBeUndefined();
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });

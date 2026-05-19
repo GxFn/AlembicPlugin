@@ -166,6 +166,7 @@ export function buildCodexEnhancementRouteChoice(input: {
       daemon,
       localInstall,
       missingCapabilities,
+      requirement,
       selected,
     }),
     requirement,
@@ -214,13 +215,16 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
     summarizeAlembicRuntimeCapabilities(capabilities),
     runtimeBoundary
   );
+  const route =
+    firstString(enhancement?.route, runtimeBoundary.route) || inferRouteFromReadyDaemon(status);
   const dashboardUrl = firstString(
     capabilitySummary.dashboardUrl,
     runtimeBoundary.dashboard.url,
     data?.dashboardUrl,
-    status.state?.dashboardUrl
+    isLocalAlembicDaemonRoute(route) || capabilitySummary.dashboardAvailable === true
+      ? status.state?.dashboardUrl
+      : null
   );
-  const route = firstString(enhancement?.route, runtimeBoundary.route);
 
   return {
     available: status.ready === true && Boolean(status.state),
@@ -248,6 +252,9 @@ function selectEnhancementRoute(input: {
   if (input.daemon.ready && isLocalAlembicDaemonRoute(input.daemon.route)) {
     return 'local-alembic-daemon';
   }
+  if (input.requirement === 'dashboard' && input.localInstall.available) {
+    return 'local-alembic-install';
+  }
   if (input.daemon.ready && input.daemon.route === 'embedded-plugin-runtime') {
     return 'embedded-plugin-runtime';
   }
@@ -264,6 +271,7 @@ function buildEnhancementRouteReason(input: {
   daemon: CodexEnhancementDaemonProbe;
   localInstall: CodexLocalAlembicInstallProbe;
   missingCapabilities: string[];
+  requirement: CodexEnhancementRequirement;
   selected: CodexEnhancementRouteKind;
 }): string {
   if (input.selected === 'local-alembic-daemon') {
@@ -277,6 +285,9 @@ function buildEnhancementRouteReason(input: {
     return `Local Alembic daemon is ready and owns enhancement route.${boundary}${suffix}`;
   }
   if (input.selected === 'embedded-plugin-runtime') {
+    if (input.requirement === 'dashboard') {
+      return 'Dashboard handoff requires a local Alembic daemon that serves the Dashboard; the embedded Codex plugin runtime only exposes MCP/API compatibility.';
+    }
     if (input.daemon.ready) {
       return 'Embedded Codex plugin runtime daemon is ready for this project.';
     }

@@ -4,9 +4,6 @@
 [submodule "vendor/AlembicCore"]
 	path = vendor/AlembicCore
 	url = https://github.com/GxFn/AlembicCore.git
-[submodule "vendor/AlembicDashboard"]
-	path = vendor/AlembicDashboard
-	url = https://github.com/GxFn/AlembicDashboard.git
 [submodule "skills/progressive-chain-validation"]
 	path = skills/progressive-chain-validation
 	url = https://github.com/GxFn/progressive-chain-validation.git

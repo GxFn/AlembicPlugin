@@ -52,7 +52,6 @@
     "build:core": "node scripts/build-core.mjs",
     "postbuild": "node scripts/postbuild.mjs",
     "prepublishOnly": "npm run release:root-npm-publish:disabled",
-    "build:dashboard": "node scripts/build-dashboard.mjs",
     "test": "vitest run",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:integration": "vitest run test/integration",
@@ -156,7 +155,6 @@
     "config",
     "scripts/postbuild.mjs",
     "scripts/build-core.mjs",
-    "scripts/build-dashboard.mjs",
     "scripts/lint-consumer-core-imports.mjs",
     "scripts/local-source-paths.mjs",
     "scripts/resolve-local-sources.mjs",
@@ -170,7 +168,6 @@
     "injectable-skills",
     "plugins",
     "templates",
-    "dashboard/dist",
     "template.json"
   ],
   "directories": {

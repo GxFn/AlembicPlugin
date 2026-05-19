@@ -19,12 +19,6 @@ const steps = [
           args: ['run', 'build'],
           verifies: ['dist/bin/codex-mcp.js', 'dist/bin/daemon-server.js'],
         },
-        {
-          name: 'Build Dashboard',
-          command: 'npm',
-          args: ['run', 'build:dashboard'],
-          verifies: ['dashboard/dist/index.html'],
-        },
       ]),
   {
     name: 'Prepare embedded Codex plugin runtime',
@@ -33,7 +27,6 @@ const steps = [
     verifies: [
       'plugins/alembic-codex/runtime/package.json',
       'plugins/alembic-codex/runtime/dist/bin/codex-mcp.js',
-      'plugins/alembic-codex/runtime/dashboard/dist/index.html',
     ],
   },
   {

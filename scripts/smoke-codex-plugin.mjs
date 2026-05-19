@@ -76,10 +76,6 @@ try {
     existsSync(join(root, 'dist', 'bin', 'codex-mcp.js')),
     'dist/bin/codex-mcp.js missing; run npm run build first'
   );
-  assert(
-    existsSync(join(root, 'dashboard', 'dist', 'index.html')),
-    'dashboard/dist missing; run npm run build:dashboard first'
-  );
 
   const pack = run('npm', ['pack', '--json', '--pack-destination', packDir, '--ignore-scripts'], {
     cwd: root,
@@ -124,7 +120,7 @@ try {
     pathToFileURL(join(runtimeRoot, 'dist', 'lib', 'external', 'mcp', 'CodexMcpServer.js')).href
   );
 
-  server = new CodexMcpServer({ projectRoot, waitUntilReadyMs: 5000 });
+  server = new CodexMcpServer({ projectRoot, waitUntilReadyMs: 10000 });
 
   const diagnostics = await server.handleToolCall('alembic_codex_diagnostics', {});
   assertResult(diagnostics, 'diagnostics');
@@ -219,8 +215,16 @@ try {
   }
 
   let daemon = null;
+  let dashboardHandoff = 'skipped';
   let recovery = 'skipped';
   if (shouldRunDaemon) {
+    const dashboard = await server.handleToolCall('alembic_codex_dashboard', {});
+    assert(
+      dashboard?.success === false && !dashboard?.data?.dashboardUrl,
+      'dashboard handoff should fail closed when no local Alembic Dashboard daemon is available'
+    );
+    dashboardHandoff = 'failed-closed';
+
     const interruptedJob = store.create({
       kind: 'bootstrap',
       request: { reason: 'daemon-recovery-smoke' },
@@ -228,20 +232,8 @@ try {
     });
     store.markRunning(interruptedJob.id);
 
-    daemon = await server.handleToolCall('alembic_codex_dashboard', {});
-    assertResult(daemon, 'dashboard daemon smoke');
-    assert(
-      typeof daemon.data?.dashboardUrl === 'string',
-      'dashboard daemon smoke did not return a URL'
-    );
-    const dashboardResponse = await fetch(daemon.data.dashboardUrl);
-    const dashboardHtml = await dashboardResponse.text();
-    assert(
-      dashboardResponse.ok &&
-        dashboardResponse.headers.get('content-type')?.includes('text/html') &&
-        dashboardHtml.includes('<div id="root"'),
-      `dashboard daemon smoke did not serve Dashboard HTML at ${daemon.data.dashboardUrl}`
-    );
+    daemon = await server.supervisor.ensure({ projectRoot, waitUntilReadyMs: 10000 });
+    assert(daemon.ready === true, 'daemon recovery smoke did not start embedded runtime');
     const recoveredJob = await server.handleToolCall('alembic_codex_job', {
       jobId: interruptedJob.id,
     });
@@ -270,7 +262,8 @@ try {
         stdio,
         npxRuntime,
         recovery,
-        daemon: shouldRunDaemon ? daemon?.data?.dashboardUrl || null : 'skipped',
+        daemon: shouldRunDaemon ? summarizeSmokeDaemon(daemon) : 'skipped',
+        dashboardHandoff,
       },
       null,
       2
@@ -302,7 +295,6 @@ function requiredPackageFiles(version) {
     'package/dist/bin/daemon-server.js',
     'package/dist/lib/external/mcp/CodexMcpServer.js',
     'package/dist/lib/daemon/DaemonSupervisor.js',
-    'package/dashboard/dist/index.html',
     'package/plugins/alembic-codex/.codex-plugin/plugin.json',
     'package/plugins/alembic-codex/.agents/plugins/marketplace.json',
     'package/plugins/alembic-codex/.mcp.json',
@@ -312,7 +304,6 @@ function requiredPackageFiles(version) {
     'package/plugins/alembic-codex/runtime/dist/bin/codex-mcp.js',
     'package/plugins/alembic-codex/runtime/dist/bin/daemon-server.js',
     'package/plugins/alembic-codex/runtime/dist/lib/external/mcp/CodexMcpServer.js',
-    'package/plugins/alembic-codex/runtime/dashboard/dist/index.html',
     'package/plugins/alembic-codex/runtime/resources/grammars/tree-sitter-typescript.wasm',
     'package/plugins/alembic-codex/runtime/vendor/AlembicCore/package.json',
     'package/plugins/alembic-codex/runtime/vendor/AlembicCore/dist/index.js',
@@ -498,7 +489,6 @@ function simulateMarketplaceInstall({ packageRoot, packageVersion }) {
   for (const required of [
     'dist/bin/codex-mcp.js',
     'dist/lib/external/mcp/CodexMcpServer.js',
-    'dashboard/dist/index.html',
     'resources/grammars/tree-sitter-typescript.wasm',
     'vendor/AlembicCore/package.json',
     'vendor/AlembicCore/dist/index.js',
@@ -534,6 +524,17 @@ function collectManifestAssets(iface) {
     iface.logo,
     ...(Array.isArray(iface.screenshots) ? iface.screenshots : []),
   ].filter((asset) => typeof asset === 'string' && asset.length > 0);
+}
+
+function summarizeSmokeDaemon(status) {
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+  return {
+    ready: status.ready === true,
+    url: status.state?.url || null,
+    dashboardUrl: status.state?.dashboardUrl || null,
+  };
 }
 
 async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot, alembicHome }) {

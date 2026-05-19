@@ -36,11 +36,6 @@ jobs:
         with:
           repository: GxFn/AlembicCore
           path: AlembicCore
-      - name: Checkout AlembicDashboard sibling
-        uses: actions/checkout@v5
-        with:
-          repository: GxFn/AlembicDashboard
-          path: AlembicDashboard
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node-version }}
@@ -48,14 +43,11 @@ jobs:
           cache-dependency-path: |
             AlembicPlugin/package-lock.json
             AlembicCore/package-lock.json
-            AlembicDashboard/package-lock.json
       - run: npm ci
       - run: npm ci --prefix ../AlembicCore
-      - run: npm ci --prefix ../AlembicDashboard
       - run: npm run build
       - run: npm run lint -- --diagnostic-level=error
       - run: npm run lint:core-import-boundary
-      - run: npm run build:dashboard
 
   api-smoke:
     name: API Smoke Test
@@ -75,11 +67,6 @@ jobs:
         with:
           repository: GxFn/AlembicCore
           path: AlembicCore
-      - name: Checkout AlembicDashboard sibling
-        uses: actions/checkout@v5
-        with:
-          repository: GxFn/AlembicDashboard
-          path: AlembicDashboard
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
@@ -87,12 +74,9 @@ jobs:
           cache-dependency-path: |
             AlembicPlugin/package-lock.json
             AlembicCore/package-lock.json
-            AlembicDashboard/package-lock.json
       - run: npm ci
       - run: npm ci --prefix ../AlembicCore
       - run: npm run build
-      - run: npm ci --prefix ../AlembicDashboard
-      - run: npm run build:dashboard
 
       - name: Start API Server
         run: |

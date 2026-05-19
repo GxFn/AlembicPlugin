@@ -24,23 +24,18 @@ describe('Codex module boundary status', () => {
     expect(externalOwned).toContain('dashboard-frontend-source');
   });
 
-  it('records Dashboard as an external source with only a retained plugin artifact', () => {
+  it('records Dashboard as an external source with only URL handoff retained', () => {
     const status = buildCodexModuleBoundaryStatus();
 
     expect(status.dashboard).toMatchObject({
-      artifactPath: 'dashboard/dist',
-      buildCommand: 'npm run build:dashboard',
-      deletionAllowedThisWave: false,
-      pluginRole: 'dashboard-url-handoff-and-portable-artifact-packaging',
-      sourceOwner: 'AlembicDashboard',
-      sourceResolver: 'scripts/local-source-paths.mjs#resolveDashboardSource',
+      artifactPath: null,
+      buildCommand: null,
+      deletionCompletedThisWave: true,
+      pluginRole: 'dashboard-url-handoff-only',
+      sourceOwner: 'Alembic/AlembicDashboard',
     });
-    expect(status.dashboard.sourceCandidates).toEqual([
-      '../AlembicDashboard',
-      'vendor/AlembicDashboard',
-    ]);
-    expect(status.dashboard.releaseAssetSwitchChecks).toContain(
-      'Artifact metadata records AlembicDashboard source version or release tag.'
+    expect(status.dashboard.pluginDoesNotBuildOrServe).toContain(
+      'embedded runtime Dashboard frontend directory'
     );
   });
 

@@ -591,29 +591,61 @@ export class CodexMcpServer {
   }
 
   async openDashboard(): Promise<Record<string, unknown>> {
-    const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
-      await this.ensureEnhancementDaemon('dashboard', 'alembic_codex_dashboard');
+    const daemon = await this.supervisor.status(this.projectRoot);
+    const enhancementRoute = buildCodexEnhancementRouteChoice({
+      aiConfig: inspectCodexAiConfig(this.projectRoot),
+      daemonStatus: daemon,
+      runtime: resolveCodexRuntimeContext(),
+      requirement: 'dashboard',
+    });
+    const hostProjectAlignment = buildCodexHostProjectAlignment({
+      daemonStatus: daemon,
+      enhancementRoute,
+      projectRoot: this.projectRoot,
+    });
+    const blocked = buildCodexHostProjectHandoffBlock({
+      daemon,
+      enhancementRoute,
+      hostProjectAlignment,
+      requirement: 'dashboard',
+      tool: 'alembic_codex_dashboard',
+    });
     if (blocked) {
       return blocked;
     }
-    if (!daemon.ready || !daemon.state) {
-      return {
-        success: false,
-        message: daemon.message || 'Alembic daemon is not ready yet.',
-        data: {
+    const dashboardUrl = enhancementRoute.localAlembic.daemon.dashboardUrl;
+    if (
+      enhancementRoute.selected !== 'local-alembic-daemon' ||
+      !daemon.ready ||
+      !daemon.state ||
+      !dashboardUrl ||
+      enhancementRoute.missingCapabilities.includes('dashboard')
+    ) {
+      return failureResult(
+        'alembic_codex_dashboard',
+        'Dashboard handoff requires a local Alembic daemon that serves the Dashboard. The embedded Codex plugin runtime does not bundle or serve Dashboard frontend assets.',
+        {
           daemon: summarizeCodexDaemonStatus(daemon),
           enhancementRoute,
+          errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
           hostProjectAlignment,
+          needsUserInput: true,
           nextActions: [
             buildCodexRecommendedAction({
+              label: 'Check workspace status',
+              reason: 'Inspect host project alignment and local Alembic daemon readiness.',
+              startsDaemon: false,
+              tool: 'alembic_codex_status',
+            }),
+            buildCodexRecommendedAction({
               label: 'Run diagnostics',
-              reason: 'Check Node, npm, embedded runtime wiring, and daemon state before retrying.',
+              reason: 'Check plugin runtime wiring and local Alembic handoff capabilities.',
               startsDaemon: false,
               tool: 'alembic_codex_diagnostics',
             }),
           ],
-        },
-      };
+        }
+      );
     }
     const knowledge = inspectCodexKnowledge(this.projectRoot);
     const hostAgentAction = knowledge.usable
@@ -633,10 +665,7 @@ export class CodexMcpServer {
     return {
       success: true,
       data: {
-        dashboardUrl:
-          enhancementRoute.localAlembic.daemon.dashboardUrl ||
-          daemon.state.dashboardUrl ||
-          daemon.state.url,
+        dashboardUrl,
         daemon: summarizeCodexDaemonStatus(daemon),
         enhancementRoute,
         hostProjectAlignment,

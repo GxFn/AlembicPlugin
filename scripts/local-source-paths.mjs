@@ -11,11 +11,6 @@ const coreCandidates = [
   { label: 'vendor/AlembicCore', path: join(repoRoot, 'vendor', 'AlembicCore') },
 ];
 
-const dashboardCandidates = [
-  { label: '../AlembicDashboard', path: resolve(repoRoot, '..', 'AlembicDashboard') },
-  { label: 'vendor/AlembicDashboard', path: join(repoRoot, 'vendor', 'AlembicDashboard') },
-];
-
 export function resolveCoreSource(options = {}) {
   const requireDist = Boolean(options.requireDist);
   const candidate = coreCandidates.find((entry) => {
@@ -32,20 +27,6 @@ export function resolveCoreSource(options = {}) {
     const distMessage = requireDist ? ' with dist' : '';
     throw new Error(
       `Could not resolve local Core source${distMessage}. Expected ../AlembicCore first, then vendor/AlembicCore.`
-    );
-  }
-
-  return withSourceDetails(candidate);
-}
-
-export function resolveDashboardSource() {
-  const candidate = dashboardCandidates.find(
-    (entry) => existsSync(join(entry.path, 'package.json')) && existsSync(join(entry.path, 'src'))
-  );
-
-  if (!candidate) {
-    throw new Error(
-      'Could not resolve Dashboard source. Expected ../AlembicDashboard first, then vendor/AlembicDashboard.'
     );
   }
 

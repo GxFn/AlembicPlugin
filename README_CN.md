@@ -38,12 +38,14 @@ Git 支持嵌套子仓库。如果某个插件子仓库未来还有自己的 sub
 
 ```bash
 npm run build
-npm run build:dashboard
 npm run prepare:codex-plugin-runtime
 npm run verify:codex-channel
 npm run verify:codex-plugin
 npm run smoke:codex-plugin
 ```
+
+Dashboard 前端源码、构建和服务不再由本仓库负责。Codex 插件只在本地
+Alembic daemon 已明确提供 Dashboard 能力时交接 URL。
 
 发布检查：
 

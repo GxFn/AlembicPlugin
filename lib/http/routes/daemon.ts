@@ -15,9 +15,8 @@ router.get('/health', (req, res) => {
   const gitDiffCheckpoint = readGitDiffCheckpointStatus(container);
   const mode = process.env.ALEMBIC_DAEMON_MODE === '1' ? 'daemon' : 'api';
   const origin = buildRequestOrigin(req);
-  const dashboardAvailable =
-    mode === 'daemon' && process.env.ALEMBIC_DAEMON_DASHBOARD_MOUNTED === '1';
-  const dashboardUrl = dashboardAvailable && origin ? origin : null;
+  const dashboardAvailable = false;
+  const dashboardUrl = null;
   res.json({
     success: true,
     data: {

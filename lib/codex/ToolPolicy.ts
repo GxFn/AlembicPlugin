@@ -169,7 +169,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_dashboard',
     tier: 'agent',
     description:
-      'Start or connect to the project Alembic daemon and return the local Dashboard URL plus follow-up job actions. If the workspace is not initialized yet, this first performs safe Ghost initialization.',
+      'Return the local Alembic Dashboard URL only when the selected project already has a local Alembic daemon with Dashboard capability. If unavailable, fail closed with status and diagnostics next actions.',
     inputSchema: codexInputSchema(),
   },
   {

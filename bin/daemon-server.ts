@@ -4,10 +4,10 @@ process.env.ALEMBIC_API_SERVER = '1';
 process.env.ALEMBIC_DAEMON_MODE = '1';
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:net';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import {
   DAEMON_STATE_SCHEMA_VERSION,
   resolveDaemonPaths,
@@ -20,7 +20,7 @@ import { markInterruptedDaemonJobs } from '../lib/daemon/DaemonJobRunner.js';
 import HttpServer from '../lib/http/HttpServer.js';
 import { getServiceContainer } from '../lib/injection/ServiceContainer.js';
 import { GitDiffCheckpointService } from '../lib/service/evolution/git-diff-checkpoint/index.js';
-import { DASHBOARD_DIR, getPackageVersion } from '../lib/shared/package-assets.js';
+import { getPackageVersion } from '../lib/shared/package-assets.js';
 import { shutdown } from '../lib/shared/shutdown.js';
 
 shutdown.install();
@@ -99,7 +99,6 @@ async function main() {
   });
   const actualPort = resolveBoundDaemonPort(httpServer, requestedPort);
   const daemonUrl = buildDaemonUrl(host, actualPort);
-  const dashboardMounted = mountDashboardIfAvailable(httpServer);
   await verifyHttpServerReady(daemonUrl);
 
   const resolver = components.workspaceResolver;
@@ -111,7 +110,6 @@ async function main() {
     host,
     actualPort,
     daemonUrl,
-    dashboardMounted,
     token,
     schemaMigrationVersion,
   });
@@ -192,7 +190,6 @@ function writeReadyDaemonState(options: {
   host: string;
   actualPort: number;
   daemonUrl: string;
-  dashboardMounted: boolean;
   token: string;
   schemaMigrationVersion: string | null;
 }): void {
@@ -206,7 +203,7 @@ function writeReadyDaemonState(options: {
     host: options.host,
     port: options.actualPort,
     url: options.daemonUrl,
-    dashboardUrl: options.dashboardMounted ? options.daemonUrl : `${options.daemonUrl}/api-spec`,
+    dashboardUrl: '',
     token: options.token,
     version: getPackageVersion(),
     mode: 'daemon',
@@ -234,21 +231,6 @@ async function startHttpServer(port: number, host: string): Promise<HttpServer> 
     }
     throw error;
   }
-}
-
-function mountDashboardIfAvailable(httpServer: HttpServer): boolean {
-  const distDir = join(DASHBOARD_DIR, 'dist');
-  const indexPath = join(distDir, 'index.html');
-  if (!existsSync(indexPath)) {
-    delete process.env.ALEMBIC_DAEMON_DASHBOARD_MOUNTED;
-    Logger.getInstance().warn('Dashboard dist is missing; daemon will serve API routes only', {
-      indexPath,
-    });
-    return false;
-  }
-  httpServer.mountDashboard(distDir);
-  process.env.ALEMBIC_DAEMON_DASHBOARD_MOUNTED = '1';
-  return true;
 }
 
 async function isPortAvailable(port: number, host: string): Promise<boolean> {

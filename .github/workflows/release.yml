@@ -34,12 +34,6 @@ jobs:
           repository: GxFn/AlembicCore
           path: AlembicCore
 
-      - name: Checkout AlembicDashboard sibling
-        uses: actions/checkout@v5
-        with:
-          repository: GxFn/AlembicDashboard
-          path: AlembicDashboard
-
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -48,7 +42,6 @@ jobs:
           cache-dependency-path: |
             AlembicPlugin/package-lock.json
             AlembicCore/package-lock.json
-            AlembicDashboard/package-lock.json
 
       - name: Verify tag matches package version
         run: |
@@ -64,14 +57,8 @@ jobs:
       - name: Install Core dependencies
         run: npm ci --prefix ../AlembicCore
 
-      - name: Install dashboard dependencies
-        run: npm ci --prefix ../AlembicDashboard
-
       - name: Build TypeScript
         run: npm run build
-
-      - name: Build Dashboard
-        run: npm run build:dashboard
 
       - name: Prepare Codex plugin runtime
         run: npm run prepare:codex-plugin-runtime

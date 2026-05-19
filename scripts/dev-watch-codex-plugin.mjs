@@ -4,15 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  repoRoot,
-  resolveCoreGrammarSource,
-  resolveDashboardSource,
-} from './local-source-paths.mjs';
+import { repoRoot, resolveCoreGrammarSource } from './local-source-paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const dashboardSource = resolveDashboardSource();
 const coreGrammarSource = resolveCoreGrammarSource();
 const options = parseArgs(process.argv.slice(2));
 const watchEntries = [
@@ -34,10 +29,8 @@ const watchEntries = [
   'plugins/alembic-codex/skills',
   'README.md',
   'README_CN.md',
-  ...dashboardWatchEntries(dashboardSource),
   relative(repoRoot, coreGrammarSource.path),
   'node_modules/@alembic/core/resources/grammars',
-  'scripts/build-dashboard.mjs',
   'scripts/dev-verify-codex-plugin.mjs',
   'scripts/dev-watch-codex-plugin.mjs',
   'scripts/prepare-codex-plugin-runtime.mjs',
@@ -347,21 +340,6 @@ function parseArgs(args) {
     }
   }
   return parsed;
-}
-
-function dashboardWatchEntries(source) {
-  return [
-    'index.html',
-    'package.json',
-    'package-lock.json',
-    'public',
-    'src',
-    'tailwind.config.cjs',
-    'postcss.config.cjs',
-    'tsconfig.json',
-    'tsconfig.node.json',
-    'vite.config.ts',
-  ].map((entry) => relative(repoRoot, join(source.path, entry)));
 }
 
 function printHelp() {

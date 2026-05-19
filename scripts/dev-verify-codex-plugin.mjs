@@ -23,7 +23,6 @@ try {
   if (!options.probeOnly) {
     if (!options.skipBuild) {
       runStep('build', 'npm', ['run', 'build']);
-      runStep('build:dashboard', 'npm', ['run', 'build:dashboard']);
     }
     if (!options.skipTests) {
       runStep('unit project-root and init gates', 'npx', [
@@ -353,7 +352,7 @@ Usage:
   node scripts/dev-verify-codex-plugin.mjs [options]
 
 Default flow:
-  build, build Dashboard, run focused unit tests, prepare runtime, verify plugin metadata,
+  build, run focused unit tests, prepare runtime, verify plugin metadata,
   run smoke without npx runtime, refresh installed Codex plugin caches in local-mcp mode,
   and probe installed MCP projectRoot behavior.
 
@@ -368,7 +367,7 @@ Options:
   --probe-target <path>   Installed plugin cache root to probe.
   --report-path <path>    Persist JSON report, defaults to scratch/codex-plugin-dev-verify-report.json.
   --no-sync               Do not refresh installed cache before probing.
-  --skip-build            Skip npm run build and build:dashboard.
+  --skip-build            Skip npm run build.
   --skip-prepare          Skip prepare:codex-plugin-runtime.
   --skip-tests            Skip focused unit tests.
   --skip-verify           Skip verify:codex-plugin.

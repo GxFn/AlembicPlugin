@@ -79,6 +79,12 @@ expect(
   'package.json files[] must include scripts/prepare-codex-plugin-runtime.mjs'
 );
 expect(
+  !(
+    Array.isArray(packageJson.files) && packageJson.files.includes(['dashboard', 'dist'].join('/'))
+  ),
+  'package.json files[] must not include the removed Plugin-owned Dashboard frontend dist path'
+);
+expect(
   Array.isArray(packageJson.files) &&
     packageJson.files.includes('scripts/release-codex-plugin.mjs'),
   'package.json files[] must include scripts/release-codex-plugin.mjs'
@@ -241,6 +247,13 @@ expect(
   'embedded runtime package must resolve @alembic/core from packaged vendor/AlembicCore'
 );
 expect(
+  !(
+    Array.isArray(runtimePackageJson.files) &&
+    runtimePackageJson.files.includes(['dashboard', 'dist'].join('/'))
+  ),
+  'embedded runtime package must not include the removed Plugin-owned Dashboard frontend dist path'
+);
+expect(
   typeof runtimeCoreSourceJson.source === 'string' && runtimeCoreSourceJson.source.length > 0,
   'embedded runtime Core source metadata must record source'
 );
@@ -267,7 +280,6 @@ for (const requiredRuntimeFile of [
   'dist/bin/codex-mcp.js',
   'dist/bin/daemon-server.js',
   'dist/lib/external/mcp/CodexMcpServer.js',
-  'dashboard/dist/index.html',
   'config/default.json',
   'templates/constitution.yaml',
   'injectable-skills/alembic-guard/SKILL.md',
@@ -287,6 +299,10 @@ for (const requiredRuntimeFile of [
     `embedded runtime missing ${requiredRuntimeFile}`
   );
 }
+expect(
+  !existsSync(join(runtimeRoot, 'dashboard', 'dist', 'index.html')),
+  'embedded runtime must not include Dashboard frontend index.html'
+);
 expect(
   distributionMarketplaceJson.name === 'alembic-codex',
   'AlembicCodex plugin distribution marketplace must be named alembic-codex'

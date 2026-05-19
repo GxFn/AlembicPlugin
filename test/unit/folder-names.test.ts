@@ -7,7 +7,6 @@ import {
 import { describe, expect, test } from 'vitest';
 import {
   CONFIG_DIR,
-  DASHBOARD_DIR,
   INJECTABLE_SKILLS_DIR,
   INTERNAL_SKILLS_DIR,
   PACKAGE_ROOT,
@@ -68,6 +67,5 @@ describe('folder names', () => {
     expect(SKILLS_DIR).toBe(INJECTABLE_SKILLS_DIR);
     expect(TEMPLATES_DIR).toBe(path.join(PACKAGE_ROOT, 'templates'));
     expect(RESOURCES_DIR).toBe(path.join(PACKAGE_ROOT, 'resources'));
-    expect(DASHBOARD_DIR).toBe(path.join(PACKAGE_ROOT, 'dashboard'));
   });
 });

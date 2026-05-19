@@ -44,12 +44,15 @@ Recommended verification:
 
 ```bash
 npm run build
-npm run build:dashboard
 npm run prepare:codex-plugin-runtime
 npm run verify:codex-channel
 npm run verify:codex-plugin
 npm run smoke:codex-plugin
 ```
+
+Dashboard frontend source, build, and serving live outside this repository.
+The Codex plugin only hands off a Dashboard URL when a local Alembic daemon
+already advertises that capability.
 
 Release checks:
 
