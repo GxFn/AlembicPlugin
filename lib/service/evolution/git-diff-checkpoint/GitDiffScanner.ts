@@ -3,10 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import Logger from '@alembic/core/logging';
-import type {
-  FileChangeEvent,
-  FileChangeEventSource,
-} from '@alembic/core/types';
+import type { FileChangeEvent, FileChangeEventSource } from '@alembic/core/types';
 import type { GitDiffScanStatus } from './GitDiffCheckpointStatus.js';
 import {
   isSafeProjectRelativePath,
