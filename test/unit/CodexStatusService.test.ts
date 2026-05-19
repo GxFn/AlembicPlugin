@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createProjectRuntimeControlState,
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
+import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildCodexStatus } from '../../lib/codex/index.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
@@ -29,6 +31,16 @@ function makeInitializedWorkspace(projectRoot: string): void {
   fs.writeFileSync(path.join(projectRoot, '.asd', 'alembic.db'), '');
   fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
   fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+}
+
+function writeRuntimeControlState(
+  state: Parameters<typeof createProjectRuntimeControlState>[0]
+): void {
+  fs.mkdirSync(getProjectRegistryDir(), { recursive: true });
+  fs.writeFileSync(
+    path.join(getProjectRegistryDir(), 'runtime-control.json'),
+    `${JSON.stringify(createProjectRuntimeControlState(state), null, 2)}\n`
+  );
 }
 
 function makeDaemonState(projectRoot: string): DaemonState {
@@ -194,5 +206,57 @@ describe('Codex status service', () => {
     );
     expect(serialized).not.toContain('secret-token');
     expect(serialized).not.toContain('secret-deepseek-key');
+  });
+
+  test('reports Alembic selected or active project mismatch without starting the daemon', async () => {
+    useTempAlembicHome();
+    const hostProjectRoot = makeProjectRoot();
+    const selectedProjectRoot = makeProjectRoot();
+    makeInitializedWorkspace(hostProjectRoot);
+    fs.writeFileSync(
+      path.join(hostProjectRoot, 'Alembic', 'recipes', 'host-project.md'),
+      '# Host Project\n'
+    );
+    ProjectRegistry.register(hostProjectRoot, false);
+    const selectedEntry = ProjectRegistry.register(selectedProjectRoot, false);
+    writeRuntimeControlState({
+      activeProjectId: selectedEntry.id,
+      activeProjectRoot: selectedProjectRoot,
+      selectedAt: '2026-05-19T00:00:00.000Z',
+      selectedProjectId: selectedEntry.id,
+      selectedProjectRoot,
+      updatedAt: '2026-05-19T00:00:00.000Z',
+    });
+    const supervisor = {
+      status: vi.fn(async () => makeDaemonStatus(hostProjectRoot, false)),
+    };
+
+    const status = await buildCodexStatus(hostProjectRoot, { supervisor });
+
+    expect(status.hostProjectAlignment).toMatchObject({
+      connectionState: 'mismatch',
+      handoffAllowed: false,
+      handoffMismatch: {
+        reason: 'selected-project-differs',
+      },
+      selectedProject: {
+        projectId: selectedEntry.id,
+      },
+    });
+    expect(status.onboarding).toMatchObject({
+      state: 'project_handoff_mismatch',
+      primaryAction: { startsDaemon: false, tool: 'alembic_codex_status' },
+    });
+    expect(status.diagnostics).toMatchObject({
+      hostProjectAlignment: {
+        connectionState: 'mismatch',
+      },
+    });
+    expect(status.moduleBoundary.adapters.hostProjectAlignment).toMatchObject({
+      connectionState: 'mismatch',
+      handoffAllowed: false,
+      switchOwnership: 'Alembic/Dashboard',
+    });
+    expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
 });

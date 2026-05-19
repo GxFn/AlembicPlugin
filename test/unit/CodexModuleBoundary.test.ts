@@ -13,8 +13,9 @@ describe('Codex module boundary status', () => {
       'marketplace-artifact',
       'portable-runtime-packaging',
       'dashboard-url-handoff',
+      'host-project-mismatch-presentation',
     ]);
-    expect(status.phase).toBe('runtime-contract-consumption-wave-2');
+    expect(status.phase).toBe('multi-project-control-wave-4-dashboard-plugin-consumer-handoff');
     expect(externalOwned).toContain('alembic-daemon-main');
     expect(externalOwned).toContain('project-registry-main');
     expect(externalOwned).toContain('job-store-main');
@@ -155,6 +156,11 @@ describe('Codex module boundary status', () => {
       selected: 'embedded-plugin-runtime',
     });
     expect(status.adapters.embeddedRuntime.role).toContain('not the long-term Alembic daemon');
+    expect(status.adapters.hostProjectAlignment).toMatchObject({
+      connectionState: null,
+      handoffAllowed: null,
+      switchOwnership: 'Alembic/Dashboard',
+    });
     expect(status.adapters.runtimeContract).toMatchObject({
       capabilitySummarySource: '@alembic/core/daemon#summarizeAlembicRuntimeCapabilities',
       healthPath: '/api/v1/daemon/health',

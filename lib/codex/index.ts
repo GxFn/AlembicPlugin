@@ -1,6 +1,7 @@
 export * from './AiConfigState.js';
 export * from './Diagnostics.js';
 export * from './EnhancementRoute.js';
+export * from './HostProjectAlignment.js';
 export * from './JobContext.js';
 export * from './KnowledgeState.js';
 export * from './ModuleBoundary.js';

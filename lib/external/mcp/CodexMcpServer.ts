@@ -2,16 +2,14 @@ import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { type DaemonState, JobStore, resolveDaemonPaths } from '@alembic/core/daemon';
-import {
-  PROVIDER_KEY_ENV,
-  WorkspaceSettingsStore,
-} from '@alembic/core/shared';
+import { PROVIDER_KEY_ENV, WorkspaceSettingsStore } from '@alembic/core/shared';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { SetupService } from '../../cli/SetupService.js';
 import {
   buildCodexEnhancementRouteChoice,
+  buildCodexHostProjectAlignment,
   buildCodexPostInitActions,
   buildCodexPostInitMessage,
   buildCodexProjectRootRequiredActions,
@@ -26,6 +24,7 @@ import {
   CODEX_SETUP_PROFILE,
   type CodexEnhancementRequirement,
   type CodexEnhancementRouteChoice,
+  type CodexHostProjectAlignment,
   type CodexKnowledgeState,
   type CodexProjectRootResolution,
   createCodexJobContext,
@@ -81,6 +80,13 @@ interface WorkspaceInitializationInput {
   route: 'explicit' | 'tool-call';
   seed: boolean;
   standard: boolean;
+}
+
+interface CodexEnhancementDaemonResult {
+  blocked: Record<string, unknown> | null;
+  daemon: DaemonStatus;
+  enhancementRoute: CodexEnhancementRouteChoice;
+  hostProjectAlignment: CodexHostProjectAlignment;
 }
 
 export class CodexMcpServer {
@@ -273,12 +279,18 @@ export class CodexMcpServer {
       runtime,
       requirement: 'status',
     });
+    const hostProjectAlignment = buildCodexHostProjectAlignment({
+      daemonStatus,
+      enhancementRoute,
+      projectRoot: this.projectRoot,
+    });
     return {
       success: true,
       data: buildCodexRuntimeDiagnostics(daemonStatus, runtime, {
         aiConfig,
         autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
         enhancementRoute,
+        hostProjectAlignment,
         projectRootResolution: this.projectRootResolution,
       }),
     };
@@ -579,7 +591,11 @@ export class CodexMcpServer {
   }
 
   async openDashboard(): Promise<Record<string, unknown>> {
-    const { daemon, enhancementRoute } = await this.ensureEnhancementDaemon('dashboard');
+    const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
+      await this.ensureEnhancementDaemon('dashboard', 'alembic_codex_dashboard');
+    if (blocked) {
+      return blocked;
+    }
     if (!daemon.ready || !daemon.state) {
       return {
         success: false,
@@ -587,6 +603,7 @@ export class CodexMcpServer {
         data: {
           daemon: summarizeCodexDaemonStatus(daemon),
           enhancementRoute,
+          hostProjectAlignment,
           nextActions: [
             buildCodexRecommendedAction({
               label: 'Run diagnostics',
@@ -622,6 +639,7 @@ export class CodexMcpServer {
           daemon.state.url,
         daemon: summarizeCodexDaemonStatus(daemon),
         enhancementRoute,
+        hostProjectAlignment,
         nextActions: [
           hostAgentAction,
           buildCodexRecommendedAction({
@@ -691,7 +709,11 @@ export class CodexMcpServer {
   }
 
   async enqueueJob(kind: 'bootstrap' | 'rescan', args: Record<string, unknown>): Promise<unknown> {
-    const { daemon, enhancementRoute } = await this.ensureEnhancementDaemon('jobs');
+    const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
+      await this.ensureEnhancementDaemon('jobs', `alembic_codex_${kind}`);
+    if (blocked) {
+      return blocked;
+    }
     if (!daemon.ready || !daemon.state) {
       return failureResult(
         `alembic_codex_${kind}`,
@@ -699,6 +721,7 @@ export class CodexMcpServer {
         {
           daemon: summarizeCodexDaemonStatus(daemon),
           enhancementRoute,
+          hostProjectAlignment,
           nextActions: [
             buildCodexRecommendedAction({
               label: 'Run diagnostics',
@@ -714,7 +737,7 @@ export class CodexMcpServer {
       return failureResult(
         `alembic_codex_${kind}`,
         'Alembic daemon token is missing. Restart the daemon and retry.',
-        { daemon: summarizeCodexDaemonStatus(daemon), enhancementRoute }
+        { daemon: summarizeCodexDaemonStatus(daemon), enhancementRoute, hostProjectAlignment }
       );
     }
 
@@ -807,17 +830,23 @@ export class CodexMcpServer {
       return failureResult(name, `Unknown Alembic tool: ${name}`);
     }
 
-    const { daemon, enhancementRoute } = await this.ensureEnhancementDaemon('mcp');
+    const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
+      await this.ensureEnhancementDaemon('mcp', name);
+    if (blocked) {
+      return blocked;
+    }
     if (!daemon.ready || !daemon.state) {
       return failureResult(name, daemon.message || 'Alembic daemon is not ready yet.', {
         daemon: summarizeCodexDaemonStatus(daemon),
         enhancementRoute,
+        hostProjectAlignment,
       });
     }
     if (!daemon.state.token) {
       return failureResult(name, 'Alembic daemon token is missing. Restart the daemon and retry.', {
         daemon: summarizeCodexDaemonStatus(daemon),
         enhancementRoute,
+        hostProjectAlignment,
       });
     }
 
@@ -832,8 +861,37 @@ export class CodexMcpServer {
   }
 
   private async ensureEnhancementDaemon(
-    requirement: CodexEnhancementRequirement
-  ): Promise<{ daemon: DaemonStatus; enhancementRoute: CodexEnhancementRouteChoice }> {
+    requirement: CodexEnhancementRequirement,
+    tool: string
+  ): Promise<CodexEnhancementDaemonResult> {
+    const currentDaemon = await this.supervisor.status(this.projectRoot);
+    const currentEnhancementRoute = buildCodexEnhancementRouteChoice({
+      aiConfig: inspectCodexAiConfig(this.projectRoot),
+      daemonStatus: currentDaemon,
+      runtime: resolveCodexRuntimeContext(),
+      requirement,
+    });
+    const currentHostProjectAlignment = buildCodexHostProjectAlignment({
+      daemonStatus: currentDaemon,
+      enhancementRoute: currentEnhancementRoute,
+      projectRoot: this.projectRoot,
+    });
+    const currentBlock = buildCodexHostProjectHandoffBlock({
+      daemon: currentDaemon,
+      enhancementRoute: currentEnhancementRoute,
+      hostProjectAlignment: currentHostProjectAlignment,
+      requirement,
+      tool,
+    });
+    if (currentBlock) {
+      return {
+        blocked: currentBlock,
+        daemon: currentDaemon,
+        enhancementRoute: currentEnhancementRoute,
+        hostProjectAlignment: currentHostProjectAlignment,
+      };
+    }
+
     const daemon = await this.supervisor.ensure({
       projectRoot: this.projectRoot,
       waitUntilReadyMs: this.waitUntilReadyMs,
@@ -844,7 +902,19 @@ export class CodexMcpServer {
       runtime: resolveCodexRuntimeContext(),
       requirement,
     });
-    return { daemon, enhancementRoute };
+    const hostProjectAlignment = buildCodexHostProjectAlignment({
+      daemonStatus: daemon,
+      enhancementRoute,
+      projectRoot: this.projectRoot,
+    });
+    const block = buildCodexHostProjectHandoffBlock({
+      daemon,
+      enhancementRoute,
+      hostProjectAlignment,
+      requirement,
+      tool,
+    });
+    return { blocked: block, daemon, enhancementRoute, hostProjectAlignment };
   }
 }
 
@@ -1031,6 +1101,49 @@ function attachEnhancementRoute(
       enhancementRoute,
     },
   };
+}
+
+function buildCodexHostProjectHandoffBlock(input: {
+  daemon: DaemonStatus;
+  enhancementRoute: CodexEnhancementRouteChoice;
+  hostProjectAlignment: CodexHostProjectAlignment;
+  requirement: CodexEnhancementRequirement;
+  tool: string;
+}): Record<string, unknown> | null {
+  const state = input.hostProjectAlignment.connectionState;
+  const blocksDashboard = input.requirement === 'dashboard' && state !== 'connected';
+  const blocksWrongProjectStart = state === 'mismatch';
+  if (!blocksDashboard && !blocksWrongProjectStart) {
+    return null;
+  }
+  const errorCode =
+    state === 'mismatch' ? 'CODEX_HOST_PROJECT_MISMATCH' : 'CODEX_HOST_PROJECT_DISCONNECTED';
+  const message =
+    state === 'mismatch'
+      ? 'Codex host project differs from the Alembic selected or active project. Switch the Alembic project from Alembic or Dashboard before retrying from Codex.'
+      : 'Codex host project is not connected to an active Alembic runtime project. Start or reconnect it from Alembic or Dashboard before opening Dashboard from Codex.';
+
+  return failureResult(input.tool, message, {
+    daemon: summarizeCodexDaemonStatus(input.daemon),
+    enhancementRoute: input.enhancementRoute,
+    errorCode,
+    hostProjectAlignment: input.hostProjectAlignment,
+    needsUserInput: true,
+    nextActions: [
+      buildCodexRecommendedAction({
+        label: 'Check workspace status',
+        reason: 'Inspect host, selected, and active runtime project alignment.',
+        startsDaemon: false,
+        tool: 'alembic_codex_status',
+      }),
+      buildCodexRecommendedAction({
+        label: 'Run diagnostics',
+        reason: 'Show plugin runtime diagnostics and host project handoff mismatch details.',
+        startsDaemon: false,
+        tool: 'alembic_codex_diagnostics',
+      }),
+    ],
+  });
 }
 
 function buildJobQuery(args: Record<string, unknown>): string {

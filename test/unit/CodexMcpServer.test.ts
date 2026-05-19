@@ -2,12 +2,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createProjectRuntimeControlState,
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
   JobStore,
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
-import { getGhostWorkspaceDir, ProjectRegistry } from '@alembic/core/workspace';
+import {
+  getGhostWorkspaceDir,
+  getProjectRegistryDir,
+  ProjectRegistry,
+} from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   getCodexSavedProjectRootPath,
@@ -57,6 +62,16 @@ function makeUsableKnowledgeBase(projectRoot: string): void {
   fs.writeFileSync(
     path.join(projectRoot, 'Alembic', 'recipes', 'http-client.md'),
     '---\ntitle: HTTP Client\n---\nUse the project HTTP client.\n'
+  );
+}
+
+function writeRuntimeControlState(
+  state: Parameters<typeof createProjectRuntimeControlState>[0]
+): void {
+  fs.mkdirSync(getProjectRegistryDir(), { recursive: true });
+  fs.writeFileSync(
+    path.join(getProjectRegistryDir(), 'runtime-control.json'),
+    `${JSON.stringify(createProjectRuntimeControlState(state), null, 2)}\n`
   );
 }
 
@@ -861,6 +876,54 @@ describe('CodexMcpServer', () => {
     expect(result.data.nextActions).toContain(
       'Set ALEMBIC_CODEX_ENABLE_ADMIN=1 only for explicit admin workflows.'
     );
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('dashboard handoff fails closed on host project mismatch without starting runtime', async () => {
+    useTempAlembicHome();
+    const hostProjectRoot = makeProjectRoot();
+    const selectedProjectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(hostProjectRoot);
+    ProjectRegistry.register(hostProjectRoot, false);
+    const selectedEntry = ProjectRegistry.register(selectedProjectRoot, false);
+    writeRuntimeControlState({
+      activeProjectId: selectedEntry.id,
+      activeProjectRoot: selectedProjectRoot,
+      selectedAt: '2026-05-19T00:00:00.000Z',
+      selectedProjectId: selectedEntry.id,
+      selectedProjectRoot,
+      updatedAt: '2026-05-19T00:00:00.000Z',
+    });
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(hostProjectRoot, {
+        message: 'daemon is not started',
+        pidAlive: false,
+        ready: false,
+        state: null,
+        status: 'stopped',
+      })
+    );
+    const server = new CodexMcpServer({ projectRoot: hostProjectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_codex_dashboard', {})) as {
+      data: {
+        errorCode: string;
+        hostProjectAlignment: { connectionState: string; handoffAllowed: boolean };
+        needsUserInput: boolean;
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({
+      errorCode: 'CODEX_HOST_PROJECT_MISMATCH',
+      hostProjectAlignment: {
+        connectionState: 'mismatch',
+        handoffAllowed: false,
+      },
+      needsUserInput: true,
+    });
+    expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 

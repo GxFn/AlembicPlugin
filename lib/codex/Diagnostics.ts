@@ -8,6 +8,7 @@ import {
   buildCodexEnhancementRouteChoice,
   type CodexEnhancementRouteChoice,
 } from './EnhancementRoute.js';
+import type { CodexHostProjectAlignment } from './HostProjectAlignment.js';
 import {
   buildCodexModuleBoundaryStatus,
   type CodexModuleBoundaryStatus,
@@ -73,6 +74,7 @@ export interface CodexRuntimeDiagnosticsOptions {
   aiConfig?: CodexAiConfigState | null;
   autoInit?: Record<string, unknown>;
   enhancementRoute?: CodexEnhancementRouteChoice;
+  hostProjectAlignment?: CodexHostProjectAlignment;
   moduleBoundary?: CodexModuleBoundaryStatus;
   projectRootResolution?: CodexProjectRootResolution;
 }
@@ -104,7 +106,11 @@ export function buildCodexRuntimeDiagnostics(
       requirement: 'status',
     });
   const moduleBoundary =
-    options.moduleBoundary || buildCodexModuleBoundaryStatus({ enhancementRoute });
+    options.moduleBoundary ||
+    buildCodexModuleBoundaryStatus({
+      enhancementRoute,
+      hostProjectAlignment: options.hostProjectAlignment,
+    });
   const checks = {
     adminGate: context.requestedTier !== 'admin' || context.adminEnabled,
     node: nodeMajor >= 22,
@@ -180,6 +186,7 @@ export function buildCodexRuntimeDiagnostics(
       ? summarizeCodexProjectRootResolution(options.projectRootResolution)
       : null,
     autoInit: options.autoInit || null,
+    hostProjectAlignment: options.hostProjectAlignment || null,
     enhancementRoute,
     moduleBoundary,
     gitDiffCheckpoint: readHealthGitDiffCheckpoint(daemonStatus.health),
