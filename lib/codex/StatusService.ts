@@ -177,6 +177,11 @@ export async function buildCodexStatus(
     hostProjectAlignment,
     knowledge,
     projectRootResolution,
+    workspace: {
+      ghost: facts.ghost,
+      mode: facts.mode,
+      registered: facts.registered,
+    },
   });
   const daemonStatePath = join(resolver.runtimeDir, 'daemon.json');
   const daemonPidPath = join(resolver.runtimeDir, 'daemon.pid');
@@ -422,8 +427,9 @@ export function buildCodexKnowledgeGateActions(
   if (!knowledge.initialized) {
     actions.push(
       buildCodexRecommendedAction({
-        label: 'Initialize Ghost workspace',
-        reason: 'Create Alembic Codex data roots without writing IDE MCP files into the project.',
+        label: 'Initialize or attach workspace',
+        reason:
+          'Create or attach Alembic Codex data roots according to the ProjectRegistry workspace mode.',
         startsDaemon: false,
         tool: 'alembic_codex_init',
       })
@@ -447,6 +453,11 @@ export function buildCodexStatusOnboarding(input: {
   hostProjectAlignment?: CodexHostProjectAlignment;
   knowledge: CodexKnowledgeState;
   projectRootResolution?: CodexProjectRootResolution;
+  workspace?: {
+    ghost: boolean;
+    mode: string;
+    registered: boolean;
+  };
 }): Record<string, unknown> {
   const boundaryNotes = buildCodexRouteBoundaryNotes(input.enhancementRoute);
   const alignmentNotes = buildCodexHostProjectAlignmentNotes(input.hostProjectAlignment);
@@ -505,23 +516,33 @@ export function buildCodexStatusOnboarding(input: {
   }
 
   if (!input.knowledge.initialized) {
+    const registeredStandard =
+      input.workspace?.registered === true && input.workspace.mode === 'standard';
+    const initLabel = registeredStandard
+      ? 'Attach Standard workspace'
+      : 'Initialize Ghost workspace';
+    const initReason = registeredStandard
+      ? 'Attach Codex to the existing Standard Alembic workspace without changing its mode.'
+      : input.knowledge.hasKnowledge
+        ? 'Connect Codex to the existing Alembic knowledge base without writing IDE MCP files into the project.'
+        : 'Create Alembic Codex data roots without writing IDE MCP files into the project.';
     return {
       state: input.knowledge.hasKnowledge ? 'needs_init_existing_knowledge' : 'needs_init',
       summary: input.knowledge.hasKnowledge
         ? 'Alembic knowledge files exist for this project, but the Codex workspace runtime has not been initialized yet.'
         : 'Alembic Codex is installed and the runtime is healthy, but this workspace has not been initialized yet.',
       primaryAction: buildCodexRecommendedAction({
-        label: 'Initialize Ghost workspace',
-        reason: input.knowledge.hasKnowledge
-          ? 'Connect Codex to the existing Alembic knowledge base without writing IDE MCP files into the project.'
-          : 'Create Alembic Codex data roots without writing IDE MCP files into the project.',
+        label: initLabel,
+        reason: initReason,
         startsDaemon: false,
         tool: 'alembic_codex_init',
       }),
       nextActions: [
         buildCodexRecommendedAction({
-          label: 'Initialize Ghost workspace',
-          reason: 'Set up local Alembic config, database, knowledge, and Recipe directories.',
+          label: initLabel,
+          reason: registeredStandard
+            ? 'Set up Codex runtime files in the registered Standard data root.'
+            : 'Set up local Alembic config, database, knowledge, and Recipe directories.',
           startsDaemon: false,
           tool: 'alembic_codex_init',
         }),
@@ -530,7 +551,9 @@ export function buildCodexStatusOnboarding(input: {
         input.knowledge.hasKnowledge
           ? 'Only cold-start initialization tools are exposed until setup completes.'
           : 'Only cold-start initialization tools are exposed until Alembic knowledge exists.',
-        'Ghost mode keeps Alembic data outside the repository by default.',
+        registeredStandard
+          ? 'This project is already registered as Standard; Codex init inherits that mode unless the user explicitly migrates it.'
+          : 'Ghost mode keeps Alembic data outside the repository by default for unregistered projects.',
         ...alignmentNotes,
         ...boundaryNotes,
       ],

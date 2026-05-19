@@ -541,6 +541,86 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
+  test('explicit Codex init inherits an existing Standard registry mode', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    const entry = ProjectRegistry.register(projectRoot, false);
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(projectRoot, {
+        status: 'stopped',
+        ready: false,
+        state: null,
+        pidAlive: false,
+      })
+    );
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_codex_init', {})) as {
+      data: {
+        mode: string;
+        status: {
+          initialized: boolean;
+          workspace: { dataRoot: string; ghost: boolean; mode: string };
+        };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.mode).toBe('standard');
+    expect(result.data.status.workspace).toMatchObject({
+      dataRoot: projectRoot,
+      ghost: false,
+      mode: 'standard',
+    });
+    expect(ProjectRegistry.get(projectRoot)).toMatchObject({ id: entry.id, ghost: false });
+    expect(fs.existsSync(path.join(projectRoot, '.asd', 'config.json'))).toBe(true);
+    expect(fs.existsSync(path.join(getGhostWorkspaceDir(entry.id), '.asd', 'config.json'))).toBe(
+      false
+    );
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('explicit Standard init fails closed on an existing Ghost registry mode', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    const entry = ProjectRegistry.register(projectRoot, true);
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(projectRoot, {
+        status: 'stopped',
+        ready: false,
+        state: null,
+        pidAlive: false,
+      })
+    );
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_codex_init', {
+      standard: true,
+    })) as {
+      data: {
+        errorCode: string;
+        existingMode: string;
+        needsUserInput: boolean;
+        projectId: string;
+        requestedMode: string;
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({
+      errorCode: 'CODEX_WORKSPACE_MODE_CONFLICT',
+      existingMode: 'ghost',
+      needsUserInput: true,
+      projectId: entry.id,
+      requestedMode: 'standard',
+    });
+    expect(ProjectRegistry.get(projectRoot)).toMatchObject({ id: entry.id, ghost: true });
+    expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
   test('AI config status masks secrets and configure requires chat-secret confirmation', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();

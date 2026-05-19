@@ -161,6 +161,38 @@ describe('Codex status service', () => {
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
 
+  test('reports registered Standard projects as attach targets instead of Ghost defaults', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    ProjectRegistry.register(projectRoot, false);
+    const supervisor = {
+      status: vi.fn(async () => makeDaemonStatus(projectRoot, false)),
+    };
+
+    const status = await buildCodexStatus(projectRoot, { supervisor });
+    const onboarding = status.onboarding as {
+      nextActions: Array<{ label: string; tool: string }>;
+      notes: string[];
+      primaryAction: { label: string; tool: string };
+      state: string;
+    };
+
+    expect(status.workspace).toMatchObject({
+      ghost: false,
+      mode: 'standard',
+    });
+    expect(onboarding).toMatchObject({
+      state: 'needs_init',
+      primaryAction: { label: 'Attach Standard workspace', tool: 'alembic_codex_init' },
+    });
+    expect(status.nextActions).toContain('Attach Standard workspace: call alembic_codex_init');
+    expect(status.nextActions).not.toContain('Initialize Ghost workspace: call alembic_codex_init');
+    expect(onboarding.notes).toContain(
+      'This project is already registered as Standard; Codex init inherits that mode unless the user explicitly migrates it.'
+    );
+    expect(supervisor.status).toHaveBeenCalledTimes(1);
+  });
+
   test('reports initialized empty knowledge and summarizes daemon state without token leakage', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();

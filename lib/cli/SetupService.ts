@@ -124,10 +124,19 @@ export class SetupService {
     this.subRepoDir = options.subRepoDir || DEFAULT_SUB_REPO_DIR;
     this.subRepoUrl = options.subRepoUrl;
 
-    // Ghost 模式：显式配置优先；Codex 插件 profile 默认 Ghost；否则继承注册表状态
+    // Ghost 模式：已注册项目继承注册表；未注册项目才使用显式配置或 profile 默认值。
+    // 模式迁移必须走 Core 的显式 setWorkspaceMode()，普通 setup/init 只 attach。
     const existingEntry = ProjectRegistry.get(this.projectRoot);
-    this.ghost =
-      options.ghost ?? (this.profile === 'codex-plugin' ? true : (existingEntry?.ghost ?? false));
+    const explicitGhost = options.ghost;
+    if (existingEntry && explicitGhost !== undefined && existingEntry.ghost !== explicitGhost) {
+      const existingMode = existingEntry.ghost ? 'Ghost' : 'Standard';
+      const requestedMode = explicitGhost ? 'Ghost' : 'Standard';
+      throw new Error(
+        `[SetupService] Existing Alembic workspace is ${existingMode}; requested ${requestedMode}. ` +
+          '普通初始化不会静默切换 workspace mode；请先显式迁移或选择与注册表一致的模式。'
+      );
+    }
+    this.ghost = existingEntry?.ghost ?? explicitGhost ?? this.profile === 'codex-plugin';
 
     // ── 排除项目保护 ──────────────────────────────────
     const exclusion = isExcludedProject(this.projectRoot);

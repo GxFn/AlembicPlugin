@@ -121,7 +121,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_init',
     tier: 'agent',
     description:
-      'Initialize Alembic for Codex plugin use. Defaults to Ghost mode, skips IDE file deployment, and returns next actions for Codex host-agent bootstrap/rescan or priming.',
+      'Initialize Alembic for Codex plugin use. Unregistered projects default to Ghost mode; registered projects inherit their existing Alembic workspace mode.',
     inputSchema: codexInputSchema({
       force: {
         type: 'boolean',

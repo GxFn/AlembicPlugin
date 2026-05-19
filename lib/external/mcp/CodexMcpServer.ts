@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { type DaemonState, JobStore, resolveDaemonPaths } from '@alembic/core/daemon';
 import { PROVIDER_KEY_ENV, WorkspaceSettingsStore } from '@alembic/core/shared';
+import { ProjectRegistry } from '@alembic/core/workspace';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -76,10 +77,10 @@ interface CodexInitRuntimeState {
 interface WorkspaceInitializationInput {
   force: boolean;
   initializedBy: 'alembic_codex_init' | 'codex-plugin-init-on-demand';
+  requestedMode: 'ghost' | 'standard' | null;
   requestedTool?: string;
   route: 'explicit' | 'tool-call';
   seed: boolean;
-  standard: boolean;
 }
 
 interface CodexEnhancementDaemonResult {
@@ -87,6 +88,28 @@ interface CodexEnhancementDaemonResult {
   daemon: DaemonStatus;
   enhancementRoute: CodexEnhancementRouteChoice;
   hostProjectAlignment: CodexHostProjectAlignment;
+}
+
+function resolveWorkspaceModeConflict(
+  projectRoot: string,
+  requestedMode: WorkspaceInitializationInput['requestedMode']
+): {
+  existingMode: 'ghost' | 'standard';
+  projectId: string;
+  requestedMode: 'ghost' | 'standard';
+} | null {
+  if (!requestedMode) {
+    return null;
+  }
+  const entry = ProjectRegistry.get(projectRoot);
+  if (!entry) {
+    return null;
+  }
+  const existingMode = entry.ghost ? 'ghost' : 'standard';
+  if (existingMode === requestedMode) {
+    return null;
+  }
+  return { existingMode, projectId: entry.id, requestedMode };
 }
 
 export class CodexMcpServer {
@@ -297,12 +320,14 @@ export class CodexMcpServer {
   }
 
   async initializeWorkspace(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const standardExplicit = Object.hasOwn(args, 'standard');
+    const requestedMode = standardExplicit ? (args.standard === true ? 'standard' : 'ghost') : null;
     const initResult = await this.runWorkspaceInitialization({
       force: Boolean(args.force),
       initializedBy: 'alembic_codex_init',
+      requestedMode,
       route: 'explicit',
       seed: Boolean(args.seed),
-      standard: args.standard === true,
     });
     if (isErrorResult(initResult)) {
       return initResult;
@@ -318,7 +343,12 @@ export class CodexMcpServer {
     return {
       success: ok,
       data: {
-        mode: args.standard === true ? 'standard' : 'ghost',
+        mode:
+          ((status as { data?: { workspace?: { mode?: string } } }).data?.workspace?.mode as
+            | string
+            | undefined) ??
+          requestedMode ??
+          'ghost',
         nextActions: ok
           ? buildCodexPostInitActions(knowledgeAfterInit)
           : [
@@ -384,10 +414,10 @@ export class CodexMcpServer {
       const initResult = await this.runWorkspaceInitialization({
         force: false,
         initializedBy: 'codex-plugin-init-on-demand',
+        requestedMode: null,
         requestedTool: 'alembic_codex_ai_config',
         route: 'tool-call',
         seed: false,
-        standard: false,
       });
       if (isErrorResult(initResult)) {
         return initResult;
@@ -439,10 +469,10 @@ export class CodexMcpServer {
     return this.runWorkspaceInitialization({
       force: false,
       initializedBy: 'codex-plugin-init-on-demand',
+      requestedMode: null,
       requestedTool: toolName,
       route: 'tool-call',
       seed: false,
-      standard: false,
     });
   }
 
@@ -499,11 +529,40 @@ export class CodexMcpServer {
       route: input.route,
     };
 
+    const modeConflict = resolveWorkspaceModeConflict(this.projectRoot, input.requestedMode);
+    if (modeConflict) {
+      const message = `Alembic Codex initialization requested ${modeConflict.requestedMode} mode, but this project is already registered as ${modeConflict.existingMode}.`;
+      this.#initRuntimeState = {
+        ...this.#initRuntimeState,
+        lastError: message,
+        ok: false,
+      };
+      return failureResult(
+        input.requestedTool || 'alembic_codex_init',
+        `${message} Ordinary Codex init will not switch workspace mode automatically.`,
+        {
+          errorCode: 'CODEX_WORKSPACE_MODE_CONFLICT',
+          existingMode: modeConflict.existingMode,
+          needsUserInput: true,
+          projectId: modeConflict.projectId,
+          requestedMode: modeConflict.requestedMode,
+          nextActions: [
+            buildCodexRecommendedAction({
+              label: 'Check workspace status',
+              reason: 'Inspect the registered Alembic workspace mode before retrying init.',
+              startsDaemon: false,
+              tool: 'alembic_codex_status',
+            }),
+          ],
+        }
+      );
+    }
+
     if (
       inspectCodexKnowledge(this.projectRoot).initialized &&
       !input.force &&
       !input.seed &&
-      !input.standard
+      input.requestedMode !== 'standard'
     ) {
       this.#initRuntimeState = { ...this.#initRuntimeState, ok: true };
       return {
@@ -524,7 +583,7 @@ export class CodexMcpServer {
         projectRoot: this.projectRoot,
         force: input.force,
         seed: input.seed,
-        ghost: input.standard !== true,
+        ghost: input.requestedMode ? input.requestedMode === 'ghost' : undefined,
         profile: CODEX_SETUP_PROFILE,
         quiet: true,
       });
