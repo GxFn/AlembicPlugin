@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest';
+import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
   ALEMBIC_RUNTIME_MODE_PLUGIN,
+  buildCodexRuntimeDiagnostics,
   buildCodexPluginDiagnostics,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_MODE_ENV,
@@ -11,9 +13,27 @@ import {
   CODEX_PLUGIN_HOST,
   ensureCodexRuntimeEnvironment,
   loadCodexPluginRegistry,
+  probeCodexRuntimeCommand,
   resolveCodexRuntimeContext,
 } from '../../lib/codex/index.js';
 import { ALEMBIC_CHANNEL_ID_ENV } from '../../lib/shared/channel.js';
+
+function makeDaemonStatus(): DaemonStatus {
+  return {
+    dataRoot: process.cwd(),
+    health: null,
+    lockDir: '',
+    logPath: '',
+    pidAlive: false,
+    pidPath: '',
+    projectId: null,
+    projectRoot: process.cwd(),
+    ready: false,
+    state: null,
+    statePath: '',
+    status: 'stopped',
+  };
+}
 
 describe('Codex runtime context', () => {
   test('sets Codex MCP defaults without overwriting explicit channel and tier', () => {
@@ -87,5 +107,51 @@ describe('Codex runtime context', () => {
     expect(diagnostics.skills.missing).toEqual([]);
     expect(diagnostics.assets.missing).toEqual([]);
     expect(context.defaultTier).toBe(CODEX_DEFAULT_MCP_TIER);
+  });
+
+  test('probes npm and npx from a stable plugin cwd instead of inherited process cwd', () => {
+    const context = resolveCodexRuntimeContext();
+    let observedCwd: string | undefined;
+
+    const probe = probeCodexRuntimeCommand('npm', context, (_command, _args, options) => {
+      observedCwd = options.cwd;
+      return { status: 0, stdout: '10.9.4\n' };
+    });
+
+    expect(observedCwd).toBe(context.pluginRoot);
+    expect(probe).toMatchObject({
+      available: true,
+      cwd: context.pluginRoot,
+      staleCwd: false,
+      version: '10.9.4',
+    });
+  });
+
+  test('classifies uv_cwd failures as stale MCP cwd instead of missing npm', () => {
+    const diagnostics = buildCodexRuntimeDiagnostics(
+      makeDaemonStatus(),
+      resolveCodexRuntimeContext(),
+      {
+        commandProbeRunner() {
+          return {
+            status: 1,
+            stderr: 'Error: ENOENT: no such file or directory, uv_cwd',
+          };
+        },
+      }
+    ) as {
+      commands: {
+        npm: { staleCwd: boolean };
+        npx: { staleCwd: boolean };
+      };
+      issues: Array<{ code: string }>;
+    };
+
+    const issueCodes = diagnostics.issues.map((issue) => issue.code);
+    expect(issueCodes).toContain('CODEX_STALE_COMMAND_CWD');
+    expect(issueCodes).not.toContain('NPM_UNAVAILABLE');
+    expect(issueCodes).not.toContain('NPX_UNAVAILABLE');
+    expect(diagnostics.commands.npm.staleCwd).toBe(true);
+    expect(diagnostics.commands.npx.staleCwd).toBe(true);
   });
 });
