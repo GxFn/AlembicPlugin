@@ -26,11 +26,20 @@ describe('Codex service request boundary', () => {
     });
   });
 
-  it('keeps non-owned tools on the resident-service compatibility bridge', () => {
-    expect(resolveCodexServiceRequestBoundary('alembic_health', {})).toMatchObject({
-      executionPath: 'daemon-mcp-compat-bridge',
-      owner: 'alembic-resident-service',
+  it('keeps Codex-facing search in AlembicPlugin and marks resident service API usage', () => {
+    expect(resolveCodexServiceRequestBoundary('alembic_search', {})).toMatchObject({
+      executionPath: 'plugin-owned-codex-facing',
+      owner: 'alembic-plugin',
       residentServiceRequested: true,
+      tool: 'alembic_search',
+    });
+  });
+
+  it('keeps other Codex-facing tools in AlembicPlugin after removing the MCP bridge', () => {
+    expect(resolveCodexServiceRequestBoundary('alembic_health', {})).toMatchObject({
+      executionPath: 'plugin-owned-codex-facing',
+      owner: 'alembic-plugin',
+      residentServiceRequested: false,
       tool: 'alembic_health',
     });
   });

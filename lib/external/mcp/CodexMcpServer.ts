@@ -35,7 +35,6 @@ import {
   inspectCodexKnowledge,
   isCodexInitOnDemandTool,
   isCodexProjectRootDiscoveryTool,
-  isPluginOwnedCodexFacingTool,
   isTrustedCodexProjectRoot,
   preflightCodexTool,
   resolveCodexProjectRoot,
@@ -61,12 +60,6 @@ interface DaemonSupervisorLike {
   ensure(options: { projectRoot: string; waitUntilReadyMs?: number }): Promise<DaemonStatus>;
   status(projectRoot: string): Promise<DaemonStatus>;
   stop(options: { projectRoot: string; waitMs?: number }): Promise<DaemonStatus>;
-}
-
-interface CodexToolCallActor {
-  role?: string;
-  user?: string;
-  sessionId?: string;
 }
 
 interface CodexInitRuntimeState {
@@ -287,10 +280,7 @@ export class CodexMcpServer {
         return this.cleanupRuntime(args);
       default: {
         const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
-        if (isPluginOwnedCodexFacingTool(serviceBoundary)) {
-          return this.callPluginOwnedTool(name, args, serviceBoundary);
-        }
-        return this.callDaemonTool(name, args, serviceBoundary);
+        return this.callPluginOwnedTool(name, args, serviceBoundary);
       }
     }
   }
@@ -960,57 +950,6 @@ export class CodexMcpServer {
     }
   }
 
-  async callDaemonTool(
-    name: string,
-    args: Record<string, unknown>,
-    serviceBoundary = resolveCodexServiceRequestBoundary(name, args)
-  ): Promise<unknown> {
-    if (!TOOLS.some((tool) => tool.name === name)) {
-      return attachCodexServiceBoundary(
-        failureResult(name, `Unknown Alembic tool: ${name}`),
-        serviceBoundary
-      );
-    }
-
-    const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
-      await this.ensureEnhancementDaemon('mcp', name);
-    if (blocked) {
-      return attachCodexServiceBoundary(blocked, serviceBoundary);
-    }
-    if (!daemon.ready || !daemon.state) {
-      return attachCodexServiceBoundary(
-        failureResult(name, daemon.message || 'Alembic daemon is not ready yet.', {
-          daemon: summarizeCodexDaemonStatus(daemon),
-          enhancementRoute,
-          hostProjectAlignment,
-        }),
-        serviceBoundary
-      );
-    }
-    if (!daemon.state.token) {
-      return attachCodexServiceBoundary(
-        failureResult(name, 'Alembic daemon token is missing. Restart the daemon and retry.', {
-          daemon: summarizeCodexDaemonStatus(daemon),
-          enhancementRoute,
-          hostProjectAlignment,
-        }),
-        serviceBoundary
-      );
-    }
-
-    return attachCodexServiceBoundary(
-      attachEnhancementRoute(
-        await callDaemonBridge(daemon.state, name, args, {
-          role: 'external_agent',
-          user: process.env.USER || undefined,
-          sessionId: this.sessionId,
-        }),
-        enhancementRoute
-      ),
-      serviceBoundary
-    );
-  }
-
   private async getPluginOwnedMcpServer(): Promise<EmbeddedMcpServer> {
     if (this.#pluginOwnedMcpServer) {
       return this.#pluginOwnedMcpServer;
@@ -1156,39 +1095,6 @@ function withCodexProjectRootInput<T extends { inputSchema?: Record<string, unkn
       },
     },
   };
-}
-
-async function callDaemonBridge(
-  state: DaemonState,
-  name: string,
-  args: Record<string, unknown>,
-  actor: CodexToolCallActor
-): Promise<unknown> {
-  const response = await fetch(`${state.url}/api/v1/mcp/call`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-alembic-daemon-token': state.token || '',
-    },
-    body: JSON.stringify({ name, args, actor }),
-  });
-
-  const payload = await readJsonResponse(response);
-  if (response.ok) {
-    return payload;
-  }
-  return failureResult(
-    name,
-    extractResponseError(payload) || `Daemon bridge returned ${response.status}`,
-    {
-      daemon: {
-        url: state.url,
-        pid: state.pid,
-        port: state.port,
-      },
-      response: payload,
-    }
-  );
 }
 
 async function callDaemonHttpEndpoint(

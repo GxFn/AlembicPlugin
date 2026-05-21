@@ -45,12 +45,13 @@
         },
         "result": {
           "success": true,
-          "data.session.id": "scenario_host_bootstrap"
+          "data.serviceBoundary.executionPath": "plugin-owned-codex-facing",
+          "data.serviceBoundary.owner": "alembic-plugin"
         }
       }
     ],
     "sideEffects": {
-      "daemonEnsureCalled": true,
+      "daemonEnsureCalled": false,
       "initMarkerWritten": true,
       "jobCreated": false,
       "savedProjectRootWritten": true,

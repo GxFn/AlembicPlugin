@@ -33,6 +33,7 @@ import {
 } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
+import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 
 /** MCP handler context */
@@ -60,29 +61,33 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
   // Step 0: 清理策略（根据 intent 决定）
   // ═══════════════════════════════════════════════════════════
 
-  let recipeSnapshot;
-  let cleanResult;
+  let recipeSnapshot: Awaited<ReturnType<CleanupService['snapshotRecipes']>>;
+  let cleanResult: Awaited<ReturnType<CleanupService['rescanClean']>>;
 
   if (intent.cleanupPolicy === 'force-rescan') {
     const result = await runForceRescanCleanPolicy({
       projectRoot: plan.cleanup.projectRoot,
+      dataRoot,
       db,
       logger: ctx.logger,
+      createCleanupService: createWorkflowCleanupService,
     });
     recipeSnapshot = result.recipeSnapshot;
     cleanResult = result.cleanResult;
   } else if (intent.cleanupPolicy === 'rescan-clean') {
     const result = await runRescanCleanPolicy({
       projectRoot: plan.cleanup.projectRoot,
+      dataRoot,
       db,
       logger: ctx.logger,
+      createCleanupService: createWorkflowCleanupService,
     });
     recipeSnapshot = result.recipeSnapshot;
     cleanResult = result.cleanResult;
   } else {
-    const { CleanupService } = await import('#service/cleanup/CleanupService.js');
-    const cleanupService = new CleanupService({
+    const cleanupService = createWorkflowCleanupService({
       projectRoot: plan.cleanup.projectRoot,
+      dataRoot,
       db,
       logger: ctx.logger,
     });
@@ -262,5 +267,19 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
     dimensions: requestedDimensions,
     reason: intent.reason,
     responseTimeMs: Date.now() - t0,
+  });
+}
+
+function createWorkflowCleanupService(ctx: {
+  projectRoot: string;
+  dataRoot?: string;
+  db?: unknown;
+  logger?: ConstructorParameters<typeof CleanupService>[0]['logger'];
+}) {
+  return new CleanupService({
+    projectRoot: ctx.projectRoot,
+    dataRoot: ctx.dataRoot,
+    db: ctx.db,
+    logger: ctx.logger,
   });
 }

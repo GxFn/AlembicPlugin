@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathGuard } from '@alembic/core/io';
-import { ProjectRegistry } from '@alembic/core/workspace';
-import { WorkspaceResolver } from '@alembic/core/workspace';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
+import { ProjectRegistry, WorkspaceResolver } from '@alembic/core/workspace';
+import { resetServiceContainer } from '../../../lib/injection/ServiceContainer.js';
 import type {
   CodexScenarioFixtureRunConfig,
   CodexScenarioRunOptions,
@@ -43,6 +43,7 @@ export function setupCodexScenarioFixture(
   options: CodexScenarioRunOptions = {}
 ): CodexScenarioFixtureContext {
   const previousEnv = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
+  resetServiceContainer();
   pathGuard._reset();
   const runRoot = resolveRunRoot(options.runRoot);
   fs.mkdirSync(runRoot, { recursive: true });
@@ -109,6 +110,7 @@ export function setupCodexScenarioFixture(
     redactions,
     runDir,
     restore() {
+      resetServiceContainer();
       pathGuard._reset();
       for (const key of ENV_KEYS) {
         const previous = previousEnv.get(key);

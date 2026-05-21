@@ -8,6 +8,7 @@ import {
   JobStore,
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
+import { pathGuard } from '@alembic/core/io';
 import {
   getGhostWorkspaceDir,
   getProjectRegistryDir,
@@ -20,6 +21,7 @@ import {
 } from '../../lib/codex/ProjectRootResolver.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { CodexMcpServer, getVisibleCodexTools } from '../../lib/external/mcp/CodexMcpServer.js';
+import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
@@ -130,6 +132,10 @@ function makeSupervisor(status: DaemonStatus) {
 }
 
 afterEach(() => {
+  // Codex-facing tools now execute in the Plugin process, so tests must clear
+  // per-project globals between temporary workspaces.
+  resetServiceContainer();
+  pathGuard._reset();
   if (ORIGINAL_ALEMBIC_HOME === undefined) {
     delete process.env.ALEMBIC_HOME;
   } else {
@@ -1031,31 +1037,39 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('core Alembic tools ensure daemon and forward through the local bridge token', async () => {
+  test('core Alembic tools stay Plugin-owned and do not call the removed daemon MCP bridge', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
-      async (_input, _init) =>
-        new Response(JSON.stringify({ ok: true, toolId: 'alembic_health', text: 'healthy' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      throw new Error(`Codex-facing tools must not call daemon MCP bridge: ${String(input)}`);
+    });
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = await server.handleToolCall('alembic_health', {});
-    const [url, init] = fetchSpy.mock.calls[0];
-    const headers = init?.headers as Record<string, string>;
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const result = (await server.handleToolCall('alembic_health', {})) as {
+      data: {
+        serviceBoundary: {
+          executionPath: string;
+          owner: string;
+          residentServiceRequested: boolean;
+          tool: string;
+        };
+        status: string;
+      };
+      success: boolean;
+    };
 
-    expect(result).toMatchObject({ ok: true, toolId: 'alembic_health' });
-    expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
-    expect(String(url)).toBe('http://127.0.0.1:39127/api/v1/mcp/call');
-    expect(headers['x-alembic-daemon-token']).toBe('test-token');
-    expect(body).toMatchObject({ name: 'alembic_health', args: {} });
-    expect(body.actor).toMatchObject({ role: 'external_agent' });
+    expect(result.success).toBe(true);
+    expect(result.data.status).toBeTruthy();
+    expect(result.data.serviceBoundary).toMatchObject({
+      executionPath: 'plugin-owned-codex-facing',
+      owner: 'alembic-plugin',
+      residentServiceRequested: false,
+      tool: 'alembic_health',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('alembic_task prime stays Plugin-owned when local daemon is ready', async () => {
@@ -1169,40 +1183,44 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('Codex host-agent bootstrap forwards without requiring an internal AI provider', async () => {
+  test('Codex host-agent bootstrap runs in the Plugin without the daemon MCP bridge', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
+    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const answer = 42;\n');
     delete process.env.ALEMBIC_AI_PROVIDER;
     delete process.env.ALEMBIC_DEEPSEEK_API_KEY;
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
-      async () =>
-        new Response(
-          JSON.stringify({
-            success: true,
-            data: { briefing: { session: { id: 'host_bootstrap_test' } } },
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } }
-        )
-    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      throw new Error(
+        `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
+      );
+    });
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = await server.handleToolCall('alembic_bootstrap', {});
-    const [url, init] = fetchSpy.mock.calls[0];
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const result = (await server.handleToolCall('alembic_bootstrap', {})) as {
+      data?: {
+        dimensions?: unknown;
+        executionPlan?: unknown;
+        serviceBoundary?: {
+          executionPath: string;
+          owner: string;
+          tool: string;
+        };
+      };
+      success: boolean;
+    };
 
-    expect(result).toMatchObject({
-      success: true,
-      data: { briefing: { session: { id: 'host_bootstrap_test' } } },
+    expect(result.success).toBe(true);
+    expect(result.data?.executionPlan).toBeTruthy();
+    expect(result.data?.dimensions).toBeTruthy();
+    expect(result.data?.serviceBoundary).toMatchObject({
+      executionPath: 'plugin-owned-codex-facing',
+      owner: 'alembic-plugin',
+      tool: 'alembic_bootstrap',
     });
-    expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
-    expect(String(url)).toBe('http://127.0.0.1:39127/api/v1/mcp/call');
-    expect(body).toMatchObject({
-      name: 'alembic_bootstrap',
-      args: {},
-      actor: { role: 'external_agent' },
-    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('Codex bootstrap job ensures daemon and posts to the daemon jobs API', async () => {

@@ -27,6 +27,7 @@ import {
 } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
+import { CleanupService } from '#service/cleanup/CleanupService.js';
 
 interface McpContext {
   container: ServiceContainer;
@@ -60,8 +61,16 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
   const db = ctx.container.get('database');
   const cleanupResult = await runFullResetPolicy({
     projectRoot: plan.cleanup.projectRoot,
+    dataRoot,
     db,
     logger: ctx.logger,
+    createCleanupService: (policyCtx) =>
+      new CleanupService({
+        projectRoot: policyCtx.projectRoot,
+        dataRoot: policyCtx.dataRoot,
+        db: policyCtx.db,
+        logger: policyCtx.logger,
+      }),
   });
 
   // ═══════════════════════════════════════════════════════════
