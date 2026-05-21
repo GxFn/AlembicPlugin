@@ -10,6 +10,7 @@
  */
 
 import { dimensionTags } from '@alembic/core/dimensions';
+import type { CreateRecipeResult } from '@alembic/core/knowledge';
 import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import {
@@ -31,6 +32,14 @@ import type {
   ConsolidatedStructureArgs,
   McpContext,
 } from './types.js';
+
+type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
+
+interface PendingSemanticReviewDecision {
+  action: 'keep';
+  newRecipeId: string;
+  reasoning: string;
+}
 
 // ─── alembic_search (整合 4 → 1) ────────────────────────
 
@@ -425,21 +434,44 @@ export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<stri
 
   // ── pendingSemanticReview → nextAction tail instruction ──
   if (gatewayResult.pendingSemanticReview && gatewayResult.pendingSemanticReview.length > 0) {
+    const reviewActions = gatewayResult.pendingSemanticReview.map((review) => ({
+      review,
+      decision: _buildPendingSemanticReviewDecision(review),
+    }));
+    const decisions = reviewActions
+      .map((entry) => entry.decision)
+      .filter((decision): decision is PendingSemanticReviewDecision => decision !== null);
+    const missingRecipeId = reviewActions
+      .filter((entry) => entry.decision === null)
+      .map((entry) => ({
+        index: entry.review.index,
+        title: entry.review.title,
+        reason: entry.review.reason,
+      }));
+
     data.pendingSemanticReview = gatewayResult.pendingSemanticReview;
-    data.nextAction = {
-      tool: 'alembic_consolidate',
-      args: {
-        decisions: gatewayResult.pendingSemanticReview.map((r) => ({
-          newRecipeId: '',
-          action: 'keep',
-          reasoning: r.reason,
-        })),
-      },
-      required: false,
-      reason:
-        `${gatewayResult.pendingSemanticReview.length} 条候选处于相似度模糊区间（0.4-0.65），` +
-        `字段分析不明确，建议阅读源代码后调用 alembic_consolidate 判断是否需要合并。`,
-    };
+    if (decisions.length > 0) {
+      data.nextAction = {
+        tool: 'alembic_consolidate',
+        args: {
+          decisions,
+        },
+        required: false,
+        reason:
+          `${decisions.length} 条候选处于相似度模糊区间（0.4-0.65），` +
+          `字段分析不明确，建议阅读源代码后调用 alembic_consolidate 判断是否需要合并。`,
+      };
+    }
+    if (missingRecipeId.length > 0) {
+      data.nextActionBlocked = {
+        tool: 'alembic_consolidate',
+        blockedCount: missingRecipeId.length,
+        missingRecipeId,
+        reason:
+          `Core 未返回 pendingSemanticReview[].newRecipeId 或 createdRecipe.id，` +
+          `Plugin 不会猜测新 Recipe ID，也不会生成不可执行的 consolidate 指令。`,
+      };
+    }
   }
 
   // 全部拒绝 → 特殊错误响应
@@ -531,4 +563,32 @@ function _trackRejection(
   } catch {
     /* best effort */
   }
+}
+
+function _buildPendingSemanticReviewDecision(
+  review: PendingSemanticReview
+): PendingSemanticReviewDecision | null {
+  const newRecipeId = _resolvePendingSemanticReviewRecipeId(review);
+  if (!newRecipeId) {
+    return null;
+  }
+
+  return {
+    newRecipeId,
+    action: 'keep',
+    reasoning: review.reason,
+  };
+}
+
+function _resolvePendingSemanticReviewRecipeId(review: PendingSemanticReview): string | null {
+  // Core 生产侧保证 newRecipeId；createdRecipe.id 是同一生产侧给出的稳定 created item 引用。
+  const directId = review.newRecipeId?.trim();
+  if (directId) {
+    return directId;
+  }
+  const createdRecipeId = review.createdRecipe?.id.trim();
+  if (createdRecipeId) {
+    return createdRecipeId;
+  }
+  return null;
 }
