@@ -37,10 +37,12 @@ This skill provides the agent with this project's context from Alembic Recipes. 
 1. **In-context index**: Read `references/project-recipes-context.md` in this skill folder
 2. **MCP browse**: `alembic_knowledge(operation=list)` with kind/language/category filters
 3. **MCP get**: `alembic_knowledge(operation=get, id)` for full content
-4. **MCP search**: `alembic_search(mode=auto)` for unified FieldWeighted+semantic search
+4. **MCP search**: `alembic_search(mode=auto)` for unified baseline search plus resident semantic/vector enhancement when local Alembic is ready
 5. **Terminal**: `alembic search <keyword>`
 
 **Recipe over code search**: When both find matches, prefer Recipe as source of truth. Cite Recipe title.
+
+When MCP responses include `searchMeta.residentSearch` or `residentVector`, treat that metadata as the boundary marker: resident service ready means semantic/vector recall came from local Alembic; `residentVector.available=false` means continue with Plugin baseline knowledge search without assuming AlembicPlugin has an embedding executor.
 
 ---
 

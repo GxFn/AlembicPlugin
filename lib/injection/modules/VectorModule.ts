@@ -10,6 +10,7 @@
  */
 
 import { VectorService } from '@alembic/core/vector';
+import { providerSupportsExecutableEmbedding } from '../../codex/HostAiAdapter.js';
 import type { ContextualEnricher } from '../../service/vector/ContextualEnricher.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -21,8 +22,17 @@ export function register(c: ServiceContainer) {
   c.singleton(
     'vectorService',
     (ct: ServiceContainer) => {
-      const aiProvider = ct.singletons.aiProvider || null;
-      const embedProvider = ct.singletons._embedProvider || aiProvider;
+      const aiProvider = (ct.singletons.aiProvider || null) as Parameters<
+        typeof providerSupportsExecutableEmbedding
+      >[0];
+      const configuredEmbedProvider = ct.singletons._embedProvider as Parameters<
+        typeof providerSupportsExecutableEmbedding
+      >[0];
+      const embedProvider = providerSupportsExecutableEmbedding(configuredEmbedProvider)
+        ? configuredEmbedProvider
+        : providerSupportsExecutableEmbedding(aiProvider)
+          ? aiProvider
+          : null;
       const config =
         ((ct.singletons._config as Record<string, unknown> | undefined)?.vector as
           | Record<string, unknown>

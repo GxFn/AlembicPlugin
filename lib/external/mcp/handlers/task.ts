@@ -243,6 +243,14 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
       queries: searchResult.searchMeta.queries,
       resultCount: searchResult.searchMeta.resultCount,
       filteredCount: searchResult.searchMeta.filteredCount,
+      ...(searchResult.searchMeta.residentSearch
+        ? {
+            residentSearch: searchResult.searchMeta.residentSearch as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
     };
   }
 

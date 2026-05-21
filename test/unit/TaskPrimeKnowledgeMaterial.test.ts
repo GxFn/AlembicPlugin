@@ -124,21 +124,31 @@ describe('alembic_task prime knowledge material', () => {
         module: 'mcp',
         resultCount: 2,
         filteredCount: 2,
+        residentSearch: {
+          attempted: true,
+          available: true,
+          route: 'alembic-resident-service',
+          semanticUsed: true,
+          vectorUsed: true,
+          residentVector: { available: true },
+        },
       },
     };
-    const result = (await taskHandler(
-      makeContext(async () => searchResult),
-      {
-        operation: 'prime',
-        userQuery: 'Add prime knowledge shout',
-        activeFile: 'lib/external/mcp/handlers/task.ts',
-        language: 'typescript',
-      }
-    )) as PrimeEnvelope;
+    const ctx = makeContext(async () => searchResult);
+    const result = (await taskHandler(ctx, {
+      operation: 'prime',
+      userQuery: 'Add prime knowledge shout',
+      activeFile: 'lib/external/mcp/handlers/task.ts',
+      language: 'typescript',
+    })) as PrimeEnvelope;
 
     expect(result.success).toBe(true);
     expect(result.data.knowledge?.relatedKnowledge).toEqual(searchResult.relatedKnowledge);
     expect(result.data.searchMeta).toEqual(searchResult.searchMeta);
+    expect(ctx.session?.intent.searchMeta?.residentSearch).toMatchObject({
+      route: 'alembic-resident-service',
+      vectorUsed: true,
+    });
     expect(result.data.primeKnowledgeMaterial).toMatchObject({
       status: 'delivered',
       acceptedKnowledge: [

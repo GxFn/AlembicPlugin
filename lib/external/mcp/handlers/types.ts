@@ -74,6 +74,7 @@ export interface IntentState {
     queries: string[];
     resultCount: number;
     filteredCount: number;
+    residentSearch?: Record<string, unknown>;
   };
 
   // ─── Anchor (set after create) ───
@@ -130,6 +131,7 @@ export interface IntentChainRecord {
     queries: string[];
     resultCount: number;
     filteredCount: number;
+    residentSearch?: Record<string, unknown>;
   };
 
   toolCalls: ToolCallRecord[];

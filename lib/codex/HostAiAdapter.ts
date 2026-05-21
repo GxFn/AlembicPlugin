@@ -156,7 +156,8 @@ export class HostAiProviderManager {
   }
 
   get embedProvider(): HostAiProvider | null {
-    return this.#embedProvider ?? this.runtimeProvider;
+    const candidate = this.#embedProvider ?? this.#provider;
+    return providerSupportsExecutableEmbedding(candidate) ? candidate : null;
   }
 
   get rawEmbedProvider(): HostAiProvider | null {
@@ -361,15 +362,26 @@ function normalizeHostProvider(provider: HostAiProvider | null | undefined): Hos
       ? provider.model
       : defaultModelForProvider(providerName);
   const provided = provider as Partial<HostAiProvider>;
+  const hostManaged = (provided as { hostManaged?: unknown }).hostManaged === true;
+  const chatExplicitlyNonExecutable = provided.__hostAiExecutable === false || hostManaged;
   const executable =
-    typeof provided.chat === 'function' ||
-    typeof provided.chatWithTools === 'function' ||
-    typeof provided.chatWithStructuredOutput === 'function';
-  const embedExecutable =
-    typeof provided.embed === 'function' ||
-    (typeof provided.supportsEmbedding === 'function' && provided.supportsEmbedding());
+    provided.__hostAiExecutable === true ||
+    (!chatExplicitlyNonExecutable &&
+      (typeof provided.chat === 'function' ||
+        typeof provided.chatWithTools === 'function' ||
+        typeof provided.chatWithStructuredOutput === 'function'));
   const normalizedProvider = provider as HostAiProvider;
   const unavailable = unavailableProviderMethods();
+  const explicitlyNonExecutable =
+    provided.__hostEmbedExecutable === false ||
+    provided.__hostAiExecutable === false ||
+    hostManaged;
+  const embedExecutable =
+    provided.__hostEmbedExecutable === true ||
+    (!explicitlyNonExecutable &&
+      typeof provided.embed === 'function' &&
+      provided.embed !== unavailable.embed &&
+      safeSupportsEmbedding(provided));
   for (const [key, value] of Object.entries(unavailable)) {
     if (typeof normalizedProvider[key] !== 'function') {
       normalizedProvider[key] = value;
@@ -408,14 +420,31 @@ function hasChatCapability(provider: HostAiProvider | null | undefined): boolean
 }
 
 function hasEmbeddingCapability(provider: HostAiProvider | null | undefined): boolean {
-  return provider?.__hostEmbedExecutable === true;
+  return providerSupportsExecutableEmbedding(provider);
 }
 
 function providerSupportsEmbedding(provider: HostAiProvider | null | undefined): boolean {
+  return providerSupportsExecutableEmbedding(provider);
+}
+
+export function providerSupportsExecutableEmbedding(
+  provider: HostAiProvider | null | undefined
+): boolean {
   if (!provider) {
     return false;
   }
   return provider.__hostEmbedExecutable === true;
+}
+
+function safeSupportsEmbedding(provider: Partial<HostAiProvider>): boolean {
+  if (typeof provider.supportsEmbedding !== 'function') {
+    return true;
+  }
+  try {
+    return provider.supportsEmbedding() === true;
+  } catch {
+    return false;
+  }
 }
 
 function modelOption(provider: string, model: string): HostAiModelOption {

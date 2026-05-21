@@ -9,6 +9,11 @@
 
 import type { SearchResultItem, SlimSearchResult } from '@alembic/core/search';
 import { slimSearchResult } from '@alembic/core/search';
+import type {
+  ResidentSearchAttemptMeta,
+  ResidentSearchRequest,
+  ResidentSearchResult,
+} from '../search/ResidentSearchClient.js';
 import type { ExtractedIntent } from './IntentExtractor.js';
 
 // ── Types ───────────────────────────────────────────
@@ -23,6 +28,7 @@ export interface PrimeSearchMeta {
   module: string | null;
   resultCount: number;
   filteredCount: number;
+  residentSearch?: ResidentSearchAttemptMeta;
 }
 
 export interface PrimeSearchResult {
@@ -48,6 +54,14 @@ interface SearchEngineLike {
   ): Promise<{ items?: unknown[] }>;
 }
 
+interface ResidentSearchClientLike {
+  search(request: ResidentSearchRequest): Promise<ResidentSearchResult>;
+}
+
+interface PrimeSearchPipelineOptions {
+  residentSearchClient?: ResidentSearchClientLike | null;
+}
+
 // ── Constants ───────────────────────────────────────
 
 /** Absolute minimum score — items below this are definitely noise */
@@ -60,11 +74,13 @@ const GAP_DROP_RATIO = 0.25;
 // ── PrimeSearchPipeline ─────────────────────────────
 
 export class PrimeSearchPipeline {
+  #residentSearchClient: ResidentSearchClientLike | null;
   #search: SearchEngineLike;
   #sessionQueries: string[] = [];
 
-  constructor(searchEngine: SearchEngineLike) {
+  constructor(searchEngine: SearchEngineLike, options: PrimeSearchPipelineOptions = {}) {
     this.#search = searchEngine;
+    this.#residentSearchClient = options.residentSearchClient ?? null;
   }
 
   /**
@@ -83,16 +99,29 @@ export class PrimeSearchPipeline {
     };
 
     // Multi-query parallel search (auto mode + keyword mode for cross-language)
-    const allResults = await this.#multiQuerySearch(
+    const searchBundle = await this.#multiQuerySearch(
       intent.queries,
       intent.keywordQueries ?? [],
       context
     );
+    const allResults = searchBundle.items;
 
     // Quality filter: absolute threshold + relative-to-best + score gap detection
     const filtered = this.#qualityFilter(allResults);
 
     if (filtered.length === 0) {
+      if (searchBundle.residentSearch) {
+        return {
+          relatedKnowledge: [],
+          guardRules: [],
+          searchMeta: this.#buildSearchMeta(
+            intent,
+            allResults.length,
+            0,
+            searchBundle.residentSearch
+          ),
+        };
+      }
       return null;
     }
 
@@ -106,14 +135,12 @@ export class PrimeSearchPipeline {
     return {
       relatedKnowledge: knowledge,
       guardRules: rules,
-      searchMeta: {
-        queries: intent.queries,
-        scenario: intent.scenario,
-        language: intent.language,
-        module: intent.module,
-        resultCount: allResults.length,
-        filteredCount: filtered.length,
-      },
+      searchMeta: this.#buildSearchMeta(
+        intent,
+        allResults.length,
+        filtered.length,
+        searchBundle.residentSearch
+      ),
     };
   }
 
@@ -165,7 +192,7 @@ export class PrimeSearchPipeline {
     autoQueries: string[],
     keywordQueries: string[],
     context: { language?: string; intent?: string; sessionHistory?: Array<{ content: string }> }
-  ): Promise<SlimSearchResult[]> {
+  ): Promise<{ items: SlimSearchResult[]; residentSearch?: ResidentSearchAttemptMeta }> {
     // Auto-mode searches (BM25 without CoarseRanker ranking)
     // Using rank: false preserves raw BM25/FWS score magnitude,
     // which the quality filter needs for effective discrimination.
@@ -185,6 +212,12 @@ export class PrimeSearchPipeline {
           .catch(() => ({ items: [] }))
       : Promise.resolve({ items: [] });
 
+    // AlembicPlugin 不再持有 embedding executor。语义增强由本地 Alembic resident service
+    // 提供；不可用时保留 baseline embedded search，并把原因写入 searchMeta。
+    const residentPromise = autoQueries[0]
+      ? this.#residentSemanticSearch(autoQueries[0])
+      : Promise.resolve(null);
+
     // Keyword-mode searches (raw FWS scores — for cross-language synonym matching)
     const kwPromises = keywordQueries.map((q) =>
       this.#search
@@ -192,10 +225,11 @@ export class PrimeSearchPipeline {
         .catch(() => ({ items: [] }))
     );
 
-    const [autoResponses, kwResponses, semanticResponse] = await Promise.all([
+    const [autoResponses, kwResponses, semanticResponse, residentResponse] = await Promise.all([
       Promise.all(autoPromises),
       Promise.all(kwPromises),
       semanticPromise,
+      residentPromise,
     ]);
 
     // Merge: auto + semantic + keyword
@@ -204,15 +238,20 @@ export class PrimeSearchPipeline {
     const allResponses = [
       ...autoResponses,
       ...(semanticItems.length > 0 ? [semanticResponse] : []),
+      ...(residentResponse?.items.length ? [residentResponse] : []),
       ...kwResponses,
     ];
+    const residentSearch = residentResponse?.meta;
 
     // Single-query shortcut: preserve original scores from search engine.
     // RRF is pointless with one response — it just converts rank to score,
     // discarding the magnitude information from BM25/CoarseRanker.
     if (allResponses.length === 1) {
       const items = (allResponses[0]?.items || []) as SearchResultItem[];
-      return items.map(slimSearchResult).sort((a, b) => b.score - a.score);
+      return {
+        items: items.map(slimSearchResult).sort((a, b) => b.score - a.score),
+        ...(residentSearch ? { residentSearch } : {}),
+      };
     }
 
     // Multi-query: Weighted RRF — RRF(d) = Σ origScore / (k + rank)
@@ -250,7 +289,60 @@ export class PrimeSearchPipeline {
       item.score = Math.round(rrfScore * RRF_K * 1000) / 1000;
       results.push(item);
     }
-    return results.sort((a, b) => b.score - a.score);
+    return {
+      items: results.sort((a, b) => b.score - a.score),
+      ...(residentSearch ? { residentSearch } : {}),
+    };
+  }
+
+  async #residentSemanticSearch(query: string): Promise<ResidentSearchResult | null> {
+    if (!this.#residentSearchClient) {
+      return null;
+    }
+    try {
+      return await this.#residentSearchClient.search({
+        query,
+        mode: 'semantic',
+        limit: 6,
+        rank: false,
+      });
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[PrimeSearchPipeline] resident semantic search unavailable: ${reason}\n`
+      );
+      return {
+        items: [],
+        meta: {
+          attempted: true,
+          available: false,
+          durationMs: 0,
+          reason,
+          requestedMode: 'semantic',
+          residentVector: { available: false, reason },
+          resultCount: 0,
+          route: 'alembic-resident-service',
+          used: false,
+        },
+      };
+    }
+  }
+
+  #buildSearchMeta(
+    intent: ExtractedIntent,
+    resultCount: number,
+    filteredCount: number,
+    residentSearch?: ResidentSearchAttemptMeta
+  ): PrimeSearchMeta {
+    return {
+      queries: intent.queries,
+      scenario: intent.scenario,
+      language: intent.language,
+      module: intent.module,
+      resultCount,
+      filteredCount,
+      ...(residentSearch ? { residentSearch } : {}),
+    };
   }
 
   /**

@@ -76,6 +76,7 @@ import type { CacheCoordinator } from '../infrastructure/cache/CacheCoordinator.
 import type { AuditRepositoryImpl } from '../repository/audit/AuditRepository.js';
 import type { BootstrapTaskManager } from '../service/bootstrap/BootstrapTaskManager.js';
 import type { ModuleService } from '../service/module/ModuleService.js';
+import type { ResidentSearchClient } from '../service/search/ResidentSearchClient.js';
 import type { HitRecorder } from '../service/signal/HitRecorder.js';
 import type { SkillHooks } from '../service/skills/SkillHooks.js';
 import type { PrimeSearchPipeline } from '../service/task/PrimeSearchPipeline.js';
@@ -122,6 +123,7 @@ export interface ServiceMap {
   feedbackCollector: FeedbackCollector;
   tokenUsageStore: TokenUsageStore;
   moduleService: ModuleService;
+  residentSearchClient: ResidentSearchClient;
   primeSearchPipeline: PrimeSearchPipeline;
 
   // ═══ KnowledgeModule ═══
