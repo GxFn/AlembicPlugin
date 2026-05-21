@@ -95,27 +95,24 @@ export function register(c: ServiceContainer) {
 
   // ═══ Search + Vector ═══
 
-  c.singleton(
-    'searchEngine',
-    (ct: ServiceContainer) => {
-      const vectorService = ct.services.vectorService ? ct.get('vectorService') : null;
-      return new SearchEngine(
-        ct.get('database') as unknown as ConstructorParameters<typeof SearchEngine>[0],
-        {
-          // Plugin 不再注入第三方 AI/embedding provider；语义增强走 Alembic resident service，
-          // 本地 embedded runtime 保持 baseline/hybrid search 行为。
-          aiProvider: null,
-          vectorStore: ct.get('vectorStore'),
-          vectorService,
-          hybridRetriever: ct.get('hybridRetriever'),
-          crossEncoderReranker: null,
-          signalBus: ct.singletons.signalBus || null,
-          knowledgeRepo: ct.get('knowledgeRepository'),
-          sourceRefRepo: ct.get('recipeSourceRefRepository'),
-        } as unknown as ConstructorParameters<typeof SearchEngine>[1]
-      );
-    }
-  );
+  c.singleton('searchEngine', (ct: ServiceContainer) => {
+    const vectorService = ct.services.vectorService ? ct.get('vectorService') : null;
+    return new SearchEngine(
+      ct.get('database') as unknown as ConstructorParameters<typeof SearchEngine>[0],
+      {
+        // Plugin 不再注入第三方 AI/embedding provider；语义增强走 Alembic resident service，
+        // 本地 embedded runtime 保持 baseline/hybrid search 行为。
+        aiProvider: null,
+        vectorStore: ct.get('vectorStore'),
+        vectorService,
+        hybridRetriever: ct.get('hybridRetriever'),
+        crossEncoderReranker: null,
+        signalBus: ct.singletons.signalBus || null,
+        knowledgeRepo: ct.get('knowledgeRepository'),
+        sourceRefRepo: ct.get('recipeSourceRefRepository'),
+      } as unknown as ConstructorParameters<typeof SearchEngine>[1]
+    );
+  });
 
   c.singleton('vectorStore', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
@@ -171,17 +168,14 @@ export function register(c: ServiceContainer) {
     return store;
   });
 
-  c.singleton(
-    'indexingPipeline',
-    (ct: ServiceContainer) => {
-      const dataRoot = resolveDataRoot(ct);
-      return new IndexingPipeline({
-        projectRoot: dataRoot,
-        scanDirs: resolveKnowledgeScanDirs(ct),
-        vectorStore: ct.get('vectorStore'),
-      } as ConstructorParameters<typeof IndexingPipeline>[0]);
-    }
-  );
+  c.singleton('indexingPipeline', (ct: ServiceContainer) => {
+    const dataRoot = resolveDataRoot(ct);
+    return new IndexingPipeline({
+      projectRoot: dataRoot,
+      scanDirs: resolveKnowledgeScanDirs(ct),
+      vectorStore: ct.get('vectorStore'),
+    } as ConstructorParameters<typeof IndexingPipeline>[0]);
+  });
 
   c.singleton('hybridRetriever', (ct: ServiceContainer) => {
     const config = (ct.singletons._config as Record<string, unknown> | undefined)?.vector as

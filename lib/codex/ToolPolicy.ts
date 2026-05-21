@@ -76,10 +76,7 @@ export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
   'alembic_codex_diagnostics',
 ]);
 
-export const CODEX_INIT_TOOL_NAMES = new Set([
-  ...CODEX_DISCOVERY_TOOL_NAMES,
-  'alembic_codex_init',
-]);
+export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_codex_init']);
 
 export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_bootstrap',

@@ -18,39 +18,36 @@ export function register(c: ServiceContainer) {
   c.singleton('contextualEnricher', (_ct: ServiceContainer) => null);
 
   // ═══ VectorService ═══
-  c.singleton(
-    'vectorService',
-    (ct: ServiceContainer) => {
-      const config =
-        ((ct.singletons._config as Record<string, unknown> | undefined)?.vector as
-          | Record<string, unknown>
-          | undefined) || {};
+  c.singleton('vectorService', (ct: ServiceContainer) => {
+    const config =
+      ((ct.singletons._config as Record<string, unknown> | undefined)?.vector as
+        | Record<string, unknown>
+        | undefined) || {};
 
-      return new VectorService({
-        vectorStore: ct.get('vectorStore'),
-        indexingPipeline: ct.get('indexingPipeline'),
-        hybridRetriever: ct.services.hybridRetriever
-          ? (ct.get('hybridRetriever') as ConstructorParameters<
-              typeof VectorService
-            >[0]['hybridRetriever'])
-          : null,
-        eventBus: ct.services.eventBus ? ct.get('eventBus') : null,
-        // Plugin 不维护可执行 embedding provider。Resident vector search 由 Alembic daemon
-        // HTTP API 增强；embedded runtime 只保留可降级的 baseline/vector store 管线。
-        embedProvider: null,
-        contextualEnricher: ct.services.contextualEnricher
-          ? (ct.get('contextualEnricher') as InstanceType<typeof ContextualEnricher> | null)
-          : null,
-        autoSyncOnCrud: (config.autoSyncOnCrud as boolean) !== false,
-        syncDebounceMs: (config.syncDebounceMs as number) || 2000,
-        drizzle: ct.services.database
-          ? ((ct.get('database') as unknown as { getDrizzle?(): unknown }).getDrizzle?.() as
-              | import('@alembic/core/database').DrizzleDB
-              | undefined)
-          : undefined,
-      });
-    }
-  );
+    return new VectorService({
+      vectorStore: ct.get('vectorStore'),
+      indexingPipeline: ct.get('indexingPipeline'),
+      hybridRetriever: ct.services.hybridRetriever
+        ? (ct.get('hybridRetriever') as ConstructorParameters<
+            typeof VectorService
+          >[0]['hybridRetriever'])
+        : null,
+      eventBus: ct.services.eventBus ? ct.get('eventBus') : null,
+      // Plugin 不维护可执行 embedding provider。Resident vector search 由 Alembic daemon
+      // HTTP API 增强；embedded runtime 只保留可降级的 baseline/vector store 管线。
+      embedProvider: null,
+      contextualEnricher: ct.services.contextualEnricher
+        ? (ct.get('contextualEnricher') as InstanceType<typeof ContextualEnricher> | null)
+        : null,
+      autoSyncOnCrud: (config.autoSyncOnCrud as boolean) !== false,
+      syncDebounceMs: (config.syncDebounceMs as number) || 2000,
+      drizzle: ct.services.database
+        ? ((ct.get('database') as unknown as { getDrizzle?(): unknown }).getDrizzle?.() as
+            | import('@alembic/core/database').DrizzleDB
+            | undefined)
+        : undefined,
+    });
+  });
 }
 
 /**
