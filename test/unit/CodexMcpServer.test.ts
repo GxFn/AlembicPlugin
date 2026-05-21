@@ -374,7 +374,7 @@ describe('CodexMcpServer', () => {
       'cache',
       'alembic-codex',
       'alembic-codex',
-      '0.1.2'
+      getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
     process.env.PWD = pluginRoot;
@@ -420,7 +420,7 @@ describe('CodexMcpServer', () => {
       'cache',
       'alembic-codex',
       'alembic-codex',
-      '0.1.2'
+      getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
     process.env.INIT_CWD = pluginRoot;
@@ -681,7 +681,7 @@ describe('CodexMcpServer', () => {
       'cache',
       'alembic-codex',
       'alembic-codex',
-      '0.1.2'
+      getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
     process.env.PWD = pluginRoot;
@@ -748,7 +748,7 @@ describe('CodexMcpServer', () => {
       'cache',
       'gxfn',
       'alembic-codex',
-      '0.1.1'
+      getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
     process.env.PWD = pluginRoot;
@@ -803,7 +803,7 @@ describe('CodexMcpServer', () => {
       'cache',
       'alembic-codex',
       'alembic-codex',
-      '0.1.2'
+      getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
     process.env.PWD = pluginRoot;

@@ -44,6 +44,7 @@ import {
   writeCodexSavedProjectRoot,
 } from '../../codex/index.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
+import { getPackageVersion } from '../../shared/package-assets.js';
 import { McpServer as EmbeddedMcpServer } from './McpServer.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from './tools.js';
 
@@ -134,7 +135,7 @@ export class CodexMcpServer {
 
   async start(): Promise<void> {
     this.sdkServer = new SdkMcpServer(
-      { name: 'alembic-codex', version: '0.1.1' },
+      { name: 'alembic-codex', version: getPackageVersion() },
       { capabilities: { tools: {} } }
     );
     this.registerHandlers();

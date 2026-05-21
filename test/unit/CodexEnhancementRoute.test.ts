@@ -4,6 +4,7 @@ import {
   summarizeEnhancementDaemon,
 } from '../../lib/codex/EnhancementRoute.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const LOCAL_INSTALL_UNAVAILABLE = {
   available: false,
@@ -37,7 +38,7 @@ function makeDaemonStatus(
       url: 'http://127.0.0.1:39127',
       dashboardUrl: 'http://127.0.0.1:39127',
       token: 'secret',
-      version: '0.1.2',
+      version: getPackageVersion(),
       mode: 'daemon',
       startedAt: '2026-05-18T00:00:00.000Z',
       lastReadyAt: '2026-05-18T00:00:01.000Z',

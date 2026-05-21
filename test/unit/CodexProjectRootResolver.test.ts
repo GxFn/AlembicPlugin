@@ -10,6 +10,7 @@ import {
   summarizeCodexProjectRootResolution,
   writeCodexSavedProjectRoot,
 } from '../../lib/codex/ProjectRootResolver.js';
+import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 function makeDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -95,7 +96,7 @@ describe('CodexProjectRootResolver', () => {
       'cache',
       'gxfn',
       'alembic-codex',
-      '0.1.1'
+      getPackageVersion()
     );
     fs.mkdirSync(cacheRoot, { recursive: true });
 

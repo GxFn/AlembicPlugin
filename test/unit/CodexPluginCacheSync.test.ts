@@ -6,6 +6,13 @@ import { afterEach, describe, expect, test } from 'vitest';
 
 const projectRoot = process.cwd();
 const scriptPath = join(projectRoot, 'scripts', 'sync-codex-plugin-cache.mjs');
+const pluginManifestPath = join(
+  projectRoot,
+  'plugins',
+  'alembic-codex',
+  '.codex-plugin',
+  'plugin.json'
+);
 const roots: string[] = [];
 
 afterEach(() => {
@@ -20,8 +27,13 @@ describe('Codex plugin cache sync script', () => {
     const output = runSyncScript('--dry-run', '--codex-home', codexHome);
     const summary = JSON.parse(output) as { targetRoots: string[] };
     const [targetRoot] = summary.targetRoots;
+    const pluginManifest = JSON.parse(readFileSync(pluginManifestPath, 'utf8')) as {
+      version: string;
+    };
 
-    expect(targetRoot).toBe(join(codexHome, 'plugins', 'cache', 'gxfn', 'alembic-codex', '0.1.2'));
+    expect(targetRoot).toBe(
+      join(codexHome, 'plugins', 'cache', 'gxfn', 'alembic-codex', pluginManifest.version)
+    );
     expect(existsSync(targetRoot)).toBe(false);
   });
 

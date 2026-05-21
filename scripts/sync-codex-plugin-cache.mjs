@@ -32,7 +32,11 @@ const pluginManifest = readJson(join(pluginRoot, '.codex-plugin', 'plugin.json')
 const codexHome = resolve(options.codexHome || process.env.CODEX_HOME || join(homedir(), '.codex'));
 const marketplaceName = channel.marketplace?.name || 'gxfn';
 const pluginName = pluginManifest.name || pluginEntry.name;
-const pluginVersion = pluginManifest.version || pluginEntry.version || '0.1.1';
+const pluginVersion = pluginManifest.version || pluginEntry.version;
+if (!pluginVersion) {
+  // cache 目录名必须跟随当前插件 manifest，缺失版本时直接失败，避免开发态同步落到旧版本槽位。
+  throw new Error('Codex plugin cache sync requires a plugin manifest version.');
+}
 const localMcpEntry = resolve(
   options.localMcpEntry || join(projectRoot, 'dist', 'bin', 'codex-mcp.js')
 );

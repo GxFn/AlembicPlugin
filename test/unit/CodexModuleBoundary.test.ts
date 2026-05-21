@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildCodexModuleBoundaryStatus } from '../../lib/codex/ModuleBoundary.js';
+import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 describe('Codex module boundary status', () => {
   it('keeps Codex plugin ownership separate from Alembic runtime ownership', () => {
@@ -47,7 +48,7 @@ describe('Codex module boundary status', () => {
           available: true,
           packageName: 'alembic-ai',
           route: 'embedded-plugin-runtime',
-          version: '0.1.2',
+          version: getPackageVersion(),
         },
         hostAgentRoute: {
           requiresAiProvider: false,

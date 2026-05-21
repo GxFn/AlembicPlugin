@@ -39,7 +39,7 @@
       "registry": "portable-artifact",
       "installScope": "embedded-plugin-runtime",
       "artifact": "plugins/alembic-codex/runtime.tgz",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "binaries": [
         "alembic-codex-mcp"
       ],
