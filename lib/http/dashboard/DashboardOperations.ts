@@ -113,17 +113,10 @@ async function updateModuleMap(request: DashboardOperationRequest) {
 
 async function rebuildSemanticIndex(request: DashboardOperationRequest) {
   const container = getContainer(request);
-  const manager = container.singletons?._aiProviderManager as { isMock?: boolean } | undefined;
-  if (manager?.isMock) {
-    return {
-      error:
-        'Embedding provider 由宿主管理，当前插件未收到可执行 embedding provider，索引重建已跳过。',
-      hostManaged: true,
-    };
-  }
-
   const clear = request.args.clear !== false;
   const force = Boolean(request.args.force ?? false);
+  // Plugin 内不再注入第三方 embedding provider。这里仍允许本地索引流程跑完：
+  // 有 Alembic resident/vector 能力时由对应服务增强，否则 Core 会按 baseline/skip 语义返回统计。
   const vectorService = container.services.vectorService
     ? (container.get('vectorService') as unknown as {
         clear(): Promise<void>;

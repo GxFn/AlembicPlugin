@@ -3,7 +3,6 @@ import path from 'node:path';
 import { JobStore } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
-import { inspectCodexAiConfig } from '../../../lib/codex/AiConfigState.js';
 import { inspectCodexKnowledge } from '../../../lib/codex/KnowledgeState.js';
 import {
   getCodexSavedProjectRootPath,
@@ -35,17 +34,10 @@ export function buildScenarioFacts(options: {
     mode: options.projectRootMode,
     toolCalls: options.harness.toolCalls,
   });
-  const aiConfig = inspectCodexAiConfig(options.projectRoot);
   const knowledge = inspectCodexKnowledge(options.projectRoot);
   const resolver = WorkspaceResolver.fromProject(options.projectRoot);
   const jobs = collectJobFacts(options.projectRoot, options.harness.toolCalls);
   return {
-    aiConfig: {
-      model: aiConfig.model,
-      provider: aiConfig.provider,
-      ready: aiConfig.ready,
-      source: aiConfig.source,
-    },
     assistantFinalText: options.assistantFinalText,
     harnessMode: options.harnessMode,
     initializedAfterRun: knowledge.initialized,
@@ -221,16 +213,6 @@ function checkState(
   ) {
     errors.push(
       `state initializedAfterRun expected ${String(expected.initializedAfterRun)} but saw ${String(facts.initializedAfterRun)}`
-    );
-  }
-  if (expected.aiReady !== undefined && facts.aiConfig.ready !== expected.aiReady) {
-    errors.push(
-      `state aiReady expected ${String(expected.aiReady)} but saw ${String(facts.aiConfig.ready)}`
-    );
-  }
-  if (expected.aiProvider !== undefined && facts.aiConfig.provider !== expected.aiProvider) {
-    errors.push(
-      `state aiProvider expected ${expected.aiProvider} but saw ${String(facts.aiConfig.provider)}`
     );
   }
   for (const [key, expectedValue] of Object.entries(expected.workspace || {})) {

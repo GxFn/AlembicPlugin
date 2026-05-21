@@ -1,6 +1,5 @@
 import { resolveProjectRoot, WorkspaceResolver } from '@alembic/core/workspace';
 import express, { type Request } from 'express';
-import { inspectCodexAiConfig } from '../../codex/AiConfigState.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
@@ -47,7 +46,7 @@ router.get('/health', (req, res) => {
           available: dashboardAvailable,
           url: dashboardUrl,
         },
-        internalAi: getInternalAiCapability(projectRoot),
+        internalAi: getInternalAiCapability(),
         jobs: {
           available: true,
           endpoints: {
@@ -62,18 +61,15 @@ router.get('/health', (req, res) => {
   });
 });
 
-function getInternalAiCapability(projectRoot: string) {
-  try {
-    const aiConfig = inspectCodexAiConfig(projectRoot);
-    return {
-      available: aiConfig.ready,
-      configSource: aiConfig.source,
-      model: aiConfig.model,
-      provider: aiConfig.provider,
-    };
-  } catch {
-    return { available: false, configSource: 'empty', model: null, provider: null };
-  }
+function getInternalAiCapability() {
+  return {
+    available: false,
+    configSource: null,
+    model: null,
+    provider: null,
+    owner: 'Alembic',
+    pluginConfigRemoved: true,
+  };
 }
 
 function buildRequestOrigin(req: Request): string | null {

@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import type { GitDiffCheckpointStatus } from '../service/evolution/git-diff-checkpoint/index.js';
-import type { CodexAiConfigState } from './AiConfigState.js';
 import {
   buildCodexEnhancementRouteChoice,
   type CodexEnhancementRouteChoice,
@@ -72,7 +71,6 @@ export interface CodexPluginDiagnostics {
 }
 
 export interface CodexRuntimeDiagnosticsOptions {
-  aiConfig?: CodexAiConfigState | null;
   autoInit?: Record<string, unknown>;
   commandProbeRunner?: CodexCommandProbeRunner;
   enhancementRoute?: CodexEnhancementRouteChoice;
@@ -121,7 +119,6 @@ export function buildCodexRuntimeDiagnostics(
   const enhancementRoute =
     options.enhancementRoute ||
     buildCodexEnhancementRouteChoice({
-      aiConfig: options.aiConfig,
       daemonStatus,
       runtime: context,
       requirement: 'status',

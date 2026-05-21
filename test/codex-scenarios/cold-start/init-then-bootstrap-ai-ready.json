@@ -2,7 +2,6 @@
   "id": "init-then-bootstrap-host-agent",
   "description": "用户先初始化再要求知识挖掘，Codex 默认应启动 host-agent bootstrap workflow，不依赖 internal AI Provider 或创建 internal job。",
   "fixture": {
-    "ai": "missing",
     "daemon": "stopped",
     "initialized": false,
     "knowledge": "none",
@@ -58,8 +57,6 @@
       "secretWritten": false
     },
     "state": {
-      "aiProvider": null,
-      "aiReady": false,
       "initializedAfterRun": true,
       "workspace": {
         "configExists": true,

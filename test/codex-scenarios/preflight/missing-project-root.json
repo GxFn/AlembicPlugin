@@ -2,7 +2,6 @@
   "id": "missing-project-root-asks-user",
   "description": "没有可信项目目录时，Agent 只能读取 status 并要求用户提供绝对 projectRoot。",
   "fixture": {
-    "ai": "missing",
     "daemon": "stopped",
     "initialized": false,
     "knowledge": "none",

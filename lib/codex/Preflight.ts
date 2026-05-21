@@ -1,4 +1,3 @@
-import type { CodexAiConfigState } from './AiConfigState.js';
 import type { CodexKnowledgeState } from './KnowledgeState.js';
 import {
   buildCodexProjectRootRequiredActions,
@@ -12,7 +11,7 @@ import {
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_TIER_ENV,
 } from './RuntimeContext.js';
-import { buildCodexKnowledgeGateActions, buildCodexRecommendedAction } from './StatusService.js';
+import { buildCodexKnowledgeGateActions } from './StatusService.js';
 import {
   allowedCodexToolNames,
   CODEX_INIT_ON_DEMAND_TOOL_NAMES,
@@ -24,7 +23,6 @@ import {
 export type CodexPreflightStage = 'before-auto-init' | 'execute';
 
 export interface CodexPreflightInput<T extends CodexToolDefinition = CodexToolDefinition> {
-  aiConfig?: CodexAiConfigState | null;
   adminEnabled?: boolean;
   args?: Record<string, unknown>;
   coreTools: T[];
@@ -40,7 +38,6 @@ export interface CodexPreflightOk {
   autoInit: boolean;
   ok: true;
   state: {
-    aiConfig?: CodexAiConfigState | null;
     allowedTools: string[];
     stage: CodexPreflightStage;
   };
@@ -57,8 +54,6 @@ const PROJECT_ROOT_DISCOVERY_TOOL_NAMES = new Set([
   'alembic_codex_status',
   'alembic_codex_diagnostics',
 ]);
-
-const INTERNAL_AI_TOOL_NAMES = new Set(['alembic_codex_bootstrap', 'alembic_codex_rescan']);
 
 export function preflightCodexTool<T extends CodexToolDefinition>(
   input: CodexPreflightInput<T>
@@ -123,64 +118,10 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
     !input.knowledge.initialized &&
     CODEX_INIT_ON_DEMAND_TOOL_NAMES.has(input.toolName);
 
-  if (
-    input.stage === 'execute' &&
-    INTERNAL_AI_TOOL_NAMES.has(input.toolName) &&
-    input.aiConfig?.allowsInternalBootstrap !== true
-  ) {
-    const provider = input.aiConfig?.provider || null;
-    const missingKeyEnv = input.aiConfig?.missingKeyEnv || input.aiConfig?.requiredKeyEnv || null;
-    const hostAgentFallbackTool =
-      input.toolName === 'alembic_codex_rescan' ? 'alembic_rescan' : 'alembic_bootstrap';
-    const hostAgentFallbackLabel =
-      input.toolName === 'alembic_codex_rescan'
-        ? 'Run Codex host-agent rescan'
-        : 'Start Codex host-agent bootstrap';
-    return {
-      ok: false,
-      failure: codexFailure(
-        input.toolName,
-        'Alembic internal bootstrap/rescan requires a real AI Provider. Configure an AI API key only for the internal AI job route, or use the Codex host-agent workflow instead.',
-        {
-          aiConfig: input.aiConfig || null,
-          errorCode: 'AI_PROVIDER_REQUIRED',
-          needsUserInput: true,
-          required: {
-            aiProvider: provider || 'deepseek | openai | claude | google | ollama',
-            ...(missingKeyEnv ? { apiKeyEnv: missingKeyEnv } : {}),
-          },
-          nextActions: [
-            buildCodexRecommendedAction({
-              label: hostAgentFallbackLabel,
-              reason:
-                'Codex can read the Mission Briefing, analyze the project, submit knowledge, and complete dimensions without an Alembic AI Provider.',
-              startsDaemon: true,
-              tool: hostAgentFallbackTool,
-            }),
-            buildCodexRecommendedAction({
-              label: 'Configure AI Provider',
-              reason:
-                'Only the explicit internal Alembic AI daemon job route needs provider credentials.',
-              startsDaemon: false,
-              tool: 'alembic_codex_ai_config',
-            }),
-            buildCodexRecommendedAction({
-              label: 'Check workspace status',
-              reason: 'Inspect current AI, initialization, and knowledge readiness state.',
-              startsDaemon: false,
-              tool: 'alembic_codex_status',
-            }),
-          ],
-        }
-      ),
-    };
-  }
-
   return {
     ok: true,
     autoInit,
     state: {
-      aiConfig: input.aiConfig,
       allowedTools: [...visibleToolNames],
       stage: input.stage,
     },

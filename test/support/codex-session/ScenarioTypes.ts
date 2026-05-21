@@ -1,5 +1,3 @@
-export type ScenarioAiState = 'deepseek' | 'missing';
-
 export type ScenarioDaemonState = 'ready' | 'stopped';
 
 export type ScenarioKnowledgeState = 'empty' | 'none' | 'usable';
@@ -22,7 +20,6 @@ export interface CodexSessionScenario {
 }
 
 export interface CodexScenarioFixture {
-  ai?: ScenarioAiState;
   bootstrapArgs?: Record<string, unknown>;
   daemon?: ScenarioDaemonState;
   initArgs?: Record<string, unknown>;
@@ -49,8 +46,6 @@ export interface CodexSessionExpectation {
   };
   sideEffects?: Partial<CodexScenarioSideEffects>;
   state?: {
-    aiProvider?: string;
-    aiReady?: boolean;
     initializedAfterRun?: boolean;
     workspace?: Partial<CodexScenarioRunFacts['workspace']>;
   };
@@ -121,12 +116,6 @@ export interface CodexScenarioKnowledgeArtifacts {
 }
 
 export interface CodexScenarioRunFacts {
-  aiConfig: {
-    model: string | null;
-    provider: string | null;
-    ready: boolean;
-    source: string;
-  };
   assistantFinalText: string;
   harnessMode: CodexSessionHarnessMode;
   initializedAfterRun: boolean;

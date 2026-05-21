@@ -2,7 +2,6 @@
   "id": "explicit-project-root-init-only",
   "description": "用户主动初始化时只执行 Codex Ghost 初始化，不启动 daemon，也不声称已经完成知识挖掘。",
   "fixture": {
-    "ai": "missing",
     "daemon": "stopped",
     "initialized": false,
     "knowledge": "none",

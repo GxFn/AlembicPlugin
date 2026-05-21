@@ -285,7 +285,6 @@ export class SetupService {
           subRepoDir: this.subRepoDir,
           ...(this.subRepoUrl ? { subRepoUrl: this.subRepoUrl } : {}),
         },
-        ai: { provider: process.env.ALEMBIC_AI_PROVIDER || 'auto' },
         guard: { enabled: true },
         watch: {
           enabled: false,

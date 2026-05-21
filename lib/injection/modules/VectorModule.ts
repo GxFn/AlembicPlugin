@@ -10,29 +10,17 @@
  */
 
 import { VectorService } from '@alembic/core/vector';
-import { providerSupportsExecutableEmbedding } from '../../codex/HostAiAdapter.js';
 import type { ContextualEnricher } from '../../service/vector/ContextualEnricher.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {
   // ═══ ContextualEnricher (host-managed; local AI enrichment disabled) ═══
-  c.singleton('contextualEnricher', (_ct: ServiceContainer) => null, { aiDependent: true });
+  c.singleton('contextualEnricher', (_ct: ServiceContainer) => null);
 
   // ═══ VectorService ═══
   c.singleton(
     'vectorService',
     (ct: ServiceContainer) => {
-      const aiProvider = (ct.singletons.aiProvider || null) as Parameters<
-        typeof providerSupportsExecutableEmbedding
-      >[0];
-      const configuredEmbedProvider = ct.singletons._embedProvider as Parameters<
-        typeof providerSupportsExecutableEmbedding
-      >[0];
-      const embedProvider = providerSupportsExecutableEmbedding(configuredEmbedProvider)
-        ? configuredEmbedProvider
-        : providerSupportsExecutableEmbedding(aiProvider)
-          ? aiProvider
-          : null;
       const config =
         ((ct.singletons._config as Record<string, unknown> | undefined)?.vector as
           | Record<string, unknown>
@@ -47,9 +35,9 @@ export function register(c: ServiceContainer) {
             >[0]['hybridRetriever'])
           : null,
         eventBus: ct.services.eventBus ? ct.get('eventBus') : null,
-        embedProvider: embedProvider as ConstructorParameters<
-          typeof VectorService
-        >[0]['embedProvider'],
+        // Plugin 不维护可执行 embedding provider。Resident vector search 由 Alembic daemon
+        // HTTP API 增强；embedded runtime 只保留可降级的 baseline/vector store 管线。
+        embedProvider: null,
         contextualEnricher: ct.services.contextualEnricher
           ? (ct.get('contextualEnricher') as InstanceType<typeof ContextualEnricher> | null)
           : null,
@@ -61,8 +49,7 @@ export function register(c: ServiceContainer) {
               | undefined)
           : undefined,
       });
-    },
-    { aiDependent: true }
+    }
   );
 }
 

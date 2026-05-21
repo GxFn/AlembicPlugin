@@ -79,7 +79,6 @@ export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
 export const CODEX_INIT_TOOL_NAMES = new Set([
   ...CODEX_DISCOVERY_TOOL_NAMES,
   'alembic_codex_init',
-  'alembic_codex_ai_config',
 ]);
 
 export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
@@ -135,37 +134,6 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     }),
   },
   {
-    name: 'alembic_codex_ai_config',
-    tier: 'agent',
-    description:
-      'Inspect or configure Alembic internal AI settings from Codex. This is only for Alembic internal bootstrap/rescan daemon jobs; Codex host-agent bootstrap/rescan does not require an AI Provider.',
-    inputSchema: codexInputSchema({
-      mode: {
-        type: 'string',
-        enum: ['status', 'configure'],
-        description: 'Read masked AI config status or update workspace AI config.',
-      },
-      provider: {
-        type: 'string',
-        enum: ['deepseek', 'openai', 'claude', 'google', 'ollama'],
-        description: 'AI provider used by Alembic internal bootstrap/rescan.',
-      },
-      model: { type: 'string', description: 'Optional model id for the selected provider.' },
-      apiKey: {
-        type: 'string',
-        description:
-          'Provider API key. Requires confirmChatSecret=true because the key passes through the Codex tool call.',
-      },
-      proxy: { type: 'string', description: 'Optional AI proxy URL.' },
-      reasoningEffort: { type: 'string', description: 'Optional reasoning effort hint.' },
-      confirmChatSecret: {
-        type: 'boolean',
-        description:
-          'Required when apiKey is provided. Confirms the user accepts sending the secret through this Codex tool call.',
-      },
-    }),
-  },
-  {
     name: 'alembic_codex_dashboard',
     tier: 'agent',
     description:
@@ -176,7 +144,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_bootstrap',
     tier: 'agent',
     description:
-      'Explicit internal Alembic AI bootstrap job. Requires a configured AI Provider, starts or connects to the daemon, and returns a recoverable job id. This is not the default Codex host-agent cold-start path; use alembic_bootstrap for that.',
+      'Explicit Alembic daemon bootstrap job. Provider configuration, when needed, belongs to the Alembic resident service; this is not the default Codex host-agent cold-start path.',
     inputSchema: codexInputSchema({
       maxFiles: { type: 'number', description: 'Maximum files to include in project analysis.' },
       skipGuard: { type: 'boolean', description: 'Skip Guard audit during bootstrap analysis.' },
@@ -190,7 +158,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_rescan',
     tier: 'agent',
     description:
-      'Explicit internal Alembic AI rescan job. Requires a configured AI Provider, starts or connects to the daemon, and returns a recoverable job id. This is not the default Codex host-agent rescan path; use alembic_rescan for that.',
+      'Explicit Alembic daemon rescan job. Provider configuration, when needed, belongs to the Alembic resident service; this is not the default Codex host-agent rescan path.',
     inputSchema: codexInputSchema({
       reason: { type: 'string', description: 'Short reason for the rescan.' },
       dimensions: {

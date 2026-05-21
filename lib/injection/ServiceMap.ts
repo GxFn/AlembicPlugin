@@ -65,7 +65,6 @@ import type { RecipeParser } from '@alembic/core/service/recipe/RecipeParser';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
 // ── Domain Types ──
 // ── External Types ──
-import type { HostAiProvider, HostAiProviderManager } from '../codex/HostAiAdapter.js';
 // ── Core Types ──
 import type Constitution from '../core/constitution/Constitution.js';
 import type Gateway from '../core/gateway/Gateway.js';
@@ -141,8 +140,6 @@ export interface ServiceMap {
   languageService: typeof LanguageService;
   dimensionCopy: typeof DimensionCopy;
   constitution: Constitution | null;
-  aiProvider: HostAiProvider | null;
-  aiProviderManager: HostAiProviderManager;
   projectGraph: ProjectGraph | null;
 
   // ═══ VectorModule ═══
@@ -180,5 +177,4 @@ export interface ServiceMap {
   _config: Record<string, unknown>;
   _lang: string | null;
   _fileCache: unknown[] | null;
-  _embedProvider: unknown;
 }

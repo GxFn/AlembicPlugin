@@ -2,18 +2,12 @@ import type { AlembicMcpHarness } from './McpHarness.js';
 import type { CodexSessionScenario } from './ScenarioTypes.js';
 import type { TranscriptWriter } from './TranscriptWriter.js';
 
-interface PendingAiConfig {
-  apiKey: string;
-  provider: string;
-}
-
 export class CodexScenarioAgentSimulator {
   readonly harness: AlembicMcpHarness;
   readonly projectRoot: string;
   readonly scenario: CodexSessionScenario;
   readonly transcript: TranscriptWriter;
   #lastAssistant = '';
-  #pendingAiConfig: PendingAiConfig | null = null;
   #statusChecked = false;
 
   constructor(options: {
@@ -45,25 +39,6 @@ export class CodexScenarioAgentSimulator {
         );
         return;
       }
-    }
-
-    const pendingReply = await this.#maybeHandlePendingAiConfirmation(
-      turn,
-      userText,
-      projectRootArgs
-    );
-    if (pendingReply) {
-      return;
-    }
-
-    const aiConfig = this.#parseAiConfig(userText);
-    if (aiConfig) {
-      this.#pendingAiConfig = aiConfig;
-      this.#reply(
-        turn,
-        '检测到你提供了 AI Provider 和 API key。为了避免误把 secret 通过工具调用保存，请明确确认允许 Alembic Codex 保存这个 key。'
-      );
-      return;
     }
 
     if (this.#asksForInit(userText)) {
@@ -98,50 +73,13 @@ export class CodexScenarioAgentSimulator {
       return;
     }
 
-    this.#reply(turn, '我已经检查 Alembic Codex 状态。请说明要初始化、配置 AI，还是开始知识挖掘。');
+    this.#reply(turn, '我已经检查 Alembic Codex 状态。请说明要初始化，还是开始知识挖掘。');
   }
 
   #projectRootArgs(): Record<string, unknown> {
     return this.scenario.fixture.projectRoot === 'explicit'
       ? { projectRoot: this.projectRoot }
       : {};
-  }
-
-  async #maybeHandlePendingAiConfirmation(
-    turn: number,
-    userText: string,
-    projectRootArgs: Record<string, unknown>
-  ): Promise<boolean> {
-    if (!this.#pendingAiConfig || !/确认|允许|同意|approve|confirm/i.test(userText)) {
-      return false;
-    }
-    const pending = this.#pendingAiConfig;
-    this.#pendingAiConfig = null;
-    const result = await this.harness.callTool(turn, 'alembic_codex_ai_config', {
-      ...projectRootArgs,
-      apiKey: pending.apiKey,
-      confirmChatSecret: true,
-      mode: 'configure',
-      provider: pending.provider,
-    });
-    if (isSuccess(result)) {
-      this.#reply(
-        turn,
-        'AI Provider 已配置完成，返回结果已脱敏。现在可以继续启动 Alembic 知识挖掘。'
-      );
-    } else {
-      this.#reply(turn, 'AI Provider 配置没有完成，请查看工具返回的错误信息。');
-    }
-    return true;
-  }
-
-  #parseAiConfig(userText: string): PendingAiConfig | null {
-    const provider = /deepseek/i.test(userText) ? 'deepseek' : '';
-    const key = userText.match(/\bscenario-secret-[A-Za-z0-9_-]+\b/)?.[0] || '';
-    if (!provider || !key) {
-      return null;
-    }
-    return { apiKey: key, provider };
   }
 
   #projectRootMissing(status: unknown): boolean {

@@ -307,62 +307,8 @@ export const AiLangBody = z.object({
   lang: z.enum(['zh', 'en'], { message: 'lang must be "zh" or "en"' }),
 });
 
-export const AiConfigBody = z.object({
-  provider: z.string().min(1, 'provider is required'),
-  model: z.string().optional(),
-});
-
-export const AiSummarizeBody = z.object({
-  code: z.string().min(1, 'code is required'),
-  language: z.string().optional(),
-});
-
-export const AiTranslateBody = z.object({
-  summary: z.string().optional(),
-  usageGuide: z.string().optional(),
-});
-
-export const AiChatBody = z.object({
-  prompt: z.string().min(1, 'prompt is required'),
-  history: z.array(z.record(z.string(), z.unknown())).default([]),
-  lang: z.string().optional(),
-  conversationId: z.string().optional(),
-  sseSessionId: z.string().optional(),
-});
-
-export const AiStreamBody = z.object({
-  prompt: z.string().min(1, 'prompt is required'),
-  history: z.array(z.record(z.string(), z.unknown())).default([]),
-  lang: z.string().optional(),
-});
-
-export const AiToolBody = z.object({
-  tool: z.string().min(1, 'tool name is required'),
-  params: z.record(z.string(), z.unknown()).default({}),
-});
-
-export const AiTaskBody = z.object({
-  task: z.string().min(1, 'task name is required'),
-  params: z.record(z.string(), z.unknown()).default({}),
-});
-
 export const AiFormatUsageGuideBody = z.object({
   text: z.string().optional(),
-});
-
-export const AiWorkspaceConfigBody = z.object({
-  provider: z.string().min(1, 'provider is required'),
-  model: z.string().optional(),
-  apiKey: z.string().optional(),
-  proxy: z.string().optional(),
-  /** 推理深度: none/low/medium/high/xhigh/max (模型相关) */
-  reasoningEffort: z.string().optional(),
-  embedProvider: z.string().optional(),
-  embedModel: z.string().optional(),
-  embedBaseUrl: z.string().optional(),
-  embedApiKey: z.string().optional(),
-  /** 多 provider API key 同时保存: { google: 'key1', openai: 'key2', ... } */
-  providerKeys: z.record(z.string(), z.string()).optional(),
 });
 
 // ═══ Extract Routes ══════════════════════════════

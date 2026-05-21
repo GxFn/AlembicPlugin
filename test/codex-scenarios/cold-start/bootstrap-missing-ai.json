@@ -2,7 +2,6 @@
   "id": "bootstrap-missing-ai-uses-host-agent",
   "description": "已初始化但缺 AI Provider 时，Codex 默认 bootstrap 走宿主 Agent workflow，不能因 internal AI Provider 缺失而失败。",
   "fixture": {
-    "ai": "missing",
     "daemon": "stopped",
     "initialized": true,
     "knowledge": "empty",
@@ -46,7 +45,7 @@
     },
     "assistant": {
       "mustMention": ["host-agent bootstrap", "Mission Briefing"],
-      "mustNotMention": ["AI Provider", "alembic_codex_ai_config", "知识挖掘任务已入队"]
+      "mustNotMention": ["AI Provider", "知识挖掘任务已入队"]
     }
   }
 }

@@ -29,11 +29,9 @@ const ORIGINAL_ALEMBIC_PROJECT_DIR = process.env.ALEMBIC_PROJECT_DIR;
 const ORIGINAL_CODEX_ENABLE_ADMIN = process.env.ALEMBIC_CODEX_ENABLE_ADMIN;
 const ORIGINAL_CODEX_WORKSPACE_DIR = process.env.CODEX_WORKSPACE_DIR;
 const ORIGINAL_CODEX_WORKSPACE_ROOT = process.env.CODEX_WORKSPACE_ROOT;
-const ORIGINAL_DEEPSEEK_KEY = process.env.ALEMBIC_DEEPSEEK_API_KEY;
 const ORIGINAL_INIT_CWD = process.env.INIT_CWD;
 const ORIGINAL_MCP_TIER = process.env.ALEMBIC_MCP_TIER;
 const ORIGINAL_PWD = process.env.PWD;
-const ORIGINAL_PROVIDER = process.env.ALEMBIC_AI_PROVIDER;
 const CODEX_HOST_AGENT_TOOL_NAMES = [
   'alembic_submit_knowledge',
   'alembic_bootstrap',
@@ -176,16 +174,6 @@ afterEach(() => {
   } else {
     process.env.PWD = ORIGINAL_PWD;
   }
-  if (ORIGINAL_PROVIDER === undefined) {
-    delete process.env.ALEMBIC_AI_PROVIDER;
-  } else {
-    process.env.ALEMBIC_AI_PROVIDER = ORIGINAL_PROVIDER;
-  }
-  if (ORIGINAL_DEEPSEEK_KEY === undefined) {
-    delete process.env.ALEMBIC_DEEPSEEK_API_KEY;
-  } else {
-    process.env.ALEMBIC_DEEPSEEK_API_KEY = ORIGINAL_DEEPSEEK_KEY;
-  }
   vi.restoreAllMocks();
 });
 
@@ -198,7 +186,7 @@ describe('CodexMcpServer', () => {
 
     expect(names).toContain('alembic_codex_status');
     expect(names).toContain('alembic_codex_diagnostics');
-    expect(names).toContain('alembic_codex_ai_config');
+    expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
     expect(names).toContain('alembic_codex_dashboard');
     expect(names).toContain('alembic_codex_bootstrap');
     expect(names).toContain('alembic_codex_job');
@@ -245,7 +233,6 @@ describe('CodexMcpServer', () => {
       'alembic_codex_status',
       'alembic_codex_diagnostics',
       'alembic_codex_init',
-      'alembic_codex_ai_config',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
@@ -263,7 +250,6 @@ describe('CodexMcpServer', () => {
       'alembic_codex_status',
       'alembic_codex_diagnostics',
       'alembic_codex_init',
-      'alembic_codex_ai_config',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
@@ -290,7 +276,6 @@ describe('CodexMcpServer', () => {
       'alembic_codex_status',
       'alembic_codex_diagnostics',
       'alembic_codex_init',
-      'alembic_codex_ai_config',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
@@ -627,7 +612,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('AI config status masks secrets and configure requires chat-secret confirmation', async () => {
+  test('removed AI config tool is not exposed as a Plugin configuration surface', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     const supervisor = makeSupervisor(
@@ -640,44 +625,17 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const rejected = (await server.handleToolCall('alembic_codex_ai_config', {
-      mode: 'configure',
-      provider: 'deepseek',
-      apiKey: 'secret-deepseek-key',
+    const removedToolName = ['alembic', 'codex', 'ai', 'config'].join('_');
+    const result = (await server.handleToolCall(removedToolName, {
+      mode: 'status',
     })) as {
-      data: { errorCode: string; needsUserInput: boolean };
+      data: { errorCode: string };
       success: boolean;
     };
 
-    expect(rejected.success).toBe(false);
-    expect(rejected.data).toMatchObject({
-      errorCode: 'CODEX_AI_SECRET_CONFIRMATION_REQUIRED',
-      needsUserInput: true,
-    });
+    expect(result.success).toBe(false);
+    expect(result.data.errorCode).toBe('CODEX_UNKNOWN_TOOL');
     expect(readCodexInitMarker(projectRoot)).toBeNull();
-
-    const configured = (await server.handleToolCall('alembic_codex_ai_config', {
-      mode: 'configure',
-      provider: 'deepseek',
-      apiKey: 'secret-deepseek-key',
-      confirmChatSecret: true,
-    })) as {
-      data: { aiConfig: { provider: string; ready: boolean; vars: Record<string, string> } };
-      success: boolean;
-    };
-    const serialized = JSON.stringify(configured);
-
-    expect(configured.success).toBe(true);
-    expect(configured.data.aiConfig).toMatchObject({
-      provider: 'deepseek',
-      ready: true,
-    });
-    expect(configured.data.aiConfig.vars.ALEMBIC_DEEPSEEK_API_KEY).toBe('se...-key');
-    expect(serialized).not.toContain('secret-deepseek-key');
-    expect(readCodexInitMarker(projectRoot)).toMatchObject({
-      initializedBy: 'codex-plugin-init-on-demand',
-      requestedTool: 'alembic_codex_ai_config',
-    });
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
@@ -1161,26 +1119,28 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('Codex bootstrap job fails closed when internal AI provider is missing', async () => {
+  test('Codex bootstrap job delegates provider requirements to the Alembic daemon', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    delete process.env.ALEMBIC_AI_PROVIDER;
-    delete process.env.ALEMBIC_DEEPSEEK_API_KEY;
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { jobId: 'bootstrap_test', job: { id: 'bootstrap_test' } },
+          }),
+          { status: 202, headers: { 'content-type': 'application/json' } }
+        )
+    );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_bootstrap', { maxFiles: 25 })) as {
-      data: { errorCode: string; needsUserInput: boolean };
-      success: boolean;
-    };
+    const result = await server.handleToolCall('alembic_codex_bootstrap', { maxFiles: 25 });
 
-    expect(result.success).toBe(false);
-    expect(result.data).toMatchObject({
-      errorCode: 'AI_PROVIDER_REQUIRED',
-      needsUserInput: true,
-    });
-    expect(supervisor.ensure).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: true, data: { jobId: 'bootstrap_test' } });
+    expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   test('Codex host-agent bootstrap runs in the Plugin without the daemon MCP bridge', async () => {
@@ -1188,8 +1148,6 @@ describe('CodexMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const answer = 42;\n');
-    delete process.env.ALEMBIC_AI_PROVIDER;
-    delete process.env.ALEMBIC_DEEPSEEK_API_KEY;
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(
@@ -1227,8 +1185,6 @@ describe('CodexMcpServer', () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    process.env.ALEMBIC_AI_PROVIDER = 'deepseek';
-    process.env.ALEMBIC_DEEPSEEK_API_KEY = 'test-deepseek-key';
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
       async () =>

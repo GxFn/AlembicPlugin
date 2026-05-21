@@ -12,8 +12,6 @@ import type {
 } from './ScenarioTypes.js';
 
 const ENV_KEYS = [
-  'ALEMBIC_AI_PROVIDER',
-  'ALEMBIC_DEEPSEEK_API_KEY',
   'ALEMBIC_HOME',
   'ALEMBIC_PROJECT_DIR',
   'CODEX_WORKSPACE_DIR',
@@ -81,16 +79,9 @@ export function setupCodexScenarioFixture(
   delete process.env.CODEX_WORKSPACE_DIR;
   delete process.env.CODEX_WORKSPACE_ROOT;
   delete process.env.INIT_CWD;
-  delete process.env.ALEMBIC_AI_PROVIDER;
-  delete process.env.ALEMBIC_DEEPSEEK_API_KEY;
   ProjectRegistry.register(project.projectRoot, true);
 
   const redactions = [...(scenario.fixture.redactions || [])];
-  if (scenario.fixture.ai === 'deepseek') {
-    process.env.ALEMBIC_AI_PROVIDER = 'deepseek';
-    process.env.ALEMBIC_DEEPSEEK_API_KEY = 'scenario-secret-deepseek-key';
-    redactions.push('scenario-secret-deepseek-key');
-  }
 
   prepareKnowledgeFixture(project.projectRoot, scenario);
 

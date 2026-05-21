@@ -8,7 +8,6 @@ import {
 } from '@alembic/core/daemon';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
-import type { CodexAiConfigState } from './AiConfigState.js';
 import {
   CODEX_RUNTIME_PACKAGE,
   type CodexRuntimeContext,
@@ -122,7 +121,6 @@ export interface CodexEnhancementRouteChoice {
 }
 
 export function buildCodexEnhancementRouteChoice(input: {
-  aiConfig?: CodexAiConfigState | null;
   daemonStatus: DaemonStatus;
   localInstall?: CodexLocalAlembicInstallProbe;
   requirement?: CodexEnhancementRequirement;
@@ -133,7 +131,7 @@ export function buildCodexEnhancementRouteChoice(input: {
   const daemon = summarizeEnhancementDaemon(input.daemonStatus);
   const localInstall = input.localInstall || probeLocalAlembicInstall();
   const missingCapabilities = findMissingCapabilities(requirement, daemon);
-  const internalAiProvider = summarizeInternalAiProvider(input.daemonStatus.health, input.aiConfig);
+  const internalAiProvider = summarizeInternalAiProvider(input.daemonStatus.health);
   const embeddedRuntime = {
     artifact: runtime.embeddedRuntimeSpecifier,
     available: true,
@@ -417,8 +415,7 @@ function findMissingCapabilities(
 }
 
 function summarizeInternalAiProvider(
-  health: Record<string, unknown> | null,
-  aiConfig?: CodexAiConfigState | null
+  health: Record<string, unknown> | null
 ): CodexEnhancementRouteChoice['internalAiProvider'] {
   const data = asRecord(health?.data);
   const capabilities = asRecord(data?.capabilities);
@@ -432,10 +429,10 @@ function summarizeInternalAiProvider(
     };
   }
   return {
-    available: aiConfig?.ready === true,
-    configSource: aiConfig?.source ?? null,
-    model: aiConfig?.model ?? null,
-    provider: aiConfig?.provider ?? null,
+    available: false,
+    configSource: null,
+    model: null,
+    provider: null,
   };
 }
 
