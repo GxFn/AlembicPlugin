@@ -1107,6 +1107,10 @@ describe('CodexMcpServer', () => {
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'Immediately after this prime tool result'
     );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).not.toContain(
+      'Cite evidenceRefs as path:line'
+    );
     expect(result.data.serviceBoundary).toMatchObject({
       executionPath: 'plugin-owned-codex-facing',
       owner: 'alembic-plugin',

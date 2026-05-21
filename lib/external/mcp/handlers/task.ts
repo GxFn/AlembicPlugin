@@ -271,14 +271,13 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
     lines.push(`📋 Found ${relatedCount} recipe(s), ${ruleCount} guard rule(s).`);
     for (const r of searchResult?.relatedKnowledge ?? []) {
       const hint = r.actionHint ? ` — ${r.actionHint}` : '';
-      const refs = r.sourceRefs?.length ? `\n    📍 ${r.sourceRefs.join(', ')}` : '';
-      lines.push(`  • ${r.trigger || r.title}${hint}${refs}`);
+      lines.push(`  • ${r.trigger || r.title}${hint}`);
     }
     for (const r of searchResult?.guardRules ?? []) {
       lines.push(`  • [rule] ${r.trigger || r.title}`);
     }
     lines.push(
-      '📣 Codex must immediately tell the developer which Recipe/Guard knowledge it accepted and cite the available evidenceRefs before any further tool call, code reading, edit, Guard check, or final summary.'
+      '📣 Codex must immediately shout a short knowledge receipt before any further tool call, code reading, edit, Guard check, or final summary. Summarize the accepted constraints, patterns, and guardrails; keep evidenceRefs in the payload for later verification instead of listing paths by default.'
     );
   } else {
     lines.push('No matching recipes found.');
@@ -416,21 +415,22 @@ function _parseEvidenceRef(ref: string): PrimeEvidenceRef {
 function _buildPrimeShoutInstruction(status: PrimeKnowledgeMaterialStatus): string {
   if (status === 'delivered') {
     return [
-      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, use your own words to tell the developer which Recipe and Guard knowledge prime delivered.',
-      'Mention why each accepted item matters using trigger, actionHint, or summary.',
-      'Cite evidenceRefs as path:line when line exists, and say the line number is missing when line is null.',
+      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a short, active knowledge receipt to the developer in your own words.',
+      'Make it feel like a real shout: lead with the accepted Recipe and Guard constraints, name the useful patterns or guardrails, and say how they will shape your next judgment.',
+      'Use trigger, actionHint, title, and summary to make the shout readable; do not list evidenceRefs paths or line numbers by default, and do not call out missing line numbers.',
+      'Keep evidenceRefs for your later code reading, verification, or user-requested citations.',
       'Then continue the user task based on the accepted knowledge.',
     ].join(' ');
   }
   if (status === 'empty') {
     return [
-      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, use your own words to tell the developer prime returned no matching Recipe or Guard knowledge for this request.',
+      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a clear receipt that prime returned no matching Recipe or Guard knowledge for this request.',
       'Do not claim project-specific knowledge was accepted.',
       'Then continue with normal code reading and verification.',
     ].join(' ');
   }
   return [
-    'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, use your own words to tell the developer prime degraded and did not deliver usable project knowledge.',
+    'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a clear receipt that prime degraded and did not deliver usable project knowledge.',
     'Do not pretend Recipe or Guard knowledge was accepted.',
     'Continue only with explicit code reading and verification.',
   ].join(' ');

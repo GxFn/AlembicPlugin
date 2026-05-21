@@ -170,6 +170,24 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'before any further tool call'
     );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'short, active knowledge receipt'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'accepted Recipe and Guard constraints'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'do not list evidenceRefs paths or line numbers by default'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'Keep evidenceRefs for your later code reading'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).not.toContain(
+      'Cite evidenceRefs as path:line'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).not.toContain(
+      'line number is missing'
+    );
     expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
       action: 'shout_prime_knowledge_receipt',
       status: 'delivered',
@@ -181,7 +199,11 @@ describe('alembic_task prime knowledge material', () => {
     expect(
       result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
     ).not.toContain('codex_host_response');
-    expect(result.message).toContain('Codex must immediately tell the developer');
+    expect(result.message).toContain('Codex must immediately shout');
+    expect(result.message).toContain('short knowledge receipt');
+    expect(result.message).toContain('keep evidenceRefs in the payload');
+    expect(result.message).not.toContain('📍');
+    expect(result.message).not.toContain('lib/external/mcp/handlers/task.ts:42');
     expect(result.message).toContain('before any further tool call');
   });
 
@@ -204,6 +226,7 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'prime returned no matching Recipe or Guard knowledge'
     );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'before any further tool call'
     );
@@ -233,6 +256,7 @@ describe('alembic_task prime knowledge material', () => {
       acceptedGuards: [],
     });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('prime degraded');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'before any further tool call'
     );
