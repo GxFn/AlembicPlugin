@@ -1,6 +1,7 @@
 import type { DaemonState } from '@alembic/core/daemon';
 import { describe, expect, it, vi } from 'vitest';
 import { ResidentSearchClient } from '../../lib/service/search/ResidentSearchClient.js';
+import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 function daemonState(): DaemonState {
   return {
@@ -19,7 +20,7 @@ function daemonState(): DaemonState {
     startedAt: '2026-05-21T00:00:00.000Z',
     token: 'token-1',
     url: 'http://127.0.0.1:4321',
-    version: '0.1.0',
+    version: getPackageVersion(),
   };
 }
 
