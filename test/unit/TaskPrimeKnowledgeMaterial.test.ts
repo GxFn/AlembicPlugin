@@ -32,6 +32,7 @@ interface PrimeMaterial {
     required: boolean;
     requiredBeforeNextAction: boolean;
     visibility: 'developer_visible';
+    reason: string;
   };
   nextActions: Array<{ tool: string; args: Record<string, unknown>; required: boolean }>;
 }
@@ -174,6 +175,15 @@ describe('alembic_task prime knowledge material', () => {
       'short, active knowledge receipt'
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'Use Codex/first-person as the speaker'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'what I accepted or what Codex received'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'do not make "Alembic prime"'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'accepted Recipe and Guard constraints'
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
@@ -196,14 +206,22 @@ describe('alembic_task prime knowledge material', () => {
       requiredBeforeNextAction: true,
       visibility: 'developer_visible',
     });
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('As Codex');
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
+      'do not make Alembic prime'
+    );
     expect(
       result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
     ).not.toContain('codex_host_response');
     expect(result.message).toContain('Codex must immediately shout');
     expect(result.message).toContain('short knowledge receipt');
+    expect(result.message).toContain('Speak as Codex or I');
+    expect(result.message).toContain('not as Alembic prime');
     expect(result.message).toContain('keep evidenceRefs in the payload');
     expect(result.message).not.toContain('📍');
     expect(result.message).not.toContain('lib/external/mcp/handlers/task.ts:42');
+    expect(result.message).not.toContain('Alembic prime has received');
+    expect(result.message).not.toContain('Alembic prime received');
     expect(result.message).toContain('before any further tool call');
   });
 
@@ -224,9 +242,12 @@ describe('alembic_task prime knowledge material', () => {
       acceptedGuards: [],
     });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
-      'prime returned no matching Recipe or Guard knowledge'
+      'I did not receive matching Recipe or Guard knowledge'
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'Do not make "Alembic prime"'
+    );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'before any further tool call'
     );
@@ -239,7 +260,8 @@ describe('alembic_task prime knowledge material', () => {
       visibility: 'developer_visible',
     });
     expect(result.message).toContain('No matching recipes found.');
-    expect(result.message).toContain('prime returned no usable project knowledge');
+    expect(result.message).toContain('it did not receive usable project knowledge');
+    expect(result.message).toContain('Do not make Alembic prime');
   });
 
   test('returns degraded material when the prime search pipeline is unavailable', async () => {
@@ -255,8 +277,13 @@ describe('alembic_task prime knowledge material', () => {
       acceptedKnowledge: [],
       acceptedGuards: [],
     });
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('prime degraded');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'I did not receive usable project knowledge because prime degraded'
+    );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'Do not make "Alembic prime"'
+    );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'before any further tool call'
     );

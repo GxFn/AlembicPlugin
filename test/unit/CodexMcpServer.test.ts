@@ -1081,6 +1081,7 @@ describe('CodexMcpServer', () => {
             required: boolean;
             requiredBeforeNextAction: boolean;
             visibility: string;
+            reason: string;
           };
           shoutInstruction: string;
         };
@@ -1108,6 +1109,14 @@ describe('CodexMcpServer', () => {
       'Immediately after this prime tool result'
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('first person');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'Do not make "Alembic prime"'
+    );
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('As Codex');
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
+      'do not make Alembic prime'
+    );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).not.toContain(
       'Cite evidenceRefs as path:line'
     );

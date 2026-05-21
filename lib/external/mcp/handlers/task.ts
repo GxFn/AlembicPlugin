@@ -265,7 +265,7 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
   if (primeKnowledgeMaterial.status === 'degraded') {
     lines.push('Prime knowledge search degraded; no project knowledge was delivered.');
     lines.push(
-      '📣 Codex must immediately tell the developer prime degraded before any further tool call, code reading, edit, Guard check, or final summary.'
+      '📣 Codex must immediately shout in the first person that it did not receive usable project knowledge because prime degraded before any further tool call, code reading, edit, Guard check, or final summary. Do not make Alembic prime the speaker or subject.'
     );
   } else if (relatedCount > 0 || ruleCount > 0) {
     lines.push(`📋 Found ${relatedCount} recipe(s), ${ruleCount} guard rule(s).`);
@@ -277,12 +277,12 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
       lines.push(`  • [rule] ${r.trigger || r.title}`);
     }
     lines.push(
-      '📣 Codex must immediately shout a short knowledge receipt before any further tool call, code reading, edit, Guard check, or final summary. Summarize the accepted constraints, patterns, and guardrails; keep evidenceRefs in the payload for later verification instead of listing paths by default.'
+      '📣 Codex must immediately shout a short knowledge receipt before any further tool call, code reading, edit, Guard check, or final summary. Speak as Codex or I, not as Alembic prime: summarize the accepted constraints, patterns, and guardrails; keep evidenceRefs in the payload for later verification instead of listing paths by default.'
     );
   } else {
     lines.push('No matching recipes found.');
     lines.push(
-      '📣 Codex must immediately tell the developer prime returned no usable project knowledge before any further tool call, code reading, edit, Guard check, or final summary.'
+      '📣 Codex must immediately shout in the first person that it did not receive usable project knowledge before any further tool call, code reading, edit, Guard check, or final summary. Do not make Alembic prime the speaker or subject.'
     );
   }
 
@@ -416,6 +416,7 @@ function _buildPrimeShoutInstruction(status: PrimeKnowledgeMaterialStatus): stri
   if (status === 'delivered') {
     return [
       'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a short, active knowledge receipt to the developer in your own words.',
+      'Use Codex/first-person as the speaker: say what I accepted or what Codex received; do not make "Alembic prime", prime, or any tool/process the grammatical subject of the visible receipt.',
       'Make it feel like a real shout: lead with the accepted Recipe and Guard constraints, name the useful patterns or guardrails, and say how they will shape your next judgment.',
       'Use trigger, actionHint, title, and summary to make the shout readable; do not list evidenceRefs paths or line numbers by default, and do not call out missing line numbers.',
       'Keep evidenceRefs for your later code reading, verification, or user-requested citations.',
@@ -424,13 +425,15 @@ function _buildPrimeShoutInstruction(status: PrimeKnowledgeMaterialStatus): stri
   }
   if (status === 'empty') {
     return [
-      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a clear receipt that prime returned no matching Recipe or Guard knowledge for this request.',
+      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a clear receipt in the first person that I did not receive matching Recipe or Guard knowledge for this request.',
+      'Do not make "Alembic prime", prime, or any tool/process the grammatical subject of the visible receipt.',
       'Do not claim project-specific knowledge was accepted.',
       'Then continue with normal code reading and verification.',
     ].join(' ');
   }
   return [
-    'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a clear receipt that prime degraded and did not deliver usable project knowledge.',
+    'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, shout a clear receipt in the first person that I did not receive usable project knowledge because prime degraded.',
+    'Do not make "Alembic prime", prime, or any tool/process the grammatical subject of the visible receipt.',
     'Do not pretend Recipe or Guard knowledge was accepted.',
     'Continue only with explicit code reading and verification.',
   ].join(' ');
@@ -451,8 +454,8 @@ function _buildPrimeHostResponseInstruction(
     visibility: 'developer_visible',
     reason:
       status === 'delivered'
-        ? `Tell the developer which Recipe/Guard knowledge was accepted before acting on it. ${_primeReceiptOrder}`
-        : `Tell the developer whether prime returned no knowledge or degraded before continuing. ${_primeReceiptOrder}`,
+        ? `As Codex, tell the developer which Recipe/Guard knowledge you accepted before acting on it; do not make Alembic prime the recipient or speaker. ${_primeReceiptOrder}`
+        : `As Codex, tell the developer whether you received no knowledge or degraded knowledge before continuing; do not make Alembic prime the recipient or speaker. ${_primeReceiptOrder}`,
   };
 }
 
