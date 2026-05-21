@@ -14,7 +14,7 @@
 import type { SignalBus } from '@alembic/core/events';
 import type { ExtractedIntent } from '#service/task/IntentExtractor.js';
 import { extract as extractIntent } from '#service/task/IntentExtractor.js';
-import type { PrimeSearchResult } from '#service/task/PrimeSearchPipeline.js';
+import type { PrimeSearchResult, SlimSearchResult } from '#service/task/PrimeSearchPipeline.js';
 import { envelope } from '../envelope.js';
 import type {
   DecisionRecord,
@@ -49,13 +49,68 @@ interface EnvelopeResult {
   meta?: Record<string, unknown>;
 }
 
+type PrimeKnowledgeMaterialStatus = 'delivered' | 'empty' | 'degraded';
+
+interface PrimeEvidenceRef {
+  path: string;
+  line: number | null;
+}
+
+interface AcceptedPrimeKnowledge {
+  id: string;
+  kind: string;
+  title: string;
+  trigger: string;
+  actionHint?: string;
+  summary: string;
+  score: number;
+  evidenceRefs: PrimeEvidenceRef[];
+}
+
+interface AcceptedPrimeGuard {
+  id: string;
+  title: string;
+  trigger: string;
+  actionHint?: string;
+  score: number;
+  evidenceRefs: PrimeEvidenceRef[];
+}
+
+interface PrimeKnowledgeMaterial {
+  status: PrimeKnowledgeMaterialStatus;
+  receiptId: string;
+  intent: {
+    userQuery: string;
+    activeFile?: string;
+    language?: string;
+    module?: string;
+    scenario: string;
+    queries: string[];
+  };
+  acceptedKnowledge: AcceptedPrimeKnowledge[];
+  acceptedGuards: AcceptedPrimeGuard[];
+  shoutInstruction: string;
+  nextActions: Array<{
+    tool: string;
+    args: Record<string, unknown>;
+    reason: string;
+    required: boolean;
+  }>;
+}
+
 // ─── In-memory task ID counter ───────────────────────────
 
 let _taskCounter = 0;
+let _primeReceiptCounter = 0;
 
 function _generateTaskId(): string {
   _taskCounter++;
   return `alembic-${Date.now().toString(36)}-${_taskCounter}`;
+}
+
+function _generatePrimeReceiptId(): string {
+  _primeReceiptCounter++;
+  return `prime-${Date.now().toString(36)}-${_primeReceiptCounter}`;
 }
 
 // ─── Task Rules Reminder ─────────────────────────────────
@@ -133,6 +188,7 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
   // ─── Enrichment: multi-query search via PrimeSearchPipeline ───
   const pipeline = _getPipeline(ctx.container);
   let searchResult: PrimeSearchResult | null = null;
+  let searchDegraded = false;
   if (pipeline && extracted.queries[0]?.trim()) {
     try {
       searchResult = await pipeline.search(extracted);
@@ -140,11 +196,13 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
         process.stderr.write('[MCP/Task] prime: pipeline.search returned null (all filtered)\n');
       }
     } catch (err: unknown) {
+      searchDegraded = true;
       process.stderr.write(
         `[MCP/Task] prime search error: ${err instanceof Error ? err.stack || err.message : String(err)}\n`
       );
     }
   } else if (!pipeline) {
+    searchDegraded = true;
     process.stderr.write('[MCP/Task] prime: pipeline is null, skipping search\n');
   } else {
     process.stderr.write(
@@ -181,9 +239,20 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
   // ─── Build response ───
   const relatedCount = searchResult?.relatedKnowledge.length ?? 0;
   const ruleCount = searchResult?.guardRules.length ?? 0;
+  const primeKnowledgeMaterial = _buildPrimeKnowledgeMaterial({
+    args,
+    extracted,
+    searchResult,
+    searchDegraded,
+  });
 
   const lines: string[] = [];
-  if (relatedCount > 0 || ruleCount > 0) {
+  if (primeKnowledgeMaterial.status === 'degraded') {
+    lines.push('Prime knowledge search degraded; no project knowledge was delivered.');
+    lines.push(
+      '📣 Codex must tell the developer prime degraded and must not pretend it accepted Recipe/Guard knowledge.'
+    );
+  } else if (relatedCount > 0 || ruleCount > 0) {
     lines.push(`📋 Found ${relatedCount} recipe(s), ${ruleCount} guard rule(s).`);
     for (const r of searchResult!.relatedKnowledge) {
       const hint = r.actionHint ? ` — ${r.actionHint}` : '';
@@ -193,13 +262,20 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
     for (const r of searchResult!.guardRules) {
       lines.push(`  • [rule] ${r.trigger || r.title}`);
     }
+    lines.push(
+      '📣 Codex must now tell the developer which Recipe/Guard knowledge it accepted and cite the available evidenceRefs.'
+    );
   } else {
     lines.push('No matching recipes found.');
+    lines.push(
+      '📣 Codex must tell the developer prime returned no usable project knowledge before continuing.'
+    );
   }
 
   return envelope({
     success: true,
     data: {
+      primeKnowledgeMaterial,
       knowledge: searchResult
         ? {
             relatedKnowledge: searchResult.relatedKnowledge,
@@ -212,6 +288,167 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
     message: lines.join('\n'),
     meta: { tool: 'alembic_task' },
   });
+}
+
+function _buildPrimeKnowledgeMaterial(input: {
+  args: TaskArgs;
+  extracted: ExtractedIntent;
+  searchResult: PrimeSearchResult | null;
+  searchDegraded: boolean;
+}): PrimeKnowledgeMaterial {
+  const relatedKnowledge = input.searchResult?.relatedKnowledge ?? [];
+  const guardRules = input.searchResult?.guardRules ?? [];
+  const acceptedKnowledge = relatedKnowledge.map(_projectAcceptedKnowledge);
+  const acceptedGuards = guardRules.map(_projectAcceptedGuard);
+  const hasDeliveredKnowledge = acceptedKnowledge.length > 0 || acceptedGuards.length > 0;
+  const status: PrimeKnowledgeMaterialStatus = input.searchDegraded
+    ? 'degraded'
+    : hasDeliveredKnowledge
+      ? 'delivered'
+      : 'empty';
+  const receiptId = _generatePrimeReceiptId();
+  const intent: PrimeKnowledgeMaterial['intent'] = {
+    userQuery: input.args.userQuery || '',
+    scenario: input.searchResult?.searchMeta.scenario ?? input.extracted.scenario,
+    queries: input.searchResult?.searchMeta.queries ?? input.extracted.queries,
+  };
+  if (input.args.activeFile) {
+    intent.activeFile = input.args.activeFile;
+  }
+  const language = input.searchResult?.searchMeta.language ?? input.extracted.language;
+  if (language) {
+    intent.language = language;
+  }
+  const moduleName = input.searchResult?.searchMeta.module ?? input.extracted.module;
+  if (moduleName) {
+    intent.module = moduleName;
+  }
+
+  return {
+    status,
+    receiptId,
+    intent,
+    acceptedKnowledge,
+    acceptedGuards,
+    shoutInstruction: _buildPrimeShoutInstruction(status),
+    nextActions: _buildPrimeKnowledgeNextActions(status, receiptId),
+  };
+}
+
+function _projectAcceptedKnowledge(item: SlimSearchResult): AcceptedPrimeKnowledge {
+  return {
+    id: item.id,
+    kind: item.kind || 'pattern',
+    title: item.title,
+    trigger: item.trigger,
+    ...(item.actionHint ? { actionHint: item.actionHint } : {}),
+    summary: _summarizePrimeItem(item),
+    score: item.score,
+    evidenceRefs: _extractEvidenceRefs(item.sourceRefs),
+  };
+}
+
+function _projectAcceptedGuard(item: SlimSearchResult): AcceptedPrimeGuard {
+  return {
+    id: item.id,
+    title: item.title,
+    trigger: item.trigger,
+    ...(item.actionHint ? { actionHint: item.actionHint } : {}),
+    score: item.score,
+    evidenceRefs: _extractEvidenceRefs(item.sourceRefs),
+  };
+}
+
+function _summarizePrimeItem(item: SlimSearchResult): string {
+  return item.description || item.actionHint || item.trigger || item.title;
+}
+
+function _extractEvidenceRefs(sourceRefs?: string[]): PrimeEvidenceRef[] {
+  if (!sourceRefs?.length) {
+    return [];
+  }
+  const refs: PrimeEvidenceRef[] = [];
+  const seen = new Set<string>();
+  for (const rawRef of sourceRefs) {
+    const ref = rawRef.trim();
+    if (!ref) {
+      continue;
+    }
+    const evidence = _parseEvidenceRef(ref);
+    const key = `${evidence.path}\0${evidence.line ?? ''}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    refs.push(evidence);
+    seen.add(key);
+  }
+  return refs;
+}
+
+function _parseEvidenceRef(ref: string): PrimeEvidenceRef {
+  const match = ref.match(/^(.*?)(?::(?:L|line-?|#L)?(\d+))(?:[:,-]\d+)?$/i);
+  if (!match?.[1] || !match[2]) {
+    return { path: ref, line: null };
+  }
+  const line = Number.parseInt(match[2], 10);
+  return {
+    path: match[1],
+    line: Number.isFinite(line) && line > 0 ? line : null,
+  };
+}
+
+function _buildPrimeShoutInstruction(status: PrimeKnowledgeMaterialStatus): string {
+  if (status === 'delivered') {
+    return [
+      'Before continuing, use your own words to tell the developer which Recipe and Guard knowledge prime delivered.',
+      'Mention why each accepted item matters using trigger, actionHint, or summary.',
+      'Cite evidenceRefs as path:line when line exists, and say the line number is missing when line is null.',
+      'Then continue the user task based on the accepted knowledge.',
+    ].join(' ');
+  }
+  if (status === 'empty') {
+    return [
+      'Before continuing, use your own words to tell the developer prime returned no matching Recipe or Guard knowledge for this request.',
+      'Do not claim project-specific knowledge was accepted.',
+      'Then continue with normal code reading and verification.',
+    ].join(' ');
+  }
+  return [
+    'Before continuing, use your own words to tell the developer prime degraded and did not deliver usable project knowledge.',
+    'Do not pretend Recipe or Guard knowledge was accepted.',
+    'Continue only with explicit code reading and verification.',
+  ].join(' ');
+}
+
+function _buildPrimeKnowledgeNextActions(
+  status: PrimeKnowledgeMaterialStatus,
+  receiptId: string
+): PrimeKnowledgeMaterial['nextActions'] {
+  return [
+    {
+      tool: 'codex_host_response',
+      args: {
+        action: 'shout_prime_knowledge_receipt',
+        receiptId,
+        status,
+      },
+      required: true,
+      reason:
+        status === 'delivered'
+          ? 'Tell the developer which Recipe/Guard knowledge was accepted before acting on it.'
+          : 'Tell the developer whether prime returned no knowledge or degraded before continuing.',
+    },
+    {
+      tool: 'alembic_task',
+      args: {
+        operation: 'create',
+        title: '<short task title>',
+      },
+      required: false,
+      reason:
+        'For non-trivial implementation work, create a task anchor after the prime knowledge receipt shout.',
+    },
+  ];
 }
 
 // ═══ create ═════════════════════════════════════════════
