@@ -9,6 +9,7 @@ export * from './PluginRegistry.js';
 export * from './Preflight.js';
 export * from './ProjectRootResolver.js';
 export * from './RuntimeContext.js';
+export * from './ServiceRequestBoundary.js';
 export * from './SourceBoundary.js';
 export * from './StatusService.js';
 export * from './ToolPolicy.js';

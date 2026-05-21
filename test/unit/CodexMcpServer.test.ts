@@ -1058,6 +1058,54 @@ describe('CodexMcpServer', () => {
     expect(body.actor).toMatchObject({ role: 'external_agent' });
   });
 
+  test('alembic_task prime stays Plugin-owned when local daemon is ready', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(projectRoot);
+    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      throw new Error('alembic_task prime must not call the daemon MCP bridge');
+    });
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_task', {
+      operation: 'prime',
+      userQuery: 'Use Alembic knowledge before editing',
+      language: 'typescript',
+    })) as {
+      data: {
+        primeKnowledgeMaterial: {
+          hostResponse: { action: string; required: boolean };
+          shoutInstruction: string;
+        };
+        serviceBoundary: {
+          executionPath: string;
+          owner: string;
+          residentServiceRequested: boolean;
+          tool: string;
+        };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      hostResponse: {
+        action: 'shout_prime_knowledge_receipt',
+        required: true,
+      },
+    });
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toBeTruthy();
+    expect(result.data.serviceBoundary).toMatchObject({
+      executionPath: 'plugin-owned-codex-facing',
+      owner: 'alembic-plugin',
+      residentServiceRequested: false,
+      tool: 'alembic_task',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
   test('blocks project-knowledge tools when no usable knowledge base exists', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
