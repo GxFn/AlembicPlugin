@@ -16,7 +16,7 @@ describe('MissionBriefing profiles', () => {
     expect(briefing.meta?.profile).toBe('cold-start-external');
     expect(briefing.evidenceHints).toBeUndefined();
     expect((briefing.executionPlan as { workflow: string }).workflow).toContain(
-      'knowledge({ action: "submit_batch", dimensionId: 当前维度ID, items: [...] })'
+      'alembic_submit_knowledge({ items: [{ dimensionId: 当前维度ID, ... }] })'
     );
     expect((briefing.executionPlan as { workflow: string }).workflow).toContain(
       'item.category 只填业务/组件分类'
