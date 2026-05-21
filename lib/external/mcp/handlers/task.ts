@@ -80,7 +80,10 @@ interface PrimeHostResponseInstruction {
   action: 'shout_prime_knowledge_receipt';
   receiptId: string;
   status: PrimeKnowledgeMaterialStatus;
+  timing: 'immediate_after_prime';
   required: true;
+  requiredBeforeNextAction: true;
+  visibility: 'developer_visible';
   reason: string;
 }
 
@@ -111,6 +114,9 @@ interface PrimeKnowledgeMaterial {
 
 let _taskCounter = 0;
 let _primeReceiptCounter = 0;
+
+const _primeReceiptOrder =
+  'This receipt must be the next developer-visible response after the prime tool result, before any further tool call, code reading, edit, Guard check, or final summary.';
 
 function _generateTaskId(): string {
   _taskCounter++;
@@ -259,25 +265,25 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
   if (primeKnowledgeMaterial.status === 'degraded') {
     lines.push('Prime knowledge search degraded; no project knowledge was delivered.');
     lines.push(
-      '📣 Codex must tell the developer prime degraded and must not pretend it accepted Recipe/Guard knowledge.'
+      '📣 Codex must immediately tell the developer prime degraded before any further tool call, code reading, edit, Guard check, or final summary.'
     );
   } else if (relatedCount > 0 || ruleCount > 0) {
     lines.push(`📋 Found ${relatedCount} recipe(s), ${ruleCount} guard rule(s).`);
-    for (const r of searchResult!.relatedKnowledge) {
+    for (const r of searchResult?.relatedKnowledge ?? []) {
       const hint = r.actionHint ? ` — ${r.actionHint}` : '';
       const refs = r.sourceRefs?.length ? `\n    📍 ${r.sourceRefs.join(', ')}` : '';
       lines.push(`  • ${r.trigger || r.title}${hint}${refs}`);
     }
-    for (const r of searchResult!.guardRules) {
+    for (const r of searchResult?.guardRules ?? []) {
       lines.push(`  • [rule] ${r.trigger || r.title}`);
     }
     lines.push(
-      '📣 Codex must now tell the developer which Recipe/Guard knowledge it accepted and cite the available evidenceRefs.'
+      '📣 Codex must immediately tell the developer which Recipe/Guard knowledge it accepted and cite the available evidenceRefs before any further tool call, code reading, edit, Guard check, or final summary.'
     );
   } else {
     lines.push('No matching recipes found.');
     lines.push(
-      '📣 Codex must tell the developer prime returned no usable project knowledge before continuing.'
+      '📣 Codex must immediately tell the developer prime returned no usable project knowledge before any further tool call, code reading, edit, Guard check, or final summary.'
     );
   }
 
@@ -410,7 +416,7 @@ function _parseEvidenceRef(ref: string): PrimeEvidenceRef {
 function _buildPrimeShoutInstruction(status: PrimeKnowledgeMaterialStatus): string {
   if (status === 'delivered') {
     return [
-      'Before continuing, use your own words to tell the developer which Recipe and Guard knowledge prime delivered.',
+      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, use your own words to tell the developer which Recipe and Guard knowledge prime delivered.',
       'Mention why each accepted item matters using trigger, actionHint, or summary.',
       'Cite evidenceRefs as path:line when line exists, and say the line number is missing when line is null.',
       'Then continue the user task based on the accepted knowledge.',
@@ -418,13 +424,13 @@ function _buildPrimeShoutInstruction(status: PrimeKnowledgeMaterialStatus): stri
   }
   if (status === 'empty') {
     return [
-      'Before continuing, use your own words to tell the developer prime returned no matching Recipe or Guard knowledge for this request.',
+      'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, use your own words to tell the developer prime returned no matching Recipe or Guard knowledge for this request.',
       'Do not claim project-specific knowledge was accepted.',
       'Then continue with normal code reading and verification.',
     ].join(' ');
   }
   return [
-    'Before continuing, use your own words to tell the developer prime degraded and did not deliver usable project knowledge.',
+    'Immediately after this prime tool result, before any further tool call, code reading, edit, Guard check, or final summary, use your own words to tell the developer prime degraded and did not deliver usable project knowledge.',
     'Do not pretend Recipe or Guard knowledge was accepted.',
     'Continue only with explicit code reading and verification.',
   ].join(' ');
@@ -439,11 +445,14 @@ function _buildPrimeHostResponseInstruction(
     action: 'shout_prime_knowledge_receipt',
     receiptId,
     status,
+    timing: 'immediate_after_prime',
     required: true,
+    requiredBeforeNextAction: true,
+    visibility: 'developer_visible',
     reason:
       status === 'delivered'
-        ? 'Tell the developer which Recipe/Guard knowledge was accepted before acting on it.'
-        : 'Tell the developer whether prime returned no knowledge or degraded before continuing.',
+        ? `Tell the developer which Recipe/Guard knowledge was accepted before acting on it. ${_primeReceiptOrder}`
+        : `Tell the developer whether prime returned no knowledge or degraded before continuing. ${_primeReceiptOrder}`,
   };
 }
 

@@ -1075,7 +1075,13 @@ describe('CodexMcpServer', () => {
     })) as {
       data: {
         primeKnowledgeMaterial: {
-          hostResponse: { action: string; required: boolean };
+          hostResponse: {
+            action: string;
+            timing: string;
+            required: boolean;
+            requiredBeforeNextAction: boolean;
+            visibility: string;
+          };
           shoutInstruction: string;
         };
         serviceBoundary: {
@@ -1092,10 +1098,15 @@ describe('CodexMcpServer', () => {
     expect(result.data.primeKnowledgeMaterial).toMatchObject({
       hostResponse: {
         action: 'shout_prime_knowledge_receipt',
+        timing: 'immediate_after_prime',
         required: true,
+        requiredBeforeNextAction: true,
+        visibility: 'developer_visible',
       },
     });
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toBeTruthy();
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'Immediately after this prime tool result'
+    );
     expect(result.data.serviceBoundary).toMatchObject({
       executionPath: 'plugin-owned-codex-facing',
       owner: 'alembic-plugin',

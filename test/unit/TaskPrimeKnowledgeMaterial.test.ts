@@ -28,7 +28,10 @@ interface PrimeMaterial {
     action: string;
     receiptId: string;
     status: 'delivered' | 'empty' | 'degraded';
+    timing: 'immediate_after_prime';
     required: boolean;
+    requiredBeforeNextAction: boolean;
+    visibility: 'developer_visible';
   };
   nextActions: Array<{ tool: string; args: Record<string, unknown>; required: boolean }>;
 }
@@ -162,17 +165,24 @@ describe('alembic_task prime knowledge material', () => {
       ],
     });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
-      'tell the developer which Recipe and Guard knowledge prime delivered'
+      'Immediately after this prime tool result'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'before any further tool call'
     );
     expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
       action: 'shout_prime_knowledge_receipt',
-      required: true,
       status: 'delivered',
+      timing: 'immediate_after_prime',
+      required: true,
+      requiredBeforeNextAction: true,
+      visibility: 'developer_visible',
     });
     expect(
       result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
     ).not.toContain('codex_host_response');
-    expect(result.message).toContain('Codex must now tell the developer');
+    expect(result.message).toContain('Codex must immediately tell the developer');
+    expect(result.message).toContain('before any further tool call');
   });
 
   test('returns empty material when prime finds no matching recipes or guards', async () => {
@@ -194,6 +204,17 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'prime returned no matching Recipe or Guard knowledge'
     );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'before any further tool call'
+    );
+    expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
+      action: 'shout_prime_knowledge_receipt',
+      status: 'empty',
+      timing: 'immediate_after_prime',
+      required: true,
+      requiredBeforeNextAction: true,
+      visibility: 'developer_visible',
+    });
     expect(result.message).toContain('No matching recipes found.');
     expect(result.message).toContain('prime returned no usable project knowledge');
   });
@@ -212,9 +233,16 @@ describe('alembic_task prime knowledge material', () => {
       acceptedGuards: [],
     });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('prime degraded');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'before any further tool call'
+    );
     expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
-      required: true,
+      action: 'shout_prime_knowledge_receipt',
       status: 'degraded',
+      timing: 'immediate_after_prime',
+      required: true,
+      requiredBeforeNextAction: true,
+      visibility: 'developer_visible',
     });
     expect(
       result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
