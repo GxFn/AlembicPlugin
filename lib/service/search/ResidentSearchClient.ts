@@ -24,6 +24,7 @@ export interface ResidentSearchAttemptMeta {
   error?: string;
   fallbackReason?: string | null;
   reason?: string;
+  residentRequestMode?: string;
   requestedMode: string;
   residentVector: {
     available: boolean;
@@ -86,18 +87,30 @@ export class ResidentSearchClient {
 
   async search(request: ResidentSearchRequest): Promise<ResidentSearchResult> {
     const startedAt = Date.now();
-    const requestedMode = request.mode || 'auto';
+    const requestedMode = normalizeRequestedMode(request.mode);
+    const residentRequestMode = normalizeResidentRequestMode(requestedMode);
     const state = this.#readState(this.#projectRoot);
     if (!state?.url) {
-      return this.#unavailable(startedAt, requestedMode, 'daemon_state_missing');
+      return this.#unavailable(
+        startedAt,
+        requestedMode,
+        residentRequestMode,
+        'daemon_state_missing'
+      );
     }
     if (!state.token) {
-      return this.#unavailable(startedAt, requestedMode, 'daemon_token_missing', state);
+      return this.#unavailable(
+        startedAt,
+        requestedMode,
+        residentRequestMode,
+        'daemon_token_missing',
+        state
+      );
     }
 
     const url = new URL(RESIDENT_SEARCH_PATH, state.url);
     url.searchParams.set('q', request.query);
-    url.searchParams.set('mode', requestedMode);
+    url.searchParams.set('mode', residentRequestMode);
     url.searchParams.set('limit', String(request.limit ?? 8));
     const type = normalizeResidentType(request.type ?? request.kind);
     if (type) {
@@ -118,6 +131,7 @@ export class ResidentSearchClient {
         return this.#unavailable(
           startedAt,
           requestedMode,
+          residentRequestMode,
           extractResponseError(payload) || `resident_search_http_${response.status}`,
           state,
           response.status
@@ -134,6 +148,7 @@ export class ResidentSearchClient {
           durationMs: Date.now() - startedAt,
           endpoint: `${state.url}${RESIDENT_SEARCH_PATH}`,
           items,
+          residentRequestMode,
           requestedMode,
           searchMeta,
         }),
@@ -142,6 +157,7 @@ export class ResidentSearchClient {
       return this.#unavailable(
         startedAt,
         requestedMode,
+        residentRequestMode,
         err instanceof Error ? err.message : String(err),
         state
       );
@@ -151,6 +167,7 @@ export class ResidentSearchClient {
   #unavailable(
     startedAt: number,
     requestedMode: string,
+    residentRequestMode: string,
     reason: string,
     state?: DaemonState | null,
     status?: number
@@ -163,6 +180,7 @@ export class ResidentSearchClient {
         durationMs: Date.now() - startedAt,
         ...(state?.url ? { endpoint: `${state.url}${RESIDENT_SEARCH_PATH}` } : {}),
         reason,
+        residentRequestMode,
         requestedMode,
         residentVector: {
           available: false,
@@ -182,6 +200,7 @@ function buildResidentMeta(input: {
   durationMs: number;
   endpoint: string;
   items: SearchResultItem[];
+  residentRequestMode: string;
   requestedMode: string;
   searchMeta: Record<string, unknown>;
 }): ResidentSearchAttemptMeta {
@@ -192,8 +211,15 @@ function buildResidentMeta(input: {
         available:
           meta.vectorUsed === true ||
           meta.semanticUsed === true ||
-          input.requestedMode !== 'semantic',
-        reason: typeof meta.fallbackReason === 'string' ? meta.fallbackReason : null,
+          (input.residentRequestMode !== 'semantic' && input.items.length > 0),
+        reason:
+          typeof meta.fallbackReason === 'string'
+            ? meta.fallbackReason
+            : input.residentRequestMode === 'semantic' &&
+                meta.vectorUsed !== true &&
+                meta.semanticUsed !== true
+              ? 'resident_search_telemetry_missing'
+              : null,
       };
   const resultCount =
     numberFrom(meta.resultCount) ?? numberFrom(input.data.total) ?? input.items.length;
@@ -208,11 +234,16 @@ function buildResidentMeta(input: {
     durationMs: numberFrom(meta.durationMs) ?? input.durationMs,
     endpoint: input.endpoint,
     fallbackReason: stringFrom(meta.fallbackReason),
-    requestedMode: stringFrom(meta.requestedMode) ?? input.requestedMode,
+    residentRequestMode: input.residentRequestMode,
+    requestedMode: input.requestedMode,
     residentVector,
     resultCount,
     route: 'alembic-resident-service',
-    searchMeta: meta,
+    searchMeta: {
+      ...meta,
+      codexRequestedMode: input.requestedMode,
+      residentRequestMode: input.residentRequestMode,
+    },
     semanticUsed: booleanFrom(meta.semanticUsed),
     service: stringFrom(meta.service),
     used: input.items.length > 0,
@@ -251,6 +282,32 @@ function normalizeResidentType(type: unknown): string | null {
   }
   const normalized = type.trim();
   return normalized && normalized !== 'all' ? normalized : null;
+}
+
+function normalizeRequestedMode(mode: unknown): string {
+  if (typeof mode !== 'string') {
+    return 'auto';
+  }
+  const normalized = mode.trim().toLowerCase();
+  return normalized || 'auto';
+}
+
+function normalizeResidentRequestMode(requestedMode: string): 'keyword' | 'bm25' | 'semantic' {
+  // AlembicPlugin 的 Codex-facing `auto` 仍表示“尽量增强”；daemon resident API
+  // 只接受 keyword/bm25/semantic，所以这里把自动增强翻译成 semantic，
+  // 同时在返回 meta 中保留 Codex 原始 requestedMode 供测试和排障读取。
+  switch (requestedMode) {
+    case 'keyword':
+      return 'keyword';
+    case 'bm25':
+    case 'context':
+    case 'weighted':
+      return 'bm25';
+    case 'semantic':
+    case 'auto':
+      return 'semantic';
+  }
+  return 'semantic';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
