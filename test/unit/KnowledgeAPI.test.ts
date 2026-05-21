@@ -5,8 +5,7 @@
  * 使用轻量级 mock 验证路由/handler 正确委托给 KnowledgeService
  */
 
-import { KnowledgeEntry } from '@alembic/core/knowledge';
-import { Lifecycle } from '@alembic/core/knowledge';
+import { KnowledgeEntry, Lifecycle } from '@alembic/core/knowledge';
 import { vi } from 'vitest';
 
 /* ════════════════════════════════════════════
@@ -446,21 +445,12 @@ describe('MCP Tool Definitions (V3)', () => {
     expect(itemsProp.type).toBe('array');
   });
 
-  test('knowledge_lifecycle 的 action enum 应包含全部操作', () => {
+  test('knowledge_lifecycle 的 action enum 只暴露默认 Codex 可执行操作', () => {
     const tool = TOOLS.find((t) => t.name === 'alembic_knowledge_lifecycle');
     const actionEnum = tool.inputSchema.properties.action.enum;
-    expect(actionEnum).toEqual(
-      expect.arrayContaining([
-        'submit',
-        'approve',
-        'reject',
-        'publish',
-        'deprecate',
-        'reactivate',
-        'to_draft',
-        'fast_track',
-      ])
-    );
+    expect(actionEnum).toEqual(['reactivate']);
+    expect(tool.description).toContain('Only reactivate is allowed');
+    expect(tool.description).toContain('Dashboard or an explicit admin path');
   });
 });
 

@@ -24,6 +24,12 @@ interface PrimeMaterial {
     evidenceRefs: Array<{ path: string; line: number | null }>;
   }>;
   shoutInstruction: string;
+  hostResponse: {
+    action: string;
+    receiptId: string;
+    status: 'delivered' | 'empty' | 'degraded';
+    required: boolean;
+  };
   nextActions: Array<{ tool: string; args: Record<string, unknown>; required: boolean }>;
 }
 
@@ -158,14 +164,14 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'tell the developer which Recipe and Guard knowledge prime delivered'
     );
-    expect(result.data.primeKnowledgeMaterial.nextActions[0]).toMatchObject({
-      tool: 'codex_host_response',
+    expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
+      action: 'shout_prime_knowledge_receipt',
       required: true,
-      args: {
-        action: 'shout_prime_knowledge_receipt',
-        status: 'delivered',
-      },
+      status: 'delivered',
     });
+    expect(
+      result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
+    ).not.toContain('codex_host_response');
     expect(result.message).toContain('Codex must now tell the developer');
   });
 
@@ -206,13 +212,13 @@ describe('alembic_task prime knowledge material', () => {
       acceptedGuards: [],
     });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('prime degraded');
-    expect(result.data.primeKnowledgeMaterial.nextActions[0]).toMatchObject({
-      tool: 'codex_host_response',
+    expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
       required: true,
-      args: {
-        status: 'degraded',
-      },
+      status: 'degraded',
     });
+    expect(
+      result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
+    ).not.toContain('codex_host_response');
     expect(result.message).toContain('Prime knowledge search degraded');
   });
 });

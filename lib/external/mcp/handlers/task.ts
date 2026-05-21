@@ -76,6 +76,14 @@ interface AcceptedPrimeGuard {
   evidenceRefs: PrimeEvidenceRef[];
 }
 
+interface PrimeHostResponseInstruction {
+  action: 'shout_prime_knowledge_receipt';
+  receiptId: string;
+  status: PrimeKnowledgeMaterialStatus;
+  required: true;
+  reason: string;
+}
+
 interface PrimeKnowledgeMaterial {
   status: PrimeKnowledgeMaterialStatus;
   receiptId: string;
@@ -90,6 +98,7 @@ interface PrimeKnowledgeMaterial {
   acceptedKnowledge: AcceptedPrimeKnowledge[];
   acceptedGuards: AcceptedPrimeGuard[];
   shoutInstruction: string;
+  hostResponse: PrimeHostResponseInstruction;
   nextActions: Array<{
     tool: string;
     args: Record<string, unknown>;
@@ -331,7 +340,8 @@ function _buildPrimeKnowledgeMaterial(input: {
     acceptedKnowledge,
     acceptedGuards,
     shoutInstruction: _buildPrimeShoutInstruction(status),
-    nextActions: _buildPrimeKnowledgeNextActions(status, receiptId),
+    hostResponse: _buildPrimeHostResponseInstruction(status, receiptId),
+    nextActions: _buildPrimeKnowledgeNextActions(),
   };
 }
 
@@ -420,24 +430,25 @@ function _buildPrimeShoutInstruction(status: PrimeKnowledgeMaterialStatus): stri
   ].join(' ');
 }
 
-function _buildPrimeKnowledgeNextActions(
+function _buildPrimeHostResponseInstruction(
   status: PrimeKnowledgeMaterialStatus,
   receiptId: string
-): PrimeKnowledgeMaterial['nextActions'] {
+): PrimeHostResponseInstruction {
+  // hostResponse 是给 Codex 宿主的可见回复动作，不是 MCP 工具调用，避免误触发不存在的 codex_host_response tool。
+  return {
+    action: 'shout_prime_knowledge_receipt',
+    receiptId,
+    status,
+    required: true,
+    reason:
+      status === 'delivered'
+        ? 'Tell the developer which Recipe/Guard knowledge was accepted before acting on it.'
+        : 'Tell the developer whether prime returned no knowledge or degraded before continuing.',
+  };
+}
+
+function _buildPrimeKnowledgeNextActions(): PrimeKnowledgeMaterial['nextActions'] {
   return [
-    {
-      tool: 'codex_host_response',
-      args: {
-        action: 'shout_prime_knowledge_receipt',
-        receiptId,
-        status,
-      },
-      required: true,
-      reason:
-        status === 'delivered'
-          ? 'Tell the developer which Recipe/Guard knowledge was accepted before acting on it.'
-          : 'Tell the developer whether prime returned no knowledge or degraded before continuing.',
-    },
     {
       tool: 'alembic_task',
       args: {

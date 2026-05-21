@@ -346,20 +346,15 @@ export type EnrichCandidatesInput = z.infer<typeof EnrichCandidatesInput>;
 export const KnowledgeLifecycleInput = z.object({
   id: IdField,
   action: z
-    .enum([
-      'submit',
-      'approve',
-      'reject',
-      'publish',
-      'deprecate',
-      'reactivate',
-      'to_draft',
-      'fast_track',
-    ])
+    // Codex MCP 默认不开放 Recipe 发布 / 废弃权限；这些能力走 Dashboard 或明确 admin 路径。
+    .enum(['reactivate'])
     .describe(
-      'approve/fast_track=发布 | reject=拒绝 | deprecate=废弃 | reactivate=恢复 | to_draft=回草稿'
+      'reactivate=请求将 deprecated Recipe 恢复为 pending review；publish/deprecate/approve/fast_track 不对默认 Codex agent 开放，请走 Dashboard 或 admin 路径'
     ),
-  reason: z.string().optional().describe('reject/deprecate 时的理由'),
+  reason: z
+    .string()
+    .optional()
+    .describe('reactivate 的原因；发布、废弃、审核操作不通过此 MCP 工具执行'),
 });
 export type KnowledgeLifecycleInput = z.infer<typeof KnowledgeLifecycleInput>;
 

@@ -168,7 +168,7 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   alembic_panorama: localWriteTool('Query Or Refresh Alembic Panorama'),
   alembic_task: localWriteTool('Manage Alembic Task State'),
   alembic_enrich_candidates: readOnlyTool('Diagnose Alembic Candidate Fields'),
-  alembic_knowledge_lifecycle: destructiveTool('Update Alembic Knowledge Lifecycle'),
+  alembic_knowledge_lifecycle: localWriteTool('Request Alembic Knowledge Reactivation'),
 };
 
 export function withMcpToolAnnotations<T extends ToolLike>(
@@ -478,7 +478,7 @@ export const TOOLS = [
     name: 'alembic_knowledge_lifecycle',
     tier: 'admin',
     description:
-      'Knowledge entry lifecycle operations. approve/fast_track → publish; reject → reject; deprecate → deprecate; reactivate → restore.',
+      'Knowledge lifecycle operation exposed to Codex MCP. Only reactivate is allowed here: deprecated Recipe → pending review. publish/deprecate/approve/fast_track are not available to the default Codex agent; use Dashboard or an explicit admin path instead.',
     inputSchema: zodToMcpSchema(KnowledgeLifecycleInput),
   },
 ];
