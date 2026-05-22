@@ -6,12 +6,12 @@
 import express, { type Request, type Response } from 'express';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import { FileReadQuery, FileSaveBody } from '../../shared/schemas/http-requests.js';
-import { DASHBOARD_OPERATION_IDS } from '../dashboard/DashboardOperations.js';
-import { validate, validateQuery } from '../middleware/validate.js';
+import { DASHBOARD_COMPATIBILITY_OPERATION_IDS } from '../compatibility/operations/DashboardCompatibilityOperations.js';
 import {
-  executeDashboardOperation,
-  sendDashboardOperationResponse,
-} from '../utils/dashboard-operation.js';
+  executeDashboardCompatibilityOperation,
+  sendDashboardCompatibilityOperationResponse,
+} from '../compatibility/operations/dashboard-compatibility-operation.js';
+import { validate, validateQuery } from '../middleware/validate.js';
 
 const router = express.Router();
 
@@ -21,13 +21,13 @@ const router = express.Router();
  */
 router.post('/spm-map', async (req: Request, res: Response) => {
   const container = getServiceContainer();
-  const envelope = await executeDashboardOperation(
+  const envelope = await executeDashboardCompatibilityOperation(
     container,
     req,
-    DASHBOARD_OPERATION_IDS.updateModuleMap,
+    DASHBOARD_COMPATIBILITY_OPERATION_IDS.updateModuleMap,
     { aggressive: true }
   );
-  sendDashboardOperationResponse(res, envelope);
+  sendDashboardCompatibilityOperationResponse(res, envelope);
 });
 
 /**
@@ -36,13 +36,13 @@ router.post('/spm-map', async (req: Request, res: Response) => {
  */
 router.post('/embed', async (req: Request, res: Response) => {
   const container = getServiceContainer();
-  const envelope = await executeDashboardOperation(
+  const envelope = await executeDashboardCompatibilityOperation(
     container,
     req,
-    DASHBOARD_OPERATION_IDS.rebuildSemanticIndex,
+    DASHBOARD_COMPATIBILITY_OPERATION_IDS.rebuildSemanticIndex,
     req.body || {}
   );
-  sendDashboardOperationResponse(res, envelope);
+  sendDashboardCompatibilityOperationResponse(res, envelope);
 });
 
 /**

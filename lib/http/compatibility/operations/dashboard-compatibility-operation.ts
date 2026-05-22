@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
-import { type HttpToolResultEnvelope, sendToolEnvelopeResponse } from './tool-envelope-response.js';
+import {
+  type HttpToolResultEnvelope,
+  sendToolEnvelopeResponse,
+} from '../../utils/tool-envelope-response.js';
 
-export interface DashboardOperationContainer {
+export interface DashboardCompatibilityOperationContainer {
   get(name: string): unknown;
 }
 
@@ -26,11 +29,12 @@ const DEFAULT_TRUST = {
 };
 
 /**
- * Dashboard Operations 直接分派到 DASHBOARD_OPERATION_HANDLERS，
- * 不经过本地 LLM 工具路由。
+ * 历史 Dashboard HTTP operation 兼容分派器。
+ * 这些 dashboard.* ID 是外部协议，源码边界属于 Plugin embedded HTTP compatibility，
+ * 不表示本仓库重新拥有 Dashboard 前端。
  */
-export async function executeDashboardOperation(
-  container: DashboardOperationContainer,
+export async function executeDashboardCompatibilityOperation(
+  container: DashboardCompatibilityOperationContainer,
   req: Request,
   toolId: string,
   args: Record<string, unknown>
@@ -40,15 +44,18 @@ export async function executeDashboardOperation(
   const t0 = Date.now();
 
   try {
-    const { DASHBOARD_OPERATION_HANDLERS, DASHBOARD_OPERATION_MANIFESTS } = await import(
-      '../dashboard/DashboardOperations.js'
-    );
-    const handler = DASHBOARD_OPERATION_HANDLERS[toolId];
+    const {
+      DASHBOARD_COMPATIBILITY_OPERATION_HANDLERS,
+      DASHBOARD_COMPATIBILITY_OPERATION_MANIFESTS,
+    } = await import('./DashboardCompatibilityOperations.js');
+    const handler = DASHBOARD_COMPATIBILITY_OPERATION_HANDLERS[toolId];
     if (!handler) {
       return errorEnvelope(toolId, callId, startedAt, `Unknown dashboard operation: ${toolId}`);
     }
 
-    const manifest = DASHBOARD_OPERATION_MANIFESTS.find((m: { id: string }) => m.id === toolId);
+    const manifest = DASHBOARD_COMPATIBILITY_OPERATION_MANIFESTS.find(
+      (m: { id: string }) => m.id === toolId
+    );
     const executionRequest = {
       manifest: manifest ?? { id: toolId, kind: 'dashboard-operation' },
       args,
@@ -92,7 +99,10 @@ export async function executeDashboardOperation(
   }
 }
 
-export function sendDashboardOperationResponse(res: Response, envelope: HttpToolResultEnvelope) {
+export function sendDashboardCompatibilityOperationResponse(
+  res: Response,
+  envelope: HttpToolResultEnvelope
+) {
   if (!envelope.ok) {
     sendToolEnvelopeResponse(res, envelope);
     return;

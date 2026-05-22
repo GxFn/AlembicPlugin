@@ -19,12 +19,12 @@ import {
 } from '#shared/schemas/http-requests.js';
 import { getJobStore } from '../../daemon/DaemonJobRunner.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
-import { DASHBOARD_OPERATION_IDS } from '../dashboard/DashboardOperations.js';
-import { validate } from '../middleware/validate.js';
+import { DASHBOARD_COMPATIBILITY_OPERATION_IDS } from '../compatibility/operations/DashboardCompatibilityOperations.js';
 import {
-  executeDashboardOperation,
-  sendDashboardOperationResponse,
-} from '../utils/dashboard-operation.js';
+  executeDashboardCompatibilityOperation,
+  sendDashboardCompatibilityOperationResponse,
+} from '../compatibility/operations/dashboard-compatibility-operation.js';
+import { validate } from '../middleware/validate.js';
 import { createStreamSession, getStreamSession } from '../utils/sse-sessions.js';
 
 const router = express.Router();
@@ -470,13 +470,13 @@ router.post(
     const { options = {} } = req.body;
 
     const container = getServiceContainer();
-    const envelope = await executeDashboardOperation(
+    const envelope = await executeDashboardCompatibilityOperation(
       container,
       req,
-      DASHBOARD_OPERATION_IDS.scanProject,
+      DASHBOARD_COMPATIBILITY_OPERATION_IDS.scanProject,
       { options }
     );
-    sendDashboardOperationResponse(res, envelope);
+    sendDashboardCompatibilityOperationResponse(res, envelope);
   }
 );
 
@@ -486,13 +486,13 @@ router.post(
  */
 router.post('/update-map', async (req: Request, res: Response): Promise<void> => {
   const container = getServiceContainer();
-  const envelope = await executeDashboardOperation(
+  const envelope = await executeDashboardCompatibilityOperation(
     container,
     req,
-    DASHBOARD_OPERATION_IDS.updateModuleMap,
+    DASHBOARD_COMPATIBILITY_OPERATION_IDS.updateModuleMap,
     { aggressive: true }
   );
-  sendDashboardOperationResponse(res, envelope);
+  sendDashboardCompatibilityOperationResponse(res, envelope);
 });
 
 /**
@@ -523,13 +523,13 @@ router.post(
     const { maxFiles, skipGuard, contentMaxLines } = req.body || {};
 
     const container = getServiceContainer();
-    const envelope = await executeDashboardOperation(
+    const envelope = await executeDashboardCompatibilityOperation(
       container,
       req,
-      DASHBOARD_OPERATION_IDS.bootstrapProject,
+      DASHBOARD_COMPATIBILITY_OPERATION_IDS.bootstrapProject,
       { maxFiles, skipGuard, contentMaxLines }
     );
-    sendDashboardOperationResponse(res, envelope);
+    sendDashboardCompatibilityOperationResponse(res, envelope);
   }
 );
 
@@ -655,13 +655,13 @@ router.post('/bootstrap/cancel', async (req: Request, res: Response): Promise<vo
   const container = getServiceContainer();
   const reason =
     ((req.body as Record<string, unknown>)?.reason as string) || 'Cancelled by user via Dashboard';
-  const envelope = await executeDashboardOperation(
+  const envelope = await executeDashboardCompatibilityOperation(
     container,
     req,
-    DASHBOARD_OPERATION_IDS.cancelBootstrap,
+    DASHBOARD_COMPATIBILITY_OPERATION_IDS.cancelBootstrap,
     { reason }
   );
-  sendDashboardOperationResponse(res, envelope);
+  sendDashboardCompatibilityOperationResponse(res, envelope);
 });
 
 /**
@@ -676,13 +676,13 @@ router.post(
     const { reason, dimensions } = req.body || {};
 
     const container = getServiceContainer();
-    const envelope = await executeDashboardOperation(
+    const envelope = await executeDashboardCompatibilityOperation(
       container,
       req,
-      DASHBOARD_OPERATION_IDS.rescanProject,
+      DASHBOARD_COMPATIBILITY_OPERATION_IDS.rescanProject,
       { reason, dimensions }
     );
-    sendDashboardOperationResponse(res, envelope);
+    sendDashboardCompatibilityOperationResponse(res, envelope);
   }
 );
 

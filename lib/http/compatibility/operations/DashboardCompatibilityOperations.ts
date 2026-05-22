@@ -1,9 +1,11 @@
 import Logger from '@alembic/core/logging';
-import type { ServiceContainer } from '../../injection/ServiceContainer.js';
+import type { ServiceContainer } from '../../../injection/ServiceContainer.js';
 
-export type DashboardOperationHandler = (request: DashboardOperationRequest) => Promise<unknown>;
+export type DashboardCompatibilityOperationHandler = (
+  request: DashboardCompatibilityOperationRequest
+) => Promise<unknown>;
 
-export interface DashboardOperationRequest {
+export interface DashboardCompatibilityOperationRequest {
   args: Record<string, unknown>;
   context: {
     actor?: { role?: string; sessionId?: string; user?: string };
@@ -12,7 +14,7 @@ export interface DashboardOperationRequest {
   };
 }
 
-export interface DashboardOperationManifest {
+export interface DashboardCompatibilityOperationManifest {
   description: string;
   id: string;
   policyProfile: 'analysis' | 'system' | 'write';
@@ -22,7 +24,8 @@ export interface DashboardOperationManifest {
 
 const logger = Logger.getInstance();
 
-export const DASHBOARD_OPERATION_IDS = {
+// 这里的 dashboard.* 是历史 HTTP 兼容 operation id，不表示插件重新打包 Dashboard 前端。
+export const DASHBOARD_COMPATIBILITY_OPERATION_IDS = {
   updateModuleMap: 'dashboard.update_module_map',
   rebuildSemanticIndex: 'dashboard.rebuild_semantic_index',
   scanProject: 'dashboard.scan_project',
@@ -31,42 +34,42 @@ export const DASHBOARD_OPERATION_IDS = {
   rescanProject: 'dashboard.rescan_project',
 } as const;
 
-export const DASHBOARD_OPERATION_MANIFESTS: DashboardOperationManifest[] = [
+export const DASHBOARD_COMPATIBILITY_OPERATION_MANIFESTS: DashboardCompatibilityOperationManifest[] = [
   manifest({
-    id: DASHBOARD_OPERATION_IDS.updateModuleMap,
+    id: DASHBOARD_COMPATIBILITY_OPERATION_IDS.updateModuleMap,
     title: 'Update Module Map',
     description: 'Refresh the project module map from Dashboard.',
     policyProfile: 'write',
   }),
   manifest({
-    id: DASHBOARD_OPERATION_IDS.rebuildSemanticIndex,
+    id: DASHBOARD_COMPATIBILITY_OPERATION_IDS.rebuildSemanticIndex,
     title: 'Rebuild Semantic Index',
     description: 'Rebuild the semantic vector index from Dashboard.',
     policyProfile: 'system',
     timeoutMs: 300_000,
   }),
   manifest({
-    id: DASHBOARD_OPERATION_IDS.scanProject,
+    id: DASHBOARD_COMPATIBILITY_OPERATION_IDS.scanProject,
     title: 'Scan Project',
     description: 'Run a full project scan from Dashboard.',
     policyProfile: 'analysis',
     timeoutMs: 300_000,
   }),
   manifest({
-    id: DASHBOARD_OPERATION_IDS.bootstrapProject,
+    id: DASHBOARD_COMPATIBILITY_OPERATION_IDS.bootstrapProject,
     title: 'Bootstrap Project Knowledge',
     description: 'Start host-driven project bootstrap from Dashboard.',
     policyProfile: 'write',
     timeoutMs: 300_000,
   }),
   manifest({
-    id: DASHBOARD_OPERATION_IDS.cancelBootstrap,
+    id: DASHBOARD_COMPATIBILITY_OPERATION_IDS.cancelBootstrap,
     title: 'Cancel Bootstrap Session',
     description: 'Cancel the active bootstrap or rescan background session from Dashboard.',
     policyProfile: 'write',
   }),
   manifest({
-    id: DASHBOARD_OPERATION_IDS.rescanProject,
+    id: DASHBOARD_COMPATIBILITY_OPERATION_IDS.rescanProject,
     title: 'Rescan Project Knowledge',
     description: 'Run host-driven project rescan from Dashboard.',
     policyProfile: 'write',
@@ -74,22 +77,25 @@ export const DASHBOARD_OPERATION_MANIFESTS: DashboardOperationManifest[] = [
   }),
 ];
 
-export const DASHBOARD_OPERATION_HANDLERS: Record<string, DashboardOperationHandler> = {
-  [DASHBOARD_OPERATION_IDS.updateModuleMap]: updateModuleMap,
-  [DASHBOARD_OPERATION_IDS.rebuildSemanticIndex]: rebuildSemanticIndex,
-  [DASHBOARD_OPERATION_IDS.scanProject]: scanProject,
-  [DASHBOARD_OPERATION_IDS.bootstrapProject]: bootstrapProject,
-  [DASHBOARD_OPERATION_IDS.cancelBootstrap]: cancelBootstrap,
-  [DASHBOARD_OPERATION_IDS.rescanProject]: rescanProject,
+export const DASHBOARD_COMPATIBILITY_OPERATION_HANDLERS: Record<
+  string,
+  DashboardCompatibilityOperationHandler
+> = {
+  [DASHBOARD_COMPATIBILITY_OPERATION_IDS.updateModuleMap]: updateModuleMap,
+  [DASHBOARD_COMPATIBILITY_OPERATION_IDS.rebuildSemanticIndex]: rebuildSemanticIndex,
+  [DASHBOARD_COMPATIBILITY_OPERATION_IDS.scanProject]: scanProject,
+  [DASHBOARD_COMPATIBILITY_OPERATION_IDS.bootstrapProject]: bootstrapProject,
+  [DASHBOARD_COMPATIBILITY_OPERATION_IDS.cancelBootstrap]: cancelBootstrap,
+  [DASHBOARD_COMPATIBILITY_OPERATION_IDS.rescanProject]: rescanProject,
 };
 
 function manifest(input: {
   description: string;
   id: string;
-  policyProfile: DashboardOperationManifest['policyProfile'];
+  policyProfile: DashboardCompatibilityOperationManifest['policyProfile'];
   timeoutMs?: number;
   title: string;
-}): DashboardOperationManifest {
+}): DashboardCompatibilityOperationManifest {
   return {
     id: input.id,
     title: input.title,
@@ -99,7 +105,7 @@ function manifest(input: {
   };
 }
 
-async function updateModuleMap(request: DashboardOperationRequest) {
+async function updateModuleMap(request: DashboardCompatibilityOperationRequest) {
   const container = getContainer(request);
   const moduleService = container.get('moduleService') as {
     updateModuleMap(options: Record<string, unknown>): Promise<unknown>;
@@ -111,7 +117,7 @@ async function updateModuleMap(request: DashboardOperationRequest) {
   return result;
 }
 
-async function rebuildSemanticIndex(request: DashboardOperationRequest) {
+async function rebuildSemanticIndex(request: DashboardCompatibilityOperationRequest) {
   const container = getContainer(request);
   const clear = request.args.clear !== false;
   const force = Boolean(request.args.force ?? false);
@@ -156,7 +162,7 @@ async function rebuildSemanticIndex(request: DashboardOperationRequest) {
   };
 }
 
-async function scanProject(request: DashboardOperationRequest) {
+async function scanProject(request: DashboardCompatibilityOperationRequest) {
   const container = getContainer(request);
   const moduleService = container.get('moduleService') as {
     load(): Promise<void>;
@@ -169,9 +175,9 @@ async function scanProject(request: DashboardOperationRequest) {
   );
 }
 
-async function bootstrapProject(request: DashboardOperationRequest) {
+async function bootstrapProject(request: DashboardCompatibilityOperationRequest) {
   const container = getContainer(request);
-  const { createDaemonJob, runDaemonJob } = await import('../../daemon/DaemonJobRunner.js');
+  const { createDaemonJob, runDaemonJob } = await import('../../../daemon/DaemonJobRunner.js');
   const args = {
     maxFiles: numberArg(request.args.maxFiles, 500),
     skipGuard: Boolean(request.args.skipGuard || false),
@@ -189,7 +195,7 @@ async function bootstrapProject(request: DashboardOperationRequest) {
   return { ...asRecord(result.result), job: result.job, jobId: job.id };
 }
 
-async function cancelBootstrap(request: DashboardOperationRequest) {
+async function cancelBootstrap(request: DashboardCompatibilityOperationRequest) {
   const container = getContainer(request);
   const taskManager = getOptionalService<{
     isRunning: boolean;
@@ -212,9 +218,9 @@ async function cancelBootstrap(request: DashboardOperationRequest) {
   return taskManager.getSessionStatus();
 }
 
-async function rescanProject(request: DashboardOperationRequest) {
+async function rescanProject(request: DashboardCompatibilityOperationRequest) {
   const container = getContainer(request);
-  const { createDaemonJob, runDaemonJob } = await import('../../daemon/DaemonJobRunner.js');
+  const { createDaemonJob, runDaemonJob } = await import('../../../daemon/DaemonJobRunner.js');
   const args = {
     reason: (request.args.reason as string | undefined) || 'dashboard-rescan',
     dimensions: Array.isArray(request.args.dimensions)
@@ -239,7 +245,7 @@ async function rescanProject(request: DashboardOperationRequest) {
   return { ...asRecord(result.result), job: result.job, jobId: job.id };
 }
 
-function getContainer(request: DashboardOperationRequest) {
+function getContainer(request: DashboardCompatibilityOperationRequest) {
   return request.context.services;
 }
 
