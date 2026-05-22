@@ -1,7 +1,6 @@
 import { rmSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
-import { type DaemonState, JobStore, resolveDaemonPaths } from '@alembic/core/daemon';
+import { JobStore, resolveDaemonPaths } from '@alembic/core/daemon';
 import { ProjectRegistry } from '@alembic/core/workspace';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -17,10 +16,6 @@ import {
   buildCodexRecommendedAction,
   buildCodexRuntimeDiagnostics,
   buildCodexStatus,
-  CODEX_ADMIN_ENABLE_ENV,
-  CODEX_DEFAULT_MCP_TIER,
-  CODEX_MCP_TIER_ENV,
-  CODEX_PROJECT_ROOT_PROPERTY,
   CODEX_SETUP_PROFILE,
   type CodexEnhancementRequirement,
   type CodexEnhancementRouteChoice,
@@ -37,7 +32,6 @@ import {
   resolveCodexProjectRoot,
   resolveCodexRuntimeContext,
   resolveCodexServiceRequestBoundary,
-  resolveCodexToolPolicy,
   summarizeCodexDaemonStatus,
   summarizeCodexProjectRootResolution,
   writeCodexInitMarker,
@@ -45,8 +39,18 @@ import {
 } from '../../codex/index.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
+import { buildJobQuery, callDaemonHttpEndpoint } from './codex/daemon-jobs.js';
+import { buildCodexHostProjectHandoffBlock } from './codex/host-project-handoff.js';
+import { safeProjectRootFallback } from './codex/project-root.js';
+import {
+  attachCodexServiceBoundary,
+  attachEnhancementRoute,
+  failureResult,
+  isErrorResult,
+} from './codex/results.js';
+import { getVisibleCodexTools } from './codex/tool-visibility.js';
 import { McpServer as EmbeddedMcpServer } from './McpServer.js';
-import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from './tools.js';
+import { TIER_ORDER, TOOLS } from './tools.js';
 
 interface CodexMcpServerOptions {
   projectRoot?: string;
@@ -949,250 +953,7 @@ export class CodexMcpServer {
   }
 }
 
-export function getVisibleCodexTools(
-  tierName = process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER,
-  projectRoot = resolveCodexProjectRoot().path || safeProjectRootFallback()
-) {
-  const resolution = resolveCodexProjectRoot({ projectRoot });
-  const knowledge = isTrustedCodexProjectRoot(resolution)
-    ? inspectCodexKnowledge(projectRoot)
-    : buildExplicitProjectRootRequiredKnowledgeState();
-  return resolveCodexToolPolicy({
-    adminEnabled: process.env[CODEX_ADMIN_ENABLE_ENV] === '1',
-    coreTools: TOOLS,
-    knowledge,
-    tierName,
-    tierOrder: TIER_ORDER,
-  })
-    .visibleTools.map(withMcpToolAnnotations)
-    .map(withCodexProjectRootInput);
-}
-
-function buildExplicitProjectRootRequiredKnowledgeState(): CodexKnowledgeState {
-  return {
-    ...EMPTY_CODEX_KNOWLEDGE_STATE,
-    initialized: true,
-    hasKnowledge: true,
-    recipeCount: 1,
-    skillCount: 0,
-    status: 'knowledge_ready',
-    usable: true,
-  };
-}
-
-function withCodexProjectRootInput<T extends { inputSchema?: Record<string, unknown> }>(
-  tool: T
-): T {
-  const inputSchema = tool.inputSchema || {};
-  const properties =
-    inputSchema.properties && typeof inputSchema.properties === 'object'
-      ? (inputSchema.properties as Record<string, unknown>)
-      : {};
-  return {
-    ...tool,
-    inputSchema: {
-      ...inputSchema,
-      type: 'object',
-      properties: {
-        projectRoot: CODEX_PROJECT_ROOT_PROPERTY,
-        ...properties,
-      },
-    },
-  };
-}
-
-async function callDaemonHttpEndpoint(
-  state: DaemonState,
-  path: string,
-  request: { body?: Record<string, unknown>; method: 'GET' | 'POST' },
-  tool: string
-): Promise<unknown> {
-  const response = await fetch(`${state.url}${path}`, {
-    method: request.method,
-    headers: {
-      'content-type': 'application/json',
-      'x-alembic-daemon-token': state.token || '',
-    },
-    body: request.body ? JSON.stringify(request.body) : undefined,
-  });
-
-  const payload = await readJsonResponse(response);
-  if (response.ok) {
-    return payload;
-  }
-  return failureResult(
-    tool,
-    extractResponseError(payload) || `Daemon job API returned ${response.status}`,
-    {
-      daemon: {
-        url: state.url,
-        pid: state.pid,
-        port: state.port,
-      },
-      response: payload,
-    }
-  );
-}
-
-async function readJsonResponse(response: Response): Promise<unknown> {
-  const text = await response.text();
-  if (!text) {
-    return null;
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return { success: false, message: text };
-  }
-}
-
-function failureResult(
-  tool: string,
-  message: string,
-  data: Record<string, unknown> = {}
-): Record<string, unknown> {
-  return {
-    success: false,
-    message,
-    errorCode: 'CODEX_MCP_ERROR',
-    tool,
-    data,
-  };
-}
-
-function isErrorResult(result: unknown): boolean {
-  if (!result || typeof result !== 'object') {
-    return false;
-  }
-  const value = result as { ok?: unknown; success?: unknown; isError?: unknown };
-  return value.ok === false || value.success === false || value.isError === true;
-}
-
-function extractResponseError(payload: unknown): string | null {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  const obj = payload as { message?: unknown; error?: { message?: unknown } };
-  return typeof obj.message === 'string'
-    ? obj.message
-    : typeof obj.error?.message === 'string'
-      ? obj.error.message
-      : null;
-}
-
-function attachEnhancementRoute(
-  result: unknown,
-  enhancementRoute: CodexEnhancementRouteChoice
-): unknown {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return result;
-  }
-  const record = result as Record<string, unknown>;
-  const data =
-    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : {};
-  return {
-    ...record,
-    data: {
-      ...data,
-      enhancementRoute,
-    },
-  };
-}
-
-function attachCodexServiceBoundary(
-  result: unknown,
-  serviceBoundary: CodexServiceBoundaryDecision
-): unknown {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return result;
-  }
-  const record = result as Record<string, unknown>;
-  const data =
-    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : {};
-  return {
-    ...record,
-    data: {
-      ...data,
-      serviceBoundary,
-    },
-  };
-}
-
-function buildCodexHostProjectHandoffBlock(input: {
-  daemon: DaemonStatus;
-  enhancementRoute: CodexEnhancementRouteChoice;
-  hostProjectAlignment: CodexHostProjectAlignment;
-  requirement: CodexEnhancementRequirement;
-  tool: string;
-}): Record<string, unknown> | null {
-  const state = input.hostProjectAlignment.connectionState;
-  const blocksDashboard = input.requirement === 'dashboard' && state !== 'connected';
-  const blocksWrongProjectStart = state === 'mismatch';
-  if (!blocksDashboard && !blocksWrongProjectStart) {
-    return null;
-  }
-  const errorCode =
-    state === 'mismatch' ? 'CODEX_HOST_PROJECT_MISMATCH' : 'CODEX_HOST_PROJECT_DISCONNECTED';
-  const message =
-    state === 'mismatch'
-      ? 'Codex host project differs from the Alembic selected or active project. Switch the Alembic project from Alembic or Dashboard before retrying from Codex.'
-      : 'Codex host project is not connected to an active Alembic runtime project. Start or reconnect it from Alembic or Dashboard before opening Dashboard from Codex.';
-
-  return failureResult(input.tool, message, {
-    daemon: summarizeCodexDaemonStatus(input.daemon),
-    enhancementRoute: input.enhancementRoute,
-    errorCode,
-    hostProjectAlignment: input.hostProjectAlignment,
-    needsUserInput: true,
-    nextActions: [
-      buildCodexRecommendedAction({
-        label: 'Check workspace status',
-        reason: 'Inspect host, selected, and active runtime project alignment.',
-        startsDaemon: false,
-        tool: 'alembic_codex_status',
-      }),
-      buildCodexRecommendedAction({
-        label: 'Run diagnostics',
-        reason: 'Show plugin runtime diagnostics and host project handoff mismatch details.',
-        startsDaemon: false,
-        tool: 'alembic_codex_diagnostics',
-      }),
-    ],
-  });
-}
-
-function buildJobQuery(args: Record<string, unknown>): string {
-  const params = new URLSearchParams();
-  if (args.kind === 'bootstrap' || args.kind === 'rescan') {
-    params.set('kind', args.kind);
-  }
-  if (
-    args.status === 'queued' ||
-    args.status === 'running' ||
-    args.status === 'completed' ||
-    args.status === 'failed' ||
-    args.status === 'cancelled'
-  ) {
-    params.set('status', args.status);
-  }
-  if (typeof args.limit === 'number' && Number.isFinite(args.limit)) {
-    params.set('limit', String(args.limit));
-  }
-  const query = params.toString();
-  return query ? `?${query}` : '';
-}
-
-function safeProjectRootFallback(): string {
-  try {
-    return process.cwd();
-  } catch {
-    return process.env.PWD || homedir();
-  }
-}
+export { getVisibleCodexTools };
 
 export async function startCodexMcpServer(): Promise<CodexMcpServer> {
   const server = new CodexMcpServer();
