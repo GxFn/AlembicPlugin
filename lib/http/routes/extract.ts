@@ -8,6 +8,7 @@ import express, { type Request, type Response } from 'express';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import { ExtractPathBody, ExtractTextBody } from '../../shared/schemas/http-requests.js';
 import { validate } from '../middleware/validate.js';
+import { attachPluginDeterministicBoundary } from '../utils/host-managed-boundary.js';
 
 const router = express.Router();
 const logger = Logger.getInstance();
@@ -44,11 +45,13 @@ router.post(
     // 2. 返回 RecipeParser 结果（MD 文件或原始兜底）
     res.json({
       success: true,
-      data: {
-        result: items,
-        isMarked: result.isMarked || false,
-        hostManaged: true,
-      },
+      data: attachPluginDeterministicBoundary(
+        {
+          result: items,
+          isMarked: result.isMarked || false,
+        },
+        'extract-path'
+      ),
     });
   }
 );
@@ -77,11 +80,13 @@ router.post(
       // 解析成功，直接返回
       return void res.json({
         success: true,
-        data: {
-          result: Array.isArray(result) ? result : [result],
-          source: 'text',
-          hostManaged: true,
-        },
+        data: attachPluginDeterministicBoundary(
+          {
+            result: Array.isArray(result) ? result : [result],
+            source: 'text',
+          },
+          'extract-text-markdown'
+        ),
       });
     } catch (error: unknown) {
       logger.debug('Recipe MD parse failed, using basic fallback', {
@@ -94,12 +99,14 @@ router.post(
 
     res.json({
       success: true,
-      data: {
-        result: Array.isArray(result) ? result : [result],
-        source: 'text',
-        relativePath,
-        hostManaged: true,
-      },
+      data: attachPluginDeterministicBoundary(
+        {
+          result: Array.isArray(result) ? result : [result],
+          source: 'text',
+          relativePath,
+        },
+        'extract-text-basic'
+      ),
     });
   }
 );

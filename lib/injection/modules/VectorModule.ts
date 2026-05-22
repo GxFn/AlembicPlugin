@@ -14,7 +14,7 @@ import type { ContextualEnricher } from '../../service/vector/ContextualEnricher
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {
-  // ═══ ContextualEnricher (host-managed; local AI enrichment disabled) ═══
+  // ═══ ContextualEnricher（增强由 Codex host agent / Alembic resident service 托管）═══
   c.singleton('contextualEnricher', (_ct: ServiceContainer) => null);
 
   // ═══ VectorService ═══

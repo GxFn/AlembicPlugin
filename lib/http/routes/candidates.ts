@@ -1,9 +1,8 @@
 /**
  * Candidates API 路由
- * 候选条目的 AI 补齐、润色预览/应用
+ * 候选条目的宿主托管补齐、润色预览/应用
  */
 
-import Logger from '@alembic/core/logging';
 import { ValidationError } from '@alembic/core/shared';
 import express, { type Request, type Response } from 'express';
 import {
@@ -14,15 +13,21 @@ import {
 } from '#shared/schemas/http-requests.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import { validate } from '../middleware/validate.js';
+import {
+  attachHostAgentManagedBoundary,
+  HOST_AGENT_MANAGED_CODE,
+  LEGACY_HOST_AI_MANAGED_CODE,
+  makeHostAgentManagedError,
+} from '../utils/host-managed-boundary.js';
 
 const router = express.Router();
-const logger = Logger.getInstance();
 
-/* ═══ AI 语义字段补齐 ════════════════════════════════════ */
+/* ═══ 宿主托管候选语义补齐 ═══════════════════════════════ */
 
 /**
  * POST /api/v1/candidates/enrich
- * 对若干候选条目进行 AI 语义字段补全
+ * 对若干候选条目返回宿主托管边界。保留旧 HOST_AI_MANAGED / hostManaged
+ * 字段给 Dashboard 兼容；新增 boundaryCode/capabilityBoundary 表达真实归属。
  * Body: { candidateIds: string[] }
  */
 router.post('/enrich', validate(EnrichBody), async (req: Request, res: Response): Promise<void> => {
@@ -30,27 +35,32 @@ router.post('/enrich', validate(EnrichBody), async (req: Request, res: Response)
 
   res.json({
     success: true,
-    data: {
-      enriched: 0,
-      total: candidateIds.length,
-      hostManaged: true,
-      unavailable: true,
-      message: 'AlembicPlugin 不再执行候选 AI 补齐；请由宿主 agent 或外部编排提交补齐结果。',
-      results: candidateIds.map((id: string) => ({
-        id,
-        enriched: false,
-        skipped: true,
-        reason: 'HOST_AI_MANAGED',
-      })),
-    },
+    data: attachHostAgentManagedBoundary(
+      {
+        enriched: 0,
+        total: candidateIds.length,
+        unavailable: true,
+        message:
+          'AlembicPlugin 不执行本地候选 AI 补齐；请由 Codex host agent 或 Alembic resident service 提交补齐结果。',
+        results: candidateIds.map((id: string) => ({
+          id,
+          enriched: false,
+          skipped: true,
+          reason: LEGACY_HOST_AI_MANAGED_CODE,
+          canonicalReason: HOST_AGENT_MANAGED_CODE,
+          boundaryCode: HOST_AGENT_MANAGED_CODE,
+        })),
+      },
+      'candidate-enrich'
+    ),
   });
 });
 
-/* ═══ Bootstrap 内容润色 ═════════════════════════════════ */
+/* ═══ Bootstrap 内容润色宿主托管边界 ═════════════════════ */
 
 /**
  * POST /api/v1/candidates/bootstrap-refine
- * AI 内容润色（适用于 Bootstrap 产出的批量候选）
+ * 内容润色（适用于 Bootstrap 产出的批量候选）已转为宿主托管。
  * Body: { candidateIds?: string[], userPrompt?: string, dryRun?: boolean }
  */
 router.post(
@@ -60,17 +70,17 @@ router.post(
     const { candidateIds, userPrompt, dryRun } = req.body;
     res.status(501).json({
       success: false,
-      error: {
-        code: 'HOST_AI_MANAGED',
-        message:
-          'Bootstrap 候选润色已从 AlembicPlugin 删除；请由宿主 agent 生成 preview 后再调用 apply。',
-      },
-      data: {
-        candidateIds,
-        dryRun: Boolean(dryRun),
-        hasUserPrompt: Boolean(userPrompt),
-        hostManaged: true,
-      },
+      error: makeHostAgentManagedError(
+        'Bootstrap 候选润色不再由 AlembicPlugin 本地 AI 执行；请由 Codex host agent 或 Alembic resident service 生成 preview 后再调用 apply。'
+      ),
+      data: attachHostAgentManagedBoundary(
+        {
+          candidateIds,
+          dryRun: Boolean(dryRun),
+          hasUserPrompt: Boolean(userPrompt),
+        },
+        'candidate-bootstrap-refine'
+      ),
     });
   }
 );
@@ -249,7 +259,7 @@ function buildUpdateFromRefineResult(
 
 /**
  * POST /api/v1/candidates/refine-preview
- * 插件模式不再执行本地 AI 润色；返回 before 原文和 host-managed 边界信息。
+ * 插件模式不再执行本地 AI 润色；返回 before 原文和明确的 host-agent-managed 边界信息。
  * Body: { candidateId: string, userPrompt: string }
  */
 router.post('/refine-preview', validate(RefinePreviewBody), async (req: Request, res: Response) => {
@@ -267,18 +277,19 @@ router.post('/refine-preview', validate(RefinePreviewBody), async (req: Request,
 
   res.status(501).json({
     success: false,
-    error: {
-      code: 'HOST_AI_MANAGED',
-      message: '候选润色预览已从 AlembicPlugin 删除；请由宿主 agent 生成 preview。',
-    },
-    data: {
-      candidateId,
-      before,
-      after: before,
-      preview: null,
-      hasUserPrompt: Boolean(userPrompt?.trim()),
-      hostManaged: true,
-    },
+    error: makeHostAgentManagedError(
+      '候选润色预览不再由 AlembicPlugin 本地 AI 执行；请由 Codex host agent 或 Alembic resident service 生成 preview。'
+    ),
+    data: attachHostAgentManagedBoundary(
+      {
+        candidateId,
+        before,
+        after: before,
+        preview: null,
+        hasUserPrompt: Boolean(userPrompt?.trim()),
+      },
+      'candidate-refine-preview'
+    ),
   });
 });
 
@@ -286,7 +297,7 @@ router.post('/refine-preview', validate(RefinePreviewBody), async (req: Request,
 
 /**
  * POST /api/v1/candidates/refine-preview-stream
- * 插件模式不再执行本地 AI 润色流。
+ * 插件模式不再执行本地 AI 润色流；流式 preview 也必须由宿主生成。
  *
  * Body: { candidateId: string, userPrompt: string }
  */
@@ -308,18 +319,19 @@ router.post(
 
     res.status(501).json({
       success: false,
-      error: {
-        code: 'HOST_AI_MANAGED',
-        message: '候选流式润色预览已从 AlembicPlugin 删除；请由宿主 agent 生成 preview。',
-      },
-      data: {
-        candidateId,
-        before,
-        after: before,
-        preview: null,
-        hasUserPrompt: Boolean(userPrompt?.trim()),
-        hostManaged: true,
-      },
+      error: makeHostAgentManagedError(
+        '候选流式润色预览不再由 AlembicPlugin 本地 AI 执行；请由 Codex host agent 或 Alembic resident service 生成 preview。'
+      ),
+      data: attachHostAgentManagedBoundary(
+        {
+          candidateId,
+          before,
+          after: before,
+          preview: null,
+          hasUserPrompt: Boolean(userPrompt?.trim()),
+        },
+        'candidate-refine-preview-stream'
+      ),
     });
   }
 );
@@ -333,10 +345,13 @@ router.post(
 router.get('/refine-preview/events/:sessionId', (req, res) => {
   res.status(410).json({
     success: false,
-    error: {
-      code: 'HOST_AI_MANAGED',
-      message: `候选润色事件流已从 AlembicPlugin 删除: ${req.params.sessionId}`,
-    },
+    error: makeHostAgentManagedError(
+      `候选润色事件流不再由 AlembicPlugin 本地 AI 执行: ${req.params.sessionId}`
+    ),
+    data: attachHostAgentManagedBoundary(
+      { sessionId: req.params.sessionId },
+      'candidate-refine-preview-events'
+    ),
   });
 });
 
@@ -368,16 +383,17 @@ router.post(
     if (!parsed) {
       return void res.status(501).json({
         success: false,
-        error: {
-          code: 'HOST_AI_MANAGED',
-          message: 'refine-apply 未提供 preview，AlembicPlugin 不再 fallback 调用本地 AI。',
-        },
-        data: {
-          candidateId,
-          before,
-          hasUserPrompt: Boolean(userPrompt?.trim()),
-          hostManaged: true,
-        },
+        error: makeHostAgentManagedError(
+          'refine-apply 未提供 preview，AlembicPlugin 不再 fallback 调用本地 AI；请先由 Codex host agent 或 Alembic resident service 生成 preview。'
+        ),
+        data: attachHostAgentManagedBoundary(
+          {
+            candidateId,
+            before,
+            hasUserPrompt: Boolean(userPrompt?.trim()),
+          },
+          'candidate-refine-apply-missing-preview'
+        ),
       });
     }
 
