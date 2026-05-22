@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type CodexRuntimeContext, resolveCodexRuntimeContext } from './RuntimeContext.js';
+import { type CodexRuntimeContext, resolveCodexRuntimeContext } from './runtime/RuntimeContext.js';
 
 export const CODEX_REQUIRED_SKILLS = [
   'alembic',

@@ -5,7 +5,7 @@ import {
   CODEX_PLUGIN_NAME,
   CODEX_RUNTIME_BIN,
   CODEX_RUNTIME_PACKAGE,
-} from './RuntimeContext.js';
+} from './runtime/RuntimeContext.js';
 
 export type CodexModuleBoundaryOwner =
   | 'Alembic'

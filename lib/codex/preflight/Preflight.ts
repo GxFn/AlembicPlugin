@@ -1,24 +1,24 @@
-import type { CodexKnowledgeState } from './KnowledgeState.js';
+import type { CodexKnowledgeState } from '../KnowledgeState.js';
 import {
   buildCodexProjectRootRequiredActions,
   buildCodexProjectRootRequiredMessage,
   type CodexProjectRootResolution,
   isTrustedCodexProjectRoot,
   summarizeCodexProjectRootResolution,
-} from './ProjectRootResolver.js';
+} from '../ProjectRootResolver.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_TIER_ENV,
-} from './RuntimeContext.js';
-import { buildCodexKnowledgeGateActions } from './StatusService.js';
+} from '../runtime/RuntimeContext.js';
+import { buildCodexKnowledgeGateActions } from '../status/StatusService.js';
 import {
   allowedCodexToolNames,
   CODEX_INIT_ON_DEMAND_TOOL_NAMES,
   CODEX_LOCAL_TOOLS,
   type CodexToolDefinition,
   resolveCodexToolPolicy,
-} from './ToolPolicy.js';
+} from '../ToolPolicy.js';
 
 export type CodexPreflightStage = 'before-auto-init' | 'execute';
 

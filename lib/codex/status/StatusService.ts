@@ -2,23 +2,23 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { DEFAULT_FOLDER_NAMES, WorkspaceResolver } from '@alembic/core/workspace';
-import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
-import { DaemonSupervisor } from '../daemon/DaemonSupervisor.js';
-import type { GitDiffCheckpointStatus } from '../service/evolution/git-diff-checkpoint/index.js';
-import { buildCodexRuntimeDiagnostics } from './Diagnostics.js';
+import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
+import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
+import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
+import { buildCodexRuntimeDiagnostics } from '../diagnostics/Diagnostics.js';
 import {
   buildCodexEnhancementRouteChoice,
   type CodexEnhancementRouteChoice,
-} from './EnhancementRoute.js';
+} from '../EnhancementRoute.js';
 import {
   buildCodexHostProjectAlignment,
   type CodexHostProjectAlignment,
-} from './HostProjectAlignment.js';
-import { type CodexKnowledgeState, inspectCodexKnowledge } from './KnowledgeState.js';
+} from '../HostProjectAlignment.js';
+import { type CodexKnowledgeState, inspectCodexKnowledge } from '../KnowledgeState.js';
 import {
   buildCodexModuleBoundaryStatus,
   type CodexModuleBoundaryStatus,
-} from './ModuleBoundary.js';
+} from '../ModuleBoundary.js';
 import {
   buildCodexProjectRootRequiredActions,
   buildCodexProjectRootRequiredMessage,
@@ -27,18 +27,18 @@ import {
   readCodexInitMarker,
   resolveCodexProjectRoot,
   summarizeCodexProjectRootResolution,
-} from './ProjectRootResolver.js';
+} from '../ProjectRootResolver.js';
 import {
   CODEX_SETUP_PROFILE,
   type CodexRuntimeContext,
   resolveCodexRuntimeContext,
-} from './RuntimeContext.js';
+} from '../runtime/RuntimeContext.js';
 import {
   buildCodexToolPolicySignals,
   type CodexToolPolicySignal,
   type CodexToolPolicyState,
   resolveCodexToolPolicyState,
-} from './ToolPolicy.js';
+} from '../ToolPolicy.js';
 
 export interface CodexDaemonStatusProvider {
   status(projectRoot: string): Promise<DaemonStatus>;

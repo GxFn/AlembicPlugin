@@ -15,10 +15,10 @@
 
 主要入口：
 
-- `RuntimeContext.ts`：Codex 常量、MCP shim 默认环境、runtime context。
+- `runtime/RuntimeContext.ts`：Codex 常量、MCP shim 默认环境、runtime context。
 - `PluginRegistry.ts`：读取 channel、marketplace、plugin manifest、MCP 配置和插件 README。
-- `Diagnostics.ts`：生成 Codex runtime/plugin diagnostics，供 MCP 与插件验证脚本复用。
+- `diagnostics/Diagnostics.ts`：生成 Codex runtime/plugin diagnostics，供 MCP 与插件验证脚本复用。
 - `KnowledgeState.ts`：检查 Codex workspace/Ghost data root 是否初始化、是否已有可用 Recipes 或 Project Skills，并只读汇总 bootstrap/rescan job、SourceRef stale、bootstrap snapshot、knowledge freshness 与 optional vector index 状态。
 - `ToolPolicy.ts`：维护当前 `alembic-codex` 插件的 local tools 与工具可见性策略，输出 needs-init、bootstrap-running、ready-stale、daemon-stale 等可解释状态；vector 缺失是 non-blocking 信号，不会隐藏已有知识工具。
-- `StatusService.ts`：构建 MCP 使用的 Codex status、onboarding、next actions 和 daemon 状态摘要。
+- `status/StatusService.ts`：构建 MCP 使用的 Codex status、onboarding、next actions 和 daemon 状态摘要。
 - `JobContext.ts`：构建 bootstrap/rescan job 的 Codex channel、client、session、tool、actor 上下文。

@@ -101,7 +101,7 @@ describe('alembic_task prime knowledge material', () => {
           description: 'Keep Codex MCP wiring in the plugin layer.',
           actionHint: 'Use plugin adapter APIs instead of reintroducing agent runtime.',
           knowledgeType: 'code-standard',
-          sourceRefs: ['lib/external/mcp/handlers/task.ts:42', 'lib/codex/StatusService.ts'],
+          sourceRefs: ['lib/external/mcp/handlers/task.ts:42', 'lib/codex/status/StatusService.ts'],
         },
       ],
       guardRules: [
@@ -161,7 +161,7 @@ describe('alembic_task prime knowledge material', () => {
           score: 0.91,
           evidenceRefs: [
             { path: 'lib/external/mcp/handlers/task.ts', line: 42 },
-            { path: 'lib/codex/StatusService.ts', line: null },
+            { path: 'lib/codex/status/StatusService.ts', line: null },
           ],
         },
       ],

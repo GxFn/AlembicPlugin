@@ -5,7 +5,7 @@ import {
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_TIER_ENV,
   resolveEffectiveCodexTier,
-} from './RuntimeContext.js';
+} from './runtime/RuntimeContext.js';
 
 export interface CodexToolDefinition {
   annotations?: ToolAnnotations;

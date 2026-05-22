@@ -12,7 +12,7 @@ import {
   CODEX_RUNTIME_PACKAGE,
   type CodexRuntimeContext,
   resolveCodexRuntimeContext,
-} from './RuntimeContext.js';
+} from './runtime/RuntimeContext.js';
 
 export type CodexEnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
 

@@ -2,23 +2,23 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
-import type { GitDiffCheckpointStatus } from '../service/evolution/git-diff-checkpoint/index.js';
+import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
+import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import {
   buildCodexEnhancementRouteChoice,
   type CodexEnhancementRouteChoice,
-} from './EnhancementRoute.js';
-import type { CodexHostProjectAlignment } from './HostProjectAlignment.js';
+} from '../EnhancementRoute.js';
+import type { CodexHostProjectAlignment } from '../HostProjectAlignment.js';
 import {
   buildCodexModuleBoundaryStatus,
   type CodexModuleBoundaryStatus,
-} from './ModuleBoundary.js';
-import { asString, CODEX_REQUIRED_SKILLS, loadCodexPluginRegistry } from './PluginRegistry.js';
+} from '../ModuleBoundary.js';
+import { asString, CODEX_REQUIRED_SKILLS, loadCodexPluginRegistry } from '../PluginRegistry.js';
 import {
   buildCodexProjectRootRequiredMessage,
   type CodexProjectRootResolution,
   summarizeCodexProjectRootResolution,
-} from './ProjectRootResolver.js';
+} from '../ProjectRootResolver.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
@@ -31,7 +31,7 @@ import {
   CODEX_PLUGIN_NAME,
   type CodexRuntimeContext,
   resolveCodexRuntimeContext,
-} from './RuntimeContext.js';
+} from '../runtime/RuntimeContext.js';
 
 export interface CodexPluginDiagnostics {
   assets: { missing: string[]; ok: boolean; required: string[] };
