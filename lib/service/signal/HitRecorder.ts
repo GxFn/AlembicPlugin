@@ -14,12 +14,11 @@
 
 import type { SignalBus, SignalType, Startable } from '@alembic/core/events';
 import { timerRegistry } from '@alembic/core/events';
-import { unwrapRawDb } from '@alembic/core/search';
-
-/** better-sqlite3 兼容类型（与 GuardCheckEngine 相同模式） */
-interface DatabaseLike {
-  prepare(sql: string): { run(...params: unknown[]): unknown };
-}
+import {
+  flushHitRecorderStats,
+  resolveSqliteDb,
+  type SqliteDb,
+} from '#infra/database/SqliteDatabaseAccess.js';
 
 // ── Types ───────────────────────────────────────────
 
@@ -65,7 +64,7 @@ const EVENT_TO_SIGNAL_TYPE: Record<HitEventType, SignalType> = {
 
 export class HitRecorder implements Startable {
   readonly #bus: SignalBus;
-  readonly #db: DatabaseLike;
+  readonly #db: SqliteDb;
   readonly #buffer = new Map<string, BufferEntry>();
   readonly #flushIntervalMs: number;
   readonly #maxBufferSize: number;
@@ -73,13 +72,13 @@ export class HitRecorder implements Startable {
   #totalRecorded = 0;
   #totalFlushed = 0;
 
-  constructor(
-    bus: SignalBus,
-    db: DatabaseLike | { getDb(): DatabaseLike },
-    config: HitRecorderConfig = {}
-  ) {
+  constructor(bus: SignalBus, db: unknown, config: HitRecorderConfig = {}) {
     this.#bus = bus;
-    this.#db = unwrapRawDb<DatabaseLike>(db as DatabaseLike);
+    const rawDb = resolveSqliteDb(db);
+    if (!rawDb) {
+      throw new Error('HitRecorder requires a SQLite database connection');
+    }
+    this.#db = rawDb;
     this.#flushIntervalMs = config.flushIntervalMs ?? 30_000;
     this.#maxBufferSize = config.maxBufferSize ?? 100;
   }
@@ -182,27 +181,15 @@ export class HitRecorder implements Startable {
     const now = Math.floor(Date.now() / 1000);
 
     try {
-      const stmt = this.#db.prepare(
-        // @escape-hatch(permanent) — json_set() not expressible in Drizzle
-        `UPDATE knowledge_entries
-         SET stats = json_set(
-               COALESCE(stats, '{}'),
-               '$.' || ?,
-               COALESCE(json_extract(stats, '$.' || ?), 0) + ?
-             ),
-             updatedAt = ?
-         WHERE id = ?`
+      flushed = flushHitRecorderStats(
+        this.#db,
+        entries.map((entry) => ({
+          count: entry.count,
+          recipeId: entry.recipeId,
+          statsField: EVENT_TO_STATS_FIELD[entry.eventType],
+        })),
+        now
       );
-
-      for (const entry of entries) {
-        const field = EVENT_TO_STATS_FIELD[entry.eventType];
-        try {
-          stmt.run(field, field, entry.count, now, entry.recipeId);
-          flushed += entry.count;
-        } catch {
-          // Recipe 可能已被删除，静默忽略
-        }
-      }
     } catch {
       // DB statement prepare 失败（表可能不存在），回填 buffer
       for (const entry of entries) {

@@ -2,7 +2,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DaemonJobKind, DaemonJobRecord, DaemonJobStatus } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import Database from 'better-sqlite3';
+import {
+  readCodexSnapshotState,
+  readCodexSourceRefState,
+} from '#infra/database/SqliteDatabaseAccess.js';
 
 export type CodexKnowledgeStatus =
   | 'not_initialized'
@@ -453,168 +456,11 @@ function summarizeCodexJobRequest(request: unknown): CodexJobSummary['request'] 
 }
 
 function inspectCodexSourceRefs(resolver: WorkspaceResolver): CodexSourceRefState {
-  const databasePath = resolver.databasePath;
-  if (!existsSync(databasePath)) {
-    return {
-      activeCount: 0,
-      databasePath,
-      reason: 'database does not exist',
-      renamedCount: 0,
-      staleCount: 0,
-      staleRecipeCount: 0,
-      status: 'missing',
-      tableExists: false,
-      totalCount: 0,
-    };
-  }
-  const db = openReadonlyDatabase(databasePath);
-  if (!db) {
-    return {
-      activeCount: 0,
-      databasePath,
-      reason: 'database could not be opened read-only',
-      renamedCount: 0,
-      staleCount: 0,
-      staleRecipeCount: 0,
-      status: 'unavailable',
-      tableExists: false,
-      totalCount: 0,
-    };
-  }
-  try {
-    if (!sqliteTableExists(db, 'recipe_source_refs')) {
-      return {
-        activeCount: 0,
-        databasePath,
-        reason: 'recipe_source_refs table does not exist',
-        renamedCount: 0,
-        staleCount: 0,
-        staleRecipeCount: 0,
-        status: 'missing',
-        tableExists: false,
-        totalCount: 0,
-      };
-    }
-    const row = db
-      .prepare(
-        `SELECT
-          count(*) AS totalCount,
-          sum(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS activeCount,
-          sum(CASE WHEN status = 'stale' THEN 1 ELSE 0 END) AS staleCount,
-          sum(CASE WHEN status = 'renamed' THEN 1 ELSE 0 END) AS renamedCount,
-          count(DISTINCT CASE WHEN status = 'stale' THEN recipe_id ELSE NULL END) AS staleRecipeCount
-        FROM recipe_source_refs`
-      )
-      .get() as Record<string, unknown>;
-    const staleCount = numeric(row.staleCount);
-    return {
-      activeCount: numeric(row.activeCount),
-      databasePath,
-      reason: staleCount > 0 ? 'recipe source references contain stale files' : null,
-      renamedCount: numeric(row.renamedCount),
-      staleCount,
-      staleRecipeCount: numeric(row.staleRecipeCount),
-      status: staleCount > 0 ? 'stale' : 'ready',
-      tableExists: true,
-      totalCount: numeric(row.totalCount),
-    };
-  } catch {
-    return {
-      activeCount: 0,
-      databasePath,
-      reason: 'recipe_source_refs table could not be queried',
-      renamedCount: 0,
-      staleCount: 0,
-      staleRecipeCount: 0,
-      status: 'unavailable',
-      tableExists: true,
-      totalCount: 0,
-    };
-  } finally {
-    db.close();
-  }
+  return readCodexSourceRefState(resolver.databasePath);
 }
 
 function inspectCodexSnapshots(resolver: WorkspaceResolver): CodexSnapshotState {
-  const databasePath = resolver.databasePath;
-  if (!existsSync(databasePath)) {
-    return {
-      databasePath,
-      latest: null,
-      reason: 'database does not exist',
-      status: 'missing',
-      tableExists: false,
-      totalCount: 0,
-    };
-  }
-  const db = openReadonlyDatabase(databasePath);
-  if (!db) {
-    return {
-      databasePath,
-      latest: null,
-      reason: 'database could not be opened read-only',
-      status: 'unavailable',
-      tableExists: false,
-      totalCount: 0,
-    };
-  }
-  try {
-    if (!sqliteTableExists(db, 'bootstrap_snapshots')) {
-      return {
-        databasePath,
-        latest: null,
-        reason: 'bootstrap_snapshots table does not exist',
-        status: 'missing',
-        tableExists: false,
-        totalCount: 0,
-      };
-    }
-    const total = db
-      .prepare('SELECT count(*) AS totalCount FROM bootstrap_snapshots WHERE project_root = ?')
-      .get(resolver.projectRoot) as Record<string, unknown>;
-    const latest = db
-      .prepare(
-        `SELECT id, session_id, created_at, file_count, dimension_count, candidate_count,
-          primary_lang, is_incremental, changed_files, affected_dims
-         FROM bootstrap_snapshots
-         WHERE project_root = ? AND status = 'complete'
-         ORDER BY created_at DESC
-         LIMIT 1`
-      )
-      .get(resolver.projectRoot) as Record<string, unknown> | undefined;
-    return {
-      databasePath,
-      latest: latest
-        ? {
-            affectedDimsCount: jsonArrayLength(latest.affected_dims),
-            candidateCount: numeric(latest.candidate_count),
-            changedFilesCount: jsonArrayLength(latest.changed_files),
-            createdAt: String(latest.created_at || ''),
-            dimensionCount: numeric(latest.dimension_count),
-            fileCount: numeric(latest.file_count),
-            id: String(latest.id || ''),
-            isIncremental: numeric(latest.is_incremental) === 1,
-            primaryLang: typeof latest.primary_lang === 'string' ? latest.primary_lang : null,
-            sessionId: typeof latest.session_id === 'string' ? latest.session_id : null,
-          }
-        : null,
-      reason: latest ? null : 'no complete bootstrap snapshot exists',
-      status: latest ? 'ready' : 'missing',
-      tableExists: true,
-      totalCount: numeric(total.totalCount),
-    };
-  } catch {
-    return {
-      databasePath,
-      latest: null,
-      reason: 'bootstrap_snapshots table could not be queried',
-      status: 'unavailable',
-      tableExists: true,
-      totalCount: 0,
-    };
-  } finally {
-    db.close();
-  }
+  return readCodexSnapshotState(resolver.databasePath, resolver.projectRoot);
 }
 
 function inspectCodexVectorState(
@@ -746,35 +592,4 @@ function isDaemonJobStatus(value: unknown): value is DaemonJobStatus {
     value === 'failed' ||
     value === 'cancelled'
   );
-}
-
-function openReadonlyDatabase(databasePath: string): Database.Database | null {
-  try {
-    return new Database(databasePath, { fileMustExist: true, readonly: true });
-  } catch {
-    return null;
-  }
-}
-
-function sqliteTableExists(db: Database.Database, tableName: string): boolean {
-  const row = db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-    .get(tableName) as { name?: string } | undefined;
-  return row?.name === tableName;
-}
-
-function numeric(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : Number(value || 0) || 0;
-}
-
-function jsonArrayLength(value: unknown): number {
-  if (typeof value !== 'string') {
-    return 0;
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.length : 0;
-  } catch {
-    return 0;
-  }
 }

@@ -1,5 +1,6 @@
 import { resolveProjectRoot, WorkspaceResolver } from '@alembic/core/workspace';
 import express, { type Request } from 'express';
+import { getLatestSchemaMigrationVersion } from '#infra/database/SqliteDatabaseAccess.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
@@ -90,14 +91,7 @@ function getSchemaMigrationVersion(
   container: ReturnType<typeof getServiceContainer>
 ): string | null {
   try {
-    const db = container.get('database') as {
-      getDb?: () => { prepare: (sql: string) => { get: () => unknown } };
-    };
-    const row = db
-      .getDb?.()
-      ?.prepare('SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1')
-      .get() as { version?: string } | undefined;
-    return row?.version || null;
+    return getLatestSchemaMigrationVersion(container.get('database'));
   } catch {
     return null;
   }
