@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 const sourceImportAliases = new Map([
   ['agent', 'agent'],
   ['codex', 'codex'],
-  ['core', 'core'],
+  ['governance', 'governance'],
   ['domain', 'domain'],
   ['external', 'external'],
   ['http', 'http'],

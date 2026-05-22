@@ -233,7 +233,9 @@ export class McpServer {
       });
 
       // 注册 Gateway action handlers
-      const { registerGatewayActions } = await import('#core/gateway/GatewayActionRegistry.js');
+      const { registerGatewayActions } = await import(
+        '#governance/gateway/GatewayActionRegistry.js'
+      );
       const gateway = this.container.get('gateway');
       if (gateway) {
         registerGatewayActions(gateway, this.container);
