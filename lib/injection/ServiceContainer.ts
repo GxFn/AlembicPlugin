@@ -10,7 +10,6 @@ import { unwrapRawDb } from '@alembic/core/search';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { CacheCoordinator } from '../infrastructure/cache/CacheCoordinator.js';
 import { GraphCache } from '../infrastructure/cache/GraphCache.js';
-import * as AgentModule from './modules/AgentModule.js';
 import * as AppModule from './modules/AppModule.js';
 import * as GuardModule from './modules/GuardModule.js';
 // ─── DI Modules ──────────────────────────────────────
@@ -18,6 +17,7 @@ import * as InfraModule from './modules/InfraModule.js';
 import * as KnowledgeModule from './modules/KnowledgeModule.js';
 import { PanoramaModule } from './modules/PanoramaModule.js';
 import * as SignalModule from './modules/SignalModule.js';
+import * as SkillHooksModule from './modules/SkillHooksModule.js';
 import * as VectorModule from './modules/VectorModule.js';
 import type { ServiceMap } from './ServiceMap.js';
 /**
@@ -124,7 +124,7 @@ export class ServiceContainer {
       KnowledgeModule.register(this);
       VectorModule.register(this);
       GuardModule.register(this);
-      AgentModule.register(this);
+      SkillHooksModule.register(this);
       PanoramaModule.register(this);
 
       // v3.1: 初始化 Enhancement Pack 注册表（异步加载所有框架增强包）

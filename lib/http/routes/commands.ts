@@ -1,49 +1,14 @@
 /**
  * Commands API 路由
- * 执行 Module Map 刷新、Embed (重建索引) 等命令
+ * 保留插件 HTTP 文件操作与状态查询；旧 Dashboard compatibility operation 已移除。
  */
 
 import express, { type Request, type Response } from 'express';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import { FileReadQuery, FileSaveBody } from '../../shared/schemas/http-requests.js';
-import { DASHBOARD_COMPATIBILITY_OPERATION_IDS } from '../compatibility/operations/DashboardCompatibilityOperations.js';
-import {
-  executeDashboardCompatibilityOperation,
-  sendDashboardCompatibilityOperationResponse,
-} from '../compatibility/operations/dashboard-compatibility-operation.js';
 import { validate, validateQuery } from '../middleware/validate.js';
 
 const router = express.Router();
-
-/**
- * POST /api/v1/commands/spm-map
- * 执行 SPM 依赖映射刷新（向后兼容）
- */
-router.post('/spm-map', async (req: Request, res: Response) => {
-  const container = getServiceContainer();
-  const envelope = await executeDashboardCompatibilityOperation(
-    container,
-    req,
-    DASHBOARD_COMPATIBILITY_OPERATION_IDS.updateModuleMap,
-    { aggressive: true }
-  );
-  sendDashboardCompatibilityOperationResponse(res, envelope);
-});
-
-/**
- * POST /api/v1/commands/embed
- * 全量重建语义索引
- */
-router.post('/embed', async (req: Request, res: Response) => {
-  const container = getServiceContainer();
-  const envelope = await executeDashboardCompatibilityOperation(
-    container,
-    req,
-    DASHBOARD_COMPATIBILITY_OPERATION_IDS.rebuildSemanticIndex,
-    req.body || {}
-  );
-  sendDashboardCompatibilityOperationResponse(res, envelope);
-});
 
 /**
  * GET /api/v1/commands/status

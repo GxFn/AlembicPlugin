@@ -1,6 +1,6 @@
 /**
  * Modules API 路由 — 统一多语言模块扫描
- * 替代 spm.js，提供语言无关的模块管理、依赖图、AI 扫描
+ * 替代 spm.js，提供语言无关的模块管理、依赖图、扫描和报告读取。
  *
  * 所有端点通过 container.get('moduleService') 获取 ModuleService 实例
  */
@@ -11,19 +11,11 @@ import Logger from '@alembic/core/logging';
 import { resolveDataRoot } from '@alembic/core/workspace';
 import express, { type Request, type Response } from 'express';
 import {
-  ModuleBootstrapBody,
-  ModuleRescanBody,
   ScanFolderBody,
-  ScanProjectBody,
   ScanTargetBody,
 } from '#shared/schemas/http-requests.js';
 import { getJobStore } from '../../daemon/DaemonJobRunner.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
-import { DASHBOARD_COMPATIBILITY_OPERATION_IDS } from '../compatibility/operations/DashboardCompatibilityOperations.js';
-import {
-  executeDashboardCompatibilityOperation,
-  sendDashboardCompatibilityOperationResponse,
-} from '../compatibility/operations/dashboard-compatibility-operation.js';
 import { validate } from '../middleware/validate.js';
 import { createStreamSession, getStreamSession } from '../utils/sse-sessions.js';
 
@@ -460,42 +452,6 @@ router.get('/scan/events/:sessionId', (req, res) => {
 });
 
 /**
- * POST /api/v1/modules/scan-project
- * 全项目扫描：AI 提取候选 + Guard 审计
- */
-router.post(
-  '/scan-project',
-  validate(ScanProjectBody),
-  async (req: Request, res: Response): Promise<void> => {
-    const { options = {} } = req.body;
-
-    const container = getServiceContainer();
-    const envelope = await executeDashboardCompatibilityOperation(
-      container,
-      req,
-      DASHBOARD_COMPATIBILITY_OPERATION_IDS.scanProject,
-      { options }
-    );
-    sendDashboardCompatibilityOperationResponse(res, envelope);
-  }
-);
-
-/**
- * POST /api/v1/modules/update-map
- * 刷新模块映射（替代 spm-map）
- */
-router.post('/update-map', async (req: Request, res: Response): Promise<void> => {
-  const container = getServiceContainer();
-  const envelope = await executeDashboardCompatibilityOperation(
-    container,
-    req,
-    DASHBOARD_COMPATIBILITY_OPERATION_IDS.updateModuleMap,
-    { aggressive: true }
-  );
-  sendDashboardCompatibilityOperationResponse(res, envelope);
-});
-
-/**
  * GET /api/v1/modules/project-info
  * 项目信息（检测到的语言、框架等）
  */
@@ -511,27 +467,6 @@ router.get('/project-info', async (req: Request, res: Response): Promise<void> =
     data: info,
   });
 });
-
-/**
- * POST /api/v1/modules/bootstrap
- * 冷启动：快速骨架 + 异步逐维度填充
- */
-router.post(
-  '/bootstrap',
-  validate(ModuleBootstrapBody),
-  async (req: Request, res: Response): Promise<void> => {
-    const { maxFiles, skipGuard, contentMaxLines } = req.body || {};
-
-    const container = getServiceContainer();
-    const envelope = await executeDashboardCompatibilityOperation(
-      container,
-      req,
-      DASHBOARD_COMPATIBILITY_OPERATION_IDS.bootstrapProject,
-      { maxFiles, skipGuard, contentMaxLines }
-    );
-    sendDashboardCompatibilityOperationResponse(res, envelope);
-  }
-);
 
 router.get('/bootstrap/report/latest', async (_req: Request, res: Response): Promise<void> => {
   const dataRoot = getModulesDataRoot();
@@ -646,45 +581,6 @@ router.get('/test-mode', async (_req: Request, res: Response): Promise<void> => 
   const cfg = getTestModeConfig();
   res.json({ success: true, data: cfg });
 });
-
-/**
- * POST /api/v1/modules/bootstrap/cancel
- * 取消正在运行的 bootstrap / rescan 异步填充会话
- */
-router.post('/bootstrap/cancel', async (req: Request, res: Response): Promise<void> => {
-  const container = getServiceContainer();
-  const reason =
-    ((req.body as Record<string, unknown>)?.reason as string) || 'Cancelled by user via Dashboard';
-  const envelope = await executeDashboardCompatibilityOperation(
-    container,
-    req,
-    DASHBOARD_COMPATIBILITY_OPERATION_IDS.cancelBootstrap,
-    { reason }
-  );
-  sendDashboardCompatibilityOperationResponse(res, envelope);
-});
-
-/**
- * POST /api/v1/modules/rescan
- * 增量扫描：保留已有 Recipe，重新分析项目，补齐缺失知识
- * 使用内部 Agent pipeline 自动完成知识补齐
- */
-router.post(
-  '/rescan',
-  validate(ModuleRescanBody),
-  async (req: Request, res: Response): Promise<void> => {
-    const { reason, dimensions } = req.body || {};
-
-    const container = getServiceContainer();
-    const envelope = await executeDashboardCompatibilityOperation(
-      container,
-      req,
-      DASHBOARD_COMPATIBILITY_OPERATION_IDS.rescanProject,
-      { reason, dimensions }
-    );
-    sendDashboardCompatibilityOperationResponse(res, envelope);
-  }
-);
 
 function getModulesDataRoot() {
   const container = getServiceContainer();

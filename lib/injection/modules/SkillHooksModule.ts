@@ -1,9 +1,8 @@
 /**
- * AgentModule — plugin-mode compatibility registration.
+ * SkillHooksModule — Codex plugin Skill lifecycle registration.
  *
- * AlembicPlugin no longer registers local agent runtime or terminal execution
- * services. Keep SkillHooks because Codex plugin delivery still needs skill
- * lifecycle hooks.
+ * AlembicPlugin 不再注册本地 agent runtime 或 terminal execution 服务；
+ * 这里仅保留 Codex-facing SkillHooks，支撑插件模式下的 Skill 加载与生命周期闭环。
  */
 
 import { SkillHooks } from '../../service/skills/SkillHooks.js';
