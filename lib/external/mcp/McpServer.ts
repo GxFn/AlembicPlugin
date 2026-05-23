@@ -18,7 +18,7 @@
  * 整合路由 → handlers/consolidated.js
  */
 
-import { CapabilityProbe } from '@alembic/core/core/capability/CapabilityProbe';
+import { CapabilityProbe } from '@alembic/core/core/capability';
 import Logger from '@alembic/core/logging';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

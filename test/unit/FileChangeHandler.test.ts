@@ -9,7 +9,8 @@ import { FileChangeHandler } from '../../lib/service/evolution/FileChangeHandler
 const mockAssessFileImpact = vi.fn();
 const mockExtractRecipeTokens = vi.fn(() => ({ tokens: new Set(), sources: new Map() }));
 
-vi.mock('@alembic/core/service/evolution/ContentImpactAnalyzer', () => ({
+vi.mock('@alembic/core/evolution', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@alembic/core/evolution')>()),
   assessFileImpact: (...args: unknown[]) => mockAssessFileImpact(...args),
   extractRecipeTokens: (...args: unknown[]) => mockExtractRecipeTokens(...args),
 }));

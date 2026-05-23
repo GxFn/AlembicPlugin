@@ -10,7 +10,7 @@
 import {
   BootstrapDedup,
   type CandidateSummary,
-} from '@alembic/core/service/bootstrap/BootstrapDedup';
+} from '@alembic/core/service/bootstrap';
 import { describe, expect, it } from 'vitest';
 
 function makeSummary(overrides: Partial<CandidateSummary> = {}): CandidateSummary {

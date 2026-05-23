@@ -1,7 +1,7 @@
 import {
   assessDiffImpact,
   type RecipeTokens,
-} from '@alembic/core/service/evolution/ContentImpactAnalyzer';
+} from '@alembic/core/evolution';
 import {
   extractApiTokens,
   extractCodeBlocksFromMarkdown,

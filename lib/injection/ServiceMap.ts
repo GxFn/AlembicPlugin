@@ -60,10 +60,8 @@ import type {
 } from '@alembic/core/repositories';
 import type { HybridRetriever, SearchEngine } from '@alembic/core/search';
 // ── Context Types ──
-import type { FeedbackCollector } from '@alembic/core/service/quality/FeedbackCollector';
-import type { QualityScorer } from '@alembic/core/service/quality/QualityScorer';
-import type { RecipeCandidateValidator } from '@alembic/core/service/recipe/RecipeCandidateValidator';
-import type { RecipeParser } from '@alembic/core/service/recipe/RecipeParser';
+import type { FeedbackCollector, QualityScorer } from '@alembic/core/service/quality';
+import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/service/recipe';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
 // ── Domain Types ──
 // ── External Types ──

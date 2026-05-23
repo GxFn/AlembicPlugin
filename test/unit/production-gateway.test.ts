@@ -2,7 +2,7 @@
  * RecipeProductionGateway — 统一生产入口单元测试
  */
 
-import { BootstrapDedup } from '@alembic/core/service/bootstrap/BootstrapDedup';
+import { BootstrapDedup } from '@alembic/core/service/bootstrap';
 import {
   type CreateRecipeItem,
   type GatewayDeps,
