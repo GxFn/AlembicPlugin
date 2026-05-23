@@ -5,7 +5,6 @@ import { type CodexRuntimeContext, resolveCodexRuntimeContext } from './runtime/
 export const CODEX_REQUIRED_SKILLS = [
   'alembic',
   'alembic-create',
-  'alembic-devdocs',
   'alembic-guard',
   'alembic-recipes',
   'alembic-structure',

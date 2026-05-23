@@ -76,7 +76,6 @@ const SKILL_USE_CASES: Record<string, string> = {
   'alembic-guard': '代码规范审计（Guard 规则检查）',
   'alembic-recipes': '查询/使用项目标准（Recipe 上下文检索）',
   'alembic-structure': '了解项目结构（Target / 依赖图谱 / 知识图谱）',
-  'alembic-devdocs': '保存开发文档（架构决策、调试报告、设计文档）',
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -636,7 +635,6 @@ function _getRelatedSkills(skillName: string) {
     'alembic-guard': ['alembic-recipes'],
     'alembic-recipes': ['alembic-guard', 'alembic-structure', 'alembic-create'],
     'alembic-structure': ['alembic-recipes', 'alembic-create'],
-    'alembic-devdocs': ['alembic-recipes', 'alembic-create'],
   };
   return (relations as Record<string, string[]>)[skillName] || [];
 }

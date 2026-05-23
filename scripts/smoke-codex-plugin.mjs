@@ -505,7 +505,6 @@ function simulateMarketplaceInstall({ packageRoot, packageName, packageVersion }
   for (const skill of [
     'alembic',
     'alembic-create',
-    'alembic-devdocs',
     'alembic-guard',
     'alembic-recipes',
     'alembic-structure',

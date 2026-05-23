@@ -432,7 +432,6 @@ for (const keyword of [
 for (const skill of [
   'alembic',
   'alembic-create',
-  'alembic-devdocs',
   'alembic-guard',
   'alembic-recipes',
   'alembic-structure',
