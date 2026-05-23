@@ -97,6 +97,10 @@ describe('Integration: ServiceContainer', () => {
       expect(container.get('auditLogger')).toBeDefined();
     });
 
+    test('should not expose stale auditRepository contract', () => {
+      expect(() => container.get('auditRepository')).toThrow("Service 'auditRepository' not found");
+    });
+
     test('should resolve gateway', () => {
       expect(container.get('gateway')).toBeDefined();
     });

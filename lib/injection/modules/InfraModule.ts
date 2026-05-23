@@ -25,7 +25,6 @@ import Gateway from '../../governance/gateway/Gateway.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
 import { getRealtimeService as _getRealtimeService } from '../../infrastructure/realtime/RealtimeService.js';
-import { AuditRepositoryImpl } from '../../repository/audit/AuditRepository.js';
 import { BootstrapTaskManager } from '../../service/bootstrap/BootstrapTaskManager.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -112,12 +111,6 @@ export function register(c: ServiceContainer) {
 
   c.singleton('guardViolationRepository', (ct: ServiceContainer) => {
     return getCoreRepositories(ct).guardViolationRepository;
-  });
-
-  c.singleton('auditRepository', (ct: ServiceContainer) => {
-    const db = ct.get('database') as unknown as { getDrizzle(): unknown };
-    const drizzle = db.getDrizzle();
-    return new AuditRepositoryImpl(drizzle as ConstructorParameters<typeof AuditRepositoryImpl>[0]);
   });
 
   c.singleton('memoryRepository', (ct: ServiceContainer) => {

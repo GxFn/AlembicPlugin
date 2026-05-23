@@ -72,7 +72,6 @@ import type Gateway from '../governance/gateway/Gateway.js';
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
 import type { CacheCoordinator } from '../infrastructure/cache/CacheCoordinator.js';
-import type { AuditRepositoryImpl } from '../repository/audit/AuditRepository.js';
 import type { BootstrapTaskManager } from '../service/bootstrap/BootstrapTaskManager.js';
 import type { ModuleService } from '../service/module/ModuleService.js';
 import type { ResidentSearchClient } from '../service/search/ResidentSearchClient.js';
@@ -104,7 +103,6 @@ export interface ServiceMap {
   codeEntityRepository: CodeEntityRepository;
   bootstrapRepository: BootstrapRepository;
   guardViolationRepository: GuardViolationRepository;
-  auditRepository: AuditRepositoryImpl;
   memoryRepository: MemoryRepositoryImpl;
   sessionRepository: SessionRepository;
   proposalRepository: EvolutionProposalRepository;
