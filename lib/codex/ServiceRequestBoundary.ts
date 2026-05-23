@@ -14,6 +14,14 @@ export interface CodexServiceBoundaryDecision {
   tool: string;
 }
 
+const RESIDENT_SERVICE_REQUEST_TOOLS = new Set([
+  'alembic_search',
+  'alembic_codex_dashboard',
+  'alembic_codex_bootstrap',
+  'alembic_codex_rescan',
+  'alembic_codex_job',
+]);
+
 export function resolveCodexServiceRequestBoundary(
   tool: string,
   args: Record<string, unknown>
@@ -27,7 +35,7 @@ export function resolveCodexServiceRequestBoundary(
     operation,
     owner: 'alembic-plugin',
     reason: buildPluginOwnedReason(tool, operation),
-    residentServiceRequested: tool === 'alembic_search',
+    residentServiceRequested: RESIDENT_SERVICE_REQUEST_TOOLS.has(tool),
     sharedContractCandidate: true,
     tool,
   };
@@ -45,6 +53,14 @@ function buildPluginOwnedReason(tool: string, operation: string | null): string 
   }
   if (tool === 'alembic_search') {
     return 'alembic_search is Codex-facing and runs in AlembicPlugin; semantic/vector enhancement must use the explicit Alembic resident /api/v1/search API.';
+  }
+  if (
+    tool === 'alembic_codex_dashboard' ||
+    tool === 'alembic_codex_bootstrap' ||
+    tool === 'alembic_codex_rescan' ||
+    tool === 'alembic_codex_job'
+  ) {
+    return `${tool} is Codex-facing and owned by AlembicPlugin; local Alembic is requested only through explicit resident service APIs.`;
   }
   return 'Codex-facing Alembic tools run in AlembicPlugin; the daemon MCP compatibility bridge is removed.';
 }

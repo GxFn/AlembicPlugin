@@ -13,9 +13,9 @@
 
 import { groupByKind, type SlimSearchResult, slimSearchResult } from '@alembic/core/search';
 import type {
+  AlembicResidentServiceClient,
   ResidentSearchAttemptMeta,
-  ResidentSearchClient,
-} from '#service/search/ResidentSearchClient.js';
+} from '#service/resident/AlembicResidentServiceClient.js';
 import { envelope } from '../envelope.js';
 import type { McpContext, SearchArgs, SearchResultItem } from './types.js';
 
@@ -34,9 +34,9 @@ function getSearchEngine(ctx: McpContext) {
   }
 }
 
-function getResidentSearchClient(ctx: McpContext): ResidentSearchClient | null {
+function getResidentServiceClient(ctx: McpContext): AlembicResidentServiceClient | null {
   try {
-    return ctx.container.get('residentSearchClient') as ResidentSearchClient;
+    return ctx.container.get('residentServiceClient') as AlembicResidentServiceClient;
   } catch {
     return null;
   }
@@ -80,7 +80,7 @@ function filterByKind(items: SearchResultItem[], kind: string) {
 export async function search(ctx: McpContext, args: SearchArgs) {
   const t0 = Date.now();
   const engine = getSearchEngine(ctx) || (await getFallbackEngine(ctx));
-  const residentSearchClient = getResidentSearchClient(ctx);
+  const residentServiceClient = getResidentServiceClient(ctx);
   const query = args.query;
   const mode = args.mode || 'auto';
   const kind = args.kind || args.type || 'all';
@@ -109,7 +109,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   // semantic 模式也过采样 2x（向量搜索可能有噪声）
   const engineLimit = mode === 'semantic' ? recallLimit * 2 : recallLimit;
 
-  const residentAttempt = await tryResidentSearch(residentSearchClient, {
+  const residentAttempt = await tryResidentSearch(residentServiceClient, {
     kind,
     limit: engineLimit,
     mode,
@@ -201,7 +201,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
 }
 
 async function tryResidentSearch(
-  residentSearchClient: ResidentSearchClient | null,
+  residentServiceClient: AlembicResidentServiceClient | null,
   request: {
     kind: string;
     limit: number;
@@ -210,11 +210,11 @@ async function tryResidentSearch(
     rank: boolean;
   }
 ): Promise<{ items: SearchResultItem[]; meta: ResidentSearchAttemptMeta } | null> {
-  if (!residentSearchClient || !shouldAskResidentSearch(request.mode)) {
+  if (!residentServiceClient || !shouldAskResidentSearch(request.mode)) {
     return null;
   }
   try {
-    const result = await residentSearchClient.search({
+    const result = await residentServiceClient.search({
       query: request.query,
       mode: request.mode,
       limit: request.limit,

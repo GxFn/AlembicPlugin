@@ -1,6 +1,6 @@
-import type { DaemonState } from '@alembic/core/daemon';
+import { createAlembicResidentServiceStatus, type DaemonState } from '@alembic/core/daemon';
 import { describe, expect, it, vi } from 'vitest';
-import { ResidentSearchClient } from '../../lib/service/search/ResidentSearchClient.js';
+import { AlembicResidentServiceClient } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 function daemonState(): DaemonState {
@@ -24,6 +24,45 @@ function daemonState(): DaemonState {
   };
 }
 
+function residentHealthPayload() {
+  return {
+    success: true,
+    data: {
+      residentService: createAlembicResidentServiceStatus({
+        apiBaseUrl: 'http://127.0.0.1:4321',
+        owner: 'alembic',
+        route: 'local-alembic-daemon',
+        capabilityOverrides: {
+          'dashboard.handoff': {
+            available: true,
+            message: 'Dashboard handoff available.',
+          },
+          'jobs.internal-ai.bootstrap': {
+            available: true,
+            message: 'Bootstrap jobs available.',
+          },
+          'jobs.internal-ai.rescan': {
+            available: true,
+            message: 'Rescan jobs available.',
+          },
+          'search.keyword': {
+            available: true,
+            message: 'Keyword search available.',
+          },
+          'search.semantic': {
+            available: true,
+            message: 'Semantic search available.',
+          },
+          'status.health': {
+            available: true,
+            message: 'Health available.',
+          },
+        },
+      }),
+    },
+  };
+}
+
 function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
   if (typeof input === 'string') {
     return new URL(input);
@@ -34,11 +73,17 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
   return new URL(input.url);
 }
 
-describe('ResidentSearchClient', () => {
+describe('AlembicResidentServiceClient', () => {
   it('normalizes Codex auto mode to daemon semantic mode while preserving requested mode metadata', async () => {
     const requestedUrls: URL[] = [];
     const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
       requestedUrls.push(fetchInputUrl(input));
+      if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
       return new Response(
         JSON.stringify({
           success: true,
@@ -57,7 +102,7 @@ describe('ResidentSearchClient', () => {
       );
     }) as unknown as typeof fetch;
 
-    const client = new ResidentSearchClient({
+    const client = new AlembicResidentServiceClient({
       fetchImpl,
       projectRoot: '/tmp/project',
       readState: () => daemonState(),
@@ -65,7 +110,9 @@ describe('ResidentSearchClient', () => {
 
     const result = await client.search({ query: 'VideoURLPreloader', mode: 'auto', limit: 3 });
 
-    expect(requestedUrls[0]?.searchParams.get('mode')).toBe('semantic');
+    expect(requestedUrls[0]?.pathname).toBe('/api/v1/daemon/health');
+    expect(requestedUrls[1]?.pathname).toBe('/api/v1/search');
+    expect(requestedUrls[1]?.searchParams.get('mode')).toBe('semantic');
     expect(result.meta.requestedMode).toBe('auto');
     expect(result.meta.residentRequestMode).toBe('semantic');
     expect(result.meta.searchMeta).toMatchObject({
@@ -77,7 +124,13 @@ describe('ResidentSearchClient', () => {
   });
 
   it('does not claim resident vector availability when semantic telemetry is missing', async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
       return new Response(
         JSON.stringify({
           success: true,
@@ -90,7 +143,7 @@ describe('ResidentSearchClient', () => {
       );
     }) as unknown as typeof fetch;
 
-    const client = new ResidentSearchClient({
+    const client = new AlembicResidentServiceClient({
       fetchImpl,
       projectRoot: '/tmp/project',
       readState: () => daemonState(),

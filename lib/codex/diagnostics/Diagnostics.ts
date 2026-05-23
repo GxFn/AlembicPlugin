@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import {
@@ -77,6 +78,7 @@ export interface CodexRuntimeDiagnosticsOptions {
   hostProjectAlignment?: CodexHostProjectAlignment;
   moduleBoundary?: CodexModuleBoundaryStatus;
   projectRootResolution?: CodexProjectRootResolution;
+  residentService?: AlembicResidentServiceProbe;
 }
 
 export interface CodexDiagnosticIssue {
@@ -206,6 +208,7 @@ export function buildCodexRuntimeDiagnostics(
     autoInit: options.autoInit || null,
     hostProjectAlignment: options.hostProjectAlignment || null,
     enhancementRoute,
+    residentService: options.residentService || null,
     moduleBoundary,
     gitDiffCheckpoint: readHealthGitDiffCheckpoint(daemonStatus.health),
     plugin,

@@ -1,9 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import {
   type AlembicFileMonitorMode,
+  type AlembicResidentServiceStatus,
+  type AlembicResidentServiceStatusSummary,
   type AlembicRuntimeCapabilitySummary,
   type AlembicRuntimeRouteKind,
   normalizeAlembicFileMonitorMode,
+  normalizeAlembicResidentServiceStatus,
+  summarizeAlembicResidentServiceStatus,
   summarizeAlembicRuntimeCapabilities,
 } from '@alembic/core/daemon';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
@@ -78,6 +82,10 @@ export interface CodexEnhancementDaemonProbe {
   healthVersion: string | null;
   packageName: string | null;
   ready: boolean;
+  residentService: {
+    status: AlembicResidentServiceStatus;
+    summary: AlembicResidentServiceStatusSummary;
+  } | null;
   route: string | null;
   runtimeBoundary: CodexDaemonRuntimeBoundarySummary;
   status: string;
@@ -208,18 +216,25 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
   const data = asRecord(status.health?.data);
   const enhancement = asRecord(data?.enhancement);
   const capabilities = asRecord(data?.capabilities);
+  const residentServiceStatus = data?.residentService
+    ? normalizeAlembicResidentServiceStatus(data.residentService)
+    : null;
   const runtimeBoundary = summarizeDaemonRuntimeBoundary(capabilities, data);
-  const capabilitySummary = mergeCapabilitySummaryWithRuntimeBoundary(
-    summarizeAlembicRuntimeCapabilities(capabilities),
-    runtimeBoundary
+  const capabilitySummary = mergeCapabilitySummaryWithResidentService(
+    mergeCapabilitySummaryWithRuntimeBoundary(
+      summarizeAlembicRuntimeCapabilities(capabilities),
+      runtimeBoundary
+    ),
+    residentServiceStatus
   );
   const route =
-    firstString(enhancement?.route, runtimeBoundary.route) || inferRouteFromReadyDaemon(status);
+    firstString(residentServiceStatus?.route, enhancement?.route, runtimeBoundary.route) ||
+    inferRouteFromReadyDaemon(status);
   const dashboardUrl = firstString(
     capabilitySummary.dashboardUrl,
     runtimeBoundary.dashboard.url,
     data?.dashboardUrl,
-    isLocalAlembicDaemonRoute(route) || capabilitySummary.dashboardAvailable === true
+    isLocalAlembicDaemonRoute(route) && capabilitySummary.dashboardAvailable === true
       ? status.state?.dashboardUrl
       : null
   );
@@ -234,6 +249,12 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
     healthVersion: firstString(data?.version),
     packageName: firstString(enhancement?.packageName),
     ready: status.ready,
+    residentService: residentServiceStatus
+      ? {
+          status: residentServiceStatus,
+          summary: summarizeAlembicResidentServiceStatus(residentServiceStatus),
+        }
+      : null,
     route: route || inferRouteFromReadyDaemon(status),
     runtimeBoundary,
     status: status.status,
@@ -377,6 +398,55 @@ function mergeCapabilitySummaryWithRuntimeBoundary(
     internalAiAvailable: summary.internalAiAvailable ?? runtimeBoundary.internalAi.available,
     jobsAvailable: summary.jobsAvailable ?? (runtimeBoundary.jobs.kinds.length > 0 ? true : null),
     jobKinds: summary.jobKinds.length > 0 ? summary.jobKinds : runtimeBoundary.jobs.kinds,
+  };
+}
+
+function mergeCapabilitySummaryWithResidentService(
+  summary: AlembicRuntimeCapabilitySummary,
+  residentService: AlembicResidentServiceStatus | null
+): AlembicRuntimeCapabilitySummary {
+  if (!residentService) {
+    return summary;
+  }
+  const available = (feature: keyof AlembicResidentServiceStatus['capabilities']) =>
+    residentService.capabilities[feature]?.available === true;
+  const unavailable = (feature: keyof AlembicResidentServiceStatus['capabilities']) =>
+    residentService.capabilities[feature]?.available === false;
+  const jobKinds = [
+    ...(available('jobs.internal-ai.bootstrap') ||
+    available('jobs.host-agent-recoverable.bootstrap')
+      ? ['bootstrap']
+      : []),
+    ...(available('jobs.internal-ai.rescan') || available('jobs.host-agent-recoverable.rescan')
+      ? ['rescan']
+      : []),
+  ];
+  const dashboardAvailable = available('dashboard.handoff')
+    ? true
+    : unavailable('dashboard.handoff')
+      ? false
+      : null;
+  const fileMonitorAvailable = available('file-monitor.git-worktree')
+    ? true
+    : unavailable('file-monitor.git-worktree')
+      ? false
+      : null;
+  const internalAiAvailable =
+    available('jobs.internal-ai.bootstrap') || available('jobs.internal-ai.rescan')
+      ? true
+      : unavailable('jobs.internal-ai.bootstrap') && unavailable('jobs.internal-ai.rescan')
+        ? false
+        : null;
+
+  return {
+    apiAvailable: summary.apiAvailable ?? (available('status.health') ? true : null),
+    dashboardAvailable: summary.dashboardAvailable ?? dashboardAvailable,
+    dashboardUrl: summary.dashboardUrl,
+    fileMonitorAvailable: summary.fileMonitorAvailable ?? fileMonitorAvailable,
+    fileMonitorMode: summary.fileMonitorMode,
+    internalAiAvailable: summary.internalAiAvailable ?? internalAiAvailable,
+    jobsAvailable: summary.jobsAvailable ?? (jobKinds.length > 0 ? true : null),
+    jobKinds: summary.jobKinds.length > 0 ? summary.jobKinds : jobKinds,
   };
 }
 

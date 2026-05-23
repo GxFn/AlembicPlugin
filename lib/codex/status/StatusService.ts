@@ -1,10 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { DEFAULT_FOLDER_NAMES, WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
+import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
 import { buildCodexRuntimeDiagnostics } from '../diagnostics/Diagnostics.js';
 import {
   buildCodexEnhancementRouteChoice,
@@ -94,6 +96,7 @@ export interface CodexStatusData {
   };
   projectRoot: string;
   registry: Record<string, unknown>;
+  residentService: AlembicResidentServiceProbe;
   workspace: {
     candidatesDir: string;
     configExists: boolean;
@@ -132,6 +135,9 @@ export async function buildCodexStatus(
   const daemonStatus = await supervisor.status(projectRoot);
   const knowledge = inspectCodexKnowledge(projectRoot);
   const runtime = options.runtime || resolveCodexRuntimeContext();
+  const residentService = await new AlembicResidentServiceClient({ projectRoot }).probe({
+    daemonStatus,
+  });
   const enhancementRoute = buildCodexEnhancementRouteChoice({
     daemonStatus,
     runtime,
@@ -157,6 +163,7 @@ export async function buildCodexStatus(
     hostProjectAlignment,
     moduleBoundary,
     projectRootResolution,
+    residentService,
   });
   const policyInput = {
     coreTools: [],
@@ -199,6 +206,7 @@ export async function buildCodexStatus(
       projectId: facts.projectId,
       expectedProjectId: facts.expectedProjectId,
     },
+    residentService,
     workspace: {
       mode: facts.mode,
       ghost: facts.ghost,

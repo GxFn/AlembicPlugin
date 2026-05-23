@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { search } from '../../lib/external/mcp/handlers/search.js';
 import type { McpContext } from '../../lib/external/mcp/handlers/types.js';
-import type { ResidentSearchResult } from '../../lib/service/search/ResidentSearchClient.js';
+import type { ResidentSearchResult } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 
 function item(id: string, title: string, score: number) {
   return {
@@ -25,7 +25,7 @@ function context(input: {
         if (name === 'searchEngine') {
           return { search: input.engineSearch ?? vi.fn(async () => ({ items: [] })) };
         }
-        if (name === 'residentSearchClient') {
+        if (name === 'residentServiceClient') {
           return { search: input.residentSearch ?? vi.fn(async () => ({ items: [] })) };
         }
         throw new Error(`Unexpected service: ${name}`);

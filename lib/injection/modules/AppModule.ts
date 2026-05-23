@@ -15,7 +15,7 @@ import { FeedbackCollector, QualityScorer } from '@alembic/core/service/quality'
 import { RecipeCandidateValidator, RecipeParser } from '@alembic/core/service/recipe';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { ModuleService } from '../../service/module/ModuleService.js';
-import { ResidentSearchClient } from '../../service/search/ResidentSearchClient.js';
+import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
 import { PrimeSearchPipeline } from '../../service/task/PrimeSearchPipeline.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -61,9 +61,9 @@ export function register(c: ServiceContainer) {
 
   // ═══ PrimeSearchPipeline (for prime multi-query search) ═══
 
-  c.singleton('residentSearchClient', (ct: ServiceContainer) => {
+  c.singleton('residentServiceClient', (ct: ServiceContainer) => {
     const projectRoot = resolveProjectRoot(ct);
-    return new ResidentSearchClient({ projectRoot });
+    return new AlembicResidentServiceClient({ projectRoot });
   });
 
   c.singleton(
@@ -71,7 +71,7 @@ export function register(c: ServiceContainer) {
     (ct: ServiceContainer) =>
       new PrimeSearchPipeline(
         ct.get('searchEngine') as unknown as ConstructorParameters<typeof PrimeSearchPipeline>[0],
-        { residentSearchClient: ct.get('residentSearchClient') }
+        { residentServiceClient: ct.get('residentServiceClient') }
       )
   );
 }

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   ResidentSearchAttemptMeta,
   ResidentSearchResult,
-} from '../../lib/service/search/ResidentSearchClient.js';
+} from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import type { ExtractedIntent } from '../../lib/service/task/IntentExtractor.js';
 import { PrimeSearchPipeline } from '../../lib/service/task/PrimeSearchPipeline.js';
 
@@ -70,7 +70,7 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
         return { items: [] };
       }),
     };
-    const residentSearchClient = {
+    const residentServiceClient = {
       search: vi.fn(
         async (): Promise<ResidentSearchResult> => ({
           items: [item('resident-1', 'Resident vector recipe', 0.95)],
@@ -79,10 +79,10 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       ),
     };
 
-    const pipeline = new PrimeSearchPipeline(engine, { residentSearchClient });
+    const pipeline = new PrimeSearchPipeline(engine, { residentServiceClient });
     const result = await pipeline.search(intent());
 
-    expect(residentSearchClient.search).toHaveBeenCalledWith({
+    expect(residentServiceClient.search).toHaveBeenCalledWith({
       query: 'VideoURLPreloader async bridge',
       mode: 'semantic',
       limit: 6,
@@ -106,7 +106,7 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
         return { items: [] };
       }),
     };
-    const residentSearchClient = {
+    const residentServiceClient = {
       search: vi.fn(
         async (): Promise<ResidentSearchResult> => ({
           items: [],
@@ -124,7 +124,7 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       ),
     };
 
-    const pipeline = new PrimeSearchPipeline(engine, { residentSearchClient });
+    const pipeline = new PrimeSearchPipeline(engine, { residentServiceClient });
     const result = await pipeline.search(intent());
 
     expect(result?.relatedKnowledge.map((entry) => entry.id)).toEqual(['embedded-1']);
@@ -140,7 +140,7 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
     const engine = {
       search: vi.fn(async () => ({ items: [] })),
     };
-    const residentSearchClient = {
+    const residentServiceClient = {
       search: vi.fn(
         async (): Promise<ResidentSearchResult> => ({
           items: [],
@@ -158,7 +158,7 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       ),
     };
 
-    const pipeline = new PrimeSearchPipeline(engine, { residentSearchClient });
+    const pipeline = new PrimeSearchPipeline(engine, { residentServiceClient });
     const result = await pipeline.search(intent());
 
     expect(result).toMatchObject({
@@ -185,13 +185,13 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
         return { items: [] };
       }),
     };
-    const residentSearchClient = {
+    const residentServiceClient = {
       search: vi.fn(async () => {
         throw new Error('resident request failed');
       }),
     };
 
-    const pipeline = new PrimeSearchPipeline(engine, { residentSearchClient });
+    const pipeline = new PrimeSearchPipeline(engine, { residentServiceClient });
     const result = await pipeline.search(intent());
 
     expect(result?.relatedKnowledge.map((entry) => entry.id)).toEqual(['embedded-1']);

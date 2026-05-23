@@ -13,7 +13,7 @@ import type {
   ResidentSearchAttemptMeta,
   ResidentSearchRequest,
   ResidentSearchResult,
-} from '../search/ResidentSearchClient.js';
+} from '../resident/AlembicResidentServiceClient.js';
 import type { ExtractedIntent } from './IntentExtractor.js';
 
 // ── Types ───────────────────────────────────────────
@@ -54,12 +54,12 @@ interface SearchEngineLike {
   ): Promise<{ items?: unknown[] }>;
 }
 
-interface ResidentSearchClientLike {
+interface ResidentServiceClientLike {
   search(request: ResidentSearchRequest): Promise<ResidentSearchResult>;
 }
 
 interface PrimeSearchPipelineOptions {
-  residentSearchClient?: ResidentSearchClientLike | null;
+  residentServiceClient?: ResidentServiceClientLike | null;
 }
 
 // ── Constants ───────────────────────────────────────
@@ -74,13 +74,13 @@ const GAP_DROP_RATIO = 0.25;
 // ── PrimeSearchPipeline ─────────────────────────────
 
 export class PrimeSearchPipeline {
-  #residentSearchClient: ResidentSearchClientLike | null;
+  #residentServiceClient: ResidentServiceClientLike | null;
   #search: SearchEngineLike;
   #sessionQueries: string[] = [];
 
   constructor(searchEngine: SearchEngineLike, options: PrimeSearchPipelineOptions = {}) {
     this.#search = searchEngine;
-    this.#residentSearchClient = options.residentSearchClient ?? null;
+    this.#residentServiceClient = options.residentServiceClient ?? null;
   }
 
   /**
@@ -296,11 +296,11 @@ export class PrimeSearchPipeline {
   }
 
   async #residentSemanticSearch(query: string): Promise<ResidentSearchResult | null> {
-    if (!this.#residentSearchClient) {
+    if (!this.#residentServiceClient) {
       return null;
     }
     try {
-      return await this.#residentSearchClient.search({
+      return await this.#residentServiceClient.search({
         query,
         mode: 'semantic',
         limit: 6,

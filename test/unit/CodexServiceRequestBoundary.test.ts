@@ -35,6 +35,22 @@ describe('Codex service request boundary', () => {
     });
   });
 
+  it('marks dashboard and recoverable job tools as explicit resident service requests', () => {
+    for (const tool of [
+      'alembic_codex_dashboard',
+      'alembic_codex_bootstrap',
+      'alembic_codex_rescan',
+      'alembic_codex_job',
+    ]) {
+      expect(resolveCodexServiceRequestBoundary(tool, {})).toMatchObject({
+        executionPath: 'plugin-owned-codex-facing',
+        owner: 'alembic-plugin',
+        residentServiceRequested: true,
+        tool,
+      });
+    }
+  });
+
   it('keeps other Codex-facing tools in AlembicPlugin after removing the MCP bridge', () => {
     expect(resolveCodexServiceRequestBoundary('alembic_health', {})).toMatchObject({
       executionPath: 'plugin-owned-codex-facing',
