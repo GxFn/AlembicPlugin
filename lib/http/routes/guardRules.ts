@@ -18,6 +18,13 @@ import { validate } from '../middleware/validate.js';
 import { getContext, safeInt } from '../utils/routeHelpers.js';
 
 const router = express.Router();
+type RecipeRuleImporter = {
+  importRulesFromRecipe(
+    recipeId: string,
+    rules: unknown,
+    context: unknown
+  ): Promise<unknown[]> | unknown[];
+};
 
 /** 将 Recipe 实体 → Guard 规则扁平格式（HTTP/UI Guard 视图使用） */
 function mapRecipeToGuardRule(r: Record<string, unknown>) {
@@ -321,9 +328,9 @@ router.post(
     const guardService = container.get('guardService');
     const context = getContext(req);
 
-    const importedRules = (await (
-      guardService as unknown as Record<string, Function>
-    ).importRulesFromRecipe(recipeId, rules, context)) as unknown[];
+    const importedRules = await (
+      guardService as unknown as RecipeRuleImporter
+    ).importRulesFromRecipe(recipeId, rules, context);
     res.status(201).json({
       success: true,
       data: { importedRules, count: importedRules.length },
@@ -348,11 +355,11 @@ router.get('/compliance', async (req: Request, res: Response) => {
 
   const report = await reporter.generate(projectRoot, {
     qualityGate: {
-      maxErrors: parseInt(req.query.maxErrors as string) || 0,
-      maxWarnings: parseInt(req.query.maxWarnings as string) || 20,
-      minScore: parseInt(req.query.minScore as string) || 70,
+      maxErrors: parseInt(req.query.maxErrors as string, 10) || 0,
+      maxWarnings: parseInt(req.query.maxWarnings as string, 10) || 20,
+      minScore: parseInt(req.query.minScore as string, 10) || 70,
     },
-    maxFiles: parseInt(req.query.maxFiles as string) || 500,
+    maxFiles: parseInt(req.query.maxFiles as string, 10) || 500,
   });
 
   res.json({ success: true, data: report });

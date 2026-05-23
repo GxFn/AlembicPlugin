@@ -94,11 +94,13 @@ if (malformedEscapeHatches.length > 0) {
   process.exit(1);
 }
 
-console.log('✅  Repository boundary check passed');
+const writeLine = (message) => process.stdout.write(`${message}\n`);
+
+writeLine('✅  Repository boundary check passed');
 
 // Report escape-hatch stats (always, regardless of violations)
-console.log(`📊  @escape-hatch count: ${escapeHatchCount} / ${ESCAPE_HATCH_THRESHOLD} threshold`);
-console.log(
+writeLine(`📊  @escape-hatch count: ${escapeHatchCount} / ${ESCAPE_HATCH_THRESHOLD} threshold`);
+writeLine(
   `   permanent: ${permanentEscapeHatches.length}, temporary: ${temporaryEscapeHatches.length}`
 );
 if (escapeHatchCount > ESCAPE_HATCH_THRESHOLD) {

@@ -20,8 +20,6 @@ export interface EnricherConfig {
 }
 
 export class ContextualEnricher implements VectorChunkEnricher {
-  constructor(_config: EnricherConfig = {}) {}
-
   async enrichChunks(_document: DocumentInfo, chunks: ChunkData[]): Promise<ChunkData[]> {
     return chunks;
   }

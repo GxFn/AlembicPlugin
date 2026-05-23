@@ -22,7 +22,7 @@ export interface FileChangeSubscriber {
   /** 订阅者名称（用于日志） */
   readonly name: string;
   /** 处理文件变更事件 */
-  onFileChanges(events: FileChangeEvent[]): Promise<ReactiveEvolutionReport | void>;
+  onFileChanges(events: FileChangeEvent[]): Promise<unknown>;
 }
 
 /** 空 report 常量（无订阅者 / 无事件时返回） */
@@ -61,6 +61,19 @@ function mergeReports(
     details,
     eventSource: a.eventSource ?? b.eventSource,
   };
+}
+
+function isReactiveEvolutionReport(value: unknown): value is ReactiveEvolutionReport {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as ReactiveEvolutionReport).fixed === 'number' &&
+    typeof (value as ReactiveEvolutionReport).deprecated === 'number' &&
+    typeof (value as ReactiveEvolutionReport).skipped === 'number' &&
+    typeof (value as ReactiveEvolutionReport).needsReview === 'number' &&
+    typeof (value as ReactiveEvolutionReport).suggestReview === 'boolean' &&
+    Array.isArray((value as ReactiveEvolutionReport).details)
+  );
 }
 
 /** 根据批次事件统计主要来源（出现最多者；均缺省时返回 undefined）。 */
@@ -121,7 +134,7 @@ export class FileChangeDispatcher {
         continue;
       }
       const value = result.value;
-      if (value && typeof value === 'object' && 'details' in value) {
+      if (isReactiveEvolutionReport(value)) {
         merged = mergeReports(merged, value);
       }
     }

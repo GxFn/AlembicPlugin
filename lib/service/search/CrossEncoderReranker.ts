@@ -20,8 +20,6 @@ interface RerankCandidate extends SearchResultItem {
 }
 
 export class CrossEncoderReranker implements SearchCrossEncoder {
-  constructor(_opts: Record<string, unknown> = {}) {}
-
   async rerank(query: string, candidates: SearchResultItem[]): Promise<SearchResultItem[]> {
     const rerankCandidates = candidates as RerankCandidate[];
     if (!candidates || candidates.length === 0) {

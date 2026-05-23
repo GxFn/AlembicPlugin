@@ -13,13 +13,8 @@ import type {
 
 // ─── DI Container (minimal shape) ────────────────────────
 
-/**
- * Minimal DI container shape used by MCP handlers.
- * Compatible with both the full ServiceContainer class and the
- * lightweight ServiceContainer interface in agent tools.
- */
 export interface McpServiceContainer {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- DI container: callers know the service type
+  // biome-ignore lint/suspicious/noExplicitAny: MCP handler DI 是动态服务边界，调用方在具体工具内按服务语义收窄。
   get(name: string): any;
   getServiceNames?(): string[];
   singletons?: Record<string, unknown>;

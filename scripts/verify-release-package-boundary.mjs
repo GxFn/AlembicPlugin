@@ -7,8 +7,17 @@ const root = resolve(import.meta.dirname, '..');
 const publishMode = process.argv.includes('--publish');
 const legacyRootRegistryScript = ['release', 'package-boundary', 'publish'].join(':');
 const packageJsonPath = join(root, 'package.json');
+const rootConfigPath = join(root, 'config', 'default.json');
 const releaseWorkflowPath = join(root, '.github', 'workflows', 'release.yml');
 const runtimePackageJsonPath = join(root, 'plugins', 'alembic-codex', 'runtime', 'package.json');
+const runtimeConfigPath = join(
+  root,
+  'plugins',
+  'alembic-codex',
+  'runtime',
+  'config',
+  'default.json'
+);
 const runtimeCoreSourcePath = join(
   root,
   'plugins',
@@ -20,10 +29,12 @@ const runtimeCoreSourcePath = join(
 );
 
 const packageJson = readJson(packageJsonPath);
+const rootConfig = readJson(rootConfigPath);
 const releaseWorkflowSource = existsSync(releaseWorkflowPath)
   ? readFileSync(releaseWorkflowPath, 'utf8')
   : '';
 const runtimePackageJson = readJson(runtimePackageJsonPath);
+const runtimeConfig = readJson(runtimeConfigPath);
 const runtimeCoreSource = existsSync(runtimeCoreSourcePath)
   ? readJson(runtimeCoreSourcePath)
   : null;
@@ -36,6 +47,14 @@ expect(
   `root package identity must be ${expectedRuntimePackageName}`
 );
 expect(packageJson.private === true, 'root package must be private and unavailable to registry');
+expect(
+  !Object.hasOwn(rootConfig, 'ai'),
+  'root config/default.json must not ship an AlembicPlugin-owned AI provider default'
+);
+expect(
+  !Object.hasOwn(runtimeConfig, 'ai'),
+  'embedded runtime config/default.json must not ship an AlembicPlugin-owned AI provider default'
+);
 expect(
   packageJson.dependencies?.['@alembic/core'] === 'file:../AlembicCore',
   'root package must keep local development dependency @alembic/core: file:../AlembicCore'

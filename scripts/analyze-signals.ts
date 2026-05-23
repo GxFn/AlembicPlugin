@@ -53,11 +53,23 @@ interface IntentChainRecord {
   duration: number;
 }
 
+interface IntentChainRecordWithSearchMeta extends IntentChainRecord {
+  searchMeta: NonNullable<IntentChainRecord['searchMeta']>;
+}
+
+function writeLine(message = '') {
+  process.stdout.write(`${message}\n`);
+}
+
+function writeError(message: string) {
+  process.stderr.write(`${message}\n`);
+}
+
 // ── Load Records ────────────────────────────────────
 
 function loadRecords(signalDir: string): IntentChainRecord[] {
   if (!fs.existsSync(signalDir)) {
-    console.error(`Signal directory not found: ${signalDir}`);
+    writeError(`Signal directory not found: ${signalDir}`);
     return [];
   }
 
@@ -87,54 +99,56 @@ function loadRecords(signalDir: string): IntentChainRecord[] {
 
 function analyze(records: IntentChainRecord[]) {
   if (records.length === 0) {
-    console.log('No records found.');
+    writeLine('No records found.');
     return;
   }
 
-  console.log(`\n📊 Intent Signal Analysis — ${records.length} records\n`);
+  writeLine(`\n📊 Intent Signal Analysis — ${records.length} records\n`);
 
   // 1. Recipe coverage rate
   const withRecipes = records.filter((r) => r.primeRecipeIds.length > 0).length;
-  console.log(
+  writeLine(
     `1. Recipe coverage: ${withRecipes}/${records.length} (${pct(withRecipes, records.length)})`
   );
 
   // 2. Scenario distribution
   const scenarios = groupBy(records, (r) => r.primeScenario || 'unknown');
-  console.log('2. Scenario distribution:');
+  writeLine('2. Scenario distribution:');
   for (const [scenario, items] of Object.entries(scenarios)) {
-    console.log(`   ${scenario}: ${items.length} (${pct(items.length, records.length)})`);
+    writeLine(`   ${scenario}: ${items.length} (${pct(items.length, records.length)})`);
   }
 
   // 3. Multi-query benefit
-  const withMeta = records.filter((r) => r.searchMeta);
+  const withMeta = records.filter((r): r is IntentChainRecordWithSearchMeta =>
+    Boolean(r.searchMeta)
+  );
   if (withMeta.length > 0) {
-    const avgFiltered = avg(withMeta.map((r) => r.searchMeta!.filteredCount));
-    const avgResult = avg(withMeta.map((r) => r.searchMeta!.resultCount));
-    const avgQueries = avg(withMeta.map((r) => r.searchMeta!.queries.length));
-    console.log(
+    const avgFiltered = avg(withMeta.map((r) => r.searchMeta.filteredCount));
+    const avgResult = avg(withMeta.map((r) => r.searchMeta.resultCount));
+    const avgQueries = avg(withMeta.map((r) => r.searchMeta.queries.length));
+    writeLine(
       `3. Multi-query: avg ${avgQueries.toFixed(1)} queries → ${avgResult.toFixed(1)} results → ${avgFiltered.toFixed(1)} filtered`
     );
   } else {
-    console.log('3. Multi-query: no searchMeta data');
+    writeLine('3. Multi-query: no searchMeta data');
   }
 
   // 4. Language distribution
   const languages = groupBy(records, (r) => r.primeLanguage || 'unknown');
-  console.log('4. Language distribution:');
+  writeLine('4. Language distribution:');
   for (const [lang, items] of Object.entries(languages)) {
-    console.log(`   ${lang}: ${items.length}`);
+    writeLine(`   ${lang}: ${items.length}`);
   }
 
   // 5. Drift → violation correlation
   const withDrift = records.filter((r) => r.driftScore > 0);
   const withViolations = records.filter((r) => (r.guardViolations ?? 0) > 0);
-  console.log(
+  writeLine(
     `5. Drift: ${withDrift.length} records with drift, ${withViolations.length} with violations`
   );
   if (withDrift.length > 0) {
     const avgDriftScore = avg(withDrift.map((r) => r.driftScore));
-    console.log(`   avg drift score: ${avgDriftScore.toFixed(3)}`);
+    writeLine(`   avg drift score: ${avgDriftScore.toFixed(3)}`);
   }
 
   // 6. Task completion rate
@@ -142,11 +156,11 @@ function analyze(records: IntentChainRecord[]) {
   const completed = records.filter((r) => r.outcome === 'completed');
   const failed = records.filter((r) => r.outcome === 'failed');
   const abandoned = records.filter((r) => r.outcome === 'abandoned');
-  console.log(
+  writeLine(
     `6. Outcomes: ${completed.length} completed, ${failed.length} failed, ${abandoned.length} abandoned`
   );
   if (withTask.length > 0) {
-    console.log(
+    writeLine(
       `   Task completion: ${completed.length}/${withTask.length} (${pct(completed.length, withTask.length)})`
     );
   }
@@ -156,17 +170,17 @@ function analyze(records: IntentChainRecord[]) {
   if (durations.length > 0) {
     const avgDur = avg(durations);
     const medDur = median(durations);
-    console.log(`7. Duration: avg ${formatMs(avgDur)}, median ${formatMs(medDur)}`);
+    writeLine(`7. Duration: avg ${formatMs(avgDur)}, median ${formatMs(medDur)}`);
   }
 
   // 8. High-drift intents
   const highDrift = records.filter((r) => r.driftScore > 0.5);
   const highDriftWithManySearches = highDrift.filter((r) => r.searchQueries.length > 2);
-  console.log(
+  writeLine(
     `8. High-drift (>0.5): ${highDrift.length}, of which ${highDriftWithManySearches.length} had >2 search queries`
   );
 
-  console.log('');
+  writeLine();
 }
 
 // ── Helpers ─────────────────────────────────────────
@@ -193,7 +207,12 @@ function median(nums: number[]): number {
   }
   const sorted = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+  const current = sorted[mid] ?? 0;
+  if (sorted.length % 2 !== 0) {
+    return current;
+  }
+  const previous = sorted[mid - 1] ?? current;
+  return (previous + current) / 2;
 }
 
 function pct(n: number, total: number): string {
@@ -218,6 +237,6 @@ function formatMs(ms: number): string {
 const projectRoot = process.argv[2] || process.env.ALEMBIC_PROJECT_DIR || process.cwd();
 const signalDir = path.join(projectRoot, '.asd', 'logs', 'signals');
 
-console.log(`Reading signals from: ${signalDir}`);
+writeLine(`Reading signals from: ${signalDir}`);
 const records = loadRecords(signalDir);
 analyze(records);

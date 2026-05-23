@@ -10,6 +10,7 @@ const rootReadmeCnPath = join(root, 'README_CN.md');
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
 const pluginJsonPath = join(pluginRoot, '.codex-plugin', 'plugin.json');
 const mcpJsonPath = join(pluginRoot, '.mcp.json');
+const rootConfigPath = join(root, 'config', 'default.json');
 const marketplacePath = join(root, '.agents', 'plugins', 'marketplace.json');
 const distributionMarketplacePath = join(pluginRoot, '.agents', 'plugins', 'marketplace.json');
 const readmePath = join(pluginRoot, 'README.md');
@@ -17,13 +18,16 @@ const readmeCnPath = join(pluginRoot, 'README.zh-CN.md');
 const releasePlaybookPath = join(pluginRoot, 'RELEASE-PLAYBOOK.md');
 const runtimeRoot = join(pluginRoot, 'runtime');
 const runtimePackagePath = join(runtimeRoot, 'package.json');
+const runtimeConfigPath = join(runtimeRoot, 'config', 'default.json');
 const runtimeCoreSourcePath = join(runtimeRoot, 'vendor', 'AlembicCore', '.alembic-source.json');
 const runtimeTarballPath = join(pluginRoot, 'runtime.tgz');
 const pluginJson = readJson(pluginJsonPath);
 const mcpJson = readJson(mcpJsonPath);
+const rootConfigJson = readJson(rootConfigPath);
 const marketplaceJson = readJson(marketplacePath);
 const distributionMarketplaceJson = readJson(distributionMarketplacePath);
 const runtimePackageJson = readJson(runtimePackagePath);
+const runtimeConfigJson = readJson(runtimeConfigPath);
 const runtimeCoreSourceJson = readJson(runtimeCoreSourcePath);
 const errors = [];
 const legacyRootRegistryScript = ['release', 'package-boundary', 'publish'].join(':');
@@ -59,6 +63,14 @@ expect(
 expect(
   packageJson.private === true,
   'root package.json must stay private because AlembicPlugin releases Codex plugin artifacts only'
+);
+expect(
+  !Object.hasOwn(rootConfigJson, 'ai'),
+  'root config/default.json must not ship an AlembicPlugin-owned AI provider default'
+);
+expect(
+  !Object.hasOwn(runtimeConfigJson, 'ai'),
+  'embedded runtime config/default.json must not ship an AlembicPlugin-owned AI provider default'
 );
 expect(
   Array.isArray(packageJson.files) &&

@@ -609,13 +609,13 @@ export class WikiGenerator {
     }
 
     // ── 3. 快速上手 (需要构建配置或入口点) ──
-    const hasEntryPoints = (
-      (astInfo.overview as Record<string, unknown> | undefined)?.entryPoints as
-        | unknown[]
-        | undefined
-    )?.length
-      ? true
-      : false;
+    const hasEntryPoints = Boolean(
+      (
+        (astInfo.overview as Record<string, unknown> | undefined)?.entryPoints as
+          | unknown[]
+          | undefined
+      )?.length
+    );
     const hasBuildSystem =
       projectInfo.buildSystems.length > 0 ||
       projectInfo.hasPackageSwift ||

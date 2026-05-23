@@ -13,7 +13,7 @@
 import { execSync } from 'node:child_process';
 
 // 颜色输出
-const _colors = {
+const colors = {
   reset: '\x1b[0m',
   green: '\x1b[32m',
   red: '\x1b[31m',
@@ -22,41 +22,53 @@ const _colors = {
   bold: '\x1b[1m',
 };
 
-function log(message: any, color = 'reset') {
-  const code = _colors[color as keyof typeof _colors] ?? '';
-  console.log(`${code}${message}${_colors.reset}`);
+type ColorName = keyof typeof colors;
+
+interface ExecOptions {
+  env?: NodeJS.ProcessEnv;
+  ignoreError?: boolean;
+  silent?: boolean;
 }
 
-function success(message: any) {
+function writeLine(message: string) {
+  process.stdout.write(`${message}\n`);
+}
+
+function log(message: string, color: ColorName = 'reset') {
+  const code = colors[color] ?? '';
+  writeLine(`${code}${message}${colors.reset}`);
+}
+
+function success(message: string) {
   log(`✅ ${message}`, 'green');
 }
 
-function error(message: any) {
+function error(message: string) {
   log(`❌ ${message}`, 'red');
 }
 
-function warning(message: any) {
+function warning(message: string) {
   log(`⚠️  ${message}`, 'yellow');
 }
 
-function info(message: any) {
+function info(message: string) {
   log(`ℹ️  ${message}`, 'blue');
 }
 
-function header(message: any) {
+function header(message: string) {
   log(`\n${'='.repeat(60)}`, 'bold');
   log(`  ${message}`, 'bold');
   log(`${'='.repeat(60)}`, 'bold');
 }
 
-function exec(command: any, options: any = {}) {
+function exec(command: string, options: ExecOptions = {}) {
   try {
     return execSync(command, {
       encoding: 'utf8',
       stdio: options.silent ? 'pipe' : 'inherit',
       ...options,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (!options.ignoreError) {
       throw err;
     }
@@ -66,12 +78,8 @@ function exec(command: any, options: any = {}) {
 
 // 检查项
 class ReleaseChecker {
-  errors: any;
-  warnings: any;
-  constructor() {
-    this.errors = [];
-    this.warnings = [];
-  }
+  errors: string[] = [];
+  warnings: string[] = [];
 
   // 检查 Git 状态
   checkGitStatus() {
@@ -102,13 +110,13 @@ class ReleaseChecker {
         silent: true,
         ignoreError: true,
       })?.trim();
-      if (behind && parseInt(behind) > 0) {
+      if (behind && parseInt(behind, 10) > 0) {
         this.warnings.push(`本地落后远程 ${behind} 个提交`);
         warning(`需要先 pull: git pull origin ${branch}`);
       } else {
         success('与远程同步');
       }
-    } catch (_err: any) {
+    } catch (_err: unknown) {
       warning('无法检查远程同步状态');
     }
   }
@@ -118,7 +126,7 @@ class ReleaseChecker {
     header('Node.js 环境检查');
 
     const nodeVersion = process.version;
-    const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
+    const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0], 10);
 
     if (majorVersion < 22) {
       this.errors.push(`Node.js 版本过低: ${nodeVersion} (需要 >=22)`);
@@ -138,7 +146,7 @@ class ReleaseChecker {
       info('构建 TypeScript...');
       exec('npm run build');
       success('TypeScript 构建成功');
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.errors.push('发布产物构建失败');
       error('发布产物构建失败');
       throw err;
@@ -159,7 +167,7 @@ class ReleaseChecker {
       info('运行单元测试...');
       exec('npm run test:unit');
       success('单元测试通过');
-    } catch (_err: any) {
+    } catch (_err: unknown) {
       this.errors.push('单元测试失败');
       error('单元测试失败');
     }
@@ -174,7 +182,7 @@ class ReleaseChecker {
         },
       });
       success('集成测试通过');
-    } catch (_err: any) {
+    } catch (_err: unknown) {
       this.errors.push('集成测试失败');
       error('集成测试失败');
     }
@@ -191,14 +199,14 @@ class ReleaseChecker {
 
     if (this.errors.length > 0) {
       error(`发现 ${this.errors.length} 个错误：`);
-      this.errors.forEach((err: any, i: any) => {
+      this.errors.forEach((err, i) => {
         error(`  ${i + 1}. ${err}`);
       });
     }
 
     if (this.warnings.length > 0) {
       warning(`发现 ${this.warnings.length} 个警告：`);
-      this.warnings.forEach((warn: any, i: any) => {
+      this.warnings.forEach((warn, i) => {
         warning(`  ${i + 1}. ${warn}`);
       });
     }

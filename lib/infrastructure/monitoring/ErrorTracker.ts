@@ -208,8 +208,12 @@ export class ErrorTracker implements Disposable {
 
   /** 将绝对路径转换为 WriteZone runtime DataPath */
   #runtimePath(absPath: string): DataPath {
-    const asdRoot = path.join(this.#wz!.dataRoot, '.asd');
-    return this.#wz!.runtime(path.relative(asdRoot, absPath));
+    const writeZone = this.#wz;
+    if (!writeZone) {
+      throw new Error('WriteZone is required to resolve runtime paths');
+    }
+    const asdRoot = path.join(writeZone.dataRoot, '.asd');
+    return writeZone.runtime(path.relative(asdRoot, absPath));
   }
 
   /** 检查告警阈值 */
@@ -335,8 +339,9 @@ export class ErrorTracker implements Disposable {
       results = results.filter((err) => err.type === options.type);
     }
 
-    if (options.route) {
-      results = results.filter((err) => err.route?.includes(options.route!));
+    const route = options.route;
+    if (route) {
+      results = results.filter((err) => err.route?.includes(route));
     }
 
     if (options.severity) {

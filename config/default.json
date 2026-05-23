@@ -70,12 +70,6 @@
     "USE_NEW_GATEWAY": true,
     "REASONING_QUALITY_SCORE": true
   },
-  "ai": {
-    "provider": "openai",
-    "model": "gpt-5.4",
-    "temperature": 0.7,
-    "maxTokens": 2000
-  },
   "vector": {
     "enabled": true,
     "adapter": "auto",

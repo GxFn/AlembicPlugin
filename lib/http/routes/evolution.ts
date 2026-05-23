@@ -15,7 +15,6 @@
  */
 
 import type { ProposalExecutor } from '@alembic/core/evolution';
-import Logger from '@alembic/core/logging';
 import type {
   EvolutionProposalRepository,
   EvolutionWarningRepository,
@@ -24,7 +23,6 @@ import express, { type Request, type Response } from 'express';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 
 const router = express.Router();
-const logger = Logger.getInstance();
 
 /* ════════════════════════════════════════════════════════
  *  Proposals — CRUD + 操作

@@ -251,8 +251,8 @@ try {
     await server.handleToolCall('alembic_codex_stop', {});
   }
 
-  console.log(
-    JSON.stringify(
+  process.stdout.write(
+    `${JSON.stringify(
       {
         ok: true,
         package: packInfo.filename,
@@ -268,7 +268,7 @@ try {
       },
       null,
       2
-    )
+    )}\n`
   );
 } finally {
   if (server && shouldRunDaemon) {

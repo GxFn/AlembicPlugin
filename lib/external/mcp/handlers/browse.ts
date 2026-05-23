@@ -100,14 +100,15 @@ function _projectForAgent(json: KnowledgeEntryJSON) {
     : undefined;
 
   // constraints 精简：仅保留 guards 和 sideEffects
+  const constraintsJson = json.constraints;
   const constraints =
-    (json.constraints?.guards?.length ?? 0) > 0 || (json.constraints?.sideEffects?.length ?? 0) > 0
+    (constraintsJson?.guards?.length ?? 0) > 0 || (constraintsJson?.sideEffects?.length ?? 0) > 0
       ? {
-          ...((json.constraints?.guards?.length ?? 0) > 0
-            ? { guards: json.constraints!.guards }
+          ...((constraintsJson?.guards?.length ?? 0) > 0
+            ? { guards: constraintsJson?.guards }
             : {}),
-          ...((json.constraints?.sideEffects?.length ?? 0) > 0
-            ? { sideEffects: json.constraints!.sideEffects }
+          ...((constraintsJson?.sideEffects?.length ?? 0) > 0
+            ? { sideEffects: constraintsJson?.sideEffects }
             : {}),
         }
       : undefined;

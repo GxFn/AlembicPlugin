@@ -11,9 +11,11 @@ import Logger from '@alembic/core/logging';
 import type { Gateway, GatewayContext } from './Gateway.js';
 
 const logger = Logger.getInstance();
+// biome-ignore lint/suspicious/noExplicitAny: Gateway action registry 连接动态 ServiceContainer，具体 action 在注册闭包中收窄。
+type GatewayActionContainer = { get(name: string): any };
 
 /** 注册所有 Gateway actions */
-export function registerGatewayActions(gateway: Gateway, container: { get(name: string): any }) {
+export function registerGatewayActions(gateway: Gateway, container: GatewayActionContainer) {
   // ========== Knowledge Actions (V3: replaces Candidate + Recipe) ==========
 
   gateway.register('candidate:create', async (ctx: GatewayContext) => {
