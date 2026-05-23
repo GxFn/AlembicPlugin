@@ -7,10 +7,12 @@
  * 所有方法返回安全默认值 (空数组/0/null)，可通过 opts 覆盖关键返回值。
  */
 
-import type { BootstrapRepositoryImpl } from '@alembic/core/repository/bootstrap/BootstrapRepository';
-import type { CodeEntityRepositoryImpl } from '@alembic/core/repository/code/CodeEntityRepository';
-import type { KnowledgeEdgeRepositoryImpl } from '@alembic/core/repository/knowledge/KnowledgeEdgeRepository';
-import type { KnowledgeRepository } from '@alembic/core/repositories';
+import type {
+  BootstrapRepositoryImpl,
+  CodeEntityRepositoryImpl,
+  KnowledgeEdgeRepositoryImpl,
+  KnowledgeRepository,
+} from '@alembic/core/repositories';
 
 /* ═══ Types ═══════════════════════════════════════════════ */
 

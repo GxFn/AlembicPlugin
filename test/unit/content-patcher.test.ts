@@ -10,7 +10,7 @@
  *   - before/after 快照创建
  */
 
-import { ContentPatcher } from '@alembic/core/service/evolution/ContentPatcher';
+import { ContentPatcher } from '@alembic/core/evolution';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /* ── Mock factories ── */

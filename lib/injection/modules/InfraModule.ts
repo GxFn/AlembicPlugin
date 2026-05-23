@@ -10,16 +10,15 @@
 import path from 'node:path';
 import { JobStore } from '@alembic/core/daemon';
 import { EventBus } from '@alembic/core/events';
-import { ReportStore } from '@alembic/core/infrastructure/report/ReportStore';
+import { ReportStore } from '@alembic/core/infrastructure/report';
 import { WriteZone } from '@alembic/core/io';
+import { KnowledgeFileWriter, KnowledgeSyncService } from '@alembic/core/knowledge';
 import Logger from '@alembic/core/logging';
 import { MemoryRepositoryImpl } from '@alembic/core/memory';
 import {
   type AlembicRepositoryBundle,
   createAlembicRepositories,
 } from '@alembic/core/repositories';
-import { KnowledgeFileWriter } from '@alembic/core/service/knowledge/KnowledgeFileWriter';
-import { KnowledgeSyncService } from '@alembic/core/service/knowledge/KnowledgeSyncService';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import Gateway from '../../governance/gateway/Gateway.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
@@ -150,7 +149,7 @@ export function register(c: ServiceContainer) {
   c.singleton('knowledgeSyncService', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
     const sourceRefReconciler = ct.singletons.sourceRefReconciler as
-      | import('@alembic/core/service/knowledge/SourceRefReconciler').SourceRefReconciler
+      | import('@alembic/core/knowledge').SourceRefReconciler
       | undefined;
     return new KnowledgeSyncService(dataRoot, {
       sourceRefReconciler: sourceRefReconciler || undefined,

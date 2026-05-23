@@ -9,7 +9,7 @@
  * @module handlers/evolve-external
  */
 
-import type { EvolutionGateway } from '@alembic/core/service/evolution/EvolutionGateway';
+import type { EvolutionGateway } from '@alembic/core/evolution';
 import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { EvolveInput } from '#shared/schemas/mcp-tools.js';

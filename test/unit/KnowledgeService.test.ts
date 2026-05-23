@@ -1,7 +1,9 @@
-import { KnowledgeEntry } from '@alembic/core/knowledge';
-import { Lifecycle } from '@alembic/core/knowledge';
-import { ConfidenceRouter } from '@alembic/core/service/knowledge/ConfidenceRouter';
-import { KnowledgeService } from '@alembic/core/knowledge';
+import {
+  ConfidenceRouter,
+  KnowledgeEntry,
+  KnowledgeService,
+  Lifecycle,
+} from '@alembic/core/knowledge';
 import { vi } from 'vitest';
 
 /* ════════════════════════════════════════════

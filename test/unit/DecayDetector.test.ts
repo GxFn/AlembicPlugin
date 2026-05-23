@@ -2,7 +2,7 @@
  * DecayDetector 单元测试
  */
 
-import { DecayDetector } from '@alembic/core/service/evolution/DecayDetector';
+import { DecayDetector } from '@alembic/core/evolution';
 import { describe, expect, it } from 'vitest';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

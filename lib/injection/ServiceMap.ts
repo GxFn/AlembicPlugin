@@ -21,7 +21,16 @@ import type {
   ViolationsStore,
 } from '@alembic/core/guard';
 import type { WriteZone } from '@alembic/core/io';
-import type { KnowledgeService, RecipeProductionGateway } from '@alembic/core/knowledge';
+import type {
+  CodeEntityGraph,
+  ConfidenceRouter,
+  KnowledgeFileWriter,
+  KnowledgeGraphService,
+  KnowledgeService,
+  KnowledgeSyncService,
+  RecipeExtractor,
+  RecipeProductionGateway,
+} from '@alembic/core/knowledge';
 import type Logger from '@alembic/core/logging';
 import type { MemoryRepositoryImpl } from '@alembic/core/memory';
 // ── Core AST / Discovery / Enhancement ──
@@ -35,6 +44,7 @@ import type {
   ProjectGraph,
   RoleRefiner,
 } from '@alembic/core/project-intelligence';
+// ── Repository Types ──
 import type {
   BootstrapRepository,
   CodeEntityRepository,
@@ -46,18 +56,10 @@ import type {
   KnowledgeRepository,
   SessionRepository,
   SourceRefRepository,
+  TokenUsageStore,
 } from '@alembic/core/repositories';
-// ── Repository Types ──
-import type { TokenUsageStore } from '@alembic/core/repository/token/TokenUsageStore';
 import type { HybridRetriever, SearchEngine } from '@alembic/core/search';
-import type { CodeEntityGraph } from '@alembic/core/service/knowledge/CodeEntityGraph';
-import type { ConfidenceRouter } from '@alembic/core/service/knowledge/ConfidenceRouter';
-import type { KnowledgeFileWriter } from '@alembic/core/service/knowledge/KnowledgeFileWriter';
-import type { KnowledgeGraphService } from '@alembic/core/service/knowledge/KnowledgeGraphService';
-// ── 初始化服务类型 ──
-import type { KnowledgeSyncService } from '@alembic/core/service/knowledge/KnowledgeSyncService';
 // ── Context Types ──
-import type { RecipeExtractor } from '@alembic/core/service/knowledge/RecipeExtractor';
 import type { FeedbackCollector } from '@alembic/core/service/quality/FeedbackCollector';
 import type { QualityScorer } from '@alembic/core/service/quality/QualityScorer';
 import type { RecipeCandidateValidator } from '@alembic/core/service/recipe/RecipeCandidateValidator';

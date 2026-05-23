@@ -5,10 +5,7 @@
  *   create / merge / reorganize / insufficient
  */
 
-import {
-  type CandidateForConsolidation,
-  ConsolidationAdvisor,
-} from '@alembic/core/service/evolution/ConsolidationAdvisor';
+import { type CandidateForConsolidation, ConsolidationAdvisor } from '@alembic/core/evolution';
 import { describe, expect, it } from 'vitest';
 
 /* ── Mock Repo ── */

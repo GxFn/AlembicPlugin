@@ -14,14 +14,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { KnowledgeEntry } from '@alembic/core/knowledge';
-import { Lifecycle } from '@alembic/core/knowledge';
 import {
   computeKnowledgeHash,
+  KnowledgeEntry,
   KnowledgeFileWriter,
+  KnowledgeSyncService,
+  Lifecycle,
   parseKnowledgeMarkdown,
-} from '@alembic/core/service/knowledge/KnowledgeFileWriter';
-import { KnowledgeSyncService } from '@alembic/core/service/knowledge/KnowledgeSyncService';
+} from '@alembic/core/knowledge';
 
 /* ═══ 测试数据 ═══ */
 

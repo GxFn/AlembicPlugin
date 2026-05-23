@@ -20,7 +20,7 @@ import {
   RecipeImpactPlanner,
   submitRescanImpactDecisions,
   toRescanImpactDecision,
-} from '@alembic/core/service/evolution/RecipeImpactPlanner';
+} from '@alembic/core/evolution';
 import type { KnowledgeRepository, SourceRefRepository } from '@alembic/core/repositories';
 import { describe, expect, it, vi } from 'vitest';
 

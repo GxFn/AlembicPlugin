@@ -15,7 +15,7 @@ import {
   ProposalRepository,
   type ProposalStatus,
   type ProposalType,
-} from '@alembic/core/repository/evolution/ProposalRepository';
+} from '@alembic/core/repositories';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
