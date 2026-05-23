@@ -206,9 +206,7 @@ export class SetupService {
         const _detail = this._formatStepDetail(stepResult);
         results.push({ step: i + 1, label, ok: true, ...(stepResult || {}) });
       } catch (err: unknown) {
-        if (!this.quiet) {
-          console.error(`       ${(err as Error).message}`);
-        }
+        this.writeError(`       ${(err as Error).message}`);
         results.push({ step: i + 1, label, ok: false, error: (err as Error).message });
       }
     }
@@ -243,27 +241,39 @@ export class SetupService {
     const ok = results.filter((r) => r.ok).length;
     const fail = results.filter((r) => !r.ok).length;
 
-    console.log('');
+    this.writeLine('');
     if (fail === 0) {
-      console.log(`  ✅ Setup 完成（${ok} 步骤全部成功）`);
+      this.writeLine(`  ✅ Setup 完成（${ok} 步骤全部成功）`);
     } else {
-      console.log(`  ⚠️  Setup 完成（${ok} 成功，${fail} 失败）`);
+      this.writeLine(`  ⚠️  Setup 完成（${ok} 成功，${fail} 失败）`);
     }
     if (this.ghost) {
-      console.log(`  👻 Ghost 模式已启用 — 数据存储在: ${this.resolver?.dataRoot}`);
+      this.writeLine(`  👻 Ghost 模式已启用 — 数据存储在: ${this.resolver?.dataRoot}`);
     }
-    console.log('');
-    console.log('  下一步：');
+    this.writeLine('');
+    this.writeLine('  下一步：');
     if (this.profile === 'codex-plugin') {
-      console.log('    1. 在 Codex 插件中调用 alembic_health 检查 MCP 可用性');
-      console.log('    2. 非简单编码任务前使用 alembic_task(operation=prime)');
-      console.log('    3. 写完后使用 alembic_guard 检查当前变更');
+      this.writeLine('    1. 在 Codex 插件中调用 alembic_health 检查 MCP 可用性');
+      this.writeLine('    2. 非简单编码任务前使用 alembic_task(operation=prime)');
+      this.writeLine('    3. 写完后使用 alembic_guard 检查当前变更');
     } else {
-      console.log('    1. 由目标 IDE 插件启动 Alembic MCP 或 daemon');
-      console.log('    2. 首次使用前确认插件已传入准确的项目目录');
-      console.log('    3. 使用插件侧命令执行 bootstrap、rescan、guard 等能力');
+      this.writeLine('    1. 由目标 IDE 插件启动 Alembic MCP 或 daemon');
+      this.writeLine('    2. 首次使用前确认插件已传入准确的项目目录');
+      this.writeLine('    3. 使用插件侧命令执行 bootstrap、rescan、guard 等能力');
     }
-    console.log('');
+    this.writeLine('');
+  }
+
+  private writeLine(message: string) {
+    if (!this.quiet) {
+      process.stdout.write(`${message}\n`);
+    }
+  }
+
+  private writeError(message: string) {
+    if (!this.quiet) {
+      process.stderr.write(`${message}\n`);
+    }
   }
 
   /* ═══ Step 1: 运行时目录与配置 ═══════════════════════ */
@@ -754,8 +764,8 @@ export class SetupService {
   /* ═══ Step 6: 向量索引初始化 ═══════════════════════════ */
 
   /**
-   * 尝试初始化向量索引: 检查 embedding provider 可用性，
-   * 若可用则自动构建初始索引；否则返回插件宿主可展示的提示。
+   * 尝试初始化向量索引。Plugin embedded runtime 不持有可执行 embedding provider；
+   * baseline/hybrid search 可直接工作，语义增强由 Alembic resident service 提供。
    *
    * 此步骤为 best-effort: 失败不阻塞 setup 流程。
    */
@@ -768,8 +778,9 @@ export class SetupService {
       if (!container.services.vectorService) {
         return {
           status: 'skipped',
-          reason: 'vectorService 未注册（AI Provider 未配置或容器未完全初始化）',
-          hint: '在插件宿主中配置 embedding provider 后重新执行初始化或索引构建',
+          reason:
+            'vectorService 未注册（embedded runtime 保持 baseline search，未启用 resident vector enhancement）',
+          hint: '启动 Alembic resident service 后，可通过 resident search / daemon API 获得语义增强',
         };
       }
 
@@ -777,12 +788,12 @@ export class SetupService {
 
       const stats = await vectorService.getStats();
 
-      // 如果 embedding provider 不可用，提示用户
+      // embedded runtime 不注入第三方 embedding provider，语义检索由 resident service 增强。
       if (!stats.embedProviderAvailable) {
         return {
           status: 'skipped',
-          reason: '未配置 AI API Key',
-          hint: '配置 API Key 后由插件宿主触发向量索引构建',
+          reason: 'embedded runtime 未配置本地 embedding provider',
+          hint: 'baseline/hybrid search 可继续使用；语义检索由 Alembic resident service / resident search 增强提供',
         };
       }
 
@@ -807,7 +818,7 @@ export class SetupService {
       return {
         status: 'warning',
         error: err instanceof Error ? err.message : String(err),
-        hint: '可由插件宿主重新触发向量索引构建',
+        hint: '可启动 Alembic resident service 后重新检查 resident search 语义增强状态',
       };
     }
   }

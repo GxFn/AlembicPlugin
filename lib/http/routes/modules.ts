@@ -10,10 +10,7 @@ import path from 'node:path';
 import Logger from '@alembic/core/logging';
 import { resolveDataRoot } from '@alembic/core/workspace';
 import express, { type Request, type Response } from 'express';
-import {
-  ScanFolderBody,
-  ScanTargetBody,
-} from '#shared/schemas/http-requests.js';
+import { ScanFolderBody, ScanTargetBody } from '#shared/schemas/http-requests.js';
 import { getJobStore } from '../../daemon/DaemonJobRunner.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import { validate } from '../middleware/validate.js';

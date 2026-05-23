@@ -71,12 +71,7 @@ export function attachHostAgentManagedBoundary<T extends Record<string, unknown>
   context: string,
   note = 'AlembicPlugin 不执行本地第三方 AI；候选增强由 Codex host agent 或 Alembic resident service 接管。'
 ): T & HostAgentManagedFields {
-  const boundary = makeBoundary(
-    HOST_AGENT_MANAGED_CODE,
-    context,
-    'codex-host-agent',
-    note
-  );
+  const boundary = makeBoundary(HOST_AGENT_MANAGED_CODE, context, 'codex-host-agent', note);
   return {
     ...payload,
     hostAgentManaged: true,

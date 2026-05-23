@@ -73,6 +73,12 @@ expect(
     'node scripts/verify-release-package-boundary.mjs --publish',
   'package.json must expose release:root-npm-publish:disabled'
 );
+for (const legacyReleaseAlias of ['release:patch', 'release:minor', 'release:major']) {
+  expect(
+    packageJson.scripts?.[legacyReleaseAlias] === 'npm run release:root-npm-publish:disabled',
+    `${legacyReleaseAlias} must fail closed through the artifact-only root publication guard`
+  );
+}
 expect(
   !packageJson.scripts?.[legacyRootRegistryScript],
   'legacy root registry publication script must be removed'
