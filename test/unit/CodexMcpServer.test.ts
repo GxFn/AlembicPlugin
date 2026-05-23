@@ -1121,7 +1121,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('Codex bootstrap job delegates provider requirements to the Alembic daemon', async () => {
+  test('Codex bootstrap job follows the resident or embedded job boundary', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
@@ -1183,7 +1183,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('Codex bootstrap job ensures daemon and posts to the daemon jobs API', async () => {
+  test('Codex bootstrap job ensures runtime and posts through the resident service client', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
@@ -1272,7 +1272,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('Codex job status uses daemon jobs API when it is already running', async () => {
+  test('Codex job status uses resident service client when runtime is already running', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);

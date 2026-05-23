@@ -690,9 +690,15 @@ function buildCodexRouteBoundaryNotes(enhancementRoute?: CodexEnhancementRouteCh
         enhancementRoute.internalAiProvider.configSource || 'unknown'
       }`
     : `not configured (${enhancementRoute.internalAiProvider.configSource || 'empty'})`;
+  const routeNote =
+    enhancementRoute.selected === 'local-alembic-daemon'
+      ? `Local Alembic resident service route: ${enhancementRoute.selected}. ${enhancementRoute.reason}`
+      : enhancementRoute.selected === 'embedded-plugin-runtime'
+        ? `Embedded Plugin runtime route: ${enhancementRoute.selected}. It recovers Codex host-agent jobs and is not Alembic resident enhancement. ${enhancementRoute.reason}`
+        : `Alembic route candidate: ${enhancementRoute.selected}. ${enhancementRoute.reason}`;
   return [
     `Host-agent route uses source=${enhancementRoute.hostAgentRoute.source} for Codex-submitted knowledge, proposals, and dimension completion.`,
-    `Local Alembic enhancement route: ${enhancementRoute.selected}. ${enhancementRoute.reason}`,
+    routeNote,
     `Internal AI provider config: ${internalAi}; this is provider/model state, not a knowledge source.`,
   ];
 }

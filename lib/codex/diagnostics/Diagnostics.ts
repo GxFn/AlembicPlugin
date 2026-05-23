@@ -148,6 +148,8 @@ export function buildCodexRuntimeDiagnostics(
     pluginSkills: plugin.skills.ok,
     projectRoot:
       !options.projectRootResolution || options.projectRootResolution.trust === 'trusted',
+    residentServiceContract:
+      !options.residentService || options.residentService.status.contractVersion === 1,
   };
   const issues = buildDiagnosticIssues({
     adminEnabled: context.adminEnabled,
@@ -209,6 +211,7 @@ export function buildCodexRuntimeDiagnostics(
     hostProjectAlignment: options.hostProjectAlignment || null,
     enhancementRoute,
     residentService: options.residentService || null,
+    residentServiceBoundary: buildResidentServiceBoundary(options.residentService),
     moduleBoundary,
     gitDiffCheckpoint: readHealthGitDiffCheckpoint(daemonStatus.health),
     plugin,
@@ -243,7 +246,7 @@ export function buildCodexRuntimeDiagnostics(
       },
     },
     offlineFallback: {
-      note: 'The Codex plugin ships Alembic runtime code in ./runtime and starts MCP through ./bin/alembic-codex-mcp-wrapper.mjs. The wrapper invokes npx against ./runtime.tgz with a plugin-specific npm cache and startup lock. AlembicPlugin does not provide a root registry package fallback.',
+      note: 'The Codex plugin ships Plugin runtime code in ./runtime and starts MCP through ./bin/alembic-codex-mcp-wrapper.mjs. The wrapper invokes npx against ./runtime.tgz with a plugin-specific npm cache and startup lock. This embedded route is for Codex host-agent recovery, not Alembic resident enhancement. AlembicPlugin does not provide a root registry package fallback.',
       registryPackageFallback: false,
       localPackage: context.embeddedRuntimeSpecifier,
       command: context.runtimeBin,
@@ -486,6 +489,15 @@ function buildDiagnosticIssues(input: {
       severity: 'error',
     });
   }
+  if (!input.checks.residentServiceContract) {
+    issues.push({
+      action:
+        'Refresh @alembic/core and the Codex plugin runtime artifact so resident service status uses the supported contract version.',
+      code: 'RESIDENT_SERVICE_CONTRACT_UNSUPPORTED',
+      message: 'Resident service status uses an unsupported contract version.',
+      severity: 'error',
+    });
+  }
   if (input.requestedTier === 'admin' && !input.adminEnabled) {
     issues.push({
       action: `Set ${CODEX_ADMIN_ENABLE_ENV}=1 only for explicit admin workflows.`,
@@ -495,6 +507,31 @@ function buildDiagnosticIssues(input: {
     });
   }
   return issues;
+}
+
+function buildResidentServiceBoundary(
+  residentService: AlembicResidentServiceProbe | undefined
+): Record<string, unknown> | null {
+  if (!residentService) {
+    return null;
+  }
+  const status = residentService.status;
+  const localAlembicResident =
+    status.route === 'local-alembic-daemon' && status.owner === 'alembic';
+  const embeddedHostAgentRecovery =
+    status.route === 'embedded-plugin-runtime' && status.owner === 'alembic-plugin';
+  return {
+    embeddedHostAgentRecovery,
+    localAlembicResident,
+    owner: status.owner,
+    route: status.route,
+    serviceScope: status.serviceScope,
+    note: embeddedHostAgentRecovery
+      ? 'embedded-plugin-runtime recovers Codex host-agent jobs and is not Alembic resident enhancement.'
+      : localAlembicResident
+        ? 'local-alembic-daemon is the canonical Alembic resident service route.'
+        : 'resident service is unavailable or not owned by local Alembic.',
+  };
 }
 
 function buildDiagnosticNextActions(issues: CodexDiagnosticIssue[]): string[] {

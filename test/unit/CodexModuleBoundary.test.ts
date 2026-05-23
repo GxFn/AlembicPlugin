@@ -16,7 +16,7 @@ describe('Codex module boundary status', () => {
       'dashboard-url-handoff',
       'host-project-mismatch-presentation',
     ]);
-    expect(status.phase).toBe('capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff');
+    expect(status.phase).toBe('unified-resident-service-phase-4-behavior-cleanup');
     expect(externalOwned).toContain('alembic-daemon-main');
     expect(externalOwned).toContain('project-registry-main');
     expect(externalOwned).toContain('job-store-main');
@@ -78,6 +78,17 @@ describe('Codex module boundary status', () => {
               internalAiAvailable: null,
               jobsAvailable: null,
               jobKinds: [],
+            },
+            compatibility: {
+              runtimeBoundary: {
+                activeFallback: false,
+                canonicalResidentServicePresent: false,
+                consumer: null,
+                deletionCondition: null,
+                reason: null,
+                retained: false,
+                source: null,
+              },
             },
             dashboardUrl: null,
             healthVersion: null,
@@ -158,9 +169,15 @@ describe('Codex module boundary status', () => {
       switchOwnership: 'Alembic/Dashboard',
     });
     expect(status.adapters.runtimeContract).toMatchObject({
-      capabilitySummarySource: '@alembic/core/daemon#summarizeAlembicRuntimeCapabilities',
+      capabilitySummarySource:
+        '@alembic/core/daemon#residentService with legacy capability fallback',
       healthPath: '/api/v1/daemon/health',
+      residentServiceOwner: null,
+      residentServiceRoute: null,
       runtimeBoundaryAvailable: false,
     });
+    expect(status.nextWaveGaps).toContain(
+      'Do not add Alembic projects API consumption to Plugin; handoff remains read-only and uses resident service scope plus runtime-control state.'
+    );
   });
 });

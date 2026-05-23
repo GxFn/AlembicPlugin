@@ -141,7 +141,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_bootstrap',
     tier: 'agent',
     description:
-      'Explicit Alembic daemon bootstrap job. Provider configuration, when needed, belongs to the Alembic resident service; this is not the default Codex host-agent cold-start path.',
+      'Explicit resident bootstrap job path. A local Alembic daemon runs internal AI workflow when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
     inputSchema: codexInputSchema({
       maxFiles: { type: 'number', description: 'Maximum files to include in project analysis.' },
       skipGuard: { type: 'boolean', description: 'Skip Guard audit during bootstrap analysis.' },
@@ -155,7 +155,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_rescan',
     tier: 'agent',
     description:
-      'Explicit Alembic daemon rescan job. Provider configuration, when needed, belongs to the Alembic resident service; this is not the default Codex host-agent rescan path.',
+      'Explicit resident rescan job path. A local Alembic daemon runs internal AI workflow when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
     inputSchema: codexInputSchema({
       reason: { type: 'string', description: 'Short reason for the rescan.' },
       dimensions: {
@@ -169,7 +169,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_job',
     tier: 'agent',
     description:
-      'Read Alembic daemon job status from the local JobStore without starting the daemon. If the workspace is not initialized yet, this first performs safe Ghost initialization. Pass jobId for one job, or omit it to list recent jobs.',
+      'Read recoverable resident or embedded host-agent job status without starting a new job. If the workspace is not initialized yet, this first performs safe Ghost initialization. Pass jobId for one job, or omit it to list recent jobs.',
     inputSchema: codexInputSchema({
       jobId: {
         type: 'string',

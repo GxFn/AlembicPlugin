@@ -60,9 +60,15 @@ export interface CodexModuleBoundaryStatus {
       switchOwnership: 'Alembic/Dashboard';
     };
     runtimeContract: {
-      capabilitySummarySource: '@alembic/core/daemon#summarizeAlembicRuntimeCapabilities';
+      capabilitySummarySource: string;
+      compatibilityRuntimeBoundaryConsumer: string | null;
+      compatibilityRuntimeBoundaryDeletionCondition: string | null;
+      compatibilityRuntimeBoundarySource: string | null;
       fileMonitorMode: string | null;
       healthPath: '/api/v1/daemon/health';
+      residentServiceOwner: string | null;
+      residentServiceRoute: string | null;
+      residentServiceScopeKind: string | null;
       runtimeBoundarySource: string | null;
       runtimeBoundaryAvailable: boolean;
     };
@@ -70,7 +76,8 @@ export interface CodexModuleBoundaryStatus {
   dashboard: CodexDashboardArtifactBoundary;
   phase:
     | 'runtime-contract-consumption-wave-2'
-    | 'capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff';
+    | 'capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff'
+    | 'unified-resident-service-phase-4-behavior-cleanup';
   pluginDoesNotOwn: CodexModuleBoundaryEntry[];
   pluginOwns: CodexModuleBoundaryEntry[];
   nextWaveGaps: string[];
@@ -200,8 +207,11 @@ export function buildCodexModuleBoundaryStatus(
 ): CodexModuleBoundaryStatus {
   const route = input.enhancementRoute || null;
   const hostProjectAlignment = input.hostProjectAlignment || null;
+  const residentService = route?.localAlembic.daemon.residentService?.status ?? null;
+  const runtimeBoundaryCompatibility =
+    route?.localAlembic.daemon.compatibility.runtimeBoundary ?? null;
   return {
-    phase: 'capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff',
+    phase: 'unified-resident-service-phase-4-behavior-cleanup',
     pluginOwns: PLUGIN_OWNED_BOUNDARIES.map(copyBoundary),
     pluginDoesNotOwn: EXTERNAL_OWNED_BOUNDARIES.map(copyBoundary),
     adapters: {
@@ -233,9 +243,17 @@ export function buildCodexModuleBoundaryStatus(
         startCommand: CODEX_RUNTIME_BIN,
       },
       runtimeContract: {
-        capabilitySummarySource: '@alembic/core/daemon#summarizeAlembicRuntimeCapabilities',
+        capabilitySummarySource:
+          '@alembic/core/daemon#residentService with legacy capability fallback',
+        compatibilityRuntimeBoundaryConsumer: runtimeBoundaryCompatibility?.consumer ?? null,
+        compatibilityRuntimeBoundaryDeletionCondition:
+          runtimeBoundaryCompatibility?.deletionCondition ?? null,
+        compatibilityRuntimeBoundarySource: runtimeBoundaryCompatibility?.source ?? null,
         fileMonitorMode: route?.localAlembic.daemon.capabilities.fileMonitorMode ?? null,
         healthPath: '/api/v1/daemon/health',
+        residentServiceOwner: residentService?.owner ?? null,
+        residentServiceRoute: residentService?.route ?? null,
+        residentServiceScopeKind: residentService?.serviceScope.kind ?? null,
         runtimeBoundaryAvailable: route?.localAlembic.daemon.runtimeBoundary.available ?? false,
         runtimeBoundarySource: route?.localAlembic.daemon.runtimeBoundary.source ?? null,
       },
@@ -243,8 +261,8 @@ export function buildCodexModuleBoundaryStatus(
     dashboard: { ...CODEX_DASHBOARD_ARTIFACT_BOUNDARY },
     nextWaveGaps: [
       'Ask Alembic/AlembicDashboard to guarantee a stable local Dashboard URL contract for Codex handoff; do not reintroduce Plugin-packaged frontend assets.',
-      'Continue consuming Alembic daemon health runtimeBoundary fields as they stabilize instead of adding Plugin-local permanent contracts.',
-      'Prefer Alembic projects API for richer read-only selected/active project summaries once the safe handoff route is guaranteed available to every bundled runtime.',
+      'Delete runtimeBoundary compatibility fallback after all supported Alembic daemon health producers expose data.residentService.',
+      'Do not add Alembic projects API consumption to Plugin; handoff remains read-only and uses resident service scope plus runtime-control state.',
       'Keep git-diff checkpoint and JobStore usage marked as embedded runtime compatibility until Alembic daemon contracts can fully cover them.',
     ],
   };

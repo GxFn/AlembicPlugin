@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createAlembicResidentServiceStatus } from '@alembic/core/daemon';
 import {
   buildCodexEnhancementRouteChoice,
   summarizeEnhancementDaemon,
@@ -157,8 +158,90 @@ describe('Codex enhancement route resolver', () => {
         kinds: ['bootstrap', 'rescan'],
       },
     });
-    expect(route.reason).toContain('Runtime boundary source: capabilities.runtimeBoundary');
+    expect(route.localAlembic.daemon.compatibility.runtimeBoundary).toMatchObject({
+      activeFallback: true,
+      retained: true,
+      source: 'capabilities.runtimeBoundary',
+    });
+    expect(route.reason).toContain('legacy runtime boundary compatibility');
     expect(route.missingCapabilities).toEqual([]);
+  });
+
+  it('prefers residentService over legacy capability and runtimeBoundary summaries', () => {
+    const residentService = createAlembicResidentServiceStatus({
+      apiBaseUrl: 'http://127.0.0.1:39127',
+      capabilityOverrides: {
+        'dashboard.handoff': { available: false, unavailableReason: 'unsupported-route' },
+        'file-monitor.git-worktree': {
+          available: false,
+          unavailableReason: 'unsupported-route',
+        },
+        'jobs.internal-ai.bootstrap': { available: true },
+        'jobs.internal-ai.rescan': { available: true },
+        'status.health': { available: true },
+      },
+      owner: 'alembic',
+      route: 'local-alembic-daemon',
+      serviceScope: {
+        diagnosticPaths: {
+          projectRoot: '/tmp/project',
+          dataRoot: '/tmp/project/.asd',
+          databasePath: '/tmp/project/.asd/alembic.db',
+          runtimeDir: '/tmp/project/.asd/runtime',
+          statePath: '/tmp/project/.asd/runtime/daemon.json',
+        },
+        kind: 'current-project',
+        projectIdentity: {
+          dataRootSource: 'project',
+          projectId: 'project-id',
+          schemaMigrationVersion: '001',
+          workspaceMode: 'standard',
+        },
+      },
+    });
+    const daemonStatus = makeDaemonStatus(
+      {},
+      {
+        residentService,
+        capabilities: {
+          dashboard: { available: true, url: 'http://127.0.0.1:39127/dashboard' },
+          fileMonitor: { available: true, mode: 'daemon-git-worktree' },
+          runtimeBoundary: {
+            owner: 'alembic',
+            route: 'local-alembic',
+            dashboard: {
+              url: 'http://127.0.0.1:39127/dashboard',
+            },
+            fileMonitor: {
+              available: true,
+              source: 'daemon-git-worktree',
+            },
+          },
+        },
+      }
+    );
+
+    const route = buildCodexEnhancementRouteChoice({
+      daemonStatus,
+      localInstall: LOCAL_INSTALL_UNAVAILABLE,
+      requirement: 'dashboard',
+    });
+
+    expect(route.selected).toBe('local-alembic-daemon');
+    expect(route.localAlembic.daemon.capabilities).toMatchObject({
+      dashboardAvailable: false,
+      fileMonitorAvailable: false,
+      jobsAvailable: true,
+      jobKinds: ['bootstrap', 'rescan'],
+    });
+    expect(route.localAlembic.daemon.compatibility.runtimeBoundary).toMatchObject({
+      activeFallback: false,
+      canonicalResidentServicePresent: true,
+      retained: true,
+    });
+    expect(route.reason).toContain('resident service route (alembic/local-alembic-daemon)');
+    expect(route.reason).not.toContain('Runtime boundary source');
+    expect(route.missingCapabilities).toEqual(['dashboard']);
   });
 
   it('uses runtimeBoundary as compatibility fallback when canonical capability sections are partial', () => {

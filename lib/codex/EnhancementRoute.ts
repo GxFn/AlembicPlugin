@@ -78,6 +78,9 @@ export interface CodexDaemonRuntimeBoundarySummary {
 export interface CodexEnhancementDaemonProbe {
   available: boolean;
   capabilities: CodexDaemonCapabilitySummary;
+  compatibility: {
+    runtimeBoundary: CodexDaemonRuntimeBoundaryCompatibility;
+  };
   dashboardUrl: string | null;
   healthVersion: string | null;
   packageName: string | null;
@@ -90,6 +93,16 @@ export interface CodexEnhancementDaemonProbe {
   runtimeBoundary: CodexDaemonRuntimeBoundarySummary;
   status: string;
   version: string | null;
+}
+
+export interface CodexDaemonRuntimeBoundaryCompatibility {
+  activeFallback: boolean;
+  canonicalResidentServicePresent: boolean;
+  consumer: string | null;
+  deletionCondition: string | null;
+  reason: string | null;
+  retained: boolean;
+  source: CodexDaemonRuntimeBoundarySummary['source'];
 }
 
 export interface CodexLocalAlembicInstallProbe {
@@ -220,12 +233,12 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
     ? normalizeAlembicResidentServiceStatus(data.residentService)
     : null;
   const runtimeBoundary = summarizeDaemonRuntimeBoundary(capabilities, data);
-  const capabilitySummary = mergeCapabilitySummaryWithResidentService(
-    mergeCapabilitySummaryWithRuntimeBoundary(
+  const capabilitySummary = mergeCapabilitySummaryWithRuntimeBoundary(
+    mergeCapabilitySummaryWithResidentService(
       summarizeAlembicRuntimeCapabilities(capabilities),
-      runtimeBoundary
+      residentServiceStatus
     ),
-    residentServiceStatus
+    runtimeBoundary
   );
   const route =
     firstString(residentServiceStatus?.route, enhancement?.route, runtimeBoundary.route) ||
@@ -244,6 +257,12 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
     capabilities: {
       ...capabilitySummary,
       dashboardUrl,
+    },
+    compatibility: {
+      runtimeBoundary: summarizeRuntimeBoundaryCompatibility(
+        runtimeBoundary,
+        residentServiceStatus
+      ),
     },
     dashboardUrl,
     healthVersion: firstString(data?.version),
@@ -298,10 +317,17 @@ function buildEnhancementRouteReason(input: {
       input.missingCapabilities.length > 0
         ? ` Missing capabilities: ${input.missingCapabilities.join(', ')}.`
         : '';
-    const boundary = input.daemon.runtimeBoundary.available
+    const residentService = input.daemon.residentService;
+    if (residentService) {
+      const scope = residentService.status.serviceScope.kind
+        ? ` Service scope: ${residentService.status.serviceScope.kind}.`
+        : '';
+      return `Local Alembic daemon is ready and owns resident service route (${residentService.status.owner}/${residentService.status.route}).${scope}${suffix}`;
+    }
+    const boundary = input.daemon.compatibility.runtimeBoundary.activeFallback
       ? ` Runtime boundary source: ${input.daemon.runtimeBoundary.source}.`
       : '';
-    return `Local Alembic daemon is ready and owns enhancement route.${boundary}${suffix}`;
+    return `Local Alembic daemon is ready through legacy runtime boundary compatibility.${boundary}${suffix}`;
   }
   if (input.selected === 'embedded-plugin-runtime') {
     if (input.requirement === 'dashboard') {
@@ -319,6 +345,31 @@ function buildEnhancementRouteReason(input: {
     return 'Local Alembic CLI install was detected, but no daemon API is ready yet.';
   }
   return 'No usable Alembic enhancement route is available.';
+}
+
+function summarizeRuntimeBoundaryCompatibility(
+  runtimeBoundary: CodexDaemonRuntimeBoundarySummary,
+  residentService: AlembicResidentServiceStatus | null
+): CodexDaemonRuntimeBoundaryCompatibility {
+  const retained = runtimeBoundary.available;
+  const canonicalResidentServicePresent = residentService !== null;
+  return {
+    activeFallback: retained && !canonicalResidentServicePresent,
+    canonicalResidentServicePresent,
+    consumer: retained
+      ? 'EnhancementRoute capability fallback, HostProjectAlignment legacy project fallback, and ModuleBoundary diagnostics'
+      : null,
+    deletionCondition: retained
+      ? 'Remove after all supported Alembic daemon health producers expose data.residentService and downstream status/dashboard handoff no longer needs runtimeBoundary fallback.'
+      : null,
+    reason: retained
+      ? canonicalResidentServicePresent
+        ? 'Retained only as backward-compatible diagnostics; residentService is the canonical capability source.'
+        : 'Older daemon health payload did not expose residentService, so runtimeBoundary remains the compatibility source.'
+      : null,
+    retained,
+    source: runtimeBoundary.source,
+  };
 }
 
 function summarizeDaemonRuntimeBoundary(
@@ -437,16 +488,31 @@ function mergeCapabilitySummaryWithResidentService(
       : unavailable('jobs.internal-ai.bootstrap') && unavailable('jobs.internal-ai.rescan')
         ? false
         : null;
+  const statusAvailable = available('status.health')
+    ? true
+    : unavailable('status.health')
+      ? false
+      : null;
+  const jobsAvailable =
+    jobKinds.length > 0
+      ? true
+      : unavailable('jobs.internal-ai.bootstrap') &&
+          unavailable('jobs.internal-ai.rescan') &&
+          unavailable('jobs.host-agent-recoverable.bootstrap') &&
+          unavailable('jobs.host-agent-recoverable.rescan')
+        ? false
+        : null;
 
   return {
-    apiAvailable: summary.apiAvailable ?? (available('status.health') ? true : null),
-    dashboardAvailable: summary.dashboardAvailable ?? dashboardAvailable,
+    // residentService 是 Phase 4 后的 canonical capability 输入；旧 capabilities/runtimeBoundary 只补空缺。
+    apiAvailable: statusAvailable ?? summary.apiAvailable,
+    dashboardAvailable: dashboardAvailable ?? summary.dashboardAvailable,
     dashboardUrl: summary.dashboardUrl,
-    fileMonitorAvailable: summary.fileMonitorAvailable ?? fileMonitorAvailable,
+    fileMonitorAvailable: fileMonitorAvailable ?? summary.fileMonitorAvailable,
     fileMonitorMode: summary.fileMonitorMode,
-    internalAiAvailable: summary.internalAiAvailable ?? internalAiAvailable,
-    jobsAvailable: summary.jobsAvailable ?? (jobKinds.length > 0 ? true : null),
-    jobKinds: summary.jobKinds.length > 0 ? summary.jobKinds : jobKinds,
+    internalAiAvailable: internalAiAvailable ?? summary.internalAiAvailable,
+    jobsAvailable: jobsAvailable ?? summary.jobsAvailable,
+    jobKinds: jobKinds.length > 0 ? jobKinds : summary.jobKinds,
   };
 }
 
