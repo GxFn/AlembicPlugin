@@ -1,16 +1,15 @@
-export const LEGACY_HOST_AI_MANAGED_CODE = 'HOST_AI_MANAGED' as const;
 export const HOST_AGENT_MANAGED_CODE = 'HOST_AGENT_MANAGED' as const;
 export const PLUGIN_DETERMINISTIC_EXTRACT_CODE = 'PLUGIN_DETERMINISTIC_EXTRACT' as const;
 
 type BoundaryOwner = 'codex-host-agent' | 'alembic-plugin';
+type EnhancementOwner = 'codex-host-agent-or-alembic-resident-service';
 
 type CapabilityBoundary = {
   code: typeof HOST_AGENT_MANAGED_CODE | typeof PLUGIN_DETERMINISTIC_EXTRACT_CODE;
-  legacyCode?: typeof LEGACY_HOST_AI_MANAGED_CODE;
   context: string;
   owner: BoundaryOwner;
-  enhancementOwner: 'codex-host-agent-or-alembic-resident-service';
-  hostManaged: true;
+  enhancementOwner: EnhancementOwner;
+  hostAgentManaged: boolean;
   localAi: false;
   localAiProvider: false;
   pluginAiProvider: false;
@@ -18,10 +17,10 @@ type CapabilityBoundary = {
 };
 
 type HostAgentManagedFields = {
-  hostManaged: true;
+  hostAgentManaged: true;
   boundaryCode: typeof HOST_AGENT_MANAGED_CODE;
   canonicalCode: typeof HOST_AGENT_MANAGED_CODE;
-  legacyBoundaryCode: typeof LEGACY_HOST_AI_MANAGED_CODE;
+  managedBy: EnhancementOwner;
   localAi: false;
   localAiProvider: false;
   pluginAiProvider: false;
@@ -29,10 +28,10 @@ type HostAgentManagedFields = {
 };
 
 type PluginDeterministicFields = {
-  hostManaged: true;
+  deterministicPluginExtract: true;
   boundaryCode: typeof PLUGIN_DETERMINISTIC_EXTRACT_CODE;
   canonicalCode: typeof PLUGIN_DETERMINISTIC_EXTRACT_CODE;
-  legacyHostManaged: true;
+  semanticEnhancementManagedBy: EnhancementOwner;
   localAi: false;
   localAiProvider: false;
   pluginAiProvider: false;
@@ -43,16 +42,14 @@ function makeBoundary(
   code: typeof HOST_AGENT_MANAGED_CODE | typeof PLUGIN_DETERMINISTIC_EXTRACT_CODE,
   context: string,
   owner: BoundaryOwner,
-  note: string,
-  legacyCode?: typeof LEGACY_HOST_AI_MANAGED_CODE
+  note: string
 ): CapabilityBoundary {
   return {
     code,
-    legacyCode,
     context,
     owner,
     enhancementOwner: 'codex-host-agent-or-alembic-resident-service',
-    hostManaged: true,
+    hostAgentManaged: owner === 'codex-host-agent',
     localAi: false,
     localAiProvider: false,
     pluginAiProvider: false,
@@ -62,7 +59,7 @@ function makeBoundary(
 
 export function makeHostAgentManagedError(message: string) {
   return {
-    code: LEGACY_HOST_AI_MANAGED_CODE,
+    code: HOST_AGENT_MANAGED_CODE,
     canonicalCode: HOST_AGENT_MANAGED_CODE,
     boundaryCode: HOST_AGENT_MANAGED_CODE,
     message,
@@ -78,15 +75,14 @@ export function attachHostAgentManagedBoundary<T extends Record<string, unknown>
     HOST_AGENT_MANAGED_CODE,
     context,
     'codex-host-agent',
-    note,
-    LEGACY_HOST_AI_MANAGED_CODE
+    note
   );
   return {
     ...payload,
-    hostManaged: true,
+    hostAgentManaged: true,
     boundaryCode: HOST_AGENT_MANAGED_CODE,
     canonicalCode: HOST_AGENT_MANAGED_CODE,
-    legacyBoundaryCode: LEGACY_HOST_AI_MANAGED_CODE,
+    managedBy: 'codex-host-agent-or-alembic-resident-service',
     localAi: false,
     localAiProvider: false,
     pluginAiProvider: false,
@@ -102,10 +98,10 @@ export function attachPluginDeterministicBoundary<T extends Record<string, unkno
   const boundary = makeBoundary(PLUGIN_DETERMINISTIC_EXTRACT_CODE, context, 'alembic-plugin', note);
   return {
     ...payload,
-    hostManaged: true,
+    deterministicPluginExtract: true,
     boundaryCode: PLUGIN_DETERMINISTIC_EXTRACT_CODE,
     canonicalCode: PLUGIN_DETERMINISTIC_EXTRACT_CODE,
-    legacyHostManaged: true,
+    semanticEnhancementManagedBy: 'codex-host-agent-or-alembic-resident-service',
     localAi: false,
     localAiProvider: false,
     pluginAiProvider: false,

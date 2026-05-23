@@ -121,7 +121,7 @@ router.post('/bootstrap', validate(BootstrapJobBody), (req: Request, res: Respon
       job: decorateJobForResponse(job, getLiveBootstrapSession(container)),
       jobId: job.id,
       statusUrl: buildJobStatusUrl(req, job.id),
-      dashboardUrl: buildJobsApiOrigin(req),
+      apiBaseUrl: buildJobsApiOrigin(req),
     },
   });
 });
@@ -147,7 +147,7 @@ router.post('/rescan', validate(RescanJobBody), (req: Request, res: Response): v
       job: decorateJobForResponse(job, getLiveBootstrapSession(container)),
       jobId: job.id,
       statusUrl: buildJobStatusUrl(req, job.id),
-      dashboardUrl: buildJobsApiOrigin(req),
+      apiBaseUrl: buildJobsApiOrigin(req),
     },
   });
 });
@@ -412,7 +412,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function inferJobSource(req: Request) {
-  return req.headers['x-alembic-daemon-token'] ? 'codex' : 'dashboard';
+  return req.headers['x-alembic-daemon-token'] ? 'codex' : 'http';
 }
 
 function rejectInvalidProvidedDaemonToken(req: Request, res: Response): boolean {

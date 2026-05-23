@@ -51,7 +51,10 @@ const packages = Array.isArray(channel.packages) ? channel.packages : [];
 expect(plugins.length === 1, 'Codex channel must list exactly one plugin in the current phase');
 expect(packages.length === 1, 'Codex channel must list exactly one package in the current phase');
 expect(plugins[0]?.name === 'alembic-codex', 'Codex channel plugin must be alembic-codex');
-expect(packages[0]?.name === 'alembic-ai', 'Codex channel package must be alembic-ai');
+expect(
+  packages[0]?.name === packageJson.name,
+  `Codex channel package must be ${packageJson.name}`
+);
 expect(
   channel.description ===
     'Codex distribution entry for the Alembic Codex plugin and embedded portable runtime artifact.',
@@ -95,6 +98,10 @@ for (const plugin of plugins) {
     plugin.embeddedRuntimePath === 'runtime' &&
       existsSync(join(pluginRoot, plugin.embeddedRuntimePath, 'package.json')),
     `plugin ${plugin.name} must declare an embedded runtime package path`
+  );
+  expect(
+    plugin.runtimePackage === packageJson.name,
+    `plugin ${plugin.name} runtimePackage must be ${packageJson.name}`
   );
   expect(
     plugin.distributionRepo === 'GxFn/AlembicCodex',

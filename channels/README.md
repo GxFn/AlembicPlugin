@@ -9,7 +9,7 @@ Each channel gets its own directory:
 
 - `channels/codex/` is the Codex entrypoint. It currently publishes the
   `alembic-codex` plugin, whose installed directory contains an embedded
-  `alembic-ai` runtime package at `./runtime` and the npx runtime tarball at
+  `alembic-codex-plugin-runtime` package artifact at `./runtime` and the npx runtime tarball at
   `./runtime.tgz` in the dedicated
   `GxFn/AlembicCodex` distribution repository.
 

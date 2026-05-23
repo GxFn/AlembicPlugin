@@ -13,7 +13,7 @@
  *
  * 典型场景：
  *   - MCP Server 冷启动写入 33 条 Recipe → HTTP Server 的 data_version 变化
- *   - 插件宿主触发索引构建 → Dashboard API 的缓存自动失效
+ *   - 插件宿主触发索引构建 → HTTP/API 缓存自动失效
  *
  * @module infrastructure/cache/CacheCoordinator
  */

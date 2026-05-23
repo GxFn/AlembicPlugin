@@ -61,7 +61,7 @@ roles:
 
   - id: "chat_agent"
     name: "ChatAgent"
-    description: "Alembic 内置 AI Agent（Dashboard 对话 / 程序化调用）"
+    description: "宿主管理的对话式执行者（程序化 / admin 工作流）"
     permissions:
       - "read:recipes"
       - "read:candidates"

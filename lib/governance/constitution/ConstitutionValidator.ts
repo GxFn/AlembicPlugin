@@ -149,7 +149,7 @@ export class ConstitutionValidator {
     return {
       rule: rule.id,
       reason: 'AI 不能直接操作 Recipe',
-      suggestion: '通过 Dashboard 人工审批',
+      suggestion: '通过 Alembic 管理界面或显式 admin 路径人工审批',
     };
   }
 

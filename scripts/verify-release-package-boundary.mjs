@@ -29,7 +29,12 @@ const runtimeCoreSource = existsSync(runtimeCoreSourcePath)
   : null;
 const rootParentFileDependencies = collectFileParentDependencies(packageJson);
 const errors = [];
+const expectedRuntimePackageName = 'alembic-codex-plugin-runtime';
 
+expect(
+  packageJson.name === expectedRuntimePackageName,
+  `root package identity must be ${expectedRuntimePackageName}`
+);
 expect(packageJson.private === true, 'root package must be private and unavailable to registry');
 expect(
   packageJson.dependencies?.['@alembic/core'] === 'file:../AlembicCore',
@@ -38,6 +43,10 @@ expect(
 expect(
   runtimePackageJson.dependencies?.['@alembic/core'] === 'file:vendor/AlembicCore',
   'embedded runtime package must keep portable @alembic/core: file:vendor/AlembicCore'
+);
+expect(
+  runtimePackageJson.name === expectedRuntimePackageName,
+  `embedded runtime package identity must be ${expectedRuntimePackageName}`
 );
 expect(Boolean(runtimeCoreSource), 'embedded runtime Core source metadata must exist');
 if (runtimeCoreSource) {

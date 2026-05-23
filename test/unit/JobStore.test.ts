@@ -49,7 +49,7 @@ describe('JobStore', () => {
     const second = store.create({
       kind: 'rescan',
       request: { reason: 'test' },
-      source: 'dashboard',
+      source: 'http',
     });
 
     expect(completed).toMatchObject({
@@ -105,7 +105,7 @@ describe('JobStore', () => {
     useTempAlembicHome();
     const store = new JobStore({ projectRoot: makeProjectRoot() });
     const queued = store.create({ kind: 'bootstrap', source: 'codex' });
-    const running = store.create({ kind: 'rescan', source: 'dashboard' });
+    const running = store.create({ kind: 'rescan', source: 'http' });
     store.markRunning(running.id);
     const completed = store.create({ kind: 'bootstrap' });
     store.markRunning(completed.id);

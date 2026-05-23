@@ -67,7 +67,7 @@ export class AuditLogger {
         actor: entry.actor,
         action: entry.action,
       });
-      // 实时推送审计事件到 Dashboard（M7 §6 audit:entry Socket.io）
+      // 实时推送审计事件到订阅方（M7 §6 audit:entry Socket.io）
       if (this.#eventBus) {
         this.#eventBus.emit('audit:entry', {
           id: auditEntry.id,

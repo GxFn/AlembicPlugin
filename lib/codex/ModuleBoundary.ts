@@ -70,7 +70,7 @@ export interface CodexModuleBoundaryStatus {
   dashboard: CodexDashboardArtifactBoundary;
   phase:
     | 'runtime-contract-consumption-wave-2'
-    | 'multi-project-control-wave-4-dashboard-plugin-consumer-handoff';
+    | 'capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff';
   pluginDoesNotOwn: CodexModuleBoundaryEntry[];
   pluginOwns: CodexModuleBoundaryEntry[];
   nextWaveGaps: string[];
@@ -111,7 +111,7 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
     id: 'marketplace-artifact',
     owner: 'AlembicPlugin',
     pluginRole:
-      'Codex plugin shell, channel metadata, skills, cache sync, and marketplace package.',
+      'Codex plugin shell, channel metadata, skills, cache sync, and marketplace artifact.',
     retainedInPlugin: true,
     sourceOfTruth: `plugins/${CODEX_PLUGIN_NAME}, channels/**, .agents/**`,
   },
@@ -201,7 +201,7 @@ export function buildCodexModuleBoundaryStatus(
   const route = input.enhancementRoute || null;
   const hostProjectAlignment = input.hostProjectAlignment || null;
   return {
-    phase: 'multi-project-control-wave-4-dashboard-plugin-consumer-handoff',
+    phase: 'capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff',
     pluginOwns: PLUGIN_OWNED_BOUNDARIES.map(copyBoundary),
     pluginDoesNotOwn: EXTERNAL_OWNED_BOUNDARIES.map(copyBoundary),
     adapters: {

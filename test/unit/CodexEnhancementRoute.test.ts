@@ -60,7 +60,7 @@ describe('Codex enhancement route resolver', () => {
         dashboardUrl: 'http://127.0.0.1:39127',
         enhancement: {
           apiVersion: 'v1',
-          packageName: 'alembic-ai',
+          packageName: 'alembic-codex-plugin-runtime',
           route: 'local-alembic',
           version: '0.9.0',
         },
@@ -168,7 +168,7 @@ describe('Codex enhancement route resolver', () => {
         version: '0.9.0',
         enhancement: {
           apiVersion: 'v1',
-          packageName: 'alembic-ai',
+          packageName: 'alembic-codex-plugin-runtime',
           route: 'local-alembic',
           version: '0.9.0',
         },
@@ -226,7 +226,7 @@ describe('Codex enhancement route resolver', () => {
       {},
       {
         enhancement: {
-          packageName: 'alembic-ai',
+          packageName: 'alembic-codex-plugin-runtime',
           route: 'local-alembic',
           version: '0.9.0',
         },
@@ -274,7 +274,7 @@ describe('Codex enhancement route resolver', () => {
       available: true,
       command: 'alembic',
       error: null,
-      version: 'alembic-ai 0.9.0',
+      version: 'alembic-codex-plugin-runtime 0.9.0',
     };
 
     expect(

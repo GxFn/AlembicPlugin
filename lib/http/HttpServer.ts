@@ -153,7 +153,7 @@ export class HttpServer {
       this.app.use(this.performanceMonitor.middleware());
     }
 
-    // 安全头（放宽 CSP 以兼容 Vite 构建的 Dashboard SPA：script/style 需要内联和 crossorigin）
+    // 安全头（插件 HTTP API 不再打包或服务 Dashboard 前端；这里只保留 API 兼容所需的基础 CSP）
     this.app.use(
       helmet({
         contentSecurityPolicy: {
@@ -213,7 +213,7 @@ export class HttpServer {
     // Gateway 中间件 (注入 req.gw)
     this.app.use(gatewayMiddleware());
 
-    // 请求超时设置（AI 扫描类路由需要更长时间，SSE 流式路由需要更长时间）
+    // 请求超时设置（确定性扫描类路由需要更长时间，SSE 流式路由需要更长时间）
     this.app.use((req: Request, res: Response, next: NextFunction) => {
       const isLongRunning =
         req.path.includes('/spm/scan') ||
@@ -222,7 +222,7 @@ export class HttpServer {
         req.path.includes('/modules/bootstrap') ||
         req.path.includes('/extract/');
       const isStreaming = req.path.includes('/stream') || req.path.includes('/events/');
-      req.setTimeout(isLongRunning ? 600000 : isStreaming ? 300000 : 60000); // AI 扫描 10分钟, SSE/EventSource 5分钟, 其他 60秒
+      req.setTimeout(isLongRunning ? 600000 : isStreaming ? 300000 : 60000); // 扫描 10分钟, SSE/EventSource 5分钟, 其他 60秒
       next();
     });
   }
@@ -304,10 +304,10 @@ export class HttpServer {
     // Skills 路由
     this.app.use(`${apiPrefix}/skills`, skillsRouter);
 
-    // Wiki 路由（共享 Dashboard 插件模式兼容）
+    // Wiki 路由（插件 HTTP/API 调用方使用，不作为旧 UI 兼容面）
     this.app.use(`${apiPrefix}/wiki`, wikiRouter);
 
-    // Candidates 路由（AI 补齐/润色）
+    // Candidates 路由（宿主托管补齐/润色边界）
     this.app.use(`${apiPrefix}/candidates`, candidatesRouter);
 
     // Modules 路由（v3.2 统一多语言模块扫描）
@@ -344,7 +344,7 @@ export class HttpServer {
       });
     });
 
-    // 404 处理（使用 app.all 确保 layer.route 存在，mountDashboard 依赖此属性定位并重排路由栈）
+    // 404 处理（使用 app.all 确保 layer.route 存在）
     this.app.all('{*path}', (req: Request, res: Response) => {
       res.status(404).json({
         success: false,

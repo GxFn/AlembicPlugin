@@ -868,7 +868,9 @@ describe('CodexMcpServer', () => {
     };
 
     expect(result.success).toBe(true);
-    expect(result.data.package.pinnedSpecifier).toBe(`alembic-ai@${getPackageVersion()}`);
+    expect(result.data.package.pinnedSpecifier).toBe(
+      `alembic-codex-plugin-runtime@${getPackageVersion()}`
+    );
     expect(result.data.checks).toMatchObject({
       packagePin: true,
       pluginAssets: true,

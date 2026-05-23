@@ -58,7 +58,7 @@ export class KnowledgeSyncService {
   /**
    * 完整同步入口 — sync + reconcile + repair
    *
-   * 初始化、daemon 启动和 Dashboard 刷新都会调用此方法。
+   * 初始化、daemon 启动和运行时刷新都会调用此方法。
    *
    * @param db better-sqlite3 原始句柄
    * @param opts 同步选项

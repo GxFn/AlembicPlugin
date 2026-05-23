@@ -33,7 +33,7 @@ const wrapperSource = existsSync(join(pluginRoot, 'bin', 'alembic-codex-mcp-wrap
   : '';
 
 const packageVersion = packageJson.version;
-const expectedRuntime = `alembic-ai@${packageVersion}`;
+const expectedRuntime = `${packageJson.name}@${packageVersion}`;
 const expectedEmbeddedRuntimeSpecifier = './runtime.tgz';
 const server = mcpJson.mcpServers?.alembic;
 const args = Array.isArray(server?.args) ? server.args : [];
@@ -48,6 +48,10 @@ const distributionMarketplaceEntries = Array.isArray(distributionMarketplaceJson
   ? distributionMarketplaceJson.plugins
   : [];
 
+expect(
+  packageJson.name === 'alembic-codex-plugin-runtime',
+  'root package identity must describe the embedded Codex plugin runtime artifact'
+);
 expect(
   packageJson.bin?.['alembic-codex-mcp'] === 'dist/bin/codex-mcp.js',
   'package.json must expose bin.alembic-codex-mcp -> dist/bin/codex-mcp.js'
@@ -229,7 +233,10 @@ expect(
   '.mcp.json must let the wrapper own npm cache and startup locking'
 );
 expect(existsSync(runtimePackagePath), 'embedded runtime package.json must exist');
-expect(runtimePackageJson.name === 'alembic-ai', 'embedded runtime package must be alembic-ai');
+expect(
+  runtimePackageJson.name === packageJson.name,
+  `embedded runtime package must be ${packageJson.name}`
+);
 expect(
   runtimePackageJson.version === packageVersion,
   `embedded runtime package version must be ${packageVersion}`

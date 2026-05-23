@@ -376,7 +376,7 @@ export class ModuleService {
 
   /**
    * 扫描 Target。插件模式只负责确定性文件收集；候选生成 / 语义增强由
-   * Codex host agent 或 Alembic resident service 接管，同时保留旧 hostManaged 字段兼容。
+   * Codex host agent 或 Alembic resident service 接管。
    */
   async scanTarget(
     target: string | Record<string, unknown>,

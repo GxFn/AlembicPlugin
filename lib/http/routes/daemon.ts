@@ -3,6 +3,7 @@ import express, { type Request } from 'express';
 import { getLatestSchemaMigrationVersion } from '#infra/database/SqliteDatabaseAccess.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
+import { CODEX_RUNTIME_PACKAGE } from '../../codex/runtime/RuntimeContext.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
 
 const router = express.Router();
@@ -33,7 +34,7 @@ router.get('/health', (req, res) => {
       dashboardUrl,
       enhancement: {
         apiVersion: 'v1',
-        packageName: 'alembic-ai',
+        packageName: CODEX_RUNTIME_PACKAGE,
         route: 'embedded-plugin-runtime',
         version: getPackageVersion(),
       },

@@ -16,7 +16,6 @@ import { validate } from '../middleware/validate.js';
 import {
   attachHostAgentManagedBoundary,
   HOST_AGENT_MANAGED_CODE,
-  LEGACY_HOST_AI_MANAGED_CODE,
   makeHostAgentManagedError,
 } from '../utils/host-managed-boundary.js';
 
@@ -26,8 +25,8 @@ const router = express.Router();
 
 /**
  * POST /api/v1/candidates/enrich
- * 对若干候选条目返回宿主托管边界。保留旧 HOST_AI_MANAGED / hostManaged
- * 字段给 Dashboard 兼容；新增 boundaryCode/capabilityBoundary 表达真实归属。
+ * 对若干候选条目返回宿主托管边界。Plugin 不再保留旧 UI 调用方兼容字段；
+ * boundaryCode/capabilityBoundary 是 Codex-facing 调用方判断真实归属的唯一结构。
  * Body: { candidateIds: string[] }
  */
 router.post('/enrich', validate(EnrichBody), async (req: Request, res: Response): Promise<void> => {
@@ -46,8 +45,7 @@ router.post('/enrich', validate(EnrichBody), async (req: Request, res: Response)
           id,
           enriched: false,
           skipped: true,
-          reason: LEGACY_HOST_AI_MANAGED_CODE,
-          canonicalReason: HOST_AGENT_MANAGED_CODE,
+          reason: HOST_AGENT_MANAGED_CODE,
           boundaryCode: HOST_AGENT_MANAGED_CODE,
         })),
       },
@@ -438,7 +436,7 @@ router.post(
         };
       }
 
-      await knowledgeService.update(candidateId, finalUpdate, { userId: 'dashboard-refine' });
+      await knowledgeService.update(candidateId, finalUpdate, { userId: 'codex-host-refine' });
     }
 
     // 返回更新后的条目

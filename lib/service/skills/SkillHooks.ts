@@ -215,7 +215,7 @@ export class SkillHooks {
       .map(([name]) => name);
   }
 
-  /** 获取 Hook Registry 信息 (用于 Dashboard / 调试) */
+  /** 获取 Hook Registry 信息 (用于诊断 / 调试) */
   static getHookRegistry(): ReadonlyArray<HookDefinition> {
     return HOOK_REGISTRY;
   }

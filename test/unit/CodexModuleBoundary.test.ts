@@ -16,7 +16,7 @@ describe('Codex module boundary status', () => {
       'dashboard-url-handoff',
       'host-project-mismatch-presentation',
     ]);
-    expect(status.phase).toBe('multi-project-control-wave-4-dashboard-plugin-consumer-handoff');
+    expect(status.phase).toBe('capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff');
     expect(externalOwned).toContain('alembic-daemon-main');
     expect(externalOwned).toContain('project-registry-main');
     expect(externalOwned).toContain('job-store-main');
@@ -46,7 +46,7 @@ describe('Codex module boundary status', () => {
         embeddedRuntime: {
           artifact: './runtime.tgz',
           available: true,
-          packageName: 'alembic-ai',
+          packageName: 'alembic-codex-plugin-runtime',
           route: 'embedded-plugin-runtime',
           version: getPackageVersion(),
         },

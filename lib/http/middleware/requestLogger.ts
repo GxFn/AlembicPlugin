@@ -3,7 +3,7 @@
  * 使用 res.on('finish') 替代猴子补丁 res.send
  *
  * 精简策略:
- *   - GET 请求 + 2xx 状态码: 降为 debug（Dashboard 轮询高频噪音）
+ *   - GET 请求 + 2xx 状态码: 降为 debug（HTTP/UI 轮询高频噪音）
  *   - 非 GET / 非 2xx / 慢请求(>2s): 保留 info 级别
  *
  * ⚠️ 重要: 使用 req.originalUrl 而非 req.path。

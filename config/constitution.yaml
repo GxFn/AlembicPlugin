@@ -59,7 +59,7 @@ roles:
       - "cannot delete any data"
   - id: "chat_agent"
     name: "ChatAgent"
-    description: "built-in AI agent (Dashboard chat / programmatic)"
+    description: "host-managed conversational actor (programmatic/admin workflow)"
     permissions:
       - "read:recipes"
       - "read:project"

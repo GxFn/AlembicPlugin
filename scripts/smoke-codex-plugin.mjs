@@ -103,6 +103,7 @@ try {
 
   const installedPlugin = simulateMarketplaceInstall({
     packageRoot,
+    packageName: packageJson.name,
     packageVersion: packageJson.version,
   });
   const runtimeRoot = installedPlugin.runtimeRoot;
@@ -125,7 +126,7 @@ try {
   const diagnostics = await server.handleToolCall('alembic_codex_diagnostics', {});
   assertResult(diagnostics, 'diagnostics');
   assert(
-    diagnostics.data?.package?.pinnedSpecifier === `alembic-ai@${packageJson.version}`,
+    diagnostics.data?.package?.pinnedSpecifier === `${packageJson.name}@${packageJson.version}`,
     'diagnostics runtime package identity mismatch'
   );
   assert(
@@ -363,7 +364,7 @@ function assertResult(result, label) {
   assert(result.success === true, `${label} failed: ${result.message || JSON.stringify(result)}`);
 }
 
-function simulateMarketplaceInstall({ packageRoot, packageVersion }) {
+function simulateMarketplaceInstall({ packageRoot, packageName, packageVersion }) {
   const marketplace = readJson(join(packageRoot, '.agents', 'plugins', 'marketplace.json'));
   const entry = Array.isArray(marketplace.plugins)
     ? marketplace.plugins.find((item) => item?.name === 'alembic-codex')
@@ -466,7 +467,7 @@ function simulateMarketplaceInstall({ packageRoot, packageVersion }) {
     'installed plugin distribution marketplace must point to repository root'
   );
   const runtimePackage = readJson(join(runtimeRoot, 'package.json'));
-  assert(runtimePackage.name === 'alembic-ai', 'embedded runtime package name mismatch');
+  assert(runtimePackage.name === packageName, 'embedded runtime package name mismatch');
   assert(
     runtimePackage.version === packageVersion,
     'embedded runtime package version does not match plugin package version'
@@ -615,7 +616,7 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
     const diagnostics = await callStdioJsonTool(client, 'alembic_codex_diagnostics', {}, stderr);
     assertResult(diagnostics, 'MCP stdio diagnostics');
     assert(
-      diagnostics.data?.package?.pinnedSpecifier === `alembic-ai@${packageJson.version}`,
+      diagnostics.data?.package?.pinnedSpecifier === `${packageJson.name}@${packageJson.version}`,
       'MCP stdio diagnostics runtime package identity mismatch'
     );
     assert(

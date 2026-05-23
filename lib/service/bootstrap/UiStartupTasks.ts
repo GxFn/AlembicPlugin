@@ -1,7 +1,7 @@
 /**
- * UiStartupTasks — Dashboard/daemon 启动后异步后台刷新任务
+ * UiStartupTasks — HTTP/daemon 启动后异步后台刷新任务
  *
- * 在 Dashboard 启动后异步执行，不阻塞 UI:
+ * 在 HTTP/daemon 启动后异步执行，不阻塞 UI:
  *   1. syncAll:               .md → DB 全量同步 + sourceRefs 对账
  *   2. staging promote:       到期 staging → active 晋升
  *   3. vector reconcile:      向量对账（best-effort）

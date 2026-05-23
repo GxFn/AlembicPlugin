@@ -528,7 +528,7 @@ export class CleanupService {
   }
 
   /**
-   * 列出当前所有垃圾桶（供 Dashboard 展示）
+   * 列出当前所有垃圾桶（供 HTTP/UI 展示）
    */
   listTrashFolders(): Array<{ name: string; createdAt: Date; sizeMB: number }> {
     const trashRoot = this.#getTrashRoot();

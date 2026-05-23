@@ -222,10 +222,10 @@ router.get('/realtime', (req, res) => {
 });
 
 /**
- * GET /api/v1/monitoring/dashboard
- * 综合监控仪表盘数据
+ * GET /api/v1/monitoring/summary
+ * 综合监控摘要数据
  */
-router.get('/dashboard', async (req, res) => {
+router.get('/summary', async (req, res) => {
   try {
     const performanceMonitor = getPerformanceMonitor();
     const errorTracker = getErrorTracker();

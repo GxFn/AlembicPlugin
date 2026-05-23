@@ -3,17 +3,19 @@ import { join } from 'node:path';
 
 const routeSource = () =>
   readFileSync(join(process.cwd(), 'lib/http/routes/candidates.ts'), 'utf8');
+const literal = (...parts: string[]) => parts.join('');
 
 describe('Candidates route host-managed boundary source contract', () => {
-  it('keeps the legacy Dashboard-compatible code while adding canonical boundary helpers', () => {
+  it('removes legacy Dashboard-compatible codes and keeps canonical boundary helpers', () => {
     const source = routeSource();
 
-    expect(source).toContain('LEGACY_HOST_AI_MANAGED_CODE');
     expect(source).toContain('HOST_AGENT_MANAGED_CODE');
     expect(source).toContain('attachHostAgentManagedBoundary');
     expect(source).toContain('makeHostAgentManagedError');
-    expect(source).toContain('canonicalReason: HOST_AGENT_MANAGED_CODE');
     expect(source).toContain('boundaryCode: HOST_AGENT_MANAGED_CODE');
+    expect(source).not.toContain(literal('LEGACY_', 'HOST_AI_', 'MANAGED_CODE'));
+    expect(source).not.toContain(literal('HOST_AI_', 'MANAGED'));
+    expect(source).not.toContain(literal('host', 'Managed'));
   });
 
   it('does not restore local candidate AI execution wording', () => {

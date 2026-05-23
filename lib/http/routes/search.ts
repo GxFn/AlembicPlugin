@@ -66,7 +66,7 @@ router.get('/', validateQuery(SearchQuery), async (req: Request, res: Response):
   const results: Record<string, { data?: unknown[]; pagination?: Record<string, unknown> }> = {};
   const pagination = { page, pageSize: limit };
 
-  // SearchEngine 不可用时的降级路径（Dashboard 冷启动场景）
+  // SearchEngine 不可用时的降级路径（HTTP/API 冷启动场景）
   // recipes + candidates 共用 knowledgeService.search()，避免重复查询
   if (type === 'all' || type === 'recipe' || type === 'solution' || type === 'candidate') {
     try {
@@ -174,7 +174,7 @@ router.get(
 
 /**
  * GET /api/v1/search/graph/all
- * 全量知识图谱边（Dashboard 可视化用）
+ * 全量知识图谱边（HTTP/UI 可视化用）
  * ?limit=500
  */
 router.get('/graph/all', async (req: Request, res: Response): Promise<void> => {
@@ -321,7 +321,7 @@ router.post(
       });
     }
 
-    // 降级: SearchEngine 完全不可用时，KnowledgeService SQL LIKE (Dashboard 冷启动)
+    // 降级: SearchEngine 完全不可用时，KnowledgeService SQL LIKE (HTTP/API 冷启动)
     if (results.length === 0) {
       try {
         const knowledgeService = container.get('knowledgeService');

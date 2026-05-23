@@ -119,7 +119,7 @@ function makeJob(overrides: Partial<DaemonJobRecord> = {}): DaemonJobRecord {
     id: 'bootstrap_test',
     kind: 'bootstrap',
     status: 'queued',
-    source: 'dashboard',
+    source: 'http',
     projectRoot: '/tmp/project',
     dataRoot: '/tmp/project/.alembic',
     projectId: 'test',

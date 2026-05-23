@@ -22,7 +22,7 @@
       "name": "alembic-codex",
       "path": "plugins/alembic-codex",
       "marketplaceEntry": "alembic-codex",
-      "runtimePackage": "alembic-ai",
+      "runtimePackage": "alembic-codex-plugin-runtime",
       "runtimeMode": "plugin",
       "runtimeSpecifier": "./runtime.tgz",
       "embeddedRuntimePath": "runtime",
@@ -35,7 +35,7 @@
   ],
   "packages": [
     {
-      "name": "alembic-ai",
+      "name": "alembic-codex-plugin-runtime",
       "registry": "portable-artifact",
       "installScope": "embedded-plugin-runtime",
       "artifact": "plugins/alembic-codex/runtime.tgz",

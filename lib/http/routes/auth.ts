@@ -5,7 +5,7 @@
  *   ALEMBIC_AUTH_USERNAME (默认 admin)
  *   ALEMBIC_AUTH_PASSWORD (默认 alembic)
  *
- * 仅在前端 VITE_AUTH_ENABLED=true 时由 Dashboard 调用。
+ * 仅在前端 VITE_AUTH_ENABLED=true 时由显式 HTTP/UI 调用方使用。
  * 使用 HMAC-SHA256 签发简单 JWT-like token（无第三方依赖）。
  */
 

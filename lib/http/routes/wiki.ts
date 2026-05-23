@@ -1,6 +1,6 @@
 /**
  * Wiki API 路由
- * 为共享 Dashboard 提供插件模式下的 Repo Wiki 读写与生成入口。
+ * 为插件模式下的显式 HTTP 调用方提供 Repo Wiki 读写与生成入口。
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';

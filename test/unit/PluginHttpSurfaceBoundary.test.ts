@@ -36,6 +36,17 @@ describe('Plugin HTTP surface boundary', () => {
     expect(httpServer).not.toContain(literal('`${apiPrefix}/', 'recipes`'));
   });
 
+  it('does not expose old Dashboard caller-only HTTP aliases', () => {
+    const monitoring = source('lib/http/routes/monitoring.ts');
+    const jobs = source('lib/http/routes/jobs.ts');
+
+    expect(monitoring).toContain("router.get('/summary'");
+    expect(monitoring).not.toContain(literal("router.get('/", 'dashboard', "'"));
+    expect(jobs).toContain('apiBaseUrl');
+    expect(jobs).not.toContain('dashboardUrl: buildJobsApiOrigin');
+    expect(jobs).not.toContain(literal("'dashboard'"));
+  });
+
   it('keeps commands and modules free of Dashboard compatibility dispatch', () => {
     const commands = source('lib/http/routes/commands.ts');
     const modules = source('lib/http/routes/modules.ts');

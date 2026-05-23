@@ -1,6 +1,6 @@
 /**
  * Commands API 路由
- * 保留插件 HTTP 文件操作与状态查询；旧 Dashboard compatibility operation 已移除。
+ * 保留插件 HTTP 文件操作与状态查询；旧 UI 兼容 operation 已移除。
  */
 
 import express, { type Request, type Response } from 'express';
