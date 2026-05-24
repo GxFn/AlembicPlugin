@@ -193,6 +193,7 @@ describe('CodexMcpServer', () => {
     expect(names).toContain('alembic_codex_cleanup');
     expect(names).toContain('alembic_bootstrap');
     expect(names).toContain('alembic_rescan');
+    expect(names).toContain('alembic_project_skill');
     expect(names).toContain('alembic_health');
     expect(names).not.toContain('alembic_knowledge_lifecycle');
   });

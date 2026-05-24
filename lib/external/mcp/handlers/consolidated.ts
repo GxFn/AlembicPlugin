@@ -194,6 +194,9 @@ export async function consolidatedGuard(ctx: McpContext, args: ConsolidatedGuard
  *   create  → createSkill()
  *   update  → updateSkill()
  *   delete  → deleteSkill()
+ *
+ * @deprecated Codex runtime delivery should use alembic_project_skill. This
+ * compatibility route only preserves old Alembic storage operations.
  */
 export async function consolidatedSkill(ctx: McpContext, args: ConsolidatedSkillArgs) {
   const op = args.operation;
@@ -210,19 +213,51 @@ export async function consolidatedSkill(ctx: McpContext, args: ConsolidatedSkill
 
   switch (op) {
     case 'list':
-      return skillHandlers.listSkills(ctx);
+      return withLegacySkillReplacement(skillHandlers.listSkills(ctx));
     case 'load':
-      return skillHandlers.loadSkill(ctx, args);
+      return withLegacySkillReplacement(skillHandlers.loadSkill(ctx, args));
     case 'create':
-      return skillHandlers.createSkill(ctx, args);
+      return withLegacySkillReplacement(skillHandlers.createSkill(ctx, args));
     case 'update':
-      return skillHandlers.updateSkill(ctx, args);
+      return withLegacySkillReplacement(skillHandlers.updateSkill(ctx, args));
     case 'delete':
-      return skillHandlers.deleteSkill(ctx, args);
+      return withLegacySkillReplacement(skillHandlers.deleteSkill(ctx, args));
     default:
       throw new Error(
         `Unknown skill operation: ${op}. Expected: list, load, create, update, delete`
       );
+  }
+}
+
+export async function consolidatedProjectSkill(ctx: McpContext, args: ConsolidatedSkillArgs) {
+  if (args.name && !args.skillName) {
+    args.skillName = args.name;
+  }
+  return skillHandlers.projectSkill(ctx, args);
+}
+
+function withLegacySkillReplacement(value: unknown) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const data =
+      parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
+        ? (parsed.data as Record<string, unknown>)
+        : {};
+    return JSON.stringify({
+      ...parsed,
+      data: {
+        ...data,
+        legacyCompatibility: true,
+        replacementTool: 'alembic_project_skill',
+        replacementReason:
+          'Codex Project Skill runtime delivery now uses receipt + project-scoped export instead of the legacy alembic_skill storage surface.',
+      },
+    });
+  } catch {
+    return value;
   }
 }
 

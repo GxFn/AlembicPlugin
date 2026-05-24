@@ -251,6 +251,31 @@ export const SkillInput = z.object({
 });
 export type SkillInput = z.infer<typeof SkillInput>;
 
+export const ProjectSkillInput = z.object({
+  operation: z
+    .enum(['list', 'load', 'export', 'create', 'update', 'delete'])
+    .describe(
+      'list=列表 | load=从 Codex runtime 或 Alembic storage 加载 | export=按 receipt 导出到 .agents/skills | create/update/delete=项目级 Skill storage + receipt'
+    ),
+  name: z.string().optional().describe('Project Skill 名称（kebab-case）'),
+  skillName: z.string().optional().describe('name 的别名，与 name 等价'),
+  receiptId: z.string().optional().describe('export 时可按 workflow report 中的 receipt id 查找'),
+  receipt: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('export 时可直接传入 ProjectSkillDeliveryReceipt'),
+  section: z.string().optional().describe('load 时过滤指定章节'),
+  description: z.string().optional().describe('create/update 时的简短描述'),
+  content: z.string().optional().describe('create/update 时的 Markdown 内容'),
+  overwrite: z.boolean().default(false).describe('只允许覆盖 managed marker 匹配的 runtime export'),
+  authorizeProjectSkillExport: z
+    .boolean()
+    .default(false)
+    .describe('显式项目级授权；true 时允许写入当前项目 .agents/skills'),
+  createdBy: z.enum(['manual', 'user-ai', 'system-ai', 'external-ai']).default('external-ai'),
+});
+export type ProjectSkillInput = z.infer<typeof ProjectSkillInput>;
+
 // ══════════════════════════════════════════════════════
 //  11. alembic_bootstrap — 无参数
 // ══════════════════════════════════════════════════════
@@ -447,6 +472,7 @@ export const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_call_context: CallContextInput,
   alembic_guard: GuardInput,
   alembic_submit_knowledge: SubmitKnowledgeInput,
+  alembic_project_skill: ProjectSkillInput,
   alembic_skill: SkillInput,
   alembic_bootstrap: BootstrapInput,
   alembic_rescan: RescanInput,

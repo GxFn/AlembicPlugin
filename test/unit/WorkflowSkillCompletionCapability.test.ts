@@ -1,11 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { WriteZone } from '@alembic/core/io';
-import { describe, expect, test, vi } from 'vitest';
+import { pathGuard, type WriteZone } from '@alembic/core/io';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { generateSkill } from '#workflows/capabilities/execution/WorkflowSkillCompletionCapability.js';
 
 describe('WorkflowSkillCompletionCapability', () => {
+  afterEach(() => {
+    pathGuard._reset();
+  });
+
   test('rejects skill generation when analysis text is below quality threshold', async () => {
     const result = await generateSkill(createContext(), { id: 'api', label: 'API' }, 'short');
 
@@ -41,11 +45,31 @@ describe('WorkflowSkillCompletionCapability', () => {
         'unit-test'
       );
 
-      expect(result).toEqual({ success: true, skillName: 'project-workflow-skill-test' });
+      expect(result.success).toBe(true);
+      expect(result.skillName).toBe('project-workflow-skill-test');
+      expect(result.deliveryReceipt).toMatchObject({
+        route: 'plugin',
+        skillName: 'project-workflow-skill-test',
+        runtimeExport: { status: 'exported', linkMode: 'symlink' },
+        authorization: { status: 'granted' },
+      });
+      expect(result.exportResult).toMatchObject({
+        authorizationStatus: 'granted',
+        runtimeExportStatus: 'exported',
+      });
       const skillWrite = [...writes.entries()].find(([filePath]) => filePath.endsWith('SKILL.md'));
       expect(skillWrite?.[1]).toContain('name: project-workflow-skill-test');
       expect(skillWrite?.[1]).toContain('# Workflow Skill Test');
       expect(skillWrite?.[1]).toContain('## Referenced Files');
+      const runtimeSkillPath = path.join(
+        dataRoot,
+        '.agents',
+        'skills',
+        'project-workflow-skill-test',
+        'SKILL.md'
+      );
+      expect(fs.lstatSync(runtimeSkillPath).isSymbolicLink()).toBe(true);
+      expect(fs.readFileSync(runtimeSkillPath, 'utf8')).toContain('name: project-workflow-skill-test');
       const projectWrites = [...writes.keys()].filter((filePath) =>
         filePath.includes(`${path.sep}project${path.sep}`)
       );
@@ -57,6 +81,9 @@ describe('WorkflowSkillCompletionCapability', () => {
 });
 
 function createContext(writeZone?: WriteZone) {
+  if (writeZone) {
+    pathGuard.configure({ projectRoot: writeZone.dataRoot });
+  }
   return {
     container: {
       singletons: writeZone ? { writeZone, _projectRoot: writeZone.dataRoot } : {},

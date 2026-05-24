@@ -1,5 +1,8 @@
 import { dimensionTags } from '@alembic/core/dimensions';
-import { saveDimensionCheckpoint } from '@alembic/core/host-agent-workflows';
+import {
+  type ProjectSkillDeliveryReceipt,
+  saveDimensionCheckpoint,
+} from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared';
@@ -78,7 +81,14 @@ type GenerateExternalDimensionSkill = (
   referencedFiles: string[],
   keyFindings: string[],
   source: string
-) => Promise<{ success: boolean; error?: string }>;
+) => Promise<ExternalDimensionSkillResult>;
+
+interface ExternalDimensionSkillResult {
+  deliveryReceipt?: ProjectSkillDeliveryReceipt;
+  error?: string;
+  exportResult?: Record<string, unknown>;
+  success: boolean;
+}
 
 export interface ExternalWorkflowSession {
   id: string;
@@ -235,7 +245,7 @@ export async function runExternalDimensionCompletionWorkflow(
     dimensionId: input.value.dimensionId,
     submittedRecipeIds,
   });
-  const skillCreated = await createExternalDimensionSkill({
+  const skillResult = await createExternalDimensionSkill({
     ctx,
     dimension,
     dimensionId: input.value.dimensionId,
@@ -262,7 +272,7 @@ export async function runExternalDimensionCompletionWorkflow(
     analysisText: input.value.analysisText,
     referencedFiles,
     submittedRecipeIds,
-    skillCreated,
+    skillCreated: skillResult.success,
     dependencies,
   });
   await persistKeyFindings({
@@ -280,7 +290,7 @@ export async function runExternalDimensionCompletionWorkflow(
     dimension,
     dimensionId: input.value.dimensionId,
     candidateCount: input.value.candidateCount || submittedRecipeIds.length,
-    skillCreated,
+    skillCreated: skillResult.success,
     recipesBound,
     progress,
     isComplete,
@@ -326,7 +336,14 @@ export async function runExternalDimensionCompletionWorkflow(
     data: {
       dimensionId: input.value.dimensionId,
       updated,
-      skillCreated,
+      skillCreated: skillResult.success,
+      projectSkillDelivery: skillResult.deliveryReceipt
+        ? {
+            receipt: skillResult.deliveryReceipt,
+            runtimeExport: skillResult.deliveryReceipt.runtimeExport,
+            shoutSummary: skillResult.deliveryReceipt.shoutSummary,
+          }
+        : undefined,
       recipesBound,
       progress: `${progress.completed}/${progress.total}`,
       completedDimensions: progress.completedDimIds,
@@ -571,9 +588,9 @@ async function createExternalDimensionSkill({
   keyFindings: string[];
   submittedRecipeIds: string[];
   dependencies: ExternalDimensionCompletionDependencies;
-}): Promise<boolean> {
+}): Promise<ExternalDimensionSkillResult> {
   if (!dimension.skillWorthy) {
-    return false;
+    return { success: false };
   }
 
   const effectiveAnalysis = await synthesizeSkillAnalysisIfNeeded({
@@ -596,7 +613,13 @@ async function createExternalDimensionSkill({
   if (!skillResult.success) {
     logger.warn(`[DimensionComplete] Skill skipped for "${dimensionId}": ${skillResult.error}`);
   }
-  return skillResult.success;
+  return {
+    success: skillResult.success,
+    deliveryReceipt: (skillResult as { deliveryReceipt?: ProjectSkillDeliveryReceipt })
+      .deliveryReceipt,
+    error: skillResult.error,
+    exportResult: (skillResult as { exportResult?: Record<string, unknown> }).exportResult,
+  };
 }
 
 async function synthesizeSkillAnalysisIfNeeded({

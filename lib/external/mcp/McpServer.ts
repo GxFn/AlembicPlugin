@@ -566,6 +566,7 @@ export class McpServer {
       alembic_graph: (ctx, args) => consolidated.consolidatedGraph(ctx, args),
       alembic_guard: (ctx, args) => consolidated.consolidatedGuard(ctx, args),
       alembic_submit_knowledge: (ctx, args) => consolidated.enhancedSubmitKnowledge(ctx, args),
+      alembic_project_skill: (ctx, args) => consolidated.consolidatedProjectSkill(ctx, args),
       alembic_skill: (ctx, args) => consolidated.consolidatedSkill(ctx, args),
       alembic_task: (ctx, args) => taskHandler(ctx, args),
       alembic_panorama: (ctx, args) => panoramaHandler(ctx, args),

@@ -34,6 +34,7 @@ import {
   KnowledgeInput,
   KnowledgeLifecycleInput,
   PanoramaInput,
+  ProjectSkillInput,
   RescanInput,
   SearchInput,
   SkillInput,
@@ -158,7 +159,8 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   alembic_call_context: readOnlyTool('Query Code Call Context'),
   alembic_guard: readOnlyTool('Run Alembic Guard Check'),
   alembic_submit_knowledge: aiBackedWriteTool('Submit Alembic Knowledge Candidate'),
-  alembic_skill: localWriteTool('Manage Alembic Skills'),
+  alembic_project_skill: localWriteTool('Deliver Alembic Project Skills To Codex'),
+  alembic_skill: localWriteTool('Legacy Alembic Skill Storage Compatibility'),
   alembic_bootstrap: aiBackedWriteTool('Run Codex Host-Agent Bootstrap'),
   alembic_rescan: aiBackedWriteTool('Run Codex Host-Agent Rescan'),
   alembic_evolve: destructiveTool('Apply Alembic Evolution Decision'),
@@ -203,6 +205,17 @@ export const TOOL_GATEWAY_MAP = {
         : null, // code mode is read-only, skip Gateway
   },
   // skill write operations (create/update/delete)
+  alembic_project_skill: {
+    resolver: (args: Record<string, unknown>) =>
+      (
+        ({
+          create: { action: 'create:skills', resource: 'skills' },
+          update: { action: 'update:skills', resource: 'skills' },
+          delete: { action: 'delete:skills', resource: 'skills' },
+          export: { action: 'update:skills', resource: 'skills' },
+        }) as Record<string, { action: string; resource: string }>
+      )[args?.operation as string] || null,
+  },
   alembic_skill: {
     resolver: (args: Record<string, unknown>) =>
       (
@@ -350,15 +363,24 @@ export const TOOLS = [
 
   // 9. Skill Management
   {
+    name: 'alembic_project_skill',
+    tier: 'agent',
+    description:
+      'Codex Project Skill delivery and runtime export.\n' +
+      '• list — list Alembic project skills, delivery receipts, and Codex runtime exports\n' +
+      '• load — load a skill, preferring Codex project runtime `.agents/skills/<name>/SKILL.md`\n' +
+      '• export — consume a ProjectSkillDeliveryReceipt and symlink SKILL.md into `.agents/skills` after authorizeProjectSkillExport=true\n' +
+      '• create/update — write Alembic project skill storage, produce a Plugin route delivery receipt, and optionally export\n' +
+      '• delete — delete Alembic project skill storage; built-in plugin skills remain protected',
+    inputSchema: zodToMcpSchema(ProjectSkillInput),
+  },
+
+  {
     name: 'alembic_skill',
     tier: 'agent',
     description:
-      'Skill management.\n' +
-      '• list — list all available Skills (built-in + project-level)\n' +
-      '• load — load full Skill content for detailed guidance (requires name)\n' +
-      '• create — create project-level Skill (requires name + description + content)\n' +
-      '• update — update project-level Skill content\n' +
-      '• delete — delete project-level Skill (built-in cannot be deleted)',
+      'Legacy compatibility for Alembic project skill storage. Prefer alembic_project_skill for Codex runtime delivery because it returns ProjectSkillDeliveryReceipt, project authorization, conflict status, and `.agents/skills` export state.\n' +
+      '• list/load/create/update/delete — old Alembic storage operations only; new runtime visibility requires alembic_project_skill export',
     inputSchema: zodToMcpSchema(SkillInput),
   },
 

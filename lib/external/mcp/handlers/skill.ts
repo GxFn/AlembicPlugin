@@ -14,7 +14,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getProjectSkillsPath } from '@alembic/core/config';
 import { pathGuard, type WriteZone } from '@alembic/core/io';
-import { resolveDataRoot } from '@alembic/core/workspace';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import {
+  buildPluginProjectSkillDeliveryReceipt,
+  exportProjectSkillReceiptToCodexRuntime,
+  findProjectSkillDeliveryReceipt,
+  getCodexProjectSkillRoot,
+  listProjectSkillDeliveryReceipts,
+  validateReceiptForRuntimeExport,
+} from '#codex/ProjectSkillDelivery.js';
+import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import { INJECTABLE_SKILLS_DIR } from '#shared/package-assets.js';
 import type { McpContext } from './types.js';
 
@@ -278,6 +287,14 @@ interface CreateSkillArgs {
   title?: string;
 }
 
+interface ProjectSkillArgs extends CreateSkillArgs, UpdateSkillArgs {
+  authorizeProjectSkillExport?: boolean;
+  receipt?: unknown;
+  receiptId?: string;
+  section?: string;
+  skillName?: string;
+}
+
 export function createSkill(ctx: McpContext | null, args: CreateSkillArgs) {
   const {
     name,
@@ -323,7 +340,8 @@ export function createSkill(ctx: McpContext | null, args: CreateSkillArgs) {
   const projectSkillsDir = _getProjectSkillsDir(ctx ?? undefined);
   const skillDir = path.join(projectSkillsDir, name);
   const skillPath = path.join(skillDir, 'SKILL.md');
-  if (fs.existsSync(skillPath) && !overwrite) {
+  const existedBefore = fs.existsSync(skillPath);
+  if (existedBefore && !overwrite) {
     return JSON.stringify({
       success: false,
       error: {
@@ -334,6 +352,7 @@ export function createSkill(ctx: McpContext | null, args: CreateSkillArgs) {
   }
 
   // ── 写入 SKILL.md ──
+  let writtenSkillPath = skillPath;
   try {
     const wz = _getWriteZone(ctx);
 
@@ -361,8 +380,10 @@ export function createSkill(ctx: McpContext | null, args: CreateSkillArgs) {
     if (wz) {
       const dataRelSkillDir = skillDir.replace(wz.dataRoot, '').replace(/^\//, '');
       const dataRelSkillPath = skillPath.replace(wz.dataRoot, '').replace(/^\//, '');
+      const writeTarget = wz.data(dataRelSkillPath);
       wz.ensureDir(wz.data(dataRelSkillDir));
-      wz.writeFile(wz.data(dataRelSkillPath), frontmatter + content);
+      wz.writeFile(writeTarget, frontmatter + content);
+      writtenSkillPath = writeTarget.absolute;
     } else {
       pathGuard.assertProjectWriteSafe(skillDir);
       fs.mkdirSync(skillDir, { recursive: true });
@@ -383,7 +404,7 @@ export function createSkill(ctx: McpContext | null, args: CreateSkillArgs) {
     const skillHooks = ctx?.container?.get?.('skillHooks');
     if (skillHooks?.has?.('onSkillCreated')) {
       skillHooks
-        .run('onSkillCreated', { name, description, createdBy, path: skillPath })
+        .run('onSkillCreated', { name, description, createdBy, path: writtenSkillPath })
         .catch(() => {
           /* fire-and-forget */
         });
@@ -396,9 +417,9 @@ export function createSkill(ctx: McpContext | null, args: CreateSkillArgs) {
     success: true,
     data: {
       skillName: name,
-      path: skillPath,
-      overwritten: fs.existsSync(skillPath) && overwrite,
-      hint: `Skill "${name}" created. Use alembic_skill({ operation: "load", name: "${name}" }) to verify content.`,
+      path: writtenSkillPath,
+      overwritten: existedBefore && overwrite,
+      hint: `Skill "${name}" created in Alembic storage. Use alembic_project_skill({ operation: "export", name: "${name}", authorizeProjectSkillExport: true }) to make it visible to Codex runtime.`,
     },
   });
 }
@@ -550,7 +571,7 @@ export function updateSkill(ctx: McpContext | null, args: UpdateSkillArgs) {
       success: false,
       error: {
         code: 'SKILL_NOT_FOUND',
-        message: `Project skill "${name}" not found. Use alembic_skill({ operation: "create" }) to create it first.`,
+        message: `Project skill "${name}" not found. Use alembic_project_skill({ operation: "create" }) to create it first.`,
       },
     });
   }
@@ -623,9 +644,278 @@ export function updateSkill(ctx: McpContext | null, args: UpdateSkillArgs) {
       fieldsUpdated: [description ? 'description' : null, content ? 'content' : null].filter(
         Boolean
       ),
-      hint: `Skill "${name}" updated. Use alembic_skill({ operation: "load", name: "${name}" }) to verify content.`,
+      hint: `Skill "${name}" updated in Alembic storage. Use alembic_project_skill({ operation: "export", name: "${name}", authorizeProjectSkillExport: true }) to refresh Codex runtime visibility.`,
     },
   });
+}
+
+// ═══════════════════════════════════════════════════════════
+// Handler: projectSkill
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Codex-facing Project Skill delivery handler.
+ *
+ * `alembic_skill` remains a compatibility alias for old Alembic storage reads/writes.
+ * New Codex runtime visibility goes through this handler so receipt, authorization,
+ * managed marker, and `.agents/skills` export status stay explicit.
+ */
+export function projectSkill(
+  ctx: McpContext | null,
+  args: ProjectSkillArgs & { operation?: string }
+) {
+  const operation = args.operation || 'list';
+  switch (operation) {
+    case 'list':
+      return listProjectSkillsForCodex(ctx);
+    case 'load':
+      return loadProjectSkillForCodex(ctx, args);
+    case 'export':
+      return exportProjectSkillForCodex(ctx, args);
+    case 'create':
+      return createProjectSkillForCodex(ctx, args);
+    case 'update':
+      return updateProjectSkillForCodex(ctx, args);
+    case 'delete':
+      return deleteSkill(ctx, args);
+    default:
+      return {
+        success: false,
+        errorCode: 'UNKNOWN_PROJECT_SKILL_OPERATION',
+        message:
+          'Unknown project skill operation. Expected: list, load, export, create, update, delete.',
+        data: { operation },
+      };
+  }
+}
+
+function listProjectSkillsForCodex(ctx: McpContext | null) {
+  const legacy = parseLegacySkillResponse(listSkills(ctx));
+  const projectRoot = resolveProjectRoot(ctx?.container as never);
+  const runtimeRoot = getCodexProjectSkillRoot(projectRoot);
+  const runtimeExports = listRuntimeProjectSkills(runtimeRoot);
+  const deliveryReceipts = listProjectSkillDeliveryReceipts(ctx).map((receipt) => ({
+    id: receipt.id,
+    route: receipt.route,
+    skillName: receipt.skillName,
+    runtimeExport: receipt.runtimeExport,
+    authorization: receipt.authorization,
+    conflictStatus: receipt.conflictStatus,
+    shoutSummary: receipt.shoutSummary,
+  }));
+  const legacyData = legacy?.data as { skills?: unknown[]; total?: number } | undefined;
+  return {
+    success: true,
+    data: {
+      skills: legacyData?.skills ?? [],
+      total: legacyData?.total ?? 0,
+      codexRuntime: {
+        root: runtimeRoot,
+        exports: runtimeExports,
+        total: runtimeExports.length,
+      },
+      deliveryReceipts,
+      receiptTotal: deliveryReceipts.length,
+      replacementFor: 'alembic_skill',
+      hint: 'Use alembic_project_skill export/create/update for Codex runtime delivery; alembic_skill is legacy storage compatibility.',
+    },
+  };
+}
+
+function loadProjectSkillForCodex(ctx: McpContext | null, args: ProjectSkillArgs) {
+  const name = args.skillName || args.name;
+  if (!name) {
+    return {
+      success: false,
+      errorCode: 'MISSING_PARAM',
+      message: 'name is required for load.',
+    };
+  }
+
+  const projectRoot = resolveProjectRoot(ctx?.container as never);
+  const runtimeSkillPath = path.join(getCodexProjectSkillRoot(projectRoot), name, 'SKILL.md');
+  if (fs.existsSync(runtimeSkillPath)) {
+    let content = fs.readFileSync(runtimeSkillPath, 'utf8');
+    if (args.section) {
+      content = extractSection(content, args.section);
+    }
+    return {
+      success: true,
+      data: {
+        skillName: name,
+        source: 'codex-runtime',
+        path: runtimeSkillPath,
+        content,
+        charCount: content.length,
+        hint: 'Loaded from Codex project runtime export.',
+      },
+    };
+  }
+
+  return parseLegacySkillResponse(loadSkill(ctx, { skillName: name, section: args.section }));
+}
+
+function exportProjectSkillForCodex(ctx: McpContext | null, args: ProjectSkillArgs) {
+  const receipt = findProjectSkillDeliveryReceipt(ctx, {
+    name: args.name,
+    receipt: args.receipt,
+    receiptId: args.receiptId,
+    skillName: args.skillName,
+  });
+  if (!receipt) {
+    return {
+      success: false,
+      errorCode: 'PROJECT_SKILL_RECEIPT_NOT_FOUND',
+      message:
+        'ProjectSkillDeliveryReceipt was not provided and no matching receipt was found in workflow reports.',
+      data: { name: args.name || args.skillName || null, receiptId: args.receiptId || null },
+    };
+  }
+
+  const validation = validateReceiptForRuntimeExport(receipt);
+  if (!validation.ok) {
+    return {
+      success: false,
+      errorCode: 'PROJECT_SKILL_RECEIPT_INVALID',
+      message: 'ProjectSkillDeliveryReceipt failed validation; runtime export is blocked.',
+      data: validation,
+    };
+  }
+
+  const result = exportProjectSkillReceiptToCodexRuntime(ctx, {
+    receipt,
+    authorize: args.authorizeProjectSkillExport === true,
+    grantedBy: CODEX_HOST_AGENT_SOURCE,
+    overwriteManaged: args.overwrite !== false,
+  });
+  return {
+    success: result.runtimeExportStatus === 'exported',
+    errorCode: result.runtimeExportStatus === 'exported' ? null : 'PROJECT_SKILL_EXPORT_BLOCKED',
+    message: result.receipt.runtimeExport.message || result.receipt.shoutSummary.message,
+    data: {
+      authorizationStatus: result.authorizationStatus,
+      conflictStatus: result.conflictStatus,
+      receipt: result.receipt,
+      runtimeExportStatus: result.runtimeExportStatus,
+      targetPath: result.targetPath,
+    },
+  };
+}
+
+function createProjectSkillForCodex(ctx: McpContext | null, args: ProjectSkillArgs) {
+  const created = parseLegacySkillResponse(createSkill(ctx, args));
+  if (!created?.success) {
+    return created;
+  }
+  return attachPluginReceiptAndMaybeExport(ctx, args, created);
+}
+
+function updateProjectSkillForCodex(ctx: McpContext | null, args: ProjectSkillArgs) {
+  const updated = parseLegacySkillResponse(updateSkill(ctx, args));
+  if (!updated?.success) {
+    return updated;
+  }
+  return attachPluginReceiptAndMaybeExport(ctx, args, updated);
+}
+
+function attachPluginReceiptAndMaybeExport(
+  ctx: McpContext | null,
+  args: ProjectSkillArgs,
+  base: Record<string, unknown>
+) {
+  const skillName = args.skillName || args.name;
+  if (!skillName) {
+    return base;
+  }
+  const projectSkillsDir = _getProjectSkillsDir(ctx ?? undefined);
+  const baseData = base.data as Record<string, unknown> | undefined;
+  const sourcePath =
+    typeof baseData?.path === 'string'
+      ? baseData.path
+      : path.join(projectSkillsDir, skillName, 'SKILL.md');
+  const receipt = buildPluginProjectSkillDeliveryReceipt(ctx, {
+    skillName,
+    description: args.description ?? null,
+    sourcePath,
+    evidenceRefs: [{ kind: 'skill-file', ref: sourcePath }],
+  });
+  const exportResult =
+    args.authorizeProjectSkillExport === true
+      ? exportProjectSkillReceiptToCodexRuntime(ctx, {
+          receipt,
+          authorize: true,
+          grantedBy: CODEX_HOST_AGENT_SOURCE,
+          overwriteManaged: args.overwrite !== false,
+        })
+      : null;
+
+  return {
+    ...base,
+    data: {
+      ...((base.data as Record<string, unknown> | undefined) ?? {}),
+      deliveryReceipt: exportResult?.receipt ?? receipt,
+      runtimeExport: exportResult
+        ? {
+            authorizationStatus: exportResult.authorizationStatus,
+            conflictStatus: exportResult.conflictStatus,
+            status: exportResult.runtimeExportStatus,
+            targetPath: exportResult.targetPath,
+          }
+        : receipt.runtimeExport,
+      replacementFor: 'alembic_skill',
+    },
+    message:
+      exportResult?.receipt.shoutSummary.message ??
+      `Project Skill "${skillName}" stored with a Plugin route delivery receipt.`,
+  };
+}
+
+function listRuntimeProjectSkills(runtimeRoot: string) {
+  try {
+    return fs
+      .readdirSync(runtimeRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const skillDir = path.join(runtimeRoot, entry.name);
+        const skillPath = path.join(skillDir, 'SKILL.md');
+        const markerPath = path.join(skillDir, '.alembic-managed.json');
+        return {
+          name: entry.name,
+          path: skillDir,
+          skillPath,
+          visible: fs.existsSync(skillPath),
+          managed: fs.existsSync(markerPath),
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+function parseLegacySkillResponse(
+  value: string | Record<string, unknown>
+): Record<string, unknown> {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return JSON.parse(value) as Record<string, unknown>;
+  } catch {
+    return {
+      success: false,
+      errorCode: 'LEGACY_SKILL_RESPONSE_PARSE_FAILED',
+      message: value,
+    };
+  }
+}
+
+function extractSection(content: string, section: string) {
+  const sectionRe = new RegExp(
+    `^##\\s+.*${section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*$\\n([\\s\\S]*?)(?=^##\\s|$)`,
+    'mi'
+  );
+  const match = content.match(sectionRe);
+  return match ? match[0] : content;
 }
 
 /** 相关 Skills（基于静态映射） */

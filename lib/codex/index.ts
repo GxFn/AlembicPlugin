@@ -6,6 +6,7 @@ export * from './KnowledgeState.js';
 export * from './ModuleBoundary.js';
 export * from './PluginRegistry.js';
 export * from './ProjectRootResolver.js';
+export * from './ProjectSkillDelivery.js';
 export * from './preflight/Preflight.js';
 export * from './runtime/RuntimeContext.js';
 export * from './ServiceRequestBoundary.js';

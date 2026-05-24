@@ -441,6 +441,7 @@ function mergeCapabilitySummaryWithRuntimeBoundary(
   runtimeBoundary: CodexDaemonRuntimeBoundarySummary
 ): AlembicRuntimeCapabilitySummary {
   return {
+    ...summary,
     apiAvailable: summary.apiAvailable,
     dashboardAvailable: summary.dashboardAvailable ?? (runtimeBoundary.dashboard.url ? true : null),
     dashboardUrl: summary.dashboardUrl ?? runtimeBoundary.dashboard.url,
@@ -504,6 +505,7 @@ function mergeCapabilitySummaryWithResidentService(
         : null;
 
   return {
+    ...summary,
     // residentService 是 Phase 4 后的 canonical capability 输入；旧 capabilities/runtimeBoundary 只补空缺。
     apiAvailable: statusAvailable ?? summary.apiAvailable,
     dashboardAvailable: dashboardAvailable ?? summary.dashboardAvailable,
