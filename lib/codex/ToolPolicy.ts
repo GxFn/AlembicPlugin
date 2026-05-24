@@ -85,6 +85,12 @@ export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_dimension_complete',
 ]);
 
+// Project Skill delivery is a Codex runtime surface, not a Recipe/Guard knowledge
+// consumption surface. It must remain available for initialized projects so Codex
+// can export or inspect generated Project Skill receipts even while bootstrap is
+// still producing the first usable knowledge base.
+export const CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES = new Set(['alembic_project_skill']);
+
 export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
@@ -216,7 +222,9 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
   const localTools = CODEX_LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
   const coreTools = input.coreTools.filter(
     (tool) =>
-      (input.knowledge.usable || CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name)) &&
+      (input.knowledge.usable ||
+        CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name) ||
+        isCodexProjectSkillDeliveryToolVisible(tool.name, input.knowledge)) &&
       (input.tierOrder[tool.tier || 'agent'] ?? 0) <= maxTier
   );
   const state = resolveCodexToolPolicyState(input);
@@ -238,9 +246,16 @@ export function allowedCodexToolNames(knowledge: CodexKnowledgeState): Set<strin
     ]);
   }
   if (knowledge.initialized) {
-    return CODEX_COLD_START_TOOL_NAMES;
+    return new Set([...CODEX_COLD_START_TOOL_NAMES, ...CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES]);
   }
   return new Set([...CODEX_INIT_TOOL_NAMES, ...CODEX_INIT_ON_DEMAND_TOOL_NAMES]);
+}
+
+export function isCodexProjectSkillDeliveryToolVisible(
+  name: string,
+  knowledge: CodexKnowledgeState
+): boolean {
+  return knowledge.initialized && CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES.has(name);
 }
 
 export function isToolAllowedForCodexKnowledge(

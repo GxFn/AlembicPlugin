@@ -38,6 +38,13 @@ const CODEX_HOST_AGENT_TOOL_NAMES = [
   'alembic_rescan',
   'alembic_dimension_complete',
 ];
+const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
+  'alembic_submit_knowledge',
+  'alembic_project_skill',
+  'alembic_bootstrap',
+  'alembic_rescan',
+  'alembic_dimension_complete',
+];
 
 function useTempAlembicHome(): string {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-codex-home-'));
@@ -62,6 +69,28 @@ function makeUsableKnowledgeBase(projectRoot: string): void {
   fs.writeFileSync(
     path.join(projectRoot, 'Alembic', 'recipes', 'http-client.md'),
     '---\ntitle: HTTP Client\n---\nUse the project HTTP client.\n'
+  );
+}
+
+function writeRunningBootstrapJob(projectRoot: string): void {
+  const jobsDir = path.join(projectRoot, '.asd', 'jobs');
+  fs.mkdirSync(jobsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jobsDir, 'bootstrap_active.json'),
+    `${JSON.stringify(
+      {
+        id: 'bootstrap_active',
+        kind: 'bootstrap',
+        status: 'running',
+        source: 'codex',
+        channelId: 'codex',
+        createdByTool: 'alembic_codex_bootstrap',
+        createdAt: '2026-05-24T08:00:00.000Z',
+        updatedAt: '2026-05-24T08:01:00.000Z',
+      },
+      null,
+      2
+    )}\n`
   );
 }
 
@@ -255,10 +284,35 @@ describe('CodexMcpServer', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
-      ...CODEX_HOST_AGENT_TOOL_NAMES,
+      ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
     expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_health');
+    expect(names).not.toContain('alembic_skill');
+  });
+
+  test('keeps project skill delivery visible while initialized knowledge is not usable and bootstrap is running', async () => {
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    writeRunningBootstrapJob(projectRoot);
+
+    const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
+
+    expect(names).toContain('alembic_project_skill');
+    expect(names).not.toContain('alembic_skill');
+    expect(names).not.toContain('alembic_health');
+
+    const server = new CodexMcpServer({ projectRoot });
+    const result = (await server.handleToolCall('alembic_project_skill', {
+      operation: 'list',
+    })) as {
+      data?: { codexRuntime?: { root?: string }; replacementFor?: string };
+      success?: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data?.replacementFor).toBe('alembic_skill');
+    expect(result.data?.codexRuntime?.root).toBe(path.join(projectRoot, '.agents', 'skills'));
   });
 
   test('detects usable knowledge from the registered ghost data root', () => {
@@ -281,8 +335,11 @@ describe('CodexMcpServer', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
-      ...CODEX_HOST_AGENT_TOOL_NAMES,
+      ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
+    expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).not.toContain(
+      'alembic_skill'
+    );
 
     fs.writeFileSync(
       path.join(ghostRoot, 'Alembic', 'recipes', 'ghost-recipe.md'),

@@ -20,6 +20,18 @@ const coreTools = [
     inputSchema: { type: 'object' },
   })),
   {
+    name: 'alembic_project_skill',
+    tier: 'agent',
+    description: 'project skill delivery',
+    inputSchema: { type: 'object' },
+  },
+  {
+    name: 'alembic_skill',
+    tier: 'agent',
+    description: 'legacy skill storage',
+    inputSchema: { type: 'object' },
+  },
+  {
     name: 'alembic_health',
     tier: 'agent',
     description: 'health',
@@ -98,7 +110,9 @@ describe('Codex tool policy', () => {
       'alembic_codex_rescan',
       'alembic_codex_job',
       ...hostWorkflowToolNames,
+      'alembic_project_skill',
     ]);
+    expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
   });
 
   test('exposes all Codex local tools and agent core tools when knowledge is usable', () => {
@@ -114,6 +128,8 @@ describe('Codex tool policy', () => {
     expect(names).toEqual([
       ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
       ...hostWorkflowToolNames,
+      'alembic_project_skill',
+      'alembic_skill',
       'alembic_health',
     ]);
     expect(names).not.toContain('alembic_knowledge_lifecycle');
@@ -190,7 +206,9 @@ describe('Codex tool policy', () => {
       'alembic_codex_rescan',
       'alembic_codex_job',
       ...hostWorkflowToolNames,
+      'alembic_project_skill',
     ]);
+    expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
   });
 
   test('reports stale knowledge and vector skip without hiding agent tools', () => {
