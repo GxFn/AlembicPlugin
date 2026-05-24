@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
+  AlembicResidentProjectScopeIdentity,
   ResidentSearchAttemptMeta,
   ResidentSearchResult,
 } from '../../lib/service/resident/AlembicResidentServiceClient.js';
@@ -29,6 +30,36 @@ function item(id: string, title: string, score: number, kind = 'pattern') {
   };
 }
 
+function projectScopeIdentity(): AlembicResidentProjectScopeIdentity {
+  return {
+    available: true,
+    controlRoot: '/workspace',
+    currentFolderId: 'folder-plugin',
+    currentFolderPath: '/workspace/AlembicPlugin',
+    dataRoot: '/tmp/alembic-scope',
+    dataRootSource: 'ghost-registry',
+    diagnosticProjectRoot: '/workspace/AlembicPlugin',
+    folderCount: 2,
+    folders: [],
+    mode: 'project-scope',
+    projectId: 'project-workspace',
+    projectRoot: '/workspace/AlembicPlugin',
+    projectScope: null,
+    projectScopeCapability: null,
+    projectScopeId: 'project-scope-workspace',
+    reason: null,
+    resident: {
+      owner: 'alembic',
+      route: 'local-alembic-daemon',
+      serviceScopeId: 'project-scope:project-scope-workspace',
+    },
+    serviceScopeId: 'project-scope:project-scope-workspace',
+    source: 'resident-service-scope',
+    storageKind: 'ghost',
+    workspaceMode: 'ghost',
+  };
+}
+
 function residentMeta(
   overrides: Partial<ResidentSearchAttemptMeta> = {}
 ): ResidentSearchAttemptMeta {
@@ -39,6 +70,7 @@ function residentMeta(
     coreRoute: 'semantic(vector)',
     durationMs: 12,
     requestedMode: 'semantic',
+    projectScopeIdentity: projectScopeIdentity(),
     residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
     resultCount: 1,
     route: 'alembic-resident-service',
@@ -51,6 +83,7 @@ function residentMeta(
       semanticUsed: true,
       vectorUsed: true,
       residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
+      projectScopeIdentity: projectScopeIdentity(),
     },
     semanticUsed: true,
     service: 'alembic-daemon',
@@ -91,6 +124,10 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
     expect(result?.relatedKnowledge.map((entry) => entry.id)).toContain('resident-1');
     expect(result?.searchMeta.residentSearch).toMatchObject({
       available: true,
+      projectScopeIdentity: {
+        mode: 'project-scope',
+        projectScopeId: 'project-scope-workspace',
+      },
       route: 'alembic-resident-service',
       semanticUsed: true,
       vectorUsed: true,

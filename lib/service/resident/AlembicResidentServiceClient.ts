@@ -18,6 +18,8 @@ import {
   summarizeAlembicResidentServiceStatus,
 } from '@alembic/core/daemon';
 import type { SearchResponseMeta, SearchResultItem } from '@alembic/core/search';
+import { normalizeProjectScopeSummary, type ProjectScopeSummary } from '@alembic/core/shared';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 
 type FetchLike = typeof fetch;
@@ -46,6 +48,7 @@ export interface ResidentSearchAttemptMeta {
   residentRequestMode?: string;
   requestedMode: string;
   residentService?: Record<string, unknown>;
+  projectScopeIdentity?: AlembicResidentProjectScopeIdentity;
   residentVector: {
     available: boolean;
     reason?: string | null;
@@ -78,6 +81,41 @@ export interface AlembicResidentProbeOptions {
   daemonStatus?: DaemonStatus | null;
 }
 
+export interface AlembicResidentProjectScopeOptions extends AlembicResidentProbeOptions {
+  folderPath?: string | null;
+}
+
+export interface AlembicResidentProjectScopeIdentity {
+  available: boolean;
+  controlRoot: string | null;
+  currentFolderId: string | null;
+  currentFolderPath: string | null;
+  dataRoot: string | null;
+  dataRootSource: string | null;
+  diagnosticProjectRoot: string;
+  folderCount: number;
+  folders: ProjectScopeSummary['folders'];
+  mode: 'project-scope' | 'single-folder-baseline';
+  projectId: string | null;
+  projectRoot: string;
+  projectScope: ProjectScopeSummary | null;
+  projectScopeCapability: Record<string, unknown> | null;
+  projectScopeId: string | null;
+  reason: string | null;
+  resident: {
+    owner: string;
+    route: string;
+    serviceScopeId: string | null;
+  };
+  serviceScopeId: string | null;
+  source:
+    | 'resident-project-scope-endpoint'
+    | 'resident-service-scope'
+    | 'plugin-single-folder-baseline';
+  storageKind: string | null;
+  workspaceMode: string | null;
+}
+
 export interface AlembicResidentJobRequestOptions extends AlembicResidentProbeOptions {
   body?: Record<string, unknown>;
 }
@@ -95,8 +133,10 @@ interface ResolvedResidentProbe {
 }
 
 const RESIDENT_HEALTH_PATH = '/api/v1/daemon/health';
+const RESIDENT_PROJECT_SCOPE_RESOLVE_PATH = '/api/v1/project-scope/resolve-folder';
 const RESIDENT_SEARCH_PATH = '/api/v1/search';
 const RESIDENT_JOBS_PATH = '/api/v1/jobs';
+const PROJECT_SCOPE_UNAVAILABLE_REASON = 'resident project scope unavailable';
 
 export class AlembicResidentServiceClient {
   #fetch: FetchLike;
@@ -121,6 +161,13 @@ export class AlembicResidentServiceClient {
     return createAlembicResidentServiceProbe(resolved.status, new Date().toISOString());
   }
 
+  async resolveProjectScopeIdentity(
+    options: AlembicResidentProjectScopeOptions = {}
+  ): Promise<AlembicResidentProjectScopeIdentity> {
+    const resolved = await this.#resolveProbe(options);
+    return this.#resolveProjectScopeIdentity(resolved, options.folderPath ?? this.#projectRoot);
+  }
+
   async search(request: ResidentSearchRequest): Promise<ResidentSearchResult> {
     const result = await this.searchWithResult(request);
     if (result.ok) {
@@ -137,12 +184,16 @@ export class AlembicResidentServiceClient {
     const residentRequestMode = normalizeResidentRequestMode(requestedMode);
     const resolved = await this.#resolveProbe();
     const status = resolved.status;
+    const projectScopeIdentity = await this.#resolveProjectScopeIdentity(
+      resolved,
+      this.#projectRoot
+    );
     const feature = residentRequestMode === 'semantic' ? 'search.semantic' : 'search.keyword';
     const unavailable = this.#ensureFeatureAvailable<ResidentSearchResult>(status, feature, {
       requireLocalAlembic: true,
     });
     if (unavailable) {
-      return unavailable;
+      return withProjectScopeTelemetry(unavailable, projectScopeIdentity);
     }
 
     if (!resolved.state?.token) {
@@ -150,7 +201,7 @@ export class AlembicResidentServiceClient {
         status,
         'token-missing',
         'Alembic resident service token is missing.',
-        { retryable: true, telemetry: { feature } }
+        { retryable: true, telemetry: { feature, projectScopeIdentity } }
       );
     }
 
@@ -179,7 +230,12 @@ export class AlembicResidentServiceClient {
           extractResponseError(response.payload) || `resident_search_http_${response.status}`,
           {
             retryable: true,
-            telemetry: { endpoint: endpoint.toString(), feature, status: response.status },
+            telemetry: {
+              endpoint: endpoint.toString(),
+              feature,
+              projectScopeIdentity,
+              status: response.status,
+            },
           }
         );
       }
@@ -195,6 +251,7 @@ export class AlembicResidentServiceClient {
             durationMs: Date.now() - startedAt,
             endpoint: endpoint.toString(),
             items,
+            projectScopeIdentity,
             residentRequestMode,
             requestedMode,
             searchMeta,
@@ -210,7 +267,10 @@ export class AlembicResidentServiceClient {
         status,
         reason,
         err instanceof Error ? err.message : String(err),
-        { retryable: true, telemetry: { endpoint: endpoint.toString(), feature } }
+        {
+          retryable: true,
+          telemetry: { endpoint: endpoint.toString(), feature, projectScopeIdentity },
+        }
       );
     }
   }
@@ -342,6 +402,91 @@ export class AlembicResidentServiceClient {
           telemetry: { endpoint: endpoint.toString(), feature: input.feature },
         }
       );
+    }
+  }
+
+  async #resolveProjectScopeIdentity(
+    resolved: ResolvedResidentProbe,
+    folderPathInput: string | null
+  ): Promise<AlembicResidentProjectScopeIdentity> {
+    const folderPath = normalizeFolderPath(folderPathInput) ?? this.#projectRoot;
+    const statusScope = buildProjectScopeIdentityFromSummary({
+      capability: null,
+      folderPath,
+      source: 'resident-service-scope',
+      status: resolved.status,
+      summary: normalizeProjectScopeSummary(
+        resolved.status.serviceScope.projectIdentity.projectScope
+      ),
+    });
+    if (statusScope.available) {
+      return statusScope;
+    }
+
+    // ProjectScope 是 Alembic resident 的增强输入；Plugin 只读 resolve 结果。
+    // 没有 local Alembic resident、token 或 resolve endpoint 时，降级为单 folder baseline，
+    // 并把原因写成 developer-visible 诊断字段，而不是阻断 Codex-facing baseline 搜索。
+    if (!isLocalAlembicResident(resolved.status) || !resolved.state?.token) {
+      return buildSingleFolderBaselineIdentity({
+        detail: resolved.status.message,
+        folderPath,
+        reason: PROJECT_SCOPE_UNAVAILABLE_REASON,
+        status: resolved.status,
+      });
+    }
+
+    const endpoint = new URL(
+      RESIDENT_PROJECT_SCOPE_RESOLVE_PATH,
+      resolved.status.apiBaseUrl || resolved.state.url
+    );
+    endpoint.searchParams.set('folderPath', folderPath);
+
+    try {
+      const response = await this.#fetchJson(endpoint, {
+        method: 'GET',
+        token: resolved.state.token,
+      });
+      if (
+        !response.ok ||
+        response.payload?.success === false ||
+        !isRecord(response.payload?.data)
+      ) {
+        return buildSingleFolderBaselineIdentity({
+          detail: extractResponseError(response.payload) || `project_scope_http_${response.status}`,
+          folderPath,
+          reason: PROJECT_SCOPE_UNAVAILABLE_REASON,
+          status: resolved.status,
+        });
+      }
+
+      const data = response.payload.data;
+      const summary =
+        normalizeProjectScopeSummary(data.summary) ||
+        normalizeProjectScopeSummary(resolved.status.serviceScope.projectIdentity.projectScope);
+      const capability = isRecord(data.capability) ? data.capability : null;
+      const endpointIdentity = buildProjectScopeIdentityFromSummary({
+        capability,
+        folderPath,
+        source: 'resident-project-scope-endpoint',
+        status: resolved.status,
+        summary,
+      });
+      if (endpointIdentity.available) {
+        return endpointIdentity;
+      }
+      return buildSingleFolderBaselineIdentity({
+        detail: 'ProjectScope resolve endpoint returned no matching summary.',
+        folderPath,
+        reason: PROJECT_SCOPE_UNAVAILABLE_REASON,
+        status: resolved.status,
+      });
+    } catch (err: unknown) {
+      return buildSingleFolderBaselineIdentity({
+        detail: err instanceof Error ? err.message : String(err),
+        folderPath,
+        reason: PROJECT_SCOPE_UNAVAILABLE_REASON,
+        status: resolved.status,
+      });
     }
   }
 
@@ -562,6 +707,8 @@ function embeddedPluginStatus(state: DaemonState): AlembicResidentServiceStatus 
       projectIdentity: {
         dataRootSource: null,
         projectId: state.projectId,
+        projectScope: null,
+        projectScopeId: null,
         schemaMigrationVersion: state.schemaMigrationVersion,
         workspaceMode: null,
       },
@@ -598,6 +745,8 @@ function unavailableStatus(
       projectIdentity: {
         dataRootSource: null,
         projectId: state?.projectId ?? null,
+        projectScope: null,
+        projectScopeId: null,
         schemaMigrationVersion: state?.schemaMigrationVersion ?? null,
         workspaceMode: null,
       },
@@ -651,6 +800,7 @@ function buildResidentMeta(input: {
   durationMs: number;
   endpoint: string;
   items: SearchResultItem[];
+  projectScopeIdentity: AlembicResidentProjectScopeIdentity;
   residentRequestMode: string;
   requestedMode: string;
   searchMeta: Record<string, unknown>;
@@ -688,6 +838,7 @@ function buildResidentMeta(input: {
     fallbackReason: stringFrom(meta.fallbackReason),
     residentRequestMode: input.residentRequestMode,
     requestedMode: input.requestedMode,
+    projectScopeIdentity: input.projectScopeIdentity,
     residentService: residentServiceSummary(input.status),
     residentVector,
     resultCount,
@@ -695,6 +846,7 @@ function buildResidentMeta(input: {
     searchMeta: {
       ...meta,
       codexRequestedMode: input.requestedMode,
+      projectScopeIdentity: input.projectScopeIdentity,
       residentRequestMode: input.residentRequestMode,
     },
     semanticUsed: booleanFrom(meta.semanticUsed),
@@ -721,6 +873,9 @@ function buildUnavailableSearchResult(
       residentRequestMode,
       requestedMode,
       residentService: result.status ? residentServiceSummary(result.status) : undefined,
+      projectScopeIdentity: result.telemetry?.projectScopeIdentity as
+        | AlembicResidentProjectScopeIdentity
+        | undefined,
       residentVector: {
         available: false,
         reason: result.reason,
@@ -730,6 +885,131 @@ function buildUnavailableSearchResult(
       used: false,
     },
   };
+}
+
+function withProjectScopeTelemetry<TValue>(
+  result: AlembicResidentServiceResult<TValue>,
+  projectScopeIdentity: AlembicResidentProjectScopeIdentity
+): AlembicResidentServiceResult<TValue> {
+  if (result.ok) {
+    return result;
+  }
+  return {
+    ...result,
+    telemetry: {
+      ...(result.telemetry || {}),
+      projectScopeIdentity,
+    },
+  };
+}
+
+function buildProjectScopeIdentityFromSummary(input: {
+  capability: Record<string, unknown> | null;
+  folderPath: string;
+  source: AlembicResidentProjectScopeIdentity['source'];
+  status: AlembicResidentServiceStatus;
+  summary: ProjectScopeSummary | null;
+}): AlembicResidentProjectScopeIdentity {
+  if (!input.summary) {
+    return buildSingleFolderBaselineIdentity({
+      folderPath: input.folderPath,
+      reason: PROJECT_SCOPE_UNAVAILABLE_REASON,
+      status: input.status,
+    });
+  }
+  return {
+    available: true,
+    controlRoot: input.summary.controlRoot,
+    currentFolderId: input.summary.currentFolderId,
+    currentFolderPath: input.summary.currentFolderPath,
+    dataRoot: input.summary.dataRoot,
+    dataRootSource: input.summary.dataRootSource,
+    diagnosticProjectRoot: input.folderPath,
+    folderCount: input.summary.folderCount,
+    folders: input.summary.folders,
+    mode: 'project-scope',
+    projectId: input.summary.projectId,
+    projectRoot: input.folderPath,
+    projectScope: input.summary,
+    projectScopeCapability: input.capability,
+    projectScopeId: input.summary.projectScopeId,
+    reason: null,
+    resident: {
+      owner: input.status.owner,
+      route: input.status.route,
+      serviceScopeId: input.status.serviceScope.scopeId,
+    },
+    serviceScopeId: input.status.serviceScope.scopeId,
+    source: input.source,
+    storageKind: input.summary.storageKind,
+    workspaceMode: input.status.serviceScope.projectIdentity.workspaceMode,
+  };
+}
+
+function buildSingleFolderBaselineIdentity(input: {
+  detail?: string | null;
+  folderPath: string;
+  reason: string;
+  status: AlembicResidentServiceStatus;
+}): AlembicResidentProjectScopeIdentity {
+  const baseline = resolveSingleFolderBaseline(input.folderPath);
+  return {
+    available: false,
+    controlRoot: null,
+    currentFolderId: null,
+    currentFolderPath: input.folderPath,
+    dataRoot: baseline.dataRoot ?? input.status.serviceScope.diagnosticPaths.dataRoot,
+    dataRootSource: baseline.dataRootSource,
+    diagnosticProjectRoot: input.folderPath,
+    folderCount: 1,
+    folders: [],
+    mode: 'single-folder-baseline',
+    projectId: baseline.projectId ?? input.status.serviceScope.projectIdentity.projectId,
+    projectRoot: input.folderPath,
+    projectScope: null,
+    projectScopeCapability: null,
+    projectScopeId: null,
+    reason: input.detail ? `${input.reason}: ${input.detail}` : input.reason,
+    resident: {
+      owner: input.status.owner,
+      route: input.status.route,
+      serviceScopeId: input.status.serviceScope.scopeId,
+    },
+    serviceScopeId: input.status.serviceScope.scopeId,
+    source: 'plugin-single-folder-baseline',
+    storageKind: null,
+    workspaceMode:
+      baseline.workspaceMode ?? input.status.serviceScope.projectIdentity.workspaceMode,
+  };
+}
+
+function resolveSingleFolderBaseline(folderPath: string): {
+  dataRoot: string | null;
+  dataRootSource: string | null;
+  projectId: string | null;
+  workspaceMode: string | null;
+} {
+  try {
+    const resolver = WorkspaceResolver.fromProject(folderPath);
+    const facts = resolver.toFacts();
+    return {
+      dataRoot: resolver.dataRoot,
+      dataRootSource: facts.dataRootSource,
+      projectId: resolver.projectId,
+      workspaceMode: facts.mode,
+    };
+  } catch {
+    return {
+      dataRoot: null,
+      dataRootSource: null,
+      projectId: null,
+      workspaceMode: null,
+    };
+  }
+}
+
+function normalizeFolderPath(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 function residentServiceSummary(status: AlembicResidentServiceStatus): Record<string, unknown> {

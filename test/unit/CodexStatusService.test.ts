@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createAlembicResidentServiceStatus,
   createProjectRuntimeControlState,
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
@@ -78,6 +79,66 @@ function makeDaemonStatus(projectRoot: string, ready = false): DaemonStatus {
     state: ready ? makeDaemonState(projectRoot) : null,
     pidAlive: ready,
     health: null,
+  };
+}
+
+function makeProjectScopeHealth(projectRoot: string): Record<string, unknown> {
+  const paths = resolveDaemonPaths(projectRoot);
+  const projectScope = {
+    contractVersion: 1,
+    controlRoot: path.dirname(projectRoot),
+    controlRootIncludedInFolders: false,
+    currentFolderId: 'folder-plugin',
+    currentFolderPath: projectRoot,
+    dataRoot: paths.dataRoot,
+    dataRootSource: 'ghost-registry',
+    displayName: 'Alembic Workspace',
+    folderCount: 2,
+    folders: [
+      {
+        displayName: 'Plugin',
+        folderId: 'folder-plugin',
+        path: projectRoot,
+        role: 'source',
+        state: 'active',
+      },
+    ],
+    projectId: 'project-workspace',
+    projectRootWriteAllowed: false,
+    projectScopeId: 'project-scope-workspace',
+    standardWriteAllowed: false,
+    storageKind: 'ghost',
+  };
+  return {
+    success: true,
+    data: {
+      residentService: createAlembicResidentServiceStatus({
+        apiBaseUrl: 'http://127.0.0.1:39127',
+        owner: 'alembic',
+        route: 'local-alembic-daemon',
+        serviceScope: {
+          diagnosticPaths: {
+            controlRoot: projectScope.controlRoot,
+            databasePath: paths.databasePath,
+            dataRoot: paths.dataRoot,
+            projectRoot,
+            runtimeDir: paths.runtimeDir,
+            statePath: paths.statePath,
+          },
+          displayName: projectScope.displayName,
+          kind: 'current-project',
+          projectIdentity: {
+            dataRootSource: 'ghost-registry',
+            projectId: projectScope.projectId,
+            projectScope,
+            projectScopeId: projectScope.projectScopeId,
+            schemaMigrationVersion: null,
+            workspaceMode: 'ghost',
+          },
+          scopeId: `project-scope:${projectScope.projectScopeId}`,
+        },
+      }),
+    },
   };
 }
 
@@ -210,6 +271,37 @@ describe('Codex status service', () => {
       'Start Codex host-agent bootstrap: call alembic_bootstrap'
     );
     expect(serialized).not.toContain('secret-token');
+  });
+
+  test('exposes resident ProjectScope identity in status and diagnostics', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    const supervisor = {
+      status: vi.fn(async () => ({
+        ...makeDaemonStatus(projectRoot, true),
+        health: makeProjectScopeHealth(projectRoot),
+      })),
+    };
+
+    const status = await buildCodexStatus(projectRoot, { supervisor });
+
+    expect(status.projectScopeIdentity).toMatchObject({
+      available: true,
+      mode: 'project-scope',
+      projectScopeId: 'project-scope-workspace',
+      serviceScopeId: 'project-scope:project-scope-workspace',
+      source: 'resident-service-scope',
+    });
+    expect(status.residentService.status.serviceScope.projectIdentity).toMatchObject({
+      projectScopeId: 'project-scope-workspace',
+    });
+    expect(status.diagnostics).toMatchObject({
+      projectScopeIdentity: {
+        mode: 'project-scope',
+        projectScopeId: 'project-scope-workspace',
+      },
+    });
   });
 
   test('reports Alembic selected or active project mismatch without starting the daemon', async () => {

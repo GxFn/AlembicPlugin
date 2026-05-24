@@ -6,7 +6,10 @@ import { DEFAULT_FOLDER_NAMES, WorkspaceResolver } from '@alembic/core/workspace
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
-import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
+import {
+  type AlembicResidentProjectScopeIdentity,
+  AlembicResidentServiceClient,
+} from '../../service/resident/AlembicResidentServiceClient.js';
 import { buildCodexRuntimeDiagnostics } from '../diagnostics/Diagnostics.js';
 import {
   buildCodexEnhancementRouteChoice,
@@ -88,6 +91,7 @@ export interface CodexStatusData {
   };
   profile: string;
   projectRootResolution: Record<string, unknown>;
+  projectScopeIdentity: AlembicResidentProjectScopeIdentity;
   projectArtifacts: {
     knowledgeDir: string;
     knowledgeExists: boolean;
@@ -135,9 +139,9 @@ export async function buildCodexStatus(
   const daemonStatus = await supervisor.status(projectRoot);
   const knowledge = inspectCodexKnowledge(projectRoot);
   const runtime = options.runtime || resolveCodexRuntimeContext();
-  const residentService = await new AlembicResidentServiceClient({ projectRoot }).probe({
-    daemonStatus,
-  });
+  const residentClient = new AlembicResidentServiceClient({ projectRoot });
+  const residentService = await residentClient.probe({ daemonStatus });
+  const projectScopeIdentity = await residentClient.resolveProjectScopeIdentity({ daemonStatus });
   const enhancementRoute = buildCodexEnhancementRouteChoice({
     daemonStatus,
     runtime,
@@ -163,6 +167,7 @@ export async function buildCodexStatus(
     hostProjectAlignment,
     moduleBoundary,
     projectRootResolution,
+    projectScopeIdentity,
     residentService,
   });
   const policyInput = {
@@ -207,6 +212,7 @@ export async function buildCodexStatus(
       expectedProjectId: facts.expectedProjectId,
     },
     residentService,
+    projectScopeIdentity,
     workspace: {
       mode: facts.mode,
       ghost: facts.ghost,

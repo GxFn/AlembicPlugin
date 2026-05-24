@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
+import type { AlembicResidentProjectScopeIdentity } from '../../service/resident/AlembicResidentServiceClient.js';
 import {
   buildCodexEnhancementRouteChoice,
   type CodexEnhancementRouteChoice,
@@ -77,6 +78,7 @@ export interface CodexRuntimeDiagnosticsOptions {
   enhancementRoute?: CodexEnhancementRouteChoice;
   hostProjectAlignment?: CodexHostProjectAlignment;
   moduleBoundary?: CodexModuleBoundaryStatus;
+  projectScopeIdentity?: AlembicResidentProjectScopeIdentity;
   projectRootResolution?: CodexProjectRootResolution;
   residentService?: AlembicResidentServiceProbe;
 }
@@ -212,6 +214,7 @@ export function buildCodexRuntimeDiagnostics(
     enhancementRoute,
     residentService: options.residentService || null,
     residentServiceBoundary: buildResidentServiceBoundary(options.residentService),
+    projectScopeIdentity: options.projectScopeIdentity || null,
     moduleBoundary,
     gitDiffCheckpoint: readHealthGitDiffCheckpoint(daemonStatus.health),
     plugin,

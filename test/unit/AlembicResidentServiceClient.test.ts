@@ -24,7 +24,48 @@ function daemonState(): DaemonState {
   };
 }
 
-function residentHealthPayload() {
+function projectScopeSummary() {
+  return {
+    contractVersion: 1,
+    controlRoot: '/tmp/workspace',
+    controlRootIncludedInFolders: false,
+    currentFolderId: 'folder-plugin',
+    currentFolderPath: '/tmp/project',
+    dataRoot: '/tmp/alembic-project-scope-data',
+    dataRootSource: 'ghost-registry',
+    displayName: 'Alembic Workspace',
+    folderCount: 2,
+    folders: [
+      {
+        displayName: 'Plugin',
+        folderId: 'folder-plugin',
+        path: '/tmp/project',
+        realpath: '/tmp/project',
+        role: 'source',
+        state: 'active',
+      },
+      {
+        displayName: 'Core',
+        folderId: 'folder-core',
+        path: '/tmp/core',
+        realpath: '/tmp/core',
+        role: 'source',
+        state: 'active',
+      },
+    ],
+    projectId: 'project-workspace',
+    projectRootWriteAllowed: false,
+    projectScopeId: 'project-scope-workspace',
+    standardWriteAllowed: false,
+    storageKind: 'ghost',
+  };
+}
+
+function residentHealthPayload(
+  options: { projectScope?: ReturnType<typeof projectScopeSummary> | null } = {}
+) {
+  const projectScope =
+    options.projectScope === undefined ? projectScopeSummary() : options.projectScope;
   return {
     success: true,
     data: {
@@ -57,6 +98,29 @@ function residentHealthPayload() {
             available: true,
             message: 'Health available.',
           },
+        },
+        serviceScope: {
+          diagnosticPaths: {
+            controlRoot: projectScope?.controlRoot ?? null,
+            databasePath: '/tmp/alembic-project-scope-data/alembic.db',
+            dataRoot: projectScope?.dataRoot ?? '/tmp/alembic-data',
+            projectRoot: '/tmp/project',
+            runtimeDir: '/tmp/alembic-runtime',
+            statePath: '/tmp/alembic-runtime/daemon.json',
+          },
+          displayName: projectScope?.displayName ?? 'Alembic current service scope',
+          kind: 'current-project',
+          projectIdentity: {
+            dataRootSource: projectScope ? 'ghost-registry' : null,
+            projectId: projectScope?.projectId ?? 'project-1',
+            projectScope,
+            projectScopeId: projectScope?.projectScopeId ?? null,
+            schemaMigrationVersion: null,
+            workspaceMode: projectScope ? 'ghost' : null,
+          },
+          scopeId: projectScope
+            ? `project-scope:${projectScope.projectScopeId}`
+            : 'project:project-1',
         },
       }),
     },
@@ -117,8 +181,19 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.residentRequestMode).toBe('semantic');
     expect(result.meta.searchMeta).toMatchObject({
       codexRequestedMode: 'auto',
+      projectScopeIdentity: {
+        mode: 'project-scope',
+        projectScopeId: 'project-scope-workspace',
+        serviceScopeId: 'project-scope:project-scope-workspace',
+      },
       residentRequestMode: 'semantic',
       requestedMode: 'semantic',
+    });
+    expect(result.meta.projectScopeIdentity).toMatchObject({
+      available: true,
+      mode: 'project-scope',
+      projectScopeId: 'project-scope-workspace',
+      source: 'resident-service-scope',
     });
     expect(result.meta.residentVector).toMatchObject({ available: true });
   });
@@ -159,6 +234,117 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.searchMeta).toMatchObject({
       codexRequestedMode: 'auto',
       residentRequestMode: 'semantic',
+    });
+  });
+
+  it('resolves ProjectScope from the resident endpoint when health only advertises baseline identity', async () => {
+    const requestedUrls: URL[] = [];
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = fetchInputUrl(input);
+      requestedUrls.push(url);
+      if (url.pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload({ projectScope: null })), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      if (url.pathname === '/api/v1/project-scope/resolve-folder') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              capability: {
+                available: true,
+                supportedOperations: ['project-scope.read', 'project-folders.resolve'],
+              },
+              summary: projectScopeSummary(),
+            },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      }
+      throw new Error(`Unexpected URL: ${url.pathname}`);
+    }) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const identity = await client.resolveProjectScopeIdentity();
+
+    expect(requestedUrls.map((url) => url.pathname)).toEqual([
+      '/api/v1/daemon/health',
+      '/api/v1/project-scope/resolve-folder',
+    ]);
+    expect(requestedUrls[1]?.searchParams.get('folderPath')).toBe('/tmp/project');
+    expect(identity).toMatchObject({
+      available: true,
+      currentFolderId: 'folder-plugin',
+      mode: 'project-scope',
+      projectScopeId: 'project-scope-workspace',
+      source: 'resident-project-scope-endpoint',
+    });
+  });
+
+  it('keeps a single-folder baseline when resident ProjectScope resolve returns no match', async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = fetchInputUrl(input);
+      if (url.pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload({ projectScope: null })), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      if (url.pathname === '/api/v1/project-scope/resolve-folder') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: { capability: { available: true }, summary: null },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ success: true, data: { items: [], searchMeta: {} } }), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const identity = await client.resolveProjectScopeIdentity();
+
+    expect(identity).toMatchObject({
+      available: false,
+      mode: 'single-folder-baseline',
+      projectScopeId: null,
+      reason: expect.stringContaining('resident project scope unavailable'),
+      source: 'plugin-single-folder-baseline',
+    });
+  });
+
+  it('reports single-folder baseline when no Alembic daemon state exists', async () => {
+    const client = new AlembicResidentServiceClient({
+      projectRoot: '/tmp/project',
+      readState: () => null,
+    });
+
+    const identity = await client.resolveProjectScopeIdentity();
+
+    expect(identity).toMatchObject({
+      available: false,
+      mode: 'single-folder-baseline',
+      reason: expect.stringContaining('resident project scope unavailable'),
+      resident: {
+        owner: 'alembic-plugin',
+        route: 'unavailable',
+      },
     });
   });
 });

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { search } from '../../lib/external/mcp/handlers/search.js';
 import type { McpContext } from '../../lib/external/mcp/handlers/types.js';
-import type { ResidentSearchResult } from '../../lib/service/resident/AlembicResidentServiceClient.js';
+import type {
+  AlembicResidentProjectScopeIdentity,
+  ResidentSearchResult,
+} from '../../lib/service/resident/AlembicResidentServiceClient.js';
 
 function item(id: string, title: string, score: number) {
   return {
@@ -12,6 +15,36 @@ function item(id: string, title: string, score: number) {
     language: 'typescript',
     score,
     description: `${title} guidance`,
+  };
+}
+
+function projectScopeIdentity(): AlembicResidentProjectScopeIdentity {
+  return {
+    available: true,
+    controlRoot: '/workspace',
+    currentFolderId: 'folder-plugin',
+    currentFolderPath: '/workspace/AlembicPlugin',
+    dataRoot: '/tmp/alembic-scope',
+    dataRootSource: 'ghost-registry',
+    diagnosticProjectRoot: '/workspace/AlembicPlugin',
+    folderCount: 2,
+    folders: [],
+    mode: 'project-scope',
+    projectId: 'project-workspace',
+    projectRoot: '/workspace/AlembicPlugin',
+    projectScope: null,
+    projectScopeCapability: null,
+    projectScopeId: 'project-scope-workspace',
+    reason: null,
+    resident: {
+      owner: 'alembic',
+      route: 'local-alembic-daemon',
+      serviceScopeId: 'project-scope:project-scope-workspace',
+    },
+    serviceScopeId: 'project-scope:project-scope-workspace',
+    source: 'resident-service-scope',
+    storageKind: 'ghost',
+    workspaceMode: 'ghost',
   };
 }
 
@@ -48,6 +81,7 @@ describe('alembic_search resident search enhancement', () => {
           actualMode: 'semantic',
           coreRoute: 'semantic(vector)',
           durationMs: 9,
+          projectScopeIdentity: projectScopeIdentity(),
           requestedMode: 'semantic',
           residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
           resultCount: 1,
@@ -60,6 +94,7 @@ describe('alembic_search resident search enhancement', () => {
             actualMode: 'semantic',
             semanticUsed: true,
             vectorUsed: true,
+            projectScopeIdentity: projectScopeIdentity(),
             residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
           },
           semanticUsed: true,
@@ -83,6 +118,10 @@ describe('alembic_search resident search enhancement', () => {
       residentVector: { available: true },
       residentSearch: {
         available: true,
+        projectScopeIdentity: {
+          mode: 'project-scope',
+          projectScopeId: 'project-scope-workspace',
+        },
         route: 'alembic-resident-service',
         semanticUsed: true,
         vectorUsed: true,
