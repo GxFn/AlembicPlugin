@@ -28,6 +28,7 @@ export interface CodexPreflightInput<T extends CodexToolDefinition = CodexToolDe
   coreTools: T[];
   knowledge: CodexKnowledgeState;
   projectRootResolution: CodexProjectRootResolution;
+  residentProjectScopeAvailable?: boolean;
   stage: CodexPreflightStage;
   tierName?: string;
   tierOrder: Record<string, number>;
@@ -96,6 +97,7 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
     adminEnabled: input.adminEnabled ?? process.env[CODEX_ADMIN_ENABLE_ENV] === '1',
     coreTools: input.coreTools,
     knowledge: input.knowledge,
+    residentProjectScopeAvailable: input.residentProjectScopeAvailable,
     tierName: input.tierName || process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER,
     tierOrder: input.tierOrder,
   });
@@ -108,6 +110,7 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
         coreTools: input.coreTools,
         effectiveTier: policy.effectiveTier,
         knowledge: input.knowledge,
+        residentProjectScopeAvailable: input.residentProjectScopeAvailable === true,
         toolName: input.toolName,
       }),
     };
@@ -141,6 +144,7 @@ function buildToolHiddenFailure(input: {
   coreTools: CodexToolDefinition[];
   effectiveTier: string;
   knowledge: CodexKnowledgeState;
+  residentProjectScopeAvailable: boolean;
   toolName: string;
 }): Record<string, unknown> {
   const coreTool = input.coreTools.find((tool) => tool.name === input.toolName);
@@ -161,7 +165,7 @@ function buildToolHiddenFailure(input: {
     );
   }
 
-  if (!input.knowledge.usable) {
+  if (!input.knowledge.usable && !input.residentProjectScopeAvailable) {
     return codexFailure(
       input.toolName,
       'Alembic project-knowledge tools are hidden until this project has a usable Alembic knowledge base. Use the cold-start initialization tools first.',

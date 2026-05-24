@@ -150,6 +150,7 @@ export async function buildCodexStatus(
   const hostProjectAlignment = buildCodexHostProjectAlignment({
     daemonStatus,
     enhancementRoute,
+    projectScopeIdentity,
     projectRoot,
   });
   const moduleBoundary = buildCodexModuleBoundaryStatus({

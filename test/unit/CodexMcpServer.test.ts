@@ -291,6 +291,19 @@ describe('CodexMcpServer', () => {
     expect(names).not.toContain('alembic_skill');
   });
 
+  test('exposes resident-backed tools for ProjectScope resident even when local folder knowledge is empty', () => {
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    const names = getVisibleCodexTools('agent', projectRoot, {
+      residentProjectScopeAvailable: true,
+    }).map((tool) => tool.name);
+
+    expect(names).toContain('alembic_task');
+    expect(names).toContain('alembic_search');
+    expect(names).toContain('alembic_health');
+    expect(names).not.toContain('alembic_skill');
+  });
+
   test('keeps project skill delivery visible while initialized knowledge is not usable and bootstrap is running', async () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);

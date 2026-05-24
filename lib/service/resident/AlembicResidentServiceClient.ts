@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import {
   ALEMBIC_RESIDENT_FEATURES,
   type AlembicResidentDashboardHandoff,
@@ -11,15 +13,17 @@ import {
   createAlembicResidentServiceStatus,
   createAlembicResidentServiceSuccess,
   createAlembicResidentServiceUnavailable,
+  createProjectRuntimeControlState,
   type DaemonState,
   normalizeAlembicResidentServiceStatus,
+  PROJECT_RUNTIME_CONTROL_STATE_SCHEMA_VERSION,
   readDaemonState,
   resolveDaemonPaths,
   summarizeAlembicResidentServiceStatus,
 } from '@alembic/core/daemon';
 import type { SearchResponseMeta, SearchResultItem } from '@alembic/core/search';
 import { normalizeProjectScopeSummary, type ProjectScopeSummary } from '@alembic/core/shared';
-import { WorkspaceResolver } from '@alembic/core/workspace';
+import { getProjectRegistryDir, WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 
 type FetchLike = typeof fetch;
@@ -128,6 +132,10 @@ interface ResidentHttpPayload {
 }
 
 interface ResolvedResidentProbe {
+  projectScopeResolution?: {
+    capability: Record<string, unknown> | null;
+    summary: ProjectScopeSummary;
+  };
   state: DaemonState | null;
   status: AlembicResidentServiceStatus;
 }
@@ -410,6 +418,16 @@ export class AlembicResidentServiceClient {
     folderPathInput: string | null
   ): Promise<AlembicResidentProjectScopeIdentity> {
     const folderPath = normalizeFolderPath(folderPathInput) ?? this.#projectRoot;
+    if (resolved.projectScopeResolution) {
+      return buildProjectScopeIdentityFromSummary({
+        capability: resolved.projectScopeResolution.capability,
+        folderPath,
+        source: 'resident-project-scope-endpoint',
+        status: resolved.status,
+        summary: resolved.projectScopeResolution.summary,
+      });
+    }
+
     const statusScope = buildProjectScopeIdentityFromSummary({
       capability: null,
       folderPath,
@@ -492,21 +510,26 @@ export class AlembicResidentServiceClient {
 
   async #resolveProbe(options: AlembicResidentProbeOptions = {}): Promise<ResolvedResidentProbe> {
     if (options.daemonStatus) {
-      return {
+      const direct = {
         state: options.daemonStatus.state,
         status: statusFromDaemonStatus(options.daemonStatus),
       };
+      if (isLocalAlembicResident(direct.status)) {
+        return direct;
+      }
+      return (await this.#resolveActiveProjectScopeProbe(direct)) ?? direct;
     }
 
     const state = this.#readState(this.#projectRoot);
     if (!state?.url) {
-      return {
+      const direct = {
         state,
         status: unavailableStatus('not-running', 'No Alembic daemon state is available.', state),
       };
+      return (await this.#resolveActiveProjectScopeProbe(direct)) ?? direct;
     }
     if (!state.token) {
-      return {
+      const direct = {
         state,
         status: unavailableStatus(
           'token-missing',
@@ -514,13 +537,14 @@ export class AlembicResidentServiceClient {
           state
         ),
       };
+      return (await this.#resolveActiveProjectScopeProbe(direct)) ?? direct;
     }
 
     try {
       const endpoint = new URL(RESIDENT_HEALTH_PATH, state.url);
       const response = await this.#fetchJson(endpoint, { method: 'GET', token: state.token });
       if (!response.ok || response.payload?.success === false) {
-        return {
+        const direct = {
           state,
           status: unavailableStatus(
             response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
@@ -528,13 +552,14 @@ export class AlembicResidentServiceClient {
             state
           ),
         };
+        return (await this.#resolveActiveProjectScopeProbe(direct)) ?? direct;
       }
       return {
         state,
         status: statusFromHealth(response.payload, state),
       };
     } catch (err: unknown) {
-      return {
+      const direct = {
         state,
         status: unavailableStatus(
           isTimeoutError(err) ? 'request-timeout' : 'request-failed',
@@ -542,6 +567,86 @@ export class AlembicResidentServiceClient {
           state
         ),
       };
+      return (await this.#resolveActiveProjectScopeProbe(direct)) ?? direct;
+    }
+  }
+
+  async #resolveActiveProjectScopeProbe(
+    direct: ResolvedResidentProbe
+  ): Promise<ResolvedResidentProbe | null> {
+    const candidates = readRuntimeControlProjectRoots();
+    for (const candidateRoot of candidates) {
+      if (samePath(candidateRoot, this.#projectRoot)) {
+        continue;
+      }
+      const state = this.#readState(candidateRoot);
+      if (!state?.url || !state.token) {
+        continue;
+      }
+      const status = await this.#fetchResidentStatus(state);
+      if (!status || !isLocalAlembicResident(status)) {
+        continue;
+      }
+      const resolution = await this.#resolveProjectScopeFromEndpoint(
+        status,
+        state,
+        this.#projectRoot
+      );
+      if (!resolution) {
+        continue;
+      }
+      return {
+        projectScopeResolution: resolution,
+        state,
+        status,
+      };
+    }
+    return null;
+  }
+
+  async #fetchResidentStatus(state: DaemonState): Promise<AlembicResidentServiceStatus | null> {
+    try {
+      const endpoint = new URL(RESIDENT_HEALTH_PATH, state.url);
+      const response = await this.#fetchJson(endpoint, { method: 'GET', token: state.token });
+      if (!response.ok || response.payload?.success === false) {
+        return null;
+      }
+      return statusFromHealth(response.payload, state);
+    } catch {
+      return null;
+    }
+  }
+
+  async #resolveProjectScopeFromEndpoint(
+    status: AlembicResidentServiceStatus,
+    state: DaemonState,
+    folderPath: string
+  ): Promise<ResolvedResidentProbe['projectScopeResolution'] | null> {
+    if (!isLocalAlembicResident(status) || !state.token) {
+      return null;
+    }
+    const endpoint = new URL(RESIDENT_PROJECT_SCOPE_RESOLVE_PATH, status.apiBaseUrl || state.url);
+    endpoint.searchParams.set('folderPath', folderPath);
+    try {
+      const response = await this.#fetchJson(endpoint, { method: 'GET', token: state.token });
+      if (
+        !response.ok ||
+        response.payload?.success === false ||
+        !isRecord(response.payload?.data)
+      ) {
+        return null;
+      }
+      const data = response.payload.data;
+      const summary = normalizeProjectScopeSummary(data.summary);
+      if (!summary) {
+        return null;
+      }
+      return {
+        capability: isRecord(data.capability) ? data.capability : null,
+        summary,
+      };
+    } catch {
+      return null;
     }
   }
 
@@ -1008,8 +1113,35 @@ function resolveSingleFolderBaseline(folderPath: string): {
   }
 }
 
+function readRuntimeControlProjectRoots(): string[] {
+  const controlPath = join(getProjectRegistryDir(), 'runtime-control.json');
+  if (!existsSync(controlPath)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(controlPath, 'utf8')) as Record<string, unknown>;
+    if (parsed.schemaVersion !== PROJECT_RUNTIME_CONTROL_STATE_SCHEMA_VERSION) {
+      return [];
+    }
+    const state = createProjectRuntimeControlState({
+      activeProjectId: nullableString(parsed.activeProjectId),
+      activeProjectRoot: nullableString(parsed.activeProjectRoot),
+      selectedAt: nullableString(parsed.selectedAt),
+      selectedProjectId: nullableString(parsed.selectedProjectId),
+      selectedProjectRoot: nullableString(parsed.selectedProjectRoot),
+      updatedAt: nullableString(parsed.updatedAt) ?? new Date(0).toISOString(),
+    });
+    // runtime-control 是 Alembic/Dashboard 写入的只读控制面；Plugin 只用它找到
+    // 已经启动的 controlRoot resident，再通过 /resolve-folder 验证当前 folder 是否属于
+    // 同一 ProjectScope，避免把未绑定临时目录误接到全局 active daemon。
+    return uniqueStrings([state.activeProjectRoot, state.selectedProjectRoot]);
+  } catch {
+    return [];
+  }
+}
+
 function normalizeFolderPath(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+  return typeof value === 'string' && value.trim().length > 0 ? resolve(value.trim()) : null;
 }
 
 function residentServiceSummary(status: AlembicResidentServiceStatus): Record<string, unknown> {
@@ -1123,4 +1255,32 @@ function numberFrom(value: unknown): number | undefined {
 
 function booleanFrom(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function uniqueStrings(values: Array<string | null>): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+    const normalized = resolve(value);
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function samePath(left: string | null, right: string | null): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  return resolve(left) === resolve(right);
 }

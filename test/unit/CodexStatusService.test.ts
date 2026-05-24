@@ -149,6 +149,7 @@ afterEach(() => {
     process.env.ALEMBIC_HOME = ORIGINAL_ALEMBIC_HOME;
   }
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('Codex status service', () => {
@@ -297,6 +298,88 @@ describe('Codex status service', () => {
       projectScopeId: 'project-scope-workspace',
     });
     expect(status.diagnostics).toMatchObject({
+      projectScopeIdentity: {
+        mode: 'project-scope',
+        projectScopeId: 'project-scope-workspace',
+      },
+    });
+  });
+
+  test('treats an active controlRoot resident as aligned for a bound source folder', async () => {
+    useTempAlembicHome();
+    const controlRoot = makeProjectRoot();
+    const boundFolder = path.join(controlRoot, 'AlembicCore');
+    fs.mkdirSync(boundFolder, { recursive: true });
+    makeInitializedWorkspace(boundFolder);
+    writeRuntimeControlState({
+      activeProjectId: 'project-workspace',
+      activeProjectRoot: controlRoot,
+      selectedAt: '2026-05-25T00:00:00.000Z',
+      selectedProjectId: 'project-workspace',
+      selectedProjectRoot: controlRoot,
+      updatedAt: '2026-05-25T00:00:00.000Z',
+    });
+    const activePaths = resolveDaemonPaths(controlRoot);
+    fs.mkdirSync(activePaths.runtimeDir, { recursive: true });
+    fs.writeFileSync(activePaths.statePath, `${JSON.stringify(makeDaemonState(controlRoot))}\n`);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+        const url =
+          typeof input === 'string'
+            ? new URL(input)
+            : input instanceof URL
+              ? input
+              : new URL(input.url);
+        if (url.pathname === '/api/v1/daemon/health') {
+          return new Response(JSON.stringify(makeProjectScopeHealth(boundFolder)), {
+            headers: { 'content-type': 'application/json' },
+            status: 200,
+          });
+        }
+        if (url.pathname === '/api/v1/project-scope/resolve-folder') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                capability: { available: true },
+                summary: (
+                  makeProjectScopeHealth(boundFolder).data as {
+                    residentService: {
+                      serviceScope: { projectIdentity: { projectScope: unknown } };
+                    };
+                  }
+                ).residentService.serviceScope.projectIdentity.projectScope,
+              },
+            }),
+            { headers: { 'content-type': 'application/json' }, status: 200 }
+          );
+        }
+        throw new Error(`Unexpected URL: ${url.pathname}`);
+      }) as unknown as typeof fetch
+    );
+    const supervisor = {
+      status: vi.fn(async () => makeDaemonStatus(boundFolder, false)),
+    };
+
+    const status = await buildCodexStatus(boundFolder, { supervisor });
+
+    expect(status.projectScopeIdentity).toMatchObject({
+      available: true,
+      currentFolderPath: boundFolder,
+      mode: 'project-scope',
+      projectScopeId: 'project-scope-workspace',
+      source: 'resident-project-scope-endpoint',
+    });
+    expect(status.hostProjectAlignment).toMatchObject({
+      connectionState: 'connected',
+      handoffAllowed: true,
+      handoffMismatch: null,
+    });
+    expect(status.diagnostics).toMatchObject({
+      hostProjectAlignment: {
+        connectionState: 'connected',
+      },
       projectScopeIdentity: {
         mode: 'project-scope',
         projectScopeId: 'project-scope-workspace',

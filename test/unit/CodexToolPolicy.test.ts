@@ -45,6 +45,22 @@ const coreTools = [
   },
 ];
 
+const residentCoreTools = [
+  ...coreTools,
+  {
+    name: 'alembic_search',
+    tier: 'agent',
+    description: 'resident search',
+    inputSchema: { type: 'object' },
+  },
+  {
+    name: 'alembic_task',
+    tier: 'agent',
+    description: 'resident task',
+    inputSchema: { type: 'object' },
+  },
+];
+
 const notInitialized: CodexKnowledgeState = {
   hasKnowledge: false,
   initialized: false,
@@ -113,6 +129,23 @@ describe('Codex tool policy', () => {
       'alembic_project_skill',
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
+  });
+
+  test('exposes resident-backed ProjectScope tools when resident is connected but knowledge is empty', () => {
+    const result = resolveCodexToolPolicy({
+      coreTools: residentCoreTools,
+      knowledge: initializedEmpty,
+      residentProjectScopeAvailable: true,
+      tierName: 'agent',
+      tierOrder,
+    });
+    const names = result.visibleTools.map((tool) => tool.name);
+
+    expect(result.hiddenReason).toBeNull();
+    expect(names).toContain('alembic_task');
+    expect(names).toContain('alembic_search');
+    expect(names).toContain('alembic_health');
+    expect(names).not.toContain('alembic_skill');
   });
 
   test('exposes all Codex local tools and agent core tools when knowledge is usable', () => {

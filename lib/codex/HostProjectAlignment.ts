@@ -12,6 +12,7 @@ import {
   type ProjectRegistryInspection,
 } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
+import type { AlembicResidentProjectScopeIdentity } from '../service/resident/AlembicResidentServiceClient.js';
 import type { CodexEnhancementRouteChoice } from './EnhancementRoute.js';
 
 export type CodexHostProjectConnectionState =
@@ -88,6 +89,7 @@ interface RuntimeControlReadResult {
 export function buildCodexHostProjectAlignment(input: {
   daemonStatus: DaemonStatus;
   enhancementRoute?: CodexEnhancementRouteChoice | null;
+  projectScopeIdentity?: AlembicResidentProjectScopeIdentity | null;
   projectRoot: string;
 }): CodexHostProjectAlignment {
   const hostProject = projectFromRoot(input.projectRoot, 'codex-host');
@@ -113,13 +115,22 @@ export function buildCodexHostProjectAlignment(input: {
   const selectedRoot = selectedProject?.projectRealpath || selectedProject?.projectRoot || null;
   const activeRoot =
     activeRuntimeProject?.projectRealpath || activeRuntimeProject?.projectRoot || null;
-  const selectedDiffers = Boolean(selectedRoot && !sameProjectRoot(hostRoot, selectedRoot));
-  const activeDiffers = Boolean(activeRoot && !sameProjectRoot(hostRoot, activeRoot));
+  const selectedDiffers = Boolean(
+    selectedRoot &&
+      !sameProjectRoot(hostRoot, selectedRoot) &&
+      !sameProjectScopeRoot(input.projectScopeIdentity, hostRoot, selectedRoot)
+  );
+  const activeDiffers = Boolean(
+    activeRoot &&
+      !sameProjectRoot(hostRoot, activeRoot) &&
+      !sameProjectScopeRoot(input.projectScopeIdentity, hostRoot, activeRoot)
+  );
   const connectionState = resolveConnectionState({
     activeDiffers,
     activeRoot,
     daemonReady: input.daemonStatus.ready === true,
     hostRoot,
+    projectScopeResidentReady: isProjectScopeResidentReady(input.projectScopeIdentity),
     runtimeControl: runtimeControl.summary,
     selectedDiffers,
     selectedRoot,
@@ -236,6 +247,7 @@ function resolveConnectionState(input: {
   activeRoot: string | null;
   daemonReady: boolean;
   hostRoot: string | null;
+  projectScopeResidentReady: boolean;
   runtimeControl: CodexRuntimeControlStateSummary;
   selectedDiffers: boolean;
   selectedRoot: string | null;
@@ -245,6 +257,9 @@ function resolveConnectionState(input: {
   }
   if (input.selectedDiffers || input.activeDiffers) {
     return 'mismatch';
+  }
+  if (input.projectScopeResidentReady) {
+    return 'connected';
   }
   if (input.daemonReady && (input.activeRoot || input.runtimeControl.source !== 'readable')) {
     return 'connected';
@@ -427,6 +442,37 @@ function sameProjectRoot(left: string | null, right: string | null): boolean {
     return false;
   }
   return safeNormalizeProjectPath(left) === safeNormalizeProjectPath(right);
+}
+
+function sameProjectScopeRoot(
+  identity: AlembicResidentProjectScopeIdentity | null | undefined,
+  hostRoot: string | null,
+  candidateRoot: string | null
+): boolean {
+  if (!identity?.available || !hostRoot || !candidateRoot) {
+    return false;
+  }
+  const host = safeNormalizeProjectPath(hostRoot);
+  const candidate = safeNormalizeProjectPath(candidateRoot);
+  const scopeRoots = [
+    identity.controlRoot,
+    identity.currentFolderPath,
+    ...identity.folders.flatMap((folder) => [folder.path, folder.realpath ?? null]),
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .map((value) => safeNormalizeProjectPath(value));
+  return scopeRoots.includes(host) && scopeRoots.includes(candidate);
+}
+
+function isProjectScopeResidentReady(
+  identity: AlembicResidentProjectScopeIdentity | null | undefined
+): boolean {
+  return (
+    identity?.available === true &&
+    identity.mode === 'project-scope' &&
+    identity.resident.owner === 'alembic' &&
+    identity.resident.route === 'local-alembic-daemon'
+  );
 }
 
 function safeNormalizeProjectPath(projectRoot: string): string {

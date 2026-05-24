@@ -1,7 +1,17 @@
-import { createAlembicResidentServiceStatus, type DaemonState } from '@alembic/core/daemon';
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  createAlembicResidentServiceStatus,
+  createProjectRuntimeControlState,
+  type DaemonState,
+} from '@alembic/core/daemon';
+import { getProjectRegistryDir } from '@alembic/core/workspace';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AlembicResidentServiceClient } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
+
+const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 
 function daemonState(): DaemonState {
   return {
@@ -24,23 +34,54 @@ function daemonState(): DaemonState {
   };
 }
 
-function projectScopeSummary() {
+function useTempAlembicHome(): void {
+  process.env.ALEMBIC_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-resident-home-'));
+}
+
+function writeRuntimeControlState(
+  state: Parameters<typeof createProjectRuntimeControlState>[0]
+): void {
+  fs.mkdirSync(getProjectRegistryDir(), { recursive: true });
+  fs.writeFileSync(
+    path.join(getProjectRegistryDir(), 'runtime-control.json'),
+    `${JSON.stringify(createProjectRuntimeControlState(state), null, 2)}\n`
+  );
+}
+
+function projectScopeSummary(
+  overrides: {
+    controlRoot?: string;
+    currentFolderId?: string;
+    currentFolderPath?: string;
+    folders?: Array<{
+      displayName: string;
+      folderId: string;
+      path: string;
+      realpath: string | null;
+      role: 'primary-source' | 'source';
+      state: 'active';
+    }>;
+  } = {}
+) {
+  const controlRoot = overrides.controlRoot ?? '/tmp/workspace';
+  const currentFolderPath = overrides.currentFolderPath ?? '/tmp/project';
+  const currentFolderId = overrides.currentFolderId ?? 'folder-plugin';
   return {
     contractVersion: 1,
-    controlRoot: '/tmp/workspace',
+    controlRoot,
     controlRootIncludedInFolders: false,
-    currentFolderId: 'folder-plugin',
-    currentFolderPath: '/tmp/project',
+    currentFolderId,
+    currentFolderPath,
     dataRoot: '/tmp/alembic-project-scope-data',
     dataRootSource: 'ghost-registry',
     displayName: 'Alembic Workspace',
     folderCount: 2,
-    folders: [
+    folders: overrides.folders ?? [
       {
         displayName: 'Plugin',
-        folderId: 'folder-plugin',
-        path: '/tmp/project',
-        realpath: '/tmp/project',
+        folderId: currentFolderId,
+        path: currentFolderPath,
+        realpath: currentFolderPath,
         role: 'source',
         state: 'active',
       },
@@ -138,6 +179,15 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
 }
 
 describe('AlembicResidentServiceClient', () => {
+  afterEach(() => {
+    if (ORIGINAL_ALEMBIC_HOME === undefined) {
+      delete process.env.ALEMBIC_HOME;
+    } else {
+      process.env.ALEMBIC_HOME = ORIGINAL_ALEMBIC_HOME;
+    }
+    vi.restoreAllMocks();
+  });
+
   it('normalizes Codex auto mode to daemon semantic mode while preserving requested mode metadata', async () => {
     const requestedUrls: URL[] = [];
     const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
@@ -282,6 +332,81 @@ describe('AlembicResidentServiceClient', () => {
     expect(identity).toMatchObject({
       available: true,
       currentFolderId: 'folder-plugin',
+      mode: 'project-scope',
+      projectScopeId: 'project-scope-workspace',
+      source: 'resident-project-scope-endpoint',
+    });
+  });
+
+  it('discovers an active controlRoot resident for a bound source folder', async () => {
+    useTempAlembicHome();
+    const controlRoot = '/tmp/workspace';
+    const boundFolder = '/tmp/workspace/AlembicCore';
+    const activeState = {
+      ...daemonState(),
+      projectRoot: controlRoot,
+      projectId: 'project-workspace',
+      dataRoot: '/tmp/alembic-project-scope-data',
+      databasePath: '/tmp/alembic-project-scope-data/alembic.db',
+    };
+    writeRuntimeControlState({
+      activeProjectId: 'project-workspace',
+      activeProjectRoot: controlRoot,
+      selectedAt: '2026-05-25T00:00:00.000Z',
+      selectedProjectId: 'project-workspace',
+      selectedProjectRoot: controlRoot,
+      updatedAt: '2026-05-25T00:00:00.000Z',
+    });
+    const requestedUrls: URL[] = [];
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = fetchInputUrl(input);
+      requestedUrls.push(url);
+      if (url.pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload({ projectScope: null })), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      if (url.pathname === '/api/v1/project-scope/resolve-folder') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              capability: { available: true },
+              summary: projectScopeSummary({
+                controlRoot,
+                currentFolderId: 'folder-core',
+                currentFolderPath: boundFolder,
+              }),
+            },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      }
+      throw new Error(`Unexpected URL: ${url.pathname}`);
+    }) as unknown as typeof fetch;
+    const readState = vi.fn((projectRoot: string) =>
+      projectRoot === controlRoot ? activeState : null
+    );
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: boundFolder,
+      readState,
+    });
+
+    const identity = await client.resolveProjectScopeIdentity();
+
+    expect(readState).toHaveBeenCalledWith(boundFolder);
+    expect(readState).toHaveBeenCalledWith(controlRoot);
+    expect(requestedUrls.map((url) => url.pathname)).toEqual([
+      '/api/v1/daemon/health',
+      '/api/v1/project-scope/resolve-folder',
+    ]);
+    expect(requestedUrls[1]?.searchParams.get('folderPath')).toBe(boundFolder);
+    expect(identity).toMatchObject({
+      available: true,
+      currentFolderId: 'folder-core',
+      currentFolderPath: boundFolder,
       mode: 'project-scope',
       projectScopeId: 'project-scope-workspace',
       source: 'resident-project-scope-endpoint',
