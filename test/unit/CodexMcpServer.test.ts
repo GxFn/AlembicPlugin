@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createAlembicResidentServiceStatus,
   createProjectRuntimeControlState,
   DAEMON_STATE_SCHEMA_VERSION,
   type DaemonState,
@@ -9,6 +10,7 @@ import {
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
 import { pathGuard } from '@alembic/core/io';
+import { PROJECT_SCOPE_CONTRACT_VERSION, type ProjectScopeSummary } from '@alembic/core/shared';
 import {
   getGhostWorkspaceDir,
   getProjectRegistryDir,
@@ -29,6 +31,7 @@ const ORIGINAL_ALEMBIC_PROJECT_DIR = process.env.ALEMBIC_PROJECT_DIR;
 const ORIGINAL_CODEX_ENABLE_ADMIN = process.env.ALEMBIC_CODEX_ENABLE_ADMIN;
 const ORIGINAL_CODEX_WORKSPACE_DIR = process.env.CODEX_WORKSPACE_DIR;
 const ORIGINAL_CODEX_WORKSPACE_ROOT = process.env.CODEX_WORKSPACE_ROOT;
+const ORIGINAL_CODEX_PROJECT_SCOPE_SUMMARY = process.env.ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY;
 const ORIGINAL_INIT_CWD = process.env.INIT_CWD;
 const ORIGINAL_MCP_TIER = process.env.ALEMBIC_MCP_TIER;
 const ORIGINAL_PWD = process.env.PWD;
@@ -150,6 +153,98 @@ function makeDaemonStatus(
   };
 }
 
+function writeDaemonState(projectRoot: string, state: DaemonState = makeDaemonState(projectRoot)) {
+  const paths = resolveDaemonPaths(projectRoot);
+  fs.mkdirSync(path.dirname(paths.statePath), { recursive: true });
+  fs.writeFileSync(paths.statePath, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+function makeProjectScopeSummary(input: {
+  controlRoot: string;
+  currentFolderPath: string;
+  dataRoot: string;
+}): ProjectScopeSummary {
+  return {
+    contractVersion: PROJECT_SCOPE_CONTRACT_VERSION,
+    controlRoot: input.controlRoot,
+    controlRootIncludedInFolders: false,
+    currentFolderId: 'folder-plugin',
+    currentFolderPath: input.currentFolderPath,
+    dataRoot: input.dataRoot,
+    dataRootSource: 'ghost-registry',
+    displayName: 'Alembic workspace',
+    folderCount: 1,
+    folders: [
+      {
+        displayName: 'AlembicPlugin',
+        folderId: 'folder-plugin',
+        path: input.currentFolderPath,
+        realpath: input.currentFolderPath,
+        repositoryId: 'alembic-plugin',
+        role: 'source',
+        state: 'active',
+      },
+    ],
+    projectId: 'project-workspace',
+    projectRootWriteAllowed: false,
+    projectScopeId: 'project-scope-workspace',
+    standardWriteAllowed: false,
+    storageKind: 'ghost',
+  };
+}
+
+function makeProjectScopeHealthPayload(projectScope: ProjectScopeSummary) {
+  return {
+    success: true,
+    data: {
+      residentService: createAlembicResidentServiceStatus({
+        apiBaseUrl: 'http://127.0.0.1:39127',
+        owner: 'alembic',
+        route: 'local-alembic-daemon',
+        capabilityOverrides: {
+          'dashboard.handoff': { available: true, message: 'Dashboard handoff available.' },
+          'jobs.internal-ai.bootstrap': { available: true, message: 'Bootstrap jobs available.' },
+          'jobs.internal-ai.rescan': { available: true, message: 'Rescan jobs available.' },
+          'search.keyword': { available: true, message: 'Keyword search available.' },
+          'search.semantic': { available: true, message: 'Semantic search available.' },
+          'status.health': { available: true, message: 'Health available.' },
+        },
+        serviceScope: {
+          diagnosticPaths: {
+            controlRoot: projectScope.controlRoot,
+            databasePath: path.join(projectScope.dataRoot, '.asd', 'alembic.db'),
+            dataRoot: projectScope.dataRoot,
+            projectRoot: projectScope.currentFolderPath,
+            runtimeDir: path.join(projectScope.dataRoot, '.asd', 'daemon'),
+            statePath: path.join(projectScope.dataRoot, '.asd', 'daemon', 'state.json'),
+          },
+          displayName: projectScope.displayName,
+          kind: 'current-project',
+          projectIdentity: {
+            dataRootSource: 'ghost-registry',
+            projectId: projectScope.projectId,
+            projectScope,
+            projectScopeId: projectScope.projectScopeId,
+            schemaMigrationVersion: null,
+            workspaceMode: 'ghost',
+          },
+          scopeId: `project-scope:${projectScope.projectScopeId}`,
+        },
+      }),
+    },
+  };
+}
+
+function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
+  if (typeof input === 'string') {
+    return new URL(input);
+  }
+  if (input instanceof URL) {
+    return input;
+  }
+  return new URL(input.url);
+}
+
 function makeSupervisor(status: DaemonStatus) {
   return {
     status: vi.fn(async () => status),
@@ -187,6 +282,11 @@ afterEach(() => {
     delete process.env.CODEX_WORKSPACE_ROOT;
   } else {
     process.env.CODEX_WORKSPACE_ROOT = ORIGINAL_CODEX_WORKSPACE_ROOT;
+  }
+  if (ORIGINAL_CODEX_PROJECT_SCOPE_SUMMARY === undefined) {
+    delete process.env.ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY;
+  } else {
+    process.env.ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY = ORIGINAL_CODEX_PROJECT_SCOPE_SUMMARY;
   }
   if (ORIGINAL_INIT_CWD === undefined) {
     delete process.env.INIT_CWD;
@@ -302,6 +402,140 @@ describe('CodexMcpServer', () => {
     expect(names).toContain('alembic_search');
     expect(names).toContain('alembic_health');
     expect(names).not.toContain('alembic_skill');
+  });
+
+  test('executes ProjectScope resident-backed tools from an excluded source folder without source writes', async () => {
+    useTempAlembicHome();
+    const controlRoot = makeProjectRoot();
+    const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'AlembicPlugin-'));
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-project-scope-data-'));
+    fs.writeFileSync(
+      path.join(sourceRoot, 'package.json'),
+      `${JSON.stringify({ name: '@alembic/plugin' }, null, 2)}\n`
+    );
+    makeInitializedWorkspace(dataRoot);
+    writeDaemonState(controlRoot);
+    const projectScope = makeProjectScopeSummary({
+      controlRoot,
+      currentFolderPath: sourceRoot,
+      dataRoot,
+    });
+    writeRuntimeControlState({
+      activeProjectId: projectScope.projectId,
+      activeProjectRoot: controlRoot,
+      selectedAt: '2026-05-25T00:00:00.000Z',
+      selectedProjectId: projectScope.projectId,
+      selectedProjectRoot: controlRoot,
+      updatedAt: '2026-05-25T00:00:00.000Z',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = fetchInputUrl(input);
+      if (url.pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(makeProjectScopeHealthPayload(projectScope)), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.pathname === '/api/v1/project-scope/resolve-folder') {
+        expect(url.searchParams.get('folderPath')).toBe(sourceRoot);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              capability: { available: true, storageKind: 'ghost' },
+              summary: projectScope,
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      if (url.pathname === '/api/v1/search') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              items: [
+                {
+                  id: 'scope-recipe',
+                  title: 'ProjectScope recipe',
+                  trigger: '@project-scope',
+                  kind: 'pattern',
+                  language: 'typescript',
+                  score: 0.94,
+                  description: 'Use ProjectScope resident knowledge.',
+                },
+              ],
+              searchMeta: {
+                route: 'resident-search',
+                requestedMode: url.searchParams.get('mode'),
+                actualMode: 'semantic',
+                semanticUsed: true,
+                vectorUsed: true,
+              },
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      throw new Error(`Unexpected resident request: ${url.toString()}`);
+    });
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(sourceRoot, {
+        message: 'source folder has no direct daemon state',
+        ready: false,
+        state: null,
+        status: 'stopped',
+      })
+    );
+    const server = new CodexMcpServer({ projectRoot: sourceRoot, supervisor });
+
+    const healthResult = (await server.handleToolCall('alembic_health', {})) as {
+      data: {
+        codexProjectScopeExecution: { dataRoot: string; enabled: boolean; projectScopeId: string };
+        projectRoot: string;
+      };
+      success: boolean;
+    };
+    const searchResult = (await server.handleToolCall('alembic_search', {
+      query: 'ProjectScope recipe',
+      mode: 'auto',
+      limit: 1,
+    })) as {
+      data: { searchMeta: { residentSearch: { projectScopeIdentity: { projectScopeId: string } } } };
+      success: boolean;
+    };
+    const primeResult = (await server.handleToolCall('alembic_task', {
+      operation: 'prime',
+      userQuery: 'Use ProjectScope recipe',
+      language: 'typescript',
+    })) as {
+      data: {
+        primeKnowledgeMaterial: { status: string };
+        searchMeta: { residentSearch: { projectScopeIdentity: { projectScopeId: string } } };
+      };
+      success: boolean;
+    };
+
+    expect(healthResult.success).toBe(true);
+    expect(healthResult.data.projectRoot).toBe(sourceRoot);
+    expect(healthResult.data.codexProjectScopeExecution).toMatchObject({
+      dataRoot,
+      enabled: true,
+      projectScopeId: projectScope.projectScopeId,
+    });
+    expect(searchResult.success).toBe(true);
+    expect(searchResult.data.searchMeta.residentSearch.projectScopeIdentity).toMatchObject({
+      projectScopeId: projectScope.projectScopeId,
+    });
+    expect(primeResult.success).toBe(true);
+    expect(primeResult.data.primeKnowledgeMaterial.status).toBe('delivered');
+    expect(primeResult.data.searchMeta.residentSearch.projectScopeIdentity).toMatchObject({
+      projectScopeId: projectScope.projectScopeId,
+    });
+    expect(fs.existsSync(path.join(sourceRoot, '.asd'))).toBe(false);
+    expect(fs.existsSync(path.join(sourceRoot, 'Alembic'))).toBe(false);
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('keeps project skill delivery visible while initialized knowledge is not usable and bootstrap is running', async () => {
