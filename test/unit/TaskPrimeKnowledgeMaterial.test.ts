@@ -2,11 +2,28 @@ import { describe, expect, test, vi } from 'vitest';
 import { taskHandler } from '../../lib/external/mcp/handlers/task.js';
 import type { McpContext } from '../../lib/external/mcp/handlers/types.js';
 import { createIdleIntent } from '../../lib/external/mcp/handlers/types.js';
+import type { ExtractedIntent } from '../../lib/service/task/IntentExtractor.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 
 interface PrimeMaterial {
   status: 'delivered' | 'empty' | 'degraded';
   receiptId: string;
+  intent: {
+    userQuery: string;
+    activeFile?: string;
+    language?: string;
+    module?: string;
+    scenario: string;
+    queries: string[];
+    hostIntentFrame?: {
+      source: 'deterministic' | 'host-declared' | 'mixed';
+      confidence: number;
+      degraded: boolean;
+      degradedReasons: string[];
+      hostDeclaredIntent?: Record<string, unknown>;
+      hostTurnMeta?: Record<string, unknown>;
+    };
+  };
   acceptedKnowledge: Array<{
     id: string;
     kind: string;
@@ -50,7 +67,9 @@ interface PrimeEnvelope {
   };
 }
 
-function makeContext(search: () => Promise<PrimeSearchResult | null>): McpContext {
+function makeContext(
+  search: (intent: ExtractedIntent) => Promise<PrimeSearchResult | null>
+): McpContext {
   return {
     container: {
       get: vi.fn((name: string) => {
@@ -151,6 +170,15 @@ describe('alembic_task prime knowledge material', () => {
     });
     expect(result.data.primeKnowledgeMaterial).toMatchObject({
       status: 'delivered',
+      intent: {
+        userQuery: 'Add prime knowledge shout',
+        hostIntentFrame: {
+          source: 'deterministic',
+          confidence: 1,
+          degraded: false,
+          degradedReasons: [],
+        },
+      },
       acceptedKnowledge: [
         {
           id: 'recipe-1',
@@ -272,6 +300,69 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.message).toContain('No matching recipes found.');
     expect(result.message).toContain('it did not receive usable project knowledge');
     expect(result.message).toContain('Do not make Alembic prime');
+  });
+
+  test('uses host-declared intent as prime query and redacts host turn metadata', async () => {
+    let searchedIntent: ExtractedIntent | null = null;
+    const ctx = makeContext(async (intent) => {
+      searchedIntent = intent;
+      return null;
+    });
+    ctx.hostTurnMeta = {
+      threadId: 'raw-request-thread-id',
+      conversationId: 'raw-request-conversation-id',
+      turnId: 'turn-from-request',
+      cwd: '/Users/example/private-project',
+      surface: 'codex',
+    };
+
+    const result = (await taskHandler(ctx, {
+      operation: 'prime',
+      hostDeclaredIntent: {
+        summary: 'Route host intent into the prime flow',
+        confidence: 0.73,
+        labels: ['intent', 'prime'],
+        source: 'codex-host',
+        ignoredPayload: 'not retained',
+      },
+      hostTurnMeta: {
+        threadId: 'raw-explicit-thread-id',
+        messageId: 'message-1',
+        activeFile: '/Users/example/private-project/lib/file.ts',
+      },
+    })) as PrimeEnvelope;
+
+    expect(searchedIntent?.raw.userQuery).toBe('Route host intent into the prime flow');
+    expect(result.data.primeKnowledgeMaterial.intent.userQuery).toBe(
+      'Route host intent into the prime flow'
+    );
+    expect(result.data.primeKnowledgeMaterial.intent.hostIntentFrame).toMatchObject({
+      source: 'host-declared',
+      confidence: 0.73,
+      degraded: false,
+      hostDeclaredIntent: {
+        summary: 'Route host intent into the prime flow',
+        labels: ['intent', 'prime'],
+        source: 'codex-host',
+      },
+      hostTurnMeta: {
+        turnId: 'turn-from-request',
+        messageId: 'message-1',
+        surface: 'codex',
+        threadIdHash: expect.any(String),
+        conversationIdHash: expect.any(String),
+        redactions: expect.arrayContaining(['threadId', 'conversationId', 'cwd', 'activeFile']),
+      },
+    });
+    const serializedFrame = JSON.stringify(
+      result.data.primeKnowledgeMaterial.intent.hostIntentFrame
+    );
+    expect(serializedFrame).not.toContain('raw-request-thread-id');
+    expect(serializedFrame).not.toContain('raw-explicit-thread-id');
+    expect(serializedFrame).not.toContain('/Users/example/private-project');
+    expect(serializedFrame).not.toContain('ignoredPayload');
+    expect(ctx.session?.intent.primeQuery).toBe('Route host intent into the prime flow');
+    expect(ctx.session?.intent.hostIntentFrame?.source).toBe('host-declared');
   });
 
   test('returns degraded material when the prime search pipeline is unavailable', async () => {

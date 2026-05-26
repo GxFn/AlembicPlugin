@@ -10,6 +10,7 @@ import type {
   LoggerLike,
   SaveSnapshotParams,
 } from '@alembic/core/types';
+import type { HostIntentFrame, HostTurnMetaInput } from '#service/task/HostIntentFrame.js';
 
 // ─── DI Container (minimal shape) ────────────────────────
 
@@ -63,6 +64,7 @@ export interface IntentState {
   primeLanguage: string | null;
   primeModule: string | null;
   primeScenario: string;
+  hostIntentFrame?: HostIntentFrame;
 
   // ─── Search metadata (set by PrimeSearchPipeline) ───
   searchMeta?: {
@@ -162,6 +164,7 @@ export interface McpContext {
   container: McpServiceContainer;
   startedAt?: number;
   session?: McpSession;
+  hostTurnMeta?: HostTurnMetaInput;
   [key: string]: unknown;
 }
 

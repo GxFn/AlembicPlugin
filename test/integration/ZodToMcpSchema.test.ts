@@ -158,6 +158,8 @@ describe('Integration: zodToMcpSchema', () => {
       const result = zodToMcpSchema(TaskInput);
       expect(result.type).toBe('object');
       expect(result.properties['operation']).toBeDefined();
+      expect(result.properties['hostDeclaredIntent']).toBeDefined();
+      expect(result.properties['hostTurnMeta']).toBeDefined();
       expect(result.required).toContain('operation');
     });
 

@@ -10,8 +10,11 @@
  */
 
 // ── common schemas ──────────────────────────────────
+// ── config schemas ──────────────────────────────────
 import {
+  AppConfigSchema,
   ComplexityEnum,
+  ConstitutionSchema,
   ContentSchema,
   IdField,
   KindEnum,
@@ -23,8 +26,6 @@ import {
   StrictKindEnum,
   TitleField,
 } from '@alembic/core/shared';
-// ── config schemas ──────────────────────────────────
-import { AppConfigSchema, ConstitutionSchema } from '@alembic/core/shared';
 import { z } from 'zod';
 
 // ── HTTP request schemas ────────────────────────────
@@ -298,6 +299,30 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       for (const op of ops) {
         expect(TaskInput.parse({ operation: op }).operation).toBe(op);
       }
+    });
+
+    test('should accept host intent and turn metadata while stripping unknown payload', () => {
+      const result = TaskInput.parse({
+        operation: 'prime',
+        hostDeclaredIntent: {
+          summary: 'Route host intent into prime',
+          confidence: 0.6,
+          labels: ['intent'],
+          hugePayload: 'strip me',
+        },
+        hostTurnMeta: {
+          threadId: 'raw-thread-id',
+          messageId: 'message-1',
+          projectRoot: '/Users/private/project',
+        },
+      });
+
+      expect(result.hostDeclaredIntent?.summary).toBe('Route host intent into prime');
+      expect(result.hostDeclaredIntent?.confidence).toBe(0.6);
+      expect(result.hostTurnMeta?.threadId).toBe('raw-thread-id');
+      expect(result.hostTurnMeta?.messageId).toBe('message-1');
+      expect(Object.hasOwn(result.hostDeclaredIntent ?? {}, 'hugePayload')).toBe(false);
+      expect(Object.hasOwn(result.hostTurnMeta ?? {}, 'projectRoot')).toBe(false);
     });
   });
 

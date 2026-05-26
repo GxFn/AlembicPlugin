@@ -28,6 +28,10 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import {
+  type HostTurnMetaInput,
+  readHostTurnMetaFromMcpRequest,
+} from '#service/task/HostIntentFrame.js';
+import {
   isCodexProjectScopeSummaryForFolder,
   readCodexProjectScopeRuntimeFromEnv,
 } from '../../shared/project-scope-runtime.js';
@@ -62,6 +66,7 @@ export interface McpToolCallOptions {
   actor?: ToolActor;
   source?: ToolCallSource;
   surface?: ToolSurface;
+  hostTurnMeta?: HostTurnMetaInput;
 }
 
 interface ToolActor {
@@ -287,7 +292,9 @@ export class McpServer {
       const { name, arguments: args } = request.params;
       const t0 = Date.now();
       try {
-        return await this._handleToolCall(name, args || {});
+        return await this._handleToolCall(name, args || {}, {
+          hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
+        });
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.logger?.error(`MCP tool error: ${name}`, { error: errMsg });
@@ -318,6 +325,7 @@ export class McpServer {
       },
       source,
       surface,
+      hostTurnMeta: options.hostTurnMeta,
     });
     if (isMcpToolResponse(result)) {
       return result;
@@ -335,6 +343,7 @@ export class McpServer {
       actor?: ToolActor;
       source?: ToolCallSource;
       surface?: ToolSurface;
+      hostTurnMeta?: HostTurnMetaInput;
     } = {}
   ) {
     const ctx = this._ctx;
@@ -342,6 +351,7 @@ export class McpServer {
       actor: runtime.actor,
       source: runtime.source,
       surface: runtime.surface,
+      hostTurnMeta: runtime.hostTurnMeta,
       gateway: this._resolveMcpGatewayMapping(name, args),
     });
 
