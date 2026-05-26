@@ -341,6 +341,220 @@ describe('AlembicResidentServiceClient', () => {
     });
   });
 
+  it('uses resident IntentEpisode API for start, read, and outcome handoff', async () => {
+    const requests: Array<{ body?: Record<string, unknown>; method?: string; url: URL }> = [];
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        requests.push({
+          body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
+          method: init?.method,
+          url,
+        });
+        if (url.pathname === '/api/v1/daemon/health') {
+          return new Response(JSON.stringify(residentHealthPayload()), {
+            headers: { 'content-type': 'application/json' },
+            status: 200,
+          });
+        }
+        if (url.pathname === '/api/v1/intent-episodes/latest') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                capability: { owner: 'alembic' },
+                episode: {
+                  episodeId: 'episode-prev',
+                  query: 'previous',
+                  sessionKey: 'sha256:previous',
+                  sourceRefs: ['host:previous'],
+                  status: 'completed',
+                },
+              },
+            }),
+            { headers: { 'content-type': 'application/json' }, status: 200 }
+          );
+        }
+        if (url.pathname === '/api/v1/intent-episodes/recent') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                capability: { owner: 'alembic' },
+                count: 1,
+                episodes: [
+                  {
+                    episodeId: 'episode-prev',
+                    query: 'previous',
+                    sessionKey: 'sha256:previous',
+                    sourceRefs: ['host:previous'],
+                    status: 'completed',
+                  },
+                ],
+              },
+            }),
+            { headers: { 'content-type': 'application/json' }, status: 200 }
+          );
+        }
+        if (url.pathname === '/api/v1/intent-episodes' && init?.method === 'POST') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                capability: { owner: 'alembic' },
+                episode: {
+                  episodeId: 'episode-current',
+                  query: 'resident episode',
+                  sessionKey: 'sha256:current',
+                  sourceRefs: ['host:intent'],
+                  status: 'active',
+                },
+              },
+            }),
+            { headers: { 'content-type': 'application/json' }, status: 201 }
+          );
+        }
+        if (url.pathname === '/api/v1/intent-episodes/episode-current') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                capability: { owner: 'alembic' },
+                episode: {
+                  episodeId: 'episode-current',
+                  sessionKey: 'sha256:current',
+                  status: 'completed',
+                },
+              },
+            }),
+            { headers: { 'content-type': 'application/json' }, status: 200 }
+          );
+        }
+        throw new Error(`Unexpected URL: ${url.pathname}`);
+      }
+    ) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const latest = await client.latestIntentEpisode({ sessionId: 'thread:hash' });
+    const recent = await client.recentIntentEpisodes({ limit: 3, sessionId: 'thread:hash' });
+    const start = await client.startIntentEpisode({
+      activeFile: '/Users/example/private-project/lib/file.ts',
+      hostIntent: {
+        applied: true,
+        confidence: 0.8,
+        hostTurnMeta: { threadIdHash: 'hash' },
+        sourceRefs: ['host:intent'],
+      },
+      query: 'resident episode',
+      scenario: 'implementation',
+      searchMeta: {
+        hostIntentApplied: true,
+        hostIntentConfidence: 0.8,
+        queries: ['resident episode'],
+        resultCount: 1,
+      },
+      sessionId: 'thread:hash',
+      sourceRefs: ['host:intent'],
+      turnId: 'turn-1',
+    });
+    const updated = await client.updateIntentEpisodeOutcome('episode-current', {
+      reason: 'done',
+      status: 'completed',
+      taskId: 'task-1',
+    });
+
+    expect(latest.ok).toBe(true);
+    expect(recent.ok).toBe(true);
+    expect(start.ok).toBe(true);
+    expect(updated.ok).toBe(true);
+    if (start.ok) {
+      expect(start.value.episode).toMatchObject({
+        episodeId: 'episode-current',
+        sessionKey: 'sha256:current',
+        status: 'active',
+      });
+    }
+    const latestRequest = requests.find((request) => request.url.pathname.endsWith('/latest'));
+    const recentRequest = requests.find((request) => request.url.pathname.endsWith('/recent'));
+    const startRequest = requests.find(
+      (request) => request.url.pathname === '/api/v1/intent-episodes' && request.method === 'POST'
+    );
+    const updateRequest = requests.find((request) =>
+      request.url.pathname.endsWith('/episode-current')
+    );
+    expect(latestRequest?.url.searchParams.get('sessionId')).toBe('thread:hash');
+    expect(recentRequest?.url.searchParams.get('limit')).toBe('3');
+    expect(startRequest?.body).toMatchObject({
+      activeFile: '/Users/example/private-project/lib/file.ts',
+      hostIntent: {
+        applied: true,
+        hostTurnMeta: { threadIdHash: 'hash' },
+      },
+      query: 'resident episode',
+      sessionId: 'thread:hash',
+      sourceRefs: ['host:intent'],
+      turnId: 'turn-1',
+    });
+    expect(JSON.stringify(startRequest?.body?.hostIntent)).not.toContain('raw-thread-id');
+    expect(updateRequest?.method).toBe('PATCH');
+    expect(updateRequest?.body).toMatchObject({
+      reason: 'done',
+      status: 'completed',
+      taskId: 'task-1',
+    });
+  });
+
+  it('degrades resident IntentEpisode handoff when an older daemon lacks the route', async () => {
+    const requestedUrls: URL[] = [];
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = fetchInputUrl(input);
+      requestedUrls.push(url);
+      if (url.pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: { message: 'IntentEpisode route unavailable' },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 404 }
+      );
+    }) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.startIntentEpisode({
+      query: 'resident episode',
+      sessionId: 'thread:hash',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(requestedUrls.map((url) => url.pathname)).toEqual([
+      '/api/v1/daemon/health',
+      '/api/v1/intent-episodes',
+    ]);
+    if (!result.ok) {
+      expect(result.reason).toBe('request-failed');
+      expect(result.message).toBe('IntentEpisode route unavailable');
+      expect(result.telemetry).toMatchObject({
+        feature: 'intent-episodes',
+        status: 404,
+      });
+    }
+  });
+
   it('does not claim resident vector availability when semantic telemetry is missing', async () => {
     const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
       if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {

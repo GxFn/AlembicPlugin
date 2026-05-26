@@ -52,6 +52,33 @@ interface PrimeMaterial {
     reason: string;
   };
   nextActions: Array<{ tool: string; args: Record<string, unknown>; required: boolean }>;
+  intentEpisode?: {
+    available: boolean;
+    current: {
+      episodeId: string;
+      query?: string;
+      sessionKey: string | null;
+      sourceRefs: string[];
+      status: string;
+    } | null;
+    degraded: boolean;
+    latest: {
+      episodeId: string;
+      query?: string;
+      sessionKey: string | null;
+      sourceRefs: string[];
+      status: string;
+    } | null;
+    recent: Array<{
+      episodeId: string;
+      query?: string;
+      sessionKey: string | null;
+      sourceRefs: string[];
+      status: string;
+    }>;
+    requestFields: string[];
+    sessionSource: string;
+  };
 }
 
 interface PrimeEnvelope {
@@ -71,13 +98,17 @@ function makeContext(
   search: (
     intent: ExtractedIntent,
     options?: { hostIntentFrame?: unknown }
-  ) => Promise<PrimeSearchResult | null>
+  ) => Promise<PrimeSearchResult | null>,
+  services: Record<string, unknown> = {}
 ): McpContext {
   return {
     container: {
       get: vi.fn((name: string) => {
         if (name === 'primeSearchPipeline') {
           return { search };
+        }
+        if (Object.hasOwn(services, name)) {
+          return services[name];
         }
         throw new Error(`Unexpected service: ${name}`);
       }),
@@ -384,6 +415,207 @@ describe('alembic_task prime knowledge material', () => {
     expect(serializedFrame).not.toContain('ignoredPayload');
     expect(ctx.session?.intent.primeQuery).toBe('Route host intent into the prime flow');
     expect(ctx.session?.intent.hostIntentFrame?.source).toBe('host-declared');
+  });
+
+  test('hands off prime intent episodes to resident service with redacted host identifiers', async () => {
+    const searchResult: PrimeSearchResult = {
+      relatedKnowledge: [
+        {
+          id: 'recipe-episode',
+          title: 'Episode handoff',
+          trigger: '@episode-handoff',
+          kind: 'pattern',
+          language: 'typescript',
+          score: 0.91,
+          description: 'Persist prime intent episodes in Alembic resident service.',
+          actionHint: 'Send redacted host intent facts and search meta to the resident API.',
+          knowledgeType: 'code-standard',
+          sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+        },
+      ],
+      guardRules: [],
+      searchMeta: {
+        queries: ['episode handoff'],
+        scenario: 'implementation',
+        language: 'typescript',
+        module: 'mcp',
+        resultCount: 1,
+        filteredCount: 1,
+        residentSearch: {
+          attempted: true,
+          available: true,
+          route: 'alembic-resident-service',
+          searchMeta: {
+            hostIntentApplied: true,
+            hostIntentConfidence: 0.86,
+            hostIntentDegraded: false,
+            hostIntentSourceRefs: ['host:intent'],
+          },
+        },
+      },
+    };
+    const residentStatus = { owner: 'alembic', route: 'local-alembic-daemon' };
+    const residentServiceClient = {
+      latestIntentEpisode: vi.fn(async () => ({
+        ok: true,
+        status: residentStatus,
+        value: {
+          capability: null,
+          episode: {
+            episodeId: 'episode-prev',
+            query: 'previous query',
+            sessionKey: 'sha256:previous',
+            sourceRefs: ['host:previous'],
+            status: 'completed',
+          },
+        },
+      })),
+      recentIntentEpisodes: vi.fn(async () => ({
+        ok: true,
+        status: residentStatus,
+        value: {
+          capability: null,
+          count: 1,
+          episode: null,
+          episodes: [
+            {
+              episodeId: 'episode-prev',
+              query: 'previous query',
+              sessionKey: 'sha256:previous',
+              sourceRefs: ['host:previous'],
+              status: 'completed',
+            },
+          ],
+        },
+      })),
+      startIntentEpisode: vi.fn(async () => ({
+        ok: true,
+        status: residentStatus,
+        value: {
+          capability: null,
+          episode: {
+            episodeId: 'episode-current',
+            query: 'Create episode handoff',
+            sessionKey: 'sha256:current',
+            sourceRefs: ['host:intent', 'knowledge:recipe-episode'],
+            status: 'active',
+          },
+        },
+      })),
+      updateIntentEpisodeOutcome: vi.fn(async () => ({
+        ok: true,
+        status: residentStatus,
+        value: {
+          capability: null,
+          episode: {
+            episodeId: 'episode-current',
+            sessionKey: 'sha256:current',
+            status: 'completed',
+          },
+        },
+      })),
+    };
+    const ctx = makeContext(async () => searchResult, { residentServiceClient });
+
+    const primeResult = (await taskHandler(ctx, {
+      operation: 'prime',
+      activeFile: '/Users/example/private-project/lib/task.ts',
+      hostDeclaredIntent: {
+        confidence: 0.86,
+        sourceRefs: ['host:intent'],
+        summary: 'Create episode handoff',
+      },
+      hostTurnMeta: {
+        activeFile: '/Users/example/private-project/lib/task.ts',
+        threadId: 'raw-thread-id',
+        turnId: 'turn-1',
+      },
+      language: 'typescript',
+    })) as PrimeEnvelope;
+
+    expect(residentServiceClient.latestIntentEpisode).toHaveBeenCalledWith({
+      sessionId: expect.stringMatching(/^thread:/),
+    });
+    expect(residentServiceClient.recentIntentEpisodes).toHaveBeenCalledWith({
+      limit: 3,
+      sessionId: expect.stringMatching(/^thread:/),
+    });
+    expect(residentServiceClient.startIntentEpisode).toHaveBeenCalledTimes(1);
+    const startRequest = residentServiceClient.startIntentEpisode.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(startRequest).toMatchObject({
+      activeFile: '/Users/example/private-project/lib/task.ts',
+      language: 'typescript',
+      query: 'Create episode handoff',
+      scenario: 'generate',
+      sessionId: expect.stringMatching(/^thread:/),
+      sourceRefs: ['host:intent', 'knowledge:recipe-episode'],
+      turnId: 'turn-1',
+    });
+    expect(startRequest.sessionId).not.toBe('raw-thread-id');
+    expect(JSON.stringify(startRequest.hostIntent)).not.toContain('raw-thread-id');
+    expect(JSON.stringify(startRequest.hostIntent)).not.toContain('/Users/example/private-project');
+    expect(startRequest.searchMeta).toMatchObject({
+      filteredCount: 1,
+      hostIntentApplied: true,
+      hostIntentConfidence: 0.86,
+      hostIntentDegraded: false,
+      hostIntentSourceRefs: ['host:intent'],
+      queries: ['episode handoff'],
+      resultCount: 1,
+    });
+    expect(primeResult.data.primeKnowledgeMaterial.intent.activeFile).toBe(
+      '[absolute-path]/task.ts'
+    );
+    expect(primeResult.data.primeKnowledgeMaterial.intentEpisode).toMatchObject({
+      available: true,
+      current: {
+        episodeId: 'episode-current',
+        sessionKey: 'sha256:current',
+        status: 'active',
+      },
+      latest: {
+        episodeId: 'episode-prev',
+        sessionKey: 'sha256:previous',
+        status: 'completed',
+      },
+      recent: [
+        {
+          episodeId: 'episode-prev',
+          sessionKey: 'sha256:previous',
+          status: 'completed',
+        },
+      ],
+      sessionSource: 'host-thread-hash',
+    });
+    const visibleEpisodePayload = JSON.stringify(primeResult.data.primeKnowledgeMaterial);
+    expect(visibleEpisodePayload).not.toContain('raw-thread-id');
+    expect(visibleEpisodePayload).not.toContain('/Users/example/private-project');
+    expect(ctx.session?.intent.intentEpisode).toMatchObject({
+      episodeId: 'episode-current',
+      sessionKey: 'sha256:current',
+      startAvailable: true,
+    });
+
+    const createResult = (await taskHandler(ctx, {
+      operation: 'create',
+      title: 'Episode task',
+    })) as { data: { id: string } };
+    await taskHandler(ctx, {
+      operation: 'close',
+      id: createResult.data.id,
+      reason: 'done',
+    });
+    expect(residentServiceClient.updateIntentEpisodeOutcome).toHaveBeenCalledWith(
+      'episode-current',
+      expect.objectContaining({
+        reason: 'done',
+        status: 'completed',
+        taskId: createResult.data.id,
+      })
+    );
   });
 
   test('returns degraded material when the prime search pipeline is unavailable', async () => {

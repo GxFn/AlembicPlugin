@@ -95,6 +95,68 @@ export interface ResidentSearchResult {
   meta: ResidentSearchAttemptMeta;
 }
 
+export type ResidentIntentEpisodeStatus = 'abandoned' | 'active' | 'completed' | 'failed';
+
+export interface ResidentIntentEpisodeRecord {
+  activeFileRef?: string;
+  createdAt?: string;
+  dataRootSource?: string | null;
+  endedAt?: string;
+  episodeId: string;
+  hostIntent?: Record<string, unknown> | null;
+  language?: string | null;
+  module?: string | null;
+  outcomeReason?: string;
+  projectId?: string | null;
+  projectScopeId?: string | null;
+  query?: string;
+  scenario?: string | null;
+  searchMeta?: Record<string, unknown> | null;
+  sessionKey: string;
+  sourceRefs?: string[];
+  startedAt?: string;
+  status: ResidentIntentEpisodeStatus;
+  taskId?: string;
+  turnKey?: string;
+  updatedAt?: string;
+  version?: number;
+  workspaceMode?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ResidentIntentEpisodeStartRequest {
+  activeFile?: string;
+  hostIntent?: Record<string, unknown>;
+  language?: string;
+  module?: string;
+  query?: string;
+  scenario?: string;
+  searchMeta?: Record<string, unknown>;
+  sessionId?: string;
+  sourceRefs?: string[];
+  taskId?: string;
+  turnId?: string;
+}
+
+export interface ResidentIntentEpisodeOutcomeRequest {
+  reason?: string;
+  searchMeta?: Record<string, unknown>;
+  status: Exclude<ResidentIntentEpisodeStatus, 'active'>;
+  taskId?: string;
+}
+
+export interface ResidentIntentEpisodeReadOptions {
+  limit?: number;
+  sessionId?: string;
+}
+
+export interface ResidentIntentEpisodeResult {
+  capability: Record<string, unknown> | null;
+  count?: number;
+  episode: ResidentIntentEpisodeRecord | null;
+  episodes?: ResidentIntentEpisodeRecord[];
+}
+
 export interface AlembicResidentServiceClientOptions {
   fetchImpl?: FetchLike;
   projectRoot: string;
@@ -165,7 +227,14 @@ const RESIDENT_HEALTH_PATH = '/api/v1/daemon/health';
 const RESIDENT_PROJECT_SCOPE_RESOLVE_PATH = '/api/v1/project-scope/resolve-folder';
 const RESIDENT_SEARCH_PATH = '/api/v1/search';
 const RESIDENT_JOBS_PATH = '/api/v1/jobs';
+const RESIDENT_INTENT_EPISODES_PATH = '/api/v1/intent-episodes';
+const RESIDENT_INTENT_EPISODE_FEATURE = 'intent-episodes';
 const PROJECT_SCOPE_UNAVAILABLE_REASON = 'resident project scope unavailable';
+
+type ResidentServiceFeatureName =
+  | AlembicResidentFeature
+  | AlembicResidentJobFeature
+  | typeof RESIDENT_INTENT_EPISODE_FEATURE;
 
 export class AlembicResidentServiceClient {
   #fetch: FetchLike;
@@ -316,6 +385,73 @@ export class AlembicResidentServiceClient {
     }
   }
 
+  async startIntentEpisode(
+    request: ResidentIntentEpisodeStartRequest
+  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
+    const resolved = await this.#resolveProbe();
+    const unavailable =
+      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
+    if (unavailable) {
+      return unavailable;
+    }
+    return this.#requestIntentEpisodeJson(resolved, RESIDENT_INTENT_EPISODES_PATH, {
+      body: stripUndefined(request as unknown as Record<string, unknown>),
+      method: 'POST',
+    });
+  }
+
+  async latestIntentEpisode(
+    options: ResidentIntentEpisodeReadOptions = {}
+  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
+    const resolved = await this.#resolveProbe();
+    const unavailable =
+      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
+    if (unavailable) {
+      return unavailable;
+    }
+    return this.#requestIntentEpisodeJson(
+      resolved,
+      `${RESIDENT_INTENT_EPISODES_PATH}/latest${buildIntentEpisodeQuery(options)}`,
+      { method: 'GET' }
+    );
+  }
+
+  async recentIntentEpisodes(
+    options: ResidentIntentEpisodeReadOptions = {}
+  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
+    const resolved = await this.#resolveProbe();
+    const unavailable =
+      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
+    if (unavailable) {
+      return unavailable;
+    }
+    return this.#requestIntentEpisodeJson(
+      resolved,
+      `${RESIDENT_INTENT_EPISODES_PATH}/recent${buildIntentEpisodeQuery(options)}`,
+      { method: 'GET' }
+    );
+  }
+
+  async updateIntentEpisodeOutcome(
+    episodeId: string,
+    request: ResidentIntentEpisodeOutcomeRequest
+  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
+    const resolved = await this.#resolveProbe();
+    const unavailable =
+      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
+    if (unavailable) {
+      return unavailable;
+    }
+    return this.#requestIntentEpisodeJson(
+      resolved,
+      `${RESIDENT_INTENT_EPISODES_PATH}/${encodeURIComponent(episodeId)}`,
+      {
+        body: stripUndefined(request as unknown as Record<string, unknown>),
+        method: 'PATCH',
+      }
+    );
+  }
+
   async enqueueJob(
     kind: 'bootstrap' | 'rescan',
     options: AlembicResidentJobRequestOptions = {}
@@ -395,8 +531,8 @@ export class AlembicResidentServiceClient {
     path: string,
     input: {
       body?: Record<string, unknown>;
-      feature: AlembicResidentJobFeature;
-      method: 'GET' | 'POST';
+      feature: ResidentServiceFeatureName;
+      method: 'GET' | 'PATCH' | 'POST';
     }
   ): Promise<AlembicResidentServiceResult<unknown>> {
     if (!resolved.state?.token) {
@@ -441,6 +577,99 @@ export class AlembicResidentServiceClient {
         {
           retryable: true,
           telemetry: { endpoint: endpoint.toString(), feature: input.feature },
+        }
+      );
+    }
+  }
+
+  #ensureIntentEpisodeRouteAvailable<TValue>(
+    resolved: ResolvedResidentProbe
+  ): AlembicResidentServiceResult<TValue> | null {
+    if (!isLocalAlembicResident(resolved.status)) {
+      return createAlembicResidentServiceUnavailable<TValue>(
+        resolved.status,
+        resolved.status.route === 'unavailable' ? 'route-unavailable' : 'unsupported-route',
+        'IntentEpisode handoff requires a local Alembic resident daemon.',
+        { telemetry: { feature: RESIDENT_INTENT_EPISODE_FEATURE } }
+      );
+    }
+    if (!resolved.state?.token) {
+      return createAlembicResidentServiceUnavailable<TValue>(
+        resolved.status,
+        'token-missing',
+        'Alembic resident service token is missing.',
+        { retryable: true, telemetry: { feature: RESIDENT_INTENT_EPISODE_FEATURE } }
+      );
+    }
+    return null;
+  }
+
+  async #requestIntentEpisodeJson(
+    resolved: ResolvedResidentProbe,
+    path: string,
+    input: { body?: Record<string, unknown>; method: 'GET' | 'PATCH' | 'POST' }
+  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
+    if (!resolved.state?.token) {
+      return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
+        resolved.status,
+        'token-missing',
+        'Alembic resident service token is missing.',
+        { retryable: true, telemetry: { feature: RESIDENT_INTENT_EPISODE_FEATURE, path } }
+      );
+    }
+    const endpoint = new URL(path, resolved.status.apiBaseUrl || resolved.state.url);
+    try {
+      const response = await this.#fetchJson(endpoint, {
+        body: input.body,
+        method: input.method,
+        token: resolved.state.token,
+      });
+      if (!response.ok || response.payload?.success === false) {
+        return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
+          resolved.status,
+          response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
+          extractResponseError(response.payload) || `intent_episode_http_${response.status}`,
+          {
+            retryable: true,
+            telemetry: {
+              endpoint: endpoint.toString(),
+              feature: RESIDENT_INTENT_EPISODE_FEATURE,
+              status: response.status,
+            },
+          }
+        );
+      }
+      const data = isRecord(response.payload?.data) ? response.payload.data : null;
+      if (!data) {
+        return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
+          resolved.status,
+          'request-failed',
+          'IntentEpisode resident response did not include a data object.',
+          {
+            retryable: true,
+            telemetry: {
+              endpoint: endpoint.toString(),
+              feature: RESIDENT_INTENT_EPISODE_FEATURE,
+              status: response.status,
+            },
+          }
+        );
+      }
+      return createAlembicResidentServiceSuccess(projectIntentEpisodeData(data), resolved.status, {
+        endpoint: endpoint.toString(),
+        feature: RESIDENT_INTENT_EPISODE_FEATURE,
+      });
+    } catch (err: unknown) {
+      return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
+        resolved.status,
+        isTimeoutError(err) ? 'request-timeout' : 'request-failed',
+        err instanceof Error ? err.message : String(err),
+        {
+          retryable: true,
+          telemetry: {
+            endpoint: endpoint.toString(),
+            feature: RESIDENT_INTENT_EPISODE_FEATURE,
+          },
         }
       );
     }
@@ -736,7 +965,7 @@ export class AlembicResidentServiceClient {
 
   async #fetchJson(
     endpoint: URL,
-    input: { body?: Record<string, unknown>; method: 'GET' | 'POST'; token: string }
+    input: { body?: Record<string, unknown>; method: 'GET' | 'PATCH' | 'POST'; token: string }
   ): Promise<{ ok: boolean; payload: ResidentHttpPayload | null; status: number }> {
     const response = await this.#fetch(endpoint, {
       method: input.method,
@@ -1289,6 +1518,42 @@ function stripUndefined(input: Record<string, unknown>): Record<string, unknown>
   return output;
 }
 
+function projectIntentEpisodeData(data: Record<string, unknown>): ResidentIntentEpisodeResult {
+  const episodes = Array.isArray(data.episodes)
+    ? data.episodes.map(toResidentIntentEpisodeRecord).filter(isResidentIntentEpisodeRecord)
+    : undefined;
+  const count = numberFrom(data.count) ?? episodes?.length;
+  return {
+    capability: isRecord(data.capability) ? data.capability : null,
+    episode: toResidentIntentEpisodeRecord(data.episode),
+    ...(episodes ? { episodes } : {}),
+    ...(count !== undefined ? { count } : {}),
+  };
+}
+
+function toResidentIntentEpisodeRecord(value: unknown): ResidentIntentEpisodeRecord | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const episodeId = stringFrom(value.episodeId);
+  const sessionKey = stringFrom(value.sessionKey);
+  const status = stringFrom(value.status);
+  if (
+    !episodeId ||
+    !sessionKey ||
+    (status !== 'active' && status !== 'completed' && status !== 'failed' && status !== 'abandoned')
+  ) {
+    return null;
+  }
+  return value as ResidentIntentEpisodeRecord;
+}
+
+function isResidentIntentEpisodeRecord(
+  value: ResidentIntentEpisodeRecord | null
+): value is ResidentIntentEpisodeRecord {
+  return value !== null;
+}
+
 function normalizeRequestedMode(mode: unknown): string {
   if (typeof mode !== 'string') {
     return 'auto';
@@ -1329,6 +1594,18 @@ function buildJobQuery(args: Record<string, unknown>): string {
   }
   if (typeof args.limit === 'number' && Number.isFinite(args.limit)) {
     params.set('limit', String(args.limit));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildIntentEpisodeQuery(options: ResidentIntentEpisodeReadOptions): string {
+  const params = new URLSearchParams();
+  if (typeof options.sessionId === 'string' && options.sessionId.trim()) {
+    params.set('sessionId', options.sessionId.trim());
+  }
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit)) {
+    params.set('limit', String(Math.max(1, Math.min(100, Math.floor(options.limit)))));
   }
   const query = params.toString();
   return query ? `?${query}` : '';

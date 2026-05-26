@@ -74,6 +74,13 @@ export interface IntentState {
     residentSearch?: Record<string, unknown>;
   };
 
+  // ─── Alembic resident IntentEpisode handoff (set by Plugin prime) ───
+  intentEpisode?: {
+    episodeId: string;
+    sessionKey: string | null;
+    startAvailable: boolean;
+  };
+
   // ─── Anchor (set after create) ───
   taskId?: string;
   taskTitle?: string;
