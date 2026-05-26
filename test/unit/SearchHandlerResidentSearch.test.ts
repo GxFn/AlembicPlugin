@@ -256,6 +256,14 @@ describe('alembic_search resident search enhancement', () => {
           redactions: ['threadId'],
         }),
         intentContext: expect.objectContaining({
+          recognizedIntentDraft: expect.objectContaining({
+            action: 'search',
+            confidence: 0.7,
+            evidenceSpans: expect.arrayContaining([expect.objectContaining({ field: 'query' })]),
+            query: 'host declared query',
+            sourceRefs: ['host:intent', 'host:top-level'],
+            status: 'recognized',
+          }),
           query: 'host declared query',
           sourceRefs: ['host:intent', 'host:top-level'],
         }),

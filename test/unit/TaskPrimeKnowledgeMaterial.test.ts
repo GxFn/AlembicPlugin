@@ -354,6 +354,18 @@ describe('alembic_task prime knowledge material', () => {
         labels: ['intent', 'prime'],
         source: 'codex-host',
       },
+      recognizedIntentDraft: {
+        action: 'search',
+        confidence: 0.73,
+        constraints: expect.arrayContaining(['intent', 'prime']),
+        degraded: false,
+        evidenceSpans: expect.arrayContaining([
+          expect.objectContaining({ field: 'query', source: 'hostDeclaredIntent' }),
+        ]),
+        query: 'Route host intent into the prime flow',
+        source: 'host-declared',
+        status: 'recognized',
+      },
       hostTurnMeta: {
         turnId: 'turn-from-request',
         messageId: 'message-1',

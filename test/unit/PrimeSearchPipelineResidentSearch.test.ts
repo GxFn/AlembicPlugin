@@ -187,6 +187,27 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
           redactions: ['threadId', 'activeFile'],
           threadIdHash: 'thread-hash',
         },
+        recognizedIntentDraft: {
+          action: 'search',
+          confidence: 0.82,
+          constraints: ['async'],
+          degraded: false,
+          degradedReasons: [],
+          evidenceSpans: [
+            {
+              field: 'query',
+              source: 'hostDeclaredIntent',
+              start: 0,
+              end: 31,
+              text: 'VideoURLPreloader async bridge',
+            },
+          ],
+          query: 'VideoURLPreloader async bridge',
+          source: 'host-declared',
+          sourceRefs: ['host:intent'],
+          status: 'recognized',
+          target: 'VideoURLPreloader',
+        },
         source: 'host-declared',
       },
     });
@@ -202,6 +223,14 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
         intentContext: expect.objectContaining({
           confidence: 0.82,
           query: 'VideoURLPreloader async bridge',
+          recognizedIntentDraft: expect.objectContaining({
+            action: 'search',
+            confidence: 0.82,
+            evidenceSpans: expect.arrayContaining([expect.objectContaining({ field: 'query' })]),
+            query: 'VideoURLPreloader async bridge',
+            sourceRefs: ['host:intent'],
+            status: 'recognized',
+          }),
           sourceRefs: ['host:intent'],
         }),
         language: 'swift',
