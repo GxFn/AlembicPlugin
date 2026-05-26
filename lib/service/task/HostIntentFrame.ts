@@ -19,6 +19,8 @@ export interface HostDeclaredIntentInput {
   language?: string;
   module?: string;
   labels?: string[];
+  keywords?: string[];
+  sourceRefs?: string[];
   confidence?: number;
   source?: string;
   [key: string]: unknown;
@@ -56,6 +58,8 @@ export interface NormalizedHostDeclaredIntent {
   language?: string;
   module?: string;
   labels?: string[];
+  keywords?: string[];
+  sourceRefs?: string[];
   confidence?: number;
   source?: string;
   [key: string]: unknown;
@@ -101,6 +105,20 @@ export interface HostIntentFrame {
   };
 }
 
+export interface ResidentIntentHandoff {
+  confidence?: number;
+  degraded: boolean;
+  degradedReason?: string;
+  hostDeclaredIntent?: NormalizedHostDeclaredIntent;
+  hostTurnMeta?: NormalizedHostTurnMeta;
+  intentContext: Record<string, unknown>;
+  language?: string;
+  scenario?: string;
+  searchIntent?: string;
+  sessionHistory?: Array<{ content: string }>;
+  sourceRefs?: string[];
+}
+
 export function prepareHostIntentInput(input: {
   userQuery?: unknown;
   activeFile?: unknown;
@@ -141,6 +159,88 @@ export function prepareHostIntentInput(input: {
     source,
     degraded: degradedReasons.length > 0,
     degradedReasons,
+  };
+}
+
+export function buildResidentIntentHandoff(input: {
+  hostIntentFrame?: HostIntentFrame;
+  language?: string | null;
+  sessionHistory?: unknown;
+  sourceRefs?: unknown;
+  userQuery?: string;
+}): ResidentIntentHandoff | null {
+  const frame = input.hostIntentFrame;
+  const explicitSourceRefs = normalizeSourceRefs(input.sourceRefs);
+  const sessionHistory = normalizeSessionHistory(input.sessionHistory);
+  if (!frame || !hasResidentIntentSignal(frame, explicitSourceRefs)) {
+    return null;
+  }
+
+  const declared = normalizeResidentDeclaredIntent(frame.hostDeclaredIntent);
+  const sourceRefs = uniqueStrings([
+    ...normalizeSourceRefs(declared?.sourceRefs),
+    ...explicitSourceRefs,
+  ]);
+  const query = firstDefinedString(
+    declared?.query,
+    declared?.summary,
+    declared?.goal,
+    declared?.action,
+    input.userQuery
+  );
+  const queryHints = normalizeQueryHints(frame.extracted.queries);
+  const keywords = uniqueStrings([
+    ...(declared?.keywords ?? []),
+    ...(declared?.labels ?? []),
+    frame.extracted.module ?? '',
+  ]).filter(Boolean);
+  const language = declared?.language ?? frame.hostTurnMeta?.language ?? input.language ?? null;
+  const scenario = declared?.scenario ?? frame.extracted.scenario;
+  const degradedReason = frame.degradedReasons.join('; ') || undefined;
+  const sources = uniqueStrings([
+    frame.source,
+    ...(declared ? ['hostDeclaredIntent'] : []),
+    ...(frame.hostTurnMeta ? ['hostTurnMeta'] : []),
+  ]);
+
+  const intentContext: Record<string, unknown> = {
+    applied: true,
+    confidence: frame.confidence,
+    degraded: frame.degraded,
+    queries: queryHints,
+    queryHints,
+    searchIntent: scenario,
+    scenario,
+    sources,
+  };
+  if (query) {
+    intentContext.query = query;
+  }
+  if (keywords.length > 0) {
+    intentContext.keywords = keywords.slice(0, 12);
+  }
+  if (language) {
+    intentContext.language = language;
+  }
+  if (degradedReason) {
+    intentContext.degradedReason = degradedReason;
+  }
+  if (sourceRefs.length > 0) {
+    intentContext.sourceRefs = sourceRefs;
+  }
+
+  return {
+    confidence: frame.confidence,
+    degraded: frame.degraded,
+    ...(degradedReason ? { degradedReason } : {}),
+    ...(declared ? { hostDeclaredIntent: declared } : {}),
+    ...(frame.hostTurnMeta ? { hostTurnMeta: frame.hostTurnMeta } : {}),
+    intentContext,
+    ...(language ? { language } : {}),
+    scenario,
+    searchIntent: scenario,
+    ...(sessionHistory.length > 0 ? { sessionHistory } : {}),
+    ...(sourceRefs.length > 0 ? { sourceRefs } : {}),
   };
 }
 
@@ -218,6 +318,14 @@ function normalizeHostDeclaredIntent(input: unknown): {
   const labels = normalizeStringArray(record.labels, 12, 80);
   if (labels.length > 0) {
     value.labels = labels;
+  }
+  const keywords = normalizeStringArray(record.keywords, 12, 80);
+  if (keywords.length > 0) {
+    value.keywords = keywords;
+  }
+  const sourceRefs = normalizeSourceRefs(record.sourceRefs);
+  if (sourceRefs.length > 0) {
+    value.sourceRefs = sourceRefs;
   }
   if (typeof record.confidence === 'number' && Number.isFinite(record.confidence)) {
     value.confidence = Math.max(0, Math.min(1, record.confidence));
@@ -322,6 +430,16 @@ function hasTurnMetaValue(value: NormalizedHostTurnMeta): boolean {
   return Object.keys(value).some((key) => key !== 'redactions') || value.redactions.length > 0;
 }
 
+function hasResidentIntentSignal(frame: HostIntentFrame, sourceRefs: string[]): boolean {
+  return (
+    frame.source !== 'deterministic' ||
+    Boolean(frame.hostDeclaredIntent) ||
+    Boolean(frame.hostTurnMeta) ||
+    frame.degraded ||
+    sourceRefs.length > 0
+  );
+}
+
 function assignString(
   target: Record<string, unknown>,
   key: string,
@@ -406,6 +524,59 @@ function normalizeStringArray(value: unknown, maxItems: number, maxLength: numbe
     }
   }
   return uniqueStrings(result);
+}
+
+function normalizeQueryHints(value: unknown): string[] {
+  return normalizeStringArray(value, 6, 500).filter((entry) => !looksLikePrivatePath(entry));
+}
+
+function normalizeSourceRefs(value: unknown): string[] {
+  return normalizeStringArray(value, 20, 200).filter((entry) => !looksLikePrivatePath(entry));
+}
+
+function normalizeResidentDeclaredIntent(
+  declared?: NormalizedHostDeclaredIntent
+): NormalizedHostDeclaredIntent | undefined {
+  if (!declared) {
+    return undefined;
+  }
+  const sourceRefs = normalizeSourceRefs(declared.sourceRefs);
+  const normalized: NormalizedHostDeclaredIntent = {
+    ...declared,
+    ...(sourceRefs.length > 0 ? { sourceRefs } : {}),
+  };
+  if (sourceRefs.length === 0) {
+    delete normalized.sourceRefs;
+  }
+  return normalized;
+}
+
+function normalizeSessionHistory(value: unknown): Array<{ content: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const result: Array<{ content: string }> = [];
+  for (const item of value) {
+    const record = asRecord(item);
+    const content = normalizeString(record?.content, 500) ?? normalizeString(item, 500);
+    if (content && !looksLikePrivatePath(content)) {
+      result.push({ content });
+    }
+    if (result.length >= 5) {
+      break;
+    }
+  }
+  return result;
+}
+
+function looksLikePrivatePath(value: string): boolean {
+  return (
+    value.startsWith('/') ||
+    value.startsWith('file://') ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.includes('/Users/') ||
+    value.includes('\\Users\\')
+  );
 }
 
 function uniqueStrings(values: string[]): string[] {

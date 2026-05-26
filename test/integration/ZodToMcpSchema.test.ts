@@ -141,6 +141,8 @@ describe('Integration: zodToMcpSchema', () => {
       const result = zodToMcpSchema(SearchInput);
       expect(result.type).toBe('object');
       expect(result.properties['query']).toBeDefined();
+      expect(result.properties['hostDeclaredIntent']).toBeDefined();
+      expect(result.properties['hostTurnMeta']).toBeDefined();
       expect(result.required).toContain('query');
       // mode has default, should not be required
       expect(result.required).not.toContain('mode');

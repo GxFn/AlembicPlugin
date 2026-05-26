@@ -134,6 +134,94 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
     });
   });
 
+  it('passes redacted host intent context to resident semantic search', async () => {
+    const engine = {
+      search: vi.fn(async (_query: string, options?: { mode?: string }) => {
+        if (options?.mode === 'auto') {
+          return { items: [item('embedded-1', 'Embedded baseline', 0.72)] };
+        }
+        return { items: [] };
+      }),
+    };
+    const residentServiceClient = {
+      search: vi.fn(
+        async (): Promise<ResidentSearchResult> => ({
+          items: [item('resident-1', 'Resident vector recipe', 0.95)],
+          meta: residentMeta({
+            hostIntentHandoff: {
+              degraded: false,
+              degradedReasons: [],
+              enabled: true,
+              requestRoute: 'post-body',
+              sessionHistoryCount: 0,
+              sourceRefsCount: 1,
+            },
+            searchMeta: {
+              hostIntentApplied: true,
+              hostIntentConfidence: 0.82,
+              hostIntentSourceRefs: ['host:intent'],
+            },
+          }),
+        })
+      ),
+    };
+
+    const pipeline = new PrimeSearchPipeline(engine, { residentServiceClient });
+    const result = await pipeline.search(intent(), {
+      hostIntentFrame: {
+        confidence: 0.82,
+        degraded: false,
+        degradedReasons: [],
+        extracted: {
+          language: 'swift',
+          module: 'Player',
+          queries: ['VideoURLPreloader async bridge'],
+          scenario: 'search',
+        },
+        hostDeclaredIntent: {
+          keywords: ['async'],
+          query: 'VideoURLPreloader async bridge',
+          sourceRefs: ['host:intent', '/Users/example/private.ts'],
+        },
+        hostTurnMeta: {
+          redactions: ['threadId', 'activeFile'],
+          threadIdHash: 'thread-hash',
+        },
+        source: 'host-declared',
+      },
+    });
+
+    expect(residentServiceClient.search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostDeclaredIntent: expect.objectContaining({
+          query: 'VideoURLPreloader async bridge',
+        }),
+        hostTurnMeta: expect.objectContaining({
+          threadIdHash: 'thread-hash',
+        }),
+        intentContext: expect.objectContaining({
+          confidence: 0.82,
+          query: 'VideoURLPreloader async bridge',
+          sourceRefs: ['host:intent'],
+        }),
+        language: 'swift',
+        sourceRefs: ['host:intent'],
+      })
+    );
+    expect(JSON.stringify(residentServiceClient.search.mock.calls[0]?.[0])).not.toContain(
+      '/Users/example/private.ts'
+    );
+    expect(result?.searchMeta.residentSearch).toMatchObject({
+      hostIntentHandoff: {
+        enabled: true,
+        requestRoute: 'post-body',
+      },
+      searchMeta: {
+        hostIntentApplied: true,
+      },
+    });
+  });
+
   it('falls back to embedded baseline when resident service is unavailable', async () => {
     const engine = {
       search: vi.fn(async (_query: string, options?: { mode?: string }) => {

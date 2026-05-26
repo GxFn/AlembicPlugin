@@ -223,8 +223,18 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         query: 'test',
         language: 'typescript',
         sessionId: 'sess-1',
+        hostDeclaredIntent: {
+          query: 'host query',
+          keywords: ['intent'],
+          sourceRefs: ['host:intent'],
+        },
+        hostTurnMeta: {
+          threadId: 'raw-thread-id',
+        },
       });
       expect(result.language).toBe('typescript');
+      expect(result.hostDeclaredIntent?.sourceRefs).toEqual(['host:intent']);
+      expect(result.hostTurnMeta?.threadId).toBe('raw-thread-id');
     });
   });
 
@@ -308,6 +318,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
           summary: 'Route host intent into prime',
           confidence: 0.6,
           labels: ['intent'],
+          sourceRefs: ['host:intent'],
           hugePayload: 'strip me',
         },
         hostTurnMeta: {
@@ -319,6 +330,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
 
       expect(result.hostDeclaredIntent?.summary).toBe('Route host intent into prime');
       expect(result.hostDeclaredIntent?.confidence).toBe(0.6);
+      expect(result.hostDeclaredIntent?.sourceRefs).toEqual(['host:intent']);
       expect(result.hostTurnMeta?.threadId).toBe('raw-thread-id');
       expect(result.hostTurnMeta?.messageId).toBe('message-1');
       expect(Object.hasOwn(result.hostDeclaredIntent ?? {}, 'hugePayload')).toBe(false);

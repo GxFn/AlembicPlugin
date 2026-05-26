@@ -192,6 +192,93 @@ describe('alembic_search resident search enhancement', () => {
     });
   });
 
+  it('passes host intent context to resident search without changing old fallback shape', async () => {
+    const engineSearch = vi.fn(async () => ({ items: [] }));
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        items: [item('resident-host-1', 'Resident host intent recipe', 0.91)],
+        meta: {
+          attempted: true,
+          available: true,
+          actualMode: 'semantic',
+          durationMs: 8,
+          hostIntentHandoff: {
+            degraded: false,
+            degradedReasons: [],
+            enabled: true,
+            requestRoute: 'post-body',
+            sessionHistoryCount: 1,
+            sourceRefsCount: 2,
+          },
+          requestedMode: 'auto',
+          residentRequestMode: 'semantic',
+          residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
+          resultCount: 1,
+          route: 'alembic-resident-service',
+          searchMeta: {
+            hostIntentApplied: true,
+            hostIntentConfidence: 0.7,
+            hostIntentSourceRefs: ['host:intent'],
+          },
+          semanticUsed: true,
+          used: true,
+          vectorUsed: true,
+        },
+      })
+    );
+
+    const result = (await search(context({ engineSearch, residentSearch }), {
+      query: 'fallback query',
+      mode: 'auto',
+      limit: 3,
+      hostDeclaredIntent: {
+        confidence: 0.7,
+        keywords: ['intent'],
+        query: 'host declared query',
+        sourceRefs: ['host:intent', '/Users/example/private.ts'],
+      },
+      hostTurnMeta: {
+        language: 'typescript',
+        threadId: 'thread-plain',
+      },
+      sessionHistory: [{ content: 'previous host turn' }],
+      sourceRefs: ['host:top-level', '/tmp/private.ts'],
+    })) as { data: Record<string, unknown>; success: boolean };
+
+    expect(result.success).toBe(true);
+    expect(residentSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostDeclaredIntent: expect.objectContaining({
+          query: 'host declared query',
+        }),
+        hostTurnMeta: expect.objectContaining({
+          threadIdHash: expect.any(String),
+          redactions: ['threadId'],
+        }),
+        intentContext: expect.objectContaining({
+          query: 'host declared query',
+          sourceRefs: ['host:intent', 'host:top-level'],
+        }),
+        language: 'typescript',
+        sessionHistory: [{ content: 'previous host turn' }],
+        sourceRefs: ['host:intent', 'host:top-level'],
+      })
+    );
+    expect(JSON.stringify(residentSearch.mock.calls[0]?.[0])).not.toContain(
+      '/Users/example/private.ts'
+    );
+    expect(JSON.stringify(residentSearch.mock.calls[0]?.[0])).not.toContain('/tmp/private.ts');
+    expect(JSON.stringify(residentSearch.mock.calls[0]?.[0])).not.toContain('thread-plain');
+    expect(result.data.searchMeta).toMatchObject({
+      residentSearch: {
+        hostIntentHandoff: {
+          enabled: true,
+          requestRoute: 'post-body',
+        },
+      },
+    });
+  });
+
   it('falls back to embedded search when resident search is unavailable', async () => {
     const engineSearch = vi.fn(async () => ({
       items: [item('embedded-1', 'Embedded baseline', 0.81)],

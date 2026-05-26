@@ -229,7 +229,7 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
   let searchDegraded = false;
   if (pipeline && extracted.queries[0]?.trim()) {
     try {
-      searchResult = await pipeline.search(extracted);
+      searchResult = await pipeline.search(extracted, { hostIntentFrame });
       if (!searchResult) {
         process.stderr.write('[MCP/Task] prime: pipeline.search returned null (all filtered)\n');
       }
@@ -725,7 +725,10 @@ function _computeDriftScore(intent: IntentState): number {
 // ═══ PrimeSearchPipeline accessor ═══════════════════════
 
 interface PipelineLike {
-  search(intent: ExtractedIntent): Promise<PrimeSearchResult | null>;
+  search(
+    intent: ExtractedIntent,
+    options?: { hostIntentFrame?: HostIntentFrame }
+  ): Promise<PrimeSearchResult | null>;
 }
 
 function _getPipeline(container: McpServiceContainer): PipelineLike | null {

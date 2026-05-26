@@ -248,6 +248,99 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.residentVector).toMatchObject({ available: true });
   });
 
+  it('uses POST body for resident host intent handoff without leaking context into the URL', async () => {
+    const requests: Array<{ init?: RequestInit; url: URL }> = [];
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        requests.push({ init, url });
+        if (url.pathname === '/api/v1/daemon/health') {
+          return new Response(JSON.stringify(residentHealthPayload()), {
+            headers: { 'content-type': 'application/json' },
+            status: 200,
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              items: [{ id: 'resident-1', title: 'Resident intent recipe', score: 0.92 }],
+              searchMeta: {
+                actualMode: 'semantic',
+                hostIntentApplied: true,
+                hostIntentConfidence: 0.82,
+                hostIntentDegraded: false,
+                hostIntentSourceRefs: ['host:intent'],
+                requestedMode: 'semantic',
+                semanticUsed: true,
+                vectorUsed: true,
+                residentVector: { available: true, reason: null },
+              },
+            },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      }
+    ) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({
+      query: 'resident host intent',
+      mode: 'auto',
+      limit: 3,
+      confidence: 0.82,
+      degraded: false,
+      hostDeclaredIntent: {
+        query: 'resident host intent',
+        sourceRefs: ['host:intent'],
+      },
+      hostTurnMeta: {
+        redactions: ['threadId', 'activeFile'],
+        threadIdHash: 'thread-hash',
+      },
+      intentContext: {
+        confidence: 0.82,
+        query: 'resident host intent',
+        sourceRefs: ['host:intent'],
+      },
+      language: 'typescript',
+      sessionHistory: [{ content: 'previous host turn' }],
+      sourceRefs: ['host:intent'],
+    });
+
+    const searchRequest = requests.find((request) => request.url.pathname === '/api/v1/search');
+    expect(searchRequest?.init?.method).toBe('POST');
+    expect(searchRequest?.url.search).toBe('');
+    const body = JSON.parse(String(searchRequest?.init?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      confidence: 0.82,
+      hostDeclaredIntent: { query: 'resident host intent' },
+      hostTurnMeta: { threadIdHash: 'thread-hash' },
+      intentContext: { query: 'resident host intent' },
+      language: 'typescript',
+      mode: 'semantic',
+      query: 'resident host intent',
+      sessionHistory: [{ content: 'previous host turn' }],
+      sourceRefs: ['host:intent'],
+    });
+    expect(JSON.stringify(body)).not.toContain('/tmp/project');
+    expect(result.meta.hostIntentHandoff).toMatchObject({
+      enabled: true,
+      requestRoute: 'post-body',
+      sessionHistoryCount: 1,
+      sourceRefsCount: 1,
+    });
+    expect(result.meta.searchMeta).toMatchObject({
+      hostIntentApplied: true,
+      hostIntentConfidence: 0.82,
+    });
+  });
+
   it('does not claim resident vector availability when semantic telemetry is missing', async () => {
     const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
       if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {

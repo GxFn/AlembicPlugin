@@ -48,6 +48,16 @@ export const HostDeclaredIntentInput = z.object({
     .max(12)
     .optional()
     .describe('Host-declared short intent labels'),
+  keywords: z
+    .array(z.string().min(1).max(80))
+    .max(12)
+    .optional()
+    .describe('Host-declared keyword hints for resident search context'),
+  sourceRefs: z
+    .array(z.string().min(1).max(200))
+    .max(20)
+    .optional()
+    .describe('Host-declared non-private source refs for resident search context'),
   confidence: z.number().min(0).max(1).optional().describe('Host-declared confidence 0..1'),
   source: z.string().min(1).max(120).optional().describe('Host source label'),
 });
@@ -98,6 +108,17 @@ export const SearchInput = z.object({
   language: z.string().optional().describe('按编程语言过滤，如 swift/typescript'),
   sessionId: z.string().optional(),
   sessionHistory: z.array(z.record(z.string(), z.unknown())).optional(),
+  hostDeclaredIntent: HostDeclaredIntentInput.optional().describe(
+    'Optional host-declared intent frame for resident search handoff'
+  ),
+  hostTurnMeta: HostTurnMetaInput.optional().describe(
+    'Optional redacted host turn metadata for resident search handoff'
+  ),
+  sourceRefs: z
+    .array(z.string().min(1).max(200))
+    .max(20)
+    .optional()
+    .describe('Optional non-private source refs for resident search handoff'),
 });
 export type SearchInput = z.infer<typeof SearchInput>;
 

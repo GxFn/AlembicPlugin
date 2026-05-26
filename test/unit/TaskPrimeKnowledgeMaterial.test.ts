@@ -68,7 +68,10 @@ interface PrimeEnvelope {
 }
 
 function makeContext(
-  search: (intent: ExtractedIntent) => Promise<PrimeSearchResult | null>
+  search: (
+    intent: ExtractedIntent,
+    options?: { hostIntentFrame?: unknown }
+  ) => Promise<PrimeSearchResult | null>
 ): McpContext {
   return {
     container: {
@@ -304,8 +307,10 @@ describe('alembic_task prime knowledge material', () => {
 
   test('uses host-declared intent as prime query and redacts host turn metadata', async () => {
     let searchedIntent: ExtractedIntent | null = null;
-    const ctx = makeContext(async (intent) => {
+    let searchedOptions: { hostIntentFrame?: unknown } | null = null;
+    const ctx = makeContext(async (intent, options) => {
       searchedIntent = intent;
+      searchedOptions = options ?? null;
       return null;
     });
     ctx.hostTurnMeta = {
@@ -333,6 +338,10 @@ describe('alembic_task prime knowledge material', () => {
     })) as PrimeEnvelope;
 
     expect(searchedIntent?.raw.userQuery).toBe('Route host intent into the prime flow');
+    expect(searchedOptions?.hostIntentFrame).toMatchObject({
+      source: 'host-declared',
+      confidence: 0.73,
+    });
     expect(result.data.primeKnowledgeMaterial.intent.userQuery).toBe(
       'Route host intent into the prime flow'
     );
