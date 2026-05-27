@@ -218,6 +218,9 @@ export async function search(ctx: McpContext, args: SearchArgs) {
         : {}),
       searchMeta: {
         ...((result?.searchMeta as Record<string, unknown> | undefined) || {}),
+        ...(residentAttempt?.meta.intentEvidence
+          ? { intentEvidence: residentAttempt.meta.intentEvidence }
+          : {}),
         ...(residentAttempt ? { residentSearch: residentAttempt.meta } : {}),
         ...(residentAttempt ? { residentVector: residentAttempt.meta.residentVector } : {}),
       },

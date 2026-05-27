@@ -10,6 +10,7 @@ import type {
   LoggerLike,
   SaveSnapshotParams,
 } from '@alembic/core/types';
+import type { ResidentIntentEvidenceSummary } from '#service/resident/AlembicResidentServiceClient.js';
 import type { HostIntentFrame, HostTurnMetaInput } from '#service/task/HostIntentFrame.js';
 
 // ─── DI Container (minimal shape) ────────────────────────
@@ -71,6 +72,7 @@ export interface IntentState {
     queries: string[];
     resultCount: number;
     filteredCount: number;
+    intentEvidence?: ResidentIntentEvidenceSummary;
     residentSearch?: Record<string, unknown>;
   };
 
@@ -135,6 +137,7 @@ export interface IntentChainRecord {
     queries: string[];
     resultCount: number;
     filteredCount: number;
+    intentEvidence?: ResidentIntentEvidenceSummary;
     residentSearch?: Record<string, unknown>;
   };
 

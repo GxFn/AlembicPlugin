@@ -93,6 +93,51 @@ function residentMeta(
   };
 }
 
+function intentEvidenceSummary() {
+  return {
+    degraded: false,
+    degradedReasons: ['vector:evidence-observe-only'],
+    relationEvidence: [
+      {
+        direction: 'outgoing',
+        itemId: 'resident-1',
+        relatedId: 'recipe-related',
+        relation: 'related',
+        source: 'knowledgeGraphService',
+      },
+    ],
+    scoreBreakdown: [
+      {
+        finalScore: 0.95,
+        itemId: 'resident-1',
+        rank: 1,
+        semanticScore: 0.85,
+        signals: ['final-score', 'semantic-score'],
+        vectorScore: null,
+      },
+    ],
+    semanticAnchors: [
+      {
+        kind: 'query',
+        source: 'intentSearchPlan.executableQuery',
+        value: 'VideoURLPreloader async bridge',
+        weight: 1,
+      },
+    ],
+    topAnchorMatches: [
+      {
+        anchor: 'VideoURLPreloader',
+        itemId: 'resident-1',
+        matchType: 'text',
+        rank: 1,
+        score: 0.95,
+        sourceRefs: ['knowledge:resident-1'],
+      },
+    ],
+    version: 1,
+  };
+}
+
 describe('PrimeSearchPipeline resident search enhancement', () => {
   it('requests resident semantic search and merges resident results into prime material', async () => {
     const engine = {
@@ -107,7 +152,12 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       search: vi.fn(
         async (): Promise<ResidentSearchResult> => ({
           items: [item('resident-1', 'Resident vector recipe', 0.95)],
-          meta: residentMeta(),
+          meta: residentMeta({
+            intentEvidence: intentEvidenceSummary(),
+            searchMeta: {
+              intentEvidence: intentEvidenceSummary(),
+            },
+          }),
         })
       ),
     };
@@ -124,6 +174,13 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
     expect(result?.relatedKnowledge.map((entry) => entry.id)).toContain('resident-1');
     expect(result?.searchMeta.residentSearch).toMatchObject({
       available: true,
+      intentEvidence: {
+        semanticAnchors: [
+          expect.objectContaining({
+            value: 'VideoURLPreloader async bridge',
+          }),
+        ],
+      },
       projectScopeIdentity: {
         mode: 'project-scope',
         projectScopeId: 'project-scope-workspace',
@@ -131,6 +188,19 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       route: 'alembic-resident-service',
       semanticUsed: true,
       vectorUsed: true,
+    });
+    expect(result?.searchMeta.intentEvidence).toMatchObject({
+      scoreBreakdown: [
+        expect.objectContaining({
+          itemId: 'resident-1',
+          semanticScore: 0.85,
+        }),
+      ],
+      topAnchorMatches: [
+        expect.objectContaining({
+          itemId: 'resident-1',
+        }),
+      ],
     });
   });
 

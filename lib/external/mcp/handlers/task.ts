@@ -17,6 +17,7 @@ import type {
   AlembicResidentServiceClient,
   ResidentIntentEpisodeRecord,
   ResidentIntentEpisodeStartRequest,
+  ResidentIntentEvidenceSummary,
 } from '#service/resident/AlembicResidentServiceClient.js';
 import type {
   HostDeclaredIntentInput,
@@ -129,6 +130,7 @@ interface PrimeKnowledgeMaterial {
     required: boolean;
   }>;
   intentEpisode?: PrimeIntentEpisodeMaterial;
+  intentEvidence?: ResidentIntentEvidenceSummary;
 }
 
 interface PrimeIntentEpisodeRecordSummary {
@@ -314,6 +316,9 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
       queries: searchResult.searchMeta.queries,
       resultCount: searchResult.searchMeta.resultCount,
       filteredCount: searchResult.searchMeta.filteredCount,
+      ...(searchResult.searchMeta.intentEvidence
+        ? { intentEvidence: searchResult.searchMeta.intentEvidence }
+        : {}),
       ...(searchResult.searchMeta.residentSearch
         ? {
             residentSearch: searchResult.searchMeta.residentSearch as unknown as Record<
@@ -447,6 +452,9 @@ function _buildPrimeKnowledgeMaterial(input: {
     hostResponse: _buildPrimeHostResponseInstruction(status, receiptId),
     nextActions: _buildPrimeKnowledgeNextActions(),
     intentEpisode: input.intentEpisode,
+    ...(input.searchResult?.searchMeta.intentEvidence
+      ? { intentEvidence: input.searchResult.searchMeta.intentEvidence }
+      : {}),
   };
 }
 
@@ -993,6 +1001,7 @@ function _projectEpisodeSearchMeta(
       residentSearchMeta?.hostIntentSourceRefs ??
       residentSearch?.hostIntentSourceRefs ??
       sourceRefs,
+    ...(searchMeta?.intentEvidence ? { intentEvidence: searchMeta.intentEvidence } : {}),
     queries: searchMeta?.queries,
     resultCount: searchMeta?.resultCount,
   });

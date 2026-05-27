@@ -178,6 +178,52 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
   return new URL(input.url);
 }
 
+function intentEvidenceFixture() {
+  return {
+    degraded: false,
+    degradedReasons: ['vector:evidence-observe-only'],
+    relationEvidence: [
+      {
+        direction: 'outgoing',
+        itemId: 'resident-1',
+        relatedId: 'recipe-related',
+        relation: 'related',
+        source: 'knowledgeGraphService',
+      },
+    ],
+    scoreBreakdown: [
+      {
+        finalScore: 0.92,
+        itemId: 'resident-1',
+        rank: 1,
+        semanticScore: 0.82,
+        signals: ['final-score', 'semantic-score'],
+        vectorScore: null,
+      },
+    ],
+    semanticAnchors: [
+      {
+        kind: 'source-ref',
+        source: 'intentSearchPlan.sourceRefs',
+        value: '/Users/example/private-project/src/service.ts:42',
+        weight: 0.55,
+      },
+    ],
+    topAnchorMatches: [
+      {
+        anchor: 'service factory',
+        itemId: 'resident-1',
+        matchType: 'text',
+        rank: 1,
+        score: 0.92,
+        sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+        title: 'Resident vector recipe',
+      },
+    ],
+    version: 1,
+  };
+}
+
 describe('AlembicResidentServiceClient', () => {
   afterEach(() => {
     if (ORIGINAL_ALEMBIC_HOME === undefined) {
@@ -205,6 +251,7 @@ describe('AlembicResidentServiceClient', () => {
             items: [{ id: 'resident-1', title: 'Resident vector recipe', score: 0.92 }],
             searchMeta: {
               actualMode: 'semantic',
+              intentEvidence: intentEvidenceFixture(),
               requestedMode: 'semantic',
               semanticUsed: true,
               vectorUsed: true,
@@ -231,6 +278,18 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.residentRequestMode).toBe('semantic');
     expect(result.meta.searchMeta).toMatchObject({
       codexRequestedMode: 'auto',
+      intentEvidence: {
+        semanticAnchors: [
+          expect.objectContaining({
+            value: '[absolute-path]/service.ts:42',
+          }),
+        ],
+        topAnchorMatches: [
+          expect.objectContaining({
+            sourceRefs: ['[absolute-path]/service.ts:42'],
+          }),
+        ],
+      },
       projectScopeIdentity: {
         mode: 'project-scope',
         projectScopeId: 'project-scope-workspace',
@@ -239,6 +298,20 @@ describe('AlembicResidentServiceClient', () => {
       residentRequestMode: 'semantic',
       requestedMode: 'semantic',
     });
+    expect(result.meta.intentEvidence).toMatchObject({
+      scoreBreakdown: [
+        expect.objectContaining({
+          itemId: 'resident-1',
+          semanticScore: 0.82,
+        }),
+      ],
+      relationEvidence: [
+        expect.objectContaining({
+          relatedId: 'recipe-related',
+        }),
+      ],
+    });
+    expect(JSON.stringify(result.meta.intentEvidence)).not.toContain('/Users/example');
     expect(result.meta.projectScopeIdentity).toMatchObject({
       available: true,
       mode: 'project-scope',

@@ -69,6 +69,7 @@ export interface ResidentSearchAttemptMeta {
   error?: string;
   fallbackReason?: string | null;
   hostIntentHandoff?: ResidentSearchHandoffMeta;
+  intentEvidence?: ResidentIntentEvidenceSummary;
   reason?: string;
   residentRequestMode?: string;
   requestedMode: string;
@@ -93,6 +94,16 @@ export interface ResidentSearchAttemptMeta {
 export interface ResidentSearchResult {
   items: SearchResultItem[];
   meta: ResidentSearchAttemptMeta;
+}
+
+export interface ResidentIntentEvidenceSummary {
+  degraded: boolean;
+  degradedReasons: string[];
+  relationEvidence: Array<Record<string, unknown>>;
+  scoreBreakdown: Array<Record<string, unknown>>;
+  semanticAnchors: Array<Record<string, unknown>>;
+  topAnchorMatches: Array<Record<string, unknown>>;
+  version: number;
 }
 
 export type ResidentIntentEpisodeStatus = 'abandoned' | 'active' | 'completed' | 'failed';
@@ -1175,6 +1186,7 @@ function buildResidentMeta(input: {
   status: AlembicResidentServiceStatus;
 }): ResidentSearchAttemptMeta {
   const meta = input.searchMeta;
+  const intentEvidence = compactResidentIntentEvidence(meta.intentEvidence);
   const residentVector = isRecord(meta.residentVector)
     ? (meta.residentVector as ResidentSearchAttemptMeta['residentVector'])
     : {
@@ -1205,6 +1217,7 @@ function buildResidentMeta(input: {
     endpoint: input.endpoint,
     fallbackReason: stringFrom(meta.fallbackReason),
     ...(input.hostIntentHandoff ? { hostIntentHandoff: input.hostIntentHandoff } : {}),
+    ...(intentEvidence ? { intentEvidence } : {}),
     residentRequestMode: input.residentRequestMode,
     requestedMode: input.requestedMode,
     projectScopeIdentity: input.projectScopeIdentity,
@@ -1215,6 +1228,7 @@ function buildResidentMeta(input: {
     searchMeta: {
       ...meta,
       codexRequestedMode: input.requestedMode,
+      ...(intentEvidence ? { intentEvidence } : {}),
       projectScopeIdentity: input.projectScopeIdentity,
       residentRequestMode: input.residentRequestMode,
     },
@@ -1516,6 +1530,138 @@ function stripUndefined(input: Record<string, unknown>): Record<string, unknown>
     }
   }
   return output;
+}
+
+export function compactResidentIntentEvidence(
+  value: unknown
+): ResidentIntentEvidenceSummary | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    degraded: booleanFrom(value.degraded) ?? false,
+    degradedReasons: compactEvidenceStringArray(value.degradedReasons, 8),
+    relationEvidence: compactEvidenceRecords(
+      value.relationEvidence,
+      ['direction', 'itemId', 'relatedId', 'relatedType', 'relation', 'source'],
+      12
+    ),
+    scoreBreakdown: compactEvidenceRecords(
+      value.scoreBreakdown,
+      [
+        'itemId',
+        'rank',
+        'finalScore',
+        'lexicalScore',
+        'relationScore',
+        'semanticScore',
+        'signals',
+        'vectorScore',
+      ],
+      8
+    ),
+    semanticAnchors: compactEvidenceRecords(
+      value.semanticAnchors,
+      ['kind', 'source', 'value', 'weight'],
+      12
+    ),
+    topAnchorMatches: compactEvidenceRecords(
+      value.topAnchorMatches,
+      ['anchor', 'itemId', 'matchType', 'rank', 'score', 'sourceRefs', 'title'],
+      10
+    ),
+    version: numberFrom(value.version) ?? 1,
+  };
+}
+
+function compactEvidenceRecords(
+  value: unknown,
+  keys: string[],
+  limit: number
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const records: Array<Record<string, unknown>> = [];
+  for (const item of value) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const projected: Record<string, unknown> = {};
+    for (const key of keys) {
+      const compactValue = compactEvidenceValue(key, item[key]);
+      if (compactValue !== undefined) {
+        projected[key] = compactValue;
+      }
+    }
+    if (Object.keys(projected).length > 0) {
+      records.push(projected);
+    }
+    if (records.length >= limit) {
+      break;
+    }
+  }
+  return records;
+}
+
+function compactEvidenceValue(key: string, value: unknown): unknown {
+  if (key === 'sourceRefs') {
+    return compactEvidenceStringArray(value, 12);
+  }
+  if (key === 'signals') {
+    return compactEvidenceStringArray(value, 12);
+  }
+  if (typeof value === 'string') {
+    return redactEvidenceString(value);
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'boolean' || value === null) {
+    return value;
+  }
+  return undefined;
+}
+
+function compactEvidenceStringArray(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const redacted = redactEvidenceString(item);
+    if (!redacted || seen.has(redacted)) {
+      continue;
+    }
+    output.push(redacted);
+    seen.add(redacted);
+    if (output.length >= limit) {
+      break;
+    }
+  }
+  return output;
+}
+
+function redactEvidenceString(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const normalized = trimmed.replace(/\\/g, '/');
+  const redacted = normalized.replace(
+    /(?:\/(?:Users|home|tmp|private|var)\/[^\s,;)]*)(?::(\d+))?/g,
+    (match) => {
+      const line = match.match(/:(\d+)$/)?.[1];
+      const pathPart = line ? match.slice(0, -1 * (line.length + 1)) : match;
+      const basename = pathPart.split('/').filter(Boolean).pop() || 'path';
+      return `[absolute-path]/${basename}${line ? `:${line}` : ''}`;
+    }
+  );
+  return redacted.length > 240 ? `${redacted.slice(0, 237)}...` : redacted;
 }
 
 function projectIntentEpisodeData(data: Record<string, unknown>): ResidentIntentEpisodeResult {
