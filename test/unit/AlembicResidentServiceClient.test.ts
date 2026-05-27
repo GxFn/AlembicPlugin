@@ -224,6 +224,105 @@ function intentEvidenceFixture() {
   };
 }
 
+function primeInjectionPackageFixture() {
+  return {
+    injection: {
+      degradedReasons: [],
+      omittedCount: 0,
+      selectedCount: 1,
+      status: 'ready',
+    },
+    intent: {
+      applied: true,
+      confidence: 0.86,
+      degraded: false,
+      degradedReasons: [],
+      executableQuery: 'resident vector recipe',
+      rankingProfile: 'semantic',
+      requestedMode: 'semantic',
+      sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+      whySelected: ['intent-search-plan'],
+    },
+    omitted: [],
+    relations: {
+      evidence: [
+        {
+          direction: 'outgoing',
+          itemId: 'resident-1',
+          relatedId: 'recipe-related',
+          relation: 'related',
+          source: 'knowledgeGraphService',
+        },
+      ],
+      omitted: [],
+    },
+    search: {
+      actualMode: 'semantic',
+      filteredCount: 1,
+      query: 'resident vector recipe',
+      queries: ['resident vector recipe'],
+      requestedMode: 'semantic',
+      resultCount: 1,
+    },
+    selectedKnowledge: [
+      {
+        evidenceRefs: ['scoreBreakdown:resident-1', 'sourceRef:resident-1:1'],
+        injectionStatus: 'selected',
+        itemId: 'resident-1',
+        kind: 'pattern',
+        rank: 1,
+        score: 0.92,
+        sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+        title: 'Resident vector recipe',
+        trigger: '@resident-vector',
+        whySelected: ['semantic-score'],
+      },
+    ],
+    trace: {
+      evidenceRefs: ['scoreBreakdown:resident-1'],
+      sourcePath: ['searchMeta.primeInjectionPackage'],
+      sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+      sources: ['intentSearchPlan', 'intentEvidence'],
+    },
+    vector: {
+      omitted: [],
+      scoreBreakdown: [
+        {
+          finalScore: 0.92,
+          itemId: 'resident-1',
+          rank: 1,
+          semanticScore: 0.82,
+          signals: ['semantic-score'],
+          vectorScore: null,
+        },
+      ],
+      semanticAnchors: [
+        {
+          kind: 'source-ref',
+          source: 'intentSearchPlan.sourceRefs',
+          value: '/Users/example/private-project/src/service.ts:42',
+          weight: 0.55,
+        },
+      ],
+      semanticUsed: true,
+      topAnchorMatches: [
+        {
+          anchor: 'service factory',
+          itemId: 'resident-1',
+          matchType: 'text',
+          rank: 1,
+          score: 0.92,
+          sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+          title: 'Resident vector recipe',
+        },
+      ],
+      vectorAvailable: true,
+      vectorUsed: true,
+    },
+    version: 1,
+  };
+}
+
 describe('AlembicResidentServiceClient', () => {
   afterEach(() => {
     if (ORIGINAL_ALEMBIC_HOME === undefined) {
@@ -252,6 +351,7 @@ describe('AlembicResidentServiceClient', () => {
             searchMeta: {
               actualMode: 'semantic',
               intentEvidence: intentEvidenceFixture(),
+              primeInjectionPackage: primeInjectionPackageFixture(),
               requestedMode: 'semantic',
               semanticUsed: true,
               vectorUsed: true,
@@ -290,6 +390,21 @@ describe('AlembicResidentServiceClient', () => {
           }),
         ],
       },
+      primeInjectionPackage: {
+        injection: {
+          status: 'ready',
+        },
+        selectedKnowledge: [
+          expect.objectContaining({
+            injectionStatus: 'selected',
+            itemId: 'resident-1',
+            sourceRefs: ['[absolute-path]/service.ts:42'],
+          }),
+        ],
+        trace: {
+          sourceRefs: ['[absolute-path]/service.ts:42'],
+        },
+      },
       projectScopeIdentity: {
         mode: 'project-scope',
         projectScopeId: 'project-scope-workspace',
@@ -311,6 +426,17 @@ describe('AlembicResidentServiceClient', () => {
         }),
       ],
     });
+    expect(result.meta.primeInjectionPackage).toMatchObject({
+      injection: {
+        selectedCount: 1,
+        status: 'ready',
+      },
+      trace: {
+        evidenceRefs: ['scoreBreakdown:resident-1'],
+        sources: ['intentSearchPlan', 'intentEvidence'],
+      },
+    });
+    expect(JSON.stringify(result.meta.primeInjectionPackage)).not.toContain('/Users/example');
     expect(JSON.stringify(result.meta.intentEvidence)).not.toContain('/Users/example');
     expect(result.meta.projectScopeIdentity).toMatchObject({
       available: true,

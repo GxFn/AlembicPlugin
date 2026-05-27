@@ -53,6 +53,7 @@ interface PrimeMaterial {
   };
   nextActions: Array<{ tool: string; args: Record<string, unknown>; required: boolean }>;
   intentEvidence?: Record<string, unknown>;
+  primeInjectionPackage?: Record<string, unknown>;
   intentEpisode?: {
     available: boolean;
     current: {
@@ -182,6 +183,87 @@ function intentEvidenceSummary() {
         sourceRefs: ['knowledge:recipe-episode'],
       },
     ],
+    version: 1,
+  };
+}
+
+function primeInjectionPackageSummary() {
+  return {
+    injection: {
+      degradedReasons: [],
+      omittedCount: 0,
+      selectedCount: 1,
+      status: 'ready',
+    },
+    intent: {
+      applied: true,
+      confidence: 0.86,
+      degraded: false,
+      degradedReasons: [],
+      executableQuery: 'Create episode handoff',
+      requestedMode: 'semantic',
+      sourceRefs: ['host:intent'],
+      whySelected: ['intent-search-plan'],
+    },
+    omitted: [],
+    relations: {
+      evidence: [
+        {
+          direction: 'outgoing',
+          itemId: 'recipe-episode',
+          relatedId: 'recipe-related',
+          relation: 'related',
+          source: 'knowledgeGraphService',
+        },
+      ],
+      omitted: [],
+    },
+    search: {
+      actualMode: 'semantic',
+      filteredCount: 1,
+      query: 'Create episode handoff',
+      queries: ['episode handoff'],
+      requestedMode: 'semantic',
+      resultCount: 1,
+    },
+    selectedKnowledge: [
+      {
+        evidenceRefs: ['scoreBreakdown:recipe-episode'],
+        injectionStatus: 'selected',
+        itemId: 'recipe-episode',
+        kind: 'pattern',
+        rank: 1,
+        score: 0.91,
+        sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+        title: 'Episode handoff',
+        trigger: '@episode-handoff',
+        whySelected: ['semantic-score'],
+      },
+    ],
+    trace: {
+      evidenceRefs: ['scoreBreakdown:recipe-episode'],
+      sourcePath: ['searchMeta.primeInjectionPackage'],
+      sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+      sources: ['intentSearchPlan', 'intentEvidence'],
+    },
+    vector: {
+      omitted: [],
+      scoreBreakdown: [
+        {
+          finalScore: 0.91,
+          itemId: 'recipe-episode',
+          rank: 1,
+          semanticScore: 0.81,
+          signals: ['semantic-score'],
+          vectorScore: null,
+        },
+      ],
+      semanticAnchors: [],
+      semanticUsed: true,
+      topAnchorMatches: [],
+      vectorAvailable: true,
+      vectorUsed: true,
+    },
     version: 1,
   };
 }
@@ -488,6 +570,7 @@ describe('alembic_task prime knowledge material', () => {
         resultCount: 1,
         filteredCount: 1,
         intentEvidence: intentEvidenceSummary(),
+        primeInjectionPackage: primeInjectionPackageSummary(),
         residentSearch: {
           attempted: true,
           available: true,
@@ -498,6 +581,7 @@ describe('alembic_task prime knowledge material', () => {
             hostIntentDegraded: false,
             hostIntentSourceRefs: ['host:intent'],
             intentEvidence: intentEvidenceSummary(),
+            primeInjectionPackage: primeInjectionPackageSummary(),
           },
         },
       },
@@ -625,6 +709,18 @@ describe('alembic_task prime knowledge material', () => {
         ],
       },
       queries: ['episode handoff'],
+      primeInjectionPackage: {
+        injection: {
+          selectedCount: 1,
+          status: 'ready',
+        },
+        selectedKnowledge: [
+          expect.objectContaining({
+            injectionStatus: 'selected',
+            itemId: 'recipe-episode',
+          }),
+        ],
+      },
       resultCount: 1,
     });
     expect(ctx.session?.intent.searchMeta?.intentEvidence).toMatchObject({
@@ -633,6 +729,11 @@ describe('alembic_task prime knowledge material', () => {
           itemId: 'recipe-episode',
         }),
       ],
+    });
+    expect(ctx.session?.intent.searchMeta?.primeInjectionPackage).toMatchObject({
+      trace: {
+        evidenceRefs: ['scoreBreakdown:recipe-episode'],
+      },
     });
     expect(primeResult.data.primeKnowledgeMaterial.intent.activeFile).toBe(
       '[absolute-path]/task.ts'
@@ -648,6 +749,14 @@ describe('alembic_task prime knowledge material', () => {
           source: 'intentSearchPlan.executableQuery',
         }),
       ],
+    });
+    expect(primeResult.data.primeKnowledgeMaterial.primeInjectionPackage).toMatchObject({
+      injection: {
+        status: 'ready',
+      },
+      trace: {
+        sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+      },
     });
     expect(primeResult.data.primeKnowledgeMaterial.intentEpisode).toMatchObject({
       available: true,
@@ -692,6 +801,13 @@ describe('alembic_task prime knowledge material', () => {
       'episode-current',
       expect.objectContaining({
         reason: 'done',
+        searchMeta: expect.objectContaining({
+          primeInjectionPackage: expect.objectContaining({
+            injection: expect.objectContaining({
+              status: 'ready',
+            }),
+          }),
+        }),
         status: 'completed',
         taskId: createResult.data.id,
       })

@@ -18,6 +18,7 @@ import type {
   ResidentIntentEpisodeRecord,
   ResidentIntentEpisodeStartRequest,
   ResidentIntentEvidenceSummary,
+  ResidentPrimeInjectionPackageSummary,
 } from '#service/resident/AlembicResidentServiceClient.js';
 import type {
   HostDeclaredIntentInput,
@@ -131,6 +132,7 @@ interface PrimeKnowledgeMaterial {
   }>;
   intentEpisode?: PrimeIntentEpisodeMaterial;
   intentEvidence?: ResidentIntentEvidenceSummary;
+  primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
 }
 
 interface PrimeIntentEpisodeRecordSummary {
@@ -319,6 +321,9 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
       ...(searchResult.searchMeta.intentEvidence
         ? { intentEvidence: searchResult.searchMeta.intentEvidence }
         : {}),
+      ...(searchResult.searchMeta.primeInjectionPackage
+        ? { primeInjectionPackage: searchResult.searchMeta.primeInjectionPackage }
+        : {}),
       ...(searchResult.searchMeta.residentSearch
         ? {
             residentSearch: searchResult.searchMeta.residentSearch as unknown as Record<
@@ -454,6 +459,9 @@ function _buildPrimeKnowledgeMaterial(input: {
     intentEpisode: input.intentEpisode,
     ...(input.searchResult?.searchMeta.intentEvidence
       ? { intentEvidence: input.searchResult.searchMeta.intentEvidence }
+      : {}),
+    ...(input.searchResult?.searchMeta.primeInjectionPackage
+      ? { primeInjectionPackage: input.searchResult.searchMeta.primeInjectionPackage }
       : {}),
   };
 }
@@ -1002,6 +1010,9 @@ function _projectEpisodeSearchMeta(
       residentSearch?.hostIntentSourceRefs ??
       sourceRefs,
     ...(searchMeta?.intentEvidence ? { intentEvidence: searchMeta.intentEvidence } : {}),
+    ...(searchMeta?.primeInjectionPackage
+      ? { primeInjectionPackage: searchMeta.primeInjectionPackage }
+      : {}),
     queries: searchMeta?.queries,
     resultCount: searchMeta?.resultCount,
   });

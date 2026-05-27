@@ -221,6 +221,9 @@ export async function search(ctx: McpContext, args: SearchArgs) {
         ...(residentAttempt?.meta.intentEvidence
           ? { intentEvidence: residentAttempt.meta.intentEvidence }
           : {}),
+        ...(residentAttempt?.meta.primeInjectionPackage
+          ? { primeInjectionPackage: residentAttempt.meta.primeInjectionPackage }
+          : {}),
         ...(residentAttempt ? { residentSearch: residentAttempt.meta } : {}),
         ...(residentAttempt ? { residentVector: residentAttempt.meta.residentVector } : {}),
       },

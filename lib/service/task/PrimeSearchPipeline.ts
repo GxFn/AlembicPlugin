@@ -11,6 +11,7 @@ import type { SearchResultItem, SlimSearchResult } from '@alembic/core/search';
 import { slimSearchResult } from '@alembic/core/search';
 import type {
   ResidentIntentEvidenceSummary,
+  ResidentPrimeInjectionPackageSummary,
   ResidentSearchAttemptMeta,
   ResidentSearchRequest,
   ResidentSearchResult,
@@ -35,6 +36,7 @@ export interface PrimeSearchMeta {
   resultCount: number;
   filteredCount: number;
   intentEvidence?: ResidentIntentEvidenceSummary;
+  primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
   residentSearch?: ResidentSearchAttemptMeta;
 }
 
@@ -398,6 +400,9 @@ export class PrimeSearchPipeline {
       resultCount,
       filteredCount,
       ...(residentSearch?.intentEvidence ? { intentEvidence: residentSearch.intentEvidence } : {}),
+      ...(residentSearch?.primeInjectionPackage
+        ? { primeInjectionPackage: residentSearch.primeInjectionPackage }
+        : {}),
       ...(residentSearch ? { residentSearch } : {}),
     };
   }

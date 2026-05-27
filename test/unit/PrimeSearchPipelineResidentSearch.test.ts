@@ -138,6 +138,87 @@ function intentEvidenceSummary() {
   };
 }
 
+function primeInjectionPackageSummary() {
+  return {
+    injection: {
+      degradedReasons: [],
+      omittedCount: 0,
+      selectedCount: 1,
+      status: 'ready',
+    },
+    intent: {
+      applied: true,
+      confidence: 0.86,
+      degraded: false,
+      degradedReasons: [],
+      executableQuery: 'VideoURLPreloader async bridge',
+      requestedMode: 'semantic',
+      sourceRefs: ['host:intent'],
+      whySelected: ['intent-search-plan'],
+    },
+    omitted: [],
+    relations: {
+      evidence: [
+        {
+          direction: 'outgoing',
+          itemId: 'resident-1',
+          relatedId: 'recipe-related',
+          relation: 'related',
+          source: 'knowledgeGraphService',
+        },
+      ],
+      omitted: [],
+    },
+    search: {
+      actualMode: 'semantic',
+      filteredCount: 1,
+      query: 'VideoURLPreloader async bridge',
+      queries: ['VideoURLPreloader async bridge'],
+      requestedMode: 'semantic',
+      resultCount: 1,
+    },
+    selectedKnowledge: [
+      {
+        evidenceRefs: ['scoreBreakdown:resident-1'],
+        injectionStatus: 'selected',
+        itemId: 'resident-1',
+        kind: 'pattern',
+        rank: 1,
+        score: 0.95,
+        sourceRefs: ['knowledge:resident-1'],
+        title: 'Resident vector recipe',
+        trigger: '@resident-1',
+        whySelected: ['semantic-score'],
+      },
+    ],
+    trace: {
+      evidenceRefs: ['scoreBreakdown:resident-1'],
+      sourcePath: ['searchMeta.primeInjectionPackage'],
+      sourceRefs: ['knowledge:resident-1'],
+      sources: ['intentSearchPlan', 'intentEvidence'],
+    },
+    vector: {
+      omitted: [],
+      scoreBreakdown: [
+        {
+          finalScore: 0.95,
+          itemId: 'resident-1',
+          rank: 1,
+          semanticScore: 0.85,
+          signals: ['semantic-score'],
+          vectorScore: null,
+        },
+      ],
+      semanticAnchors: [],
+      semanticUsed: true,
+      topAnchorMatches: [],
+      vectorAvailable: true,
+      vectorUsed: true,
+    },
+    version: 1,
+  };
+}
+
 describe('PrimeSearchPipeline resident search enhancement', () => {
   it('requests resident semantic search and merges resident results into prime material', async () => {
     const engine = {
@@ -154,8 +235,10 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
           items: [item('resident-1', 'Resident vector recipe', 0.95)],
           meta: residentMeta({
             intentEvidence: intentEvidenceSummary(),
+            primeInjectionPackage: primeInjectionPackageSummary(),
             searchMeta: {
               intentEvidence: intentEvidenceSummary(),
+              primeInjectionPackage: primeInjectionPackageSummary(),
             },
           }),
         })
@@ -201,6 +284,21 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
           itemId: 'resident-1',
         }),
       ],
+    });
+    expect(result?.searchMeta.primeInjectionPackage).toMatchObject({
+      injection: {
+        selectedCount: 1,
+        status: 'ready',
+      },
+      selectedKnowledge: [
+        expect.objectContaining({
+          injectionStatus: 'selected',
+          itemId: 'resident-1',
+        }),
+      ],
+      trace: {
+        evidenceRefs: ['scoreBreakdown:resident-1'],
+      },
     });
   });
 
