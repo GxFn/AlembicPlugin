@@ -20,16 +20,16 @@
 1. 先读本文件。
 2. 再读父级 `../AGENTS.md`。
 3. 再读 `../codex-control-workspace/.workspace-active/workspace/index.md` 和 `../codex-control-workspace/.workspace-active/workspace/current/workspace-current-status.md`。
-4. 如果有当前计划、任务包或 VAD heartbeat，只按 `../codex-control-workspace/.workspace-active/workspace/current` 中明确分配给 `AlembicPlugin` 的内容执行。
+4. 如果有当前计划、任务包或 Codex Automation heartbeat，只按 `../codex-control-workspace/.workspace-active/workspace/current` 中明确分配给 `AlembicPlugin` 的内容执行。
 5. 目标、范围、禁止事项、验证命令和回填字段以当前计划 / 任务包和本仓库规则为准；提示词只是唤醒入口，不是唯一任务说明。
 
-### VAD 最小门禁
+### Codex Automation 最小门禁
 
-- Automation 只是唤醒信封，不改变本窗口职责，也不扩大任务范围；具体任务仍以 claim 结果和当前计划为准。
-- VAD heartbeat 提示词只承载动态变量、规则名和 skill 指向；不得把提示词当成完整命令手册。用 `currentWindow` / `taskId` / `controlDoc` 等变量按 target skill 推导命令，变量缺失或冲突时停止回报。
-- VAD 模式下只允许 claim / finish `AlembicPlugin` 对应任务；`claim --json` 没有返回本窗口任务时必须停止。
-- 只有 finish JSON 同时明确允许下一跳时，才可创建下一条 heartbeat；否则停止并回报总控。
-- 非 TestWindow 不得创建、处理或验证 TestWindow heartbeat，除非当前计划和 finish JSON 同时显式授权。
+- Automation 只是一次性唤醒 / 投递信封，不改变本窗口职责，也不扩大任务范围；具体任务以 dispatch packet、当前计划和本仓库规则为准。
+- Heartbeat 提示词只承载动态变量、规则名和 skill 指向；不得把提示词当成完整命令手册。用 `currentWindow` / `taskId` / `dispatchGroup` / `controlPlan` 等变量按 `codex-automation-target` skill 执行，变量缺失或冲突时停止回报。
+- 本窗口只处理 `AlembicPlugin` 对应的 dispatch packet，并返回 `TargetResultEnvelope`；不得代领、代验或处理其它窗口任务。
+- 子窗口默认不创建下一跳 heartbeat；回跳、补证、重派和下一阶段都由总控 review 后决定。
+- 非 TestWindow 不得创建、处理或验证 TestWindow heartbeat，除非当前计划和 delivery envelope 同时显式授权。
 - Thread id 只能写入 control workspace 的本地 runtime；不得写入 tracked 文档、回填正文或 GitHub。
 
 ### 文档落点
@@ -49,7 +49,7 @@
 - 如果我准备重新引入独立 Agent runtime、AI provider runtime 或 Agent Tool V2 runtime，包括 `@alembic/agent`、`#agent/*`、`#tools/*`、`#external/ai/*`、`lib/agent/**`、`lib/tools/**`、`lib/external/ai/**`，但用户和总控文档没有明确改变边界，停止。
 - 如果我准备把 Codex 插件发布链路迁回 `Alembic` 主仓库，或把插件适配层误删成 Core 内核，停止。
 - 如果共享能力可以通过 `../AlembicCore` / `@alembic/core` 消费，却准备绕过包入口引用 Core 源码、复制 Core 实现或把 Core 实现写进本仓库，停止。
-- 如果下一跳或回填涉及 `AlembicTest`，但当前计划和 finish JSON 没有同时显式授权本窗口处理 Test heartbeat，停止。
+- 如果下一跳或回填涉及 `AlembicTest`，但当前计划和 delivery envelope 没有同时显式授权本窗口处理 TestWindow heartbeat，停止。
 - 如果计划涉及删减、替换、降级、延期、只做部分、只搭框架、只保留接口、暂不接入或改变完整范围，停止并回到用户或总控确认。
 - 如果准备修改相邻仓库、更新 Core 子仓库指针、发布 channel、同步 marketplace、清理缓存或改变安装路径，但当前任务没有明确授权，停止。
 - 如果无法提供提交 hash 或 no-commit 理由、验证命令、验证结果、插件 / channel / session 证据、遗留风险和下一步建议，不得回填完成。
