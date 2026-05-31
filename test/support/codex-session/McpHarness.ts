@@ -54,7 +54,7 @@ export class AlembicInProcessMcpHarness implements AlembicMcpHarness {
       data: { arguments: args },
       tool: name,
       turn,
-      type: 'agent.tool_call',
+      type: 'codex.tool_call',
     });
     const result = await this.#server.handleToolCall(name, args);
     const success =
@@ -134,7 +134,7 @@ export class AlembicLiveLocalMcpHarness implements AlembicMcpHarness {
       data: { arguments: args },
       tool: name,
       turn,
-      type: 'agent.tool_call',
+      type: 'codex.tool_call',
     });
     const result = await this.#server.handleToolCall(name, args);
     const success =

@@ -3,11 +3,11 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type DaemonJobRecord, JobStore } from '@alembic/core/daemon';
 import { analyzeScenarioResult, buildScenarioFacts } from './AgentOutputAnalyzer.js';
-import { CodexScenarioAgentSimulator } from './AgentSimulator.js';
 import { readScenarioSecretWritten, setupCodexScenarioFixture } from './Fixtures.js';
 import { type AlembicMcpHarness, createCodexMcpHarness } from './McpHarness.js';
 import type {
   CodexScenarioRunOptions,
+  CodexScenarioStep,
   CodexSessionRunResult,
   CodexSessionScenario,
 } from './ScenarioTypes.js';
@@ -51,14 +51,23 @@ export async function runCodexSessionScenario(
       transcript,
       waitUntilReadyMs: fixture.config.waitUntilReadyMs,
     });
-    const agent = new CodexScenarioAgentSimulator({
-      harness,
-      projectRoot: fixture.projectRoot,
-      scenario,
-      transcript,
-    });
     for (const [index, turn] of scenario.turns.entries()) {
-      await agent.runTurn(index + 1, turn.user);
+      transcript.record({ text: turn.user, turn: index + 1, type: 'user.message' });
+    }
+    const scripted = resolveScenarioSteps(scenario);
+    let assistantFinalText = '';
+    for (const [index, step] of scripted.entries()) {
+      const turn = Math.min(index + 1, Math.max(1, scenario.turns.length));
+      const args = resolveStepArguments(step.arguments || {}, fixture.projectRoot);
+      const result = await harness.callTool(turn, step.name, args);
+      assistantFinalText =
+        step.assistantFinalText ||
+        buildMechanicalAssistantText({
+          fixtureProjectRootMode: scenario.fixture.projectRoot || 'explicit',
+          result,
+          toolName: step.name,
+        });
+      transcript.record({ text: assistantFinalText, turn, type: 'assistant.final' });
     }
     if (fixture.config.harnessMode === 'live-local' && fixture.config.waitJobTimeoutMs > 0) {
       await waitForLiveJobs({
@@ -71,7 +80,7 @@ export async function runCodexSessionScenario(
     }
 
     const facts = buildScenarioFacts({
-      assistantFinalText: agent.finalAssistantText,
+      assistantFinalText,
       harness,
       harnessMode: fixture.config.harnessMode,
       projectRoot: fixture.projectRoot,
@@ -126,6 +135,61 @@ export function loadCodexSessionScenarios(
     ? scenarios.filter((scenario) => scenario.id === filter || scenario.id.includes(filter))
     : scenarios.filter((scenario) => !scenario.manual);
   return selected;
+}
+
+function resolveScenarioSteps(scenario: CodexSessionScenario): CodexScenarioStep[] {
+  if (scenario.steps?.length) {
+    return scenario.steps;
+  }
+  return (scenario.expect.toolCalls || []).map((call) => ({
+    arguments: call.arguments || {},
+    name: call.name,
+  }));
+}
+
+function resolveStepArguments(
+  args: Record<string, unknown>,
+  projectRoot: string
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    resolved[key] = value === '$projectRoot' ? projectRoot : value;
+  }
+  return resolved;
+}
+
+function buildMechanicalAssistantText(input: {
+  fixtureProjectRootMode: string;
+  result: unknown;
+  toolName: string;
+}): string {
+  if (input.toolName === 'alembic_codex_status' && input.fixtureProjectRootMode === 'missing') {
+    return 'Alembic 需要目标项目的绝对 projectRoot。当前 Codex 插件没有拿到可信项目目录，请提供项目根目录后再继续。';
+  }
+  if (input.toolName === 'alembic_codex_init') {
+    return isSuccess(input.result)
+      ? 'Alembic Codex 初始化已完成。这里只完成工作区初始化，还没有开始知识挖掘。'
+      : 'Alembic Codex 初始化没有完成，请查看工具返回的诊断信息后重试。';
+  }
+  if (input.toolName === 'alembic_bootstrap') {
+    return isSuccess(input.result)
+      ? 'Alembic Codex host-agent bootstrap 已启动。请按 Mission Briefing 分析项目、提交知识并完成维度。'
+      : 'Alembic Codex host-agent bootstrap 没有启动，请查看工具返回的错误信息。';
+  }
+  if (input.toolName === 'alembic_rescan') {
+    return isSuccess(input.result)
+      ? 'Alembic Codex architecture rescan 已完成；请用 evidence checker 复核 preserved Recipe、evidencePlan 和 no duplicate。'
+      : 'Alembic Codex architecture rescan 没有完成，请查看工具返回的错误信息。';
+  }
+  return isSuccess(input.result)
+    ? `Codex session scenario step ${input.toolName} completed.`
+    : `Codex session scenario step ${input.toolName} failed.`;
+}
+
+function isSuccess(result: unknown): boolean {
+  return Boolean(
+    result && typeof result === 'object' && (result as { success?: unknown }).success === true
+  );
 }
 
 async function waitForLiveJobs(options: {

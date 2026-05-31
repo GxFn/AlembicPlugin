@@ -16,6 +16,7 @@ export interface CodexSessionScenario {
   fixture: CodexScenarioFixture;
   id: string;
   manual?: boolean;
+  steps?: CodexScenarioStep[];
   turns: CodexScenarioTurn[];
 }
 
@@ -34,6 +35,12 @@ export interface CodexScenarioFixture {
 
 export interface CodexScenarioTurn {
   user: string;
+}
+
+export interface CodexScenarioStep {
+  arguments?: Record<string, unknown>;
+  assistantFinalText?: string;
+  name: string;
 }
 
 export interface CodexSessionExpectation {

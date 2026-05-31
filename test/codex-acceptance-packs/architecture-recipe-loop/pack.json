@@ -1,0 +1,43 @@
+{
+  "id": "architecture-recipe-loop",
+  "description": "Real Codex thread acceptance pack for Plugin-owned cold-start -> architecture Recipe -> dimension complete -> architecture rescan.",
+  "dimensionId": "architecture",
+  "checker": {
+    "command": "node scripts/check-codex-recipe-loop-evidence.mjs --project-root <projectRoot> --transcript <transcript.jsonl> --report <report.json>"
+  },
+  "requiredToolOrder": [
+    "alembic_bootstrap",
+    "alembic_submit_knowledge",
+    "alembic_dimension_complete",
+    "alembic_rescan"
+  ],
+  "submitKnowledgeItem": {
+    "title": "Architecture Boundary Uses A Single Entry Point",
+    "language": "typescript",
+    "content": {
+      "pattern": "Route project-wide initialization through one host-owned entry point.",
+      "rationale": "The architecture dimension should capture module boundaries and ownership instead of implementation trivia."
+    },
+    "kind": "pattern",
+    "doClause": "Use the Plugin-owned Codex MCP entry point for host-agent cold-start orchestration.",
+    "dontClause": "Do not introduce an Alembic internal Agent runtime or external AI provider for this acceptance loop.",
+    "whenClause": "When Codex starts a fresh Alembic knowledge loop for a project.",
+    "coreCode": "alembic_bootstrap -> alembic_submit_knowledge -> alembic_dimension_complete -> alembic_rescan({ dimensions: ['architecture'] })",
+    "category": "architecture",
+    "trigger": "architecture-entry-point",
+    "description": "Architecture Recipe proving the Plugin-owned cold-start Recipe loop.",
+    "headers": [],
+    "usageGuide": "Use this only as an acceptance Recipe for the architecture dimension.",
+    "knowledgeType": "code-pattern",
+    "reasoning": {
+      "whyStandard": "It verifies that Plugin-owned Codex tools can persist architecture knowledge and preserve it through rescan.",
+      "confidence": 0.9,
+      "sources": ["src/index.ts"]
+    },
+    "dimensionId": "architecture"
+  },
+  "rescanArgs": {
+    "dimensions": ["architecture"],
+    "reason": "architecture recipe loop acceptance"
+  }
+}
