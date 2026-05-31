@@ -104,6 +104,14 @@ describe('ExternalDimensionCompletionWorkflow', () => {
       {
         candidateCount: 2,
         analysisChars: 61,
+        ideAgentAnalysisProgress: {
+          checkpointKind: 'ide-agent-analysis-unit-progress',
+          completedUnitIds: [],
+          rejectedUnitIds: [],
+          remainingUnitIds: [],
+          skippedUnitIds: [],
+          unitProgress: [],
+        },
         referencedFiles: 2,
         recipeIds: ['recipe-a', 'recipe-b'],
         skillCreated: false,
