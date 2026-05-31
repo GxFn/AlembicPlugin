@@ -38,6 +38,12 @@ const coreTools = [
     inputSchema: { type: 'object' },
   },
   {
+    name: 'alembic_task',
+    tier: 'agent',
+    description: 'task lifecycle',
+    inputSchema: { type: 'object' },
+  },
+  {
     name: 'alembic_knowledge_lifecycle',
     tier: 'admin',
     description: 'lifecycle',
@@ -51,12 +57,6 @@ const residentCoreTools = [
     name: 'alembic_search',
     tier: 'agent',
     description: 'resident search',
-    inputSchema: { type: 'object' },
-  },
-  {
-    name: 'alembic_task',
-    tier: 'agent',
-    description: 'resident task',
     inputSchema: { type: 'object' },
   },
 ];
@@ -127,8 +127,10 @@ describe('Codex tool policy', () => {
       'alembic_codex_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
+      'alembic_task',
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
+    expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_health');
   });
 
   test('exposes resident-backed ProjectScope tools when resident is connected but knowledge is empty', () => {
@@ -164,6 +166,7 @@ describe('Codex tool policy', () => {
       'alembic_project_skill',
       'alembic_skill',
       'alembic_health',
+      'alembic_task',
     ]);
     expect(names).not.toContain('alembic_knowledge_lifecycle');
   });
@@ -240,6 +243,7 @@ describe('Codex tool policy', () => {
       'alembic_codex_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
+      'alembic_task',
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
   });

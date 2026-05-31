@@ -86,6 +86,11 @@ export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_dimension_complete',
 ]);
 
+// alembic_task 是 Codex intent/task lifecycle 工具，不是 Recipe/Search/Guard
+// knowledge-consumption surface。initialized-empty 项目也必须能 close task，
+// 这样 Plugin-only 039 acceptance 才能在真实 dirty diff 场景里返回提示。
+export const CODEX_TASK_LIFECYCLE_TOOL_NAMES = new Set(['alembic_task']);
+
 // Project Skill delivery is a Codex runtime surface, not a Recipe/Guard knowledge
 // consumption surface. It must remain available for initialized projects so Codex
 // can export or inspect generated Project Skill receipts even while bootstrap is
@@ -236,6 +241,7 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
         (input.residentProjectScopeAvailable === true &&
           CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(tool.name)) ||
         CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name) ||
+        (input.knowledge.initialized && CODEX_TASK_LIFECYCLE_TOOL_NAMES.has(tool.name)) ||
         isCodexProjectSkillDeliveryToolVisible(tool.name, input.knowledge)) &&
       (input.tierOrder[tool.tier || 'agent'] ?? 0) <= maxTier
   );
@@ -261,7 +267,11 @@ export function allowedCodexToolNames(knowledge: CodexKnowledgeState): Set<strin
     ]);
   }
   if (knowledge.initialized) {
-    return new Set([...CODEX_COLD_START_TOOL_NAMES, ...CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES]);
+    return new Set([
+      ...CODEX_COLD_START_TOOL_NAMES,
+      ...CODEX_TASK_LIFECYCLE_TOOL_NAMES,
+      ...CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES,
+    ]);
   }
   return new Set([...CODEX_INIT_TOOL_NAMES, ...CODEX_INIT_ON_DEMAND_TOOL_NAMES]);
 }

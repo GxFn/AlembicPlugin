@@ -106,6 +106,7 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
     localPackageModules,
     langProfile,
   } = phaseResults;
+  const briefingDimensions = Array.isArray(dimensions) ? dimensions : [];
 
   // ── Build immutable ProjectSnapshot ──
   const snapshot: ProjectSnapshot = buildProjectSnapshot({
@@ -122,7 +123,7 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
   const session = createExternalWorkflowSession({
     container: ctx.container,
     projectRoot,
-    dimensions,
+    dimensions: briefingDimensions,
     snapshot,
     primaryLang,
     fileCount: allFiles.length,
@@ -142,18 +143,24 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
       codeEntityResult,
       callGraphResult,
       depGraphData,
-      guardAudit,
-      targets: targetsSummary,
-      activeDimensions: dimensions,
+      guardAudit: normalizeGuardAuditForBriefing(guardAudit),
+      // Core MissionBriefingBuilder expects an array target list. ProjectIntelligence
+      // may expose a summary object for generic projects, so Plugin normalizes at the
+      // adapter boundary instead of teaching Codex a private schema.
+      targets: Array.isArray(targetsSummary) ? targetsSummary : [],
+      activeDimensions: briefingDimensions,
       session,
       languageStats: langStats,
       panoramaResult: snapshot.panorama,
-      localPackageModules,
+      localPackageModules: Array.isArray(localPackageModules) ? localPackageModules : [],
     },
   });
-  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(snapshot, {
-    profile: 'cold-start',
-  });
+  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(
+    normalizeProjectSnapshotForIDEAgent(snapshot),
+    {
+      profile: 'cold-start',
+    }
+  );
   const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
   const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(briefing, ideAgentAnalysis);
 
@@ -167,14 +174,14 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
   }
 
   ctx.logger.info(
-    `[BootstrapExternal] Mission Briefing ready: ${allFiles.length} files, ${dimensions.length} dims, ` +
+    `[BootstrapExternal] Mission Briefing ready: ${allFiles.length} files, ${briefingDimensions.length} dims, ` +
       `${briefingWithIdeAgentSurface.meta?.responseSizeKB || '?'}KB — session ${session.id}`
   );
 
   return presentExternalColdStartResponse({
     cleanupResult,
     briefing: briefingWithIdeAgentSurface,
-    dimensionCount: dimensions.length,
+    dimensionCount: briefingDimensions.length,
     responseTimeMs: Date.now() - t0,
   });
 }
@@ -204,4 +211,51 @@ function attachIDEAgentAnalysisSurface<T extends { meta?: Record<string, unknown
       },
     },
   };
+}
+
+function normalizeGuardAuditForBriefing<T>(guardAudit: T): T {
+  if (!guardAudit || typeof guardAudit !== 'object' || Array.isArray(guardAudit)) {
+    return guardAudit;
+  }
+  const record = guardAudit as Record<string, unknown>;
+  // Core briefing expects array fields; Plugin accepts older/newer Guard audit DTOs here.
+  return {
+    ...record,
+    files: Array.isArray(record.files) ? record.files.map(normalizeGuardAuditFile) : [],
+    crossFileViolations: Array.isArray(record.crossFileViolations)
+      ? record.crossFileViolations
+      : [],
+  } as T;
+}
+
+function normalizeGuardAuditFile(file: unknown): unknown {
+  if (!file || typeof file !== 'object' || Array.isArray(file)) {
+    return file;
+  }
+  const record = file as Record<string, unknown>;
+  return {
+    ...record,
+    violations: Array.isArray(record.violations) ? record.violations : [],
+  };
+}
+
+function normalizeProjectSnapshotForIDEAgent(snapshot: ProjectSnapshot): ProjectSnapshot {
+  return {
+    ...snapshot,
+    guardAudit: normalizeGuardAuditForBriefing(snapshot.guardAudit),
+    panorama: normalizePanoramaForIDEAgent(snapshot.panorama),
+  };
+}
+
+function normalizePanoramaForIDEAgent<T>(panorama: T): T {
+  if (!panorama || typeof panorama !== 'object' || Array.isArray(panorama)) {
+    return panorama;
+  }
+  const record = panorama as Record<string, unknown>;
+  return {
+    ...record,
+    layers: Array.isArray(record.layers) ? record.layers : [],
+    couplingHotspots: Array.isArray(record.couplingHotspots) ? record.couplingHotspots : [],
+    cyclicDependencies: Array.isArray(record.cyclicDependencies) ? record.cyclicDependencies : [],
+  } as T;
 }

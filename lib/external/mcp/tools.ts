@@ -478,6 +478,7 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Task and decision management (5 operations). Call prime first at the start of each conversation to load knowledge context.\n' +
+      'Visible for initialized projects even before usable Recipes exist because task close is a Codex lifecycle surface, not a Recipe/Search/Guard knowledge query.\n' +
       '• prime — load knowledge context + initialize intent lifecycle\n' +
       '• create — create task anchor (for non-trivial work: ≥2 files or ≥10 lines)\n' +
       '• close — complete task + trigger Guard compliance review\n' +

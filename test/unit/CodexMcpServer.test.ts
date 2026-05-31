@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -51,6 +52,7 @@ const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
   'alembic_bootstrap',
   'alembic_rescan',
   'alembic_dimension_complete',
+  'alembic_task',
 ];
 
 function useTempAlembicHome(): string {
@@ -77,6 +79,20 @@ function makeUsableKnowledgeBase(projectRoot: string): void {
     path.join(projectRoot, 'Alembic', 'recipes', 'http-client.md'),
     '---\ntitle: HTTP Client\n---\nUse the project HTTP client.\n'
   );
+}
+
+function makeDirtyGitRepo(projectRoot: string): void {
+  fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const value = 1;\n');
+  git(projectRoot, ['init']);
+  git(projectRoot, ['config', 'user.email', 'test@example.com']);
+  git(projectRoot, ['config', 'user.name', 'Alembic Test']);
+  git(projectRoot, ['add', '.']);
+  git(projectRoot, ['commit', '-m', 'init']);
+  fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const value = 2;\n');
+}
+
+function git(cwd: string, args: string[]): void {
+  execFileSync('git', args, { cwd, stdio: 'ignore' });
 }
 
 function writeRunningBootstrapJob(projectRoot: string): void {
@@ -391,8 +407,9 @@ describe('CodexMcpServer', () => {
       'alembic_codex_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
-    expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_health');
+    expect(names).not.toContain('alembic_search');
+    expect(names).not.toContain('alembic_guard');
     expect(names).not.toContain('alembic_skill');
   });
 
@@ -1428,6 +1445,78 @@ describe('CodexMcpServer', () => {
 
     expect(result.success).toBe(false);
     expect(result.data.errorCode).toBe('CODEX_ALEMBIC_KNOWLEDGE_REQUIRED');
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('allows task close in initialized empty projects and surfaces Plugin-only 039 evidence', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    makeDirtyGitRepo(projectRoot);
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(projectRoot, {
+        ready: false,
+        status: 'stopped',
+        state: null,
+      })
+    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      throw new Error(`alembic_task close must stay Plugin-owned: ${String(input)}`);
+    });
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_task', {
+      operation: 'close',
+      id: 'acceptance-smoke',
+      reason: 'dirty diff acceptance smoke',
+    })) as {
+      data: {
+        opportunisticEvolution?: {
+          autoSubmit: boolean;
+          evidenceGate: { verdict: string };
+          gitDiffEvidence?: { dirtyPathCount: number; events: Array<{ path: string }> };
+          producerBoundary: { producerKind: string; separatedFrom: string };
+          proposal?: { producerKind: string; sourceRefs: string[] };
+          serviceGate: {
+            mainServiceCanHandleProjectScope: boolean;
+            residentProjectScopeAvailable: boolean;
+          };
+        };
+        serviceBoundary?: {
+          executionPath: string;
+          owner: string;
+          residentServiceRequested: boolean;
+          tool: string;
+        };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.serviceBoundary).toMatchObject({
+      executionPath: 'plugin-owned-codex-facing',
+      owner: 'alembic-plugin',
+      residentServiceRequested: false,
+      tool: 'alembic_task',
+    });
+    expect(result.data.opportunisticEvolution).toMatchObject({
+      autoSubmit: false,
+      evidenceGate: { verdict: 'strong-proposal' },
+      producerBoundary: {
+        producerKind: 'plugin-opportunistic',
+        separatedFrom: 'daemon-file-change',
+      },
+      proposal: {
+        producerKind: 'plugin-opportunistic',
+        sourceRefs: ['index.ts'],
+      },
+      serviceGate: {
+        mainServiceCanHandleProjectScope: false,
+        residentProjectScopeAvailable: false,
+      },
+    });
+    expect(result.data.opportunisticEvolution?.gitDiffEvidence?.dirtyPathCount).toBeGreaterThan(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 

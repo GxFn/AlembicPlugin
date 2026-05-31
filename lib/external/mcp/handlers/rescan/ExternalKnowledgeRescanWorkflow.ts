@@ -157,6 +157,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
     localPackageModules,
     langProfile,
   } = phaseResults;
+  const activeDimensions = Array.isArray(allDimensions) ? allDimensions : [];
 
   // ── Build immutable ProjectSnapshot ──
   const snapshot: ProjectSnapshot = buildProjectSnapshot({
@@ -181,7 +182,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
   const knowledgeRescanPlan = buildKnowledgeRescanPlan({
     recipeEntries: recipeSnapshot.entries,
     auditSummary,
-    dimensions: allDimensions as DimensionDef[],
+    dimensions: activeDimensions as DimensionDef[],
     requestedDimensionIds: intent.dimensionIds,
   });
   const dimensions = knowledgeRescanPlan.executionDimensions;
@@ -206,7 +207,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
   const session = createExternalWorkflowSession({
     container: ctx.container,
     projectRoot,
-    dimensions,
+    dimensions: Array.isArray(dimensions) ? dimensions : [],
     snapshot,
     primaryLang,
     fileCount: allFiles.length,
@@ -227,18 +228,23 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
       codeEntityResult,
       callGraphResult,
       depGraphData,
-      guardAudit,
-      targets: targetsSummary,
-      activeDimensions: dimensions,
+      guardAudit: normalizeGuardAuditForBriefing(guardAudit),
+      // Core MissionBriefingBuilder consumes a target array; generic project scans can
+      // provide a summary object, so keep the compatibility normalization in Plugin.
+      targets: Array.isArray(targetsSummary) ? targetsSummary : [],
+      activeDimensions: Array.isArray(dimensions) ? dimensions : [],
       session,
       languageStats: langStats,
       panoramaResult: snapshot.panorama,
-      localPackageModules,
+      localPackageModules: Array.isArray(localPackageModules) ? localPackageModules : [],
     },
   });
-  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(snapshot, {
-    profile: 'rescan',
-  });
+  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(
+    normalizeProjectSnapshotForIDEAgent(snapshot),
+    {
+      profile: 'rescan',
+    }
+  );
   const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
   const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(
     briefing as Record<string, unknown>,
@@ -261,7 +267,9 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
     )
     .join(', ');
   ctx.logger.info(
-    `[Rescan] Mission Briefing ready: ${allFiles.length} files, ${dimensions.length} dims, ` +
+    `[Rescan] Mission Briefing ready: ${allFiles.length} files, ${
+      Array.isArray(dimensions) ? dimensions.length : 0
+    } dims, ` +
       `preserved: ${recipeSnapshot.count}, decayed: ${evidencePlan.decayCount}, totalGap: ${evidencePlan.totalGap}, ` +
       `ideUnits: ${ideAgentAnalysis.progress.totalUnits} — session ${session.id}`
   );
@@ -308,6 +316,53 @@ function attachIDEAgentAnalysisSurface(
       },
     },
   };
+}
+
+function normalizeGuardAuditForBriefing<T>(guardAudit: T): T {
+  if (!guardAudit || typeof guardAudit !== 'object' || Array.isArray(guardAudit)) {
+    return guardAudit;
+  }
+  const record = guardAudit as Record<string, unknown>;
+  // Core briefing expects array fields; Plugin accepts older/newer Guard audit DTOs here.
+  return {
+    ...record,
+    files: Array.isArray(record.files) ? record.files.map(normalizeGuardAuditFile) : [],
+    crossFileViolations: Array.isArray(record.crossFileViolations)
+      ? record.crossFileViolations
+      : [],
+  } as T;
+}
+
+function normalizeGuardAuditFile(file: unknown): unknown {
+  if (!file || typeof file !== 'object' || Array.isArray(file)) {
+    return file;
+  }
+  const record = file as Record<string, unknown>;
+  return {
+    ...record,
+    violations: Array.isArray(record.violations) ? record.violations : [],
+  };
+}
+
+function normalizeProjectSnapshotForIDEAgent(snapshot: ProjectSnapshot): ProjectSnapshot {
+  return {
+    ...snapshot,
+    guardAudit: normalizeGuardAuditForBriefing(snapshot.guardAudit),
+    panorama: normalizePanoramaForIDEAgent(snapshot.panorama),
+  };
+}
+
+function normalizePanoramaForIDEAgent<T>(panorama: T): T {
+  if (!panorama || typeof panorama !== 'object' || Array.isArray(panorama)) {
+    return panorama;
+  }
+  const record = panorama as Record<string, unknown>;
+  return {
+    ...record,
+    layers: Array.isArray(record.layers) ? record.layers : [],
+    couplingHotspots: Array.isArray(record.couplingHotspots) ? record.couplingHotspots : [],
+    cyclicDependencies: Array.isArray(record.cyclicDependencies) ? record.cyclicDependencies : [],
+  } as T;
 }
 
 function createWorkflowCleanupService(ctx: {
