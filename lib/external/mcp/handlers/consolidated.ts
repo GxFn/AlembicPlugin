@@ -191,12 +191,12 @@ export async function consolidatedGuard(ctx: McpContext, args: ConsolidatedGuard
  * Skill 管理：根据 operation 参数路由
  *   list    → listSkills()
  *   load    → loadSkill()
- *   create  → createSkill()
- *   update  → updateSkill()
- *   delete  → deleteSkill()
+ *   create  → ProjectSkillService.upsert()
+ *   update  → ProjectSkillService.upsert()
+ *   delete  → ProjectSkillService.delete()
  *
- * @deprecated Codex runtime delivery should use alembic_project_skill. This
- * compatibility route only preserves old Alembic storage operations.
+ * @deprecated Prefer alembic_project_skill. This compatibility route now uses
+ * the same ProjectSkillService instead of the retired legacy storage writer.
  */
 export async function consolidatedSkill(ctx: McpContext, args: ConsolidatedSkillArgs) {
   const op = args.operation;
@@ -253,7 +253,7 @@ function withLegacySkillReplacement(value: unknown) {
         legacyCompatibility: true,
         replacementTool: 'alembic_project_skill',
         replacementReason:
-          'Codex Project Skill runtime delivery now uses receipt + project-scoped export instead of the legacy alembic_skill storage surface.',
+          'Codex Project Skill runtime delivery now uses the unified ProjectSkillService with dataRoot source storage and .agents/skills symlink export.',
       },
     });
   } catch {

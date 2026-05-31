@@ -1,9 +1,11 @@
 ---
 name: alembic-recipes
-description: Provides this project's Recipe-based context to the agent. Recipes are the project's standard knowledge (code patterns + usage guides + structured relations). Use when answering about project standards, Guard, conventions, or when suggesting code. Supports in-context lookup, terminal search (alembic search), and on-demand semantic search via MCP tool alembic_search (mode=context).
+description: This project has a local Alembic knowledge base. Use Alembic Recipes, Guard context, and knowledge search proactively for this project when coding or answering project-standard questions.
 ---
 
 # Alembic Recipe Context (Project Context)
+
+This project has a local Alembic knowledge base. Use Alembic Recipes, Guard context, and knowledge search proactively for this project when coding or answering project-standard questions.
 
 This skill provides the agent with this project's context from Alembic Recipes. Recipes are the project's standard knowledge base: code patterns, usage guides, and structured relations.
 

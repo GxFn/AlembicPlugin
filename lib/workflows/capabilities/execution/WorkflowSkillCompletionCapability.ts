@@ -1,17 +1,6 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { getProjectSkillsPath } from '@alembic/core/config';
 import type { ProjectSkillDeliveryReceipt } from '@alembic/core/host-agent-workflows';
-import { pathGuard, type WriteZone } from '@alembic/core/io';
 import Logger from '@alembic/core/logging';
-import { resolveDataRoot } from '@alembic/core/workspace';
-import {
-  buildContentHash,
-  buildPluginProjectSkillDeliveryReceipt,
-  exportProjectSkillReceiptToCodexRuntime,
-} from '#codex/ProjectSkillDelivery.js';
-import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
-import { INJECTABLE_SKILLS_DIR } from '#shared/package-assets.js';
+import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
 
 const logger = Logger.getInstance();
 
@@ -29,25 +18,10 @@ interface SkillDimensionDef {
   skillMeta?: { name?: string; description?: string } | null;
 }
 
-interface CreateWorkflowSkillArgs {
-  name?: string;
-  description?: string;
-  content?: string;
-  overwrite?: boolean;
-  createdBy?: string;
-  title?: string;
-}
-
 interface SkillQualityResult {
   pass: boolean;
   reason: string | null;
   deduplicatedText?: string;
-}
-
-interface SkillCreateResult {
-  success: boolean;
-  data?: Record<string, unknown>;
-  error?: { code: string; message: string };
 }
 
 export interface WorkflowSkillGenerationResult {
@@ -61,11 +35,6 @@ export interface WorkflowSkillGenerationResult {
   };
   skillName: string;
   success: boolean;
-}
-
-interface SkillHooksLike {
-  has(name: string): boolean;
-  run(name: string, payload: Record<string, unknown>): Promise<unknown>;
 }
 
 const MIN_ANALYSIS_LENGTH = 100;
@@ -93,7 +62,8 @@ export async function generateSkill(
 
   try {
     const skillDescription = dim.skillMeta?.description || `Auto-generated skill for ${dim.label}`;
-    const result = createWorkflowSkill(ctx, {
+    const result = createProjectSkillService(ctx).upsert({
+      authorizeProjectSkillExport: true,
       name: skillName,
       description: skillDescription,
       content: skillContent,
@@ -102,158 +72,48 @@ export async function generateSkill(
     });
 
     if (result.success) {
-      const sourcePath =
-        typeof result.data?.path === 'string'
-          ? result.data.path
-          : path.join(getProjectSkillsDir(ctx), skillName, 'SKILL.md');
-      const deliveryReceipt = buildPluginProjectSkillDeliveryReceipt(ctx, {
-        skillName,
-        description: skillDescription,
-        dimensionId: dim.id,
-        sourcePath,
-        contentHash: buildContentHash(fs.readFileSync(sourcePath)),
-        evidenceRefs: referencedFiles.map((file) => ({
-          dimensionId: dim.id,
-          kind: 'source-file',
-          ref: file,
-        })),
-      });
-      const exportResult = exportProjectSkillReceiptToCodexRuntime(ctx, {
-        receipt: deliveryReceipt,
-        authorize: true,
-        grantedBy: CODEX_HOST_AGENT_SOURCE,
-        overwriteManaged: true,
-      });
+      const deliveryReceipt = result.data?.deliveryReceipt as
+        | ProjectSkillDeliveryReceipt
+        | undefined;
+      const runtimeExport = result.data?.runtimeExport as
+        | {
+            authorizationStatus?: ProjectSkillDeliveryReceipt['authorization']['status'];
+            conflictStatus?: ProjectSkillDeliveryReceipt['conflictStatus'];
+            status?: ProjectSkillDeliveryReceipt['runtimeExport']['status'];
+            targetPath?: string | null;
+          }
+        | undefined;
+      const runtimeExportStatus = runtimeExport?.status ?? deliveryReceipt?.runtimeExport.status;
       logger.info(`[SkillGenerator] Skill "${skillName}" created for "${dim.id}" (${source})`);
       return {
-        success: exportResult.runtimeExportStatus === 'exported',
+        success: runtimeExportStatus === 'exported',
         skillName,
-        deliveryReceipt: exportResult.receipt,
+        ...(deliveryReceipt ? { deliveryReceipt } : {}),
         exportResult: {
-          authorizationStatus: exportResult.authorizationStatus,
-          conflictStatus: exportResult.conflictStatus,
-          runtimeExportStatus: exportResult.runtimeExportStatus,
-          targetPath: exportResult.targetPath,
+          authorizationStatus:
+            runtimeExport?.authorizationStatus ??
+            deliveryReceipt?.authorization.status ??
+            'pending',
+          conflictStatus:
+            runtimeExport?.conflictStatus ?? deliveryReceipt?.conflictStatus ?? 'blocked',
+          runtimeExportStatus: runtimeExportStatus ?? 'pending',
+          targetPath:
+            runtimeExport?.targetPath ?? deliveryReceipt?.runtimeExport.targetPath ?? null,
         },
-        ...(exportResult.runtimeExportStatus === 'exported'
+        ...(runtimeExportStatus === 'exported'
           ? {}
-          : { error: exportResult.receipt.runtimeExport.message ?? 'runtime export blocked' }),
+          : { error: deliveryReceipt?.runtimeExport.message ?? 'runtime export blocked' }),
       };
     }
 
-    const errorMsg = result.error?.message || 'createSkill returned failure';
+    const errorMsg =
+      result.error?.message || result.message || 'ProjectSkillService returned failure';
     throw new Error(errorMsg);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(`[SkillGenerator] Skill generation failed for "${dim.id}": ${msg}`);
     return { success: false, skillName, error: msg };
   }
-}
-
-function createWorkflowSkill(
-  ctx: SkillContext | null,
-  args: CreateWorkflowSkillArgs
-): SkillCreateResult {
-  const {
-    name,
-    description,
-    content,
-    overwrite = false,
-    createdBy = 'external-ai',
-    title,
-  } = args || {};
-
-  if (!name || !description || !content) {
-    return {
-      success: false,
-      error: { code: 'MISSING_PARAM', message: 'name, description, content are all required' },
-    };
-  }
-
-  if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(name) || name.length < 3 || name.length > 64) {
-    return {
-      success: false,
-      error: {
-        code: 'INVALID_NAME',
-        message: `Skill name must be kebab-case (a-z, 0-9, -), 3-64 chars. Got: "${name}"`,
-      },
-    };
-  }
-
-  const builtinSkillPath = path.join(INJECTABLE_SKILLS_DIR, name, 'SKILL.md');
-  if (fs.existsSync(builtinSkillPath)) {
-    return {
-      success: false,
-      error: {
-        code: 'BUILTIN_CONFLICT',
-        message: `"${name}" is a built-in Skill and cannot be overwritten. Choose a different name.`,
-      },
-    };
-  }
-
-  const projectSkillsDir = getProjectSkillsDir(ctx ?? undefined);
-  const skillDir = path.join(projectSkillsDir, name);
-  const skillPath = path.join(skillDir, 'SKILL.md');
-  const existedBefore = fs.existsSync(skillPath);
-  if (existedBefore && !overwrite) {
-    return {
-      success: false,
-      error: {
-        code: 'ALREADY_EXISTS',
-        message: `Project skill "${name}" already exists. Set overwrite=true to replace.`,
-      },
-    };
-  }
-
-  let writtenSkillPath = skillPath;
-  try {
-    const writeZone = getWriteZone(ctx);
-    const resolvedTitle =
-      title ||
-      (() => {
-        const match = (content || '').match(/^#\s+(.+)/m);
-        return match ? match[1].trim() : '';
-      })();
-    const frontmatter = buildSkillFrontmatter({
-      name,
-      description,
-      createdBy,
-      title: resolvedTitle,
-    });
-
-    if (writeZone) {
-      const dataRelSkillDir = skillDir.replace(writeZone.dataRoot, '').replace(/^\//, '');
-      const dataRelSkillPath = skillPath.replace(writeZone.dataRoot, '').replace(/^\//, '');
-      const writeTarget = writeZone.data(dataRelSkillPath);
-      writeZone.ensureDir(writeZone.data(dataRelSkillDir));
-      writeZone.writeFile(writeTarget, frontmatter + content);
-      writtenSkillPath = writeTarget.absolute;
-    } else {
-      pathGuard.assertProjectWriteSafe(skillDir);
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(skillPath, frontmatter + content, 'utf8');
-    }
-  } catch (err: unknown) {
-    return {
-      success: false,
-      error: {
-        code: 'WRITE_ERROR',
-        message: `Failed to write SKILL.md: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
-  }
-
-  runSkillCreatedHook(ctx, { name, description, createdBy, path: writtenSkillPath });
-
-  return {
-    success: true,
-    data: {
-      skillName: name,
-      path: writtenSkillPath,
-      overwritten: existedBefore && overwrite,
-      hint: `Skill "${name}" created. Use alembic_project_skill({ operation: "load", name: "${name}" }) to verify Codex runtime content.`,
-    },
-  };
 }
 
 function validateSkillQuality(analysisText: string): SkillQualityResult {
@@ -344,31 +204,6 @@ function buildSkillContent(
   return parts.filter((part) => part !== undefined).join('\n');
 }
 
-function buildSkillFrontmatter({
-  name,
-  description,
-  createdBy,
-  title,
-}: {
-  name: string;
-  description: string;
-  createdBy: string;
-  title: string;
-}) {
-  const fmLines = ['---', `name: ${name}`];
-  if (title) {
-    fmLines.push(`title: "${title.replace(/"/g, '\\"')}"`);
-  }
-  fmLines.push(
-    `description: ${description}`,
-    `createdBy: ${createdBy}`,
-    `createdAt: ${new Date().toISOString()}`,
-    '---',
-    ''
-  );
-  return fmLines.join('\n');
-}
-
 function normalizeLine(line: string): string {
   return line
     .trim()
@@ -406,28 +241,4 @@ function deduplicateConsecutive(text: string): string {
     }
   }
   return result.join('\n');
-}
-
-function getWriteZone(ctx?: SkillContext | null): WriteZone | undefined {
-  return ctx?.container?.singletons?.writeZone as WriteZone | undefined;
-}
-
-function getProjectSkillsDir(ctx?: SkillContext | null): string {
-  return getProjectSkillsPath(resolveDataRoot(ctx?.container));
-}
-
-function runSkillCreatedHook(
-  ctx: SkillContext | null,
-  payload: { name: string; description: string; createdBy: string; path: string }
-): void {
-  try {
-    const skillHooks = ctx?.container?.get?.('skillHooks') as SkillHooksLike | undefined;
-    if (skillHooks?.has?.('onSkillCreated')) {
-      skillHooks.run('onSkillCreated', payload).catch(() => {
-        /* fire-and-forget */
-      });
-    }
-  } catch {
-    /* skillHooks not available */
-  }
 }

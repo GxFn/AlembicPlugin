@@ -1,9 +1,11 @@
 ---
 name: alembic-guard
-description: Guard checks code against project Recipe standards via MCP tool alembic_guard (auto-routes by code/files params). Use when the user wants to audit, lint, or verify code compliance.
+description: This project has a local Alembic knowledge base. Use Alembic Guard proactively for this project after edits or when checking project-standard compliance.
 ---
 
 # Alembic Guard — Code Compliance Checking
+
+This project has a local Alembic knowledge base. Use Alembic Guard proactively for this project after edits or when checking project-standard compliance.
 
 **Use this skill when**: The user wants to **check** whether code meets **project standards** (规范 / Audit / Guard / Lint).
 

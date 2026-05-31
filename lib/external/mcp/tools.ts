@@ -367,11 +367,12 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Codex Project Skill delivery and runtime export.\n' +
-      '• list — list Alembic project skills, delivery receipts, and Codex runtime exports\n' +
-      '• load — load a skill, preferring Codex project runtime `.agents/skills/<name>/SKILL.md`\n' +
-      '• export — consume a ProjectSkillDeliveryReceipt and symlink SKILL.md into `.agents/skills` after authorizeProjectSkillExport=true\n' +
-      '• create/update — write Alembic project skill storage, produce a Plugin route delivery receipt, and optionally export\n' +
-      '• delete — delete Alembic project skill storage; built-in plugin skills remain protected',
+      '• list — list built-in skills, dataRoot source skills, Codex runtime exports, and effective winners\n' +
+      '• load — load a skill, preferring Codex project runtime `.agents/skills/<name>/SKILL.md`, then dataRoot source, then built-in\n' +
+      '• upsert/create/update — write source to `dataRoot/Alembic/skills/<name>/`, produce a Plugin route receipt, and optionally export\n' +
+      '• refresh — only when the current dataRoot has knowledge_entries, candidates, or recipes, refresh knowledge-dependent same-name Project Skills\n' +
+      '• export — symlink source SKILL.md into `.agents/skills` after authorizeProjectSkillExport=true\n' +
+      '• delete — delete Alembic-managed source/runtime projection; built-in plugin skills remain read-only',
     inputSchema: zodToMcpSchema(ProjectSkillInput),
   },
 
@@ -379,8 +380,8 @@ export const TOOLS = [
     name: 'alembic_skill',
     tier: 'agent',
     description:
-      'Legacy compatibility for Alembic project skill storage. Prefer alembic_project_skill for Codex runtime delivery because it returns ProjectSkillDeliveryReceipt, project authorization, conflict status, and `.agents/skills` export state.\n' +
-      '• list/load/create/update/delete — old Alembic storage operations only; new runtime visibility requires alembic_project_skill export',
+      'Legacy compatibility alias for Project Skill operations. Prefer alembic_project_skill for Codex runtime delivery because it exposes refresh, receipt, project authorization, conflict status, and `.agents/skills` export state.\n' +
+      '• list/load/create/update/delete — routed to the unified Project Skill service; old storage writer behavior has retired',
     inputSchema: zodToMcpSchema(SkillInput),
   },
 
