@@ -14,6 +14,7 @@
 import {
   auditRecipesForRescan,
   buildExternalMissionBriefing,
+  buildIDEAgentAnalysisPacketFromSnapshot,
   buildKnowledgeRescanPlan,
   buildKnowledgeRescanWorkflowPlan,
   buildRescanPrescreen,
@@ -32,6 +33,7 @@ import {
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
@@ -234,11 +236,22 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
       localPackageModules,
     },
   });
+  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(snapshot, {
+    profile: 'rescan',
+  });
+  const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
+  const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(
+    briefing as Record<string, unknown>,
+    ideAgentAnalysis
+  );
 
   // 附加 warnings
   if (phaseResults.warnings.length > 0) {
-    briefing.meta = briefing.meta || {};
-    briefing.meta.warnings = [...(briefing.meta.warnings || []), ...phaseResults.warnings];
+    briefingWithIdeAgentSurface.meta = briefingWithIdeAgentSurface.meta || {};
+    const existingWarnings = Array.isArray(briefingWithIdeAgentSurface.meta.warnings)
+      ? briefingWithIdeAgentSurface.meta.warnings
+      : [];
+    briefingWithIdeAgentSurface.meta.warnings = [...existingWarnings, ...phaseResults.warnings];
   }
 
   const dimGapLog = evidencePlan.dimensionGaps
@@ -249,7 +262,8 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
     .join(', ');
   ctx.logger.info(
     `[Rescan] Mission Briefing ready: ${allFiles.length} files, ${dimensions.length} dims, ` +
-      `preserved: ${recipeSnapshot.count}, decayed: ${evidencePlan.decayCount}, totalGap: ${evidencePlan.totalGap} — session ${session.id}`
+      `preserved: ${recipeSnapshot.count}, decayed: ${evidencePlan.decayCount}, totalGap: ${evidencePlan.totalGap}, ` +
+      `ideUnits: ${ideAgentAnalysis.progress.totalUnits} — session ${session.id}`
   );
   ctx.logger.info(`[Rescan] Dimension gaps: ${dimGapLog}`);
   ctx.logger.info('[Rescan] Execution reasons', {
@@ -262,12 +276,38 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
     recipeSnapshot,
     cleanResult,
     auditSummary,
-    briefing: briefing as Record<string, unknown>,
+    briefing: briefingWithIdeAgentSurface,
     evidencePlan,
     dimensions: requestedDimensions,
     reason: intent.reason,
     responseTimeMs: Date.now() - t0,
   });
+}
+
+function attachIDEAgentAnalysisSurface(
+  briefing: Record<string, unknown>,
+  ideAgentAnalysis: ReturnType<typeof buildIDEAgentAnalysisSurface>
+): Record<string, unknown> & {
+  ideAgentAnalysis: ReturnType<typeof buildIDEAgentAnalysisSurface>;
+  meta: Record<string, unknown>;
+} {
+  const meta =
+    briefing.meta && typeof briefing.meta === 'object' && !Array.isArray(briefing.meta)
+      ? (briefing.meta as Record<string, unknown>)
+      : {};
+  return {
+    ...briefing,
+    ideAgentAnalysis,
+    meta: {
+      ...meta,
+      ideAgentAnalysis: {
+        packetId: ideAgentAnalysis.packetSummary.packetId,
+        profile: ideAgentAnalysis.packetSummary.profile,
+        totalUnits: ideAgentAnalysis.progress.totalUnits,
+        remainingUnits: ideAgentAnalysis.progress.remainingUnitIds.length,
+      },
+    },
+  };
 }
 
 function createWorkflowCleanupService(ctx: {

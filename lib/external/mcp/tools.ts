@@ -356,6 +356,7 @@ export const TOOLS = [
       '• Overlap detected → evolution proposal created automatically (merge/enhance/reorganize); system auto-executes after observation window\n' +
       '• Set skipConsolidation: true to skip consolidation check. content and reasoning must be objects.\n' +
       '• Set supersedes: "old-recipe-id" to declare the new Recipe replaces an existing one (creates a supersede proposal with observation window).\n' +
+      '• Optional unitId / analysisUnitIds / sourceRefs link submissions to Core IDEAgentAnalysisUnit progress; omit them for legacy flows.\n' +
       '⚠️ Batch rule: items in the array must NOT be cross-redundant — no highly overlapping doClause/coreCode/trigger within the same batch. ' +
       'If two entries share 80%+ content, merge into one or split into primary + extends supplementary entries.',
     inputSchema: zodToMcpSchema(SubmitKnowledgeInput),
@@ -393,6 +394,7 @@ export const TOOLS = [
       'Cold-start — no parameters needed. Auto-analyzes the project (AST, dependency graph, Guard audit) and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
       '• Dimension task list (8 dimensions × 3 Tiers)\n' +
+      '• ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
       '• Execution plan and submission examples\n' +
       'After receiving the Briefing, complete all dimension analyses per the executionPlan.',
     inputSchema: zodToMcpSchema(BootstrapInput),
@@ -407,6 +409,7 @@ export const TOOLS = [
       '• Snapshots approved Recipes → cleans derived caches → full Phase 1-4 analysis\n' +
       '• Runs relevance audit (evidence check, auto-decay stale Recipes)\n' +
       '\u2022 Returns Mission Briefing with allRecipes (full content + auditHint per recipe)\n' +
+      '\u2022 Includes ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
       '\u2022 Per-dimension workflow: evolve (alembic_evolve) \u2192 gap-fill (submit_knowledge) \u2192 dimension_complete\n' +
       '\u2022 Optional: dimensions (filter specific dimensions), reason (rescan justification)',
     inputSchema: zodToMcpSchema(_RescanSchema),
@@ -447,7 +450,8 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Dimension analysis completion notification. Handles: Recipe linking, Skill generation (auto-synthesized from submitted candidates), Checkpoint saving, cross-dimension Hints distribution.\n' +
-      'analysisText can be brief — the system auto-synthesizes detailed content from submitted candidates for Skill generation.',
+      'analysisText can be brief — the system auto-synthesizes detailed content from submitted candidates for Skill generation.\n' +
+      'Optional unitId / analysisUnitIds / skippedAnalysisUnitIds / rejectedAnalysisUnitIds / remainingAnalysisUnitIds / deviationReason backfill IDE Agent unit progress.',
     inputSchema: zodToMcpSchema(DimensionCompleteInput),
   },
 
@@ -477,6 +481,7 @@ export const TOOLS = [
       '• prime — load knowledge context + initialize intent lifecycle\n' +
       '• create — create task anchor (for non-trivial work: ≥2 files or ≥10 lines)\n' +
       '• close — complete task + trigger Guard compliance review\n' +
+      '• close also surfaces Plugin-only opportunistic evolution hints/proposals when Alembic resident ProjectScope cannot handle the project; it never auto-submits Recipes\n' +
       '• fail — abandon task\n' +
       '• record_decision — record user preference decision',
     inputSchema: zodToMcpSchema(TaskInput),

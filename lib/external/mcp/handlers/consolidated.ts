@@ -411,6 +411,14 @@ export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<stri
   if (gatewayResult.created.length > 0) {
     data.ids = gatewayResult.created.map((c) => c.id);
   }
+  const ideAgentAnalysisLinkage = buildIDEAgentAnalysisLinkage(items, gatewayResult.created);
+  if (ideAgentAnalysisLinkage.length > 0) {
+    data.ideAgentAnalysisLinkage = {
+      links: ideAgentAnalysisLinkage,
+      message:
+        'Optional IDEAgentAnalysisUnit linkage was accepted for host-agent progress backfill; submissions without unitId remain valid.',
+    };
+  }
 
   if (gatewayResult.rejected.length > 0) {
     const rejectedItems = gatewayResult.rejected.map((r) => ({
@@ -613,6 +621,51 @@ function _buildPendingSemanticReviewDecision(
     action: 'keep',
     reasoning: review.reason,
   };
+}
+
+function buildIDEAgentAnalysisLinkage(
+  items: Record<string, unknown>[],
+  created: CreateRecipeResult['created']
+): Array<{
+  analysisUnitIds: string[];
+  recipeId: string;
+  sourceRefs: string[];
+  title: string;
+}> {
+  const createdByTitle = new Map(created.map((entry) => [entry.title, entry]));
+  const links = [];
+  for (const item of items) {
+    const title = typeof item.title === 'string' ? item.title : '';
+    const createdRecipe = createdByTitle.get(title);
+    if (!createdRecipe) {
+      continue;
+    }
+    const analysisUnitIds = uniqueStrings([
+      ...(typeof item.unitId === 'string' ? [item.unitId] : []),
+      ...stringArray(item.analysisUnitIds),
+    ]);
+    const sourceRefs = stringArray(item.sourceRefs);
+    if (analysisUnitIds.length === 0 && sourceRefs.length === 0) {
+      continue;
+    }
+    links.push({
+      recipeId: createdRecipe.id,
+      title: createdRecipe.title,
+      analysisUnitIds,
+      sourceRefs,
+    });
+  }
+  return links;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function uniqueStrings(value: readonly string[]): string[] {
+  return [...new Set(value.filter((item) => item.trim().length > 0))];
 }
 
 function _resolvePendingSemanticReviewRecipeId(review: PendingSemanticReview): string | null {

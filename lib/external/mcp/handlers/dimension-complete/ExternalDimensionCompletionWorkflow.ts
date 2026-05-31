@@ -7,6 +7,7 @@ import Logger from '@alembic/core/logging';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import { resolveDataRoot } from '@alembic/core/workspace';
+import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {
@@ -22,6 +23,12 @@ const BOOTSTRAP_COMPLETE_ACTIONS: Array<{ action: string; prompt: string; tool: 
 export interface ExternalDimensionCompleteArgs {
   sessionId?: unknown;
   dimensionId?: unknown;
+  unitId?: unknown;
+  analysisUnitIds?: unknown;
+  skippedAnalysisUnitIds?: unknown;
+  rejectedAnalysisUnitIds?: unknown;
+  remainingAnalysisUnitIds?: unknown;
+  deviationReason?: unknown;
   submittedRecipeIds?: unknown;
   analysisText?: unknown;
   referencedFiles?: unknown;
@@ -192,6 +199,11 @@ interface DimensionReportLike {
 interface CompletionInput {
   sessionId?: string;
   dimensionId: string;
+  analysisUnitIds: string[];
+  deviationReason?: string;
+  rejectedAnalysisUnitIds: string[];
+  remainingAnalysisUnitIds: string[];
+  skippedAnalysisUnitIds: string[];
   submittedRecipeIds: string[];
   analysisText: string;
   referencedFiles: string[];
@@ -238,6 +250,15 @@ export async function runExternalDimensionCompletionWorkflow(
     input.value.submittedRecipeIds.length > 0
       ? input.value.submittedRecipeIds
       : recoverSubmittedRecipeIds(session.value, input.value.dimensionId);
+  const ideAgentAnalysisProgress = buildIDEAgentAnalysisProgressBackfill({
+    analysisUnitIds: input.value.analysisUnitIds,
+    deviationReason: input.value.deviationReason,
+    dimensionId: input.value.dimensionId,
+    rejectedAnalysisUnitIds: input.value.rejectedAnalysisUnitIds,
+    remainingAnalysisUnitIds: input.value.remainingAnalysisUnitIds,
+    sessionId: session.value.id,
+    skippedAnalysisUnitIds: input.value.skippedAnalysisUnitIds,
+  });
 
   const recipesBound = await bindSubmittedRecipes({
     ctx,
@@ -273,6 +294,7 @@ export async function runExternalDimensionCompletionWorkflow(
     referencedFiles,
     submittedRecipeIds,
     skillCreated: skillResult.success,
+    ideAgentAnalysisProgress,
     dependencies,
   });
   await persistKeyFindings({
@@ -352,6 +374,7 @@ export async function runExternalDimensionCompletionWorkflow(
       accumulatedHints: Object.keys(accumulatedHints).length > 0 ? accumulatedHints : undefined,
       qualityFeedback,
       evidenceHints,
+      ideAgentAnalysisProgress,
       subpackageCoverageWarning,
       nextActions: isComplete ? BOOTSTRAP_COMPLETE_ACTIONS : undefined,
     },
@@ -395,6 +418,14 @@ function normalizeCompletionInput(
     value: {
       sessionId: typeof args.sessionId === 'string' ? args.sessionId : undefined,
       dimensionId,
+      analysisUnitIds: uniqueStrings([
+        ...(typeof args.unitId === 'string' ? [args.unitId] : []),
+        ...stringArray(args.analysisUnitIds),
+      ]),
+      skippedAnalysisUnitIds: stringArray(args.skippedAnalysisUnitIds),
+      rejectedAnalysisUnitIds: stringArray(args.rejectedAnalysisUnitIds),
+      remainingAnalysisUnitIds: stringArray(args.remainingAnalysisUnitIds),
+      deviationReason: typeof args.deviationReason === 'string' ? args.deviationReason : undefined,
       submittedRecipeIds: submittedRecipeIds.filter((id): id is string => typeof id === 'string'),
       analysisText,
       referencedFiles: stringArray(args.referencedFiles),
@@ -708,6 +739,7 @@ async function persistDimensionCheckpoint({
   referencedFiles,
   submittedRecipeIds,
   skillCreated,
+  ideAgentAnalysisProgress,
   dependencies,
 }: {
   session: ExternalWorkflowSession;
@@ -718,6 +750,7 @@ async function persistDimensionCheckpoint({
   referencedFiles: string[];
   submittedRecipeIds: string[];
   skillCreated: boolean;
+  ideAgentAnalysisProgress: ReturnType<typeof buildIDEAgentAnalysisProgressBackfill>;
   dependencies: ExternalDimensionCompletionDependencies;
 }): Promise<void> {
   try {
@@ -728,6 +761,7 @@ async function persistDimensionCheckpoint({
       referencedFiles: referencedFiles.length,
       recipeIds: submittedRecipeIds,
       skillCreated,
+      ideAgentAnalysisProgress,
     });
   } catch (err: unknown) {
     logger.warn(
@@ -947,6 +981,10 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+function uniqueStrings(value: readonly string[]): string[] {
+  return [...new Set(value.filter((item) => item.trim().length > 0))];
 }
 
 function validationFailure(

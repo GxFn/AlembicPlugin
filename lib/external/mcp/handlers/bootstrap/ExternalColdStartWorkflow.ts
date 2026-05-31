@@ -13,6 +13,7 @@ import type { WorkflowLogger } from '@alembic/core/host-agent-workflows';
 import {
   buildColdStartWorkflowPlan,
   buildExternalMissionBriefing,
+  buildIDEAgentAnalysisPacketFromSnapshot,
   createExternalColdStartIntent,
   createExternalWorkflowSession,
   getActiveExternalWorkflowSession,
@@ -26,6 +27,7 @@ import {
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 
@@ -149,21 +151,29 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
       localPackageModules,
     },
   });
+  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(snapshot, {
+    profile: 'cold-start',
+  });
+  const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
+  const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(briefing, ideAgentAnalysis);
 
   // 附加 warnings
   if (phaseResults.warnings.length > 0) {
-    briefing.meta = briefing.meta || {};
-    briefing.meta.warnings = [...(briefing.meta.warnings || []), ...phaseResults.warnings];
+    briefingWithIdeAgentSurface.meta = briefingWithIdeAgentSurface.meta || {};
+    const existingWarnings = Array.isArray(briefingWithIdeAgentSurface.meta.warnings)
+      ? briefingWithIdeAgentSurface.meta.warnings
+      : [];
+    briefingWithIdeAgentSurface.meta.warnings = [...existingWarnings, ...phaseResults.warnings];
   }
 
   ctx.logger.info(
     `[BootstrapExternal] Mission Briefing ready: ${allFiles.length} files, ${dimensions.length} dims, ` +
-      `${briefing.meta?.responseSizeKB || '?'}KB — session ${session.id}`
+      `${briefingWithIdeAgentSurface.meta?.responseSizeKB || '?'}KB — session ${session.id}`
   );
 
   return presentExternalColdStartResponse({
     cleanupResult,
-    briefing,
+    briefing: briefingWithIdeAgentSurface,
     dimensionCount: dimensions.length,
     responseTimeMs: Date.now() - t0,
   });
@@ -176,3 +186,22 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
  * 仍然返回该 session（支持新 bootstrap 创建后旧 session 的 dimension_complete 继续工作）。
  */
 export { getActiveExternalWorkflowSession as getActiveSession };
+
+function attachIDEAgentAnalysisSurface<T extends { meta?: Record<string, unknown> }>(
+  briefing: T,
+  ideAgentAnalysis: ReturnType<typeof buildIDEAgentAnalysisSurface>
+): T & { ideAgentAnalysis: typeof ideAgentAnalysis; meta: Record<string, unknown> } {
+  return {
+    ...briefing,
+    ideAgentAnalysis,
+    meta: {
+      ...(briefing.meta || {}),
+      ideAgentAnalysis: {
+        packetId: ideAgentAnalysis.packetSummary.packetId,
+        profile: ideAgentAnalysis.packetSummary.profile,
+        totalUnits: ideAgentAnalysis.progress.totalUnits,
+        remainingUnits: ideAgentAnalysis.progress.remainingUnitIds.length,
+      },
+    },
+  };
+}

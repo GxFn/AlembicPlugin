@@ -11,6 +11,12 @@ import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
+  buildPluginOpportunisticEvolutionSurface,
+  extractTaskCloseOutcome,
+  shouldAttachPluginOpportunisticEvolution,
+} from '#codex/evolution/PluginOpportunisticEvolution.js';
+import { GitDiffScanner } from '#service/evolution/git-diff-checkpoint/GitDiffScanner.js';
+import {
   type HostTurnMetaInput,
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/HostIntentFrame.js';
@@ -973,10 +979,16 @@ export class CodexMcpServer {
         surface: 'codex',
         hostTurnMeta: options.hostTurnMeta,
       });
-      return attachCodexExecutionContext(
+      const codexResult = attachCodexExecutionContext(
         attachCodexServiceBoundary(result, serviceBoundary),
         executionContext,
         this.projectRoot
+      );
+      return this.attachPluginOpportunisticEvolutionSurface(
+        name,
+        args,
+        codexResult,
+        executionContext
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -989,6 +1001,34 @@ export class CodexMcpServer {
         this.projectRoot
       );
     }
+  }
+
+  private async attachPluginOpportunisticEvolutionSurface(
+    name: string,
+    args: Record<string, unknown>,
+    result: unknown,
+    executionContext: CodexToolExecutionContext
+  ): Promise<unknown> {
+    if (!shouldAttachPluginOpportunisticEvolution({ args, toolName: name })) {
+      return result;
+    }
+    const toolOutcome = extractTaskCloseOutcome(result);
+    if (!toolOutcome) {
+      return result;
+    }
+    const surface = await buildPluginOpportunisticEvolutionSurface({
+      projectRoot: this.projectRoot,
+      scanner: new GitDiffScanner({ projectRoot: this.projectRoot }),
+      serviceGate: {
+        mainServiceCanHandleProjectScope: executionContext.residentProjectScopeAvailable,
+        residentProjectScopeAvailable: executionContext.residentProjectScopeAvailable,
+        reason: executionContext.residentProjectScopeAvailable
+          ? 'Alembic resident ProjectScope is ready for this source folder.'
+          : 'Alembic resident ProjectScope is unavailable, disabled, or unable to accept this source folder; Plugin fallback may inspect one-shot git diff evidence.',
+      },
+      toolOutcome,
+    });
+    return attachNestedData(result, { opportunisticEvolution: surface });
   }
 
   private async getPluginOwnedMcpServer(
@@ -1226,6 +1266,24 @@ function attachCodexExecutionContext(
           'ProjectScope resident identity is ready; Plugin-owned Codex tool execution uses the resident ghost dataRoot instead of creating runtime data in the bound source folder.',
         serviceScopeId: identity.serviceScopeId,
       },
+    },
+  };
+}
+
+function attachNestedData(result: unknown, patch: Record<string, unknown>): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return result;
+  }
+  const record = result as Record<string, unknown>;
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {};
+  return {
+    ...record,
+    data: {
+      ...data,
+      ...patch,
     },
   };
 }

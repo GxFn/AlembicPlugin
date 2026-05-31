@@ -278,6 +278,18 @@ export const SubmitKnowledgeItemSchema = z.object({
   moduleName: z.string().optional(),
   includeHeaders: z.boolean().optional(),
   source: z.string().optional(),
+  unitId: z
+    .string()
+    .optional()
+    .describe('IDEAgentAnalysisUnit.unitId linkage; optional for backwards compatibility'),
+  analysisUnitIds: z
+    .array(z.string())
+    .optional()
+    .describe('One or more IDEAgentAnalysisUnit ids covered by this knowledge item'),
+  sourceRefs: z
+    .array(z.string())
+    .optional()
+    .describe('Source references used as evidence for IDE Agent unit linkage'),
 });
 
 export const SubmitKnowledgeInput = z.object({
@@ -286,7 +298,8 @@ export const SubmitKnowledgeInput = z.object({
     .min(1)
     .describe(
       '知识条目数组（1~N 条）。单条与批量统一处理，所有条目严格校验 + 融合分析。' +
-        '每条字段: title, language, content(对象), kind, doClause, dontClause, whenClause, coreCode, category(业务/组件分类), trigger, description, headers, usageGuide, knowledgeType(知识类型), reasoning(对象), dimensionId(维度归属)。'
+        '每条字段: title, language, content(对象), kind, doClause, dontClause, whenClause, coreCode, category(业务/组件分类), trigger, description, headers, usageGuide, knowledgeType(知识类型), reasoning(对象), dimensionId(维度归属)。' +
+        '可选 unitId / analysisUnitIds / sourceRefs 用于 IDE Agent packet linkage，不传时沿用既有路径。'
     ),
   target_name: z.string().optional().describe('来源标识，如 network-module-scan'),
   source: z.string().optional().describe('来源标记，默认 mcp'),
@@ -380,6 +393,27 @@ export const DimensionCompleteInput = z.object({
   sessionId: z.string().optional(),
   dimensionId: z.string().min(1, 'dimensionId is required'),
   submittedRecipeIds: z.array(z.string()).optional(),
+  unitId: z.string().optional().describe('单个 IDEAgentAnalysisUnit id；兼容 analysisUnitIds 简写'),
+  analysisUnitIds: z
+    .array(z.string())
+    .optional()
+    .describe('本次完成覆盖的 IDEAgentAnalysisUnit ids'),
+  skippedAnalysisUnitIds: z
+    .array(z.string())
+    .optional()
+    .describe('本次显式跳过的 IDEAgentAnalysisUnit ids'),
+  rejectedAnalysisUnitIds: z
+    .array(z.string())
+    .optional()
+    .describe('本次拒绝或无法完成的 IDEAgentAnalysisUnit ids'),
+  remainingAnalysisUnitIds: z
+    .array(z.string())
+    .optional()
+    .describe('宿主仍需继续处理的 IDEAgentAnalysisUnit ids'),
+  deviationReason: z
+    .string()
+    .optional()
+    .describe('跳过、拒绝或偏离 Core completionContract 的原因'),
   analysisText: z
     .string()
     .min(1, 'analysisText is required')
