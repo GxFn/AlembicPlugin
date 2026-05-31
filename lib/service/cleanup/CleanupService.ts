@@ -3,7 +3,7 @@
  *
  * 提供两种清理模式:
  *   - fullReset(): 全量清理 — 将旧数据打包到时间戳垃圾桶文件夹，DB 表清空
- *   - rescanClean(): Rescan 清理 — 保留 Recipe，清除衍生缓存
+ *   - rescanClean(): Rescan 清理 — 保留 Recipe / Project Skill source，清除衍生缓存
  *   - snapshotRecipes(): 快照当前活跃 Recipe 信息
  *   - purgeExpiredTrash(): 清除超时限的垃圾桶文件夹
  *
@@ -302,11 +302,11 @@ export class CleanupService {
   // ─── 需求 B：Rescan 清理（保留 Recipe） ───────────────
 
   /**
-   * Rescan 清理 — 保留 Recipe，清除衍生缓存
+   * Rescan 清理 — 保留 Recipe / Project Skill source，清除衍生缓存
    *
    * 清除: 衍生 DB 表、pending/rejected/deprecated 知识条目、
-   *       candidates/、skills/、wiki/、向量索引、bootstrap-report
-   * 保留: recipes/、active/published/staging/evolving 知识条目、
+   *       candidates/、wiki/、向量索引、bootstrap-report
+   * 保留: recipes/、skills/、active/published/staging/evolving 知识条目、
    *       knowledge_edges、evolution_proposals、
    *       bootstrap_snapshots、bootstrap_dim_files、recipe_source_refs
    */
@@ -347,8 +347,8 @@ export class CleanupService {
     // 2. 清空 candidates/ 目录
     result.deletedFiles += this.#clearDirectory(path.join(this.#dataRoot, CANDIDATES_DIR));
 
-    // 3. 清空 skills/ 目录
-    result.deletedFiles += this.#clearDirectory(getProjectSkillsPath(this.#dataRoot));
+    // 3. 保留 skills/：AP-KS Project Skill source 的唯一真源在 dataRoot/Alembic/skills。
+    //    如果这里清空，projectRoot/.agents/skills 的 Codex runtime symlink 会变成断链。
 
     // 4. 清空 wiki/ 目录
     result.deletedFiles += this.#clearDirectory(
@@ -381,8 +381,8 @@ export class CleanupService {
    * 这些表是增量管线的核心状态，保留以支持后续增量 diff 计算。
    *
    * 清除: 衍生 DB 表（code_entities 等）、pending/rejected/deprecated 知识条目、
-   *       candidates/、skills/、wiki/、向量索引、bootstrap-report
-   * 保留: recipes/、active/published/staging/evolving 知识条目、
+   *       candidates/、wiki/、向量索引、bootstrap-report
+   * 保留: recipes/、skills/、active/published/staging/evolving 知识条目、
    *       knowledge_edges、evolution_proposals、bootstrap_snapshots、recipe_source_refs
    */
   async forceRescanClean(): Promise<CleanupResult> {
@@ -421,8 +421,7 @@ export class CleanupService {
     // 2. 清空 candidates/ 目录
     result.deletedFiles += this.#clearDirectory(path.join(this.#dataRoot, CANDIDATES_DIR));
 
-    // 3. 清空 skills/ 目录
-    result.deletedFiles += this.#clearDirectory(getProjectSkillsPath(this.#dataRoot));
+    // 3. 保留 skills/，原因同 rescanClean：这是 Project Skill source，不是衍生缓存。
 
     // 4. 清空 wiki/ 目录
     result.deletedFiles += this.#clearDirectory(

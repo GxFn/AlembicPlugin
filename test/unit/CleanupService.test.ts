@@ -53,4 +53,36 @@ describe('CleanupService', () => {
     expect(fs.existsSync(path.join(tmpDir, '.asd', 'bootstrap-report.json'))).toBe(false);
     expect(fs.existsSync(path.join(tmpDir, 'Alembic', '.asd', 'bootstrap-report.json'))).toBe(true);
   });
+
+  test('rescanClean preserves Project Skill source files', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-cleanup-'));
+    const skillPath = path.join(tmpDir, 'Alembic', 'skills', 'project-architecture', 'SKILL.md');
+    const candidatePath = path.join(tmpDir, 'Alembic', 'candidates', 'candidate.md');
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
+    fs.writeFileSync(skillPath, '# Project Architecture\n');
+    fs.writeFileSync(candidatePath, '# Candidate\n');
+
+    const service = new CleanupService({ projectRoot: '/project', dataRoot: tmpDir });
+    await service.rescanClean();
+
+    expect(fs.existsSync(skillPath)).toBe(true);
+    expect(fs.existsSync(candidatePath)).toBe(false);
+  });
+
+  test('forceRescanClean preserves Project Skill source files', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-cleanup-'));
+    const skillPath = path.join(tmpDir, 'Alembic', 'skills', 'project-architecture', 'SKILL.md');
+    const candidatePath = path.join(tmpDir, 'Alembic', 'candidates', 'candidate.md');
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
+    fs.writeFileSync(skillPath, '# Project Architecture\n');
+    fs.writeFileSync(candidatePath, '# Candidate\n');
+
+    const service = new CleanupService({ projectRoot: '/project', dataRoot: tmpDir });
+    await service.forceRescanClean();
+
+    expect(fs.existsSync(skillPath)).toBe(true);
+    expect(fs.existsSync(candidatePath)).toBe(false);
+  });
 });

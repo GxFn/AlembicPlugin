@@ -48,6 +48,7 @@ import {
   writeCodexSavedProjectRoot,
 } from '../../codex/index.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
+import { resetServiceContainer } from '../../injection/ServiceContainer.js';
 import {
   type AlembicResidentProjectScopeIdentity,
   AlembicResidentServiceClient,
@@ -181,6 +182,20 @@ function resolveWorkspaceModeConflict(
   return { existingMode, projectId: entry.id, requestedMode };
 }
 
+let sharedPluginOwnedMcpServer: EmbeddedMcpServer | null = null;
+let sharedPluginOwnedMcpServerKey: string | null = null;
+
+async function resetPluginOwnedMcpServer(): Promise<void> {
+  const server = sharedPluginOwnedMcpServer;
+  sharedPluginOwnedMcpServer = null;
+  sharedPluginOwnedMcpServerKey = null;
+  try {
+    await server?.shutdown();
+  } finally {
+    resetServiceContainer();
+  }
+}
+
 export class CodexMcpServer {
   readonly projectRoot: string;
   readonly projectRootResolution: CodexProjectRootResolution;
@@ -188,8 +203,6 @@ export class CodexMcpServer {
   readonly waitUntilReadyMs: number;
   readonly sessionId: string;
   sdkServer: SdkMcpServer | null = null;
-  #pluginOwnedMcpServer: EmbeddedMcpServer | null = null;
-  #pluginOwnedMcpServerKey: string | null = null;
   #residentServiceClient: AlembicResidentServiceClient | null = null;
   #initPromise: Promise<Record<string, unknown>> | null = null;
   #initRuntimeState: CodexInitRuntimeState = {
@@ -225,10 +238,7 @@ export class CodexMcpServer {
     if (this.sdkServer) {
       await this.sdkServer.close();
     }
-    if (this.#pluginOwnedMcpServer) {
-      await this.#pluginOwnedMcpServer.shutdown();
-      this.#pluginOwnedMcpServer = null;
-    }
+    await resetPluginOwnedMcpServer();
   }
 
   registerHandlers(): void {
@@ -989,14 +999,10 @@ export class CodexMcpServer {
       executionContext.projectScopeIdentity?.projectScopeId ?? 'single-folder',
       executionContext.projectScopeIdentity?.currentFolderId ?? '',
     ].join('\0');
-    if (this.#pluginOwnedMcpServer && this.#pluginOwnedMcpServerKey === scopeKey) {
-      return this.#pluginOwnedMcpServer;
+    if (sharedPluginOwnedMcpServer && sharedPluginOwnedMcpServerKey === scopeKey) {
+      return sharedPluginOwnedMcpServer;
     }
-    if (this.#pluginOwnedMcpServer) {
-      await this.#pluginOwnedMcpServer.shutdown();
-      this.#pluginOwnedMcpServer = null;
-      this.#pluginOwnedMcpServerKey = null;
-    }
+    await resetPluginOwnedMcpServer();
 
     const previousProjectDir = process.env.ALEMBIC_PROJECT_DIR;
     const previousProjectScopeSummary = process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
@@ -1019,9 +1025,17 @@ export class CodexMcpServer {
       // Plugin-owned Codex tools use the embedded Plugin handler tree. Alembic daemon can still
       // serve resident capabilities, but it must not replace Codex-facing task payload ownership.
       await server.initialize();
-      this.#pluginOwnedMcpServer = server;
-      this.#pluginOwnedMcpServerKey = scopeKey;
+      sharedPluginOwnedMcpServer = server;
+      sharedPluginOwnedMcpServerKey = scopeKey;
       return server;
+    } catch (err: unknown) {
+      try {
+        await server.shutdown();
+      } catch {
+        // Ignore shutdown errors while preserving the original initialization failure.
+      }
+      resetServiceContainer();
+      throw err;
     } finally {
       if (previousProjectDir === undefined) {
         delete process.env.ALEMBIC_PROJECT_DIR;
@@ -1159,6 +1173,10 @@ export class CodexMcpServer {
     });
     return { blocked: block, daemon, enhancementRoute, hostProjectAlignment };
   }
+}
+
+export async function resetCodexPluginOwnedMcpServerForTests(): Promise<void> {
+  await resetPluginOwnedMcpServer();
 }
 
 export { getVisibleCodexTools };

@@ -458,6 +458,7 @@ export function resetServiceContainer() {
   if (containerInstance) {
     containerInstance.reset();
   }
+  containerInstance = null;
 }
 
 export default ServiceContainer;

@@ -6,6 +6,7 @@ import {
   readCodexSnapshotState,
   readCodexSourceRefState,
 } from '#infra/database/SqliteDatabaseAccess.js';
+import { countProjectSkillKnowledgeEntries } from '../repository/skills/ProjectSkillKnowledgeRepository.js';
 
 export type CodexKnowledgeStatus =
   | 'not_initialized'
@@ -112,6 +113,7 @@ export interface CodexSnapshotState {
 }
 
 export interface CodexKnowledgeState {
+  databaseEntryCount?: number;
   freshness?: CodexKnowledgeFreshness;
   hasKnowledge: boolean;
   initialized: boolean;
@@ -203,12 +205,18 @@ export function inspectCodexKnowledge(projectRoot: string): CodexKnowledgeState 
   const skillScan = scanSkillFiles(resolver.skillsDir);
   const recipeCount = recipeScan.count;
   const skillCount = skillScan.count;
-  const hasKnowledge = recipeCount > 0 || skillCount > 0;
+  const databaseEntryCount = countProjectSkillKnowledgeEntries(resolver.dataRoot);
+  const hasKnowledge = recipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;
   const usable = initialized && hasKnowledge;
   const jobs = inspectCodexJobActivity(resolver);
   const sourceRefs = inspectCodexSourceRefs(resolver);
   const snapshots = inspectCodexSnapshots(resolver);
-  const latestKnowledgeMtimeMs = Math.max(recipeScan.latestMtimeMs, skillScan.latestMtimeMs, 0);
+  const latestKnowledgeMtimeMs = Math.max(
+    recipeScan.latestMtimeMs,
+    skillScan.latestMtimeMs,
+    databaseEntryCount > 0 ? safeExistingMtimeMs(resolver.databasePath) : 0,
+    0
+  );
   const freshness = buildCodexKnowledgeFreshness({
     jobs,
     latestKnowledgeAt:
@@ -224,6 +232,7 @@ export function inspectCodexKnowledge(projectRoot: string): CodexKnowledgeState 
     usable,
   });
   return {
+    databaseEntryCount,
     freshness,
     hasKnowledge,
     initialized,

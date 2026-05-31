@@ -60,6 +60,21 @@ describe('Codex knowledge state', () => {
     expect(state.vector?.nonBlocking).toBe(true);
   });
 
+  test('treats database knowledge entries as usable without markdown files', () => {
+    const root = createProject();
+    initializeWorkspace(root);
+    seedKnowledgeEntries(root);
+
+    const state = inspectCodexKnowledge(root);
+
+    expect(state.status).toBe('knowledge_ready');
+    expect(state.usable).toBe(true);
+    expect(state.hasKnowledge).toBe(true);
+    expect(state.recipeCount).toBe(0);
+    expect(state.skillCount).toBe(0);
+    expect(state.databaseEntryCount).toBe(1);
+  });
+
   test('marks knowledge stale when the latest refresh job failed after current knowledge', () => {
     const root = createProject();
     initializeWorkspace(root);
@@ -222,6 +237,24 @@ function seedCodexDatabase(root: string) {
         ('snap_1', 'session_1', ?, '2026-05-12T00:00:00Z', 10, 2, 3,
          'typescript', 1, '["src/a.ts","src/b.ts"]', '["architecture"]', 'complete')`
     ).run(root);
+  } finally {
+    db.close();
+  }
+}
+
+function seedKnowledgeEntries(root: string) {
+  const db = new Database(join(root, '.asd', 'alembic.db'));
+  try {
+    db.exec(`
+      CREATE TABLE knowledge_entries (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL
+      );
+    `);
+    db.prepare('INSERT INTO knowledge_entries (id, title) VALUES (?, ?)').run(
+      'entry_1',
+      'Database-backed knowledge'
+    );
   } finally {
     db.close();
   }

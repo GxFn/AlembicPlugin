@@ -22,7 +22,11 @@ import {
   readCodexInitMarker,
 } from '../../lib/codex/ProjectRootResolver.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
-import { CodexMcpServer, getVisibleCodexTools } from '../../lib/external/mcp/CodexMcpServer.js';
+import {
+  CodexMcpServer,
+  getVisibleCodexTools,
+  resetCodexPluginOwnedMcpServerForTests,
+} from '../../lib/external/mcp/CodexMcpServer.js';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -253,9 +257,10 @@ function makeSupervisor(status: DaemonStatus) {
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
   // Codex-facing tools now execute in the Plugin process, so tests must clear
   // per-project globals between temporary workspaces.
+  await resetCodexPluginOwnedMcpServerForTests();
   resetServiceContainer();
   pathGuard._reset();
   if (ORIGINAL_ALEMBIC_HOME === undefined) {
@@ -1484,6 +1489,34 @@ describe('CodexMcpServer', () => {
       owner: 'alembic-plugin',
       tool: 'alembic_bootstrap',
     });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('projectRoot override can switch Plugin-owned bootstrap between projects', async () => {
+    useTempAlembicHome();
+    const firstProjectRoot = makeProjectRoot();
+    const secondProjectRoot = makeProjectRoot();
+    makeInitializedWorkspace(firstProjectRoot);
+    makeInitializedWorkspace(secondProjectRoot);
+    fs.writeFileSync(path.join(firstProjectRoot, 'index.ts'), 'export const first = 1;\n');
+    fs.writeFileSync(path.join(secondProjectRoot, 'index.ts'), 'export const second = 2;\n');
+    const supervisor = makeSupervisor(makeDaemonStatus(firstProjectRoot));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      throw new Error(`Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`);
+    });
+    const server = new CodexMcpServer({ supervisor });
+
+    const first = (await server.handleToolCall('alembic_bootstrap', {
+      projectRoot: firstProjectRoot,
+    })) as { message?: string; success: boolean };
+    const second = (await server.handleToolCall('alembic_bootstrap', {
+      projectRoot: secondProjectRoot,
+    })) as { message?: string; success: boolean };
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(second.message || '').not.toContain('不允许在同一进程中切换项目');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
