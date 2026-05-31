@@ -580,7 +580,7 @@ describe('CodexMcpServer', () => {
     };
 
     expect(result.success).toBe(true);
-    expect(result.data?.replacementFor).toBe('alembic_skill');
+    expect(result.data?.replacementFor).toBeUndefined();
     expect(result.data?.codexRuntime?.root).toBe(path.join(projectRoot, '.agents', 'skills'));
   });
 

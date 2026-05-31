@@ -124,7 +124,6 @@ export class ProjectSkillService {
           total: runtimeExports.length,
         },
         sourceRoot,
-        replacementFor: 'alembic_skill',
         hint: 'Project Skills use dataRoot/Alembic/skills as source and .agents/skills symlinks as Codex runtime projection. Same-name project skills intentionally override built-in skills.',
       },
     };
@@ -246,7 +245,6 @@ export class ProjectSkillService {
         overwritten: existedBefore,
         deliveryReceipt: exportResult?.receipt ?? receipt,
         runtimeExport: exportResult ? summarizeExportResult(exportResult) : receipt.runtimeExport,
-        replacementFor: 'alembic_skill',
       },
     };
   }

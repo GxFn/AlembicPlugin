@@ -46,6 +46,7 @@ copyTree('channels', 'channels');
 copyTree('.agents', '.agents');
 copyEmbeddedCorePackage();
 copyBundledRuntimeDependencies();
+patchBundledRuntimeDependencies();
 copyPluginShellSnapshot();
 const runtimeTarballPath = packRuntimeTarball();
 
@@ -262,6 +263,37 @@ function copyBundledRuntimeDependencies() {
     force: true,
     recursive: true,
   });
+}
+
+function patchBundledRuntimeDependencies() {
+  patchBetterSqlitePackage();
+}
+
+function patchBetterSqlitePackage() {
+  const packagePath = join(runtimeRoot, 'node_modules', 'better-sqlite3', 'package.json');
+  const nativeBinding = join(
+    runtimeRoot,
+    'node_modules',
+    'better-sqlite3',
+    'build',
+    'Release',
+    'better_sqlite3.node'
+  );
+  if (!existsSync(packagePath)) {
+    return;
+  }
+  assert(
+    existsSync(nativeBinding),
+    'Embedded runtime dependency better-sqlite3 is missing build/Release/better_sqlite3.node'
+  );
+  const pkg = readJson(packagePath);
+  const files = new Set(Array.isArray(pkg.files) ? pkg.files : []);
+  files.add('build/**');
+  pkg.files = [...files];
+  if (pkg.scripts && typeof pkg.scripts === 'object') {
+    delete pkg.scripts.install;
+  }
+  writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
 function copyFile(sourceRelative, destinationRelative, options = {}) {

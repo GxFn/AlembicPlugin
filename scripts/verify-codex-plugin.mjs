@@ -212,6 +212,10 @@ expect(
   wrapperSource.includes("'--offline'") && wrapperSource.includes('npm_config_offline'),
   'plugin MCP wrapper must force npx runtime install to use the self-contained offline package'
 );
+expect(
+  wrapperSource.includes('npm_config_ignore_scripts'),
+  'plugin MCP wrapper must skip dependency install scripts for the self-contained runtime package'
+);
 expect(server?.cwd === '.', '.mcp.json must run from the installed plugin root');
 expect(existsSync(runtimeTarballPath), 'embedded runtime tarball runtime.tgz must exist');
 expect(
@@ -302,6 +306,7 @@ for (const requiredRuntimeFile of [
   'config/default.json',
   'templates/constitution.yaml',
   'injectable-skills/alembic-guard/SKILL.md',
+  'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
   'resources/grammars/tree-sitter-typescript.wasm',
   'vendor/AlembicCore/package.json',
   'vendor/AlembicCore/.alembic-source.json',

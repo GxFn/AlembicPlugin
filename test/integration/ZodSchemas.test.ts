@@ -44,7 +44,6 @@ import {
   HealthInput,
   KnowledgeInput,
   SearchInput,
-  SkillInput,
   StructureInput,
   TaskInput,
   TOOL_SCHEMAS,
@@ -338,18 +337,6 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     });
   });
 
-  describe('SkillInput', () => {
-    test('should require operation', () => {
-      expect(() => SkillInput.parse({})).toThrow();
-    });
-
-    test('should accept valid operation', () => {
-      const result = SkillInput.parse({ operation: 'list' });
-      expect(result.operation).toBe('list');
-      expect(result.overwrite).toBe(false);
-    });
-  });
-
   describe('TOOL_SCHEMAS mapping', () => {
     test('should have schema for every MCP tool', () => {
       const expectedTools = [
@@ -361,7 +348,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         'alembic_call_context',
         'alembic_guard',
         'alembic_submit_knowledge',
-        'alembic_skill',
+        'alembic_project_skill',
         'alembic_bootstrap',
         'alembic_dimension_complete',
         'alembic_task',

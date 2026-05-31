@@ -1,5 +1,4 @@
 import { rmSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
 import {
   type AlembicResidentServiceResult,
   JobStore,
@@ -10,12 +9,6 @@ import { ProjectRegistry } from '@alembic/core/workspace';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import {
-  buildPluginOpportunisticEvolutionSurface,
-  extractTaskCloseOutcome,
-  shouldAttachPluginOpportunisticEvolution,
-} from '#codex/evolution/PluginOpportunisticEvolution.js';
-import { GitDiffScanner } from '#service/evolution/git-diff-checkpoint/GitDiffScanner.js';
 import {
   type HostTurnMetaInput,
   readHostTurnMetaFromMcpRequest,
@@ -51,21 +44,28 @@ import {
   summarizeCodexDaemonStatus,
   summarizeCodexProjectRootResolution,
   writeCodexInitMarker,
-  writeCodexSavedProjectRoot,
 } from '../../codex/index.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
-import { resetServiceContainer } from '../../injection/ServiceContainer.js';
 import {
-  type AlembicResidentProjectScopeIdentity,
-  AlembicResidentServiceClient,
-} from '../../service/resident/AlembicResidentServiceClient.js';
+  type AlembicResidentCapabilityClients,
+  createAlembicResidentCapabilityClients,
+  isResidentProjectScopeReady,
+} from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
 import {
-  ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV,
-  serializeCodexProjectScopeSummary,
-} from '../../shared/project-scope-runtime.js';
+  CodexEmbeddedToolExecutor,
+  type CodexToolExecutionContext,
+  resetCodexPluginOwnedMcpServerForTests,
+  resetPluginOwnedMcpServer,
+} from './codex/embedded-executor.js';
 import { buildCodexHostProjectHandoffBlock } from './codex/host-project-handoff.js';
+import { dispatchCodexLocalTool } from './codex/local-tool-dispatcher.js';
+import { attachPluginOpportunisticEvolutionSurface } from './codex/opportunistic-evolution-presenter.js';
 import { safeProjectRootFallback } from './codex/project-root.js';
+import {
+  persistTrustedCodexProjectRootScope,
+  resolveCodexProjectRootScope,
+} from './codex/project-root-scope.js';
 import {
   attachCodexServiceBoundary,
   attachEnhancementRoute,
@@ -73,7 +73,6 @@ import {
   isErrorResult,
 } from './codex/results.js';
 import { getVisibleCodexTools } from './codex/tool-visibility.js';
-import { McpServer as EmbeddedMcpServer } from './McpServer.js';
 import { TIER_ORDER, TOOLS } from './tools.js';
 
 interface CodexMcpServerOptions {
@@ -115,12 +114,6 @@ interface CodexEnhancementDaemonResult {
   daemon: DaemonStatus;
   enhancementRoute: CodexEnhancementRouteChoice;
   hostProjectAlignment: CodexHostProjectAlignment;
-}
-
-interface CodexToolExecutionContext {
-  projectRoot: string;
-  projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
-  residentProjectScopeAvailable: boolean;
 }
 
 function summarizeResidentServiceResult(
@@ -188,20 +181,6 @@ function resolveWorkspaceModeConflict(
   return { existingMode, projectId: entry.id, requestedMode };
 }
 
-let sharedPluginOwnedMcpServer: EmbeddedMcpServer | null = null;
-let sharedPluginOwnedMcpServerKey: string | null = null;
-
-async function resetPluginOwnedMcpServer(): Promise<void> {
-  const server = sharedPluginOwnedMcpServer;
-  sharedPluginOwnedMcpServer = null;
-  sharedPluginOwnedMcpServerKey = null;
-  try {
-    await server?.shutdown();
-  } finally {
-    resetServiceContainer();
-  }
-}
-
 export class CodexMcpServer {
   readonly projectRoot: string;
   readonly projectRootResolution: CodexProjectRootResolution;
@@ -209,7 +188,8 @@ export class CodexMcpServer {
   readonly waitUntilReadyMs: number;
   readonly sessionId: string;
   sdkServer: SdkMcpServer | null = null;
-  #residentServiceClient: AlembicResidentServiceClient | null = null;
+  #embeddedToolExecutor: CodexEmbeddedToolExecutor | null = null;
+  #residentCapabilityClients: AlembicResidentCapabilityClients | null = null;
   #initPromise: Promise<Record<string, unknown>> | null = null;
   #initRuntimeState: CodexInitRuntimeState = {
     attempted: false,
@@ -284,34 +264,25 @@ export class CodexMcpServer {
     args: Record<string, unknown>,
     options: CodexToolCallOptions = {}
   ): Promise<unknown> {
-    const projectRootArg = args.projectRoot;
-    if (projectRootArg !== undefined) {
-      if (typeof projectRootArg !== 'string' || projectRootArg.trim().length === 0) {
-        return failureResult(name, 'projectRoot must be a non-empty absolute path string.', {
-          errorCode: 'CODEX_INVALID_PROJECT_ROOT_ARGUMENT',
-          required: { projectRoot: 'absolute path' },
-        });
-      }
-      if (!isAbsolute(projectRootArg)) {
-        return failureResult(name, 'projectRoot must be an absolute path.', {
-          errorCode: 'CODEX_INVALID_PROJECT_ROOT_ARGUMENT',
-          received: projectRootArg,
-          required: { projectRoot: 'absolute path' },
-        });
-      }
-      const scopedArgs = { ...args };
-      delete scopedArgs.projectRoot;
+    const scope = resolveCodexProjectRootScope(name, args);
+    if (scope.kind === 'failure') {
+      return scope.result;
+    }
+    if (scope.kind === 'scoped-project') {
       const scopedServer = new CodexMcpServer({
-        projectRoot: projectRootArg,
+        projectRoot: scope.override.projectRoot,
         supervisor: this.supervisor,
         waitUntilReadyMs: this.waitUntilReadyMs,
       });
-      if (isTrustedCodexProjectRoot(scopedServer.projectRootResolution)) {
-        writeCodexSavedProjectRoot(scopedServer.projectRoot);
-      }
-      return scopedServer.handleToolCallInCurrentProject(name, scopedArgs, options);
+      persistTrustedCodexProjectRootScope({
+        ...scope.override,
+        projectRoot: scopedServer.projectRoot,
+        resolution: scopedServer.projectRootResolution,
+        trusted: scope.override.trusted,
+      });
+      return scopedServer.handleToolCallInCurrentProject(name, scope.override.args, options);
     }
-    return this.handleToolCallInCurrentProject(name, args, options);
+    return this.handleToolCallInCurrentProject(name, scope.args, options);
   }
 
   private async handleToolCallInCurrentProject(
@@ -357,41 +328,34 @@ export class CodexMcpServer {
       return executePreflight.failure;
     }
 
-    switch (name) {
-      case 'alembic_codex_status':
-        return this.buildStatus();
-      case 'alembic_codex_diagnostics':
-        return this.buildDiagnostics();
-      case 'alembic_codex_init':
-        return this.initializeWorkspace(args);
-      case 'alembic_codex_dashboard': {
-        const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
-        return attachCodexServiceBoundary(await this.openDashboard(), serviceBoundary);
-      }
-      case 'alembic_codex_bootstrap': {
-        const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
-        return attachCodexServiceBoundary(
-          await this.enqueueJob('bootstrap', args),
-          serviceBoundary
-        );
-      }
-      case 'alembic_codex_rescan': {
-        const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
-        return attachCodexServiceBoundary(await this.enqueueJob('rescan', args), serviceBoundary);
-      }
-      case 'alembic_codex_job': {
-        const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
-        return attachCodexServiceBoundary(await this.readJob(args), serviceBoundary);
-      }
-      case 'alembic_codex_stop':
-        return this.stopDaemon(args);
-      case 'alembic_codex_cleanup':
-        return this.cleanupRuntime(args);
-      default: {
-        const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
-        return this.callPluginOwnedTool(name, args, serviceBoundary, executionContext, options);
-      }
+    const localDispatch = dispatchCodexLocalTool(name, args, {
+      buildDiagnostics: () => this.buildDiagnostics(),
+      buildStatus: () => this.buildStatus(),
+      cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
+      initializeWorkspace: (nextArgs) => this.initializeWorkspace(nextArgs),
+      openDashboard: async () =>
+        attachCodexServiceBoundary(
+          await this.openDashboard(),
+          resolveCodexServiceRequestBoundary(name, args)
+        ) as Record<string, unknown>,
+      enqueueJob: async (kind, nextArgs) =>
+        attachCodexServiceBoundary(
+          await this.enqueueJob(kind, nextArgs),
+          resolveCodexServiceRequestBoundary(name, args)
+        ),
+      readJob: async (nextArgs) =>
+        attachCodexServiceBoundary(
+          await this.readJob(nextArgs),
+          resolveCodexServiceRequestBoundary(name, args)
+        ) as Record<string, unknown>,
+      stopDaemon: (nextArgs) => this.stopDaemon(nextArgs),
+    });
+    if (localDispatch.handled) {
+      return localDispatch.result;
     }
+
+    const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
+    return this.callPluginOwnedTool(name, args, serviceBoundary, executionContext, options);
   }
 
   async buildStatus(): Promise<Record<string, unknown>> {
@@ -407,9 +371,11 @@ export class CodexMcpServer {
 
   async buildDiagnostics(): Promise<Record<string, unknown>> {
     const daemonStatus = await this.supervisor.status(this.projectRoot);
-    const residentClient = this.residentServiceClient();
-    const residentService = await residentClient.probe({ daemonStatus });
-    const projectScopeIdentity = await residentClient.resolveProjectScopeIdentity({ daemonStatus });
+    const residentClients = this.residentClients();
+    const residentService = await residentClients.probe.probe({ daemonStatus });
+    const projectScopeIdentity = await residentClients.projectScope.resolveProjectScopeIdentity({
+      daemonStatus,
+    });
     const runtime = resolveCodexRuntimeContext();
     const enhancementRoute = buildCodexEnhancementRouteChoice({
       daemonStatus,
@@ -684,9 +650,10 @@ export class CodexMcpServer {
 
   async openDashboard(): Promise<Record<string, unknown>> {
     const daemon = await this.supervisor.status(this.projectRoot);
-    const projectScopeIdentity = await this.residentServiceClient().resolveProjectScopeIdentity({
-      daemonStatus: daemon,
-    });
+    const projectScopeIdentity =
+      await this.residentClients().projectScope.resolveProjectScopeIdentity({
+        daemonStatus: daemon,
+      });
     const enhancementRoute = buildCodexEnhancementRouteChoice({
       daemonStatus: daemon,
       runtime: resolveCodexRuntimeContext(),
@@ -708,7 +675,9 @@ export class CodexMcpServer {
     if (blocked) {
       return blocked;
     }
-    const dashboardResult = await this.residentServiceClient().dashboard({ daemonStatus: daemon });
+    const dashboardResult = await this.residentClients().dashboard.dashboard({
+      daemonStatus: daemon,
+    });
     if (
       enhancementRoute.selected !== 'local-alembic-daemon' ||
       !daemon.ready ||
@@ -861,7 +830,7 @@ export class CodexMcpServer {
         }
       );
     }
-    const residentResult = await this.residentServiceClient().enqueueJob(kind, {
+    const residentResult = await this.residentClients().jobs.enqueueJob(kind, {
       daemonStatus: daemon,
       body: {
         ...args,
@@ -939,7 +908,7 @@ export class CodexMcpServer {
     }
 
     try {
-      const result = await this.residentServiceClient().readJob(args, { daemonStatus: daemon });
+      const result = await this.residentClients().jobs.readJob(args, { daemonStatus: daemon });
       if (!result.ok || isErrorResult(result.value)) {
         return null;
       }
@@ -960,157 +929,44 @@ export class CodexMcpServer {
     },
     options: CodexToolCallOptions = {}
   ): Promise<unknown> {
-    if (!TOOLS.some((tool) => tool.name === name)) {
-      return attachCodexServiceBoundary(
-        failureResult(name, `Unknown Alembic tool: ${name}`),
-        serviceBoundary
-      );
-    }
-
-    try {
-      const localMcp = await this.getPluginOwnedMcpServer(executionContext);
-      const result = await localMcp._executeMcpHandler(name, args, {
-        actor: {
-          role: 'external_agent',
-          user: process.env.USER || undefined,
-          sessionId: this.sessionId,
-        },
-        source: { kind: 'codex', name: 'plugin-owned-codex-facing' },
-        surface: 'codex',
-        hostTurnMeta: options.hostTurnMeta,
-      });
-      const codexResult = attachCodexExecutionContext(
-        attachCodexServiceBoundary(result, serviceBoundary),
-        executionContext,
-        this.projectRoot
-      );
-      return this.attachPluginOpportunisticEvolutionSurface(
-        name,
-        args,
-        codexResult,
-        executionContext
-      );
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return attachCodexExecutionContext(
-        attachCodexServiceBoundary(
-          failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`),
-          serviceBoundary
-        ),
-        executionContext,
-        this.projectRoot
-      );
-    }
-  }
-
-  private async attachPluginOpportunisticEvolutionSurface(
-    name: string,
-    args: Record<string, unknown>,
-    result: unknown,
-    executionContext: CodexToolExecutionContext
-  ): Promise<unknown> {
-    if (!shouldAttachPluginOpportunisticEvolution({ args, toolName: name })) {
-      return result;
-    }
-    const toolOutcome = extractTaskCloseOutcome(result);
-    if (!toolOutcome) {
-      return result;
-    }
-    const surface = await buildPluginOpportunisticEvolutionSurface({
-      projectRoot: this.projectRoot,
-      scanner: new GitDiffScanner({ projectRoot: this.projectRoot }),
-      serviceGate: {
-        mainServiceCanHandleProjectScope: executionContext.residentProjectScopeAvailable,
-        residentProjectScopeAvailable: executionContext.residentProjectScopeAvailable,
-        reason: executionContext.residentProjectScopeAvailable
-          ? 'Alembic resident ProjectScope is ready for this source folder.'
-          : 'Alembic resident ProjectScope is unavailable, disabled, or unable to accept this source folder; Plugin fallback may inspect one-shot git diff evidence.',
-      },
-      toolOutcome,
-    });
-    return attachNestedData(result, { opportunisticEvolution: surface });
-  }
-
-  private async getPluginOwnedMcpServer(
-    executionContext: CodexToolExecutionContext
-  ): Promise<EmbeddedMcpServer> {
-    const scopeKey = [
-      executionContext.projectRoot,
-      executionContext.projectScopeIdentity?.projectScopeId ?? 'single-folder',
-      executionContext.projectScopeIdentity?.currentFolderId ?? '',
-    ].join('\0');
-    if (sharedPluginOwnedMcpServer && sharedPluginOwnedMcpServerKey === scopeKey) {
-      return sharedPluginOwnedMcpServer;
-    }
-    await resetPluginOwnedMcpServer();
-
-    const previousProjectDir = process.env.ALEMBIC_PROJECT_DIR;
-    const previousProjectScopeSummary = process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
-    const previousCwd = safeProjectRootFallback();
-    process.env.ALEMBIC_PROJECT_DIR = executionContext.projectRoot;
-    const serializedProjectScope = serializeCodexProjectScopeSummary(
-      executionContext.projectScopeIdentity?.projectScope ?? null
+    const result = await this.embeddedToolExecutor().execute(
+      name,
+      args,
+      serviceBoundary,
+      executionContext,
+      options
     );
-    if (serializedProjectScope) {
-      process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV] = serializedProjectScope;
-    } else {
-      delete process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
-    }
-    const server = new EmbeddedMcpServer({
-      actorRole: 'external_agent',
-      source: { kind: 'codex', name: 'plugin-owned-codex-facing' },
-      surface: 'codex',
+    return attachPluginOpportunisticEvolutionSurface({
+      args,
+      executionContext,
+      projectRoot: this.projectRoot,
+      result,
+      toolName: name,
     });
-    try {
-      // Plugin-owned Codex tools use the embedded Plugin handler tree. Alembic daemon can still
-      // serve resident capabilities, but it must not replace Codex-facing task payload ownership.
-      await server.initialize();
-      sharedPluginOwnedMcpServer = server;
-      sharedPluginOwnedMcpServerKey = scopeKey;
-      return server;
-    } catch (err: unknown) {
-      try {
-        await server.shutdown();
-      } catch {
-        // Ignore shutdown errors while preserving the original initialization failure.
-      }
-      resetServiceContainer();
-      throw err;
-    } finally {
-      if (previousProjectDir === undefined) {
-        delete process.env.ALEMBIC_PROJECT_DIR;
-      } else {
-        process.env.ALEMBIC_PROJECT_DIR = previousProjectDir;
-      }
-      if (previousProjectScopeSummary === undefined) {
-        delete process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
-      } else {
-        process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV] = previousProjectScopeSummary;
-      }
-      try {
-        process.chdir(previousCwd);
-      } catch (err: unknown) {
-        process.stderr.write(
-          `[Codex MCP] failed to restore cwd after Plugin-owned tool init: ${
-            err instanceof Error ? err.message : String(err)
-          }\n`
-        );
-      }
-    }
   }
 
-  private residentServiceClient(): AlembicResidentServiceClient {
-    if (!this.#residentServiceClient) {
-      this.#residentServiceClient = new AlembicResidentServiceClient({
+  private residentClients(): AlembicResidentCapabilityClients {
+    if (!this.#residentCapabilityClients) {
+      this.#residentCapabilityClients = createAlembicResidentCapabilityClients({
         projectRoot: this.projectRoot,
       });
     }
-    return this.#residentServiceClient;
+    return this.#residentCapabilityClients;
+  }
+
+  private embeddedToolExecutor(): CodexEmbeddedToolExecutor {
+    if (!this.#embeddedToolExecutor) {
+      this.#embeddedToolExecutor = new CodexEmbeddedToolExecutor({
+        getSessionId: () => this.sessionId,
+        hostProjectRoot: this.projectRoot,
+      });
+    }
+    return this.#embeddedToolExecutor;
   }
 
   private async isResidentProjectScopeAvailable(): Promise<boolean> {
     try {
-      const identity = await this.residentServiceClient().resolveProjectScopeIdentity();
+      const identity = await this.residentClients().projectScope.resolveProjectScopeIdentity();
       return isResidentProjectScopeReady(identity);
     } catch {
       return false;
@@ -1126,7 +982,7 @@ export class CodexMcpServer {
       };
     }
     try {
-      const identity = await this.residentServiceClient().resolveProjectScopeIdentity({
+      const identity = await this.residentClients().projectScope.resolveProjectScopeIdentity({
         folderPath: this.projectRoot,
       });
       const residentProjectScopeAvailable = isResidentProjectScopeReady(identity);
@@ -1152,7 +1008,7 @@ export class CodexMcpServer {
   ): Promise<CodexEnhancementDaemonResult> {
     const currentDaemon = await this.supervisor.status(this.projectRoot);
     const currentProjectScopeIdentity =
-      await this.residentServiceClient().resolveProjectScopeIdentity({
+      await this.residentClients().projectScope.resolveProjectScopeIdentity({
         daemonStatus: currentDaemon,
       });
     const currentEnhancementRoute = buildCodexEnhancementRouteChoice({
@@ -1215,78 +1071,7 @@ export class CodexMcpServer {
   }
 }
 
-export async function resetCodexPluginOwnedMcpServerForTests(): Promise<void> {
-  await resetPluginOwnedMcpServer();
-}
-
-export { getVisibleCodexTools };
-
-function isResidentProjectScopeReady(
-  identity: AlembicResidentProjectScopeIdentity | null | undefined
-): boolean {
-  return (
-    identity?.available === true &&
-    identity.mode === 'project-scope' &&
-    identity.resident.owner === 'alembic' &&
-    identity.resident.route === 'local-alembic-daemon'
-  );
-}
-
-function attachCodexExecutionContext(
-  result: unknown,
-  executionContext: CodexToolExecutionContext,
-  hostProjectRoot: string
-): unknown {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return result;
-  }
-  if (!executionContext.residentProjectScopeAvailable || !executionContext.projectScopeIdentity) {
-    return result;
-  }
-  const record = result as Record<string, unknown>;
-  const data =
-    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : {};
-  const identity = executionContext.projectScopeIdentity;
-  return {
-    ...record,
-    data: {
-      ...data,
-      codexProjectScopeExecution: {
-        controlRoot: identity.controlRoot,
-        currentFolderId: identity.currentFolderId,
-        currentFolderPath: identity.currentFolderPath,
-        dataRoot: identity.dataRoot,
-        enabled: true,
-        hostProjectRoot,
-        mode: identity.mode,
-        projectScopeId: identity.projectScopeId,
-        reason:
-          'ProjectScope resident identity is ready; Plugin-owned Codex tool execution uses the resident ghost dataRoot instead of creating runtime data in the bound source folder.',
-        serviceScopeId: identity.serviceScopeId,
-      },
-    },
-  };
-}
-
-function attachNestedData(result: unknown, patch: Record<string, unknown>): unknown {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return result;
-  }
-  const record = result as Record<string, unknown>;
-  const data =
-    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : {};
-  return {
-    ...record,
-    data: {
-      ...data,
-      ...patch,
-    },
-  };
-}
+export { getVisibleCodexTools, resetCodexPluginOwnedMcpServerForTests };
 
 export async function startCodexMcpServer(): Promise<CodexMcpServer> {
   const server = new CodexMcpServer();

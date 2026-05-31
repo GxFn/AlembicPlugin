@@ -185,80 +185,11 @@ export async function consolidatedGuard(ctx: McpContext, args: ConsolidatedGuard
   return guardHandlers.guardReview(ctx, args);
 }
 
-// ─── alembic_skill (整合 6 → 1) ─────────────────────────
-
-/**
- * Skill 管理：根据 operation 参数路由
- *   list    → listSkills()
- *   load    → loadSkill()
- *   create  → ProjectSkillService.upsert()
- *   update  → ProjectSkillService.upsert()
- *   delete  → ProjectSkillService.delete()
- *
- * @deprecated Prefer alembic_project_skill. This compatibility route now uses
- * the same ProjectSkillService instead of the retired legacy storage writer.
- */
-export async function consolidatedSkill(ctx: McpContext, args: ConsolidatedSkillArgs) {
-  const op = args.operation;
-  if (!op) {
-    throw new Error(
-      'Missing required parameter: operation. Expected: list, load, create, update, delete'
-    );
-  }
-
-  // loadSkill expects { skillName }, map from { name }
-  if (args.name && !args.skillName) {
-    args.skillName = args.name;
-  }
-
-  switch (op) {
-    case 'list':
-      return withLegacySkillReplacement(skillHandlers.listSkills(ctx));
-    case 'load':
-      return withLegacySkillReplacement(skillHandlers.loadSkill(ctx, args));
-    case 'create':
-      return withLegacySkillReplacement(skillHandlers.createSkill(ctx, args));
-    case 'update':
-      return withLegacySkillReplacement(skillHandlers.updateSkill(ctx, args));
-    case 'delete':
-      return withLegacySkillReplacement(skillHandlers.deleteSkill(ctx, args));
-    default:
-      throw new Error(
-        `Unknown skill operation: ${op}. Expected: list, load, create, update, delete`
-      );
-  }
-}
-
 export async function consolidatedProjectSkill(ctx: McpContext, args: ConsolidatedSkillArgs) {
   if (args.name && !args.skillName) {
     args.skillName = args.name;
   }
   return skillHandlers.projectSkill(ctx, args);
-}
-
-function withLegacySkillReplacement(value: unknown) {
-  if (typeof value !== 'string') {
-    return value;
-  }
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    const data =
-      parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
-        ? (parsed.data as Record<string, unknown>)
-        : {};
-    return JSON.stringify({
-      ...parsed,
-      data: {
-        ...data,
-        legacyCompatibility: true,
-        replacementTool: 'alembic_project_skill',
-        replacementReason:
-          'Codex Project Skill runtime delivery now uses the unified ProjectSkillService with dataRoot source storage and .agents/skills symlink export.',
-      },
-    });
-  } catch {
-    return value;
-  }
 }
 
 // ─── alembic_submit_knowledge (unified pipeline) ──────────────────────

@@ -170,7 +170,7 @@ describe('Codex module boundary status', () => {
     });
     expect(status.adapters.runtimeContract).toMatchObject({
       capabilitySummarySource:
-        '@alembic/core/daemon#residentService with legacy capability fallback',
+        '@alembic/core/daemon#residentService and explicit capability sections',
       healthPath: '/api/v1/daemon/health',
       residentServiceOwner: null,
       residentServiceRoute: null,

@@ -320,24 +320,8 @@ export const SubmitKnowledgeInput = z.object({
 export type SubmitKnowledgeInput = z.infer<typeof SubmitKnowledgeInput>;
 
 // ══════════════════════════════════════════════════════
-//  10. alembic_skill
+//  10. alembic_project_skill
 // ══════════════════════════════════════════════════════
-
-export const SkillInput = z.object({
-  operation: z
-    .enum(['list', 'load', 'create', 'update', 'delete'])
-    .describe(
-      'legacy compatibility: list/load/create/update/delete all route to the unified Project Skill service'
-    ),
-  name: z.string().optional().describe('Skill 名称（kebab-case，如 alembic-create）'),
-  skillName: z.string().optional().describe('name 的别名，与 name 等价'),
-  section: z.string().optional().describe('load 时过滤指定章节'),
-  description: z.string().optional().describe('create/update 时的简短描述'),
-  content: z.string().optional().describe('create/update 时的 Markdown 内容'),
-  overwrite: z.boolean().default(false),
-  createdBy: z.enum(['manual', 'user-ai', 'system-ai', 'external-ai']).default('external-ai'),
-});
-export type SkillInput = z.infer<typeof SkillInput>;
 
 export const ProjectSkillInput = z.object({
   operation: z
@@ -588,7 +572,6 @@ export const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_guard: GuardInput,
   alembic_submit_knowledge: SubmitKnowledgeInput,
   alembic_project_skill: ProjectSkillInput,
-  alembic_skill: SkillInput,
   alembic_bootstrap: BootstrapInput,
   alembic_rescan: RescanInput,
   alembic_dimension_complete: DimensionCompleteInput,

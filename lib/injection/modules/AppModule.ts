@@ -15,7 +15,11 @@ import { FeedbackCollector, QualityScorer } from '@alembic/core/service/quality'
 import { RecipeCandidateValidator, RecipeParser } from '@alembic/core/service/recipe';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { ModuleService } from '../../service/module/ModuleService.js';
-import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
+import {
+  type AlembicResidentCapabilityClients,
+  createAlembicResidentCapabilityClients,
+  type ResidentSearchClient,
+} from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { PrimeSearchPipeline } from '../../service/task/PrimeSearchPipeline.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -61,9 +65,39 @@ export function register(c: ServiceContainer) {
 
   // ═══ PrimeSearchPipeline (for prime multi-query search) ═══
 
-  c.singleton('residentServiceClient', (ct: ServiceContainer) => {
+  c.singleton('residentCapabilityClients', (ct: ServiceContainer) => {
     const projectRoot = resolveProjectRoot(ct);
-    return new AlembicResidentServiceClient({ projectRoot });
+    return createAlembicResidentCapabilityClients({ projectRoot });
+  });
+  c.singleton('residentSearchClient', (ct: ServiceContainer) => {
+    return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients).search;
+  });
+  c.singleton('residentIntentEpisodeClient', (ct: ServiceContainer) => {
+    return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients).intentEpisodes;
+  });
+  // Deprecated internal DI key retained only for HTTP compatibility callers until every
+  // route switches to capability-specific clients; Codex MCP paths use the split clients.
+  c.singleton('residentServiceClient', (ct: ServiceContainer) => {
+    const clients = ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients;
+    return {
+      dashboard: clients.dashboard.dashboard.bind(clients.dashboard),
+      enqueueJob: clients.jobs.enqueueJob.bind(clients.jobs),
+      latestIntentEpisode: clients.intentEpisodes.latestIntentEpisode.bind(clients.intentEpisodes),
+      probe: clients.probe.probe.bind(clients.probe),
+      readJob: clients.jobs.readJob.bind(clients.jobs),
+      recentIntentEpisodes: clients.intentEpisodes.recentIntentEpisodes.bind(
+        clients.intentEpisodes
+      ),
+      resolveProjectScopeIdentity: clients.projectScope.resolveProjectScopeIdentity.bind(
+        clients.projectScope
+      ),
+      search: clients.search.search.bind(clients.search),
+      searchWithResult: clients.search.searchWithResult.bind(clients.search),
+      startIntentEpisode: clients.intentEpisodes.startIntentEpisode.bind(clients.intentEpisodes),
+      updateIntentEpisodeOutcome: clients.intentEpisodes.updateIntentEpisodeOutcome.bind(
+        clients.intentEpisodes
+      ),
+    };
   });
 
   c.singleton(
@@ -71,7 +105,7 @@ export function register(c: ServiceContainer) {
     (ct: ServiceContainer) =>
       new PrimeSearchPipeline(
         ct.get('searchEngine') as unknown as ConstructorParameters<typeof PrimeSearchPipeline>[0],
-        { residentServiceClient: ct.get('residentServiceClient') }
+        { residentServiceClient: ct.get('residentSearchClient') as ResidentSearchClient }
       )
   );
 }

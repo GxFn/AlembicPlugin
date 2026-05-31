@@ -13,8 +13,8 @@
 
 import type { AlembicResidentServiceResult } from '@alembic/core/daemon';
 import type { SignalBus } from '@alembic/core/events';
+import type { ResidentIntentEpisodeClient } from '#service/resident/AlembicResidentCapabilityClients.js';
 import type {
-  AlembicResidentServiceClient,
   ResidentIntentEpisodeRecord,
   ResidentIntentEpisodeStartRequest,
   ResidentIntentEvidenceSummary,
@@ -826,7 +826,7 @@ async function _handoffIntentEpisode(
     start: { ok: false, reason: 'residentServiceClient unavailable' },
   };
 
-  const client = _getResidentServiceClient(ctx.container);
+  const client = _getResidentIntentEpisodeClient(ctx.container);
   if (!client) {
     return unavailable;
   }
@@ -1029,7 +1029,7 @@ async function _updateIntentEpisodeOutcome(
   if (!episodeId) {
     return;
   }
-  const client = _getResidentServiceClient(ctx.container);
+  const client = _getResidentIntentEpisodeClient(ctx.container);
   if (!client) {
     return;
   }
@@ -1060,11 +1060,17 @@ async function _updateIntentEpisodeOutcome(
   }
 }
 
-function _getResidentServiceClient(
+function _getResidentIntentEpisodeClient(
   container: McpServiceContainer
-): AlembicResidentServiceClient | null {
+): ResidentIntentEpisodeClient | null {
   try {
-    return container.get('residentServiceClient') as AlembicResidentServiceClient | null;
+    return container.get('residentIntentEpisodeClient') as ResidentIntentEpisodeClient | null;
+  } catch {
+    // Older in-process containers still expose a compatibility facade while the
+    // Codex-facing route split rolls through the package.
+  }
+  try {
+    return container.get('residentServiceClient') as ResidentIntentEpisodeClient | null;
   } catch {
     return null;
   }

@@ -159,11 +159,11 @@ describe('Codex enhancement route resolver', () => {
       },
     });
     expect(route.localAlembic.daemon.compatibility.runtimeBoundary).toMatchObject({
-      activeFallback: true,
-      retained: true,
+      activeFallback: false,
+      retained: false,
       source: 'capabilities.runtimeBoundary',
     });
-    expect(route.reason).toContain('legacy runtime boundary compatibility');
+    expect(route.reason).toContain('canonical residentService capabilities');
     expect(route.missingCapabilities).toEqual([]);
   });
 
@@ -237,14 +237,14 @@ describe('Codex enhancement route resolver', () => {
     expect(route.localAlembic.daemon.compatibility.runtimeBoundary).toMatchObject({
       activeFallback: false,
       canonicalResidentServicePresent: true,
-      retained: true,
+      retained: false,
     });
     expect(route.reason).toContain('resident service route (alembic/local-alembic-daemon)');
     expect(route.reason).not.toContain('Runtime boundary source');
     expect(route.missingCapabilities).toEqual(['dashboard']);
   });
 
-  it('uses runtimeBoundary as compatibility fallback when canonical capability sections are partial', () => {
+  it('keeps runtimeBoundary diagnostic only when canonical capability sections are partial', () => {
     const daemonStatus = makeDaemonStatus(
       {},
       {
@@ -293,15 +293,20 @@ describe('Codex enhancement route resolver', () => {
 
     expect(route.selected).toBe('local-alembic-daemon');
     expect(route.localAlembic.daemon.capabilities).toMatchObject({
-      dashboardAvailable: true,
-      dashboardUrl: 'http://127.0.0.1:39127',
-      fileMonitorAvailable: true,
-      fileMonitorMode: 'daemon-git-worktree',
-      internalAiAvailable: false,
-      jobsAvailable: true,
-      jobKinds: ['bootstrap', 'rescan'],
+      dashboardAvailable: null,
+      dashboardUrl: null,
+      fileMonitorAvailable: null,
+      fileMonitorMode: null,
+      internalAiAvailable: null,
+      jobsAvailable: null,
+      jobKinds: [],
     });
-    expect(route.missingCapabilities).toEqual([]);
+    expect(route.localAlembic.daemon.compatibility.runtimeBoundary).toMatchObject({
+      activeFallback: false,
+      retained: false,
+      source: 'capabilities.runtimeBoundary',
+    });
+    expect(route.missingCapabilities).toEqual(['dashboard']);
   });
 
   it('keeps provider config separate from host-agent source when capabilities are missing', () => {

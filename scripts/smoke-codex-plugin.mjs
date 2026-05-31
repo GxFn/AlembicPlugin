@@ -424,6 +424,10 @@ function simulateMarketplaceInstall({ packageRoot, packageName, packageVersion }
     wrapperSource.includes("'--offline'") && wrapperSource.includes('npm_config_offline'),
     'installed plugin MCP wrapper must force offline npx runtime install'
   );
+  assert(
+    wrapperSource.includes('npm_config_ignore_scripts'),
+    'installed plugin MCP wrapper must skip dependency install scripts for self-contained runtime'
+  );
   assert(mcp.mcpServers?.alembic?.cwd === '.', 'installed plugin MCP cwd must be plugin root');
   assert(
     env.ALEMBIC_CODEX_PLUGIN_ROOT === '.',
@@ -448,6 +452,7 @@ function simulateMarketplaceInstall({ packageRoot, packageName, packageVersion }
   for (const bundled of [
     'package/node_modules/@alembic/core/package.json',
     'package/node_modules/@modelcontextprotocol/sdk/package.json',
+    'package/node_modules/better-sqlite3/build/Release/better_sqlite3.node',
     'package/node_modules/better-sqlite3/package.json',
   ]) {
     assert(runtimeTarballListing.includes(bundled), `embedded runtime tarball missing ${bundled}`);
@@ -701,15 +706,15 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
       'MCP stdio initialized empty workspace should expose job status'
     );
     assert(
-      !afterInitToolNames.has('alembic_task') && !afterInitToolNames.has('alembic_health'),
-      'MCP stdio initialized empty workspace should not expose project-knowledge tools'
+      afterInitToolNames.has('alembic_task') && !afterInitToolNames.has('alembic_health'),
+      'MCP stdio initialized empty workspace should expose task lifecycle but not project-knowledge health tools'
     );
 
     const jobs = await callStdioJsonTool(client, 'alembic_codex_job', { limit: 5 }, stderr);
     assertResult(jobs, 'MCP stdio job list');
     assert(Array.isArray(jobs.data?.jobs), 'MCP stdio job list did not return jobs array');
   } finally {
-    await client.close();
+    await closeMcpClient(client, stderr, 'MCP stdio');
   }
 }
 
@@ -726,6 +731,7 @@ async function runNpxRuntimeSmoke({ installedRoot, projectRoot, alembicHome }) {
     env: {
       ...process.env,
       ...(server.env || {}),
+      ALEMBIC_CODEX_NPM_CACHE: join(alembicHome, 'npm-cache'),
       ALEMBIC_HOME: alembicHome,
       ALEMBIC_PROJECT_DIR: projectRoot,
       ALEMBIC_QUIET: '1',
@@ -750,8 +756,23 @@ async function runNpxRuntimeSmoke({ installedRoot, projectRoot, alembicHome }) {
     const toolNames = new Set(toolsResult.tools.map((tool) => tool.name));
     assert(toolNames.has('alembic_codex_diagnostics'), 'MCP npx runtime missing diagnostics');
     assert(toolNames.has('alembic_codex_status'), 'MCP npx runtime missing status');
+  } catch (error) {
+    throw new Error(`MCP npx runtime smoke failed: ${error?.message || error}\n${stderr.join('')}`);
   } finally {
+    await closeMcpClient(client, stderr, 'MCP npx runtime');
+  }
+}
+
+async function closeMcpClient(client, stderr, label) {
+  try {
     await client.close();
+  } catch (error) {
+    const connectionClosed =
+      error?.code === -32000 || /connection closed/i.test(String(error?.message || error));
+    if (connectionClosed) {
+      return;
+    }
+    throw new Error(`${label} close failed: ${error?.message || error}\n${stderr.join('')}`);
   }
 }
 

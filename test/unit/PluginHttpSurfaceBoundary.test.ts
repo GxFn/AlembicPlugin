@@ -1,6 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES,
+  CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES,
+  CODEX_EMBEDDED_RUNTIME_RETAINED_DAEMON_ENTRY,
+} from '../../lib/codex/runtime/EmbeddedRuntimeContract.js';
 
 const repoRoot = process.cwd();
 const source = (path: string) => readFileSync(join(repoRoot, path), 'utf8');
@@ -72,5 +77,33 @@ describe('Plugin HTTP surface boundary', () => {
     expect(container).not.toContain(literal('Agent', 'Module'));
     expect(skillHooksModule).toContain("c.singleton('skillHooks'");
     expect(skillHooksModule).toContain('new SkillHooks()');
+  });
+
+  it('documents the retained embedded runtime entry files and HTTP contract', () => {
+    const moduleBoundary = source('lib/codex/ModuleBoundary.ts');
+    const httpServer = source('lib/http/HttpServer.ts');
+    const verifyScript = source('scripts/verify-codex-plugin.mjs');
+    const smokeScript = source('scripts/smoke-codex-plugin.mjs');
+
+    expect(CODEX_EMBEDDED_RUNTIME_RETAINED_DAEMON_ENTRY).toBe('dist/bin/daemon-server.js');
+    expect(moduleBoundary).toContain('CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES');
+    expect(moduleBoundary).toContain('CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES');
+
+    for (const file of CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES) {
+      expect(verifyScript).toContain(file);
+      expect(smokeScript).toContain(file);
+    }
+
+    for (const route of CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES) {
+      const [, mountedPath, childPath = ''] =
+        route.match(/^\/api\/v1\/([^/]+)(?:\/(.+))?$/) ?? [];
+      expect(mountedPath).toBeTruthy();
+      expect(httpServer).toContain(`\${apiPrefix}/${mountedPath}`);
+      if (childPath) {
+        expect(
+          source(`lib/http/routes/${mountedPath === 'daemon' ? 'daemon' : mountedPath}.ts`)
+        ).toContain(`'/${childPath}'`);
+      }
+    }
   });
 });

@@ -438,6 +438,7 @@ describe('MCP Tool Definitions (V3)', () => {
   test('TOOLS 数组应包含 19 个工具', () => {
     expect(TOOLS.length).toBe(19);
     expect(TOOLS.some((t) => t.name === 'alembic_project_skill')).toBe(true);
+    expect(TOOLS.some((t) => t.name === 'alembic_skill')).toBe(false);
   });
 
   test('submit_knowledge items 字段应为数组类型', () => {

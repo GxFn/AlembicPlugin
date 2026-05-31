@@ -1,24 +1,23 @@
 /**
- * MCP Tool Definitions — V3 Consolidated (16 agent + 2 admin = 18 tools)
+ * MCP Tool Definitions — V3 Consolidated (17 agent + 2 admin = 19 tools)
  *
  * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
  * inputSchema is auto-generated from Zod Schema (zodToMcpSchema); parameter .describe() translates to JSON Schema description.
  *
- * Agent tools (16):
+ * Agent tools (17):
  *   1-7:   Query tools (health/search/knowledge/structure/graph/call_context/guard)
  *   8:     Write tool (submit_knowledge — unified pipeline, single/batch)
- *   9:     Skill management (skill)
+ *   9:     Project Skill delivery (project_skill)
  *   10-13: Workflow tools (bootstrap/rescan/evolve/consolidate)
  *   14:    Dimension completion (dimension_complete)
  *   15:    Project panorama (panorama)
  *   16:    Task management (task — 5 ops: prime/create/close/fail/record_decision)
  *
  * Admin tools (2):
- *   17-18: enrich_candidates/knowledge_lifecycle
+ *   18-19: enrich_candidates/knowledge_lifecycle
  */
 
-import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import {
@@ -37,11 +36,11 @@ import {
   ProjectSkillInput,
   RescanInput,
   SearchInput,
-  SkillInput,
   StructureInput,
   SubmitKnowledgeInput,
   TaskInput,
 } from '#shared/schemas/mcp-tools.js';
+import { TOOL_GATEWAY_MAP, withPluginToolAnnotations } from './PluginToolSurfaceCatalog.js';
 import { zodToMcpSchema } from './zodToMcpSchema.js';
 
 // RescanInput may be undefined under certain Vitest module transforms; provide defensive fallback
@@ -96,158 +95,8 @@ const _ConsolidateSchema =
 // ─── Tier Definitions ────────────────────────────────────────
 export const TIER_ORDER = { agent: 0, admin: 1 };
 
-type ToolLike = {
-  annotations?: ToolAnnotations;
-  name: string;
-};
-
-function readOnlyTool(title: string): ToolAnnotations {
-  return {
-    title,
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-  };
-}
-
-function localWriteTool(title: string, idempotentHint = false): ToolAnnotations {
-  return {
-    title,
-    readOnlyHint: false,
-    destructiveHint: false,
-    idempotentHint,
-    openWorldHint: false,
-  };
-}
-
-function aiBackedWriteTool(title: string): ToolAnnotations {
-  return {
-    title,
-    readOnlyHint: false,
-    destructiveHint: false,
-    idempotentHint: false,
-    openWorldHint: true,
-  };
-}
-
-function destructiveTool(title: string, idempotentHint = false): ToolAnnotations {
-  return {
-    title,
-    readOnlyHint: false,
-    destructiveHint: true,
-    idempotentHint,
-    openWorldHint: false,
-  };
-}
-
-const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
-  alembic_codex_status: readOnlyTool('Check Alembic Codex Status'),
-  alembic_codex_diagnostics: readOnlyTool('Run Alembic Codex Diagnostics'),
-  alembic_codex_init: localWriteTool('Initialize Alembic Codex Workspace', true),
-  alembic_codex_dashboard: localWriteTool('Start Alembic Dashboard', true),
-  alembic_codex_bootstrap: aiBackedWriteTool('Start Recoverable Bootstrap Job'),
-  alembic_codex_rescan: aiBackedWriteTool('Start Recoverable Rescan Job'),
-  alembic_codex_job: readOnlyTool('Read Recoverable Job Status'),
-  alembic_codex_stop: localWriteTool('Stop Alembic Daemon', true),
-  alembic_codex_cleanup: destructiveTool('Clean Alembic Runtime State'),
-  alembic_health: readOnlyTool('Check Alembic Health'),
-  alembic_search: readOnlyTool('Search Alembic Knowledge'),
-  alembic_knowledge: localWriteTool('Browse Or Mark Alembic Knowledge Usage'),
-  alembic_structure: readOnlyTool('Explore Project Structure'),
-  alembic_graph: readOnlyTool('Query Alembic Knowledge Graph'),
-  alembic_call_context: readOnlyTool('Query Code Call Context'),
-  alembic_guard: readOnlyTool('Run Alembic Guard Check'),
-  alembic_submit_knowledge: aiBackedWriteTool('Submit Alembic Knowledge Candidate'),
-  alembic_project_skill: localWriteTool('Deliver Alembic Project Skills To Codex'),
-  alembic_skill: localWriteTool('Legacy Alembic Skill Storage Compatibility'),
-  alembic_bootstrap: aiBackedWriteTool('Run Codex Host-Agent Bootstrap'),
-  alembic_rescan: aiBackedWriteTool('Run Codex Host-Agent Rescan'),
-  alembic_evolve: destructiveTool('Apply Alembic Evolution Decision'),
-  alembic_consolidate: localWriteTool('Review Alembic Consolidation Decision'),
-  alembic_dimension_complete: localWriteTool('Complete Alembic Dimension Analysis'),
-  alembic_panorama: localWriteTool('Query Or Refresh Alembic Panorama'),
-  alembic_task: localWriteTool('Manage Alembic Task State'),
-  alembic_enrich_candidates: readOnlyTool('Diagnose Alembic Candidate Fields'),
-  alembic_knowledge_lifecycle: localWriteTool('Request Alembic Knowledge Reactivation'),
-};
-
-export function withMcpToolAnnotations<T extends ToolLike>(
-  tool: T
-): T & { annotations?: ToolAnnotations } {
-  const annotations = TOOL_ANNOTATIONS[tool.name];
-  if (!annotations) {
-    return tool;
-  }
-  return {
-    ...tool,
-    annotations: {
-      ...annotations,
-      ...tool.annotations,
-    },
-  };
-}
-
-// ─── Gateway Mapping (only write operations require gating) ─
-
-export const TOOL_GATEWAY_MAP = {
-  // bootstrap — parameterless Mission Briefing (read-only analysis, no gating needed)
-  // alembic_bootstrap: null,
-  // rescan — incremental knowledge update (write: cleans derived data + creates decay proposals)
-  alembic_rescan: { action: 'knowledge:bootstrap', resource: 'knowledge' },
-  // dimension_complete — write operation (recipe tagging + skill creation + checkpoint)
-  alembic_dimension_complete: { action: 'knowledge:bootstrap', resource: 'knowledge' },
-  // guard write operation (files mode only)
-  alembic_guard: {
-    resolver: (args: Record<string, unknown>) =>
-      args?.files && Array.isArray(args.files)
-        ? { action: 'guard_rule:check_code', resource: 'guard_rules' }
-        : null, // code mode is read-only, skip Gateway
-  },
-  // skill write operations (create/update/delete)
-  alembic_project_skill: {
-    resolver: (args: Record<string, unknown>) =>
-      (
-        ({
-          create: { action: 'create:skills', resource: 'skills' },
-          update: { action: 'update:skills', resource: 'skills' },
-          delete: { action: 'delete:skills', resource: 'skills' },
-          export: { action: 'update:skills', resource: 'skills' },
-        }) as Record<string, { action: string; resource: string }>
-      )[args?.operation as string] || null,
-  },
-  alembic_skill: {
-    resolver: (args: Record<string, unknown>) =>
-      (
-        ({
-          create: { action: 'create:skills', resource: 'skills' },
-          update: { action: 'update:skills', resource: 'skills' },
-          delete: { action: 'delete:skills', resource: 'skills' },
-        }) as Record<string, { action: string; resource: string }>
-      )[args?.operation as string] || null, // list/load are read-only
-  },
-  // knowledge submission (unified pipeline)
-  alembic_submit_knowledge: { action: 'knowledge:create', resource: 'knowledge' },
-  // evolve — Recipe evolution decisions (propose/deprecate/skip)
-  alembic_evolve: { action: 'knowledge:evolve', resource: 'knowledge' },
-  // consolidate — Agent semantic review decisions for ambiguous overlaps
-  alembic_consolidate: { action: 'knowledge:consolidate', resource: 'knowledge' },
-  // task write operations (create/close/fail + record_decision)
-  alembic_task: {
-    resolver: (args: Record<string, unknown>) =>
-      (
-        ({
-          create: { action: 'task:create', resource: 'intent' },
-          close: { action: 'task:update', resource: 'intent' },
-          fail: { action: 'task:update', resource: 'intent' },
-          record_decision: { action: 'task:create', resource: 'intent' },
-        }) as Record<string, { action: string; resource: string }>
-      )[args?.operation as string] || null, // prime is read-only
-  },
-  // admin tools
-  alembic_enrich_candidates: { action: 'knowledge:update', resource: 'knowledge' },
-  alembic_knowledge_lifecycle: { action: 'knowledge:update', resource: 'knowledge' },
-};
+export const withMcpToolAnnotations = withPluginToolAnnotations;
+export { TOOL_GATEWAY_MAP };
 
 // ─── Tool Declarations ───────────────────────────────────────
 
@@ -375,15 +224,6 @@ export const TOOLS = [
       '• export — symlink source SKILL.md into `.agents/skills` after authorizeProjectSkillExport=true\n' +
       '• delete — delete Alembic-managed source/runtime projection; built-in plugin skills remain read-only',
     inputSchema: zodToMcpSchema(ProjectSkillInput),
-  },
-
-  {
-    name: 'alembic_skill',
-    tier: 'agent',
-    description:
-      'Legacy compatibility alias for Project Skill operations. Prefer alembic_project_skill for Codex runtime delivery because it exposes refresh, receipt, project authorization, conflict status, and `.agents/skills` export state.\n' +
-      '• list/load/create/update/delete — routed to the unified Project Skill service; old storage writer behavior has retired',
-    inputSchema: zodToMcpSchema(SkillInput),
   },
 
   // 10. Cold-Start Bootstrap

@@ -4,6 +4,11 @@ import {
   type CodexKnowledgeState,
   resolveCodexToolPolicy,
 } from '../../lib/codex/index.js';
+import {
+  getPluginToolSurfaceEntry,
+  listPluginToolSurfaceCatalog,
+} from '../../lib/external/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/external/mcp/tools.js';
 
 const tierOrder = { agent: 0, admin: 1 };
 const hostWorkflowToolNames = [
@@ -23,12 +28,6 @@ const coreTools = [
     name: 'alembic_project_skill',
     tier: 'agent',
     description: 'project skill delivery',
-    inputSchema: { type: 'object' },
-  },
-  {
-    name: 'alembic_skill',
-    tier: 'agent',
-    description: 'legacy skill storage',
     inputSchema: { type: 'object' },
   },
   {
@@ -86,6 +85,32 @@ const knowledgeReady: CodexKnowledgeState = {
 };
 
 describe('Codex tool policy', () => {
+  test('keeps Codex-visible tool surface metadata in the Plugin catalog', () => {
+    const catalog = listPluginToolSurfaceCatalog();
+    const catalogNames = catalog.map((entry) => entry.name).sort();
+    const visibleSurfaceNames = [
+      ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
+      ...TOOLS.map((tool) => tool.name),
+    ].sort();
+
+    expect(catalogNames).toEqual(visibleSurfaceNames);
+    expect(catalogNames).not.toContain('alembic_skill');
+    expect(getPluginToolSurfaceEntry('alembic_project_skill')).toMatchObject({
+      handlerOwner: 'McpServer.consolidated',
+      knowledgeGate: 'initialized',
+      owner: 'plugin-embedded-core',
+      residentRoutePolicy: 'none',
+      schema: 'ProjectSkillInput',
+    });
+    expect(getPluginToolSurfaceEntry('alembic_search')).toMatchObject({
+      residentRoutePolicy: 'explicit-resident-search',
+    });
+    expect(getPluginToolSurfaceEntry('alembic_codex_dashboard')).toMatchObject({
+      handlerOwner: 'CodexMcpServer.resident-dashboard',
+      residentRoutePolicy: 'dashboard-handoff',
+    });
+  });
+
   test('keeps uninitialized workspaces on diagnostics/status/init and init-on-demand tools', () => {
     const result = resolveCodexToolPolicy({
       coreTools,
@@ -164,7 +189,6 @@ describe('Codex tool policy', () => {
       ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
       ...hostWorkflowToolNames,
       'alembic_project_skill',
-      'alembic_skill',
       'alembic_health',
       'alembic_task',
     ]);
