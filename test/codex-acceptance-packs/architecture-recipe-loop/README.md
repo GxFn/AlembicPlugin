@@ -18,7 +18,9 @@ Plugin-owned cold-start / rescan Recipe loop for one dimension only: `architectu
 3. Call `alembic_submit_knowledge` with exactly one architecture item whose `reasoning.sources`
    points at a real source file in the fixture project.
 4. Call `alembic_dimension_complete` with `dimensionId: "architecture"` and the submitted Recipe id.
-5. Confirm one Recipe is persisted in `knowledge_entries` and as a Recipe markdown file.
+5. Confirm one Recipe is persisted in `knowledge_entries` with source references. A markdown
+   Recipe file is optional for the current Plugin-owned runtime and must not be used as a pass/fail
+   requirement when the DB/source-ref state is present.
 6. Call `alembic_rescan` with `dimensions: ["architecture"]`.
 7. Run `node scripts/check-codex-recipe-loop-evidence.mjs` against the project root and transcript.
 
@@ -30,13 +32,17 @@ Plugin-owned cold-start / rescan Recipe loop for one dimension only: `architectu
 - The submitted Recipe id remains present after rescan.
 - `knowledge_entries` has at least one architecture entry with lifecycle and source reference data.
 - `recipe_source_refs` or `reasoning.sources` / `sourceFile` proves source reference capture.
-- The rescan tool result contains an `evidencePlan`.
+- The rescan tool result contains the current evidence surface: `evidenceHints` or legacy
+  `evidencePlan`.
 - The final database state has no duplicate architecture Recipe by title, trigger, or coreCode.
+- If `alembic_dimension_complete` reports a PathGuard-blocked runtime Skill export for an Alembic
+  ecosystem project, record it as contextual warning only. Runtime Skill export is outside this
+  Recipe loop pack unless the control plan explicitly says otherwise.
 
 ## Stop Conditions
 
 - Stop and report a product-chain breakpoint if any required tool fails.
 - Stop and report a product-chain breakpoint if no Recipe is persisted before rescan.
-- Stop and report a product-chain breakpoint if rescan returns no `evidencePlan`.
+- Stop and report a product-chain breakpoint if rescan returns neither `evidenceHints` nor
+  `evidencePlan`.
 - Do not repair cold-start / rescan product behavior inside this acceptance run.
-

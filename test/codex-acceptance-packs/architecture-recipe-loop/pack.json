@@ -15,7 +15,7 @@
     "title": "Architecture Boundary Uses A Single Entry Point",
     "language": "typescript",
     "content": {
-      "pattern": "Route project-wide initialization through one host-owned entry point.",
+      "markdown": "# Architecture Boundary Uses A Single Entry Point\n\nThis fixture proves that the Plugin-owned Codex MCP loop can capture architecture knowledge without an Alembic internal Agent runtime. The accepted Recipe must describe the host-owned sequence from bootstrap to knowledge submit, dimension completion, and architecture-only rescan. It is intentionally scoped to a disposable fixture source file so the checker can verify source references without touching a real product project.\n\n```ts\nexport const value = 1;\n```\n\nSource: src/index.ts\n\nUse this acceptance item only for the cold-start/rescan Recipe loop. It should persist as one staging architecture Recipe in knowledge_entries, keep src/index.ts in source refs, and survive alembic_rescan({ dimensions: ['architecture'] }) without producing a duplicate.",
       "rationale": "The architecture dimension should capture module boundaries and ownership instead of implementation trivia."
     },
     "kind": "pattern",
@@ -23,12 +23,12 @@
     "dontClause": "Do not introduce an Alembic internal Agent runtime or external AI provider for this acceptance loop.",
     "whenClause": "When Codex starts a fresh Alembic knowledge loop for a project.",
     "coreCode": "alembic_bootstrap -> alembic_submit_knowledge -> alembic_dimension_complete -> alembic_rescan({ dimensions: ['architecture'] })",
-    "category": "architecture",
-    "trigger": "architecture-entry-point",
+    "category": "Service",
+    "trigger": "@architecture-entry-point",
     "description": "Architecture Recipe proving the Plugin-owned cold-start Recipe loop.",
     "headers": [],
     "usageGuide": "Use this only as an acceptance Recipe for the architecture dimension.",
-    "knowledgeType": "code-pattern",
+    "knowledgeType": "architecture",
     "reasoning": {
       "whyStandard": "It verifies that Plugin-owned Codex tools can persist architecture knowledge and preserve it through rescan.",
       "confidence": 0.9,

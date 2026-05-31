@@ -12,7 +12,9 @@ export function checkRecipeLoopEvidence(options) {
   const toolFacts = collectTranscriptToolFacts(transcript);
   const database = inspectDatabase(resolver.databasePath, dimensionId);
   const recipeFiles = listMarkdownFiles(resolver.recipesDir, new Set(['_template.md']));
+  const recipePersisted = database.dimensionEntries.length > 0;
   const errors = [];
+  const warnings = [];
   const requiredOrder = [
     'alembic_bootstrap',
     'alembic_submit_knowledge',
@@ -20,9 +22,6 @@ export function checkRecipeLoopEvidence(options) {
     'alembic_rescan',
   ];
 
-  if (recipeFiles.length < 1) {
-    errors.push('Recipe markdown was not persisted.');
-  }
   if (!database.knowledgeEntries.tableExists) {
     errors.push('knowledge_entries table does not exist.');
   }
@@ -58,8 +57,18 @@ export function checkRecipeLoopEvidence(options) {
     errors.push(`alembic_rescan must be called with dimensions including "${dimensionId}".`);
   }
   const rescanResult = toolFacts.results.find((result) => result.name === 'alembic_rescan')?.result;
-  if (!containsKey(rescanResult, 'evidencePlan')) {
-    errors.push('alembic_rescan result does not contain evidencePlan.');
+  const rescanEvidenceSurface = detectRescanEvidenceSurface(rescanResult);
+  if (!rescanEvidenceSurface) {
+    errors.push('alembic_rescan result contains neither evidenceHints nor evidencePlan.');
+  }
+  const dimensionCompleteResult = toolFacts.results.find(
+    (result) => result.name === 'alembic_dimension_complete'
+  )?.result;
+  const runtimeSkillExportBlocked = isPathGuardRuntimeSkillExportBlocked(dimensionCompleteResult);
+  if (runtimeSkillExportBlocked) {
+    warnings.push(
+      'Runtime Skill export was blocked by PathGuard; this is outside the architecture Recipe loop pass/fail scope.'
+    );
   }
 
   const submittedIds = extractSubmittedRecipeIds(toolFacts.results);
@@ -80,17 +89,22 @@ export function checkRecipeLoopEvidence(options) {
   const report = {
     ok: errors.length === 0,
     errors,
+    warnings,
     projectRoot,
     dimensionId,
     transcriptPath: transcriptPath || null,
     summary: {
       recipeFiles: recipeFiles.length,
+      recipePersisted,
       knowledgeEntries: database.knowledgeEntries.totalEntries,
       dimensionEntries: database.dimensionEntries.length,
       sourceRefs: database.sourceRefs.length,
       submittedRecipeIds: submittedIds,
       toolOrder: toolFacts.toolOrder,
+      rescanEvidenceHintsFound: containsKey(rescanResult, 'evidenceHints'),
       rescanEvidencePlanFound: containsKey(rescanResult, 'evidencePlan'),
+      rescanEvidenceSurface,
+      runtimeSkillExportBlocked,
       noDuplicateArchitectureRecipe: duplicates.length === 0,
     },
     details: {
@@ -317,6 +331,56 @@ function containsKey(value, key) {
     return value.some((item) => containsKey(item, key));
   }
   return Object.values(value).some((item) => containsKey(item, key));
+}
+
+function detectRescanEvidenceSurface(value) {
+  if (containsKey(value, 'evidenceHints')) {
+    return 'evidenceHints';
+  }
+  if (containsKey(value, 'evidencePlan')) {
+    return 'evidencePlan';
+  }
+  return null;
+}
+
+function isPathGuardRuntimeSkillExportBlocked(value) {
+  const runtimeExport = findNestedObjectByKey(value, 'runtimeExport');
+  if (!runtimeExport) {
+    return false;
+  }
+  const status = runtimeExport.status;
+  const message = runtimeExport.message;
+  return (
+    status === 'failed' &&
+    typeof message === 'string' &&
+    message.toLowerCase().includes('pathguard')
+  );
+}
+
+function findNestedObjectByKey(value, key) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if (Object.hasOwn(value, key)) {
+    const found = value[key];
+    return found && typeof found === 'object' ? found : null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findNestedObjectByKey(item, key);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+  for (const item of Object.values(value)) {
+    const found = findNestedObjectByKey(item, key);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
 }
 
 function parseJsonObject(value) {

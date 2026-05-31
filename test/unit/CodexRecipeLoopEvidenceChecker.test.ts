@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { type CreateRecipeItem, RecipeProductionGateway } from '@alembic/core/knowledge';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
@@ -17,6 +18,7 @@ const { checkRecipeLoopEvidence } = (await import(
     errors: string[];
     ok: boolean;
     reportPath?: string;
+    warnings: string[];
     summary: Record<string, unknown>;
   };
 };
@@ -56,6 +58,29 @@ describe('Codex recipe loop evidence checker', () => {
     expect(fs.existsSync(reportPath)).toBe(true);
   });
 
+  test('accepts the real Plugin surface with DB-only staging Recipe, evidenceHints, and PathGuard export warning', () => {
+    const fixture = createEvidenceFixture({
+      recipeMarkdown: false,
+      rescanEvidenceSurface: 'evidenceHints',
+      runtimeSkillExportBlocked: true,
+    });
+
+    const report = checkRecipeLoopEvidence({
+      projectRoot: fixture.projectRoot,
+      transcriptPath: fixture.transcriptPath,
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.errors).toEqual([]);
+    expect(report.warnings).toContain(
+      'Runtime Skill export was blocked by PathGuard; this is outside the architecture Recipe loop pass/fail scope.'
+    );
+    expect(report.summary.recipeFiles).toBe(0);
+    expect(report.summary.recipePersisted).toBe(true);
+    expect(report.summary.rescanEvidenceSurface).toBe('evidenceHints');
+    expect(report.summary.runtimeSkillExportBlocked).toBe(true);
+  });
+
   test('rejects duplicate architecture Recipe fingerprints', () => {
     const fixture = createEvidenceFixture({ duplicate: true });
 
@@ -67,9 +92,61 @@ describe('Codex recipe loop evidence checker', () => {
     expect(report.ok).toBe(false);
     expect(report.errors.some((error) => error.includes('Duplicate architecture'))).toBe(true);
   });
+
+  test('acceptance pack submitKnowledgeItem is valid for the V3 Recipe gateway', async () => {
+    const pack = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          path.dirname(new URL(import.meta.url).pathname),
+          '../codex-acceptance-packs/architecture-recipe-loop/pack.json'
+        ),
+        'utf8'
+      )
+    ) as { submitKnowledgeItem: CreateRecipeItem };
+    const created: Record<string, unknown>[] = [];
+    const gateway = new RecipeProductionGateway({
+      knowledgeService: {
+        create: async (data: Record<string, unknown>) => {
+          created.push(data);
+          return {
+            ...data,
+            id: 'recipe-from-pack',
+            lifecycle: 'staging',
+            title: String(data.title || ''),
+            toJSON() {
+              return {
+                id: 'recipe-from-pack',
+                lifecycle: 'staging',
+                title: String(data.title || ''),
+              };
+            },
+          };
+        },
+        updateQuality: async () => ({ score: 0.9 }),
+      },
+      projectRoot: '/tmp/alembic-plugin-pack-validation',
+    });
+
+    const result = await gateway.create({
+      source: 'codex-host-agent',
+      items: [pack.submitKnowledgeItem],
+      options: { skipConsolidation: true, skipSimilarityCheck: true },
+    });
+
+    expect(result.rejected).toEqual([]);
+    expect(result.created).toHaveLength(1);
+    expect(created[0].trigger).toBe('@architecture-entry-point');
+  });
 });
 
-function createEvidenceFixture(options: { duplicate?: boolean } = {}): {
+function createEvidenceFixture(
+  options: {
+    duplicate?: boolean;
+    recipeMarkdown?: boolean;
+    rescanEvidenceSurface?: 'evidenceHints' | 'evidencePlan';
+    runtimeSkillExportBlocked?: boolean;
+  } = {}
+): {
   projectRoot: string;
   root: string;
   transcriptPath: string;
@@ -82,10 +159,12 @@ function createEvidenceFixture(options: { duplicate?: boolean } = {}): {
   const resolver = WorkspaceResolver.fromProject(projectRoot);
   fs.mkdirSync(resolver.recipesDir, { recursive: true });
   fs.mkdirSync(path.dirname(resolver.databasePath), { recursive: true });
-  fs.writeFileSync(
-    path.join(resolver.recipesDir, 'architecture-entry-point.md'),
-    '# Architecture Entry Point\n'
-  );
+  if (options.recipeMarkdown !== false) {
+    fs.writeFileSync(
+      path.join(resolver.recipesDir, 'architecture-entry-point.md'),
+      '# Architecture Entry Point\n'
+    );
+  }
 
   const db = new Database(resolver.databasePath);
   try {
@@ -129,14 +208,45 @@ function createEvidenceFixture(options: { duplicate?: boolean } = {}): {
         dimensionId: 'architecture',
         projectRoot,
       }),
-      event('tool.result', 'alembic_dimension_complete', { success: true }),
+      event(
+        'tool.result',
+        'alembic_dimension_complete',
+        options.runtimeSkillExportBlocked
+          ? {
+              success: true,
+              data: {
+                runtimeExport: {
+                  status: 'failed',
+                  message:
+                    'Project Skill runtime export failed: [PathGuard] 排除项目保护 (Alembic 生态项目)',
+                },
+              },
+            }
+          : { success: true }
+      ),
       event('codex.tool_call', 'alembic_rescan', {
         dimensions: ['architecture'],
         projectRoot,
       }),
       event('tool.result', 'alembic_rescan', {
         success: true,
-        data: { evidencePlan: { preserved: ['recipe-1'] } },
+        data:
+          options.rescanEvidenceSurface === 'evidenceHints'
+            ? {
+                evidenceHints: {
+                  allRecipes: [
+                    {
+                      id: 'recipe-1',
+                      dimensionId: 'architecture',
+                      lifecycle: 'staging',
+                      sourceRefs: ['src/index.ts'],
+                    },
+                  ],
+                  rescanMode: true,
+                },
+                rescan: { preservedRecipes: 1 },
+              }
+            : { evidencePlan: { preserved: ['recipe-1'] } },
       }),
     ].join('')
   );
