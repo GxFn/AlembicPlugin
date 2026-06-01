@@ -14,6 +14,13 @@ import {
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/HostIntentFrame.js';
 import { SetupService } from '../../cli/SetupService.js';
+import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
+import {
+  type AlembicResidentCapabilityClients,
+  createAlembicResidentCapabilityClients,
+  isResidentProjectScopeReady,
+} from '../../service/resident/AlembicResidentCapabilityClients.js';
+import { getPackageVersion } from '../../shared/package-assets.js';
 import {
   buildCodexEnhancementRouteChoice,
   buildCodexHostProjectAlignment,
@@ -44,35 +51,28 @@ import {
   summarizeCodexDaemonStatus,
   summarizeCodexProjectRootResolution,
   writeCodexInitMarker,
-} from '../../codex/index.js';
-import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
-import {
-  type AlembicResidentCapabilityClients,
-  createAlembicResidentCapabilityClients,
-  isResidentProjectScopeReady,
-} from '../../service/resident/AlembicResidentCapabilityClients.js';
-import { getPackageVersion } from '../../shared/package-assets.js';
+} from '../index.js';
 import {
   CodexEmbeddedToolExecutor,
   type CodexToolExecutionContext,
   resetCodexPluginOwnedMcpServerForTests,
   resetPluginOwnedMcpServer,
-} from './codex/embedded-executor.js';
-import { buildCodexHostProjectHandoffBlock } from './codex/host-project-handoff.js';
-import { dispatchCodexLocalTool } from './codex/local-tool-dispatcher.js';
-import { attachPluginOpportunisticEvolutionSurface } from './codex/opportunistic-evolution-presenter.js';
-import { safeProjectRootFallback } from './codex/project-root.js';
+} from './host/embedded-executor.js';
+import { buildCodexHostProjectHandoffBlock } from './host/host-project-handoff.js';
+import { dispatchCodexLocalTool } from './host/local-tool-dispatcher.js';
+import { attachPluginOpportunisticEvolutionSurface } from './host/opportunistic-evolution-presenter.js';
+import { safeProjectRootFallback } from './host/project-root.js';
 import {
   persistTrustedCodexProjectRootScope,
   resolveCodexProjectRootScope,
-} from './codex/project-root-scope.js';
+} from './host/project-root-scope.js';
 import {
   attachCodexServiceBoundary,
   attachEnhancementRoute,
   failureResult,
   isErrorResult,
-} from './codex/results.js';
-import { getVisibleCodexTools } from './codex/tool-visibility.js';
+} from './host/results.js';
+import { getVisibleCodexTools } from './host/tool-visibility.js';
 import { TIER_ORDER, TOOLS } from './tools.js';
 
 interface CodexMcpServerOptions {

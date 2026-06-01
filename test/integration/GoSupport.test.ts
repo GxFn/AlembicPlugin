@@ -471,7 +471,7 @@ describe('L6: External bootstrap go-module-scan dimension', () => {
   it('external bootstrap module should load without error', async () => {
     // Just verify the external bootstrap module loads without errors
     // (verifies go-module-scan dimension definition is valid)
-    const mod = await import('../../lib/external/mcp/handlers/bootstrap-external.js');
+    const mod = await import('../../lib/codex/mcp/handlers/bootstrap-external.js');
     expect(mod).toBeDefined();
   });
 });

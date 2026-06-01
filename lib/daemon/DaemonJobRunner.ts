@@ -153,13 +153,13 @@ export function getJobStore(container: ServiceContainer): JobStore {
 
 async function executeHostDrivenWorkflow(options: RunDaemonJobOptions): Promise<unknown> {
   if (options.kind === 'bootstrap') {
-    const { bootstrapExternal } = await import('../external/mcp/handlers/bootstrap-external.js');
+    const { bootstrapExternal } = await import('../codex/mcp/handlers/bootstrap-external.js');
     return unwrapEnvelope(
       await bootstrapExternal({ container: options.container, logger: options.logger })
     );
   }
 
-  const { rescanExternal } = await import('../external/mcp/handlers/rescan-external.js');
+  const { rescanExternal } = await import('../codex/mcp/handlers/rescan-external.js');
   return unwrapEnvelope(
     await rescanExternal(
       { container: options.container, logger: options.logger },

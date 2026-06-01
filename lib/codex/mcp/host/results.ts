@@ -1,7 +1,4 @@
-import type {
-  CodexEnhancementRouteChoice,
-  CodexServiceBoundaryDecision,
-} from '../../../codex/index.js';
+import type { CodexEnhancementRouteChoice, CodexServiceBoundaryDecision } from '../../index.js';
 
 // Codex-facing MCP helper 统一返回结构，避免 server orchestration 重复拼 envelope。
 export function failureResult(

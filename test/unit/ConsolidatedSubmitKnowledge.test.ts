@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { enhancedSubmitKnowledge } from '../../lib/external/mcp/handlers/consolidated.js';
-import type { McpContext } from '../../lib/external/mcp/handlers/types.js';
+import { enhancedSubmitKnowledge } from '../../lib/codex/mcp/handlers/consolidated.js';
+import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
 
 const gatewayState = vi.hoisted(() => ({
   result: {

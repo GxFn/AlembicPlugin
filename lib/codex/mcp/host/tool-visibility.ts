@@ -9,7 +9,7 @@ import {
   isTrustedCodexProjectRoot,
   resolveCodexProjectRoot,
   resolveCodexToolPolicy,
-} from '../../../codex/index.js';
+} from '../../index.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
 

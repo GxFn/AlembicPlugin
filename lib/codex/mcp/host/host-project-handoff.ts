@@ -1,11 +1,11 @@
+import type { DaemonStatus } from '../../../daemon/DaemonSupervisor.js';
 import {
   buildCodexRecommendedAction,
   type CodexEnhancementRequirement,
   type CodexEnhancementRouteChoice,
   type CodexHostProjectAlignment,
   summarizeCodexDaemonStatus,
-} from '../../../codex/index.js';
-import type { DaemonStatus } from '../../../daemon/DaemonSupervisor.js';
+} from '../../index.js';
 import { failureResult } from './results.js';
 
 // Dashboard / job handoff 前先校验 Codex host project 与 Alembic runtime 项目关系。

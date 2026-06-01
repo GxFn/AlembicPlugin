@@ -8,7 +8,7 @@
  *   3. 未知异常 → 通用 INTERNAL_ERROR + 原始 message
  *   4. 一致的 meta.tool + meta.responseTimeMs
  *
- * @module external/mcp/errorHandler
+ * @module codex/mcp/errorHandler
  */
 
 import Logger from '@alembic/core/logging';

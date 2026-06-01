@@ -5,4 +5,4 @@
  * this wrapper owns Plugin transport cleanup and MCP response shaping.
  */
 
-export { runExternalKnowledgeRescanWorkflow as rescanExternal } from '#external/mcp/handlers/rescan/ExternalKnowledgeRescanWorkflow.js';
+export { runExternalKnowledgeRescanWorkflow as rescanExternal } from '#codex/mcp/handlers/rescan/ExternalKnowledgeRescanWorkflow.js';

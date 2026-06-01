@@ -29,10 +29,6 @@
       "alembic-dev": "./lib/governance/*",
       "default": "./dist/lib/governance/*"
     },
-    "#external/*": {
-      "alembic-dev": "./lib/external/*",
-      "default": "./dist/lib/external/*"
-    },
     "#http/*": {
       "alembic-dev": "./lib/http/*",
       "default": "./dist/lib/http/*"

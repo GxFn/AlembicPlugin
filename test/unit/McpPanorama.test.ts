@@ -2,7 +2,7 @@
  * alembic_panorama MCP Handler — 单元测试
  */
 import { describe, expect, it } from 'vitest';
-import { panoramaHandler } from '../../lib/external/mcp/handlers/panorama.js';
+import { panoramaHandler } from '../../lib/codex/mcp/handlers/panorama.js';
 
 /* ─── Mock PanoramaService ──────────────────────────── */
 

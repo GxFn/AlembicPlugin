@@ -7,8 +7,8 @@ import {
 import {
   getPluginToolSurfaceEntry,
   listPluginToolSurfaceCatalog,
-} from '../../lib/external/mcp/PluginToolSurfaceCatalog.js';
-import { TOOLS } from '../../lib/external/mcp/tools.js';
+} from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/codex/mcp/tools.js';
 
 const tierOrder = { agent: 0, admin: 1 };
 const hostWorkflowToolNames = [

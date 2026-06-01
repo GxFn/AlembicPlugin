@@ -23,7 +23,7 @@ const packageJson = readJson(join(root, 'package.json'));
 const requiredBuildArtifacts = [
   'dist/bin/codex-mcp.js',
   'dist/bin/daemon-server.js',
-  'dist/lib/external/mcp/CodexMcpServer.js',
+  'dist/lib/codex/mcp/CodexMcpServer.js',
 ];
 
 for (const artifact of requiredBuildArtifacts) {

@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
-import { taskHandler } from '../../lib/external/mcp/handlers/task.js';
-import type { McpContext } from '../../lib/external/mcp/handlers/types.js';
-import { createIdleIntent } from '../../lib/external/mcp/handlers/types.js';
+import { taskHandler } from '../../lib/codex/mcp/handlers/task.js';
+import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
+import { createIdleIntent } from '../../lib/codex/mcp/handlers/types.js';
 import type { ExtractedIntent } from '../../lib/service/task/IntentExtractor.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 
@@ -234,7 +234,7 @@ function primeInjectionPackageSummary() {
         kind: 'pattern',
         rank: 1,
         score: 0.91,
-        sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+        sourceRefs: ['lib/codex/mcp/handlers/task.ts:42'],
         title: 'Episode handoff',
         trigger: '@episode-handoff',
         whySelected: ['semantic-score'],
@@ -243,7 +243,7 @@ function primeInjectionPackageSummary() {
     trace: {
       evidenceRefs: ['scoreBreakdown:recipe-episode'],
       sourcePath: ['searchMeta.primeInjectionPackage'],
-      sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+      sourceRefs: ['lib/codex/mcp/handlers/task.ts:42'],
       sources: ['intentSearchPlan', 'intentEvidence'],
     },
     vector: {
@@ -282,7 +282,7 @@ describe('alembic_task prime knowledge material', () => {
           description: 'Keep Codex MCP wiring in the plugin layer.',
           actionHint: 'Use plugin adapter APIs instead of reintroducing agent runtime.',
           knowledgeType: 'code-standard',
-          sourceRefs: ['lib/external/mcp/handlers/task.ts:42', 'lib/codex/status/StatusService.ts'],
+          sourceRefs: ['lib/codex/mcp/handlers/task.ts:42', 'lib/codex/status/StatusService.ts'],
         },
       ],
       guardRules: [
@@ -319,7 +319,7 @@ describe('alembic_task prime knowledge material', () => {
     const result = (await taskHandler(ctx, {
       operation: 'prime',
       userQuery: 'Add prime knowledge shout',
-      activeFile: 'lib/external/mcp/handlers/task.ts',
+      activeFile: 'lib/codex/mcp/handlers/task.ts',
       language: 'typescript',
     })) as PrimeEnvelope;
 
@@ -350,7 +350,7 @@ describe('alembic_task prime knowledge material', () => {
           summary: 'Keep Codex MCP wiring in the plugin layer.',
           score: 0.91,
           evidenceRefs: [
-            { path: 'lib/external/mcp/handlers/task.ts', line: 42 },
+            { path: 'lib/codex/mcp/handlers/task.ts', line: 42 },
             { path: 'lib/codex/status/StatusService.ts', line: null },
           ],
         },
@@ -419,7 +419,7 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.message).toContain('not as Alembic prime');
     expect(result.message).toContain('keep evidenceRefs in the payload');
     expect(result.message).not.toContain('📍');
-    expect(result.message).not.toContain('lib/external/mcp/handlers/task.ts:42');
+    expect(result.message).not.toContain('lib/codex/mcp/handlers/task.ts:42');
     expect(result.message).not.toContain('Alembic prime has received');
     expect(result.message).not.toContain('Alembic prime received');
     expect(result.message).toContain('before any further tool call');
@@ -558,7 +558,7 @@ describe('alembic_task prime knowledge material', () => {
           description: 'Persist prime intent episodes in Alembic resident service.',
           actionHint: 'Send redacted host intent facts and search meta to the resident API.',
           knowledgeType: 'code-standard',
-          sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+          sourceRefs: ['lib/codex/mcp/handlers/task.ts:42'],
         },
       ],
       guardRules: [],
@@ -755,7 +755,7 @@ describe('alembic_task prime knowledge material', () => {
         status: 'ready',
       },
       trace: {
-        sourceRefs: ['lib/external/mcp/handlers/task.ts:42'],
+        sourceRefs: ['lib/codex/mcp/handlers/task.ts:42'],
       },
     });
     expect(primeResult.data.primeKnowledgeMaterial.intentEpisode).toMatchObject({

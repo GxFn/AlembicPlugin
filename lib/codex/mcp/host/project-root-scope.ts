@@ -4,7 +4,7 @@ import {
   isTrustedCodexProjectRoot,
   resolveCodexProjectRoot,
   writeCodexSavedProjectRoot,
-} from '../../../codex/index.js';
+} from '../../index.js';
 import { failureResult } from './results.js';
 
 export interface CodexProjectRootScopeOverride {

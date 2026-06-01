@@ -16,7 +16,7 @@ import {
 } from 'node:path';
 import Logger from '@alembic/core/logging';
 import { getDiscovererRegistry } from '@alembic/core/project-intelligence';
-import { inferLang } from '../../external/mcp/handlers/LanguageExtensions.js';
+import { inferLang } from '../../codex/mcp/handlers/LanguageExtensions.js';
 import { attachHostAgentManagedBoundary } from '../../http/utils/host-managed-boundary.js';
 
 /** 全局排除目录 */

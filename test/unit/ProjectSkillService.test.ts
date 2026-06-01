@@ -6,7 +6,7 @@ import { pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { getCodexProjectSkillRoot, PROJECT_SKILL_MARKER_FILE } from '#codex/ProjectSkillDelivery.js';
 import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
-import { createSkill, loadSkill } from '#external/mcp/handlers/skill.js';
+import { createSkill, loadSkill } from '#codex/mcp/handlers/skill.js';
 
 describe('ProjectSkillService', () => {
   afterEach(() => {

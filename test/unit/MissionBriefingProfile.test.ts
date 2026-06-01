@@ -79,7 +79,7 @@ describe('MissionBriefing profiles', () => {
 
   test('external knowledge rescan workflow no longer patches executionPlan after briefing construction', () => {
     const source = readFileSync(
-      join(process.cwd(), 'lib/external/mcp/handlers/rescan/ExternalKnowledgeRescanWorkflow.ts'),
+      join(process.cwd(), 'lib/codex/mcp/handlers/rescan/ExternalKnowledgeRescanWorkflow.ts'),
       'utf8'
     );
 

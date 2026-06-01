@@ -5,11 +5,11 @@
  * MCP envelope behavior and Codex-facing completion side effects.
  */
 
-import { envelope } from '#external/mcp/envelope.js';
+import { envelope } from '#codex/mcp/envelope.js';
 import {
   type ExternalDimensionCompleteArgs,
   runExternalDimensionCompletionWorkflow,
-} from '#external/mcp/handlers/dimension-complete/ExternalDimensionCompletionWorkflow.js';
+} from '#codex/mcp/handlers/dimension-complete/ExternalDimensionCompletionWorkflow.js';
 import type { McpContext } from './types.js';
 
 export async function dimensionComplete(ctx: McpContext, args: ExternalDimensionCompleteArgs) {

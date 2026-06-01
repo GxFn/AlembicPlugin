@@ -7,7 +7,7 @@
  *   3. 移除 additionalProperties: false（允许前向兼容的额外字段）
  *   4. 清理 integer 的冗余 min/max 边界（Zod v4 自动加的 ±MAX_SAFE_INTEGER）
  *
- * @module external/mcp/zodToMcpSchema
+ * @module codex/mcp/zodToMcpSchema
  */
 
 import { z } from 'zod';

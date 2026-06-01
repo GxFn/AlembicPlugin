@@ -1,11 +1,11 @@
 import type { HostTurnMetaInput } from '#service/task/HostIntentFrame.js';
-import type { CodexServiceBoundaryDecision } from '../../../codex/index.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../../service/resident/AlembicResidentServiceClient.js';
 import {
   ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV,
   serializeCodexProjectScopeSummary,
 } from '../../../shared/project-scope-runtime.js';
+import type { CodexServiceBoundaryDecision } from '../../index.js';
 import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { TOOLS } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';

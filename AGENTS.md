@@ -82,7 +82,7 @@
 ## 插件保留边界
 
 - `lib/codex/**`：Codex runtime、状态、策略、session、plugin cache 适配。
-- `lib/external/mcp/**`：Codex MCP tool 声明、schema、annotation、gateway 映射和 stdio/http glue。
+- `lib/codex/mcp/**`：Codex MCP tool 声明、schema、annotation、gateway 映射和 stdio/http glue。
 - `plugins/**`、`channels/**`、`.agents/**`、`injectable-skills/**`：插件与 marketplace/channel 交付资源。
 - `scripts/*codex*`、`scripts/release-codex-*`、`scripts/sync-codex-*`：Codex 插件同步、验证和发布脚本。
 - MCP stdio/http 接入、tool schema、Codex skill 文案、runtime env、dev cache、release packaging。
@@ -129,8 +129,8 @@
 lib/
 ├── cli
 ├── codex
+│   └── mcp
 ├── daemon
-├── external
 ├── governance
 ├── http
 ├── infrastructure
@@ -146,7 +146,7 @@ lib/
 
 - 语言：TypeScript (ES2024, NodeNext)，Node.js >= 22。
 - 模块系统：ESM (`"type": "module"`)，import 路径必须带 `.js` 后缀。
-- 路径别名定义在 `package.json` imports 字段，包括 `#shared/*`、`#infra/*`、`#service/*`、`#inject/*`、`#governance/*`、`#external/*`、`#http/*`、`#workflows/*`、`#codex/*`。
+- 路径别名定义在 `package.json` imports 字段，包括 `#shared/*`、`#infra/*`、`#service/*`、`#inject/*`、`#governance/*`、`#http/*`、`#workflows/*`、`#codex/*`。
 - Lint / Format：Biome 2.x，不使用 Prettier/ESLint。
 - 测试框架：Vitest。
 - Dashboard 前端已迁出到 `AlembicDashboard`。

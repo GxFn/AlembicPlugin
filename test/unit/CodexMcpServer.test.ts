@@ -27,7 +27,7 @@ import {
   CodexMcpServer,
   getVisibleCodexTools,
   resetCodexPluginOwnedMcpServerForTests,
-} from '../../lib/external/mcp/CodexMcpServer.js';
+} from '../../lib/codex/mcp/CodexMcpServer.js';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 

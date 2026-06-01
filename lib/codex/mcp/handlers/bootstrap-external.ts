@@ -8,4 +8,4 @@
 export {
   getActiveSession,
   runExternalColdStartWorkflow as bootstrapExternal,
-} from '#external/mcp/handlers/bootstrap/ExternalColdStartWorkflow.js';
+} from '#codex/mcp/handlers/bootstrap/ExternalColdStartWorkflow.js';

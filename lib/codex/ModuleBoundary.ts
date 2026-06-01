@@ -112,7 +112,7 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
     owner: 'AlembicPlugin',
     pluginRole: 'MCP stdio/http entry, Codex tool schema, tier policy, and skill handoff.',
     retainedInPlugin: true,
-    sourceOfTruth: 'lib/external/mcp/** and lib/codex/**',
+    sourceOfTruth: 'lib/codex/mcp/** and lib/codex/**',
   },
   {
     id: 'host-agent-tool-route',
@@ -120,7 +120,7 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
     pluginRole:
       'Routes Codex host-agent bootstrap, rescan, candidate submission, and dimension completion through Core workflow contracts.',
     retainedInPlugin: true,
-    sourceOfTruth: 'lib/external/mcp/handlers/** with @alembic/core/host-agent-workflows',
+    sourceOfTruth: 'lib/codex/mcp/handlers/** with @alembic/core/host-agent-workflows',
   },
   {
     id: 'marketplace-artifact',

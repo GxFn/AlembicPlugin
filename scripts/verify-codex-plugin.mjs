@@ -302,7 +302,7 @@ expect(
 for (const requiredRuntimeFile of [
   'dist/bin/codex-mcp.js',
   'dist/bin/daemon-server.js',
-  'dist/lib/external/mcp/CodexMcpServer.js',
+  'dist/lib/codex/mcp/CodexMcpServer.js',
   'config/default.json',
   'templates/constitution.yaml',
   'injectable-skills/alembic-guard/SKILL.md',

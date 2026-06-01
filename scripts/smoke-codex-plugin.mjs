@@ -118,7 +118,7 @@ try {
   process.env.ALEMBIC_QUIET = '1';
 
   const { CodexMcpServer } = await import(
-    pathToFileURL(join(runtimeRoot, 'dist', 'lib', 'external', 'mcp', 'CodexMcpServer.js')).href
+    pathToFileURL(join(runtimeRoot, 'dist', 'lib', 'codex', 'mcp', 'CodexMcpServer.js')).href
   );
 
   server = new CodexMcpServer({ projectRoot, waitUntilReadyMs: 10000 });
@@ -294,7 +294,7 @@ function requiredPackageFiles(version) {
     'package/channels/codex/README.md',
     'package/dist/bin/codex-mcp.js',
     'package/dist/bin/daemon-server.js',
-    'package/dist/lib/external/mcp/CodexMcpServer.js',
+    'package/dist/lib/codex/mcp/CodexMcpServer.js',
     'package/dist/lib/daemon/DaemonSupervisor.js',
     'package/plugins/alembic-codex/.codex-plugin/plugin.json',
     'package/plugins/alembic-codex/.agents/plugins/marketplace.json',
@@ -304,7 +304,7 @@ function requiredPackageFiles(version) {
     'package/plugins/alembic-codex/runtime/package.json',
     'package/plugins/alembic-codex/runtime/dist/bin/codex-mcp.js',
     'package/plugins/alembic-codex/runtime/dist/bin/daemon-server.js',
-    'package/plugins/alembic-codex/runtime/dist/lib/external/mcp/CodexMcpServer.js',
+    'package/plugins/alembic-codex/runtime/dist/lib/codex/mcp/CodexMcpServer.js',
     'package/plugins/alembic-codex/runtime/resources/grammars/tree-sitter-typescript.wasm',
     'package/plugins/alembic-codex/runtime/vendor/AlembicCore/package.json',
     'package/plugins/alembic-codex/runtime/vendor/AlembicCore/dist/index.js',
@@ -494,7 +494,7 @@ function simulateMarketplaceInstall({ packageRoot, packageName, packageVersion }
   }
   for (const required of [
     'dist/bin/codex-mcp.js',
-    'dist/lib/external/mcp/CodexMcpServer.js',
+    'dist/lib/codex/mcp/CodexMcpServer.js',
     'resources/grammars/tree-sitter-typescript.wasm',
     'vendor/AlembicCore/package.json',
     'vendor/AlembicCore/dist/index.js',

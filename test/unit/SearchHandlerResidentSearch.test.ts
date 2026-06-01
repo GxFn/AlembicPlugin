@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { search } from '../../lib/external/mcp/handlers/search.js';
-import type { McpContext } from '../../lib/external/mcp/handlers/types.js';
+import { search } from '../../lib/codex/mcp/handlers/search.js';
+import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
 import type {
   AlembicResidentProjectScopeIdentity,
   ResidentSearchResult,
