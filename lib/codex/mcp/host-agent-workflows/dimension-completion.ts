@@ -478,7 +478,7 @@ async function getActiveHostAgentWorkflowSession(
   container: HostAgentSessionContainer,
   sessionId?: string
 ): Promise<HostAgentWorkflowSession | null> {
-  const { getActiveExternalWorkflowSession: getActiveCoreHostAgentWorkflowSession } = await import(
+  const { getActiveHostAgentWorkflowSession: getActiveCoreHostAgentWorkflowSession } = await import(
     '@alembic/core/host-agent-workflows'
   );
   return getActiveCoreHostAgentWorkflowSession(

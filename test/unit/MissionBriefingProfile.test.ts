@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ExternalRescanEvidencePlan } from '@alembic/core/host-agent-workflows';
+import type { HostAgentRescanEvidencePlan } from '@alembic/core/host-agent-workflows';
 import { buildMissionBriefing } from '@alembic/core/host-agent-workflows';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { describe, expect, test } from 'vitest';
@@ -13,7 +13,7 @@ describe('MissionBriefing profiles', () => {
       session: session(),
     });
 
-    expect(briefing.meta?.profile).toBe('cold-start-external');
+    expect(briefing.meta?.profile).toBe('cold-start-host-agent');
     expect(briefing.evidenceHints).toBeUndefined();
     expect((briefing.executionPlan as { workflow: string }).workflow).toContain(
       'alembic_submit_knowledge({ items: [{ dimensionId: 当前维度ID, ... }] })'
@@ -27,7 +27,7 @@ describe('MissionBriefing profiles', () => {
     const evidencePlan = createEvidencePlan();
     const briefing = buildMissionBriefing({
       projectMeta: { name: 'Demo', primaryLanguage: 'typescript', fileCount: 10 },
-      profile: 'rescan-external',
+      profile: 'rescan-host-agent',
       rescan: {
         evidencePlan,
         prescreen: {
@@ -40,7 +40,7 @@ describe('MissionBriefing profiles', () => {
       session: session(),
     });
 
-    expect(briefing.meta?.profile).toBe('rescan-external');
+    expect(briefing.meta?.profile).toBe('rescan-host-agent');
     expect((briefing.executionPlan as { workflow: string }).workflow).toContain('增量扫描模式');
     expect((briefing.executionPlan as { workflow: string }).workflow).toContain('仅 1 条需要验证');
     expect((briefing.executionPlan as { workflow: string }).workflow).toContain(
@@ -58,11 +58,11 @@ describe('MissionBriefing profiles', () => {
     expect(() =>
       buildMissionBriefing({
         projectMeta: { name: 'Demo', fileCount: 1 },
-        profile: 'rescan-external',
+        profile: 'rescan-host-agent',
         activeDimensions: [],
         session: session(),
       })
-    ).toThrow('rescan-external profile requires rescan evidence input');
+    ).toThrow('rescan-host-agent profile requires rescan evidence input');
   });
 
   test('applies the profile response budget through compression policy', () => {
@@ -85,7 +85,7 @@ describe('MissionBriefing profiles', () => {
 
     expect(source).not.toContain('applyExternalIncrementalScanBriefingPresentation');
     expect(source).not.toContain('executionPlan as Record<string, unknown>).workflow');
-    expect(source).toContain("profile: 'rescan-external'");
+    expect(source).toContain("profile: 'rescan-host-agent'");
   });
 });
 
@@ -97,7 +97,7 @@ function session() {
   return { toJSON: () => ({ id: 'session-1' }) };
 }
 
-function createEvidencePlan(): ExternalRescanEvidencePlan {
+function createEvidencePlan(): HostAgentRescanEvidencePlan {
   return {
     allRecipes: [
       {

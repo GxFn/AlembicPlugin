@@ -12,13 +12,13 @@
 import type { WorkflowLogger } from '@alembic/core/host-agent-workflows';
 import {
   buildColdStartWorkflowPlan,
-  buildExternalMissionBriefing as buildHostAgentMissionBriefing,
+  buildHostAgentMissionBriefing,
   buildIDEAgentAnalysisPacketFromSnapshot,
-  createExternalColdStartIntent as createHostAgentColdStartIntent,
-  createExternalWorkflowSession as createHostAgentWorkflowSession,
-  getActiveExternalWorkflowSession as getActiveHostAgentWorkflowSession,
-  presentExternalColdStartEmptyProject as presentHostAgentColdStartEmptyProject,
-  presentExternalColdStartResponse as presentHostAgentColdStartResponse,
+  createHostAgentColdStartIntent,
+  createHostAgentWorkflowSession,
+  getActiveHostAgentWorkflowSession,
+  presentHostAgentColdStartEmptyProject,
+  presentHostAgentColdStartResponse,
   runFullResetPolicy,
 } from '@alembic/core/host-agent-workflows';
 import type { ProjectSnapshot } from '@alembic/core/project-intelligence';
@@ -137,7 +137,7 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext) {
     isMultiLang: (langProfile as { isMultiLang?: boolean }).isMultiLang || false,
     fileCount: allFiles.length,
     projectType: snapshot.discoverer.id,
-    profile: 'cold-start-external',
+    profile: 'cold-start-host-agent',
     briefing: {
       astData: astProjectSummary,
       codeEntityResult,

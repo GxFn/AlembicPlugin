@@ -45,6 +45,7 @@ copyFile('README_CN.md', 'README_CN.md', { optional: true });
 copyTree('channels', 'channels');
 copyTree('.agents', '.agents');
 copyEmbeddedCorePackage();
+pruneLegacyEmbeddedCoreArtifacts();
 copyBundledRuntimeDependencies();
 patchBundledRuntimeDependencies();
 copyPluginShellSnapshot();
@@ -221,6 +222,12 @@ function copyEmbeddedCorePackage() {
     });
   }
   writeEmbeddedCoreSourceMetadata(source);
+}
+
+function pruneLegacyEmbeddedCoreArtifacts() {
+  for (const stalePath of ['vendor/AlembicCore/dist/workflows/capabilities/execution']) {
+    rmSync(join(runtimeRoot, stalePath), { force: true, recursive: true });
+  }
 }
 
 function resolveEmbeddedCoreSource() {
