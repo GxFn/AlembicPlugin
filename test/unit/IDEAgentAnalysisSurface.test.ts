@@ -5,6 +5,15 @@ import {
   buildIDEAgentAnalysisSurface,
 } from '../../lib/codex/ide-agent/IDEAgentAnalysisSurface.js';
 
+type TestSourceRef = IDEAgentAnalysisPacket['sourceRefs'][number] & {
+  folderDisplayName?: string;
+  folderId?: string;
+  legacyPath?: string;
+  projectScopeId?: string;
+  qualifiedPath?: string;
+  relativePath?: string;
+};
+
 function makePacket(): IDEAgentAnalysisPacket {
   return {
     packetId: 'ide-packet-1',
@@ -123,9 +132,56 @@ describe('IDEAgentAnalysisSurface', () => {
     expect(surface.packetSummary.packetId).toBe('ide-packet-1');
     expect(surface.packetSummary.unitCountsByDimension).toEqual({ architecture: 1, state: 1 });
     expect(surface.nextUnits.map((unit) => unit.unitId)).toEqual(['unit-2']);
+    expect(surface.nextUnits[0]?.requiredReadSet).toEqual(['src/store.ts']);
+    expect(surface.retrieval.requiredReadSet).toEqual(['src/app.ts', 'src/store.ts']);
     expect(surface.retrieval.retrievalHints.structureTools).toEqual(['alembic_structure']);
     expect(surface.progress.statusCounts).toMatchObject({ completed: 1, pending: 1 });
     expect(surface.progress.remainingUnitIds).toEqual(['unit-2']);
+  });
+
+  it('projects ProjectScope-qualified source identities into Codex read sets', () => {
+    const pluginIndexRef = makeProjectScopeRef('plugin-folder', 'AlembicPlugin/lib/index.ts');
+    const dashboardIndexRef = makeProjectScopeRef(
+      'dashboard-folder',
+      'AlembicDashboard/lib/index.ts'
+    );
+    const packet = makePacket();
+    packet.units = [
+      {
+        ...makeUnit('unit-1', 'architecture', ['lib/index.ts']),
+        sourceRefs: [pluginIndexRef, dashboardIndexRef],
+        requiredReadSet: ['lib/index.ts'],
+      },
+    ];
+    packet.sourceRefs = [pluginIndexRef, dashboardIndexRef];
+    packet.requiredReadSet = ['lib/index.ts'];
+    packet.budget = { includedUnits: 1, totalUnits: 1 };
+    packet.progressSeed = {
+      ...packet.progressSeed,
+      totalUnits: 1,
+      remainingUnitIds: ['unit-1'],
+      unitProgress: [
+        {
+          unitId: 'unit-1',
+          status: 'pending',
+          submittedRecipeIds: [],
+          referencedFiles: [],
+          rejectedReasons: [],
+        },
+      ],
+    };
+
+    const surface = buildIDEAgentAnalysisSurface(packet);
+
+    expect(surface.retrieval.requiredReadSet).toEqual([
+      'AlembicPlugin/lib/index.ts',
+      'AlembicDashboard/lib/index.ts',
+    ]);
+    expect(surface.nextUnits[0]?.requiredReadSet).toEqual([
+      'AlembicPlugin/lib/index.ts',
+      'AlembicDashboard/lib/index.ts',
+    ]);
+    expect(surface.nextUnits[0]?.sourceRefs).toEqual([pluginIndexRef, dashboardIndexRef]);
   });
 
   it('builds checkpoint backfill for completed, skipped, rejected, and remaining units', () => {
@@ -151,3 +207,16 @@ describe('IDEAgentAnalysisSurface', () => {
     ]);
   });
 });
+
+function makeProjectScopeRef(folderId: string, qualifiedPath: string): TestSourceRef {
+  return {
+    path: 'lib/index.ts',
+    legacyPath: 'lib/index.ts',
+    qualifiedPath,
+    relativePath: 'lib/index.ts',
+    folderDisplayName: folderId,
+    folderId,
+    projectScopeId: 'workspace-scope',
+    role: 'entry',
+  };
+}

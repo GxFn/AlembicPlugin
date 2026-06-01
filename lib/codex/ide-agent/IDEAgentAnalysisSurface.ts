@@ -4,6 +4,12 @@ import type {
   IDEAgentAnalysisUnitProgress,
 } from '@alembic/core/host-agent-workflows';
 
+type SourceRefWithIdentity = IDEAgentAnalysisUnit['sourceRefs'][number] & {
+  legacyPath?: string;
+  qualifiedPath?: string;
+  relativePath?: string;
+};
+
 export interface IDEAgentAnalysisUnitSurface {
   completionContract: IDEAgentAnalysisUnit['completionContract'];
   degraded: IDEAgentAnalysisUnit['degraded'];
@@ -78,7 +84,7 @@ export function buildIDEAgentAnalysisSurface(
       .slice(0, maxNextUnits)
       .map(projectUnitSurface),
     retrieval: {
-      requiredReadSet: packet.requiredReadSet,
+      requiredReadSet: projectRequiredReadSet(packet.requiredReadSet, packet.sourceRefs),
       retrievalHints: packet.retrievalHints,
       sourceRefs: packet.sourceRefs,
       structuralEvidenceRefs: packet.structuralEvidenceRefs,
@@ -198,7 +204,7 @@ function projectUnitSurface(unit: IDEAgentAnalysisUnit): IDEAgentAnalysisUnitSur
     priority: unit.priority,
     reason: unit.reason,
     sourceRefs: unit.sourceRefs,
-    requiredReadSet: unit.requiredReadSet,
+    requiredReadSet: projectRequiredReadSet(unit.requiredReadSet, unit.sourceRefs),
     completionContract: unit.completionContract,
     degraded: unit.degraded,
     warnings: unit.warnings,
@@ -237,6 +243,61 @@ function normalizePositiveInt(value: number | undefined, fallback: number): numb
   return Math.floor(value);
 }
 
-function uniqueStrings(values: readonly string[] | undefined): string[] {
-  return [...new Set((values ?? []).filter((value) => value.trim().length > 0))];
+function projectRequiredReadSet(
+  requiredReadSet: readonly string[],
+  sourceRefs: readonly SourceRefWithIdentity[]
+): string[] {
+  const projected: string[] = [];
+  const sourceRefsByPath = indexSourceRefsByComparablePath(sourceRefs);
+  for (const requiredPath of requiredReadSet) {
+    const matches = sourceRefsByPath.get(normalizeComparablePath(requiredPath));
+    if (matches?.length) {
+      projected.push(...matches.map(readableSourcePath));
+    } else {
+      projected.push(requiredPath);
+    }
+  }
+  return uniqueStrings(projected);
+}
+
+function indexSourceRefsByComparablePath(
+  sourceRefs: readonly SourceRefWithIdentity[]
+): Map<string, SourceRefWithIdentity[]> {
+  const index = new Map<string, SourceRefWithIdentity[]>();
+  for (const sourceRef of sourceRefs) {
+    for (const pathValue of comparableSourceRefPaths(sourceRef)) {
+      const key = normalizeComparablePath(pathValue);
+      const bucket = index.get(key) ?? [];
+      bucket.push(sourceRef);
+      index.set(key, bucket);
+    }
+  }
+  return index;
+}
+
+function comparableSourceRefPaths(sourceRef: SourceRefWithIdentity): string[] {
+  return uniqueStrings([
+    sourceRef.path,
+    sourceRef.legacyPath,
+    sourceRef.relativePath,
+    sourceRef.qualifiedPath,
+  ]);
+}
+
+function readableSourcePath(sourceRef: SourceRefWithIdentity): string {
+  return sourceRef.qualifiedPath ?? sourceRef.path;
+}
+
+function normalizeComparablePath(pathValue: string): string {
+  return pathValue.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+/g, '/');
+}
+
+function uniqueStrings(values: readonly (string | null | undefined)[] | undefined): string[] {
+  return [
+    ...new Set(
+      (values ?? []).filter(
+        (value): value is string => typeof value === 'string' && value.trim().length > 0
+      )
+    ),
+  ];
 }
