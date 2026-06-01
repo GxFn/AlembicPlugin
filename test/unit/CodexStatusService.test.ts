@@ -179,7 +179,7 @@ describe('Codex status service', () => {
         requiresAiProvider: false,
         source: 'host-agent',
       },
-      internalAiProvider: {
+      apiAiProvider: {
         available: false,
         configSource: null,
       },
@@ -262,7 +262,7 @@ describe('Codex status service', () => {
         },
       },
     });
-    expect(status.enhancementRoute.internalAiProvider).toMatchObject({
+    expect(status.enhancementRoute.apiAiProvider).toMatchObject({
       available: false,
       configSource: null,
       provider: null,

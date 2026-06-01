@@ -162,7 +162,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_bootstrap',
     tier: 'agent',
     description:
-      'Explicit resident bootstrap job path. A local Alembic daemon runs internal AI workflow when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
+      'Explicit resident bootstrap job path. A local Alembic daemon runs API AI workflow when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
     inputSchema: codexInputSchema({
       maxFiles: { type: 'number', description: 'Maximum files to include in project analysis.' },
       skipGuard: { type: 'boolean', description: 'Skip Guard audit during bootstrap analysis.' },
@@ -176,7 +176,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_codex_rescan',
     tier: 'agent',
     description:
-      'Explicit resident rescan job path. A local Alembic daemon runs internal AI workflow when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
+      'Explicit resident rescan job path. A local Alembic daemon runs API AI workflow when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
     inputSchema: codexInputSchema({
       reason: { type: 'string', description: 'Short reason for the rescan.' },
       dimensions: {

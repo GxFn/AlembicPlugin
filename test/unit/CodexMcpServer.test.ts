@@ -223,8 +223,8 @@ function makeProjectScopeHealthPayload(projectScope: ProjectScopeSummary) {
         route: 'local-alembic-daemon',
         capabilityOverrides: {
           'dashboard.handoff': { available: true, message: 'Dashboard handoff available.' },
-          'jobs.internal-ai.bootstrap': { available: true, message: 'Bootstrap jobs available.' },
-          'jobs.internal-ai.rescan': { available: true, message: 'Rescan jobs available.' },
+          'jobs.api-ai.bootstrap': { available: true, message: 'Bootstrap jobs available.' },
+          'jobs.api-ai.rescan': { available: true, message: 'Rescan jobs available.' },
           'search.keyword': { available: true, message: 'Keyword search available.' },
           'search.semantic': { available: true, message: 'Semantic search available.' },
           'status.health': { available: true, message: 'Health available.' },

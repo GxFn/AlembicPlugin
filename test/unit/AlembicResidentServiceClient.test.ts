@@ -119,11 +119,11 @@ function residentHealthPayload(
             available: true,
             message: 'Dashboard handoff available.',
           },
-          'jobs.internal-ai.bootstrap': {
+          'jobs.api-ai.bootstrap': {
             available: true,
             message: 'Bootstrap jobs available.',
           },
-          'jobs.internal-ai.rescan': {
+          'jobs.api-ai.rescan': {
             available: true,
             message: 'Rescan jobs available.',
           },

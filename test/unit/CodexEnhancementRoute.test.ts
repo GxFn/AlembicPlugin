@@ -99,9 +99,9 @@ describe('Codex enhancement route resolver', () => {
               longLivedOwner: 'alembic-daemon',
               source: 'daemon-git-worktree',
             },
-            internalAi: {
+            apiAi: {
               available: true,
-              owner: 'alembic-internal-ai',
+              owner: 'alembic-api-ai',
               runtimeOwner: 'AlembicAgent',
             },
             jobs: {
@@ -110,7 +110,7 @@ describe('Codex enhancement route resolver', () => {
               store: '@alembic/core/daemon/JobStore',
             },
           },
-          internalAi: {
+          apiAi: {
             available: true,
             configSource: 'workspace-settings',
             model: 'deepseek-chat',
@@ -132,7 +132,7 @@ describe('Codex enhancement route resolver', () => {
       requiresAiProvider: false,
       source: 'host-agent',
     });
-    expect(route.internalAiProvider).toMatchObject({
+    expect(route.apiAiProvider).toMatchObject({
       available: true,
       configSource: 'workspace-settings',
       provider: 'deepseek',
@@ -176,8 +176,8 @@ describe('Codex enhancement route resolver', () => {
           available: false,
           unavailableReason: 'unsupported-route',
         },
-        'jobs.internal-ai.bootstrap': { available: true },
-        'jobs.internal-ai.rescan': { available: true },
+        'jobs.api-ai.bootstrap': { available: true },
+        'jobs.api-ai.rescan': { available: true },
         'status.health': { available: true },
       },
       owner: 'alembic',
@@ -270,9 +270,9 @@ describe('Codex enhancement route resolver', () => {
               longLivedOwner: 'alembic-daemon',
               source: 'daemon-git-worktree',
             },
-            internalAi: {
+            apiAi: {
               available: false,
-              owner: 'alembic-internal-ai',
+              owner: 'alembic-api-ai',
               runtimeOwner: 'AlembicAgent',
             },
             jobs: {
@@ -297,7 +297,7 @@ describe('Codex enhancement route resolver', () => {
       dashboardUrl: null,
       fileMonitorAvailable: null,
       fileMonitorMode: null,
-      internalAiAvailable: null,
+      apiAiAvailable: null,
       jobsAvailable: null,
       jobKinds: [],
     });
@@ -320,7 +320,7 @@ describe('Codex enhancement route resolver', () => {
         },
         capabilities: {
           dashboard: { available: false, url: null },
-          internalAi: {
+          apiAi: {
             available: false,
             configSource: 'empty',
             model: null,
@@ -340,7 +340,7 @@ describe('Codex enhancement route resolver', () => {
     expect(route.selected).toBe('local-alembic-daemon');
     expect(route.missingCapabilities).toEqual(['dashboard']);
     expect(route.hostAgentRoute.source).toBe('host-agent');
-    expect(route.internalAiProvider).toMatchObject({
+    expect(route.apiAiProvider).toMatchObject({
       available: false,
       configSource: 'empty',
       provider: null,
