@@ -9,7 +9,8 @@
  *  L3 — Enhancement: go-web pack 匹配、extraDimensions、guardRules
  *  L4 — (removed: language reference skills no longer bundled)
  *  L5 — 新增基础设施: SUMMARY_EXTRACTORS[go]、IndexingPipeline、extForLang
- *  L6 — Host agent bootstrap 条件维度: go-module-scan
+ *  L6 — Guard Rules: Go 内置规则
+ *  L7 — RecipeExtractor: Go 语言启发式识别
  *
  * 前置条件: 上级目录中存在 gin 项目（自动推导路径）
  */
@@ -465,21 +466,9 @@ describe('L5b: Go IndexingPipeline Support', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// L6: Host Agent Bootstrap Go Conditional Dimension
+// L6: Guard Rules for Go
 // ══════════════════════════════════════════════════════════════════
-describe('L6: Host agent bootstrap go-module-scan dimension', () => {
-  it('host-agent bootstrap module should load without error', async () => {
-    // Just verify the host-agent bootstrap module loads without errors
-    // (verifies go-module-scan dimension definition is valid)
-    const mod = await import('../../lib/codex/mcp/handlers/host-agent/bootstrap.js');
-    expect(mod).toBeDefined();
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════
-// L7: Guard Rules for Go
-// ══════════════════════════════════════════════════════════════════
-describe('L7: Go Built-in Guard Rules', () => {
+describe('L6: Go Built-in Guard Rules', () => {
   let GuardCheckEngine, detectLanguage;
 
   beforeAll(async () => {
@@ -524,9 +513,9 @@ describe('L7: Go Built-in Guard Rules', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// L8: RecipeExtractor Go heuristic
+// L7: RecipeExtractor Go heuristic
 // ══════════════════════════════════════════════════════════════════
-describe('L8: RecipeExtractor Go heuristic', () => {
+describe('L7: RecipeExtractor Go heuristic', () => {
   let RecipeExtractor;
 
   beforeAll(async () => {
