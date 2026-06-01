@@ -8,6 +8,9 @@
  *   - constitution, projectGraph
  */
 
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { getEnhancementRegistry } from '@alembic/core/core/enhancement';
 import { DimensionCopy } from '@alembic/core/dimensions';
 import {
@@ -21,6 +24,7 @@ import {
   RedundancyAnalyzer,
   StagingManager,
 } from '@alembic/core/evolution';
+import type { WriteZone } from '@alembic/core/io';
 import {
   CodeEntityGraph,
   ConfidenceRouter,
@@ -39,6 +43,7 @@ import type {
 } from '@alembic/core/repositories';
 import { HybridRetriever, SearchEngine } from '@alembic/core/search';
 import { findSimilarRecipes } from '@alembic/core/service/candidate';
+import { isExcludedProject } from '@alembic/core/shared';
 import { HnswVectorAdapter, IndexingPipeline, JsonVectorAdapter } from '@alembic/core/vector';
 import {
   resolveDataRoot,
@@ -48,6 +53,34 @@ import {
 import { FileChangeHandler } from '../../service/evolution/FileChangeHandler.js';
 import { FileChangeDispatcher } from '../../service/FileChangeDispatcher.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
+
+interface VectorRuntimeRoot {
+  dataRoot: string;
+  writeZone: WriteZone | undefined;
+}
+
+function resolveVectorRuntimeRoot(ct: ServiceContainer): VectorRuntimeRoot {
+  const dataRoot = resolveDataRoot(ct);
+  const projectRoot = resolveProjectRoot(ct);
+  const wz = ct.singletons.writeZone as WriteZone | undefined;
+  const sourceRepoExclusion = isExcludedProject(projectRoot);
+
+  if (sourceRepoExclusion.excluded && path.resolve(dataRoot) === path.resolve(projectRoot)) {
+    const digest = createHash('sha1').update(path.resolve(projectRoot)).digest('hex').slice(0, 12);
+    const redirectedRoot = path.join(tmpdir(), 'alembic-dev', 'vector', digest);
+    const logger = ct.singletons.logger || console;
+    (logger as { warn?: (...args: unknown[]) => void }).warn?.(
+      '[vectorStore] Excluded project detected; redirecting vector runtime away from source repository',
+      {
+        reason: sourceRepoExclusion.reason,
+        redirectedRoot,
+      }
+    );
+    return { dataRoot: redirectedRoot, writeZone: undefined };
+  }
+
+  return { dataRoot, writeZone: wz };
+}
 
 export function register(c: ServiceContainer) {
   // ═══ Knowledge ═══
@@ -120,8 +153,7 @@ export function register(c: ServiceContainer) {
   });
 
   c.singleton('vectorStore', (ct: ServiceContainer) => {
-    const dataRoot = resolveDataRoot(ct);
-    const wz = ct.singletons.writeZone as import('@alembic/core/io').WriteZone | undefined;
+    const { dataRoot, writeZone } = resolveVectorRuntimeRoot(ct);
     const config =
       ((ct.singletons._config as Record<string, unknown> | undefined)?.vector as
         | Record<string, unknown>
@@ -130,7 +162,7 @@ export function register(c: ServiceContainer) {
 
     // 根据配置选择适配器
     if (adapter === 'json') {
-      const store = new JsonVectorAdapter(dataRoot as string, { writeZone: wz });
+      const store = new JsonVectorAdapter(dataRoot, { writeZone });
       store.initSync();
       return store;
     }
@@ -139,7 +171,7 @@ export function register(c: ServiceContainer) {
       try {
         const hnsw = (config.hnsw as Record<string, unknown> | undefined) || {};
         const persistence = (config.persistence as Record<string, unknown> | undefined) || {};
-        const store = new HnswVectorAdapter(dataRoot as string, {
+        const store = new HnswVectorAdapter(dataRoot, {
           M: hnsw.M as number | undefined,
           efConstruct: hnsw.efConstruct as number | undefined,
           efSearch: hnsw.efSearch as number | undefined,
@@ -147,7 +179,7 @@ export function register(c: ServiceContainer) {
           quantizeThreshold: config.quantizeThreshold as number | undefined,
           flushIntervalMs: persistence.flushIntervalMs as number | undefined,
           flushBatchSize: persistence.flushBatchSize as number | undefined,
-          writeZone: wz,
+          writeZone,
         });
         store.initSync();
         return store;
@@ -161,20 +193,20 @@ export function register(c: ServiceContainer) {
             adapter,
           }
         );
-        const store = new JsonVectorAdapter(dataRoot as string, { writeZone: wz });
+        const store = new JsonVectorAdapter(dataRoot, { writeZone });
         store.initSync();
         return store;
       }
     }
 
     // 未知适配器, 默认 JSON
-    const store = new JsonVectorAdapter(dataRoot as string, { writeZone: wz });
+    const store = new JsonVectorAdapter(dataRoot, { writeZone });
     store.initSync();
     return store;
   });
 
   c.singleton('indexingPipeline', (ct: ServiceContainer) => {
-    const dataRoot = resolveDataRoot(ct);
+    const { dataRoot } = resolveVectorRuntimeRoot(ct);
     return new IndexingPipeline({
       projectRoot: dataRoot,
       scanDirs: resolveKnowledgeScanDirs(ct),
