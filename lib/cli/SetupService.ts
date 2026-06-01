@@ -432,7 +432,7 @@ export class SetupService {
           '    name: "Visitor"',
           '    permissions: ["read:recipes", "read:guard_rules"]',
           '  - id: "external_agent"',
-          '    name: "External Agent"',
+          '    name: "Codex Host Agent"',
           '    permissions: ["read:recipes", "read:guard_rules", "create:candidates", "submit:knowledge"]',
           '',
         ].join('\n')

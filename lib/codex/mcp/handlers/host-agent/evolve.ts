@@ -6,14 +6,14 @@
  *   - confirm_deprecation → gateway.submit({ action: 'deprecate' })
  *   - skip → gateway.submit({ action: 'valid' }) 或直接 skip
  *
- * @module handlers/evolve-host-agent
+ * @module handlers/host-agent/evolve
  */
 
 import type { EvolutionGateway } from '@alembic/core/evolution';
+import { envelope } from '#codex/mcp/envelope.js';
 import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { EvolveInput } from '#shared/schemas/mcp-tools.js';
-import { envelope } from '../envelope.js';
 
 /** MCP handler context */
 interface McpContext {

@@ -192,7 +192,7 @@ export class ProjectSkillService {
     const description = args.description ?? existing?.description ?? name;
     const body = args.content ?? existing?.body ?? '';
     const title = args.title ?? existing?.title ?? extractHeadingTitle(body);
-    const createdBy = args.createdBy ?? existing?.createdBy ?? 'external-ai';
+    const createdBy = args.createdBy ?? existing?.createdBy ?? 'host-agent';
     const createdAt = existing?.createdAt ?? new Date().toISOString();
     const updatedAt = new Date().toISOString();
     const skillContent = buildSkillDocument({

@@ -26,8 +26,8 @@ rules:
 
 roles:
   - id: "external_agent"
-    name: "External Agent"
-    description: "Codex or external host agent"
+    name: "Codex Host Agent"
+    description: "Codex host agent"
     permissions:
       - "read:recipes"
       - "read:project"

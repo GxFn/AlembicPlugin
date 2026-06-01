@@ -1,13 +1,13 @@
 /**
- * Consolidated Submit — Proposal 集成逻辑测试
+ * Submit Knowledge Router — Proposal 集成逻辑测试
  *
- * 测试 `enhancedSubmitKnowledge` 中与 Proposal 相关的逻辑路径：
+ * 测试 `routeSubmitKnowledgeTool` 中与 Proposal 相关的逻辑路径：
  *   - ConsolidationAdvisor merge / insufficient → 创建 update Proposal
  *   - reorganize → 仅记录日志，不创建 Proposal
  *   - supersedes 参数 → 创建 deprecate Proposal
  *   - ProposalRepository 未注册时降级回 blocked 行为
  *
- * 由于 enhancedSubmitKnowledge 依赖大量 DI + 动态 import，
+ * 由于 routeSubmitKnowledgeTool 依赖大量 DI + 动态 import，
  * 本测试通过对 ProposalRepository.create 的行为验证核心逻辑。
  */
 
@@ -21,9 +21,9 @@ import { ProposalRepository } from '@alembic/core/repositories';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-describe('Consolidated Proposal creation logic', () => {
+describe('SubmitKnowledge proposal router logic', () => {
   /**
-   * 模拟 _createProposalFromAdvice 的等效逻辑（与 consolidated.ts 中的 helper 对齐）
+   * 模拟 _createProposalFromAdvice 的等效逻辑（与 tool-router.ts 中的 helper 对齐）
    */
   function createProposalFromAdvice(
     repo: ProposalRepository,

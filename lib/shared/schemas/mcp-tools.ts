@@ -344,7 +344,9 @@ export const ProjectSkillInput = z.object({
     .boolean()
     .default(false)
     .describe('显式项目级授权；true 时允许写入当前项目 .agents/skills'),
-  createdBy: z.enum(['manual', 'user-ai', 'system-ai', 'external-ai']).default('external-ai'),
+  createdBy: z
+    .enum(['manual', 'user-ai', 'system-ai', 'external-ai', 'host-agent'])
+    .default('host-agent'),
 });
 export type ProjectSkillInput = z.infer<typeof ProjectSkillInput>;
 

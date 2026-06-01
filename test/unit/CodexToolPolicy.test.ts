@@ -96,7 +96,7 @@ describe('Codex tool policy', () => {
     expect(catalogNames).toEqual(visibleSurfaceNames);
     expect(catalogNames).not.toContain('alembic_skill');
     expect(getPluginToolSurfaceEntry('alembic_project_skill')).toMatchObject({
-      handlerOwner: 'McpServer.consolidated',
+      handlerOwner: 'McpServer.tool-router',
       knowledgeGate: 'initialized',
       owner: 'plugin-embedded-core',
       residentRoutePolicy: 'none',

@@ -471,7 +471,7 @@ describe('L6: Host agent bootstrap go-module-scan dimension', () => {
   it('host-agent bootstrap module should load without error', async () => {
     // Just verify the host-agent bootstrap module loads without errors
     // (verifies go-module-scan dimension definition is valid)
-    const mod = await import('../../lib/codex/mcp/handlers/bootstrap-host-agent.js');
+    const mod = await import('../../lib/codex/mcp/handlers/host-agent/bootstrap.js');
     expect(mod).toBeDefined();
   });
 });

@@ -3,7 +3,7 @@ import {
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,
   runHostAgentDimensionCompletionWorkflow,
-} from '#codex/mcp/handlers/dimension-complete/HostAgentDimensionCompletionWorkflow.js';
+} from '#codex/mcp/host-agent-workflows/dimension-completion.js';
 
 describe('HostAgentDimensionCompletionWorkflow', () => {
   it('returns validation envelopes before touching session state', async () => {

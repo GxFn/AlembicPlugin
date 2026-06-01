@@ -47,7 +47,7 @@ describe('Constitution', () => {
     test('should return role by id', () => {
       const role = constitution.getRole('external_agent');
       expect(role).toBeDefined();
-      expect(role.name).toBe('External Agent');
+      expect(role.name).toBe('Codex Host Agent');
     });
 
     test('should return null for non-existent role', () => {

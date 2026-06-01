@@ -363,37 +363,37 @@ export interface EnrichCandidatesArgs {
   [key: string]: unknown;
 }
 
-// ─── Consolidated handler args ───────────────────────────
+// ─── Tool router handler args ───────────────────────────
 
-export interface ConsolidatedSearchArgs extends SearchArgs {
+export interface ToolRouterSearchArgs extends SearchArgs {
   mode?: string;
 }
 
-export interface ConsolidatedKnowledgeArgs extends BrowseListArgs, BrowseGetArgs {
+export interface ToolRouterKnowledgeArgs extends BrowseListArgs, BrowseGetArgs {
   operation?: string;
   recipeId?: string;
   usageType?: string;
   feedback?: string | null;
 }
 
-export interface ConsolidatedStructureArgs {
+export interface ToolRouterStructureArgs {
   operation?: string;
   [key: string]: unknown;
 }
 
-export interface ConsolidatedGraphArgs {
+export interface ToolRouterGraphArgs {
   operation?: string;
   [key: string]: unknown;
 }
 
-export interface ConsolidatedGuardArgs {
+export interface ToolRouterGuardArgs {
   operation?: 'check' | 'review' | 'coverage_matrix' | 'compliance_report';
   code?: string;
   files?: Array<string | { path?: string; [key: string]: unknown }>;
   [key: string]: unknown;
 }
 
-export interface ConsolidatedSkillArgs {
+export interface ToolRouterSkillArgs {
   operation?: string;
   name?: string;
   skillName?: string;

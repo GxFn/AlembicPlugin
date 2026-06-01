@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { enhancedSubmitKnowledge } from '../../lib/codex/mcp/handlers/consolidated.js';
+import { routeSubmitKnowledgeTool } from '../../lib/codex/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
 
 const gatewayState = vi.hoisted(() => ({
@@ -65,7 +65,7 @@ vi.mock('#http/middleware/RateLimiter.js', () => ({
   checkRecipeSave: () => ({ allowed: true }),
 }));
 
-describe('enhancedSubmitKnowledge pending semantic review nextAction', () => {
+describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
   beforeEach(() => {
     gatewayState.result = {
       created: [
@@ -104,7 +104,7 @@ describe('enhancedSubmitKnowledge pending semantic review nextAction', () => {
   });
 
   it('uses Core-provided newRecipeId for alembic_consolidate decisions', async () => {
-    const result = await enhancedSubmitKnowledge(makeContext(), {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
       items: [{ title: 'Codex Recipe Interaction' }],
     });
 
@@ -148,7 +148,7 @@ describe('enhancedSubmitKnowledge pending semantic review nextAction', () => {
       },
     ];
 
-    const result = await enhancedSubmitKnowledge(makeContext(), {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
       items: [{ title: 'Codex Recipe Interaction' }],
     });
 
@@ -181,7 +181,7 @@ describe('enhancedSubmitKnowledge pending semantic review nextAction', () => {
       },
     ];
 
-    const result = await enhancedSubmitKnowledge(makeContext(), {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
       items: [{ title: 'Codex Recipe Interaction' }],
     });
 

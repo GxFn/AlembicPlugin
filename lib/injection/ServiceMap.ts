@@ -64,7 +64,6 @@ import type { FeedbackCollector, QualityScorer } from '@alembic/core/service/qua
 import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/service/recipe';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
 // ── Domain Types ──
-// ── External Types ──
 // ── Core Types ──
 import type Constitution from '../governance/constitution/Constitution.js';
 import type Gateway from '../governance/gateway/Gateway.js';

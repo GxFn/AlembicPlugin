@@ -162,7 +162,7 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
   // ── Build immutable ProjectSnapshot ──
   const snapshot: ProjectSnapshot = buildProjectSnapshot({
     projectRoot,
-    sourceTag: 'rescan-host-agent',
+    sourceTag: 'codex-host-rescan',
     ...phaseResults,
     report: phaseResults.report,
   });

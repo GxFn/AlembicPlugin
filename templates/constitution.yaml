@@ -44,8 +44,8 @@ rules:
 # ─── 角色定义 ─────────────────────────────────────────────
 roles:
   - id: "external_agent"
-    name: "External Agent"
-    description: "Codex 或外部宿主 Agent"
+    name: "Codex Host Agent"
+    description: "Codex 宿主 Agent"
     permissions:
       - "read:recipes"
       - "read:guard_rules"

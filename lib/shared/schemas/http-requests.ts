@@ -4,7 +4,7 @@
  * 为 Express 路由提供运行时输入校验，覆盖：
  *   - knowledge（CRUD + 生命周期）
  *   - guardRules（规则管理 + 批量操作）
- *   - search（统合搜索 + 上下文搜索）
+ *   - search（mode 路由搜索 + 上下文搜索）
  *   - candidates（候选条目操作）
  *   - guard（文件质量检查）
  *   - skills（技能管理）

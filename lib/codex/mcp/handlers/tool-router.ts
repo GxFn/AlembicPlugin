@@ -1,12 +1,12 @@
 /**
- * MCP 整合 Handler — 参数路由层
+ * MCP Tool Router — 参数路由层
  *
- * 将整合后的工具（alembic_search / knowledge / structure / graph / guard / skill）
+ * 将多模式工具（alembic_search / knowledge / structure / graph / guard / skill）
  * 按 operation / mode 参数路由到已有 handler 实现。
  *
  * 不包含业务逻辑，仅做参数解构 → 路由 → 转发。
  *
- * alembic_bootstrap 已迁移到 bootstrap-host-agent.js（宿主 Agent 路径）。
+ * alembic_bootstrap 已迁移到 host-agent/bootstrap.js（宿主 Agent 路径）。
  */
 
 import { dimensionTags } from '@alembic/core/dimensions';
@@ -24,13 +24,13 @@ import * as searchHandlers from './search.js';
 import * as skillHandlers from './skill.js';
 import * as structureHandlers from './structure.js';
 import type {
-  ConsolidatedGraphArgs,
-  ConsolidatedGuardArgs,
-  ConsolidatedKnowledgeArgs,
-  ConsolidatedSearchArgs,
-  ConsolidatedSkillArgs,
-  ConsolidatedStructureArgs,
   McpContext,
+  ToolRouterGraphArgs,
+  ToolRouterGuardArgs,
+  ToolRouterKnowledgeArgs,
+  ToolRouterSearchArgs,
+  ToolRouterSkillArgs,
+  ToolRouterStructureArgs,
 } from './types.js';
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
@@ -41,16 +41,16 @@ interface PendingSemanticReviewDecision {
   reasoning: string;
 }
 
-// ─── alembic_search (整合 4 → 1) ────────────────────────
+// ─── alembic_search (mode router) ────────────────────────
 
 /**
- * 统合搜索：根据 mode 参数路由到对应搜索 handler
+ * 搜索工具路由：根据 mode 参数路由到对应搜索 handler
  *   auto (默认) → search()
  *   keyword     → keywordSearch()
  *   semantic    → semanticSearch()
  *   context     → contextSearch()
  */
-export async function consolidatedSearch(ctx: McpContext, args: ConsolidatedSearchArgs) {
+export async function routeSearchTool(ctx: McpContext, args: ToolRouterSearchArgs) {
   const mode = args.mode || 'auto';
   switch (mode) {
     case 'keyword':
@@ -64,7 +64,7 @@ export async function consolidatedSearch(ctx: McpContext, args: ConsolidatedSear
   }
 }
 
-// ─── alembic_knowledge (整合 7 → 1) ─────────────────────
+// ─── alembic_knowledge (operation router) ─────────────────────
 
 /**
  * 知识浏览：根据 operation 参数路由
@@ -73,7 +73,7 @@ export async function consolidatedSearch(ctx: McpContext, args: ConsolidatedSear
  *   insights     → recipeInsights()
  *   confirm_usage → confirmUsage()
  */
-export async function consolidatedKnowledge(ctx: McpContext, args: ConsolidatedKnowledgeArgs) {
+export async function routeKnowledgeTool(ctx: McpContext, args: ToolRouterKnowledgeArgs) {
   const op = args.operation || 'list';
   switch (op) {
     case 'list': {
@@ -101,7 +101,7 @@ export async function consolidatedKnowledge(ctx: McpContext, args: ConsolidatedK
   }
 }
 
-// ─── alembic_structure (整合 3 → 1) ─────────────────────
+// ─── alembic_structure (operation router) ─────────────────────
 
 /**
  * 项目结构：根据 operation 参数路由
@@ -109,7 +109,7 @@ export async function consolidatedKnowledge(ctx: McpContext, args: ConsolidatedK
  *   files          → getTargetFiles()
  *   metadata       → getTargetMetadata()
  */
-export async function consolidatedStructure(ctx: McpContext, args: ConsolidatedStructureArgs) {
+export async function routeStructureTool(ctx: McpContext, args: ToolRouterStructureArgs) {
   const op = args.operation || 'targets';
   switch (op) {
     case 'targets':
@@ -126,11 +126,11 @@ export async function consolidatedStructure(ctx: McpContext, args: ConsolidatedS
 // ─── alembic_call_context (Phase 5) ─────────────────────
 
 /** 调用链上下文查询：直接转发到 structure.callContext */
-export async function consolidatedCallContext(ctx: McpContext, args: ConsolidatedStructureArgs) {
+export async function routeCallContextTool(ctx: McpContext, args: ToolRouterStructureArgs) {
   return structureHandlers.callContext(ctx, args);
 }
 
-// ─── alembic_graph (整合 4 → 1) ─────────────────────────
+// ─── alembic_graph (operation router) ─────────────────────────
 
 /**
  * 知识图谱：根据 operation 参数路由
@@ -139,7 +139,7 @@ export async function consolidatedCallContext(ctx: McpContext, args: Consolidate
  *   path    → graphPath()
  *   stats   → graphStats()
  */
-export async function consolidatedGraph(ctx: McpContext, args: ConsolidatedGraphArgs) {
+export async function routeGraphTool(ctx: McpContext, args: ToolRouterGraphArgs) {
   const op = args.operation;
   if (!op) {
     throw new Error('Missing required parameter: operation. Expected: query, impact, path, stats');
@@ -158,7 +158,7 @@ export async function consolidatedGraph(ctx: McpContext, args: ConsolidatedGraph
   }
 }
 
-// ─── alembic_guard (整合 3 → 1) ─────────────────────────
+// ─── alembic_guard (input router) ─────────────────────────
 
 /**
  * Guard 检查：按参数自动路由
@@ -168,7 +168,7 @@ export async function consolidatedGraph(ctx: McpContext, args: ConsolidatedGraph
  *   有 files     → guardReview()    (指定文件 + inline recipe) — files 为 string[] 或 {path}[]
  *   有 code      → guardCheck()     (单文件内联检查)
  */
-export async function consolidatedGuard(ctx: McpContext, args: ConsolidatedGuardArgs) {
+export async function routeGuardTool(ctx: McpContext, args: ToolRouterGuardArgs) {
   // operation 显式路由
   if (args.operation === 'coverage_matrix') {
     return guardHandlers.guardCoverageMatrix(ctx, args);
@@ -185,7 +185,7 @@ export async function consolidatedGuard(ctx: McpContext, args: ConsolidatedGuard
   return guardHandlers.guardReview(ctx, args);
 }
 
-export async function consolidatedProjectSkill(ctx: McpContext, args: ConsolidatedSkillArgs) {
+export async function routeProjectSkillTool(ctx: McpContext, args: ToolRouterSkillArgs) {
   if (args.name && !args.skillName) {
     args.skillName = args.name;
   }
@@ -210,7 +210,7 @@ export async function consolidatedProjectSkill(ctx: McpContext, args: Consolidat
  *   - 不重复提交：拒绝时不创建任何记录
  *   - 单条/批量完全一致的校验与融合逻辑
  */
-export async function enhancedSubmitKnowledge(ctx: McpContext, args: Record<string, unknown>) {
+export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<string, unknown>) {
   const { RecipeProductionGateway } = await import('@alembic/core/knowledge');
   const { findSimilarRecipes } = await import('@alembic/core/service/candidate');
 

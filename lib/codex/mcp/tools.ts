@@ -1,5 +1,5 @@
 /**
- * MCP Tool Definitions — V3 Consolidated (17 agent + 2 admin = 19 tools)
+ * MCP Tool Definitions — V3 Routed Surface (17 agent + 2 admin = 19 tools)
  *
  * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.

@@ -1,10 +1,10 @@
 /**
- * Alembic V3 MCP Server — 整合版
+ * Alembic V3 MCP Server — Codex plugin runtime
  *
  * Model Context Protocol (stdio transport)
  * 提供给插件宿主 Agent 的工具集
  *
- * V3.3 整合：39 → 16 工具（14 agent + 2 admin）
+ * V3.3 tool surface：39 → 16 工具（14 agent + 2 admin）
  * 通过 ALEMBIC_MCP_TIER 环境变量控制可见工具集（agent/admin）
  *
  * 冷启动路径:
@@ -15,7 +15,7 @@
  * 本文件仅包含服务编排层（初始化、路由、Gateway gating、生命周期）。
  * 工具定义 → tools.js
  * Handler 实现 → handlers/*.js
- * 整合路由 → handlers/consolidated.js
+ * 参数路由 → handlers/tool-router.js
  */
 
 import { CapabilityProbe } from '@alembic/core/core/capability';
@@ -123,18 +123,18 @@ interface GatewayMappingEntry {
 // ─── Handler 模块 ─────────────────────────────────────────────
 
 import * as candidateHandlers from './handlers/candidate.js';
-import * as consolidated from './handlers/consolidated.js';
 import * as knowledgeHandlers from './handlers/knowledge.js';
 import * as systemHandlers from './handlers/system.js';
+import * as toolRouter from './handlers/tool-router.js';
 
-// ─── Host Agent Bootstrap 新 handler ──────────────────────
+// ─── Codex host-agent handlers ──────────────────────
 
-import { bootstrapForHostAgent } from './handlers/bootstrap-host-agent.js';
 import { consolidateHandler } from './handlers/consolidate.js';
-import { dimensionComplete } from './handlers/dimension-complete-host-agent.js';
-import { evolveForHostAgent } from './handlers/evolve-host-agent.js';
+import { bootstrapForHostAgent } from './handlers/host-agent/bootstrap.js';
+import { dimensionComplete } from './handlers/host-agent/dimension-completion.js';
+import { evolveForHostAgent } from './handlers/host-agent/evolve.js';
+import { rescanForHostAgent } from './handlers/host-agent/rescan.js';
 import { panoramaHandler } from './handlers/panorama.js';
-import { rescanForHostAgent } from './handlers/rescan-host-agent.js';
 import { taskHandler } from './handlers/task.js';
 
 // ─── McpServer 类 ─────────────────────────────────────────────
@@ -567,24 +567,21 @@ export class McpServer {
   }
 
   /**
-   * 解析工具名到 handler 函数（V3 整合版）
+   * 解析工具名到 handler 函数（V3 routed surface）
    */
   _resolveHandler(name: string): ToolHandlerFn | null {
     const HANDLER_MAP: Record<string, ToolHandlerFn> = {
       // ── Agent 层 ──
       alembic_health: (ctx) => systemHandlers.health(ctx),
       alembic_search: (ctx, args) =>
-        consolidated.consolidatedSearch(
-          ctx,
-          args as Parameters<typeof consolidated.consolidatedSearch>[1]
-        ),
-      alembic_knowledge: (ctx, args) => consolidated.consolidatedKnowledge(ctx, args),
-      alembic_structure: (ctx, args) => consolidated.consolidatedStructure(ctx, args),
-      alembic_call_context: (ctx, args) => consolidated.consolidatedCallContext(ctx, args),
-      alembic_graph: (ctx, args) => consolidated.consolidatedGraph(ctx, args),
-      alembic_guard: (ctx, args) => consolidated.consolidatedGuard(ctx, args),
-      alembic_submit_knowledge: (ctx, args) => consolidated.enhancedSubmitKnowledge(ctx, args),
-      alembic_project_skill: (ctx, args) => consolidated.consolidatedProjectSkill(ctx, args),
+        toolRouter.routeSearchTool(ctx, args as Parameters<typeof toolRouter.routeSearchTool>[1]),
+      alembic_knowledge: (ctx, args) => toolRouter.routeKnowledgeTool(ctx, args),
+      alembic_structure: (ctx, args) => toolRouter.routeStructureTool(ctx, args),
+      alembic_call_context: (ctx, args) => toolRouter.routeCallContextTool(ctx, args),
+      alembic_graph: (ctx, args) => toolRouter.routeGraphTool(ctx, args),
+      alembic_guard: (ctx, args) => toolRouter.routeGuardTool(ctx, args),
+      alembic_submit_knowledge: (ctx, args) => toolRouter.routeSubmitKnowledgeTool(ctx, args),
+      alembic_project_skill: (ctx, args) => toolRouter.routeProjectSkillTool(ctx, args),
       alembic_task: (ctx, args) => taskHandler(ctx, args),
       alembic_panorama: (ctx, args) => panoramaHandler(ctx, args),
       // ── Host Agent Bootstrap (v3.1) ──

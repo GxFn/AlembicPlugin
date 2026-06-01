@@ -1,9 +1,9 @@
 /**
  * MCP Handlers — 搜索类
  *
- * v2: 合并原 4 个搜索函数（search / contextSearch / keywordSearch / semanticSearch）
- * 为统一 search() 入口，通过 mode 参数路由。
- * consolidated.ts 的 mode 路由直接指向本函数。
+ * v2: 将 search / contextSearch / keywordSearch / semanticSearch
+ * 收束到 search() 入口，通过 mode 参数路由。
+ * tool-router.ts 的 mode 路由直接指向本函数。
  *
  * 设计原则：
  * 1. 通过 container.get('searchEngine') 获取 singleton 实例（含 vectorStore + aiProvider）
@@ -78,7 +78,7 @@ function filterByKind(items: SearchResultItem[], kind: string) {
 /**
  * 统一搜索入口 — 支持 auto / keyword / weighted / semantic / context 五种模式
  *
- * 合并了原 search / contextSearch / keywordSearch / semanticSearch 4 个函数。
+ * search / contextSearch / keywordSearch / semanticSearch 共享本入口。
  * mode 路由:
  *   - auto (默认): FieldWeighted + semantic 融合 + Ranking Pipeline
  *   - keyword: SQL LIKE 精确匹配，适合已知函数名/类名
@@ -315,7 +315,7 @@ function shouldAskResidentSearch(mode: string): boolean {
 }
 
 // ─── Backward-compatible aliases ────────────────────────────
-// consolidated.ts 按 mode 路由时直接调用这些别名
+// tool-router.ts 按 mode 路由时直接调用这些别名
 
 /** contextSearch — mode='context' 的别名 */
 export function contextSearch(ctx: McpContext, args: SearchArgs) {
