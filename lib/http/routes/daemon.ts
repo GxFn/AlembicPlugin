@@ -48,7 +48,7 @@ router.get('/health', (req, res) => {
           available: dashboardAvailable,
           url: dashboardUrl,
         },
-        apiAi: getApiAiCapability(),
+        apiAi: getResidentDaemonJobProviderCapability(),
         jobs: {
           available: true,
           endpoints: {
@@ -63,7 +63,7 @@ router.get('/health', (req, res) => {
   });
 });
 
-function getApiAiCapability() {
+function getResidentDaemonJobProviderCapability() {
   return {
     available: false,
     configSource: null,

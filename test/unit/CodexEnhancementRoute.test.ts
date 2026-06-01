@@ -132,7 +132,7 @@ describe('Codex enhancement route resolver', () => {
       requiresAiProvider: false,
       source: 'host-agent',
     });
-    expect(route.apiAiProvider).toMatchObject({
+    expect(route.residentDaemonJobProvider).toMatchObject({
       available: true,
       configSource: 'workspace-settings',
       provider: 'deepseek',
@@ -297,7 +297,7 @@ describe('Codex enhancement route resolver', () => {
       dashboardUrl: null,
       fileMonitorAvailable: null,
       fileMonitorMode: null,
-      apiAiAvailable: null,
+      residentDaemonJobsAvailable: null,
       jobsAvailable: null,
       jobKinds: [],
     });
@@ -340,7 +340,7 @@ describe('Codex enhancement route resolver', () => {
     expect(route.selected).toBe('local-alembic-daemon');
     expect(route.missingCapabilities).toEqual(['dashboard']);
     expect(route.hostAgentRoute.source).toBe('host-agent');
-    expect(route.apiAiProvider).toMatchObject({
+    expect(route.residentDaemonJobProvider).toMatchObject({
       available: false,
       configSource: 'empty',
       provider: null,

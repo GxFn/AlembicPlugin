@@ -21,7 +21,7 @@ describe('Codex module boundary status', () => {
     expect(externalOwned).toContain('project-registry-main');
     expect(externalOwned).toContain('job-store-main');
     expect(externalOwned).toContain('file-monitor-main');
-    expect(externalOwned).toContain('api-ai-runtime');
+    expect(externalOwned).toContain('resident-daemon-job-runtime');
     expect(externalOwned).toContain('dashboard-frontend-source');
   });
 
@@ -60,7 +60,7 @@ describe('Codex module boundary status', () => {
             'alembic_dimension_complete',
           ],
         },
-        apiAiProvider: {
+        residentDaemonJobProvider: {
           available: false,
           configSource: 'empty',
           model: null,
@@ -75,7 +75,7 @@ describe('Codex module boundary status', () => {
               dashboardUrl: null,
               fileMonitorAvailable: null,
               fileMonitorMode: null,
-              apiAiAvailable: null,
+              residentDaemonJobsAvailable: null,
               jobsAvailable: null,
               jobKinds: [],
             },
@@ -114,7 +114,7 @@ describe('Codex module boundary status', () => {
                 longLivedOwner: null,
                 mode: null,
               },
-              apiAi: {
+              residentDaemonJobProvider: {
                 available: null,
                 owner: null,
                 runtimeOwner: null,
@@ -158,7 +158,7 @@ describe('Codex module boundary status', () => {
     expect(status.adapters.enhancementRoute).toMatchObject({
       consumesLocalAlembicCapabilities: false,
       hostAgentSource: 'host-agent',
-      apiAiProviderIsProviderStateOnly: true,
+      residentDaemonJobProviderIsProviderStateOnly: true,
       missingCapabilities: ['daemon-api'],
       selected: 'embedded-plugin-runtime',
     });

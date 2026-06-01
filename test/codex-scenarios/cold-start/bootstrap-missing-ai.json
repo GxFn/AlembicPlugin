@@ -1,6 +1,6 @@
 {
   "id": "bootstrap-missing-ai-uses-host-agent",
-  "description": "已初始化但缺 AI Provider 时，Codex 默认 bootstrap 走宿主 Agent workflow，不能因 API AI Provider 缺失而失败。",
+  "description": "已初始化但缺 daemon job provider 时，Codex 默认 bootstrap 走宿主 Agent workflow，不能因 provider-backed daemon job 配置缺失而失败。",
   "fixture": {
     "daemon": "stopped",
     "initialized": true,

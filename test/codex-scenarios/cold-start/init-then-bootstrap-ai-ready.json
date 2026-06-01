@@ -1,6 +1,6 @@
 {
   "id": "init-then-codex-host-bootstrap",
-  "description": "用户先初始化再要求知识挖掘，Codex 默认应启动 host-agent bootstrap workflow，不依赖 API AI Provider 或创建 API AI job。",
+  "description": "用户先初始化再要求知识挖掘，Codex 默认应启动 host-agent bootstrap workflow，不依赖 provider-backed daemon job 配置，也不创建 daemon job。",
   "fixture": {
     "daemon": "stopped",
     "initialized": false,

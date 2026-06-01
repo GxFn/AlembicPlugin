@@ -50,7 +50,7 @@ export interface CodexModuleBoundaryStatus {
     enhancementRoute: {
       consumesLocalAlembicCapabilities: boolean;
       hostAgentSource: string | null;
-      apiAiProviderIsProviderStateOnly: boolean;
+      residentDaemonJobProviderIsProviderStateOnly: boolean;
       missingCapabilities: string[];
       selected: string | null;
     };
@@ -191,10 +191,10 @@ const EXTERNAL_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
     sourceOfTruth: 'Alembic daemon file monitor contract',
   },
   {
-    id: 'api-ai-runtime',
+    id: 'resident-daemon-job-runtime',
     owner: 'AlembicAgent',
     pluginRole:
-      'Surfaces provider readiness for explicit API AI daemon jobs; Codex host-agent route does not require it.',
+      'Surfaces provider readiness for explicit resident daemon jobs; Codex host-agent route does not require it.',
     retainedInPlugin: false,
     sourceOfTruth: 'AlembicAgent runtime consumed by Alembic',
   },
@@ -234,7 +234,7 @@ export function buildCodexModuleBoundaryStatus(
           ? route.selected === 'local-alembic-daemon' || route.selected === 'local-alembic-install'
           : false,
         hostAgentSource: route?.hostAgentRoute.source ?? null,
-        apiAiProviderIsProviderStateOnly: true,
+        residentDaemonJobProviderIsProviderStateOnly: true,
         missingCapabilities: route ? [...route.missingCapabilities] : [],
       },
       hostProjectAlignment: {
