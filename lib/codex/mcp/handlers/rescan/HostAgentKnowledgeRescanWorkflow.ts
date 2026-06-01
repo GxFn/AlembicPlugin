@@ -1,5 +1,5 @@
 /**
- * ExternalKnowledgeRescanWorkflow — 外部 Agent 增量知识重扫
+ * HostAgentKnowledgeRescanWorkflow — 宿主 Agent 增量知识重扫
  *
  * 保留已审核 Recipe，清理衍生缓存，全量/指定维度重新扫描。
  *
@@ -8,21 +8,21 @@
  *   2. rescanClean — 清理衍生缓存
  *   3. Phase 1-4 全量分析 (ProjectIntelligenceCapability)
  *   4. 构建 Mission Briefing（含 allRecipes + evolutionGuide）
- *   5. 返回给外部 Agent 按维度执行: evolve → gap-fill → dimension_complete
+ *   5. 返回给宿主 Agent 按维度执行: evolve → gap-fill → dimension_complete
  */
 
 import {
   auditRecipesForRescan,
-  buildExternalMissionBriefing,
+  buildExternalMissionBriefing as buildHostAgentMissionBriefing,
   buildIDEAgentAnalysisPacketFromSnapshot,
   buildKnowledgeRescanPlan,
   buildKnowledgeRescanWorkflowPlan,
   buildRescanPrescreen,
-  createExternalKnowledgeRescanIntent,
-  createExternalWorkflowSession,
-  presentExternalKnowledgeRescanEmptyProject,
-  presentExternalKnowledgeRescanResponse,
-  projectExternalRescanEvidencePlan,
+  createExternalKnowledgeRescanIntent as createHostAgentKnowledgeRescanIntent,
+  createExternalWorkflowSession as createHostAgentWorkflowSession,
+  presentExternalKnowledgeRescanEmptyProject as presentHostAgentKnowledgeRescanEmptyProject,
+  presentExternalKnowledgeRescanResponse as presentHostAgentKnowledgeRescanResponse,
+  projectExternalRescanEvidencePlan as projectHostAgentRescanEvidencePlan,
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
   syncKnowledgeStoreForRescan,
@@ -51,12 +51,12 @@ interface McpContext {
 
 // ── 主入口 ─────────────────────────────────────────────────
 
-export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: RescanInput) {
+export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args: RescanInput) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveDataRoot(ctx.container);
   const db = ctx.container.get('database');
-  const intent = createExternalKnowledgeRescanIntent(args);
+  const intent = createHostAgentKnowledgeRescanIntent(args);
   const plan = buildKnowledgeRescanWorkflowPlan({ intent, projectRoot, dataRoot });
 
   // ═══════════════════════════════════════════════════════════
@@ -140,7 +140,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
 
   // 空项目 fast-path
   if (phaseResults.isEmpty) {
-    return presentExternalKnowledgeRescanEmptyProject({ responseTimeMs: Date.now() - t0 });
+    return presentHostAgentKnowledgeRescanEmptyProject({ responseTimeMs: Date.now() - t0 });
   }
 
   const {
@@ -162,7 +162,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
   // ── Build immutable ProjectSnapshot ──
   const snapshot: ProjectSnapshot = buildProjectSnapshot({
     projectRoot,
-    sourceTag: 'rescan-external',
+    sourceTag: 'rescan-host-agent',
     ...phaseResults,
     report: phaseResults.report,
   });
@@ -193,7 +193,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
   // ═══════════════════════════════════════════════════════════
 
   const prescreen = buildRescanPrescreen(auditSummary, recipeSnapshot.entries, dimensions);
-  const evidencePlan = projectExternalRescanEvidencePlan(knowledgeRescanPlan);
+  const evidencePlan = projectHostAgentRescanEvidencePlan(knowledgeRescanPlan);
 
   ctx.logger.info('[Rescan] Evolution prescreen built', {
     needsVerification: prescreen.needsVerification.length,
@@ -204,7 +204,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
   // Step 5: 构建 Mission Briefing + 过滤维度
   // ═══════════════════════════════════════════════════════════
 
-  const session = createExternalWorkflowSession({
+  const session = createHostAgentWorkflowSession({
     container: ctx.container,
     projectRoot,
     dimensions: Array.isArray(dimensions) ? dimensions : [],
@@ -214,7 +214,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
     moduleCount: depGraphData?.nodes?.length || 0,
   });
 
-  const briefing = buildExternalMissionBriefing({
+  const briefing = buildHostAgentMissionBriefing({
     projectRoot,
     primaryLang,
     secondaryLanguages: (langProfile as { secondary?: string[] }).secondary || [],
@@ -280,7 +280,7 @@ export async function runExternalKnowledgeRescanWorkflow(ctx: McpContext, args: 
     reasons: knowledgeRescanPlan.executionReasons,
   });
 
-  return presentExternalKnowledgeRescanResponse({
+  return presentHostAgentKnowledgeRescanResponse({
     recipeSnapshot,
     cleanResult,
     auditSummary,

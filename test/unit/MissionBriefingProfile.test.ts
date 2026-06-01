@@ -77,9 +77,9 @@ describe('MissionBriefing profiles', () => {
     expect(briefing.meta?.warnings?.[0]).toContain('Response compressed');
   });
 
-  test('external knowledge rescan workflow no longer patches executionPlan after briefing construction', () => {
+  test('host-agent knowledge rescan workflow no longer patches executionPlan after briefing construction', () => {
     const source = readFileSync(
-      join(process.cwd(), 'lib/codex/mcp/handlers/rescan/ExternalKnowledgeRescanWorkflow.ts'),
+      join(process.cwd(), 'lib/codex/mcp/handlers/rescan/HostAgentKnowledgeRescanWorkflow.ts'),
       'utf8'
     );
 

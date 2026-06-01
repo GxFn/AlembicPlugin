@@ -1,5 +1,5 @@
 /**
- * Compatibility exports for the external cold-start path.
+ * Compatibility exports for the host-agent cold-start path.
  *
  * The Core workflow primitives live in `@alembic/core/host-agent-workflows`;
  * this wrapper owns Plugin transport cleanup and MCP response shaping.
@@ -7,5 +7,5 @@
 
 export {
   getActiveSession,
-  runExternalColdStartWorkflow as bootstrapExternal,
-} from '#codex/mcp/handlers/bootstrap/ExternalColdStartWorkflow.js';
+  runHostAgentColdStartWorkflow as bootstrapForHostAgent,
+} from '#codex/mcp/handlers/bootstrap/HostAgentColdStartWorkflow.js';

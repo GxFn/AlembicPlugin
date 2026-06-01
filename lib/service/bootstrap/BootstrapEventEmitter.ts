@@ -1,7 +1,7 @@
 /**
  * BootstrapEventEmitter.js — 统一的 Bootstrap 进度事件推送
  *
- * 两端（内部 Agent / 外部 Agent）使用相同的事件名和数据格式，
+ * 两端（内部 Agent / 宿主 Agent）使用相同的事件名和数据格式，
  * 同时兼容 EventBus 和 BootstrapTaskManager。
  *
  * @module shared/BootstrapEventEmitter

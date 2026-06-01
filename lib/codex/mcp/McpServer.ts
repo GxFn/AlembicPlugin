@@ -8,7 +8,7 @@
  * 通过 ALEMBIC_MCP_TIER 环境变量控制可见工具集（agent/admin）
  *
  * 冷启动路径:
- *   - 外部宿主 Agent 路径: bootstrap (Mission Briefing) → dimension_complete × N
+ *   - 宿主 Agent 路径: bootstrap (Mission Briefing) → dimension_complete × N
  *
  * Gateway 权限 gating: 写操作经过 Gateway 权限/宪法/审计检查（支持动态 resolver）
  *
@@ -127,14 +127,14 @@ import * as consolidated from './handlers/consolidated.js';
 import * as knowledgeHandlers from './handlers/knowledge.js';
 import * as systemHandlers from './handlers/system.js';
 
-// ─── External Agent Bootstrap 新 handler ──────────────────────
+// ─── Host Agent Bootstrap 新 handler ──────────────────────
 
-import { bootstrapExternal } from './handlers/bootstrap-external.js';
+import { bootstrapForHostAgent } from './handlers/bootstrap-host-agent.js';
 import { consolidateHandler } from './handlers/consolidate.js';
-import { dimensionComplete } from './handlers/dimension-complete-external.js';
-import { evolveExternal } from './handlers/evolve-external.js';
+import { dimensionComplete } from './handlers/dimension-complete-host-agent.js';
+import { evolveForHostAgent } from './handlers/evolve-host-agent.js';
 import { panoramaHandler } from './handlers/panorama.js';
-import { rescanExternal } from './handlers/rescan-external.js';
+import { rescanForHostAgent } from './handlers/rescan-host-agent.js';
 import { taskHandler } from './handlers/task.js';
 
 // ─── McpServer 类 ─────────────────────────────────────────────
@@ -587,15 +587,15 @@ export class McpServer {
       alembic_project_skill: (ctx, args) => consolidated.consolidatedProjectSkill(ctx, args),
       alembic_task: (ctx, args) => taskHandler(ctx, args),
       alembic_panorama: (ctx, args) => panoramaHandler(ctx, args),
-      // ── External Agent Bootstrap (v3.1) ──
+      // ── Host Agent Bootstrap (v3.1) ──
       alembic_bootstrap: (ctx, _args) =>
-        bootstrapExternal(ctx as Parameters<typeof bootstrapExternal>[0]),
+        bootstrapForHostAgent(ctx as Parameters<typeof bootstrapForHostAgent>[0]),
       alembic_rescan: (ctx, args) =>
-        rescanExternal(ctx as Parameters<typeof rescanExternal>[0], args),
+        rescanForHostAgent(ctx as Parameters<typeof rescanForHostAgent>[0], args),
       alembic_evolve: (ctx, args) =>
-        evolveExternal(
-          ctx as Parameters<typeof evolveExternal>[0],
-          args as Parameters<typeof evolveExternal>[1]
+        evolveForHostAgent(
+          ctx as Parameters<typeof evolveForHostAgent>[0],
+          args as Parameters<typeof evolveForHostAgent>[1]
         ),
       alembic_dimension_complete: (ctx, args) => dimensionComplete(ctx, args),
       alembic_consolidate: (ctx, args) =>

@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  type ExternalDimensionCompletionContext,
-  type ExternalWorkflowSession,
-  runExternalDimensionCompletionWorkflow,
-} from '#codex/mcp/handlers/dimension-complete/ExternalDimensionCompletionWorkflow.js';
+  type HostAgentDimensionCompletionContext,
+  type HostAgentWorkflowSession,
+  runHostAgentDimensionCompletionWorkflow,
+} from '#codex/mcp/handlers/dimension-complete/HostAgentDimensionCompletionWorkflow.js';
 
-describe('ExternalDimensionCompletionWorkflow', () => {
+describe('HostAgentDimensionCompletionWorkflow', () => {
   it('returns validation envelopes before touching session state', async () => {
     const getActiveSession = vi.fn();
-    const result = await runExternalDimensionCompletionWorkflow(
+    const result = await runHostAgentDimensionCompletionWorkflow(
       createContext(),
       { analysisText: 'analysis text long enough' },
       { getActiveSession }
@@ -19,8 +19,8 @@ describe('ExternalDimensionCompletionWorkflow', () => {
     expect(getActiveSession).not.toHaveBeenCalled();
   });
 
-  it('returns SESSION_NOT_FOUND when no external session is active', async () => {
-    const result = await runExternalDimensionCompletionWorkflow(
+  it('returns SESSION_NOT_FOUND when no host-agent session is active', async () => {
+    const result = await runHostAgentDimensionCompletionWorkflow(
       createContext(),
       { dimensionId: 'architecture', analysisText: 'analysis text long enough' },
       { getActiveSession: () => null }
@@ -52,7 +52,7 @@ describe('ExternalDimensionCompletionWorkflow', () => {
       },
     });
 
-    const result = await runExternalDimensionCompletionWorkflow(
+    const result = await runHostAgentDimensionCompletionWorkflow(
       context,
       {
         dimensionId: 'architecture',
@@ -127,17 +127,17 @@ describe('ExternalDimensionCompletionWorkflow', () => {
   });
 });
 
-function createContext(overrides: Partial<ExternalDimensionCompletionContext['container']> = {}) {
+function createContext(overrides: Partial<HostAgentDimensionCompletionContext['container']> = {}) {
   return {
     container: {
       singletons: { _projectRoot: '/tmp/alembic-test-project' },
       get: () => null,
       ...overrides,
     },
-  } as ExternalDimensionCompletionContext;
+  } as HostAgentDimensionCompletionContext;
 }
 
-function createSession(): ExternalWorkflowSession {
+function createSession(): HostAgentWorkflowSession {
   let completed = false;
   const session = {
     id: 'session-1',
@@ -198,5 +198,5 @@ function createSession(): ExternalWorkflowSession {
     getAccumulatedHints: () => ({}),
   };
 
-  return session as unknown as ExternalWorkflowSession;
+  return session as unknown as HostAgentWorkflowSession;
 }

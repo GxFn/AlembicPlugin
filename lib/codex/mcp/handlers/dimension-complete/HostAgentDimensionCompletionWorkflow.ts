@@ -20,7 +20,7 @@ const logger = Logger.getInstance();
 
 const BOOTSTRAP_COMPLETE_ACTIONS: Array<{ action: string; prompt: string; tool: string }> = [];
 
-export interface ExternalDimensionCompleteArgs {
+export interface HostAgentDimensionCompleteArgs {
   sessionId?: unknown;
   dimensionId?: unknown;
   unitId?: unknown;
@@ -38,29 +38,29 @@ export interface ExternalDimensionCompleteArgs {
   [key: string]: unknown;
 }
 
-interface ExternalCompletionLogger {
+interface HostAgentCompletionLogger {
   info(msg: string, meta?: Record<string, unknown>): void;
   warn(msg: string, meta?: Record<string, unknown>): void;
   debug?(msg: string, meta?: Record<string, unknown>): void;
 }
 
-export interface ExternalSessionContainer {
+export interface HostAgentSessionContainer {
   get(name: string): unknown;
   services?: Record<string, unknown>;
   singletons?: Record<string, unknown>;
 }
 
-interface ExternalCompletionContainer extends ExternalSessionContainer {
+interface HostAgentCompletionContainer extends HostAgentSessionContainer {
   get(name: string): unknown;
 }
 
-export interface ExternalDimensionCompletionContext {
-  container: ExternalCompletionContainer;
-  logger?: ExternalCompletionLogger;
+export interface HostAgentDimensionCompletionContext {
+  container: HostAgentCompletionContainer;
+  logger?: HostAgentCompletionLogger;
   [key: string]: unknown;
 }
 
-export interface ExternalDimensionCompletionResponse<T = unknown> {
+export interface HostAgentDimensionCompletionResponse<T = unknown> {
   success: boolean;
   data?: T | null;
   message?: string;
@@ -68,36 +68,36 @@ export interface ExternalDimensionCompletionResponse<T = unknown> {
   errorCode?: string | null;
 }
 
-export interface ExternalDimensionCompletionDependencies {
+export interface HostAgentDimensionCompletionDependencies {
   getActiveSession?: (
-    container: ExternalSessionContainer,
+    container: HostAgentSessionContainer,
     sessionId?: string
-  ) => Promise<ExternalWorkflowSession | null> | ExternalWorkflowSession | null;
-  generateSkill?: GenerateExternalDimensionSkill;
+  ) => Promise<HostAgentWorkflowSession | null> | HostAgentWorkflowSession | null;
+  generateSkill?: GenerateHostAgentDimensionSkill;
   saveCheckpoint?: typeof saveDimensionCheckpoint;
-  createEmitter?: (container: ExternalCompletionContainer) => ExternalDimensionCompletionEmitter;
+  createEmitter?: (container: HostAgentCompletionContainer) => HostAgentDimensionCompletionEmitter;
   now?: () => number;
   runCompletionFinalizer?: typeof runWorkflowCompletionFinalizer;
   finalizerDependencies?: WorkflowCompletionFinalizerDependencies;
 }
 
-type GenerateExternalDimensionSkill = (
-  ctx: ExternalDimensionCompletionContext,
+type GenerateHostAgentDimensionSkill = (
+  ctx: HostAgentDimensionCompletionContext,
   dimension: DimensionDef,
   analysisText: string,
   referencedFiles: string[],
   keyFindings: string[],
   source: string
-) => Promise<ExternalDimensionSkillResult>;
+) => Promise<HostAgentDimensionSkillResult>;
 
-interface ExternalDimensionSkillResult {
+interface HostAgentDimensionSkillResult {
   deliveryReceipt?: ProjectSkillDeliveryReceipt;
   error?: string;
   exportResult?: Record<string, unknown>;
   success: boolean;
 }
 
-export interface ExternalWorkflowSession {
+export interface HostAgentWorkflowSession {
   id: string;
   projectRoot: string;
   expiresAt?: number;
@@ -141,7 +141,7 @@ export interface ExternalWorkflowSession {
   getAccumulatedHints(): Record<string, unknown>;
 }
 
-interface ExternalDimensionCompletionEmitter {
+interface HostAgentDimensionCompletionEmitter {
   emitDimensionComplete(
     dimId: string,
     data: Parameters<BootstrapEventEmitter['emitDimensionComplete']>[1]
@@ -212,18 +212,22 @@ interface CompletionInput {
   crossDimensionHints?: Record<string, unknown>;
 }
 
-export async function runExternalDimensionCompletionWorkflow(
-  ctx: ExternalDimensionCompletionContext,
-  args: ExternalDimensionCompleteArgs,
-  dependencies: ExternalDimensionCompletionDependencies = {}
-): Promise<ExternalDimensionCompletionResponse> {
+export async function runHostAgentDimensionCompletionWorkflow(
+  ctx: HostAgentDimensionCompletionContext,
+  args: HostAgentDimensionCompleteArgs,
+  dependencies: HostAgentDimensionCompletionDependencies = {}
+): Promise<HostAgentDimensionCompletionResponse> {
   const startedAtMs = dependencies.now?.() ?? Date.now();
   const input = normalizeCompletionInput(args);
   if (!input.success) {
     return input.response;
   }
 
-  const session = await resolveExternalCompletionSession({ ctx, input: input.value, dependencies });
+  const session = await resolveHostAgentCompletionSession({
+    ctx,
+    input: input.value,
+    dependencies,
+  });
   if (!session.success) {
     return session.response;
   }
@@ -266,7 +270,7 @@ export async function runExternalDimensionCompletionWorkflow(
     dimensionId: input.value.dimensionId,
     submittedRecipeIds,
   });
-  const skillResult = await createExternalDimensionSkill({
+  const skillResult = await createHostAgentDimensionSkill({
     ctx,
     dimension,
     dimensionId: input.value.dimensionId,
@@ -306,7 +310,7 @@ export async function runExternalDimensionCompletionWorkflow(
 
   const progress = session.value.getProgress();
   const isComplete = session.value.isComplete;
-  emitExternalCompletionProgress({
+  emitHostAgentCompletionProgress({
     ctx,
     session: session.value,
     dimension,
@@ -386,10 +390,10 @@ export async function runExternalDimensionCompletionWorkflow(
 }
 
 function normalizeCompletionInput(
-  args: ExternalDimensionCompleteArgs
+  args: HostAgentDimensionCompleteArgs
 ):
   | { success: true; value: CompletionInput }
-  | { success: false; response: ExternalDimensionCompletionResponse } {
+  | { success: false; response: HostAgentDimensionCompletionResponse } {
   const dimensionId = typeof args.dimensionId === 'string' ? args.dimensionId : undefined;
   const analysisText = typeof args.analysisText === 'string' ? args.analysisText : undefined;
   const submittedRecipeIds = args.submittedRecipeIds ?? [];
@@ -439,19 +443,19 @@ function normalizeCompletionInput(
   };
 }
 
-async function resolveExternalCompletionSession({
+async function resolveHostAgentCompletionSession({
   ctx,
   input,
   dependencies,
 }: {
-  ctx: ExternalDimensionCompletionContext;
+  ctx: HostAgentDimensionCompletionContext;
   input: CompletionInput;
-  dependencies: ExternalDimensionCompletionDependencies;
+  dependencies: HostAgentDimensionCompletionDependencies;
 }): Promise<
-  | { success: true; value: ExternalWorkflowSession }
-  | { success: false; response: ExternalDimensionCompletionResponse }
+  | { success: true; value: HostAgentWorkflowSession }
+  | { success: false; response: HostAgentDimensionCompletionResponse }
 > {
-  const getActiveSession = dependencies.getActiveSession ?? getActiveExternalWorkflowSession;
+  const getActiveSession = dependencies.getActiveSession ?? getActiveHostAgentWorkflowSession;
   const session = await getActiveSession(ctx.container, input.sessionId);
   if (session) {
     return { success: true, value: session };
@@ -470,24 +474,26 @@ async function resolveExternalCompletionSession({
   };
 }
 
-async function getActiveExternalWorkflowSession(
-  container: ExternalSessionContainer,
+async function getActiveHostAgentWorkflowSession(
+  container: HostAgentSessionContainer,
   sessionId?: string
-): Promise<ExternalWorkflowSession | null> {
-  const { getActiveExternalWorkflowSession } = await import('@alembic/core/host-agent-workflows');
-  return getActiveExternalWorkflowSession(
+): Promise<HostAgentWorkflowSession | null> {
+  const { getActiveExternalWorkflowSession: getActiveCoreHostAgentWorkflowSession } = await import(
+    '@alembic/core/host-agent-workflows'
+  );
+  return getActiveCoreHostAgentWorkflowSession(
     container as never,
     sessionId
-  ) as ExternalWorkflowSession | null;
+  ) as HostAgentWorkflowSession | null;
 }
 
-function extendSessionTtl(session: ExternalWorkflowSession): void {
+function extendSessionTtl(session: HostAgentWorkflowSession): void {
   if (session.expiresAt) {
     session.expiresAt = Math.max(session.expiresAt, Date.now() + 60 * 60 * 1000);
   }
 }
 
-function recoverReferencedFiles(session: ExternalWorkflowSession, dimensionId: string): string[] {
+function recoverReferencedFiles(session: HostAgentWorkflowSession, dimensionId: string): string[] {
   try {
     const submissions = session.submissionTracker.getSubmissions(dimensionId);
     const filesFromSources = new Set<string>();
@@ -508,7 +514,7 @@ function recoverReferencedFiles(session: ExternalWorkflowSession, dimensionId: s
 }
 
 function recoverSubmittedRecipeIds(
-  session: ExternalWorkflowSession,
+  session: HostAgentWorkflowSession,
   dimensionId: string
 ): string[] {
   try {
@@ -533,8 +539,8 @@ async function bindSubmittedRecipes({
   dimensionId,
   submittedRecipeIds,
 }: {
-  ctx: ExternalDimensionCompletionContext;
-  session: ExternalWorkflowSession;
+  ctx: HostAgentDimensionCompletionContext;
+  session: HostAgentWorkflowSession;
   dimensionId: string;
   submittedRecipeIds: string[];
 }): Promise<number> {
@@ -601,7 +607,7 @@ function parseExistingTags(tags: string[] | string | undefined): string[] {
   }
 }
 
-async function createExternalDimensionSkill({
+async function createHostAgentDimensionSkill({
   ctx,
   dimension,
   dimensionId,
@@ -611,15 +617,15 @@ async function createExternalDimensionSkill({
   submittedRecipeIds,
   dependencies,
 }: {
-  ctx: ExternalDimensionCompletionContext;
+  ctx: HostAgentDimensionCompletionContext;
   dimension: DimensionDef;
   dimensionId: string;
   analysisText: string;
   referencedFiles: string[];
   keyFindings: string[];
   submittedRecipeIds: string[];
-  dependencies: ExternalDimensionCompletionDependencies;
-}): Promise<ExternalDimensionSkillResult> {
+  dependencies: HostAgentDimensionCompletionDependencies;
+}): Promise<HostAgentDimensionSkillResult> {
   if (!dimension.skillWorthy) {
     return { success: false };
   }
@@ -661,7 +667,7 @@ async function synthesizeSkillAnalysisIfNeeded({
   keyFindings,
   submittedRecipeIds,
 }: {
-  ctx: ExternalDimensionCompletionContext;
+  ctx: HostAgentDimensionCompletionContext;
   dimension: DimensionDef;
   dimensionId: string;
   analysisText: string;
@@ -742,7 +748,7 @@ async function persistDimensionCheckpoint({
   ideAgentAnalysisProgress,
   dependencies,
 }: {
-  session: ExternalWorkflowSession;
+  session: HostAgentWorkflowSession;
   dataRoot: string;
   dimensionId: string;
   candidateCount: number;
@@ -751,7 +757,7 @@ async function persistDimensionCheckpoint({
   submittedRecipeIds: string[];
   skillCreated: boolean;
   ideAgentAnalysisProgress: ReturnType<typeof buildIDEAgentAnalysisProgressBackfill>;
-  dependencies: ExternalDimensionCompletionDependencies;
+  dependencies: HostAgentDimensionCompletionDependencies;
 }): Promise<void> {
   try {
     const saveCheckpoint = dependencies.saveCheckpoint ?? saveDimensionCheckpoint;
@@ -776,8 +782,8 @@ async function persistKeyFindings({
   dimensionId,
   keyFindings,
 }: {
-  ctx: ExternalDimensionCompletionContext;
-  session: ExternalWorkflowSession;
+  ctx: HostAgentDimensionCompletionContext;
+  session: HostAgentWorkflowSession;
   dimensionId: string;
   keyFindings: string[];
 }): Promise<void> {
@@ -805,7 +811,7 @@ async function persistKeyFindings({
   }
 }
 
-function emitExternalCompletionProgress({
+function emitHostAgentCompletionProgress({
   ctx,
   session,
   dimension,
@@ -817,16 +823,16 @@ function emitExternalCompletionProgress({
   isComplete,
   dependencies,
 }: {
-  ctx: ExternalDimensionCompletionContext;
-  session: ExternalWorkflowSession;
+  ctx: HostAgentDimensionCompletionContext;
+  session: HostAgentWorkflowSession;
   dimension: DimensionDef;
   dimensionId: string;
   candidateCount: number;
   skillCreated: boolean;
   recipesBound: number;
-  progress: ReturnType<ExternalWorkflowSession['getProgress']>;
+  progress: ReturnType<HostAgentWorkflowSession['getProgress']>;
   isComplete: boolean;
-  dependencies: ExternalDimensionCompletionDependencies;
+  dependencies: HostAgentDimensionCompletionDependencies;
 }): void {
   const emitter = dependencies.createEmitter
     ? dependencies.createEmitter(ctx.container)
@@ -850,7 +856,7 @@ function buildQualityFeedback({
   qualityReport,
 }: {
   dimensionId: string;
-  qualityReport: ReturnType<ExternalWorkflowSession['markDimensionComplete']>['qualityReport'];
+  qualityReport: ReturnType<HostAgentWorkflowSession['markDimensionComplete']>['qualityReport'];
 }): Record<string, unknown> | undefined {
   if (!qualityReport) {
     return undefined;
@@ -878,7 +884,7 @@ function buildSubpackageCoverageWarning({
   dimensionId,
   referencedFiles,
 }: {
-  session: ExternalWorkflowSession;
+  session: HostAgentWorkflowSession;
   dimensionId: string;
   referencedFiles: string[];
 }): string | undefined {
@@ -917,7 +923,7 @@ function buildEvidenceHints({
   isComplete,
   accumulatedEvidence,
 }: {
-  session: ExternalWorkflowSession;
+  session: HostAgentWorkflowSession;
   isComplete: boolean;
   accumulatedEvidence: AccumulatedEvidenceLike;
 }): Record<string, unknown> | undefined {
@@ -951,7 +957,7 @@ function buildEvidenceHints({
 }
 
 function buildPreviousDimensionAnalysis(
-  session: ExternalWorkflowSession,
+  session: HostAgentWorkflowSession,
   accumulatedEvidence: AccumulatedEvidenceLike
 ) {
   try {
@@ -990,7 +996,7 @@ function uniqueStrings(value: readonly string[]): string[] {
 function validationFailure(
   message: string,
   errorCode = 'VALIDATION_ERROR'
-): ExternalDimensionCompletionResponse {
+): HostAgentDimensionCompletionResponse {
   return {
     success: false,
     message,

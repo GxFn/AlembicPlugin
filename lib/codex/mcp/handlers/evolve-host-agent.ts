@@ -6,7 +6,7 @@
  *   - confirm_deprecation → gateway.submit({ action: 'deprecate' })
  *   - skip → gateway.submit({ action: 'valid' }) 或直接 skip
  *
- * @module handlers/evolve-external
+ * @module handlers/evolve-host-agent
  */
 
 import type { EvolutionGateway } from '@alembic/core/evolution';
@@ -40,7 +40,7 @@ interface EvolveResult {
 
 // ── 主入口 ─────────────────────────────────────────────────
 
-export async function evolveExternal(ctx: McpContext, args: EvolveInput) {
+export async function evolveForHostAgent(ctx: McpContext, args: EvolveInput) {
   const t0 = Date.now();
   const { decisions } = args;
 

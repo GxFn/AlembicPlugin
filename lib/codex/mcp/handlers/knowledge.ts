@@ -36,7 +36,7 @@ async function _checkRateLimit(
 
 /**
  * 将 MCP wire format 增强为 V3 KnowledgeEntry 数据：
- *   - 确保 Codex/外部宿主 Agent 新写入 source 为 'host-agent'
+ *   - 确保 Codex/宿主 Agent 新写入 source 为 'host-agent'
  *   - RecipeExtractor 语义标签（程序化）
  *   - 其余 V3 字段由调用方生成，缺失即留空（KnowledgeEntry 构造函数填默认值）
  *
@@ -370,8 +370,8 @@ export async function submitKnowledgeBatch(ctx: McpContext, args: SubmitBatchArg
  * 知识条目生命周期操作 (alembic_knowledge_lifecycle)
  *
  * 简化为 3 状态: pending / active / deprecated
- * 外部 Agent 允许 reactivate（废弃 → 待审核）；发布/废弃由开发者在 Dashboard 操作
- * 外部 Agent 也可以通过 submitKnowledge / submitKnowledgeBatch 提交新条目（→ pending）
+ * 宿主 Agent 允许 reactivate（废弃 → 待审核）；发布/废弃由开发者在 Dashboard 操作
+ * 宿主 Agent 也可以通过 submitKnowledge / submitKnowledgeBatch 提交新条目（→ pending）
  */
 const MCP_ALLOWED_LIFECYCLE_ACTIONS = new Set(['reactivate']);
 
@@ -386,7 +386,7 @@ export async function knowledgeLifecycle(
 
   if (!MCP_ALLOWED_LIFECYCLE_ACTIONS.has(action)) {
     throw new Error(
-      `[PERMISSION_DENIED] 外部 Agent 不允许执行 "${action}" 操作，仅支持: reactivate。发布、废弃等操作请在 Dashboard 中完成。提交新知识请使用 alembic_submit_knowledge 工具。`
+      `[PERMISSION_DENIED] 宿主 Agent 不允许执行 "${action}" 操作，仅支持: reactivate。发布、废弃等操作请在 Dashboard 中完成。提交新知识请使用 alembic_submit_knowledge 工具。`
     );
   }
 

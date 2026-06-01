@@ -1,24 +1,24 @@
 /**
- * ExternalColdStartWorkflow — 外部 Agent 驱动的冷启动
+ * HostAgentColdStartWorkflow — 宿主 Agent 驱动的冷启动
  *
  * Phase 1-4 同步执行（文件收集 / AST / 依赖图 / Guard），
  * 构建 Mission Briefing 一次性返回，不启动异步 AI pipeline。
- * 等待 IDE 插件宿主中的外部 Agent 主动提交知识 + 完成维度。
+ * 等待 IDE 插件宿主中的宿主 Agent 主动提交知识 + 完成维度。
  *
- * 本文件只返回外部 Agent Mission Briefing；插件侧不启动本地 AI pipeline。
+ * 本文件只返回宿主 Agent Mission Briefing；插件侧不启动本地 AI pipeline。
  * Phase 1-4 分析逻辑由 ProjectIntelligenceRunner 执行。
  */
 
 import type { WorkflowLogger } from '@alembic/core/host-agent-workflows';
 import {
   buildColdStartWorkflowPlan,
-  buildExternalMissionBriefing,
+  buildExternalMissionBriefing as buildHostAgentMissionBriefing,
   buildIDEAgentAnalysisPacketFromSnapshot,
-  createExternalColdStartIntent,
-  createExternalWorkflowSession,
-  getActiveExternalWorkflowSession,
-  presentExternalColdStartEmptyProject,
-  presentExternalColdStartResponse,
+  createExternalColdStartIntent as createHostAgentColdStartIntent,
+  createExternalWorkflowSession as createHostAgentWorkflowSession,
+  getActiveExternalWorkflowSession as getActiveHostAgentWorkflowSession,
+  presentExternalColdStartEmptyProject as presentHostAgentColdStartEmptyProject,
+  presentExternalColdStartResponse as presentHostAgentColdStartResponse,
   runFullResetPolicy,
 } from '@alembic/core/host-agent-workflows';
 import type { ProjectSnapshot } from '@alembic/core/project-intelligence';
@@ -41,7 +41,7 @@ interface McpContext {
 // ── 主入口 ─────────────────────────────────────────────────────
 
 /**
- * bootstrapExternal — 外部 Agent 驱动的一键冷启动
+ * bootstrapForHostAgent — 宿主 Agent 驱动的一键冷启动
  *
  * 无参数调用，返回 Mission Briefing。
  * Phase 1-4 复用现有 bootstrap.js 逻辑，Phase 5 不启动。
@@ -49,11 +49,11 @@ interface McpContext {
  * @param ctx { container, logger, startedAt }
  * @returns envelope({ success, data: MissionBriefing })
  */
-export async function runExternalColdStartWorkflow(ctx: McpContext) {
+export async function runHostAgentColdStartWorkflow(ctx: McpContext) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveDataRoot(ctx.container);
-  const intent = createExternalColdStartIntent();
+  const intent = createHostAgentColdStartIntent();
   const plan = buildColdStartWorkflowPlan({ intent, projectRoot, dataRoot });
 
   // ═══════════════════════════════════════════════════════════
@@ -89,7 +89,7 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
 
   // 空项目 fast-path
   if (phaseResults.isEmpty) {
-    return presentExternalColdStartEmptyProject({ responseTimeMs: Date.now() - t0 });
+    return presentHostAgentColdStartEmptyProject({ responseTimeMs: Date.now() - t0 });
   }
 
   const {
@@ -111,7 +111,7 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
   // ── Build immutable ProjectSnapshot ──
   const snapshot: ProjectSnapshot = buildProjectSnapshot({
     projectRoot,
-    sourceTag: 'bootstrap-external',
+    sourceTag: 'bootstrap-host-agent',
     ...phaseResults,
     report: phaseResults.report,
   });
@@ -120,7 +120,7 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
   // Phase 4: 构建 Mission Briefing
   // ═══════════════════════════════════════════════════════════
 
-  const session = createExternalWorkflowSession({
+  const session = createHostAgentWorkflowSession({
     container: ctx.container,
     projectRoot,
     dimensions: briefingDimensions,
@@ -130,7 +130,7 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
     moduleCount: depGraphData?.nodes?.length || 0,
   });
 
-  const briefing = buildExternalMissionBriefing({
+  const briefing = buildHostAgentMissionBriefing({
     projectRoot,
     primaryLang,
     secondaryLanguages: (langProfile as { secondary?: string[] }).secondary || [],
@@ -174,11 +174,11 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
   }
 
   ctx.logger.info(
-    `[BootstrapExternal] Mission Briefing ready: ${allFiles.length} files, ${briefingDimensions.length} dims, ` +
+    `[BootstrapHostAgent] Mission Briefing ready: ${allFiles.length} files, ${briefingDimensions.length} dims, ` +
       `${briefingWithIdeAgentSurface.meta?.responseSizeKB || '?'}KB — session ${session.id}`
   );
 
-  return presentExternalColdStartResponse({
+  return presentHostAgentColdStartResponse({
     cleanupResult,
     briefing: briefingWithIdeAgentSurface,
     dimensionCount: briefingDimensions.length,
@@ -192,7 +192,7 @@ export async function runExternalColdStartWorkflow(ctx: McpContext) {
  * 当指定了 sessionId 时，如果 active session 已过期但 id 匹配，
  * 仍然返回该 session（支持新 bootstrap 创建后旧 session 的 dimension_complete 继续工作）。
  */
-export { getActiveExternalWorkflowSession as getActiveSession };
+export { getActiveHostAgentWorkflowSession as getActiveSession };
 
 function attachIDEAgentAnalysisSurface<T extends { meta?: Record<string, unknown> }>(
   briefing: T,
