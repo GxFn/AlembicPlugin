@@ -73,6 +73,7 @@ interface PrimeSearchPipelineOptions {
 
 export interface PrimeSearchOptions {
   hostIntentFrame?: HostIntentFrame;
+  projectRoot?: string;
 }
 
 // ── Constants ───────────────────────────────────────
@@ -127,7 +128,8 @@ export class PrimeSearchPipeline {
       intent.queries,
       intent.keywordQueries ?? [],
       context,
-      residentIntentHandoff
+      residentIntentHandoff,
+      options.projectRoot
     );
     const allResults = searchBundle.items;
 
@@ -217,7 +219,8 @@ export class PrimeSearchPipeline {
     autoQueries: string[],
     keywordQueries: string[],
     context: { language?: string; intent?: string; sessionHistory?: Array<{ content: string }> },
-    residentIntentHandoff: ResidentIntentHandoff | null
+    residentIntentHandoff: ResidentIntentHandoff | null,
+    projectRoot?: string
   ): Promise<{ items: SlimSearchResult[]; residentSearch?: ResidentSearchAttemptMeta }> {
     // Auto-mode searches (BM25 without CoarseRanker ranking)
     // Using rank: false preserves raw BM25/FWS score magnitude,
@@ -241,7 +244,7 @@ export class PrimeSearchPipeline {
     // AlembicPlugin 不再持有 embedding executor。语义增强由本地 Alembic resident service
     // 提供；不可用时保留 baseline embedded search，并把原因写入 searchMeta。
     const residentPromise = autoQueries[0]
-      ? this.#residentSemanticSearch(autoQueries[0], residentIntentHandoff)
+      ? this.#residentSemanticSearch(autoQueries[0], residentIntentHandoff, projectRoot)
       : Promise.resolve(null);
 
     // Keyword-mode searches (raw FWS scores — for cross-language synonym matching)
@@ -323,7 +326,8 @@ export class PrimeSearchPipeline {
 
   async #residentSemanticSearch(
     query: string,
-    residentIntentHandoff: ResidentIntentHandoff | null
+    residentIntentHandoff: ResidentIntentHandoff | null,
+    projectRoot?: string
   ): Promise<ResidentSearchResult | null> {
     if (!this.#residentServiceClient) {
       return null;
@@ -334,6 +338,7 @@ export class PrimeSearchPipeline {
         mode: 'semantic',
         limit: 6,
         rank: false,
+        ...(projectRoot ? { projectRoot } : {}),
         ...(residentIntentHandoff
           ? {
               confidence: residentIntentHandoff.confidence,

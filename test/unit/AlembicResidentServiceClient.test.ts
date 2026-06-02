@@ -447,6 +447,72 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.residentVector).toMatchObject({ available: true });
   });
 
+  it('ignores resident search results from a different workspace than the requested projectRoot', async () => {
+    const requests: Array<{ init?: RequestInit; url: URL }> = [];
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        requests.push({ init, url });
+        if (url.pathname === '/api/v1/daemon/health') {
+          return new Response(JSON.stringify(residentHealthPayload()), {
+            headers: { 'content-type': 'application/json' },
+            status: 200,
+          });
+        }
+        if (url.pathname === '/api/v1/search') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                items: [{ id: 'resident-bilidili', title: 'BiliDili resident recipe', score: 0.99 }],
+                searchMeta: {
+                  actualMode: 'semantic',
+                  requestedMode: 'semantic',
+                  semanticUsed: true,
+                  vectorUsed: true,
+                  workspace: {
+                    projectRoot: '/tmp/bilidili',
+                    projectScopeId: 'project-scope-bilidili',
+                  },
+                },
+              },
+            }),
+            { headers: { 'content-type': 'application/json' }, status: 200 }
+          );
+        }
+        throw new Error(`Unexpected URL: ${url.pathname}`);
+      }
+    ) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/plugin-host',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({
+      query: 'AlembicWorkspace prime',
+      mode: 'auto',
+      projectRoot: '/tmp/alembic-workspace',
+    });
+
+    const searchRequest = requests.find((request) => request.url.pathname === '/api/v1/search');
+    expect(searchRequest?.init?.method).toBe('POST');
+    expect(JSON.parse(String(searchRequest?.init?.body))).toMatchObject({
+      mode: 'semantic',
+      projectRoot: '/tmp/alembic-workspace',
+      query: 'AlembicWorkspace prime',
+    });
+    expect(result.items).toEqual([]);
+    expect(result.meta.available).toBe(false);
+    expect(result.meta.reason).toContain('different workspace');
+    expect(result.meta.reason).toContain('/tmp/bilidili');
+    expect(result.meta.projectScopeIdentity).toMatchObject({
+      mode: 'project-scope',
+      projectScopeId: 'project-scope-workspace',
+    });
+  });
+
   it('uses POST body for resident host intent handoff without leaking context into the URL', async () => {
     const requests: Array<{ init?: RequestInit; url: URL }> = [];
     const fetchImpl = vi.fn(

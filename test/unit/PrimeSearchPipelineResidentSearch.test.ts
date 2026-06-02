@@ -378,6 +378,7 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
         },
         source: 'host-declared',
       },
+      projectRoot: '/workspace/AlembicWorkspace',
     });
 
     expect(residentServiceClient.search).toHaveBeenCalledWith(
@@ -402,6 +403,7 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
           sourceRefs: ['host:intent'],
         }),
         language: 'swift',
+        projectRoot: '/workspace/AlembicWorkspace',
         sourceRefs: ['host:intent'],
       })
     );

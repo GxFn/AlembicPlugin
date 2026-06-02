@@ -316,6 +316,10 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
     hostIntentInput.language
   );
   const hostIntentFrame = buildHostIntentFrame(hostIntentInput, extracted);
+  const projectRoot =
+    typeof args.projectRoot === 'string' && args.projectRoot.trim()
+      ? args.projectRoot.trim()
+      : undefined;
 
   // ─── Enrichment: multi-query search via PrimeSearchPipeline ───
   const pipeline = _getPipeline(ctx.container);
@@ -323,7 +327,7 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
   let searchDegraded = false;
   if (pipeline && extracted.queries[0]?.trim()) {
     try {
-      searchResult = await pipeline.search(extracted, { hostIntentFrame });
+      searchResult = await pipeline.search(extracted, { hostIntentFrame, projectRoot });
       if (!searchResult) {
         process.stderr.write('[MCP/Task] prime: pipeline.search returned null (all filtered)\n');
       }
@@ -1510,7 +1514,7 @@ function _computeDriftScore(intent: IntentState): number {
 interface PipelineLike {
   search(
     intent: ExtractedIntent,
-    options?: { hostIntentFrame?: HostIntentFrame }
+    options?: { hostIntentFrame?: HostIntentFrame; projectRoot?: string }
   ): Promise<PrimeSearchResult | null>;
 }
 
