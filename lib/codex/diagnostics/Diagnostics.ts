@@ -249,7 +249,7 @@ export function buildCodexRuntimeDiagnostics(
       },
     },
     offlineFallback: {
-      note: 'The Codex plugin ships Plugin runtime code in ./runtime and starts MCP through ./bin/alembic-codex-mcp-wrapper.mjs. The wrapper invokes npx against ./runtime.tgz with a plugin-specific npm cache and startup lock. This embedded route is for Codex host-agent recovery, not Alembic resident enhancement. AlembicPlugin does not provide a root registry package fallback.',
+      note: 'The Codex plugin ships Plugin runtime code in ./runtime and starts MCP through ./bin/alembic-codex-mcp-wrapper.mjs. The wrapper invokes npx against ./runtime.tgz with a per-process npm cache under a plugin-specific base and a startup lock. This embedded route is for Codex host-agent recovery, not Alembic resident enhancement. AlembicPlugin does not provide a root registry package fallback.',
       registryPackageFallback: false,
       localPackage: context.embeddedRuntimeSpecifier,
       command: context.runtimeBin,
