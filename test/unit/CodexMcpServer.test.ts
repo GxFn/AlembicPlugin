@@ -523,7 +523,9 @@ describe('CodexMcpServer', () => {
       mode: 'auto',
       limit: 1,
     })) as {
-      data: { searchMeta: { residentSearch: { projectScopeIdentity: { projectScopeId: string } } } };
+      data: {
+        searchMeta: { residentSearch: { projectScopeIdentity: { projectScopeId: string } } };
+      };
       success: boolean;
     };
     const primeResult = (await server.handleToolCall('alembic_task', {
@@ -1385,6 +1387,9 @@ describe('CodexMcpServer', () => {
             reason: string;
           };
           shoutInstruction: string;
+          trustPosture: {
+            receiptChecklist: Array<{ layer: string; items: unknown[] }>;
+          };
         };
         serviceBoundary: {
           executionPath: string;
@@ -1411,13 +1416,27 @@ describe('CodexMcpServer', () => {
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('first person');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('Trust posture');
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'not-available-or-degraded'
+    );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'Do not make "Alembic prime"'
     );
     expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('As Codex');
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('trust posture');
     expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
       'do not make Alembic prime'
     );
+    expect(
+      result.data.primeKnowledgeMaterial.trustPosture.receiptChecklist.map((item) => item.layer)
+    ).toEqual([
+      'trusted-to-obey',
+      'trusted-to-use',
+      'context-only',
+      'requires-verification',
+      'not-available-or-degraded',
+    ]);
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).not.toContain(
       'Cite evidenceRefs as path:line'
     );
@@ -1592,7 +1611,9 @@ describe('CodexMcpServer', () => {
     fs.writeFileSync(path.join(secondProjectRoot, 'index.ts'), 'export const second = 2;\n');
     const supervisor = makeSupervisor(makeDaemonStatus(firstProjectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      throw new Error(`Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`);
+      throw new Error(
+        `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
+      );
     });
     const server = new CodexMcpServer({ supervisor });
 

@@ -5,6 +5,13 @@ import { createIdleIntent } from '../../lib/codex/mcp/handlers/types.js';
 import type { ExtractedIntent } from '../../lib/service/task/IntentExtractor.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 
+type TrustLayer =
+  | 'trusted-to-obey'
+  | 'trusted-to-use'
+  | 'context-only'
+  | 'requires-verification'
+  | 'not-available-or-degraded';
+
 interface PrimeMaterial {
   status: 'delivered' | 'empty' | 'degraded';
   receiptId: string;
@@ -40,6 +47,29 @@ interface PrimeMaterial {
     score: number;
     evidenceRefs: Array<{ path: string; line: number | null }>;
   }>;
+  trustPosture: {
+    status: 'delivered' | 'empty' | 'degraded';
+    receiptChecklist: Array<{
+      layer: TrustLayer;
+      label: string;
+      summary: string;
+      items: Array<{
+        id: string;
+        title: string;
+        source: string;
+        reason: string;
+        status?: string;
+        evidenceRefs?: Array<{ path: string; line: number | null }>;
+      }>;
+      requiredInVisibleReceipt: boolean;
+      visibleReceiptDirective: string;
+    }>;
+    antiEmptyReceipt: {
+      required: boolean;
+      forbiddenGenericReceipts: string[];
+      instruction: string;
+    };
+  };
   shoutInstruction: string;
   hostResponse: {
     action: string;
@@ -140,6 +170,14 @@ function makeContextWithoutPipeline(): McpContext {
       intent: createIdleIntent(),
     },
   };
+}
+
+function trustLayer(material: PrimeMaterial, layer: TrustLayer) {
+  const entry = material.trustPosture.receiptChecklist.find((item) => item.layer === layer);
+  if (!entry) {
+    throw new Error(`Missing trust layer ${layer}`);
+  }
+  return entry;
 }
 
 function intentEvidenceSummary() {
@@ -365,6 +403,58 @@ describe('alembic_task prime knowledge material', () => {
         },
       ],
     });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-obey')).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: [
+        expect.objectContaining({
+          id: 'guard:guard-1',
+          source: 'accepted-guard',
+          title: '@no-agent-runtime',
+        }),
+      ],
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use')).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: [
+        expect.objectContaining({
+          id: 'knowledge:recipe-1',
+          source: 'accepted-knowledge',
+          title: '@codex-plugin-boundary',
+        }),
+      ],
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'context-only')).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'prime-query-context',
+          source: 'search-context',
+        }),
+        expect.objectContaining({
+          id: 'host-intent-frame',
+          source: 'host-intent',
+        }),
+      ]),
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'requires-verification')).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'accepted-material-evidence',
+          source: 'evidence-ref',
+          evidenceRefs: expect.arrayContaining([
+            { path: 'lib/codex/mcp/handlers/task.ts', line: 42 },
+            { path: 'AGENTS.md', line: 22 },
+          ]),
+        }),
+      ]),
+    });
+    expect(
+      trustLayer(result.data.primeKnowledgeMaterial, 'not-available-or-degraded').items
+    ).toHaveLength(0);
+    expect(result.data.primeKnowledgeMaterial.trustPosture.antiEmptyReceipt).toMatchObject({
+      required: true,
+    });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'Immediately after this prime tool result'
     );
@@ -384,7 +474,22 @@ describe('alembic_task prime knowledge material', () => {
       'do not make "Alembic prime"'
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
-      'accepted Recipe and Guard constraints'
+      'trusted-to-obey Guard constraints'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'trusted-to-use Recipe or pattern knowledge'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'context-only host intent or evidence hints'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'requires-verification source refs or candidates'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'not-available-or-degraded=0'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'Do not collapse the receipt into an empty'
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'do not list evidenceRefs paths or line numbers by default'
@@ -407,6 +512,12 @@ describe('alembic_task prime knowledge material', () => {
       visibility: 'developer_visible',
     });
     expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('As Codex');
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('trusted-to-obey');
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('trusted-to-use');
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('context-only');
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
+      'requires-verification'
+    );
     expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
       'do not make Alembic prime'
     );
@@ -416,6 +527,11 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.message).toContain('Codex must immediately shout');
     expect(result.message).toContain('short knowledge receipt');
     expect(result.message).toContain('Speak as Codex or I');
+    expect(result.message).toContain('Trust posture checklist');
+    expect(result.message).toContain('trusted-to-obey=1');
+    expect(result.message).toContain('trusted-to-use=1');
+    expect(result.message).toContain('context-only=2');
+    expect(result.message).toContain('requires-verification=1');
     expect(result.message).toContain('not as Alembic prime');
     expect(result.message).toContain('keep evidenceRefs in the payload');
     expect(result.message).not.toContain('📍');
@@ -441,6 +557,32 @@ describe('alembic_task prime knowledge material', () => {
       acceptedKnowledge: [],
       acceptedGuards: [],
     });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-obey').items).toHaveLength(0);
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use').items).toHaveLength(0);
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'context-only').items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'prime-query-context',
+          source: 'search-context',
+        }),
+        expect.objectContaining({
+          id: 'host-intent-frame',
+          source: 'host-intent',
+        }),
+      ])
+    );
+    expect(
+      trustLayer(result.data.primeKnowledgeMaterial, 'not-available-or-degraded')
+    ).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: [
+        expect.objectContaining({
+          id: 'prime-status:empty',
+          source: 'prime-status',
+          status: 'empty',
+        }),
+      ],
+    });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'I did not receive matching Recipe or Guard knowledge'
     );
@@ -451,6 +593,12 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'before any further tool call'
     );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'not-available-or-degraded'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'no trusted-to-obey or trusted-to-use project knowledge'
+    );
     expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
       action: 'shout_prime_knowledge_receipt',
       status: 'empty',
@@ -460,6 +608,7 @@ describe('alembic_task prime knowledge material', () => {
       visibility: 'developer_visible',
     });
     expect(result.message).toContain('No matching recipes found.');
+    expect(result.message).toContain('not-available-or-degraded=1');
     expect(result.message).toContain('it did not receive usable project knowledge');
     expect(result.message).toContain('Do not make Alembic prime');
   });
@@ -814,6 +963,91 @@ describe('alembic_task prime knowledge material', () => {
     );
   });
 
+  test('marks candidate prime package knowledge as requiring verification, not trusted use', async () => {
+    const candidatePackage = primeInjectionPackageSummary();
+    candidatePackage.injection.status = 'candidate';
+    candidatePackage.injection.degradedReasons = [
+      'selectedKnowledge:recipe-candidate:sourceRefs-missing',
+    ];
+    candidatePackage.trace.sourceRefs = [];
+    candidatePackage.selectedKnowledge = [
+      {
+        evidenceRefs: ['scoreBreakdown:recipe-candidate'],
+        injectionStatus: 'candidate',
+        itemId: 'recipe-candidate',
+        kind: 'pattern',
+        rank: 1,
+        score: 0.64,
+        sourceRefs: [],
+        title: 'Candidate episode handoff',
+        trigger: '@candidate-episode',
+        whySelected: ['semantic-score'],
+      },
+    ];
+    const searchResult: PrimeSearchResult = {
+      relatedKnowledge: [
+        {
+          id: 'recipe-candidate',
+          title: 'Candidate episode handoff',
+          trigger: '@candidate-episode',
+          kind: 'pattern',
+          language: 'typescript',
+          score: 0.64,
+          description: 'A plausible but unverified candidate pattern.',
+          sourceRefs: [],
+        },
+      ],
+      guardRules: [],
+      searchMeta: {
+        queries: ['candidate episode'],
+        scenario: 'implementation',
+        language: 'typescript',
+        module: 'mcp',
+        resultCount: 1,
+        filteredCount: 1,
+        primeInjectionPackage: candidatePackage,
+      },
+    };
+
+    const result = (await taskHandler(
+      makeContext(async () => searchResult),
+      {
+        operation: 'prime',
+        userQuery: 'Use candidate knowledge carefully',
+      }
+    )) as PrimeEnvelope;
+
+    expect(result.data.primeKnowledgeMaterial.status).toBe('delivered');
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use')).toMatchObject({
+      requiredInVisibleReceipt: false,
+      items: [],
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'requires-verification')).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'prime-package-status:candidate',
+          source: 'prime-injection-package',
+          status: 'candidate',
+        }),
+        expect.objectContaining({
+          id: 'candidate-knowledge:recipe-candidate',
+          source: 'prime-injection-package',
+          status: 'candidate',
+        }),
+      ]),
+    });
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'requires-verification source refs or candidates'
+    );
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
+      'requires-verification source refs or candidates'
+    );
+    expect(result.message).toContain('trusted-to-use=0');
+    expect(result.message).toContain('requires-verification=2');
+    expect(result.message).toContain('candidate');
+  });
+
   test('returns degraded material when the prime search pipeline is unavailable', async () => {
     const result = (await taskHandler(makeContextWithoutPipeline(), {
       operation: 'prime',
@@ -827,6 +1061,20 @@ describe('alembic_task prime knowledge material', () => {
       acceptedKnowledge: [],
       acceptedGuards: [],
     });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-obey').items).toHaveLength(0);
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use').items).toHaveLength(0);
+    expect(
+      trustLayer(result.data.primeKnowledgeMaterial, 'not-available-or-degraded')
+    ).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: [
+        expect.objectContaining({
+          id: 'prime-status:degraded',
+          source: 'prime-status',
+          status: 'degraded',
+        }),
+      ],
+    });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'I did not receive usable project knowledge because prime degraded'
     );
@@ -836,6 +1084,12 @@ describe('alembic_task prime knowledge material', () => {
     );
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'before any further tool call'
+    );
+    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
+      'not-available-or-degraded'
+    );
+    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
+      'not-available-or-degraded'
     );
     expect(result.data.primeKnowledgeMaterial.hostResponse).toMatchObject({
       action: 'shout_prime_knowledge_receipt',
@@ -849,5 +1103,6 @@ describe('alembic_task prime knowledge material', () => {
       result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
     ).not.toContain('codex_host_response');
     expect(result.message).toContain('Prime knowledge search degraded');
+    expect(result.message).toContain('not-available-or-degraded=1');
   });
 });
