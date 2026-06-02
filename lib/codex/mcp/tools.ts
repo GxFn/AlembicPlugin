@@ -317,7 +317,7 @@ export const TOOLS = [
     name: 'alembic_task',
     tier: 'agent',
     description:
-      'Task and decision management (5 operations). Call prime first at the start of each conversation to load knowledge context.\n' +
+      'Task and decision management (5 operations). In projects with a project-level Alembic knowledge skill or local Alembic knowledge base, call prime before every user-input turn and before any code reading, search, edit, Guard check, or conclusion. For empty projects, do not proactively prime unless the user explicitly asks for Alembic.\n' +
       'Visible for initialized projects even before usable Recipes exist because task close is a Codex lifecycle surface, not a Recipe/Search/Guard knowledge query.\n' +
       '• prime — load knowledge context + initialize intent lifecycle\n' +
       '• create — create task anchor (for non-trivial work: ≥2 files or ≥10 lines)\n' +
