@@ -1,4 +1,5 @@
 import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   type AlembicResidentServiceResult,
   JobStore,
@@ -42,6 +43,7 @@ import {
   type CodexServiceBoundaryDecision,
   createCodexJobContext,
   EMPTY_CODEX_KNOWLEDGE_STATE,
+  getCodexRuntimeFallbackIsolation,
   inspectCodexKnowledge,
   isCodexInitOnDemandTool,
   isTrustedCodexProjectRoot,
@@ -810,7 +812,6 @@ export class CodexMcpServer {
   }
 
   async cleanupRuntime(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const paths = resolveDaemonPaths(this.projectRoot);
     const daemon = await this.supervisor.status(this.projectRoot);
     const projectScopeIdentity =
       await this.residentClients().projectScope.resolveProjectScopeIdentity({
@@ -836,14 +837,17 @@ export class CodexMcpServer {
       projectScopeIdentity,
       requiredServices: ['project-identity', 'daemon'],
     });
+    const paths = resolveDaemonPaths(this.projectRoot);
+    const runtimeDir = projectRuntime.identity.runtimeDir || paths.runtimeDir;
+    const dataRoot = projectRuntime.identity.dataRoot || paths.dataRoot;
     const targets = {
-      dataRoot: paths.dataRoot,
-      jobsDir: paths.jobsDir,
-      lockDir: paths.lockDir,
-      logPath: paths.logPath,
-      pidPath: paths.pidPath,
-      runtimeDir: paths.runtimeDir,
-      statePath: paths.statePath,
+      dataRoot,
+      jobsDir: join(runtimeDir, 'jobs'),
+      lockDir: join(runtimeDir, 'daemon.lock'),
+      logPath: join(runtimeDir, 'daemon.log'),
+      pidPath: join(runtimeDir, 'daemon.pid'),
+      runtimeDir,
+      statePath: join(runtimeDir, 'daemon.json'),
     };
 
     if (args.confirm !== true) {
@@ -860,11 +864,11 @@ export class CodexMcpServer {
     }
 
     await this.supervisor.stop({ projectRoot: this.projectRoot, waitMs: 5000 });
-    rmSync(paths.statePath, { force: true });
-    rmSync(paths.pidPath, { force: true });
-    rmSync(paths.logPath, { force: true });
-    rmSync(paths.lockDir, { force: true, recursive: true });
-    rmSync(paths.jobsDir, { force: true, recursive: true });
+    rmSync(targets.statePath, { force: true });
+    rmSync(targets.pidPath, { force: true });
+    rmSync(targets.logPath, { force: true });
+    rmSync(targets.lockDir, { force: true, recursive: true });
+    rmSync(targets.jobsDir, { force: true, recursive: true });
     return {
       success: true,
       data: {
@@ -996,6 +1000,7 @@ export class CodexMcpServer {
     const store = new JobStore({ projectRoot: this.projectRoot });
     const jobRoute = {
       fallback: true,
+      fallbackIsolation: getCodexRuntimeFallbackIsolation('local-jobstore'),
       reason: 'resident-job-api-unavailable-or-not-ready',
       selected: 'embedded-host-agent-recoverable',
       note: 'Local JobStore is exposed only as embedded Codex host-agent job recovery, not as the effective project identity source.',
@@ -1071,16 +1076,22 @@ export class CodexMcpServer {
     },
     options: CodexToolCallOptions = {}
   ): Promise<unknown> {
+    const scopedExecutionContext = executionContext.projectRuntime
+      ? executionContext
+      : {
+          ...executionContext,
+          projectRuntime: await this.buildPluginOwnedProjectRuntimeContext(executionContext),
+        };
     const result = await this.embeddedToolExecutor().execute(
       name,
       args,
       serviceBoundary,
-      executionContext,
+      scopedExecutionContext,
       options
     );
     return attachPluginOpportunisticEvolutionSurface({
       args,
-      executionContext,
+      executionContext: scopedExecutionContext,
       projectRoot: this.projectRoot,
       result,
       toolName: name,
@@ -1142,6 +1153,44 @@ export class CodexMcpServer {
         residentProjectScopeAvailable: false,
       };
     }
+  }
+
+  private async buildPluginOwnedProjectRuntimeContext(
+    executionContext: CodexToolExecutionContext
+  ): Promise<ReturnType<typeof buildCodexProjectRuntimeContext>> {
+    let daemonStatus: DaemonStatus | null = null;
+    try {
+      daemonStatus = await this.supervisor.status(this.projectRoot);
+    } catch {
+      daemonStatus = null;
+    }
+    const runtime = resolveCodexRuntimeContext();
+    const enhancementRoute = daemonStatus
+      ? buildCodexEnhancementRouteChoice({
+          daemonStatus,
+          runtime,
+          requirement: 'mcp',
+        })
+      : null;
+    const hostProjectAlignment =
+      daemonStatus && enhancementRoute
+        ? buildCodexHostProjectAlignment({
+            daemonStatus,
+            enhancementRoute,
+            projectScopeIdentity: executionContext.projectScopeIdentity,
+            projectRoot: this.projectRoot,
+          })
+        : null;
+    return buildCodexProjectRuntimeContext({
+      daemonStatus,
+      enhancementRoute,
+      hostProjectAlignment,
+      projectRoot: executionContext.projectRoot,
+      projectRootResolution: this.projectRootResolution,
+      projectScopeIdentity: executionContext.projectScopeIdentity,
+      requiredServices: ['project-identity'],
+      runtime,
+    });
   }
 
   private async ensureEnhancementDaemon(

@@ -6,12 +6,14 @@ import {
   serializeCodexProjectScopeSummary,
 } from '../../../shared/project-scope-runtime.js';
 import type { CodexServiceBoundaryDecision } from '../../index.js';
+import type { CodexProjectRuntimeContext } from '../../runtime/ProjectRuntimeContext.js';
 import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { TOOLS } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
 import { attachCodexServiceBoundary, failureResult } from './results.js';
 
 export interface CodexToolExecutionContext {
+  projectRuntime?: CodexProjectRuntimeContext | null;
   projectRoot: string;
   projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
   residentProjectScopeAvailable: boolean;
@@ -182,11 +184,29 @@ function attachCodexExecutionContext(
     record.data && typeof record.data === 'object' && !Array.isArray(record.data)
       ? (record.data as Record<string, unknown>)
       : {};
+  const projectRuntimePatch =
+    executionContext.projectRuntime && !Object.hasOwn(data, 'projectRuntime')
+      ? { projectRuntime: executionContext.projectRuntime }
+      : {};
+  const hasProjectScopeExecution =
+    executionContext.residentProjectScopeAvailable && executionContext.projectScopeIdentity;
+  if (!hasProjectScopeExecution) {
+    return Object.keys(projectRuntimePatch).length > 0
+      ? {
+          ...record,
+          data: {
+            ...data,
+            ...projectRuntimePatch,
+          },
+        }
+      : result;
+  }
   const identity = executionContext.projectScopeIdentity;
   return {
     ...record,
     data: {
       ...data,
+      ...projectRuntimePatch,
       codexProjectScopeExecution: {
         controlRoot: identity.controlRoot,
         currentFolderId: identity.currentFolderId,

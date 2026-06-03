@@ -234,6 +234,19 @@ describe('Codex status service', () => {
       state: 'needs_init',
       primaryAction: { tool: 'alembic_codex_init' },
     });
+    expect(status.projectRuntime.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          effectiveIdentityAllowed: false,
+          id: 'saved-project-root',
+        }),
+        expect.objectContaining({
+          allowedUse: 'embedded-host-agent-recovery',
+          effectiveIdentityAllowed: false,
+          id: 'local-jobstore',
+        }),
+      ])
+    );
     expect(status.policy.state).toBe('needs_init');
     expect(status.enhancementRoute).toMatchObject({
       hostAgentRoute: {
@@ -391,6 +404,15 @@ describe('Codex status service', () => {
         selectedOrActiveCanOverrideEffectiveIdentity: false,
       },
     });
+    expect(status.projectRuntime.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          allowedUse: 'read-only-diagnostics',
+          effectiveIdentityAllowed: false,
+          id: 'runtime-control-selected-active',
+        }),
+      ])
+    );
   });
 
   test('treats an active controlRoot resident as aligned for a bound source folder', async () => {

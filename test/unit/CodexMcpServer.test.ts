@@ -514,6 +514,11 @@ describe('CodexMcpServer', () => {
     const healthResult = (await server.handleToolCall('alembic_health', {})) as {
       data: {
         codexProjectScopeExecution: { dataRoot: string; enabled: boolean; projectScopeId: string };
+        projectRuntime: {
+          fallbackIsolation: Array<{ effectiveIdentityAllowed: boolean; id: string }>;
+          identity: { projectRoot: string };
+          sourcePolicy: { effectiveIdentitySource: string };
+        };
         projectRoot: string;
       };
       success: boolean;
@@ -547,6 +552,18 @@ describe('CodexMcpServer', () => {
       enabled: true,
       projectScopeId: projectScope.projectScopeId,
     });
+    expect(healthResult.data.projectRuntime).toMatchObject({
+      identity: { projectRoot: sourceRoot },
+      sourcePolicy: { effectiveIdentitySource: 'codex-current-project' },
+    });
+    expect(healthResult.data.projectRuntime.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          effectiveIdentityAllowed: false,
+          id: 'embedded-plugin-owned-runtime',
+        }),
+      ])
+    );
     expect(searchResult.success).toBe(true);
     expect(searchResult.data.searchMeta.residentSearch.projectScopeIdentity).toMatchObject({
       projectScopeId: projectScope.projectScopeId,
@@ -1220,6 +1237,7 @@ describe('CodexMcpServer', () => {
         };
         projectRuntime: {
           entryMode: { mode: string };
+          fallbackIsolation: Array<{ effectiveIdentityAllowed: boolean; id: string }>;
           requiredServices: Array<{ service: string; source: string }>;
           sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
         };
@@ -1269,6 +1287,14 @@ describe('CodexMcpServer', () => {
         selectedOrActiveCanOverrideEffectiveIdentity: false,
       },
     });
+    expect(result.data.projectRuntime.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          effectiveIdentityAllowed: false,
+          id: 'embedded-plugin-owned-runtime',
+        }),
+      ])
+    );
     expect(result.data.projectRuntime.requiredServices).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ service: 'project-identity', source: 'codex-current-project' }),
@@ -1463,6 +1489,7 @@ describe('CodexMcpServer', () => {
           };
         };
         projectRuntime: {
+          fallbackIsolation: Array<{ effectiveIdentityAllowed: boolean; id: string }>;
           identity: { projectRoot: string };
           sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
         };
@@ -1527,6 +1554,15 @@ describe('CodexMcpServer', () => {
         selectedOrActiveCanOverrideEffectiveIdentity: false,
       },
     });
+    expect(result.data.projectRuntime.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          allowedUse: 'codex-host-agent-execution-route',
+          effectiveIdentityAllowed: false,
+          id: 'embedded-plugin-owned-runtime',
+        }),
+      ])
+    );
     expect(result.data.searchMeta.projectRuntime).toMatchObject({
       identity: { projectRoot },
       sourcePolicy: {
@@ -1806,8 +1842,12 @@ describe('CodexMcpServer', () => {
       success: boolean;
       data: {
         job: { id: string };
-        jobRoute: { fallback: boolean; selected: string };
-        projectRuntime: { blockedFallbacks: string[] };
+        jobRoute: {
+          fallback: boolean;
+          fallbackIsolation: { effectiveIdentityAllowed: boolean; id: string };
+          selected: string;
+        };
+        projectRuntime: { blockedFallbacks: string[]; fallbackIsolation: Array<{ id: string }> };
       };
     };
 
@@ -1815,6 +1855,10 @@ describe('CodexMcpServer', () => {
     expect(result.data.job.id).toBe(job.id);
     expect(result.data.jobRoute).toMatchObject({
       fallback: true,
+      fallbackIsolation: {
+        effectiveIdentityAllowed: false,
+        id: 'local-jobstore',
+      },
       selected: 'embedded-host-agent-recoverable',
     });
     expect(result.data.projectRuntime.blockedFallbacks).toContain(
@@ -1878,8 +1922,13 @@ describe('CodexMcpServer', () => {
       success: boolean;
       data: {
         job: { id: string };
-        jobRoute: { fallback: boolean; reason: string; selected: string };
-        projectRuntime: { blockedFallbacks: string[] };
+        jobRoute: {
+          fallback: boolean;
+          fallbackIsolation: { allowedUse: string; effectiveIdentityAllowed: boolean; id: string };
+          reason: string;
+          selected: string;
+        };
+        projectRuntime: { blockedFallbacks: string[]; fallbackIsolation: Array<{ id: string }> };
       };
     };
 
@@ -1887,6 +1936,11 @@ describe('CodexMcpServer', () => {
     expect(result.data.job.id).toBe(job.id);
     expect(result.data.jobRoute).toMatchObject({
       fallback: true,
+      fallbackIsolation: {
+        allowedUse: 'embedded-host-agent-recovery',
+        effectiveIdentityAllowed: false,
+        id: 'local-jobstore',
+      },
       reason: 'resident-job-api-unavailable-or-not-ready',
       selected: 'embedded-host-agent-recoverable',
     });
@@ -1909,16 +1963,19 @@ describe('CodexMcpServer', () => {
       data: {
         dryRun: boolean;
         projectRuntime: {
-          identity: { projectRoot: string };
+          identity: { projectRoot: string; runtimeDir: string };
           requiredServices: Array<{ required: boolean; service: string }>;
         };
-        targets: { runtimeDir: string };
+        targets: { runtimeDir: string; statePath: string };
       };
     };
 
     expect(result.success).toBe(true);
     expect(result.data.dryRun).toBe(true);
     expect(result.data.targets.runtimeDir).toContain('.asd');
+    expect(result.data.targets.statePath).toBe(
+      path.join(result.data.projectRuntime.identity.runtimeDir, 'daemon.json')
+    );
     expect(result.data.projectRuntime.identity.projectRoot).toBe(projectRoot);
     expect(result.data.projectRuntime.requiredServices).toEqual(
       expect.arrayContaining([expect.objectContaining({ required: true, service: 'daemon' })])

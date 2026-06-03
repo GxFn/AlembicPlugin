@@ -31,6 +31,7 @@ export interface CodexProjectRuntimeContext {
   contractVersion: typeof PROJECT_RUNTIME_CONTEXT_VERSION;
   blockedFallbacks: string[];
   entryMode: CodexProjectRuntimeEntryMode;
+  fallbackIsolation: CodexRuntimeFallbackIsolation[];
   failureEnvelopes: ProjectRuntimeFailureEnvelope[];
   identity: ProjectRuntimeIdentityContract;
   readinessState: ProjectRuntimeReadinessState;
@@ -42,6 +43,74 @@ export interface CodexProjectRuntimeContext {
     runtimeControlSource: 'read-only-diagnostics';
     selectedOrActiveCanOverrideEffectiveIdentity: false;
   };
+}
+
+export type CodexRuntimeFallbackIsolationId =
+  | 'embedded-plugin-owned-runtime'
+  | 'local-jobstore'
+  | 'runtime-control-selected-active'
+  | 'saved-project-root';
+
+export interface CodexRuntimeFallbackIsolation {
+  id: CodexRuntimeFallbackIsolationId;
+  allowedUse:
+    | 'blocked-effective-identity'
+    | 'codex-host-agent-execution-route'
+    | 'embedded-host-agent-recovery'
+    | 'read-only-diagnostics';
+  effectiveIdentityAllowed: false;
+  legacyEffectiveIdentityFallback: string | null;
+  persistenceRootAllowed: false;
+  reason: string;
+}
+
+export const CODEX_RUNTIME_FALLBACK_ISOLATION: readonly CodexRuntimeFallbackIsolation[] = [
+  {
+    allowedUse: 'blocked-effective-identity',
+    effectiveIdentityAllowed: false,
+    id: 'saved-project-root',
+    legacyEffectiveIdentityFallback: 'saved-project-root-effective-identity',
+    persistenceRootAllowed: false,
+    reason:
+      'Saved Codex project-root state is diagnostic or recovery context only; the current trusted Codex project remains the effective identity.',
+  },
+  {
+    allowedUse: 'read-only-diagnostics',
+    effectiveIdentityAllowed: false,
+    id: 'runtime-control-selected-active',
+    legacyEffectiveIdentityFallback: 'runtime-control-selected-active-effective-identity',
+    persistenceRootAllowed: false,
+    reason:
+      'Alembic selected or active runtime control state is read-only diagnostic evidence and cannot replace the Codex current project identity.',
+  },
+  {
+    allowedUse: 'embedded-host-agent-recovery',
+    effectiveIdentityAllowed: false,
+    id: 'local-jobstore',
+    legacyEffectiveIdentityFallback: 'local-jobstore-default-effective-identity',
+    persistenceRootAllowed: false,
+    reason:
+      'Local JobStore access is limited to recoverable embedded Codex host-agent jobs for the current project identity.',
+  },
+  {
+    allowedUse: 'codex-host-agent-execution-route',
+    effectiveIdentityAllowed: false,
+    id: 'embedded-plugin-owned-runtime',
+    legacyEffectiveIdentityFallback: null,
+    persistenceRootAllowed: false,
+    reason:
+      'The embedded Plugin-owned MCP runtime is an execution route for Codex-facing tools; project identity and persistence still come from the unified ProjectRuntimeContext.',
+  },
+];
+
+export function getCodexRuntimeFallbackIsolation(
+  id: CodexRuntimeFallbackIsolationId
+): CodexRuntimeFallbackIsolation {
+  const isolation = CODEX_RUNTIME_FALLBACK_ISOLATION.find((item) => item.id === id);
+  if (!isolation) {
+    throw new Error(`Unknown Codex runtime fallback isolation id: ${id}`);
+  }
+  return { ...isolation };
 }
 
 export interface CodexProjectRuntimeEntryMode {
@@ -152,6 +221,7 @@ export function buildCodexProjectRuntimeContext(
       'local-jobstore-default-effective-identity',
     ],
     entryMode: detectCodexMcpEntryMode(runtime),
+    fallbackIsolation: CODEX_RUNTIME_FALLBACK_ISOLATION.map((item) => ({ ...item })),
     failureEnvelopes,
     identity,
     readinessState,
@@ -175,6 +245,7 @@ export function buildCodexPrimeRuntimeContext(input: {
   CodexProjectRuntimeContext,
   | 'blockedFallbacks'
   | 'contractVersion'
+  | 'fallbackIsolation'
   | 'failureEnvelopes'
   | 'identity'
   | 'readinessState'
