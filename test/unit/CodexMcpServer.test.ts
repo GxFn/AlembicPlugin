@@ -1393,9 +1393,7 @@ describe('CodexMcpServer', () => {
       },
     });
     expect(result.data.projectRuntime.requiredServices).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ required: true, service: 'dashboard' }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ required: true, service: 'dashboard' })])
     );
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
@@ -1634,7 +1632,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('allows task close in initialized empty projects and surfaces Plugin-only 039 evidence', async () => {
+  test('allows task close in initialized empty projects and surfaces task-scoped Plugin evidence', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
@@ -1655,8 +1653,19 @@ describe('CodexMcpServer', () => {
       operation: 'close',
       id: 'acceptance-smoke',
       reason: 'dirty diff acceptance smoke',
+      changedFiles: ['index.ts'],
     })) as {
       data: {
+        guardDecision?: {
+          action: string;
+          reasonCode: string;
+          taskScopedFiles: string[];
+        };
+        nextAction?: {
+          args: { files?: string[] };
+          required: boolean;
+          tool: string;
+        };
         opportunisticEvolution?: {
           autoSubmit: boolean;
           evidenceGate: { verdict: string };
@@ -1679,6 +1688,16 @@ describe('CodexMcpServer', () => {
     };
 
     expect(result.success).toBe(true);
+    expect(result.data.guardDecision).toMatchObject({
+      action: 'run',
+      reasonCode: 'task-scoped-code-diff',
+      taskScopedFiles: ['index.ts'],
+    });
+    expect(result.data.nextAction).toMatchObject({
+      tool: 'alembic_guard',
+      args: { files: ['index.ts'] },
+      required: true,
+    });
     expect(result.data.serviceBoundary).toMatchObject({
       executionPath: 'plugin-owned-codex-facing',
       owner: 'alembic-plugin',
@@ -1702,6 +1721,69 @@ describe('CodexMcpServer', () => {
       },
     });
     expect(result.data.opportunisticEvolution?.gitDiffEvidence?.dirtyPathCount).toBeGreaterThan(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('skips Guard and Plugin evolution when close has unrelated dirty diff only', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    makeDirtyGitRepo(projectRoot);
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(projectRoot, {
+        ready: false,
+        status: 'stopped',
+        state: null,
+      })
+    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      throw new Error(`alembic_task close must stay Plugin-owned: ${String(input)}`);
+    });
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_task', {
+      operation: 'close',
+      id: 'acceptance-smoke',
+      reason: 'close without task-scoped files',
+    })) as {
+      data: {
+        guardDecision?: {
+          action: string;
+          reasonCode: string;
+          taskScopedFiles: string[];
+        };
+        nextAction?: {
+          required: boolean;
+          skipped?: boolean;
+          tool: string;
+        };
+        opportunisticEvolution?: {
+          evidenceGate: { reasons: string[]; verdict: string };
+          proposal?: unknown;
+        };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.guardDecision).toMatchObject({
+      action: 'skip',
+      reasonCode: 'unrelated-dirty-diff',
+      taskScopedFiles: [],
+    });
+    expect(result.data.nextAction).toMatchObject({
+      tool: 'alembic_guard',
+      required: false,
+      skipped: true,
+    });
+    expect(result.data.opportunisticEvolution).toMatchObject({
+      evidenceGate: {
+        verdict: 'no-op',
+        reasons: expect.arrayContaining([expect.stringContaining('unrelated-dirty-diff')]),
+      },
+    });
+    expect(result.data.opportunisticEvolution?.proposal).toBeUndefined();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });

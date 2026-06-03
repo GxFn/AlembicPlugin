@@ -186,8 +186,8 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Code compliance check and Guard immune system.\n' +
-      '• no params → auto-check git diff incremental files (preferred after coding)\n' +
-      '• files → check specified file list\n' +
+      '• files → check specified file list; prefer explicit files when alembic_task close returns them\n' +
+      '• no params → check the whole current git diff only when an explicit whole-diff Guard is intended\n' +
       '• code → inline check code snippet\n' +
       '• operation: "coverage_matrix" → module-level Guard rule coverage matrix\n' +
       'Each violation includes a fix guide (doClause + coreCode). Fix accordingly and re-check.',
@@ -317,12 +317,12 @@ export const TOOLS = [
     name: 'alembic_task',
     tier: 'agent',
     description:
-      'Task and decision management (5 operations). In projects with a project-level Alembic knowledge skill or local Alembic knowledge base, call prime before every user-input turn and before any code reading, search, edit, Guard check, or conclusion. For empty projects, do not proactively prime unless the user explicitly asks for Alembic.\n' +
+      'Task and decision management (5 operations). In projects with a project-level Alembic knowledge skill or local Alembic knowledge base, call prime when project knowledge is relevant to the semantic task; use hostDeclaredIntent instead of raw automation/direct-thread envelopes. For empty projects, do not proactively prime unless the user explicitly asks for Alembic.\n' +
       'Visible for initialized projects even before usable Recipes exist because task close is a Codex lifecycle surface, not a Recipe/Search/Guard knowledge query.\n' +
       '• prime — load knowledge context + initialize intent lifecycle\n' +
-      '• create — create task anchor (for non-trivial work: ≥2 files or ≥10 lines)\n' +
-      '• close — complete task + trigger Guard compliance review\n' +
-      '• close also surfaces Plugin-only opportunistic evolution hints/proposals when Alembic resident ProjectScope cannot handle the project; it never auto-submits Recipes\n' +
+      '• create — create task anchor only for explicit implementation/fix/refactor/multi-step code evidence work\n' +
+      '• close — complete task + conditionally recommend Guard only for task-scoped guard-relevant code diff; returned nextAction carries explicit files when required\n' +
+      '• close also surfaces Plugin-only opportunistic evolution hints/proposals only for task-scoped code diff when Alembic resident ProjectScope cannot handle the project; it never auto-submits Recipes\n' +
       '• fail — abandon task\n' +
       '• record_decision — record user preference decision',
     inputSchema: zodToMcpSchema(TaskInput),

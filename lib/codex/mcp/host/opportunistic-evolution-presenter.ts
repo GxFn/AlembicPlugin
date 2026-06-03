@@ -1,5 +1,6 @@
 import {
   buildPluginOpportunisticEvolutionSurface,
+  extractTaskCloseGuardDecision,
   extractTaskCloseOutcome,
   shouldAttachPluginOpportunisticEvolution,
 } from '#codex/evolution/PluginOpportunisticEvolution.js';
@@ -21,6 +22,7 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
     return input.result;
   }
   const surface = await buildPluginOpportunisticEvolutionSurface({
+    guardDecision: extractTaskCloseGuardDecision(input.result),
     projectRoot: input.projectRoot,
     scanner: new GitDiffScanner({ projectRoot: input.projectRoot }),
     serviceGate: {

@@ -297,10 +297,18 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       expect(result.title).toBe('Fix bug');
     });
 
-    test('should accept close with id and reason', () => {
-      const result = TaskInput.parse({ operation: 'close', id: 'asd-123', reason: 'done' });
+    test('should accept close with id, reason, and task-scoped file refs', () => {
+      const result = TaskInput.parse({
+        operation: 'close',
+        id: 'asd-123',
+        reason: 'done',
+        changedFiles: ['lib/codex/mcp/handlers/task.ts'],
+        sourceRefs: ['lib/service/task/TaskLifecyclePolicy.ts'],
+      });
       expect(result.operation).toBe('close');
       expect(result.id).toBe('asd-123');
+      expect(result.changedFiles).toEqual(['lib/codex/mcp/handlers/task.ts']);
+      expect(result.sourceRefs).toEqual(['lib/service/task/TaskLifecyclePolicy.ts']);
     });
 
     test('should accept all valid operations', () => {

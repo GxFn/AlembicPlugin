@@ -4,7 +4,7 @@
  * 5 Operations:
  *   prime            — Load knowledge context + initialize intent
  *   create           — Create in-memory task anchor (generates ID)
- *   close            — Complete task + persist intent chain + trigger Guard
+ *   close            — Complete task + persist intent chain + conditionally recommend Guard
  *   fail             — Abandon task + persist intent chain
  *   record_decision  — Record user preference signal
  *
@@ -15,6 +15,7 @@ import type { AlembicResidentServiceResult } from '@alembic/core/daemon';
 import type { SignalBus } from '@alembic/core/events';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
+import { GitDiffScanner } from '#service/evolution/git-diff-checkpoint/GitDiffScanner.js';
 import type { ResidentIntentEpisodeClient } from '#service/resident/AlembicResidentCapabilityClients.js';
 import type {
   ResidentIntentEpisodeRecord,
@@ -36,6 +37,15 @@ import {
 import type { ExtractedIntent } from '#service/task/IntentExtractor.js';
 import { extract as extractIntent } from '#service/task/IntentExtractor.js';
 import type { PrimeSearchResult, SlimSearchResult } from '#service/task/PrimeSearchPipeline.js';
+import type {
+  GuardTriggerDecision,
+  TaskAnchorDecision,
+} from '#service/task/TaskLifecyclePolicy.js';
+import {
+  classifyTaskLifecycleInput,
+  decideGuardTrigger,
+  normalizeTaskLifecycleFileRefs,
+} from '#service/task/TaskLifecyclePolicy.js';
 import { envelope } from '../envelope.js';
 import type {
   DecisionRecord,
@@ -61,6 +71,8 @@ interface TaskArgs {
   language?: string;
   hostDeclaredIntent?: HostDeclaredIntentInput;
   hostTurnMeta?: HostTurnMetaInput;
+  changedFiles?: unknown;
+  sourceRefs?: unknown;
   [key: string]: unknown;
 }
 
@@ -174,6 +186,8 @@ interface PrimeKnowledgeMaterial {
     args: Record<string, unknown>;
     reason: string;
     required: boolean;
+    skipped?: boolean;
+    taskAnchorDecision?: TaskAnchorDecision;
   }>;
   intentEpisode?: PrimeIntentEpisodeMaterial;
   intentEvidence?: ResidentIntentEvidenceSummary;
@@ -238,11 +252,12 @@ function _generatePrimeReceiptId(): string {
 
 const _taskRules = {
   reminder: [
-    '📋 TASK RULES (MANDATORY):',
+    '📋 TASK LIFECYCLE RULES (CODEX-AWARE):',
     '🔑 YOU are the task operator — user speaks naturally, you translate to task operations.',
-    '• MUST prime on EVERY message BEFORE anything else',
-    '• MUST create task for non-trivial work (≥2 files OR ≥10 lines)',
-    '• MUST close when done with meaningful reason',
+    '• Prime only when project knowledge is relevant to the current semantic task; do not raw-prime automation or direct-thread envelopes.',
+    '• Create task anchors for explicit implementation/fix/refactor/multi-step code evidence work; skip read-only, status, Design, and automation-control turns.',
+    '• Close only an existing task anchor, with a meaningful reason.',
+    '• Guard after close only when task-scoped guard-relevant code diff exists; pass explicit files instead of no-args Guard.',
     '• When user agrees/disagrees → record_decision immediately',
     '• NEVER tell user to run task commands',
   ].join('\n'),
@@ -252,7 +267,7 @@ const _taskRules = {
     '"continue" → resume in-progress→close',
     '"pause"/"abandon" → fail(id, reason)',
     '"agreed"/"disagree" → record_decision',
-    'Quick question → No task. Just answer.',
+    'Quick question/status/read-only/design/envelope → no task anchor; answer or report status.',
   ].join('\n'),
 };
 
@@ -323,12 +338,22 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
       ? args.projectRoot.trim()
       : undefined;
   const effectiveProjectRoot = projectRoot ?? resolveProjectRoot(ctx.container);
+  const lifecycleClassification = classifyTaskLifecycleInput({
+    hostIntentFrame,
+    operation: 'prime',
+    rawUserQuery: typeof args.userQuery === 'string' ? args.userQuery : undefined,
+    userQuery: hostIntentInput.userQuery,
+  });
 
   // ─── Enrichment: multi-query search via PrimeSearchPipeline ───
   const pipeline = _getPipeline(ctx.container);
   let searchResult: PrimeSearchResult | null = null;
   let searchDegraded = false;
-  if (pipeline && extracted.queries[0]?.trim()) {
+  if (lifecycleClassification.primeDecision.action === 'skip') {
+    process.stderr.write(
+      `[MCP/Task] prime: lifecycle policy skipped search (${lifecycleClassification.primeDecision.reasonCode})\n`
+    );
+  } else if (pipeline && extracted.queries[0]?.trim()) {
     try {
       searchResult = await pipeline.search(extracted, {
         hostIntentFrame,
@@ -422,10 +447,19 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
     searchResult,
     searchDegraded,
     intentEpisode,
+    taskAnchorDecision: lifecycleClassification.taskAnchorDecision,
   });
 
   const lines: string[] = [];
-  if (primeKnowledgeMaterial.status === 'degraded') {
+  if (lifecycleClassification.primeDecision.action === 'skip') {
+    lines.push(
+      `Prime search skipped by Codex task lifecycle policy: ${lifecycleClassification.primeDecision.reasonCode}.`
+    );
+    lines.push(_formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
+    lines.push(
+      '📣 Codex must say no project knowledge was searched because the lifecycle policy skipped prime for this turn; continue only within the visible task boundary and do not claim accepted project knowledge.'
+    );
+  } else if (primeKnowledgeMaterial.status === 'degraded') {
     lines.push('Prime knowledge search degraded; no project knowledge was delivered.');
     lines.push(_formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
     lines.push(
@@ -467,6 +501,7 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
         : { projectRuntime },
       projectRuntime,
       intentEpisode,
+      lifecyclePolicy: lifecycleClassification,
       _taskRules,
     },
     message: lines.join('\n'),
@@ -481,6 +516,7 @@ function _buildPrimeKnowledgeMaterial(input: {
   searchResult: PrimeSearchResult | null;
   searchDegraded: boolean;
   intentEpisode: PrimeIntentEpisodeMaterial;
+  taskAnchorDecision: TaskAnchorDecision;
 }): PrimeKnowledgeMaterial {
   const relatedKnowledge = input.searchResult?.relatedKnowledge ?? [];
   const guardRules = input.searchResult?.guardRules ?? [];
@@ -527,7 +563,7 @@ function _buildPrimeKnowledgeMaterial(input: {
     trustPosture,
     shoutInstruction: _buildPrimeShoutInstruction(status, trustPosture),
     hostResponse: _buildPrimeHostResponseInstruction(status, receiptId, trustPosture),
-    nextActions: _buildPrimeKnowledgeNextActions(),
+    nextActions: _buildPrimeKnowledgeNextActions(input.taskAnchorDecision),
     intentEpisode: input.intentEpisode,
     ...(input.searchResult?.searchMeta.intentEvidence
       ? { intentEvidence: input.searchResult.searchMeta.intentEvidence }
@@ -928,7 +964,24 @@ function _buildPrimeHostResponseInstruction(
   };
 }
 
-function _buildPrimeKnowledgeNextActions(): PrimeKnowledgeMaterial['nextActions'] {
+function _buildPrimeKnowledgeNextActions(
+  taskAnchorDecision: TaskAnchorDecision
+): PrimeKnowledgeMaterial['nextActions'] {
+  if (taskAnchorDecision.action === 'skip') {
+    return [
+      {
+        tool: 'alembic_task',
+        args: {
+          operation: 'create',
+          title: '<short task title>',
+        },
+        required: false,
+        skipped: true,
+        reason: `Task anchor skipped by Codex-aware lifecycle policy: ${taskAnchorDecision.reasonCode}.`,
+        taskAnchorDecision,
+      },
+    ];
+  }
   return [
     {
       tool: 'alembic_task',
@@ -937,8 +990,8 @@ function _buildPrimeKnowledgeNextActions(): PrimeKnowledgeMaterial['nextActions'
         title: '<short task title>',
       },
       required: false,
-      reason:
-        'For non-trivial implementation work, create a task anchor after the prime knowledge receipt shout.',
+      reason: `Create a task anchor after the prime knowledge receipt only for real implementation work (${taskAnchorDecision.reasonCode}).`,
+      taskAnchorDecision,
     },
   ];
 }
@@ -986,6 +1039,29 @@ async function _close(ctx: McpContext, args: TaskArgs) {
   }
 
   const reason = args.reason || 'Completed';
+  const projectRoot = _resolveTaskProjectRoot(ctx, args);
+  const detectedChangedFiles = await _detectTaskLifecycleChangedFiles(projectRoot);
+  const changedFiles = _uniqueStrings([
+    ...detectedChangedFiles,
+    ...normalizeTaskLifecycleFileRefs(args.changedFiles, { projectRoot }),
+  ]);
+  const taskScopeFiles = _collectTaskScopeFiles(args, intent, projectRoot);
+  const guardDecision = decideGuardTrigger({
+    changedFiles,
+    taskAnchorExists: true,
+    taskScopeFiles,
+  });
+  const lifecyclePolicy = {
+    ...classifyTaskLifecycleInput({
+      hostIntentFrame: intent?.hostIntentFrame,
+      operation: 'close',
+      rawUserQuery: typeof args.userQuery === 'string' ? args.userQuery : undefined,
+      taskId: id,
+      title: intent?.taskTitle,
+      userQuery: reason,
+    }),
+    guardDecision,
+  };
 
   // Persist intent chain via SignalBus
   if (intent && intent.phase === 'active') {
@@ -999,24 +1075,85 @@ async function _close(ctx: McpContext, args: TaskArgs) {
 
   const lines = [`✅ Closed: ${id} — ${reason}`];
   lines.push('');
-  lines.push(
-    '⚠️ REQUIRED: You MUST call alembic_guard (no args) NOW to review changed files for compliance violations.'
-  );
+  lines.push(_formatGuardDecisionMessage(guardDecision));
 
   return envelope({
     success: true,
     data: {
       closed: { id, reason, closedAt: Date.now() },
-      nextAction: {
-        tool: 'alembic_guard',
-        args: {},
-        required: true,
-        reason: 'Post-close compliance review — check diff for violations before moving on.',
-      },
+      guardDecision,
+      lifecyclePolicy,
+      nextAction: _buildGuardNextAction(guardDecision),
     },
     message: lines.join('\n'),
     meta: { tool: 'alembic_task' },
   });
+}
+
+function _buildGuardNextAction(guardDecision: GuardTriggerDecision): Record<string, unknown> {
+  if (guardDecision.action === 'run') {
+    return {
+      tool: 'alembic_guard',
+      args: {
+        files: guardDecision.taskScopedFiles,
+      },
+      required: true,
+      reason:
+        'Post-close task-scoped compliance review — check only files changed by this task before moving on.',
+    };
+  }
+  return {
+    tool: 'alembic_guard',
+    args: {},
+    required: false,
+    skipped: true,
+    reason: `Post-close Guard skipped by Codex-aware lifecycle policy: ${guardDecision.reasonCode}.`,
+  };
+}
+
+function _formatGuardDecisionMessage(guardDecision: GuardTriggerDecision): string {
+  if (guardDecision.action === 'run') {
+    return `⚠️ REQUIRED: Call alembic_guard with files=${JSON.stringify(guardDecision.taskScopedFiles)} before moving on.`;
+  }
+  return `Guard skipped by Codex-aware lifecycle policy: ${guardDecision.reasonCode}.`;
+}
+
+function _resolveTaskProjectRoot(ctx: McpContext, args: TaskArgs): string {
+  return typeof args.projectRoot === 'string' && args.projectRoot.trim()
+    ? args.projectRoot.trim()
+    : resolveProjectRoot(ctx.container);
+}
+
+async function _detectTaskLifecycleChangedFiles(projectRoot: string): Promise<string[]> {
+  try {
+    const scan = await new GitDiffScanner({ projectRoot }).scanOnce();
+    return normalizeTaskLifecycleFileRefs(
+      scan.events.map((event) => event.path),
+      { projectRoot }
+    );
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[MCP/Task] close guard diff scan unavailable: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return [];
+  }
+}
+
+function _collectTaskScopeFiles(
+  args: TaskArgs,
+  intent: IntentState | undefined,
+  projectRoot: string
+): string[] {
+  const frame = intent?.hostIntentFrame;
+  return _uniqueStrings([
+    ...normalizeTaskLifecycleFileRefs(args.changedFiles, { projectRoot }),
+    ...normalizeTaskLifecycleFileRefs(args.sourceRefs, { projectRoot }),
+    ...normalizeTaskLifecycleFileRefs(args.activeFile, { projectRoot }),
+    ...normalizeTaskLifecycleFileRefs(intent?.primeActiveFile, { projectRoot }),
+    ...normalizeTaskLifecycleFileRefs(intent?.mentionedFiles, { projectRoot }),
+    ...normalizeTaskLifecycleFileRefs(frame?.recognizedIntentDraft.sourceRefs, { projectRoot }),
+    ...normalizeTaskLifecycleFileRefs(frame?.hostDeclaredIntent?.sourceRefs, { projectRoot }),
+  ]);
 }
 
 // ═══ fail ═══════════════════════════════════════════════

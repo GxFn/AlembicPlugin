@@ -121,6 +121,12 @@ interface PrimeEnvelope {
       relatedKnowledge: PrimeSearchResult['relatedKnowledge'];
       guardRules: PrimeSearchResult['guardRules'];
     } | null;
+    lifecyclePolicy?: {
+      inputSource: string;
+      intentKind: string;
+      primeDecision: { action: string; curatedQuery?: string; reasonCode: string };
+      taskAnchorDecision: { action: string; reasonCode: string };
+    };
     primeKnowledgeMaterial: PrimeMaterial;
     searchMeta: PrimeSearchResult['searchMeta'] | null;
   };
@@ -363,7 +369,8 @@ describe('alembic_task prime knowledge material', () => {
 
     expect(result.success).toBe(true);
     expect(result.data.knowledge?.relatedKnowledge).toEqual(searchResult.relatedKnowledge);
-    expect(result.data.searchMeta).toEqual(searchResult.searchMeta);
+    expect(result.data.searchMeta).toMatchObject(searchResult.searchMeta);
+    expect(result.data.searchMeta).toMatchObject({ projectRuntime: expect.any(Object) });
     expect(ctx.session?.intent.searchMeta?.residentSearch).toMatchObject({
       route: 'alembic-resident-service',
       vectorUsed: true,
@@ -613,7 +620,7 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.message).toContain('Do not make Alembic prime');
   });
 
-  test('uses host-declared intent as prime query and redacts host turn metadata', async () => {
+  test('uses host-declared intent instead of raw automation envelope as prime query', async () => {
     let searchedIntent: ExtractedIntent | null = null;
     let searchedOptions: { hostIntentFrame?: unknown } | null = null;
     const ctx = makeContext(async (intent, options) => {
@@ -631,6 +638,8 @@ describe('alembic_task prime knowledge material', () => {
 
     const result = (await taskHandler(ctx, {
       operation: 'prime',
+      userQuery:
+        '<codex_delegation><input>dispatchGroup: PCTL-STAGE1-PLUGIN-IMPLEMENTATION-20260603</input></codex_delegation>',
       hostDeclaredIntent: {
         summary: 'Route host intent into the prime flow',
         confidence: 0.73,
@@ -646,15 +655,28 @@ describe('alembic_task prime knowledge material', () => {
     })) as PrimeEnvelope;
 
     expect(searchedIntent?.raw.userQuery).toBe('Route host intent into the prime flow');
+    expect(searchedIntent?.raw.userQuery).not.toContain('dispatchGroup');
     expect(searchedOptions?.hostIntentFrame).toMatchObject({
-      source: 'host-declared',
+      source: 'mixed',
       confidence: 0.73,
+    });
+    expect(result.data.lifecyclePolicy).toMatchObject({
+      inputSource: 'user-intent',
+      intentKind: 'knowledge-query',
+      primeDecision: {
+        action: 'run',
+        curatedQuery: 'Route host intent into the prime flow',
+      },
+      taskAnchorDecision: {
+        action: 'skip',
+        reasonCode: 'readonly-no-anchor',
+      },
     });
     expect(result.data.primeKnowledgeMaterial.intent.userQuery).toBe(
       'Route host intent into the prime flow'
     );
     expect(result.data.primeKnowledgeMaterial.intent.hostIntentFrame).toMatchObject({
-      source: 'host-declared',
+      source: 'mixed',
       confidence: 0.73,
       degraded: false,
       hostDeclaredIntent: {
@@ -671,7 +693,7 @@ describe('alembic_task prime knowledge material', () => {
           expect.objectContaining({ field: 'query', source: 'hostDeclaredIntent' }),
         ]),
         query: 'Route host intent into the prime flow',
-        source: 'host-declared',
+        source: 'mixed',
         status: 'recognized',
       },
       hostTurnMeta: {
@@ -689,9 +711,10 @@ describe('alembic_task prime knowledge material', () => {
     expect(serializedFrame).not.toContain('raw-request-thread-id');
     expect(serializedFrame).not.toContain('raw-explicit-thread-id');
     expect(serializedFrame).not.toContain('/Users/example/private-project');
+    expect(serializedFrame).not.toContain('dispatchGroup');
     expect(serializedFrame).not.toContain('ignoredPayload');
     expect(ctx.session?.intent.primeQuery).toBe('Route host intent into the prime flow');
-    expect(ctx.session?.intent.hostIntentFrame?.source).toBe('host-declared');
+    expect(ctx.session?.intent.hostIntentFrame?.source).toBe('mixed');
   });
 
   test('hands off prime intent episodes to resident service with redacted host identifiers', async () => {

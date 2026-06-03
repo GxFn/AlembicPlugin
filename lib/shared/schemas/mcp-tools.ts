@@ -428,7 +428,7 @@ export const TaskInput = z.object({
   operation: z
     .enum(['prime', 'create', 'close', 'fail', 'record_decision'])
     .describe(
-      'prime=加载知识上下文 | create=创建任务锚点 | close=完成+Guard | fail=放弃 | record_decision=记录用户偏好'
+      'prime=按 Codex-aware lifecycle 加载知识上下文 | create=创建任务锚点 | close=完成并按任务范围决定是否 Guard | fail=放弃 | record_decision=记录用户偏好'
     ),
   title: z.string().optional().describe('Task or decision title (create / record_decision)'),
   description: z.string().optional().describe('Decision description (record_decision)'),
@@ -437,13 +437,15 @@ export const TaskInput = z.object({
     .optional()
     .describe('Task ID (close / fail). Optional if a task was created in the current session.'),
   taskId: z.string().optional().describe('Alias for id (accepted for convenience)'),
-  reason: z.string().optional().describe('Close reason or fail reason'),
+  reason: z.string().optional().describe('Close/fail reason'),
   rationale: z.string().optional().describe('Decision rationale (record_decision)'),
   tags: z.array(z.string()).optional().describe('Decision tags (record_decision)'),
   userQuery: z
     .string()
     .optional()
-    .describe('User current input / prompt text for knowledge-aware search'),
+    .describe(
+      'Semantic current user input for knowledge-aware search. Prefer hostDeclaredIntent over raw automation/direct-thread envelopes.'
+    ),
   activeFile: z.string().optional().describe('Currently active file path in IDE'),
   language: z.string().optional().describe('Current programming language'),
   hostDeclaredIntent: HostDeclaredIntentInput.optional().describe(
@@ -452,6 +454,20 @@ export const TaskInput = z.object({
   hostTurnMeta: HostTurnMetaInput.optional().describe(
     'Optional host turn metadata. The handler only keeps redacted allowlisted fields.'
   ),
+  changedFiles: z
+    .array(z.string().min(1).max(200))
+    .max(50)
+    .optional()
+    .describe(
+      'Task-scoped files changed by this task; close uses them with git diff to decide whether Guard should run with explicit files.'
+    ),
+  sourceRefs: z
+    .array(z.string().min(1).max(200))
+    .max(50)
+    .optional()
+    .describe(
+      'Optional non-private source refs for task-scope evidence used by close/Guard decisions.'
+    ),
 });
 export type TaskInput = z.infer<typeof TaskInput>;
 

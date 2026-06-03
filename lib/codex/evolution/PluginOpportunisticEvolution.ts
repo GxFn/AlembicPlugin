@@ -24,6 +24,12 @@ export interface PluginOpportunisticEvolutionServiceGate {
   residentProjectScopeAvailable: boolean;
 }
 
+export interface PluginOpportunisticEvolutionGuardDecision {
+  action: 'run' | 'skip';
+  reasonCode: string;
+  taskScopedFiles: string[];
+}
+
 export interface PluginOpportunisticEvolutionSurface {
   autoSubmit: false;
   evidenceGate: {
@@ -64,6 +70,7 @@ export interface PluginOpportunisticEvolutionSurface {
 }
 
 export interface BuildPluginOpportunisticEvolutionSurfaceInput {
+  guardDecision?: PluginOpportunisticEvolutionGuardDecision;
   projectRoot: string;
   scanner?: GitDiffScannerLike;
   scan?: GitDiffScanResult;
@@ -95,7 +102,22 @@ export async function buildPluginOpportunisticEvolutionSurface(
     };
   }
 
-  const scan = input.scan ?? (await input.scanner?.scanOnce());
+  if (input.guardDecision && input.guardDecision.action !== 'run') {
+    return {
+      ...base,
+      evidenceGate: {
+        verdict: 'no-op',
+        reasons: [
+          `Task close skipped task-scoped Guard (${input.guardDecision.reasonCode}); Plugin opportunistic evolution will not infer knowledge changes from unrelated dirty diff.`,
+        ],
+      },
+    };
+  }
+
+  const scan = filterScanToTaskScopedFiles(
+    input.scan ?? (await input.scanner?.scanOnce()),
+    input.guardDecision?.taskScopedFiles
+  );
   if (!scan || !scan.scanned || scan.events.length === 0) {
     return {
       ...base,
@@ -159,6 +181,33 @@ export function shouldAttachPluginOpportunisticEvolution(input: {
   return input.toolName === 'alembic_task' && input.args.operation === 'close';
 }
 
+export function extractTaskCloseGuardDecision(
+  result: unknown
+): PluginOpportunisticEvolutionGuardDecision | undefined {
+  if (!isRecord(result)) {
+    return undefined;
+  }
+  const data = isRecord(result.data) ? result.data : {};
+  const guardDecision = isRecord(data.guardDecision)
+    ? data.guardDecision
+    : isRecord(data.nextAction) && isRecord(data.nextAction.guardDecision)
+      ? data.nextAction.guardDecision
+      : null;
+  if (!guardDecision) {
+    return undefined;
+  }
+  const action = guardDecision.action === 'run' ? 'run' : 'skip';
+  const reasonCode =
+    typeof guardDecision.reasonCode === 'string' && guardDecision.reasonCode.trim()
+      ? guardDecision.reasonCode.trim()
+      : 'unknown';
+  return {
+    action,
+    reasonCode,
+    taskScopedFiles: normalizeSourceRefs(guardDecision.taskScopedFiles),
+  };
+}
+
 export function extractTaskCloseOutcome(
   result: unknown
 ): PluginOpportunisticEvolutionToolOutcome | null {
@@ -175,6 +224,22 @@ export function extractTaskCloseOutcome(
     success: true,
     taskId: typeof closed.id === 'string' ? closed.id : null,
     reason: typeof closed.reason === 'string' ? closed.reason : null,
+  };
+}
+
+function filterScanToTaskScopedFiles(
+  scan: GitDiffScanResult | undefined,
+  taskScopedFiles: string[] | undefined
+): GitDiffScanResult | undefined {
+  if (!scan || !taskScopedFiles || taskScopedFiles.length === 0) {
+    return scan;
+  }
+  const scoped = new Set(normalizeSourceRefs(taskScopedFiles));
+  const events = scan.events.filter((event) => scoped.has(normalizeSourceRef(event.path)));
+  return {
+    ...scan,
+    dirtyPathCount: events.length,
+    events,
   };
 }
 
@@ -211,6 +276,22 @@ function confidenceForDiff(scan: GitDiffScanResult): number {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
+function normalizeSourceRefs(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniqueStrings(
+    value
+      .filter((item): item is string => typeof item === 'string')
+      .map(normalizeSourceRef)
+      .filter(Boolean)
+  );
+}
+
+function normalizeSourceRef(value: string): string {
+  return value.trim().replace(/\\/g, '/').replace(/^\.\//, '');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

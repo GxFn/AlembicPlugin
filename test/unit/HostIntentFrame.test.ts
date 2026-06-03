@@ -12,6 +12,48 @@ function frameFrom(input: Parameters<typeof prepareHostIntentInput>[0]) {
 }
 
 describe('HostIntentFrame recognized intent draft', () => {
+  it('does not use raw automation envelopes as the effective query when no host intent is declared', () => {
+    const rawEnvelope =
+      '<codex_delegation><input>dispatchGroup: example</input></codex_delegation>';
+    const prepared = prepareHostIntentInput({ userQuery: rawEnvelope });
+
+    expect(prepared.userQuery).toBe('');
+    expect(prepared.degraded).toBe(true);
+    expect(prepared.degradedReasons).toContain(
+      'hostIntent.rawAutomationEnvelopeWithoutDeclaredIntent'
+    );
+  });
+
+  it('lets host-declared intent override raw automation envelope text', () => {
+    const rawEnvelope =
+      '<codex_delegation><input>dispatchGroup: example</input></codex_delegation>';
+    const prepared = prepareHostIntentInput({
+      userQuery: rawEnvelope,
+      hostDeclaredIntent: {
+        action: 'implement',
+        confidence: 0.8,
+        query: 'Implement task lifecycle policy',
+        sourceRefs: ['lib/codex/mcp/handlers/task.ts'],
+      },
+    });
+    const extracted = extractIntent(prepared.userQuery, prepared.activeFile, prepared.language);
+    const frame = buildHostIntentFrame(prepared, extracted);
+
+    expect(prepared.userQuery).toBe('Implement task lifecycle policy');
+    expect(prepared.degradedReasons).not.toContain(
+      'hostIntent.rawAutomationEnvelopeWithoutDeclaredIntent'
+    );
+    expect(frame.recognizedIntentDraft).toMatchObject({
+      action: 'implement',
+      query: 'Implement task lifecycle policy',
+      source: 'mixed',
+      sourceRefs: ['lib/codex/mcp/handlers/task.ts'],
+      status: 'recognized',
+    });
+    expect(JSON.stringify(frame.recognizedIntentDraft)).not.toContain('dispatchGroup');
+    expect(JSON.stringify(frame.recognizedIntentDraft)).not.toContain('<codex_delegation>');
+  });
+
   it('builds a recognized draft with source refs and evidence spans from host-declared input', () => {
     const frame = frameFrom({
       userQuery: 'Please implement VideoURLPreloader async bridge',

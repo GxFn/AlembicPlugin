@@ -162,6 +162,8 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.properties['operation']).toBeDefined();
       expect(result.properties['hostDeclaredIntent']).toBeDefined();
       expect(result.properties['hostTurnMeta']).toBeDefined();
+      expect(result.properties['changedFiles']).toBeDefined();
+      expect(result.properties['sourceRefs']).toBeDefined();
       expect(result.required).toContain('operation');
     });
 
