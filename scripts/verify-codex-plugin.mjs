@@ -141,9 +141,13 @@ expect(
   'package.json must expose dev:codex-plugin:verify'
 );
 expect(
+  packageJson.scripts?.['dev:codex-plugin:reload'] === 'node scripts/dev-reload-codex-plugin.mjs',
+  'package.json must expose canonical dev:codex-plugin:reload'
+);
+expect(
   packageJson.scripts?.['dev:codex-plugin:refresh'] ===
-    'node scripts/dev-verify-codex-plugin.mjs --refresh-only',
-  'package.json must expose dev:codex-plugin:refresh'
+    'node scripts/dev-reload-codex-plugin.mjs --legacy-refresh',
+  'package.json must keep dev:codex-plugin:refresh only as a compatibility alias'
 );
 expect(
   packageJson.scripts?.['dev:codex-plugin:probe-installed'] ===
@@ -163,8 +167,12 @@ expect(
   'local Codex plugin dev verification script must exist'
 );
 expect(
+  existsSync(join(root, 'scripts', 'dev-reload-codex-plugin.mjs')),
+  'canonical local-dev Codex plugin reload script must exist'
+);
+expect(
   existsSync(join(root, 'scripts', 'dev-watch-codex-plugin.mjs')),
-  'local Codex plugin watch refresh script must exist'
+  'local Codex plugin watch mode script must exist'
 );
 expect(pluginJson.name === 'alembic-codex', 'plugin.json name must be alembic-codex');
 expect(
@@ -215,6 +223,24 @@ expect(
 expect(
   wrapperSource.includes('npm_config_ignore_scripts'),
   'plugin MCP wrapper must skip dependency install scripts for the self-contained runtime package'
+);
+expect(
+  wrapperSource.includes('lockScope') &&
+    wrapperSource.includes('pluginRoot') &&
+    wrapperSource.includes('runtimeTarball'),
+  'plugin MCP wrapper lock must be scoped to the installed plugin root and runtime tarball'
+);
+expect(
+  wrapperSource.includes('startup-lock-wait') &&
+    wrapperSource.includes('owner.json') &&
+    wrapperSource.includes('nextAction'),
+  'plugin MCP wrapper lock waits must include owner, wait reason, timeout, and next action diagnostics'
+);
+expect(
+  wrapperSource.includes('ALEMBIC_CODEX_NPM_LOCK_HOLD_MS') &&
+    wrapperSource.includes("releaseStartupLock('stderr')") &&
+    wrapperSource.includes("releaseStartupLock('hold-timeout')"),
+  'plugin MCP wrapper lock must release on stdout, stderr, child lifecycle, or bounded hold timeout'
 );
 expect(server?.cwd === '.', '.mcp.json must run from the installed plugin root');
 expect(existsSync(runtimeTarballPath), 'embedded runtime tarball runtime.tgz must exist');

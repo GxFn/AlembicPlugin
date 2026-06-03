@@ -104,6 +104,22 @@ describe('Codex runtime context', () => {
     expect(diagnostics.mcp.runtimeMode).toBe(true);
     expect(diagnostics.mcp.pluginHost).toBe(true);
     expect(diagnostics.mcp.runtimeSpecifier).toBe(context.embeddedRuntimeSpecifier);
+    expect(diagnostics.mcp.entry).toMatchObject({
+      mode: 'packaged-wrapper',
+      nextAction: expect.stringContaining('packaged runtime diagnostics'),
+      runtimeTarball: {
+        exists: true,
+      },
+    });
+    expect(diagnostics.mcp.wrapper.startupLockDiagnostics).toMatchObject({
+      configured: true,
+      ownerMetadata: true,
+      scope: 'plugin-root-runtime-tarball',
+      waitDiagnostics: true,
+    });
+    expect(diagnostics.mcp.wrapper.startupLockDiagnostics.releaseSignals).toEqual(
+      expect.arrayContaining(['stdout', 'stderr', 'child-exit', 'child-error', 'hold-timeout'])
+    );
     expect(diagnostics.skills.missing).toEqual([]);
     expect(diagnostics.assets.missing).toEqual([]);
     expect(context.defaultTier).toBe(CODEX_DEFAULT_MCP_TIER);

@@ -1190,11 +1190,34 @@ describe('CodexMcpServer', () => {
       success: boolean;
       data: {
         cleanup: { automaticOnUninstall: boolean; command: string };
-        checks: { packagePin: boolean; pluginAssets: boolean; pluginSkills: boolean };
+        checks: {
+          packagePin: boolean;
+          pluginAssets: boolean;
+          pluginMcpEntry: boolean;
+          pluginSkills: boolean;
+        };
         nextActions: string[];
         offlineFallback: { localPackage: string; registryPackageFallback: boolean };
         package: { pinnedSpecifier: string; version: string };
-        plugin: { mcp: { ok: boolean; packagePin: boolean }; skills: { ok: boolean } };
+        plugin: {
+          mcp: {
+            entry: {
+              mode: string;
+              runtimeTarball: { exists: boolean };
+              staleReasons: string[];
+            };
+            ok: boolean;
+            packagePin: boolean;
+            wrapper: {
+              startupLockDiagnostics: {
+                releaseSignals: string[];
+                scope: string;
+                waitDiagnostics: boolean;
+              };
+            };
+          };
+          skills: { ok: boolean };
+        };
         projectRuntime: {
           entryMode: { mode: string };
           requiredServices: Array<{ service: string; source: string }>;
@@ -1212,9 +1235,22 @@ describe('CodexMcpServer', () => {
     expect(result.data.checks).toMatchObject({
       packagePin: true,
       pluginAssets: true,
+      pluginMcpEntry: true,
       pluginSkills: true,
     });
     expect(result.data.plugin.mcp).toMatchObject({ ok: true, packagePin: true });
+    expect(result.data.plugin.mcp.entry).toMatchObject({
+      mode: 'packaged-wrapper',
+      runtimeTarball: { exists: true },
+      staleReasons: [],
+    });
+    expect(result.data.plugin.mcp.wrapper.startupLockDiagnostics).toMatchObject({
+      scope: 'plugin-root-runtime-tarball',
+      waitDiagnostics: true,
+    });
+    expect(result.data.plugin.mcp.wrapper.startupLockDiagnostics.releaseSignals).toEqual(
+      expect.arrayContaining(['stderr', 'hold-timeout'])
+    );
     expect(result.data.plugin.skills.ok).toBe(true);
     expect(result.data.nextActions).toContain('Alembic Codex runtime checks passed.');
     expect(result.data.primaryAction.tool).toBe('alembic_codex_status');
@@ -1908,6 +1944,12 @@ describe('CodexMcpServer', () => {
     ) as { interface: { defaultPrompt: string[]; screenshots: string[] } };
 
     expect(packageJson.bin['alembic-codex-mcp']).toBe('dist/bin/codex-mcp.js');
+    expect(packageJson.scripts['dev:codex-plugin:reload']).toBe(
+      'node scripts/dev-reload-codex-plugin.mjs'
+    );
+    expect(packageJson.scripts['dev:codex-plugin:refresh']).toBe(
+      'node scripts/dev-reload-codex-plugin.mjs --legacy-refresh'
+    );
     expect(packageJson.scripts['verify:codex-plugin']).toBe('node scripts/verify-codex-plugin.mjs');
     expect(pluginMcp.mcpServers.alembic.command).toBe('node');
     expect(pluginMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-mcp-wrapper.mjs');

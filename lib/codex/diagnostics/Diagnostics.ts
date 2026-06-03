@@ -56,10 +56,12 @@ export interface CodexPluginDiagnostics {
     runtimeMode: boolean;
     runtimeModeValue: string | null;
     runtimeSpecifier: string | null;
+    entry: CodexMcpEntryDiagnostics;
     wrapper: {
       exists: boolean;
       path: string | null;
       startupLock: boolean;
+      startupLockDiagnostics: CodexWrapperStartupLockDiagnostics;
     };
   };
   ok: boolean;
@@ -71,6 +73,46 @@ export interface CodexPluginDiagnostics {
   };
   root: string;
   skills: { missing: string[]; ok: boolean; required: string[] };
+}
+
+export interface CodexMcpEntryDiagnostics {
+  args: string[];
+  cacheMarker: {
+    exists: boolean;
+    gitHead: string | null;
+    localMcpEntry: string | null;
+    mode: string | null;
+    refreshedAt: string | null;
+  };
+  command: string | null;
+  localDistEntry: {
+    exists: boolean | null;
+    path: string | null;
+  };
+  mode: 'local-dev-direct-dist' | 'packaged-wrapper' | 'stale-installed-cache' | 'unknown';
+  nextAction: string;
+  runtimeTarball: {
+    exists: boolean;
+    path: string;
+  };
+  source:
+    | 'installed-refresh-marker'
+    | 'plugin-mcp-config'
+    | 'plugin-mcp-config+installed-refresh-marker';
+  staleReasons: string[];
+  wrapperPath: string | null;
+}
+
+export interface CodexWrapperStartupLockDiagnostics {
+  configured: boolean;
+  holdTimeoutEnv: string;
+  ownerMetadata: boolean;
+  releaseSignals: string[];
+  scope: 'plugin-root-runtime-tarball' | 'global-cache-base' | 'missing';
+  staleTimeoutEnv: string;
+  timeoutEnv: string;
+  waitDiagnostics: boolean;
+  nextAction: string;
 }
 
 export interface CodexRuntimeDiagnosticsOptions {
@@ -149,6 +191,8 @@ export function buildCodexRuntimeDiagnostics(
     pluginAssets: plugin.assets.ok,
     pluginManifest: plugin.manifest.ok,
     pluginMcp: plugin.mcp.ok,
+    pluginMcpEntry:
+      plugin.mcp.entry.mode !== 'unknown' && plugin.mcp.entry.mode !== 'stale-installed-cache',
     pluginSkills: plugin.skills.ok,
     projectRoot:
       !options.projectRootResolution || options.projectRootResolution.trust === 'trusted',
@@ -280,6 +324,7 @@ export function buildCodexPluginDiagnostics(
     : null;
   const wrapperSource =
     wrapperPath && existsSync(wrapperPath) ? readFileSync(wrapperPath, 'utf8') : '';
+  const runtimeTarballPath = join(registry.plugin.root, 'runtime.tgz');
   const wrapperUsesRuntime =
     wrapperSource.includes('npx') &&
     wrapperSource.includes('--package') &&
@@ -287,6 +332,15 @@ export function buildCodexPluginDiagnostics(
     wrapperSource.includes(context.runtimeBin);
   const wrapperUsesStartupLock =
     wrapperSource.includes('lockDir') && wrapperSource.includes('npm_config_cache');
+  const entry = buildCodexMcpEntryDiagnostics({
+    args,
+    command,
+    registryPluginRoot: registry.plugin.root,
+    runtimeTarballPath,
+    wrapperArg,
+    wrapperPath,
+  });
+  const startupLockDiagnostics = buildWrapperStartupLockDiagnostics(wrapperSource);
   const binary =
     args.find((arg) => arg === context.runtimeBin) ||
     (wrapperUsesRuntime ? context.runtimeBin : null);
@@ -359,10 +413,12 @@ export function buildCodexPluginDiagnostics(
       runtimeMode,
       runtimeModeValue,
       runtimeSpecifier: runtimeSpecifier || context.embeddedRuntimeSpecifier,
+      entry,
       wrapper: {
         exists: Boolean(wrapperPath && existsSync(wrapperPath)),
         path: wrapperPath,
         startupLock: wrapperUsesStartupLock,
+        startupLockDiagnostics,
       },
     },
     ok:
@@ -390,6 +446,150 @@ export function buildCodexPluginDiagnostics(
       required: requiredSkills,
     },
   };
+}
+
+function buildCodexMcpEntryDiagnostics(input: {
+  args: string[];
+  command: string | null;
+  registryPluginRoot: string;
+  runtimeTarballPath: string;
+  wrapperArg: string | null;
+  wrapperPath: string | null;
+}): CodexMcpEntryDiagnostics {
+  const marker = readInstalledRefreshMarker(
+    join(input.registryPluginRoot, '.alembic-dev-refresh.json')
+  );
+  const localDistArg =
+    input.args.find(
+      (arg) => arg.endsWith('/dist/bin/codex-mcp.js') || arg.endsWith('dist/bin/codex-mcp.js')
+    ) || null;
+  const localDistPath = localDistArg
+    ? resolveMaybePluginRelative(input.registryPluginRoot, localDistArg)
+    : typeof marker.localMcpEntry === 'string'
+      ? marker.localMcpEntry
+      : null;
+  const localDistEntryExists = localDistPath ? existsSync(localDistPath) : null;
+  const runtimeTarballExists = existsSync(input.runtimeTarballPath);
+  const hasWrapper = Boolean(input.wrapperArg);
+  const staleReasons: string[] = [];
+  const configMode = localDistArg
+    ? 'local-dev-direct-dist'
+    : hasWrapper
+      ? 'packaged-wrapper'
+      : 'unknown';
+
+  if (configMode === 'local-dev-direct-dist' && localDistEntryExists === false) {
+    staleReasons.push('local-dev-dist-entry-missing');
+  }
+  if (configMode === 'packaged-wrapper' && !runtimeTarballExists) {
+    staleReasons.push('runtime-tarball-missing');
+  }
+  if (hasWrapper && input.wrapperPath && !existsSync(input.wrapperPath)) {
+    staleReasons.push('wrapper-entry-missing');
+  }
+  if (marker.exists && marker.mode === 'local-mcp' && configMode !== 'local-dev-direct-dist') {
+    staleReasons.push('refresh-marker-local-mcp-but-config-not-local-dist');
+  }
+  if (marker.exists && marker.mode === 'packaged-runtime' && configMode !== 'packaged-wrapper') {
+    staleReasons.push('refresh-marker-packaged-but-config-not-wrapper');
+  }
+  if (marker.exists && marker.mode === 'local-mcp' && marker.localMcpEntry && localDistPath) {
+    const markerEntry = resolveMaybePluginRelative(input.registryPluginRoot, marker.localMcpEntry);
+    if (markerEntry !== localDistPath) {
+      staleReasons.push('refresh-marker-local-entry-mismatch');
+    }
+  }
+
+  const mode =
+    staleReasons.length > 0 && configMode !== 'unknown' ? 'stale-installed-cache' : configMode;
+
+  return {
+    args: input.args,
+    cacheMarker: marker,
+    command: input.command,
+    localDistEntry: {
+      exists: localDistEntryExists,
+      path: localDistPath,
+    },
+    mode,
+    nextAction: entryModeNextAction(mode),
+    runtimeTarball: {
+      exists: runtimeTarballExists,
+      path: input.runtimeTarballPath,
+    },
+    source: marker.exists ? 'plugin-mcp-config+installed-refresh-marker' : 'plugin-mcp-config',
+    staleReasons,
+    wrapperPath: input.wrapperPath,
+  };
+}
+
+function buildWrapperStartupLockDiagnostics(
+  wrapperSource: string
+): CodexWrapperStartupLockDiagnostics {
+  const configured =
+    wrapperSource.includes('acquireStartupLock') && wrapperSource.includes('lockDir');
+  const releaseSignals = [
+    wrapperSource.includes("releaseStartupLock('stdout')") ? 'stdout' : null,
+    wrapperSource.includes("releaseStartupLock('stderr')") ? 'stderr' : null,
+    wrapperSource.includes("releaseStartupLock('child-exit')") ? 'child-exit' : null,
+    wrapperSource.includes("releaseStartupLock('child-error')") ? 'child-error' : null,
+    wrapperSource.includes("releaseStartupLock('hold-timeout')") ? 'hold-timeout' : null,
+  ].filter((signal): signal is string => typeof signal === 'string');
+  return {
+    configured,
+    holdTimeoutEnv: 'ALEMBIC_CODEX_NPM_LOCK_HOLD_MS',
+    ownerMetadata:
+      wrapperSource.includes('owner.json') &&
+      wrapperSource.includes('pluginRoot') &&
+      wrapperSource.includes('runtimeTarball'),
+    releaseSignals,
+    scope:
+      wrapperSource.includes('lockScope') &&
+      wrapperSource.includes('pluginRoot') &&
+      wrapperSource.includes('runtimeTarball')
+        ? 'plugin-root-runtime-tarball'
+        : configured
+          ? 'global-cache-base'
+          : 'missing',
+    staleTimeoutEnv: 'ALEMBIC_CODEX_NPM_LOCK_STALE_MS',
+    timeoutEnv: 'ALEMBIC_CODEX_NPM_LOCK_TIMEOUT_MS',
+    waitDiagnostics:
+      wrapperSource.includes('startup-lock-wait') &&
+      wrapperSource.includes('waitMs') &&
+      wrapperSource.includes('timeoutMs') &&
+      wrapperSource.includes('nextAction'),
+    nextAction: configured
+      ? 'If startup waits or times out, inspect the wrapper lock owner metadata or run npm run dev:codex-plugin:reload.'
+      : 'Restore the packaged wrapper startup lock before shipping the Codex plugin.',
+  };
+}
+
+function readInstalledRefreshMarker(path: string): CodexMcpEntryDiagnostics['cacheMarker'] {
+  const marker = readJsonIfExists(path);
+  return {
+    exists: Boolean(marker),
+    gitHead: stringOrNull(marker?.gitHead),
+    localMcpEntry: stringOrNull(marker?.localMcpEntry),
+    mode: stringOrNull(marker?.mode),
+    refreshedAt: stringOrNull(marker?.refreshedAt),
+  };
+}
+
+function resolveMaybePluginRelative(pluginRoot: string, path: string): string {
+  return path.startsWith('/') ? path : join(pluginRoot, path.replace(/^\.\//, ''));
+}
+
+function entryModeNextAction(mode: CodexMcpEntryDiagnostics['mode']): string {
+  switch (mode) {
+    case 'local-dev-direct-dist':
+      return 'Use npm run dev:codex-plugin:reload after local source changes so installed caches keep pointing at the fresh dist build.';
+    case 'packaged-wrapper':
+      return 'Use packaged runtime diagnostics when startup fails; wrapper lock waits should report owner, wait reason, timeout, and next action.';
+    case 'stale-installed-cache':
+      return 'Run npm run dev:codex-plugin:reload to rebuild, rewrite installed cache, stop old MCP processes, and probe the next startup.';
+    case 'unknown':
+      return 'Inspect the installed .mcp.json; expected either local dist/bin/codex-mcp.js or ./bin/alembic-codex-mcp-wrapper.mjs.';
+  }
 }
 
 function buildDiagnosticIssues(input: {
@@ -476,6 +676,19 @@ function buildDiagnosticIssues(input: {
         'Restore plugins/alembic-codex/.mcp.json Codex env defaults: ALEMBIC_RUNTIME_MODE=plugin, ALEMBIC_PLUGIN_HOST=codex, ALEMBIC_MCP_MODE=1, ALEMBIC_CODEX_MCP_MODE=1, ALEMBIC_MCP_TIER=agent, ALEMBIC_CODEX_ENABLE_ADMIN=0.',
       code: 'PLUGIN_MCP_ENV_INCOMPLETE',
       message: 'Codex plugin MCP config is missing required Codex runtime environment defaults.',
+      severity: 'error',
+    });
+  }
+  if (!input.checks.pluginMcpEntry) {
+    const stale = input.plugin.mcp.entry.mode === 'stale-installed-cache';
+    issues.push({
+      action: stale
+        ? 'Run npm run dev:codex-plugin:reload so installed Codex plugin caches point to a fresh local dist build.'
+        : 'Inspect plugins/alembic-codex/.mcp.json and the installed cache marker so diagnostics can classify the MCP entry mode.',
+      code: stale ? 'CODEX_MCP_ENTRY_STALE_CACHE' : 'CODEX_MCP_ENTRY_MODE_UNKNOWN',
+      message: stale
+        ? `Installed Codex plugin cache is stale: ${input.plugin.mcp.entry.staleReasons.join(', ')}.`
+        : 'Codex plugin MCP entry mode is neither packaged wrapper nor local-dev direct dist.',
       severity: 'error',
     });
   }
@@ -625,6 +838,21 @@ function stringifyProbeOutput(value: Buffer | string): string {
 
 function isUvCwdError(message: string): boolean {
   return /\buv_cwd\b/.test(message) || /no such file or directory,\s*uv_cwd/i.test(message);
+}
+
+function readJsonIfExists(path: string): Record<string, unknown> | null {
+  try {
+    if (!existsSync(path)) {
+      return null;
+    }
+    return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function readHealthVersion(health: Record<string, unknown> | null): string | null {

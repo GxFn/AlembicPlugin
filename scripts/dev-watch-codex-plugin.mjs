@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { repoRoot, resolveCoreGrammarSource } from './local-source-paths.mjs';
@@ -31,6 +31,7 @@ const watchEntries = [
   'README_CN.md',
   relative(repoRoot, coreGrammarSource.path),
   'node_modules/@alembic/core/resources/grammars',
+  'scripts/dev-reload-codex-plugin.mjs',
   'scripts/dev-verify-codex-plugin.mjs',
   'scripts/dev-watch-codex-plugin.mjs',
   'scripts/prepare-codex-plugin-runtime.mjs',
@@ -110,8 +111,8 @@ async function refresh(reason) {
   running = true;
   pending = false;
   const startedAt = Date.now();
-  process.stdout.write(`\nRefreshing Alembic Codex plugin after ${reason}...\n`);
-  const result = spawnSync('npm', ['run', 'dev:codex-plugin:refresh', '--', ...options.forward], {
+  process.stdout.write(`\nReloading Alembic Codex plugin after ${reason}...\n`);
+  const result = spawnSync('npm', ['run', 'dev:codex-plugin:reload', '--', ...options.forward], {
     cwd: root,
     encoding: 'utf8',
     env: {
@@ -122,13 +123,10 @@ async function refresh(reason) {
   });
 
   if (result.status === 0) {
-    if (options.restartMcp) {
-      restartMcpProcesses();
-    }
-    process.stdout.write(`Alembic Codex plugin refresh finished in ${Date.now() - startedAt}ms.\n`);
+    process.stdout.write(`Alembic Codex plugin reload finished in ${Date.now() - startedAt}ms.\n`);
   } else {
     process.stderr.write(
-      `Alembic Codex plugin refresh failed with exit code ${result.status ?? 'unknown'}.\n`
+      `Alembic Codex plugin reload failed with exit code ${result.status ?? 'unknown'}.\n`
     );
   }
 
@@ -136,77 +134,6 @@ async function refresh(reason) {
   if (pending) {
     scheduleRefresh('queued changes');
   }
-}
-
-function restartMcpProcesses() {
-  const candidates = findMcpProcessCandidates();
-  if (candidates.length === 0) {
-    process.stdout.write('No running Alembic Codex MCP process needed a restart.\n');
-    return;
-  }
-
-  const killed = [];
-  for (const candidate of candidates) {
-    try {
-      process.kill(candidate.pid, 'SIGTERM');
-      killed.push(candidate.pid);
-    } catch (error) {
-      if (error?.code !== 'ESRCH') {
-        process.stderr.write(`Could not stop MCP process ${candidate.pid}: ${error.message}\n`);
-      }
-    }
-  }
-  if (killed.length > 0) {
-    process.stdout.write(
-      `Stopped Alembic Codex MCP process(es) ${killed.join(', ')} so the next tool call loads fresh code.\n`
-    );
-  }
-}
-
-function findMcpProcessCandidates() {
-  const report = readJsonIfExists(options.reportPath) || {};
-  const syncedTargets = Array.isArray(report.synced?.targetRoots)
-    ? report.synced.targetRoots.map((target) => resolve(target))
-    : [];
-  const localEntry = join(root, 'dist', 'bin', 'codex-mcp.js');
-  const localWrapper = join(
-    root,
-    'plugins',
-    'alembic-codex',
-    'bin',
-    'alembic-codex-mcp-wrapper.mjs'
-  );
-  const ps = spawnSync('ps', ['-axo', 'pid=,command='], {
-    encoding: 'utf8',
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  if (ps.status !== 0) {
-    process.stderr.write(`Could not inspect running processes:\n${ps.stderr || ps.stdout}\n`);
-    return [];
-  }
-  const currentPid = process.pid;
-  return ps.stdout
-    .split('\n')
-    .map((line) => line.match(/^\s*(\d+)\s+(.+)$/))
-    .filter(Boolean)
-    .map((match) => ({ pid: Number(match[1]), command: match[2] }))
-    .filter((processInfo) => processInfo.pid > 0 && processInfo.pid !== currentPid)
-    .filter((processInfo) =>
-      isAlembicCodexMcpProcess(processInfo.command, syncedTargets, localEntry, localWrapper)
-    );
-}
-
-function isAlembicCodexMcpProcess(command, syncedTargets, localEntry, localWrapper) {
-  if (command.includes(localEntry) || command.includes(localWrapper)) {
-    return true;
-  }
-  return syncedTargets.some(
-    (target) =>
-      command.includes(target) &&
-      (command.includes('alembic-codex-mcp-wrapper.mjs') ||
-        command.includes('alembic-codex-mcp') ||
-        command.includes('codex-mcp.js'))
-  );
 }
 
 function shouldIgnore(filePath) {
@@ -284,13 +211,6 @@ function safeReaddir(filePath) {
   }
 }
 
-function readJsonIfExists(filePath) {
-  if (!existsSync(filePath)) {
-    return null;
-  }
-  return JSON.parse(readFileSync(filePath, 'utf8'));
-}
-
 function parseArgs(args) {
   const parsed = {
     debounceMs: 1000,
@@ -299,7 +219,6 @@ function parseArgs(args) {
     once: false,
     pollMs: 1500,
     reportPath: join(root, 'scratch', 'codex-plugin-dev-verify-report.json'),
-    restartMcp: true,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -312,7 +231,7 @@ function parseArgs(args) {
     } else if (arg === '--no-initial') {
       parsed.initial = false;
     } else if (arg === '--no-restart-mcp') {
-      parsed.restartMcp = false;
+      parsed.forward.push('--no-stop-mcp');
     } else if (arg === '--once') {
       parsed.once = true;
     } else if (arg === '--report-path') {
@@ -343,20 +262,21 @@ function parseArgs(args) {
 }
 
 function printHelp() {
-  process.stdout.write(`Watch and refresh the installed Alembic Codex plugin for local development.
+  process.stdout.write(`Watch and reload the installed Alembic Codex plugin for local development.
 
 Usage:
   node scripts/dev-watch-codex-plugin.mjs [options]
 
 Behavior:
-  Polls Alembic runtime/plugin inputs, runs dev:codex-plugin:refresh after changes,
-  serializes refreshes, and stops running Alembic MCP processes after a successful refresh
-  so the next Codex tool call starts from the latest build.
+  Polls Alembic runtime/plugin inputs and runs the canonical
+  dev:codex-plugin:reload command after changes. Watch mode is not a separate
+  refresh strategy; it serializes canonical reloads so the next Codex tool call
+  starts from the latest build.
 
 Options:
   --once                 Run one refresh and exit.
   --no-initial           Do not refresh immediately when the watcher starts.
-  --no-restart-mcp       Do not stop running Alembic MCP processes after refresh.
+  --no-restart-mcp       Forward --no-stop-mcp to canonical reload.
   --debounce-ms <ms>     Delay after a file change before refreshing, defaults to 1000.
   --poll-ms <ms>         File snapshot polling interval, defaults to 1500.
   --project-root <path>  Forward project root to the refresh probe.

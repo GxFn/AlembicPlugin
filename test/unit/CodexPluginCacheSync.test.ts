@@ -52,8 +52,14 @@ describe('Codex plugin cache sync script', () => {
     const summary = JSON.parse(output) as { targetRoots: string[] };
     const [targetRoot] = summary.targetRoots;
     const cachedMcpPath = join(targetRoot, '.mcp.json');
+    const markerPath = join(targetRoot, '.alembic-dev-refresh.json');
     const repoMcpPath = join(projectRoot, 'plugins', 'alembic-codex', '.mcp.json');
     const cachedMcp = JSON.parse(readFileSync(cachedMcpPath, 'utf8'));
+    const marker = JSON.parse(readFileSync(markerPath, 'utf8')) as {
+      hashes: { mcp: string; wrapper: string };
+      localMcpEntry: string;
+      mode: string;
+    };
     const repoMcp = JSON.parse(readFileSync(repoMcpPath, 'utf8'));
 
     expect(existsSync(join(targetRoot, '.codex-plugin', 'plugin.json'))).toBe(true);
@@ -64,6 +70,12 @@ describe('Codex plugin cache sync script', () => {
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_PLUGIN_HOST).toBe('codex');
     expect(repoMcp.mcpServers.alembic.command).toBe('node');
     expect(repoMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-mcp-wrapper.mjs');
+    expect(marker).toMatchObject({
+      localMcpEntry: localEntry,
+      mode: 'local-mcp',
+    });
+    expect(marker.hashes.mcp).toMatch(/^[a-f0-9]{64}$/);
+    expect(marker.hashes.wrapper).toMatch(/^[a-f0-9]{64}$/);
   }, 30_000);
 });
 
