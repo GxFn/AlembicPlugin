@@ -8,6 +8,7 @@ export * from './PluginRegistry.js';
 export * from './ProjectRootResolver.js';
 export * from './ProjectSkillDelivery.js';
 export * from './preflight/Preflight.js';
+export * from './runtime/ProjectRuntimeContext.js';
 export * from './runtime/RuntimeContext.js';
 export * from './ServiceRequestBoundary.js';
 export * from './SourceBoundary.js';

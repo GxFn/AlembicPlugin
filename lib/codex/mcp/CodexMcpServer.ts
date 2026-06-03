@@ -28,6 +28,7 @@ import {
   buildCodexPostInitMessage,
   buildCodexProjectRootRequiredActions,
   buildCodexProjectRootRequiredMessage,
+  buildCodexProjectRuntimeContext,
   buildCodexRecommendedAction,
   buildCodexRuntimeDiagnostics,
   buildCodexStatus,
@@ -155,6 +156,27 @@ function attachResidentServiceResult(
     data: {
       ...data,
       residentService: summary,
+    },
+  };
+}
+
+function attachProjectRuntimeContext(
+  result: unknown,
+  projectRuntime: ReturnType<typeof buildCodexProjectRuntimeContext>
+): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return { success: true, data: { projectRuntime, value: result } };
+  }
+  const record = result as Record<string, unknown>;
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {};
+  return {
+    ...record,
+    data: {
+      ...data,
+      projectRuntime,
     },
   };
 }
@@ -388,12 +410,23 @@ export class CodexMcpServer {
       projectScopeIdentity,
       projectRoot: this.projectRoot,
     });
+    const projectRuntime = buildCodexProjectRuntimeContext({
+      daemonStatus,
+      enhancementRoute,
+      hostProjectAlignment,
+      projectRoot: this.projectRoot,
+      projectRootResolution: this.projectRootResolution,
+      projectScopeIdentity,
+      requiredServices: ['project-identity'],
+      runtime,
+    });
     return {
       success: true,
       data: buildCodexRuntimeDiagnostics(daemonStatus, runtime, {
         autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
         enhancementRoute,
         hostProjectAlignment,
+        projectRuntime,
         projectScopeIdentity,
         residentService,
         projectRootResolution: this.projectRootResolution,
@@ -665,6 +698,16 @@ export class CodexMcpServer {
       projectScopeIdentity,
       projectRoot: this.projectRoot,
     });
+    const projectRuntime = buildCodexProjectRuntimeContext({
+      daemonStatus: daemon,
+      enhancementRoute,
+      hostProjectAlignment,
+      projectRoot: this.projectRoot,
+      projectRootResolution: this.projectRootResolution,
+      projectScopeIdentity,
+      requiredServices: ['project-identity', 'dashboard'],
+      runtime: resolveCodexRuntimeContext(),
+    });
     const blocked = buildCodexHostProjectHandoffBlock({
       daemon,
       enhancementRoute,
@@ -673,7 +716,7 @@ export class CodexMcpServer {
       tool: 'alembic_codex_dashboard',
     });
     if (blocked) {
-      return blocked;
+      return attachProjectRuntimeContext(blocked, projectRuntime) as Record<string, unknown>;
     }
     const dashboardResult = await this.residentClients().dashboard.dashboard({
       daemonStatus: daemon,
@@ -695,6 +738,7 @@ export class CodexMcpServer {
           errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
           hostProjectAlignment,
           needsUserInput: true,
+          projectRuntime,
           residentService: summarizeResidentServiceResult(dashboardResult),
           nextActions: [
             buildCodexRecommendedAction({
@@ -736,6 +780,7 @@ export class CodexMcpServer {
         daemon: summarizeCodexDaemonStatus(daemon),
         enhancementRoute,
         hostProjectAlignment,
+        projectRuntime,
         residentService: summarizeResidentServiceResult(dashboardResult),
         nextActions: [
           hostAgentAction,
@@ -766,6 +811,31 @@ export class CodexMcpServer {
 
   async cleanupRuntime(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const paths = resolveDaemonPaths(this.projectRoot);
+    const daemon = await this.supervisor.status(this.projectRoot);
+    const projectScopeIdentity =
+      await this.residentClients().projectScope.resolveProjectScopeIdentity({
+        daemonStatus: daemon,
+      });
+    const enhancementRoute = buildCodexEnhancementRouteChoice({
+      daemonStatus: daemon,
+      runtime: resolveCodexRuntimeContext(),
+      requirement: 'mcp',
+    });
+    const hostProjectAlignment = buildCodexHostProjectAlignment({
+      daemonStatus: daemon,
+      enhancementRoute,
+      projectScopeIdentity,
+      projectRoot: this.projectRoot,
+    });
+    const projectRuntime = buildCodexProjectRuntimeContext({
+      daemonStatus: daemon,
+      enhancementRoute,
+      hostProjectAlignment,
+      projectRoot: this.projectRoot,
+      projectRootResolution: this.projectRootResolution,
+      projectScopeIdentity,
+      requiredServices: ['project-identity', 'daemon'],
+    });
     const targets = {
       dataRoot: paths.dataRoot,
       jobsDir: paths.jobsDir,
@@ -781,6 +851,7 @@ export class CodexMcpServer {
         success: true,
         data: {
           dryRun: true,
+          projectRuntime,
           targets,
         },
         message:
@@ -798,6 +869,7 @@ export class CodexMcpServer {
       success: true,
       data: {
         dryRun: false,
+        projectRuntime,
         cleaned: targets,
       },
       message:
@@ -808,8 +880,21 @@ export class CodexMcpServer {
   async enqueueJob(kind: 'bootstrap' | 'rescan', args: Record<string, unknown>): Promise<unknown> {
     const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
       await this.ensureEnhancementDaemon('jobs', `alembic_codex_${kind}`);
+    const projectScopeIdentity =
+      await this.residentClients().projectScope.resolveProjectScopeIdentity({
+        daemonStatus: daemon,
+      });
+    const projectRuntime = buildCodexProjectRuntimeContext({
+      daemonStatus: daemon,
+      enhancementRoute,
+      hostProjectAlignment,
+      projectRoot: this.projectRoot,
+      projectRootResolution: this.projectRootResolution,
+      projectScopeIdentity,
+      requiredServices: ['project-identity', 'jobs'],
+    });
     if (blocked) {
-      return blocked;
+      return attachProjectRuntimeContext(blocked, projectRuntime);
     }
     if (!daemon.ready || !daemon.state) {
       return failureResult(
@@ -819,6 +904,7 @@ export class CodexMcpServer {
           daemon: summarizeCodexDaemonStatus(daemon),
           enhancementRoute,
           hostProjectAlignment,
+          projectRuntime,
           nextActions: [
             buildCodexRecommendedAction({
               label: 'Run diagnostics',
@@ -850,30 +936,79 @@ export class CodexMcpServer {
           enhancementRoute,
           errorCode: residentResult.errorCode || 'CODEX_RESIDENT_JOB_UNAVAILABLE',
           hostProjectAlignment,
+          projectRuntime,
           residentService: summarizeResidentServiceResult(residentResult),
         }
       );
     }
 
     return attachEnhancementRoute(
-      attachResidentServiceResult(residentResult.value, residentResult),
+      attachProjectRuntimeContext(
+        attachResidentServiceResult(residentResult.value, residentResult),
+        projectRuntime
+      ),
       enhancementRoute
     );
   }
 
   async readJob(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const daemonResult = await this.tryReadJobFromDaemon(args);
+    let daemon: DaemonStatus | null = null;
+    try {
+      daemon = await this.supervisor.status(this.projectRoot);
+    } catch {
+      daemon = null;
+    }
+    const projectScopeIdentity = daemon
+      ? await this.residentClients().projectScope.resolveProjectScopeIdentity({
+          daemonStatus: daemon,
+        })
+      : null;
+    const enhancementRoute = daemon
+      ? buildCodexEnhancementRouteChoice({
+          daemonStatus: daemon,
+          runtime: resolveCodexRuntimeContext(),
+          requirement: 'jobs',
+        })
+      : null;
+    const hostProjectAlignment =
+      daemon && enhancementRoute
+        ? buildCodexHostProjectAlignment({
+            daemonStatus: daemon,
+            enhancementRoute,
+            projectScopeIdentity,
+            projectRoot: this.projectRoot,
+          })
+        : null;
+    const projectRuntime = buildCodexProjectRuntimeContext({
+      daemonStatus: daemon,
+      enhancementRoute,
+      hostProjectAlignment,
+      projectRoot: this.projectRoot,
+      projectRootResolution: this.projectRootResolution,
+      projectScopeIdentity,
+      requiredServices: ['project-identity', 'jobs'],
+    });
+    const daemonResult = await this.tryReadJobFromDaemon(args, daemon);
     if (daemonResult) {
-      return daemonResult;
+      return attachProjectRuntimeContext(daemonResult, projectRuntime) as Record<string, unknown>;
     }
 
     const store = new JobStore({ projectRoot: this.projectRoot });
+    const jobRoute = {
+      fallback: true,
+      reason: 'resident-job-api-unavailable-or-not-ready',
+      selected: 'embedded-host-agent-recoverable',
+      note: 'Local JobStore is exposed only as embedded Codex host-agent job recovery, not as the effective project identity source.',
+    };
     const jobId = typeof args.jobId === 'string' ? args.jobId : '';
     if (jobId) {
       const job = store.get(jobId);
       return job
-        ? { success: true, data: { job } }
-        : failureResult('alembic_codex_job', `Alembic job not found: ${jobId}`);
+        ? { success: true, data: { job, jobRoute, projectRuntime } }
+        : failureResult('alembic_codex_job', `Alembic job not found: ${jobId}`, {
+            jobRoute,
+            projectRuntime,
+          });
     }
 
     const kind = args.kind === 'bootstrap' || args.kind === 'rescan' ? args.kind : undefined;
@@ -890,18 +1025,25 @@ export class CodexMcpServer {
       success: true,
       data: {
         jobs: store.list({ kind, limit, status }),
+        jobRoute,
+        projectRuntime,
       },
     };
   }
 
   async tryReadJobFromDaemon(
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    daemonInput?: DaemonStatus | null
   ): Promise<Record<string, unknown> | null> {
     let daemon: DaemonStatus;
-    try {
-      daemon = await this.supervisor.status(this.projectRoot);
-    } catch {
-      return null;
+    if (daemonInput) {
+      daemon = daemonInput;
+    } else {
+      try {
+        daemon = await this.supervisor.status(this.projectRoot);
+      } catch {
+        return null;
+      }
     }
     if (!daemon.ready || !daemon.state?.token) {
       return null;

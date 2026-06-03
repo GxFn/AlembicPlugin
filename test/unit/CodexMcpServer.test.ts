@@ -737,7 +737,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.status).toHaveBeenCalledWith(projectRoot);
   });
 
-  test('tool-call projectRoot override saves the project root for later calls', async () => {
+  test('tool-call projectRoot override saves diagnostics but is not reused as effective identity', async () => {
     useTempAlembicHome();
     delete process.env.ALEMBIC_PROJECT_DIR;
     delete process.env.CODEX_WORKSPACE_DIR;
@@ -770,20 +770,24 @@ describe('CodexMcpServer', () => {
     const secondServer = new CodexMcpServer({ supervisor });
     const result = (await secondServer.handleToolCall('alembic_codex_status', {})) as {
       data: {
-        projectRoot: string;
+        errorCode?: string;
+        projectRoot?: string;
         projectRootResolution: { path: string; source: string; trust: string };
       };
       success: boolean;
     };
 
     expect(fs.existsSync(getCodexSavedProjectRootPath())).toBe(true);
-    expect(result.success).toBe(true);
-    expect(result.data.projectRoot).toBe(projectRoot);
-    expect(result.data.projectRootResolution).toMatchObject({
-      path: projectRoot,
-      source: 'saved-project-root',
-      trust: 'trusted',
-    });
+    expect(result.data.projectRoot).not.toBe(projectRoot);
+    expect(result.data.projectRootResolution.path).not.toBe(projectRoot);
+    expect(result.data.projectRootResolution.source).not.toBe('saved-project-root');
+    if (!result.success) {
+      expect(result.data.errorCode).toBe('CODEX_PROJECT_ROOT_REJECTED');
+      expect(result.data.projectRootResolution).toMatchObject({
+        source: 'INIT_CWD',
+        trust: 'rejected',
+      });
+    }
     expect(fs.existsSync(path.join(pluginRoot, '.asd'))).toBe(false);
   });
 
@@ -1191,6 +1195,11 @@ describe('CodexMcpServer', () => {
         offlineFallback: { localPackage: string; registryPackageFallback: boolean };
         package: { pinnedSpecifier: string; version: string };
         plugin: { mcp: { ok: boolean; packagePin: boolean }; skills: { ok: boolean } };
+        projectRuntime: {
+          entryMode: { mode: string };
+          requiredServices: Array<{ service: string; source: string }>;
+          sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
+        };
         primaryAction: { tool: string };
         summary: string;
       };
@@ -1218,6 +1227,17 @@ describe('CodexMcpServer', () => {
       automaticOnUninstall: false,
       command: 'alembic_codex_cleanup',
     });
+    expect(result.data.projectRuntime).toMatchObject({
+      entryMode: { mode: 'packaged-wrapper' },
+      sourcePolicy: {
+        selectedOrActiveCanOverrideEffectiveIdentity: false,
+      },
+    });
+    expect(result.data.projectRuntime.requiredServices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ service: 'project-identity', source: 'codex-current-project' }),
+      ])
+    );
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
@@ -1285,6 +1305,11 @@ describe('CodexMcpServer', () => {
         errorCode: string;
         hostProjectAlignment: { connectionState: string; handoffAllowed: boolean };
         needsUserInput: boolean;
+        projectRuntime: {
+          failureEnvelopes: Array<{ service: string | null }>;
+          requiredServices: Array<{ required: boolean; service: string }>;
+          sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
+        };
       };
       success: boolean;
     };
@@ -1297,7 +1322,17 @@ describe('CodexMcpServer', () => {
         handoffAllowed: false,
       },
       needsUserInput: true,
+      projectRuntime: {
+        sourcePolicy: {
+          selectedOrActiveCanOverrideEffectiveIdentity: false,
+        },
+      },
     });
+    expect(result.data.projectRuntime.requiredServices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ required: true, service: 'dashboard' }),
+      ])
+    );
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
@@ -1391,6 +1426,16 @@ describe('CodexMcpServer', () => {
             receiptChecklist: Array<{ layer: string; items: unknown[] }>;
           };
         };
+        projectRuntime: {
+          identity: { projectRoot: string };
+          sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
+        };
+        searchMeta: {
+          projectRuntime: {
+            identity: { projectRoot: string };
+            sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
+          };
+        };
         serviceBoundary: {
           executionPath: string;
           owner: string;
@@ -1440,6 +1485,18 @@ describe('CodexMcpServer', () => {
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).not.toContain(
       'Cite evidenceRefs as path:line'
     );
+    expect(result.data.projectRuntime).toMatchObject({
+      identity: { projectRoot },
+      sourcePolicy: {
+        selectedOrActiveCanOverrideEffectiveIdentity: false,
+      },
+    });
+    expect(result.data.searchMeta.projectRuntime).toMatchObject({
+      identity: { projectRoot },
+      sourcePolicy: {
+        selectedOrActiveCanOverrideEffectiveIdentity: false,
+      },
+    });
     expect(result.data.serviceBoundary).toMatchObject({
       executionPath: 'plugin-owned-codex-facing',
       owner: 'alembic-plugin',
@@ -1711,11 +1768,22 @@ describe('CodexMcpServer', () => {
 
     const result = (await server.handleToolCall('alembic_codex_job', { jobId: job.id })) as {
       success: boolean;
-      data: { job: { id: string } };
+      data: {
+        job: { id: string };
+        jobRoute: { fallback: boolean; selected: string };
+        projectRuntime: { blockedFallbacks: string[] };
+      };
     };
 
     expect(result.success).toBe(true);
     expect(result.data.job.id).toBe(job.id);
+    expect(result.data.jobRoute).toMatchObject({
+      fallback: true,
+      selected: 'embedded-host-agent-recoverable',
+    });
+    expect(result.data.projectRuntime.blockedFallbacks).toContain(
+      'local-jobstore-default-effective-identity'
+    );
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
@@ -1741,13 +1809,19 @@ describe('CodexMcpServer', () => {
       jobId: 'bootstrap_live',
     })) as {
       success: boolean;
-      data: { job: { progress: { percent: number } } };
+      data: {
+        job: { progress: { percent: number } };
+        projectRuntime: { requiredServices: Array<{ service: string }> };
+      };
     };
     const [url, init] = fetchSpy.mock.calls[0];
     const headers = init?.headers as Record<string, string>;
 
     expect(result.success).toBe(true);
     expect(result.data.job.progress.percent).toBe(60);
+    expect(result.data.projectRuntime.requiredServices).toEqual(
+      expect.arrayContaining([expect.objectContaining({ service: 'jobs' })])
+    );
     expect(String(url)).toBe('http://127.0.0.1:39127/api/v1/jobs/bootstrap_live');
     expect(headers['x-alembic-daemon-token']).toBe('test-token');
     expect(supervisor.ensure).not.toHaveBeenCalled();
@@ -1766,11 +1840,23 @@ describe('CodexMcpServer', () => {
 
     const result = (await server.handleToolCall('alembic_codex_job', { jobId: job.id })) as {
       success: boolean;
-      data: { job: { id: string } };
+      data: {
+        job: { id: string };
+        jobRoute: { fallback: boolean; reason: string; selected: string };
+        projectRuntime: { blockedFallbacks: string[] };
+      };
     };
 
     expect(result.success).toBe(true);
     expect(result.data.job.id).toBe(job.id);
+    expect(result.data.jobRoute).toMatchObject({
+      fallback: true,
+      reason: 'resident-job-api-unavailable-or-not-ready',
+      selected: 'embedded-host-agent-recoverable',
+    });
+    expect(result.data.projectRuntime.blockedFallbacks).toContain(
+      'local-jobstore-default-effective-identity'
+    );
     expect(supervisor.ensure).not.toHaveBeenCalled();
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
@@ -1784,12 +1870,23 @@ describe('CodexMcpServer', () => {
 
     const result = (await server.handleToolCall('alembic_codex_cleanup', {})) as {
       success: boolean;
-      data: { dryRun: boolean; targets: { runtimeDir: string } };
+      data: {
+        dryRun: boolean;
+        projectRuntime: {
+          identity: { projectRoot: string };
+          requiredServices: Array<{ required: boolean; service: string }>;
+        };
+        targets: { runtimeDir: string };
+      };
     };
 
     expect(result.success).toBe(true);
     expect(result.data.dryRun).toBe(true);
     expect(result.data.targets.runtimeDir).toContain('.asd');
+    expect(result.data.projectRuntime.identity.projectRoot).toBe(projectRoot);
+    expect(result.data.projectRuntime.requiredServices).toEqual(
+      expect.arrayContaining([expect.objectContaining({ required: true, service: 'daemon' })])
+    );
     expect(supervisor.stop).not.toHaveBeenCalled();
   });
 

@@ -30,7 +30,7 @@ describe('CodexProjectRootResolver', () => {
     });
   });
 
-  test('saves and reuses an explicit projectRoot', () => {
+  test('saves explicit projectRoot as diagnostics without reusing it as effective identity', () => {
     const projectRoot = makeDir('codex-root-saved-');
     const alembicHome = makeDir('codex-home-saved-');
     const env = { ALEMBIC_HOME: alembicHome } as NodeJS.ProcessEnv;
@@ -45,11 +45,11 @@ describe('CodexProjectRootResolver', () => {
     });
     expect(saved.projectRoot).toBe(projectRoot);
     expect(resolution).toMatchObject({
-      path: projectRoot,
-      source: 'saved-project-root',
-      trust: 'trusted',
+      source: 'process.cwd',
+      trust: 'fallback',
       rejected: false,
     });
+    expect(resolution.path).not.toBe(projectRoot);
   });
 
   test('trusts Alembic and Codex workspace environment variables', () => {

@@ -280,13 +280,9 @@ function buildProjectRootCandidates(
   pushCandidate(candidates, env.ALEMBIC_PROJECT_DIR, 'ALEMBIC_PROJECT_DIR', 'trusted', env);
   pushCandidate(candidates, env.CODEX_WORKSPACE_DIR, 'CODEX_WORKSPACE_DIR', 'trusted', env);
   pushCandidate(candidates, env.CODEX_WORKSPACE_ROOT, 'CODEX_WORKSPACE_ROOT', 'trusted', env);
-  pushCandidate(
-    candidates,
-    readCodexSavedProjectRoot(env)?.projectRoot,
-    'saved-project-root',
-    'trusted',
-    env
-  );
+  // saved-project-root is retained as a diagnostics/readback marker only.
+  // Multi-project Codex MCP identity must come from the current host folder or
+  // an explicit per-call projectRoot, never from a previous window's saved root.
   pushCandidate(candidates, env.INIT_CWD, 'INIT_CWD', 'fallback', env);
   pushCandidate(candidates, env.PWD, 'PWD', 'fallback', env);
   pushCandidate(candidates, safeProcessCwd(), 'process.cwd', 'fallback', env);

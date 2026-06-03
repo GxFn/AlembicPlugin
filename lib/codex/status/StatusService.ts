@@ -34,6 +34,10 @@ import {
   summarizeCodexProjectRootResolution,
 } from '../ProjectRootResolver.js';
 import {
+  buildCodexProjectRuntimeContext,
+  type CodexProjectRuntimeContext,
+} from '../runtime/ProjectRuntimeContext.js';
+import {
   CODEX_SETUP_PROFILE,
   type CodexRuntimeContext,
   resolveCodexRuntimeContext,
@@ -90,6 +94,7 @@ export interface CodexStatusData {
     state: CodexToolPolicyState;
   };
   profile: string;
+  projectRuntime: CodexProjectRuntimeContext;
   projectRootResolution: Record<string, unknown>;
   projectScopeIdentity: AlembicResidentProjectScopeIdentity;
   projectArtifacts: {
@@ -153,12 +158,22 @@ export async function buildCodexStatus(
     projectScopeIdentity,
     projectRoot,
   });
+  const projectRootResolution =
+    options.projectRootResolution || resolveCodexProjectRoot({ projectRoot: projectRootInput });
+  const projectRuntime = buildCodexProjectRuntimeContext({
+    daemonStatus,
+    enhancementRoute,
+    hostProjectAlignment,
+    projectRoot,
+    projectRootResolution,
+    projectScopeIdentity,
+    requiredServices: ['project-identity'],
+    runtime,
+  });
   const moduleBoundary = buildCodexModuleBoundaryStatus({
     enhancementRoute,
     hostProjectAlignment,
   });
-  const projectRootResolution =
-    options.projectRootResolution || resolveCodexProjectRoot({ projectRoot: projectRootInput });
   const autoInit = buildCodexAutoInitStatus(projectRoot, knowledge, projectRootResolution, {
     runtimeState: options.autoInit,
   });
@@ -168,6 +183,7 @@ export async function buildCodexStatus(
     hostProjectAlignment,
     moduleBoundary,
     projectRootResolution,
+    projectRuntime,
     projectScopeIdentity,
     residentService,
   });
@@ -205,6 +221,7 @@ export async function buildCodexStatus(
     },
     initialized: knowledge.initialized,
     projectRoot,
+    projectRuntime,
     projectRootResolution: summarizeCodexProjectRootResolution(projectRootResolution),
     registry: {
       registered: facts.registered,

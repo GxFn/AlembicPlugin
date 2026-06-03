@@ -21,6 +21,7 @@ import {
   type CodexProjectRootResolution,
   summarizeCodexProjectRootResolution,
 } from '../ProjectRootResolver.js';
+import type { CodexProjectRuntimeContext } from '../runtime/ProjectRuntimeContext.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
@@ -78,6 +79,7 @@ export interface CodexRuntimeDiagnosticsOptions {
   enhancementRoute?: CodexEnhancementRouteChoice;
   hostProjectAlignment?: CodexHostProjectAlignment;
   moduleBoundary?: CodexModuleBoundaryStatus;
+  projectRuntime?: CodexProjectRuntimeContext;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity;
   projectRootResolution?: CodexProjectRootResolution;
   residentService?: AlembicResidentServiceProbe;
@@ -214,6 +216,7 @@ export function buildCodexRuntimeDiagnostics(
     enhancementRoute,
     residentService: options.residentService || null,
     residentServiceBoundary: buildResidentServiceBoundary(options.residentService),
+    projectRuntime: options.projectRuntime || null,
     projectScopeIdentity: options.projectScopeIdentity || null,
     moduleBoundary,
     gitDiffCheckpoint: readHealthGitDiffCheckpoint(daemonStatus.health),

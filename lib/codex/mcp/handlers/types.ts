@@ -77,6 +77,7 @@ export interface IntentState {
     filteredCount: number;
     intentEvidence?: ResidentIntentEvidenceSummary;
     primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
+    projectRuntime?: Record<string, unknown>;
     residentSearch?: Record<string, unknown>;
   };
 
@@ -143,6 +144,7 @@ export interface IntentChainRecord {
     filteredCount: number;
     intentEvidence?: ResidentIntentEvidenceSummary;
     primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
+    projectRuntime?: Record<string, unknown>;
     residentSearch?: Record<string, unknown>;
   };
 

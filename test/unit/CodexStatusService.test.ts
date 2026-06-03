@@ -138,6 +138,51 @@ function makeProjectScopeHealth(projectRoot: string): Record<string, unknown> {
           scopeId: `project-scope:${projectScope.projectScopeId}`,
         },
       }),
+      projectRuntimeSourceOfTruth: {
+        contractVersion: 1,
+        failure: null,
+        operation: {
+          explicitRuntimeActionRequired: true,
+          implicitRuntimeActionAllowed: false,
+          mode: 'diagnostics-read',
+          readOnly: true,
+        },
+        owner: 'alembic',
+        readiness: {
+          ready: true,
+          reasonCode: 'ready',
+          stale: false,
+          status: 'ready',
+        },
+        requiredService: {
+          kind: 'local-alembic-daemon',
+          owner: 'alembic',
+          route: 'local-alembic-daemon',
+        },
+        route: 'daemon-health',
+        runtimeControl: {
+          activeMatchesCurrentProject: true,
+          activeStateTrusted: true,
+          readOnly: true,
+          selectedMatchesCurrentProject: true,
+          statePath: path.join(getProjectRegistryDir(), 'runtime-control.json'),
+        },
+        targetProject: {
+          projectId: projectScope.projectId,
+          projectRoot,
+          projectScopeId: projectScope.projectScopeId,
+          ready: true,
+          status: 'ready',
+        },
+        writePolicy: {
+          activeStateWriteAllowed: false,
+          daemonLifecycleWriteAllowed: false,
+          jobStoreWriteAllowed: false,
+          projectScopeRegistryWriteAllowed: false,
+          selectedStateWriteAllowed: false,
+          writeOwner: 'alembic',
+        },
+      },
     },
   };
 }
@@ -168,6 +213,22 @@ describe('Codex status service', () => {
       channel: { id: 'codex', expectedId: 'codex' },
       profile: 'codex-plugin',
       projectRoot,
+      projectRuntime: {
+        blockedFallbacks: [
+          'saved-project-root-effective-identity',
+          'runtime-control-selected-active-effective-identity',
+          'local-jobstore-default-effective-identity',
+        ],
+        identity: {
+          projectRoot,
+          dataRoot: projectRoot,
+          dataRootSource: 'project-root',
+        },
+        sourcePolicy: {
+          effectiveIdentitySource: 'codex-current-project',
+          selectedOrActiveCanOverrideEffectiveIdentity: false,
+        },
+      },
     });
     expect(onboarding).toMatchObject({
       state: 'needs_init',
@@ -298,9 +359,36 @@ describe('Codex status service', () => {
       projectScopeId: 'project-scope-workspace',
     });
     expect(status.diagnostics).toMatchObject({
+      projectRuntime: {
+        sourceOfTruth: {
+          owner: 'alembic',
+          route: 'daemon-health',
+          runtimeControl: {
+            readOnly: true,
+            selectedMatchesCurrentProject: true,
+          },
+        },
+      },
       projectScopeIdentity: {
         mode: 'project-scope',
         projectScopeId: 'project-scope-workspace',
+      },
+    });
+    expect(status.projectRuntime).toMatchObject({
+      readinessState: 'degraded',
+      sourceOfTruth: {
+        owner: 'alembic',
+        readiness: {
+          ready: true,
+          reasonCode: 'ready',
+        },
+        requiredService: {
+          kind: 'local-alembic-daemon',
+        },
+      },
+      sourcePolicy: {
+        runtimeControlSource: 'read-only-diagnostics',
+        selectedOrActiveCanOverrideEffectiveIdentity: false,
       },
     });
   });

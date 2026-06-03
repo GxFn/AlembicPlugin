@@ -113,12 +113,14 @@ async function probeInstalledTarget(targetRoot) {
       first.projectRootResolution?.trust === 'trusted',
     `Explicit projectRoot was not trusted for ${targetRoot}: ${JSON.stringify(first.projectRootResolution)}`
   );
-  const saved = await callMcpStatus(targetRoot, savedHome, {});
+  const saved = await callMcpTool(targetRoot, savedHome, 'alembic_codex_status', {});
+  const savedData = saved.data || saved;
+  const savedResolution = savedData.projectRootResolution;
   assertProbe(
-    saved.projectRoot === options.projectRoot &&
-      saved.projectRootResolution?.source === 'saved-project-root' &&
-      saved.projectRootResolution?.trust === 'trusted',
-    `Saved projectRoot was not reused for ${targetRoot}: ${JSON.stringify(saved.projectRootResolution)}`
+    savedResolution?.source !== 'saved-project-root' &&
+      savedResolution?.path !== options.projectRoot &&
+      savedData.projectRoot !== options.projectRoot,
+    `Saved projectRoot was unexpectedly reused for ${targetRoot}: ${JSON.stringify(saved)}`
   );
   const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_codex_init', {});
   assertProbe(
@@ -132,7 +134,7 @@ async function probeInstalledTarget(targetRoot) {
     targetRoot,
     marker,
     explicit: summarizeStatus(first),
-    saved: summarizeStatus(saved),
+    saved: summarizeStatus(savedData),
     failClosed: {
       success: failClosed.success,
       errorCode: failClosed.data?.errorCode || null,
