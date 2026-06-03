@@ -112,6 +112,7 @@ describe('Codex runtime context', () => {
       },
     });
     expect(diagnostics.mcp.wrapper.startupLockDiagnostics).toMatchObject({
+      cacheParentCreation: true,
       configured: true,
       ownerMetadata: true,
       scope: 'plugin-root-runtime-tarball',

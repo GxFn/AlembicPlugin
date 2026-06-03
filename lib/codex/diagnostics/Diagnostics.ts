@@ -104,6 +104,7 @@ export interface CodexMcpEntryDiagnostics {
 }
 
 export interface CodexWrapperStartupLockDiagnostics {
+  cacheParentCreation: boolean;
   configured: boolean;
   holdTimeoutEnv: string;
   ownerMetadata: boolean;
@@ -536,6 +537,8 @@ function buildWrapperStartupLockDiagnostics(
     wrapperSource.includes("releaseStartupLock('hold-timeout')") ? 'hold-timeout' : null,
   ].filter((signal): signal is string => typeof signal === 'string');
   return {
+    cacheParentCreation:
+      wrapperSource.includes('mkdirSync(npmCacheRoot') && wrapperSource.includes('recursive: true'),
     configured,
     holdTimeoutEnv: 'ALEMBIC_CODEX_NPM_LOCK_HOLD_MS',
     ownerMetadata:

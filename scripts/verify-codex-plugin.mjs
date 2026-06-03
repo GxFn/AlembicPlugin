@@ -231,6 +231,10 @@ expect(
   'plugin MCP wrapper lock must be scoped to the installed plugin root and runtime tarball'
 );
 expect(
+  wrapperSource.includes('mkdirSync(npmCacheRoot') && wrapperSource.includes('recursive: true'),
+  'plugin MCP wrapper must create the configured npm cache parent before creating the startup lock'
+);
+expect(
   wrapperSource.includes('startup-lock-wait') &&
     wrapperSource.includes('owner.json') &&
     wrapperSource.includes('nextAction'),
