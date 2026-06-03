@@ -176,9 +176,6 @@ function attachCodexExecutionContext(
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return result;
   }
-  if (!executionContext.residentProjectScopeAvailable || !executionContext.projectScopeIdentity) {
-    return result;
-  }
   const record = result as Record<string, unknown>;
   const data =
     record.data && typeof record.data === 'object' && !Array.isArray(record.data)
@@ -188,9 +185,10 @@ function attachCodexExecutionContext(
     executionContext.projectRuntime && !Object.hasOwn(data, 'projectRuntime')
       ? { projectRuntime: executionContext.projectRuntime }
       : {};
-  const hasProjectScopeExecution =
-    executionContext.residentProjectScopeAvailable && executionContext.projectScopeIdentity;
-  if (!hasProjectScopeExecution) {
+  const identity = executionContext.residentProjectScopeAvailable
+    ? executionContext.projectScopeIdentity
+    : null;
+  if (!identity) {
     return Object.keys(projectRuntimePatch).length > 0
       ? {
           ...record,
@@ -201,7 +199,6 @@ function attachCodexExecutionContext(
         }
       : result;
   }
-  const identity = executionContext.projectScopeIdentity;
   return {
     ...record,
     data: {

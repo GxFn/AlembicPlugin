@@ -1427,7 +1427,14 @@ describe('CodexMcpServer', () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(projectRoot, {
+        pidAlive: false,
+        ready: false,
+        state: null,
+        status: 'stopped',
+      })
+    );
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(`Codex-facing tools must not call daemon MCP bridge: ${String(input)}`);
     });
@@ -1440,6 +1447,18 @@ describe('CodexMcpServer', () => {
           owner: string;
           residentServiceRequested: boolean;
           tool: string;
+        };
+        codexProjectScopeExecution?: unknown;
+        projectRuntime: {
+          fallbackIsolation: Array<{
+            effectiveIdentityAllowed: boolean;
+            id: string;
+          }>;
+          identity: { projectRoot: string };
+          sourcePolicy: {
+            effectiveIdentitySource: string;
+            projectScopeSource: string;
+          };
         };
         status: string;
       };
@@ -1454,7 +1473,24 @@ describe('CodexMcpServer', () => {
       residentServiceRequested: false,
       tool: 'alembic_health',
     });
+    expect(result.data.projectRuntime).toMatchObject({
+      identity: { projectRoot },
+      sourcePolicy: {
+        effectiveIdentitySource: 'codex-current-project',
+        projectScopeSource: 'single-folder-baseline',
+      },
+    });
+    expect(result.data.projectRuntime.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          effectiveIdentityAllowed: false,
+          id: 'embedded-plugin-owned-runtime',
+        }),
+      ])
+    );
+    expect(result.data.codexProjectScopeExecution).toBeUndefined();
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
