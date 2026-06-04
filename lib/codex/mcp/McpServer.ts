@@ -123,6 +123,7 @@ interface GatewayMappingEntry {
 // ─── Handler 模块 ─────────────────────────────────────────────
 
 import * as candidateHandlers from './handlers/candidate.js';
+import * as agentPublicToolHandlers from './handlers/agent-public-tools.js';
 import * as knowledgeHandlers from './handlers/knowledge.js';
 import * as systemHandlers from './handlers/system.js';
 import * as toolRouter from './handlers/tool-router.js';
@@ -572,6 +573,8 @@ export class McpServer {
   _resolveHandler(name: string): ToolHandlerFn | null {
     const HANDLER_MAP: Record<string, ToolHandlerFn> = {
       // ── Agent 层 ──
+      alembic_intent: (ctx, args) => agentPublicToolHandlers.intentHandler(ctx, args),
+      alembic_prime: (ctx, args) => agentPublicToolHandlers.primeHandler(ctx, args),
       alembic_health: (ctx) => systemHandlers.health(ctx),
       alembic_search: (ctx, args) =>
         toolRouter.routeSearchTool(ctx, args as Parameters<typeof toolRouter.routeSearchTool>[1]),

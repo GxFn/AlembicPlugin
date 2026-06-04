@@ -247,10 +247,10 @@ export type CreateAgentPublicToolResultEnvelopeInput = Omit<
 };
 
 export interface AgentPublicToolContractDefinition {
-  activeMcpSurface: false;
+  activeMcpSurface: boolean;
   actionKind: AgentActionKind;
-  handlerDependency: 'none';
-  implementationStatus: 'contract-only';
+  handlerDependency: 'none' | 'McpServer.agent-public-tools';
+  implementationStatus: 'active-tool' | 'contract-only';
   inputContract: {
     acceptedRefs: readonly string[];
     requiredFields: readonly string[];
@@ -266,13 +266,21 @@ export interface AgentPublicToolContractDefinition {
 function definition(
   name: AgentPublicToolName,
   inputContract: AgentPublicToolContractDefinition['inputContract'],
-  producesRefs: readonly string[]
-): AgentPublicToolContractDefinition {
-  return {
+  producesRefs: readonly string[],
+  implementation: Pick<
+    AgentPublicToolContractDefinition,
+    'activeMcpSurface' | 'handlerDependency' | 'implementationStatus'
+  > = {
     activeMcpSurface: false,
-    actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[name],
     handlerDependency: 'none',
     implementationStatus: 'contract-only',
+  }
+): AgentPublicToolContractDefinition {
+  return {
+    activeMcpSurface: implementation.activeMcpSurface,
+    actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[name],
+    handlerDependency: implementation.handlerDependency,
+    implementationStatus: implementation.implementationStatus,
     inputContract,
     name,
     resultContract: {
@@ -290,7 +298,12 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
       acceptedRefs: ['detailRefs'],
       requiredFields: ['agentHost', 'inputSource'],
     },
-    ['intentRef', 'detailRefs']
+    ['intentRef', 'detailRefs'],
+    {
+      activeMcpSurface: true,
+      handlerDependency: 'McpServer.agent-public-tools',
+      implementationStatus: 'active-tool',
+    }
   ),
   definition(
     'alembic_prime',
@@ -298,7 +311,12 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
       acceptedRefs: ['intentRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource', 'intentRef'],
     },
-    ['primeRef', 'detailRefs']
+    ['primeRef', 'detailRefs'],
+    {
+      activeMcpSurface: true,
+      handlerDependency: 'McpServer.agent-public-tools',
+      implementationStatus: 'active-tool',
+    }
   ),
   definition(
     'alembic_work_start',

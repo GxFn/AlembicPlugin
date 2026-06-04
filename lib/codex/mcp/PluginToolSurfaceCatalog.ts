@@ -10,6 +10,7 @@ export type PluginToolHandlerOwner =
   | 'McpServer.host-agent-dimension-completion'
   | 'McpServer.host-agent-evolution'
   | 'McpServer.host-agent-rescan'
+  | 'McpServer.agent-public-tools'
   | 'McpServer.knowledge-consolidation'
   | 'McpServer.tool-router'
   | 'McpServer.knowledge-admin'
@@ -409,6 +410,28 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
           }) as Record<string, PluginToolGatewayStaticMapping>
         )[args?.operation as string] || null,
     },
+    knowledgeGate: 'resident-project-scope',
+    residentRoutePolicy: 'resident-project-scope',
+  }),
+  alembic_intent: catalogEntry({
+    name: 'alembic_intent',
+    owner: 'plugin-embedded-core',
+    handlerOwner: 'McpServer.agent-public-tools',
+    tier: 'agent',
+    schema: 'IntentInput',
+    annotations: localWriteTool('Capture Agent Intent'),
+    gateway: null,
+    knowledgeGate: 'resident-project-scope',
+    residentRoutePolicy: 'resident-project-scope',
+  }),
+  alembic_prime: catalogEntry({
+    name: 'alembic_prime',
+    owner: 'plugin-embedded-core',
+    handlerOwner: 'McpServer.agent-public-tools',
+    tier: 'agent',
+    schema: 'PrimeInput',
+    annotations: localWriteTool('Prime Agent Knowledge'),
+    gateway: null,
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'resident-project-scope',
   }),

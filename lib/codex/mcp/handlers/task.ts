@@ -37,6 +37,10 @@ import {
 import type { ExtractedIntent } from '#service/task/IntentExtractor.js';
 import { extract as extractIntent } from '#service/task/IntentExtractor.js';
 import type { PrimeSearchResult, SlimSearchResult } from '#service/task/PrimeSearchPipeline.js';
+import {
+  buildPrimeKnowledgeMaterial,
+  formatPrimeTrustPostureMessage,
+} from '#service/task/PrimeKnowledgeMaterial.js';
 import type {
   GuardTriggerDecision,
   TaskAnchorDecision,
@@ -440,7 +444,7 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
   // ─── Build response ───
   const relatedCount = searchResult?.relatedKnowledge.length ?? 0;
   const ruleCount = searchResult?.guardRules.length ?? 0;
-  const primeKnowledgeMaterial = _buildPrimeKnowledgeMaterial({
+  const primeKnowledgeMaterial = buildPrimeKnowledgeMaterial({
     hostIntentInput,
     extracted,
     hostIntentFrame,
@@ -455,13 +459,13 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
     lines.push(
       `Prime search skipped by Codex task lifecycle policy: ${lifecycleClassification.primeDecision.reasonCode}.`
     );
-    lines.push(_formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
+    lines.push(formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
     lines.push(
       '📣 Codex must say no project knowledge was searched because the lifecycle policy skipped prime for this turn; continue only within the visible task boundary and do not claim accepted project knowledge.'
     );
   } else if (primeKnowledgeMaterial.status === 'degraded') {
     lines.push('Prime knowledge search degraded; no project knowledge was delivered.');
-    lines.push(_formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
+    lines.push(formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
     lines.push(
       '📣 Codex must immediately shout in the first person that it did not receive usable project knowledge because prime degraded before any further tool call, code reading, edit, Guard check, or final summary. Say the trust posture is not-available-or-degraded, and do not claim trusted-to-use or trusted-to-obey project knowledge. Do not make Alembic prime the speaker or subject.'
     );
@@ -474,13 +478,13 @@ async function _prime(ctx: McpContext, args: TaskArgs) {
     for (const r of searchResult?.guardRules ?? []) {
       lines.push(`  • [rule] ${r.trigger || r.title}`);
     }
-    lines.push(_formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
+    lines.push(formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
     lines.push(
       '📣 Codex must immediately shout a short knowledge receipt before any further tool call, code reading, edit, Guard check, or final summary. Speak as Codex or I, not as Alembic prime: summarize trusted-to-obey Guard constraints, trusted-to-use Recipe or pattern knowledge, context-only host intent or evidence hints, and requires-verification source refs or candidates; keep evidenceRefs in the payload for later verification instead of listing paths by default.'
     );
   } else {
     lines.push('No matching recipes found.');
-    lines.push(_formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
+    lines.push(formatPrimeTrustPostureMessage(primeKnowledgeMaterial.trustPosture));
     lines.push(
       '📣 Codex must immediately shout in the first person that it did not receive usable project knowledge before any further tool call, code reading, edit, Guard check, or final summary. Say the trust posture is not-available-or-degraded, and do not claim trusted-to-use or trusted-to-obey project knowledge. Do not make Alembic prime the speaker or subject.'
     );

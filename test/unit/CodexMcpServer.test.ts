@@ -19,15 +19,15 @@ import {
 } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
-  getCodexSavedProjectRootPath,
-  readCodexInitMarker,
-} from '../../lib/codex/ProjectRootResolver.js';
-import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
-import {
   CodexMcpServer,
   getVisibleCodexTools,
   resetCodexPluginOwnedMcpServerForTests,
 } from '../../lib/codex/mcp/CodexMcpServer.js';
+import {
+  getCodexSavedProjectRootPath,
+  readCodexInitMarker,
+} from '../../lib/codex/ProjectRootResolver.js';
+import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -47,6 +47,8 @@ const CODEX_HOST_AGENT_TOOL_NAMES = [
   'alembic_dimension_complete',
 ];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
+  'alembic_intent',
+  'alembic_prime',
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',

@@ -15,7 +15,7 @@ import { TOOLS } from '../../lib/codex/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Agent-facing public tools contract foundation', () => {
-  test('declares the six future public tools as contract-only definitions', () => {
+  test('declares the six public tools and marks intent/prime as active Stage 3 tools', () => {
     expect(AGENT_PUBLIC_TOOL_NAMES).toEqual([
       'alembic_intent',
       'alembic_prime',
@@ -36,9 +36,14 @@ describe('Agent-facing public tools contract foundation', () => {
     const catalog = listAgentPublicToolContractCatalog();
     expect(catalog.map((entry) => entry.name)).toEqual(AGENT_PUBLIC_TOOL_NAMES);
     for (const definition of catalog) {
-      expect(definition.activeMcpSurface).toBe(false);
-      expect(definition.implementationStatus).toBe('contract-only');
-      expect(definition.handlerDependency).toBe('none');
+      const shouldBeActive = ['alembic_intent', 'alembic_prime'].includes(definition.name);
+      expect(definition.activeMcpSurface).toBe(shouldBeActive);
+      expect(definition.implementationStatus).toBe(
+        shouldBeActive ? 'active-tool' : 'contract-only'
+      );
+      expect(definition.handlerDependency).toBe(
+        shouldBeActive ? 'McpServer.agent-public-tools' : 'none'
+      );
       expect(definition.resultContract.statuses).toEqual(AGENT_RESULT_STATUSES);
       expect(definition.resultContract.reasonKinds).toEqual([
         'skip',
@@ -50,14 +55,19 @@ describe('Agent-facing public tools contract foundation', () => {
     }
   });
 
-  test('keeps the new contract out of the active MCP tool surface until handlers exist', () => {
+  test('keeps only unimplemented public tools out of the active MCP tool surface', () => {
     const activeToolNames = new Set([
       ...TOOLS.map((tool) => tool.name),
       ...Object.keys(PLUGIN_TOOL_SURFACE_CATALOG),
       ...Object.keys(TOOL_SCHEMAS),
     ]);
 
-    for (const name of AGENT_PUBLIC_TOOL_NAMES) {
+    expect(activeToolNames.has('alembic_intent')).toBe(true);
+    expect(activeToolNames.has('alembic_prime')).toBe(true);
+
+    for (const name of AGENT_PUBLIC_TOOL_NAMES.filter(
+      (tool) => tool !== 'alembic_intent' && tool !== 'alembic_prime'
+    )) {
       expect(activeToolNames.has(name)).toBe(false);
     }
   });
@@ -206,8 +216,13 @@ describe('Agent-facing public tools contract foundation', () => {
 
     for (const name of AGENT_PUBLIC_TOOL_NAMES) {
       const definition = getAgentPublicToolContractDefinition(name);
-      expect(definition.handlerDependency).toBe('none');
-      expect(definition.activeMcpSurface).toBe(false);
+      if (name === 'alembic_intent' || name === 'alembic_prime') {
+        expect(definition.handlerDependency).toBe('McpServer.agent-public-tools');
+        expect(definition.activeMcpSurface).toBe(true);
+      } else {
+        expect(definition.handlerDependency).toBe('none');
+        expect(definition.activeMcpSurface).toBe(false);
+      }
     }
   });
 });

@@ -92,6 +92,98 @@ export const HostTurnMetaInput = z.object({
 export type HostTurnMetaInput = z.infer<typeof HostTurnMetaInput>;
 
 // ══════════════════════════════════════════════════════
+//  Agent-facing public tools — Stage 3 active surface
+// ══════════════════════════════════════════════════════
+
+const AgentHostSchema = z.enum(['codex', 'claude-code', 'generic-host-agent']);
+const AgentInputSourceSchema = z.enum([
+  'host-declared-intent',
+  'host-turn-metadata',
+  'user-message',
+  'automation-envelope',
+  'source-ref',
+  'tool-result',
+  'legacy-compatibility',
+]);
+const AgentIntentKindSchema = z.enum([
+  'implementation-task',
+  'fix-task',
+  'refactor-task',
+  'review-task',
+  'read-only-analysis',
+  'status-only',
+  'decision',
+  'design-or-planning',
+  'mechanical-envelope',
+  'unknown',
+]);
+
+const AgentOutputBudgetInput = z.object({
+  mode: z.enum(['compact', 'standard', 'detailed']).default('compact').optional(),
+  maxChars: z.number().int().min(1).max(20000).default(1600).optional(),
+});
+
+const AgentPublicToolBaseInput = z.object({
+  agentHost: AgentHostSchema.default('codex').describe('Calling host agent family'),
+  inputSource: AgentInputSourceSchema.default('user-message').describe(
+    'Enum-first source classification for the current host input'
+  ),
+  intentKind: AgentIntentKindSchema.optional().describe(
+    'Optional host-provided intent kind; handler can infer it when omitted'
+  ),
+  userQuery: z
+    .string()
+    .min(1)
+    .max(1200)
+    .optional()
+    .describe(
+      'Semantic user query; do not pass raw automation envelopes without hostDeclaredIntent'
+    ),
+  activeFile: z.string().min(1).max(1200).optional().describe('Current active file hint'),
+  language: z.string().min(1).max(80).optional().describe('Current language hint'),
+  hostDeclaredIntent: HostDeclaredIntentInput.optional().describe(
+    'Structured host-declared intent frame'
+  ),
+  hostTurnMeta: HostTurnMetaInput.optional().describe(
+    'Optional host turn metadata; raw ids are redacted by the handler'
+  ),
+  sourceRefs: z
+    .array(z.string().min(1).max(200))
+    .max(50)
+    .optional()
+    .describe('Non-private source refs used as detailRefs and automation evidence'),
+  outputBudget: AgentOutputBudgetInput.optional().describe('Compact result output budget'),
+  projectRoot: z
+    .string()
+    .min(1)
+    .max(1200)
+    .optional()
+    .describe('Absolute target project root supplied by Codex host runtime'),
+});
+
+export const IntentInput = AgentPublicToolBaseInput.describe(
+  'Agent-facing intent intake. Returns recognizedIntent, intentRef, detailRefs, and structure-first vectorPlan.'
+);
+export type IntentInput = z.infer<typeof IntentInput>;
+
+export const PrimeInput = AgentPublicToolBaseInput.extend({
+  intentRef: z.string().min(1).max(240).optional().describe('intentRef returned by alembic_intent'),
+  query: z
+    .string()
+    .min(1)
+    .max(1200)
+    .optional()
+    .describe('Fallback semantic query when no local intentRef record is available'),
+  recognizedIntent: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Fallback recognized intent object, normally returned by alembic_intent'),
+}).describe(
+  'Agent-facing prime retrieval. Consumes intentRef/recognizedIntent and returns primeRef, Trust Receipt material, detailRefs, and compact knowledge package.'
+);
+export type PrimeInput = z.infer<typeof PrimeInput>;
+
+// ══════════════════════════════════════════════════════
 //  2. alembic_search
 // ══════════════════════════════════════════════════════
 
@@ -581,6 +673,8 @@ export type ConsolidateInput = z.infer<typeof ConsolidateInput>;
 // ══════════════════════════════════════════════════════
 
 export const TOOL_SCHEMAS: Record<string, z.ZodType> = {
+  alembic_intent: IntentInput,
+  alembic_prime: PrimeInput,
   alembic_health: HealthInput,
   alembic_search: SearchInput,
   alembic_knowledge: KnowledgeInput,
