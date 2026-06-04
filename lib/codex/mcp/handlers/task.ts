@@ -36,11 +36,11 @@ import {
 } from '#service/task/HostIntentFrame.js';
 import type { ExtractedIntent } from '#service/task/IntentExtractor.js';
 import { extract as extractIntent } from '#service/task/IntentExtractor.js';
-import type { PrimeSearchResult, SlimSearchResult } from '#service/task/PrimeSearchPipeline.js';
 import {
   buildPrimeKnowledgeMaterial,
   formatPrimeTrustPostureMessage,
 } from '#service/task/PrimeKnowledgeMaterial.js';
+import type { PrimeSearchResult, SlimSearchResult } from '#service/task/PrimeSearchPipeline.js';
 import type {
   GuardTriggerDecision,
   TaskAnchorDecision,

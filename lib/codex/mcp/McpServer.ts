@@ -122,8 +122,8 @@ interface GatewayMappingEntry {
 
 // ─── Handler 模块 ─────────────────────────────────────────────
 
-import * as candidateHandlers from './handlers/candidate.js';
 import * as agentPublicToolHandlers from './handlers/agent-public-tools.js';
+import * as candidateHandlers from './handlers/candidate.js';
 import * as knowledgeHandlers from './handlers/knowledge.js';
 import * as systemHandlers from './handlers/system.js';
 import * as toolRouter from './handlers/tool-router.js';
