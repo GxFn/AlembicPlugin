@@ -5,22 +5,23 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
-const options = parseArgs(process.argv.slice(2));
+const options = readOptions(process.argv.slice(2));
 const report = {
   ok: false,
   mode: 'local-dev-reload',
   canonicalCommand: 'npm run dev:codex-plugin:reload',
   legacyAlias: options.legacyAlias,
+  mcpProcessHandling: 'not-managed-by-plugin',
   projectRoot: options.projectRoot,
+  readbackProof: buildReadbackProofSummary(),
   steps: [],
   sync: null,
-  stoppedProcesses: [],
   probe: null,
 };
 
 if (options.legacyAlias) {
   process.stderr.write(
-    `dev:codex-plugin:${options.legacyAlias} is a compatibility alias; use dev:codex-plugin:reload as the canonical local-dev restart/reload command.\n`
+    `dev:codex-plugin:${options.legacyAlias} is a compatibility alias; use dev:codex-plugin:reload as the canonical local-dev reload command.\n`
   );
 }
 
@@ -40,10 +41,13 @@ try {
   }
 
   report.sync = runSync();
-
-  if (options.stopMcp) {
-    report.stoppedProcesses = stopMcpProcesses(report.sync?.targetRoots || []);
-  }
+  report.steps.push({
+    command: 'do not inspect, stop, or restart current Codex MCP processes',
+    durationMs: 0,
+    name: 'leave current host MCP lifecycle to Codex',
+    status: 0,
+    note: 'AlembicPlugin reload only refreshes installed plugin caches and probes a fresh MCP startup; restart Codex itself if the current host MCP transport is closed.',
+  });
 
   if (!options.skipProbe) {
     report.probe = runProbe(report.sync?.targetRoots || []);
@@ -105,72 +109,6 @@ function runProbe(targetRoots) {
   }
 }
 
-function stopMcpProcesses(targetRoots) {
-  const localEntry = join(root, 'dist', 'bin', 'codex-mcp.js');
-  const localWrapper = join(
-    root,
-    'plugins',
-    'alembic-codex',
-    'bin',
-    'alembic-codex-mcp-wrapper.mjs'
-  );
-  const candidates = findMcpProcessCandidates(targetRoots, localEntry, localWrapper);
-  const stopped = [];
-  for (const candidate of candidates) {
-    try {
-      process.kill(candidate.pid, 'SIGTERM');
-      stopped.push(candidate);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      if (!('code' in error) || error.code !== 'ESRCH') {
-        stopped.push({ ...candidate, error: error.message });
-      }
-    }
-  }
-  report.steps.push({
-    command: 'SIGTERM running Alembic Codex MCP processes',
-    durationMs: 0,
-    name: 'stop old MCP processes',
-    status: 0,
-    stoppedPids: stopped.map((processInfo) => processInfo.pid),
-  });
-  return stopped;
-}
-
-function findMcpProcessCandidates(targetRoots, localEntry, localWrapper) {
-  const ps = spawnSync('ps', ['-axo', 'pid=,command='], {
-    encoding: 'utf8',
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  if (ps.status !== 0) {
-    throw new Error(`Could not inspect running processes:\n${ps.stderr || ps.stdout}`);
-  }
-  const currentPid = process.pid;
-  const normalizedTargets = targetRoots.map((target) => resolve(target));
-  return ps.stdout
-    .split('\n')
-    .map((line) => line.match(/^\s*(\d+)\s+(.+)$/))
-    .filter(Boolean)
-    .map((match) => ({ command: match[2], pid: Number(match[1]) }))
-    .filter((processInfo) => processInfo.pid > 0 && processInfo.pid !== currentPid)
-    .filter((processInfo) =>
-      isAlembicCodexMcpProcess(processInfo.command, normalizedTargets, localEntry, localWrapper)
-    );
-}
-
-function isAlembicCodexMcpProcess(command, targetRoots, localEntry, localWrapper) {
-  if (command.includes(localEntry) || command.includes(localWrapper)) {
-    return true;
-  }
-  return targetRoots.some(
-    (targetRoot) =>
-      command.includes(targetRoot) &&
-      (command.includes('alembic-codex-mcp-wrapper.mjs') ||
-        command.includes('alembic-codex-mcp') ||
-        command.includes('codex-mcp.js'))
-  );
-}
-
 function runStep(name, command, args, stepOptions = {}) {
   const startedAt = Date.now();
   const result = spawnSync(command, args, {
@@ -209,9 +147,25 @@ function buildDryRunPlan() {
   return {
     build: !options.skipBuild,
     prepareRuntime: !options.skipPrepare,
-    stopOldMcpProcesses: options.stopMcp,
+    currentHostMcpProcessLifecycle: 'not-managed-by-plugin',
+    freshMcpReadback: buildReadbackProofSummary(),
     probe: !options.skipProbe,
     syncCommand: ['node', 'scripts/sync-codex-plugin-cache.mjs', ...syncArgs],
+  };
+}
+
+function buildReadbackProofSummary() {
+  return {
+    expectedToolCall: 'alembic_codex_status',
+    proves: [
+      'fresh installed-cache MCP startup',
+      'projectRuntime.identity projectRoot/dataRoot/runtimeDir/databasePath',
+      'projectRuntime.sourcePolicy keeps Codex current project as effective identity',
+      'fallback isolation blocks saved, selected/active, local JobStore, and embedded runtime identity fallbacks',
+      'structured projectRuntime.failureEnvelopes array',
+    ],
+    probeReportPath: options.probeReportPath,
+    requiresFreshProcess: true,
   };
 }
 
@@ -227,7 +181,6 @@ function parseArgs(args) {
     skipBuild: false,
     skipPrepare: false,
     skipProbe: false,
-    stopMcp: true,
     syncTargets: [],
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -242,8 +195,8 @@ function parseArgs(args) {
     } else if (arg === '--mcp-timeout-ms') {
       parsed.mcpTimeoutMs = Number(args[index + 1] || parsed.mcpTimeoutMs);
       index += 1;
-    } else if (arg === '--no-stop-mcp') {
-      parsed.stopMcp = false;
+    } else if (arg === '--stop-mcp' || arg === '--no-stop-mcp') {
+      throw removedMcpLifecycleOptionError(arg);
     } else if (arg === '--project-root') {
       parsed.projectRoot = resolve(args[index + 1] || parsed.projectRoot);
       index += 1;
@@ -272,6 +225,23 @@ function parseArgs(args) {
   return parsed;
 }
 
+function readOptions(args) {
+  try {
+    return parseArgs(args);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    process.stderr.write(`${error.message}\n`);
+    process.exit(1);
+  }
+}
+
+function removedMcpLifecycleOptionError(arg) {
+  return new Error(
+    `${arg} has been removed: AlembicPlugin does not manage the current Codex MCP process lifecycle. ` +
+      'Run reload to refresh installed caches and probe fresh startup; restart Codex itself if the current transport is closed.'
+  );
+}
+
 function printReport() {
   mkdirSync(dirname(options.reportPath), { recursive: true });
   writeFileSync(options.reportPath, `${JSON.stringify(report, null, 2)}\n`);
@@ -281,15 +251,18 @@ function printReport() {
 }
 
 function printHelp() {
-  process.stdout.write(`Canonical Alembic Codex plugin local-dev restart/reload.
+  process.stdout.write(`Canonical Alembic Codex plugin local-dev reload.
 
 Usage:
   node scripts/dev-reload-codex-plugin.mjs [options]
 
 Behavior:
   Builds the local Codex MCP runtime, prepares runtime.tgz, rewrites installed
-  plugin cache roots to local dist/bin/codex-mcp.js, stops old Alembic Codex MCP
-  processes, then starts a fresh MCP probe against the rewritten cache.
+  plugin cache roots to local dist/bin/codex-mcp.js and starts a fresh MCP probe
+  against the rewritten cache. The probe calls alembic_codex_status and validates
+  projectRuntime identity, sourcePolicy, fallback isolation, entryMode, and
+  failureEnvelopes. It never inspects, stops, or restarts the current Codex host
+  MCP process. Restart Codex itself if the current transport is closed.
 
 Options:
   --codex-home <path>          Override CODEX_HOME, defaults to ~/.codex.
@@ -301,7 +274,6 @@ Options:
   --skip-build                 Skip npm run build.
   --skip-prepare               Skip prepare:codex-plugin-runtime.
   --skip-probe                 Skip fresh MCP probe.
-  --no-stop-mcp                Do not stop running Alembic Codex MCP processes.
   --dry-run                    Print the reload plan without writing or probing.
   --legacy-refresh             Compatibility marker for dev:codex-plugin:refresh.
   -h, --help                   Show this help.

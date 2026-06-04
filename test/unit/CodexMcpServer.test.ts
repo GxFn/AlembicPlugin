@@ -516,8 +516,14 @@ describe('CodexMcpServer', () => {
         codexProjectScopeExecution: { dataRoot: string; enabled: boolean; projectScopeId: string };
         projectRuntime: {
           fallbackIsolation: Array<{ effectiveIdentityAllowed: boolean; id: string }>;
-          identity: { projectRoot: string };
-          sourcePolicy: { effectiveIdentitySource: string };
+          identity: {
+            dataRoot: string;
+            databasePath: string;
+            projectRoot: string;
+            projectScopeId: string;
+            runtimeDir: string;
+          };
+          sourcePolicy: { effectiveIdentitySource: string; projectScopeSource: string };
         };
         projectRoot: string;
       };
@@ -553,8 +559,17 @@ describe('CodexMcpServer', () => {
       projectScopeId: projectScope.projectScopeId,
     });
     expect(healthResult.data.projectRuntime).toMatchObject({
-      identity: { projectRoot: sourceRoot },
-      sourcePolicy: { effectiveIdentitySource: 'codex-current-project' },
+      identity: {
+        dataRoot,
+        databasePath: path.join(dataRoot, '.asd', 'alembic.db'),
+        projectRoot: sourceRoot,
+        projectScopeId: projectScope.projectScopeId,
+        runtimeDir: path.join(dataRoot, '.asd'),
+      },
+      sourcePolicy: {
+        effectiveIdentitySource: 'codex-current-project',
+        projectScopeSource: 'resident-read-only',
+      },
     });
     expect(healthResult.data.projectRuntime.fallbackIsolation).toEqual(
       expect.arrayContaining([

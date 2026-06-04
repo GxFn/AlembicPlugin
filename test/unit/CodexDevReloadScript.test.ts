@@ -31,17 +31,33 @@ describe('Codex plugin local-dev reload script', () => {
     );
     const report = JSON.parse(output) as {
       canonicalCommand: string;
+      mcpProcessHandling: string;
       mode: string;
       ok: boolean;
-      plan: { syncCommand: string[] };
+      plan: {
+        currentHostMcpProcessLifecycle: string;
+        freshMcpReadback: { expectedToolCall: string; requiresFreshProcess: boolean };
+        syncCommand: string[];
+      };
+      readbackProof: { expectedToolCall: string; requiresFreshProcess: boolean };
       reportPath: string;
     };
 
     expect(report).toMatchObject({
       canonicalCommand: 'npm run dev:codex-plugin:reload',
+      mcpProcessHandling: 'not-managed-by-plugin',
       mode: 'local-dev-reload',
       ok: true,
       reportPath,
+    });
+    expect(report.plan.currentHostMcpProcessLifecycle).toBe('not-managed-by-plugin');
+    expect(report.readbackProof).toMatchObject({
+      expectedToolCall: 'alembic_codex_status',
+      requiresFreshProcess: true,
+    });
+    expect(report.plan.freshMcpReadback).toMatchObject({
+      expectedToolCall: 'alembic_codex_status',
+      requiresFreshProcess: true,
     });
     expect(report.plan.syncCommand).toEqual(
       expect.arrayContaining([
@@ -80,6 +96,92 @@ describe('Codex plugin local-dev reload script', () => {
       ok: true,
     });
     expect(persisted.legacyAlias).toBe('refresh');
+  });
+
+  test('rejects removed current MCP lifecycle flags', () => {
+    const root = tempDir();
+
+    expect(() =>
+      runReloadScript(
+        '--dry-run',
+        '--stop-mcp',
+        '--report-path',
+        join(root, 'reload-report.json')
+      )
+    ).toThrow(/does not manage the current Codex MCP process lifecycle/);
+
+    expect(() =>
+      runReloadScript(
+        '--dry-run',
+        '--no-stop-mcp',
+        '--report-path',
+        join(root, 'reload-report.json')
+      )
+    ).toThrow(/does not manage the current Codex MCP process lifecycle/);
+  });
+
+  test('watch mode rejects removed current MCP lifecycle flags', () => {
+    const root = tempDir();
+    const watchScriptPath = join(projectRoot, 'scripts', 'dev-watch-codex-plugin.mjs');
+
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [watchScriptPath, '--once', '--restart-mcp', '--report-path', join(root, 'watch.json')],
+        {
+          cwd: projectRoot,
+          encoding: 'utf8',
+        }
+      )
+    ).toThrow(/does not manage the current Codex MCP process lifecycle/);
+
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [watchScriptPath, '--once', '--no-restart-mcp', '--report-path', join(root, 'watch.json')],
+        {
+          cwd: projectRoot,
+          encoding: 'utf8',
+        }
+      )
+    ).toThrow(/does not manage the current Codex MCP process lifecycle/);
+  });
+
+  test('help text does not advertise current MCP lifecycle flags', () => {
+    const output = runReloadScript('--help');
+    const watchOutput = execFileSync(
+      process.execPath,
+      [join(projectRoot, 'scripts', 'dev-watch-codex-plugin.mjs'), '--help'],
+      {
+        cwd: projectRoot,
+        encoding: 'utf8',
+      }
+    );
+
+    expect(output).not.toContain('--stop-mcp');
+    expect(output).not.toContain('--no-stop-mcp');
+    expect(watchOutput).not.toContain('--restart-mcp');
+    expect(watchOutput).not.toContain('--no-restart-mcp');
+    expect(output).toContain('It never inspects, stops, or restarts the current');
+    expect(output).toContain('validates');
+    expect(output).toContain('projectRuntime identity');
+    expect(watchOutput).toContain('It never restarts the current Codex MCP transport.');
+  });
+
+  test('dry run keeps current MCP process management out of the report', () => {
+    const root = tempDir();
+    const output = runReloadScript(
+      '--dry-run',
+      '--report-path',
+      join(root, 'reload-report.json')
+    );
+    const report = JSON.parse(output) as {
+      mcpProcessHandling: string;
+      plan: Record<string, unknown>;
+    };
+
+    expect(report.mcpProcessHandling).toBe('not-managed-by-plugin');
+    expect(report.plan).not.toHaveProperty('stopOldMcpProcesses');
   });
 });
 

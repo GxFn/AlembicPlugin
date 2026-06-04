@@ -1,9 +1,15 @@
-import { describe, expect, test } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PROJECT_SCOPE_CONTRACT_VERSION, type ProjectScopeSummary } from '@alembic/core/shared';
+import { afterEach, describe, expect, test } from 'vitest';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
   ALEMBIC_RUNTIME_MODE_PLUGIN,
+  buildCodexProjectRuntimeContext,
   buildCodexRuntimeDiagnostics,
   buildCodexPluginDiagnostics,
   CODEX_DEFAULT_MCP_TIER,
@@ -17,6 +23,8 @@ import {
   resolveCodexRuntimeContext,
 } from '../../lib/codex/index.js';
 import { ALEMBIC_CHANNEL_ID_ENV } from '../../lib/shared/channel.js';
+
+const tempRoots: string[] = [];
 
 function makeDaemonStatus(): DaemonStatus {
   return {
@@ -34,6 +42,12 @@ function makeDaemonStatus(): DaemonStatus {
     status: 'stopped',
   };
 }
+
+afterEach(() => {
+  for (const root of tempRoots.splice(0)) {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
 
 describe('Codex runtime context', () => {
   test('sets Codex MCP defaults without overwriting explicit channel and tier', () => {
@@ -171,4 +185,141 @@ describe('Codex runtime context', () => {
     expect(diagnostics.commands.npm.staleCwd).toBe(true);
     expect(diagnostics.commands.npx.staleCwd).toBe(true);
   });
+
+  test('uses resident ProjectScope data root while preserving Codex projectRoot identity source', () => {
+    const projectRoot = tempDir('source');
+    const dataRoot = tempDir('scope-data');
+    const controlRoot = tempDir('control');
+    const projectScope = makeProjectScopeSummary({ controlRoot, dataRoot, projectRoot });
+    const projectScopeIdentity: AlembicResidentProjectScopeIdentity = {
+      available: true,
+      controlRoot,
+      currentFolderId: projectScope.currentFolderId,
+      currentFolderPath: projectRoot,
+      dataRoot,
+      dataRootSource: 'ghost-registry',
+      diagnosticProjectRoot: projectRoot,
+      folderCount: 1,
+      folders: projectScope.folders,
+      mode: 'project-scope',
+      projectId: projectScope.projectId,
+      projectRoot,
+      projectScope,
+      projectScopeCapability: { available: true, storageKind: 'ghost' },
+      projectScopeId: projectScope.projectScopeId,
+      reason: null,
+      resident: {
+        owner: 'alembic',
+        route: 'local-alembic-daemon',
+        serviceScopeId: 'project-scope:scope-plugin',
+      },
+      serviceScopeId: 'project-scope:scope-plugin',
+      source: 'resident-project-scope-endpoint',
+      storageKind: 'ghost',
+      workspaceMode: 'ghost',
+    };
+
+    const context = buildCodexProjectRuntimeContext({
+      includeOptionalServices: false,
+      projectRoot,
+      projectScopeIdentity,
+      requiredServices: ['project-identity', 'project-scope'],
+    });
+
+    expect(context.identity).toMatchObject({
+      currentFolderId: 'folder-plugin',
+      dataRoot,
+      dataRootSource: 'ghost-registry',
+      databasePath: join(dataRoot, '.asd', 'alembic.db'),
+      ghost: true,
+      mode: 'ghost',
+      projectId: 'project-plugin',
+      projectRoot,
+      projectScopeId: 'scope-plugin',
+      registered: true,
+      runtimeDir: join(dataRoot, '.asd'),
+      workspaceExists: true,
+    });
+    expect(context.identity.projectScope).toMatchObject({
+      currentFolderPath: projectRoot,
+      dataRoot,
+      projectScopeId: 'scope-plugin',
+    });
+    expect(context.sourcePolicy).toMatchObject({
+      effectiveIdentitySource: 'codex-current-project',
+      projectScopeSource: 'resident-read-only',
+      runtimeControlSource: 'read-only-diagnostics',
+      selectedOrActiveCanOverrideEffectiveIdentity: false,
+    });
+    expect(context.requiredServices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          available: true,
+          service: 'project-identity',
+          source: 'codex-current-project',
+        }),
+        expect.objectContaining({
+          available: true,
+          service: 'project-scope',
+          source: 'resident-project-scope-endpoint',
+        }),
+      ])
+    );
+    expect(context.blockedFallbacks).toEqual(
+      expect.arrayContaining([
+        'saved-project-root-effective-identity',
+        'runtime-control-selected-active-effective-identity',
+        'local-jobstore-default-effective-identity',
+      ])
+    );
+    expect(context.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          effectiveIdentityAllowed: false,
+          id: 'embedded-plugin-owned-runtime',
+          persistenceRootAllowed: false,
+        }),
+      ])
+    );
+  });
 });
+
+function tempDir(label: string): string {
+  const root = mkdtempSync(join(tmpdir(), `alembic-codex-runtime-${label}-`));
+  tempRoots.push(root);
+  return root;
+}
+
+function makeProjectScopeSummary(input: {
+  controlRoot: string;
+  dataRoot: string;
+  projectRoot: string;
+}): ProjectScopeSummary {
+  return {
+    contractVersion: PROJECT_SCOPE_CONTRACT_VERSION,
+    controlRoot: input.controlRoot,
+    controlRootIncludedInFolders: false,
+    currentFolderId: 'folder-plugin',
+    currentFolderPath: input.projectRoot,
+    dataRoot: input.dataRoot,
+    dataRootSource: 'ghost-registry',
+    displayName: 'AlembicPlugin scope',
+    folderCount: 1,
+    folders: [
+      {
+        displayName: 'AlembicPlugin',
+        folderId: 'folder-plugin',
+        path: input.projectRoot,
+        realpath: input.projectRoot,
+        repositoryId: 'alembic-plugin',
+        role: 'source',
+        state: 'active',
+      },
+    ],
+    projectId: 'project-plugin',
+    projectRootWriteAllowed: false,
+    projectScopeId: 'scope-plugin',
+    standardWriteAllowed: false,
+    storageKind: 'ghost',
+  };
+}

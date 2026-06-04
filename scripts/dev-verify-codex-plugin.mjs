@@ -14,6 +14,16 @@ const report = {
   ok: false,
   mode: options.localMcp ? 'local-mcp' : 'packaged-runtime',
   projectRoot: options.projectRoot,
+  readbackContract: {
+    blockedEffectiveIdentityFallbacks: [
+      'saved-project-root-effective-identity',
+      'runtime-control-selected-active-effective-identity',
+      'local-jobstore-default-effective-identity',
+    ],
+    failureEnvelopePath: 'projectRuntime.failureEnvelopes',
+    sourcePolicyPath: 'projectRuntime.sourcePolicy',
+    tool: 'alembic_codex_status',
+  },
   steps: [],
   synced: null,
   probes: [],
@@ -113,6 +123,7 @@ async function probeInstalledTarget(targetRoot) {
       first.projectRootResolution?.trust === 'trusted',
     `Explicit projectRoot was not trusted for ${targetRoot}: ${JSON.stringify(first.projectRootResolution)}`
   );
+  const runtimeReadback = assertRuntimeReadback(first, marker, targetRoot);
   const saved = await callMcpTool(targetRoot, savedHome, 'alembic_codex_status', {});
   const savedData = saved.data || saved;
   const savedResolution = savedData.projectRootResolution;
@@ -134,6 +145,7 @@ async function probeInstalledTarget(targetRoot) {
     targetRoot,
     marker,
     explicit: summarizeStatus(first),
+    runtimeReadback,
     saved: summarizeStatus(savedData),
     failClosed: {
       success: failClosed.success,
@@ -229,6 +241,137 @@ function summarizeStatus(data) {
     trust: data.projectRootResolution?.trust,
     rejected: data.projectRootResolution?.rejected,
   };
+}
+
+function assertRuntimeReadback(data, marker, targetRoot) {
+  const runtime = objectFrom(data.projectRuntime);
+  assertProbe(runtime, `Missing projectRuntime readback for ${targetRoot}: ${JSON.stringify(data)}`);
+  const identity = objectFrom(runtime.identity);
+  assertProbe(
+    identity?.projectRoot === options.projectRoot,
+    `projectRuntime identity did not preserve explicit projectRoot for ${targetRoot}: ${JSON.stringify(identity)}`
+  );
+  assertProbe(
+    typeof identity.dataRoot === 'string' && identity.dataRoot.length > 0,
+    `projectRuntime identity missing dataRoot for ${targetRoot}: ${JSON.stringify(identity)}`
+  );
+  assertProbe(
+    typeof identity.runtimeDir === 'string' && identity.runtimeDir.length > 0,
+    `projectRuntime identity missing runtimeDir for ${targetRoot}: ${JSON.stringify(identity)}`
+  );
+  assertProbe(
+    typeof identity.databasePath === 'string' && identity.databasePath.length > 0,
+    `projectRuntime identity missing databasePath for ${targetRoot}: ${JSON.stringify(identity)}`
+  );
+
+  const sourcePolicy = objectFrom(runtime.sourcePolicy);
+  assertProbe(
+    sourcePolicy?.effectiveIdentitySource === 'codex-current-project',
+    `projectRuntime sourcePolicy did not keep Codex current project as source for ${targetRoot}: ${JSON.stringify(sourcePolicy)}`
+  );
+  assertProbe(
+    sourcePolicy?.selectedOrActiveCanOverrideEffectiveIdentity === false,
+    `selected/active runtime state can override effective identity for ${targetRoot}: ${JSON.stringify(sourcePolicy)}`
+  );
+  assertProbe(
+    sourcePolicy?.runtimeControlSource === 'read-only-diagnostics',
+    `runtime control state is not diagnostic-only for ${targetRoot}: ${JSON.stringify(sourcePolicy)}`
+  );
+
+  const blockedFallbacks = Array.isArray(runtime.blockedFallbacks) ? runtime.blockedFallbacks : [];
+  for (const fallback of report.readbackContract.blockedEffectiveIdentityFallbacks) {
+    assertProbe(
+      blockedFallbacks.includes(fallback),
+      `Missing blocked effective identity fallback ${fallback} for ${targetRoot}: ${JSON.stringify(blockedFallbacks)}`
+    );
+  }
+
+  const fallbackIsolation = Array.isArray(runtime.fallbackIsolation)
+    ? runtime.fallbackIsolation
+    : [];
+  for (const id of [
+    'embedded-plugin-owned-runtime',
+    'local-jobstore',
+    'runtime-control-selected-active',
+    'saved-project-root',
+  ]) {
+    const item = fallbackIsolation.find((candidate) => candidate?.id === id);
+    assertProbe(
+      item?.effectiveIdentityAllowed === false && item?.persistenceRootAllowed === false,
+      `Fallback isolation ${id} was not blocked for effective identity/persistence in ${targetRoot}: ${JSON.stringify(item)}`
+    );
+  }
+
+  const requiredServices = Array.isArray(runtime.requiredServices) ? runtime.requiredServices : [];
+  const projectIdentity = requiredServices.find((service) => service?.service === 'project-identity');
+  assertProbe(
+    projectIdentity?.available === true && projectIdentity?.source === 'codex-current-project',
+    `project-identity readiness did not come from Codex current project for ${targetRoot}: ${JSON.stringify(requiredServices)}`
+  );
+
+  const failureEnvelopes = Array.isArray(runtime.failureEnvelopes)
+    ? runtime.failureEnvelopes
+    : null;
+  assertProbe(
+    failureEnvelopes,
+    `projectRuntime failureEnvelopes is not an array for ${targetRoot}: ${JSON.stringify(runtime.failureEnvelopes)}`
+  );
+  for (const envelope of failureEnvelopes) {
+    assertProbe(
+      typeof envelope?.contractVersion === 'number' &&
+        typeof envelope?.reason === 'string' &&
+        typeof envelope?.readinessState === 'string',
+      `Invalid projectRuntime failure envelope for ${targetRoot}: ${JSON.stringify(envelope)}`
+    );
+  }
+
+  const entryMode = objectFrom(runtime.entryMode);
+  const expectedEntryMode = expectedEntryModeForMarker(marker);
+  if (expectedEntryMode) {
+    assertProbe(
+      entryMode?.mode === expectedEntryMode,
+      `Unexpected MCP entry mode for ${targetRoot}: expected ${expectedEntryMode}, got ${JSON.stringify(entryMode)}`
+    );
+  }
+
+  return {
+    blockedFallbacks,
+    dataRoot: identity.dataRoot,
+    databasePath: identity.databasePath,
+    entryMode: entryMode?.mode ?? null,
+    expectedEntryMode,
+    failureEnvelopeReasons: failureEnvelopes.map((envelope) => envelope.reason),
+    fallbackIsolation: fallbackIsolation.map((item) => ({
+      effectiveIdentityAllowed: item?.effectiveIdentityAllowed === true,
+      id: item?.id ?? null,
+      persistenceRootAllowed: item?.persistenceRootAllowed === true,
+    })),
+    projectRoot: identity.projectRoot,
+    readinessState: runtime.readinessState ?? null,
+    requiredServices: requiredServices.map((service) => ({
+      available: service?.available === true,
+      service: service?.service ?? null,
+      source: service?.source ?? null,
+      state: service?.state ?? null,
+    })),
+    runtimeDir: identity.runtimeDir,
+    sourcePolicy,
+  };
+}
+
+function expectedEntryModeForMarker(marker) {
+  const mode = objectFrom(marker)?.mode ?? report.mode;
+  if (mode === 'local-mcp') {
+    return 'local-dev-direct-dist';
+  }
+  if (mode === 'packaged-runtime') {
+    return 'packaged-wrapper';
+  }
+  return null;
+}
+
+function objectFrom(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
 function parseArgs(args) {

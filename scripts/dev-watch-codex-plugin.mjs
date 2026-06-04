@@ -9,7 +9,7 @@ import { repoRoot, resolveCoreGrammarSource } from './local-source-paths.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
 const coreGrammarSource = resolveCoreGrammarSource();
-const options = parseArgs(process.argv.slice(2));
+const options = readOptions(process.argv.slice(2));
 const watchEntries = [
   '.agents',
   'bin',
@@ -230,8 +230,8 @@ function parseArgs(args) {
       index += 1;
     } else if (arg === '--no-initial') {
       parsed.initial = false;
-    } else if (arg === '--no-restart-mcp') {
-      parsed.forward.push('--no-stop-mcp');
+    } else if (arg === '--restart-mcp' || arg === '--no-restart-mcp') {
+      throw removedMcpLifecycleOptionError(arg);
     } else if (arg === '--once') {
       parsed.once = true;
     } else if (arg === '--report-path') {
@@ -261,6 +261,23 @@ function parseArgs(args) {
   return parsed;
 }
 
+function readOptions(args) {
+  try {
+    return parseArgs(args);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    process.stderr.write(`${error.message}\n`);
+    process.exit(1);
+  }
+}
+
+function removedMcpLifecycleOptionError(arg) {
+  return new Error(
+    `${arg} has been removed: AlembicPlugin watch mode does not manage the current Codex MCP process lifecycle. ` +
+      'It only serializes cache reloads; restart Codex itself if the current transport is closed.'
+  );
+}
+
 function printHelp() {
   process.stdout.write(`Watch and reload the installed Alembic Codex plugin for local development.
 
@@ -270,13 +287,12 @@ Usage:
 Behavior:
   Polls Alembic runtime/plugin inputs and runs the canonical
   dev:codex-plugin:reload command after changes. Watch mode is not a separate
-  refresh strategy; it serializes canonical reloads so the next Codex tool call
-  starts from the latest build.
+  refresh strategy; it serializes canonical cache reloads so the next fresh MCP
+  startup uses the latest build. It never restarts the current Codex MCP transport.
 
 Options:
   --once                 Run one refresh and exit.
   --no-initial           Do not refresh immediately when the watcher starts.
-  --no-restart-mcp       Forward --no-stop-mcp to canonical reload.
   --debounce-ms <ms>     Delay after a file change before refreshing, defaults to 1000.
   --poll-ms <ms>         File snapshot polling interval, defaults to 1500.
   --project-root <path>  Forward project root to the refresh probe.

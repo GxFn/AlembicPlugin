@@ -154,6 +154,32 @@ export type CodexCommandProbeRunner = (
   status: number | null;
 };
 
+type CodexMcpConfigMode = 'local-dev-direct-dist' | 'packaged-wrapper' | 'unknown';
+type CodexPluginRegistry = ReturnType<typeof loadCodexPluginRegistry>;
+type CodexRuntimeChecks = Record<string, boolean>;
+
+interface BuildDiagnosticIssuesInput {
+  adminEnabled: boolean;
+  checks: CodexRuntimeChecks;
+  npm: CodexCommandProbeResult;
+  npx: CodexCommandProbeResult;
+  packageVersion: string;
+  pluginHost: string;
+  plugin: CodexPluginDiagnostics;
+  projectRootResolution?: CodexProjectRootResolution;
+  requestedTier: string;
+  runtimeMode: string;
+}
+
+interface CodexMcpEntryDiagnosticsInput {
+  args: string[];
+  command: string | null;
+  registryPluginRoot: string;
+  runtimeTarballPath: string;
+  wrapperArg: string | null;
+  wrapperPath: string | null;
+}
+
 export function buildCodexRuntimeDiagnostics(
   daemonStatus: DaemonStatus,
   context: CodexRuntimeContext = resolveCodexRuntimeContext(),
@@ -178,28 +204,14 @@ export function buildCodexRuntimeDiagnostics(
       enhancementRoute,
       hostProjectAlignment: options.hostProjectAlignment,
     });
-  const checks = {
-    adminGate: context.requestedTier !== 'admin' || context.adminEnabled,
-    node: nodeMajor >= 22,
-    npm: npmAvailable,
-    npx: npxAvailable,
-    runtimeMode: context.runtimeMode === context.expectedRuntimeMode,
-    runtimePluginHost: context.pluginHost === context.expectedPluginHost,
-    embeddedRuntime: plugin.mcp.embeddedRuntime,
-    packagePin: plugin.mcp.packagePin,
-    pluginHost: plugin.mcp.pluginHost,
-    pluginRuntimeMode: plugin.mcp.runtimeMode,
-    pluginAssets: plugin.assets.ok,
-    pluginManifest: plugin.manifest.ok,
-    pluginMcp: plugin.mcp.ok,
-    pluginMcpEntry:
-      plugin.mcp.entry.mode !== 'unknown' && plugin.mcp.entry.mode !== 'stale-installed-cache',
-    pluginSkills: plugin.skills.ok,
-    projectRoot:
-      !options.projectRootResolution || options.projectRootResolution.trust === 'trusted',
-    residentServiceContract:
-      !options.residentService || options.residentService.status.contractVersion === 1,
-  };
+  const checks = buildCodexRuntimeChecks({
+    context,
+    nodeMajor,
+    npmAvailable,
+    npxAvailable,
+    options,
+    plugin,
+  });
   const issues = buildDiagnosticIssues({
     adminEnabled: context.adminEnabled,
     checks,
@@ -233,8 +245,68 @@ export function buildCodexRuntimeDiagnostics(
             startsDaemon: false,
             tool: 'alembic_codex_diagnostics',
           }),
+    ...buildCodexRuntimeReportSections({
+      checks,
+      context,
+      daemonStatus,
+      enhancementRoute,
+      moduleBoundary,
+      npm,
+      npx,
+      options,
+      plugin,
+    }),
+  };
+}
+
+function buildCodexRuntimeChecks(input: {
+  context: CodexRuntimeContext;
+  nodeMajor: number;
+  npmAvailable: boolean;
+  npxAvailable: boolean;
+  options: CodexRuntimeDiagnosticsOptions;
+  plugin: CodexPluginDiagnostics;
+}): CodexRuntimeChecks {
+  return {
+    adminGate: input.context.requestedTier !== 'admin' || input.context.adminEnabled,
+    node: input.nodeMajor >= 22,
+    npm: input.npmAvailable,
+    npx: input.npxAvailable,
+    runtimeMode: input.context.runtimeMode === input.context.expectedRuntimeMode,
+    runtimePluginHost: input.context.pluginHost === input.context.expectedPluginHost,
+    embeddedRuntime: input.plugin.mcp.embeddedRuntime,
+    packagePin: input.plugin.mcp.packagePin,
+    pluginHost: input.plugin.mcp.pluginHost,
+    pluginRuntimeMode: input.plugin.mcp.runtimeMode,
+    pluginAssets: input.plugin.assets.ok,
+    pluginManifest: input.plugin.manifest.ok,
+    pluginMcp: input.plugin.mcp.ok,
+    pluginMcpEntry:
+      input.plugin.mcp.entry.mode !== 'unknown' &&
+      input.plugin.mcp.entry.mode !== 'stale-installed-cache',
+    pluginSkills: input.plugin.skills.ok,
+    projectRoot:
+      !input.options.projectRootResolution ||
+      input.options.projectRootResolution.trust === 'trusted',
+    residentServiceContract:
+      !input.options.residentService || input.options.residentService.status.contractVersion === 1,
+  };
+}
+
+function buildCodexRuntimeReportSections(input: {
+  checks: CodexRuntimeChecks;
+  context: CodexRuntimeContext;
+  daemonStatus: DaemonStatus;
+  enhancementRoute: CodexEnhancementRouteChoice;
+  moduleBoundary: CodexModuleBoundaryStatus;
+  npm: CodexCommandProbeResult;
+  npx: CodexCommandProbeResult;
+  options: CodexRuntimeDiagnosticsOptions;
+  plugin: CodexPluginDiagnostics;
+}): Record<string, unknown> {
+  return {
     node: {
-      ok: checks.node,
+      ok: input.checks.node,
       required: '>=22',
       recommended: '22 LTS',
       version: process.versions.node,
@@ -242,54 +314,54 @@ export function buildCodexRuntimeDiagnostics(
       modules: process.versions.modules,
     },
     commands: {
-      npm,
-      npx,
+      npm: input.npm,
+      npx: input.npx,
     },
     package: {
-      name: context.runtimePackage,
-      version: context.packageVersion,
-      embeddedRuntime: plugin.mcp.embeddedRuntime,
-      runtimeSpecifier: context.embeddedRuntimeSpecifier,
-      pinnedSpecifier: context.pinnedRuntimeSpecifier,
-      mcpBinary: context.runtimeBin,
+      name: input.context.runtimePackage,
+      version: input.context.packageVersion,
+      embeddedRuntime: input.plugin.mcp.embeddedRuntime,
+      runtimeSpecifier: input.context.embeddedRuntimeSpecifier,
+      pinnedSpecifier: input.context.pinnedRuntimeSpecifier,
+      mcpBinary: input.context.runtimeBin,
     },
-    projectRootResolution: options.projectRootResolution
-      ? summarizeCodexProjectRootResolution(options.projectRootResolution)
+    projectRootResolution: input.options.projectRootResolution
+      ? summarizeCodexProjectRootResolution(input.options.projectRootResolution)
       : null,
-    autoInit: options.autoInit || null,
-    hostProjectAlignment: options.hostProjectAlignment || null,
-    enhancementRoute,
-    residentService: options.residentService || null,
-    residentServiceBoundary: buildResidentServiceBoundary(options.residentService),
-    projectRuntime: options.projectRuntime || null,
-    projectScopeIdentity: options.projectScopeIdentity || null,
-    moduleBoundary,
-    gitDiffCheckpoint: readHealthGitDiffCheckpoint(daemonStatus.health),
-    plugin,
+    autoInit: input.options.autoInit || null,
+    hostProjectAlignment: input.options.hostProjectAlignment || null,
+    enhancementRoute: input.enhancementRoute,
+    residentService: input.options.residentService || null,
+    residentServiceBoundary: buildResidentServiceBoundary(input.options.residentService),
+    projectRuntime: input.options.projectRuntime || null,
+    projectScopeIdentity: input.options.projectScopeIdentity || null,
+    moduleBoundary: input.moduleBoundary,
+    gitDiffCheckpoint: readHealthGitDiffCheckpoint(input.daemonStatus.health),
+    plugin: input.plugin,
     daemon: {
-      ready: daemonStatus.ready,
-      status: daemonStatus.status,
-      stateVersion: daemonStatus.state?.version || null,
-      healthVersion: readHealthVersion(daemonStatus.health),
+      ready: input.daemonStatus.ready,
+      status: input.daemonStatus.status,
+      stateVersion: input.daemonStatus.state?.version || null,
+      healthVersion: readHealthVersion(input.daemonStatus.health),
     },
     codex: {
-      channelId: context.channelId,
-      expectedChannelId: context.expectedChannelId,
-      pluginHost: context.pluginHost,
-      runtimeMode: context.runtimeMode,
-      requestedTier: context.requestedTier,
-      effectiveTier: context.effectiveTier,
-      adminEnabled: context.adminEnabled,
-      adminMode: context.adminEnabled
+      channelId: input.context.channelId,
+      expectedChannelId: input.context.expectedChannelId,
+      pluginHost: input.context.pluginHost,
+      runtimeMode: input.context.runtimeMode,
+      requestedTier: input.context.requestedTier,
+      effectiveTier: input.context.effectiveTier,
+      adminEnabled: input.context.adminEnabled,
+      adminMode: input.context.adminEnabled
         ? `enabled-by-${CODEX_ADMIN_ENABLE_ENV}`
         : `disabled-requires-${CODEX_ADMIN_ENABLE_ENV}=1`,
     },
     runtimeIdentity: {
-      mode: context.runtimeMode,
-      expectedMode: context.expectedRuntimeMode,
-      pluginHost: context.pluginHost,
-      expectedPluginHost: context.expectedPluginHost,
-      isPluginRuntime: context.runtimeMode === ALEMBIC_RUNTIME_MODE_PLUGIN,
+      mode: input.context.runtimeMode,
+      expectedMode: input.context.expectedRuntimeMode,
+      pluginHost: input.context.pluginHost,
+      expectedPluginHost: input.context.expectedPluginHost,
+      isPluginRuntime: input.context.runtimeMode === ALEMBIC_RUNTIME_MODE_PLUGIN,
       env: {
         mode: ALEMBIC_RUNTIME_MODE_ENV,
         pluginHost: ALEMBIC_PLUGIN_HOST_ENV,
@@ -299,8 +371,8 @@ export function buildCodexRuntimeDiagnostics(
     offlineFallback: {
       note: 'The Codex plugin ships Plugin runtime code in ./runtime and starts MCP through ./bin/alembic-codex-mcp-wrapper.mjs. The wrapper invokes npx against ./runtime.tgz with a per-process npm cache under a plugin-specific base and a startup lock. This embedded route is for Codex host-agent recovery, not Alembic resident enhancement. AlembicPlugin does not provide a root registry package fallback.',
       registryPackageFallback: false,
-      localPackage: context.embeddedRuntimeSpecifier,
-      command: context.runtimeBin,
+      localPackage: input.context.embeddedRuntimeSpecifier,
+      command: input.context.runtimeBin,
     },
     cleanup: {
       automaticOnUninstall: false,
@@ -314,6 +386,27 @@ export function buildCodexPluginDiagnostics(
   context: CodexRuntimeContext = resolveCodexRuntimeContext()
 ): CodexPluginDiagnostics {
   const registry = loadCodexPluginRegistry(context);
+  const assets = buildCodexPluginAssetDiagnostics(registry);
+  const manifest = buildCodexPluginManifestDiagnostics(registry);
+  const mcp = buildCodexPluginMcpDiagnostics(context, registry);
+  const readme = buildCodexPluginReadmeDiagnostics(context, registry);
+  const skills = buildCodexPluginSkillDiagnostics(registry);
+
+  return {
+    assets,
+    manifest,
+    mcp,
+    ok: manifest.ok && mcp.ok && assets.ok && skills.ok && readme.ok,
+    readme,
+    root: registry.plugin.root,
+    skills,
+  };
+}
+
+function buildCodexPluginMcpDiagnostics(
+  context: CodexRuntimeContext,
+  registry: CodexPluginRegistry
+): CodexPluginDiagnostics['mcp'] {
   const args = registry.mcp.args;
   const packageIndex = args.indexOf('--package');
   const runtimeSpecifier = packageIndex >= 0 ? args[packageIndex + 1] || null : null;
@@ -366,140 +459,116 @@ export function buildCodexPluginDiagnostics(
   const runtimeMode = runtimeModeValue === ALEMBIC_RUNTIME_MODE_PLUGIN;
   const mcpMode = registry.mcp.env?.[CODEX_MCP_MODE_ENV] === '1';
   const codexShimMode = registry.mcp.env?.[CODEX_MCP_SHIM_ENV] === '1';
-  const missingAssets = registry.plugin.assets.filter(
-    (asset) => !existsSync(join(registry.plugin.root, asset))
-  );
-  const requiredSkills = [...CODEX_REQUIRED_SKILLS];
-  const missingSkills = requiredSkills.filter(
-    (skill) => !existsSync(join(registry.plugin.root, 'skills', skill, 'SKILL.md'))
-  );
-  const mentionsEmbeddedRuntime = registry.plugin.readme.includes(context.embeddedRuntimeSpecifier);
-  const mentionsPinnedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
-  const readmeOk = mentionsEmbeddedRuntime && mentionsPinnedRuntime;
+  const mcpOk =
+    embeddedRuntime &&
+    adminDisabledByDefault &&
+    agentTierByDefault &&
+    pluginHost &&
+    runtimeMode &&
+    mcpMode &&
+    codexShimMode;
 
   return {
-    assets: {
-      missing: missingAssets,
-      ok: registry.plugin.assets.length > 0 && missingAssets.length === 0,
-      required: registry.plugin.assets,
-    },
-    manifest: {
-      ok:
-        registry.plugin.manifest.ok &&
-        asString(registry.plugin.manifest.value?.name) === CODEX_PLUGIN_NAME,
-      path: registry.plugin.manifest.path,
-      version: asString(registry.plugin.manifest.value?.version) || null,
-    },
-    mcp: {
-      adminDisabledByDefault,
-      agentTierByDefault,
-      binary,
-      codexShimMode,
-      command,
-      embeddedRuntime,
-      mcpMode,
-      ok:
-        embeddedRuntime &&
-        adminDisabledByDefault &&
-        agentTierByDefault &&
-        pluginHost &&
-        runtimeMode &&
-        mcpMode &&
-        codexShimMode,
-      packagePin,
-      path: registry.mcp.json.path,
-      pluginHost,
-      pluginHostValue,
-      pinnedSpecifier: context.embeddedRuntimeSpecifier,
-      runtimeMode,
-      runtimeModeValue,
-      runtimeSpecifier: runtimeSpecifier || context.embeddedRuntimeSpecifier,
-      entry,
-      wrapper: {
-        exists: Boolean(wrapperPath && existsSync(wrapperPath)),
-        path: wrapperPath,
-        startupLock: wrapperUsesStartupLock,
-        startupLockDiagnostics,
-      },
-    },
-    ok:
-      registry.plugin.manifest.ok &&
-      embeddedRuntime &&
-      adminDisabledByDefault &&
-      agentTierByDefault &&
-      pluginHost &&
-      runtimeMode &&
-      mcpMode &&
-      codexShimMode &&
-      missingAssets.length === 0 &&
-      missingSkills.length === 0 &&
-      readmeOk,
-    readme: {
-      mentionsEmbeddedRuntime,
-      mentionsPinnedRuntime,
-      ok: readmeOk,
-      path: registry.plugin.readmePath,
-    },
-    root: registry.plugin.root,
-    skills: {
-      missing: missingSkills,
-      ok: missingSkills.length === 0,
-      required: requiredSkills,
+    adminDisabledByDefault,
+    agentTierByDefault,
+    binary,
+    codexShimMode,
+    command,
+    embeddedRuntime,
+    mcpMode,
+    ok: mcpOk,
+    packagePin,
+    path: registry.mcp.json.path,
+    pluginHost,
+    pluginHostValue,
+    pinnedSpecifier: context.embeddedRuntimeSpecifier,
+    runtimeMode,
+    runtimeModeValue,
+    runtimeSpecifier: runtimeSpecifier || context.embeddedRuntimeSpecifier,
+    entry,
+    wrapper: {
+      exists: Boolean(wrapperPath && existsSync(wrapperPath)),
+      path: wrapperPath,
+      startupLock: wrapperUsesStartupLock,
+      startupLockDiagnostics,
     },
   };
 }
 
-function buildCodexMcpEntryDiagnostics(input: {
-  args: string[];
-  command: string | null;
-  registryPluginRoot: string;
-  runtimeTarballPath: string;
-  wrapperArg: string | null;
-  wrapperPath: string | null;
-}): CodexMcpEntryDiagnostics {
+function buildCodexPluginAssetDiagnostics(
+  registry: CodexPluginRegistry
+): CodexPluginDiagnostics['assets'] {
+  const missingAssets = registry.plugin.assets.filter(
+    (asset) => !existsSync(join(registry.plugin.root, asset))
+  );
+  return {
+    missing: missingAssets,
+    ok: registry.plugin.assets.length > 0 && missingAssets.length === 0,
+    required: registry.plugin.assets,
+  };
+}
+
+function buildCodexPluginManifestDiagnostics(
+  registry: CodexPluginRegistry
+): CodexPluginDiagnostics['manifest'] {
+  return {
+    ok:
+      registry.plugin.manifest.ok &&
+      asString(registry.plugin.manifest.value?.name) === CODEX_PLUGIN_NAME,
+    path: registry.plugin.manifest.path,
+    version: asString(registry.plugin.manifest.value?.version) || null,
+  };
+}
+
+function buildCodexPluginSkillDiagnostics(
+  registry: CodexPluginRegistry
+): CodexPluginDiagnostics['skills'] {
+  const requiredSkills = [...CODEX_REQUIRED_SKILLS];
+  const missingSkills = requiredSkills.filter(
+    (skill) => !existsSync(join(registry.plugin.root, 'skills', skill, 'SKILL.md'))
+  );
+  return {
+    missing: missingSkills,
+    ok: missingSkills.length === 0,
+    required: requiredSkills,
+  };
+}
+
+function buildCodexPluginReadmeDiagnostics(
+  context: CodexRuntimeContext,
+  registry: CodexPluginRegistry
+): CodexPluginDiagnostics['readme'] {
+  const mentionsEmbeddedRuntime = registry.plugin.readme.includes(context.embeddedRuntimeSpecifier);
+  const mentionsPinnedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
+  return {
+    mentionsEmbeddedRuntime,
+    mentionsPinnedRuntime,
+    ok: mentionsEmbeddedRuntime && mentionsPinnedRuntime,
+    path: registry.plugin.readmePath,
+  };
+}
+
+function buildCodexMcpEntryDiagnostics(
+  input: CodexMcpEntryDiagnosticsInput
+): CodexMcpEntryDiagnostics {
   const marker = readInstalledRefreshMarker(
     join(input.registryPluginRoot, '.alembic-dev-refresh.json')
   );
-  const localDistArg =
-    input.args.find(
-      (arg) => arg.endsWith('/dist/bin/codex-mcp.js') || arg.endsWith('dist/bin/codex-mcp.js')
-    ) || null;
-  const localDistPath = localDistArg
-    ? resolveMaybePluginRelative(input.registryPluginRoot, localDistArg)
-    : typeof marker.localMcpEntry === 'string'
-      ? marker.localMcpEntry
-      : null;
+  const localDistArg = findLocalDistArg(input.args);
+  const localDistPath = resolveLocalDistEntryPath(input.registryPluginRoot, marker, localDistArg);
   const localDistEntryExists = localDistPath ? existsSync(localDistPath) : null;
   const runtimeTarballExists = existsSync(input.runtimeTarballPath);
   const hasWrapper = Boolean(input.wrapperArg);
-  const staleReasons: string[] = [];
-  const configMode = localDistArg
-    ? 'local-dev-direct-dist'
-    : hasWrapper
-      ? 'packaged-wrapper'
-      : 'unknown';
-
-  if (configMode === 'local-dev-direct-dist' && localDistEntryExists === false) {
-    staleReasons.push('local-dev-dist-entry-missing');
-  }
-  if (configMode === 'packaged-wrapper' && !runtimeTarballExists) {
-    staleReasons.push('runtime-tarball-missing');
-  }
-  if (hasWrapper && input.wrapperPath && !existsSync(input.wrapperPath)) {
-    staleReasons.push('wrapper-entry-missing');
-  }
-  if (marker.exists && marker.mode === 'local-mcp' && configMode !== 'local-dev-direct-dist') {
-    staleReasons.push('refresh-marker-local-mcp-but-config-not-local-dist');
-  }
-  if (marker.exists && marker.mode === 'packaged-runtime' && configMode !== 'packaged-wrapper') {
-    staleReasons.push('refresh-marker-packaged-but-config-not-wrapper');
-  }
-  if (marker.exists && marker.mode === 'local-mcp' && marker.localMcpEntry && localDistPath) {
-    const markerEntry = resolveMaybePluginRelative(input.registryPluginRoot, marker.localMcpEntry);
-    if (markerEntry !== localDistPath) {
-      staleReasons.push('refresh-marker-local-entry-mismatch');
-    }
-  }
+  const configMode = resolveCodexMcpConfigMode(localDistArg, hasWrapper);
+  const staleReasons = collectCodexMcpEntryStaleReasons({
+    configMode,
+    hasWrapper,
+    input,
+    localDistEntryExists,
+    localDistPath,
+    marker,
+    runtimeTarballExists,
+  });
 
   const mode =
     staleReasons.length > 0 && configMode !== 'unknown' ? 'stale-installed-cache' : configMode;
@@ -522,6 +591,90 @@ function buildCodexMcpEntryDiagnostics(input: {
     staleReasons,
     wrapperPath: input.wrapperPath,
   };
+}
+
+function findLocalDistArg(args: string[]): string | null {
+  return (
+    args.find(
+      (arg) => arg.endsWith('/dist/bin/codex-mcp.js') || arg.endsWith('dist/bin/codex-mcp.js')
+    ) || null
+  );
+}
+
+function resolveLocalDistEntryPath(
+  registryPluginRoot: string,
+  marker: CodexMcpEntryDiagnostics['cacheMarker'],
+  localDistArg: string | null
+): string | null {
+  if (localDistArg) {
+    return resolveMaybePluginRelative(registryPluginRoot, localDistArg);
+  }
+  return typeof marker.localMcpEntry === 'string' ? marker.localMcpEntry : null;
+}
+
+function resolveCodexMcpConfigMode(
+  localDistArg: string | null,
+  hasWrapper: boolean
+): CodexMcpConfigMode {
+  if (localDistArg) {
+    return 'local-dev-direct-dist';
+  }
+  return hasWrapper ? 'packaged-wrapper' : 'unknown';
+}
+
+function collectCodexMcpEntryStaleReasons(input: {
+  configMode: CodexMcpConfigMode;
+  hasWrapper: boolean;
+  input: CodexMcpEntryDiagnosticsInput;
+  localDistEntryExists: boolean | null;
+  localDistPath: string | null;
+  marker: CodexMcpEntryDiagnostics['cacheMarker'];
+  runtimeTarballExists: boolean;
+}): string[] {
+  const staleReasons: string[] = [];
+  if (input.configMode === 'local-dev-direct-dist' && input.localDistEntryExists === false) {
+    staleReasons.push('local-dev-dist-entry-missing');
+  }
+  if (input.configMode === 'packaged-wrapper' && !input.runtimeTarballExists) {
+    staleReasons.push('runtime-tarball-missing');
+  }
+  if (input.hasWrapper && input.input.wrapperPath && !existsSync(input.input.wrapperPath)) {
+    staleReasons.push('wrapper-entry-missing');
+  }
+  if (input.marker.exists && input.marker.mode === 'local-mcp') {
+    collectLocalMcpMarkerStaleReasons(input, staleReasons);
+  }
+  if (
+    input.marker.exists &&
+    input.marker.mode === 'packaged-runtime' &&
+    input.configMode !== 'packaged-wrapper'
+  ) {
+    staleReasons.push('refresh-marker-packaged-but-config-not-wrapper');
+  }
+  return staleReasons;
+}
+
+function collectLocalMcpMarkerStaleReasons(
+  input: {
+    configMode: CodexMcpConfigMode;
+    input: CodexMcpEntryDiagnosticsInput;
+    localDistPath: string | null;
+    marker: CodexMcpEntryDiagnostics['cacheMarker'];
+  },
+  staleReasons: string[]
+): void {
+  if (input.configMode !== 'local-dev-direct-dist') {
+    staleReasons.push('refresh-marker-local-mcp-but-config-not-local-dist');
+  }
+  if (input.marker.localMcpEntry && input.localDistPath) {
+    const markerEntry = resolveMaybePluginRelative(
+      input.input.registryPluginRoot,
+      input.marker.localMcpEntry
+    );
+    if (markerEntry !== input.localDistPath) {
+      staleReasons.push('refresh-marker-local-entry-mismatch');
+    }
+  }
 }
 
 function buildWrapperStartupLockDiagnostics(
@@ -589,35 +742,41 @@ function entryModeNextAction(mode: CodexMcpEntryDiagnostics['mode']): string {
     case 'packaged-wrapper':
       return 'Use packaged runtime diagnostics when startup fails; wrapper lock waits should report owner, wait reason, timeout, and next action.';
     case 'stale-installed-cache':
-      return 'Run npm run dev:codex-plugin:reload to rebuild, rewrite installed cache, stop old MCP processes, and probe the next startup.';
+      return 'Run npm run dev:codex-plugin:reload to rebuild, rewrite installed cache, and probe a fresh MCP startup. Restart Codex itself if the current host MCP transport is closed.';
     case 'unknown':
       return 'Inspect the installed .mcp.json; expected either local dist/bin/codex-mcp.js or ./bin/alembic-codex-mcp-wrapper.mjs.';
   }
 }
 
-function buildDiagnosticIssues(input: {
-  adminEnabled: boolean;
-  checks: Record<string, boolean>;
-  npm: CodexCommandProbeResult;
-  npx: CodexCommandProbeResult;
-  packageVersion: string;
-  pluginHost: string;
-  plugin: CodexPluginDiagnostics;
-  projectRootResolution?: CodexProjectRootResolution;
-  requestedTier: string;
-  runtimeMode: string;
-}): CodexDiagnosticIssue[] {
-  const issues: CodexDiagnosticIssue[] = [];
+function buildDiagnosticIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+  return [
+    ...buildProjectRootIssues(input),
+    ...buildRuntimeCommandIssues(input),
+    ...buildRuntimeIdentityIssues(input),
+    ...buildPluginConfigurationIssues(input),
+    ...buildResidentServiceContractIssues(input),
+    ...buildAdminTierIssues(input),
+  ];
+}
+
+function buildProjectRootIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
   if (input.projectRootResolution && input.projectRootResolution.trust !== 'trusted') {
     const rejected = input.projectRootResolution.trust === 'rejected';
-    issues.push({
-      action:
-        'Pass the current workspace directory as the projectRoot argument, then rerun the Alembic tool.',
-      code: rejected ? 'CODEX_PROJECT_ROOT_REJECTED' : 'CODEX_PROJECT_ROOT_UNRESOLVED',
-      message: buildCodexProjectRootRequiredMessage(input.projectRootResolution),
-      severity: 'error',
-    });
+    return [
+      {
+        action:
+          'Pass the current workspace directory as the projectRoot argument, then rerun the Alembic tool.',
+        code: rejected ? 'CODEX_PROJECT_ROOT_REJECTED' : 'CODEX_PROJECT_ROOT_UNRESOLVED',
+        message: buildCodexProjectRootRequiredMessage(input.projectRootResolution),
+        severity: 'error',
+      },
+    ];
   }
+  return [];
+}
+
+function buildRuntimeCommandIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+  const issues: CodexDiagnosticIssue[] = [];
   if (!input.checks.node) {
     issues.push({
       action:
@@ -631,7 +790,7 @@ function buildDiagnosticIssues(input: {
   if (staleCommandCwd) {
     issues.push({
       action:
-        'Restart the Alembic Codex MCP process or open a new Codex session so diagnostics no longer inherit a deleted plugin cache working directory.',
+        'Restart Codex itself or open a new Codex session so diagnostics no longer inherit a deleted plugin cache working directory.',
       code: 'CODEX_STALE_COMMAND_CWD',
       message:
         'npm/npx failed with uv_cwd, which usually means the current Alembic Codex MCP process still holds a plugin cache directory that was replaced during cache refresh. The plugin runtime pin is separate from this stale cwd condition.',
@@ -655,14 +814,26 @@ function buildDiagnosticIssues(input: {
       severity: 'error',
     });
   }
+  return issues;
+}
+
+function buildRuntimeIdentityIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
   if (!input.checks.runtimeMode || !input.checks.runtimePluginHost) {
-    issues.push({
-      action: 'Start Alembic Codex with ALEMBIC_RUNTIME_MODE=plugin and ALEMBIC_PLUGIN_HOST=codex.',
-      code: 'RUNTIME_IDENTITY_MISMATCH',
-      message: `Current runtime identity is ALEMBIC_RUNTIME_MODE=${input.runtimeMode}, ALEMBIC_PLUGIN_HOST=${input.pluginHost}.`,
-      severity: 'error',
-    });
+    return [
+      {
+        action:
+          'Start Alembic Codex with ALEMBIC_RUNTIME_MODE=plugin and ALEMBIC_PLUGIN_HOST=codex.',
+        code: 'RUNTIME_IDENTITY_MISMATCH',
+        message: `Current runtime identity is ALEMBIC_RUNTIME_MODE=${input.runtimeMode}, ALEMBIC_PLUGIN_HOST=${input.pluginHost}.`,
+        severity: 'error',
+      },
+    ];
   }
+  return [];
+}
+
+function buildPluginConfigurationIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+  const issues: CodexDiagnosticIssue[] = [];
   if (!input.checks.packagePin) {
     issues.push({
       action:
@@ -683,17 +854,7 @@ function buildDiagnosticIssues(input: {
     });
   }
   if (!input.checks.pluginMcpEntry) {
-    const stale = input.plugin.mcp.entry.mode === 'stale-installed-cache';
-    issues.push({
-      action: stale
-        ? 'Run npm run dev:codex-plugin:reload so installed Codex plugin caches point to a fresh local dist build.'
-        : 'Inspect plugins/alembic-codex/.mcp.json and the installed cache marker so diagnostics can classify the MCP entry mode.',
-      code: stale ? 'CODEX_MCP_ENTRY_STALE_CACHE' : 'CODEX_MCP_ENTRY_MODE_UNKNOWN',
-      message: stale
-        ? `Installed Codex plugin cache is stale: ${input.plugin.mcp.entry.staleReasons.join(', ')}.`
-        : 'Codex plugin MCP entry mode is neither packaged wrapper nor local-dev direct dist.',
-      severity: 'error',
-    });
+    issues.push(buildPluginMcpEntryIssue(input.plugin.mcp.entry));
   }
   if (!input.checks.pluginManifest || !input.plugin.readme.ok) {
     issues.push({
@@ -711,24 +872,52 @@ function buildDiagnosticIssues(input: {
       severity: 'error',
     });
   }
-  if (!input.checks.residentServiceContract) {
-    issues.push({
-      action:
-        'Refresh @alembic/core and the Codex plugin runtime artifact so resident service status uses the supported contract version.',
-      code: 'RESIDENT_SERVICE_CONTRACT_UNSUPPORTED',
-      message: 'Resident service status uses an unsupported contract version.',
-      severity: 'error',
-    });
-  }
-  if (input.requestedTier === 'admin' && !input.adminEnabled) {
-    issues.push({
-      action: `Set ${CODEX_ADMIN_ENABLE_ENV}=1 only for explicit admin workflows.`,
-      code: 'CODEX_ADMIN_OPT_IN_REQUIRED',
-      message: 'Admin tier was requested, but the Codex-specific admin opt-in is disabled.',
-      severity: 'warning',
-    });
-  }
   return issues;
+}
+
+function buildPluginMcpEntryIssue(entry: CodexMcpEntryDiagnostics): CodexDiagnosticIssue {
+  const stale = entry.mode === 'stale-installed-cache';
+  return {
+    action: stale
+      ? 'Run npm run dev:codex-plugin:reload so installed Codex plugin caches point to a fresh local dist build.'
+      : 'Inspect plugins/alembic-codex/.mcp.json and the installed cache marker so diagnostics can classify the MCP entry mode.',
+    code: stale ? 'CODEX_MCP_ENTRY_STALE_CACHE' : 'CODEX_MCP_ENTRY_MODE_UNKNOWN',
+    message: stale
+      ? `Installed Codex plugin cache is stale: ${entry.staleReasons.join(', ')}.`
+      : 'Codex plugin MCP entry mode is neither packaged wrapper nor local-dev direct dist.',
+    severity: 'error',
+  };
+}
+
+function buildResidentServiceContractIssues(
+  input: BuildDiagnosticIssuesInput
+): CodexDiagnosticIssue[] {
+  if (!input.checks.residentServiceContract) {
+    return [
+      {
+        action:
+          'Refresh @alembic/core and the Codex plugin runtime artifact so resident service status uses the supported contract version.',
+        code: 'RESIDENT_SERVICE_CONTRACT_UNSUPPORTED',
+        message: 'Resident service status uses an unsupported contract version.',
+        severity: 'error',
+      },
+    ];
+  }
+  return [];
+}
+
+function buildAdminTierIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+  if (input.requestedTier === 'admin' && !input.adminEnabled) {
+    return [
+      {
+        action: `Set ${CODEX_ADMIN_ENABLE_ENV}=1 only for explicit admin workflows.`,
+        code: 'CODEX_ADMIN_OPT_IN_REQUIRED',
+        message: 'Admin tier was requested, but the Codex-specific admin opt-in is disabled.',
+        severity: 'warning',
+      },
+    ];
+  }
+  return [];
 }
 
 function buildResidentServiceBoundary(
