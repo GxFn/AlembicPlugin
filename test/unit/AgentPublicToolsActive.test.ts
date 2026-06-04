@@ -1,6 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test, vi } from 'vitest';
-import { intentHandler, primeHandler } from '../../lib/codex/mcp/handlers/agent-public-tools.js';
+import {
+  codeGuardHandler,
+  decisionRecordHandler,
+  intentHandler,
+  primeHandler,
+  workFinishHandler,
+  workStartHandler,
+} from '../../lib/codex/mcp/handlers/agent-public-tools.js';
 import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
 import { createIdleIntent } from '../../lib/codex/mcp/handlers/types.js';
 import { TOOLS } from '../../lib/codex/mcp/tools.js';
@@ -8,13 +15,17 @@ import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeli
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 function makeContext(
-  search?: (intent: unknown, options?: unknown) => Promise<PrimeSearchResult | null>
+  search?: (intent: unknown, options?: unknown) => Promise<PrimeSearchResult | null>,
+  services: Record<string, unknown> = {}
 ): McpContext {
   return {
     container: {
       get: vi.fn((name: string) => {
         if (name === 'primeSearchPipeline') {
           return search ? { search } : null;
+        }
+        if (name in services) {
+          return services[name];
         }
         throw new Error(`Unexpected service: ${name}`);
       }),
@@ -78,10 +89,18 @@ function deliveredSearchResult(): PrimeSearchResult {
 }
 
 describe('agent-facing active public tools', () => {
-  test('registers alembic_intent and alembic_prime with active schemas', () => {
+  test('registers all agent public tools with active schemas', () => {
     const names = TOOLS.map((tool) => tool.name);
-    expect(names).toContain('alembic_intent');
-    expect(names).toContain('alembic_prime');
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'alembic_intent',
+        'alembic_prime',
+        'alembic_work_start',
+        'alembic_work_finish',
+        'alembic_code_guard',
+        'alembic_decision_record',
+      ])
+    );
 
     expect(
       TOOL_SCHEMAS.alembic_intent.safeParse({ userQuery: 'Implement public tools' }).success
@@ -90,6 +109,23 @@ describe('agent-facing active public tools', () => {
       TOOL_SCHEMAS.alembic_prime.safeParse({
         intentRef: 'intent-1',
         projectRoot: '/tmp/project',
+      }).success
+    ).toBe(true);
+    expect(
+      TOOL_SCHEMAS.alembic_work_start.safeParse({
+        title: 'Implement active work public tool',
+      }).success
+    ).toBe(true);
+    expect(
+      TOOL_SCHEMAS.alembic_work_finish.safeParse({
+        changedFiles: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+        workRef: 'work-public-1',
+      }).success
+    ).toBe(true);
+    expect(TOOL_SCHEMAS.alembic_code_guard.safeParse({}).success).toBe(true);
+    expect(
+      TOOL_SCHEMAS.alembic_decision_record.safeParse({
+        title: 'Decision register route required',
       }).success
     ).toBe(true);
   });
@@ -246,6 +282,149 @@ describe('agent-facing active public tools', () => {
     expect(result.data.primeKnowledgeMaterial.status).toBe('empty');
   });
 
+  test('starts and finishes work with workRef, finishRef, detailRefs, and scoped guard recommendation', async () => {
+    const ctx = makeContext();
+    const start = (await workStartHandler(ctx, {
+      agentHost: 'codex',
+      hostDeclaredIntent: {
+        action: 'implement',
+        confidence: 0.93,
+        language: 'typescript',
+        query: 'Implement Stage 4 active work tool',
+      },
+      inputSource: 'host-declared-intent',
+      title: 'Implement Stage 4 active work tool',
+      workScope: {
+        files: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+        goal: 'Implement active work lifecycle',
+      },
+    })) as {
+      data: {
+        result: {
+          legacyCompatibility: { usesLegacyTaskHandler: boolean };
+          refs: { detailRefs: unknown[]; workRef: { id: string } };
+          status: string;
+        };
+        workRef: string;
+      };
+      success: boolean;
+    };
+
+    expect(start.success).toBe(true);
+    expect(start.data.result.status).toBe('ready');
+    expect(start.data.result.refs.workRef.id).toBe(start.data.workRef);
+    expect(start.data.result.refs.detailRefs).not.toHaveLength(0);
+    expect(start.data.result.legacyCompatibility.usesLegacyTaskHandler).toBe(false);
+
+    const finish = (await workFinishHandler(ctx, {
+      changedFiles: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts'],
+      inputSource: 'host-declared-intent',
+      summary: 'Implemented Stage 4 active work tool.',
+      workRef: start.data.workRef,
+    })) as {
+      data: {
+        finishRef: string;
+        guardRecommendation: { action: string; input?: { files: string[] }; tool: string };
+        result: {
+          refs: { finishRef: { id: string }; workRef: { id: string } };
+          status: string;
+        };
+      };
+      success: boolean;
+    };
+
+    expect(finish.success).toBe(true);
+    expect(finish.data.result.status).toBe('ready');
+    expect(finish.data.result.refs.workRef.id).toBe(start.data.workRef);
+    expect(finish.data.result.refs.finishRef.id).toBe(finish.data.finishRef);
+    expect(finish.data.guardRecommendation).toMatchObject({
+      action: 'run',
+      tool: 'alembic_code_guard',
+    });
+    expect(finish.data.guardRecommendation.input?.files).toEqual(
+      expect.arrayContaining(['lib/codex/mcp/handlers/agent-public-tools.ts'])
+    );
+  });
+
+  test('blocks code guard without explicit files or inline code', async () => {
+    const ctx = makeContext();
+    const result = (await codeGuardHandler(ctx, {
+      hostDeclaredIntent: {
+        action: 'review',
+        query: 'Run guard after work finish',
+      },
+      inputSource: 'host-declared-intent',
+    })) as {
+      data: { result: { reason: { code: string }; status: string } };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data.result).toMatchObject({
+      reason: { code: 'missing-guard-scope' },
+      status: 'blocked',
+    });
+  });
+
+  test('runs code guard only for explicit inline code scope', async () => {
+    const checkCode = vi.fn(() => []);
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile: vi.fn(),
+        auditFiles: vi.fn(),
+        checkCode,
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+
+    const result = (await codeGuardHandler(ctx, {
+      code: 'export const value = 1;',
+      filePath: 'lib/example.ts',
+      inputSource: 'host-declared-intent',
+      language: 'typescript',
+    })) as {
+      data: {
+        explicitScope: { filePath: string | null; kind: string };
+        guardResultRef: string;
+        result: { refs: { guardResultRef: { id: string } }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(checkCode).toHaveBeenCalledWith('export const value = 1;', 'typescript');
+    expect(result.data.explicitScope).toEqual({ filePath: 'lib/example.ts', kind: 'code' });
+    expect(result.data.result.refs.guardResultRef.id).toBe(result.data.guardResultRef);
+  });
+
+  test('returns a durable persistence blocker for decision recording instead of writing a fake record', async () => {
+    const ctx = makeContext();
+    const result = (await decisionRecordHandler(ctx, {
+      description: 'Stage 4 needs a durable Decision Register producer route.',
+      inputSource: 'host-declared-intent',
+      title: 'Decision Register producer route required',
+    })) as {
+      data: {
+        durablePersistence: { available: boolean; requiredRoute: string };
+        result: { reason: { code: string }; refs: { decisionRef?: unknown }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data.result).toMatchObject({
+      reason: { code: 'decision-register-unavailable' },
+      status: 'blocked',
+    });
+    expect(result.data.result.refs.decisionRef).toBeUndefined();
+    expect(result.data.durablePersistence).toMatchObject({
+      available: false,
+      requiredRoute: 'Alembic durable Decision Register Recipe route',
+    });
+  });
+
   test('does not import or call the legacy task handler', () => {
     const source = readFileSync(
       new URL('../../lib/codex/mcp/handlers/agent-public-tools.ts', import.meta.url),
@@ -254,6 +433,7 @@ describe('agent-facing active public tools', () => {
     expect(source).not.toContain('taskHandler');
     expect(source).not.toContain("from './task");
     expect(source).not.toContain('alembic_task');
+    expect(source).not.toContain('routeGuardTool');
     expect(source).not.toContain('operation=prime');
   });
 });

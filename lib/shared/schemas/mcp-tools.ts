@@ -92,7 +92,7 @@ export const HostTurnMetaInput = z.object({
 export type HostTurnMetaInput = z.infer<typeof HostTurnMetaInput>;
 
 // ══════════════════════════════════════════════════════
-//  Agent-facing public tools — Stage 3 active surface
+//  Agent-facing public tools — active public surface
 // ══════════════════════════════════════════════════════
 
 const AgentHostSchema = z.enum(['codex', 'claude-code', 'generic-host-agent']);
@@ -182,6 +182,88 @@ export const PrimeInput = AgentPublicToolBaseInput.extend({
   'Agent-facing prime retrieval. Consumes intentRef/recognizedIntent and returns primeRef, Trust Receipt material, detailRefs, and compact knowledge package.'
 );
 export type PrimeInput = z.infer<typeof PrimeInput>;
+
+const AgentRefIdInput = z.string().min(1).max(240);
+const AgentSourceFileRefsInput = z.array(z.string().min(1).max(1200)).max(80).optional();
+
+export const WorkStartInput = AgentPublicToolBaseInput.extend({
+  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
+  primeRef: AgentRefIdInput.optional().describe('primeRef returned by alembic_prime'),
+  title: z.string().min(1).max(240).optional().describe('Short work title'),
+  workScope: z
+    .object({
+      goal: z.string().min(1).max(800).optional(),
+      files: AgentSourceFileRefsInput,
+      summary: z.string().min(1).max(1200).optional(),
+    })
+    .optional()
+    .describe('Host-declared concrete work scope; used only as evidence, not as hidden policy.'),
+}).describe(
+  'Agent-facing work start. Creates a workRef for concrete implementation/fix/refactor/review work without loading knowledge, running Guard, or calling legacy task operations.'
+);
+export type WorkStartInput = z.infer<typeof WorkStartInput>;
+
+export const WorkFinishInput = AgentPublicToolBaseInput.extend({
+  workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
+  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
+  primeRef: AgentRefIdInput.optional().describe('primeRef returned by alembic_prime'),
+  outcome: z
+    .enum(['completed', 'blocked', 'abandoned'])
+    .default('completed')
+    .optional()
+    .describe('Host-declared work outcome'),
+  summary: z.string().min(1).max(1600).optional().describe('Concise work completion summary'),
+  changedFiles: AgentSourceFileRefsInput.describe(
+    'Task-scoped files changed by this work; used to recommend alembic_code_guard with explicit files.'
+  ),
+  evidenceRefs: AgentSourceFileRefsInput.describe('Non-private evidence refs from build/test/logs'),
+  reason: z.string().min(1).max(1200).optional().describe('Blocked or abandoned reason'),
+}).describe(
+  'Agent-facing work finish. Returns finishRef, detailRefs, and scoped Guard recommendation metadata; it does not run Guard.'
+);
+export type WorkFinishInput = z.infer<typeof WorkFinishInput>;
+
+export const CodeGuardInput = AgentPublicToolBaseInput.extend({
+  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
+  workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
+  files: AgentSourceFileRefsInput.describe(
+    'Explicit files to check. Empty or omitted scope returns a structured blocker instead of falling back to whole-diff review.'
+  ),
+  code: z.string().min(1).max(200000).optional().describe('Inline code to check'),
+  filePath: z
+    .string()
+    .min(1)
+    .max(1200)
+    .optional()
+    .describe('Path hint for inline code language detection'),
+  language: z.string().min(1).max(80).optional().describe('Language hint for inline code'),
+  operation: z
+    .enum(['check', 'review'])
+    .optional()
+    .describe('Explicit guard operation. check requires code; review requires files.'),
+}).describe(
+  'Agent-facing scoped code guard. Requires explicit files or inline code; no-args whole-diff behavior is intentionally blocked.'
+);
+export type CodeGuardInput = z.infer<typeof CodeGuardInput>;
+
+export const DecisionRecordInput = AgentPublicToolBaseInput.extend({
+  action: z
+    .enum(['create', 'update', 'revoke', 'delete'])
+    .default('create')
+    .optional()
+    .describe('Decision register action'),
+  decisionRef: AgentRefIdInput.optional().describe('Existing decisionRef for update/revoke/delete'),
+  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
+  workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
+  title: z.string().min(1).max(240).optional().describe('Decision title'),
+  description: z.string().min(1).max(1600).optional().describe('Decision description'),
+  rationale: z.string().min(1).max(1600).optional().describe('Decision rationale'),
+  tags: z.array(z.string().min(1).max(80)).max(20).optional().describe('Decision tags'),
+  evidenceRefs: AgentSourceFileRefsInput.describe('Non-private evidence refs for the decision'),
+}).describe(
+  'Agent-facing decision record. Uses a durable Decision Register route when available; otherwise returns a structured blocker rather than local fake persistence.'
+);
+export type DecisionRecordInput = z.infer<typeof DecisionRecordInput>;
 
 // ══════════════════════════════════════════════════════
 //  2. alembic_search
@@ -675,6 +757,10 @@ export type ConsolidateInput = z.infer<typeof ConsolidateInput>;
 export const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_intent: IntentInput,
   alembic_prime: PrimeInput,
+  alembic_work_start: WorkStartInput,
+  alembic_work_finish: WorkFinishInput,
+  alembic_code_guard: CodeGuardInput,
+  alembic_decision_record: DecisionRecordInput,
   alembic_health: HealthInput,
   alembic_search: SearchInput,
   alembic_knowledge: KnowledgeInput,

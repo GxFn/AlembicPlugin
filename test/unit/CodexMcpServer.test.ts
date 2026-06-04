@@ -46,9 +46,16 @@ const CODEX_HOST_AGENT_TOOL_NAMES = [
   'alembic_rescan',
   'alembic_dimension_complete',
 ];
-const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
+const CODEX_AGENT_PUBLIC_TOOL_NAMES = [
   'alembic_intent',
   'alembic_prime',
+  'alembic_work_start',
+  'alembic_work_finish',
+  'alembic_code_guard',
+  'alembic_decision_record',
+];
+const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
+  ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -390,6 +397,7 @@ describe('CodexMcpServer', () => {
       'alembic_codex_bootstrap',
       'alembic_codex_rescan',
       'alembic_codex_job',
+      ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
       ...CODEX_HOST_AGENT_TOOL_NAMES,
     ]);
   });

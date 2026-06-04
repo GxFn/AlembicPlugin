@@ -86,13 +86,24 @@ export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_dimension_complete',
 ]);
 
-// alembic_intent / alembic_prime / alembic_task 是 Codex intent/task lifecycle
-// 工具，不是普通 Recipe/Search/Guard knowledge-consumption surface。
-// initialized-empty 项目也必须能捕获 intent、prime 空结果或 close task，
-// 这样 Plugin-only acceptance 能在真实 dirty diff / empty knowledge 场景里返回提示。
-export const CODEX_TASK_LIFECYCLE_TOOL_NAMES = new Set([
+// Agent-facing public tools are Codex host lifecycle surfaces, not ordinary
+// Recipe/Search/Guard knowledge-consumption tools. They stay visible even before
+// local knowledge exists so the handlers can return structured skipped,
+// degraded, or blocked envelopes instead of disappearing behind the knowledge
+// gate.
+export const CODEX_AGENT_PUBLIC_TOOL_NAMES = new Set([
   'alembic_intent',
   'alembic_prime',
+  'alembic_work_start',
+  'alembic_work_finish',
+  'alembic_code_guard',
+  'alembic_decision_record',
+]);
+
+// Legacy alembic_task remains an initialized-project lifecycle compatibility
+// surface. It is deliberately not exposed before init.
+export const CODEX_TASK_LIFECYCLE_TOOL_NAMES = new Set([
+  ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
   'alembic_task',
 ]);
 
@@ -107,8 +118,7 @@ export const CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES = new Set(['alembic_project
 // single-folder knowledge gate 误判为 CODEX_ALEMBIC_KNOWLEDGE_REQUIRED。
 export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
   'alembic_health',
-  'alembic_intent',
-  'alembic_prime',
+  ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
   'alembic_search',
   'alembic_task',
 ]);
@@ -124,6 +134,7 @@ export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
 export const CODEX_COLD_START_TOOL_NAMES = new Set([
   ...CODEX_INIT_TOOL_NAMES,
   ...CODEX_INIT_ON_DEMAND_TOOL_NAMES,
+  ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
 ]);
 
 export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
@@ -245,6 +256,7 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
   const coreTools = input.coreTools.filter(
     (tool) =>
       (input.knowledge.usable ||
+        CODEX_AGENT_PUBLIC_TOOL_NAMES.has(tool.name) ||
         (input.residentProjectScopeAvailable === true &&
           CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(tool.name)) ||
         CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name) ||
@@ -280,7 +292,7 @@ export function allowedCodexToolNames(knowledge: CodexKnowledgeState): Set<strin
       ...CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES,
     ]);
   }
-  return new Set([...CODEX_INIT_TOOL_NAMES, ...CODEX_INIT_ON_DEMAND_TOOL_NAMES]);
+  return new Set([...CODEX_COLD_START_TOOL_NAMES]);
 }
 
 export function isCodexProjectSkillDeliveryToolVisible(
