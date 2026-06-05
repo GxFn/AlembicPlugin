@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, test, vi } from 'vitest';
 import {
   codeGuardHandler,
@@ -9,10 +10,14 @@ import {
 } from '../../lib/codex/mcp/handlers/agent-public-tools.js';
 import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
 import { createIdleIntent } from '../../lib/codex/mcp/handlers/types.js';
-import type { AgentPublicToolName } from '../../lib/codex/mcp/public-tools/contract.js';
+import type {
+  AgentPublicToolName,
+  AgentPublicToolResultEnvelope,
+} from '../../lib/codex/mcp/public-tools/contract.js';
 import {
   AGENT_PUBLIC_TOOL_NAMES,
   AgentPublicToolResultEnvelopeSchema,
+  buildAgentPublicCrossHostReadinessReport,
   getAgentPublicToolContractDefinition,
   getAgentPublicToolDescriptionBase,
 } from '../../lib/codex/mcp/public-tools/index.js';
@@ -111,6 +116,88 @@ const goldenPublicToolMatrix = {
     title: string;
   }
 >;
+
+const stage4aGoldenSuiteMatrix = [
+  {
+    id: 'wrong-call',
+    toolName: 'alembic_intent',
+    expectedStatus: 'skipped',
+    expectedReasonKind: 'skip',
+    expectedReasonCode: 'legacy-public-call-hidden',
+    promptExpectation:
+      'Old alembic_task operation calls stay hidden from tools/list; route host agents to the six public tools.',
+  },
+  {
+    id: 'missing-call',
+    toolName: 'alembic_prime',
+    expectedStatus: 'blocked',
+    expectedReasonKind: 'blocked',
+    expectedReasonCode: 'missing-required-intent',
+    promptExpectation:
+      'Prime needs an intentRef or explicit recognized intent instead of guessing from an empty turn.',
+  },
+  {
+    id: 'raw-envelope',
+    toolName: 'alembic_intent',
+    expectedStatus: 'skipped',
+    expectedReasonKind: 'skip',
+    expectedReasonCode: 'mechanical-envelope-only',
+    promptExpectation:
+      'Raw automation envelopes are skipped until the host provides curated intent and verifiable refs.',
+  },
+  {
+    id: 'fake-work',
+    toolName: 'alembic_work_finish',
+    expectedStatus: 'blocked',
+    expectedReasonKind: 'blocked',
+    expectedReasonCode: 'missing-work-ref',
+    promptExpectation:
+      'Work finish must use a real workRef returned by alembic_work_start; fake work is not completion evidence.',
+  },
+  {
+    id: 'noisy-guard',
+    toolName: 'alembic_code_guard',
+    expectedStatus: 'blocked',
+    expectedReasonKind: 'blocked',
+    expectedReasonCode: 'missing-guard-scope',
+    promptExpectation:
+      'Code Guard requires explicit files or inline code and never falls back to noisy whole-diff review.',
+  },
+  {
+    id: 'stale-decision',
+    toolName: 'alembic_decision_record',
+    expectedStatus: 'blocked',
+    expectedReasonKind: 'blocked',
+    expectedReasonCode: 'decision-register-unavailable',
+    promptExpectation:
+      'Stale or missing durable Decision Register routes block instead of writing Plugin-local fake decisions.',
+  },
+  {
+    id: 'over-budget',
+    toolName: 'alembic_work_start',
+    expectedStatus: 'ready',
+    expectedReasonKind: null,
+    expectedReasonCode: null,
+    promptExpectation:
+      'Long host-visible summaries stay compact and advertise truncation through outputBudget.',
+  },
+  {
+    id: 'adoption-feedback',
+    toolName: 'alembic_prime',
+    expectedStatus: 'ready',
+    expectedReasonKind: null,
+    expectedReasonCode: null,
+    promptExpectation:
+      'Prime preserves observe-only adoption and feedback metadata from the resident retrieval contract.',
+  },
+] as const satisfies readonly {
+  expectedReasonCode: string | null;
+  expectedReasonKind: string | null;
+  expectedStatus: AgentPublicToolResultEnvelope['status'];
+  id: string;
+  promptExpectation: string;
+  toolName: AgentPublicToolName;
+}[];
 
 describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
   test('locks golden descriptions, contracts, schemas, and non-legacy primary guidance', () => {
@@ -412,6 +499,184 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       expect(hiddenTaskTool?.description ?? '').not.toContain(forbidden);
     }
   });
+
+  test('locks Stage 4A host prompt golden matrix across active guidance and host snapshots', () => {
+    const activePublicGuidance = TOOLS.filter((tool) =>
+      AGENT_PUBLIC_TOOL_NAMES.includes(tool.name as AgentPublicToolName)
+    )
+      .map((tool) => tool.description)
+      .join('\n');
+    const mainSkill = readFixture('../../plugins/alembic-codex/skills/alembic/SKILL.md');
+    const hostGuide = JSON.stringify(buildAgentPublicCrossHostReadinessReport().hostSnapshots);
+    const stage4aPromptMatrix = stage4aGoldenSuiteMatrix
+      .map((scenario) => `${scenario.id}: ${scenario.promptExpectation}`)
+      .join('\n');
+    const combinedGuidance = [activePublicGuidance, mainSkill, hostGuide, stage4aPromptMatrix].join(
+      '\n'
+    );
+
+    for (const scenario of stage4aGoldenSuiteMatrix) {
+      expect(stage4aPromptMatrix).toContain(`${scenario.id}:`);
+      expect(stage4aPromptMatrix).toContain(scenario.promptExpectation);
+      expect(activePublicGuidance).toContain(
+        getAgentPublicToolDescriptionBase(scenario.toolName).title
+      );
+    }
+    for (const toolName of AGENT_PUBLIC_TOOL_NAMES) {
+      expect(mainSkill).toContain(toolName);
+    }
+    expect(mainSkill).toContain('six agent-facing public tools');
+    expect(hostGuide).toContain('Use alembic_work_start for concrete evidence-producing work');
+    expect(hostGuide).toContain('Use alembic_code_guard only with explicit files or inline code');
+
+    for (const forbidden of forbiddenLegacyPrimaryWording) {
+      expect(combinedGuidance).not.toContain(forbidden);
+    }
+    expect(activePublicGuidance).not.toContain('alembic_task');
+    expect(hostGuide).not.toContain('alembic_task');
+  });
+
+  test('evaluates Stage 4A wrong-call, missing-call, raw-envelope, fake-work, noisy-guard, stale-decision, over-budget, and adoption drift scenarios', async () => {
+    const outcomes: Record<
+      string,
+      {
+        reasonCode: string | null;
+        reasonKind: string | null;
+        status: AgentPublicToolResultEnvelope['status'];
+        toolName: string;
+      }
+    > = {};
+
+    const hiddenLegacyTaskTool = LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.find(
+      (tool) => tool.name === 'alembic_task'
+    );
+    expect(TOOLS.some((tool) => tool.name === 'alembic_task')).toBe(false);
+    expect(hiddenLegacyTaskTool?.description).toContain('Hidden direct-call compatibility');
+    outcomes['wrong-call'] = {
+      reasonCode: 'legacy-public-call-hidden',
+      reasonKind: 'skip',
+      status: 'skipped',
+      toolName: 'alembic_intent',
+    };
+
+    const missingCall = await callPublicTool(
+      primeHandler(makeContext(), {
+        inputSource: 'user-message',
+        outputBudget: { maxChars: 120, mode: 'compact' },
+      })
+    );
+    outcomes['missing-call'] = outcomeFrom(missingCall.envelope);
+
+    const rawEnvelope = await callPublicTool(
+      intentHandler(makeContext(), {
+        inputSource: 'automation-envelope',
+        outputBudget: { maxChars: 120, mode: 'compact' },
+        userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
+      })
+    );
+    outcomes['raw-envelope'] = outcomeFrom(rawEnvelope.envelope);
+    expect(rawEnvelope.envelope.reason?.message).toContain('Raw automation envelope');
+
+    const fakeWork = await callPublicTool(
+      workFinishHandler(makeContext(), {
+        inputSource: 'host-declared-intent',
+        outputBudget: { maxChars: 120, mode: 'compact' },
+        summary: 'Pretend work is complete without a real start record.',
+        workRef: 'work-stage4a-fake',
+      })
+    );
+    outcomes['fake-work'] = outcomeFrom(fakeWork.envelope);
+    expect(fakeWork.envelope.reason?.message).toContain('No active work record exists');
+
+    const noisyGuard = await callPublicTool(
+      codeGuardHandler(makeContext(), {
+        inputSource: 'host-declared-intent',
+        outputBudget: { maxChars: 160, mode: 'compact' },
+      })
+    );
+    outcomes['noisy-guard'] = outcomeFrom(noisyGuard.envelope);
+    expect(noisyGuard.envelope.reason?.message).toContain('will not fall back');
+
+    const staleDecision = await callPublicTool(
+      decisionRecordHandler(
+        makeContext(undefined, {
+          residentDecisionRegisterClient: {
+            decisionRegister: vi.fn(async () => ({
+              message: 'Decision record is stale or missing from the durable register.',
+              ok: false,
+              reason: 'decision-not-found',
+              retryable: false,
+              status: { owner: 'alembic', route: 'decision-register' },
+            })),
+          },
+        }),
+        {
+          action: 'update',
+          decisionRef: 'decision-stage4a-stale',
+          description: 'Do not write a Plugin-local fake decision for stale records.',
+          inputSource: 'host-declared-intent',
+          outputBudget: { maxChars: 180, mode: 'compact' },
+        }
+      )
+    );
+    outcomes['stale-decision'] = outcomeFrom(staleDecision.envelope);
+    expect(staleDecision.envelope.summary.compact).toContain('no local fake record');
+
+    const overBudget = await callPublicTool(
+      workStartHandler(makeContext(), {
+        inputSource: 'host-declared-intent',
+        outputBudget: { maxChars: 48, mode: 'compact' },
+        title: 'Stage 4A output budget proof '.repeat(8),
+      })
+    );
+    outcomes['over-budget'] = outcomeFrom(overBudget.envelope);
+    expect(overBudget.envelope.summary.outputBudget).toMatchObject({
+      maxChars: 48,
+      truncated: true,
+    });
+
+    const adoptionFeedback = await callPublicTool(
+      primeHandler(
+        makeContext(async () => deliveredSearchResult()),
+        {
+          hostDeclaredIntent: {
+            action: 'review',
+            query: 'Review adoption feedback drift in public prime metadata',
+          },
+          inputSource: 'host-declared-intent',
+          outputBudget: { maxChars: 240, mode: 'compact' },
+          projectRoot: '/tmp/alembic-plugin-stage4a',
+          sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
+        }
+      )
+    );
+    outcomes['adoption-feedback'] = outcomeFrom(adoptionFeedback.envelope);
+    expect(
+      recordFrom(adoptionFeedback.raw, ['data', 'retrievalConsumer', 'feedback'])
+    ).toMatchObject({
+      observeOnly: true,
+      supportedSignals: expect.arrayContaining(['searchHit', 'view', 'adoption']),
+    });
+    expect(
+      recordFrom(adoptionFeedback.raw, ['data', 'retrievalConsumer', 'retrievalQuality'])
+        .feedbackSignalCount
+    ).toBe(3);
+
+    expect(Object.keys(outcomes).sort()).toEqual(
+      stage4aGoldenSuiteMatrix.map((scenario) => scenario.id).sort()
+    );
+    for (const scenario of stage4aGoldenSuiteMatrix) {
+      expect(outcomes[scenario.id], scenario.id).toMatchObject({
+        reasonCode: scenario.expectedReasonCode,
+        reasonKind: scenario.expectedReasonKind,
+        status: scenario.expectedStatus,
+        toolName: scenario.toolName,
+      });
+    }
+    for (const outcome of Object.values(outcomes)) {
+      expect(outcome.toolName).not.toBe('alembic_task');
+    }
+  });
 });
 
 async function callPublicTool(promise: Promise<unknown>) {
@@ -421,6 +686,15 @@ async function callPublicTool(promise: Promise<unknown>) {
       (raw as { data?: { result?: unknown } }).data?.result
     ),
     raw,
+  };
+}
+
+function outcomeFrom(envelope: AgentPublicToolResultEnvelope) {
+  return {
+    reasonCode: envelope.reason?.code ?? null,
+    reasonKind: envelope.reason?.kind ?? null,
+    status: envelope.status,
+    toolName: envelope.toolName,
   };
 }
 
@@ -459,6 +733,51 @@ function makeContext(
 }
 
 function deliveredSearchResult(): PrimeSearchResult {
+  const retrievalConsumer = {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-stage4a-adoption'],
+      auditExcludedCount: 1,
+      available: true,
+      defaultLifecycle: 'active-effective-only' as const,
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+    },
+    feedback: {
+      observeOnly: true,
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
+    producerContract: {
+      available: true,
+      missingFields: [],
+      reasonCode: 'resident-search-stage1a-contract-present' as const,
+      requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+      stage: 'AFAPI-FULL-STAGE1A' as const,
+    },
+    relationEvidence: {
+      count: 1,
+      evidence: [
+        {
+          direction: 'outgoing',
+          itemId: 'recipe-public-prime-stage6',
+          relatedId: 'decision-stage4a-adoption',
+          relation: 'supports',
+          source: 'knowledgeGraphService',
+        },
+      ],
+      omitted: [],
+    },
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      sourceRefCoverage: 1,
+      version: 1,
+    },
+    source: 'resident-search-meta' as const,
+    version: 1,
+  };
+
   return {
     guardRules: [
       {
@@ -491,10 +810,12 @@ function deliveredSearchResult(): PrimeSearchResult {
       language: 'typescript',
       module: 'codex/mcp',
       queries: ['Evaluate AFAPI Stage 6 public tools'],
+      retrievalConsumer,
       residentSearch: {
         attempted: true,
         available: true,
         residentVector: { available: true },
+        retrievalConsumer,
         route: 'alembic-resident-service',
         semanticUsed: true,
         vectorUsed: true,
@@ -542,4 +863,22 @@ function stringFrom(value: unknown, path: readonly string[]): string {
     throw new Error(`Expected string path ${path.join('.')}`);
   }
   return current;
+}
+
+function readFixture(relativePath: string): string {
+  return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+}
+
+function recordFrom(value: unknown, path: readonly string[]): Record<string, unknown> {
+  let current = value;
+  for (const key of path) {
+    if (!current || typeof current !== 'object' || !(key in current)) {
+      throw new Error(`Missing record path ${path.join('.')}`);
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    throw new Error(`Expected record path ${path.join('.')}`);
+  }
+  return current as Record<string, unknown>;
 }
