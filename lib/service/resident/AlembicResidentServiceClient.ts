@@ -220,6 +220,39 @@ export interface ResidentIntentEpisodeResult {
   episodes?: ResidentIntentEpisodeRecord[];
 }
 
+export type ResidentDecisionRegisterAction =
+  | 'create'
+  | 'delete'
+  | 'list'
+  | 'read'
+  | 'revoke'
+  | 'update';
+
+export type ResidentDecisionRegisterStatus = 'active' | 'all' | 'deleted' | 'revoked';
+
+export interface ResidentDecisionRegisterCapabilityResult {
+  capability: Record<string, unknown> | null;
+}
+
+export interface ResidentDecisionRegisterRequest {
+  action: ResidentDecisionRegisterAction;
+  body?: Record<string, unknown>;
+  decisionId?: string;
+  includeDeleted?: boolean;
+  limit?: number;
+  projectRoot?: string;
+  sessionId?: string;
+  status?: ResidentDecisionRegisterStatus;
+}
+
+export interface ResidentDecisionRegisterResult {
+  action: ResidentDecisionRegisterAction;
+  capability: Record<string, unknown> | null;
+  count?: number;
+  decision: Record<string, unknown> | null;
+  decisions?: Array<Record<string, unknown>>;
+}
+
 export interface AlembicResidentServiceClientOptions {
   fetchImpl?: FetchLike;
   projectRoot: string;
@@ -293,11 +326,14 @@ const RESIDENT_SEARCH_PATH = '/api/v1/search';
 const RESIDENT_JOBS_PATH = '/api/v1/jobs';
 const RESIDENT_INTENT_EPISODES_PATH = '/api/v1/intent-episodes';
 const RESIDENT_INTENT_EPISODE_FEATURE = 'intent-episodes';
+const RESIDENT_DECISION_REGISTER_PATH = '/api/v1/decision-register';
+const RESIDENT_DECISION_REGISTER_FEATURE = 'decision-register';
 const PROJECT_SCOPE_UNAVAILABLE_REASON = 'resident project scope unavailable';
 
 type ResidentServiceFeatureName =
   | AlembicResidentFeature
   | AlembicResidentJobFeature
+  | typeof RESIDENT_DECISION_REGISTER_FEATURE
   | typeof RESIDENT_INTENT_EPISODE_FEATURE;
 
 export class AlembicResidentServiceClient {
@@ -539,6 +575,66 @@ export class AlembicResidentServiceClient {
     );
   }
 
+  async decisionRegisterCapability(
+    options: AlembicResidentProbeOptions = {}
+  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterCapabilityResult>> {
+    const resolved = await this.#resolveProbe(options);
+    const unavailable =
+      this.#ensureDecisionRegisterRouteAvailable<ResidentDecisionRegisterCapabilityResult>(
+        resolved
+      );
+    if (unavailable) {
+      return unavailable;
+    }
+    return this.#requestDecisionRegisterCapabilityJson(resolved);
+  }
+
+  async decisionRegister(
+    request: ResidentDecisionRegisterRequest
+  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterResult>> {
+    const targetProjectRoot = normalizeFolderPath(request.projectRoot) ?? this.#projectRoot;
+    const resolved = await this.#resolveProbe({ projectRoot: targetProjectRoot });
+    const unavailable =
+      this.#ensureDecisionRegisterRouteAvailable<ResidentDecisionRegisterResult>(resolved);
+    if (unavailable) {
+      return unavailable;
+    }
+
+    const capabilityResult = await this.#requestDecisionRegisterCapabilityJson(resolved);
+    if (!capabilityResult.ok) {
+      return capabilityResult as AlembicResidentServiceResult<ResidentDecisionRegisterResult>;
+    }
+    const capability = capabilityResult.value.capability;
+    if (!isDecisionRegisterCapabilityCompatible(capability, request.action)) {
+      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
+        resolved.status,
+        'capability-unavailable',
+        `Decision Register capability is missing or does not expose action=${request.action}.`,
+        {
+          retryable: false,
+          telemetry: {
+            action: request.action,
+            capability,
+            feature: RESIDENT_DECISION_REGISTER_FEATURE,
+          },
+        }
+      );
+    }
+
+    const projectScopeIdentity = await this.#resolveProjectScopeIdentity(
+      resolved,
+      targetProjectRoot
+    );
+    const scope = buildDecisionRegisterScope(projectScopeIdentity);
+    const body = buildDecisionRegisterBody(request, scope);
+    const path = buildDecisionRegisterPath(request);
+    return this.#requestDecisionRegisterJson(resolved, path, {
+      action: request.action,
+      body,
+      method: decisionRegisterMethodForAction(request.action),
+    });
+  }
+
   async enqueueJob(
     kind: 'bootstrap' | 'rescan',
     options: AlembicResidentJobRequestOptions = {}
@@ -619,7 +715,7 @@ export class AlembicResidentServiceClient {
     input: {
       body?: Record<string, unknown>;
       feature: ResidentServiceFeatureName;
-      method: 'GET' | 'PATCH' | 'POST';
+      method: 'DELETE' | 'GET' | 'PATCH' | 'POST';
     }
   ): Promise<AlembicResidentServiceResult<unknown>> {
     if (!resolved.state?.token) {
@@ -756,6 +852,190 @@ export class AlembicResidentServiceClient {
           telemetry: {
             endpoint: endpoint.toString(),
             feature: RESIDENT_INTENT_EPISODE_FEATURE,
+          },
+        }
+      );
+    }
+  }
+
+  #ensureDecisionRegisterRouteAvailable<TValue>(
+    resolved: ResolvedResidentProbe
+  ): AlembicResidentServiceResult<TValue> | null {
+    if (!isLocalAlembicResident(resolved.status)) {
+      return createAlembicResidentServiceUnavailable<TValue>(
+        resolved.status,
+        resolved.status.route === 'unavailable' ? 'route-unavailable' : 'unsupported-route',
+        'Decision Register requires a local Alembic resident daemon.',
+        { telemetry: { feature: RESIDENT_DECISION_REGISTER_FEATURE } }
+      );
+    }
+    if (!resolved.state?.token) {
+      return createAlembicResidentServiceUnavailable<TValue>(
+        resolved.status,
+        'token-missing',
+        'Alembic resident service token is missing.',
+        { retryable: true, telemetry: { feature: RESIDENT_DECISION_REGISTER_FEATURE } }
+      );
+    }
+    return null;
+  }
+
+  async #requestDecisionRegisterCapabilityJson(
+    resolved: ResolvedResidentProbe
+  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterCapabilityResult>> {
+    if (!resolved.state?.token) {
+      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
+        resolved.status,
+        'token-missing',
+        'Alembic resident service token is missing.',
+        { retryable: true, telemetry: { feature: RESIDENT_DECISION_REGISTER_FEATURE } }
+      );
+    }
+    const endpoint = new URL(
+      `${RESIDENT_DECISION_REGISTER_PATH}/capability`,
+      resolved.status.apiBaseUrl || resolved.state.url
+    );
+    try {
+      const response = await this.#fetchJson(endpoint, {
+        method: 'GET',
+        token: resolved.state.token,
+      });
+      if (!response.ok || response.payload?.success === false) {
+        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
+          resolved.status,
+          response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
+          extractResponseError(response.payload) ||
+            `decision_register_capability_http_${response.status}`,
+          {
+            retryable: true,
+            telemetry: {
+              endpoint: endpoint.toString(),
+              feature: RESIDENT_DECISION_REGISTER_FEATURE,
+              status: response.status,
+            },
+          }
+        );
+      }
+      const data = isRecord(response.payload?.data) ? response.payload.data : null;
+      if (!data) {
+        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
+          resolved.status,
+          'request-failed',
+          'Decision Register capability response did not include a data object.',
+          {
+            retryable: true,
+            telemetry: {
+              endpoint: endpoint.toString(),
+              feature: RESIDENT_DECISION_REGISTER_FEATURE,
+              status: response.status,
+            },
+          }
+        );
+      }
+      return createAlembicResidentServiceSuccess(
+        { capability: isRecord(data.capability) ? data.capability : null },
+        resolved.status,
+        {
+          endpoint: endpoint.toString(),
+          feature: RESIDENT_DECISION_REGISTER_FEATURE,
+        }
+      );
+    } catch (err: unknown) {
+      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
+        resolved.status,
+        isTimeoutError(err) ? 'request-timeout' : 'request-failed',
+        err instanceof Error ? err.message : String(err),
+        {
+          retryable: true,
+          telemetry: {
+            endpoint: endpoint.toString(),
+            feature: RESIDENT_DECISION_REGISTER_FEATURE,
+          },
+        }
+      );
+    }
+  }
+
+  async #requestDecisionRegisterJson(
+    resolved: ResolvedResidentProbe,
+    path: string,
+    input: {
+      action: ResidentDecisionRegisterAction;
+      body?: Record<string, unknown>;
+      method: 'DELETE' | 'GET' | 'PATCH' | 'POST';
+    }
+  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterResult>> {
+    if (!resolved.state?.token) {
+      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
+        resolved.status,
+        'token-missing',
+        'Alembic resident service token is missing.',
+        {
+          retryable: true,
+          telemetry: { action: input.action, feature: RESIDENT_DECISION_REGISTER_FEATURE, path },
+        }
+      );
+    }
+    const endpoint = new URL(path, resolved.status.apiBaseUrl || resolved.state.url);
+    try {
+      const response = await this.#fetchJson(endpoint, {
+        body: input.body,
+        method: input.method,
+        token: resolved.state.token,
+      });
+      if (!response.ok || response.payload?.success === false) {
+        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
+          resolved.status,
+          response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
+          extractResponseError(response.payload) || `decision_register_http_${response.status}`,
+          {
+            retryable: true,
+            telemetry: {
+              action: input.action,
+              endpoint: endpoint.toString(),
+              feature: RESIDENT_DECISION_REGISTER_FEATURE,
+              status: response.status,
+            },
+          }
+        );
+      }
+      const data = isRecord(response.payload?.data) ? response.payload.data : null;
+      if (!data) {
+        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
+          resolved.status,
+          'request-failed',
+          'Decision Register resident response did not include a data object.',
+          {
+            retryable: true,
+            telemetry: {
+              action: input.action,
+              endpoint: endpoint.toString(),
+              feature: RESIDENT_DECISION_REGISTER_FEATURE,
+              status: response.status,
+            },
+          }
+        );
+      }
+      return createAlembicResidentServiceSuccess(
+        projectDecisionRegisterData(input.action, data),
+        resolved.status,
+        {
+          action: input.action,
+          endpoint: endpoint.toString(),
+          feature: RESIDENT_DECISION_REGISTER_FEATURE,
+        }
+      );
+    } catch (err: unknown) {
+      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
+        resolved.status,
+        isTimeoutError(err) ? 'request-timeout' : 'request-failed',
+        err instanceof Error ? err.message : String(err),
+        {
+          retryable: true,
+          telemetry: {
+            action: input.action,
+            endpoint: endpoint.toString(),
+            feature: RESIDENT_DECISION_REGISTER_FEATURE,
           },
         }
       );
@@ -1050,7 +1330,11 @@ export class AlembicResidentServiceClient {
 
   async #fetchJson(
     endpoint: URL,
-    input: { body?: Record<string, unknown>; method: 'GET' | 'PATCH' | 'POST'; token: string }
+    input: {
+      body?: Record<string, unknown>;
+      method: 'DELETE' | 'GET' | 'PATCH' | 'POST';
+      token: string;
+    }
   ): Promise<{ ok: boolean; payload: ResidentHttpPayload | null; status: number }> {
     const response = await this.#fetch(endpoint, {
       method: input.method,
@@ -2005,6 +2289,115 @@ function redactEvidenceString(value: string): string {
     }
   );
   return redacted.length > 240 ? `${redacted.slice(0, 237)}...` : redacted;
+}
+
+function projectDecisionRegisterData(
+  action: ResidentDecisionRegisterAction,
+  data: Record<string, unknown>
+): ResidentDecisionRegisterResult {
+  const decisions = Array.isArray(data.decisions) ? data.decisions.filter(isRecord) : undefined;
+  const count = numberFrom(data.count) ?? decisions?.length;
+  return {
+    action,
+    capability: isRecord(data.capability) ? data.capability : null,
+    decision: isRecord(data.decision) ? data.decision : null,
+    ...(decisions ? { decisions } : {}),
+    ...(count !== undefined ? { count } : {}),
+  };
+}
+
+function isDecisionRegisterCapabilityCompatible(
+  capability: Record<string, unknown> | null,
+  action: ResidentDecisionRegisterAction
+): boolean {
+  if (!capability || capability.available !== true) {
+    return false;
+  }
+  if (stringFrom(capability.owner) !== 'alembic') {
+    return false;
+  }
+  if (stringFrom(capability.route) !== 'decision-register') {
+    return false;
+  }
+  const lifecycle = Array.isArray(capability.lifecycle) ? capability.lifecycle : [];
+  return lifecycle.includes(action);
+}
+
+function decisionRegisterMethodForAction(
+  action: ResidentDecisionRegisterAction
+): 'DELETE' | 'GET' | 'PATCH' | 'POST' {
+  switch (action) {
+    case 'create':
+      return 'POST';
+    case 'delete':
+      return 'DELETE';
+    case 'list':
+    case 'read':
+      return 'GET';
+    case 'revoke':
+      return 'POST';
+    case 'update':
+      return 'PATCH';
+  }
+}
+
+function buildDecisionRegisterPath(request: ResidentDecisionRegisterRequest): string {
+  if (request.action === 'create') {
+    return RESIDENT_DECISION_REGISTER_PATH;
+  }
+  if (request.action === 'list') {
+    return `${RESIDENT_DECISION_REGISTER_PATH}${buildDecisionRegisterQuery(request)}`;
+  }
+  const decisionId = encodeURIComponent(request.decisionId ?? '');
+  if (request.action === 'revoke') {
+    return `${RESIDENT_DECISION_REGISTER_PATH}/${decisionId}/revoke`;
+  }
+  return `${RESIDENT_DECISION_REGISTER_PATH}/${decisionId}`;
+}
+
+function buildDecisionRegisterQuery(request: ResidentDecisionRegisterRequest): string {
+  const params = new URLSearchParams();
+  if (typeof request.includeDeleted === 'boolean') {
+    params.set('includeDeleted', String(request.includeDeleted));
+  }
+  if (typeof request.limit === 'number' && Number.isFinite(request.limit)) {
+    params.set('limit', String(Math.max(1, Math.min(100, Math.floor(request.limit)))));
+  }
+  if (typeof request.sessionId === 'string' && request.sessionId.trim()) {
+    params.set('sessionId', request.sessionId.trim());
+  }
+  if (request.status) {
+    params.set('status', request.status);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+function buildDecisionRegisterScope(
+  identity: AlembicResidentProjectScopeIdentity
+): Record<string, unknown> | undefined {
+  const scope = stripUndefined({
+    dataRootSource: identity.dataRootSource ?? undefined,
+    projectId: identity.projectId ?? undefined,
+    projectScopeId: identity.projectScopeId ?? undefined,
+    workspaceMode: identity.workspaceMode ?? undefined,
+  });
+  return Object.keys(scope).length > 0 ? scope : undefined;
+}
+
+function buildDecisionRegisterBody(
+  request: ResidentDecisionRegisterRequest,
+  scope: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (request.action === 'list' || request.action === 'read') {
+    return undefined;
+  }
+  const body = stripUndefined({
+    ...(request.body || {}),
+    ...(request.sessionId ? { sessionId: request.sessionId } : {}),
+    ...(scope ? { scope } : {}),
+  });
+  return Object.keys(body).length > 0 ? body : undefined;
 }
 
 function projectIntentEpisodeData(data: Record<string, unknown>): ResidentIntentEpisodeResult {

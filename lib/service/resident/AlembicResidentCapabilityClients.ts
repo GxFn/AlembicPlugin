@@ -11,6 +11,9 @@ import {
   type AlembicResidentProjectScopeOptions,
   AlembicResidentServiceClient,
   type AlembicResidentServiceClientOptions,
+  type ResidentDecisionRegisterCapabilityResult,
+  type ResidentDecisionRegisterRequest,
+  type ResidentDecisionRegisterResult,
   type ResidentIntentEpisodeOutcomeRequest,
   type ResidentIntentEpisodeReadOptions,
   type ResidentIntentEpisodeResult,
@@ -80,6 +83,22 @@ export class ResidentIntentEpisodeClient {
   }
 }
 
+export class ResidentDecisionRegisterClient {
+  constructor(private readonly client: AlembicResidentServiceClient) {}
+
+  decisionRegister(
+    request: ResidentDecisionRegisterRequest
+  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterResult>> {
+    return this.client.decisionRegister(request);
+  }
+
+  decisionRegisterCapability(
+    options: AlembicResidentProbeOptions = {}
+  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterCapabilityResult>> {
+    return this.client.decisionRegisterCapability(options);
+  }
+}
+
 export class ResidentJobClient {
   constructor(private readonly client: AlembicResidentServiceClient) {}
 
@@ -110,6 +129,7 @@ export class ResidentDashboardClient {
 
 export interface AlembicResidentCapabilityClients {
   dashboard: ResidentDashboardClient;
+  decisionRegister: ResidentDecisionRegisterClient;
   jobs: ResidentJobClient;
   intentEpisodes: ResidentIntentEpisodeClient;
   probe: ResidentProbeClient;
@@ -123,6 +143,7 @@ export function createAlembicResidentCapabilityClients(
   const client = new AlembicResidentServiceClient(options);
   return {
     dashboard: new ResidentDashboardClient(client),
+    decisionRegister: new ResidentDecisionRegisterClient(client),
     jobs: new ResidentJobClient(client),
     intentEpisodes: new ResidentIntentEpisodeClient(client),
     probe: new ResidentProbeClient(client),

@@ -73,6 +73,7 @@ export const AGENT_BLOCKED_REASON_CODES = [
   'missing-work-ref',
   'missing-guard-scope',
   'decision-scope-unconfirmed',
+  'decision-register-capability-mismatch',
   'decision-register-unavailable',
   'shared-contract-required',
 ] as const;

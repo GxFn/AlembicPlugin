@@ -248,11 +248,13 @@ export type CodeGuardInput = z.infer<typeof CodeGuardInput>;
 
 export const DecisionRecordInput = AgentPublicToolBaseInput.extend({
   action: z
-    .enum(['create', 'update', 'revoke', 'delete'])
+    .enum(['create', 'update', 'revoke', 'delete', 'read', 'list'])
     .default('create')
     .optional()
     .describe('Decision register action'),
-  decisionRef: AgentRefIdInput.optional().describe('Existing decisionRef for update/revoke/delete'),
+  decisionRef: AgentRefIdInput.optional().describe(
+    'Existing decisionRef for update/revoke/delete/read'
+  ),
   intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
   workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
   title: z.string().min(1).max(240).optional().describe('Decision title'),
@@ -260,6 +262,21 @@ export const DecisionRecordInput = AgentPublicToolBaseInput.extend({
   rationale: z.string().min(1).max(1600).optional().describe('Decision rationale'),
   tags: z.array(z.string().min(1).max(80)).max(20).optional().describe('Decision tags'),
   evidenceRefs: AgentSourceFileRefsInput.describe('Non-private evidence refs for the decision'),
+  includeDeleted: z
+    .boolean()
+    .optional()
+    .describe('List decisions including deleted records when supported by Alembic'),
+  limit: z.number().int().min(1).max(100).optional().describe('Maximum decisions to list'),
+  sessionId: z
+    .string()
+    .min(1)
+    .max(240)
+    .optional()
+    .describe('Optional decision list session filter'),
+  status: z
+    .enum(['active', 'revoked', 'deleted', 'all'])
+    .optional()
+    .describe('Optional decision list status filter'),
 }).describe(
   'Agent-facing decision record. Uses a durable Decision Register route when available; otherwise returns a structured blocker rather than local fake persistence.'
 );

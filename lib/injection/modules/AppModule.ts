@@ -75,12 +75,20 @@ export function register(c: ServiceContainer) {
   c.singleton('residentIntentEpisodeClient', (ct: ServiceContainer) => {
     return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients).intentEpisodes;
   });
+  c.singleton('residentDecisionRegisterClient', (ct: ServiceContainer) => {
+    return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients)
+      .decisionRegister;
+  });
   // Deprecated internal DI key retained only for HTTP compatibility callers until every
   // route switches to capability-specific clients; Codex MCP paths use the split clients.
   c.singleton('residentServiceClient', (ct: ServiceContainer) => {
     const clients = ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients;
     return {
       dashboard: clients.dashboard.dashboard.bind(clients.dashboard),
+      decisionRegister: clients.decisionRegister.decisionRegister.bind(clients.decisionRegister),
+      decisionRegisterCapability: clients.decisionRegister.decisionRegisterCapability.bind(
+        clients.decisionRegister
+      ),
       enqueueJob: clients.jobs.enqueueJob.bind(clients.jobs),
       latestIntentEpisode: clients.intentEpisodes.latestIntentEpisode.bind(clients.intentEpisodes),
       probe: clients.probe.probe.bind(clients.probe),

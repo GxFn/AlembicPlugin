@@ -125,6 +125,20 @@ describe('agent-facing active public tools', () => {
     expect(TOOL_SCHEMAS.alembic_code_guard.safeParse({}).success).toBe(true);
     expect(
       TOOL_SCHEMAS.alembic_decision_record.safeParse({
+        action: 'list',
+        includeDeleted: true,
+        limit: 10,
+        status: 'all',
+      }).success
+    ).toBe(true);
+    expect(
+      TOOL_SCHEMAS.alembic_decision_record.safeParse({
+        action: 'read',
+        decisionRef: 'decision-public-1',
+      }).success
+    ).toBe(true);
+    expect(
+      TOOL_SCHEMAS.alembic_decision_record.safeParse({
         title: 'Decision register route required',
       }).success
     ).toBe(true);
@@ -399,8 +413,188 @@ describe('agent-facing active public tools', () => {
     expect(result.data.result.refs.guardResultRef.id).toBe(result.data.guardResultRef);
   });
 
-  test('returns a durable persistence blocker for decision recording instead of writing a fake record', async () => {
-    const ctx = makeContext();
+  test('records a decision through the resident Decision Register route', async () => {
+    const decisionRegister = vi.fn(async (request: Record<string, unknown>) => ({
+      ok: true,
+      status: { owner: 'alembic', route: 'local-alembic-daemon' },
+      telemetry: { feature: 'decision-register' },
+      value: {
+        action: request.action,
+        capability: durableDecisionCapability(),
+        decision: {
+          decisionId: 'decision-public-1',
+          status: 'active',
+          title: 'Use durable Decision Register',
+        },
+      },
+    }));
+    const ctx = makeContext(undefined, {
+      residentDecisionRegisterClient: { decisionRegister },
+    });
+
+    const result = (await decisionRecordHandler(ctx, {
+      description: 'Plugin should consume Alembic durable decision route.',
+      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:1'],
+      inputSource: 'host-declared-intent',
+      intentRef: 'intent-public-1',
+      title: 'Use durable Decision Register',
+      workRef: 'work-public-1',
+    })) as {
+      data: {
+        decisionRef: string;
+        durablePersistence: { available: boolean; capability: { route: string } };
+        result: {
+          refs: {
+            decisionRef: { id: string };
+            detailRefs: unknown[];
+            intentRef: unknown;
+            workRef: unknown;
+          };
+          status: string;
+        };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.result.status).toBe('ready');
+    expect(result.data.decisionRef).toBe('decision-public-1');
+    expect(result.data.result.refs.decisionRef.id).toBe('decision-public-1');
+    expect(result.data.result.refs.detailRefs).not.toHaveLength(0);
+    expect(result.data.durablePersistence).toMatchObject({
+      available: true,
+      capability: { route: 'decision-register' },
+    });
+    expect(decisionRegister).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'create',
+        body: expect.objectContaining({
+          createdBy: 'codex-host-agent',
+          decision: 'Plugin should consume Alembic durable decision route.',
+          description: 'Plugin should consume Alembic durable decision route.',
+          detailRefs: expect.arrayContaining([
+            'lib/codex/mcp/handlers/agent-public-tools.ts',
+            'lib/shared/schemas/mcp-tools.ts',
+            'test/unit/AgentPublicToolsActive.test.ts:1',
+          ]),
+          intentRef: 'intent-public-1',
+          sourceRefs: ['test/unit/AgentPublicToolsActive.test.ts:1'],
+          title: 'Use durable Decision Register',
+          workRef: 'work-public-1',
+        }),
+        sessionId: 'session-public-tools',
+      })
+    );
+  });
+
+  test('maps decision update, revoke, delete, read, and list to resident route actions', async () => {
+    const decisionRegister = vi.fn(async (request: Record<string, unknown>) => ({
+      ok: true,
+      status: { owner: 'alembic', route: 'local-alembic-daemon' },
+      value:
+        request.action === 'list'
+          ? {
+              action: 'list',
+              capability: durableDecisionCapability(),
+              count: 1,
+              decision: null,
+              decisions: [{ decisionId: 'decision-public-1', status: 'active' }],
+            }
+          : {
+              action: request.action,
+              capability: durableDecisionCapability(),
+              decision: { decisionId: request.decisionId, status: 'active' },
+            },
+    }));
+    const ctx = makeContext(undefined, {
+      residentDecisionRegisterClient: { decisionRegister },
+    });
+
+    await decisionRecordHandler(ctx, {
+      action: 'update',
+      decisionRef: 'decision-public-1',
+      description: 'Updated decision body.',
+    });
+    await decisionRecordHandler(ctx, {
+      action: 'revoke',
+      decisionRef: 'decision-public-1',
+      rationale: 'Superseded.',
+    });
+    await decisionRecordHandler(ctx, {
+      action: 'delete',
+      decisionRef: 'decision-public-1',
+      rationale: 'Cleanup.',
+    });
+    await decisionRecordHandler(ctx, {
+      action: 'read',
+      decisionRef: 'decision-public-1',
+    });
+    const listed = (await decisionRecordHandler(ctx, {
+      action: 'list',
+      includeDeleted: true,
+      limit: 5,
+      status: 'all',
+    })) as { data: { count: number; decisions: unknown[] }; success: boolean };
+
+    expect(listed.success).toBe(true);
+    expect(listed.data.count).toBe(1);
+    expect(listed.data.decisions).toHaveLength(1);
+    expect(decisionRegister).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        action: 'update',
+        body: expect.objectContaining({
+          decision: 'Updated decision body.',
+          description: 'Updated decision body.',
+          updatedBy: 'codex-host-agent',
+        }),
+        decisionId: 'decision-public-1',
+      })
+    );
+    expect(decisionRegister).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        action: 'revoke',
+        body: expect.objectContaining({ reason: 'Superseded.' }),
+        decisionId: 'decision-public-1',
+      })
+    );
+    expect(decisionRegister).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        action: 'delete',
+        body: expect.objectContaining({ reason: 'Cleanup.' }),
+        decisionId: 'decision-public-1',
+      })
+    );
+    expect(decisionRegister).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ action: 'read', decisionId: 'decision-public-1' })
+    );
+    expect(decisionRegister).toHaveBeenNthCalledWith(
+      5,
+      expect.objectContaining({
+        action: 'list',
+        includeDeleted: true,
+        limit: 5,
+        status: 'all',
+      })
+    );
+  });
+
+  test('returns a durable route blocker when Decision Register is unavailable', async () => {
+    const ctx = makeContext(undefined, {
+      residentDecisionRegisterClient: {
+        decisionRegister: vi.fn(async () => ({
+          ok: false,
+          reason: 'route-unavailable',
+          retryable: true,
+          status: { owner: 'alembic-plugin', route: 'unavailable' },
+          message: 'Decision Register requires a local Alembic resident daemon.',
+          telemetry: { feature: 'decision-register' },
+        })),
+      },
+    });
     const result = (await decisionRecordHandler(ctx, {
       description: 'Stage 4 needs a durable Decision Register producer route.',
       inputSource: 'host-declared-intent',
@@ -421,7 +615,46 @@ describe('agent-facing active public tools', () => {
     expect(result.data.result.refs.decisionRef).toBeUndefined();
     expect(result.data.durablePersistence).toMatchObject({
       available: false,
-      requiredRoute: 'Alembic durable Decision Register Recipe route',
+      requiredRoute: 'Alembic durable Decision Register route',
+    });
+  });
+
+  test('returns a capability mismatch blocker when resident route lacks the Decision Register contract', async () => {
+    const ctx = makeContext(undefined, {
+      residentDecisionRegisterClient: {
+        decisionRegister: vi.fn(async () => ({
+          ok: false,
+          reason: 'capability-unavailable',
+          retryable: false,
+          status: { owner: 'alembic', route: 'local-alembic-daemon' },
+          message: 'Decision Register capability is missing or does not expose action=create.',
+          telemetry: {
+            capability: { available: true, owner: 'alembic', route: 'other-route' },
+            feature: 'decision-register',
+          },
+        })),
+      },
+    });
+    const result = (await decisionRecordHandler(ctx, {
+      description: 'Stage 4 needs a durable Decision Register producer route.',
+      inputSource: 'host-declared-intent',
+      title: 'Decision Register producer route required',
+    })) as {
+      data: {
+        durablePersistence: { available: boolean; reason: string };
+        result: { reason: { code: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data.result).toMatchObject({
+      reason: { code: 'decision-register-capability-mismatch' },
+      status: 'blocked',
+    });
+    expect(result.data.durablePersistence).toMatchObject({
+      available: false,
+      reason: 'capability-unavailable',
     });
   });
 
@@ -437,3 +670,12 @@ describe('agent-facing active public tools', () => {
     expect(source).not.toContain('operation=prime');
   });
 });
+
+function durableDecisionCapability() {
+  return {
+    available: true,
+    lifecycle: ['create', 'update', 'revoke', 'delete', 'read', 'list'],
+    owner: 'alembic',
+    route: 'decision-register',
+  };
+}
