@@ -5,14 +5,13 @@
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
  * inputSchema is auto-generated from Zod Schema (zodToMcpSchema); parameter .describe() translates to JSON Schema description.
  *
- * Agent tools (17):
- *   1-7:   Query tools (health/search/knowledge/structure/graph/call_context/guard)
- *   8:     Write tool (submit_knowledge — unified pipeline, single/batch)
- *   9:     Project Skill delivery (project_skill)
- *   10-13: Workflow tools (bootstrap/rescan/evolve/consolidate)
- *   14:    Dimension completion (dimension_complete)
- *   15:    Project panorama (panorama)
- *   16:    Task management (task — 5 ops: prime/create/close/fail/record_decision)
+ * Agent tools:
+ *   Agent-facing public tools: intent/prime/work_start/work_finish/code_guard/decision_record
+ *   Query tools: health/search/knowledge/structure/graph/call_context/guard
+ *   Write tool: submit_knowledge
+ *   Project Skill delivery: project_skill
+ *   Workflow tools: bootstrap/rescan/evolve/consolidate/dimension_complete/panorama
+ *   Legacy compatibility: task — 5 ops retained for older hosts/tests, not the primary guide
  *
  * Admin tools (2):
  *   18-19: enrich_candidates/knowledge_lifecycle
@@ -260,7 +259,7 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Code compliance check and Guard immune system.\n' +
-      '• files → check specified file list; prefer explicit files when alembic_task close returns them\n' +
+      '• files → check specified file list; prefer explicit files from alembic_work_finish guardRecommendation\n' +
       '• no params → check the whole current git diff only when an explicit whole-diff Guard is intended\n' +
       '• code → inline check code snippet\n' +
       '• operation: "coverage_matrix" → module-level Guard rule coverage matrix\n' +
@@ -391,14 +390,9 @@ export const TOOLS = [
     name: 'alembic_task',
     tier: 'agent',
     description:
-      'Task and decision management (5 operations). In projects with a project-level Alembic knowledge skill or local Alembic knowledge base, call prime when project knowledge is relevant to the semantic task; use hostDeclaredIntent instead of raw automation/direct-thread envelopes. For empty projects, do not proactively prime unless the user explicitly asks for Alembic.\n' +
-      'Visible for initialized projects even before usable Recipes exist because task close is a Codex lifecycle surface, not a Recipe/Search/Guard knowledge query.\n' +
-      '• prime — load knowledge context + initialize intent lifecycle\n' +
-      '• create — create task anchor only for explicit implementation/fix/refactor/multi-step code evidence work\n' +
-      '• close — complete task + conditionally recommend Guard only for task-scoped guard-relevant code diff; returned nextAction carries explicit files when required\n' +
-      '• close also surfaces Plugin-only opportunistic evolution hints/proposals only for task-scoped code diff when Alembic resident ProjectScope cannot handle the project; it never auto-submits Recipes\n' +
-      '• fail — abandon task\n' +
-      '• record_decision — record user preference decision',
+      'Legacy compatibility task lifecycle surface for older Codex sessions and regression tests. Prefer the agent-facing public tools as the primary host guide: alembic_intent, alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record.\n' +
+      'Visible for initialized projects only as a compatibility hook; empty projects should use diagnostics/init/bootstrap instead of proactive legacy task calls.\n' +
+      'Compatibility mapping: prime → alembic_intent + alembic_prime; create → alembic_work_start; close → alembic_work_finish then alembic_code_guard only with explicit scope; record_decision → alembic_decision_record; fail remains legacy abandonment metadata.',
     inputSchema: zodToMcpSchema(TaskInput),
   },
 

@@ -398,7 +398,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     handlerOwner: 'McpServer.task',
     tier: 'agent',
     schema: 'TaskInput',
-    annotations: localWriteTool('Manage Alembic Task State'),
+    annotations: localWriteTool('Legacy Alembic Task Compatibility'),
     gateway: {
       resolver: (args: Record<string, unknown>) =>
         (

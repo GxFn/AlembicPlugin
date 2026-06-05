@@ -648,27 +648,27 @@ function buildPrimeKnowledgeNextActions(
   if (taskAnchorDecision.action === 'skip') {
     return [
       {
-        tool: 'alembic_task',
+        tool: 'alembic_work_start',
         args: {
-          operation: 'create',
+          inputSource: 'legacy-compatibility',
           title: '<short task title>',
         },
         required: false,
         skipped: true,
-        reason: `Task anchor skipped by Codex-aware lifecycle policy: ${taskAnchorDecision.reasonCode}.`,
+        reason: `Work anchor skipped by Codex-aware lifecycle policy: ${taskAnchorDecision.reasonCode}.`,
         taskAnchorDecision,
       },
     ];
   }
   return [
     {
-      tool: 'alembic_task',
+      tool: 'alembic_work_start',
       args: {
-        operation: 'create',
+        inputSource: 'legacy-compatibility',
         title: '<short task title>',
       },
       required: false,
-      reason: `Create a task anchor after the prime knowledge receipt only for real implementation work (${taskAnchorDecision.reasonCode}).`,
+      reason: `Create a workRef after the prime knowledge receipt only for real implementation work (${taskAnchorDecision.reasonCode}).`,
       taskAnchorDecision,
     },
   ];
@@ -677,6 +677,9 @@ function buildPrimeKnowledgeNextActions(
 function redactVisiblePath(value: string): string {
   const normalized = value.replace(/\\/g, '/');
   const parts = normalized.split('/').filter(Boolean);
+  if (normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
+    return `[absolute-path]/${parts[parts.length - 1] ?? 'file'}`;
+  }
   if (parts.length <= 3) {
     return normalized;
   }

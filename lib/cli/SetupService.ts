@@ -254,8 +254,8 @@ export class SetupService {
     this.writeLine('  下一步：');
     if (this.profile === 'codex-plugin') {
       this.writeLine('    1. 在 Codex 插件中调用 alembic_health 检查 MCP 可用性');
-      this.writeLine('    2. 非简单编码任务前使用 alembic_task(operation=prime)');
-      this.writeLine('    3. 写完后使用 alembic_guard 检查当前变更');
+      this.writeLine('    2. 非简单编码任务前使用 alembic_intent + alembic_prime');
+      this.writeLine('    3. 写完后使用 alembic_work_finish + alembic_code_guard 检查当前变更');
     } else {
       this.writeLine('    1. 由目标 IDE 插件启动 Alembic MCP 或 daemon');
       this.writeLine('    2. 首次使用前确认插件已传入准确的项目目录');

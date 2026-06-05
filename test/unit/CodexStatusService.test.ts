@@ -11,6 +11,7 @@ import {
 import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildCodexStatus } from '../../lib/codex/index.js';
+import { buildCodexPostInitActions } from '../../lib/codex/status/StatusService.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -198,6 +199,25 @@ afterEach(() => {
 });
 
 describe('Codex status service', () => {
+  test('recommends agent-facing prime after init instead of legacy task operations', () => {
+    const actions = buildCodexPostInitActions({
+      hasKnowledge: true,
+      initialized: true,
+      recipeCount: 1,
+      skillCount: 1,
+      status: 'knowledge_ready',
+      usable: true,
+    });
+
+    expect(actions[0]).toMatchObject({
+      arguments: { inputSource: 'host-declared-intent' },
+      label: 'Prime agent context',
+      tool: 'alembic_prime',
+    });
+    expect(JSON.stringify(actions)).not.toContain('alembic_task');
+    expect(JSON.stringify(actions)).not.toContain('operation=prime');
+  });
+
   test('builds the shared needs-init status without starting the daemon', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();

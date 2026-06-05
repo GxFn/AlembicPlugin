@@ -612,14 +612,14 @@ export const CapabilitiesInput = z.object({});
 export type CapabilitiesInput = z.infer<typeof CapabilitiesInput>;
 
 // ══════════════════════════════════════════════════════
-//  13. alembic_task (5 operations)
+//  13. alembic_task (legacy compatibility, 5 operations)
 // ══════════════════════════════════════════════════════
 
 export const TaskInput = z.object({
   operation: z
     .enum(['prime', 'create', 'close', 'fail', 'record_decision'])
     .describe(
-      'prime=按 Codex-aware lifecycle 加载知识上下文 | create=创建任务锚点 | close=完成并按任务范围决定是否 Guard | fail=放弃 | record_decision=记录用户偏好'
+      'Legacy compatibility operation. Prefer public tools: alembic_intent/alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record.'
     ),
   title: z.string().optional().describe('Task or decision title (create / record_decision)'),
   description: z.string().optional().describe('Decision description (record_decision)'),
@@ -650,14 +650,14 @@ export const TaskInput = z.object({
     .max(50)
     .optional()
     .describe(
-      'Task-scoped files changed by this task; close uses them with git diff to decide whether Guard should run with explicit files.'
+      'Task-scoped files changed by this legacy task; compatibility close uses them to recommend explicit alembic_code_guard scope.'
     ),
   sourceRefs: z
     .array(z.string().min(1).max(200))
     .max(50)
     .optional()
     .describe(
-      'Optional non-private source refs for task-scope evidence used by close/Guard decisions.'
+      'Optional non-private source refs for legacy task-scope evidence and public-tool detailRefs.'
     ),
 });
 export type TaskInput = z.infer<typeof TaskInput>;

@@ -256,22 +256,21 @@ function _generatePrimeReceiptId(): string {
 
 const _taskRules = {
   reminder: [
-    '📋 TASK LIFECYCLE RULES (CODEX-AWARE):',
-    '🔑 YOU are the task operator — user speaks naturally, you translate to task operations.',
-    '• Prime only when project knowledge is relevant to the current semantic task; do not raw-prime automation or direct-thread envelopes.',
-    '• Create task anchors for explicit implementation/fix/refactor/multi-step code evidence work; skip read-only, status, Design, and automation-control turns.',
-    '• Close only an existing task anchor, with a meaningful reason.',
-    '• Guard after close only when task-scoped guard-relevant code diff exists; pass explicit files instead of no-args Guard.',
-    '• When user agrees/disagrees → record_decision immediately',
-    '• NEVER tell user to run task commands',
+    '📋 LEGACY TASK COMPATIBILITY RULES:',
+    '🔑 Prefer agent-facing public tools when they are available; this task surface is retained for older Codex sessions.',
+    '• For project knowledge, use alembic_intent and alembic_prime as the primary path.',
+    '• For implementation/fix/refactor/review work, use alembic_work_start and alembic_work_finish.',
+    '• For code checks, use alembic_code_guard with explicit files or inline code.',
+    '• For confirmed durable decisions, use alembic_decision_record.',
+    '• Do not ask the user to choose compatibility task operations.',
   ].join('\n'),
   translationHint: [
-    'User Says → You Run:',
-    '"fix bug"/"implement" → create→code→close',
-    '"continue" → resume in-progress→close',
-    '"pause"/"abandon" → fail(id, reason)',
-    '"agreed"/"disagree" → record_decision',
-    'Quick question/status/read-only/design/envelope → no task anchor; answer or report status.',
+    'Compatibility mapping:',
+    'semantic task → alembic_intent → alembic_prime',
+    'concrete work → alembic_work_start → code → alembic_work_finish',
+    'guard recommendation → alembic_code_guard with explicit scope',
+    'confirmed decision → alembic_decision_record',
+    'pause/abandon is the only lifecycle case that may still need legacy fail metadata.',
   ].join('\n'),
 };
 

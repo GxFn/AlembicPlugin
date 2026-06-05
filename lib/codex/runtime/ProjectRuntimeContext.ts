@@ -268,7 +268,9 @@ function buildProjectRuntimeIdentity(input: {
       input.facts.dataRootSource;
     return createProjectRuntimeIdentityContract({
       currentFolderId:
-        residentIdentity?.currentFolderId ?? residentScope?.currentFolderId ?? input.facts.currentFolderId,
+        residentIdentity?.currentFolderId ??
+        residentScope?.currentFolderId ??
+        input.facts.currentFolderId,
       dataRoot: residentDataRoot,
       dataRootSource,
       databasePath: join(runtimeDir, 'alembic.db'),

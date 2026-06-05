@@ -531,6 +531,12 @@ describe('alembic_task prime knowledge material', () => {
     expect(
       result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
     ).not.toContain('codex_host_response');
+    expect(result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)).toContain(
+      'alembic_work_start'
+    );
+    expect(JSON.stringify(result.data.primeKnowledgeMaterial.nextActions)).not.toContain(
+      'alembic_task'
+    );
     expect(result.message).toContain('Codex must immediately shout');
     expect(result.message).toContain('short knowledge receipt');
     expect(result.message).toContain('Speak as Codex or I');

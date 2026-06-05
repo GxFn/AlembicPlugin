@@ -245,7 +245,10 @@ function summarizeStatus(data) {
 
 function assertRuntimeReadback(data, marker, targetRoot) {
   const runtime = objectFrom(data.projectRuntime);
-  assertProbe(runtime, `Missing projectRuntime readback for ${targetRoot}: ${JSON.stringify(data)}`);
+  assertProbe(
+    runtime,
+    `Missing projectRuntime readback for ${targetRoot}: ${JSON.stringify(data)}`
+  );
   const identity = objectFrom(runtime.identity);
   assertProbe(
     identity?.projectRoot === options.projectRoot,
@@ -303,7 +306,9 @@ function assertRuntimeReadback(data, marker, targetRoot) {
   }
 
   const requiredServices = Array.isArray(runtime.requiredServices) ? runtime.requiredServices : [];
-  const projectIdentity = requiredServices.find((service) => service?.service === 'project-identity');
+  const projectIdentity = requiredServices.find(
+    (service) => service?.service === 'project-identity'
+  );
   assertProbe(
     projectIdentity?.available === true && projectIdentity?.source === 'codex-current-project',
     `project-identity readiness did not come from Codex current project for ${targetRoot}: ${JSON.stringify(requiredServices)}`
