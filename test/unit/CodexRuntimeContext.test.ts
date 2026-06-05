@@ -129,6 +129,7 @@ describe('Codex runtime context', () => {
       cacheParentCreation: true,
       configured: true,
       ownerMetadata: true,
+      runtimeTarballPreflight: true,
       scope: 'plugin-root-runtime-tarball',
       waitDiagnostics: true,
     });

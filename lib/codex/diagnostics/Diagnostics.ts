@@ -78,10 +78,14 @@ export interface CodexPluginDiagnostics {
 export interface CodexMcpEntryDiagnostics {
   args: string[];
   cacheMarker: {
+    canonicalLocalDevCommand: string | null;
+    entryMode: string | null;
     exists: boolean;
     gitHead: string | null;
     localMcpEntry: string | null;
     mode: string | null;
+    packageVersion: string | null;
+    pluginVersion: string | null;
     refreshedAt: string | null;
   };
   command: string | null;
@@ -109,6 +113,7 @@ export interface CodexWrapperStartupLockDiagnostics {
   holdTimeoutEnv: string;
   ownerMetadata: boolean;
   releaseSignals: string[];
+  runtimeTarballPreflight: boolean;
   scope: 'plugin-root-runtime-tarball' | 'global-cache-base' | 'missing';
   staleTimeoutEnv: string;
   timeoutEnv: string;
@@ -174,6 +179,8 @@ interface BuildDiagnosticIssuesInput {
 interface CodexMcpEntryDiagnosticsInput {
   args: string[];
   command: string | null;
+  packageVersion: string;
+  pluginVersion: string | null;
   registryPluginRoot: string;
   runtimeTarballPath: string;
   wrapperArg: string | null;
@@ -429,6 +436,8 @@ function buildCodexPluginMcpDiagnostics(
   const entry = buildCodexMcpEntryDiagnostics({
     args,
     command,
+    packageVersion: context.packageVersion,
+    pluginVersion: asString(registry.plugin.manifest.value?.version) || null,
     registryPluginRoot: registry.plugin.root,
     runtimeTarballPath,
     wrapperArg,
@@ -646,6 +655,30 @@ function collectCodexMcpEntryStaleReasons(input: {
   }
   if (
     input.marker.exists &&
+    input.marker.entryMode &&
+    input.marker.entryMode !== input.configMode &&
+    input.configMode !== 'unknown'
+  ) {
+    staleReasons.push('refresh-marker-entry-mode-mismatch');
+  }
+  if (
+    input.marker.exists &&
+    input.marker.packageVersion &&
+    input.input.packageVersion &&
+    input.marker.packageVersion !== input.input.packageVersion
+  ) {
+    staleReasons.push('refresh-marker-package-version-mismatch');
+  }
+  if (
+    input.marker.exists &&
+    input.marker.pluginVersion &&
+    input.input.pluginVersion &&
+    input.marker.pluginVersion !== input.input.pluginVersion
+  ) {
+    staleReasons.push('refresh-marker-plugin-version-mismatch');
+  }
+  if (
+    input.marker.exists &&
     input.marker.mode === 'packaged-runtime' &&
     input.configMode !== 'packaged-wrapper'
   ) {
@@ -675,6 +708,9 @@ function collectLocalMcpMarkerStaleReasons(
       staleReasons.push('refresh-marker-local-entry-mismatch');
     }
   }
+  if (input.marker.entryMode && input.marker.entryMode !== 'local-dev-direct-dist') {
+    staleReasons.push('refresh-marker-local-entry-mode-mismatch');
+  }
 }
 
 function buildWrapperStartupLockDiagnostics(
@@ -699,6 +735,10 @@ function buildWrapperStartupLockDiagnostics(
       wrapperSource.includes('pluginRoot') &&
       wrapperSource.includes('runtimeTarball'),
     releaseSignals,
+    runtimeTarballPreflight:
+      wrapperSource.includes('assertRuntimeTarballReady') &&
+      wrapperSource.includes('runtime-tarball-missing') &&
+      wrapperSource.includes('ALEMBIC_CODEX_RUNTIME_TARBALL_MISSING'),
     scope:
       wrapperSource.includes('lockScope') &&
       wrapperSource.includes('pluginRoot') &&
@@ -723,10 +763,14 @@ function buildWrapperStartupLockDiagnostics(
 function readInstalledRefreshMarker(path: string): CodexMcpEntryDiagnostics['cacheMarker'] {
   const marker = readJsonIfExists(path);
   return {
+    canonicalLocalDevCommand: stringOrNull(marker?.canonicalLocalDevCommand),
+    entryMode: stringOrNull(marker?.entryMode),
     exists: Boolean(marker),
     gitHead: stringOrNull(marker?.gitHead),
     localMcpEntry: stringOrNull(marker?.localMcpEntry),
     mode: stringOrNull(marker?.mode),
+    packageVersion: stringOrNull(marker?.packageVersion),
+    pluginVersion: stringOrNull(marker?.pluginVersion),
     refreshedAt: stringOrNull(marker?.refreshedAt),
   };
 }

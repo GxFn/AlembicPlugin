@@ -41,6 +41,11 @@ describe('Codex plugin local-dev reload script', () => {
       };
       readbackProof: { expectedToolCall: string; requiresFreshProcess: boolean };
       reportPath: string;
+      runtimeModeSeparation: {
+        activeMode: string;
+        localDev: { entryMode: string };
+        packaged: { cacheIsolation: string; entryMode: string; usedByReload: boolean };
+      };
     };
 
     expect(report).toMatchObject({
@@ -52,10 +57,21 @@ describe('Codex plugin local-dev reload script', () => {
     });
     expect(report.plan.currentHostMcpProcessLifecycle).toBe('not-managed-by-plugin');
     expect(report.readbackProof).toMatchObject({
+      expectedEntryMode: 'local-dev-direct-dist',
       expectedToolCall: 'alembic_codex_status',
       requiresFreshProcess: true,
     });
+    expect(report.runtimeModeSeparation).toMatchObject({
+      activeMode: 'local-dev-direct-dist',
+      localDev: { entryMode: 'local-dev-direct-dist' },
+      packaged: {
+        entryMode: 'packaged-wrapper',
+        usedByReload: false,
+      },
+    });
+    expect(report.runtimeModeSeparation.packaged.cacheIsolation).toContain('startup lock');
     expect(report.plan.freshMcpReadback).toMatchObject({
+      expectedEntryMode: 'local-dev-direct-dist',
       expectedToolCall: 'alembic_codex_status',
       requiresFreshProcess: true,
     });
@@ -85,6 +101,11 @@ describe('Codex plugin local-dev reload script', () => {
       canonicalCommand: string;
       legacyAlias: string;
       ok: boolean;
+      runtimeModeSeparation: {
+        activeMode: string;
+        localDev: { command: string };
+        packaged: { usedByReload: boolean };
+      };
     };
     const persisted = JSON.parse(readFileSync(join(root, 'refresh-report.json'), 'utf8')) as {
       legacyAlias: string;
@@ -94,6 +115,11 @@ describe('Codex plugin local-dev reload script', () => {
       canonicalCommand: 'npm run dev:codex-plugin:reload',
       legacyAlias: 'refresh',
       ok: true,
+      runtimeModeSeparation: {
+        activeMode: 'local-dev-direct-dist',
+        localDev: { command: 'npm run dev:codex-plugin:reload' },
+        packaged: { usedByReload: false },
+      },
     });
     expect(persisted.legacyAlias).toBe('refresh');
   });

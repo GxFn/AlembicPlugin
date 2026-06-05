@@ -14,6 +14,7 @@ const report = {
   mcpProcessHandling: 'not-managed-by-plugin',
   projectRoot: options.projectRoot,
   readbackProof: buildReadbackProofSummary(),
+  runtimeModeSeparation: buildRuntimeModeSeparation(),
   steps: [],
   sync: null,
   probe: null,
@@ -150,13 +151,34 @@ function buildDryRunPlan() {
     currentHostMcpProcessLifecycle: 'not-managed-by-plugin',
     freshMcpReadback: buildReadbackProofSummary(),
     probe: !options.skipProbe,
+    runtimeModeSeparation: buildRuntimeModeSeparation(),
     syncCommand: ['node', 'scripts/sync-codex-plugin-cache.mjs', ...syncArgs],
+  };
+}
+
+function buildRuntimeModeSeparation() {
+  return {
+    activeMode: 'local-dev-direct-dist',
+    localDev: {
+      command: 'npm run dev:codex-plugin:reload',
+      entryMode: 'local-dev-direct-dist',
+      cacheRewrite: 'installed caches point at local dist/bin/codex-mcp.js',
+      currentHostMcpProcessLifecycle: 'not-managed-by-plugin',
+    },
+    packaged: {
+      command: 'plugins/alembic-codex/bin/alembic-codex-mcp-wrapper.mjs',
+      entryMode: 'packaged-wrapper',
+      runtimeSpecifier: './runtime.tgz',
+      cacheIsolation: 'per-wrapper-process npm cache plus scoped startup lock',
+      usedByReload: false,
+    },
   };
 }
 
 function buildReadbackProofSummary() {
   return {
     expectedToolCall: 'alembic_codex_status',
+    expectedEntryMode: 'local-dev-direct-dist',
     proves: [
       'fresh installed-cache MCP startup',
       'projectRuntime.identity projectRoot/dataRoot/runtimeDir/databasePath',

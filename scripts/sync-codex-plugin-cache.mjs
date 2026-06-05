@@ -245,12 +245,27 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
     schemaVersion: 1,
     refreshedAt: new Date().toISOString(),
     mode: options.localMcp ? 'local-mcp' : 'packaged-runtime',
+    entryMode: options.localMcp ? 'local-dev-direct-dist' : 'packaged-wrapper',
+    canonicalLocalDevCommand: 'npm run dev:codex-plugin:reload',
     sourceRoot: pluginRoot,
     targetRoot,
     packageVersion: readJson(join(projectRoot, 'package.json')).version,
     pluginVersion,
     gitHead: readGitHead(),
     localMcpEntry: options.localMcp ? localMcpEntry : null,
+    runtimeModeSeparation: {
+      localDev: {
+        entryMode: 'local-dev-direct-dist',
+        localMcpEntry: options.localMcp ? localMcpEntry : null,
+        cacheRewrite: options.localMcp,
+      },
+      packaged: {
+        entryMode: 'packaged-wrapper',
+        wrapperEntry: './bin/alembic-codex-mcp-wrapper.mjs',
+        runtimeSpecifier: './runtime.tgz',
+        cacheIsolation: 'per-wrapper-process npm cache plus scoped startup lock',
+      },
+    },
     hashes: {
       mcp: hashFile(join(cacheRoot, '.mcp.json')),
       manifest: hashFile(join(cacheRoot, '.codex-plugin', 'plugin.json')),

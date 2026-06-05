@@ -1253,6 +1253,7 @@ describe('CodexMcpServer', () => {
               startupLockDiagnostics: {
                 cacheParentCreation: boolean;
                 releaseSignals: string[];
+                runtimeTarballPreflight: boolean;
                 scope: string;
                 waitDiagnostics: boolean;
               };
@@ -1289,6 +1290,7 @@ describe('CodexMcpServer', () => {
     });
     expect(result.data.plugin.mcp.wrapper.startupLockDiagnostics).toMatchObject({
       cacheParentCreation: true,
+      runtimeTarballPreflight: true,
       scope: 'plugin-root-runtime-tarball',
       waitDiagnostics: true,
     });
