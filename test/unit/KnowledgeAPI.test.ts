@@ -435,8 +435,33 @@ describe('MCP Tool Definitions (V3)', () => {
     });
   });
 
-  test('TOOLS 数组应包含 18 个工具', () => {
-    expect(TOOLS.length).toBe(18);
+  test('TOOLS 数组应暴露 canonical V3 工具面', () => {
+    expect(TOOLS.map((tool) => tool.name)).toEqual([
+      'alembic_intent',
+      'alembic_prime',
+      'alembic_work_start',
+      'alembic_work_finish',
+      'alembic_code_guard',
+      'alembic_decision_record',
+      'alembic_health',
+      'alembic_search',
+      'alembic_knowledge',
+      'alembic_structure',
+      'alembic_graph',
+      'alembic_call_context',
+      'alembic_guard',
+      'alembic_submit_knowledge',
+      'alembic_project_skill',
+      'alembic_bootstrap',
+      'alembic_rescan',
+      'alembic_evolve',
+      'alembic_consolidate',
+      'alembic_dimension_complete',
+      'alembic_panorama',
+      'alembic_task',
+      'alembic_enrich_candidates',
+      'alembic_knowledge_lifecycle',
+    ]);
     expect(TOOLS.some((t) => t.name === 'alembic_project_skill')).toBe(true);
     expect(TOOLS.some((t) => t.name === 'alembic_skill')).toBe(false);
   });

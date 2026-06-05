@@ -1,5 +1,5 @@
 /**
- * MCP Tool Definitions — V3 Routed Surface (17 agent + 2 admin = 19 tools)
+ * MCP Tool Definitions — V3 Routed Surface (22 agent + 2 admin = 24 tools)
  *
  * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
@@ -14,7 +14,7 @@
  *   Legacy compatibility: task — 5 ops retained for older hosts/tests, not the primary guide
  *
  * Admin tools (2):
- *   18-19: enrich_candidates/knowledge_lifecycle
+ *   enrich_candidates/knowledge_lifecycle
  */
 
 import { z } from 'zod';
@@ -115,10 +115,10 @@ const DECISION_RECORD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_d
 
 export const TOOLS = [
   // ══════════════════════════════════════════════════════
-  //  Tier: agent — Core Agent Toolset (14)
+  //  Tier: agent — Core Agent Toolset (22)
   // ══════════════════════════════════════════════════════
 
-  // 1. Health Check
+  // Agent-facing public workflow tools
   {
     name: 'alembic_intent',
     tier: 'agent',
@@ -187,7 +187,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(HealthInput),
   },
 
-  // 2. Unified Search
+  // Unified Search
   {
     name: 'alembic_search',
     tier: 'agent',
@@ -202,7 +202,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(SearchInput),
   },
 
-  // 3. Knowledge Browser
+  // Knowledge Browser
   {
     name: 'alembic_knowledge',
     tier: 'agent',
@@ -215,7 +215,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(KnowledgeInput),
   },
 
-  // 4. Project Structure
+  // Project Structure
   {
     name: 'alembic_structure',
     tier: 'agent',
@@ -227,7 +227,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(StructureInput),
   },
 
-  // 5. Knowledge Graph
+  // Knowledge Graph
   {
     name: 'alembic_graph',
     tier: 'agent',
@@ -240,7 +240,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(GraphInput),
   },
 
-  // 6. Call Context
+  // Call Context
   {
     name: 'alembic_call_context',
     tier: 'agent',
@@ -253,7 +253,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(CallContextInput),
   },
 
-  // 7. Guard Code Check
+  // Guard Code Check
   {
     name: 'alembic_guard',
     tier: 'agent',
@@ -267,7 +267,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(GuardInput),
   },
 
-  // 8. Submit Knowledge (Unified Pipeline)
+  // Submit Knowledge (Unified Pipeline)
   {
     name: 'alembic_submit_knowledge',
     tier: 'agent',
@@ -284,7 +284,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(SubmitKnowledgeInput),
   },
 
-  // 9. Skill Management
+  // Project Skill Management
   {
     name: 'alembic_project_skill',
     tier: 'agent',
@@ -299,7 +299,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(ProjectSkillInput),
   },
 
-  // 10. Cold-Start Bootstrap
+  // Cold-Start Bootstrap
   {
     name: 'alembic_bootstrap',
     tier: 'agent',
@@ -313,7 +313,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(BootstrapInput),
   },
 
-  // 11. Incremental Rescan
+  // Incremental Rescan
   {
     name: 'alembic_rescan',
     tier: 'agent',
@@ -328,7 +328,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(_RescanSchema),
   },
 
-  // 11.5. Recipe Evolution
+  // Recipe Evolution
   {
     name: 'alembic_evolve',
     tier: 'agent',
@@ -343,7 +343,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(_EvolveSchema),
   },
 
-  // 11.6. Consolidation Review
+  // Consolidation Review
   {
     name: 'alembic_consolidate',
     tier: 'agent',
@@ -357,7 +357,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(_ConsolidateSchema),
   },
 
-  // 12. Dimension Complete Notification
+  // Dimension Complete Notification
   {
     name: 'alembic_dimension_complete',
     tier: 'agent',
@@ -368,7 +368,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(DimensionCompleteInput),
   },
 
-  // 13. Project Panorama
+  // Project Panorama
   {
     name: 'alembic_panorama',
     tier: 'agent',
@@ -385,7 +385,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(PanoramaInput),
   },
 
-  // 14. Task & Decision Management
+  // Task & Decision Compatibility
   {
     name: 'alembic_task',
     tier: 'agent',
@@ -400,7 +400,7 @@ export const TOOLS = [
   //  Tier: admin — Admin/CI Tools (+2)
   // ══════════════════════════════════════════════════════
 
-  // 15. Candidate Field Diagnosis
+  // Candidate Field Diagnosis
   {
     name: 'alembic_enrich_candidates',
     tier: 'admin',
@@ -409,7 +409,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(EnrichCandidatesInput),
   },
 
-  // 16. Knowledge Lifecycle
+  // Knowledge Lifecycle
   {
     name: 'alembic_knowledge_lifecycle',
     tier: 'admin',
