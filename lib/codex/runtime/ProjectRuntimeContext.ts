@@ -124,6 +124,7 @@ export interface CodexProjectRuntimeEntryMode {
 
 export interface CodexAlembicRuntimeSourceOfTruth {
   contractVersion: number | null;
+  diagnostics: Record<string, unknown>[];
   failure: Record<string, unknown> | null;
   operation: Record<string, unknown> | null;
   owner: string | null;
@@ -141,9 +142,16 @@ export interface CodexAlembicRuntimeSourceOfTruth {
   route: string | null;
   runtimeControl: {
     activeMatchesCurrentProject: boolean | null;
+    activeProject: Record<string, unknown> | null;
+    activeReadyProject: Record<string, unknown> | null;
     activeStateTrusted: boolean | null;
+    diagnostics: Record<string, unknown>[];
+    projects: Record<string, unknown> | null;
     readOnly: boolean | null;
     selectedMatchesCurrentProject: boolean | null;
+    selectedProject: Record<string, unknown> | null;
+    state: Record<string, unknown> | null;
+    stateCleanup: Record<string, unknown> | null;
     statePath: string | null;
   } | null;
   targetProject: Record<string, unknown> | null;
@@ -480,8 +488,17 @@ function daemonFailureReason(
   if (sourceReason === 'daemon-failed') {
     return 'daemon-failed';
   }
+  if (sourceReason === 'daemon-missing') {
+    return 'daemon-missing';
+  }
   if (sourceReason === 'daemon-not-running') {
     return 'daemon-missing';
+  }
+  if (
+    sourceReason === 'runtime-control-active-stale' ||
+    sourceReason === 'runtime-control-selected-mismatch'
+  ) {
+    return 'daemon-stale';
   }
   switch (status?.status) {
     case 'failed':
@@ -553,6 +570,7 @@ function extractAlembicRuntimeSourceOfTruth(
   const runtimeControl = asRecord(raw.runtimeControl);
   return {
     contractVersion: numberFrom(raw.contractVersion),
+    diagnostics: recordArrayFrom(raw.diagnostics),
     failure: asRecord(raw.failure),
     operation: asRecord(raw.operation),
     owner: stringFrom(raw.owner),
@@ -575,9 +593,16 @@ function extractAlembicRuntimeSourceOfTruth(
     runtimeControl: runtimeControl
       ? {
           activeMatchesCurrentProject: booleanFrom(runtimeControl.activeMatchesCurrentProject),
+          activeProject: asRecord(runtimeControl.activeProject),
+          activeReadyProject: asRecord(runtimeControl.activeReadyProject),
           activeStateTrusted: booleanFrom(runtimeControl.activeStateTrusted),
+          diagnostics: recordArrayFrom(runtimeControl.diagnostics),
+          projects: asRecord(runtimeControl.projects),
           readOnly: booleanFrom(runtimeControl.readOnly),
           selectedMatchesCurrentProject: booleanFrom(runtimeControl.selectedMatchesCurrentProject),
+          selectedProject: asRecord(runtimeControl.selectedProject),
+          state: asRecord(runtimeControl.state),
+          stateCleanup: asRecord(runtimeControl.stateCleanup),
           statePath: stringFrom(runtimeControl.statePath),
         }
       : null,
@@ -602,6 +627,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function recordArrayFrom(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is Record<string, unknown> => Boolean(asRecord(item)));
 }
 
 function stringFrom(value: unknown): string | null {

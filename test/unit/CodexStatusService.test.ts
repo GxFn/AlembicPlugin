@@ -141,6 +141,7 @@ function makeProjectScopeHealth(projectRoot: string): Record<string, unknown> {
       }),
       projectRuntimeSourceOfTruth: {
         contractVersion: 1,
+        diagnostics: [],
         failure: null,
         operation: {
           explicitRuntimeActionRequired: true,
@@ -163,9 +164,50 @@ function makeProjectScopeHealth(projectRoot: string): Record<string, unknown> {
         route: 'daemon-health',
         runtimeControl: {
           activeMatchesCurrentProject: true,
+          activeProject: {
+            projectId: projectScope.projectId,
+            projectRoot,
+            projectScopeId: projectScope.projectScopeId,
+            ready: true,
+            status: 'ready',
+          },
+          activeReadyProject: {
+            projectId: projectScope.projectId,
+            projectRoot,
+            projectScopeId: projectScope.projectScopeId,
+            ready: true,
+            status: 'ready',
+          },
           activeStateTrusted: true,
+          diagnostics: [],
+          projects: { missing: 0, ready: 1, stale: 0, total: 1, unavailable: 0 },
           readOnly: true,
           selectedMatchesCurrentProject: true,
+          selectedProject: {
+            projectId: projectScope.projectId,
+            projectRoot,
+            projectScopeId: projectScope.projectScopeId,
+            ready: true,
+            status: 'ready',
+          },
+          state: {
+            activeProjectId: projectScope.projectId,
+            activeProjectRoot: projectRoot,
+            schemaVersion: 1,
+            selectedAt: '2026-06-05T08:00:00.000Z',
+            selectedProjectId: projectScope.projectId,
+            selectedProjectRoot: projectRoot,
+            updatedAt: '2026-06-05T08:00:00.000Z',
+          },
+          stateCleanup: {
+            activeState: {
+              cleaned: false,
+              message: null,
+              previousProjectId: projectScope.projectId,
+              previousProjectRoot: projectRoot,
+              reasonCode: null,
+            },
+          },
           statePath: path.join(getProjectRegistryDir(), 'runtime-control.json'),
         },
         targetProject: {
@@ -397,8 +439,14 @@ describe('Codex status service', () => {
           owner: 'alembic',
           route: 'daemon-health',
           runtimeControl: {
+            diagnostics: [],
             readOnly: true,
             selectedMatchesCurrentProject: true,
+            stateCleanup: {
+              activeState: {
+                cleaned: false,
+              },
+            },
           },
         },
       },

@@ -283,6 +283,337 @@ describe('Codex runtime context', () => {
       ])
     );
   });
+
+  test('preserves runtime-control mismatch diagnostics without identity fallback', () => {
+    const projectRoot = tempDir('runtime-control-mismatch');
+    const statePath = join(projectRoot, '.asd', 'runtime-control.json');
+    const daemonStatus: DaemonStatus = {
+      ...makeDaemonStatus(),
+      dataRoot: projectRoot,
+      health: {
+        data: {
+          projectRuntimeSourceOfTruth: {
+            contractVersion: 1,
+            diagnostics: [
+              {
+                action: 'explicit-runtime-action-required',
+                code: 'selected-active-mismatch',
+                message: 'Selected project does not match active daemon state.',
+                projectId: 'project-active',
+                projectRoot: join(projectRoot, 'active'),
+                reasonCode: 'runtime-control-selected-mismatch',
+                severity: 'error',
+                source: 'runtime-control-state',
+              },
+            ],
+            failure: {
+              blockedFallbacks: [
+                'plugin-selected-root-fallback',
+                'implicit-runtime-control-write',
+              ],
+              blockingCondition: 'Selected project does not match active daemon state.',
+              diagnostics: [
+                {
+                  code: 'selected-active-mismatch',
+                  reasonCode: 'runtime-control-selected-mismatch',
+                },
+              ],
+              observedSource: 'alembic-source-of-truth',
+              reasonCode: 'runtime-control-selected-mismatch',
+              retryable: false,
+            },
+            operation: {
+              explicitRuntimeActionRequired: true,
+              implicitRuntimeActionAllowed: false,
+              mode: 'diagnostics-read',
+              readOnly: true,
+            },
+            owner: 'alembic',
+            readiness: {
+              ready: false,
+              reasonCode: 'runtime-control-selected-mismatch',
+              stale: true,
+              status: 'stale',
+            },
+            requiredService: {
+              kind: 'project-runtime-control',
+              owner: 'alembic',
+              route: 'project-runtime-control',
+            },
+            route: 'project-runtime-control',
+            runtimeControl: {
+              activeMatchesCurrentProject: false,
+              activeProject: {
+                projectId: 'project-active',
+                projectRoot: join(projectRoot, 'active'),
+                ready: true,
+                status: 'ready',
+              },
+              activeReadyProject: {
+                projectId: 'project-active',
+                projectRoot: join(projectRoot, 'active'),
+                ready: true,
+                status: 'ready',
+              },
+              activeStateTrusted: false,
+              diagnostics: [
+                {
+                  code: 'selected-active-mismatch',
+                  reasonCode: 'runtime-control-selected-mismatch',
+                  severity: 'error',
+                },
+              ],
+              projects: { missing: 0, ready: 1, stale: 1, total: 2, unavailable: 0 },
+              readOnly: true,
+              selectedMatchesCurrentProject: true,
+              selectedProject: {
+                projectId: 'project-selected',
+                projectRoot,
+                ready: true,
+                status: 'ready',
+              },
+              state: {
+                activeProjectId: 'project-active',
+                selectedProjectId: 'project-selected',
+                selectedProjectRoot: projectRoot,
+              },
+              stateCleanup: {
+                activeState: {
+                  cleaned: false,
+                  message: null,
+                  previousProjectId: 'project-active',
+                  previousProjectRoot: join(projectRoot, 'active'),
+                  reasonCode: null,
+                },
+              },
+              statePath,
+            },
+            targetProject: {
+              projectId: 'project-selected',
+              projectRoot,
+              ready: true,
+              status: 'ready',
+            },
+            writePolicy: {
+              activeStateWriteAllowed: false,
+              daemonLifecycleWriteAllowed: false,
+              jobStoreWriteAllowed: false,
+              projectScopeRegistryWriteAllowed: false,
+              selectedStateWriteAllowed: false,
+              writeOwner: 'alembic',
+            },
+          },
+        },
+      },
+      lockDir: join(projectRoot, '.asd', 'daemon.lock'),
+      logPath: join(projectRoot, '.asd', 'daemon.log'),
+      pidAlive: true,
+      pidPath: join(projectRoot, '.asd', 'daemon.pid'),
+      projectId: 'project-selected',
+      projectRoot,
+      ready: false,
+      statePath,
+      status: 'stale',
+    };
+
+    const context = buildCodexProjectRuntimeContext({
+      daemonStatus,
+      includeOptionalServices: false,
+      projectRoot,
+      requiredServices: ['project-identity', 'daemon'],
+    });
+
+    expect(context.sourceOfTruth).toMatchObject({
+      diagnostics: [
+        {
+          code: 'selected-active-mismatch',
+          reasonCode: 'runtime-control-selected-mismatch',
+        },
+      ],
+      failure: {
+        observedSource: 'alembic-source-of-truth',
+        reasonCode: 'runtime-control-selected-mismatch',
+        retryable: false,
+      },
+      readiness: {
+        ready: false,
+        reasonCode: 'runtime-control-selected-mismatch',
+        stale: true,
+      },
+      runtimeControl: {
+        activeStateTrusted: false,
+        diagnostics: [
+          {
+            code: 'selected-active-mismatch',
+            reasonCode: 'runtime-control-selected-mismatch',
+          },
+        ],
+        readOnly: true,
+        selectedMatchesCurrentProject: true,
+        stateCleanup: {
+          activeState: {
+            cleaned: false,
+          },
+        },
+      },
+    });
+    expect(context.requiredServices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          available: false,
+          reason: 'daemon-stale',
+          service: 'daemon',
+          source: 'project-runtime-control',
+        }),
+      ])
+    );
+    expect(context.sourcePolicy.selectedOrActiveCanOverrideEffectiveIdentity).toBe(false);
+    expect(context.blockedFallbacks).toContain(
+      'runtime-control-selected-active-effective-identity'
+    );
+  });
+
+  test('preserves daemon-missing state cleanup diagnostics as source-of-truth evidence', () => {
+    const projectRoot = tempDir('runtime-control-cleanup');
+    const statePath = join(projectRoot, '.asd', 'runtime-control.json');
+    const daemonStatus: DaemonStatus = {
+      ...makeDaemonStatus(),
+      dataRoot: projectRoot,
+      health: {
+        data: {
+          projectRuntimeSourceOfTruth: {
+            contractVersion: 1,
+            diagnostics: [
+              {
+                action: 'cleared-active-state',
+                code: 'daemon-state-missing',
+                message: 'Persisted active daemon state is missing.',
+                projectId: 'project-old',
+                projectRoot: join(projectRoot, 'old'),
+                reasonCode: 'daemon-missing',
+                severity: 'error',
+                source: 'daemon-status',
+              },
+            ],
+            failure: {
+              diagnostics: [
+                {
+                  code: 'daemon-state-missing',
+                  reasonCode: 'daemon-missing',
+                },
+              ],
+              observedSource: 'alembic-source-of-truth',
+              reasonCode: 'daemon-missing',
+            },
+            owner: 'alembic',
+            readiness: {
+              ready: false,
+              reasonCode: 'daemon-missing',
+              stale: false,
+              status: 'unavailable',
+            },
+            requiredService: {
+              kind: 'project-runtime-control',
+              owner: 'alembic',
+              route: 'project-runtime-control',
+            },
+            route: 'project-runtime-control',
+            runtimeControl: {
+              activeMatchesCurrentProject: false,
+              activeProject: null,
+              activeReadyProject: null,
+              activeStateTrusted: false,
+              diagnostics: [
+                {
+                  code: 'daemon-state-missing',
+                  reasonCode: 'daemon-missing',
+                  severity: 'error',
+                },
+              ],
+              projects: { missing: 0, ready: 0, stale: 0, total: 1, unavailable: 1 },
+              readOnly: true,
+              selectedMatchesCurrentProject: true,
+              selectedProject: {
+                projectId: 'project-selected',
+                projectRoot,
+                ready: false,
+                status: 'unavailable',
+              },
+              state: {
+                activeProjectId: null,
+                selectedProjectId: 'project-selected',
+                selectedProjectRoot: projectRoot,
+              },
+              stateCleanup: {
+                activeState: {
+                  cleaned: true,
+                  cleanedAt: '2026-06-05T09:00:00.000Z',
+                  message: 'Cleared stale active daemon state.',
+                  previousProjectId: 'project-old',
+                  previousProjectRoot: join(projectRoot, 'old'),
+                  reasonCode: 'daemon-missing',
+                },
+              },
+              statePath,
+            },
+            targetProject: {
+              projectId: 'project-selected',
+              projectRoot,
+              ready: false,
+              status: 'unavailable',
+            },
+          },
+        },
+      },
+      lockDir: join(projectRoot, '.asd', 'daemon.lock'),
+      logPath: join(projectRoot, '.asd', 'daemon.log'),
+      pidAlive: false,
+      pidPath: join(projectRoot, '.asd', 'daemon.pid'),
+      projectId: 'project-selected',
+      projectRoot,
+      ready: false,
+      statePath,
+      status: 'stopped',
+    };
+
+    const context = buildCodexProjectRuntimeContext({
+      daemonStatus,
+      includeOptionalServices: false,
+      projectRoot,
+      requiredServices: ['project-identity', 'daemon'],
+    });
+
+    expect(context.sourceOfTruth).toMatchObject({
+      readiness: {
+        reasonCode: 'daemon-missing',
+      },
+      runtimeControl: {
+        diagnostics: [
+          {
+            code: 'daemon-state-missing',
+            reasonCode: 'daemon-missing',
+          },
+        ],
+        stateCleanup: {
+          activeState: {
+            cleaned: true,
+            previousProjectId: 'project-old',
+            reasonCode: 'daemon-missing',
+          },
+        },
+      },
+    });
+    expect(context.requiredServices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          available: false,
+          reason: 'daemon-missing',
+          service: 'daemon',
+          source: 'project-runtime-control',
+        }),
+      ])
+    );
+  });
 });
 
 function tempDir(label: string): string {

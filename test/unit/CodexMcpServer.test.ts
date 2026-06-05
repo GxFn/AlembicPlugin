@@ -263,6 +263,113 @@ function makeProjectScopeHealthPayload(projectScope: ProjectScopeSummary) {
   };
 }
 
+function makeRuntimeControlSourceOfTruth(projectRoot: string): Record<string, unknown> {
+  const staleRoot = path.join(projectRoot, 'stale-active');
+  return {
+    contractVersion: 1,
+    diagnostics: [
+      {
+        action: 'cleared-active-state',
+        code: 'active-runtime-state-stale',
+        message: 'Alembic cleared stale active runtime state.',
+        projectId: 'project-stale',
+        projectRoot: staleRoot,
+        reasonCode: 'runtime-control-active-stale',
+        severity: 'error',
+        source: 'runtime-control-state',
+      },
+    ],
+    failure: {
+      blockedFallbacks: ['plugin-selected-root-fallback', 'implicit-runtime-control-write'],
+      blockingCondition: 'Alembic cleared stale active runtime state.',
+      diagnostics: [
+        {
+          code: 'active-runtime-state-stale',
+          reasonCode: 'runtime-control-active-stale',
+        },
+      ],
+      observedSource: 'alembic-source-of-truth',
+      reasonCode: 'runtime-control-active-stale',
+      retryable: true,
+    },
+    operation: {
+      explicitRuntimeActionRequired: true,
+      implicitRuntimeActionAllowed: false,
+      mode: 'diagnostics-read',
+      readOnly: true,
+    },
+    owner: 'alembic',
+    readiness: {
+      ready: false,
+      reasonCode: 'runtime-control-active-stale',
+      stale: true,
+      status: 'stale',
+    },
+    requiredService: {
+      kind: 'project-runtime-control',
+      owner: 'alembic',
+      route: 'project-runtime-control',
+    },
+    route: 'project-runtime-control',
+    runtimeControl: {
+      activeMatchesCurrentProject: false,
+      activeProject: null,
+      activeReadyProject: null,
+      activeStateTrusted: false,
+      diagnostics: [
+        {
+          code: 'active-runtime-state-stale',
+          reasonCode: 'runtime-control-active-stale',
+          severity: 'error',
+        },
+      ],
+      projects: { missing: 0, ready: 0, stale: 1, total: 1, unavailable: 0 },
+      readOnly: true,
+      selectedMatchesCurrentProject: true,
+      selectedProject: {
+        projectId: 'project-current',
+        projectRoot,
+        ready: false,
+        status: 'stale',
+      },
+      state: {
+        activeProjectId: null,
+        activeProjectRoot: null,
+        schemaVersion: 1,
+        selectedAt: '2026-06-05T09:00:00.000Z',
+        selectedProjectId: 'project-current',
+        selectedProjectRoot: projectRoot,
+        updatedAt: '2026-06-05T09:01:00.000Z',
+      },
+      stateCleanup: {
+        activeState: {
+          cleaned: true,
+          cleanedAt: '2026-06-05T09:01:00.000Z',
+          message: 'Cleared stale active runtime state.',
+          previousProjectId: 'project-stale',
+          previousProjectRoot: staleRoot,
+          reasonCode: 'runtime-control-active-stale',
+        },
+      },
+      statePath: path.join(projectRoot, '.asd', 'runtime-control.json'),
+    },
+    targetProject: {
+      projectId: 'project-current',
+      projectRoot,
+      ready: false,
+      status: 'stale',
+    },
+    writePolicy: {
+      activeStateWriteAllowed: false,
+      daemonLifecycleWriteAllowed: false,
+      jobStoreWriteAllowed: false,
+      projectScopeRegistryWriteAllowed: false,
+      selectedStateWriteAllowed: false,
+      writeOwner: 'alembic',
+    },
+  };
+}
+
 function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
   if (typeof input === 'string') {
     return new URL(input);
@@ -600,6 +707,93 @@ describe('CodexMcpServer', () => {
     expect(fs.existsSync(path.join(sourceRoot, '.asd'))).toBe(false);
     expect(fs.existsSync(path.join(sourceRoot, 'Alembic'))).toBe(false);
     expect(fetchSpy).toHaveBeenCalled();
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('alembic_codex_diagnostics exposes runtime-control diagnostics and state cleanup read-only', async () => {
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    const sourceOfTruth = makeRuntimeControlSourceOfTruth(projectRoot);
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(projectRoot, {
+        health: { data: { projectRuntimeSourceOfTruth: sourceOfTruth } },
+        message: 'Alembic cleared stale active runtime state.',
+        ready: false,
+        status: 'stale',
+      })
+    );
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const result = (await server.handleToolCall('alembic_codex_diagnostics', {})) as {
+      data: {
+        projectRuntime: {
+          blockedFallbacks: string[];
+          fallbackIsolation: Array<{ effectiveIdentityAllowed: boolean; id: string }>;
+          requiredServices: Array<{ reason: string | null; service: string; source: string }>;
+          sourceOfTruth: {
+            readiness: { reasonCode: string };
+            runtimeControl: {
+              diagnostics: Array<{ code: string; reasonCode: string }>;
+              stateCleanup: {
+                activeState: {
+                  cleaned: boolean;
+                  previousProjectId: string | null;
+                  reasonCode: string | null;
+                };
+              };
+            };
+          };
+          sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
+        };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.projectRuntime.sourceOfTruth).toMatchObject({
+      readiness: {
+        reasonCode: 'runtime-control-active-stale',
+      },
+      runtimeControl: {
+        diagnostics: [
+          {
+            code: 'active-runtime-state-stale',
+            reasonCode: 'runtime-control-active-stale',
+          },
+        ],
+        stateCleanup: {
+          activeState: {
+            cleaned: true,
+            previousProjectId: 'project-stale',
+            reasonCode: 'runtime-control-active-stale',
+          },
+        },
+      },
+    });
+    expect(result.data.projectRuntime.requiredServices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'daemon-stale',
+          service: 'daemon',
+          source: 'project-runtime-control',
+        }),
+      ])
+    );
+    expect(result.data.projectRuntime.sourcePolicy).toMatchObject({
+      selectedOrActiveCanOverrideEffectiveIdentity: false,
+    });
+    expect(result.data.projectRuntime.blockedFallbacks).toContain(
+      'runtime-control-selected-active-effective-identity'
+    );
+    expect(result.data.projectRuntime.fallbackIsolation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          effectiveIdentityAllowed: false,
+          id: 'runtime-control-selected-active',
+        }),
+      ])
+    );
+    expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
