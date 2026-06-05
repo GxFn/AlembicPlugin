@@ -77,6 +77,7 @@ export interface ResidentSearchAttemptMeta {
   requestedMode: string;
   residentService?: Record<string, unknown>;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity;
+  retrievalConsumer?: ResidentPrimeRetrievalConsumerSummary;
   residentVector: {
     available: boolean;
     reason?: string | null;
@@ -99,9 +100,12 @@ export interface ResidentSearchResult {
 }
 
 export interface ResidentIntentEvidenceSummary {
+  decisionRegister: ResidentDecisionRegisterRetrievalSummary;
   degraded: boolean;
   degradedReasons: string[];
+  feedback: ResidentRetrievalFeedbackSummary;
   relationEvidence: Array<Record<string, unknown>>;
+  retrievalQuality: ResidentRetrievalQualitySummary;
   scoreBreakdown: Array<Record<string, unknown>>;
   semanticAnchors: Array<Record<string, unknown>>;
   topAnchorMatches: Array<Record<string, unknown>>;
@@ -109,6 +113,13 @@ export interface ResidentIntentEvidenceSummary {
 }
 
 export interface ResidentPrimeInjectionPackageSummary {
+  decisionRegister: ResidentDecisionRegisterRetrievalSummary & {
+    source?: string;
+    vectorAdmission?: string;
+  };
+  feedback: ResidentRetrievalFeedbackSummary & {
+    recorder?: string;
+  };
   injection: {
     degradedReasons: string[];
     omittedCount: number;
@@ -130,6 +141,9 @@ export interface ResidentPrimeInjectionPackageSummary {
   relations: {
     evidence: Array<Record<string, unknown>>;
     omitted: string[];
+  };
+  retrievalQuality: ResidentRetrievalQualitySummary & {
+    selectedWithSourceRefs?: number;
   };
   search: {
     actualMode?: string;
@@ -155,6 +169,54 @@ export interface ResidentPrimeInjectionPackageSummary {
     vectorAvailable?: boolean;
     vectorUsed?: boolean;
   };
+  version: number;
+}
+
+export interface ResidentDecisionRegisterRetrievalSummary {
+  acceptedCount?: number;
+  acceptedDecisionRefs: string[];
+  auditExcludedCount: number;
+  available: boolean;
+  defaultLifecycle: 'active-effective-only';
+  endpoint?: string;
+  excludedStatuses: string[];
+  route?: string;
+}
+
+export interface ResidentRetrievalFeedbackSummary {
+  observeOnly: boolean;
+  supportedSignals: string[];
+  version: number;
+}
+
+export interface ResidentRetrievalQualitySummary {
+  decisionRefCount: number;
+  feedbackSignalCount: number;
+  relationEvidenceCount: number;
+  sourceRefCoverage: number;
+  version: number;
+}
+
+export interface ResidentPrimeRetrievalConsumerSummary {
+  decisionRegister: ResidentDecisionRegisterRetrievalSummary;
+  feedback: ResidentRetrievalFeedbackSummary;
+  producerContract: {
+    available: boolean;
+    missingFields: string[];
+    reasonCode:
+      | 'resident-search-stage1a-contract-present'
+      | 'resident-search-stage1a-contract-missing'
+      | 'resident-search-unavailable';
+    requiredFields: string[];
+    stage: 'AFAPI-FULL-STAGE1A';
+  };
+  relationEvidence: {
+    count: number;
+    evidence: Array<Record<string, unknown>>;
+    omitted: string[];
+  };
+  retrievalQuality: ResidentRetrievalQualitySummary;
+  source: 'resident-search-meta';
   version: number;
 }
 
@@ -1546,6 +1608,10 @@ function buildResidentMeta(input: {
   const meta = input.searchMeta;
   const intentEvidence = compactResidentIntentEvidence(meta.intentEvidence);
   const primeInjectionPackage = compactResidentPrimeInjectionPackage(meta.primeInjectionPackage);
+  const retrievalConsumer = compactResidentPrimeRetrievalConsumer(meta, {
+    intentEvidence,
+    primeInjectionPackage,
+  });
   const residentVector = isRecord(meta.residentVector)
     ? (meta.residentVector as ResidentSearchAttemptMeta['residentVector'])
     : {
@@ -1581,6 +1647,7 @@ function buildResidentMeta(input: {
     residentRequestMode: input.residentRequestMode,
     requestedMode: input.requestedMode,
     projectScopeIdentity: input.projectScopeIdentity,
+    retrievalConsumer,
     residentService: residentServiceSummary(input.status),
     residentVector,
     resultCount,
@@ -1592,6 +1659,7 @@ function buildResidentMeta(input: {
       ...(primeInjectionPackage ? { primeInjectionPackage } : {}),
       projectScopeIdentity: input.projectScopeIdentity,
       residentRequestMode: input.residentRequestMode,
+      retrievalConsumer,
     },
     semanticUsed: booleanFrom(meta.semanticUsed),
     service: stringFrom(meta.service),
@@ -1688,6 +1756,7 @@ function buildUnavailableSearchResult(
       projectScopeIdentity: result.telemetry?.projectScopeIdentity as
         | AlembicResidentProjectScopeIdentity
         | undefined,
+      retrievalConsumer: unavailablePrimeRetrievalConsumerSummary(result.reason),
       residentVector: {
         available: false,
         reason: result.reason,
@@ -1967,13 +2036,16 @@ export function compactResidentIntentEvidence(
     return undefined;
   }
   return {
+    decisionRegister: compactResidentDecisionRegister(value.decisionRegister),
     degraded: booleanFrom(value.degraded) ?? false,
     degradedReasons: compactEvidenceStringArray(value.degradedReasons, 8),
+    feedback: compactResidentRetrievalFeedback(value.feedback),
     relationEvidence: compactEvidenceRecords(
       value.relationEvidence,
       ['direction', 'itemId', 'relatedId', 'relatedType', 'relation', 'source'],
       12
     ),
+    retrievalQuality: compactResidentRetrievalQuality(value.retrievalQuality),
     scoreBreakdown: compactEvidenceRecords(
       value.scoreBreakdown,
       [
@@ -2011,11 +2083,40 @@ export function compactResidentPrimeInjectionPackage(
   const injection = isRecord(value.injection) ? value.injection : {};
   const intent = isRecord(value.intent) ? value.intent : {};
   const relations = isRecord(value.relations) ? value.relations : {};
+  const decisionRegisterRecord = isRecord(value.decisionRegister) ? value.decisionRegister : {};
+  const feedbackRecord = isRecord(value.feedback) ? value.feedback : {};
+  const retrievalQualityRecord = isRecord(value.retrievalQuality) ? value.retrievalQuality : {};
+  const decisionRegister = compactResidentDecisionRegister(value.decisionRegister);
+  const feedback = compactResidentRetrievalFeedback(value.feedback);
+  const retrievalQuality = compactResidentRetrievalQuality(value.retrievalQuality);
   const search = isRecord(value.search) ? value.search : {};
   const trace = isRecord(value.trace) ? value.trace : {};
   const vector = isRecord(value.vector) ? value.vector : {};
 
   return {
+    decisionRegister: {
+      ...decisionRegister,
+      ...(stringFrom(decisionRegisterRecord.source)
+        ? {
+            source: redactEvidenceString(stringFrom(decisionRegisterRecord.source) ?? ''),
+          }
+        : {}),
+      ...(stringFrom(decisionRegisterRecord.vectorAdmission)
+        ? {
+            vectorAdmission: redactEvidenceString(
+              stringFrom(decisionRegisterRecord.vectorAdmission) ?? ''
+            ),
+          }
+        : {}),
+    },
+    feedback: {
+      ...feedback,
+      ...(stringFrom(feedbackRecord.recorder)
+        ? {
+            recorder: redactEvidenceString(stringFrom(feedbackRecord.recorder) ?? ''),
+          }
+        : {}),
+    },
     injection: {
       degradedReasons: compactEvidenceStringArray(injection.degradedReasons, 8),
       omittedCount: numberFrom(injection.omittedCount) ?? 0,
@@ -2050,6 +2151,14 @@ export function compactResidentPrimeInjectionPackage(
         12
       ),
       omitted: compactEvidenceStringArray(relations.omitted, 8),
+    },
+    retrievalQuality: {
+      ...retrievalQuality,
+      ...(numberFrom(retrievalQualityRecord.selectedWithSourceRefs) !== undefined
+        ? {
+            selectedWithSourceRefs: numberFrom(retrievalQualityRecord.selectedWithSourceRefs),
+          }
+        : {}),
     },
     search: {
       ...(stringFrom(search.actualMode)
@@ -2131,6 +2240,161 @@ export function compactResidentPrimeInjectionPackage(
     },
     version: numberFrom(value.version) ?? 1,
   };
+}
+
+export function unavailablePrimeRetrievalConsumerSummary(
+  reason?: string
+): ResidentPrimeRetrievalConsumerSummary {
+  return {
+    decisionRegister: compactResidentDecisionRegister(null),
+    feedback: compactResidentRetrievalFeedback(null),
+    producerContract: {
+      available: false,
+      missingFields: reason ? [`resident:${reason}`] : ['resident:unavailable'],
+      reasonCode: 'resident-search-unavailable',
+      requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+      stage: 'AFAPI-FULL-STAGE1A',
+    },
+    relationEvidence: {
+      count: 0,
+      evidence: [],
+      omitted: [],
+    },
+    retrievalQuality: compactResidentRetrievalQuality(null),
+    source: 'resident-search-meta',
+    version: 1,
+  };
+}
+
+function compactResidentPrimeRetrievalConsumer(
+  meta: Record<string, unknown>,
+  compacted: {
+    intentEvidence?: ResidentIntentEvidenceSummary;
+    primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
+  }
+): ResidentPrimeRetrievalConsumerSummary {
+  const decisionRegisterSource =
+    (isRecord(meta.decisionRegister) ? meta.decisionRegister : null) ??
+    (isRecord(meta.primeInjectionPackage) && isRecord(meta.primeInjectionPackage.decisionRegister)
+      ? meta.primeInjectionPackage.decisionRegister
+      : null) ??
+    (isRecord(meta.intentEvidence) && isRecord(meta.intentEvidence.decisionRegister)
+      ? meta.intentEvidence.decisionRegister
+      : null);
+  const feedbackSource =
+    (isRecord(meta.feedback) ? meta.feedback : null) ??
+    (isRecord(meta.primeInjectionPackage) && isRecord(meta.primeInjectionPackage.feedback)
+      ? meta.primeInjectionPackage.feedback
+      : null) ??
+    (isRecord(meta.intentEvidence) && isRecord(meta.intentEvidence.feedback)
+      ? meta.intentEvidence.feedback
+      : null);
+  const retrievalQualitySource =
+    (isRecord(meta.retrievalQuality) ? meta.retrievalQuality : null) ??
+    (isRecord(meta.primeInjectionPackage) && isRecord(meta.primeInjectionPackage.retrievalQuality)
+      ? meta.primeInjectionPackage.retrievalQuality
+      : null) ??
+    (isRecord(meta.intentEvidence) && isRecord(meta.intentEvidence.retrievalQuality)
+      ? meta.intentEvidence.retrievalQuality
+      : null);
+
+  const decisionRegister = compactResidentDecisionRegister(
+    decisionRegisterSource ?? compacted.primeInjectionPackage?.decisionRegister
+  );
+  const feedback = compactResidentRetrievalFeedback(
+    feedbackSource ?? compacted.primeInjectionPackage?.feedback
+  );
+  const retrievalQuality = compactResidentRetrievalQuality(
+    retrievalQualitySource ?? compacted.primeInjectionPackage?.retrievalQuality
+  );
+  const relationEvidence = uniqueEvidenceRecords([
+    ...(compacted.primeInjectionPackage?.relations.evidence ?? []),
+    ...(compacted.intentEvidence?.relationEvidence ?? []),
+  ]).slice(0, 12);
+  const relationOmissions = compacted.primeInjectionPackage?.relations.omitted ?? [];
+  const missingFields = [
+    decisionRegisterSource ? null : 'decisionRegister',
+    feedbackSource ? null : 'feedback',
+    retrievalQualitySource ? null : 'retrievalQuality',
+  ].filter((field): field is string => Boolean(field));
+
+  return {
+    decisionRegister,
+    feedback,
+    producerContract: {
+      available: missingFields.length === 0,
+      missingFields,
+      reasonCode:
+        missingFields.length === 0
+          ? 'resident-search-stage1a-contract-present'
+          : 'resident-search-stage1a-contract-missing',
+      requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+      stage: 'AFAPI-FULL-STAGE1A',
+    },
+    relationEvidence: {
+      count: relationEvidence.length,
+      evidence: relationEvidence,
+      omitted: relationOmissions,
+    },
+    retrievalQuality,
+    source: 'resident-search-meta',
+    version: 1,
+  };
+}
+
+function compactResidentDecisionRegister(value: unknown): ResidentDecisionRegisterRetrievalSummary {
+  const record = isRecord(value) ? value : {};
+  const route = stringFrom(record.route);
+  const endpoint = stringFrom(record.endpoint);
+  const acceptedDecisionRefs = compactEvidenceStringArray(record.acceptedDecisionRefs, 16);
+  return {
+    ...(numberFrom(record.acceptedCount) !== undefined
+      ? { acceptedCount: numberFrom(record.acceptedCount) }
+      : {}),
+    acceptedDecisionRefs,
+    auditExcludedCount: numberFrom(record.auditExcludedCount) ?? 0,
+    available: booleanFrom(record.available) ?? acceptedDecisionRefs.length > 0,
+    defaultLifecycle: 'active-effective-only',
+    ...(endpoint ? { endpoint: redactEvidenceString(endpoint) } : {}),
+    excludedStatuses: compactEvidenceStringArray(record.excludedStatuses, 8),
+    ...(route ? { route: redactEvidenceString(route) } : {}),
+  };
+}
+
+function compactResidentRetrievalFeedback(value: unknown): ResidentRetrievalFeedbackSummary {
+  const record = isRecord(value) ? value : {};
+  return {
+    observeOnly: booleanFrom(record.observeOnly) ?? false,
+    supportedSignals: compactEvidenceStringArray(record.supportedSignals, 12),
+    version: numberFrom(record.version) ?? 1,
+  };
+}
+
+function compactResidentRetrievalQuality(value: unknown): ResidentRetrievalQualitySummary {
+  const record = isRecord(value) ? value : {};
+  return {
+    decisionRefCount: numberFrom(record.decisionRefCount) ?? 0,
+    feedbackSignalCount: numberFrom(record.feedbackSignalCount) ?? 0,
+    relationEvidenceCount: numberFrom(record.relationEvidenceCount) ?? 0,
+    sourceRefCoverage: numberFrom(record.sourceRefCoverage) ?? 0,
+    version: numberFrom(record.version) ?? 1,
+  };
+}
+
+function uniqueEvidenceRecords(
+  records: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  const output: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+  for (const record of records) {
+    const key = JSON.stringify(record);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(record);
+  }
+  return output;
 }
 
 function compactPackageRecords(

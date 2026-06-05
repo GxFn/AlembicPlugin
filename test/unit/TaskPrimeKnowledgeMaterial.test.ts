@@ -84,6 +84,7 @@ interface PrimeMaterial {
   nextActions: Array<{ tool: string; args: Record<string, unknown>; required: boolean }>;
   intentEvidence?: Record<string, unknown>;
   primeInjectionPackage?: Record<string, unknown>;
+  retrievalConsumer?: Record<string, unknown>;
   intentEpisode?: {
     available: boolean;
     current: {
@@ -188,8 +189,21 @@ function trustLayer(material: PrimeMaterial, layer: TrustLayer) {
 
 function intentEvidenceSummary() {
   return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 1,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+    },
     degraded: false,
     degradedReasons: ['vector:evidence-observe-only'],
+    feedback: {
+      observeOnly: true,
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
     relationEvidence: [
       {
         direction: 'outgoing',
@@ -199,6 +213,13 @@ function intentEvidenceSummary() {
         source: 'knowledgeGraphService',
       },
     ],
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      sourceRefCoverage: 1,
+      version: 1,
+    },
     scoreBreakdown: [
       {
         finalScore: 0.91,
@@ -233,6 +254,22 @@ function intentEvidenceSummary() {
 
 function primeInjectionPackageSummary() {
   return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 1,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+      source: 'alembic-decision-register',
+      vectorAdmission: 'accepted-only',
+    },
+    feedback: {
+      observeOnly: true,
+      recorder: 'HitRecorder',
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
     injection: {
       degradedReasons: [],
       omittedCount: 0,
@@ -261,6 +298,14 @@ function primeInjectionPackageSummary() {
         },
       ],
       omitted: [],
+    },
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      selectedWithSourceRefs: 1,
+      sourceRefCoverage: 1,
+      version: 1,
     },
     search: {
       actualMode: 'semantic',

@@ -9,12 +9,14 @@
 
 import type { SearchResultItem, SlimSearchResult } from '@alembic/core/search';
 import { slimSearchResult } from '@alembic/core/search';
-import type {
-  ResidentIntentEvidenceSummary,
-  ResidentPrimeInjectionPackageSummary,
-  ResidentSearchAttemptMeta,
-  ResidentSearchRequest,
-  ResidentSearchResult,
+import {
+  type ResidentIntentEvidenceSummary,
+  type ResidentPrimeInjectionPackageSummary,
+  type ResidentPrimeRetrievalConsumerSummary,
+  type ResidentSearchAttemptMeta,
+  type ResidentSearchRequest,
+  type ResidentSearchResult,
+  unavailablePrimeRetrievalConsumerSummary,
 } from '../resident/AlembicResidentServiceClient.js';
 import {
   buildResidentIntentHandoff,
@@ -37,6 +39,7 @@ export interface PrimeSearchMeta {
   filteredCount: number;
   intentEvidence?: ResidentIntentEvidenceSummary;
   primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
+  retrievalConsumer?: ResidentPrimeRetrievalConsumerSummary;
   residentSearch?: ResidentSearchAttemptMeta;
 }
 
@@ -383,6 +386,7 @@ export class PrimeSearchPipeline {
           reason,
           requestedMode: 'semantic',
           residentVector: { available: false, reason },
+          retrievalConsumer: unavailablePrimeRetrievalConsumerSummary(reason),
           resultCount: 0,
           route: 'alembic-resident-service',
           used: false,
@@ -407,6 +411,9 @@ export class PrimeSearchPipeline {
       ...(residentSearch?.intentEvidence ? { intentEvidence: residentSearch.intentEvidence } : {}),
       ...(residentSearch?.primeInjectionPackage
         ? { primeInjectionPackage: residentSearch.primeInjectionPackage }
+        : {}),
+      ...(residentSearch?.retrievalConsumer
+        ? { retrievalConsumer: residentSearch.retrievalConsumer }
         : {}),
       ...(residentSearch ? { residentSearch } : {}),
     };

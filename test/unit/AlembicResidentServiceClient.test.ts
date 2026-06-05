@@ -180,8 +180,21 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
 
 function intentEvidenceFixture() {
   return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 2,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+    },
     degraded: false,
     degradedReasons: ['vector:evidence-observe-only'],
+    feedback: {
+      observeOnly: true,
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
     relationEvidence: [
       {
         direction: 'outgoing',
@@ -191,6 +204,13 @@ function intentEvidenceFixture() {
         source: 'knowledgeGraphService',
       },
     ],
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      sourceRefCoverage: 1,
+      version: 1,
+    },
     scoreBreakdown: [
       {
         finalScore: 0.92,
@@ -226,6 +246,22 @@ function intentEvidenceFixture() {
 
 function primeInjectionPackageFixture() {
   return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 2,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+      source: 'alembic-decision-register',
+      vectorAdmission: 'accepted-only',
+    },
+    feedback: {
+      observeOnly: true,
+      recorder: 'HitRecorder',
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
     injection: {
       degradedReasons: [],
       omittedCount: 0,
@@ -255,6 +291,14 @@ function primeInjectionPackageFixture() {
         },
       ],
       omitted: [],
+    },
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      selectedWithSourceRefs: 1,
+      sourceRefCoverage: 1,
+      version: 1,
     },
     search: {
       actualMode: 'semantic',
@@ -379,6 +423,18 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.searchMeta).toMatchObject({
       codexRequestedMode: 'auto',
       intentEvidence: {
+        decisionRegister: {
+          acceptedDecisionRefs: ['decision-active-1'],
+          auditExcludedCount: 2,
+          excludedStatuses: ['revoked', 'deleted'],
+        },
+        feedback: {
+          observeOnly: true,
+        },
+        retrievalQuality: {
+          decisionRefCount: 1,
+          feedbackSignalCount: 3,
+        },
         semanticAnchors: [
           expect.objectContaining({
             value: '[absolute-path]/service.ts:42',
@@ -391,8 +447,21 @@ describe('AlembicResidentServiceClient', () => {
         ],
       },
       primeInjectionPackage: {
+        decisionRegister: {
+          acceptedDecisionRefs: ['decision-active-1'],
+          auditExcludedCount: 2,
+          vectorAdmission: 'accepted-only',
+        },
+        feedback: {
+          observeOnly: true,
+          recorder: 'HitRecorder',
+        },
         injection: {
           status: 'ready',
+        },
+        retrievalQuality: {
+          decisionRefCount: 1,
+          selectedWithSourceRefs: 1,
         },
         selectedKnowledge: [
           expect.objectContaining({
@@ -403,6 +472,21 @@ describe('AlembicResidentServiceClient', () => {
         ],
         trace: {
           sourceRefs: ['[absolute-path]/service.ts:42'],
+        },
+      },
+      retrievalConsumer: {
+        decisionRegister: {
+          acceptedDecisionRefs: ['decision-active-1'],
+          auditExcludedCount: 2,
+        },
+        producerContract: {
+          available: true,
+          missingFields: [],
+          reasonCode: 'resident-search-stage1a-contract-present',
+        },
+        retrievalQuality: {
+          decisionRefCount: 1,
+          feedbackSignalCount: 3,
         },
       },
       projectScopeIdentity: {
@@ -427,13 +511,37 @@ describe('AlembicResidentServiceClient', () => {
       ],
     });
     expect(result.meta.primeInjectionPackage).toMatchObject({
+      decisionRegister: {
+        acceptedDecisionRefs: ['decision-active-1'],
+        auditExcludedCount: 2,
+      },
+      feedback: {
+        observeOnly: true,
+      },
       injection: {
         selectedCount: 1,
         status: 'ready',
       },
+      retrievalQuality: {
+        decisionRefCount: 1,
+        feedbackSignalCount: 3,
+      },
       trace: {
         evidenceRefs: ['scoreBreakdown:resident-1'],
         sources: ['intentSearchPlan', 'intentEvidence'],
+      },
+    });
+    expect(result.meta.retrievalConsumer).toMatchObject({
+      decisionRegister: {
+        acceptedDecisionRefs: ['decision-active-1'],
+        auditExcludedCount: 2,
+      },
+      feedback: {
+        observeOnly: true,
+      },
+      producerContract: {
+        available: true,
+        missingFields: [],
       },
     });
     expect(JSON.stringify(result.meta.primeInjectionPackage)).not.toContain('/Users/example');
@@ -464,7 +572,9 @@ describe('AlembicResidentServiceClient', () => {
             JSON.stringify({
               success: true,
               data: {
-                items: [{ id: 'resident-bilidili', title: 'BiliDili resident recipe', score: 0.99 }],
+                items: [
+                  { id: 'resident-bilidili', title: 'BiliDili resident recipe', score: 0.99 },
+                ],
                 searchMeta: {
                   actualMode: 'semantic',
                   requestedMode: 'semantic',

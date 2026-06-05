@@ -95,8 +95,21 @@ function residentMeta(
 
 function intentEvidenceSummary() {
   return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 2,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+    },
     degraded: false,
     degradedReasons: ['vector:evidence-observe-only'],
+    feedback: {
+      observeOnly: true,
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
     relationEvidence: [
       {
         direction: 'outgoing',
@@ -106,6 +119,13 @@ function intentEvidenceSummary() {
         source: 'knowledgeGraphService',
       },
     ],
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      sourceRefCoverage: 1,
+      version: 1,
+    },
     scoreBreakdown: [
       {
         finalScore: 0.95,
@@ -140,6 +160,22 @@ function intentEvidenceSummary() {
 
 function primeInjectionPackageSummary() {
   return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 2,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+      source: 'alembic-decision-register',
+      vectorAdmission: 'accepted-only',
+    },
+    feedback: {
+      observeOnly: true,
+      recorder: 'HitRecorder',
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
     injection: {
       degradedReasons: [],
       omittedCount: 0,
@@ -168,6 +204,14 @@ function primeInjectionPackageSummary() {
         },
       ],
       omitted: [],
+    },
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      selectedWithSourceRefs: 1,
+      sourceRefCoverage: 1,
+      version: 1,
     },
     search: {
       actualMode: 'semantic',
@@ -219,6 +263,53 @@ function primeInjectionPackageSummary() {
   };
 }
 
+function retrievalConsumerSummary() {
+  return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 2,
+      available: true,
+      defaultLifecycle: 'active-effective-only' as const,
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+    },
+    feedback: {
+      observeOnly: true,
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
+    producerContract: {
+      available: true,
+      missingFields: [],
+      reasonCode: 'resident-search-stage1a-contract-present' as const,
+      requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+      stage: 'AFAPI-FULL-STAGE1A' as const,
+    },
+    relationEvidence: {
+      count: 1,
+      evidence: [
+        {
+          direction: 'outgoing',
+          itemId: 'resident-1',
+          relatedId: 'recipe-related',
+          relation: 'related',
+          source: 'knowledgeGraphService',
+        },
+      ],
+      omitted: [],
+    },
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      sourceRefCoverage: 1,
+      version: 1,
+    },
+    source: 'resident-search-meta' as const,
+    version: 1,
+  };
+}
+
 describe('PrimeSearchPipeline resident search enhancement', () => {
   it('requests resident semantic search and merges resident results into prime material', async () => {
     const engine = {
@@ -236,9 +327,11 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
           meta: residentMeta({
             intentEvidence: intentEvidenceSummary(),
             primeInjectionPackage: primeInjectionPackageSummary(),
+            retrievalConsumer: retrievalConsumerSummary(),
             searchMeta: {
               intentEvidence: intentEvidenceSummary(),
               primeInjectionPackage: primeInjectionPackageSummary(),
+              retrievalConsumer: retrievalConsumerSummary(),
             },
           }),
         })
@@ -273,6 +366,20 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       vectorUsed: true,
     });
     expect(result?.searchMeta.intentEvidence).toMatchObject({
+      decisionRegister: {
+        acceptedDecisionRefs: ['decision-active-1'],
+        auditExcludedCount: 2,
+        defaultLifecycle: 'active-effective-only',
+        excludedStatuses: ['revoked', 'deleted'],
+      },
+      feedback: {
+        observeOnly: true,
+      },
+      retrievalQuality: {
+        decisionRefCount: 1,
+        feedbackSignalCount: 3,
+        relationEvidenceCount: 1,
+      },
       scoreBreakdown: [
         expect.objectContaining({
           itemId: 'resident-1',
@@ -286,9 +393,23 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       ],
     });
     expect(result?.searchMeta.primeInjectionPackage).toMatchObject({
+      decisionRegister: {
+        acceptedDecisionRefs: ['decision-active-1'],
+        auditExcludedCount: 2,
+        vectorAdmission: 'accepted-only',
+      },
+      feedback: {
+        observeOnly: true,
+        recorder: 'HitRecorder',
+      },
       injection: {
         selectedCount: 1,
         status: 'ready',
+      },
+      retrievalQuality: {
+        decisionRefCount: 1,
+        selectedWithSourceRefs: 1,
+        sourceRefCoverage: 1,
       },
       selectedKnowledge: [
         expect.objectContaining({
@@ -298,6 +419,27 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       ],
       trace: {
         evidenceRefs: ['scoreBreakdown:resident-1'],
+      },
+    });
+    expect(result?.searchMeta.retrievalConsumer).toMatchObject({
+      decisionRegister: {
+        acceptedDecisionRefs: ['decision-active-1'],
+        auditExcludedCount: 2,
+      },
+      feedback: {
+        observeOnly: true,
+      },
+      producerContract: {
+        available: true,
+        missingFields: [],
+        reasonCode: 'resident-search-stage1a-contract-present',
+      },
+      relationEvidence: {
+        count: 1,
+      },
+      retrievalQuality: {
+        decisionRefCount: 1,
+        feedbackSignalCount: 3,
       },
     });
   });

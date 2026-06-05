@@ -76,9 +76,97 @@ function deliveredSearchResult(): PrimeSearchResult {
       queries: ['Implement public prime active tool'],
       resultCount: 2,
       scenario: 'generate',
+      retrievalConsumer: {
+        decisionRegister: {
+          acceptedDecisionRefs: ['decision-active-1'],
+          auditExcludedCount: 1,
+          available: true,
+          defaultLifecycle: 'active-effective-only',
+          excludedStatuses: ['revoked', 'deleted'],
+          route: '/api/v1/decision-register/searchable',
+        },
+        feedback: {
+          observeOnly: true,
+          supportedSignals: ['searchHit', 'view', 'adoption'],
+          version: 1,
+        },
+        producerContract: {
+          available: true,
+          missingFields: [],
+          reasonCode: 'resident-search-stage1a-contract-present',
+          requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+          stage: 'AFAPI-FULL-STAGE1A',
+        },
+        relationEvidence: {
+          count: 1,
+          evidence: [
+            {
+              direction: 'outgoing',
+              itemId: 'recipe-public-prime',
+              relatedId: 'decision-active-1',
+              relation: 'supports',
+              source: 'knowledgeGraphService',
+            },
+          ],
+          omitted: [],
+        },
+        retrievalQuality: {
+          decisionRefCount: 1,
+          feedbackSignalCount: 3,
+          relationEvidenceCount: 1,
+          sourceRefCoverage: 1,
+          version: 1,
+        },
+        source: 'resident-search-meta',
+        version: 1,
+      },
       residentSearch: {
         attempted: true,
         available: true,
+        retrievalConsumer: {
+          decisionRegister: {
+            acceptedDecisionRefs: ['decision-active-1'],
+            auditExcludedCount: 1,
+            available: true,
+            defaultLifecycle: 'active-effective-only',
+            excludedStatuses: ['revoked', 'deleted'],
+            route: '/api/v1/decision-register/searchable',
+          },
+          feedback: {
+            observeOnly: true,
+            supportedSignals: ['searchHit', 'view', 'adoption'],
+            version: 1,
+          },
+          producerContract: {
+            available: true,
+            missingFields: [],
+            reasonCode: 'resident-search-stage1a-contract-present',
+            requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+            stage: 'AFAPI-FULL-STAGE1A',
+          },
+          relationEvidence: {
+            count: 1,
+            evidence: [
+              {
+                direction: 'outgoing',
+                itemId: 'recipe-public-prime',
+                relatedId: 'decision-active-1',
+                relation: 'supports',
+                source: 'knowledgeGraphService',
+              },
+            ],
+            omitted: [],
+          },
+          retrievalQuality: {
+            decisionRefCount: 1,
+            feedbackSignalCount: 3,
+            relationEvidenceCount: 1,
+            sourceRefCoverage: 1,
+            version: 1,
+          },
+          source: 'resident-search-meta',
+          version: 1,
+        },
         route: 'alembic-resident-service',
         semanticUsed: true,
         vectorUsed: true,
@@ -210,10 +298,21 @@ describe('agent-facing active public tools', () => {
           acceptedGuards: unknown[];
           acceptedKnowledge: unknown[];
           hostResponse: { requiredBeforeNextAction: boolean };
+          retrievalConsumer: {
+            decisionRegister: { acceptedDecisionRefs: string[]; auditExcludedCount: number };
+            producerContract: { available: boolean; missingFields: string[] };
+            retrievalQuality: { decisionRefCount: number; feedbackSignalCount: number };
+          };
           status: string;
           trustPosture: { receiptChecklist: Array<{ layer: string; items: unknown[] }> };
         };
-        primePackage: { trustReceipt: { receiptId: string; status: string } };
+        primePackage: {
+          retrievalConsumer: {
+            decisionRegister: { acceptedDecisionRefs: string[] };
+            producerContract: { available: boolean };
+          };
+          trustReceipt: { receiptId: string; status: string };
+        };
         result: {
           refs: { intentRef: { id: string }; primeRef: { id: string }; detailRefs: unknown[] };
           status: string;
@@ -231,6 +330,28 @@ describe('agent-facing active public tools', () => {
     expect(result.data.primeKnowledgeMaterial).toMatchObject({
       status: 'delivered',
       hostResponse: { requiredBeforeNextAction: true },
+      retrievalConsumer: {
+        decisionRegister: {
+          acceptedDecisionRefs: ['decision-active-1'],
+          auditExcludedCount: 1,
+        },
+        producerContract: {
+          available: true,
+          missingFields: [],
+        },
+        retrievalQuality: {
+          decisionRefCount: 1,
+          feedbackSignalCount: 3,
+        },
+      },
+    });
+    expect(result.data.primePackage.retrievalConsumer).toMatchObject({
+      decisionRegister: {
+        acceptedDecisionRefs: ['decision-active-1'],
+      },
+      producerContract: {
+        available: true,
+      },
     });
     expect(result.data.primeKnowledgeMaterial.acceptedKnowledge).toHaveLength(1);
     expect(result.data.primeKnowledgeMaterial.acceptedGuards).toHaveLength(1);
@@ -242,6 +363,90 @@ describe('agent-facing active public tools', () => {
       ])
     );
     expect(result.data.primePackage.trustReceipt.receiptId).toMatch(/^prime-/);
+  });
+
+  test('degrades prime when resident search lacks Stage 1A retrieval metadata', async () => {
+    const oldResidentResult = deliveredSearchResult();
+    oldResidentResult.searchMeta.retrievalConsumer = {
+      decisionRegister: {
+        acceptedDecisionRefs: [],
+        auditExcludedCount: 0,
+        available: false,
+        defaultLifecycle: 'active-effective-only',
+        excludedStatuses: [],
+        route: '/api/v1/decision-register/searchable',
+      },
+      feedback: {
+        observeOnly: false,
+        supportedSignals: [],
+        version: 1,
+      },
+      producerContract: {
+        available: false,
+        missingFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+        reasonCode: 'resident-search-stage1a-contract-missing',
+        requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+        stage: 'AFAPI-FULL-STAGE1A',
+      },
+      relationEvidence: {
+        count: 0,
+        evidence: [],
+        omitted: [],
+      },
+      retrievalQuality: {
+        decisionRefCount: 0,
+        feedbackSignalCount: 0,
+        relationEvidenceCount: 0,
+        sourceRefCoverage: 0,
+        version: 1,
+      },
+      source: 'resident-search-meta',
+      version: 1,
+    };
+    if (oldResidentResult.searchMeta.residentSearch) {
+      oldResidentResult.searchMeta.residentSearch.retrievalConsumer =
+        oldResidentResult.searchMeta.retrievalConsumer;
+    }
+    const search = vi.fn(async () => oldResidentResult);
+    const ctx = makeContext(search);
+    const intent = (await intentHandler(ctx, {
+      agentHost: 'codex',
+      hostDeclaredIntent: {
+        action: 'implement',
+        confidence: 0.9,
+        language: 'typescript',
+        query: 'Implement public prime active tool',
+      },
+      inputSource: 'host-declared-intent',
+    })) as { data: { intentRef: string } };
+
+    const result = (await primeHandler(ctx, {
+      agentHost: 'codex',
+      inputSource: 'host-declared-intent',
+      intentRef: intent.data.intentRef,
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+    })) as {
+      data: {
+        primeKnowledgeMaterial: {
+          retrievalConsumer: { producerContract: { missingFields: string[] } };
+        };
+        result: { reason: { code: string; kind: string; message: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({
+      reason: {
+        code: 'optional-service-unavailable',
+        kind: 'degraded',
+      },
+      status: 'degraded',
+    });
+    expect(result.data.result.reason.message).toContain('Stage 1A retrieval metadata');
+    expect(
+      result.data.primeKnowledgeMaterial.retrievalConsumer.producerContract.missingFields
+    ).toEqual(['decisionRegister', 'feedback', 'retrievalQuality']);
   });
 
   test('skips raw automation intent and blocks automation prime without sourceRefs', async () => {

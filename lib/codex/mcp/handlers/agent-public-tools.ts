@@ -320,9 +320,11 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
     searchResult,
     taskAnchorDecision: lifecycle.taskAnchorDecision,
   });
+  const retrievalConsumer = searchResult?.searchMeta.retrievalConsumer ?? null;
 
   const status = resolvePrimeStatus({
     primeKnowledgeMaterial,
+    retrievalConsumer,
     searchDegraded,
     searchResult,
     skippedReason,
@@ -368,6 +370,7 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
       primeKnowledgeMaterial,
       primePackage: {
         primeRef,
+        retrievalConsumer,
         structureFirst: intake.vectorPlan,
         trustReceipt: {
           hostResponse: primeKnowledgeMaterial.hostResponse,
@@ -377,6 +380,7 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
         },
       },
       projectRuntime,
+      retrievalConsumer,
       result,
       searchMeta: searchResult
         ? { ...searchResult.searchMeta, projectRuntime }
@@ -1070,6 +1074,7 @@ function resolvePrimeBlockingReason(
 
 function resolvePrimeStatus(input: {
   primeKnowledgeMaterial: { status: string };
+  retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
   skippedReason:
@@ -1102,6 +1107,25 @@ function resolvePrimeStatus(input: {
       },
       status: 'degraded',
       summary: 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
+    };
+  }
+  if (input.retrievalConsumer && !input.retrievalConsumer.producerContract.available) {
+    const isResidentUnavailable =
+      input.retrievalConsumer.producerContract.reasonCode === 'resident-search-unavailable';
+    const missingFields = input.retrievalConsumer.producerContract.missingFields.join(', ');
+    return {
+      reason: {
+        kind: 'degraded',
+        code: isResidentUnavailable ? 'resident-unavailable' : 'optional-service-unavailable',
+        message: isResidentUnavailable
+          ? 'Prime search could not read the Alembic resident retrieval metadata contract.'
+          : `Prime search used a resident response without Stage 1A retrieval metadata: ${missingFields}.`,
+        retryable: true,
+      },
+      status: 'degraded',
+      summary: isResidentUnavailable
+        ? 'Prime retrieval metadata is unavailable because the resident route was unavailable.'
+        : 'Prime retrieval metadata is degraded because the resident Stage 1A contract is incomplete.',
     };
   }
   const relatedCount = input.searchResult?.relatedKnowledge.length ?? 0;

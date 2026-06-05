@@ -1,6 +1,7 @@
 import type {
   ResidentIntentEvidenceSummary,
   ResidentPrimeInjectionPackageSummary,
+  ResidentPrimeRetrievalConsumerSummary,
 } from '#service/resident/AlembicResidentServiceClient.js';
 import type { HostIntentFrame, NormalizedHostIntentInput } from '#service/task/HostIntentFrame.js';
 import type { ExtractedIntent } from '#service/task/IntentExtractor.js';
@@ -151,6 +152,7 @@ export interface PrimeKnowledgeMaterial {
   intentEpisode?: PrimeIntentEpisodeMaterial;
   intentEvidence?: ResidentIntentEvidenceSummary;
   primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
+  retrievalConsumer?: ResidentPrimeRetrievalConsumerSummary;
 }
 
 interface PrimeKnowledgeMaterialInput {
@@ -223,6 +225,9 @@ export function buildPrimeKnowledgeMaterial(
       : {}),
     ...(input.searchResult?.searchMeta.primeInjectionPackage
       ? { primeInjectionPackage: input.searchResult.searchMeta.primeInjectionPackage }
+      : {}),
+    ...(input.searchResult?.searchMeta.retrievalConsumer
+      ? { retrievalConsumer: input.searchResult.searchMeta.retrievalConsumer }
       : {}),
   };
 }
