@@ -132,29 +132,11 @@ async function probeTarget(targetRoot) {
     expectIssue(issues, init.payload?.success === true, 'alembic_codex_init did not succeed');
     const afterInitTools = await listTools(client, stderr);
     const afterInit = summarizeToolSurface(afterInitTools.tools);
-    const taskDescription = afterInit.descriptions.alembic_task || '';
     expectIssue(
       issues,
-      afterInit.names.includes('alembic_task'),
-      'after init should expose legacy alembic_task compatibility hook'
+      !afterInit.names.includes('alembic_task'),
+      'after init should not expose legacy alembic_task'
     );
-    expectIssue(
-      issues,
-      taskDescription.includes('Legacy compatibility task lifecycle surface'),
-      'legacy alembic_task description is not downgraded to compatibility'
-    );
-    expectIssue(
-      issues,
-      requiredTools.every((toolName) => taskDescription.includes(toolName)),
-      'legacy alembic_task description does not map every new public tool'
-    );
-    for (const forbidden of forbiddenLegacyPrimaryWording) {
-      expectIssue(
-        issues,
-        !taskDescription.includes(forbidden),
-        `legacy alembic_task description contains old primary wording: ${forbidden}`
-      );
-    }
 
     return {
       ok: issues.length === 0,
@@ -165,13 +147,8 @@ async function probeTarget(targetRoot) {
       afterInit: {
         names: afterInit.names,
         legacyTaskCompatibility: {
-          containsLegacyCompatibility: taskDescription.includes(
-            'Legacy compatibility task lifecycle surface'
-          ),
-          mentionsAllPublicTools: requiredTools.every((toolName) =>
-            taskDescription.includes(toolName)
-          ),
-          visible: afterInit.names.includes('alembic_task'),
+          hiddenDirectCallOnly: !afterInit.names.includes('alembic_task'),
+          visible: false,
         },
       },
       issues,

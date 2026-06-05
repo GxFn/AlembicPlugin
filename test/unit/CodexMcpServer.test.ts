@@ -61,7 +61,6 @@ const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
   'alembic_bootstrap',
   'alembic_rescan',
   'alembic_dimension_complete',
-  'alembic_task',
 ];
 
 function useTempAlembicHome(): string {
@@ -430,9 +429,9 @@ describe('CodexMcpServer', () => {
       residentProjectScopeAvailable: true,
     }).map((tool) => tool.name);
 
-    expect(names).toContain('alembic_task');
     expect(names).toContain('alembic_search');
     expect(names).toContain('alembic_health');
+    expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_skill');
   });
 
@@ -661,7 +660,7 @@ describe('CodexMcpServer', () => {
 
     const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
 
-    expect(names).toContain('alembic_task');
+    expect(names).not.toContain('alembic_task');
     expect(names).toContain('alembic_health');
     expect(names).toContain('alembic_codex_dashboard');
   });
@@ -1200,8 +1199,8 @@ describe('CodexMcpServer', () => {
       success: boolean;
     };
 
-    expect(byName.has('alembic_task')).toBe(true);
-    expect(byName.get('alembic_task')?.inputSchema?.properties).toMatchObject({
+    expect(byName.has('alembic_task')).toBe(false);
+    expect(byName.get('alembic_code_guard')?.inputSchema?.properties).toMatchObject({
       projectRoot: {
         type: 'string',
       },
@@ -1655,6 +1654,38 @@ describe('CodexMcpServer', () => {
     expect(result.success).toBe(false);
     expect(result.data.errorCode).toBe('CODEX_ALEMBIC_KNOWLEDGE_REQUIRED');
     expect(supervisor.ensure).not.toHaveBeenCalled();
+  });
+
+  test('blocks legacy guard no-scope review and allows explicit file scope', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(projectRoot);
+    makeDirtyGitRepo(projectRoot);
+    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
+    const server = new CodexMcpServer({ projectRoot, supervisor });
+
+    const noScope = (await server.handleToolCall('alembic_guard', {})) as {
+      data: { reasonCode?: string };
+      errorCode?: string;
+      success: boolean;
+    };
+    const explicitScope = (await server.handleToolCall('alembic_guard', {
+      files: ['index.ts'],
+    })) as {
+      data: { fileSource?: string; summary?: { filesChecked?: number } };
+      success: boolean;
+    };
+
+    expect(noScope.success).toBe(false);
+    expect(noScope).toMatchObject({
+      errorCode: 'GUARD_SCOPE_REQUIRED',
+      data: { reasonCode: 'missing-guard-scope' },
+    });
+    expect(explicitScope.success).toBe(true);
+    expect(explicitScope.data).toMatchObject({
+      fileSource: 'explicit',
+      summary: { filesChecked: 1 },
+    });
   });
 
   test('allows task close in initialized empty projects and surfaces task-scoped Plugin evidence', async () => {

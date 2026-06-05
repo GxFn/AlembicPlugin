@@ -16,7 +16,7 @@ import {
   getAgentPublicToolContractDefinition,
   getAgentPublicToolDescriptionBase,
 } from '../../lib/codex/mcp/public-tools/index.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+import { LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS, TOOLS } from '../../lib/codex/mcp/tools.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
@@ -399,25 +399,17 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     }
   });
 
-  test('keeps alembic_task as compatibility only and maps old operations to new tools', () => {
+  test('removes alembic_task from active public tools while retaining hidden direct-call compatibility', () => {
     const taskTool = TOOLS.find((tool) => tool.name === 'alembic_task');
-    expect(taskTool?.description).toContain('Legacy compatibility task lifecycle surface');
-    expect(taskTool?.description).toContain(
-      'Prefer the agent-facing public tools as the primary host guide'
+    const hiddenTaskTool = LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.find(
+      (tool) => tool.name === 'alembic_task'
     );
-    expect(taskTool?.description).toContain('prime');
-    expect(taskTool?.description).toContain('alembic_intent');
-    expect(taskTool?.description).toContain('alembic_prime');
-    expect(taskTool?.description).toContain('create');
-    expect(taskTool?.description).toContain('alembic_work_start');
-    expect(taskTool?.description).toContain('close');
-    expect(taskTool?.description).toContain('alembic_work_finish');
-    expect(taskTool?.description).toContain('alembic_code_guard');
-    expect(taskTool?.description).toContain('record_decision');
-    expect(taskTool?.description).toContain('alembic_decision_record');
 
+    expect(taskTool).toBeUndefined();
+    expect(hiddenTaskTool?.description).toContain('Hidden direct-call compatibility');
+    expect(hiddenTaskTool?.description).toContain('not advertised through tools/list');
     for (const forbidden of forbiddenLegacyPrimaryWording) {
-      expect(taskTool?.description ?? '').not.toContain(forbidden);
+      expect(hiddenTaskTool?.description ?? '').not.toContain(forbidden);
     }
   });
 });

@@ -1,5 +1,5 @@
 /**
- * MCP Tool Definitions — V3 Routed Surface (22 agent + 2 admin = 24 tools)
+ * MCP Tool Definitions — V3 Routed Surface (21 agent + 2 admin = 23 tools)
  *
  * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
@@ -11,7 +11,6 @@
  *   Write tool: submit_knowledge
  *   Project Skill delivery: project_skill
  *   Workflow tools: bootstrap/rescan/evolve/consolidate/dimension_complete/panorama
- *   Legacy compatibility: task — 5 ops retained for older hosts/tests, not the primary guide
  *
  * Admin tools (2):
  *   enrich_candidates/knowledge_lifecycle
@@ -110,6 +109,20 @@ const WORK_START_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_s
 const WORK_FINISH_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_finish');
 const CODE_GUARD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_code_guard');
 const DECISION_RECORD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_decision_record');
+
+export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS = [
+  {
+    name: 'alembic_task',
+    tier: 'agent',
+    description:
+      'Hidden direct-call compatibility for older Codex sessions only. This tool is not advertised through tools/list; use alembic_intent, alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record as the host-facing public lifecycle.',
+    inputSchema: zodToMcpSchema(TaskInput),
+  },
+];
+
+export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES = new Set(
+  LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.map((tool) => tool.name)
+);
 
 // ─── Tool Declarations ───────────────────────────────────────
 
@@ -258,10 +271,10 @@ export const TOOLS = [
     name: 'alembic_guard',
     tier: 'agent',
     description:
-      'Code compliance check and Guard immune system.\n' +
-      '• files → check specified file list; prefer explicit files from alembic_work_finish guardRecommendation\n' +
-      '• no params → check the whole current git diff only when an explicit whole-diff Guard is intended\n' +
-      '• code → inline check code snippet\n' +
+      'Legacy Guard route for compatibility and report operations.\n' +
+      '• files → check specified file list; prefer alembic_code_guard for agent-facing scoped checks\n' +
+      '• no params → blocked; whole-diff fallback is disabled to avoid silently consuming unrelated repository changes\n' +
+      '• code → inline check code snippet; prefer alembic_code_guard for new host-agent calls\n' +
       '• operation: "coverage_matrix" → module-level Guard rule coverage matrix\n' +
       'Each violation includes a fix guide (doClause + coreCode). Fix accordingly and re-check.',
     inputSchema: zodToMcpSchema(GuardInput),
@@ -383,17 +396,6 @@ export const TOOLS = [
       '• staging_check — staging entry check + auto-publish on expiry\n' +
       '• enhancement_suggestions — Recipe enhancement suggestions based on usage data',
     inputSchema: zodToMcpSchema(PanoramaInput),
-  },
-
-  // Task & Decision Compatibility
-  {
-    name: 'alembic_task',
-    tier: 'agent',
-    description:
-      'Legacy compatibility task lifecycle surface for older Codex sessions and regression tests. Prefer the agent-facing public tools as the primary host guide: alembic_intent, alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record.\n' +
-      'Visible for initialized projects only as a compatibility hook; empty projects should use diagnostics/init/bootstrap instead of proactive legacy task calls.\n' +
-      'Compatibility mapping: prime → alembic_intent + alembic_prime; create → alembic_work_start; close → alembic_work_finish then alembic_code_guard only with explicit scope; record_decision → alembic_decision_record; fail remains legacy abandonment metadata.',
-    inputSchema: zodToMcpSchema(TaskInput),
   },
 
   // ══════════════════════════════════════════════════════

@@ -38,15 +38,14 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     ]) {
       expect(mainSkill).toContain(toolName);
     }
-    expect(mainSkill).toContain('legacy compatibility hook');
-    expect(mainSkill).toContain('Do not use it as the primary workflow guide');
+    expect(mainSkill).toContain('not advertised as a public workflow surface');
+    expect(mainSkill).toContain('six agent-facing public tools');
   });
 
-  test('active tool descriptions downgrade alembic_task to compatibility and keep new tools primary', () => {
+  test('active tool descriptions remove alembic_task from the public surface', () => {
     const byName = new Map(TOOLS.map((tool) => [tool.name, tool.description]));
-    const taskDescription = byName.get('alembic_task') ?? '';
 
-    expect(taskDescription).toContain('Legacy compatibility task lifecycle surface');
+    expect(byName.has('alembic_task')).toBe(false);
     for (const toolName of [
       'alembic_intent',
       'alembic_prime',
@@ -55,12 +54,12 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
       'alembic_code_guard',
       'alembic_decision_record',
     ]) {
-      expect(taskDescription).toContain(toolName);
+      expect(byName.has(toolName)).toBe(true);
     }
-    expect(taskDescription).not.toContain('Task and decision management (5 operations)');
-    expect(taskDescription).not.toContain('• prime');
-    expect(taskDescription).not.toContain('• create');
-    expect(taskDescription).not.toContain('• close');
+    expect(JSON.stringify([...byName])).not.toContain(
+      'Task and decision management (5 operations)'
+    );
     expect(byName.get('alembic_guard') ?? '').not.toContain('alembic_task');
+    expect(byName.get('alembic_guard') ?? '').toContain('no params → blocked');
   });
 });

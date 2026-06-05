@@ -93,9 +93,8 @@ describe('AFAPI Stage 1D cross-host readiness', () => {
       expect(serializedPromptSnapshots).not.toContain(forbidden);
     }
 
-    const taskTool = TOOLS.find((tool) => tool.name === 'alembic_task');
-    expect(taskTool?.description).toContain('Legacy compatibility task lifecycle surface');
-    expect(serializedPromptSnapshots).not.toContain(taskTool?.name ?? 'alembic_task');
+    expect(TOOLS.find((tool) => tool.name === 'alembic_task')).toBeUndefined();
+    expect(serializedPromptSnapshots).not.toContain('alembic_task');
   });
 });
 

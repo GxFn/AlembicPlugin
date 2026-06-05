@@ -405,7 +405,7 @@ export const GuardInput = z.object({
     .enum(['check', 'review', 'coverage_matrix', 'compliance_report'])
     .optional()
     .describe(
-      'Guard 操作类型。coverage_matrix: 模块覆盖率矩阵；compliance_report: 3D 合规报告（含 uncertain）。省略则按 code/files 自动路由。'
+      'Guard 操作类型。coverage_matrix: 模块覆盖率矩阵；compliance_report: 3D 合规报告（含 uncertain）。省略且缺少 files/code 时返回 missing-guard-scope blocker，不再自动扫描整个 git diff。'
     ),
   files: z.array(z.string()).optional(),
   code: z.string().optional(),
@@ -612,7 +612,7 @@ export const CapabilitiesInput = z.object({});
 export type CapabilitiesInput = z.infer<typeof CapabilitiesInput>;
 
 // ══════════════════════════════════════════════════════
-//  13. alembic_task (legacy compatibility, 5 operations)
+//  13. alembic_task (hidden direct-call legacy compatibility, 5 operations)
 // ══════════════════════════════════════════════════════
 
 export const TaskInput = z.object({

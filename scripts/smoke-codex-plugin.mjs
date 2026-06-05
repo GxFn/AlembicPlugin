@@ -706,8 +706,8 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
       'MCP stdio initialized empty workspace should expose job status'
     );
     assert(
-      afterInitToolNames.has('alembic_task') && !afterInitToolNames.has('alembic_health'),
-      'MCP stdio initialized empty workspace should expose task lifecycle but not project-knowledge health tools'
+      !afterInitToolNames.has('alembic_task') && !afterInitToolNames.has('alembic_health'),
+      'MCP stdio initialized empty workspace should keep legacy task and project-knowledge health hidden'
     );
 
     const jobs = await callStdioJsonTool(client, 'alembic_codex_job', { limit: 5 }, stderr);

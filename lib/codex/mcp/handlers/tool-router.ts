@@ -164,7 +164,7 @@ export async function routeGraphTool(ctx: McpContext, args: ToolRouterGraphArgs)
  * Guard 检查：按参数自动路由
  *   operation: 'coverage_matrix'    → guardCoverageMatrix()    (模块覆盖率矩阵)
  *   operation: 'compliance_report'  → guardComplianceReport()  (3D 合规报告)
- *   无参数       → guardReview()    (自动 git diff 检测 + inline recipe)
+ *   无参数       → blocked          (旧 whole-diff fallback 已禁用)
  *   有 files     → guardReview()    (指定文件 + inline recipe) — files 为 string[] 或 {path}[]
  *   有 code      → guardCheck()     (单文件内联检查)
  */
@@ -180,8 +180,7 @@ export async function routeGuardTool(ctx: McpContext, args: ToolRouterGuardArgs)
   if (args.code) {
     return guardHandlers.guardCheck(ctx, args);
   }
-  // 有 files（string[] 或 {path}[]）或无参数 → review 模式
-  // review 模式内部处理 files 参数和自动检测
+  // 有 files（string[] 或 {path}[]）→ review 模式；无参数由 handler 返回结构化 blocker。
   return guardHandlers.guardReview(ctx, args);
 }
 

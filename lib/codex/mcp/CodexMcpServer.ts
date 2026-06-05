@@ -76,7 +76,7 @@ import {
   isErrorResult,
 } from './host/results.js';
 import { getVisibleCodexTools } from './host/tool-visibility.js';
-import { TIER_ORDER, TOOLS } from './tools.js';
+import { LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES, TIER_ORDER, TOOLS } from './tools.js';
 
 interface CodexMcpServerOptions {
   projectRoot?: string;
@@ -1127,7 +1127,10 @@ export class CodexMcpServer {
   }
 
   private async resolveToolExecutionContext(toolName: string): Promise<CodexToolExecutionContext> {
-    if (!CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(toolName)) {
+    const usesResidentProjectScope =
+      CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(toolName) ||
+      LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES.has(toolName);
+    if (!usesResidentProjectScope) {
       return {
         projectRoot: this.projectRoot,
         projectScopeIdentity: null,

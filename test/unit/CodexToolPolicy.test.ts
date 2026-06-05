@@ -152,9 +152,9 @@ describe('Codex tool policy', () => {
       'alembic_codex_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
-      'alembic_task',
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
+    expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_task');
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_health');
   });
 
@@ -169,9 +169,9 @@ describe('Codex tool policy', () => {
     const names = result.visibleTools.map((tool) => tool.name);
 
     expect(result.hiddenReason).toBeNull();
-    expect(names).toContain('alembic_task');
     expect(names).toContain('alembic_search');
     expect(names).toContain('alembic_health');
+    expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_skill');
   });
 
@@ -190,8 +190,8 @@ describe('Codex tool policy', () => {
       ...hostWorkflowToolNames,
       'alembic_project_skill',
       'alembic_health',
-      'alembic_task',
     ]);
+    expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_knowledge_lifecycle');
   });
 
@@ -267,9 +267,9 @@ describe('Codex tool policy', () => {
       'alembic_codex_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
-      'alembic_task',
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
+    expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_task');
   });
 
   test('reports stale knowledge and vector skip without hiding agent tools', () => {

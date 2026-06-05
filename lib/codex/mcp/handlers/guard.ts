@@ -2,12 +2,11 @@
  * MCP Handlers — Guard 审计 & 项目扫描
  *
  * 统一入口：alembic_guard
- *   无参数         → review 模式（自动 git diff 增量文件 + inline recipe）
+ *   无参数         → 结构化阻塞（旧 whole-diff fallback 已禁用）
  *   files: string[] → 指定文件检查（+ inline recipe）
  *   code: string    → 单文件内联检查
  */
 
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -313,13 +312,13 @@ export async function guardAuditFiles(ctx: McpContext, args: GuardAuditArgs) {
   });
 }
 
-// ═══ Review 模式 — 编码后质量门禁（无参数 = 自动检测） ═══
+// ═══ Review 模式 — 编码后质量门禁（必须显式传入 files） ═══
 
 /**
  * Guard Review — 编码后的代码质量检查
  *
  * 设计要点:
- *   1. 无参数 → 自动从 git diff 检测增量文件（staged + unstaged + untracked）
+ *   1. 无参数 → 结构化阻塞，不再自动读取整个 git diff
  *   2. files: string[] → 指定文件路径（简化，不再要求对象数组）
  *   3. violations 内联 recipe 修复指南（doClause + coreCode）
  *   4. 防无限循环：reviewRound 计数 + MAX_REVIEW_ROUNDS 限制
@@ -332,6 +331,29 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
   const { GuardCheckEngine } = await import('@alembic/core/guard');
 
   const projectRoot = resolveProjectRoot(ctx.container);
+
+  if (!args.files || !Array.isArray(args.files) || args.files.length === 0) {
+    return envelope({
+      success: false,
+      data: {
+        blocked: true,
+        legacyBoundary: {
+          noArgsWholeDiffDisabled: true,
+          replacementTool: 'alembic_code_guard',
+          tool: 'alembic_guard',
+        },
+        reasonCode: 'missing-guard-scope',
+        required: {
+          files: 'explicit task-scoped file list',
+          inlineCode: 'or pass code/filePath/language through alembic_code_guard',
+        },
+      },
+      message:
+        'Legacy alembic_guard no-args whole-diff review is disabled. Call alembic_code_guard with explicit files or inline code.',
+      errorCode: 'GUARD_SCOPE_REQUIRED',
+      meta: { tool: 'alembic_guard', mode: 'review', legacyCompatibility: true },
+    });
+  }
 
   // 轮次追踪（基于 projectRoot，不绑定 task）
   const round = (_reviewRounds.get(projectRoot) || 0) + 1;
@@ -355,22 +377,14 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
   }
 
   // 1. 确定待检查文件
-  let filePaths: string[] = [];
-  let fileSource = 'git-diff';
-
-  if (args.files && Array.isArray(args.files) && args.files.length > 0) {
-    // files 参数: string[] — 简化版，自动读取文件内容
-    filePaths = args.files
-      .map((f: string | { path?: string; [key: string]: unknown }) =>
-        typeof f === 'string' ? f : f.path || String(f)
-      )
-      .map((f: string) => (path.isAbsolute(f) ? f : path.resolve(projectRoot, f)))
-      .filter((f: string) => fs.existsSync(f));
-    fileSource = 'explicit';
-  } else {
-    // 无参数 → 自动检测 git 变更文件
-    filePaths = _detectChangedFiles(projectRoot);
-  }
+  // files 参数: string[] — 简化版，自动读取文件内容
+  const filePaths = args.files
+    .map((f: string | { path?: string; [key: string]: unknown }) =>
+      typeof f === 'string' ? f : f.path || String(f)
+    )
+    .map((f: string) => (path.isAbsolute(f) ? f : path.resolve(projectRoot, f)))
+    .filter((f: string) => fs.existsSync(f));
+  const fileSource = 'explicit';
 
   if (!filePaths.length) {
     _reviewRounds.delete(projectRoot);
@@ -582,54 +596,6 @@ async function _loadRuleRecipes(ctx: McpContext): Promise<Map<string, RecipeEntr
     /* DB not available */
   }
   return map;
-}
-
-// ═══ Git Diff 检测 ═══════════════════════════════════════
-
-const SOURCE_EXTS = new Set([
-  '.m',
-  '.mm',
-  '.h',
-  '.swift',
-  '.js',
-  '.ts',
-  '.jsx',
-  '.tsx',
-  '.py',
-  '.rb',
-  '.java',
-  '.kt',
-  '.go',
-  '.rs',
-  '.c',
-  '.cpp',
-  '.cc',
-  '.cs',
-  '.vue',
-  '.svelte',
-]);
-
-function _detectChangedFiles(projectRoot: string): string[] {
-  const root = projectRoot;
-  try {
-    const diffOutput = execSync(
-      'git diff --name-only HEAD 2>/dev/null; git diff --staged --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null',
-      { cwd: root, encoding: 'utf8', timeout: 5000 }
-    );
-    const files = [
-      ...new Set(
-        diffOutput
-          .split('\n')
-          .map((f) => f.trim())
-          .filter((f) => f && SOURCE_EXTS.has(path.extname(f).toLowerCase()))
-      ),
-    ];
-    return files
-      .map((f) => (path.isAbsolute(f) ? f : path.resolve(root, f)))
-      .filter((f) => fs.existsSync(f));
-  } catch {
-    return [];
-  }
 }
 
 // ═══ 项目扫描 ════════════════════════════════════════════

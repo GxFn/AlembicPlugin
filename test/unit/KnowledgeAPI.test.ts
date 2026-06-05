@@ -458,7 +458,6 @@ describe('MCP Tool Definitions (V3)', () => {
       'alembic_consolidate',
       'alembic_dimension_complete',
       'alembic_panorama',
-      'alembic_task',
       'alembic_enrich_candidates',
       'alembic_knowledge_lifecycle',
     ]);

@@ -14,8 +14,7 @@ export type PluginToolHandlerOwner =
   | 'McpServer.knowledge-consolidation'
   | 'McpServer.tool-router'
   | 'McpServer.knowledge-admin'
-  | 'McpServer.panorama'
-  | 'McpServer.task';
+  | 'McpServer.panorama';
 
 export type PluginToolKnowledgeGate =
   | 'admin-opt-in'
@@ -391,27 +390,6 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     gateway: null,
     knowledgeGate: 'knowledge-ready',
     residentRoutePolicy: 'none',
-  }),
-  alembic_task: catalogEntry({
-    name: 'alembic_task',
-    owner: 'plugin-embedded-core',
-    handlerOwner: 'McpServer.task',
-    tier: 'agent',
-    schema: 'TaskInput',
-    annotations: localWriteTool('Legacy Alembic Task Compatibility'),
-    gateway: {
-      resolver: (args: Record<string, unknown>) =>
-        (
-          ({
-            create: { action: 'task:create', resource: 'intent' },
-            close: { action: 'task:update', resource: 'intent' },
-            fail: { action: 'task:update', resource: 'intent' },
-            record_decision: { action: 'task:create', resource: 'intent' },
-          }) as Record<string, PluginToolGatewayStaticMapping>
-        )[args?.operation as string] || null,
-    },
-    knowledgeGate: 'resident-project-scope',
-    residentRoutePolicy: 'resident-project-scope',
   }),
   alembic_intent: catalogEntry({
     name: 'alembic_intent',

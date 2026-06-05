@@ -8,7 +8,7 @@ import {
 import type { CodexServiceBoundaryDecision } from '../../index.js';
 import type { CodexProjectRuntimeContext } from '../../runtime/ProjectRuntimeContext.js';
 import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
-import { TOOLS } from '../tools.js';
+import { LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES, TOOLS } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
 import { attachCodexServiceBoundary, failureResult } from './results.js';
 
@@ -62,7 +62,10 @@ export class CodexEmbeddedToolExecutor {
     executionContext: CodexToolExecutionContext,
     options: CodexEmbeddedToolCallOptions = {}
   ): Promise<unknown> {
-    if (!TOOLS.some((tool) => tool.name === name)) {
+    if (
+      !TOOLS.some((tool) => tool.name === name) &&
+      !LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES.has(name)
+    ) {
       return attachCodexServiceBoundary(
         failureResult(name, `Unknown Alembic tool: ${name}`),
         serviceBoundary
