@@ -459,9 +459,37 @@ describe('agent-facing active public tools', () => {
           trustPosture: { receiptChecklist: Array<{ layer: string; items: unknown[] }> };
         };
         primePackage: {
+          compactPackage: {
+            counts: { acceptedGuards: number; acceptedKnowledge: number; detailRefs: number };
+            detailRefsMode: string;
+            evidenceDelivery: string;
+            primeInjectionPackage: {
+              availability: string;
+              missingProducerFields: string[];
+              pluginSynthesized: boolean;
+              producerBoundary: string;
+            };
+          };
+          diagnostics: {
+            outputBudget: { maxChars: number; truncated: boolean; usedChars: number };
+            retrieval: { residentAvailable: boolean | null; searchAttempted: boolean };
+          };
+          primeRef: string;
           retrievalConsumer: {
             decisionRegister: { acceptedDecisionRefs: string[] };
             producerContract: { available: boolean };
+          };
+          runtimePolicy: {
+            available: boolean;
+            sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
+          };
+          sourcePolicy: {
+            rawAutomationEnvelopeUsedAsQuery: boolean;
+            rawThreadIdsPersisted: boolean;
+          };
+          trustPosture: {
+            noTrustedClaimRequired: boolean;
+            receiptChecklist: Array<{ itemCount: number; layer: string }>;
           };
           trustReceipt: { receiptId: string; status: string };
         };
@@ -505,6 +533,46 @@ describe('agent-facing active public tools', () => {
         available: true,
       },
     });
+    expect(result.data.primePackage).toMatchObject({
+      kind: 'PrimePublicPackage',
+      primeRef: result.data.result.refs.primeRef.id,
+      sourcePolicy: {
+        rawAutomationEnvelopeUsedAsQuery: false,
+        rawThreadIdsPersisted: false,
+      },
+      runtimePolicy: {
+        available: true,
+        sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: false },
+      },
+      compactPackage: {
+        counts: {
+          acceptedGuards: 1,
+          acceptedKnowledge: 1,
+          detailRefs: result.data.result.refs.detailRefs.length,
+        },
+        detailRefsMode: 'ref-based',
+        evidenceDelivery: 'detailRefs-and-primeKnowledgeMaterial',
+        primeInjectionPackage: {
+          availability: 'not-produced',
+          missingProducerFields: [],
+          pluginSynthesized: false,
+        },
+      },
+      diagnostics: {
+        outputBudget: { maxChars: 1600, truncated: false },
+        retrieval: { residentAvailable: true, searchAttempted: true },
+      },
+      trustPosture: {
+        noTrustedClaimRequired: false,
+        receiptChecklist: expect.arrayContaining([
+          expect.objectContaining({ layer: 'trusted-to-obey', itemCount: 1 }),
+          expect.objectContaining({ layer: 'trusted-to-use', itemCount: 1 }),
+        ]),
+      },
+    });
+    expect(
+      result.data.primePackage.compactPackage.primeInjectionPackage.producerBoundary
+    ).toContain('AlembicPlugin only passes through');
     expect(result.data.primeKnowledgeMaterial.acceptedKnowledge).toHaveLength(1);
     expect(result.data.primeKnowledgeMaterial.acceptedGuards).toHaveLength(1);
     expect(result.data.primeKnowledgeMaterial.trustPosture.receiptChecklist).toEqual(
@@ -582,6 +650,16 @@ describe('agent-facing active public tools', () => {
         primeKnowledgeMaterial: {
           retrievalConsumer: { producerContract: { missingFields: string[] } };
         };
+        primePackage: {
+          compactPackage: {
+            primeInjectionPackage: {
+              availability: string;
+              missingProducerFields: string[];
+              pluginSynthesized: boolean;
+            };
+          };
+          trustPosture: { noTrustedClaimRequired: boolean };
+        };
         result: { reason: { code: string; kind: string; message: string }; status: string };
       };
       success: boolean;
@@ -599,6 +677,16 @@ describe('agent-facing active public tools', () => {
     expect(
       result.data.primeKnowledgeMaterial.retrievalConsumer.producerContract.missingFields
     ).toEqual(['decisionRegister', 'feedback', 'retrievalQuality']);
+    expect(result.data.primePackage).toMatchObject({
+      compactPackage: {
+        primeInjectionPackage: {
+          availability: 'producer-contract-missing',
+          missingProducerFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+          pluginSynthesized: false,
+        },
+      },
+      trustPosture: { noTrustedClaimRequired: true },
+    });
   });
 
   test('skips raw automation intent and blocks automation prime without sourceRefs', async () => {
@@ -645,12 +733,45 @@ describe('agent-facing active public tools', () => {
       },
       inputSource: 'automation-envelope',
       projectRoot: '/tmp/alembic-plugin-public-tools',
-    })) as { data: { result: { reason: { code: string }; status: string } }; success: boolean };
+    })) as {
+      data: {
+        primePackage: {
+          primeRef: string;
+          sourcePolicy: {
+            automationEnvelope: {
+              blockedWithoutSourceRefs: boolean;
+              requiredSourceRefsForPrime: boolean;
+              sourceRefsCount: number;
+            };
+            rawAutomationEnvelopeUsedAsQuery: boolean;
+          };
+          trustPosture: { noTrustedClaimRequired: boolean };
+        };
+        result: {
+          reason: { code: string };
+          refs: { primeRef: { id: string } };
+          status: string;
+        };
+      };
+      success: boolean;
+    };
 
     expect(blockedPrime.success).toBe(false);
     expect(blockedPrime.data.result).toMatchObject({
       reason: { code: 'missing-referenced-docs' },
       status: 'blocked',
+    });
+    expect(blockedPrime.data.primePackage).toMatchObject({
+      primeRef: blockedPrime.data.result.refs.primeRef.id,
+      sourcePolicy: {
+        automationEnvelope: {
+          blockedWithoutSourceRefs: true,
+          requiredSourceRefsForPrime: true,
+          sourceRefsCount: 0,
+        },
+        rawAutomationEnvelopeUsedAsQuery: false,
+      },
+      trustPosture: { noTrustedClaimRequired: true },
     });
   });
 

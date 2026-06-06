@@ -310,6 +310,193 @@ export const AgentPublicToolResultEnvelopeSchema = z
 export type AgentPublicToolRef = z.infer<typeof AgentPublicToolRefSchema>;
 export type AgentDetailRef = z.infer<typeof AgentDetailRefSchema>;
 export type AgentPublicToolResultEnvelope = z.infer<typeof AgentPublicToolResultEnvelopeSchema>;
+
+export const PRIME_PUBLIC_TRUST_LAYERS = [
+  'trusted-to-obey',
+  'trusted-to-use',
+  'context-only',
+  'requires-verification',
+  'not-available-or-degraded',
+] as const;
+
+// Codex host 只依赖这个稳定投影读取 prime 结果；完整知识和证据仍通过
+// detailRefs / primeKnowledgeMaterial 保留，避免把长知识包塞进可见 message。
+export const PrimePublicPackageSchema = z.object({
+  contractVersion: z.literal(AGENT_PUBLIC_TOOL_CONTRACT_VERSION),
+  kind: z.literal('PrimePublicPackage'),
+  primeRef: z.string().min(1).max(240),
+  status: AgentResultStatusSchema,
+  reason: AgentPublicToolReasonSchema.optional(),
+  refs: AgentPublicToolRefsSchema,
+  summary: AgentPublicToolResultSummarySchema,
+  trustPosture: z.object({
+    status: z.enum(['delivered', 'empty', 'degraded', 'blocked', 'skipped']),
+    noTrustedClaimRequired: z.boolean(),
+    antiEmptyReceiptRequired: z.boolean(),
+    receiptChecklist: z
+      .array(
+        z.object({
+          itemCount: z.number().int().min(0).max(500),
+          label: z.string().min(1).max(160),
+          layer: z.enum(PRIME_PUBLIC_TRUST_LAYERS),
+          requiredInVisibleReceipt: z.boolean(),
+          visibleReceiptDirective: z.string().min(1).max(600),
+        })
+      )
+      .length(PRIME_PUBLIC_TRUST_LAYERS.length),
+  }),
+  trustReceipt: z.object({
+    hostResponse: z.record(z.string(), z.unknown()).nullable(),
+    receiptId: z.string().min(1).max(240).nullable(),
+    status: z.enum(['delivered', 'empty', 'degraded', 'blocked', 'skipped']),
+  }),
+  retrievalConsumer: z.record(z.string(), z.unknown()).nullable(),
+  structureFirst: z.object({
+    keywordQueries: z.array(z.string().min(1).max(1200)).max(12),
+    language: z.string().max(80).nullable(),
+    module: z.string().max(240).nullable(),
+    queries: z.array(z.string().min(1).max(1200)).max(12),
+    retrievalOrder: z.array(z.string().min(1).max(1200)).max(12),
+    route: z.literal('structure-first-recipe-retrieval'),
+    scenario: z.string().min(1).max(120),
+    vectorUseKind: z.enum(['none', 'semantic-expand', 'hybrid-rerank']),
+  }),
+  compactPackage: z.object({
+    acceptedGuards: z
+      .array(
+        z.object({
+          evidenceRefCount: z.number().int().min(0).max(500),
+          id: z.string().min(1).max(240),
+          score: z.number(),
+          title: z.string().min(1).max(240),
+          trigger: z.string().min(0).max(240),
+        })
+      )
+      .max(8),
+    acceptedKnowledge: z
+      .array(
+        z.object({
+          evidenceRefCount: z.number().int().min(0).max(500),
+          id: z.string().min(1).max(240),
+          kind: z.string().min(1).max(80),
+          score: z.number(),
+          title: z.string().min(1).max(240),
+          trigger: z.string().min(0).max(240),
+        })
+      )
+      .max(8),
+    counts: z.object({
+      acceptedGuards: z.number().int().min(0).max(500),
+      acceptedKnowledge: z.number().int().min(0).max(500),
+      detailRefs: z.number().int().min(0).max(40),
+      omittedFromCompact: z.number().int().min(0).max(1000),
+    }),
+    detailRefsMode: z.literal('ref-based'),
+    evidenceDelivery: z.literal('detailRefs-and-primeKnowledgeMaterial'),
+    primeInjectionPackage: z.object({
+      availability: z.enum([
+        'resident-provided',
+        'producer-contract-missing',
+        'resident-unavailable',
+        'not-produced',
+        'not-run',
+      ]),
+      missingProducerFields: z.array(z.string().min(1).max(160)).max(40),
+      omittedCount: z.number().int().min(0).max(1000).nullable(),
+      pluginSynthesized: z.literal(false),
+      producer: z.literal('alembic-resident-service'),
+      producerBoundary: z.string().min(1).max(600),
+      producerOnlyFields: z
+        .array(
+          z.enum([
+            'decisionRegister',
+            'feedback',
+            'intent',
+            'omitted',
+            'relations',
+            'retrievalQuality',
+            'search',
+            'selectedKnowledge',
+            'trace',
+            'vector',
+          ])
+        )
+        .max(12),
+      selectedCount: z.number().int().min(0).max(1000).nullable(),
+      status: z.string().min(1).max(120).nullable(),
+    }),
+  }),
+  sourcePolicy: z.object({
+    automationEnvelope: z
+      .object({
+        blockedWithoutSourceRefs: z.boolean(),
+        requiredSourceRefsForPrime: z.literal(true),
+        sourceRefsCount: z.number().int().min(0).max(50),
+      })
+      .nullable(),
+    detailRefs: z.object({
+      count: z.number().int().min(0).max(40),
+      mode: z.literal('bounded-source-ref-details'),
+    }),
+    inputSource: AgentInputSourceSchema,
+    rawAutomationEnvelopeUsedAsQuery: z.literal(false),
+    rawThreadIdsPersisted: z.literal(false),
+    sourceRefsCount: z.number().int().min(0).max(50),
+  }),
+  runtimePolicy: z.object({
+    available: z.boolean(),
+    identity: z
+      .object({
+        currentFolderId: z.string().nullable(),
+        dataRootSource: z.string().nullable(),
+        projectId: z.string().nullable(),
+        projectRoot: z.string().nullable(),
+        projectScopeId: z.string().nullable(),
+      })
+      .nullable(),
+    projectRuntimeContractVersion: z.number().int().min(1).nullable(),
+    readinessState: z.string().nullable(),
+    reason: z.string().min(1).max(240).optional(),
+    sourcePolicy: z.object({
+      effectiveIdentitySource: z.literal('codex-current-project').nullable(),
+      projectScopeSource: z.enum(['resident-read-only', 'single-folder-baseline']).nullable(),
+      runtimeControlSource: z.literal('read-only-diagnostics').nullable(),
+      selectedOrActiveCanOverrideEffectiveIdentity: z.literal(false),
+    }),
+  }),
+  diagnostics: z.object({
+    outputBudget: AgentPublicToolOutputBudgetSchema,
+    producerBoundary: z.object({
+      missingProducerFields: z.array(z.string().min(1).max(160)).max(40),
+      pluginSynthesizedPrimeInjectionPackage: z.literal(false),
+      primeInjectionPackageProducedBy: z.literal('Alembic resident service'),
+    }),
+    retrieval: z.object({
+      filteredCount: z.number().int().min(0).max(100000).nullable(),
+      queries: z.array(z.string().min(1).max(1200)).max(12),
+      residentAttempted: z.boolean(),
+      residentAvailable: z.boolean().nullable(),
+      residentReason: z.string().max(500).nullable(),
+      resultCount: z.number().int().min(0).max(100000).nullable(),
+      searchAttempted: z.boolean(),
+      searchDegraded: z.boolean(),
+    }),
+  }),
+});
+
+export type PrimePublicPackage = z.infer<typeof PrimePublicPackageSchema>;
+export type CreatePrimePublicPackageInput = Omit<
+  z.input<typeof PrimePublicPackageSchema>,
+  'contractVersion'
+>;
+
+export function createPrimePublicPackage(input: CreatePrimePublicPackageInput): PrimePublicPackage {
+  return PrimePublicPackageSchema.parse({
+    contractVersion: AGENT_PUBLIC_TOOL_CONTRACT_VERSION,
+    ...input,
+  });
+}
+
 export type CreateAgentPublicToolResultEnvelopeInput = Omit<
   z.input<typeof AgentPublicToolResultEnvelopeSchema>,
   'contractVersion' | 'legacyCompatibility'

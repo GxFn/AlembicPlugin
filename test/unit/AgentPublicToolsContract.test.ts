@@ -8,9 +8,11 @@ import {
   AgentPublicToolResultEnvelopeSchema,
   createAgentDetailRef,
   createAgentPublicToolResultEnvelope,
+  createPrimePublicPackage,
   getAgentPublicToolContractDefinition,
   getAgentPublicToolDescriptionBase,
   listAgentPublicToolContractCatalog,
+  PrimePublicPackageSchema,
 } from '../../lib/codex/mcp/public-tools/index.js';
 import { TOOLS } from '../../lib/codex/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
@@ -128,6 +130,150 @@ describe('Agent-facing public tools contract foundation', () => {
     expect(envelope.legacyCompatibility).toEqual({
       usesLegacyTaskHandler: false,
       compatibilityRole: 'none',
+    });
+  });
+
+  test('validates canonical prime public package projection', () => {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'prime',
+      agentHost: 'codex',
+      inputSource: 'host-declared-intent',
+      refs: {
+        detailRefs: [],
+        primeRef: { refType: 'prime', id: 'prime-public-contract', toolName: 'alembic_prime' },
+      },
+      status: 'ready',
+      summary: {
+        compact: 'Prime delivered compact trust material.',
+        outputBudget: {
+          maxChars: 240,
+          mode: 'compact',
+          truncated: false,
+          usedChars: 39,
+        },
+      },
+      toolName: 'alembic_prime',
+    });
+
+    const projection = createPrimePublicPackage({
+      compactPackage: {
+        acceptedGuards: [],
+        acceptedKnowledge: [],
+        counts: {
+          acceptedGuards: 0,
+          acceptedKnowledge: 0,
+          detailRefs: 0,
+          omittedFromCompact: 0,
+        },
+        detailRefsMode: 'ref-based',
+        evidenceDelivery: 'detailRefs-and-primeKnowledgeMaterial',
+        primeInjectionPackage: {
+          availability: 'not-produced',
+          missingProducerFields: [],
+          omittedCount: null,
+          pluginSynthesized: false,
+          producer: 'alembic-resident-service',
+          producerBoundary:
+            'Resident metadata owns PrimeInjectionPackage producer fields; Plugin does not synthesize them.',
+          producerOnlyFields: ['intent', 'search', 'vector', 'relations', 'selectedKnowledge'],
+          selectedCount: null,
+          status: null,
+        },
+      },
+      diagnostics: {
+        outputBudget: result.summary.outputBudget,
+        producerBoundary: {
+          missingProducerFields: [],
+          pluginSynthesizedPrimeInjectionPackage: false,
+          primeInjectionPackageProducedBy: 'Alembic resident service',
+        },
+        retrieval: {
+          filteredCount: null,
+          queries: ['Prime public contract'],
+          residentAttempted: false,
+          residentAvailable: null,
+          residentReason: null,
+          resultCount: null,
+          searchAttempted: true,
+          searchDegraded: false,
+        },
+      },
+      kind: 'PrimePublicPackage',
+      primeRef: 'prime-public-contract',
+      refs: result.refs,
+      retrievalConsumer: null,
+      runtimePolicy: {
+        available: false,
+        identity: null,
+        projectRuntimeContractVersion: null,
+        readinessState: null,
+        reason: 'unit-test',
+        sourcePolicy: {
+          effectiveIdentitySource: null,
+          projectScopeSource: null,
+          runtimeControlSource: null,
+          selectedOrActiveCanOverrideEffectiveIdentity: false,
+        },
+      },
+      sourcePolicy: {
+        automationEnvelope: null,
+        detailRefs: { count: 0, mode: 'bounded-source-ref-details' },
+        inputSource: 'host-declared-intent',
+        rawAutomationEnvelopeUsedAsQuery: false,
+        rawThreadIdsPersisted: false,
+        sourceRefsCount: 0,
+      },
+      status: 'ready',
+      structureFirst: {
+        keywordQueries: [],
+        language: null,
+        module: null,
+        queries: ['Prime public contract'],
+        retrievalOrder: ['intent', 'recipe', 'guard'],
+        route: 'structure-first-recipe-retrieval',
+        scenario: 'search',
+        vectorUseKind: 'hybrid-rerank',
+      },
+      summary: result.summary,
+      trustPosture: {
+        antiEmptyReceiptRequired: true,
+        noTrustedClaimRequired: false,
+        receiptChecklist: [
+          'trusted-to-obey',
+          'trusted-to-use',
+          'context-only',
+          'requires-verification',
+          'not-available-or-degraded',
+        ].map((layer) => ({
+          itemCount: 0,
+          label: layer,
+          layer,
+          requiredInVisibleReceipt: false,
+          visibleReceiptDirective: `Directive for ${layer}`,
+        })),
+        status: 'delivered',
+      },
+      trustReceipt: {
+        hostResponse: null,
+        receiptId: 'prime-receipt-contract',
+        status: 'delivered',
+      },
+    });
+
+    expect(PrimePublicPackageSchema.parse(projection)).toMatchObject({
+      kind: 'PrimePublicPackage',
+      primeRef: 'prime-public-contract',
+      compactPackage: {
+        detailRefsMode: 'ref-based',
+        primeInjectionPackage: { pluginSynthesized: false },
+      },
+      sourcePolicy: {
+        rawAutomationEnvelopeUsedAsQuery: false,
+        rawThreadIdsPersisted: false,
+      },
+      runtimePolicy: {
+        sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: false },
+      },
     });
   });
 
