@@ -249,9 +249,19 @@ describe('agent-facing active public tools', () => {
     })) as {
       data: {
         detailRefs: Array<{ kind: string; uri?: string }>;
+        diagnostics: {
+          enumRequirementMapping: Array<{ field: string }>;
+          normalized: { confidenceBand: string; persistenceKind: string; vectorUseKind: string };
+          toolNeeds: { guardNeed: string; primeNeed: string; workNeed: string };
+        };
         intentRef: string;
+        persistence: { consumable: boolean; kind: string; localRecordCreated: boolean };
+        recipeRetrievalHint: { profiles: string[]; route: string; vectorUseKind: string };
         recognizedIntent: { query: string; status: string };
         result: { legacyCompatibility: { usesLegacyTaskHandler: boolean }; status: string };
+        sourcePolicy: {
+          localIntentRecord: { consumable: boolean; created: boolean; persistenceKind: string };
+        };
         vectorPlan: { route: string; queries: string[] };
       };
       success: boolean;
@@ -269,8 +279,150 @@ describe('agent-facing active public tools', () => {
     );
     expect(result.data.vectorPlan).toMatchObject({
       route: 'structure-first-recipe-retrieval',
+      vectorUseKind: 'hybrid-rerank',
     });
+    expect(result.data.persistence).toMatchObject({
+      consumable: true,
+      kind: 'session-local',
+      localRecordCreated: true,
+    });
+    expect(result.data.sourcePolicy.localIntentRecord).toMatchObject({
+      consumable: true,
+      created: true,
+      persistenceKind: 'session-local',
+    });
+    expect(result.data.recipeRetrievalHint).toMatchObject({
+      route: 'structure-first',
+      vectorUseKind: 'hybrid-rerank',
+    });
+    expect(result.data.recipeRetrievalHint.profiles).toEqual(
+      expect.arrayContaining(['structured-recipe', 'implementation-pattern'])
+    );
+    expect(result.data.diagnostics.normalized).toMatchObject({
+      confidenceBand: 'high',
+      persistenceKind: 'session-local',
+      vectorUseKind: 'hybrid-rerank',
+    });
+    expect(result.data.diagnostics.toolNeeds).toMatchObject({
+      guardNeed: 'explicit-scope-required',
+      primeNeed: 'recommended',
+      workNeed: 'start-required',
+    });
+    expect(result.data.diagnostics.enumRequirementMapping.map((entry) => entry.field)).toEqual([
+      'agentHost',
+      'hostSurface',
+      'inputSource',
+      'intentKind',
+      'actionKind',
+      'objectKind',
+      'scopeKind',
+      'persistenceKind',
+      'primeNeed',
+      'workNeed',
+      'guardNeed',
+      'vectorUseKind',
+      'confidenceBand',
+    ]);
     expect(result.data.result.legacyCompatibility.usesLegacyTaskHandler).toBe(false);
+  });
+
+  test('keeps degraded semantic intent consumable while making non-semantic intent ephemeral', async () => {
+    const ctx = makeContext();
+    const degradedSemantic = (await intentHandler(ctx, {
+      agentHost: 'codex',
+      hostDeclaredIntent: {
+        action: 'review',
+        confidence: 0.35,
+        query: 'Review structured local vector contract convergence',
+      },
+      inputSource: 'host-declared-intent',
+    })) as {
+      data: {
+        intentRef: string;
+        localRecord: { intentRef: string; status: string };
+        persistence: { consumable: boolean; localRecordCreated: boolean };
+        result: { reason: { code: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(degradedSemantic.success).toBe(true);
+    expect(degradedSemantic.data.result).toMatchObject({
+      reason: { code: 'low-confidence-intent' },
+      status: 'degraded',
+    });
+    expect(degradedSemantic.data.intentRef).toMatch(/^intent-/);
+    expect(degradedSemantic.data.localRecord).toMatchObject({
+      intentRef: degradedSemantic.data.intentRef,
+      status: 'degraded',
+    });
+    expect(degradedSemantic.data.persistence).toMatchObject({
+      consumable: true,
+      localRecordCreated: true,
+    });
+
+    const statusOnly = (await intentHandler(ctx, {
+      inputSource: 'user-message',
+      intentKind: 'status-only',
+      userQuery: 'Show current AFAPI status',
+    })) as {
+      data: {
+        intentRef?: string;
+        localRecord?: unknown;
+        persistence: { consumable: boolean; kind: string; localRecordCreated: boolean };
+        result: {
+          reason: { code: string };
+          refs: { intentRef?: unknown };
+          status: string;
+        };
+        sourcePolicy: {
+          localIntentRecord: { consumable: boolean; created: boolean; persistenceKind: string };
+        };
+        vectorPlan: { vectorUseKind: string };
+      };
+    };
+
+    expect(statusOnly.data.result).toMatchObject({
+      reason: { code: 'status-only-turn' },
+      status: 'skipped',
+    });
+    expect(statusOnly.data.result.refs.intentRef).toBeUndefined();
+    expect(statusOnly.data.intentRef).toBeUndefined();
+    expect(statusOnly.data.localRecord).toBeUndefined();
+    expect(statusOnly.data.persistence).toMatchObject({
+      consumable: false,
+      kind: 'ephemeral',
+      localRecordCreated: false,
+    });
+    expect(statusOnly.data.sourcePolicy.localIntentRecord).toMatchObject({
+      consumable: false,
+      created: false,
+      persistenceKind: 'ephemeral',
+    });
+    expect(statusOnly.data.vectorPlan.vectorUseKind).toBe('none');
+
+    const noSemantic = (await intentHandler(ctx, {
+      inputSource: 'user-message',
+    })) as {
+      data: {
+        intentRef?: string;
+        localRecord?: unknown;
+        persistence: { consumable: boolean; localRecordCreated: boolean };
+        result: { reason: { code: string }; refs: { intentRef?: unknown }; status: string };
+      };
+    };
+
+    expect(noSemantic.data.result).toMatchObject({
+      reason: { code: 'no-semantic-intent' },
+      status: 'skipped',
+    });
+    expect(noSemantic.data.result.refs.intentRef).toBeUndefined();
+    expect(noSemantic.data.intentRef).toBeUndefined();
+    expect(noSemantic.data.localRecord).toBeUndefined();
+    expect(noSemantic.data.persistence).toMatchObject({
+      consumable: false,
+      localRecordCreated: false,
+    });
   });
 
   test('primes from an intentRef using PrimeSearchPipeline and Trust Receipt material', async () => {
@@ -454,12 +606,37 @@ describe('agent-facing active public tools', () => {
     const intent = (await intentHandler(ctx, {
       inputSource: 'automation-envelope',
       userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
-    })) as { data: { result: { reason: { code: string }; status: string } } };
+    })) as {
+      data: {
+        intentRef?: string;
+        localRecord?: unknown;
+        persistence: { consumable: boolean; kind: string; localRecordCreated: boolean };
+        result: { reason: { code: string }; refs: { intentRef?: unknown }; status: string };
+        sourcePolicy: {
+          localIntentRecord: { consumable: boolean; created: boolean; persistenceKind: string };
+        };
+        vectorPlan: { vectorUseKind: string };
+      };
+    };
 
     expect(intent.data.result).toMatchObject({
       reason: { code: 'mechanical-envelope-only' },
       status: 'skipped',
     });
+    expect(intent.data.result.refs.intentRef).toBeUndefined();
+    expect(intent.data.intentRef).toBeUndefined();
+    expect(intent.data.localRecord).toBeUndefined();
+    expect(intent.data.persistence).toMatchObject({
+      consumable: false,
+      kind: 'ephemeral',
+      localRecordCreated: false,
+    });
+    expect(intent.data.sourcePolicy.localIntentRecord).toMatchObject({
+      consumable: false,
+      created: false,
+      persistenceKind: 'ephemeral',
+    });
+    expect(intent.data.vectorPlan.vectorUseKind).toBe('none');
 
     const blockedPrime = (await primeHandler(ctx, {
       hostDeclaredIntent: {

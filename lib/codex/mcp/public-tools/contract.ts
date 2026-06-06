@@ -47,6 +47,74 @@ export const AGENT_ACTION_KINDS = [
 
 export const AGENT_RESULT_STATUSES = ['ready', 'skipped', 'degraded', 'blocked', 'failed'] as const;
 
+export const AGENT_INTENT_DESIGN_FIELD_MAPPINGS = [
+  {
+    field: 'agentHost',
+    disposition: 'public-field',
+    evidence: ['AgentPublicToolBaseInput.agentHost', 'AgentPublicToolResultEnvelope.agentHost'],
+  },
+  {
+    field: 'hostSurface',
+    disposition: 'internal-derived-field',
+    evidence: ['HostTurnMetaInput.surface', 'alembic_intent.diagnostics.normalized.hostSurface'],
+  },
+  {
+    field: 'inputSource',
+    disposition: 'public-field',
+    evidence: ['AgentPublicToolBaseInput.inputSource', 'AgentPublicToolResultEnvelope.inputSource'],
+  },
+  {
+    field: 'intentKind',
+    disposition: 'public-field',
+    evidence: ['AgentPublicToolBaseInput.intentKind', 'AgentPublicToolResultEnvelope.intentKind'],
+  },
+  {
+    field: 'actionKind',
+    disposition: 'internal-derived-field',
+    evidence: ['HostDeclaredIntentInput.action', 'RecognizedIntentDraft.action'],
+  },
+  {
+    field: 'objectKind',
+    disposition: 'internal-derived-field',
+    evidence: ['RecognizedIntentDraft.target', 'activeFile', 'sourceRefs'],
+  },
+  {
+    field: 'scopeKind',
+    disposition: 'internal-derived-field',
+    evidence: ['projectRoot', 'activeFile', 'sourceRefs'],
+  },
+  {
+    field: 'persistenceKind',
+    disposition: 'public-result-field',
+    evidence: ['alembic_intent.persistence.kind'],
+  },
+  {
+    field: 'primeNeed',
+    disposition: 'public-result-field',
+    evidence: ['alembic_intent.diagnostics.toolNeeds.primeNeed'],
+  },
+  {
+    field: 'workNeed',
+    disposition: 'public-result-field',
+    evidence: ['alembic_intent.diagnostics.toolNeeds.workNeed'],
+  },
+  {
+    field: 'guardNeed',
+    disposition: 'public-result-field',
+    evidence: ['alembic_intent.diagnostics.toolNeeds.guardNeed'],
+  },
+  {
+    field: 'vectorUseKind',
+    disposition: 'public-result-field',
+    evidence: ['alembic_intent.vectorPlan.vectorUseKind'],
+  },
+  {
+    field: 'confidenceBand',
+    disposition: 'public-result-field',
+    evidence: ['alembic_intent.diagnostics.normalized.confidenceBand'],
+  },
+] as const;
+
 export const AGENT_SKIP_REASON_CODES = [
   'no-semantic-intent',
   'status-only-turn',

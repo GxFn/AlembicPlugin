@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
 import {
   AGENT_ACTION_KINDS,
+  AGENT_INTENT_DESIGN_FIELD_MAPPINGS,
   AGENT_PUBLIC_TOOL_NAMES,
   AGENT_RESULT_STATUSES,
   AgentPublicToolResultEnvelopeSchema,
@@ -208,6 +209,31 @@ describe('Agent-facing public tools contract foundation', () => {
       const definition = getAgentPublicToolContractDefinition(name);
       expect(definition.handlerDependency).toBe('McpServer.agent-public-tools');
       expect(definition.activeMcpSurface).toBe(true);
+    }
+  });
+
+  test('maps every Design intent enum requirement to a public or derived contract field', () => {
+    expect(AGENT_INTENT_DESIGN_FIELD_MAPPINGS.map((entry) => entry.field)).toEqual([
+      'agentHost',
+      'hostSurface',
+      'inputSource',
+      'intentKind',
+      'actionKind',
+      'objectKind',
+      'scopeKind',
+      'persistenceKind',
+      'primeNeed',
+      'workNeed',
+      'guardNeed',
+      'vectorUseKind',
+      'confidenceBand',
+    ]);
+
+    for (const entry of AGENT_INTENT_DESIGN_FIELD_MAPPINGS) {
+      expect(['public-field', 'public-result-field', 'internal-derived-field']).toContain(
+        entry.disposition
+      );
+      expect(entry.evidence.length).toBeGreaterThan(0);
     }
   });
 });
