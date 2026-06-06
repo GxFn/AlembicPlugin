@@ -1270,31 +1270,7 @@ function resolveWorkStartStatus(
   intake: ReturnType<typeof buildIntentIntake>,
   args: AgentWorkStartArgs
 ): Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string } {
-  const hasWorkScope = Boolean(
-    firstString(
-      args.title,
-      args.workScope?.goal,
-      args.workScope?.summary,
-      intake.hostIntentFrame.recognizedIntentDraft.query
-    ) || (args.workScope?.files?.length ?? 0) > 0
-  );
-  if (!hasWorkScope) {
-    return {
-      reason: {
-        kind: 'skip',
-        code: 'no-work-scope',
-        message: 'No concrete work scope was available for alembic_work_start.',
-        retryable: false,
-      },
-      status: 'skipped',
-      summary: 'Work start skipped because no concrete scope was available.',
-    };
-  }
-  if (
-    intake.lifecycle.taskAnchorDecision.action === 'skip' &&
-    intake.lifecycle.taskAnchorDecision.reasonCode === 'automation-envelope-no-anchor' &&
-    intake.sourceRefs.length === 0
-  ) {
+  if (intake.inputSource === 'automation-envelope' && intake.sourceRefs.length === 0) {
     return {
       reason: {
         kind: 'skip',
@@ -1320,6 +1296,28 @@ function resolveWorkStartStatus(
       },
       status: 'skipped',
       summary: 'Work start skipped for status-only input.',
+    };
+  }
+  const hasExplicitWorkScope = Boolean(
+    firstString(args.title, args.workScope?.goal, args.workScope?.summary) ||
+      (args.workScope?.files?.length ?? 0) > 0 ||
+      Boolean(args.activeFile)
+  );
+  const hasPolicyWorkScope = Boolean(
+    intake.lifecycle.taskAnchorDecision.action === 'create' &&
+      intake.hostIntentFrame.recognizedIntentDraft.query.trim().length > 0
+  );
+  const hasWorkScope = hasExplicitWorkScope || hasPolicyWorkScope;
+  if (!hasWorkScope) {
+    return {
+      reason: {
+        kind: 'skip',
+        code: 'no-work-scope',
+        message: 'No concrete work scope was available for alembic_work_start.',
+        retryable: false,
+      },
+      status: 'skipped',
+      summary: 'Work start skipped because no concrete scope was available.',
     };
   }
   return {

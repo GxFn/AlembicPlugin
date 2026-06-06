@@ -413,6 +413,56 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       status: 'skipped',
       toolName: 'alembic_work_start',
     });
+    expect(skippedWorkStart.envelope.refs.workRef).toBeUndefined();
+
+    const statusOnlyWorkStart = await callPublicTool(
+      workStartHandler(ctx, {
+        hostDeclaredIntent: {
+          action: 'status',
+          query: 'Status update only; summarize progress without changing files.',
+        },
+        inputSource: 'host-declared-intent',
+        outputBudget: { maxChars: 120, mode: 'compact' },
+        userQuery: 'Status update only; summarize progress without changing files.',
+      })
+    );
+    expect(statusOnlyWorkStart.envelope).toMatchObject({
+      reason: { code: 'status-only-turn', kind: 'skip' },
+      status: 'skipped',
+      toolName: 'alembic_work_start',
+    });
+    expect(statusOnlyWorkStart.envelope.refs.workRef).toBeUndefined();
+
+    const rawEnvelopeWorkStart = await callPublicTool(
+      workStartHandler(ctx, {
+        inputSource: 'automation-envelope',
+        outputBudget: { maxChars: 120, mode: 'compact' },
+        title: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
+      })
+    );
+    expect(rawEnvelopeWorkStart.envelope).toMatchObject({
+      reason: { code: 'mechanical-envelope-only', kind: 'skip' },
+      status: 'skipped',
+      toolName: 'alembic_work_start',
+    });
+    expect(rawEnvelopeWorkStart.envelope.refs.workRef).toBeUndefined();
+
+    const designReadonlyWorkStart = await callPublicTool(
+      workStartHandler(ctx, {
+        hostDeclaredIntent: {
+          action: 'analyze',
+          query: 'Read the design discussion and provide a recommendation only.',
+        },
+        inputSource: 'host-declared-intent',
+        outputBudget: { maxChars: 120, mode: 'compact' },
+      })
+    );
+    expect(designReadonlyWorkStart.envelope).toMatchObject({
+      reason: { code: 'no-work-scope', kind: 'skip' },
+      status: 'skipped',
+      toolName: 'alembic_work_start',
+    });
+    expect(designReadonlyWorkStart.envelope.refs.workRef).toBeUndefined();
 
     const blockedWorkFinish = await callPublicTool(
       workFinishHandler(ctx, {
@@ -477,6 +527,9 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       skippedIntent,
       degradedPrime,
       skippedWorkStart,
+      statusOnlyWorkStart,
+      rawEnvelopeWorkStart,
+      designReadonlyWorkStart,
       blockedWorkFinish,
       blockedCodeGuard,
       blockedDecision,
