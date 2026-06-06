@@ -57,11 +57,11 @@ export const AGENT_PUBLIC_TOOL_DESCRIPTION_BASE = {
     name: 'alembic_code_guard',
     title: 'Check code against project rules',
     purpose:
-      'Run a code guard pass over explicit files or inline code and return guard result references.',
+      'Run a code guard pass over explicit files, inline code, or scoped files from a current workRef and return guard result references.',
     selectionHint:
-      'Use when code or diff scope is explicit and project rules should be checked before finalizing work.',
+      'Use when files, inline code, or a current workRef with scoped files is explicit and project rules should be checked before finalizing work.',
     nonGoal:
-      'Does not infer unbounded repository scope, run no-args whole-diff review, create work sessions, or record user preferences.',
+      'Does not accept diffRef/primeRef/acceptedGuards/applicableRecipe as public guard scope, infer unbounded repository scope, run no-args whole-diff review, create work sessions, or record user preferences.',
   },
   alembic_decision_record: {
     name: 'alembic_decision_record',

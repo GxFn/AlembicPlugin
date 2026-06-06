@@ -225,9 +225,11 @@ export type WorkFinishInput = z.infer<typeof WorkFinishInput>;
 
 export const CodeGuardInput = AgentPublicToolBaseInput.extend({
   intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
-  workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
+  workRef: AgentRefIdInput.optional().describe(
+    'workRef returned by alembic_work_start. When files/code are omitted, the current session work record supplies scoped files; missing or unscoped work returns a structured blocker/skip.'
+  ),
   files: AgentSourceFileRefsInput.describe(
-    'Explicit files to check. Empty or omitted scope returns a structured blocker instead of falling back to whole-diff review.'
+    'Explicit files to check. This is the preferred scope. Empty or omitted scope returns a structured blocker/skip instead of falling back to whole-diff review.'
   ),
   code: z.string().min(1).max(200000).optional().describe('Inline code to check'),
   filePath: z
@@ -242,7 +244,7 @@ export const CodeGuardInput = AgentPublicToolBaseInput.extend({
     .optional()
     .describe('Explicit guard operation. check requires code; review requires files.'),
 }).describe(
-  'Agent-facing scoped code guard. Requires explicit files or inline code; no-args whole-diff behavior is intentionally blocked.'
+  'Agent-facing scoped code guard. Supported public scopes are explicit files, inline code, or workRef-derived scoped files. diffRef, primeRef, acceptedGuards, and applicableRecipe are intentionally not public until schema, handler, tests, and runtime evidence exist. No-args whole-diff behavior is intentionally blocked.'
 );
 export type CodeGuardInput = z.infer<typeof CodeGuardInput>;
 

@@ -212,6 +212,9 @@ describe('agent-facing active public tools', () => {
     ).toBe(true);
     expect(TOOL_SCHEMAS.alembic_code_guard.safeParse({}).success).toBe(true);
     expect(
+      TOOL_SCHEMAS.alembic_code_guard.safeParse({ workRef: 'work-public-1' }).success
+    ).toBe(true);
+    expect(
       TOOL_SCHEMAS.alembic_decision_record.safeParse({
         action: 'list',
         includeDeleted: true,
@@ -230,6 +233,17 @@ describe('agent-facing active public tools', () => {
         title: 'Decision register route required',
       }).success
     ).toBe(true);
+    const codeGuardTool = TOOLS.find((tool) => tool.name === 'alembic_code_guard');
+    const codeGuardProperties = Object.keys(codeGuardTool?.inputSchema?.properties ?? {});
+    expect(codeGuardProperties).toEqual(expect.arrayContaining(['code', 'files', 'workRef']));
+    for (const unsupportedScopeField of [
+      'diffRef',
+      'primeRef',
+      'acceptedGuards',
+      'applicableRecipe',
+    ]) {
+      expect(codeGuardProperties).not.toContain(unsupportedScopeField);
+    }
   });
 
   test('captures a host-declared intent with intentRef, detailRefs, and vectorPlan', async () => {
@@ -884,6 +898,56 @@ describe('agent-facing active public tools', () => {
     });
   });
 
+  test('blocks code guard when workRef scope is missing from the active session', async () => {
+    const ctx = makeContext();
+    const result = (await codeGuardHandler(ctx, {
+      inputSource: 'host-declared-intent',
+      workRef: 'work-public-missing',
+    })) as {
+      data: { result: { reason: { code: string }; status: string } };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data.result).toMatchObject({
+      reason: { code: 'missing-work-ref' },
+      status: 'blocked',
+    });
+  });
+
+  test('skips code guard when a workRef has no scoped source files', async () => {
+    const ctx = makeContext();
+    const start = (await workStartHandler(ctx, {
+      inputSource: 'host-declared-intent',
+      title: 'Plan docs-only follow-up',
+    })) as {
+      data: { workRef: string };
+      success: boolean;
+    };
+    const result = (await codeGuardHandler(ctx, {
+      inputSource: 'host-declared-intent',
+      workRef: start.data.workRef,
+    })) as {
+      data: {
+        explicitScope: { files: string[]; kind: string; workRef: string };
+        result: { reason: { code: string; kind: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(start.success).toBe(true);
+    expect(result.success).toBe(true);
+    expect(result.data.explicitScope).toEqual({
+      files: [],
+      kind: 'workRef',
+      workRef: start.data.workRef,
+    });
+    expect(result.data.result).toMatchObject({
+      reason: { code: 'no-code-scope', kind: 'skip' },
+      status: 'skipped',
+    });
+  });
+
   test('runs code guard only for explicit inline code scope', async () => {
     const checkCode = vi.fn(() => []);
     const ctx = makeContext(undefined, {
@@ -913,6 +977,58 @@ describe('agent-facing active public tools', () => {
     expect(result.success).toBe(true);
     expect(checkCode).toHaveBeenCalledWith('export const value = 1;', 'typescript');
     expect(result.data.explicitScope).toEqual({ filePath: 'lib/example.ts', kind: 'code' });
+    expect(result.data.result.refs.guardResultRef.id).toBe(result.data.guardResultRef);
+  });
+
+  test('runs code guard from scoped workRef files without falling back to whole diff', async () => {
+    const auditFile = vi.fn(() => ({
+      language: 'typescript',
+      uncertainResults: [],
+      violations: [],
+    }));
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile,
+        auditFiles: vi.fn(),
+        checkCode: vi.fn(),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+    const start = (await workStartHandler(ctx, {
+      inputSource: 'host-declared-intent',
+      title: 'Implement scoped guard contract',
+      workScope: { files: ['lib/codex/mcp/handlers/agent-public-tools.ts'] },
+    })) as {
+      data: { workRef: string };
+      success: boolean;
+    };
+
+    const result = (await codeGuardHandler(ctx, {
+      inputSource: 'host-declared-intent',
+      workRef: start.data.workRef,
+    })) as {
+      data: {
+        explicitScope: { files: string[]; kind: string; workRef: string };
+        guardResultRef: string;
+        result: { refs: { guardResultRef: { id: string } }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(start.success).toBe(true);
+    expect(result.success).toBe(true);
+    expect(result.data.explicitScope).toEqual({
+      files: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+      kind: 'workRef',
+      workRef: start.data.workRef,
+    });
+    expect(auditFile).toHaveBeenCalledWith(
+      expect.stringContaining('lib/codex/mcp/handlers/agent-public-tools.ts'),
+      expect.any(String),
+      { isTest: false }
+    );
     expect(result.data.result.refs.guardResultRef.id).toBe(result.data.guardResultRef);
   });
 

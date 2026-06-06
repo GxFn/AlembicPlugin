@@ -53,7 +53,7 @@ When MCP responses include `searchMeta.residentSearch` or `residentVector`, trea
 1. **Project standards/Guard**: Use Recipe content as source of truth
 2. **"How we do X here"**: Base answer on Recipe content
 3. **Suggesting code**: Cite Recipe's code snippet, not raw search results
-4. **Guard/Audit**: `// as:audit` or MCP `alembic_guard` — both use Recipes as standard
+4. **Guard/Audit**: `// as:audit` or MCP `alembic_code_guard` with explicit files, inline code, or current workRef scope — all use Recipes as standard
 5. **Confirm adoption**: `alembic_knowledge(operation=confirm_usage, id, usageType)` when user uses a Recipe
 
 ---

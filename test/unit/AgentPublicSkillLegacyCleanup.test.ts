@@ -11,6 +11,14 @@ const shippedGuidanceFiles = [
   '../../plugins/alembic-codex/RELEASE-PLAYBOOK.md',
 ] as const;
 
+const scopedGuardGuidanceFiles = [
+  '../../injectable-skills/alembic-guard/SKILL.md',
+  '../../injectable-skills/alembic-recipes/SKILL.md',
+  '../../plugins/alembic-codex/skills/alembic-guard/SKILL.md',
+  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-guard/SKILL.md',
+  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-recipes/SKILL.md',
+] as const;
+
 function readFixture(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 }
@@ -61,5 +69,19 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     );
     expect(byName.get('alembic_guard') ?? '').not.toContain('alembic_task');
     expect(byName.get('alembic_guard') ?? '').toContain('no params → blocked');
+    expect(byName.get('alembic_code_guard') ?? '').toContain('workRef');
+    expect(byName.get('alembic_code_guard') ?? '').toContain('Does not accept diffRef');
+  });
+
+  test('scoped guard guidance no longer presents legacy alembic_guard as the primary entry', () => {
+    for (const relativePath of scopedGuardGuidanceFiles) {
+      const content = readFixture(relativePath);
+
+      expect(content, relativePath).toContain('alembic_code_guard');
+      expect(content, relativePath).not.toContain('## MCP Tool: `alembic_guard`');
+      expect(content, relativePath).not.toContain('MCP `alembic_guard`');
+      expect(content, relativePath).not.toContain('`alembic_guard` with code');
+      expect(content, relativePath).not.toContain('`alembic_guard` with file paths');
+    }
   });
 });

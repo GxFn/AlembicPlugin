@@ -657,10 +657,11 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
   const changedFiles = normalizeTaskLifecycleFileRefs(args.changedFiles ?? [], {
     projectRoot: effectiveProjectRoot,
   });
+  record.scopeFiles = uniqueStrings([...record.scopeFiles, ...changedFiles]);
   const guardDecision = decideGuardTrigger({
     changedFiles,
     taskAnchorExists: true,
-    taskScopeFiles: uniqueStrings([...record.scopeFiles, ...changedFiles]),
+    taskScopeFiles: record.scopeFiles,
   });
   const finishRef = nextFinishRef();
   const finishedAt = new Date().toISOString();
@@ -736,9 +737,89 @@ export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs
   const detailRefs = buildBaseDetailRefs('alembic_code_guard', args.sourceRefs ?? []);
   const hasCode = typeof args.code === 'string' && args.code.trim().length > 0;
   const effectiveProjectRoot = resolveEffectiveProjectRoot(ctx, args);
-  const files = normalizeTaskLifecycleFileRefs(args.files ?? [], {
+  const explicitFiles = normalizeTaskLifecycleFileRefs(args.files ?? [], {
     projectRoot: effectiveProjectRoot,
   });
+  const workRecord = typeof args.workRef === 'string' ? WORK_RECORDS.get(args.workRef) : undefined;
+  const workRefFiles =
+    !hasCode && explicitFiles.length === 0 && workRecord
+      ? normalizeTaskLifecycleFileRefs(workRecord.scopeFiles, {
+          projectRoot: effectiveProjectRoot,
+        })
+      : [];
+  const files = explicitFiles.length > 0 ? explicitFiles : workRefFiles;
+  const unsupportedScopeFields = collectUnsupportedCodeGuardScopeFields(args);
+  if (!hasCode && explicitFiles.length === 0 && args.workRef && !workRecord) {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'code-guard',
+      agentHost: intake.agentHost,
+      inputSource: intake.inputSource,
+      intentKind: intake.intentKind,
+      reason: {
+        kind: 'blocked',
+        code: 'missing-work-ref',
+        message: `No active work record exists for workRef ${args.workRef}; provide explicit files/code or start scoped work first.`,
+        retryable: false,
+      },
+      refs: {
+        detailRefs,
+      },
+      status: 'blocked',
+      summary: buildResultSummary(
+        'Code Guard blocked because the requested workRef is not active in this Plugin session.',
+        args.outputBudget
+      ),
+      toolName: 'alembic_code_guard',
+    });
+    return envelope({
+      success: false,
+      data: {
+        result,
+        unsupportedScopeFields,
+      },
+      message: result.reason?.message ?? result.summary.compact,
+      meta: { tool: 'alembic_code_guard' },
+    });
+  }
+  if (!hasCode && explicitFiles.length === 0 && workRecord && files.length === 0) {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'code-guard',
+      agentHost: intake.agentHost,
+      inputSource: intake.inputSource,
+      intentKind: intake.intentKind,
+      reason: {
+        kind: 'skip',
+        code: 'no-code-scope',
+        message:
+          'The referenced workRef is active but has no scoped source files; provide files or inline code to run Guard.',
+        retryable: false,
+      },
+      refs: {
+        workRef: {
+          refType: 'work' as const,
+          id: workRecord.workRef,
+          toolName: 'alembic_work_start' as const,
+        },
+        detailRefs,
+      },
+      status: 'skipped',
+      summary: buildResultSummary(
+        'Code Guard skipped because the workRef has no scoped source files.',
+        args.outputBudget
+      ),
+      toolName: 'alembic_code_guard',
+    });
+    return envelope({
+      success: true,
+      data: {
+        explicitScope: { files: [], kind: 'workRef', workRef: workRecord.workRef },
+        result,
+        unsupportedScopeFields,
+      },
+      message: result.reason?.message ?? result.summary.compact,
+      meta: { tool: 'alembic_code_guard' },
+    });
+  }
   if (!hasCode && files.length === 0) {
     const result = createAgentPublicToolResultEnvelope({
       actionKind: 'code-guard',
@@ -748,8 +829,7 @@ export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs
       reason: {
         kind: 'blocked',
         code: 'missing-guard-scope',
-        message:
-          'alembic_code_guard requires explicit files or inline code; it will not fall back to no-args whole-diff review.',
+        message: buildMissingGuardScopeMessage(unsupportedScopeFields),
         retryable: false,
       },
       refs: {
@@ -773,7 +853,7 @@ export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs
     });
     return envelope({
       success: false,
-      data: { result },
+      data: { result, unsupportedScopeFields },
       message: result.reason?.message ?? result.summary.compact,
       meta: { tool: 'alembic_code_guard' },
     });
@@ -834,10 +914,15 @@ export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs
         detailRefs,
         explicitScope: hasCode
           ? { kind: 'code', filePath: args.filePath ?? null }
-          : { files, kind: 'files' },
+          : {
+              files,
+              kind: explicitFiles.length > 0 ? 'files' : 'workRef',
+              ...(explicitFiles.length === 0 && workRecord ? { workRef: workRecord.workRef } : {}),
+            },
         guard: guardEnvelope,
         guardResultRef,
         result,
+        unsupportedScopeFields,
       },
       message: result.summary.compact,
       meta: { tool: 'alembic_code_guard' },
@@ -1350,6 +1435,32 @@ function formatGuardRecommendationMessage(decision: ReturnType<typeof decideGuar
     return `Guard recommended: call alembic_code_guard with files=${JSON.stringify(decision.taskScopedFiles)}.`;
   }
   return `Guard skipped: ${decision.reasonCode}.`;
+}
+
+const UNSUPPORTED_CODE_GUARD_SCOPE_FIELDS = [
+  'diffRef',
+  'primeRef',
+  'acceptedGuards',
+  'applicableRecipe',
+] as const;
+
+function collectUnsupportedCodeGuardScopeFields(args: AgentCodeGuardArgs): string[] {
+  return UNSUPPORTED_CODE_GUARD_SCOPE_FIELDS.filter((field) => {
+    const value = args[field];
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    return value !== undefined && value !== null && value !== '';
+  });
+}
+
+function buildMissingGuardScopeMessage(unsupportedScopeFields: string[]): string {
+  const base =
+    'alembic_code_guard requires explicit files, inline code, or an active workRef with scoped files; it will not fall back to no-args whole-diff review.';
+  if (unsupportedScopeFields.length === 0) {
+    return base;
+  }
+  return `${base} Unsupported scope fields were ignored by the public contract: ${unsupportedScopeFields.join(', ')}.`;
 }
 
 function resolveDecisionScopeBlocker(

@@ -1,55 +1,79 @@
 ---
 name: alembic-guard
-description: This project has a local Alembic knowledge base. Use Alembic Guard proactively for this project after edits or when checking project-standard compliance.
+description: Check code against Alembic Recipe standards with `alembic_code_guard` and explicit files, inline code, or a current workRef with scoped files when this project has local Alembic knowledge.
 ---
 
-# Alembic Guard — Code Compliance Checking
+# Alembic Guard
 
-This project has a local Alembic knowledge base. Use Alembic Guard proactively for this project after edits or when checking project-standard compliance.
+Guard checks code against project Recipes. Use it after edits only when this project has a local Alembic knowledge base or project-level Alembic knowledge skill. For empty projects, call Guard only when the user explicitly asks for Alembic Guard or compliance checking.
 
-**Use this skill when**: The user wants to **check** whether code meets **project standards** (规范 / Audit / Guard / Lint).
+Guard is a scoped Recipe-adherence check. It is not repo lint, security audit, general code review, or a whole-diff fallback.
 
 ---
 
-## MCP Tool: `alembic_guard`
+## Tool
 
-**Single code check** (`code` param):
+Use `alembic_code_guard` for agent-facing checks. Supported public scopes are:
+
+- explicit `files`
+- inline `code` with optional `filePath` / `language`
+- an active `workRef` whose current Plugin session recorded scoped files
+
+The public contract does not accept `diffRef`, `primeRef`, `acceptedGuards`, or `applicableRecipe` as Guard scope fields yet. The legacy `alembic_guard` route no longer accepts no-args whole-diff checks; use it only for explicit compatibility/report operations when a tool call already provides a scope.
+
+**Explicit files**:
 ```json
-{ "code": "URLSession.shared.dataTask(with: url) { ... }", "language": "objc", "filePath": "Sources/Network/OldAPI.m" }
+{
+  "files": [
+    "src/network/apiClient.ts",
+    "src/network/requestManager.ts"
+  ]
+}
 ```
 
-**Multi-file audit** (`files[]` param):
+**Inline code**:
 ```json
-{ "files": [{ "path": "Sources/Network/APIClient.m" }, { "path": "Sources/Network/RequestManager.m" }], "scope": "project" }
+{
+  "code": "URLSession.shared.dataTask(with: url) { ... }",
+  "language": "swift",
+  "filePath": "Sources/Network/LegacyClient.swift"
+}
 ```
 
-Returns violations with `{ ruleId, severity, message, line, pattern }`. Batch results auto-recorded to ViolationsStore.
+**Current work scope**:
+```json
+{ "workRef": "work-public-1" }
+```
+
+The workRef form only uses source files already recorded by `alembic_work_start` / `alembic_work_finish`. If no scoped files exist, Guard returns `no-code-scope` instead of scanning unrelated repository state.
+
+## Workflow
+
+For quick checks:
+
+1. Call `alembic_code_guard` with explicit files when work finish provides them, or with a current workRef when the work record has scoped files.
+2. If there is no explicit file, inline-code, or scoped workRef input, report the structured blocker/skip instead of forcing a no-args check.
+3. Summarize violations by severity.
+4. Fix issues using returned do/dont clauses, core code, and Recipe references.
+5. Re-run Guard when the fix is meaningful.
+
+For module audits:
+
+1. Use `alembic_structure(operation: "targets")` to find relevant modules.
+2. Use `alembic_structure(operation: "files")` for the chosen module.
+3. Call `alembic_code_guard` with selected files.
+4. Report the highest-severity issues first.
 
 ---
 
 ## Guard Knowledge Source
 
-Guard uses **Recipe content** as the standard — no separate config:
-- **kind=rule** → enforced as Guard rules (severity: error/warning/info)
-- **kind=pattern** → best-practice references
-- `constraints.guards[].pattern` → regex patterns for automated detection
+Guard uses Recipe content as the standard:
 
----
-
-## Agent Workflow
-
-### Quick Check ("检查这段代码")
-1. `alembic_guard` with code → present violations + fix suggestions
-
-### Module Audit ("审查网络模块")
-1. `alembic_structure(operation=files)` → get file list
-2. `alembic_guard` with file paths → summarize by severity
-
-### Project-wide
-1. `alembic_bootstrap` → full project scan including Guard audit
-
----
+- `kind=rule` entries become enforceable rules.
+- `kind=pattern` entries provide best-practice guidance.
+- Guard constraints can include patterns for automated detection.
 
 ## Related Skills
 
-- **alembic-recipes**: Recipe content IS the Guard standard
+- **alembic-recipes**: Recipe content is the Guard standard.
