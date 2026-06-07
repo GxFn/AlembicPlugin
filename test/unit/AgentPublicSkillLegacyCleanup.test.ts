@@ -2,13 +2,58 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { TOOLS } from '../../lib/codex/mcp/tools.js';
 
-const shippedGuidanceFiles = [
-  '../../plugins/alembic-codex/skills/alembic/SKILL.md',
-  '../../plugins/alembic-codex/skills/alembic-recipes/SKILL.md',
-  '../../plugins/alembic-codex/skills/alembic-guard/SKILL.md',
+const activeHostGuidanceFiles = [
+  '../../README.md',
+  '../../README_CN.md',
+  '../../SOUL.md',
+  '../../channels/README.md',
+  '../../channels/codex/README.md',
   '../../plugins/alembic-codex/README.md',
   '../../plugins/alembic-codex/README.zh-CN.md',
   '../../plugins/alembic-codex/RELEASE-PLAYBOOK.md',
+  '../../plugins/alembic-codex/skills/alembic/SKILL.md',
+  '../../plugins/alembic-codex/skills/alembic-create/SKILL.md',
+  '../../plugins/alembic-codex/skills/alembic-recipes/SKILL.md',
+  '../../plugins/alembic-codex/skills/alembic-guard/SKILL.md',
+  '../../plugins/alembic-codex/skills/alembic-structure/SKILL.md',
+  '../../injectable-skills/alembic-create/SKILL.md',
+  '../../injectable-skills/alembic-recipes/SKILL.md',
+  '../../injectable-skills/alembic-guard/SKILL.md',
+  '../../injectable-skills/alembic-structure/SKILL.md',
+  '../../plugins/alembic-codex/runtime/channels/README.md',
+  '../../plugins/alembic-codex/runtime/channels/codex/README.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/README.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/README.zh-CN.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/RELEASE-PLAYBOOK.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic/SKILL.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-create/SKILL.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-recipes/SKILL.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-guard/SKILL.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-structure/SKILL.md',
+  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-create/SKILL.md',
+  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-recipes/SKILL.md',
+  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-guard/SKILL.md',
+  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-structure/SKILL.md',
+] as const;
+
+const legacyCompatibilityGuidanceFiles = [
+  '../../plugins/alembic-codex/skills/alembic/SKILL.md',
+  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic/SKILL.md',
+] as const;
+
+const forbiddenPrimaryLifecycleGuidance = [
+  'operation=prime',
+  'operation=create',
+  'operation=close',
+  'record_decision',
+  'prime/create/close',
+  'Task and decision management (5 operations)',
+  'primary action is `alembic_task`',
+  'alembic_task(operation: "prime")',
+  'alembic_task(operation: "create")',
+  'alembic_task(operation: "close")',
+  'alembic_task(operation: "record_decision")',
+  'alembic_task` with `operation',
 ] as const;
 
 const scopedGuardGuidanceFiles = [
@@ -24,15 +69,21 @@ function readFixture(relativePath: string): string {
 }
 
 describe('AFAPI Stage 5 skill and legacy cleanup', () => {
-  test('shipped Codex guidance uses agent-facing public tools instead of old task operation entrypoints', () => {
-    for (const relativePath of shippedGuidanceFiles) {
+  test('active host guidance uses agent-facing public tools instead of old task operation entrypoints', () => {
+    for (const relativePath of activeHostGuidanceFiles) {
       const content = readFixture(relativePath);
 
-      expect(content, relativePath).not.toContain('operation=prime');
-      expect(content, relativePath).not.toContain('operation=create');
-      expect(content, relativePath).not.toContain('operation=close');
-      expect(content, relativePath).not.toContain('alembic_task(operation: "close")');
-      expect(content, relativePath).not.toContain('alembic_task` with `operation');
+      for (const forbidden of forbiddenPrimaryLifecycleGuidance) {
+        expect(content, `${relativePath} should not advertise ${forbidden}`).not.toContain(
+          forbidden
+        );
+      }
+      if (!legacyCompatibilityGuidanceFiles.includes(relativePath)) {
+        expect(
+          content,
+          `${relativePath} should not mention hidden legacy alembic_task`
+        ).not.toContain('alembic_task');
+      }
     }
 
     const mainSkill = readFixture('../../plugins/alembic-codex/skills/alembic/SKILL.md');
@@ -48,6 +99,11 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     }
     expect(mainSkill).toContain('not advertised as a public workflow surface');
     expect(mainSkill).toContain('six agent-facing public tools');
+    const runtimeMainSkill = readFixture(
+      '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic/SKILL.md'
+    );
+    expect(runtimeMainSkill).toContain('not advertised as a public workflow surface');
+    expect(runtimeMainSkill).toContain('six agent-facing public tools');
   });
 
   test('active tool descriptions remove alembic_task from the public surface', () => {
