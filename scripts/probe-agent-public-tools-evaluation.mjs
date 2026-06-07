@@ -280,6 +280,17 @@ async function runPublicToolCalls(client, stderr) {
       inputSource: 'host-declared-intent',
       outputBudget: { maxChars: 160, mode: 'compact' },
       projectRoot,
+    },
+    stderr
+  );
+
+  const codeGuardScopedWorkRef = await callJsonTool(
+    client,
+    'alembic_code_guard',
+    {
+      inputSource: 'host-declared-intent',
+      outputBudget: { maxChars: 160, mode: 'compact' },
+      projectRoot,
       workRef,
     },
     stderr
@@ -307,6 +318,7 @@ async function runPublicToolCalls(client, stderr) {
     alembic_work_start: summarizeCall(workStart),
     alembic_work_finish: summarizeCall(workFinish),
     alembic_code_guard: summarizeCall(codeGuard),
+    alembic_code_guard_scoped_work_ref: summarizeCall(codeGuardScopedWorkRef),
     alembic_decision_record: summarizeCall(decisionRecord),
   };
 }
@@ -325,6 +337,11 @@ function evaluateCalls(issues, calls) {
     calls.alembic_code_guard.status === 'blocked' &&
       calls.alembic_code_guard.reasonCode === 'missing-guard-scope',
     'code_guard should block no-scope readback with missing-guard-scope'
+  );
+  expectIssue(
+    issues,
+    calls.alembic_code_guard_scoped_work_ref.status === 'ready',
+    'code_guard scoped workRef readback should be ready'
   );
   expectIssue(
     issues,

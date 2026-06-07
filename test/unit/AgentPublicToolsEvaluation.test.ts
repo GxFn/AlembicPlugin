@@ -199,6 +199,123 @@ const stage4aGoldenSuiteMatrix = [
   toolName: AgentPublicToolName;
 }[];
 
+const afapiReq10CoverageDimensions = [
+  'ready',
+  'skip',
+  'degraded',
+  'blocked',
+  'failed',
+  'output-budget',
+  'legacy-boundary',
+] as const;
+
+type AfapiReq10CoverageDimension = (typeof afapiReq10CoverageDimensions)[number];
+
+const afapiReq10EvaluationMatrix = [
+  {
+    toolName: 'alembic_intent',
+    coverage: {
+      ready: ['unit: host-declared semantic intent returns ready with intentRef'],
+      skip: ['unit: raw automation, status-only, and empty semantic turns return skipped'],
+      degraded: ['unit: low-confidence semantic intent returns degraded and remains consumable'],
+      blocked: ['contract: shared result envelope admits blocked status for host callers'],
+      failed: ['contract: shared result envelope admits failed status for handler errors'],
+      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'legacy-boundary': [
+        'unit: usesLegacyTaskHandler=false and active guidance omits legacy task wording',
+      ],
+    },
+  },
+  {
+    toolName: 'alembic_prime',
+    coverage: {
+      ready: ['unit: intentRef plus resident retrieval material returns ready with primeRef'],
+      skip: ['unit: lifecycle skip policies cover mechanical/status/non-project intent'],
+      degraded: [
+        'unit: knowledge-empty, resident-unavailable, and missing producer metadata degrade',
+      ],
+      blocked: ['unit: missing intent and automation envelope without sourceRefs block'],
+      failed: ['contract: shared result envelope admits failed status for handler errors'],
+      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'legacy-boundary': [
+        'unit: usesLegacyTaskHandler=false and prime does not route through alembic_task',
+      ],
+    },
+  },
+  {
+    toolName: 'alembic_work_start',
+    coverage: {
+      ready: ['unit: concrete scoped work returns ready with workRef'],
+      skip: ['unit: no-work-scope, status-only, raw-envelope, and design-readonly turns skip'],
+      degraded: ['contract: shared result envelope admits degraded status for host callers'],
+      blocked: ['contract: shared result envelope admits blocked status for host callers'],
+      failed: ['contract: shared result envelope admits failed status for handler errors'],
+      'output-budget': ['unit: over-budget work start advertises outputBudget.truncated=true'],
+      'legacy-boundary': [
+        'unit: usesLegacyTaskHandler=false and active guidance omits legacy task wording',
+      ],
+    },
+  },
+  {
+    toolName: 'alembic_work_finish',
+    coverage: {
+      ready: ['unit: real workRef closes with finishRef and guard recommendation'],
+      skip: ['contract: shared result envelope admits skipped status for host callers'],
+      degraded: ['contract: shared result envelope admits degraded status for host callers'],
+      blocked: ['unit: missing or fake workRef blocks as missing-work-ref'],
+      failed: ['contract: shared result envelope admits failed status for handler errors'],
+      'output-budget': ['unit: long finish summary advertises outputBudget.truncated=true'],
+      'legacy-boundary': [
+        'unit: usesLegacyTaskHandler=false and finish does not route through alembic_task',
+      ],
+    },
+  },
+  {
+    toolName: 'alembic_code_guard',
+    coverage: {
+      ready: [
+        'unit: scoped workRef guard returns ready',
+        'probe: scoped workRef readback expects ready',
+      ],
+      skip: ['unit: active workRef with no source files skips as no-code-scope'],
+      degraded: ['contract: shared result envelope admits degraded status for host callers'],
+      blocked: [
+        'unit: no-scope guard returns blocked/missing-guard-scope',
+        'probe: no-scope readback expects blocked/missing-guard-scope',
+      ],
+      failed: [
+        'contract: handler catch path returns failed/handler-error for scoped guard failures',
+      ],
+      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'legacy-boundary': [
+        'unit: usesLegacyTaskHandler=false and code guard does not accept legacy public scope',
+      ],
+    },
+  },
+  {
+    toolName: 'alembic_decision_record',
+    coverage: {
+      ready: [
+        'unit: resident Decision Register create/update/revoke/delete/read/list returns ready',
+      ],
+      skip: ['contract: shared result envelope admits skipped status for host callers'],
+      degraded: ['contract: shared result envelope admits degraded status for host callers'],
+      blocked: [
+        'unit: unavailable durable route blocks as decision-register-unavailable',
+        'unit: capability mismatch blocks as decision-register-capability-mismatch',
+      ],
+      failed: ['contract: shared result envelope admits failed status for handler errors'],
+      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'legacy-boundary': [
+        'unit: alembic_task hidden direct record_decision is blocked and writes no local decision',
+      ],
+    },
+  },
+] as const satisfies readonly {
+  coverage: Record<AfapiReq10CoverageDimension, readonly string[]>;
+  toolName: AgentPublicToolName;
+}[];
+
 describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
   test('locks golden descriptions, contracts, schemas, and non-legacy primary guidance', () => {
     const activeToolsByName = new Map(TOOLS.map((tool) => [tool.name, tool]));
@@ -232,6 +349,47 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         ).not.toContain(forbidden);
       }
     }
+  });
+
+  test('anchors AFAPI-REQ-10 six-tool evaluation matrix as first-class coverage evidence', () => {
+    expect(afapiReq10EvaluationMatrix.map((entry) => entry.toolName)).toEqual(
+      AGENT_PUBLIC_TOOL_NAMES
+    );
+
+    for (const entry of afapiReq10EvaluationMatrix) {
+      const contract = getAgentPublicToolContractDefinition(entry.toolName);
+      expect(Object.keys(entry.coverage)).toEqual([...afapiReq10CoverageDimensions]);
+      expect(contract.resultContract.statuses).toEqual([
+        'ready',
+        'skipped',
+        'degraded',
+        'blocked',
+        'failed',
+      ]);
+
+      for (const dimension of afapiReq10CoverageDimensions) {
+        expect(entry.coverage[dimension], `${entry.toolName} ${dimension}`).not.toHaveLength(0);
+      }
+      expect(entry.coverage.failed.some((item) => item.startsWith('contract:'))).toBe(true);
+      expect(entry.coverage['output-budget'].some((item) => item.includes('outputBudget'))).toBe(
+        true
+      );
+      expect(
+        entry.coverage['legacy-boundary'].some(
+          (item) => item.includes('usesLegacyTaskHandler=false') || item.includes('alembic_task')
+        )
+      ).toBe(true);
+    }
+
+    const codeGuardMatrix = afapiReq10EvaluationMatrix.find(
+      (entry) => entry.toolName === 'alembic_code_guard'
+    );
+    expect(codeGuardMatrix?.coverage.ready).toEqual(
+      expect.arrayContaining(['probe: scoped workRef readback expects ready'])
+    );
+    expect(codeGuardMatrix?.coverage.blocked).toEqual(
+      expect.arrayContaining(['probe: no-scope readback expects blocked/missing-guard-scope'])
+    );
   });
 
   test('evaluates ready handler envelopes for six public tools with refs and compact budgets', async () => {
