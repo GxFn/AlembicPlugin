@@ -178,6 +178,30 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
   return new URL(input.url);
 }
 
+function parseRequestBody(init: Parameters<typeof fetch>[1]): Record<string, unknown> | null {
+  if (!init?.body || typeof init.body !== 'string') {
+    return null;
+  }
+  return JSON.parse(init.body) as Record<string, unknown>;
+}
+
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    headers: { 'content-type': 'application/json' },
+    status,
+  });
+}
+
+function durableDecisionCapability() {
+  return {
+    available: true,
+    contractVersion: 1,
+    lifecycle: ['create', 'update', 'revoke', 'delete', 'read', 'list', 'searchable'],
+    owner: 'alembic',
+    route: 'decision-register',
+  };
+}
+
 function intentEvidenceFixture() {
   return {
     decisionRegister: {
@@ -375,6 +399,212 @@ describe('AlembicResidentServiceClient', () => {
       process.env.ALEMBIC_HOME = ORIGINAL_ALEMBIC_HOME;
     }
     vi.restoreAllMocks();
+  });
+
+  it('calls Decision Register capability and lifecycle routes against a compatible resident route', async () => {
+    const requests: Array<{
+      body: Record<string, unknown> | null;
+      method: string;
+      url: URL;
+    }> = [];
+    const decisionId = 'decision-public-1';
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        const method = init?.method ?? 'GET';
+        const body = parseRequestBody(init);
+        requests.push({ body, method, url });
+
+        if (url.pathname === '/api/v1/daemon/health') {
+          return jsonResponse(residentHealthPayload());
+        }
+        if (url.pathname === '/api/v1/decision-register/capability') {
+          return jsonResponse({
+            success: true,
+            data: { capability: durableDecisionCapability() },
+          });
+        }
+        if (url.pathname === '/api/v1/decision-register' && method === 'POST') {
+          return jsonResponse(
+            {
+              success: true,
+              data: {
+                capability: durableDecisionCapability(),
+                decision: { decisionId, status: 'active', title: body?.title },
+              },
+            },
+            201
+          );
+        }
+        if (url.pathname === `/api/v1/decision-register/${decisionId}` && method === 'PATCH') {
+          return jsonResponse({
+            success: true,
+            data: {
+              capability: durableDecisionCapability(),
+              decision: { decisionId, status: 'active', title: body?.title },
+            },
+          });
+        }
+        if (
+          url.pathname === `/api/v1/decision-register/${decisionId}/revoke` &&
+          method === 'POST'
+        ) {
+          return jsonResponse({
+            success: true,
+            data: {
+              capability: durableDecisionCapability(),
+              decision: { decisionId, status: 'revoked' },
+            },
+          });
+        }
+        if (url.pathname === `/api/v1/decision-register/${decisionId}` && method === 'DELETE') {
+          return jsonResponse({
+            success: true,
+            data: {
+              capability: durableDecisionCapability(),
+              decision: { decisionId, status: 'deleted' },
+            },
+          });
+        }
+        if (url.pathname === `/api/v1/decision-register/${decisionId}` && method === 'GET') {
+          return jsonResponse({
+            success: true,
+            data: {
+              capability: durableDecisionCapability(),
+              decision: { decisionId, status: 'active' },
+            },
+          });
+        }
+        if (url.pathname === '/api/v1/decision-register' && method === 'GET') {
+          return jsonResponse({
+            success: true,
+            data: {
+              capability: durableDecisionCapability(),
+              count: 1,
+              decision: null,
+              decisions: [{ decisionId, status: 'deleted' }],
+            },
+          });
+        }
+        return jsonResponse(
+          { success: false, message: `${method} ${url.pathname} unexpected` },
+          404
+        );
+      }
+    ) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const created = await client.decisionRegister({
+      action: 'create',
+      body: { title: 'Use durable Decision Register' },
+      sessionId: 'session-public-1',
+    });
+    const updated = await client.decisionRegister({
+      action: 'update',
+      body: { title: 'Use updated Decision Register' },
+      decisionId,
+      sessionId: 'session-public-1',
+    });
+    const revoked = await client.decisionRegister({
+      action: 'revoke',
+      body: { reason: 'Superseded' },
+      decisionId,
+      sessionId: 'session-public-1',
+    });
+    const deleted = await client.decisionRegister({
+      action: 'delete',
+      body: { reason: 'Cleanup' },
+      decisionId,
+      sessionId: 'session-public-1',
+    });
+    const read = await client.decisionRegister({ action: 'read', decisionId });
+    const listed = await client.decisionRegister({
+      action: 'list',
+      includeDeleted: true,
+      limit: 5,
+      sessionId: 'session-public-1',
+      status: 'all',
+    });
+
+    for (const result of [created, updated, revoked, deleted, read, listed]) {
+      expect(result.ok).toBe(true);
+    }
+    if (!created.ok || !updated.ok || !revoked.ok || !deleted.ok || !read.ok || !listed.ok) {
+      throw new Error('Decision Register lifecycle unexpectedly failed');
+    }
+    expect(created.value.decision).toMatchObject({ decisionId, status: 'active' });
+    expect(updated.value.decision).toMatchObject({ decisionId, status: 'active' });
+    expect(revoked.value.decision).toMatchObject({ decisionId, status: 'revoked' });
+    expect(deleted.value.decision).toMatchObject({ decisionId, status: 'deleted' });
+    expect(read.value.decision).toMatchObject({ decisionId, status: 'active' });
+    expect(listed.value.decisions).toEqual([{ decisionId, status: 'deleted' }]);
+    expect(listed.value.count).toBe(1);
+
+    const capabilityRequests = requests.filter(
+      (request) => request.url.pathname === '/api/v1/decision-register/capability'
+    );
+    expect(capabilityRequests).toHaveLength(6);
+
+    const lifecycleRequests = requests.filter(
+      (request) =>
+        request.url.pathname.startsWith('/api/v1/decision-register') &&
+        request.url.pathname !== '/api/v1/decision-register/capability'
+    );
+    expect(lifecycleRequests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual(
+      [
+        'POST /api/v1/decision-register',
+        `PATCH /api/v1/decision-register/${decisionId}`,
+        `POST /api/v1/decision-register/${decisionId}/revoke`,
+        `DELETE /api/v1/decision-register/${decisionId}`,
+        `GET /api/v1/decision-register/${decisionId}`,
+        'GET /api/v1/decision-register',
+      ]
+    );
+    expect(lifecycleRequests[0]?.body).toMatchObject({
+      scope: {
+        dataRootSource: 'ghost-registry',
+        projectId: 'project-workspace',
+        projectScopeId: 'project-scope-workspace',
+        workspaceMode: 'ghost',
+      },
+      sessionId: 'session-public-1',
+      title: 'Use durable Decision Register',
+    });
+    expect(lifecycleRequests[1]?.body).toMatchObject({
+      scope: {
+        projectId: 'project-workspace',
+        projectScopeId: 'project-scope-workspace',
+      },
+      sessionId: 'session-public-1',
+      title: 'Use updated Decision Register',
+    });
+    expect(lifecycleRequests[2]?.body).toMatchObject({
+      reason: 'Superseded',
+      scope: {
+        projectId: 'project-workspace',
+        projectScopeId: 'project-scope-workspace',
+      },
+      sessionId: 'session-public-1',
+    });
+    expect(lifecycleRequests[3]?.body).toMatchObject({
+      reason: 'Cleanup',
+      scope: {
+        projectId: 'project-workspace',
+        projectScopeId: 'project-scope-workspace',
+      },
+      sessionId: 'session-public-1',
+    });
+    expect(lifecycleRequests[4]?.body).toBeNull();
+    expect(lifecycleRequests[5]?.body).toBeNull();
+    expect(lifecycleRequests[5]?.url.searchParams.get('includeDeleted')).toBe('true');
+    expect(lifecycleRequests[5]?.url.searchParams.get('limit')).toBe('5');
+    expect(lifecycleRequests[5]?.url.searchParams.get('sessionId')).toBe('session-public-1');
+    expect(lifecycleRequests[5]?.url.searchParams.get('status')).toBe('all');
   });
 
   it('normalizes Codex auto mode to daemon semantic mode while preserving requested mode metadata', async () => {

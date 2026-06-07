@@ -211,9 +211,9 @@ describe('agent-facing active public tools', () => {
       }).success
     ).toBe(true);
     expect(TOOL_SCHEMAS.alembic_code_guard.safeParse({}).success).toBe(true);
-    expect(
-      TOOL_SCHEMAS.alembic_code_guard.safeParse({ workRef: 'work-public-1' }).success
-    ).toBe(true);
+    expect(TOOL_SCHEMAS.alembic_code_guard.safeParse({ workRef: 'work-public-1' }).success).toBe(
+      true
+    );
     expect(
       TOOL_SCHEMAS.alembic_decision_record.safeParse({
         action: 'list',
@@ -1129,35 +1129,55 @@ describe('agent-facing active public tools', () => {
       residentDecisionRegisterClient: { decisionRegister },
     });
 
-    await decisionRecordHandler(ctx, {
+    const updated = (await decisionRecordHandler(ctx, {
       action: 'update',
       decisionRef: 'decision-public-1',
       description: 'Updated decision body.',
-    });
-    await decisionRecordHandler(ctx, {
+      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-update'],
+    })) as DecisionRecordResult;
+    const revoked = (await decisionRecordHandler(ctx, {
       action: 'revoke',
       decisionRef: 'decision-public-1',
       rationale: 'Superseded.',
-    });
-    await decisionRecordHandler(ctx, {
+      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-revoke'],
+    })) as DecisionRecordResult;
+    const deleted = (await decisionRecordHandler(ctx, {
       action: 'delete',
       decisionRef: 'decision-public-1',
       rationale: 'Cleanup.',
-    });
-    await decisionRecordHandler(ctx, {
+      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-delete'],
+    })) as DecisionRecordResult;
+    const read = (await decisionRecordHandler(ctx, {
       action: 'read',
       decisionRef: 'decision-public-1',
-    });
+      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-read'],
+    })) as DecisionRecordResult;
     const listed = (await decisionRecordHandler(ctx, {
       action: 'list',
+      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-list'],
       includeDeleted: true,
       limit: 5,
       status: 'all',
-    })) as { data: { count: number; decisions: unknown[] }; success: boolean };
+    })) as DecisionRecordResult;
 
+    for (const result of [updated, revoked, deleted, read]) {
+      expect(result.success).toBe(true);
+      expect(result.data.decisionRef).toBe('decision-public-1');
+      expect(result.data.result).toMatchObject({
+        refs: {
+          decisionRef: { id: 'decision-public-1', toolName: 'alembic_decision_record' },
+        },
+        status: 'ready',
+      });
+      expect(result.data.result.refs.detailRefs).not.toHaveLength(0);
+    }
     expect(listed.success).toBe(true);
+    expect(listed.data.result.status).toBe('ready');
     expect(listed.data.count).toBe(1);
     expect(listed.data.decisions).toHaveLength(1);
+    expect(listed.data.decisions[0]).toMatchObject({ decisionId: 'decision-public-1' });
+    expect(listed.data.result.refs.decisionRef).toBeUndefined();
+    expect(listed.data.result.refs.detailRefs).not.toHaveLength(0);
     expect(decisionRegister).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -1297,4 +1317,20 @@ function durableDecisionCapability() {
     owner: 'alembic',
     route: 'decision-register',
   };
+}
+
+interface DecisionRecordResult {
+  data: {
+    count?: number;
+    decisionRef?: string | null;
+    decisions: Array<Record<string, unknown>>;
+    result: {
+      refs: {
+        decisionRef?: { id: string; toolName: string };
+        detailRefs: unknown[];
+      };
+      status: string;
+    };
+  };
+  success: boolean;
 }
