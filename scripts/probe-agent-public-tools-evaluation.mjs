@@ -137,6 +137,17 @@ async function probeTarget(targetRoot) {
       !afterInit.names.includes('alembic_task'),
       'after init should not expose legacy alembic_task'
     );
+    const legacyRecordDecision = await probeLegacyRecordDecision(client, stderr);
+    expectIssue(
+      issues,
+      legacyRecordDecision.blocked === true,
+      'legacy alembic_task record_decision should block without local fake decision'
+    );
+    expectIssue(
+      issues,
+      legacyRecordDecision.localDecisionRef === false,
+      'legacy alembic_task record_decision should not return a local decision id'
+    );
 
     return {
       ok: issues.length === 0,
@@ -148,14 +159,51 @@ async function probeTarget(targetRoot) {
         names: afterInit.names,
         legacyTaskCompatibility: {
           hiddenDirectCallOnly: !afterInit.names.includes('alembic_task'),
+          recordDecisionBlocked: legacyRecordDecision.blocked,
+          recordDecisionErrorCode: legacyRecordDecision.errorCode,
+          recordDecisionWritesLocalDecision:
+            legacyRecordDecision.writesLocalDecision ?? legacyRecordDecision.localDecisionRef,
           visible: false,
         },
       },
+      legacyRecordDecision,
       issues,
     };
   } finally {
     await closeClient(client, stderr, targetRoot);
   }
+}
+
+async function probeLegacyRecordDecision(client, stderr) {
+  const call = await callJsonTool(
+    client,
+    'alembic_task',
+    {
+      description: 'Probe hidden legacy record_decision cleanup.',
+      operation: 'record_decision',
+      rationale: 'Durable Decision Register must be the only confirmed-decision writer.',
+      tags: ['afapi-08'],
+      title: 'Legacy decision direct-call probe',
+    },
+    stderr
+  );
+  const legacyCompatibility = objectPath(call.payload, ['data', 'legacyCompatibility']);
+  const decision = objectPath(call.payload, ['data', 'decision']);
+  return {
+    blocked:
+      call.payload?.success === false &&
+      call.payload?.errorCode === 'legacy-record-decision-disabled' &&
+      legacyCompatibility?.status === 'blocked' &&
+      legacyCompatibility?.replacementTool === 'alembic_decision_record',
+    errorCode: call.payload?.errorCode ?? null,
+    isError: call.isError,
+    localDecisionRef: typeof decision?.id === 'string',
+    success: call.payload?.success === true,
+    writesLocalDecision:
+      typeof legacyCompatibility?.writesLocalDecision === 'boolean'
+        ? legacyCompatibility.writesLocalDecision
+        : null,
+  };
 }
 
 async function runPublicToolCalls(client, stderr) {

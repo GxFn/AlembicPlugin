@@ -358,6 +358,50 @@ function primeInjectionPackageSummary() {
 }
 
 describe('alembic_task prime knowledge material', () => {
+  test('blocks legacy record_decision direct calls without writing Plugin-local decisions', async () => {
+    const ctx = makeContext(async () => null);
+    if (!ctx.session) {
+      throw new Error('expected test session');
+    }
+    ctx.session.intent.phase = 'active';
+
+    const result = (await taskHandler(ctx, {
+      description: 'Old hidden direct-call path must not create a local fake decision.',
+      operation: 'record_decision',
+      rationale: 'Durable Decision Register is the only confirmed-decision writer.',
+      tags: ['afapi-08'],
+      title: 'Do not write local decisions',
+    })) as {
+      data: {
+        durablePersistence: { reason: string; requiredRoute: string };
+        legacyCompatibility: {
+          operation: string;
+          replacementTool: string;
+          status: string;
+          writesLocalDecision: boolean;
+        };
+      };
+      errorCode: string | null;
+      message: string;
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('legacy-record-decision-disabled');
+    expect(result.message).toContain('no Plugin-local fake decision was written');
+    expect(result.data.legacyCompatibility).toMatchObject({
+      operation: 'record_decision',
+      replacementTool: 'alembic_decision_record',
+      status: 'blocked',
+      writesLocalDecision: false,
+    });
+    expect(result.data.durablePersistence).toMatchObject({
+      reason: 'legacy-record-decision-disabled',
+      requiredRoute: 'Alembic durable Decision Register route',
+    });
+    expect(ctx.session.intent.decisions).toEqual([]);
+  });
+
   test('returns delivered primeKnowledgeMaterial with recipe, guard, and evidence refs', async () => {
     const searchResult: PrimeSearchResult = {
       relatedKnowledge: [

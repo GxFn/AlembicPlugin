@@ -614,7 +614,7 @@ export const CapabilitiesInput = z.object({});
 export type CapabilitiesInput = z.infer<typeof CapabilitiesInput>;
 
 // ══════════════════════════════════════════════════════
-//  13. alembic_task (hidden direct-call legacy compatibility, 5 operations)
+//  13. alembic_task (hidden direct-call legacy compatibility; record_decision blocks)
 // ══════════════════════════════════════════════════════
 
 export const TaskInput = z.object({
@@ -623,16 +623,25 @@ export const TaskInput = z.object({
     .describe(
       'Legacy compatibility operation. Prefer public tools: alembic_intent/alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record.'
     ),
-  title: z.string().optional().describe('Task or decision title (create / record_decision)'),
-  description: z.string().optional().describe('Decision description (record_decision)'),
+  title: z.string().optional().describe('Task title; legacy record_decision title is blocked'),
+  description: z
+    .string()
+    .optional()
+    .describe('Legacy record_decision description; blocked in favor of alembic_decision_record'),
   id: z
     .string()
     .optional()
     .describe('Task ID (close / fail). Optional if a task was created in the current session.'),
   taskId: z.string().optional().describe('Alias for id (accepted for convenience)'),
   reason: z.string().optional().describe('Close/fail reason'),
-  rationale: z.string().optional().describe('Decision rationale (record_decision)'),
-  tags: z.array(z.string()).optional().describe('Decision tags (record_decision)'),
+  rationale: z
+    .string()
+    .optional()
+    .describe('Legacy record_decision rationale; blocked in favor of alembic_decision_record'),
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe('Legacy record_decision tags; blocked in favor of alembic_decision_record'),
   userQuery: z
     .string()
     .optional()

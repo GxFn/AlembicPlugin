@@ -115,7 +115,7 @@ export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS = [
     name: 'alembic_task',
     tier: 'agent',
     description:
-      'Hidden direct-call compatibility for older Codex sessions only. This tool is not advertised through tools/list; use alembic_intent, alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record as the host-facing public lifecycle.',
+      'Hidden direct-call compatibility for older Codex sessions only. This tool is not advertised through tools/list; use alembic_intent, alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record as the host-facing public lifecycle. Legacy decision-recording direct calls fail closed and never write Plugin-local decisions.',
     inputSchema: zodToMcpSchema(TaskInput),
   },
 ];

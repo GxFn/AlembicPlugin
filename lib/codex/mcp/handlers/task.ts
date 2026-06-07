@@ -6,9 +6,11 @@
  *   create           — Create in-memory task anchor (generates ID)
  *   close            — Complete task + persist intent chain + conditionally recommend Guard
  *   fail             — Abandon task + persist intent chain
- *   record_decision  — Record user preference signal
+ *   record_decision  — Blocked legacy alias; use durable alembic_decision_record
  *
  * Architecture: Zero DB. Pure memory (IntentState) + SignalBus → JSONL signals.
+ * Confirmed decisions are not stored here; they must go through the Alembic
+ * resident Decision Register via the public alembic_decision_record tool.
  */
 
 import type { AlembicResidentServiceResult } from '@alembic/core/daemon';
@@ -51,13 +53,7 @@ import {
   normalizeTaskLifecycleFileRefs,
 } from '#service/task/TaskLifecyclePolicy.js';
 import { envelope } from '../envelope.js';
-import type {
-  DecisionRecord,
-  IntentChainRecord,
-  IntentState,
-  McpContext,
-  McpServiceContainer,
-} from './types.js';
+import type { IntentChainRecord, IntentState, McpContext, McpServiceContainer } from './types.js';
 import { createIdleIntent } from './types.js';
 
 // ─── Local Types ──────────────────────────────────────────
@@ -262,6 +258,7 @@ const _taskRules = {
     '• For implementation/fix/refactor/review work, use alembic_work_start and alembic_work_finish.',
     '• For code checks, use alembic_code_guard with explicit files or inline code.',
     '• For confirmed durable decisions, use alembic_decision_record.',
+    '• Legacy record_decision direct calls are blocked and do not write Plugin-local decisions.',
     '• Do not ask the user to choose compatibility task operations.',
   ].join('\n'),
   translationHint: [
@@ -270,6 +267,7 @@ const _taskRules = {
     'concrete work → alembic_work_start → code → alembic_work_finish',
     'guard recommendation → alembic_code_guard with explicit scope',
     'confirmed decision → alembic_decision_record',
+    'record decision → blocked; call alembic_decision_record for durable Decision Register writes',
     'pause/abandon is the only lifecycle case that may still need legacy fail metadata.',
   ].join('\n'),
 };
@@ -1213,26 +1211,28 @@ async function _recordDecision(ctx: McpContext, args: TaskArgs) {
     });
   }
 
-  const decisionId = `dec-${Date.now().toString(36)}`;
-  const decision: DecisionRecord = {
-    id: decisionId,
-    title: args.title,
-    description: args.description,
-    rationale: args.rationale,
-    tags: args.tags,
-    recordedAt: Date.now(),
-  };
-
-  // Push to current intent's decisions
-  const intent = ctx.session?.intent;
-  if (intent && intent.phase === 'active') {
-    intent.decisions.push(decision);
-  }
+  process.stderr.write(
+    '[MCP/Task] record_decision blocked: legacy local decision persistence is disabled; use alembic_decision_record with a resident Decision Register route.\n'
+  );
 
   return envelope({
-    success: true,
-    data: { decision: { id: decisionId, title: args.title } },
-    message: `📌 Decision recorded: ${args.title}`,
+    success: false,
+    errorCode: 'legacy-record-decision-disabled',
+    data: {
+      legacyCompatibility: {
+        operation: 'record_decision',
+        status: 'blocked',
+        writesLocalDecision: false,
+        replacementTool: 'alembic_decision_record',
+      },
+      durablePersistence: {
+        available: false,
+        requiredRoute: 'Alembic durable Decision Register route',
+        reason: 'legacy-record-decision-disabled',
+      },
+    },
+    message:
+      'Legacy alembic_task record_decision is disabled. Use alembic_decision_record so confirmed decisions go to the Alembic durable Decision Register; no Plugin-local fake decision was written.',
     meta: { tool: 'alembic_task' },
   });
 }

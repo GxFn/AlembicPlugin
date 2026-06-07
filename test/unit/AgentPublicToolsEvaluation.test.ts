@@ -548,6 +548,8 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     expect(taskTool).toBeUndefined();
     expect(hiddenTaskTool?.description).toContain('Hidden direct-call compatibility');
     expect(hiddenTaskTool?.description).toContain('not advertised through tools/list');
+    expect(hiddenTaskTool?.description).toContain('fail closed');
+    expect(hiddenTaskTool?.description).toContain('never write Plugin-local decisions');
     for (const forbidden of forbiddenLegacyPrimaryWording) {
       expect(hiddenTaskTool?.description ?? '').not.toContain(forbidden);
     }
