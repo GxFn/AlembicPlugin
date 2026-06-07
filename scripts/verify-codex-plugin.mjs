@@ -358,12 +358,12 @@ expect(
   'embedded runtime must not include Dashboard frontend index.html'
 );
 expect(
-  distributionMarketplaceJson.name === 'alembic-codex',
-  'AlembicCodex plugin distribution marketplace must be named alembic-codex'
+  distributionMarketplaceJson.name === 'gxfn',
+  'AlembicCodex plugin distribution marketplace must be named gxfn'
 );
 expect(
-  distributionMarketplaceJson.interface?.displayName === 'Alembic Codex',
-  'AlembicCodex plugin distribution marketplace must display as Alembic Codex'
+  distributionMarketplaceJson.interface?.displayName === 'GxFn',
+  'AlembicCodex plugin distribution marketplace must display as GxFn'
 );
 expect(
   distributionMarketplaceEntries.length === 1,
@@ -506,8 +506,8 @@ expect(
   'plugin Chinese README must document AlembicCodex plugin install command'
 );
 expect(
-  readme.includes('[plugins."alembic-codex@alembic-codex"]') &&
-    readmeCn.includes('[plugins."alembic-codex@alembic-codex"]'),
+  readme.includes('[plugins."alembic-codex@gxfn"]') &&
+    readmeCn.includes('[plugins."alembic-codex@gxfn"]'),
   'plugin READMEs must document plugin distribution marketplace registration'
 );
 expect(
