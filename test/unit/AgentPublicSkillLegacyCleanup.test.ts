@@ -97,13 +97,17 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     ]) {
       expect(mainSkill).toContain(toolName);
     }
-    expect(mainSkill).toContain('not advertised as a public workflow surface');
+    expect(mainSkill).toContain('`alembic_task` is retired');
+    expect(mainSkill).toContain('CODEX_TOOL_RETIRED');
     expect(mainSkill).toContain('six agent-facing public tools');
+    expect(mainSkill).toContain('clean `structuredContent`');
     const runtimeMainSkill = readFixture(
       '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic/SKILL.md'
     );
-    expect(runtimeMainSkill).toContain('not advertised as a public workflow surface');
+    expect(runtimeMainSkill).toContain('`alembic_task` is retired');
+    expect(runtimeMainSkill).toContain('CODEX_TOOL_RETIRED');
     expect(runtimeMainSkill).toContain('six agent-facing public tools');
+    expect(runtimeMainSkill).toContain('clean `structuredContent`');
   });
 
   test('active tool descriptions remove alembic_task from the public surface', () => {
