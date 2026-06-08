@@ -51,6 +51,8 @@ Alembic 也可以配合 `AlembicPlugin` 仓库维护的 Codex 插件使用。它
 3. 如果工作区未初始化，调用 `alembic_codex_init`
 4. 首次建立项目知识用 `alembic_codex_bootstrap`；如果项目知识已经可用，开始写代码前先用 `alembic_intent` 再用 `alembic_prime`
 
+Codex MCP 工具调用返回干净的 `structuredContent`：`ok`、`status`、`summary`、可选 `error`、可选 `meta` 和工具专属字段。可见 tool text 只承载 summary，宿主集成不要再从文本里解析旧 JSON envelope。
+
 发布前验证：
 
 ```bash

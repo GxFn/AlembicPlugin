@@ -19,7 +19,7 @@ Use `alembic_code_guard` for agent-facing checks. Supported public scopes are:
 - inline `code` with optional `filePath` / `language`
 - an active `workRef` whose current Plugin session recorded scoped files
 
-The public contract does not accept `diffRef`, `primeRef`, `acceptedGuards`, or `applicableRecipe` as Guard scope fields yet. The legacy `alembic_guard` route no longer accepts no-args whole-diff checks; use it only for explicit compatibility/report operations when a tool call already provides a scope.
+The public contract does not accept `diffRef`, `primeRef`, `acceptedGuards`, or `applicableRecipe` as Guard scope fields yet. `alembic_guard` is a compatibility/report surface, not the agent-facing default; it no longer accepts no-args whole-diff checks and must already receive an explicit scope.
 
 **Explicit files**:
 ```json

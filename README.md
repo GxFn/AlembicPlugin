@@ -51,6 +51,8 @@ Recommended first run inside Codex:
 3. `alembic_codex_init` if the workspace is not initialized
 4. `alembic_codex_bootstrap` for first project knowledge, or use `alembic_intent` then `alembic_prime` before coding when project knowledge is already available
 
+Codex MCP tool calls return clean `structuredContent`: `ok`, `status`, `summary`, optional `error`, optional `meta`, and tool-specific fields. Visible tool text is summary-only, so host integrations should not parse legacy JSON envelopes from text.
+
 For release validation:
 
 ```bash

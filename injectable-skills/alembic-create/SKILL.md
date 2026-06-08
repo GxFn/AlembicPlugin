@@ -5,7 +5,7 @@ description: This project has a local Alembic knowledge base. Submit Alembic can
 
 # Alembic Create — Knowledge Submission
 
-> Prerequisite: MCP tools return a unified JSON Envelope `{ success, errorCode?, message?, data?, meta }`. Call `alembic_health` before operations to confirm service availability.
+> Prerequisite: MCP tools return clean `structuredContent` with `ok`, `status`, `summary`, optional `error`, optional `meta`, and tool-specific fields. Visible tool text is summary-only. Call `alembic_health` before operations to confirm service availability.
 
 This project has a local Alembic knowledge base. Submit Alembic candidates when the user asks or when project work reveals reusable patterns, rules, or facts worth preserving.
 

@@ -44,7 +44,7 @@ This skill provides the agent with this project's context from Alembic Recipes. 
 
 **Recipe over code search**: When both find matches, prefer Recipe as source of truth. Cite Recipe title.
 
-When MCP responses include `searchMeta.residentSearch` or `residentVector`, treat that metadata as the boundary marker: resident service ready means semantic/vector recall came from local Alembic; `residentVector.available=false` means continue with Plugin baseline knowledge search without assuming AlembicPlugin has an embedding executor.
+Use the clean `structuredContent` fields returned by `alembic_prime` and `alembic_search` as the Recipe context contract. Runtime diagnostics such as resident route or vector availability belong in `alembic_codex_diagnostics` / `alembic_codex_status`, not in ordinary Recipe guidance.
 
 ---
 
