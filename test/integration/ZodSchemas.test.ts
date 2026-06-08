@@ -359,7 +359,6 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         'alembic_project_skill',
         'alembic_bootstrap',
         'alembic_dimension_complete',
-        'alembic_task',
         'alembic_enrich_candidates',
         'alembic_knowledge_lifecycle',
       ];
@@ -369,8 +368,8 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       }
     });
 
-    test('should have at least 14 entries', () => {
-      expect(Object.keys(TOOL_SCHEMAS).length).toBeGreaterThanOrEqual(14);
+    test('should have at least 13 entries', () => {
+      expect(Object.keys(TOOL_SCHEMAS).length).toBeGreaterThanOrEqual(13);
     });
   });
 });

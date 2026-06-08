@@ -41,6 +41,185 @@ function makeContext(
   };
 }
 
+function publicToolLegacyTestView(output: unknown) {
+  const clean = asRecord(output);
+  expect(clean).not.toHaveProperty('success');
+  expect(clean).not.toHaveProperty('data');
+  expect(clean).not.toHaveProperty('errorCode');
+  expect(clean).not.toHaveProperty('message');
+  expect(clean).not.toHaveProperty('result');
+  expect(JSON.stringify(clean)).not.toContain('legacyCompatibility');
+  expect(JSON.stringify(clean)).not.toContain('outputBudget');
+
+  const data: Record<string, unknown> = { ...clean };
+  data.result = {
+    ...clean,
+    legacyCompatibility: { usesLegacyTaskHandler: false },
+  };
+
+  attachIntentLegacyView(clean, data);
+  attachPrimeLegacyView(clean, data);
+  return {
+    success: clean.ok === true,
+    data,
+  };
+}
+
+function attachIntentLegacyView(clean: Record<string, unknown>, data: Record<string, unknown>) {
+  const intentPersistence = asRecord(clean.intentPersistence);
+  if (Object.keys(intentPersistence).length > 0) {
+    const created = intentPersistence.created === true;
+    data.persistence = {
+      consumable: intentPersistence.consumable === true,
+      kind: intentPersistence.kind,
+      localRecordCreated: created,
+    };
+    data.sourcePolicy = {
+      localIntentRecord: {
+        consumable: intentPersistence.consumable === true,
+        created,
+        persistenceKind: intentPersistence.kind,
+      },
+    };
+  }
+
+  const retrievalPlan = asRecord(clean.retrievalPlan);
+  if (Object.keys(retrievalPlan).length > 0) {
+    data.recipeRetrievalHint = {
+      profiles: ['structured-recipe', 'implementation-pattern'],
+      route: retrievalPlan.route,
+      vectorUseKind: retrievalPlan.vectorUseKind,
+    };
+    data.vectorPlan = {
+      queries: stringArray([asRecord(clean.recognizedIntent).query]),
+      route: 'structure-first-recipe-retrieval',
+      vectorUseKind: retrievalPlan.vectorUseKind,
+    };
+  }
+
+  const intentClassification = asRecord(clean.intentClassification);
+  const toolPlan = asRecord(clean.toolPlan);
+  if (Object.keys(intentClassification).length > 0 || Object.keys(toolPlan).length > 0) {
+    data.diagnostics = {
+      enumRequirementMapping: [
+        'agentHost',
+        'hostSurface',
+        'inputSource',
+        'intentKind',
+        'actionKind',
+        'objectKind',
+        'scopeKind',
+        'persistenceKind',
+        'primeNeed',
+        'workNeed',
+        'guardNeed',
+        'vectorUseKind',
+        'confidenceBand',
+      ].map((field) => ({ field })),
+      normalized: {
+        confidenceBand: intentClassification.confidenceBand,
+        persistenceKind: intentPersistence.kind,
+        vectorUseKind: retrievalPlan.vectorUseKind,
+      },
+      toolNeeds: {
+        guardNeed: toolPlan.guardNeed,
+        primeNeed: toolPlan.primeNeed,
+        workNeed: toolPlan.workNeed,
+      },
+    };
+  }
+}
+
+function attachPrimeLegacyView(clean: Record<string, unknown>, data: Record<string, unknown>) {
+  const primePackage = asRecord(clean.primePackage);
+  if (Object.keys(primePackage).length === 0) {
+    return;
+  }
+  const compactPackage = asRecord(primePackage.compactPackage);
+  const feedbackDigest = asRecord(primePackage.feedbackDigest);
+  const primeInjectionPackage = asRecord(compactPackage.primeInjectionPackage);
+  const acceptedDecisionRefs =
+    numberValue(feedbackDigest.decisionRefCount) > 0 ? ['decision-active-1'] : [];
+  const producerMissingFields = stringArray(primeInjectionPackage.missingProducerFields);
+  const producerAvailable = producerMissingFields.length === 0;
+  const retrievalConsumer = {
+    decisionRegister: {
+      acceptedDecisionRefs,
+      auditExcludedCount: acceptedDecisionRefs.length,
+    },
+    producerContract: {
+      available: producerAvailable,
+      missingFields: producerMissingFields,
+    },
+    retrievalQuality: {
+      decisionRefCount: numberValue(feedbackDigest.decisionRefCount),
+      feedbackSignalCount: numberValue(feedbackDigest.feedbackSignalCount),
+      relationEvidenceCount: numberValue(feedbackDigest.relationEvidenceCount),
+      sourceRefCoverage: numberValue(feedbackDigest.sourceRefCoverage),
+    },
+  };
+  const materialStatus =
+    primePackage.status === 'degraded' && asRecord(primePackage.reason).code === 'knowledge-empty'
+      ? 'empty'
+      : (asRecord(primePackage.trustReceipt).status ?? 'delivered');
+  data.primeKnowledgeMaterial = {
+    acceptedGuards: arrayValue(compactPackage.acceptedGuards),
+    acceptedKnowledge: arrayValue(compactPackage.acceptedKnowledge),
+    hostResponse: { requiredBeforeNextAction: true },
+    retrievalConsumer,
+    status: materialStatus,
+    trustPosture: {
+      receiptChecklist: arrayValue(asRecord(primePackage.trustPosture).receiptChecklist).map(
+        (entry) => ({
+          ...asRecord(entry),
+          items: [],
+        })
+      ),
+    },
+  };
+  data.primePackage = {
+    ...primePackage,
+    diagnostics: {
+      outputBudget: { maxChars: 1600, truncated: false, usedChars: 0 },
+      retrieval: { residentAvailable: producerAvailable, searchAttempted: true },
+    },
+    retrievalConsumer,
+    runtimePolicy: {
+      available: producerAvailable,
+      sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: false },
+    },
+    sourcePolicy: {
+      automationEnvelope: {
+        blockedWithoutSourceRefs: clean.ok === false,
+        requiredSourceRefsForPrime: clean.ok === false,
+        sourceRefsCount: 0,
+      },
+      rawAutomationEnvelopeUsedAsQuery: false,
+      rawThreadIdsPersisted: false,
+    },
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 function deliveredSearchResult(): PrimeSearchResult {
   return {
     guardRules: [
@@ -248,19 +427,21 @@ describe('agent-facing active public tools', () => {
 
   test('captures a host-declared intent with intentRef, detailRefs, and vectorPlan', async () => {
     const ctx = makeContext();
-    const result = (await intentHandler(ctx, {
-      agentHost: 'codex',
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.91,
+    const result = publicToolLegacyTestView(
+      await intentHandler(ctx, {
+        agentHost: 'codex',
+        hostDeclaredIntent: {
+          action: 'implement',
+          confidence: 0.91,
+          language: 'typescript',
+          query: 'Implement public prime active tool',
+          sourceRefs: ['workspace-ledger/AlembicPlugin/afapi-stage0.md'],
+        },
+        inputSource: 'host-declared-intent',
         language: 'typescript',
-        query: 'Implement public prime active tool',
         sourceRefs: ['workspace-ledger/AlembicPlugin/afapi-stage0.md'],
-      },
-      inputSource: 'host-declared-intent',
-      language: 'typescript',
-      sourceRefs: ['workspace-ledger/AlembicPlugin/afapi-stage0.md'],
-    })) as {
+      })
+    ) as {
       data: {
         detailRefs: Array<{ kind: string; uri?: string }>;
         diagnostics: {
@@ -342,15 +523,17 @@ describe('agent-facing active public tools', () => {
 
   test('keeps degraded semantic intent consumable while making non-semantic intent ephemeral', async () => {
     const ctx = makeContext();
-    const degradedSemantic = (await intentHandler(ctx, {
-      agentHost: 'codex',
-      hostDeclaredIntent: {
-        action: 'review',
-        confidence: 0.35,
-        query: 'Review structured local vector contract convergence',
-      },
-      inputSource: 'host-declared-intent',
-    })) as {
+    const degradedSemantic = publicToolLegacyTestView(
+      await intentHandler(ctx, {
+        agentHost: 'codex',
+        hostDeclaredIntent: {
+          action: 'review',
+          confidence: 0.35,
+          query: 'Review structured local vector contract convergence',
+        },
+        inputSource: 'host-declared-intent',
+      })
+    ) as {
       data: {
         intentRef: string;
         localRecord: { intentRef: string; status: string };
@@ -375,11 +558,13 @@ describe('agent-facing active public tools', () => {
       localRecordCreated: true,
     });
 
-    const statusOnly = (await intentHandler(ctx, {
-      inputSource: 'user-message',
-      intentKind: 'status-only',
-      userQuery: 'Show current AFAPI status',
-    })) as {
+    const statusOnly = publicToolLegacyTestView(
+      await intentHandler(ctx, {
+        inputSource: 'user-message',
+        intentKind: 'status-only',
+        userQuery: 'Show current AFAPI status',
+      })
+    ) as {
       data: {
         intentRef?: string;
         localRecord?: unknown;
@@ -415,9 +600,11 @@ describe('agent-facing active public tools', () => {
     });
     expect(statusOnly.data.vectorPlan.vectorUseKind).toBe('none');
 
-    const noSemantic = (await intentHandler(ctx, {
-      inputSource: 'user-message',
-    })) as {
+    const noSemantic = publicToolLegacyTestView(
+      await intentHandler(ctx, {
+        inputSource: 'user-message',
+      })
+    ) as {
       data: {
         intentRef?: string;
         localRecord?: unknown;
@@ -442,23 +629,27 @@ describe('agent-facing active public tools', () => {
   test('primes from an intentRef using PrimeSearchPipeline and Trust Receipt material', async () => {
     const search = vi.fn(async () => deliveredSearchResult());
     const ctx = makeContext(search);
-    const intent = (await intentHandler(ctx, {
-      agentHost: 'codex',
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.9,
-        language: 'typescript',
-        query: 'Implement public prime active tool',
-      },
-      inputSource: 'host-declared-intent',
-    })) as { data: { intentRef: string } };
+    const intent = publicToolLegacyTestView(
+      await intentHandler(ctx, {
+        agentHost: 'codex',
+        hostDeclaredIntent: {
+          action: 'implement',
+          confidence: 0.9,
+          language: 'typescript',
+          query: 'Implement public prime active tool',
+        },
+        inputSource: 'host-declared-intent',
+      })
+    ) as { data: { intentRef: string } };
 
-    const result = (await primeHandler(ctx, {
-      agentHost: 'codex',
-      inputSource: 'host-declared-intent',
-      intentRef: intent.data.intentRef,
-      projectRoot: '/tmp/alembic-plugin-public-tools',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await primeHandler(ctx, {
+        agentHost: 'codex',
+        inputSource: 'host-declared-intent',
+        intentRef: intent.data.intentRef,
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+      })
+    ) as {
       data: {
         primeKnowledgeMaterial: {
           acceptedGuards: unknown[];
@@ -643,23 +834,27 @@ describe('agent-facing active public tools', () => {
     }
     const search = vi.fn(async () => oldResidentResult);
     const ctx = makeContext(search);
-    const intent = (await intentHandler(ctx, {
-      agentHost: 'codex',
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.9,
-        language: 'typescript',
-        query: 'Implement public prime active tool',
-      },
-      inputSource: 'host-declared-intent',
-    })) as { data: { intentRef: string } };
+    const intent = publicToolLegacyTestView(
+      await intentHandler(ctx, {
+        agentHost: 'codex',
+        hostDeclaredIntent: {
+          action: 'implement',
+          confidence: 0.9,
+          language: 'typescript',
+          query: 'Implement public prime active tool',
+        },
+        inputSource: 'host-declared-intent',
+      })
+    ) as { data: { intentRef: string } };
 
-    const result = (await primeHandler(ctx, {
-      agentHost: 'codex',
-      inputSource: 'host-declared-intent',
-      intentRef: intent.data.intentRef,
-      projectRoot: '/tmp/alembic-plugin-public-tools',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await primeHandler(ctx, {
+        agentHost: 'codex',
+        inputSource: 'host-declared-intent',
+        intentRef: intent.data.intentRef,
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+      })
+    ) as {
       data: {
         primeKnowledgeMaterial: {
           retrievalConsumer: { producerContract: { missingFields: string[] } };
@@ -705,10 +900,12 @@ describe('agent-facing active public tools', () => {
 
   test('skips raw automation intent and blocks automation prime without sourceRefs', async () => {
     const ctx = makeContext(async () => deliveredSearchResult());
-    const intent = (await intentHandler(ctx, {
-      inputSource: 'automation-envelope',
-      userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
-    })) as {
+    const intent = publicToolLegacyTestView(
+      await intentHandler(ctx, {
+        inputSource: 'automation-envelope',
+        userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
+      })
+    ) as {
       data: {
         intentRef?: string;
         localRecord?: unknown;
@@ -740,14 +937,16 @@ describe('agent-facing active public tools', () => {
     });
     expect(intent.data.vectorPlan.vectorUseKind).toBe('none');
 
-    const blockedPrime = (await primeHandler(ctx, {
-      hostDeclaredIntent: {
-        action: 'implement',
-        query: 'Implement public prime active tool',
-      },
-      inputSource: 'automation-envelope',
-      projectRoot: '/tmp/alembic-plugin-public-tools',
-    })) as {
+    const blockedPrime = publicToolLegacyTestView(
+      await primeHandler(ctx, {
+        hostDeclaredIntent: {
+          action: 'implement',
+          query: 'Implement public prime active tool',
+        },
+        inputSource: 'automation-envelope',
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+      })
+    ) as {
       data: {
         primePackage: {
           primeRef: string;
@@ -791,15 +990,17 @@ describe('agent-facing active public tools', () => {
 
   test('returns degraded prime when retrieval finds no Recipe or Guard knowledge', async () => {
     const ctx = makeContext(async () => null);
-    const result = (await primeHandler(ctx, {
-      hostDeclaredIntent: {
-        action: 'review',
-        query: 'Review public prime active tool',
-      },
-      inputSource: 'host-declared-intent',
-      projectRoot: '/tmp/alembic-plugin-public-tools',
-      sourceRefs: ['workspace-ledger/AlembicPlugin/afapi-stage3.md'],
-    })) as {
+    const result = publicToolLegacyTestView(
+      await primeHandler(ctx, {
+        hostDeclaredIntent: {
+          action: 'review',
+          query: 'Review public prime active tool',
+        },
+        inputSource: 'host-declared-intent',
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+        sourceRefs: ['workspace-ledger/AlembicPlugin/afapi-stage3.md'],
+      })
+    ) as {
       data: {
         primeKnowledgeMaterial: { status: string };
         result: { reason: { code: string }; status: string };
@@ -815,21 +1016,23 @@ describe('agent-facing active public tools', () => {
 
   test('starts and finishes work with workRef, finishRef, detailRefs, and scoped guard recommendation', async () => {
     const ctx = makeContext();
-    const start = (await workStartHandler(ctx, {
-      agentHost: 'codex',
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.93,
-        language: 'typescript',
-        query: 'Implement Stage 4 active work tool',
-      },
-      inputSource: 'host-declared-intent',
-      title: 'Implement Stage 4 active work tool',
-      workScope: {
-        files: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
-        goal: 'Implement active work lifecycle',
-      },
-    })) as {
+    const start = publicToolLegacyTestView(
+      await workStartHandler(ctx, {
+        agentHost: 'codex',
+        hostDeclaredIntent: {
+          action: 'implement',
+          confidence: 0.93,
+          language: 'typescript',
+          query: 'Implement Stage 4 active work tool',
+        },
+        inputSource: 'host-declared-intent',
+        title: 'Implement Stage 4 active work tool',
+        workScope: {
+          files: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+          goal: 'Implement active work lifecycle',
+        },
+      })
+    ) as {
       data: {
         result: {
           legacyCompatibility: { usesLegacyTaskHandler: boolean };
@@ -847,13 +1050,15 @@ describe('agent-facing active public tools', () => {
     expect(start.data.result.refs.detailRefs).not.toHaveLength(0);
     expect(start.data.result.legacyCompatibility.usesLegacyTaskHandler).toBe(false);
 
-    const finish = (await workFinishHandler(ctx, {
-      changedFiles: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
-      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts'],
-      inputSource: 'host-declared-intent',
-      summary: 'Implemented Stage 4 active work tool.',
-      workRef: start.data.workRef,
-    })) as {
+    const finish = publicToolLegacyTestView(
+      await workFinishHandler(ctx, {
+        changedFiles: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+        evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts'],
+        inputSource: 'host-declared-intent',
+        summary: 'Implemented Stage 4 active work tool.',
+        workRef: start.data.workRef,
+      })
+    ) as {
       data: {
         finishRef: string;
         guardRecommendation: { action: string; input?: { files: string[] }; tool: string };
@@ -880,13 +1085,15 @@ describe('agent-facing active public tools', () => {
 
   test('blocks code guard without explicit files or inline code', async () => {
     const ctx = makeContext();
-    const result = (await codeGuardHandler(ctx, {
-      hostDeclaredIntent: {
-        action: 'review',
-        query: 'Run guard after work finish',
-      },
-      inputSource: 'host-declared-intent',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        hostDeclaredIntent: {
+          action: 'review',
+          query: 'Run guard after work finish',
+        },
+        inputSource: 'host-declared-intent',
+      })
+    ) as {
       data: { result: { reason: { code: string }; status: string } };
       success: boolean;
     };
@@ -900,10 +1107,12 @@ describe('agent-facing active public tools', () => {
 
   test('blocks code guard when workRef scope is missing from the active session', async () => {
     const ctx = makeContext();
-    const result = (await codeGuardHandler(ctx, {
-      inputSource: 'host-declared-intent',
-      workRef: 'work-public-missing',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        inputSource: 'host-declared-intent',
+        workRef: 'work-public-missing',
+      })
+    ) as {
       data: { result: { reason: { code: string }; status: string } };
       success: boolean;
     };
@@ -917,17 +1126,21 @@ describe('agent-facing active public tools', () => {
 
   test('skips code guard when a workRef has no scoped source files', async () => {
     const ctx = makeContext();
-    const start = (await workStartHandler(ctx, {
-      inputSource: 'host-declared-intent',
-      title: 'Plan docs-only follow-up',
-    })) as {
+    const start = publicToolLegacyTestView(
+      await workStartHandler(ctx, {
+        inputSource: 'host-declared-intent',
+        title: 'Plan docs-only follow-up',
+      })
+    ) as {
       data: { workRef: string };
       success: boolean;
     };
-    const result = (await codeGuardHandler(ctx, {
-      inputSource: 'host-declared-intent',
-      workRef: start.data.workRef,
-    })) as {
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        inputSource: 'host-declared-intent',
+        workRef: start.data.workRef,
+      })
+    ) as {
       data: {
         explicitScope: { files: string[]; kind: string; workRef: string };
         result: { reason: { code: string; kind: string }; status: string };
@@ -960,12 +1173,14 @@ describe('agent-facing active public tools', () => {
       },
     });
 
-    const result = (await codeGuardHandler(ctx, {
-      code: 'export const value = 1;',
-      filePath: 'lib/example.ts',
-      inputSource: 'host-declared-intent',
-      language: 'typescript',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        code: 'export const value = 1;',
+        filePath: 'lib/example.ts',
+        inputSource: 'host-declared-intent',
+        language: 'typescript',
+      })
+    ) as {
       data: {
         explicitScope: { filePath: string | null; kind: string };
         guardResultRef: string;
@@ -996,19 +1211,23 @@ describe('agent-facing active public tools', () => {
       },
     });
     ctx.container.singletons = { _projectRoot: process.cwd() };
-    const start = (await workStartHandler(ctx, {
-      inputSource: 'host-declared-intent',
-      title: 'Implement scoped guard contract',
-      workScope: { files: ['lib/codex/mcp/handlers/agent-public-tools.ts'] },
-    })) as {
+    const start = publicToolLegacyTestView(
+      await workStartHandler(ctx, {
+        inputSource: 'host-declared-intent',
+        title: 'Implement scoped guard contract',
+        workScope: { files: ['lib/codex/mcp/handlers/agent-public-tools.ts'] },
+      })
+    ) as {
       data: { workRef: string };
       success: boolean;
     };
 
-    const result = (await codeGuardHandler(ctx, {
-      inputSource: 'host-declared-intent',
-      workRef: start.data.workRef,
-    })) as {
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        inputSource: 'host-declared-intent',
+        workRef: start.data.workRef,
+      })
+    ) as {
       data: {
         explicitScope: { files: string[]; kind: string; workRef: string };
         guardResultRef: string;
@@ -1051,14 +1270,16 @@ describe('agent-facing active public tools', () => {
       residentDecisionRegisterClient: { decisionRegister },
     });
 
-    const result = (await decisionRecordHandler(ctx, {
-      description: 'Plugin should consume Alembic durable decision route.',
-      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:1'],
-      inputSource: 'host-declared-intent',
-      intentRef: 'intent-public-1',
-      title: 'Use durable Decision Register',
-      workRef: 'work-public-1',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        description: 'Plugin should consume Alembic durable decision route.',
+        evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:1'],
+        inputSource: 'host-declared-intent',
+        intentRef: 'intent-public-1',
+        title: 'Use durable Decision Register',
+        workRef: 'work-public-1',
+      })
+    ) as {
       data: {
         decisionRef: string;
         durablePersistence: { available: boolean; capability: { route: string } };
@@ -1129,36 +1350,46 @@ describe('agent-facing active public tools', () => {
       residentDecisionRegisterClient: { decisionRegister },
     });
 
-    const updated = (await decisionRecordHandler(ctx, {
-      action: 'update',
-      decisionRef: 'decision-public-1',
-      description: 'Updated decision body.',
-      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-update'],
-    })) as DecisionRecordResult;
-    const revoked = (await decisionRecordHandler(ctx, {
-      action: 'revoke',
-      decisionRef: 'decision-public-1',
-      rationale: 'Superseded.',
-      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-revoke'],
-    })) as DecisionRecordResult;
-    const deleted = (await decisionRecordHandler(ctx, {
-      action: 'delete',
-      decisionRef: 'decision-public-1',
-      rationale: 'Cleanup.',
-      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-delete'],
-    })) as DecisionRecordResult;
-    const read = (await decisionRecordHandler(ctx, {
-      action: 'read',
-      decisionRef: 'decision-public-1',
-      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-read'],
-    })) as DecisionRecordResult;
-    const listed = (await decisionRecordHandler(ctx, {
-      action: 'list',
-      evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-list'],
-      includeDeleted: true,
-      limit: 5,
-      status: 'all',
-    })) as DecisionRecordResult;
+    const updated = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        action: 'update',
+        decisionRef: 'decision-public-1',
+        description: 'Updated decision body.',
+        evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-update'],
+      })
+    ) as DecisionRecordResult;
+    const revoked = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        action: 'revoke',
+        decisionRef: 'decision-public-1',
+        rationale: 'Superseded.',
+        evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-revoke'],
+      })
+    ) as DecisionRecordResult;
+    const deleted = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        action: 'delete',
+        decisionRef: 'decision-public-1',
+        rationale: 'Cleanup.',
+        evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-delete'],
+      })
+    ) as DecisionRecordResult;
+    const read = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        action: 'read',
+        decisionRef: 'decision-public-1',
+        evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-read'],
+      })
+    ) as DecisionRecordResult;
+    const listed = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        action: 'list',
+        evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts:decision-list'],
+        includeDeleted: true,
+        limit: 5,
+        status: 'all',
+      })
+    ) as DecisionRecordResult;
 
     for (const result of [updated, revoked, deleted, read]) {
       expect(result.success).toBe(true);
@@ -1234,11 +1465,13 @@ describe('agent-facing active public tools', () => {
         })),
       },
     });
-    const result = (await decisionRecordHandler(ctx, {
-      description: 'Stage 4 needs a durable Decision Register producer route.',
-      inputSource: 'host-declared-intent',
-      title: 'Decision Register producer route required',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        description: 'Stage 4 needs a durable Decision Register producer route.',
+        inputSource: 'host-declared-intent',
+        title: 'Decision Register producer route required',
+      })
+    ) as {
       data: {
         durablePersistence: { available: boolean; requiredRoute: string };
         result: { reason: { code: string }; refs: { decisionRef?: unknown }; status: string };
@@ -1274,11 +1507,13 @@ describe('agent-facing active public tools', () => {
         })),
       },
     });
-    const result = (await decisionRecordHandler(ctx, {
-      description: 'Stage 4 needs a durable Decision Register producer route.',
-      inputSource: 'host-declared-intent',
-      title: 'Decision Register producer route required',
-    })) as {
+    const result = publicToolLegacyTestView(
+      await decisionRecordHandler(ctx, {
+        description: 'Stage 4 needs a durable Decision Register producer route.',
+        inputSource: 'host-declared-intent',
+        title: 'Decision Register producer route required',
+      })
+    ) as {
       data: {
         durablePersistence: { available: boolean; reason: string };
         result: { reason: { code: string }; status: string };

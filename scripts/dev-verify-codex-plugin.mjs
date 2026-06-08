@@ -124,8 +124,7 @@ async function probeInstalledTarget(targetRoot) {
     `Explicit projectRoot was not trusted for ${targetRoot}: ${JSON.stringify(first.projectRootResolution)}`
   );
   const runtimeReadback = assertRuntimeReadback(first, marker, targetRoot);
-  const saved = await callMcpTool(targetRoot, savedHome, 'alembic_codex_status', {});
-  const savedData = saved.data || saved;
+  const savedData = await callMcpTool(targetRoot, savedHome, 'alembic_codex_status', {});
   const savedResolution = savedData.projectRootResolution;
   assertProbe(
     savedResolution?.source !== 'saved-project-root' &&
@@ -135,9 +134,9 @@ async function probeInstalledTarget(targetRoot) {
   );
   const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_codex_init', {});
   assertProbe(
-    failClosed.success === false &&
+    failClosed.ok === false &&
       ['CODEX_PROJECT_ROOT_REJECTED', 'CODEX_PROJECT_ROOT_UNRESOLVED'].includes(
-        failClosed.data?.errorCode
+        failClosed.error?.code
       ),
     `Missing projectRoot did not fail closed for ${targetRoot}: ${JSON.stringify(failClosed)}`
   );
@@ -148,17 +147,17 @@ async function probeInstalledTarget(targetRoot) {
     runtimeReadback,
     saved: summarizeStatus(savedData),
     failClosed: {
-      success: failClosed.success,
-      errorCode: failClosed.data?.errorCode || null,
-      needsUserInput: failClosed.data?.needsUserInput === true,
+      errorCode: failClosed.error?.code || null,
+      needsUserInput: failClosed.needsUserInput === true,
+      ok: failClosed.ok,
     },
   };
 }
 
 async function callMcpStatus(targetRoot, alembicHome, args) {
   const result = await callMcpTool(targetRoot, alembicHome, 'alembic_codex_status', args);
-  assertProbe(result.success === true, `alembic_codex_status failed: ${JSON.stringify(result)}`);
-  return result.data;
+  assertProbe(result.ok === true, `alembic_codex_status failed: ${JSON.stringify(result)}`);
+  return result;
 }
 
 async function callMcpTool(targetRoot, alembicHome, name, args) {
@@ -195,6 +194,9 @@ async function callMcpTool(targetRoot, alembicHome, name, args) {
       options.mcpTimeoutMs + 2000,
       () => `MCP ${name} timed out for ${targetRoot}\n${stderr.join('')}`
     );
+    if (result.structuredContent && typeof result.structuredContent === 'object') {
+      return result.structuredContent;
+    }
     const text = result.content?.find((item) => item.type === 'text')?.text;
     if (typeof text !== 'string') {
       throw new Error(`MCP ${name} returned no text content\n${JSON.stringify(result)}`);

@@ -23,6 +23,35 @@ const forbiddenLegacyPrimaryWording = [
   'primary action is `alembic_task`',
 ];
 
+const forbiddenPublicOutputKeys = new Set([
+  'codexProjectScopeExecution',
+  'diagnostics',
+  'enhancementRoute',
+  'hostProjectAlignment',
+  'legacyCompatibility',
+  'maxChars',
+  'metadata',
+  'outputBudget',
+  'projectRuntime',
+  'residentService',
+  'retrievalConsumer',
+  'runtimePolicy',
+  'searchMeta',
+  'serviceBoundary',
+  'sourcePolicy',
+  'telemetry',
+  'truncated',
+  'usedChars',
+]);
+
+const forbiddenTopLevelPublicOutputKeys = new Set([
+  'data',
+  'errorCode',
+  'message',
+  'result',
+  'success',
+]);
+
 const options = parseArgs(process.argv.slice(2));
 const tmpRoot = mkdtempSync(join(tmpdir(), 'afapi-stage6-public-tools-'));
 const projectRoot = options.projectRoot || join(tmpRoot, 'project');
@@ -122,31 +151,35 @@ async function probeTarget(targetRoot) {
     expectIssue(
       issues,
       !beforeInit.names.includes('alembic_task'),
-      'before init should not expose legacy alembic_task'
+      'before init should not expose retired alembic_task'
     );
 
     const calls = await runPublicToolCalls(client, stderr);
     evaluateCalls(issues, calls);
 
     const init = await callJsonTool(client, 'alembic_codex_init', { projectRoot }, stderr);
-    expectIssue(issues, init.payload?.success === true, 'alembic_codex_init did not succeed');
+    expectIssue(
+      issues,
+      init.payload?.success === true || init.payload?.ok === true,
+      'alembic_codex_init did not succeed'
+    );
     const afterInitTools = await listTools(client, stderr);
     const afterInit = summarizeToolSurface(afterInitTools.tools);
     expectIssue(
       issues,
       !afterInit.names.includes('alembic_task'),
-      'after init should not expose legacy alembic_task'
+      'after init should not expose retired alembic_task'
     );
-    const legacyRecordDecision = await probeLegacyRecordDecision(client, stderr);
+    const retiredLegacyTask = await probeRetiredLegacyTask(client, stderr);
     expectIssue(
       issues,
-      legacyRecordDecision.blocked === true,
-      'legacy alembic_task record_decision should block without local fake decision'
+      retiredLegacyTask.retired === true,
+      'retired alembic_task direct calls should fail closed with clean output'
     );
     expectIssue(
       issues,
-      legacyRecordDecision.localDecisionRef === false,
-      'legacy alembic_task record_decision should not return a local decision id'
+      retiredLegacyTask.omitsLegacyFields === true,
+      'retired alembic_task direct calls should not return old envelope fields'
     );
 
     return {
@@ -157,16 +190,15 @@ async function probeTarget(targetRoot) {
       calls,
       afterInit: {
         names: afterInit.names,
-        legacyTaskCompatibility: {
-          hiddenDirectCallOnly: !afterInit.names.includes('alembic_task'),
-          recordDecisionBlocked: legacyRecordDecision.blocked,
-          recordDecisionErrorCode: legacyRecordDecision.errorCode,
-          recordDecisionWritesLocalDecision:
-            legacyRecordDecision.writesLocalDecision ?? legacyRecordDecision.localDecisionRef,
+        retiredTaskDirectCall: {
+          hiddenFromToolsList: !afterInit.names.includes('alembic_task'),
+          omitsLegacyFields: retiredLegacyTask.omitsLegacyFields,
+          retired: retiredLegacyTask.retired,
+          status: retiredLegacyTask.status,
           visible: false,
         },
       },
-      legacyRecordDecision,
+      retiredLegacyTask,
       issues,
     };
   } finally {
@@ -174,35 +206,32 @@ async function probeTarget(targetRoot) {
   }
 }
 
-async function probeLegacyRecordDecision(client, stderr) {
+async function probeRetiredLegacyTask(client, stderr) {
   const call = await callJsonTool(
     client,
     'alembic_task',
     {
-      description: 'Probe hidden legacy record_decision cleanup.',
+      description: 'Probe retired record_decision cleanup.',
       operation: 'record_decision',
       rationale: 'Durable Decision Register must be the only confirmed-decision writer.',
       tags: ['afapi-08'],
-      title: 'Legacy decision direct-call probe',
+      title: 'Retired decision direct-call probe',
     },
     stderr
   );
-  const legacyCompatibility = objectPath(call.payload, ['data', 'legacyCompatibility']);
-  const decision = objectPath(call.payload, ['data', 'decision']);
+  const serialized = JSON.stringify(call.payload);
   return {
-    blocked:
-      call.payload?.success === false &&
-      call.payload?.errorCode === 'legacy-record-decision-disabled' &&
-      legacyCompatibility?.status === 'blocked' &&
-      legacyCompatibility?.replacementTool === 'alembic_decision_record',
-    errorCode: call.payload?.errorCode ?? null,
+    errorCode: call.payload?.error?.code ?? null,
     isError: call.isError,
-    localDecisionRef: typeof decision?.id === 'string',
-    success: call.payload?.success === true,
-    writesLocalDecision:
-      typeof legacyCompatibility?.writesLocalDecision === 'boolean'
-        ? legacyCompatibility.writesLocalDecision
-        : null,
+    omitsLegacyFields:
+      !('data' in call.payload) &&
+      !('errorCode' in call.payload) &&
+      !('message' in call.payload) &&
+      !('result' in call.payload) &&
+      !('success' in call.payload) &&
+      !serialized.includes('legacyCompatibility'),
+    retired: call.payload?.ok === false && call.payload?.error?.code === 'CODEX_TOOL_RETIRED',
+    status: call.payload?.status ?? null,
   };
 }
 
@@ -219,13 +248,12 @@ async function runPublicToolCalls(client, stderr) {
         sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
       },
       inputSource: 'host-declared-intent',
-      outputBudget: { maxChars: 220, mode: 'compact' },
       projectRoot,
       sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
     },
     stderr
   );
-  const intentRef = stringPath(intent.payload, ['data', 'intentRef']);
+  const intentRef = stringPath(intent.payload, ['intentRef']);
 
   const prime = await callJsonTool(
     client,
@@ -233,18 +261,16 @@ async function runPublicToolCalls(client, stderr) {
     {
       inputSource: 'host-declared-intent',
       intentRef,
-      outputBudget: { maxChars: 220, mode: 'compact' },
       projectRoot,
       sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
     },
     stderr
   );
-  const primeRef = stringPath(prime.payload, ['data', 'result', 'refs', 'primeRef', 'id'], null);
+  const primeRef = stringPath(prime.payload, ['refs', 'primeRef', 'id'], null);
 
   const workStartArgs = {
     inputSource: 'host-declared-intent',
     intentRef,
-    outputBudget: { maxChars: 180, mode: 'compact' },
     projectRoot,
     title: 'Evaluate public tools closure',
     workScope: {
@@ -256,7 +282,7 @@ async function runPublicToolCalls(client, stderr) {
     workStartArgs.primeRef = primeRef;
   }
   const workStart = await callJsonTool(client, 'alembic_work_start', workStartArgs, stderr);
-  const workRef = stringPath(workStart.payload, ['data', 'workRef']);
+  const workRef = stringPath(workStart.payload, ['workRef']);
 
   const workFinish = await callJsonTool(
     client,
@@ -265,7 +291,6 @@ async function runPublicToolCalls(client, stderr) {
       changedFiles: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
       evidenceRefs: ['scratch/afapi-stage6-agent-public-tools-readback.json'],
       inputSource: 'host-declared-intent',
-      outputBudget: { maxChars: 180, mode: 'compact' },
       projectRoot,
       summary: 'Stage 6 installed-cache readback evidence is ready.',
       workRef,
@@ -278,7 +303,6 @@ async function runPublicToolCalls(client, stderr) {
     'alembic_code_guard',
     {
       inputSource: 'host-declared-intent',
-      outputBudget: { maxChars: 160, mode: 'compact' },
       projectRoot,
     },
     stderr
@@ -289,7 +313,6 @@ async function runPublicToolCalls(client, stderr) {
     'alembic_code_guard',
     {
       inputSource: 'host-declared-intent',
-      outputBudget: { maxChars: 160, mode: 'compact' },
       projectRoot,
       workRef,
     },
@@ -304,7 +327,6 @@ async function runPublicToolCalls(client, stderr) {
       evidenceRefs: ['scratch/afapi-stage6-agent-public-tools-readback.json'],
       inputSource: 'host-declared-intent',
       intentRef,
-      outputBudget: { maxChars: 180, mode: 'compact' },
       projectRoot,
       title: 'Close public tools evaluation',
       workRef,
@@ -352,31 +374,43 @@ function evaluateCalls(issues, calls) {
     'decision_record should block without a durable resident route'
   );
   for (const [toolName, call] of Object.entries(calls)) {
-    expectIssue(issues, call.hasResultEnvelope, `${toolName} did not return data.result`);
     expectIssue(
       issues,
-      call.usesLegacyTaskHandler === false,
-      `${toolName} should not use legacy task handler`
+      call.cleanOutput === true,
+      `${toolName} did not return clean structuredContent`
     );
-    expectIssue(issues, call.budgetOk === true, `${toolName} output budget was invalid`);
+    expectIssue(issues, call.omitsLegacyFields === true, `${toolName} returned legacy fields`);
+    expectIssue(
+      issues,
+      call.omitsPublicDiagnosticFields === true,
+      `${toolName} returned public diagnostic/runtime/source fields: ${call.forbiddenPublicField}`
+    );
   }
 }
 
 function summarizeCall(call) {
-  const result = objectPath(call.payload, ['data', 'result']);
-  const budget = objectPath(result, ['summary', 'outputBudget']);
+  const result = call.payload;
+  const serialized = JSON.stringify(result);
+  const forbiddenPublicField = findForbiddenPublicOutputField(result);
   return {
     isError: call.isError,
-    success: call.payload?.success === true,
+    success: result?.ok === true,
     status: typeof result?.status === 'string' ? result.status : null,
     reasonCode:
       result?.reason && typeof result.reason === 'object' ? (result.reason.code ?? null) : null,
     actionKind: typeof result?.actionKind === 'string' ? result.actionKind : null,
     toolName: typeof result?.toolName === 'string' ? result.toolName : null,
-    hasResultEnvelope: Boolean(result),
-    budget: budget || null,
-    budgetOk: isBudgetOk(budget),
-    usesLegacyTaskHandler: result?.legacyCompatibility?.usesLegacyTaskHandler ?? null,
+    cleanOutput: result?.meta?.contractVersion === 1 && typeof result?.summary === 'string',
+    omitsLegacyFields:
+      !('data' in result) &&
+      !('result' in result) &&
+      !('success' in result) &&
+      !('errorCode' in result) &&
+      !('message' in result) &&
+      !serialized.includes('legacyCompatibility') &&
+      !serialized.includes('outputBudget'),
+    omitsPublicDiagnosticFields: forbiddenPublicField === null,
+    forbiddenPublicField,
     refs: {
       detailRefs: Array.isArray(result?.refs?.detailRefs) ? result.refs.detailRefs.length : 0,
       intentRef: Boolean(result?.refs?.intentRef),
@@ -387,6 +421,34 @@ function summarizeCall(call) {
       decisionRef: Boolean(result?.refs?.decisionRef),
     },
   };
+}
+
+function findForbiddenPublicOutputField(value, path = []) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const found = findForbiddenPublicOutputField(item, [...path, String(index)]);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (forbiddenPublicOutputKeys.has(key)) {
+      return [...path, key].join('.');
+    }
+    if (path.length === 0 && forbiddenTopLevelPublicOutputKeys.has(key)) {
+      return key;
+    }
+    const found = findForbiddenPublicOutputField(child, [...path, key]);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
 }
 
 async function listTools(client, stderr) {
@@ -403,9 +465,17 @@ async function callJsonTool(client, name, args, stderr) {
     options.mcpTimeoutMs + 2000,
     () => `MCP ${name} timed out\n${stderr.join('')}`
   );
+  if (result.structuredContent && typeof result.structuredContent === 'object') {
+    return {
+      isError: result.isError === true,
+      payload: result.structuredContent,
+    };
+  }
   const text = result.content?.find((item) => item.type === 'text')?.text;
   if (typeof text !== 'string') {
-    throw new Error(`MCP ${name} returned no JSON text\n${JSON.stringify(result)}`);
+    throw new Error(
+      `MCP ${name} returned no structuredContent or JSON text\n${JSON.stringify(result)}`
+    );
   }
   return {
     isError: result.isError === true,
@@ -460,29 +530,6 @@ function summarizeMarker(marker) {
     mode: marker.mode ?? null,
     hashes: marker.hashes ?? null,
   };
-}
-
-function isBudgetOk(budget) {
-  return Boolean(
-    budget &&
-      typeof budget.maxChars === 'number' &&
-      typeof budget.usedChars === 'number' &&
-      budget.maxChars > 0 &&
-      budget.usedChars >= 0 &&
-      budget.usedChars <= budget.maxChars &&
-      typeof budget.truncated === 'boolean'
-  );
-}
-
-function objectPath(value, path) {
-  let current = value;
-  for (const key of path) {
-    if (!current || typeof current !== 'object') {
-      return null;
-    }
-    current = current[key];
-  }
-  return current && typeof current === 'object' ? current : null;
 }
 
 function stringPath(value, path, fallback = undefined) {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveCodexServiceRequestBoundary } from '../../lib/codex/ServiceRequestBoundary.js';
 
 describe('Codex service request boundary', () => {
-  it('keeps alembic_task intent lifecycle operations in AlembicPlugin', () => {
+  it('keeps retired alembic_task direct calls fail-closed in AlembicPlugin', () => {
     for (const operation of ['prime', 'create', 'close', 'fail', 'record_decision']) {
       expect(resolveCodexServiceRequestBoundary('alembic_task', { operation })).toMatchObject({
         executionPath: 'plugin-owned-codex-facing',
@@ -14,7 +14,7 @@ describe('Codex service request boundary', () => {
     }
   });
 
-  it('keeps alembic_task validation errors in AlembicPlugin', () => {
+  it('keeps retired alembic_task validation errors in AlembicPlugin', () => {
     expect(
       resolveCodexServiceRequestBoundary('alembic_task', { operation: 'unknown' })
     ).toMatchObject({

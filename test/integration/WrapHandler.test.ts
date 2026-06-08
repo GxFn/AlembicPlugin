@@ -13,6 +13,17 @@
 import { z } from 'zod';
 import { wrapHandler } from '../../lib/codex/mcp/errorHandler.js';
 
+function getStructuredContent(result: Record<string, unknown>) {
+  const structuredContent = result.structuredContent;
+  expect(structuredContent).toBeTruthy();
+  return structuredContent as {
+    error?: { code?: string; message?: string };
+    meta?: { responseTimeMs?: number; toolName?: string };
+    ok?: boolean;
+    summary?: string;
+  };
+}
+
 describe('Integration: wrapHandler', () => {
   const TestSchema = z.object({
     query: z.string().min(1),
@@ -43,11 +54,12 @@ describe('Integration: wrapHandler', () => {
       expect(result.isError).toBe(true);
 
       const content = result.content as Array<{ type: string; text: string }>;
-      const parsed = JSON.parse(content[0].text);
-      expect(parsed.success).toBe(false);
-      expect(parsed.errorCode).toBe('VALIDATION_ERROR');
-      expect(parsed.message).toContain('输入校验失败');
-      expect(parsed.meta.tool).toBe('test_tool');
+      const parsed = getStructuredContent(result);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error?.code).toBe('VALIDATION_ERROR');
+      expect(parsed.error?.message).toContain('输入校验失败');
+      expect(parsed.meta?.toolName).toBe('test_tool');
+      expect(content[0].text).toContain('输入校验失败');
     });
 
     test('should handle null args as empty object', async () => {
@@ -81,6 +93,7 @@ describe('Integration: wrapHandler', () => {
 
       // HealthInput accepts empty object
       const result = await handler({}, {});
+      expect(receivedArgs).toEqual({});
       expect(result).toEqual({ health: 'ok' });
     });
 
@@ -113,9 +126,10 @@ describe('Integration: wrapHandler', () => {
       const result = (await handler({}, {})) as Record<string, unknown>;
       expect(result.isError).toBe(true);
       const content = result.content as Array<{ type: string; text: string }>;
-      const parsed = JSON.parse(content[0].text);
-      expect(parsed.errorCode).toBe('NOT_FOUND');
-      expect(parsed.message).toContain('Knowledge not found');
+      const parsed = getStructuredContent(result);
+      expect(parsed.error?.code).toBe('NOT_FOUND');
+      expect(parsed.error?.message).toContain('Knowledge not found');
+      expect(content[0].text).toContain('Knowledge not found');
     });
 
     test('should catch unknown errors as INTERNAL_ERROR', async () => {
@@ -130,9 +144,10 @@ describe('Integration: wrapHandler', () => {
       const result = (await handler({}, {})) as Record<string, unknown>;
       expect(result.isError).toBe(true);
       const content = result.content as Array<{ type: string; text: string }>;
-      const parsed = JSON.parse(content[0].text);
-      expect(parsed.errorCode).toBe('INTERNAL_ERROR');
-      expect(parsed.message).toContain('unexpected boom');
+      const parsed = getStructuredContent(result);
+      expect(parsed.error?.code).toBe('INTERNAL_ERROR');
+      expect(parsed.error?.message).toContain('unexpected boom');
+      expect(content[0].text).toContain('unexpected boom');
     });
 
     test('should include meta.responseTimeMs', async () => {
@@ -145,10 +160,9 @@ describe('Integration: wrapHandler', () => {
       );
 
       const result = (await handler({}, {})) as Record<string, unknown>;
-      const content = result.content as Array<{ type: string; text: string }>;
-      const parsed = JSON.parse(content[0].text);
-      expect(parsed.meta.responseTimeMs).toBeGreaterThanOrEqual(0);
-      expect(typeof parsed.meta.responseTimeMs).toBe('number');
+      const parsed = getStructuredContent(result);
+      expect(parsed.meta?.responseTimeMs).toBeGreaterThanOrEqual(0);
+      expect(typeof parsed.meta?.responseTimeMs).toBe('number');
     });
   });
 
@@ -170,10 +184,9 @@ describe('Integration: wrapHandler', () => {
         }
       )) as Record<string, unknown>;
 
-      const content = result.content as Array<{ type: string; text: string }>;
-      const parsed = JSON.parse(content[0].text);
-      expect(parsed.errorCode).toBe('VALIDATION_ERROR');
-      expect(parsed.message).toContain('name');
+      const parsed = getStructuredContent(result);
+      expect(parsed.error?.code).toBe('VALIDATION_ERROR');
+      expect(parsed.error?.message).toContain('name');
     });
 
     test('should handle missing required fields', async () => {
@@ -185,9 +198,8 @@ describe('Integration: wrapHandler', () => {
       const handler = wrapHandler('test_missing', async () => ({ ok: true }), schema);
       const result = (await handler({}, {})) as Record<string, unknown>;
 
-      const content = result.content as Array<{ type: string; text: string }>;
-      const parsed = JSON.parse(content[0].text);
-      expect(parsed.errorCode).toBe('VALIDATION_ERROR');
+      const parsed = getStructuredContent(result);
+      expect(parsed.error?.code).toBe('VALIDATION_ERROR');
     });
   });
 });

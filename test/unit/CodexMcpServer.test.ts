@@ -655,16 +655,19 @@ describe('CodexMcpServer', () => {
       };
       success: boolean;
     };
-    const primeResult = (await server.handleToolCall('alembic_task', {
-      operation: 'prime',
-      userQuery: 'Use ProjectScope recipe',
+    const primeResult = (await server.handleToolCall('alembic_prime', {
+      hostDeclaredIntent: {
+        action: 'implement',
+        query: 'Use ProjectScope recipe',
+      },
+      inputSource: 'host-declared-intent',
       language: 'typescript',
     })) as {
-      data: {
-        primeKnowledgeMaterial: { status: string };
-        searchMeta: { residentSearch: { projectScopeIdentity: { projectScopeId: string } } };
+      ok: boolean;
+      primePackage: {
+        trustReceipt: { status: string };
       };
-      success: boolean;
+      status: string;
     };
 
     expect(healthResult.success).toBe(true);
@@ -699,11 +702,9 @@ describe('CodexMcpServer', () => {
     expect(searchResult.data.searchMeta.residentSearch.projectScopeIdentity).toMatchObject({
       projectScopeId: projectScope.projectScopeId,
     });
-    expect(primeResult.success).toBe(true);
-    expect(primeResult.data.primeKnowledgeMaterial.status).toBe('delivered');
-    expect(primeResult.data.searchMeta.residentSearch.projectScopeIdentity).toMatchObject({
-      projectScopeId: projectScope.projectScopeId,
-    });
+    expect(primeResult.ok).toBe(true);
+    expect(['ready', 'degraded']).toContain(primeResult.status);
+    expect(primeResult.primePackage.trustReceipt.status).toBe('delivered');
     expect(fs.existsSync(path.join(sourceRoot, '.asd'))).toBe(false);
     expect(fs.existsSync(path.join(sourceRoot, 'Alembic'))).toBe(false);
     expect(fetchSpy).toHaveBeenCalled();
@@ -1714,7 +1715,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('alembic_task prime stays Plugin-owned when local daemon is ready', async () => {
+  test('alembic_task prime direct call is retired before daemon bridge execution', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
@@ -1729,108 +1730,14 @@ describe('CodexMcpServer', () => {
       userQuery: 'Use Alembic knowledge before editing',
       language: 'typescript',
     })) as {
-      data: {
-        primeKnowledgeMaterial: {
-          hostResponse: {
-            action: string;
-            timing: string;
-            required: boolean;
-            requiredBeforeNextAction: boolean;
-            visibility: string;
-            reason: string;
-          };
-          shoutInstruction: string;
-          trustPosture: {
-            receiptChecklist: Array<{ layer: string; items: unknown[] }>;
-          };
-        };
-        projectRuntime: {
-          fallbackIsolation: Array<{ effectiveIdentityAllowed: boolean; id: string }>;
-          identity: { projectRoot: string };
-          sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
-        };
-        searchMeta: {
-          projectRuntime: {
-            identity: { projectRoot: string };
-            sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
-          };
-        };
-        serviceBoundary: {
-          executionPath: string;
-          owner: string;
-          residentServiceRequested: boolean;
-          tool: string;
-        };
-      };
-      success: boolean;
+      error: { code: string };
+      ok: boolean;
+      status: string;
     };
 
-    expect(result.success).toBe(true);
-    expect(result.data.primeKnowledgeMaterial).toMatchObject({
-      hostResponse: {
-        action: 'shout_prime_knowledge_receipt',
-        timing: 'immediate_after_prime',
-        required: true,
-        requiredBeforeNextAction: true,
-        visibility: 'developer_visible',
-      },
-    });
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
-      'Immediately after this prime tool result'
-    );
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('shout a clear receipt');
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('first person');
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain('Trust posture');
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
-      'not-available-or-degraded'
-    );
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
-      'Do not make "Alembic prime"'
-    );
-    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('As Codex');
-    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain('trust posture');
-    expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
-      'do not make Alembic prime'
-    );
-    expect(
-      result.data.primeKnowledgeMaterial.trustPosture.receiptChecklist.map((item) => item.layer)
-    ).toEqual([
-      'trusted-to-obey',
-      'trusted-to-use',
-      'context-only',
-      'requires-verification',
-      'not-available-or-degraded',
-    ]);
-    expect(result.data.primeKnowledgeMaterial.shoutInstruction).not.toContain(
-      'Cite evidenceRefs as path:line'
-    );
-    expect(result.data.projectRuntime).toMatchObject({
-      identity: { projectRoot },
-      sourcePolicy: {
-        selectedOrActiveCanOverrideEffectiveIdentity: false,
-      },
-    });
-    expect(result.data.projectRuntime.fallbackIsolation).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          allowedUse: 'codex-host-agent-execution-route',
-          effectiveIdentityAllowed: false,
-          id: 'embedded-plugin-owned-runtime',
-        }),
-      ])
-    );
-    expect(result.data.searchMeta.projectRuntime).toMatchObject({
-      identity: { projectRoot },
-      sourcePolicy: {
-        selectedOrActiveCanOverrideEffectiveIdentity: false,
-      },
-    });
-    expect(result.data.serviceBoundary).toMatchObject({
-      executionPath: 'plugin-owned-codex-facing',
-      owner: 'alembic-plugin',
-      residentServiceRequested: false,
-      tool: 'alembic_task',
-    });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('retired');
+    expect(result.error.code).toBe('CODEX_TOOL_RETIRED');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
@@ -1884,7 +1791,7 @@ describe('CodexMcpServer', () => {
     });
   });
 
-  test('allows task close in initialized empty projects and surfaces task-scoped Plugin evidence', async () => {
+  test('blocks retired task close before Plugin evidence/evolution execution', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
@@ -1907,77 +1814,21 @@ describe('CodexMcpServer', () => {
       reason: 'dirty diff acceptance smoke',
       changedFiles: ['index.ts'],
     })) as {
-      data: {
-        guardDecision?: {
-          action: string;
-          reasonCode: string;
-          taskScopedFiles: string[];
-        };
-        nextAction?: {
-          args: { files?: string[] };
-          required: boolean;
-          tool: string;
-        };
-        opportunisticEvolution?: {
-          autoSubmit: boolean;
-          evidenceGate: { verdict: string };
-          gitDiffEvidence?: { dirtyPathCount: number; events: Array<{ path: string }> };
-          producerBoundary: { producerKind: string; separatedFrom: string };
-          proposal?: { producerKind: string; sourceRefs: string[] };
-          serviceGate: {
-            mainServiceCanHandleProjectScope: boolean;
-            residentProjectScopeAvailable: boolean;
-          };
-        };
-        serviceBoundary?: {
-          executionPath: string;
-          owner: string;
-          residentServiceRequested: boolean;
-          tool: string;
-        };
-      };
-      success: boolean;
+      error: { code: string };
+      ok: boolean;
+      status: string;
     };
 
-    expect(result.success).toBe(true);
-    expect(result.data.guardDecision).toMatchObject({
-      action: 'run',
-      reasonCode: 'task-scoped-code-diff',
-      taskScopedFiles: ['index.ts'],
-    });
-    expect(result.data.nextAction).toMatchObject({
-      tool: 'alembic_guard',
-      args: { files: ['index.ts'] },
-      required: true,
-    });
-    expect(result.data.serviceBoundary).toMatchObject({
-      executionPath: 'plugin-owned-codex-facing',
-      owner: 'alembic-plugin',
-      residentServiceRequested: false,
-      tool: 'alembic_task',
-    });
-    expect(result.data.opportunisticEvolution).toMatchObject({
-      autoSubmit: false,
-      evidenceGate: { verdict: 'strong-proposal' },
-      producerBoundary: {
-        producerKind: 'plugin-opportunistic',
-        separatedFrom: 'daemon-file-change',
-      },
-      proposal: {
-        producerKind: 'plugin-opportunistic',
-        sourceRefs: ['index.ts'],
-      },
-      serviceGate: {
-        mainServiceCanHandleProjectScope: false,
-        residentProjectScopeAvailable: false,
-      },
-    });
-    expect(result.data.opportunisticEvolution?.gitDiffEvidence?.dirtyPathCount).toBeGreaterThan(0);
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('retired');
+    expect(result.error.code).toBe('CODEX_TOOL_RETIRED');
+    expect(JSON.stringify(result)).not.toContain('guardDecision');
+    expect(JSON.stringify(result)).not.toContain('opportunisticEvolution');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('skips Guard and Plugin evolution when close has unrelated dirty diff only', async () => {
+  test('blocks retired task close with unrelated dirty diff before Guard/evolution checks', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
@@ -1999,43 +1850,16 @@ describe('CodexMcpServer', () => {
       id: 'acceptance-smoke',
       reason: 'close without task-scoped files',
     })) as {
-      data: {
-        guardDecision?: {
-          action: string;
-          reasonCode: string;
-          taskScopedFiles: string[];
-        };
-        nextAction?: {
-          required: boolean;
-          skipped?: boolean;
-          tool: string;
-        };
-        opportunisticEvolution?: {
-          evidenceGate: { reasons: string[]; verdict: string };
-          proposal?: unknown;
-        };
-      };
-      success: boolean;
+      error: { code: string };
+      ok: boolean;
+      status: string;
     };
 
-    expect(result.success).toBe(true);
-    expect(result.data.guardDecision).toMatchObject({
-      action: 'skip',
-      reasonCode: 'unrelated-dirty-diff',
-      taskScopedFiles: [],
-    });
-    expect(result.data.nextAction).toMatchObject({
-      tool: 'alembic_guard',
-      required: false,
-      skipped: true,
-    });
-    expect(result.data.opportunisticEvolution).toMatchObject({
-      evidenceGate: {
-        verdict: 'no-op',
-        reasons: expect.arrayContaining([expect.stringContaining('unrelated-dirty-diff')]),
-      },
-    });
-    expect(result.data.opportunisticEvolution?.proposal).toBeUndefined();
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('retired');
+    expect(result.error.code).toBe('CODEX_TOOL_RETIRED');
+    expect(JSON.stringify(result)).not.toContain('guardDecision');
+    expect(JSON.stringify(result)).not.toContain('opportunisticEvolution');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });

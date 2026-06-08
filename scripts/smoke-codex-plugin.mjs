@@ -361,7 +361,10 @@ function assert(condition, message) {
 
 function assertResult(result, label) {
   assert(result && typeof result === 'object', `${label} did not return an object`);
-  assert(result.success === true, `${label} failed: ${result.message || JSON.stringify(result)}`);
+  assert(
+    result.success === true || result.ok === true,
+    `${label} failed: ${result.message || result.summary || JSON.stringify(result)}`
+  );
 }
 
 function simulateMarketplaceInstall({ packageRoot, packageName, packageVersion }) {
@@ -464,7 +467,7 @@ function simulateMarketplaceInstall({ packageRoot, packageName, packageVersion }
     ? distributionMarketplace.plugins.find((item) => item?.name === 'alembic-codex')
     : null;
   assert(
-    distributionMarketplace.name === 'alembic-codex',
+    distributionMarketplace.name === marketplace.name,
     'installed plugin distribution marketplace name mismatch'
   );
   assert(
@@ -619,70 +622,65 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
 
     const diagnostics = await callStdioJsonTool(client, 'alembic_codex_diagnostics', {}, stderr);
     assertResult(diagnostics, 'MCP stdio diagnostics');
+    const expectedPinnedSpecifiers = new Set([
+      `${packageJson.name}@${packageJson.version}`,
+      './runtime.tgz',
+    ]);
     assert(
-      diagnostics.data?.package?.pinnedSpecifier === `${packageJson.name}@${packageJson.version}`,
-      'MCP stdio diagnostics runtime package identity mismatch'
+      expectedPinnedSpecifiers.has(diagnostics.package?.pinnedSpecifier),
+      `MCP stdio diagnostics runtime package identity mismatch: ${JSON.stringify(diagnostics.package)}`
     );
     assert(
-      diagnostics.data?.package?.runtimeSpecifier === './runtime.tgz',
+      diagnostics.package?.runtimeSpecifier === './runtime.tgz',
       'MCP stdio diagnostics embedded runtime specifier mismatch'
     );
+    assert(diagnostics.plugin?.ok === true, 'MCP stdio diagnostics plugin checks did not pass');
+    assert(diagnostics.codex?.channelId === 'codex', 'MCP stdio diagnostics channel id mismatch');
     assert(
-      diagnostics.data?.plugin?.ok === true,
-      'MCP stdio diagnostics plugin checks did not pass'
-    );
-    assert(
-      diagnostics.data?.codex?.channelId === 'codex',
-      'MCP stdio diagnostics channel id mismatch'
-    );
-    assert(
-      diagnostics.data?.runtimeIdentity?.mode === 'plugin',
+      diagnostics.runtimeIdentity?.mode === 'plugin',
       'MCP stdio diagnostics runtime mode mismatch'
     );
     assert(
-      diagnostics.data?.runtimeIdentity?.pluginHost === 'codex',
+      diagnostics.runtimeIdentity?.pluginHost === 'codex',
       'MCP stdio diagnostics plugin host mismatch'
     );
     assert(
-      diagnostics.data?.primaryAction?.tool === 'alembic_codex_status',
+      diagnostics.primaryAction?.tool === 'alembic_codex_status',
       'MCP stdio diagnostics should point healthy installs to status'
     );
 
     const beforeStatus = await callStdioJsonTool(client, 'alembic_codex_status', {}, stderr);
     assertResult(beforeStatus, 'MCP stdio status before init');
     assert(
-      beforeStatus.data?.initialized === false,
+      beforeStatus.initialized === false,
       'MCP stdio fresh workspace should start uninitialized'
     );
-    assert(beforeStatus.data?.channel?.id === 'codex', 'MCP stdio status channel id mismatch');
+    assert(beforeStatus.channel?.id === 'codex', 'MCP stdio status channel id mismatch');
     assert(
-      beforeStatus.data?.onboarding?.primaryAction?.tool === 'alembic_codex_init',
+      beforeStatus.onboarding?.primaryAction?.tool === 'alembic_codex_init',
       'MCP stdio fresh workspace should point to codex init'
     );
 
     const init = await callStdioJsonTool(client, 'alembic_codex_init', {}, stderr);
     assertResult(init, 'MCP stdio codex init');
     assert(
-      init.data?.status?.initialized === true,
+      init.statusSnapshot?.initialized === true,
       'MCP stdio codex init did not produce initialized status'
     );
 
     const afterStatus = await callStdioJsonTool(client, 'alembic_codex_status', {}, stderr);
     assertResult(afterStatus, 'MCP stdio status after init');
+    assert(afterStatus.initialized === true, 'MCP stdio status after init should be initialized');
     assert(
-      afterStatus.data?.initialized === true,
-      'MCP stdio status after init should be initialized'
-    );
-    assert(
-      afterStatus.data?.workspace?.ghost === true,
+      afterStatus.workspace?.ghost === true,
       'MCP stdio codex init should default to Ghost mode'
     );
     assert(
-      afterStatus.data?.onboarding?.state === 'needs_bootstrap',
+      afterStatus.onboarding?.state === 'needs_bootstrap',
       'MCP stdio initialized empty workspace should still require bootstrap'
     );
     assert(
-      afterStatus.data?.onboarding?.primaryAction?.tool === 'alembic_bootstrap',
+      afterStatus.onboarding?.primaryAction?.tool === 'alembic_bootstrap',
       'MCP stdio initialized empty workspace should recommend host-agent bootstrap'
     );
 
@@ -712,7 +710,7 @@ async function runStdioSmoke({ packageJson, runtimeRoot, pluginRoot, projectRoot
 
     const jobs = await callStdioJsonTool(client, 'alembic_codex_job', { limit: 5 }, stderr);
     assertResult(jobs, 'MCP stdio job list');
-    assert(Array.isArray(jobs.data?.jobs), 'MCP stdio job list did not return jobs array');
+    assert(Array.isArray(jobs.jobs), 'MCP stdio job list did not return jobs array');
   } finally {
     await closeMcpClient(client, stderr, 'MCP stdio');
   }
@@ -783,6 +781,9 @@ async function callStdioJsonTool(client, name, args, stderr) {
     () => `MCP stdio ${name} timed out\n${stderr.join('')}`
   );
   assert(!result.isError, `MCP stdio ${name} returned isError\n${JSON.stringify(result)}`);
+  if (result.structuredContent && typeof result.structuredContent === 'object') {
+    return result.structuredContent;
+  }
   const text = result.content?.find((item) => item.type === 'text')?.text;
   assert(typeof text === 'string' && text.length > 0, `MCP stdio ${name} returned no text`);
   try {

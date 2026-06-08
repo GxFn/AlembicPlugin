@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { getMcpOutputProjector, withMcpOutputSchema } from '../../lib/codex/mcp/output-contract.js';
 import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
 import {
   AGENT_ACTION_KINDS,
@@ -65,6 +66,22 @@ describe('Agent-facing public tools contract foundation', () => {
     }
   });
 
+  test('registers clean MCP output schemas for every public tool', () => {
+    const activeToolsByName = new Map(TOOLS.map((tool) => [tool.name, tool]));
+
+    for (const name of AGENT_PUBLIC_TOOL_NAMES) {
+      expect(getMcpOutputProjector(name)).toMatchObject({
+        outputSchemaName: `${name}_clean_output`,
+        projectorName: 'agent-public-clean-output-projector',
+      });
+      expect(
+        withMcpOutputSchema(activeToolsByName.get(name) ?? { name }).outputSchema
+      ).toMatchObject({
+        type: 'object',
+      });
+    }
+  });
+
   test('provides tool description base text without legacy operation wording', () => {
     for (const name of AGENT_PUBLIC_TOOL_NAMES) {
       const description = getAgentPublicToolDescriptionBase(name);
@@ -84,7 +101,7 @@ describe('Agent-facing public tools contract foundation', () => {
     expect(serializedDescriptions).not.toContain('operation=close');
   });
 
-  test('validates result envelopes with refs, detailRefs, reasons, and output budget', () => {
+  test('validates clean public results with refs, detailRefs, and reasons', () => {
     const detailRef = createAgentDetailRef({
       id: 'contract:public-tools',
       kind: 'contract',
@@ -109,28 +126,17 @@ describe('Agent-facing public tools contract foundation', () => {
         message: 'Resident service was unavailable, so the contract returns compact evidence.',
       },
       status: 'degraded',
-      summary: {
-        compact: 'Work finished with compact evidence and a resident degradation reason.',
-        outputBudget: {
-          mode: 'compact',
-          maxChars: 1200,
-          usedChars: 86,
-          truncated: false,
-        },
-      },
+      summary: 'Work finished with compact evidence and a resident degradation reason.',
       toolName: 'alembic_work_finish',
     });
 
-    expect(envelope.contractVersion).toBe(1);
     expect(envelope.refs.detailRefs).toHaveLength(1);
     expect(envelope.reason).toMatchObject({
       kind: 'degraded',
       code: 'resident-unavailable',
     });
-    expect(envelope.legacyCompatibility).toEqual({
-      usesLegacyTaskHandler: false,
-      compatibilityRole: 'none',
-    });
+    expect(JSON.stringify(envelope)).not.toContain('legacyCompatibility');
+    expect(JSON.stringify(envelope)).not.toContain('outputBudget');
   });
 
   test('validates canonical prime public package projection', () => {
@@ -143,15 +149,7 @@ describe('Agent-facing public tools contract foundation', () => {
         primeRef: { refType: 'prime', id: 'prime-public-contract', toolName: 'alembic_prime' },
       },
       status: 'ready',
-      summary: {
-        compact: 'Prime delivered compact trust material.',
-        outputBudget: {
-          maxChars: 240,
-          mode: 'compact',
-          truncated: false,
-          usedChars: 39,
-        },
-      },
+      summary: 'Prime delivered compact trust material.',
       toolName: 'alembic_prime',
     });
 
@@ -174,66 +172,24 @@ describe('Agent-facing public tools contract foundation', () => {
           pluginSynthesized: false,
           producer: 'alembic-resident-service',
           producerBoundary:
-            'Resident metadata owns PrimeInjectionPackage producer fields; Plugin does not synthesize them.',
+            'Resident producer owns PrimeInjectionPackage fields; Plugin does not synthesize them.',
           producerOnlyFields: ['intent', 'search', 'vector', 'relations', 'selectedKnowledge'],
           selectedCount: null,
           status: null,
         },
       },
-      diagnostics: {
-        outputBudget: result.summary.outputBudget,
-        producerBoundary: {
-          missingProducerFields: [],
-          pluginSynthesizedPrimeInjectionPackage: false,
-          primeInjectionPackageProducedBy: 'Alembic resident service',
-        },
-        retrieval: {
-          filteredCount: null,
-          queries: ['Prime public contract'],
-          residentAttempted: false,
-          residentAvailable: null,
-          residentReason: null,
-          resultCount: null,
-          searchAttempted: true,
-          searchDegraded: false,
-        },
+      feedbackDigest: {
+        decisionRefCount: 1,
+        feedbackSignalCount: 3,
+        observeOnly: true,
+        relationEvidenceCount: 1,
+        sourceRefCoverage: 1,
+        supportedSignals: ['searchHit', 'view', 'adoption'],
       },
       kind: 'PrimePublicPackage',
       primeRef: 'prime-public-contract',
       refs: result.refs,
-      retrievalConsumer: null,
-      runtimePolicy: {
-        available: false,
-        identity: null,
-        projectRuntimeContractVersion: null,
-        readinessState: null,
-        reason: 'unit-test',
-        sourcePolicy: {
-          effectiveIdentitySource: null,
-          projectScopeSource: null,
-          runtimeControlSource: null,
-          selectedOrActiveCanOverrideEffectiveIdentity: false,
-        },
-      },
-      sourcePolicy: {
-        automationEnvelope: null,
-        detailRefs: { count: 0, mode: 'bounded-source-ref-details' },
-        inputSource: 'host-declared-intent',
-        rawAutomationEnvelopeUsedAsQuery: false,
-        rawThreadIdsPersisted: false,
-        sourceRefsCount: 0,
-      },
       status: 'ready',
-      structureFirst: {
-        keywordQueries: [],
-        language: null,
-        module: null,
-        queries: ['Prime public contract'],
-        retrievalOrder: ['intent', 'recipe', 'guard'],
-        route: 'structure-first-recipe-retrieval',
-        scenario: 'search',
-        vectorUseKind: 'hybrid-rerank',
-      },
       summary: result.summary,
       trustPosture: {
         antiEmptyReceiptRequired: true,
@@ -267,14 +223,15 @@ describe('Agent-facing public tools contract foundation', () => {
         detailRefsMode: 'ref-based',
         primeInjectionPackage: { pluginSynthesized: false },
       },
-      sourcePolicy: {
-        rawAutomationEnvelopeUsedAsQuery: false,
-        rawThreadIdsPersisted: false,
-      },
-      runtimePolicy: {
-        sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: false },
+      feedbackDigest: {
+        observeOnly: true,
+        supportedSignals: expect.arrayContaining(['adoption']),
       },
     });
+    expect(JSON.stringify(projection)).not.toContain('"diagnostics"');
+    expect(JSON.stringify(projection)).not.toContain('"runtimePolicy"');
+    expect(JSON.stringify(projection)).not.toContain('"sourcePolicy"');
+    expect(JSON.stringify(projection)).not.toContain('"retrievalConsumer"');
   });
 
   test('requires skip, degraded, blocked, and failed results to carry matching reasons', () => {
@@ -282,15 +239,7 @@ describe('Agent-facing public tools contract foundation', () => {
       agentHost: 'codex' as const,
       inputSource: 'user-message' as const,
       refs: { detailRefs: [] },
-      summary: {
-        compact: 'Contract result',
-        outputBudget: {
-          maxChars: 1000,
-          mode: 'compact' as const,
-          truncated: false,
-          usedChars: 15,
-        },
-      },
+      summary: 'Contract result',
       toolName: 'alembic_intent' as const,
       actionKind: 'intent' as const,
     };
@@ -333,7 +282,6 @@ describe('Agent-facing public tools contract foundation', () => {
 
     expect(() =>
       AgentPublicToolResultEnvelopeSchema.parse({
-        contractVersion: 1,
         ...base,
         reason: {
           kind: 'skip',

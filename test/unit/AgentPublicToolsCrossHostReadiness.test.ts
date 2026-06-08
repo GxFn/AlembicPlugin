@@ -187,15 +187,7 @@ function envelopeSample(toolName: AgentPublicToolName, agentHost: AgentHost) {
       ],
     },
     status: 'ready',
-    summary: {
-      compact: 'Cross-host readiness uses one public result envelope shape.',
-      outputBudget: {
-        maxChars: 1200,
-        mode: 'compact',
-        truncated: false,
-        usedChars: 62,
-      },
-    },
+    summary: 'Cross-host readiness uses one public result envelope shape.',
     toolName,
   });
 }

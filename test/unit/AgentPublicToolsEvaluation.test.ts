@@ -21,7 +21,7 @@ import {
   getAgentPublicToolContractDefinition,
   getAgentPublicToolDescriptionBase,
 } from '../../lib/codex/mcp/public-tools/index.js';
-import { LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS, TOOLS } from '../../lib/codex/mcp/tools.js';
+import { TOOLS } from '../../lib/codex/mcp/tools.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
@@ -121,11 +121,11 @@ const stage4aGoldenSuiteMatrix = [
   {
     id: 'wrong-call',
     toolName: 'alembic_intent',
-    expectedStatus: 'skipped',
-    expectedReasonKind: 'skip',
-    expectedReasonCode: 'legacy-public-call-hidden',
+    expectedStatus: 'blocked',
+    expectedReasonKind: 'blocked',
+    expectedReasonCode: 'codex-tool-retired',
     promptExpectation:
-      'Old alembic_task operation calls stay hidden from tools/list; route host agents to the six public tools.',
+      'Retired alembic_task direct calls fail closed; route host agents to the six public tools.',
   },
   {
     id: 'missing-call',
@@ -173,13 +173,13 @@ const stage4aGoldenSuiteMatrix = [
       'Stale or missing durable Decision Register routes block instead of writing Plugin-local fake decisions.',
   },
   {
-    id: 'over-budget',
+    id: 'clean-output',
     toolName: 'alembic_work_start',
     expectedStatus: 'ready',
     expectedReasonKind: null,
     expectedReasonCode: null,
     promptExpectation:
-      'Long host-visible summaries stay compact and advertise truncation through outputBudget.',
+      'Public tools return clean structuredContent without data.result, legacyCompatibility, or outputBudget.',
   },
   {
     id: 'adoption-feedback',
@@ -188,7 +188,7 @@ const stage4aGoldenSuiteMatrix = [
     expectedReasonKind: null,
     expectedReasonCode: null,
     promptExpectation:
-      'Prime preserves observe-only adoption and feedback metadata from the resident retrieval contract.',
+      'Prime preserves observe-only adoption and feedback as a narrow public digest.',
   },
 ] as const satisfies readonly {
   expectedReasonCode: string | null;
@@ -205,7 +205,7 @@ const afapiReq10CoverageDimensions = [
   'degraded',
   'blocked',
   'failed',
-  'output-budget',
+  'clean-output',
   'legacy-boundary',
 ] as const;
 
@@ -220,9 +220,9 @@ const afapiReq10EvaluationMatrix = [
       degraded: ['unit: low-confidence semantic intent returns degraded and remains consumable'],
       blocked: ['contract: shared result envelope admits blocked status for host callers'],
       failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'clean-output': ['unit: clean output exposes top-level summary and refs'],
       'legacy-boundary': [
-        'unit: usesLegacyTaskHandler=false and active guidance omits legacy task wording',
+        'unit: active guidance omits legacy task wording and output omits legacyCompatibility',
       ],
     },
   },
@@ -232,13 +232,13 @@ const afapiReq10EvaluationMatrix = [
       ready: ['unit: intentRef plus resident retrieval material returns ready with primeRef'],
       skip: ['unit: lifecycle skip policies cover mechanical/status/non-project intent'],
       degraded: [
-        'unit: knowledge-empty, resident-unavailable, and missing producer metadata degrade',
+        'unit: knowledge-empty, resident-unavailable, and missing producer contract fields degrade',
       ],
       blocked: ['unit: missing intent and automation envelope without sourceRefs block'],
       failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'clean-output': ['unit: clean output exposes structured prime refs without data.result'],
       'legacy-boundary': [
-        'unit: usesLegacyTaskHandler=false and prime does not route through alembic_task',
+        'unit: prime does not route through alembic_task and output omits legacyCompatibility',
       ],
     },
   },
@@ -250,9 +250,9 @@ const afapiReq10EvaluationMatrix = [
       degraded: ['contract: shared result envelope admits degraded status for host callers'],
       blocked: ['contract: shared result envelope admits blocked status for host callers'],
       failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'output-budget': ['unit: over-budget work start advertises outputBudget.truncated=true'],
+      'clean-output': ['unit: clean output exposes top-level workRef and summary'],
       'legacy-boundary': [
-        'unit: usesLegacyTaskHandler=false and active guidance omits legacy task wording',
+        'unit: active guidance omits legacy task wording and output omits legacyCompatibility',
       ],
     },
   },
@@ -264,9 +264,9 @@ const afapiReq10EvaluationMatrix = [
       degraded: ['contract: shared result envelope admits degraded status for host callers'],
       blocked: ['unit: missing or fake workRef blocks as missing-work-ref'],
       failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'output-budget': ['unit: long finish summary advertises outputBudget.truncated=true'],
+      'clean-output': ['unit: clean output exposes finishRef and guard recommendation'],
       'legacy-boundary': [
-        'unit: usesLegacyTaskHandler=false and finish does not route through alembic_task',
+        'unit: finish does not route through alembic_task and output omits legacyCompatibility',
       ],
     },
   },
@@ -286,9 +286,9 @@ const afapiReq10EvaluationMatrix = [
       failed: [
         'contract: handler catch path returns failed/handler-error for scoped guard failures',
       ],
-      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'clean-output': ['unit: clean output exposes scoped guard refs without data.result'],
       'legacy-boundary': [
-        'unit: usesLegacyTaskHandler=false and code guard does not accept legacy public scope',
+        'unit: code guard does not accept legacy public scope and output omits legacyCompatibility',
       ],
     },
   },
@@ -305,9 +305,9 @@ const afapiReq10EvaluationMatrix = [
         'unit: capability mismatch blocks as decision-register-capability-mismatch',
       ],
       failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'output-budget': ['unit: compact summary uses outputBudget and expectBudget assertions'],
+      'clean-output': ['unit: clean output exposes decision refs without data.result'],
       'legacy-boundary': [
-        'unit: alembic_task hidden direct record_decision is blocked and writes no local decision',
+        'unit: retired alembic_task direct record_decision is blocked and writes no local decision',
       ],
     },
   },
@@ -334,6 +334,7 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       expect(activeTool?.description).toContain(description.purpose);
       expect(activeTool?.description).toContain(description.selectionHint);
       expect(activeTool?.description).toContain(`Non-goal: ${description.nonGoal}`);
+      expect(JSON.stringify(activeTool?.inputSchema)).not.toContain('outputBudget');
 
       expect(contract.activeMcpSurface).toBe(true);
       expect(contract.handlerDependency).toBe('McpServer.agent-public-tools');
@@ -371,12 +372,12 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         expect(entry.coverage[dimension], `${entry.toolName} ${dimension}`).not.toHaveLength(0);
       }
       expect(entry.coverage.failed.some((item) => item.startsWith('contract:'))).toBe(true);
-      expect(entry.coverage['output-budget'].some((item) => item.includes('outputBudget'))).toBe(
+      expect(entry.coverage['clean-output'].some((item) => item.includes('clean output'))).toBe(
         true
       );
       expect(
         entry.coverage['legacy-boundary'].some(
-          (item) => item.includes('usesLegacyTaskHandler=false') || item.includes('alembic_task')
+          (item) => item.includes('legacyCompatibility') || item.includes('alembic_task')
         )
       ).toBe(true);
     }
@@ -392,7 +393,7 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     );
   });
 
-  test('evaluates ready handler envelopes for six public tools with refs and compact budgets', async () => {
+  test('evaluates ready clean outputs for six public tools with refs', async () => {
     const ctx = makeContext(async () => deliveredSearchResult(), {
       guardCheckEngine: {
         auditFile: vi.fn(),
@@ -418,8 +419,8 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       },
     });
 
-    const intent = await callPublicTool(intentHandler(ctx, stage6IntentArgs(220)));
-    const intentRef = stringFrom(intent.raw, ['data', 'intentRef']);
+    const intent = await callPublicTool(intentHandler(ctx, stage6IntentArgs()));
+    const intentRef = stringFrom(intent.raw, ['intentRef']);
     expect(intent.envelope).toMatchObject({
       actionKind: 'intent',
       refs: { intentRef: { id: intentRef } },
@@ -431,11 +432,10 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       primeHandler(ctx, {
         inputSource: 'host-declared-intent',
         intentRef,
-        outputBudget: { maxChars: 240, mode: 'compact' },
         projectRoot: '/tmp/alembic-plugin-stage6',
       })
     );
-    const primeRef = stringFrom(prime.raw, ['data', 'result', 'refs', 'primeRef', 'id']);
+    const primeRef = stringFrom(prime.raw, ['refs', 'primeRef', 'id']);
     expect(prime.envelope).toMatchObject({
       actionKind: 'prime',
       refs: { intentRef: { id: intentRef }, primeRef: { id: primeRef } },
@@ -447,7 +447,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       workStartHandler(ctx, {
         inputSource: 'host-declared-intent',
         intentRef,
-        outputBudget: { maxChars: 180, mode: 'compact' },
         primeRef,
         title: 'Evaluate public tools closure',
         workScope: {
@@ -456,7 +455,7 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         },
       })
     );
-    const workRef = stringFrom(workStart.raw, ['data', 'workRef']);
+    const workRef = stringFrom(workStart.raw, ['workRef']);
     expect(workStart.envelope).toMatchObject({
       actionKind: 'work-start',
       refs: { primeRef: { id: primeRef }, workRef: { id: workRef } },
@@ -469,7 +468,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         changedFiles: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
         evidenceRefs: ['scratch/afapi-stage6-agent-public-tools-readback.json'],
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 180, mode: 'compact' },
         summary: 'Stage 6 evaluation evidence is ready for controller review.',
         workRef,
       })
@@ -487,7 +485,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
         inputSource: 'host-declared-intent',
         language: 'typescript',
-        outputBudget: { maxChars: 160, mode: 'compact' },
         workRef,
       })
     );
@@ -504,7 +501,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         evidenceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
         inputSource: 'host-declared-intent',
         intentRef,
-        outputBudget: { maxChars: 180, mode: 'compact' },
         title: 'Close public tools evaluation',
         workRef,
       })
@@ -517,22 +513,22 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     });
 
     for (const result of [intent, prime, workStart, workFinish, codeGuard, decision]) {
-      expect(result.envelope.legacyCompatibility).toEqual({
-        compatibilityRole: 'none',
-        usesLegacyTaskHandler: false,
-      });
       expect(result.envelope.refs.detailRefs).not.toHaveLength(0);
-      expectBudget(result.envelope.summary.outputBudget);
+      expect(result.envelope.summary).toEqual(expect.any(String));
+      expect((result.raw as { ok?: unknown }).ok).toBe(true);
+      expect(JSON.stringify(result.raw)).not.toContain('"data"');
+      expect(JSON.stringify(result.raw)).not.toContain('legacyCompatibility');
+      expect(JSON.stringify(result.raw)).not.toContain('outputBudget');
+      expectPublicOutputWhitelist(result.raw);
     }
   });
 
-  test('evaluates skip, degraded, blocked, and truncation paths without legacy task fallback', async () => {
+  test('evaluates skip, degraded, and blocked paths without legacy task fallback', async () => {
     const ctx = makeContext(async () => null);
 
     const skippedIntent = await callPublicTool(
       intentHandler(ctx, {
         inputSource: 'automation-envelope',
-        outputBudget: { maxChars: 120, mode: 'compact' },
         userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
       })
     );
@@ -549,7 +545,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
           query: 'Review public tool evaluation coverage',
         },
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
         projectRoot: '/tmp/alembic-plugin-stage6',
         sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
       })
@@ -563,7 +558,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const skippedWorkStart = await callPublicTool(
       workStartHandler(ctx, {
         inputSource: 'user-message',
-        outputBudget: { maxChars: 120, mode: 'compact' },
       })
     );
     expect(skippedWorkStart.envelope).toMatchObject({
@@ -580,7 +574,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
           query: 'Status update only; summarize progress without changing files.',
         },
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
         userQuery: 'Status update only; summarize progress without changing files.',
       })
     );
@@ -594,7 +587,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const rawEnvelopeWorkStart = await callPublicTool(
       workStartHandler(ctx, {
         inputSource: 'automation-envelope',
-        outputBudget: { maxChars: 120, mode: 'compact' },
         title: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
       })
     );
@@ -612,7 +604,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
           query: 'Read the design discussion and provide a recommendation only.',
         },
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
       })
     );
     expect(designReadonlyWorkStart.envelope).toMatchObject({
@@ -625,7 +616,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const blockedWorkFinish = await callPublicTool(
       workFinishHandler(ctx, {
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
       })
     );
     expect(blockedWorkFinish.envelope).toMatchObject({
@@ -637,7 +627,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const blockedCodeGuard = await callPublicTool(
       codeGuardHandler(ctx, {
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
       })
     );
     expect(blockedCodeGuard.envelope).toMatchObject({
@@ -650,7 +639,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       decisionRecordHandler(ctx, {
         description: 'Decision Register unavailable path.',
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
         title: 'Decision Register unavailable path',
       })
     );
@@ -663,23 +651,17 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const workStart = await callPublicTool(
       workStartHandler(makeContext(), {
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
-        title: 'Budget truncation proof',
+        title: 'Clean output summary proof',
       })
     );
-    const truncatedFinish = await callPublicTool(
+    const longSummaryFinish = await callPublicTool(
       workFinishHandler(makeContext(), {
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 48, mode: 'compact' },
-        summary: 'Long Stage 6 output budget proof. '.repeat(10),
-        workRef: stringFrom(workStart.raw, ['data', 'workRef']),
+        summary: 'Long Stage 6 clean output proof. '.repeat(10),
+        workRef: stringFrom(workStart.raw, ['workRef']),
       })
     );
-    expect(truncatedFinish.envelope.summary.outputBudget).toMatchObject({
-      maxChars: 48,
-      truncated: true,
-    });
-    expectBudget(truncatedFinish.envelope.summary.outputBudget);
+    expect(longSummaryFinish.envelope.summary).toContain('Long Stage 6 clean output proof.');
 
     for (const result of [
       skippedIntent,
@@ -691,26 +673,21 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       blockedWorkFinish,
       blockedCodeGuard,
       blockedDecision,
-      truncatedFinish,
+      longSummaryFinish,
     ]) {
-      expect(result.envelope.legacyCompatibility.usesLegacyTaskHandler).toBe(false);
+      const serialized = JSON.stringify(result.raw);
+      expect(serialized).not.toContain('"data"');
+      expect(serialized).not.toContain('legacyCompatibility');
+      expect(serialized).not.toContain('outputBudget');
+      expectPublicOutputWhitelist(result.raw);
     }
   });
 
-  test('removes alembic_task from active public tools while retaining hidden direct-call compatibility', () => {
+  test('retires alembic_task from active and hidden public tools', () => {
     const taskTool = TOOLS.find((tool) => tool.name === 'alembic_task');
-    const hiddenTaskTool = LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.find(
-      (tool) => tool.name === 'alembic_task'
-    );
 
     expect(taskTool).toBeUndefined();
-    expect(hiddenTaskTool?.description).toContain('Hidden direct-call compatibility');
-    expect(hiddenTaskTool?.description).toContain('not advertised through tools/list');
-    expect(hiddenTaskTool?.description).toContain('fail closed');
-    expect(hiddenTaskTool?.description).toContain('never write Plugin-local decisions');
-    for (const forbidden of forbiddenLegacyPrimaryWording) {
-      expect(hiddenTaskTool?.description ?? '').not.toContain(forbidden);
-    }
+    expect(TOOLS.map((tool) => tool.name)).not.toContain('alembic_task');
   });
 
   test('locks Stage 4A host prompt golden matrix across active guidance and host snapshots', () => {
@@ -749,7 +726,7 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     expect(hostGuide).not.toContain('alembic_task');
   });
 
-  test('evaluates Stage 4A wrong-call, missing-call, raw-envelope, fake-work, noisy-guard, stale-decision, over-budget, and adoption drift scenarios', async () => {
+  test('evaluates Stage 4A wrong-call, missing-call, raw-envelope, fake-work, noisy-guard, stale-decision, clean-output, and adoption drift scenarios', async () => {
     const outcomes: Record<
       string,
       {
@@ -760,22 +737,17 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       }
     > = {};
 
-    const hiddenLegacyTaskTool = LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.find(
-      (tool) => tool.name === 'alembic_task'
-    );
     expect(TOOLS.some((tool) => tool.name === 'alembic_task')).toBe(false);
-    expect(hiddenLegacyTaskTool?.description).toContain('Hidden direct-call compatibility');
     outcomes['wrong-call'] = {
-      reasonCode: 'legacy-public-call-hidden',
-      reasonKind: 'skip',
-      status: 'skipped',
+      reasonCode: 'codex-tool-retired',
+      reasonKind: 'blocked',
+      status: 'blocked',
       toolName: 'alembic_intent',
     };
 
     const missingCall = await callPublicTool(
       primeHandler(makeContext(), {
         inputSource: 'user-message',
-        outputBudget: { maxChars: 120, mode: 'compact' },
       })
     );
     outcomes['missing-call'] = outcomeFrom(missingCall.envelope);
@@ -783,7 +755,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const rawEnvelope = await callPublicTool(
       intentHandler(makeContext(), {
         inputSource: 'automation-envelope',
-        outputBudget: { maxChars: 120, mode: 'compact' },
         userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
       })
     );
@@ -793,7 +764,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const fakeWork = await callPublicTool(
       workFinishHandler(makeContext(), {
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 120, mode: 'compact' },
         summary: 'Pretend work is complete without a real start record.',
         workRef: 'work-stage4a-fake',
       })
@@ -804,7 +774,6 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const noisyGuard = await callPublicTool(
       codeGuardHandler(makeContext(), {
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 160, mode: 'compact' },
       })
     );
     outcomes['noisy-guard'] = outcomeFrom(noisyGuard.envelope);
@@ -828,25 +797,23 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
           decisionRef: 'decision-stage4a-stale',
           description: 'Do not write a Plugin-local fake decision for stale records.',
           inputSource: 'host-declared-intent',
-          outputBudget: { maxChars: 180, mode: 'compact' },
         }
       )
     );
     outcomes['stale-decision'] = outcomeFrom(staleDecision.envelope);
-    expect(staleDecision.envelope.summary.compact).toContain('no local fake record');
+    expect(staleDecision.envelope.summary).toContain('no local fake record');
 
-    const overBudget = await callPublicTool(
+    const cleanOutput = await callPublicTool(
       workStartHandler(makeContext(), {
         inputSource: 'host-declared-intent',
-        outputBudget: { maxChars: 48, mode: 'compact' },
-        title: 'Stage 4A output budget proof '.repeat(8),
+        title: 'Stage 4A clean output proof',
       })
     );
-    outcomes['over-budget'] = outcomeFrom(overBudget.envelope);
-    expect(overBudget.envelope.summary.outputBudget).toMatchObject({
-      maxChars: 48,
-      truncated: true,
-    });
+    outcomes['clean-output'] = outcomeFrom(cleanOutput.envelope);
+    expect(JSON.stringify(cleanOutput.raw)).not.toContain('"data"');
+    expect(JSON.stringify(cleanOutput.raw)).not.toContain('legacyCompatibility');
+    expect(JSON.stringify(cleanOutput.raw)).not.toContain('outputBudget');
+    expectPublicOutputWhitelist(cleanOutput.raw);
 
     const adoptionFeedback = await callPublicTool(
       primeHandler(
@@ -854,26 +821,22 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         {
           hostDeclaredIntent: {
             action: 'review',
-            query: 'Review adoption feedback drift in public prime metadata',
+            query: 'Review adoption feedback drift in public prime digest',
           },
           inputSource: 'host-declared-intent',
-          outputBudget: { maxChars: 240, mode: 'compact' },
           projectRoot: '/tmp/alembic-plugin-stage4a',
           sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
         }
       )
     );
     outcomes['adoption-feedback'] = outcomeFrom(adoptionFeedback.envelope);
-    expect(
-      recordFrom(adoptionFeedback.raw, ['data', 'retrievalConsumer', 'feedback'])
-    ).toMatchObject({
+    const feedbackDigest = recordFrom(adoptionFeedback.raw, ['primePackage', 'feedbackDigest']);
+    expect(feedbackDigest).toMatchObject({
       observeOnly: true,
       supportedSignals: expect.arrayContaining(['searchHit', 'view', 'adoption']),
     });
-    expect(
-      recordFrom(adoptionFeedback.raw, ['data', 'retrievalConsumer', 'retrievalQuality'])
-        .feedbackSignalCount
-    ).toBe(3);
+    expect(feedbackDigest.feedbackSignalCount).toBe(3);
+    expectPublicOutputWhitelist(adoptionFeedback.raw);
 
     expect(Object.keys(outcomes).sort()).toEqual(
       stage4aGoldenSuiteMatrix.map((scenario) => scenario.id).sort()
@@ -895,11 +858,71 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
 async function callPublicTool(promise: Promise<unknown>) {
   const raw = await promise;
   return {
-    envelope: AgentPublicToolResultEnvelopeSchema.parse(
-      (raw as { data?: { result?: unknown } }).data?.result
-    ),
+    envelope: AgentPublicToolResultEnvelopeSchema.parse(raw),
     raw,
   };
+}
+
+const forbiddenPublicOutputKeys = new Set([
+  'codexProjectScopeExecution',
+  'diagnostics',
+  'enhancementRoute',
+  'hostProjectAlignment',
+  'legacyCompatibility',
+  'maxChars',
+  'metadata',
+  'outputBudget',
+  'projectRuntime',
+  'residentService',
+  'retrievalConsumer',
+  'runtimePolicy',
+  'searchMeta',
+  'serviceBoundary',
+  'sourcePolicy',
+  'telemetry',
+  'truncated',
+  'usedChars',
+]);
+
+const forbiddenTopLevelPublicOutputKeys = new Set([
+  'data',
+  'errorCode',
+  'message',
+  'result',
+  'success',
+]);
+
+function expectPublicOutputWhitelist(value: unknown) {
+  expect(findForbiddenPublicOutputKey(value)).toBeNull();
+}
+
+function findForbiddenPublicOutputKey(value: unknown, path: string[] = []): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const found = findForbiddenPublicOutputKey(item, [...path, String(index)]);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (forbiddenPublicOutputKeys.has(key)) {
+      return [...path, key].join('.');
+    }
+    if (path.length === 0 && forbiddenTopLevelPublicOutputKeys.has(key)) {
+      return key;
+    }
+    const found = findForbiddenPublicOutputKey(child, [...path, key]);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
 }
 
 function outcomeFrom(envelope: AgentPublicToolResultEnvelope) {
@@ -909,13 +932,6 @@ function outcomeFrom(envelope: AgentPublicToolResultEnvelope) {
     status: envelope.status,
     toolName: envelope.toolName,
   };
-}
-
-function expectBudget(budget: { maxChars: number; truncated: boolean; usedChars: number }): void {
-  expect(budget.maxChars).toBeGreaterThan(0);
-  expect(budget.usedChars).toBeGreaterThanOrEqual(0);
-  expect(budget.usedChars).toBeLessThanOrEqual(budget.maxChars);
-  expect(typeof budget.truncated).toBe('boolean');
 }
 
 function makeContext(
@@ -1048,7 +1064,7 @@ function durableDecisionCapability() {
   };
 }
 
-function stage6IntentArgs(maxChars: number) {
+function stage6IntentArgs() {
   return {
     hostDeclaredIntent: {
       action: 'implement',
@@ -1059,7 +1075,6 @@ function stage6IntentArgs(maxChars: number) {
     },
     inputSource: 'host-declared-intent' as const,
     language: 'typescript',
-    outputBudget: { maxChars, mode: 'compact' as const },
     sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
   };
 }
