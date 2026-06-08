@@ -1,4 +1,5 @@
 import type { CodexEnhancementRouteChoice, CodexServiceBoundaryDecision } from '../../index.js';
+import { isCleanMcpResponse } from '../output-contract.js';
 
 // Codex-facing MCP helper 统一返回结构，避免 server orchestration 重复拼 envelope。
 export function failureResult(
@@ -64,6 +65,9 @@ export function attachCodexServiceBoundary(
     return result;
   }
   const record = result as Record<string, unknown>;
+  if (isCleanMcpResponse(record)) {
+    return record;
+  }
   const data =
     record.data && typeof record.data === 'object' && !Array.isArray(record.data)
       ? (record.data as Record<string, unknown>)

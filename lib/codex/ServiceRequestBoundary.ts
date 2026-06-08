@@ -48,8 +48,8 @@ export function isPluginOwnedCodexFacingTool(decision: CodexServiceBoundaryDecis
 function buildPluginOwnedReason(tool: string, operation: string | null): string {
   if (tool === 'alembic_task') {
     return operation
-      ? 'Legacy alembic_task compatibility remains Plugin-owned; local daemon readiness must not transfer old task operation ownership.'
-      : 'Legacy alembic_task validation and unknown-operation errors are Plugin-owned Codex-facing semantics.';
+      ? 'Retired alembic_task direct calls remain Plugin-owned fail-closed semantics; local daemon readiness must not transfer old task operation ownership.'
+      : 'Retired alembic_task validation and unknown-operation errors are Plugin-owned Codex-facing semantics.';
   }
   if (tool === 'alembic_search') {
     return 'alembic_search is Codex-facing and runs in AlembicPlugin; semantic/vector enhancement must use the explicit Alembic resident /api/v1/search API.';

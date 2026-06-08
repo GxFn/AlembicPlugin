@@ -1,6 +1,5 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import type { CodexKnowledgeState } from './KnowledgeState.js';
-import { LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES } from './mcp/tools.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
   CODEX_DEFAULT_MCP_TIER,
@@ -79,6 +78,8 @@ export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
 ]);
 
 export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_codex_init']);
+
+const CODEX_RETIRED_TOOL_NAMES = new Set(['alembic_task']);
 
 export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_bootstrap',
@@ -253,7 +254,7 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
   const localTools = CODEX_LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
   const coreTools = input.coreTools.filter(
     (tool) =>
-      !LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES.has(tool.name) &&
+      !CODEX_RETIRED_TOOL_NAMES.has(tool.name) &&
       (input.knowledge.usable ||
         CODEX_AGENT_PUBLIC_TOOL_NAMES.has(tool.name) ||
         (input.residentProjectScopeAvailable === true &&

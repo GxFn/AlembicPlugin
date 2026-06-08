@@ -10,6 +10,8 @@ import {
   resolveCodexProjectRoot,
   resolveCodexToolPolicy,
 } from '../../index.js';
+import '../codex-local-tools/output.js';
+import { withMcpOutputSchema } from '../output-contract.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
 
@@ -32,6 +34,7 @@ export function getVisibleCodexTools(
     tierOrder: TIER_ORDER,
   })
     .visibleTools.map(withMcpToolAnnotations)
+    .map(withMcpOutputSchema)
     .map(withCodexProjectRootInput);
 }
 

@@ -40,12 +40,13 @@ import {
   SearchInput,
   StructureInput,
   SubmitKnowledgeInput,
-  TaskInput,
   WorkFinishInput,
   WorkStartInput,
 } from '#shared/schemas/mcp-tools.js';
 import { TOOL_GATEWAY_MAP, withPluginToolAnnotations } from './PluginToolSurfaceCatalog.js';
+import './core-tools/output.js';
 import { getAgentPublicToolDescriptionBase } from './public-tools/descriptions.js';
+import './public-tools/output.js';
 import { zodToMcpSchema } from './zodToMcpSchema.js';
 
 // RescanInput may be undefined under certain Vitest module transforms; provide defensive fallback
@@ -110,15 +111,7 @@ const WORK_FINISH_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_
 const CODE_GUARD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_code_guard');
 const DECISION_RECORD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_decision_record');
 
-export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS = [
-  {
-    name: 'alembic_task',
-    tier: 'agent',
-    description:
-      'Hidden direct-call compatibility for older Codex sessions only. This tool is not advertised through tools/list; use alembic_intent, alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record as the host-facing public lifecycle. Legacy decision-recording direct calls fail closed and never write Plugin-local decisions.',
-    inputSchema: zodToMcpSchema(TaskInput),
-  },
-];
+export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS: readonly { name: string }[] = [];
 
 export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES = new Set(
   LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.map((tool) => tool.name)
