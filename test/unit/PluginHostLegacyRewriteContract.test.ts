@@ -1,0 +1,150 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, test } from 'vitest';
+import {
+  isTrustedCodexProjectRoot,
+  resolveCodexProjectRoot,
+  summarizeCodexProjectRootResolution,
+} from '../../lib/codex/ProjectRootResolver.js';
+import { projectCoreToolOutput } from '../../lib/codex/mcp/core-tools/output.js';
+import {
+  PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES,
+  summarizePluginHostMcpContracts,
+} from '../../lib/codex/mcp/plugin-host-contracts.js';
+import {
+  AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY,
+  createAgentPublicToolOutput,
+  createAgentPublicToolResultEnvelope,
+} from '../../lib/codex/mcp/public-tools/index.js';
+
+describe('Plugin host legacy rewrite D12 contract', () => {
+  test('degrades legacy-compatibility input instead of returning ordinary ready output', () => {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'intent',
+      agentHost: 'codex',
+      inputSource: 'legacy-compatibility',
+      refs: { detailRefs: [] },
+      status: 'ready',
+      summary: 'Legacy intent path would otherwise be ready.',
+      toolName: 'alembic_intent',
+    });
+    const output = createAgentPublicToolOutput(result, {
+      detailRefs: result.refs.detailRefs,
+      intentClassification: {
+        actionKind: 'implement',
+        confidenceBand: 'degraded',
+        objectKind: 'code',
+        scopeKind: 'project',
+      },
+      intentPersistence: { consumable: true, created: false, kind: 'ephemeral' },
+      recognizedIntent: { query: 'legacy compatibility path' },
+      retrievalPlan: { route: 'structure-first', vectorUseKind: 'none' },
+      toolPlan: {
+        guardNeed: 'none',
+        primeNeed: 'optional',
+        workNeed: 'maybe-start',
+      },
+    });
+
+    expect(result.status).toBe('degraded');
+    expect(result.reason).toMatchObject({
+      code: 'legacy-compatibility-input',
+      kind: 'degraded',
+    });
+    expect(result.refs.detailRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.diagnosticDetailRefId,
+        }),
+      ])
+    );
+    expect(output).toMatchObject({
+      inputSource: 'legacy-compatibility',
+      ok: true,
+      reason: { code: 'legacy-compatibility-input' },
+      status: 'degraded',
+      toolName: 'alembic_intent',
+    });
+    expect(JSON.stringify(output)).not.toContain('legacyCompatibility');
+  });
+
+  test('records D12 legacy surfaces with owners, cleanup triggers, and validation refs', () => {
+    expect(PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES.map((entry) => entry.candidateId)).toEqual([
+      'D12-P01',
+      'D12-P02',
+      'D12-P03',
+      'D12-P04',
+    ]);
+    for (const candidate of PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES) {
+      expect(candidate.currentCompatibilityOwner).toMatch(/\S/);
+      expect(candidate.cleanupTrigger).toMatch(/\S/);
+      expect(candidate.ordinaryOutputAllowed).toBe(false);
+      expect(candidate.validationRefs.length).toBeGreaterThan(0);
+    }
+    expect(summarizePluginHostMcpContracts()).toMatchObject({
+      legacyRewriteCandidateCount: 4,
+    });
+  });
+
+  test('projects no-scope guard legacy blocker into clean diagnostic-only output', () => {
+    const projected = projectCoreToolOutput(
+      {
+        data: {
+          blocked: true,
+          legacyBoundary: {
+            noArgsWholeDiffDisabled: true,
+          },
+          reasonCode: 'missing-guard-scope',
+          required: {
+            files: 'explicit task-scoped file list',
+          },
+        },
+        errorCode: 'GUARD_SCOPE_REQUIRED',
+        message:
+          'Legacy alembic_guard no-args whole-diff review is disabled. Call alembic_code_guard with explicit files or inline code.',
+        meta: { legacyCompatibility: true, mode: 'review', tool: 'alembic_guard' },
+        success: false,
+      },
+      'alembic_guard'
+    );
+
+    expect(projected).toMatchObject({
+      ok: false,
+      reasonCode: 'missing-guard-scope',
+      required: {
+        files: 'explicit task-scoped file list',
+      },
+      status: 'blocked',
+      toolName: 'alembic_guard',
+    });
+    expect(JSON.stringify(projected)).not.toContain('legacyBoundary');
+    expect(JSON.stringify(projected)).not.toContain('legacyCompatibility');
+  });
+
+  test('keeps fallback project roots diagnostic-only and untrusted', () => {
+    const fallbackRoot = mkdtempSync(join(tmpdir(), 'alembic-d12-fallback-root-'));
+    const alembicHome = mkdtempSync(join(tmpdir(), 'alembic-d12-home-'));
+    const resolution = resolveCodexProjectRoot({
+      env: {
+        ALEMBIC_HOME: alembicHome,
+        HOME: alembicHome,
+        PWD: fallbackRoot,
+      },
+    });
+    const summary = summarizeCodexProjectRootResolution(resolution);
+
+    expect(resolution).toMatchObject({
+      rejected: false,
+      source: 'PWD',
+      trust: 'fallback',
+    });
+    expect(isTrustedCodexProjectRoot(resolution)).toBe(false);
+    expect(summary).toMatchObject({
+      rejected: false,
+      trust: 'fallback',
+    });
+    expect(summary.userMessage).toContain('Pass the current workspace directory');
+    expect(summary.requiredActions).toContain('Provide the target project root as an absolute path.');
+  });
+});
