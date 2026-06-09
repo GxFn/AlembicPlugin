@@ -8,6 +8,7 @@ import {
 } from '@alembic/core/daemon';
 import { getProjectRegistryDir } from '@alembic/core/workspace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY } from '../../lib/codex/mcp/plugin-host-contracts.js';
 import { AlembicResidentServiceClient } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -783,6 +784,148 @@ describe('AlembicResidentServiceClient', () => {
       source: 'resident-service-scope',
     });
     expect(result.meta.residentVector).toMatchObject({ available: true });
+  });
+
+  it('replays accepted D3 provider fixture ids through Plugin resident client routes', async () => {
+    const replayedFixtureIds: string[] = [];
+    const replay = (fixtureId: string, payload: unknown, status = 200) => {
+      replayedFixtureIds.push(fixtureId);
+      return jsonResponse(payload, status);
+    };
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        const method = init?.method ?? 'GET';
+
+        if (url.pathname === '/api/v1/daemon/health') {
+          return replay('runtime-health.ready', residentHealthPayload({ projectScope: null }));
+        }
+        if (url.pathname === '/api/v1/project-scope/resolve-folder') {
+          return replay('project-scope.success', {
+            success: true,
+            data: { capability: { available: true }, summary: projectScopeSummary() },
+          });
+        }
+        if (url.pathname === '/api/v1/search') {
+          return replay('knowledge.success', {
+            success: true,
+            data: {
+              items: [{ id: 'knowledge-alpha', title: 'Boundary rule' }],
+              searchMeta: {
+                actualMode: 'semantic',
+                requestedMode: 'semantic',
+                residentVector: { available: true, reason: null },
+                semanticUsed: true,
+                vectorUsed: true,
+              },
+              total: 1,
+            },
+          });
+        }
+        if (url.pathname === '/api/v1/jobs' && method === 'GET') {
+          return replay('jobs.queued', {
+            success: true,
+            data: { jobs: [{ id: 'job-bootstrap-1', kind: 'bootstrap', status: 'queued' }] },
+          });
+        }
+        if (url.pathname === '/api/v1/decision-register/capability') {
+          return jsonResponse({
+            success: true,
+            data: { capability: durableDecisionCapability() },
+          });
+        }
+        if (url.pathname === '/api/v1/decision-register' && method === 'POST') {
+          return replay(
+            'decision-register.success',
+            {
+              success: true,
+              data: {
+                decision: { decisionId: 'decision-alpha', status: 'active' },
+              },
+            },
+            201
+          );
+        }
+        if (url.pathname === '/api/v1/intent-episodes' && method === 'POST') {
+          return replay(
+            'intent-episode.success',
+            {
+              success: true,
+              data: {
+                episode: {
+                  episodeId: 'intent-alpha',
+                  query: 'D4 replay',
+                  sessionKey: 'sha256:intent-alpha',
+                  status: 'active',
+                },
+              },
+            },
+            201
+          );
+        }
+        return jsonResponse(
+          { success: false, message: `${method} ${url.pathname} unexpected` },
+          404
+        );
+      }
+    ) as unknown as typeof fetch;
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const scope = await client.resolveProjectScopeIdentity();
+    const search = await client.search({ query: 'Boundary rule', mode: 'auto' });
+    const job = await client.readJob({ kind: 'bootstrap' });
+    const decision = await client.decisionRegister({
+      action: 'create',
+      body: { title: 'D4 replay durable decision' },
+      sessionId: 'session-d4',
+    });
+    const intent = await client.startIntentEpisode({
+      query: 'D4 replay',
+      sessionId: 'session-d4',
+    });
+
+    expect(scope).toMatchObject({
+      available: true,
+      projectScopeId: 'project-scope-workspace',
+      source: 'resident-project-scope-endpoint',
+    });
+    expect(search.items).toEqual([{ id: 'knowledge-alpha', title: 'Boundary rule' }]);
+    expect(job.ok).toBe(true);
+    expect(decision.ok).toBe(true);
+    expect(intent.ok).toBe(true);
+    if (!decision.ok || !intent.ok) {
+      throw new Error('Accepted D3 provider fixture replay unexpectedly failed');
+    }
+    expect(decision.value.decision).toMatchObject({
+      decisionId: 'decision-alpha',
+      status: 'active',
+    });
+    expect(intent.value.episode).toMatchObject({
+      episodeId: 'intent-alpha',
+      sessionKey: 'sha256:intent-alpha',
+      status: 'active',
+    });
+
+    const acceptedFixtureIds = new Set(
+      PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY.flatMap((entry) => entry.fixtureIds)
+    );
+    expect(replayedFixtureIds).toEqual(
+      expect.arrayContaining([
+        'runtime-health.ready',
+        'project-scope.success',
+        'knowledge.success',
+        'jobs.queued',
+        'decision-register.success',
+        'intent-episode.success',
+      ])
+    );
+    for (const fixtureId of replayedFixtureIds) {
+      expect(acceptedFixtureIds.has(fixtureId), `${fixtureId} is accepted D3 evidence`).toBe(true);
+    }
   });
 
   it('ignores resident search results from a different workspace than the requested projectRoot', async () => {

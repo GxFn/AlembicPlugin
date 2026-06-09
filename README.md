@@ -40,7 +40,9 @@ alembic setup --ghost   # Initialize workspace, data root, and MCP config
 alembic start           # Start Alembic: runtime, daemon, API, and Dashboard
 ```
 
-## Codex Plugin
+<a id="codex-plugin"></a>
+
+## Codex 插件 / Codex Plugin
 
 Alembic also works with the Codex plugin maintained in `AlembicPlugin`. It is designed for a click-install flow: Codex starts a lightweight MCP shim first, checks diagnostics and workspace status without starting services, initializes in Ghost mode by default, then wakes the Alembic daemon only for Dashboard, Guard, bootstrap, rescan, or project-knowledge tools.
 
@@ -58,9 +60,10 @@ For release validation:
 ```bash
 npm run build:check
 npm run release:check
+npm run release:codex-plugin
 ```
 
-Codex plugin release and marketplace validation are handled by the `AlembicPlugin` repository.
+Codex plugin release and marketplace validation are handled by the `AlembicPlugin` repository. See `plugins/alembic-codex/RELEASE-PLAYBOOK.md` for the release playbook.
 
 ## Using in IDE
 

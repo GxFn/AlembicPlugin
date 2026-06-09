@@ -58,9 +58,10 @@ Codex MCP 工具调用返回干净的 `structuredContent`：`ok`、`status`、`s
 ```bash
 npm run build:check
 npm run release:check
+npm run release:codex-plugin
 ```
 
-Codex 插件发布和 marketplace 验证由 `AlembicPlugin` 仓库负责。
+Codex 插件发布和 marketplace 验证由 `AlembicPlugin` 仓库负责。发布 playbook 见 `plugins/alembic-codex/RELEASE-PLAYBOOK.md`。
 
 ## 在 IDE 中使用
 
