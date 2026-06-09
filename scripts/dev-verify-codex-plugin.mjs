@@ -130,7 +130,10 @@ async function probeInstalledTarget(targetRoot) {
     savedResolution?.source !== 'saved-project-root' &&
       savedResolution?.path !== options.projectRoot &&
       savedData.projectRoot !== options.projectRoot,
-    `Saved projectRoot was unexpectedly reused for ${targetRoot}: ${JSON.stringify(saved)}`
+    `Saved projectRoot was unexpectedly reused for ${targetRoot}: ${JSON.stringify({
+      projectRoot: savedData.projectRoot,
+      projectRootResolution: savedResolution,
+    })}`
   );
   const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_codex_init', {});
   assertProbe(
