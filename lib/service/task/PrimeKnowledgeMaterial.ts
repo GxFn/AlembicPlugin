@@ -655,7 +655,7 @@ function buildPrimeKnowledgeNextActions(
       {
         tool: 'alembic_work_start',
         args: {
-          inputSource: 'legacy-compatibility',
+          inputSource: 'host-declared-intent',
           title: '<short task title>',
         },
         required: false,
@@ -669,7 +669,7 @@ function buildPrimeKnowledgeNextActions(
     {
       tool: 'alembic_work_start',
       args: {
-        inputSource: 'legacy-compatibility',
+        inputSource: 'host-declared-intent',
         title: '<short task title>',
       },
       required: false,

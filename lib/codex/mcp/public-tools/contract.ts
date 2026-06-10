@@ -20,7 +20,6 @@ export const AGENT_INPUT_SOURCES = [
   'automation-envelope',
   'source-ref',
   'tool-result',
-  'legacy-compatibility',
 ] as const;
 
 export const AGENT_INTENT_KINDS = [
@@ -125,7 +124,6 @@ export const AGENT_SKIP_REASON_CODES = [
 ] as const;
 
 export const AGENT_DEGRADED_REASON_CODES = [
-  'legacy-compatibility-input',
   'low-confidence-intent',
   'resident-unavailable',
   'project-scope-unavailable',
@@ -170,24 +168,6 @@ export type AgentInputSource = z.infer<typeof AgentInputSourceSchema>;
 export type AgentIntentKind = z.infer<typeof AgentIntentKindSchema>;
 export type AgentActionKind = z.infer<typeof AgentActionKindSchema>;
 export type AgentResultStatus = z.infer<typeof AgentResultStatusSchema>;
-
-export const AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY = {
-  cleanupTrigger:
-    'Remove legacy-compatibility after Codex and adjacent host adapters always send host-declared-intent, host-turn-metadata, user-message, source-ref, tool-result, or automation-envelope.',
-  currentCompatibilityOwner: 'AlembicPlugin public MCP host adapter',
-  diagnosticDetailRefId: 'd12:public-tools:legacy-compatibility-input',
-  inputSource: 'legacy-compatibility',
-  ordinaryReadyOutputAllowed: false,
-  replacementInputSources: [
-    'host-declared-intent',
-    'host-turn-metadata',
-    'user-message',
-    'source-ref',
-    'tool-result',
-    'automation-envelope',
-  ],
-  statusWhenOrdinaryPathWouldBeReady: 'degraded',
-} as const;
 
 export const AGENT_PUBLIC_TOOL_ACTION_BY_NAME = {
   alembic_intent: 'intent',
@@ -599,44 +579,5 @@ export function createAgentDetailRef(input: z.input<typeof AgentDetailRefSchema>
 export function createAgentPublicToolResultEnvelope(
   input: CreateAgentPublicToolResultEnvelopeInput
 ): AgentPublicToolResultEnvelope {
-  return AgentPublicToolResultEnvelopeSchema.parse(degradeLegacyCompatibilityReadyResult(input));
-}
-
-function degradeLegacyCompatibilityReadyResult(
-  input: CreateAgentPublicToolResultEnvelopeInput
-): CreateAgentPublicToolResultEnvelopeInput {
-  if (
-    input.inputSource !== AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.inputSource ||
-    input.status !== 'ready'
-  ) {
-    return input;
-  }
-  const existingRefs = input.refs ?? {};
-  const detailRefs = existingRefs.detailRefs ?? [];
-  const policyRef = createAgentDetailRef({
-    id: AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.diagnosticDetailRefId,
-    kind: 'contract',
-    requiredForCompletion: false,
-    summary:
-      'D12 compatibility: legacy-compatibility input is accepted only as degraded diagnostic context with an owner and cleanup trigger.',
-    uri: 'lib/codex/mcp/public-tools/contract.ts',
-  });
-  return {
-    ...input,
-    reason: {
-      kind: 'degraded',
-      code: 'legacy-compatibility-input',
-      message:
-        'legacy-compatibility input is still recognized for current host compatibility, but it cannot produce an ordinary ready public tool result. Use a contract-first inputSource instead.',
-      retryable: true,
-    },
-    refs: {
-      ...existingRefs,
-      detailRefs: detailRefs.some((ref) => ref.id === policyRef.id)
-        ? detailRefs
-        : [...detailRefs, policyRef],
-    },
-    status: AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.statusWhenOrdinaryPathWouldBeReady,
-    summary: `Legacy compatibility input degraded: ${input.summary}`,
-  };
+  return AgentPublicToolResultEnvelopeSchema.parse(input);
 }

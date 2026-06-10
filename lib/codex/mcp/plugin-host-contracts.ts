@@ -4,10 +4,7 @@ import {
   listPluginToolSurfaceCatalog,
   type PluginToolResidentRoutePolicy,
 } from './PluginToolSurfaceCatalog.js';
-import {
-  AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY,
-  AGENT_PUBLIC_TOOL_NAMES,
-} from './public-tools/contract.js';
+import { AGENT_PUBLIC_TOOL_NAMES } from './public-tools/contract.js';
 
 export const PLUGIN_HOST_MCP_CONTRACT_VERSION = 1;
 
@@ -77,7 +74,7 @@ export interface PluginHostMcpContractSummary {
 }
 
 export interface PluginHostLegacyRewriteCandidate {
-  candidateId: 'D12-P01' | 'D12-P02' | 'D12-P03' | 'D12-P04';
+  candidateId: 'D12-P02' | 'D12-P03' | 'D12-P04';
   cleanupTrigger: string;
   currentCompatibilityOwner: string;
   diagnosticOnlyFields: readonly string[];
@@ -250,20 +247,6 @@ export const PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS = [
 ] as const satisfies readonly PluginHostD24ConsumerReplayScenario[];
 
 export const PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES = [
-  {
-    candidateId: 'D12-P01',
-    cleanupTrigger: AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.cleanupTrigger,
-    currentCompatibilityOwner: AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.currentCompatibilityOwner,
-    diagnosticOnlyFields: ['inputSource', 'reason', 'refs.detailRefs'],
-    ordinaryOutputAllowed: AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.ordinaryReadyOutputAllowed,
-    replacementContract:
-      'Agent public tools use contract-first inputSource values and degrade legacy-compatibility input.',
-    status: 'rewritten',
-    validationRefs: [
-      'test/unit/AgentPublicToolsContract.test.ts',
-      'test/unit/AgentPublicToolsEvaluation.test.ts',
-    ],
-  },
   {
     candidateId: 'D12-P02',
     cleanupTrigger:

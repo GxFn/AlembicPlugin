@@ -103,7 +103,6 @@ const AgentInputSourceSchema = z.enum([
   'automation-envelope',
   'source-ref',
   'tool-result',
-  'legacy-compatibility',
 ]);
 const AgentIntentKindSchema = z.enum([
   'implementation-task',

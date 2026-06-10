@@ -19,7 +19,6 @@ import {
   AgentPublicToolReasonSchema,
   AgentPublicToolRefsSchema,
   type AgentPublicToolResultEnvelope,
-  AgentPublicToolResultEnvelopeSchema,
   AgentResultStatusSchema,
   PrimePublicPackageSchema,
 } from './contract.js';
@@ -368,7 +367,6 @@ const AGENT_PUBLIC_REASON_FAILURE_KINDS: Readonly<Record<string, CoreFieldFailur
   'detail-budget-limited': 'partial',
   'handler-error': 'internal-error',
   'knowledge-empty': 'unavailable',
-  'legacy-compatibility-input': 'degraded',
   'low-confidence-intent': 'degraded',
   'optional-service-unavailable': 'unavailable',
   'project-root-untrusted': 'permission-denied',
@@ -599,21 +597,7 @@ function describePayloadType(
 
 function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolName) {
   const schema = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[toolName];
-  const clean = schema.safeParse(input);
-  if (clean.success) {
-    return clean.data;
-  }
-
-  const legacy = input as { data?: Record<string, unknown>; success?: unknown };
-  const maybeResult = legacy?.data?.result;
-  if (!maybeResult || typeof maybeResult !== 'object') {
-    return schema.parse(input);
-  }
-  const result = AgentPublicToolResultEnvelopeSchema.parse(maybeResult);
-  const { result: _result, ...payload } = legacy.data ?? {};
-  return createAgentPublicToolOutput(result, payload, {
-    ok: legacy.success !== false,
-  });
+  return schema.parse(input);
 }
 
 for (const toolName of AGENT_PUBLIC_TOOL_NAMES) {

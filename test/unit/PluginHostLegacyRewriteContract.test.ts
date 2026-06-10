@@ -13,14 +13,14 @@ import {
   summarizePluginHostMcpContracts,
 } from '../../lib/codex/mcp/plugin-host-contracts.js';
 import {
-  AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY,
-  createAgentPublicToolOutput,
+  AgentPublicToolResultEnvelopeSchema,
   createAgentPublicToolResultEnvelope,
 } from '../../lib/codex/mcp/public-tools/index.js';
+import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Plugin host legacy rewrite D12 contract', () => {
-  test('degrades legacy-compatibility input instead of returning ordinary ready output', () => {
-    const result = createAgentPublicToolResultEnvelope({
+  test('rejects removed legacy public input instead of degrading it', () => {
+    const removedLegacyInput = {
       actionKind: 'intent',
       agentHost: 'codex',
       inputSource: 'legacy-compatibility',
@@ -28,50 +28,24 @@ describe('Plugin host legacy rewrite D12 contract', () => {
       status: 'ready',
       summary: 'Legacy intent path would otherwise be ready.',
       toolName: 'alembic_intent',
-    });
-    const output = createAgentPublicToolOutput(result, {
-      detailRefs: result.refs.detailRefs,
-      intentClassification: {
-        actionKind: 'implement',
-        confidenceBand: 'degraded',
-        objectKind: 'code',
-        scopeKind: 'project',
-      },
-      intentPersistence: { consumable: true, created: false, kind: 'ephemeral' },
-      recognizedIntent: { query: 'legacy compatibility path' },
-      retrievalPlan: { route: 'structure-first', vectorUseKind: 'none' },
-      toolPlan: {
-        guardNeed: 'none',
-        primeNeed: 'optional',
-        workNeed: 'maybe-start',
-      },
-    });
+    } as const;
 
-    expect(result.status).toBe('degraded');
-    expect(result.reason).toMatchObject({
-      code: 'legacy-compatibility-input',
-      kind: 'degraded',
-    });
-    expect(result.refs.detailRefs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: AGENT_LEGACY_COMPATIBILITY_INPUT_POLICY.diagnosticDetailRefId,
-        }),
-      ])
-    );
-    expect(output).toMatchObject({
-      inputSource: 'legacy-compatibility',
-      ok: true,
-      reason: { code: 'legacy-compatibility-input' },
-      status: 'degraded',
-      toolName: 'alembic_intent',
-    });
-    expect(JSON.stringify(output)).not.toContain('legacyCompatibility');
+    expect(
+      TOOL_SCHEMAS.alembic_intent.safeParse({
+        inputSource: removedLegacyInput.inputSource,
+        userQuery: 'legacy public input is removed',
+      }).success
+    ).toBe(false);
+    expect(AgentPublicToolResultEnvelopeSchema.safeParse(removedLegacyInput).success).toBe(false);
+    expect(() =>
+      createAgentPublicToolResultEnvelope(
+        removedLegacyInput as unknown as Parameters<typeof createAgentPublicToolResultEnvelope>[0]
+      )
+    ).toThrow();
   });
 
   test('records D12 legacy surfaces with owners, cleanup triggers, and validation refs', () => {
     expect(PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES.map((entry) => entry.candidateId)).toEqual([
-      'D12-P01',
       'D12-P02',
       'D12-P03',
       'D12-P04',
@@ -83,7 +57,7 @@ describe('Plugin host legacy rewrite D12 contract', () => {
       expect(candidate.validationRefs.length).toBeGreaterThan(0);
     }
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      legacyRewriteCandidateCount: 4,
+      legacyRewriteCandidateCount: 3,
     });
   });
 
