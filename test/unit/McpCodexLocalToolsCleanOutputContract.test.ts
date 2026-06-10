@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
 import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
+import { describe, expect, test } from 'vitest';
 import {
   CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES,
   CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
@@ -16,6 +16,7 @@ import {
 const expectedCodexLocalToolNames = [
   'alembic_codex_status',
   'alembic_codex_diagnostics',
+  'alembic_source_graph_status',
   'alembic_codex_init',
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
@@ -234,6 +235,35 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         package: { pinnedSpecifier: 'alembic-ai@0.0.0' },
         primaryAction: { tool: 'alembic_codex_status' },
         summary: 'runtime checks passed',
+      };
+    case 'alembic_source_graph_status':
+      return {
+        operation: 'status',
+        repo: { id: 'default' },
+        graph: {
+          freshness: 'uninitialized',
+          pendingFileCount: 0,
+          staleFileCount: 0,
+        },
+        sync: { status: 'uninitialized' },
+        counts: {
+          fileCount: 0,
+          symbolCount: 0,
+          edgeCount: 0,
+          parseErrorCount: 0,
+        },
+        diagnostics: [
+          {
+            code: 'source-ref-unproven',
+            severity: 'warning',
+            owner: 'plugin',
+            blocksReady: true,
+          },
+        ],
+        nextActions: [
+          'initialize_core_source_graph_or_run_catch_up_before_requesting_source_facts',
+        ],
+        ready: false,
       };
     case 'alembic_codex_init':
       return {

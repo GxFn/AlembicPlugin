@@ -9,6 +9,7 @@ import {
 export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_codex_status',
   'alembic_codex_diagnostics',
+  'alembic_source_graph_status',
   'alembic_codex_init',
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
@@ -34,6 +35,7 @@ export const CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES = [
 export const CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES = [
   'alembic_codex_status',
   'alembic_codex_diagnostics',
+  'alembic_source_graph_status',
   'alembic_codex_job',
   'alembic_codex_cleanup',
 ] as const satisfies readonly CodexLocalCleanOutputToolName[];
@@ -127,6 +129,17 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'runtimeIdentity',
     'summary',
   ],
+  alembic_source_graph_status: [
+    'operation',
+    'repo',
+    'graph',
+    'sync',
+    'counts',
+    'diagnostics',
+    'detailRefs',
+    'nextActions',
+    'ready',
+  ],
   alembic_codex_init: [
     'alreadyInitialized',
     'initialized',
@@ -165,6 +178,35 @@ export type CodexLocalToolCleanOutput = z.infer<typeof CleanMcpResponseBaseSchem
 } & Record<string, unknown>;
 
 type CodexLocalToolOutputSchema = z.ZodType<CodexLocalToolCleanOutput>;
+type CodexLocalToolSummaryInput = {
+  business: Record<string, unknown>;
+  errorDetails: Record<string, unknown> | null;
+  message: string;
+  ok: boolean;
+};
+
+const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
+  Record<CodexLocalCleanOutputToolName, (input: CodexLocalToolSummaryInput) => string>
+> = {
+  alembic_codex_status: () => 'Alembic Codex status checked.',
+  alembic_codex_diagnostics: (input) =>
+    typeof input.business.businessSummary === 'string'
+      ? input.business.businessSummary
+      : 'Alembic Codex diagnostics completed.',
+  alembic_source_graph_status: buildSourceGraphStatusSummary,
+  alembic_codex_init: () => 'Alembic Codex workspace initialized.',
+  alembic_codex_dashboard: (input) =>
+    input.business.dashboardUrl
+      ? 'Alembic Dashboard handoff ready.'
+      : 'Alembic Dashboard handoff checked.',
+  alembic_codex_bootstrap: () => 'Alembic Codex bootstrap job checked.',
+  alembic_codex_rescan: () => 'Alembic Codex rescan job checked.',
+  alembic_codex_job: (input) =>
+    Array.isArray(input.business.jobs)
+      ? `Alembic Codex job list returned ${input.business.jobs.length} item(s).`
+      : 'Alembic Codex job status checked.',
+  alembic_codex_stop: () => 'Alembic Codex daemon stop requested.',
+};
 
 export const CodexLocalToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
   toolName: CodexLocalCleanOutputToolNameSchema,
@@ -485,17 +527,19 @@ function deriveCodexLocalToolStatus(input: {
   if (input.business.businessOk === false) {
     return 'degraded';
   }
+  if (input.toolName === 'alembic_source_graph_status') {
+    const graph = isRecord(input.business.graph) ? input.business.graph : {};
+    if (input.business.ready === true) {
+      return 'ready';
+    }
+    return typeof graph.freshness === 'string' ? graph.freshness : 'unavailable';
+  }
   return 'ready';
 }
 
 function buildCodexLocalToolSummary(
   toolName: CodexLocalCleanOutputToolName,
-  input: {
-    business: Record<string, unknown>;
-    errorDetails: Record<string, unknown> | null;
-    message: string;
-    ok: boolean;
-  }
+  input: CodexLocalToolSummaryInput
 ): string {
   if (input.message.trim()) {
     return input.message.trim();
@@ -506,39 +550,21 @@ function buildCodexLocalToolSummary(
   if (!input.ok) {
     return `${toolName} blocked.`;
   }
-  if (toolName === 'alembic_codex_status') {
-    return 'Alembic Codex status checked.';
-  }
-  if (toolName === 'alembic_codex_diagnostics') {
-    return typeof input.business.businessSummary === 'string'
-      ? input.business.businessSummary
-      : 'Alembic Codex diagnostics completed.';
-  }
-  if (toolName === 'alembic_codex_init') {
-    return 'Alembic Codex workspace initialized.';
-  }
-  if (toolName === 'alembic_codex_dashboard') {
-    return input.business.dashboardUrl
-      ? 'Alembic Dashboard handoff ready.'
-      : 'Alembic Dashboard handoff checked.';
-  }
-  if (toolName === 'alembic_codex_bootstrap') {
-    return 'Alembic Codex bootstrap job checked.';
-  }
-  if (toolName === 'alembic_codex_rescan') {
-    return 'Alembic Codex rescan job checked.';
-  }
-  if (toolName === 'alembic_codex_job') {
-    return Array.isArray(input.business.jobs)
-      ? `Alembic Codex job list returned ${input.business.jobs.length} item(s).`
-      : 'Alembic Codex job status checked.';
-  }
-  if (toolName === 'alembic_codex_stop') {
-    return 'Alembic Codex daemon stop requested.';
+  const buildSummary = CODEX_LOCAL_TOOL_SUMMARY_BUILDERS[toolName];
+  if (buildSummary) {
+    return buildSummary(input);
   }
   return input.business.dryRun === true
     ? 'Alembic Codex cleanup preview completed.'
     : 'Alembic Codex runtime cleanup completed.';
+}
+
+function buildSourceGraphStatusSummary(input: CodexLocalToolSummaryInput): string {
+  const graph = isRecord(input.business.graph) ? input.business.graph : {};
+  const freshness = typeof graph.freshness === 'string' ? graph.freshness : 'unavailable';
+  return input.business.ready === true
+    ? 'Alembic source graph is fresh.'
+    : `Alembic source graph is ${freshness}; source facts are not ready.`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

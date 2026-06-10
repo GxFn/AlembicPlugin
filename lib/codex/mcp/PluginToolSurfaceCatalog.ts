@@ -134,6 +134,17 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'status-probe',
   }),
+  alembic_source_graph_status: catalogEntry({
+    name: 'alembic_source_graph_status',
+    owner: 'codex-local',
+    handlerOwner: 'CodexMcpServer.local',
+    tier: 'agent',
+    schema: 'SourceGraphStatusInput',
+    annotations: readOnlyTool('Check Alembic Source Graph Status'),
+    gateway: null,
+    knowledgeGate: 'cold-start',
+    residentRoutePolicy: 'status-probe',
+  }),
   alembic_codex_init: catalogEntry({
     name: 'alembic_codex_init',
     owner: 'codex-local',

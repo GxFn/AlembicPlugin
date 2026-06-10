@@ -109,6 +109,13 @@ describe('Codex tool policy', () => {
       handlerOwner: 'CodexMcpServer.resident-dashboard',
       residentRoutePolicy: 'dashboard-handoff',
     });
+    expect(getPluginToolSurfaceEntry('alembic_source_graph_status')).toMatchObject({
+      handlerOwner: 'CodexMcpServer.local',
+      knowledgeGate: 'cold-start',
+      owner: 'codex-local',
+      residentRoutePolicy: 'status-probe',
+      schema: 'SourceGraphStatusInput',
+    });
   });
 
   test('keeps uninitialized workspaces on diagnostics/status/init and init-on-demand tools', () => {
@@ -124,6 +131,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
+      'alembic_source_graph_status',
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
@@ -145,6 +153,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
+      'alembic_source_graph_status',
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
@@ -260,6 +269,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
+      'alembic_source_graph_status',
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',

@@ -75,6 +75,7 @@ function codexInputSchema(properties: Record<string, unknown> = {}): Record<stri
 export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
   'alembic_codex_status',
   'alembic_codex_diagnostics',
+  'alembic_source_graph_status',
 ]);
 
 export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_codex_init']);
@@ -149,6 +150,13 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     tier: 'agent',
     description:
       'Run Alembic Codex runtime diagnostics without starting the daemon. Checks Node, npm, npx, embedded runtime wiring, daemon version, portable runtime artifact guidance, admin mode gate, and first-run next actions.',
+    inputSchema: codexInputSchema(),
+  },
+  {
+    name: 'alembic_source_graph_status',
+    tier: 'agent',
+    description:
+      'Report Alembic source graph boundary status using the Core-owned source graph freshness and diagnostic contract. This status tool stays callable during cold start, unavailable graph runtime, catch-up failure, stale output, or wrong project scope, and it never claims ready source facts unless Core freshness permits it.',
     inputSchema: codexInputSchema(),
   },
   {

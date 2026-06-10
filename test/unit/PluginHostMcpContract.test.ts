@@ -1,24 +1,21 @@
 import { describe, expect, test } from 'vitest';
 import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/codex/mcp/codex-local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/codex/mcp/core-tools/output.js';
+import { getMcpOutputProjector, withMcpOutputSchema } from '../../lib/codex/mcp/output-contract.js';
 import {
-  getMcpOutputProjector,
-  withMcpOutputSchema,
-} from '../../lib/codex/mcp/output-contract.js';
+  listPluginToolSurfaceCatalog,
+  PLUGIN_TOOL_SURFACE_CATALOG,
+} from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
 import {
+  PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS,
   PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES,
   PLUGIN_HOST_MCP_D4_REGISTRY_ROW_IDS,
   PLUGIN_HOST_MCP_RESIDENT_ROUTE_POLICIES,
   PLUGIN_HOST_MCP_RESIDENT_ROUTE_TOOL_NAMES,
   PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS,
-  PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS,
   PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY,
   summarizePluginHostMcpContracts,
 } from '../../lib/codex/mcp/plugin-host-contracts.js';
-import {
-  listPluginToolSurfaceCatalog,
-  PLUGIN_TOOL_SURFACE_CATALOG,
-} from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
 import { AGENT_PUBLIC_TOOL_NAMES } from '../../lib/codex/mcp/public-tools/contract.js';
 import { TOOLS } from '../../lib/codex/mcp/tools.js';
 
@@ -112,6 +109,7 @@ describe('Plugin host MCP D4 contract', () => {
       ['alembic_intent', 'resident-project-scope'],
       ['alembic_prime', 'resident-project-scope'],
       ['alembic_search', 'explicit-resident-search'],
+      ['alembic_source_graph_status', 'status-probe'],
       ['alembic_work_finish', 'resident-project-scope'],
       ['alembic_work_start', 'resident-project-scope'],
     ]);
@@ -122,9 +120,9 @@ describe('Plugin host MCP D4 contract', () => {
       PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY.flatMap((entry) => entry.fixtureIds)
     );
 
-    expect(PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY.map((entry) => entry.registryRowId)).toEqual(
-      ['I03', 'I05', 'I06', 'I10', 'I11', 'I21', 'I22', 'I23']
-    );
+    expect(
+      PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY.map((entry) => entry.registryRowId)
+    ).toEqual(['I03', 'I05', 'I06', 'I10', 'I11', 'I21', 'I22', 'I23']);
     expect(fixtureIds).toEqual([
       'decision-register.scope-mismatch',
       'decision-register.success',
@@ -146,11 +144,11 @@ describe('Plugin host MCP D4 contract', () => {
       'workflow.unavailable',
     ]);
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 32,
-      cleanOutputToolCount: 32,
+      activeToolCount: 33,
+      cleanOutputToolCount: 33,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
-      residentRouteToolCount: 14,
+      residentRouteToolCount: 15,
       version: 1,
     });
   });
