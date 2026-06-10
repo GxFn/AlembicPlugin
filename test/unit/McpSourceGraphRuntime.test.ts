@@ -82,6 +82,44 @@ describe('MCP source graph runtime status', () => {
     expect(count(structured, 'symbolCount')).toBeGreaterThanOrEqual(2);
   });
 
+  test('builds initial source graph context when the database exists without a generation', async () => {
+    const statusProjectRoot = createProject();
+    await createEmptyAlembicDatabase(statusProjectRoot);
+
+    const structured = await statusData(statusProjectRoot, { now: 1_550 });
+
+    expect(structured).toMatchObject({
+      operation: 'status',
+      ready: true,
+      graph: { freshness: 'fresh' },
+      lifecycle: {
+        sourceGraphInitialized: true,
+        sourceGraphIndexed: true,
+        sourceGraphFresh: true,
+        databaseExists: true,
+        catchUp: {
+          attempted: true,
+          succeeded: true,
+        },
+      },
+    });
+    expect(count(structured, 'fileCount')).toBeGreaterThanOrEqual(2);
+    expect(count(structured, 'symbolCount')).toBeGreaterThanOrEqual(2);
+
+    const exploreProjectRoot = createProject();
+    await createEmptyAlembicDatabase(exploreProjectRoot);
+
+    const explore = await operationData(exploreProjectRoot, 'alembic_code_explore', {
+      filePath: 'src/helper.ts',
+      includeText: true,
+      now: 1_560,
+      query: 'helper',
+    });
+    expect(explore).toMatchObject({ operation: 'explore', ready: true });
+    expect(symbolIds(explore, 'symbols')).toContain('src/helper.ts#helper');
+    expect(sourceSectionTexts(explore).join('\n')).toContain('helper');
+  });
+
   test('fails closed for workspace roots and routes projectScope to child repositories', async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), 'alembic-source-graph-workspace-'));
     projectRoots.push(workspaceRoot);
@@ -480,6 +518,24 @@ async function seedRelationEdges(projectRoot: string, generationId: string): Pro
     });
   } finally {
     connection.close();
+  }
+}
+
+async function createEmptyAlembicDatabase(projectRoot: string): Promise<void> {
+  const resolver = WorkspaceResolver.fromProject(projectRoot);
+  const connection = new DatabaseConnection({ path: resolver.databasePath }, resolver);
+  const previous = process.env.ALEMBIC_QUIET;
+  process.env.ALEMBIC_QUIET = '1';
+  try {
+    await connection.connect();
+    await connection.runMigrations();
+  } finally {
+    connection.close();
+    if (previous === undefined) {
+      delete process.env.ALEMBIC_QUIET;
+    } else {
+      process.env.ALEMBIC_QUIET = previous;
+    }
   }
 }
 

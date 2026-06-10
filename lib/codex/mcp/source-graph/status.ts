@@ -421,7 +421,27 @@ async function maybeCatchUpSourceGraph(
     deletedFiles,
   };
 
-  if (options.catchUp === false || report.freshness.status !== 'stale') {
+  if (options.catchUp === false) {
+    return { catchUp, status: report.status };
+  }
+
+  if (report.freshness.status === 'uninitialized') {
+    try {
+      return await buildInitialSourceGraphIndex(runtime, options);
+    } catch (err: unknown) {
+      return {
+        catchUp: {
+          ...catchUp,
+          attempted: true,
+          reason: errorMessage(err),
+          succeeded: false,
+        },
+        status: createInitialIndexFailedStatus(runtime.projectRoot, options, report.status, err),
+      };
+    }
+  }
+
+  if (report.freshness.status !== 'stale') {
     return { catchUp, status: report.status };
   }
 
@@ -806,6 +826,39 @@ function createDegradedStatus(
         message: `Core source graph catch-up failed: ${errorMessage(err)}`,
         nextAction: 'run_incremental_source_graph_index',
         invalidConclusion: 'source graph is fresh after file changes',
+        blocksReady: true,
+      },
+    ],
+  });
+}
+
+function createInitialIndexFailedStatus(
+  projectRoot: string,
+  options: SourceGraphStatusOptions,
+  previous: SourceGraphStatusResult,
+  err: unknown
+): SourceGraphStatusResult {
+  const freshness = createSourceGraphFreshness({
+    status: 'unavailable',
+    checkedAt: options.now,
+    reason: 'Core source graph initial build failed.',
+    nextAction: 'build_source_graph',
+    degradedReason: errorMessage(err),
+  });
+  return createSourceGraphStatusResult({
+    projectRoot,
+    repoId: normalizeStringOption(options.repoId) ?? DEFAULT_REPO_ID,
+    freshness,
+    counts: previous.counts,
+    diagnostics: [
+      ...previous.diagnostics,
+      {
+        code: 'catch-up-failed',
+        severity: 'error',
+        owner: 'plugin',
+        message: `Core source graph initial build failed: ${errorMessage(err)}`,
+        nextAction: 'build_source_graph',
+        invalidConclusion: 'source graph is initialized for this project',
         blocksReady: true,
       },
     ],
