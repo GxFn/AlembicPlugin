@@ -157,7 +157,28 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     tier: 'agent',
     description:
       'Report Alembic source graph boundary status using the Core-owned source graph freshness and diagnostic contract. This status tool stays callable during cold start, unavailable graph runtime, catch-up failure, stale output, or wrong project scope, and it never claims ready source facts unless Core freshness permits it.',
-    inputSchema: codexInputSchema(),
+    inputSchema: codexInputSchema({
+      repoId: {
+        type: 'string',
+        description:
+          'Optional Core source graph repository id. Defaults to the current project repository.',
+      },
+      projectScope: {
+        type: 'string',
+        description:
+          'Optional repo-relative project scope/folder to inspect before trusting source graph facts.',
+      },
+      catchUp: {
+        type: 'boolean',
+        description:
+          'Whether the status call may run a bounded Core incremental catch-up when stale files are detected. Defaults to true.',
+      },
+      maxCatchUpFiles: {
+        type: 'number',
+        description:
+          'Maximum number of changed/deleted files the status call may catch up in one bounded pass.',
+      },
+    }),
   },
   {
     name: 'alembic_codex_init',

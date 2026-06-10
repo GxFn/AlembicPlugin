@@ -1,6 +1,6 @@
 export interface CodexLocalToolHandlers {
   buildDiagnostics(): Promise<Record<string, unknown>>;
-  buildSourceGraphStatus(): Promise<Record<string, unknown>>;
+  buildSourceGraphStatus(args: Record<string, unknown>): Promise<Record<string, unknown>>;
   buildStatus(): Promise<Record<string, unknown>>;
   cleanupRuntime(args: Record<string, unknown>): Promise<Record<string, unknown>>;
   initializeWorkspace(args: Record<string, unknown>): Promise<Record<string, unknown>>;
@@ -30,7 +30,7 @@ export function dispatchCodexLocalTool(
     case 'alembic_codex_diagnostics':
       return { handled: true, result: handlers.buildDiagnostics() };
     case 'alembic_source_graph_status':
-      return { handled: true, result: handlers.buildSourceGraphStatus() };
+      return { handled: true, result: handlers.buildSourceGraphStatus(args) };
     case 'alembic_codex_init':
       return { handled: true, result: handlers.initializeWorkspace(args) };
     case 'alembic_codex_dashboard':

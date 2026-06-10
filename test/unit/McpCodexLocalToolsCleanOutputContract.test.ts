@@ -252,6 +252,35 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
           edgeCount: 0,
           parseErrorCount: 0,
         },
+        lifecycle: {
+          mcpInstalled: true,
+          runtimeReady: true,
+          knowledgeSynced: null,
+          sourceGraphInitialized: false,
+          sourceGraphIndexed: false,
+          sourceGraphFresh: false,
+          watcher: {
+            mode: 'unavailable',
+            nextAction: 'run_incremental_source_graph_index',
+          },
+          catchUp: {
+            attempted: false,
+            changedFiles: [],
+            deletedFiles: [],
+          },
+          databaseExists: false,
+        },
+        guidance: {
+          sourceGraphTools: ['alembic_source_graph_status'],
+          recoveryTools: ['alembic_codex_init', 'alembic_codex_bootstrap'],
+          playbook: ['Use alembic_source_graph_status first.'],
+        },
+        actions: [
+          {
+            code: 'needs_source_graph_init',
+            description: 'Initialize the Core source graph.',
+          },
+        ],
         diagnostics: [
           {
             code: 'source-ref-unproven',

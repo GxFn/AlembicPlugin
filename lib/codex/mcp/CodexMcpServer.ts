@@ -369,7 +369,8 @@ export class CodexMcpServer {
 
     const localDispatch = dispatchCodexLocalTool(name, args, {
       buildDiagnostics: () => this.buildDiagnostics(),
-      buildSourceGraphStatus: async () => buildSourceGraphStatus(this.projectRoot),
+      buildSourceGraphStatus: async (nextArgs) =>
+        buildSourceGraphStatus(this.projectRoot, nextArgs),
       buildStatus: () => this.buildStatus(),
       cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
       initializeWorkspace: (nextArgs) => this.initializeWorkspace(nextArgs),
