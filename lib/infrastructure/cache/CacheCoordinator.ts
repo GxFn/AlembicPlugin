@@ -97,7 +97,16 @@ export class CacheCoordinator implements Startable {
 
   /** @returns true 如果版本变化并触发了失效 */
   #check(): boolean {
-    const current = this.#readVersion();
+    let current: number;
+    try {
+      current = this.#readVersion();
+    } catch (err: unknown) {
+      this.stop();
+      Logger.warn('[CacheCoordinator] Stopped because database connection is unavailable', {
+        error: (err as Error).message,
+      });
+      return false;
+    }
     if (current === this.#lastVersion) {
       return false;
     }

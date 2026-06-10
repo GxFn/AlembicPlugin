@@ -393,6 +393,43 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     );
   });
 
+  test('anchors CGK-10/CGK-14 fused workflow probe contract in the reusable script surface', () => {
+    const script = readFixture('../../scripts/probe-agent-public-tools-evaluation.mjs');
+    const packageJson = JSON.parse(readFixture('../../package.json')) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts?.['probe:agent-public-tools:evaluation']).toBe(
+      'node scripts/probe-agent-public-tools-evaluation.mjs'
+    );
+    expect(script).toContain('--fused-workflow');
+    expect(script).toContain('--target-root');
+    expect(script).toContain('cgk10-14-agent-public-tools-fused-workflow-evaluation');
+    expect(script).toContain('plugin-runtime-tool-policy');
+    expect(script).toContain('core-validation-plan');
+    expect(script).toContain('baselineRawExplorationPlan');
+    for (const refName of [
+      'intentRef',
+      'primeRef',
+      'sourceGraphRef',
+      'workRef',
+      'finishRef',
+      'guardResultRef',
+      'decisionRef',
+    ]) {
+      expect(script).toContain(refName);
+    }
+    for (const toolName of [
+      'alembic_source_graph_status',
+      'alembic_code_explore',
+      'alembic_validation_plan',
+    ]) {
+      expect(script).toContain(toolName);
+    }
+    expect(script).toContain('stale source graph path should fail closed');
+    expect(script).toContain('decision recording should not be automatic');
+  });
+
   test('evaluates ready clean outputs for six public tools with refs', async () => {
     const ctx = makeContext(async () => deliveredSearchResult(), {
       guardCheckEngine: {

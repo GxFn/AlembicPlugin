@@ -9,13 +9,20 @@ import { CacheCoordinator } from '../../lib/infrastructure/cache/CacheCoordinato
 
 function makeMockDb(initialVersion = 1) {
   let version = initialVersion;
+  let open = true;
   return {
     pragma(_stmt: string, _opts?: { simple: boolean }) {
+      if (!open) {
+        throw new TypeError('The database connection is not open');
+      }
       return version;
     },
     /** 测试辅助：模拟其他进程写入导致 data_version 递增 */
     bumpVersion() {
       version++;
+    },
+    close() {
+      open = false;
     },
   };
 }
@@ -93,6 +100,17 @@ describe('CacheCoordinator', () => {
 
     expect(failing).toHaveBeenCalledTimes(1);
     expect(ok).toHaveBeenCalledTimes(1);
+  });
+
+  it('should stop polling instead of throwing when the database connection is closed', () => {
+    const handler = vi.fn();
+    coordinator.subscribe('test', handler);
+
+    db.close();
+
+    expect(() => coordinator.check()).not.toThrow();
+    expect(coordinator.check()).toBe(false);
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('should unsubscribe correctly', () => {
