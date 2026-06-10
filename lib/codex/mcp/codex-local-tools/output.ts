@@ -54,6 +54,23 @@ export const CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set([
   'serviceBoundary',
 ]);
 
+const CODEX_LOCAL_SENSITIVE_OUTPUT_KEYS = new Set([
+  'accesstoken',
+  'apikey',
+  'authheader',
+  'authorization',
+  'bearertoken',
+  'cookie',
+  'internaltelemetry',
+  'password',
+  'privatedaemonurl',
+  'providerprivatetrace',
+  'refreshtoken',
+  'secret',
+  'secrettoken',
+  'setcookie',
+]);
+
 const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
   data: 'businessData',
   error: 'businessError',
@@ -227,6 +244,9 @@ export function findForbiddenCodexLocalOutputField(
     if (path.length === 0 && CODEX_LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS.has(key)) {
       return { path: [key] };
     }
+    if (path[0] !== 'meta' && isSensitiveCodexLocalOutputKey(key)) {
+      return { path: [...path, key] };
+    }
     if (path[0] !== 'meta' && shouldForbidRuntimeField(key, toolName)) {
       return { path: [...path, key] };
     }
@@ -335,7 +355,7 @@ function sanitizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputTo
 
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (shouldStripRuntimeField(key, toolName)) {
+    if (shouldStripRuntimeField(key, toolName) || isSensitiveCodexLocalOutputKey(key)) {
       continue;
     }
     const sanitized = sanitizeBusinessValue(child, toolName);
@@ -387,6 +407,11 @@ function shouldForbidRuntimeField(key: string, toolName?: CodexLocalCleanOutputT
 
 function isRuntimeDiagnosticTool(toolName: CodexLocalCleanOutputToolName): boolean {
   return (CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES as readonly string[]).includes(toolName);
+}
+
+function isSensitiveCodexLocalOutputKey(key: string): boolean {
+  const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return CODEX_LOCAL_SENSITIVE_OUTPUT_KEYS.has(normalized);
 }
 
 function pickCleanMeta(value: unknown): Record<string, unknown> | null {

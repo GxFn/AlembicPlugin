@@ -11,6 +11,7 @@ import {
   PLUGIN_HOST_MCP_RESIDENT_ROUTE_POLICIES,
   PLUGIN_HOST_MCP_RESIDENT_ROUTE_TOOL_NAMES,
   PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS,
+  PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS,
   PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY,
   summarizePluginHostMcpContracts,
 } from '../../lib/codex/mcp/plugin-host-contracts.js';
@@ -147,10 +148,38 @@ describe('Plugin host MCP D4 contract', () => {
     expect(summarizePluginHostMcpContracts()).toMatchObject({
       activeToolCount: 32,
       cleanOutputToolCount: 32,
+      d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
       residentRouteToolCount: 14,
       version: 1,
     });
+  });
+
+  test('defines D24 consumer-driven replay scenarios for Plugin MCP projections', () => {
+    const acceptedFixtureIds = new Set(
+      PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY.flatMap((entry) => entry.fixtureIds)
+    );
+
+    expect(PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS.map((scenario) => scenario.toolName)).toEqual([
+      'alembic_health',
+      'alembic_search',
+      'alembic_codex_status',
+      'alembic_codex_job',
+    ]);
+
+    for (const scenario of PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS) {
+      expect(acceptedFixtureIds.has(scenario.providerFixtureId)).toBe(true);
+      expect(scenario.expectedFields.length).toBeGreaterThan(0);
+      expect(scenario.forbiddenOrdinaryOutputFields).toEqual(
+        expect.arrayContaining(['apiKey', 'providerPrivateTrace', 'secretToken'])
+      );
+      expect(scenario.failureClassification).toMatchObject({
+        forbiddenFieldOwner: 'plugin-mcp-projection',
+        missingExpectedFieldOwner: 'consumer-expectation',
+        missingFixtureOwner: 'contract-registry',
+        providerShapeOwner: 'producer-fixture',
+      });
+    }
   });
 });
 

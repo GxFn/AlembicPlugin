@@ -61,6 +61,23 @@ export const CORE_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS = new Set([
   'success',
 ]);
 
+const CORE_SENSITIVE_BUSINESS_OUTPUT_KEYS = new Set([
+  'accesstoken',
+  'apikey',
+  'authheader',
+  'authorization',
+  'bearertoken',
+  'cookie',
+  'internaltelemetry',
+  'password',
+  'privatedaemonurl',
+  'providerprivatetrace',
+  'refreshtoken',
+  'secret',
+  'secrettoken',
+  'setcookie',
+]);
+
 const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
   data: 'businessData',
   error: 'businessError',
@@ -433,6 +450,9 @@ export function findForbiddenCoreOutputField(
     if (path.length === 0 && CORE_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS.has(key)) {
       return { path: [key] };
     }
+    if (path[0] !== 'meta' && isSensitiveCoreOutputKey(key)) {
+      return { path: [...path, key] };
+    }
     if (path[0] !== 'meta' && CORE_FORBIDDEN_BUSINESS_OUTPUT_KEYS.has(key)) {
       return { path: [...path, key] };
     }
@@ -509,7 +529,7 @@ function sanitizeBusinessValue(value: unknown): unknown {
 
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (CORE_FORBIDDEN_BUSINESS_OUTPUT_KEYS.has(key)) {
+    if (CORE_FORBIDDEN_BUSINESS_OUTPUT_KEYS.has(key) || isSensitiveCoreOutputKey(key)) {
       continue;
     }
     const sanitized = sanitizeBusinessValue(child);
@@ -629,6 +649,11 @@ function buildCoreToolSummary(
 
 function numberField(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function isSensitiveCoreOutputKey(key: string): boolean {
+  const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return CORE_SENSITIVE_BUSINESS_OUTPUT_KEYS.has(normalized);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

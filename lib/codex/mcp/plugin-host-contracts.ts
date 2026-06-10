@@ -40,9 +40,35 @@ export interface PluginHostResidentProviderFixtureReplay {
   routeFamily: string;
 }
 
+export type PluginHostD24FailureOwner =
+  | 'contract-registry'
+  | 'consumer-expectation'
+  | 'plugin-mcp-projection'
+  | 'plugin-resident-client'
+  | 'producer-fixture';
+
+export interface PluginHostD24FailureClassification {
+  forbiddenFieldOwner: PluginHostD24FailureOwner;
+  missingExpectedFieldOwner: PluginHostD24FailureOwner;
+  missingFixtureOwner: PluginHostD24FailureOwner;
+  providerShapeOwner: PluginHostD24FailureOwner;
+}
+
+export interface PluginHostD24ConsumerReplayScenario {
+  consumerScenario: string;
+  expectedFields: readonly string[];
+  forbiddenOrdinaryOutputFields: readonly string[];
+  producerContract: string;
+  providerFixtureId: string;
+  registryRowId: PluginHostMcpD4RegistryRowId | 'I03' | 'I05' | 'I06';
+  failureClassification: PluginHostD24FailureClassification;
+  toolName: string;
+}
+
 export interface PluginHostMcpContractSummary {
   activeToolCount: number;
   cleanOutputToolCount: number;
+  d24ConsumerReplayScenarioCount: number;
   legacyRewriteCandidateCount: number;
   providerReplayFixtureCount: number;
   registryRowIds: readonly PluginHostMcpD4RegistryRowId[];
@@ -137,6 +163,92 @@ export const PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY = [
   },
 ] as const satisfies readonly PluginHostResidentProviderFixtureReplay[];
 
+const MCP_PROJECTION_FAILURE_CLASSIFICATION = {
+  forbiddenFieldOwner: 'plugin-mcp-projection',
+  missingExpectedFieldOwner: 'consumer-expectation',
+  missingFixtureOwner: 'contract-registry',
+  providerShapeOwner: 'producer-fixture',
+} as const satisfies PluginHostD24FailureClassification;
+
+export const PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS = [
+  {
+    consumerScenario: 'Plugin MCP health projection consumes daemon health fixture',
+    expectedFields: ['checks', 'services', 'version'],
+    forbiddenOrdinaryOutputFields: [
+      'apiKey',
+      'diagnostics',
+      'internalTelemetry',
+      'projectRuntime',
+      'providerPrivateTrace',
+      'secretToken',
+      'telemetry',
+    ],
+    failureClassification: MCP_PROJECTION_FAILURE_CLASSIFICATION,
+    producerContract: '/api/v1/daemon/health',
+    providerFixtureId: 'runtime-health.ready',
+    registryRowId: 'I03',
+    toolName: 'alembic_health',
+  },
+  {
+    consumerScenario: 'Plugin MCP search projection consumes resident knowledge search fixture',
+    expectedFields: ['items', 'kindCounts', 'query', 'totalResults'],
+    forbiddenOrdinaryOutputFields: [
+      'apiKey',
+      'diagnostics',
+      'providerPrivateTrace',
+      'residentSearch',
+      'searchMeta',
+      'secretToken',
+      'telemetry',
+    ],
+    failureClassification: MCP_PROJECTION_FAILURE_CLASSIFICATION,
+    producerContract: '/api/v1/search',
+    providerFixtureId: 'knowledge.success',
+    registryRowId: 'I22',
+    toolName: 'alembic_search',
+  },
+  {
+    consumerScenario: 'Plugin Codex status projection consumes runtime status fixture',
+    expectedFields: [
+      'initialized',
+      'projectRoot',
+      'projectRuntime.identity.projectRoot',
+      'statusDiagnostics',
+      'workspace',
+    ],
+    forbiddenOrdinaryOutputFields: [
+      'apiKey',
+      'diagnostics',
+      'internalTelemetry',
+      'privateDaemonUrl',
+      'providerPrivateTrace',
+      'secretToken',
+    ],
+    failureClassification: MCP_PROJECTION_FAILURE_CLASSIFICATION,
+    producerContract: '/api/v1/daemon/health',
+    providerFixtureId: 'runtime-health.partial',
+    registryRowId: 'I03',
+    toolName: 'alembic_codex_status',
+  },
+  {
+    consumerScenario: 'Plugin Codex job projection consumes resident job queue fixture',
+    expectedFields: ['jobRoute', 'jobs', 'projectRuntime.identity.projectRoot'],
+    forbiddenOrdinaryOutputFields: [
+      'apiKey',
+      'diagnostics',
+      'internalTelemetry',
+      'privateDaemonUrl',
+      'providerPrivateTrace',
+      'secretToken',
+    ],
+    failureClassification: MCP_PROJECTION_FAILURE_CLASSIFICATION,
+    producerContract: '/api/v1/jobs',
+    providerFixtureId: 'jobs.queued',
+    registryRowId: 'I06',
+    toolName: 'alembic_codex_job',
+  },
+] as const satisfies readonly PluginHostD24ConsumerReplayScenario[];
+
 export const PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES = [
   {
     candidateId: 'D12-P01',
@@ -206,6 +318,7 @@ export function summarizePluginHostMcpContracts(): PluginHostMcpContractSummary 
   return {
     activeToolCount: PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES.length,
     cleanOutputToolCount: PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES.length,
+    d24ConsumerReplayScenarioCount: PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS.length,
     legacyRewriteCandidateCount: PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES.length,
     providerReplayFixtureCount: uniqueStrings(
       PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY.flatMap((entry) => entry.fixtureIds)
