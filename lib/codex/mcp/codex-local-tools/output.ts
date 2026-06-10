@@ -5,11 +5,22 @@ import {
   createCleanMcpResponse,
   registerMcpOutputProjector,
 } from '../output-contract.js';
+import {
+  SOURCE_GRAPH_OPERATION_TOOL_NAMES,
+  SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
+} from '../source-graph/output.js';
 
 export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_codex_status',
   'alembic_codex_diagnostics',
   'alembic_source_graph_status',
+  'alembic_symbol_search',
+  'alembic_code_explore',
+  'alembic_source_node',
+  'alembic_callers',
+  'alembic_callees',
+  'alembic_code_impact',
+  'alembic_affected_tests',
   'alembic_codex_init',
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
@@ -129,20 +140,15 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'runtimeIdentity',
     'summary',
   ],
-  alembic_source_graph_status: [
-    'operation',
-    'repo',
-    'graph',
-    'sync',
-    'counts',
-    'lifecycle',
-    'guidance',
-    'actions',
-    'diagnostics',
-    'detailRefs',
-    'nextActions',
-    'ready',
-  ],
+  alembic_source_graph_status:
+    SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_source_graph_status,
+  alembic_symbol_search: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_symbol_search,
+  alembic_code_explore: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_code_explore,
+  alembic_source_node: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_source_node,
+  alembic_callers: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_callers,
+  alembic_callees: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_callees,
+  alembic_code_impact: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_code_impact,
+  alembic_affected_tests: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_affected_tests,
   alembic_codex_init: [
     'alreadyInitialized',
     'initialized',
@@ -197,6 +203,13 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
       ? input.business.businessSummary
       : 'Alembic Codex diagnostics completed.',
   alembic_source_graph_status: buildSourceGraphStatusSummary,
+  alembic_symbol_search: buildSourceGraphOperationSummary,
+  alembic_code_explore: buildSourceGraphOperationSummary,
+  alembic_source_node: buildSourceGraphOperationSummary,
+  alembic_callers: buildSourceGraphOperationSummary,
+  alembic_callees: buildSourceGraphOperationSummary,
+  alembic_code_impact: buildSourceGraphOperationSummary,
+  alembic_affected_tests: buildSourceGraphOperationSummary,
   alembic_codex_init: () => 'Alembic Codex workspace initialized.',
   alembic_codex_dashboard: (input) =>
     input.business.dashboardUrl
@@ -442,6 +455,9 @@ function pickAllowedBusinessFields(
 }
 
 function shouldStripRuntimeField(key: string, toolName: CodexLocalCleanOutputToolName): boolean {
+  if (isSourceGraphOperationTool(toolName) && key === 'diagnostics') {
+    return false;
+  }
   return (
     !isRuntimeDiagnosticTool(toolName) &&
     (CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key) ||
@@ -454,11 +470,18 @@ function shouldForbidRuntimeField(key: string, toolName?: CodexLocalCleanOutputT
   if (!toolName || isRuntimeDiagnosticTool(toolName)) {
     return false;
   }
+  if (isSourceGraphOperationTool(toolName) && key === 'diagnostics') {
+    return false;
+  }
   return CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key);
 }
 
 function isRuntimeDiagnosticTool(toolName: CodexLocalCleanOutputToolName): boolean {
   return (CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES as readonly string[]).includes(toolName);
+}
+
+function isSourceGraphOperationTool(toolName: CodexLocalCleanOutputToolName): boolean {
+  return (SOURCE_GRAPH_OPERATION_TOOL_NAMES as readonly string[]).includes(toolName);
 }
 
 function isSensitiveCodexLocalOutputKey(key: string): boolean {
@@ -530,7 +553,7 @@ function deriveCodexLocalToolStatus(input: {
   if (input.business.businessOk === false) {
     return 'degraded';
   }
-  if (input.toolName === 'alembic_source_graph_status') {
+  if (isSourceGraphOperationTool(input.toolName)) {
     const graph = isRecord(input.business.graph) ? input.business.graph : {};
     if (input.business.ready === true) {
       return 'ready';
@@ -568,6 +591,16 @@ function buildSourceGraphStatusSummary(input: CodexLocalToolSummaryInput): strin
   return input.business.ready === true
     ? 'Alembic source graph is fresh.'
     : `Alembic source graph is ${freshness}; source facts are not ready.`;
+}
+
+function buildSourceGraphOperationSummary(input: CodexLocalToolSummaryInput): string {
+  const operation =
+    typeof input.business.operation === 'string' ? input.business.operation : 'source graph';
+  const graph = isRecord(input.business.graph) ? input.business.graph : {};
+  const freshness = typeof graph.freshness === 'string' ? graph.freshness : 'unavailable';
+  return input.business.ready === true
+    ? `Alembic ${operation} source graph query completed.`
+    : `Alembic ${operation} source graph query is ${freshness}; source facts are not ready.`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

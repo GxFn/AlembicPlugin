@@ -72,10 +72,75 @@ function codexInputSchema(properties: Record<string, unknown> = {}): Record<stri
   };
 }
 
+const SOURCE_GRAPH_COMMON_INPUT_PROPERTIES = {
+  repoId: {
+    type: 'string',
+    description: 'Optional Core source graph repository id. Defaults to the current project.',
+  },
+  projectScope: {
+    type: 'string',
+    description: 'Optional repo-relative project scope/folder to inspect before trusting facts.',
+  },
+  catchUp: {
+    type: 'boolean',
+    description:
+      'Whether the tool may run a bounded Core incremental catch-up when stale files are detected. Defaults to true.',
+  },
+  maxCatchUpFiles: {
+    type: 'number',
+    description:
+      'Maximum number of changed/deleted files the tool may catch up in one bounded pass.',
+  },
+  generationId: {
+    type: 'string',
+    description:
+      'Optional Core source graph generation id. By default the latest fresh generation for the selected project is used.',
+  },
+  limit: { type: 'number', description: 'Maximum symbols, sections, or relations to return.' },
+  kind: { type: 'string', description: 'Optional source symbol kind filter.' },
+  filePath: { type: 'string', description: 'Optional repo-relative file path filter.' },
+  includeEdges: { type: 'boolean', description: 'Whether relation edges should be returned.' },
+  includeText: {
+    type: 'boolean',
+    description: 'Whether line-numbered source text may be returned when freshness permits it.',
+  },
+  includeTests: { type: 'boolean', description: 'Whether test files should be included.' },
+  includeGenerated: {
+    type: 'boolean',
+    description: 'Whether generated files should be included.',
+  },
+  includeConfig: { type: 'boolean', description: 'Whether config files should be included.' },
+  contextLines: { type: 'number', description: 'Line context around matched symbols.' },
+  maxSectionLines: { type: 'number', description: 'Maximum lines in one source section.' },
+  sourceSectionLineBudget: {
+    type: 'number',
+    description: 'Total line budget across source sections.',
+  },
+  edgeLimit: { type: 'number', description: 'Maximum relation edges to inspect or return.' },
+};
+
+function sourceGraphInputSchema(properties: Record<string, unknown> = {}): Record<string, unknown> {
+  return codexInputSchema({
+    ...SOURCE_GRAPH_COMMON_INPUT_PROPERTIES,
+    ...properties,
+  });
+}
+
+export const CODEX_SOURCE_GRAPH_TOOL_NAMES = new Set([
+  'alembic_source_graph_status',
+  'alembic_symbol_search',
+  'alembic_code_explore',
+  'alembic_source_node',
+  'alembic_callers',
+  'alembic_callees',
+  'alembic_code_impact',
+  'alembic_affected_tests',
+]);
+
 export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
   'alembic_codex_status',
   'alembic_codex_diagnostics',
-  'alembic_source_graph_status',
+  ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
 ]);
 
 export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_codex_init']);
@@ -157,26 +222,78 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     tier: 'agent',
     description:
       'Report Alembic source graph boundary status using the Core-owned source graph freshness and diagnostic contract. This status tool stays callable during cold start, unavailable graph runtime, catch-up failure, stale output, or wrong project scope, and it never claims ready source facts unless Core freshness permits it.',
-    inputSchema: codexInputSchema({
-      repoId: {
-        type: 'string',
-        description:
-          'Optional Core source graph repository id. Defaults to the current project repository.',
+    inputSchema: sourceGraphInputSchema(),
+  },
+  {
+    name: 'alembic_symbol_search',
+    tier: 'agent',
+    description:
+      'Search Core source graph symbols and source sections. Returns operation-specific clean output and withholds source text unless Core freshness is fresh.',
+    inputSchema: sourceGraphInputSchema({
+      query: { type: 'string', description: 'Symbol, file, route, or text query.' },
+    }),
+  },
+  {
+    name: 'alembic_code_explore',
+    tier: 'agent',
+    description:
+      'Explore Core source graph context around a query or focus area, including ranked symbols, source sections, and relations when freshness permits.',
+    inputSchema: sourceGraphInputSchema({
+      query: { type: 'string', description: 'Optional search phrase.' },
+      focus: { type: 'string', description: 'Optional source area or behavior to explore.' },
+    }),
+  },
+  {
+    name: 'alembic_source_node',
+    tier: 'agent',
+    description:
+      'Read one Core source graph node by symbol id or repo-relative file path with line-numbered source sections only when freshness permits.',
+    inputSchema: sourceGraphInputSchema({
+      nodeId: { type: 'string', description: 'Source graph symbol id or repo-relative file path.' },
+    }),
+  },
+  {
+    name: 'alembic_callers',
+    tier: 'agent',
+    description:
+      'Return Core source graph callers for a symbol id, with relation edges and source sections only when freshness permits.',
+    inputSchema: sourceGraphInputSchema({
+      symbolId: { type: 'string', description: 'Source graph symbol id to inspect.' },
+    }),
+  },
+  {
+    name: 'alembic_callees',
+    tier: 'agent',
+    description:
+      'Return Core source graph callees for a symbol id, with relation edges and source sections only when freshness permits.',
+    inputSchema: sourceGraphInputSchema({
+      symbolId: { type: 'string', description: 'Source graph symbol id to inspect.' },
+    }),
+  },
+  {
+    name: 'alembic_code_impact',
+    tier: 'agent',
+    description:
+      'Estimate source graph impact for changed files or a symbol using Core impact traversal. Unknown test coverage is reported as a diagnostic, not success.',
+    inputSchema: sourceGraphInputSchema({
+      changedFiles: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Repo-relative changed files to seed the impact query.',
       },
-      projectScope: {
-        type: 'string',
-        description:
-          'Optional repo-relative project scope/folder to inspect before trusting source graph facts.',
-      },
-      catchUp: {
-        type: 'boolean',
-        description:
-          'Whether the status call may run a bounded Core incremental catch-up when stale files are detected. Defaults to true.',
-      },
-      maxCatchUpFiles: {
-        type: 'number',
-        description:
-          'Maximum number of changed/deleted files the status call may catch up in one bounded pass.',
+      symbolId: { type: 'string', description: 'Optional source graph symbol id seed.' },
+    }),
+  },
+  {
+    name: 'alembic_affected_tests',
+    tier: 'agent',
+    description:
+      'Return Core source graph affected-test candidates for changed files. Unknown mappings stay explicit through affected-tests diagnostics.',
+    inputSchema: sourceGraphInputSchema({
+      changedFiles: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Repo-relative changed files to map to affected tests.',
       },
     }),
   },

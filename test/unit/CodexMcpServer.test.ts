@@ -54,6 +54,16 @@ const CODEX_AGENT_PUBLIC_TOOL_NAMES = [
   'alembic_code_guard',
   'alembic_decision_record',
 ];
+const CODEX_SOURCE_GRAPH_TOOL_NAMES = [
+  'alembic_source_graph_status',
+  'alembic_symbol_search',
+  'alembic_code_explore',
+  'alembic_source_node',
+  'alembic_callers',
+  'alembic_callees',
+  'alembic_code_impact',
+  'alembic_affected_tests',
+];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
   ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
   'alembic_submit_knowledge',
@@ -498,6 +508,7 @@ describe('CodexMcpServer', () => {
     expect(names).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
+      ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
@@ -516,6 +527,7 @@ describe('CodexMcpServer', () => {
     expect(names).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
+      ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
@@ -837,6 +849,7 @@ describe('CodexMcpServer', () => {
     expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
+      ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',

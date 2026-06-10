@@ -397,8 +397,9 @@ function projectSymbol(value: unknown): Record<string, unknown> | undefined {
 }
 
 function projectSourceSections(value: unknown): Array<Record<string, unknown>> {
-  return arrayValue(value).map((section) =>
-    compact({
+  return arrayValue(value).map((section) => {
+    const metadata = isRecord(section.metadata) ? section.metadata : {};
+    return compact({
       filePath: stringValue(section.filePath),
       startLine: numberValue(section.startLine),
       endLine: numberValue(section.endLine),
@@ -408,9 +409,12 @@ function projectSourceSections(value: unknown): Array<Record<string, unknown>> {
         ? (stringValue(section.freshness.status) ?? 'unavailable')
         : undefined,
       redaction: isRecord(section.redaction) ? stringValue(section.redaction.state) : undefined,
+      overflow: booleanValue(metadata.overflow),
+      originalStartLine: numberValue(metadata.originalStartLine),
+      originalEndLine: numberValue(metadata.originalEndLine),
       symbolIds: stringList(section.symbolIds),
-    })
-  );
+    });
+  });
 }
 
 function projectRelations(value: unknown): Array<Record<string, unknown>> {

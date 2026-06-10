@@ -17,6 +17,16 @@ const hostWorkflowToolNames = [
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
 ];
+const sourceGraphToolNames = [
+  'alembic_source_graph_status',
+  'alembic_symbol_search',
+  'alembic_code_explore',
+  'alembic_source_node',
+  'alembic_callers',
+  'alembic_callees',
+  'alembic_code_impact',
+  'alembic_affected_tests',
+];
 const coreTools = [
   ...hostWorkflowToolNames.map((name) => ({
     name,
@@ -116,6 +126,16 @@ describe('Codex tool policy', () => {
       residentRoutePolicy: 'status-probe',
       schema: 'SourceGraphStatusInput',
     });
+    for (const toolName of sourceGraphToolNames.filter(
+      (name) => name !== 'alembic_source_graph_status'
+    )) {
+      expect(getPluginToolSurfaceEntry(toolName)).toMatchObject({
+        handlerOwner: 'CodexMcpServer.local',
+        knowledgeGate: 'cold-start',
+        owner: 'codex-local',
+        residentRoutePolicy: 'none',
+      });
+    }
   });
 
   test('keeps uninitialized workspaces on diagnostics/status/init and init-on-demand tools', () => {
@@ -131,7 +151,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
-      'alembic_source_graph_status',
+      ...sourceGraphToolNames,
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
@@ -153,7 +173,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
-      'alembic_source_graph_status',
+      ...sourceGraphToolNames,
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',
@@ -269,7 +289,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_codex_status',
       'alembic_codex_diagnostics',
-      'alembic_source_graph_status',
+      ...sourceGraphToolNames,
       'alembic_codex_init',
       'alembic_codex_dashboard',
       'alembic_codex_bootstrap',

@@ -2,16 +2,28 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseConnection } from '@alembic/core/database';
 import {
+  createSourceGraphAffectedTestsResult,
+  createSourceGraphCalleesResult,
+  createSourceGraphCallersResult,
+  createSourceGraphExploreResult,
   createSourceGraphFreshness,
+  createSourceGraphImpactResult,
+  createSourceGraphNodeResult,
+  createSourceGraphSearchResult,
   createSourceGraphStatusResult,
   type SourceGraphFreshnessState,
+  type SourceGraphOperationResult,
   SourceGraphRepositoryImpl,
   SourceGraphService,
   type SourceGraphStatusResult,
 } from '@alembic/core/source-graph';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { CODEX_LOCAL_TOOLS } from '../../ToolPolicy.js';
-import { projectSourceGraphOperationBusiness } from './output.js';
+import {
+  projectSourceGraphOperationBusiness,
+  SOURCE_GRAPH_OPERATION_TOOL_NAMES,
+  type SourceGraphOperationToolName,
+} from './output.js';
 
 interface SourceGraphStatusOptions {
   catchUp?: boolean;
@@ -19,6 +31,27 @@ interface SourceGraphStatusOptions {
   now?: number;
   projectScope?: string;
   repoId?: string;
+}
+
+interface SourceGraphOperationOptions extends SourceGraphStatusOptions {
+  changedFiles?: string[];
+  contextLines?: number;
+  edgeLimit?: number;
+  filePath?: string;
+  focus?: string;
+  generationId?: string;
+  includeConfig?: boolean;
+  includeEdges?: boolean;
+  includeGenerated?: boolean;
+  includeTests?: boolean;
+  includeText?: boolean;
+  kind?: string;
+  limit?: number;
+  maxSectionLines?: number;
+  nodeId?: string;
+  query?: string;
+  sourceSectionLineBudget?: number;
+  symbolId?: string;
 }
 
 interface SourceGraphRuntime {
@@ -54,6 +87,9 @@ interface SourceGraphRuntimeAction {
 
 const DEFAULT_REPO_ID = 'default';
 const DEFAULT_MAX_CATCH_UP_FILES = 50;
+const SOURCE_GRAPH_QUERY_TOOL_NAMES = SOURCE_GRAPH_OPERATION_TOOL_NAMES.filter(
+  (toolName) => toolName !== 'alembic_source_graph_status'
+) as Exclude<SourceGraphOperationToolName, 'alembic_source_graph_status'>[];
 
 // Reuse Core source graph runtimes per project inside one Codex MCP session.
 const SOURCE_GRAPH_RUNTIME_CACHE = new Map<string, Promise<SourceGraphRuntime>>();
@@ -64,6 +100,19 @@ export async function buildSourceGraphStatus(
 ): Promise<Record<string, unknown>> {
   const options = normalizeSourceGraphStatusOptions(args);
   const business = await inspectSourceGraphStatus(projectRoot, options);
+  return { success: true, data: business };
+}
+
+export async function buildSourceGraphOperation(
+  projectRoot: string,
+  args: Record<string, unknown> = {},
+  toolName: string
+): Promise<Record<string, unknown>> {
+  if (!isSourceGraphQueryToolName(toolName)) {
+    return buildSourceGraphStatus(projectRoot, args);
+  }
+  const options = normalizeSourceGraphOperationOptions(args);
+  const business = await inspectSourceGraphOperation(projectRoot, options, toolName);
   return { success: true, data: business };
 }
 
@@ -119,6 +168,46 @@ export async function resetSourceGraphRuntimeCacheForTests(): Promise<void> {
   SOURCE_GRAPH_RUNTIME_CACHE.clear();
 }
 
+async function inspectSourceGraphOperation(
+  projectRoot: string,
+  options: SourceGraphOperationOptions,
+  toolName: Exclude<SourceGraphOperationToolName, 'alembic_source_graph_status'>
+): Promise<Record<string, unknown>> {
+  const resolution = resolveSourceGraphRuntime(projectRoot, options);
+  if ('error' in resolution) {
+    return projectOperationResult(resolution.error, options, toolName);
+  }
+  if (!resolution.databaseExists) {
+    return projectOperationResult(
+      createUninitializedStatus(resolution.projectRoot, options),
+      options,
+      toolName
+    );
+  }
+
+  try {
+    const runtime = await getSourceGraphRuntime(resolution);
+    const report = await runtime.service.inspectFreshness({
+      projectRoot: runtime.projectRoot,
+      repoId: runtime.repoId,
+      projectScope: options.projectScope,
+      now: options.now,
+    });
+    const catchUp = await maybeCatchUpSourceGraph(runtime, report, options);
+    if (!catchUp.status.ready || catchUp.status.freshness.status !== 'fresh') {
+      return projectOperationResult(catchUp.status, options, toolName);
+    }
+    const result = await queryCoreSourceGraph(runtime, catchUp.status, options, toolName);
+    return projectSourceGraphOperationBusiness(result, toolName);
+  } catch (err: unknown) {
+    return projectOperationResult(
+      createUnavailableStatus(projectRoot, options, err),
+      options,
+      toolName
+    );
+  }
+}
+
 async function inspectSourceGraphStatus(
   projectRoot: string,
   options: SourceGraphStatusOptions
@@ -153,6 +242,136 @@ async function inspectSourceGraphStatus(
       databaseExists: resolution.databaseExists,
       runtimeReady: false,
     });
+  }
+}
+
+async function queryCoreSourceGraph(
+  runtime: SourceGraphRuntime,
+  status: SourceGraphStatusResult,
+  options: SourceGraphOperationOptions,
+  toolName: Exclude<SourceGraphOperationToolName, 'alembic_source_graph_status'>
+): Promise<SourceGraphOperationResult> {
+  const ranking = {
+    generationId: options.generationId ?? status.generationId,
+    projectRoot: runtime.projectRoot,
+    repoId: runtime.repoId,
+    limit: options.limit,
+    kind: options.kind,
+    filePath: options.filePath,
+    includeEdges: options.includeEdges,
+    includeText: options.includeText,
+    includeTests: options.includeTests,
+    includeGenerated: options.includeGenerated,
+    includeConfig: options.includeConfig,
+    contextLines: options.contextLines,
+    maxSectionLines: options.maxSectionLines,
+    sourceSectionLineBudget: options.sourceSectionLineBudget,
+    edgeLimit: options.edgeLimit,
+  };
+
+  switch (toolName) {
+    case 'alembic_symbol_search':
+      return runtime.service.searchSourceGraph({
+        ...ranking,
+        query: sourceGraphQueryString(options),
+      });
+    case 'alembic_code_explore':
+      return runtime.service.exploreSourceGraph({
+        ...ranking,
+        query: options.query,
+        focus: options.focus,
+      });
+    case 'alembic_source_node':
+      return runtime.service.getSourceGraphNode({
+        ...ranking,
+        nodeId: sourceGraphNodeId(options),
+      });
+    case 'alembic_callers':
+      return runtime.service.getSourceGraphCallers({
+        ...ranking,
+        symbolId: sourceGraphSymbolId(options),
+      });
+    case 'alembic_callees':
+      return runtime.service.getSourceGraphCallees({
+        ...ranking,
+        symbolId: sourceGraphSymbolId(options),
+      });
+    case 'alembic_code_impact':
+      return runtime.service.getSourceGraphImpact({
+        ...ranking,
+        changedFiles: options.changedFiles,
+        symbolId: options.symbolId,
+      });
+    case 'alembic_affected_tests':
+      return runtime.service.getSourceGraphAffectedTests({
+        ...ranking,
+        changedFiles: options.changedFiles ?? [],
+      });
+  }
+}
+
+function projectOperationResult(
+  status: SourceGraphStatusResult,
+  options: SourceGraphOperationOptions,
+  toolName: Exclude<SourceGraphOperationToolName, 'alembic_source_graph_status'>
+): Record<string, unknown> {
+  return projectSourceGraphOperationBusiness(
+    createBlockedOperationResult(status, options, toolName),
+    toolName
+  );
+}
+
+function createBlockedOperationResult(
+  status: SourceGraphStatusResult,
+  options: SourceGraphOperationOptions,
+  toolName: Exclude<SourceGraphOperationToolName, 'alembic_source_graph_status'>
+): SourceGraphOperationResult {
+  const base = {
+    generationId: status.generationId,
+    projectRoot: status.projectRoot,
+    repoId: status.repoId,
+    freshness: status.freshness,
+    diagnostics: status.diagnostics,
+    detailRefs: status.detailRefs,
+  };
+  switch (toolName) {
+    case 'alembic_symbol_search':
+      return createSourceGraphSearchResult({
+        ...base,
+        query: sourceGraphQueryString(options),
+      });
+    case 'alembic_code_explore':
+      return createSourceGraphExploreResult({
+        ...base,
+        query: options.query,
+        focus: options.focus,
+      });
+    case 'alembic_source_node':
+      return createSourceGraphNodeResult({
+        ...base,
+        nodeId: sourceGraphNodeId(options),
+      });
+    case 'alembic_callers':
+      return createSourceGraphCallersResult({
+        ...base,
+        symbolId: sourceGraphSymbolId(options),
+      });
+    case 'alembic_callees':
+      return createSourceGraphCalleesResult({
+        ...base,
+        symbolId: sourceGraphSymbolId(options),
+      });
+    case 'alembic_code_impact':
+      return createSourceGraphImpactResult({
+        ...base,
+        changedFiles: options.changedFiles,
+      });
+    case 'alembic_affected_tests':
+      return createSourceGraphAffectedTestsResult({
+        ...base,
+        changedFiles: options.changedFiles,
+        unknownReason: status.freshness.reason ?? 'Source graph is not fresh enough to map tests.',
+      });
   }
 }
 
@@ -463,8 +682,8 @@ function createDegradedStatus(
 
 function buildSourceGraphInitializeGuidance(): Record<string, unknown> {
   const toolNames = CODEX_LOCAL_TOOLS.map((tool) => tool.name);
-  const sourceGraphTools = toolNames.filter(
-    (toolName) => toolName === 'alembic_source_graph_status'
+  const sourceGraphTools = toolNames.filter((toolName) =>
+    (SOURCE_GRAPH_OPERATION_TOOL_NAMES as readonly string[]).includes(toolName)
   );
   const recoveryTools = toolNames.filter((toolName) =>
     ['alembic_codex_init', 'alembic_codex_bootstrap', 'alembic_codex_rescan'].includes(toolName)
@@ -478,6 +697,12 @@ function buildSourceGraphInitializeGuidance(): Record<string, unknown> {
       'When status reports needs_source_graph_init or run_incremental_source_graph_index, run an authorized Core source graph build or catch-up path before source queries.',
     ],
   };
+}
+
+function isSourceGraphQueryToolName(
+  toolName: string
+): toolName is Exclude<SourceGraphOperationToolName, 'alembic_source_graph_status'> {
+  return (SOURCE_GRAPH_QUERY_TOOL_NAMES as readonly string[]).includes(toolName);
 }
 
 function sourceGraphActionsForFreshness(
@@ -532,8 +757,54 @@ function normalizeSourceGraphStatusOptions(
   };
 }
 
+function normalizeSourceGraphOperationOptions(
+  args: Record<string, unknown>
+): SourceGraphOperationOptions {
+  return {
+    ...normalizeSourceGraphStatusOptions(args),
+    changedFiles: stringArray(args.changedFiles),
+    contextLines: normalizeNumberOption(args.contextLines),
+    edgeLimit: normalizeNumberOption(args.edgeLimit),
+    filePath: normalizeStringOption(args.filePath),
+    focus: normalizeStringOption(args.focus),
+    generationId: normalizeStringOption(args.generationId),
+    includeConfig: normalizeBooleanOption(args.includeConfig),
+    includeEdges: normalizeBooleanOption(args.includeEdges),
+    includeGenerated: normalizeBooleanOption(args.includeGenerated),
+    includeTests: normalizeBooleanOption(args.includeTests),
+    includeText: normalizeBooleanOption(args.includeText),
+    kind: normalizeStringOption(args.kind),
+    limit: normalizeNumberOption(args.limit),
+    maxSectionLines: normalizeNumberOption(args.maxSectionLines),
+    nodeId: normalizeStringOption(args.nodeId),
+    query: normalizeStringOption(args.query),
+    sourceSectionLineBudget: normalizeNumberOption(args.sourceSectionLineBudget),
+    symbolId: normalizeStringOption(args.symbolId),
+  };
+}
+
+function sourceGraphQueryString(options: SourceGraphOperationOptions): string {
+  return options.query ?? options.focus ?? options.filePath ?? options.kind ?? 'source-graph-query';
+}
+
+function sourceGraphNodeId(options: SourceGraphOperationOptions): string {
+  return options.nodeId ?? options.symbolId ?? options.filePath ?? 'missing-source-node';
+}
+
+function sourceGraphSymbolId(options: SourceGraphOperationOptions): string {
+  return options.symbolId ?? options.nodeId ?? 'missing-source-symbol';
+}
+
 function normalizeStringOption(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeNumberOption(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeBooleanOption(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function stringArray(value: unknown): string[] {

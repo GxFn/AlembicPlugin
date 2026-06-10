@@ -54,6 +54,9 @@ describe('MCP source graph output contract', () => {
       expect(projected).not.toHaveProperty('success');
       expect(JSON.stringify(projected)).not.toContain(projectRoot);
       expect(JSON.stringify(projected)).not.toContain('must-not-leak');
+      if ('sourceSections' in projected && Array.isArray(projected.sourceSections)) {
+        expect(JSON.stringify(projected.sourceSections)).not.toContain('metadata');
+      }
       expect(findForbiddenSourceGraphOutputField(projected)).toBeNull();
     }
   });
@@ -271,7 +274,12 @@ function sampleGraphFixtures() {
     reason: 'symbol-context',
     freshness,
     symbolIds: ['symbol-1'],
-    metadata: { internal: 'must-not-leak' },
+    metadata: {
+      internal: 'must-not-leak',
+      overflow: true,
+      originalStartLine: 1,
+      originalEndLine: 12,
+    },
   });
   return { caller, edge, section, symbol };
 }

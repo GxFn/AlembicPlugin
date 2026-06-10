@@ -81,7 +81,7 @@ import {
   createMcpStructuredToolResult,
   serializeMcpToolResult,
 } from './output-contract.js';
-import { buildSourceGraphStatus } from './source-graph/status.js';
+import { buildSourceGraphOperation, buildSourceGraphStatus } from './source-graph/status.js';
 import './codex-local-tools/output.js';
 import { TIER_ORDER, TOOLS } from './tools.js';
 
@@ -369,6 +369,8 @@ export class CodexMcpServer {
 
     const localDispatch = dispatchCodexLocalTool(name, args, {
       buildDiagnostics: () => this.buildDiagnostics(),
+      buildSourceGraphOperation: async (toolName, nextArgs) =>
+        buildSourceGraphOperation(this.projectRoot, nextArgs, toolName),
       buildSourceGraphStatus: async (nextArgs) =>
         buildSourceGraphStatus(this.projectRoot, nextArgs),
       buildStatus: () => this.buildStatus(),

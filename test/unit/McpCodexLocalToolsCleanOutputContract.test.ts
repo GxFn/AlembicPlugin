@@ -17,6 +17,13 @@ const expectedCodexLocalToolNames = [
   'alembic_codex_status',
   'alembic_codex_diagnostics',
   'alembic_source_graph_status',
+  'alembic_symbol_search',
+  'alembic_code_explore',
+  'alembic_source_node',
+  'alembic_callers',
+  'alembic_callees',
+  'alembic_code_impact',
+  'alembic_affected_tests',
   'alembic_codex_init',
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
@@ -271,7 +278,16 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
           databaseExists: false,
         },
         guidance: {
-          sourceGraphTools: ['alembic_source_graph_status'],
+          sourceGraphTools: [
+            'alembic_source_graph_status',
+            'alembic_symbol_search',
+            'alembic_code_explore',
+            'alembic_source_node',
+            'alembic_callers',
+            'alembic_callees',
+            'alembic_code_impact',
+            'alembic_affected_tests',
+          ],
           recoveryTools: ['alembic_codex_init', 'alembic_codex_bootstrap'],
           playbook: ['Use alembic_source_graph_status first.'],
         },
@@ -294,6 +310,65 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         ],
         ready: false,
       };
+    case 'alembic_symbol_search':
+      return sampleSourceGraphOperationData('search', {
+        query: 'helper',
+        symbols: [{ symbolId: 'src/helper.ts#helper', displayName: 'helper' }],
+        sourceSections: [
+          {
+            filePath: 'src/helper.ts',
+            startLine: 1,
+            endLine: 1,
+            text: 'export function helper() {}',
+            freshness: 'fresh',
+            overflow: false,
+          },
+        ],
+        relations: [],
+        impact: { impactedFiles: ['src/helper.ts'] },
+      });
+    case 'alembic_code_explore':
+      return sampleSourceGraphOperationData('explore', {
+        query: 'run helper',
+        focus: 'runtime',
+        symbols: [{ symbolId: 'src/index.ts#run', displayName: 'run' }],
+        sourceSections: [],
+        relations: [],
+      });
+    case 'alembic_source_node':
+      return sampleSourceGraphOperationData('node', {
+        nodeId: 'src/helper.ts#helper',
+        symbol: { symbolId: 'src/helper.ts#helper', displayName: 'helper' },
+        sourceSections: [],
+        relations: [],
+      });
+    case 'alembic_callers':
+      return sampleSourceGraphOperationData('callers', {
+        symbolId: 'src/helper.ts#helper',
+        callers: [{ symbolId: 'src/index.ts#run', displayName: 'run' }],
+        sourceSections: [],
+        relations: [],
+      });
+    case 'alembic_callees':
+      return sampleSourceGraphOperationData('callees', {
+        symbolId: 'src/index.ts#run',
+        callees: [{ symbolId: 'src/helper.ts#helper', displayName: 'helper' }],
+        sourceSections: [],
+        relations: [],
+      });
+    case 'alembic_code_impact':
+      return sampleSourceGraphOperationData('impact', {
+        changedFiles: ['src/helper.ts'],
+        impactedFiles: ['test/helper.test.ts'],
+        relations: [],
+        impact: { affectedValidations: ['test:test/helper.test.ts'] },
+      });
+    case 'alembic_affected_tests':
+      return sampleSourceGraphOperationData('affected-tests', {
+        changedFiles: ['src/helper.ts'],
+        testFiles: [],
+        unknownReason: 'No source_graph symbol_to_test edge maps these files.',
+      });
     case 'alembic_codex_init':
       return {
         mode: 'ghost',
@@ -325,4 +400,35 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         targets: { statePath: '/tmp/project/.asd/runtime/daemon.json' },
       };
   }
+}
+
+function sampleSourceGraphOperationData(
+  operation: string,
+  fields: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    operation,
+    repo: { id: 'default' },
+    graph: {
+      freshness: operation === 'affected-tests' ? 'fresh' : 'fresh',
+      generationId: 'gen-1',
+      pendingFileCount: 0,
+      staleFileCount: 0,
+    },
+    diagnostics:
+      operation === 'affected-tests'
+        ? [
+            {
+              code: 'affected-tests-unknown',
+              severity: 'info',
+              owner: 'test',
+              blocksReady: true,
+            },
+          ]
+        : [],
+    detailRefs: [],
+    nextActions: operation === 'affected-tests' ? ['run_broader_validation_or_add_test_edges'] : [],
+    ready: operation !== 'affected-tests',
+    ...fields,
+  };
 }
