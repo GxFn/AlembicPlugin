@@ -42,6 +42,7 @@ export function dispatchCodexLocalTool(
     case 'alembic_callees':
     case 'alembic_code_impact':
     case 'alembic_affected_tests':
+    case 'alembic_validation_plan':
       return { handled: true, result: handlers.buildSourceGraphOperation(name, args) };
     case 'alembic_codex_init':
       return { handled: true, result: handlers.initializeWorkspace(args) };

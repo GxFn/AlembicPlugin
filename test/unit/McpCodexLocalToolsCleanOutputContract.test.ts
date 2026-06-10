@@ -24,6 +24,7 @@ const expectedCodexLocalToolNames = [
   'alembic_callees',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
   'alembic_codex_init',
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
@@ -227,6 +228,10 @@ function sampleLegacyEnvelope(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NA
 }
 
 function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
+  const sourceGraphData = sampleSourceGraphBusinessData(toolName);
+  if (sourceGraphData) {
+    return sourceGraphData;
+  }
   switch (toolName) {
     case 'alembic_codex_status':
       return {
@@ -243,90 +248,47 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         primaryAction: { tool: 'alembic_codex_status' },
         summary: 'runtime checks passed',
       };
-    case 'alembic_source_graph_status':
+    case 'alembic_codex_init':
       return {
-        operation: 'status',
-        repo: { id: 'default' },
-        graph: {
-          freshness: 'uninitialized',
-          pendingFileCount: 0,
-          staleFileCount: 0,
-        },
-        sync: { status: 'uninitialized' },
-        counts: {
-          fileCount: 0,
-          symbolCount: 0,
-          edgeCount: 0,
-          parseErrorCount: 0,
-        },
-        lifecycle: {
-          mcpInstalled: true,
-          runtimeReady: true,
-          knowledgeSynced: null,
-          sourceGraphInitialized: false,
-          sourceGraphIndexed: false,
-          sourceGraphFresh: false,
-          watcher: {
-            mode: 'unavailable',
-            nextAction: 'run_incremental_source_graph_index',
-          },
-          catchUp: {
-            attempted: false,
-            changedFiles: [],
-            deletedFiles: [],
-          },
-          databaseExists: false,
-        },
-        guidance: {
-          sourceGraphTools: [
-            'alembic_source_graph_status',
-            'alembic_symbol_search',
-            'alembic_code_explore',
-            'alembic_source_node',
-            'alembic_callers',
-            'alembic_callees',
-            'alembic_code_impact',
-            'alembic_affected_tests',
-          ],
-          recoveryTools: ['alembic_codex_init', 'alembic_codex_bootstrap'],
-          playbook: ['Use alembic_source_graph_status first.'],
-        },
-        actions: [
-          {
-            code: 'needs_source_graph_init',
-            description: 'Initialize the Core source graph.',
-          },
-        ],
-        diagnostics: [
-          {
-            code: 'source-ref-unproven',
-            severity: 'warning',
-            owner: 'plugin',
-            blocksReady: true,
-          },
-        ],
-        nextActions: [
-          'initialize_core_source_graph_or_run_catch_up_before_requesting_source_facts',
-        ],
-        ready: false,
+        mode: 'ghost',
+        nextActions: [{ tool: 'alembic_bootstrap' }],
+        profile: 'codex',
+        results: [],
+        status: { initialized: true },
       };
+    case 'alembic_codex_dashboard':
+      return {
+        errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
+        needsUserInput: true,
+        nextActions: [{ tool: 'alembic_codex_status' }],
+      };
+    case 'alembic_codex_bootstrap':
+      return { job: { id: 'bootstrap-1' }, jobId: 'bootstrap-1' };
+    case 'alembic_codex_rescan':
+      return { job: { id: 'rescan-1' }, jobId: 'rescan-1' };
+    case 'alembic_codex_job':
+      return {
+        jobRoute: { selected: 'embedded-host-agent-recoverable' },
+        jobs: [{ id: 'job-1' }],
+      };
+    case 'alembic_codex_stop':
+      return { daemon: { pidAlive: false, ready: false, status: 'stopped' } };
+    case 'alembic_codex_cleanup':
+      return {
+        dryRun: true,
+        targets: { statePath: '/tmp/project/.asd/runtime/daemon.json' },
+      };
+  }
+}
+
+function sampleSourceGraphBusinessData(
+  toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]
+): Record<string, unknown> | null {
+  switch (toolName) {
+    case 'alembic_source_graph_status':
+      return sampleSourceGraphStatusData();
     case 'alembic_symbol_search':
-      return sampleSourceGraphOperationData('search', {
-        query: 'helper',
-        symbols: [{ symbolId: 'src/helper.ts#helper', displayName: 'helper' }],
-        sourceSections: [
-          {
-            filePath: 'src/helper.ts',
-            startLine: 1,
-            endLine: 1,
-            text: 'export function helper() {}',
-            freshness: 'fresh',
-            overflow: false,
-          },
-        ],
-        relations: [],
-        impact: { impactedFiles: ['src/helper.ts'] },
-      });
+      return sampleSourceGraphSearchData();
     case 'alembic_code_explore':
       return sampleSourceGraphOperationData('explore', {
         query: 'run helper',
@@ -369,37 +331,101 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         testFiles: [],
         unknownReason: 'No source_graph symbol_to_test edge maps these files.',
       });
-    case 'alembic_codex_init':
-      return {
-        mode: 'ghost',
-        nextActions: [{ tool: 'alembic_bootstrap' }],
-        profile: 'codex',
-        results: [],
-        status: { initialized: true },
-      };
-    case 'alembic_codex_dashboard':
-      return {
-        errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
-        needsUserInput: true,
-        nextActions: [{ tool: 'alembic_codex_status' }],
-      };
-    case 'alembic_codex_bootstrap':
-      return { job: { id: 'bootstrap-1' }, jobId: 'bootstrap-1' };
-    case 'alembic_codex_rescan':
-      return { job: { id: 'rescan-1' }, jobId: 'rescan-1' };
-    case 'alembic_codex_job':
-      return {
-        jobRoute: { selected: 'embedded-host-agent-recoverable' },
-        jobs: [{ id: 'job-1' }],
-      };
-    case 'alembic_codex_stop':
-      return { daemon: { pidAlive: false, ready: false, status: 'stopped' } };
-    case 'alembic_codex_cleanup':
-      return {
-        dryRun: true,
-        targets: { statePath: '/tmp/project/.asd/runtime/daemon.json' },
-      };
+    case 'alembic_validation_plan':
+      return sampleSourceGraphValidationPlanData();
+    default:
+      return null;
   }
+}
+
+function sampleSourceGraphStatusData(): Record<string, unknown> {
+  return {
+    operation: 'status',
+    repo: { id: 'default' },
+    graph: { freshness: 'uninitialized', pendingFileCount: 0, staleFileCount: 0 },
+    sync: { status: 'uninitialized' },
+    counts: { fileCount: 0, symbolCount: 0, edgeCount: 0, parseErrorCount: 0 },
+    lifecycle: {
+      mcpInstalled: true,
+      runtimeReady: true,
+      knowledgeSynced: null,
+      sourceGraphInitialized: false,
+      sourceGraphIndexed: false,
+      sourceGraphFresh: false,
+      watcher: { mode: 'unavailable', nextAction: 'run_incremental_source_graph_index' },
+      catchUp: { attempted: false, changedFiles: [], deletedFiles: [] },
+      databaseExists: false,
+    },
+    guidance: {
+      sourceGraphTools: [
+        'alembic_source_graph_status',
+        'alembic_symbol_search',
+        'alembic_code_explore',
+        'alembic_source_node',
+        'alembic_callers',
+        'alembic_callees',
+        'alembic_code_impact',
+        'alembic_affected_tests',
+        'alembic_validation_plan',
+      ],
+      recoveryTools: ['alembic_codex_init', 'alembic_codex_bootstrap'],
+      playbook: ['Use alembic_source_graph_status first.'],
+    },
+    actions: [
+      { code: 'needs_source_graph_init', description: 'Initialize the Core source graph.' },
+    ],
+    diagnostics: [
+      { code: 'source-ref-unproven', severity: 'warning', owner: 'plugin', blocksReady: true },
+    ],
+    nextActions: ['initialize_core_source_graph_or_run_catch_up_before_requesting_source_facts'],
+    ready: false,
+  };
+}
+
+function sampleSourceGraphSearchData(): Record<string, unknown> {
+  return sampleSourceGraphOperationData('search', {
+    query: 'helper',
+    symbols: [{ symbolId: 'src/helper.ts#helper', displayName: 'helper' }],
+    sourceSections: [
+      {
+        filePath: 'src/helper.ts',
+        startLine: 1,
+        endLine: 1,
+        text: 'export function helper() {}',
+        freshness: 'fresh',
+        overflow: false,
+      },
+    ],
+    relations: [],
+    impact: { impactedFiles: ['src/helper.ts'] },
+  });
+}
+
+function sampleSourceGraphValidationPlanData(): Record<string, unknown> {
+  return sampleSourceGraphOperationData('validation-plan', {
+    changedFiles: ['src/helper.ts'],
+    seedSymbols: [],
+    impactedFiles: ['src/helper.ts', 'test/helper.test.ts'],
+    impactedSymbols: [{ symbolId: 'src/helper.ts#helper', displayName: 'helper' }],
+    relations: [],
+    validationPlan: {
+      mustRun: [
+        {
+          bucket: 'mustRun',
+          command: 'vitest run test/helper.test.ts',
+          evidenceCount: 1,
+          evidenceRefs: ['src/helper.ts'],
+          kind: 'test',
+          label: 'Run helper test',
+          reason: 'Changed helper source.',
+        },
+      ],
+      recommended: [],
+      manualReview: [],
+      unknown: [],
+    },
+    acceptanceBoundary: 'Source graph validation plans are advisory and do not replace acceptance.',
+  });
 }
 
 function sampleSourceGraphOperationData(

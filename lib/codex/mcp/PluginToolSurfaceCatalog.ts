@@ -222,6 +222,17 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'none',
   }),
+  alembic_validation_plan: catalogEntry({
+    name: 'alembic_validation_plan',
+    owner: 'codex-local',
+    handlerOwner: 'CodexMcpServer.local',
+    tier: 'agent',
+    schema: 'SourceGraphValidationPlanInput',
+    annotations: readOnlyTool('Read Alembic Validation Plan'),
+    gateway: null,
+    knowledgeGate: 'cold-start',
+    residentRoutePolicy: 'none',
+  }),
   alembic_codex_init: catalogEntry({
     name: 'alembic_codex_init',
     owner: 'codex-local',

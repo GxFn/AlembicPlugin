@@ -44,6 +44,7 @@ const VALIDATION_TOOL_NAMES = new Set([
   'alembic_guard',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
 ]);
 
 export function buildCodexMcpGuidance(tools: readonly GuidanceToolLike[]): CodexMcpGuidance {
@@ -136,10 +137,14 @@ function buildLifecyclePlaybookLine(lifecycleTools: string[]): string {
 
 function buildFallbackPlaybookLine(visibleToolNameSet: Set<string>): string {
   const hasAffectedTests = visibleToolNameSet.has('alembic_affected_tests');
+  const hasValidationPlan = visibleToolNameSet.has('alembic_validation_plan');
   const affectedTestsHint = hasAffectedTests
     ? ' Use `alembic_affected_tests` as a hint for likely tests, not as acceptance.'
     : '';
-  return `Fallback and validation: when graph freshness is degraded, scope is ambiguous, or unsupported language/partial parse appears, fall back to raw file reads/search, name the uncertainty, and run matching repository validation.${affectedTestsHint}`;
+  const validationPlanHint = hasValidationPlan
+    ? ' Use `alembic_validation_plan` for advisory mustRun/recommended/manualReview/unknown buckets; never treat it as acceptance.'
+    : '';
+  return `Fallback and validation: when graph freshness is degraded, scope is ambiguous, or unsupported language/partial parse appears, fall back to raw file reads/search, name the uncertainty, and run matching repository validation.${affectedTestsHint}${validationPlanHint}`;
 }
 
 function formatToolList(toolNames: readonly string[]): string {

@@ -121,8 +121,20 @@ describe('Agent-facing public tools contract foundation', () => {
         },
         retrievalPlan: { route: 'structure-first', vectorUseKind: 'none' },
         toolPlan: {
+          decisionNeed: 'record-if-confirmed',
           guardNeed: 'recommend-if-code-changed',
+          knowledgeNeed: 'optional',
           primeNeed: 'optional',
+          sourceGraphNeed: 'recommended',
+          sourceGraphPlan: {
+            action: 'validation-plan-after-work',
+            reasonCode: 'source-graph-validation-plan-after-changes',
+            tools: [
+              'alembic_source_graph_status',
+              'alembic_code_explore',
+              'alembic_validation_plan',
+            ],
+          },
           workNeed: 'maybe-start',
         },
       }
@@ -263,6 +275,20 @@ describe('Agent-facing public tools contract foundation', () => {
       primeRef: 'prime-public-contract',
       refs: result.refs,
       status: 'ready',
+      sourceGraphGuidance: {
+        boundary:
+          'Source graph guidance is code-fact evidence only; it does not replace validation.',
+        recommendedQueries: [
+          {
+            query: 'source graph',
+            tool: 'alembic_code_explore',
+          },
+        ],
+        recommendedTools: ['alembic_source_graph_status', 'alembic_code_explore'],
+        sourceEvidenceRefs: [],
+        sourceGraphRef: null,
+        status: 'recommended',
+      },
       summary: result.summary,
       trustPosture: {
         antiEmptyReceiptRequired: true,
@@ -392,6 +418,10 @@ describe('Agent-facing public tools contract foundation', () => {
       'primeNeed',
       'workNeed',
       'guardNeed',
+      'sourceGraphNeed',
+      'sourceGraphPlan',
+      'knowledgeNeed',
+      'decisionNeed',
       'vectorUseKind',
       'confidenceBand',
     ]);

@@ -8,6 +8,7 @@ import {
   createSourceGraphNodeResult,
   createSourceGraphSearchResult,
   createSourceGraphStatusResult,
+  createSourceGraphValidationPlanResult,
   createSourceSection,
   createSourceSymbolNode,
 } from '@alembic/core/source-graph';
@@ -52,6 +53,8 @@ describe('MCP source graph output contract', () => {
       expect(projected).not.toHaveProperty('projectRoot');
       expect(projected).not.toHaveProperty('data');
       expect(projected).not.toHaveProperty('success');
+      expect(projected).toHaveProperty('sourceGraphRef');
+      expect(projected).toHaveProperty('sourceEvidenceRefs');
       expect(JSON.stringify(projected)).not.toContain(projectRoot);
       expect(JSON.stringify(projected)).not.toContain('must-not-leak');
       if ('sourceSections' in projected && Array.isArray(projected.sourceSections)) {
@@ -59,6 +62,27 @@ describe('MCP source graph output contract', () => {
       }
       expect(findForbiddenSourceGraphOutputField(projected)).toBeNull();
     }
+
+    expect(samples.alembic_validation_plan).toBeTruthy();
+    const validationPlan = projectSourceGraphOperationBusiness(
+      samples.alembic_validation_plan,
+      'alembic_validation_plan'
+    );
+    expect(validationPlan).toMatchObject({
+      operation: 'validation-plan',
+      validationPlan: {
+        mustRun: [
+          {
+            command: 'npm run test:unit -- test/unit/McpSourceGraphOutputContract.test.ts',
+            evidenceCount: 1,
+          },
+        ],
+        recommended: [{ command: 'npm run build:check' }],
+        manualReview: [{ diagnosticCode: 'affected-tests-unknown' }],
+        unknown: [{ diagnosticCode: 'source-ref-unproven' }],
+      },
+    });
+    expect(JSON.stringify(validationPlan)).not.toContain('metadata');
   });
 
   test('keeps source graph status honest when the Core graph is unavailable', () => {
@@ -215,6 +239,97 @@ function sampleOperationResults(): Record<SourceGraphOperationToolName, unknown>
       testFiles: ['test/unit/McpSourceGraphOutputContract.test.ts'],
       unknownReason: 'affected tests are illustrative until Core query path is connected',
     }),
+    alembic_validation_plan: sampleValidationPlanResult(base, symbol, edge),
+  };
+}
+
+function sampleValidationPlanResult(
+  base: ReturnType<typeof sampleOperationBase>,
+  symbol: ReturnType<typeof createSourceSymbolNode>,
+  edge: ReturnType<typeof createSourceGraphEdge>
+) {
+  return createSourceGraphValidationPlanResult({
+    ...base,
+    changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+    impactedFiles: [
+      'lib/codex/mcp/source-graph/status.ts',
+      'test/unit/McpSourceGraphOutputContract.test.ts',
+    ],
+    impactedSymbols: [symbol],
+    edges: [edge],
+    mustRun: [sampleMustRunRecommendation()],
+    recommended: [sampleRecommendedRecommendation()],
+    manualReview: [sampleManualReviewRecommendation()],
+    unknown: [sampleUnknownRecommendation()],
+  });
+}
+
+function sampleMustRunRecommendation() {
+  return {
+    kind: 'test-file' as const,
+    label: 'Run source graph output contract tests',
+    command: 'npm run test:unit -- test/unit/McpSourceGraphOutputContract.test.ts',
+    filePath: 'test/unit/McpSourceGraphOutputContract.test.ts',
+    reason: 'Changed source graph projection should keep clean output stable.',
+    evidence: [
+      {
+        kind: 'changed-file' as const,
+        ref: 'lib/codex/mcp/source-graph/status.ts',
+        filePath: 'lib/codex/mcp/source-graph/status.ts',
+        reason: 'Changed Plugin source graph runtime.',
+      },
+    ],
+  };
+}
+
+function sampleRecommendedRecommendation() {
+  return {
+    kind: 'repo-command' as const,
+    label: 'Run typecheck',
+    command: 'npm run build:check',
+    reason: 'TypeScript surface changed.',
+    evidence: [
+      {
+        kind: 'repo-script' as const,
+        ref: 'package.json#build:check',
+        command: 'npm run build:check',
+        reason: 'Repo script discovered by Core validation planner.',
+      },
+    ],
+  };
+}
+
+function sampleManualReviewRecommendation() {
+  return {
+    kind: 'manual-review' as const,
+    label: 'Review MCP clean-output contract',
+    diagnosticCode: 'affected-tests-unknown' as const,
+    reason: 'Validation plan cannot prove controller acceptance.',
+    evidence: [
+      {
+        kind: 'diagnostic' as const,
+        ref: 'affected-tests-unknown',
+        diagnosticCode: 'affected-tests-unknown' as const,
+        reason: 'Affected tests are advisory.',
+      },
+    ],
+  };
+}
+
+function sampleUnknownRecommendation() {
+  return {
+    kind: 'unknown' as const,
+    label: 'Unknown downstream host smoke',
+    diagnosticCode: 'source-ref-unproven' as const,
+    reason: 'Host smoke coverage is outside source graph proof.',
+    evidence: [
+      {
+        kind: 'diagnostic' as const,
+        ref: 'source-ref-unproven',
+        diagnosticCode: 'source-ref-unproven' as const,
+        reason: 'Source graph evidence is not acceptance evidence.',
+      },
+    ],
   };
 }
 

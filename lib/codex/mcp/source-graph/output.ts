@@ -10,6 +10,7 @@ export const SOURCE_GRAPH_OPERATION_TOOL_NAMES = [
   'alembic_callees',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
 ] as const;
 
 export type SourceGraphOperationToolName = (typeof SOURCE_GRAPH_OPERATION_TOOL_NAMES)[number];
@@ -23,6 +24,7 @@ export const SOURCE_GRAPH_OPERATION_BY_TOOL = {
   alembic_callees: 'callees',
   alembic_code_impact: 'impact',
   alembic_affected_tests: 'affected-tests',
+  alembic_validation_plan: 'validation-plan',
 } as const satisfies Record<SourceGraphOperationToolName, SourceGraphOperationKind>;
 
 export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
@@ -31,6 +33,8 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'repo',
     'graph',
     'sync',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'counts',
     'lifecycle',
     'guidance',
@@ -45,6 +49,8 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'repo',
     'graph',
     'query',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'symbols',
     'sourceSections',
     'relations',
@@ -60,6 +66,8 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'graph',
     'query',
     'focus',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'symbols',
     'sourceSections',
     'relations',
@@ -73,6 +81,8 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'repo',
     'graph',
     'nodeId',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'symbol',
     'sourceSections',
     'relations',
@@ -86,6 +96,8 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'repo',
     'graph',
     'symbolId',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'callers',
     'sourceSections',
     'relations',
@@ -99,6 +111,8 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'repo',
     'graph',
     'symbolId',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'callees',
     'sourceSections',
     'relations',
@@ -112,6 +126,8 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'repo',
     'graph',
     'changedFiles',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'impactedFiles',
     'relations',
     'impact',
@@ -125,8 +141,28 @@ export const SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'repo',
     'graph',
     'changedFiles',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
     'testFiles',
     'unknownReason',
+    'diagnostics',
+    'detailRefs',
+    'nextActions',
+    'ready',
+  ],
+  alembic_validation_plan: [
+    'operation',
+    'repo',
+    'graph',
+    'sourceGraphRef',
+    'sourceEvidenceRefs',
+    'changedFiles',
+    'seedSymbols',
+    'impactedFiles',
+    'impactedSymbols',
+    'relations',
+    'validationPlan',
+    'acceptanceBoundary',
     'diagnostics',
     'detailRefs',
     'nextActions',
@@ -170,6 +206,8 @@ export function projectSourceGraphOperationBusiness(
     operation,
     repo: projectRepo(source),
     graph: projectGraph(source),
+    sourceGraphRef: projectSourceGraphRef(source, operation),
+    sourceEvidenceRefs: projectSourceEvidenceRefs(source),
     diagnostics: projectDiagnostics(source.diagnostics),
     detailRefs: projectDetailRefs(source.detailRefs),
     nextActions: stringList(source.nextActions),
@@ -223,6 +261,15 @@ export function projectSourceGraphOperationBusiness(
       business.changedFiles = stringList(source.changedFiles);
       business.testFiles = stringList(source.testFiles);
       business.unknownReason = stringValue(source.unknownReason);
+      break;
+    case 'alembic_validation_plan':
+      business.changedFiles = stringList(source.changedFiles);
+      business.seedSymbols = stringList(source.seedSymbols);
+      business.impactedFiles = stringList(source.impactedFiles);
+      business.impactedSymbols = projectSymbols(source.impactedSymbols);
+      business.relations = projectRelations(source.edges);
+      business.validationPlan = projectValidationPlan(source);
+      business.acceptanceBoundary = stringValue(source.acceptanceBoundary);
       break;
   }
 
@@ -434,6 +481,216 @@ function projectRelations(value: unknown): Array<Record<string, unknown>> {
   );
 }
 
+function projectSourceGraphRef(
+  source: Record<string, unknown>,
+  operation: SourceGraphOperationKind
+): string {
+  const freshness = isRecord(source.freshness) ? source.freshness : {};
+  const generationId =
+    stringValue(source.generationId) ?? stringValue(freshness.generationId) ?? 'unknown';
+  const repoId = stringValue(source.repoId) ?? 'default';
+  return ['source-graph', operation, repoId, generationId].map(sanitizeRefSegment).join(':');
+}
+
+function projectSourceEvidenceRefs(
+  source: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  return uniqueEvidenceRefs([
+    ...projectSymbolEvidenceRefs(source),
+    ...projectSectionEvidenceRefs(source),
+    ...projectRelationEvidenceRefs(source),
+    ...projectFileEvidenceRefs(source),
+    ...projectDiagnosticEvidenceRefs(source),
+    ...projectValidationEvidenceRefs(source),
+  ]).slice(0, 120);
+}
+
+function projectSymbolEvidenceRefs(
+  source: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const evidenceRefs: Array<Record<string, unknown>> = [];
+  for (const symbol of [
+    ...arrayValue(source.symbols),
+    ...arrayValue(source.callers),
+    ...arrayValue(source.callees),
+    ...arrayValue(source.impactedSymbols),
+  ]) {
+    const ref = stringValue(symbol.symbolId);
+    if (ref) {
+      evidenceRefs.push(
+        compact({
+          kind: 'symbol',
+          ref,
+          filePath: stringValue(symbol.filePath),
+          label: stringValue(symbol.displayName) ?? stringValue(symbol.qualifiedName),
+        })
+      );
+    }
+  }
+
+  const singleSymbol = isRecord(source.symbol) ? source.symbol : null;
+  if (singleSymbol) {
+    const ref = stringValue(singleSymbol.symbolId);
+    if (ref) {
+      evidenceRefs.push(
+        compact({
+          kind: 'symbol',
+          ref,
+          filePath: stringValue(singleSymbol.filePath),
+          label: stringValue(singleSymbol.displayName) ?? stringValue(singleSymbol.qualifiedName),
+        })
+      );
+    }
+  }
+  return evidenceRefs;
+}
+
+function projectSectionEvidenceRefs(
+  source: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const evidenceRefs: Array<Record<string, unknown>> = [];
+  for (const section of arrayValue(source.sourceSections)) {
+    const filePath = stringValue(section.filePath);
+    if (filePath) {
+      evidenceRefs.push(
+        compact({
+          kind: 'source-section',
+          ref: [
+            filePath,
+            numberValue(section.startLine) ?? 0,
+            numberValue(section.endLine) ?? 0,
+          ].join(':'),
+          filePath,
+          label: stringValue(section.reason),
+        })
+      );
+    }
+  }
+  return evidenceRefs;
+}
+
+function projectRelationEvidenceRefs(
+  source: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const evidenceRefs: Array<Record<string, unknown>> = [];
+  for (const edge of arrayValue(source.edges)) {
+    const ref = stringValue(edge.edgeId);
+    if (ref) {
+      evidenceRefs.push(
+        compact({
+          kind: 'relation',
+          ref,
+          filePath: stringValue(edge.siteFilePath),
+          label: stringValue(edge.kind),
+        })
+      );
+    }
+  }
+  return evidenceRefs;
+}
+
+function projectFileEvidenceRefs(source: Record<string, unknown>): Array<Record<string, unknown>> {
+  const evidenceRefs: Array<Record<string, unknown>> = [];
+  for (const filePath of [
+    ...stringList(source.changedFiles),
+    ...stringList(source.impactedFiles),
+    ...stringList(source.testFiles),
+  ]) {
+    evidenceRefs.push({ kind: 'file', ref: filePath, filePath });
+  }
+  return evidenceRefs;
+}
+
+function projectDiagnosticEvidenceRefs(
+  source: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const evidenceRefs: Array<Record<string, unknown>> = [];
+  for (const diagnostic of arrayValue(source.diagnostics)) {
+    const code = stringValue(diagnostic.code);
+    if (code) {
+      evidenceRefs.push(
+        compact({
+          kind: 'diagnostic',
+          ref: code,
+          filePath: stringValue(diagnostic.filePath),
+          label: stringValue(diagnostic.message),
+        })
+      );
+    }
+  }
+  return evidenceRefs;
+}
+
+function projectValidationEvidenceRefs(
+  source: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const evidenceRefs: Array<Record<string, unknown>> = [];
+  for (const bucketName of ['mustRun', 'recommended', 'manualReview', 'unknown']) {
+    for (const recommendation of arrayValue(source[bucketName])) {
+      const label = stringValue(recommendation.label);
+      if (label) {
+        evidenceRefs.push(
+          compact({
+            kind: 'validation-recommendation',
+            ref: `${bucketName}:${sanitizeRefSegment(label)}`,
+            bucket: bucketName,
+            filePath: stringValue(recommendation.filePath),
+            label,
+          })
+        );
+      }
+      for (const evidence of arrayValue(recommendation.evidence)) {
+        const ref = stringValue(evidence.ref);
+        if (ref) {
+          evidenceRefs.push(
+            compact({
+              kind: 'validation-evidence',
+              ref,
+              bucket: bucketName,
+              filePath: stringValue(evidence.filePath),
+              label: stringValue(evidence.reason),
+            })
+          );
+        }
+      }
+    }
+  }
+  return evidenceRefs;
+}
+
+function projectValidationPlan(source: Record<string, unknown>): Record<string, unknown> {
+  return {
+    manualReview: projectValidationRecommendations(source.manualReview, 'manualReview'),
+    mustRun: projectValidationRecommendations(source.mustRun, 'mustRun'),
+    recommended: projectValidationRecommendations(source.recommended, 'recommended'),
+    unknown: projectValidationRecommendations(source.unknown, 'unknown'),
+  };
+}
+
+function projectValidationRecommendations(
+  value: unknown,
+  bucket: string
+): Array<Record<string, unknown>> {
+  return arrayValue(value).map((recommendation) => {
+    const evidenceRefs = arrayValue(recommendation.evidence)
+      .map((evidence) => stringValue(evidence.ref))
+      .filter((ref): ref is string => Boolean(ref));
+    return compact({
+      bucket,
+      kind: stringValue(recommendation.kind),
+      label: stringValue(recommendation.label),
+      command: stringValue(recommendation.command),
+      filePath: stringValue(recommendation.filePath),
+      symbolId: stringValue(recommendation.symbolId),
+      diagnosticCode: stringValue(recommendation.diagnosticCode),
+      reason: stringValue(recommendation.reason),
+      confidence: numberValue(recommendation.confidence),
+      evidenceRefs,
+      evidenceCount: evidenceRefs.length,
+    });
+  });
+}
+
 function projectRange(value: unknown): Record<string, unknown> | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -486,4 +743,24 @@ function booleanValue(value: unknown): boolean | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sanitizeRefSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+}
+
+function uniqueEvidenceRefs(
+  values: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const output: Array<Record<string, unknown>> = [];
+  for (const value of values) {
+    const key = [value.kind, value.ref, value.bucket ?? '', value.filePath ?? ''].join('\0');
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(value);
+  }
+  return output;
 }

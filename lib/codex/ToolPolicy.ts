@@ -135,6 +135,7 @@ export const CODEX_SOURCE_GRAPH_TOOL_NAMES = new Set([
   'alembic_callees',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
 ]);
 
 export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
@@ -294,6 +295,30 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
         type: 'array',
         items: { type: 'string' },
         description: 'Repo-relative changed files to map to affected tests.',
+      },
+    }),
+  },
+  {
+    name: 'alembic_validation_plan',
+    tier: 'agent',
+    description:
+      'Use after source-scoped edits or when sourceGraphRef evidence exists to ask Core for an advisory validation plan. Returns mustRun, recommended, manualReview, and unknown buckets plus explicit sourceGraphRef/sourceEvidenceRefs; it does not replace Guard, repository tests, controller acceptance, or Test-window validation.',
+    inputSchema: sourceGraphInputSchema({
+      changedFiles: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Repo-relative changed files to seed validation planning.',
+      },
+      symbolIds: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional source graph symbol ids to seed validation planning.',
+      },
+      packageScripts: {
+        type: 'object',
+        description:
+          'Optional package-script command hints keyed by script name; Core treats them as advisory validation candidates.',
+        additionalProperties: { type: 'string' },
       },
     }),
   },

@@ -11,6 +11,7 @@ import {
   createSourceGraphNodeResult,
   createSourceGraphSearchResult,
   createSourceGraphStatusResult,
+  createSourceGraphValidationPlanResult,
   type SourceGraphFreshnessState,
   type SourceGraphOperationResult,
   SourceGraphRepositoryImpl,
@@ -50,8 +51,10 @@ interface SourceGraphOperationOptions extends SourceGraphStatusOptions {
   limit?: number;
   maxSectionLines?: number;
   nodeId?: string;
+  packageScripts?: Record<string, string>;
   query?: string;
   sourceSectionLineBudget?: number;
+  symbolIds?: string[];
   symbolId?: string;
 }
 
@@ -308,6 +311,13 @@ async function queryCoreSourceGraph(
         ...ranking,
         changedFiles: options.changedFiles ?? [],
       });
+    case 'alembic_validation_plan':
+      return runtime.service.getSourceGraphValidationPlan({
+        ...ranking,
+        changedFiles: options.changedFiles ?? [],
+        packageScripts: options.packageScripts,
+        symbolIds: options.symbolIds ?? [],
+      });
   }
 }
 
@@ -372,6 +382,30 @@ function createBlockedOperationResult(
         ...base,
         changedFiles: options.changedFiles,
         unknownReason: status.freshness.reason ?? 'Source graph is not fresh enough to map tests.',
+      });
+    case 'alembic_validation_plan':
+      return createSourceGraphValidationPlanResult({
+        ...base,
+        changedFiles: options.changedFiles,
+        seedSymbols: options.symbolIds,
+        unknown: [
+          {
+            kind: 'unknown',
+            label: 'Source graph validation plan unavailable',
+            diagnosticCode: 'source-ref-unproven',
+            reason:
+              status.freshness.reason ??
+              'Source graph is not fresh enough to plan validation from source facts.',
+            evidence: [
+              {
+                kind: 'diagnostic',
+                ref: 'source-ref-unproven',
+                diagnosticCode: 'source-ref-unproven',
+                reason: 'Source graph freshness blocks validation planning.',
+              },
+            ],
+          },
+        ],
       });
   }
 }
@@ -769,8 +803,10 @@ function normalizeSourceGraphOperationOptions(
     limit: normalizeNumberOption(args.limit),
     maxSectionLines: normalizeNumberOption(args.maxSectionLines),
     nodeId: normalizeStringOption(args.nodeId),
+    packageScripts: normalizeStringRecord(args.packageScripts),
     query: normalizeStringOption(args.query),
     sourceSectionLineBudget: normalizeNumberOption(args.sourceSectionLineBudget),
+    symbolIds: stringArray(args.symbolIds),
     symbolId: normalizeStringOption(args.symbolId),
   };
 }
@@ -804,6 +840,20 @@ function stringArray(value: unknown): string[] {
     return [];
   }
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, string] =>
+      typeof entry[0] === 'string' &&
+      entry[0].length > 0 &&
+      typeof entry[1] === 'string' &&
+      entry[1].length > 0
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function uniqueStrings(values: string[]): string[] {

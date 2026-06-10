@@ -64,6 +64,7 @@ const CODEX_SOURCE_GRAPH_TOOL_NAMES = [
   'alembic_callees',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
 ];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
   ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
@@ -504,6 +505,7 @@ describe('CodexMcpServer', () => {
     expect(guidance.instructions).not.toContain('alembic_symbol_search');
     expect(guidance.instructions).not.toContain('alembic_callers');
     expect(guidance.instructions).not.toContain('alembic_affected_tests');
+    expect(guidance.instructions).not.toContain('alembic_validation_plan');
   });
 
   test('keeps source graph tool-list descriptions aligned with first-tool guidance', () => {
@@ -525,6 +527,9 @@ describe('CodexMcpServer', () => {
     );
     expect(byName.get('alembic_affected_tests')?.description).toContain(
       'do not replace repository validation'
+    );
+    expect(byName.get('alembic_validation_plan')?.description).toContain(
+      'mustRun, recommended, manualReview, and unknown'
     );
   });
 

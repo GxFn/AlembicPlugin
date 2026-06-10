@@ -43,7 +43,7 @@ const goldenPublicToolMatrix = {
     title: 'Normalize agent intent',
   },
   alembic_prime: {
-    acceptedRefs: ['intentRef', 'detailRefs'],
+    acceptedRefs: ['intentRef', 'sourceGraphRef', 'detailRefs'],
     producedRefs: ['primeRef', 'detailRefs'],
     purposeFragment: 'Load compact, trust-labeled project knowledge',
     requiredFields: ['agentHost', 'inputSource', 'intentRef'],
@@ -55,7 +55,7 @@ const goldenPublicToolMatrix = {
     title: 'Prime agent context',
   },
   alembic_work_start: {
-    acceptedRefs: ['intentRef', 'primeRef', 'detailRefs'],
+    acceptedRefs: ['intentRef', 'primeRef', 'sourceGraphRef', 'detailRefs'],
     producedRefs: ['workRef', 'detailRefs'],
     purposeFragment: 'Create a workRef',
     requiredFields: ['agentHost', 'inputSource', 'intentRef'],
@@ -68,7 +68,7 @@ const goldenPublicToolMatrix = {
     title: 'Start tracked work',
   },
   alembic_work_finish: {
-    acceptedRefs: ['intentRef', 'primeRef', 'workRef', 'detailRefs'],
+    acceptedRefs: ['intentRef', 'primeRef', 'sourceGraphRef', 'workRef', 'detailRefs'],
     producedRefs: ['workRef', 'finishRef', 'detailRefs'],
     purposeFragment: 'Close a workRef',
     requiredFields: ['agentHost', 'inputSource', 'workRef'],
@@ -81,7 +81,7 @@ const goldenPublicToolMatrix = {
     title: 'Finish tracked work',
   },
   alembic_code_guard: {
-    acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
+    acceptedRefs: ['intentRef', 'sourceGraphRef', 'workRef', 'detailRefs'],
     producedRefs: ['guardResultRef', 'detailRefs'],
     purposeFragment: 'Run a code guard pass',
     requiredFields: ['agentHost', 'inputSource'],
@@ -94,7 +94,7 @@ const goldenPublicToolMatrix = {
     title: 'Check code against project rules',
   },
   alembic_decision_record: {
-    acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
+    acceptedRefs: ['intentRef', 'sourceGraphRef', 'workRef', 'detailRefs'],
     producedRefs: ['decisionRef', 'detailRefs'],
     purposeFragment: 'Create, update, read, list, revoke, or delete',
     requiredFields: ['agentHost', 'inputSource'],
@@ -428,19 +428,35 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       toolName: 'alembic_intent',
     });
 
+    const sourceGraphRef = 'source-graph:validation-plan:default:gen-stage6';
+    const sourceEvidenceRefs = [
+      'validation-recommendation:mustRun:run-stage6-unit',
+      'validation-evidence:file:test/unit/AgentPublicToolsEvaluation.test.ts',
+    ];
+
     const prime = await callPublicTool(
       primeHandler(ctx, {
         inputSource: 'host-declared-intent',
         intentRef,
         projectRoot: '/tmp/alembic-plugin-stage6',
+        sourceEvidenceRefs,
+        sourceGraphRef,
       })
     );
     const primeRef = stringFrom(prime.raw, ['refs', 'primeRef', 'id']);
     expect(prime.envelope).toMatchObject({
       actionKind: 'prime',
-      refs: { intentRef: { id: intentRef }, primeRef: { id: primeRef } },
+      refs: {
+        intentRef: { id: intentRef },
+        primeRef: { id: primeRef },
+        sourceGraphRef: { id: sourceGraphRef },
+      },
       status: 'ready',
       toolName: 'alembic_prime',
+    });
+    expect(recordFrom(prime.raw, ['primePackage', 'sourceGraphGuidance'])).toMatchObject({
+      sourceGraphRef,
+      status: 'ready-evidence',
     });
 
     const workStart = await callPublicTool(
@@ -448,6 +464,8 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         inputSource: 'host-declared-intent',
         intentRef,
         primeRef,
+        sourceEvidenceRefs,
+        sourceGraphRef,
         title: 'Evaluate public tools closure',
         workScope: {
           files: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
@@ -458,7 +476,11 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     const workRef = stringFrom(workStart.raw, ['workRef']);
     expect(workStart.envelope).toMatchObject({
       actionKind: 'work-start',
-      refs: { primeRef: { id: primeRef }, workRef: { id: workRef } },
+      refs: {
+        primeRef: { id: primeRef },
+        sourceGraphRef: { id: sourceGraphRef },
+        workRef: { id: workRef },
+      },
       status: 'ready',
       toolName: 'alembic_work_start',
     });
@@ -468,15 +490,57 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         changedFiles: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
         evidenceRefs: ['scratch/afapi-stage6-agent-public-tools-readback.json'],
         inputSource: 'host-declared-intent',
+        sourceEvidenceRefs,
+        sourceGraphRef,
         summary: 'Stage 6 evaluation evidence is ready for controller review.',
+        validationPlan: {
+          acceptanceBoundary:
+            'Source graph validation plans are advisory and do not replace acceptance.',
+          mustRun: [
+            {
+              command: 'npm run test:unit -- test/unit/AgentPublicToolsEvaluation.test.ts',
+              evidence: [
+                {
+                  filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
+                  ref: sourceEvidenceRefs[1],
+                },
+              ],
+              filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
+              label: 'Run public tools evaluation',
+            },
+          ],
+          recommended: [],
+          manualReview: [],
+          unknown: [
+            {
+              diagnosticCode: 'source-ref-unproven',
+              evidence: [{ diagnosticCode: 'source-ref-unproven', ref: 'source-ref-unproven' }],
+              label: 'Controller acceptance still required',
+            },
+          ],
+        },
         workRef,
       })
     );
     expect(workFinish.envelope).toMatchObject({
       actionKind: 'work-finish',
-      refs: { finishRef: expect.objectContaining({ id: expect.any(String) }) },
+      refs: {
+        finishRef: expect.objectContaining({ id: expect.any(String) }),
+        sourceGraphRef: { id: sourceGraphRef },
+      },
       status: 'ready',
       toolName: 'alembic_work_finish',
+    });
+    expect(recordFrom(workFinish.raw, ['guardRecommendation', 'validationPlan'])).toMatchObject({
+      advisoryOnly: true,
+      buckets: {
+        mustRun: {
+          commands: ['npm run test:unit -- test/unit/AgentPublicToolsEvaluation.test.ts'],
+          count: 1,
+        },
+        unknown: { diagnosticCodes: ['source-ref-unproven'], count: 1 },
+      },
+      sourceGraphRef,
     });
 
     const codeGuard = await callPublicTool(
@@ -485,12 +549,16 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
         inputSource: 'host-declared-intent',
         language: 'typescript',
+        sourceGraphRef,
         workRef,
       })
     );
     expect(codeGuard.envelope).toMatchObject({
       actionKind: 'code-guard',
-      refs: { guardResultRef: expect.objectContaining({ id: expect.any(String) }) },
+      refs: {
+        guardResultRef: expect.objectContaining({ id: expect.any(String) }),
+        sourceGraphRef: { id: sourceGraphRef },
+      },
       status: 'ready',
       toolName: 'alembic_code_guard',
     });
@@ -501,13 +569,18 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         evidenceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
         inputSource: 'host-declared-intent',
         intentRef,
+        sourceEvidenceRefs,
+        sourceGraphRef,
         title: 'Close public tools evaluation',
         workRef,
       })
     );
     expect(decision.envelope).toMatchObject({
       actionKind: 'decision-record',
-      refs: { decisionRef: { id: 'decision-stage6-ready' } },
+      refs: {
+        decisionRef: { id: 'decision-stage6-ready' },
+        sourceGraphRef: { id: sourceGraphRef },
+      },
       status: 'ready',
       toolName: 'alembic_decision_record',
     });

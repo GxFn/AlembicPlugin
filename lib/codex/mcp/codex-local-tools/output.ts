@@ -21,6 +21,7 @@ export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_callees',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
   'alembic_codex_init',
   'alembic_codex_dashboard',
   'alembic_codex_bootstrap',
@@ -149,6 +150,7 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   alembic_callees: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_callees,
   alembic_code_impact: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_code_impact,
   alembic_affected_tests: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_affected_tests,
+  alembic_validation_plan: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_validation_plan,
   alembic_codex_init: [
     'alreadyInitialized',
     'initialized',
@@ -210,6 +212,7 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
   alembic_callees: buildSourceGraphOperationSummary,
   alembic_code_impact: buildSourceGraphOperationSummary,
   alembic_affected_tests: buildSourceGraphOperationSummary,
+  alembic_validation_plan: buildSourceGraphOperationSummary,
   alembic_codex_init: () => 'Alembic Codex workspace initialized.',
   alembic_codex_dashboard: (input) =>
     input.business.dashboardUrl

@@ -26,6 +26,7 @@ const sourceGraphToolNames = [
   'alembic_callees',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
 ];
 const coreTools = [
   ...hostWorkflowToolNames.map((name) => ({

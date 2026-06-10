@@ -146,6 +146,17 @@ const AgentPublicToolBaseInput = z.object({
     .max(50)
     .optional()
     .describe('Non-private source refs used as detailRefs and automation evidence'),
+  sourceGraphRef: z
+    .string()
+    .min(1)
+    .max(240)
+    .optional()
+    .describe('Operation-owned sourceGraphRef returned by Alembic source graph tools'),
+  sourceEvidenceRefs: z
+    .array(z.string().min(1).max(240))
+    .max(50)
+    .optional()
+    .describe('Compact source evidence refs from source graph tools; never raw source dumps'),
   projectRoot: z
     .string()
     .min(1)
@@ -210,6 +221,12 @@ export const WorkFinishInput = AgentPublicToolBaseInput.extend({
     'Task-scoped files changed by this work; used to recommend alembic_code_guard with explicit files.'
   ),
   evidenceRefs: AgentSourceFileRefsInput.describe('Non-private evidence refs from build/test/logs'),
+  validationPlan: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      'Optional compact output from alembic_validation_plan. Buckets are advisory and do not replace Guard, repository tests, controller acceptance, or Test-window validation.'
+    ),
   reason: z.string().min(1).max(1200).optional().describe('Blocked or abandoned reason'),
 }).describe(
   'Agent-facing work finish. Returns finishRef, detailRefs, and scoped Guard recommendation metadata; it does not run Guard.'

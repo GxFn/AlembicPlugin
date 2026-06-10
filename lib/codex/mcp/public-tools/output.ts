@@ -79,8 +79,54 @@ const GuardRecommendationSchema = z
       .optional(),
     reason: OptionalPublicStringSchema,
     reasonCode: PublicStringSchema,
+    sourceEvidenceRefs: PublicStringArraySchema.optional(),
+    sourceGraphRef: PublicStringSchema.optional(),
     taskScopedFiles: PublicStringArraySchema,
     tool: z.literal('alembic_code_guard'),
+    validationPlan: z
+      .object({
+        acceptanceBoundary: OptionalPublicStringSchema,
+        advisoryOnly: z.literal(true),
+        buckets: z
+          .object({
+            manualReview: z
+              .object({
+                commands: PublicStringArraySchema,
+                count: z.number().int().min(0).max(1000),
+                diagnosticCodes: PublicStringArraySchema,
+                files: PublicStringArraySchema,
+              })
+              .strict(),
+            mustRun: z
+              .object({
+                commands: PublicStringArraySchema,
+                count: z.number().int().min(0).max(1000),
+                diagnosticCodes: PublicStringArraySchema,
+                files: PublicStringArraySchema,
+              })
+              .strict(),
+            recommended: z
+              .object({
+                commands: PublicStringArraySchema,
+                count: z.number().int().min(0).max(1000),
+                diagnosticCodes: PublicStringArraySchema,
+                files: PublicStringArraySchema,
+              })
+              .strict(),
+            unknown: z
+              .object({
+                commands: PublicStringArraySchema,
+                count: z.number().int().min(0).max(1000),
+                diagnosticCodes: PublicStringArraySchema,
+                files: PublicStringArraySchema,
+              })
+              .strict(),
+          })
+          .strict(),
+        sourceGraphRef: PublicStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -193,8 +239,18 @@ const IntentRetrievalPlanSchema = z
 
 const IntentToolPlanSchema = z
   .object({
+    decisionNeed: z.enum(['none', 'record-if-confirmed', 'required-before-work']),
     guardNeed: z.enum(['none', 'recommend-if-code-changed', 'explicit-scope-required']),
+    knowledgeNeed: z.enum(['none', 'optional', 'recommended', 'required']),
     primeNeed: z.enum(['none', 'optional', 'recommended', 'required']),
+    sourceGraphNeed: z.enum(['none', 'optional', 'recommended', 'required']),
+    sourceGraphPlan: z
+      .object({
+        action: z.enum(['skip', 'status-first', 'query-before-work', 'validation-plan-after-work']),
+        reasonCode: PublicStringSchema,
+        tools: z.array(PublicStringSchema).max(8),
+      })
+      .strict(),
     workNeed: z.enum(['none', 'maybe-start', 'start-required']),
   })
   .strict();
@@ -267,6 +323,8 @@ export const AgentWorkFinishOutputSchema = AgentPublicToolOutputBaseSchema.safeE
   guardRecommendation: GuardRecommendationSchema.optional(),
   localRecord: WorkFinishLocalRecordSchema.optional(),
   outcome: z.enum(['completed', 'blocked', 'abandoned']).optional(),
+  sourceEvidenceRefs: z.array(z.string()).max(80).optional(),
+  sourceGraphRef: z.string().min(1).max(240).optional(),
   toolName: z.literal('alembic_work_finish'),
   workRef: z.string().min(1).max(240).optional(),
 });

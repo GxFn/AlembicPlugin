@@ -23,6 +23,7 @@ const sourceGraphToolNames = [
   'alembic_callees',
   'alembic_code_impact',
   'alembic_affected_tests',
+  'alembic_validation_plan',
 ];
 
 let projectRoots: string[] = [];
@@ -180,6 +181,28 @@ describe('MCP source graph runtime status', () => {
       unknownReason: expect.stringContaining('No source_graph symbol_to_test edge'),
     });
     expect(diagnosticCodes(affectedTests)).toContain('affected-tests-unknown');
+
+    const validationPlan = await operationData(projectRoot, 'alembic_validation_plan', {
+      changedFiles: ['src/helper.ts'],
+      packageScripts: { test: 'vitest run test/helper.test.ts' },
+      now: 6_800,
+    });
+    expect(validationPlan).toMatchObject({
+      operation: 'validation-plan',
+      ready: true,
+      validationPlan: {
+        mustRun: expect.arrayContaining([
+          expect.objectContaining({
+            command: 'npm run test -- test/helper.test.ts',
+          }),
+        ]),
+        recommended: expect.any(Array),
+        manualReview: expect.any(Array),
+        unknown: expect.any(Array),
+      },
+    });
+    expect(validationPlan).toHaveProperty('sourceGraphRef');
+    expect(JSON.stringify(validationPlan)).not.toContain(projectRoot);
   });
 
   test('gates source query text when Core freshness is stale', async () => {
