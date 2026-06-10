@@ -19,6 +19,7 @@ import {
 } from '@alembic/core/source-graph';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { CODEX_LOCAL_TOOLS } from '../../ToolPolicy.js';
+import { buildCodexMcpGuidance } from '../host/guidance.js';
 import {
   projectSourceGraphOperationBusiness,
   SOURCE_GRAPH_OPERATION_TOOL_NAMES,
@@ -681,21 +682,12 @@ function createDegradedStatus(
 }
 
 function buildSourceGraphInitializeGuidance(): Record<string, unknown> {
-  const toolNames = CODEX_LOCAL_TOOLS.map((tool) => tool.name);
-  const sourceGraphTools = toolNames.filter((toolName) =>
-    (SOURCE_GRAPH_OPERATION_TOOL_NAMES as readonly string[]).includes(toolName)
-  );
-  const recoveryTools = toolNames.filter((toolName) =>
-    ['alembic_codex_init', 'alembic_codex_bootstrap', 'alembic_codex_rescan'].includes(toolName)
-  );
+  const guidance = buildCodexMcpGuidance(CODEX_LOCAL_TOOLS);
   return {
-    sourceGraphTools,
-    recoveryTools,
-    playbook: [
-      'Use alembic_source_graph_status first to inspect source graph lifecycle and freshness.',
-      'Trust source facts only when sourceGraphFresh is true and ready is true.',
-      'When status reports needs_source_graph_init or run_incremental_source_graph_index, run an authorized Core source graph build or catch-up path before source queries.',
-    ],
+    sourceGraphTools: guidance.sourceGraphTools,
+    recoveryTools: guidance.recoveryTools,
+    playbook: guidance.playbook,
+    limitations: guidance.limitations,
   };
 }
 

@@ -221,14 +221,14 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_source_graph_status',
     tier: 'agent',
     description:
-      'Report Alembic source graph boundary status using the Core-owned source graph freshness and diagnostic contract. This status tool stays callable during cold start, unavailable graph runtime, catch-up failure, stale output, or wrong project scope, and it never claims ready source facts unless Core freshness permits it.',
+      'First source graph check before trusting current code facts. Reports Core-owned source graph freshness, scope, degraded states, recovery actions, and compact tool-choice guidance. It stays callable during cold start, unavailable graph runtime, catch-up failure, stale output, or wrong project scope, and it never claims ready source facts unless Core freshness permits it.',
     inputSchema: sourceGraphInputSchema(),
   },
   {
     name: 'alembic_symbol_search',
     tier: 'agent',
     description:
-      'Search Core source graph symbols and source sections. Returns operation-specific clean output and withholds source text unless Core freshness is fresh.',
+      'Use before broad raw Read/Grep when looking for a symbol, file, route, or text anchor in current code. Searches Core source graph symbols and source sections, returns operation-specific clean output, and withholds source text unless freshness is fresh. Use Recipe/knowledge tools separately for standards or decisions.',
     inputSchema: sourceGraphInputSchema({
       query: { type: 'string', description: 'Symbol, file, route, or text query.' },
     }),
@@ -237,7 +237,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_code_explore',
     tier: 'agent',
     description:
-      'Explore Core source graph context around a query or focus area, including ranked symbols, source sections, and relations when freshness permits.',
+      'Primary first tool for current-code understanding questions. Explore Core source graph context around a behavior, symbol, file, or focus area before wide raw file exploration; returns ranked symbols, source sections, and relations when freshness permits. Validate conclusions with raw reads/tests when status is stale, partial, or low-confidence.',
     inputSchema: sourceGraphInputSchema({
       query: { type: 'string', description: 'Optional search phrase.' },
       focus: { type: 'string', description: 'Optional source area or behavior to explore.' },
@@ -247,7 +247,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_source_node',
     tier: 'agent',
     description:
-      'Read one Core source graph node by symbol id or repo-relative file path with line-numbered source sections only when freshness permits.',
+      'Use after search/explore identifies a symbol id or repo-relative file. Reads one Core source graph node with line-numbered source sections and direct relations only when freshness permits; fall back to raw file reads when source text is withheld or scope is ambiguous.',
     inputSchema: sourceGraphInputSchema({
       nodeId: { type: 'string', description: 'Source graph symbol id or repo-relative file path.' },
     }),
@@ -256,7 +256,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_callers',
     tier: 'agent',
     description:
-      'Return Core source graph callers for a symbol id, with relation edges and source sections only when freshness permits.',
+      'Use for upstream impact and call-chain questions after a symbol id is known. Returns Core source graph callers with relation edges and source sections only when freshness permits; validate dynamic dispatch or unsupported-language gaps with raw code reads.',
     inputSchema: sourceGraphInputSchema({
       symbolId: { type: 'string', description: 'Source graph symbol id to inspect.' },
     }),
@@ -265,7 +265,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_callees',
     tier: 'agent',
     description:
-      'Return Core source graph callees for a symbol id, with relation edges and source sections only when freshness permits.',
+      'Use for downstream dependency and implementation-flow questions after a symbol id is known. Returns Core source graph callees with relation edges and source sections only when freshness permits; validate dynamic dispatch or unsupported-language gaps with raw code reads.',
     inputSchema: sourceGraphInputSchema({
       symbolId: { type: 'string', description: 'Source graph symbol id to inspect.' },
     }),
@@ -274,7 +274,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_code_impact',
     tier: 'agent',
     description:
-      'Estimate source graph impact for changed files or a symbol using Core impact traversal. Unknown test coverage is reported as a diagnostic, not success.',
+      'Use during change planning or review to estimate source impact for changed files or a symbol. Uses Core impact traversal and keeps unknown coverage explicit; pair with Guard and repository tests instead of treating impact as acceptance.',
     inputSchema: sourceGraphInputSchema({
       changedFiles: {
         type: 'array',
@@ -288,7 +288,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     name: 'alembic_affected_tests',
     tier: 'agent',
     description:
-      'Return Core source graph affected-test candidates for changed files. Unknown mappings stay explicit through affected-tests diagnostics.',
+      'Use after edits or during validation planning to map changed files to likely tests. Returns Core source graph affected-test candidates; unknown mappings stay explicit through diagnostics and do not replace repository validation or controller/Test acceptance.',
     inputSchema: sourceGraphInputSchema({
       changedFiles: {
         type: 'array',

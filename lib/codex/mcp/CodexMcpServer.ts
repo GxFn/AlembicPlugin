@@ -61,6 +61,7 @@ import {
   resetCodexPluginOwnedMcpServerForTests,
   resetPluginOwnedMcpServer,
 } from './host/embedded-executor.js';
+import { buildCodexMcpInitializeInstructions } from './host/guidance.js';
 import { buildCodexHostProjectHandoffBlock } from './host/host-project-handoff.js';
 import { dispatchCodexLocalTool } from './host/local-tool-dispatcher.js';
 import { attachPluginOpportunisticEvolutionSurface } from './host/opportunistic-evolution-presenter.js';
@@ -240,9 +241,13 @@ export class CodexMcpServer {
   }
 
   async start(): Promise<void> {
+    const visibleTools = getVisibleCodexTools(undefined, this.projectRoot);
     this.sdkServer = new SdkMcpServer(
       { name: 'alembic-codex', version: getPackageVersion() },
-      { capabilities: { tools: {} } }
+      {
+        capabilities: { tools: {} },
+        instructions: buildCodexMcpInitializeInstructions(visibleTools),
+      }
     );
     this.registerHandlers();
     await this.sdkServer.connect(new StdioServerTransport());
@@ -287,6 +292,10 @@ export class CodexMcpServer {
         );
       }
     });
+  }
+
+  getInitializeInstructions(): string {
+    return buildCodexMcpInitializeInstructions(getVisibleCodexTools(undefined, this.projectRoot));
   }
 
   async handleToolCall(

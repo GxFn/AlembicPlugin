@@ -9,6 +9,8 @@ This project has a local Alembic knowledge base. Use Alembic structure, target m
 
 Use this skill when the user asks about **project structure**, **module targets**, **dependency graph**, or **knowledge graph relationships**.
 
+For current source-code facts, follow the live MCP source graph guidance first. Call `alembic_source_graph_status`, then use visible source graph query tools such as `alembic_code_explore` or `alembic_symbol_search` before broad raw Read/Grep exploration. Use the Recipe graph tools below for knowledge relationships, not as proof that source code is fresh.
+
 ---
 
 ## Project Structure Tools

@@ -29,6 +29,7 @@ import {
 } from '../../lib/codex/ProjectRootResolver.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
+import { buildCodexMcpGuidance } from '../../lib/codex/mcp/host/guidance.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
@@ -471,6 +472,60 @@ describe('CodexMcpServer', () => {
     expect(names).toContain('alembic_project_skill');
     expect(names).toContain('alembic_health');
     expect(names).not.toContain('alembic_knowledge_lifecycle');
+  });
+
+  test('builds initialize guidance from the visible Codex tool catalog', () => {
+    const projectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(projectRoot);
+    const server = new CodexMcpServer({ projectRoot });
+    const instructions = server.getInitializeInstructions();
+
+    expect(instructions).toContain('`alembic_source_graph_status`');
+    expect(instructions).toContain('`alembic_code_explore`');
+    expect(instructions).toContain('`alembic_symbol_search`');
+    expect(instructions).toContain('`alembic_search`');
+    expect(instructions).toContain('`alembic_code_guard`');
+    expect(instructions).toContain('raw file reads/search');
+    expect(instructions).toContain('Validation is still required');
+  });
+
+  test('does not advertise source graph tools filtered out of the visible catalog', () => {
+    const guidance = buildCodexMcpGuidance([
+      { name: 'alembic_source_graph_status' },
+      { name: 'alembic_code_explore' },
+      { name: 'alembic_prime' },
+    ]);
+
+    expect(guidance.sourceGraphTools).toEqual([
+      'alembic_source_graph_status',
+      'alembic_code_explore',
+    ]);
+    expect(guidance.instructions).toContain('`alembic_code_explore`');
+    expect(guidance.instructions).not.toContain('alembic_symbol_search');
+    expect(guidance.instructions).not.toContain('alembic_callers');
+    expect(guidance.instructions).not.toContain('alembic_affected_tests');
+  });
+
+  test('keeps source graph tool-list descriptions aligned with first-tool guidance', () => {
+    const projectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(projectRoot);
+    const byName = new Map(getVisibleCodexTools('agent', projectRoot).map((tool) => [tool.name, tool]));
+
+    expect(byName.get('alembic_source_graph_status')?.description).toContain(
+      'First source graph check'
+    );
+    expect(byName.get('alembic_code_explore')?.description).toContain(
+      'Primary first tool for current-code understanding'
+    );
+    expect(byName.get('alembic_symbol_search')?.description).toContain(
+      'Use before broad raw Read/Grep'
+    );
+    expect(byName.get('alembic_code_impact')?.description).toContain(
+      'pair with Guard and repository tests'
+    );
+    expect(byName.get('alembic_affected_tests')?.description).toContain(
+      'do not replace repository validation'
+    );
   });
 
   test('exposes MCP tool annotations so clients can reduce approval prompts', () => {
