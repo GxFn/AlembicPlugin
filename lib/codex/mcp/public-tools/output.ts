@@ -1,6 +1,8 @@
+import type { CoreFieldFailureKind } from '@alembic/core/shared';
 import { z } from 'zod';
 import {
   CleanMcpResponseBaseSchema,
+  createCleanMcpError,
   createCleanMcpResponse,
   registerMcpOutputProjector,
 } from '../output-contract.js';
@@ -322,16 +324,63 @@ export function createAgentPublicToolOutput(
       ...(result.reason ? { reason: result.reason } : {}),
       ...(!ok && result.reason
         ? {
-            error: {
-              code: result.reason.code,
-              message: result.reason.message,
-            },
+            error: createAgentPublicToolCleanError(result),
           }
         : {}),
     },
     result.toolName
   );
   return AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[result.toolName].parse(response);
+}
+
+function createAgentPublicToolCleanError(result: AgentPublicToolResultEnvelope) {
+  const reason = result.reason;
+  if (!reason) {
+    return undefined;
+  }
+  const detailRefIds = result.refs.detailRefs.map((ref) => ref.id);
+  const failureKind = mapAgentPublicReasonFailureKind(reason.code);
+  return createCleanMcpError({
+    code: reason.code,
+    details: {
+      publicReason: {
+        code: reason.code,
+        kind: reason.kind,
+        retryable: reason.retryable,
+      },
+      ...(detailRefIds.length > 0 ? { detailRefs: detailRefIds } : {}),
+    },
+    failureKind,
+    message: reason.message,
+    source: {
+      ...(detailRefIds.length > 0 ? { detailRefs: detailRefIds } : {}),
+      reasonCode: failureKind,
+      retryable: reason.retryable,
+    },
+    status: result.status,
+  });
+}
+
+const AGENT_PUBLIC_REASON_FAILURE_KINDS: Readonly<Record<string, CoreFieldFailureKind>> = {
+  'decision-register-capability-mismatch': 'capability-mismatch',
+  'decision-register-unavailable': 'unavailable',
+  'decision-scope-unconfirmed': 'needs-confirmation',
+  'detail-budget-limited': 'partial',
+  'handler-error': 'internal-error',
+  'knowledge-empty': 'unavailable',
+  'legacy-compatibility-input': 'degraded',
+  'low-confidence-intent': 'degraded',
+  'optional-service-unavailable': 'unavailable',
+  'project-root-untrusted': 'permission-denied',
+  'project-scope-unavailable': 'unavailable',
+  'resident-unavailable': 'unavailable',
+  'result-envelope-invalid': 'schema-drift',
+  'schema-validation-failed': 'schema-drift',
+  'shared-contract-required': 'capability-mismatch',
+};
+
+function mapAgentPublicReasonFailureKind(reasonCode: string): CoreFieldFailureKind {
+  return AGENT_PUBLIC_REASON_FAILURE_KINDS[reasonCode] ?? 'invalid-input';
 }
 
 function normalizeAgentPublicToolPayload(
