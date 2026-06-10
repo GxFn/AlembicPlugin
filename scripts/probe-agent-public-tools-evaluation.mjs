@@ -19,6 +19,7 @@ const requiredTools = [
 const sourceGraphTools = [
   'alembic_source_graph_status',
   'alembic_code_explore',
+  'alembic_code_impact',
   'alembic_validation_plan',
 ];
 const fusedWorkflowRefNames = [
@@ -98,9 +99,11 @@ mkdirSync(projectRoot, { recursive: true });
 const report = {
   ok: false,
   generatedAt: new Date().toISOString(),
-  mode: options.fusedWorkflow
-    ? 'cgk10-14-agent-public-tools-fused-workflow-evaluation'
-    : 'afapi-stage6-agent-public-tools-installed-cache-readback',
+  mode: options.liveWorkspaceRoot
+    ? 'cgk6-18-plugin-live-runtime-acceptance-repair'
+    : options.fusedWorkflow
+      ? 'cgk10-14-agent-public-tools-fused-workflow-evaluation'
+      : 'afapi-stage6-agent-public-tools-installed-cache-readback',
   projectRoot,
   requiredTools,
   ...(options.fusedWorkflow
@@ -110,6 +113,22 @@ const report = {
           refNames: fusedWorkflowRefNames,
           requiredSourceGraphTools: sourceGraphTools,
           tasks: fusedWorkflowTasks.map(({ id, owner, title }) => ({ id, owner, title })),
+        },
+      }
+    : {}),
+  ...(options.liveWorkspaceRoot
+    ? {
+        liveRuntimeContract: {
+          workspaceRoot: options.liveWorkspaceRoot,
+          requiredScenarios: [
+            'workspace-root-without-projectScope-fails-closed',
+            'workspace-root-projectScope-AlembicPlugin-returns-source-context',
+            'workspace-root-projectScope-AlembicCore-returns-source-context',
+            'explicit-product-roots-remain-ready',
+            'validation-plan-or-impact-names-tests-or-explains-unknown',
+            'sequential-and-parallel-calls-keep-transport-open',
+            'source-graph-output-omits-legacy-runtime-payloads',
+          ],
         },
       }
     : {}),
@@ -217,6 +236,13 @@ async function probeTarget(targetRoot) {
     if (fusedWorkflow && !fusedWorkflow.ok) {
       issues.push(...fusedWorkflow.issues.map((issue) => `fused workflow: ${issue}`));
     }
+    probePhase = 'live-runtime-acceptance';
+    const liveRuntime = options.liveWorkspaceRoot
+      ? await runLiveWorkspaceRuntimeAcceptance(client, stderr, options.liveWorkspaceRoot)
+      : null;
+    if (liveRuntime && !liveRuntime.ok) {
+      issues.push(...liveRuntime.issues.map((issue) => `live runtime: ${issue}`));
+    }
 
     probePhase = 'codex-init';
     const init = await callJsonTool(client, 'alembic_codex_init', { projectRoot }, stderr);
@@ -253,6 +279,7 @@ async function probeTarget(targetRoot) {
       beforeInit,
       calls,
       ...(fusedWorkflow ? { fusedWorkflow } : {}),
+      ...(liveRuntime ? { liveRuntime } : {}),
       afterInit: {
         names: afterInit.names,
         retiredTaskDirectCall: {
@@ -280,6 +307,316 @@ async function probeTarget(targetRoot) {
   } finally {
     await closeClient(client, stderr, targetRoot);
   }
+}
+
+async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) {
+  const issues = [];
+  const transcript = [];
+  const nowBase = Date.now();
+  const pluginRoot = join(workspaceRoot, 'AlembicPlugin');
+  const coreRoot = join(workspaceRoot, 'AlembicCore');
+
+  for (const requiredPath of [workspaceRoot, pluginRoot, coreRoot]) {
+    expectIssue(issues, existsSync(requiredPath), `required live path is missing: ${requiredPath}`);
+  }
+  if (issues.length > 0) {
+    return { ok: false, issues, workspaceRoot };
+  }
+
+  const workspaceRootNoScope = await captureToolCall(
+    transcript,
+    client,
+    'alembic_source_graph_status',
+    {
+      catchUp: false,
+      now: nowBase + 1,
+      projectRoot: workspaceRoot,
+    },
+    stderr
+  );
+  const pluginStatus = await captureToolCall(
+    transcript,
+    client,
+    'alembic_source_graph_status',
+    {
+      now: nowBase + 2,
+      projectRoot: workspaceRoot,
+      projectScope: 'AlembicPlugin',
+    },
+    stderr
+  );
+  const pluginExplore = await captureToolCall(
+    transcript,
+    client,
+    'alembic_code_explore',
+    {
+      filePath: 'lib/codex/mcp/source-graph/status.ts',
+      includeText: true,
+      maxSectionLines: 8,
+      now: nowBase + 3,
+      projectRoot: workspaceRoot,
+      projectScope: 'AlembicPlugin',
+      query: 'resolveSourceGraphRuntime',
+    },
+    stderr
+  );
+  const coreStatus = await captureToolCall(
+    transcript,
+    client,
+    'alembic_source_graph_status',
+    {
+      now: nowBase + 4,
+      projectRoot: workspaceRoot,
+      projectScope: 'AlembicCore',
+    },
+    stderr
+  );
+  const coreExplore = await captureToolCall(
+    transcript,
+    client,
+    'alembic_code_explore',
+    {
+      filePath: 'src/service/source-graph/SourceGraphService.ts',
+      includeText: true,
+      maxSectionLines: 8,
+      now: nowBase + 5,
+      projectRoot: workspaceRoot,
+      projectScope: 'AlembicCore',
+      query: 'SourceGraphService',
+    },
+    stderr
+  );
+  const explicitPluginStatus = await captureToolCall(
+    transcript,
+    client,
+    'alembic_source_graph_status',
+    {
+      catchUp: false,
+      now: nowBase + 6,
+      projectRoot: pluginRoot,
+    },
+    stderr
+  );
+  const explicitCoreStatus = await captureToolCall(
+    transcript,
+    client,
+    'alembic_source_graph_status',
+    {
+      catchUp: false,
+      now: nowBase + 7,
+      projectRoot: coreRoot,
+    },
+    stderr
+  );
+  const validationPlan = await captureToolCall(
+    transcript,
+    client,
+    'alembic_validation_plan',
+    {
+      changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+      now: nowBase + 8,
+      packageScripts: { test: 'vitest run test/unit/McpSourceGraphRuntime.test.ts' },
+      projectRoot: workspaceRoot,
+      projectScope: 'AlembicPlugin',
+    },
+    stderr
+  );
+  const codeImpact = await captureToolCall(
+    transcript,
+    client,
+    'alembic_code_impact',
+    {
+      changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+      now: nowBase + 9,
+      projectRoot: workspaceRoot,
+      projectScope: 'AlembicPlugin',
+    },
+    stderr
+  );
+  const parallel = await Promise.all([
+    captureToolCall(
+      transcript,
+      client,
+      'alembic_source_graph_status',
+      {
+        catchUp: false,
+        now: nowBase + 10,
+        projectRoot: workspaceRoot,
+        projectScope: 'AlembicPlugin',
+      },
+      stderr
+    ),
+    captureToolCall(
+      transcript,
+      client,
+      'alembic_code_explore',
+      {
+        filePath: 'lib/codex/mcp/source-graph/status.ts',
+        includeText: true,
+        maxSectionLines: 4,
+        now: nowBase + 11,
+        projectRoot: workspaceRoot,
+        projectScope: 'AlembicPlugin',
+        query: 'projectScope',
+      },
+      stderr
+    ),
+    captureToolCall(
+      transcript,
+      client,
+      'alembic_source_graph_status',
+      {
+        catchUp: false,
+        now: nowBase + 12,
+        projectRoot: workspaceRoot,
+        projectScope: 'AlembicCore',
+      },
+      stderr
+    ),
+    captureToolCall(
+      transcript,
+      client,
+      'alembic_code_explore',
+      {
+        filePath: 'src/service/source-graph/SourceGraphService.ts',
+        includeText: true,
+        maxSectionLines: 4,
+        now: nowBase + 13,
+        projectRoot: workspaceRoot,
+        projectScope: 'AlembicCore',
+        query: 'SourceGraphService',
+      },
+      stderr
+    ),
+  ]);
+
+  const calls = {
+    codeImpact,
+    coreExplore,
+    coreStatus,
+    explicitCoreStatus,
+    explicitPluginStatus,
+    pluginExplore,
+    pluginStatus,
+    validationPlan,
+    workspaceRootNoScope,
+  };
+  const sourceGraphPayloads = [
+    ...Object.values(calls).map((call) => call.payload),
+    ...parallel.map((call) => call.payload),
+  ];
+  const validationCounts = validationPlanBucketCounts(validationPlan.payload);
+  const codeImpactFiles = Array.isArray(codeImpact.payload?.impactedFiles)
+    ? codeImpact.payload.impactedFiles.length
+    : 0;
+  const validationNamesTestsOrExplainsUnknown =
+    validationCounts.mustRun > 0 || validationCounts.unknown > 0 || codeImpactFiles > 0;
+
+  expectIssue(
+    issues,
+    workspaceRootNoScope.payload?.ready === false &&
+      graphFreshness(workspaceRootNoScope.payload) === 'wrong-scope',
+    'workspace root without projectScope should fail closed as wrong-scope'
+  );
+  expectIssue(
+    issues,
+    sourceGraphHasUsableIndex(pluginStatus.payload),
+    'AlembicPlugin scoped status did not expose a usable source graph index'
+  );
+  expectIssue(
+    issues,
+    sourceGraphHasUsableIndex(coreStatus.payload),
+    'AlembicCore scoped status did not expose a usable source graph index'
+  );
+  expectIssue(
+    issues,
+    sourceGraphHasUsableIndex(explicitPluginStatus.payload),
+    'explicit AlembicPlugin root status did not reuse the scoped source graph index'
+  );
+  expectIssue(
+    issues,
+    sourceGraphHasUsableIndex(explicitCoreStatus.payload),
+    'explicit AlembicCore root status did not reuse the scoped source graph index'
+  );
+  expectIssue(
+    issues,
+    sourceGraphReturnedContext(pluginExplore.payload),
+    'AlembicPlugin code_explore should return source graph context'
+  );
+  expectIssue(
+    issues,
+    sourceGraphReturnedContext(coreExplore.payload),
+    'AlembicCore code_explore should return source graph context'
+  );
+  expectIssue(
+    issues,
+    validationNamesTestsOrExplainsUnknown,
+    'validation_plan/code_impact should name validation or explain unknown'
+  );
+  expectIssue(
+    issues,
+    parallel.every((call) => call.isError !== true && sourceGraphCallReturnedUsablePayload(call)),
+    'parallel source graph calls should stay ready without transport closure'
+  );
+  expectIssue(
+    issues,
+    sourceGraphPayloads.every(sourceGraphPayloadIsClean),
+    'source graph payloads should omit legacy/runtime-only fields'
+  );
+  expectIssue(
+    issues,
+    stringPath(pluginStatus.payload, ['lifecycle', 'watcher', 'mode'], null) === 'unavailable' &&
+      stringPath(pluginStatus.payload, ['lifecycle', 'watcher', 'nextAction'], null) ===
+        'run_incremental_source_graph_index',
+    'watcher-disabled/manual incremental fallback should be explicit'
+  );
+
+  return {
+    ok: issues.length === 0,
+    aggregate: {
+      cleanPayloadCount: sourceGraphPayloads.filter(sourceGraphPayloadIsClean).length,
+      coreFileCount: countFromPayload(coreStatus.payload, 'fileCount'),
+      coreSourceSectionCount: sourceSectionCount(coreExplore.payload),
+      coreSymbolCount: sourceSymbolCount(coreExplore.payload),
+      parallelCalls: parallel.length,
+      pluginFileCount: countFromPayload(pluginStatus.payload, 'fileCount'),
+      pluginSourceSectionCount: sourceSectionCount(pluginExplore.payload),
+      pluginSymbolCount: sourceSymbolCount(pluginExplore.payload),
+      sourceGraphCalls: sourceGraphPayloads.length,
+      validationPlanBucketCounts: validationCounts,
+    },
+    coverage: {
+      coldStartup: 'tools/list completed before live source graph calls in this MCP session',
+      firstQueryCatchUp:
+        pluginStatus.payload?.lifecycle?.catchUp?.attempted === true ||
+        coreStatus.payload?.lifecycle?.catchUp?.attempted === true,
+      staleOrPending:
+        'catchUp=false stale fail-closed path is covered by McpSourceGraphRuntime.test.ts and the fused workflow staleExplore fixture; live probe does not edit product files.',
+      watcherFallback: pluginStatus.payload?.lifecycle?.watcher ?? null,
+    },
+    issues,
+    rawMcpJson: {
+      codeImpact: codeImpact.payload,
+      coreExplore: coreExplore.payload,
+      coreStatus: coreStatus.payload,
+      explicitCoreStatus: explicitCoreStatus.payload,
+      explicitPluginStatus: explicitPluginStatus.payload,
+      parallel: parallel.map((call) => call.payload),
+      pluginExplore: pluginExplore.payload,
+      pluginStatus: pluginStatus.payload,
+      validationPlan: validationPlan.payload,
+      workspaceRootNoScope: workspaceRootNoScope.payload,
+    },
+    statuses: statusMap({
+      ...calls,
+      parallel0: parallel[0],
+      parallel1: parallel[1],
+      parallel2: parallel[2],
+      parallel3: parallel[3],
+    }),
+    transcript: transcript.map(summarizeTranscriptEntry),
+    workspaceRoot,
+  };
 }
 
 async function runFusedWorkflowEvaluation(client, stderr, targetRoot) {
@@ -987,8 +1324,39 @@ function graphFreshness(payload) {
     : null;
 }
 
+function sourceGraphHasUsableIndex(payload) {
+  return sourceGraphHasGeneration(payload) && countFromPayload(payload, 'fileCount') > 0;
+}
+
+function sourceGraphReturnedContext(payload) {
+  return (
+    sourceGraphHasGeneration(payload) &&
+    (sourceSectionCount(payload) > 0 || sourceSymbolCount(payload) > 0)
+  );
+}
+
+function sourceGraphCallReturnedUsablePayload(call) {
+  return (
+    call.payload?.ready === true ||
+    sourceGraphHasUsableIndex(call.payload) ||
+    sourceGraphReturnedContext(call.payload)
+  );
+}
+
+function sourceGraphHasGeneration(payload) {
+  const freshness = graphFreshness(payload);
+  return (
+    typeof payload?.graph?.generationId === 'string' &&
+    ['fresh', 'partial', 'degraded'].includes(freshness)
+  );
+}
+
 function sourceSectionCount(payload) {
   return Array.isArray(payload?.sourceSections) ? payload.sourceSections.length : 0;
+}
+
+function sourceSymbolCount(payload) {
+  return Array.isArray(payload?.symbols) ? payload.symbols.length : 0;
 }
 
 function validationPlanBucketCounts(payload) {
@@ -1053,6 +1421,41 @@ function omitsLegacyFields(payload) {
     !serialized.includes('legacyCompatibility') &&
     !serialized.includes('outputBudget')
   );
+}
+
+function sourceGraphPayloadIsClean(payload) {
+  const serialized = JSON.stringify(payload);
+  return (
+    omitsLegacyFields(payload) &&
+    !('refs' in payload) &&
+    !hasForbiddenSourceGraphRuntimeKey(payload) &&
+    !serialized.includes('legacyCompatibility') &&
+    !serialized.includes('outputBudget')
+  );
+}
+
+function hasForbiddenSourceGraphRuntimeKey(value) {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasForbiddenSourceGraphRuntimeKey);
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    if (['projectruntime', 'residentservice', 'runtimepolicy'].includes(normalized)) {
+      return true;
+    }
+    if (hasForbiddenSourceGraphRuntimeKey(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function countFromPayload(payload, fieldName) {
+  const value = payload?.counts?.[fieldName];
+  return typeof value === 'number' ? value : 0;
 }
 
 function redactProjectRootArgs(args) {
@@ -1474,6 +1877,7 @@ function parseArgs(args) {
     codexHome: '',
     fusedWorkflow: false,
     keepTmp: false,
+    liveWorkspaceRoot: '',
     mcpTimeoutMs: 30000,
     projectRoot: '',
     reportPath: join(root, 'scratch', 'afapi-stage6-agent-public-tools-readback.json'),
@@ -1488,6 +1892,9 @@ function parseArgs(args) {
       parsed.fusedWorkflow = true;
     } else if (arg === '--keep-tmp') {
       parsed.keepTmp = true;
+    } else if (arg === '--live-workspace-root') {
+      parsed.liveWorkspaceRoot = resolve(args[index + 1] || '');
+      index += 1;
     } else if (arg === '--mcp-timeout-ms') {
       parsed.mcpTimeoutMs = Number(args[index + 1] || parsed.mcpTimeoutMs);
       index += 1;
@@ -1517,6 +1924,8 @@ Options:
   --codex-home <path>       Override Codex home cache root.
   --fused-workflow          Run CGK-10/CGK-14 fused source graph lifecycle evaluation.
   --keep-tmp                Keep temporary project and ALEMBIC_HOME data.
+  --live-workspace-root <path>
+                             Run CGK-6/CGK-18 live workspace source graph acceptance.
   --mcp-timeout-ms <ms>     MCP connect/call timeout. Default: 30000.
   --project-root <path>     Probe project root. Default: fresh temp project.
   --report-path <path>      JSON report path.

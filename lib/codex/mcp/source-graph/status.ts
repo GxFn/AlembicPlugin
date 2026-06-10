@@ -61,6 +61,7 @@ interface SourceGraphOperationOptions extends SourceGraphStatusOptions {
 interface SourceGraphRuntime {
   connection: DatabaseConnection;
   databasePath: string;
+  coreProjectScope?: string;
   projectRoot: string;
   repoId: string;
   resolver: WorkspaceResolver;
@@ -68,6 +69,7 @@ interface SourceGraphRuntime {
 }
 
 interface SourceGraphRuntimeResolution {
+  coreProjectScope?: string;
   databaseExists: boolean;
   projectRoot: string;
   projectScope?: string;
@@ -135,7 +137,7 @@ export async function buildFullSourceGraphIndexForProject(
     const result = await runtime.service.buildFullIndex({
       projectRoot: runtime.projectRoot,
       repoId: runtime.repoId,
-      projectScope: options.projectScope,
+      projectScope: runtime.coreProjectScope,
       now: options.now,
     });
     return {
@@ -181,7 +183,8 @@ async function inspectSourceGraphOperation(
   if ('error' in resolution) {
     return projectOperationResult(resolution.error, options, toolName);
   }
-  if (!resolution.databaseExists) {
+  const hasRuntime = hasCachedSourceGraphRuntime(resolution);
+  if (!resolution.databaseExists && !hasRuntime && options.catchUp === false) {
     return projectOperationResult(
       createUninitializedStatus(resolution.projectRoot, options),
       options,
@@ -191,21 +194,18 @@ async function inspectSourceGraphOperation(
 
   try {
     const runtime = await getSourceGraphRuntime(resolution);
-    const report = await runtime.service.inspectFreshness({
-      projectRoot: runtime.projectRoot,
-      repoId: runtime.repoId,
-      projectScope: options.projectScope,
-      now: options.now,
-    });
-    const catchUp = await maybeCatchUpSourceGraph(runtime, report, options);
-    if (!catchUp.status.ready || catchUp.status.freshness.status !== 'fresh') {
+    const catchUp =
+      !resolution.databaseExists && !hasRuntime
+        ? await buildInitialSourceGraphIndex(runtime, options)
+        : await inspectAndMaybeCatchUpSourceGraph(runtime, options);
+    if (!canQuerySourceGraph(catchUp.status)) {
       return projectOperationResult(catchUp.status, options, toolName);
     }
     const result = await queryCoreSourceGraph(runtime, catchUp.status, options, toolName);
     return projectSourceGraphOperationBusiness(result, toolName);
   } catch (err: unknown) {
     return projectOperationResult(
-      createUnavailableStatus(projectRoot, options, err),
+      createUnavailableStatus(resolution.projectRoot, options, err),
       options,
       toolName
     );
@@ -220,7 +220,8 @@ async function inspectSourceGraphStatus(
   if ('error' in resolution) {
     return projectRuntimeStatus(resolution.error, resolution.context);
   }
-  if (!resolution.databaseExists) {
+  const hasRuntime = hasCachedSourceGraphRuntime(resolution);
+  if (!resolution.databaseExists && !hasRuntime && options.catchUp === false) {
     return projectRuntimeStatus(createUninitializedStatus(resolution.projectRoot, options), {
       databaseExists: false,
       runtimeReady: true,
@@ -229,20 +230,17 @@ async function inspectSourceGraphStatus(
 
   try {
     const runtime = await getSourceGraphRuntime(resolution);
-    const report = await runtime.service.inspectFreshness({
-      projectRoot: runtime.projectRoot,
-      repoId: runtime.repoId,
-      projectScope: options.projectScope,
-      now: options.now,
-    });
-    const catchUp = await maybeCatchUpSourceGraph(runtime, report, options);
+    const catchUp =
+      !resolution.databaseExists && !hasRuntime
+        ? await buildInitialSourceGraphIndex(runtime, options)
+        : await inspectAndMaybeCatchUpSourceGraph(runtime, options);
     return projectRuntimeStatus(catchUp.status, {
       catchUp: catchUp.catchUp,
       databaseExists: true,
       runtimeReady: true,
     });
   } catch (err: unknown) {
-    return projectRuntimeStatus(createUnavailableStatus(projectRoot, options, err), {
+    return projectRuntimeStatus(createUnavailableStatus(resolution.projectRoot, options, err), {
       databaseExists: resolution.databaseExists,
       runtimeReady: false,
     });
@@ -443,7 +441,7 @@ async function maybeCatchUpSourceGraph(
     const result = await runtime.service.buildIncrementalIndex({
       projectRoot: runtime.projectRoot,
       repoId: runtime.repoId,
-      projectScope: options.projectScope,
+      projectScope: runtime.coreProjectScope,
       baseGenerationId: report.snapshot?.generationId,
       changedFiles,
       deletedFiles,
@@ -464,6 +462,40 @@ async function maybeCatchUpSourceGraph(
       status: createDegradedStatus(runtime.projectRoot, options, report.status, err),
     };
   }
+}
+
+async function inspectAndMaybeCatchUpSourceGraph(
+  runtime: SourceGraphRuntime,
+  options: SourceGraphStatusOptions
+): Promise<{ catchUp: SourceGraphCatchUpState; status: SourceGraphStatusResult }> {
+  const report = await runtime.service.inspectFreshness({
+    projectRoot: runtime.projectRoot,
+    repoId: runtime.repoId,
+    projectScope: runtime.coreProjectScope,
+    now: options.now,
+  });
+  return maybeCatchUpSourceGraph(runtime, report, options);
+}
+
+async function buildInitialSourceGraphIndex(
+  runtime: SourceGraphRuntime,
+  options: SourceGraphStatusOptions
+): Promise<{ catchUp: SourceGraphCatchUpState; status: SourceGraphStatusResult }> {
+  const result = await runtime.service.buildFullIndex({
+    projectRoot: runtime.projectRoot,
+    repoId: runtime.repoId,
+    projectScope: runtime.coreProjectScope,
+    now: options.now,
+  });
+  return {
+    catchUp: {
+      attempted: true,
+      changedFiles: result.changedFiles,
+      deletedFiles: result.deletedFiles,
+      succeeded: true,
+    },
+    status: result.status,
+  };
 }
 
 function projectRuntimeStatus(
@@ -516,6 +548,7 @@ function resolveSourceGraphRuntime(
       error: SourceGraphStatusResult;
     } {
   const resolvedRoot = path.resolve(projectRoot);
+  const projectScope = normalizeStringOption(options.projectScope);
   const repoId = normalizeStringOption(options.repoId) ?? DEFAULT_REPO_ID;
   if (!existsSync(resolvedRoot) || !statSync(resolvedRoot).isDirectory()) {
     return {
@@ -523,12 +556,34 @@ function resolveSourceGraphRuntime(
       error: createWrongScopeStatus(resolvedRoot, options),
     };
   }
+  const scopedRoot = resolveProjectScopeRoot(resolvedRoot, projectScope);
+  if (scopedRoot?.error) {
+    return {
+      context: { databaseExists: false, runtimeReady: false },
+      error: createWrongScopeStatus(resolvedRoot, options, {
+        reason: `Project scope is not a readable child repository: ${projectScope ?? ''}`,
+        message: 'Select a valid projectScope child repository before reading source graph facts.',
+      }),
+    };
+  }
+  if (!projectScope && isWorkspaceControlRoot(resolvedRoot)) {
+    return {
+      context: { databaseExists: false, runtimeReady: false },
+      error: createWrongScopeStatus(resolvedRoot, options, {
+        reason: 'Workspace control roots require an explicit projectScope for source graph facts.',
+        message:
+          'Select a product projectScope before reading source graph facts from a workspace root.',
+      }),
+    };
+  }
+  const effectiveRoot = scopedRoot?.projectRoot ?? resolvedRoot;
   try {
-    const resolver = WorkspaceResolver.fromProject(resolvedRoot);
+    const resolver = WorkspaceResolver.fromProject(effectiveRoot);
     return {
       databaseExists: options.createDatabase === true || existsSync(resolver.databasePath),
+      coreProjectScope: scopedRoot?.coreProjectScope,
       projectRoot: resolver.projectRoot,
-      projectScope: normalizeStringOption(options.projectScope),
+      projectScope,
       repoId,
       resolver,
     };
@@ -543,18 +598,26 @@ function resolveSourceGraphRuntime(
 function getSourceGraphRuntime(
   resolution: SourceGraphRuntimeResolution
 ): Promise<SourceGraphRuntime> {
-  const cacheKey = [
-    resolution.resolver.databasePath,
-    resolution.projectRoot,
-    resolution.repoId,
-    resolution.projectScope ?? '',
-  ].join('\0');
+  const cacheKey = sourceGraphRuntimeCacheKey(resolution);
   let runtimePromise = SOURCE_GRAPH_RUNTIME_CACHE.get(cacheKey);
   if (!runtimePromise) {
     runtimePromise = openSourceGraphRuntime(resolution);
     SOURCE_GRAPH_RUNTIME_CACHE.set(cacheKey, runtimePromise);
   }
   return runtimePromise;
+}
+
+function hasCachedSourceGraphRuntime(resolution: SourceGraphRuntimeResolution): boolean {
+  return SOURCE_GRAPH_RUNTIME_CACHE.has(sourceGraphRuntimeCacheKey(resolution));
+}
+
+function sourceGraphRuntimeCacheKey(resolution: SourceGraphRuntimeResolution): string {
+  return [
+    resolution.resolver.databasePath,
+    resolution.projectRoot,
+    resolution.repoId,
+    resolution.coreProjectScope ?? '',
+  ].join('\0');
 }
 
 async function openSourceGraphRuntime(
@@ -569,6 +632,7 @@ async function openSourceGraphRuntime(
   const repository = new SourceGraphRepositoryImpl(connection.getDrizzle());
   return {
     connection,
+    coreProjectScope: resolution.coreProjectScope,
     databasePath: resolution.resolver.databasePath,
     projectRoot: resolution.projectRoot,
     repoId: resolution.repoId,
@@ -621,12 +685,13 @@ function createUninitializedStatus(
 
 function createWrongScopeStatus(
   projectRoot: string,
-  options: SourceGraphStatusOptions
+  options: SourceGraphStatusOptions,
+  detail: { message?: string; reason?: string } = {}
 ): SourceGraphStatusResult {
   const freshness = createSourceGraphFreshness({
     status: 'wrong-scope',
     checkedAt: options.now,
-    reason: 'The requested projectRoot does not exist or is not a directory.',
+    reason: detail.reason ?? 'The requested projectRoot does not exist or is not a directory.',
     nextAction: 'select_project_scope',
   });
   return createSourceGraphStatusResult({
@@ -638,13 +703,45 @@ function createWrongScopeStatus(
         code: 'ambiguous-project-scope',
         severity: 'error',
         owner: 'plugin',
-        message: 'Select a valid projectRoot before reading source graph facts.',
+        message: detail.message ?? 'Select a valid projectRoot before reading source graph facts.',
         nextAction: 'select_project_scope',
         invalidConclusion: 'source graph facts belong to the active project scope',
         blocksReady: true,
       },
     ],
   });
+}
+
+function resolveProjectScopeRoot(
+  projectRoot: string,
+  projectScope: string | undefined
+): { coreProjectScope?: string; error?: true; projectRoot: string } | null {
+  if (!projectScope) {
+    return null;
+  }
+  if (path.isAbsolute(projectScope) || projectScope.split(/[\\/]+/).includes('..')) {
+    return { error: true, projectRoot };
+  }
+  const candidate = path.resolve(projectRoot, projectScope);
+  if (!isPathInsideOrEqual(projectRoot, candidate)) {
+    return { error: true, projectRoot };
+  }
+  if (!existsSync(candidate) || !statSync(candidate).isDirectory()) {
+    return { error: true, projectRoot };
+  }
+  return { projectRoot: candidate };
+}
+
+function isWorkspaceControlRoot(projectRoot: string): boolean {
+  return (
+    existsSync(path.join(projectRoot, 'workspace.config.json')) ||
+    existsSync(path.join(projectRoot, '.workspace-active', 'workspace', 'index.md'))
+  );
+}
+
+function isPathInsideOrEqual(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function createUnavailableStatus(
@@ -731,6 +828,15 @@ function isSourceGraphQueryToolName(
   return (SOURCE_GRAPH_QUERY_TOOL_NAMES as readonly string[]).includes(toolName);
 }
 
+function canQuerySourceGraph(status: SourceGraphStatusResult): boolean {
+  return (
+    Boolean(status.generationId) &&
+    (status.freshness.status === 'fresh' ||
+      status.freshness.status === 'partial' ||
+      status.freshness.status === 'degraded')
+  );
+}
+
 function sourceGraphActionsForFreshness(
   freshness: SourceGraphFreshnessState
 ): SourceGraphRuntimeAction[] {
@@ -753,6 +859,15 @@ function sourceGraphActionsForFreshness(
     case 'fresh':
       return [
         { code: 'source_graph_ready', description: 'Source graph freshness permits source facts.' },
+      ];
+    case 'partial':
+    case 'degraded':
+      return [
+        {
+          code: 'review_source_graph_diagnostics',
+          description:
+            'Use available source graph context with diagnostics; validate unsupported or degraded coverage with raw reads/tests.',
+        },
       ];
     case 'wrong-scope':
       return [

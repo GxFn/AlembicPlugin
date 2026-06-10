@@ -55,9 +55,90 @@ describe('MCP source graph runtime status', () => {
       },
     });
     expect(structured.nextActions).toContain('needs_source_graph_init');
-    expect(guidanceToolNames(structured, 'sourceGraphTools')).toEqual([
-      ...sourceGraphToolNames,
-    ]);
+    expect(guidanceToolNames(structured, 'sourceGraphTools')).toEqual([...sourceGraphToolNames]);
+  });
+
+  test('builds a missing source graph database on the first catch-up-enabled status call', async () => {
+    const projectRoot = createProject();
+
+    const structured = await statusData(projectRoot, { now: 1_500 });
+
+    expect(structured).toMatchObject({
+      operation: 'status',
+      ready: true,
+      graph: { freshness: 'fresh' },
+      lifecycle: {
+        sourceGraphInitialized: true,
+        sourceGraphIndexed: true,
+        sourceGraphFresh: true,
+        databaseExists: true,
+        catchUp: {
+          attempted: true,
+          succeeded: true,
+        },
+      },
+    });
+    expect(count(structured, 'fileCount')).toBeGreaterThanOrEqual(2);
+    expect(count(structured, 'symbolCount')).toBeGreaterThanOrEqual(2);
+  });
+
+  test('fails closed for workspace roots and routes projectScope to child repositories', async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'alembic-source-graph-workspace-'));
+    projectRoots.push(workspaceRoot);
+    writeFileSync(join(workspaceRoot, 'workspace.config.json'), '{"windows":[]}\n', 'utf8');
+    createProjectFiles(join(workspaceRoot, 'AlembicPlugin'));
+
+    const ambiguous = await statusData(workspaceRoot, { now: 1_600 });
+    expect(ambiguous).toMatchObject({
+      operation: 'status',
+      ready: false,
+      graph: { freshness: 'wrong-scope', nextAction: 'select_project_scope' },
+      lifecycle: {
+        runtimeReady: false,
+        sourceGraphInitialized: false,
+        sourceGraphIndexed: false,
+        sourceGraphFresh: false,
+        databaseExists: false,
+      },
+    });
+    expect(ambiguous.nextActions).toContain('select_project_scope');
+
+    const scoped = await statusData(workspaceRoot, {
+      now: 1_700,
+      projectScope: 'AlembicPlugin',
+    });
+    expect(scoped).toMatchObject({
+      operation: 'status',
+      ready: true,
+      graph: { freshness: 'fresh' },
+      lifecycle: {
+        sourceGraphInitialized: true,
+        sourceGraphIndexed: true,
+        sourceGraphFresh: true,
+        databaseExists: true,
+      },
+    });
+
+    const explore = await operationData(workspaceRoot, 'alembic_code_explore', {
+      filePath: 'src/helper.ts',
+      includeText: true,
+      now: 1_800,
+      projectScope: 'AlembicPlugin',
+      query: 'helper',
+    });
+    expect(explore).toMatchObject({ operation: 'explore', ready: true });
+    expect(symbolIds(explore, 'symbols')).toContain('src/helper.ts#helper');
+    expect(sourceSectionTexts(explore).join('\n')).toContain('helper');
+
+    const missingScope = await statusData(workspaceRoot, {
+      now: 1_900,
+      projectScope: 'MissingRepo',
+    });
+    expect(missingScope).toMatchObject({
+      operation: 'status',
+      ready: false,
+      graph: { freshness: 'wrong-scope', nextAction: 'select_project_scope' },
+    });
   });
 
   test('uses Core full index freshness and bounded incremental catch-up', async () => {
@@ -205,6 +286,39 @@ describe('MCP source graph runtime status', () => {
     expect(JSON.stringify(validationPlan)).not.toContain(projectRoot);
   });
 
+  test('returns parsed symbols while withholding source text when coverage is partial', async () => {
+    const projectRoot = createProject();
+    writeFileSync(join(projectRoot, 'README.md'), '# fixture\n', 'utf8');
+
+    const status = await statusData(projectRoot, { now: 6_900 });
+    expect(status).toMatchObject({
+      operation: 'status',
+      ready: false,
+      graph: { freshness: 'partial', nextAction: 'review_source_graph_diagnostics' },
+      lifecycle: {
+        sourceGraphInitialized: true,
+        sourceGraphIndexed: true,
+        sourceGraphFresh: false,
+      },
+    });
+    expect(status.nextActions).toContain('review_source_graph_diagnostics');
+
+    const explore = await operationData(projectRoot, 'alembic_code_explore', {
+      filePath: 'src/helper.ts',
+      includeText: true,
+      now: 6_950,
+      query: 'helper',
+    });
+    expect(explore).toMatchObject({
+      operation: 'explore',
+      ready: false,
+      graph: { freshness: 'partial' },
+    });
+    expect(symbolIds(explore, 'symbols')).toContain('src/helper.ts#helper');
+    expect(sourceSectionTexts(explore)).toEqual([]);
+    expect(diagnosticCodes(explore)).toContain('catch-up-failed');
+  });
+
   test('gates source query text when Core freshness is stale', async () => {
     const projectRoot = createProject();
     await statusData(projectRoot, { now: 7_000 }, (root, args) =>
@@ -287,6 +401,11 @@ describe('MCP source graph runtime status', () => {
 function createProject(): string {
   const projectRoot = mkdtempSync(join(tmpdir(), 'alembic-source-graph-runtime-'));
   projectRoots.push(projectRoot);
+  createProjectFiles(projectRoot);
+  return projectRoot;
+}
+
+function createProjectFiles(projectRoot: string): void {
   mkdirSync(join(projectRoot, 'src'), { recursive: true });
   writeFileSync(
     join(projectRoot, 'src', 'helper.ts'),
@@ -304,7 +423,6 @@ function createProject(): string {
     "import { helper } from '../src/helper.js';\nexport function helperTest() { return helper(); }\n",
     'utf8'
   );
-  return projectRoot;
 }
 
 async function statusData(
