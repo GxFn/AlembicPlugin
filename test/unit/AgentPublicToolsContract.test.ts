@@ -5,8 +5,10 @@ import {
   AGENT_ACTION_KINDS,
   AGENT_INTENT_DESIGN_FIELD_MAPPINGS,
   AGENT_PUBLIC_TOOL_NAMES,
+  AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS,
   AGENT_RESULT_STATUSES,
   AgentPublicToolResultEnvelopeSchema,
+  createAgentPublicToolOutput,
   createAgentDetailRef,
   createAgentPublicToolResultEnvelope,
   createPrimePublicPackage,
@@ -80,6 +82,77 @@ describe('Agent-facing public tools contract foundation', () => {
         type: 'object',
       });
     }
+  });
+
+  test('keeps public output schemas tool-specific and rejects cross-tool private fields', () => {
+    const base = {
+      actionKind: 'intent' as const,
+      agentHost: 'codex' as const,
+      inputSource: 'host-declared-intent' as const,
+      ok: true,
+      refs: { detailRefs: [] },
+      status: 'ready' as const,
+      summary: 'Intent output stays tool-specific.',
+      toolName: 'alembic_intent' as const,
+    };
+    const validIntent = createAgentPublicToolOutput(
+      createAgentPublicToolResultEnvelope(base),
+      {
+        detailRefs: [],
+        intentClassification: {
+          actionKind: 'implement',
+          confidenceBand: 'high',
+          objectKind: 'code',
+          scopeKind: 'project',
+        },
+        intentPersistence: { consumable: true, created: true, kind: 'session-local' },
+        localRecord: {
+          createdAt: '2026-06-10T04:00:00.000Z',
+          intentRef: 'intent-d22',
+          status: 'ready',
+        },
+        recognizedIntent: {
+          query: 'Tighten MCP output schema',
+          action: 'implement',
+          confidence: 0.9,
+          evidenceSpans: [{ text: 'private span must stay summarized' }],
+          source: 'host-declared',
+          status: 'recognized',
+        },
+        retrievalPlan: { route: 'structure-first', vectorUseKind: 'none' },
+        toolPlan: {
+          guardNeed: 'recommend-if-code-changed',
+          primeNeed: 'optional',
+          workNeed: 'maybe-start',
+        },
+      }
+    );
+
+    expect(validIntent.recognizedIntent).toMatchObject({
+      evidenceSpanCount: 1,
+      query: 'Tighten MCP output schema',
+    });
+    expect(JSON.stringify(validIntent)).not.toContain('private span must stay summarized');
+
+    expect(() =>
+      createAgentPublicToolOutput(createAgentPublicToolResultEnvelope(base), {
+        ...validIntent,
+        primePackage: { primeRef: 'prime-owned-by-another-tool' },
+      })
+    ).toThrow();
+
+    expect(
+      AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.safeParse({
+        ...base,
+        actionKind: 'code-guard',
+        toolName: 'alembic_code_guard',
+        guard: {
+          ok: true,
+          resultSummary: { payloadType: 'object', violationCount: 0 },
+          searchMeta: { leaked: true },
+        },
+      }).success
+    ).toBe(false);
   });
 
   test('provides tool description base text without legacy operation wording', () => {
