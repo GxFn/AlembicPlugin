@@ -157,6 +157,25 @@ interface CodeGuardScopeResolution {
   workRefFiles: string[];
 }
 
+interface PrimeHandlerSharedInput {
+  args: AgentPrimeArgs;
+  detailRefs: AgentDetailRef[];
+  intake: ReturnType<typeof buildIntentIntake>;
+  primeRef: string;
+}
+
+interface PrimeHandlerReadyInput extends PrimeHandlerSharedInput {
+  ctx: McpContext;
+  effectiveProjectRoot: string;
+  primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>;
+  record: IntentRecord | null;
+}
+
+interface PrimeMaterialProjection {
+  primeKnowledgeMaterial: PrimeKnowledgeMaterial;
+  retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
+}
+
 interface AgentVectorPlan {
   keywordQueries: string[];
   language: string | null;
@@ -302,118 +321,157 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
   const primeRef = nextPrimeRef();
   const blockingReason = resolvePrimeBlockingReason(args, record, intake);
   if (blockingReason) {
-    const result = createAgentPublicToolResultEnvelope({
-      actionKind: 'prime',
-      agentHost: intake.agentHost,
-      inputSource: intake.inputSource,
-      intentKind: intake.intentKind,
-      reason: {
-        kind: 'blocked',
-        code: blockingReason.code,
-        message: blockingReason.message,
-        retryable: false,
-      },
-      refs: {
-        ...buildSourceGraphRefEntry(args.sourceGraphRef),
-        ...(args.intentRef
-          ? {
-              intentRef: {
-                refType: 'intent' as const,
-                id: args.intentRef,
-                toolName: 'alembic_intent' as const,
-              },
-            }
-          : {}),
-        detailRefs,
-        primeRef: { refType: 'prime' as const, id: primeRef, toolName: 'alembic_prime' as const },
-      },
-      status: 'blocked',
-      summary: buildResultSummary(blockingReason.message),
-      toolName: 'alembic_prime',
-    });
-    const primePackage = buildPrimePublicPackage({
+    return buildPrimeBlockingOutput({
+      args,
       detailRefs,
       intake,
-      primeKnowledgeMaterial: null,
       primeRef,
-      result,
-      searchDegraded: false,
-      searchResult: null,
-    });
-    return createAgentPublicToolOutput(result, {
-      detailRefs,
-      primePackage,
+      blockingReason,
     });
   }
 
-  const lifecycle = intake.lifecycle;
   const effectiveProjectRoot = resolveEffectiveProjectRoot(ctx, args);
   const primeSearch = await runPrimeSearch(ctx, intake, effectiveProjectRoot);
+  return buildPrimeReadyOutput({
+    args,
+    ctx,
+    detailRefs,
+    effectiveProjectRoot,
+    intake,
+    primeRef,
+    primeSearch,
+    record,
+  });
+}
 
-  const projectRuntime = buildCodexPrimeRuntimeContext({
-    projectRoot: effectiveProjectRoot,
-    residentSearch: primeSearch.searchResult?.searchMeta.residentSearch ?? null,
+function buildPrimeBlockingOutput(
+  input: PrimeHandlerSharedInput & {
+    blockingReason: NonNullable<ReturnType<typeof resolvePrimeBlockingReason>>;
+  }
+) {
+  const result = buildPrimeBlockingResult(input);
+  const primePackage = buildPrimePublicPackage({
+    detailRefs: input.detailRefs,
+    intake: input.intake,
+    primeKnowledgeMaterial: null,
+    primeRef: input.primeRef,
+    result,
+    searchDegraded: false,
+    searchResult: null,
   });
-  const primeKnowledgeMaterial = buildPrimeKnowledgeMaterial({
-    extracted: intake.extracted,
-    hostIntentFrame: intake.hostIntentFrame,
-    hostIntentInput: intake.hostIntentInput,
-    intentEpisode: createUnavailablePrimeIntentEpisodeMaterial(
-      'agent-public-prime keeps IntentEpisode handoff out of Stage 3 active surface'
-    ),
-    searchDegraded: primeSearch.searchDegraded,
-    searchResult: primeSearch.searchResult,
-    taskAnchorDecision: lifecycle.taskAnchorDecision,
+  return createAgentPublicToolOutput(result, {
+    detailRefs: input.detailRefs,
+    primePackage,
   });
-  const retrievalConsumer = primeSearch.searchResult?.searchMeta.retrievalConsumer ?? null;
+}
 
-  const status = resolvePrimeStatus({
-    primeKnowledgeMaterial,
-    retrievalConsumer,
-    searchDegraded: primeSearch.searchDegraded,
-    searchResult: primeSearch.searchResult,
-    skippedReason: primeSearch.skippedReason,
-  });
-  const intentRef = record?.intentRef ?? args.intentRef;
-  const result = createAgentPublicToolResultEnvelope({
+function buildPrimeBlockingResult(
+  input: PrimeHandlerSharedInput & {
+    blockingReason: NonNullable<ReturnType<typeof resolvePrimeBlockingReason>>;
+  }
+) {
+  return createAgentPublicToolResultEnvelope({
     actionKind: 'prime',
-    agentHost: intake.agentHost,
-    inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
-    refs: {
-      ...buildSourceGraphRefEntry(args.sourceGraphRef),
-      ...(intentRef
-        ? {
-            intentRef: {
-              refType: 'intent' as const,
-              id: intentRef,
-              toolName: 'alembic_intent' as const,
-            },
-          }
-        : {}),
-      detailRefs,
-      primeRef: { refType: 'prime', id: primeRef, toolName: 'alembic_prime' },
+    agentHost: input.intake.agentHost,
+    inputSource: input.intake.inputSource,
+    intentKind: input.intake.intentKind,
+    reason: {
+      kind: 'blocked',
+      code: input.blockingReason.code,
+      message: input.blockingReason.message,
+      retryable: false,
     },
+    refs: buildPrimeRefs(input),
+    status: 'blocked',
+    summary: buildResultSummary(input.blockingReason.message),
+    toolName: 'alembic_prime',
+  });
+}
+
+function buildPrimeRefs(input: PrimeHandlerSharedInput) {
+  return {
+    ...buildSourceGraphRefEntry(input.args.sourceGraphRef),
+    ...(input.args.intentRef
+      ? {
+          intentRef: {
+            refType: 'intent' as const,
+            id: input.args.intentRef,
+            toolName: 'alembic_intent' as const,
+          },
+        }
+      : {}),
+    detailRefs: input.detailRefs,
+    primeRef: { refType: 'prime' as const, id: input.primeRef, toolName: 'alembic_prime' as const },
+  };
+}
+
+function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
+  const projectRuntime = buildCodexPrimeRuntimeContext({
+    projectRoot: input.effectiveProjectRoot,
+    residentSearch: input.primeSearch.searchResult?.searchMeta.residentSearch ?? null,
+  });
+  const material = buildPrimeMaterialProjection(input.intake, input.primeSearch);
+  const status = resolvePrimeStatus({
+    primeKnowledgeMaterial: material.primeKnowledgeMaterial,
+    retrievalConsumer: material.retrievalConsumer,
+    searchDegraded: input.primeSearch.searchDegraded,
+    searchResult: input.primeSearch.searchResult,
+    skippedReason: input.primeSearch.skippedReason,
+  });
+  const result = buildPrimeReadyResult(input, status);
+
+  bindPrimeSessionIntent(input.ctx, input.intake, input.primeSearch.searchResult, projectRuntime);
+  const primePackage = buildPrimePublicPackage({
+    detailRefs: input.detailRefs,
+    intake: input.intake,
+    primeKnowledgeMaterial: material.primeKnowledgeMaterial,
+    primeRef: input.primeRef,
+    result,
+    searchDegraded: input.primeSearch.searchDegraded,
+    searchResult: input.primeSearch.searchResult,
+  });
+
+  return createAgentPublicToolOutput(result, {
+    detailRefs: input.detailRefs,
+    primePackage,
+  });
+}
+
+function buildPrimeMaterialProjection(
+  intake: ReturnType<typeof buildIntentIntake>,
+  primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>
+): PrimeMaterialProjection {
+  return {
+    primeKnowledgeMaterial: buildPrimeKnowledgeMaterial({
+      extracted: intake.extracted,
+      hostIntentFrame: intake.hostIntentFrame,
+      hostIntentInput: intake.hostIntentInput,
+      intentEpisode: createUnavailablePrimeIntentEpisodeMaterial(
+        'agent-public-prime keeps IntentEpisode handoff out of Stage 3 active surface'
+      ),
+      searchDegraded: primeSearch.searchDegraded,
+      searchResult: primeSearch.searchResult,
+      taskAnchorDecision: intake.lifecycle.taskAnchorDecision,
+    }),
+    retrievalConsumer: primeSearch.searchResult?.searchMeta.retrievalConsumer ?? null,
+  };
+}
+
+function buildPrimeReadyResult(
+  input: PrimeHandlerReadyInput,
+  status: Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string }
+) {
+  const intentRef = input.record?.intentRef ?? input.args.intentRef;
+  return createAgentPublicToolResultEnvelope({
+    actionKind: 'prime',
+    agentHost: input.intake.agentHost,
+    inputSource: input.intake.inputSource,
+    intentKind: input.intake.intentKind,
+    refs: buildPrimeRefs({ ...input, args: { ...input.args, intentRef } }),
     ...(status.reason ? { reason: status.reason } : {}),
     status: status.status,
     summary: buildResultSummary(status.summary),
     toolName: 'alembic_prime',
-  });
-
-  bindPrimeSessionIntent(ctx, intake, primeSearch.searchResult, projectRuntime);
-  const primePackage = buildPrimePublicPackage({
-    detailRefs,
-    intake,
-    primeKnowledgeMaterial,
-    primeRef,
-    result,
-    searchDegraded: primeSearch.searchDegraded,
-    searchResult: primeSearch.searchResult,
-  });
-
-  return createAgentPublicToolOutput(result, {
-    detailRefs,
-    primePackage,
   });
 }
 
