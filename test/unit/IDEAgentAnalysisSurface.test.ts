@@ -8,7 +8,6 @@ import {
 type TestSourceRef = IDEAgentAnalysisPacket['sourceRefs'][number] & {
   folderDisplayName?: string;
   folderId?: string;
-  legacyPath?: string;
   projectScopeId?: string;
   qualifiedPath?: string;
   relativePath?: string;
@@ -148,13 +147,16 @@ describe('IDEAgentAnalysisSurface', () => {
     const packet = makePacket();
     packet.units = [
       {
-        ...makeUnit('unit-1', 'architecture', ['lib/index.ts']),
+        ...makeUnit('unit-1', 'architecture', [
+          'AlembicPlugin/lib/index.ts',
+          'AlembicDashboard/lib/index.ts',
+        ]),
         sourceRefs: [pluginIndexRef, dashboardIndexRef],
-        requiredReadSet: ['lib/index.ts'],
+        requiredReadSet: ['AlembicPlugin/lib/index.ts', 'AlembicDashboard/lib/index.ts'],
       },
     ];
     packet.sourceRefs = [pluginIndexRef, dashboardIndexRef];
-    packet.requiredReadSet = ['lib/index.ts'];
+    packet.requiredReadSet = ['AlembicPlugin/lib/index.ts', 'AlembicDashboard/lib/index.ts'];
     packet.budget = { includedUnits: 1, totalUnits: 1 };
     packet.progressSeed = {
       ...packet.progressSeed,
@@ -182,6 +184,7 @@ describe('IDEAgentAnalysisSurface', () => {
       'AlembicDashboard/lib/index.ts',
     ]);
     expect(surface.nextUnits[0]?.sourceRefs).toEqual([pluginIndexRef, dashboardIndexRef]);
+    expect(JSON.stringify(surface)).not.toContain(['legacy', 'Path'].join(''));
   });
 
   it('builds checkpoint backfill for completed, skipped, rejected, and remaining units', () => {
@@ -211,7 +214,6 @@ describe('IDEAgentAnalysisSurface', () => {
 function makeProjectScopeRef(folderId: string, qualifiedPath: string): TestSourceRef {
   return {
     path: 'lib/index.ts',
-    legacyPath: 'lib/index.ts',
     qualifiedPath,
     relativePath: 'lib/index.ts',
     folderDisplayName: folderId,

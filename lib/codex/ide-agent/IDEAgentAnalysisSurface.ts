@@ -5,9 +5,33 @@ import type {
 } from '@alembic/core/host-agent-workflows';
 
 type SourceRefWithIdentity = IDEAgentAnalysisUnit['sourceRefs'][number] & {
-  legacyPath?: string;
+  projectScopeId?: string;
   qualifiedPath?: string;
   relativePath?: string;
+};
+
+export interface IDEAgentSurfaceSourceRef {
+  alias?: string;
+  displayName?: string;
+  entityType?: string;
+  folderDisplayName?: string;
+  folderId?: string;
+  folderRelativeRoot?: string;
+  fqn?: string;
+  line?: number;
+  path: string;
+  projectScopeId?: string;
+  qualifiedPath?: string;
+  relativePath?: string;
+  role?: SourceRefWithIdentity['role'];
+  symbol?: string;
+}
+
+export type IDEAgentSurfaceStructuralEvidenceRef = Omit<
+  IDEAgentAnalysisPacket['structuralEvidenceRefs'][number],
+  'sourceRefs'
+> & {
+  sourceRefs?: IDEAgentSurfaceSourceRef[];
 };
 
 export interface IDEAgentAnalysisUnitSurface {
@@ -18,7 +42,7 @@ export interface IDEAgentAnalysisUnitSurface {
   priority: number;
   reason: string;
   requiredReadSet: string[];
-  sourceRefs: IDEAgentAnalysisUnit['sourceRefs'];
+  sourceRefs: IDEAgentSurfaceSourceRef[];
   targetName?: string;
   unitId: string;
   warnings: string[];
@@ -46,8 +70,8 @@ export interface IDEAgentAnalysisSurface {
   retrieval: {
     requiredReadSet: string[];
     retrievalHints: IDEAgentAnalysisPacket['retrievalHints'];
-    sourceRefs: IDEAgentAnalysisPacket['sourceRefs'];
-    structuralEvidenceRefs: IDEAgentAnalysisPacket['structuralEvidenceRefs'];
+    sourceRefs: IDEAgentSurfaceSourceRef[];
+    structuralEvidenceRefs: IDEAgentSurfaceStructuralEvidenceRef[];
   };
 }
 
@@ -86,8 +110,10 @@ export function buildIDEAgentAnalysisSurface(
     retrieval: {
       requiredReadSet: projectRequiredReadSet(packet.requiredReadSet, packet.sourceRefs),
       retrievalHints: packet.retrievalHints,
-      sourceRefs: packet.sourceRefs,
-      structuralEvidenceRefs: packet.structuralEvidenceRefs,
+      sourceRefs: projectSourceRefsForSurface(packet.sourceRefs),
+      structuralEvidenceRefs: projectStructuralEvidenceRefsForSurface(
+        packet.structuralEvidenceRefs
+      ),
     },
     progress: {
       checkpointKind: packet.progressSeed.checkpointKind,
@@ -203,7 +229,7 @@ function projectUnitSurface(unit: IDEAgentAnalysisUnit): IDEAgentAnalysisUnitSur
     moduleName: unit.moduleName,
     priority: unit.priority,
     reason: unit.reason,
-    sourceRefs: unit.sourceRefs,
+    sourceRefs: projectSourceRefsForSurface(unit.sourceRefs),
     requiredReadSet: projectRequiredReadSet(unit.requiredReadSet, unit.sourceRefs),
     completionContract: unit.completionContract,
     degraded: unit.degraded,
@@ -276,16 +302,48 @@ function indexSourceRefsByComparablePath(
 }
 
 function comparableSourceRefPaths(sourceRef: SourceRefWithIdentity): string[] {
-  return uniqueStrings([
-    sourceRef.path,
-    sourceRef.legacyPath,
-    sourceRef.relativePath,
-    sourceRef.qualifiedPath,
-  ]);
+  if (sourceRef.projectScopeId && sourceRef.qualifiedPath) {
+    return [sourceRef.qualifiedPath];
+  }
+  return uniqueStrings([sourceRef.qualifiedPath, sourceRef.path, sourceRef.relativePath]);
 }
 
 function readableSourcePath(sourceRef: SourceRefWithIdentity): string {
   return sourceRef.qualifiedPath ?? sourceRef.path;
+}
+
+function projectStructuralEvidenceRefsForSurface(
+  refs: readonly IDEAgentAnalysisPacket['structuralEvidenceRefs'][number][]
+): IDEAgentSurfaceStructuralEvidenceRef[] {
+  return refs.map((ref) => ({
+    ...ref,
+    ...(ref.sourceRefs ? { sourceRefs: projectSourceRefsForSurface(ref.sourceRefs) } : {}),
+  }));
+}
+
+function projectSourceRefsForSurface(
+  sourceRefs: readonly SourceRefWithIdentity[]
+): IDEAgentSurfaceSourceRef[] {
+  return sourceRefs.map(projectSourceRefForSurface);
+}
+
+function projectSourceRefForSurface(sourceRef: SourceRefWithIdentity): IDEAgentSurfaceSourceRef {
+  return {
+    path: sourceRef.path,
+    ...(sourceRef.alias ? { alias: sourceRef.alias } : {}),
+    ...(sourceRef.displayName ? { displayName: sourceRef.displayName } : {}),
+    ...(sourceRef.entityType ? { entityType: sourceRef.entityType } : {}),
+    ...(sourceRef.folderDisplayName ? { folderDisplayName: sourceRef.folderDisplayName } : {}),
+    ...(sourceRef.folderId ? { folderId: sourceRef.folderId } : {}),
+    ...(sourceRef.folderRelativeRoot ? { folderRelativeRoot: sourceRef.folderRelativeRoot } : {}),
+    ...(sourceRef.fqn ? { fqn: sourceRef.fqn } : {}),
+    ...(typeof sourceRef.line === 'number' ? { line: sourceRef.line } : {}),
+    ...(sourceRef.projectScopeId ? { projectScopeId: sourceRef.projectScopeId } : {}),
+    ...(sourceRef.qualifiedPath ? { qualifiedPath: sourceRef.qualifiedPath } : {}),
+    ...(sourceRef.relativePath ? { relativePath: sourceRef.relativePath } : {}),
+    ...(sourceRef.role ? { role: sourceRef.role } : {}),
+    ...(sourceRef.symbol ? { symbol: sourceRef.symbol } : {}),
+  };
 }
 
 function normalizeComparablePath(pathValue: string): string {
