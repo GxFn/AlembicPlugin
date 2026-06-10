@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
 import {
   CORE_BASE_OUTPUT_FIELD_NAMES,
   CORE_CLEAN_OUTPUT_TOOL_NAMES,
@@ -143,6 +144,57 @@ describe('MCP core tools clean output contract', () => {
     expect(JSON.stringify(structured)).not.toContain('legacyBoundary');
     expect(JSON.stringify(structured)).not.toContain('legacyCompatibility');
     expect(findForbiddenCoreOutputField(structured)).toBeNull();
+  });
+
+  test('projects D25 provider problem taxonomy into clean ok=false errors', () => {
+    for (const failureKind of CORE_D25_REQUIRED_FAILURE_KINDS) {
+      const taxonomy = getCoreFailureTaxonomyEntry(failureKind);
+      const result = serializeMcpToolResult(
+        'alembic_search',
+        {
+          success: false,
+          error: {
+            ...taxonomy,
+            apiKey: 'must-not-leak',
+            code: `PROVIDER_${failureKind.toUpperCase().replace(/-/g, '_')}`,
+            detailRefs: [`provider:${failureKind}`],
+            message: `Provider ${failureKind}.`,
+            providerPrivateTrace: 'must-not-leak',
+            secretToken: 'must-not-leak',
+          },
+          data: {
+            query: 'taxonomy',
+            totalResults: 0,
+          },
+        },
+        {
+          isErrorResult: () => true,
+        }
+      );
+      const structured = result.structuredContent as Record<string, unknown>;
+
+      expect(result.isError).toBe(true);
+      expect(structured).toMatchObject({
+        ok: false,
+        error: {
+          detailRefs: [`provider:${failureKind}`],
+          failureId: taxonomy.stableId,
+          failureStatus: taxonomy.status,
+          mcpErrorCode: taxonomy.mcpErrorCode,
+          mcpStatus: taxonomy.mcpStatus,
+          privateDataSafe: true,
+          problemClass: taxonomy.problemClass,
+          reasonCode: taxonomy.kind,
+          refPolicy: taxonomy.refPolicy,
+          retryPolicy: taxonomy.retryPolicy,
+          retryable: taxonomy.retryable,
+        },
+      });
+      expect(JSON.stringify(structured)).not.toContain('apiKey');
+      expect(JSON.stringify(structured)).not.toContain('providerPrivateTrace');
+      expect(JSON.stringify(structured)).not.toContain('secretToken');
+      expect(findForbiddenCoreOutputField(structured)).toBeNull();
+    }
   });
 
   test('rejects diagnostic/runtime/source/search metadata bags in ordinary business output', () => {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   CleanMcpResponseBaseSchema,
+  createCleanMcpError,
   createCleanMcpResponse,
   registerMcpOutputProjector,
 } from '../output-contract.js';
@@ -401,25 +402,31 @@ export function projectCoreToolOutput(
   const ok = typeof legacy.success === 'boolean' ? legacy.success : legacy.errorCode == null;
   const business = sanitizeBusinessFields(extractLegacyBusinessValue(legacy), toolName);
   const cleanMeta = pickCleanMeta(legacy.meta);
+  const errorDetails = pickLegacyErrorDetails(legacy);
   const summary = buildCoreToolSummary(toolName, {
     business,
+    errorDetails,
     message: typeof legacy.message === 'string' ? legacy.message : '',
     ok,
   });
-  const errorCode = typeof legacy.errorCode === 'string' ? legacy.errorCode : null;
+  const errorCode = extractLegacyErrorCode(legacy, errorDetails);
+  const status = deriveCoreToolStatus({ business, errorCode, ok });
   const response = createCleanMcpResponse(
     {
       ...business,
       ok,
-      status: deriveCoreToolStatus({ business, errorCode, ok }),
+      status,
       summary,
       toolName,
       ...(!ok
         ? {
-            error: {
+            error: createCleanMcpError({
               code: errorCode || 'TOOL_FAILED',
+              ...(errorDetails === null ? {} : { details: errorDetails }),
               message: summary,
-            },
+              source: errorDetails ?? legacy,
+              status,
+            }),
           }
         : {}),
       ...(cleanMeta ? { meta: cleanMeta } : {}),
@@ -576,6 +583,32 @@ function pickCleanMeta(value: unknown): Record<string, unknown> | null {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+function extractLegacyErrorCode(
+  legacy: Record<string, unknown>,
+  errorDetails: Record<string, unknown> | null
+): string | null {
+  if (typeof legacy.errorCode === 'string' && legacy.errorCode.length > 0) {
+    return legacy.errorCode;
+  }
+  for (const key of ['code', 'mcpErrorCode', 'reasonCode']) {
+    const value = errorDetails?.[key];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function pickLegacyErrorDetails(legacy: Record<string, unknown>): Record<string, unknown> | null {
+  if (isRecord(legacy.error)) {
+    return legacy.error;
+  }
+  if (isRecord(legacy.data) && isRecord(legacy.data.error)) {
+    return legacy.data.error;
+  }
+  return null;
+}
+
 function deriveCoreToolStatus(input: {
   business: Record<string, unknown>;
   errorCode: string | null;
@@ -601,10 +634,18 @@ function deriveCoreToolStatus(input: {
 
 function buildCoreToolSummary(
   toolName: CoreCleanOutputToolName,
-  input: { business: Record<string, unknown>; message: string; ok: boolean }
+  input: {
+    business: Record<string, unknown>;
+    errorDetails: Record<string, unknown> | null;
+    message: string;
+    ok: boolean;
+  }
 ): string {
   if (input.message.trim()) {
     return input.message.trim();
+  }
+  if (!input.ok && typeof input.errorDetails?.message === 'string') {
+    return input.errorDetails.message;
   }
   if (!input.ok) {
     return `${toolName} blocked.`;

@@ -1,5 +1,11 @@
+import type { CoreFieldFailureKind } from '@alembic/core/shared';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import {
+  CleanMcpFailureTaxonomySchema,
+  createCleanMcpFailureTaxonomy,
+  sanitizeCleanMcpErrorDetails,
+} from './error-taxonomy.js';
 import { zodToMcpSchema } from './zodToMcpSchema.js';
 
 export const CLEAN_MCP_OUTPUT_CONTRACT_VERSION = 1;
@@ -10,13 +16,11 @@ export const CleanMcpStatusSchema = z
   .max(80)
   .regex(/^[a-z][a-z0-9-]*$/);
 
-export const CleanMcpErrorSchema = z
-  .object({
-    code: z.string().min(1).max(120),
-    message: z.string().min(1),
-    details: z.unknown().optional(),
-  })
-  .strict();
+export const CleanMcpErrorSchema = CleanMcpFailureTaxonomySchema.extend({
+  code: z.string().min(1).max(120),
+  details: z.unknown().optional(),
+  message: z.string().min(1),
+}).strict();
 
 export const CleanMcpMetaSchema = z
   .object({
@@ -113,9 +117,33 @@ export function createCleanMcpResponse(
   });
 }
 
+export function createCleanMcpError(input: {
+  code: string;
+  details?: unknown;
+  failureKind?: CoreFieldFailureKind;
+  message: string;
+  source?: unknown;
+  status?: string;
+}): z.infer<typeof CleanMcpErrorSchema> {
+  const details = sanitizeCleanMcpErrorDetails(input.details);
+  return CleanMcpErrorSchema.parse({
+    code: input.code,
+    message: input.message,
+    ...createCleanMcpFailureTaxonomy({
+      code: input.code,
+      details,
+      failureKind: input.failureKind,
+      source: input.source,
+      status: input.status,
+    }),
+    ...(details === undefined ? {} : { details }),
+  });
+}
+
 export function createCleanMcpErrorResponse(input: {
   code: string;
   details?: unknown;
+  failureKind?: CoreFieldFailureKind;
   message: string;
   responseTimeMs?: number;
   status?: string;
@@ -126,11 +154,13 @@ export function createCleanMcpErrorResponse(input: {
       ok: false,
       status: input.status ?? 'failed',
       summary: input.message,
-      error: {
+      error: createCleanMcpError({
         code: input.code,
+        failureKind: input.failureKind,
         message: input.message,
+        status: input.status,
         ...(input.details === undefined ? {} : { details: input.details }),
-      },
+      }),
       meta: {
         ...(input.responseTimeMs === undefined ? {} : { responseTimeMs: input.responseTimeMs }),
       },
@@ -198,17 +228,22 @@ function projectLegacyErrorAsCleanResponse(toolName: string, value: unknown): Cl
     record.data && typeof record.data === 'object' ? (record.data as Record<string, unknown>) : {};
   const code =
     (typeof record.errorCode === 'string' && record.errorCode) ||
+    readErrorDetailString(record.error, 'code') ||
+    readErrorDetailString(record.error, 'mcpErrorCode') ||
     (typeof data.errorCode === 'string' && data.errorCode) ||
+    readErrorDetailString(data.error, 'code') ||
+    readErrorDetailString(data.error, 'mcpErrorCode') ||
     'TOOL_FAILED';
   const message =
     (typeof record.message === 'string' && record.message) ||
+    readErrorDetailString(record.error, 'message') ||
     (typeof data.message === 'string' && data.message) ||
+    readErrorDetailString(data.error, 'message') ||
     `MCP tool ${toolName} failed.`;
+  const errorDetails = pickLegacyErrorDetails(record, data);
   return createCleanMcpErrorResponse({
     code,
-    details: {
-      payloadType: describePayloadType(value),
-    },
+    details: errorDetails ?? { payloadType: describePayloadType(value) },
     message,
     status: normalizeStatus(record.status) ?? 'failed',
     toolName,
@@ -230,4 +265,31 @@ function describePayloadType(value: unknown): string {
     return 'array';
   }
   return typeof value;
+}
+
+function pickLegacyErrorDetails(
+  record: Record<string, unknown>,
+  data: Record<string, unknown>
+): unknown {
+  if (record.error && typeof record.error === 'object') {
+    return {
+      ...(record.error as Record<string, unknown>),
+      payloadType: describePayloadType(record),
+    };
+  }
+  if (data.error && typeof data.error === 'object') {
+    return {
+      ...(data.error as Record<string, unknown>),
+      payloadType: describePayloadType(record),
+    };
+  }
+  return null;
+}
+
+function readErrorDetailString(value: unknown, key: string): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === 'string' && field.length > 0 ? field : null;
 }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
 import {
   CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES,
   CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
@@ -112,6 +113,59 @@ describe('MCP Codex local tools clean output contract', () => {
       expect(serialized).not.toContain('serviceBoundary');
       expect(serialized).not.toContain('enhancementRoute');
       expect(serialized).not.toContain('hostProjectAlignment');
+    }
+  });
+
+  test('projects D25 local/provider failure taxonomy into clean ok=false errors', () => {
+    for (const failureKind of CORE_D25_REQUIRED_FAILURE_KINDS) {
+      const taxonomy = getCoreFailureTaxonomyEntry(failureKind);
+      const result = serializeMcpToolResult(
+        'alembic_codex_dashboard',
+        {
+          success: false,
+          error: {
+            ...taxonomy,
+            apiKey: 'must-not-leak',
+            code: `CODEX_${failureKind.toUpperCase().replace(/-/g, '_')}`,
+            detailRefs: [`codex:${failureKind}`],
+            message: `Codex ${failureKind}.`,
+            privateDaemonUrl: 'http://127.0.0.1/private',
+            providerPrivateTrace: 'must-not-leak',
+            secretToken: 'must-not-leak',
+          },
+          data: {
+            needsUserInput: failureKind === 'needs-confirmation',
+            nextActions: [{ tool: 'alembic_codex_status' }],
+          },
+        },
+        {
+          isErrorResult: () => true,
+        }
+      );
+      const structured = result.structuredContent as Record<string, unknown>;
+
+      expect(result.isError).toBe(true);
+      expect(structured).toMatchObject({
+        ok: false,
+        error: {
+          detailRefs: [`codex:${failureKind}`],
+          failureId: taxonomy.stableId,
+          failureStatus: taxonomy.status,
+          mcpErrorCode: taxonomy.mcpErrorCode,
+          mcpStatus: taxonomy.mcpStatus,
+          privateDataSafe: true,
+          problemClass: taxonomy.problemClass,
+          reasonCode: taxonomy.kind,
+          refPolicy: taxonomy.refPolicy,
+          retryPolicy: taxonomy.retryPolicy,
+          retryable: taxonomy.retryable,
+        },
+      });
+      expect(JSON.stringify(structured)).not.toContain('apiKey');
+      expect(JSON.stringify(structured)).not.toContain('privateDaemonUrl');
+      expect(JSON.stringify(structured)).not.toContain('providerPrivateTrace');
+      expect(JSON.stringify(structured)).not.toContain('secretToken');
+      expect(findForbiddenCodexLocalOutputField(structured, 'alembic_codex_dashboard')).toBeNull();
     }
   });
 

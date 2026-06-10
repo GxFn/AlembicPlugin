@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   CleanMcpResponseBaseSchema,
+  createCleanMcpError,
   createCleanMcpResponse,
   registerMcpOutputProjector,
 } from '../output-contract.js';
@@ -194,25 +195,31 @@ export function projectCodexLocalToolOutput(
   const business = sanitizeBusinessFields(businessSource, toolName);
   const ok = typeof legacy.success === 'boolean' ? legacy.success : legacy.errorCode == null;
   const cleanMeta = pickCleanMeta(legacy.meta);
-  const reasonCode = extractReasonCode(legacy, businessSource);
+  const errorDetails = pickLegacyErrorDetails(legacy, businessSource);
+  const reasonCode = extractReasonCode(legacy, businessSource, errorDetails);
   const summary = buildCodexLocalToolSummary(toolName, {
     business,
+    errorDetails,
     message: typeof legacy.message === 'string' ? legacy.message : '',
     ok,
   });
+  const status = deriveCodexLocalToolStatus({ business, ok, reasonCode, toolName });
   const response = createCleanMcpResponse(
     {
       ...business,
       ok,
-      status: deriveCodexLocalToolStatus({ business, ok, reasonCode, toolName }),
+      status,
       summary,
       toolName,
       ...(!ok
         ? {
-            error: {
+            error: createCleanMcpError({
               code: reasonCode || 'CODEX_MCP_ERROR',
+              ...(errorDetails === null ? {} : { details: errorDetails }),
               message: summary,
-            },
+              source: errorDetails ?? legacy,
+              status,
+            }),
           }
         : {}),
       ...(cleanMeta ? { meta: cleanMeta } : {}),
@@ -429,12 +436,35 @@ function pickCleanMeta(value: unknown): Record<string, unknown> | null {
 
 function extractReasonCode(
   legacy: Record<string, unknown>,
-  businessSource: unknown
+  businessSource: unknown,
+  errorDetails: Record<string, unknown> | null
 ): string | null {
   if (isRecord(businessSource) && typeof businessSource.errorCode === 'string') {
     return businessSource.errorCode;
   }
-  return typeof legacy.errorCode === 'string' ? legacy.errorCode : null;
+  if (typeof legacy.errorCode === 'string') {
+    return legacy.errorCode;
+  }
+  for (const key of ['code', 'mcpErrorCode', 'reasonCode']) {
+    const value = errorDetails?.[key];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function pickLegacyErrorDetails(
+  legacy: Record<string, unknown>,
+  businessSource: unknown
+): Record<string, unknown> | null {
+  if (isRecord(legacy.error)) {
+    return legacy.error;
+  }
+  if (isRecord(businessSource) && isRecord(businessSource.error)) {
+    return businessSource.error;
+  }
+  return null;
 }
 
 function deriveCodexLocalToolStatus(input: {
@@ -460,10 +490,18 @@ function deriveCodexLocalToolStatus(input: {
 
 function buildCodexLocalToolSummary(
   toolName: CodexLocalCleanOutputToolName,
-  input: { business: Record<string, unknown>; message: string; ok: boolean }
+  input: {
+    business: Record<string, unknown>;
+    errorDetails: Record<string, unknown> | null;
+    message: string;
+    ok: boolean;
+  }
 ): string {
   if (input.message.trim()) {
     return input.message.trim();
+  }
+  if (!input.ok && typeof input.errorDetails?.message === 'string') {
+    return input.errorDetails.message;
   }
   if (!input.ok) {
     return `${toolName} blocked.`;

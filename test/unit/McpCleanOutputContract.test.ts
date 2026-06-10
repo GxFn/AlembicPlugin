@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
 import { z } from 'zod';
 import {
   CleanMcpResponseBaseSchema,
@@ -41,6 +42,11 @@ describe('MCP clean output contract foundation', () => {
   test('creates clean structured error results', () => {
     const response = createCleanMcpErrorResponse({
       code: 'VALIDATION_ERROR',
+      details: {
+        apiKey: 'must-not-leak',
+        field: 'query',
+        providerPrivateTrace: 'must-not-leak',
+      },
       message: 'Invalid input.',
       responseTimeMs: 12,
       toolName: 'alembic_search',
@@ -55,7 +61,18 @@ describe('MCP clean output contract foundation', () => {
       status: 'failed',
       error: {
         code: 'VALIDATION_ERROR',
+        failureId: 'core.failure.invalid-input',
+        mcpErrorCode: 'core.failure.invalid-input',
+        mcpStatus: 'invalid-input',
         message: 'Invalid input.',
+        privateDataSafe: true,
+        problemClass: 'request-problem',
+        reasonCode: 'invalid-input',
+        retryable: false,
+        taxonomyVersion: 1,
+        details: {
+          field: 'query',
+        },
       },
       meta: {
         contractVersion: 1,
@@ -63,6 +80,39 @@ describe('MCP clean output contract foundation', () => {
         toolName: 'alembic_search',
       },
     });
+    expect(JSON.stringify(result.structuredContent)).not.toContain('apiKey');
+    expect(JSON.stringify(result.structuredContent)).not.toContain('providerPrivateTrace');
+  });
+
+  test('preserves provider problem taxonomy fields in clean error objects', () => {
+    const providerProblem = {
+      ...getCoreFailureTaxonomyEntry('provider-error'),
+      code: 'PROVIDER_UPSTREAM_FAILED',
+      detailRefs: ['provider-log:42'],
+      message: 'Provider failed.',
+      providerPrivateTrace: 'must-not-leak',
+    };
+    const response = createCleanMcpErrorResponse({
+      code: 'PROVIDER_UPSTREAM_FAILED',
+      details: providerProblem,
+      message: 'Provider failed.',
+      toolName: 'alembic_search',
+    });
+
+    expect(response.error).toMatchObject({
+      agentBranch: 'provider-error',
+      detailRefs: ['provider-log:42'],
+      failureId: 'core.failure.provider-error',
+      failureStatus: 'failed',
+      mcpErrorCode: 'core.failure.provider-error',
+      mcpStatus: 'provider-error',
+      problemClass: 'provider-problem',
+      reasonCode: 'provider-error',
+      refPolicy: 'detailRef',
+      retryPolicy: 'retryable-after-backoff',
+      retryable: true,
+    });
+    expect(JSON.stringify(response.error)).not.toContain('providerPrivateTrace');
   });
 
   test('projects registered tool outputs into structuredContent', () => {
