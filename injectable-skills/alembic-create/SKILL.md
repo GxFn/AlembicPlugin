@@ -3,12 +3,16 @@ name: alembic-create
 description: This project has a local Alembic knowledge base. Submit Alembic candidates when the user asks or when project work reveals reusable patterns, rules, or facts worth preserving.
 ---
 
+<!-- wakeflow-shared:begin section="title" -->
 # Alembic Create — Knowledge Submission
+<!-- wakeflow-shared:end -->
 
+<!-- wakeflow-host:plugin — MCP response contract differs per host (plugin: clean structuredContent; main: unified JSON Envelope) -->
 > Prerequisite: MCP tools return clean `structuredContent` with `ok`, `status`, `summary`, optional `error`, optional `meta`, and tool-specific fields. Visible tool text is summary-only. Call `alembic_health` before operations to confirm service availability.
 
 This project has a local Alembic knowledge base. Submit Alembic candidates when the user asks or when project work reveals reusable patterns, rules, or facts worth preserving.
 
+<!-- wakeflow-shared:begin section="overview" -->
 This Skill guides the Agent to submit code patterns, rules, and facts to the Alembic knowledge base. Submitted entries enter **Candidates** (pending status); users review and publish them via the Dashboard.
 
 Related Skill: **alembic-recipes** (search existing knowledge).
@@ -110,7 +114,9 @@ Submit multiple entries at once. Each is validated independently; failures are r
 ## Submission Workflow
 
 ### Standard Flow (Agent via MCP)
+<!-- wakeflow-shared:end -->
 
+<!-- wakeflow-host:plugin — flow omits the main-only MCP tool alembic_enrich_candidates -->
 ```
 1. Analyze code → construct V3 fields
 2. alembic_submit_knowledge → stored as pending
@@ -119,6 +125,7 @@ Submit multiple entries at once. Each is validated independently; failures are r
    - Has rejectedItems → fill in missing fields per rejectedSummary.commonMissingFields, retry
 ```
 
+<!-- wakeflow-shared:begin section="workflow-rules" -->
 ### One Entry Per Scenario
 
 Splitting principle: different use cases, different API endpoints, different configurations → separate entries each. Never merge multiple patterns into one.
@@ -134,9 +141,11 @@ Splitting principle: different use cases, different API endpoints, different con
 **Example**: Two routing knowledge entries (registration flow + dispatch supplement) should be structured as:
 1. Primary: Complete route registration pattern (register + open + doc sync)
 2. Supplementary: Only deepLink/Modal/Tab stack differences, `_relations.extends → primary trigger`
+<!-- wakeflow-shared:end -->
 
 ---
 
+<!-- wakeflow-host:plugin — management table is host tool-contract (plugin lifecycle default supports reactivate only; no alembic_enrich_candidates) -->
 ## Post-Submission Management
 
 | Need | Tool |
@@ -148,6 +157,7 @@ Splitting principle: different use cases, different API endpoints, different con
 
 ---
 
+<!-- wakeflow-shared:begin section="kind-routing-and-example" -->
 ## Kind Routing & Pipeline Impact
 
 | kind | Purpose | Pipeline Output |
@@ -188,3 +198,4 @@ Splitting principle: different use cases, different API endpoints, different con
   }
 }
 ```
+<!-- wakeflow-shared:end -->

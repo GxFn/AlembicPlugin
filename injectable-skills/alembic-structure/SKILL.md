@@ -3,14 +3,18 @@ name: alembic-structure
 description: This project has a local Alembic knowledge base. Use Alembic structure, target metadata, dependency graph, and Recipe graph context proactively for this project.
 ---
 
+<!-- wakeflow-shared:begin section="title-intro" -->
 # Alembic — Structure & Dependencies & Knowledge Graph
 
-This project has a local Alembic knowledge base. Use Alembic structure, target metadata, dependency graph, and Recipe graph context proactively for this project.
-
 Use this skill when the user asks about **project structure**, **module targets**, **dependency graph**, or **knowledge graph relationships**.
+<!-- wakeflow-shared:end -->
+
+<!-- wakeflow-host:plugin — host-context trigger line + plugin-only source-graph guidance (alembic_source_graph_status / alembic_code_explore / alembic_symbol_search are not in the main MCP) -->
+This project has a local Alembic knowledge base. Use Alembic structure, target metadata, dependency graph, and Recipe graph context proactively for this project.
 
 For current source-code facts, follow the live MCP source graph guidance first. Call `alembic_source_graph_status`, then use visible source graph query tools such as `alembic_code_explore` or `alembic_symbol_search` before broad raw Read/Grep exploration. Use the Recipe graph tools below for knowledge relationships, not as proof that source code is fresh.
 
+<!-- wakeflow-shared:begin section="tools-and-graph" -->
 ---
 
 ## Project Structure Tools
@@ -57,3 +61,4 @@ SPM dependency structure: `Alembic/Alembic.spmmap.json`
 
 - **alembic-recipes**: Recipe content used as project standards
 - **alembic-create**: After understanding structure, submit knowledge candidates
+<!-- wakeflow-shared:end -->

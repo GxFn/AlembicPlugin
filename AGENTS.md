@@ -194,3 +194,27 @@ portable/fallback Core 源：本地开发始终优先解析同级 `../AlembicCor
   rev-parse HEAD)"..HEAD` 得到快照落后的 Core commit 数；有意保持固定点
   时把该滞后数记入发布说明，让下次发布能区分「已解释的滞后」与「忘了
   同步」。
+
+### 共享资产单源与漂移门禁（与 Alembic 主仓库）
+
+- 机器可读权威清单是主仓库的 `config/shared-asset-manifest.json`；本仓库的
+  `config/shared-asset-manifest.json` 与 `scripts/check-shared-asset-drift.mjs`
+  是字节级同步副本（门禁 self-check 强制一致），禁止单独修改副本。
+- 插件侧门禁入口：`npm run check:shared-asset-drift`
+  （`scripts/run-shared-asset-drift-gate.mjs`，已接入 `npm run check`）。
+  门禁脚本是方向性的（脚本所在仓库＝权威侧），所以包装器调用
+  `../Alembic`（或 `ALEMBIC_MAIN_PATH`）检出的权威脚本并把本仓库作为
+  sibling 传入；严格模式，不允许 pending-sync。权威检出不存在时打印
+  SKIP 跳过（standalone clone 安全）。
+- 修改流程（edit-in-authority-then-sync）：共享内容先在权威侧（主仓库）
+  修改 → 把 `wakeflow-shared` 标记段逐字同步到本仓库 → 双仓门禁绿色。
+  禁止直接在本仓库修改共享段；host 段（标记外、`<!-- wakeflow-host:plugin
+  ... -->` 注释说明）由本仓库自行维护。
+- 工具契约段是已验证的有意分叉，禁止互相合并：本仓库技能只引用真实的
+  Codex MCP 工具面（`alembic_code_guard` files/code/workRef、source-graph
+  工具、`alembic_prime` / `alembic_codex_*`），不得引入 main-only 工具名
+  （如 `alembic_guard` / `alembic_enrich_candidates` / `alembic_bootstrap`
+  指 main 的项目扫描语义）。
+- 各资产的权威、比较方式与已声明差异以 manifest 为准；人类可读的差异
+  声明表与 constitution.yaml 角色映射表维护在主仓库 `AGENTS.md`
+  「共享资产单源与漂移门禁」一节，不在本文件重复。

@@ -3,14 +3,18 @@ name: alembic-guard
 description: Check code against Alembic Recipe standards with `alembic_code_guard` and explicit files, inline code, or a current workRef with scoped files when this project has local Alembic knowledge.
 ---
 
+<!-- wakeflow-host:plugin — title and trigger wording are host-specific -->
 # Alembic Guard
 
 Guard checks code against project Recipes. Use it after edits only when this project has a local Alembic knowledge base or project-level Alembic knowledge skill. For empty projects, call Guard only when the user explicitly asks for Alembic Guard or compliance checking.
 
+<!-- wakeflow-shared:begin section="scope" -->
 Guard is a scoped Recipe-adherence check. It is not repo lint, security audit, general code review, or a whole-diff fallback.
+<!-- wakeflow-shared:end -->
 
 ---
 
+<!-- wakeflow-host:plugin — tool contract differs per host (plugin exposes alembic_code_guard with files/code/workRef scopes; main MCP exposes alembic_guard) -->
 ## Tool
 
 Use `alembic_code_guard` for agent-facing checks. Supported public scopes are:
@@ -66,14 +70,19 @@ For module audits:
 
 ---
 
+<!-- wakeflow-shared:begin section="knowledge-source" -->
 ## Guard Knowledge Source
 
-Guard uses Recipe content as the standard:
+Guard uses **Recipe content** as the standard — no separate config:
+- **kind=rule** → enforced as Guard rules (severity: error/warning/info)
+- **kind=pattern** → best-practice references
+- `constraints.guards[].pattern` → regex patterns for automated detection
+<!-- wakeflow-shared:end -->
 
-- `kind=rule` entries become enforceable rules.
-- `kind=pattern` entries provide best-practice guidance.
-- Guard constraints can include patterns for automated detection.
+---
 
+<!-- wakeflow-shared:begin section="related-skills" -->
 ## Related Skills
 
-- **alembic-recipes**: Recipe content is the Guard standard.
+- **alembic-recipes**: Recipe content IS the Guard standard
+<!-- wakeflow-shared:end -->
