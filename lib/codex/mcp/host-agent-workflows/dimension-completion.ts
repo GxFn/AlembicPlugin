@@ -8,6 +8,12 @@ import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import { resolveDataRoot } from '@alembic/core/workspace';
 import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import {
+  buildEvidenceGateFailureData,
+  previewDimensionQualityReport,
+  primaryEvidenceGateCode,
+  validateDimensionCompletionEvidenceGate,
+} from '#codex/mcp/host-agent-workflows/recipe-evidence-gate.js';
 import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {
@@ -103,6 +109,16 @@ export interface HostAgentWorkflowSession {
   expiresAt?: number;
   dimensions: DimensionDef[];
   submissionTracker: {
+    buildQualityReport?(
+      dimId: string,
+      analysisText?: string,
+      referencedFiles?: string[]
+    ): {
+      totalScore?: number;
+      pass: boolean;
+      scores?: Record<string, number>;
+      suggestions?: string[];
+    };
     getSubmissions(dimId: string): Array<{ recipeId?: string; sources: string[] }>;
     getAccumulatedEvidence(dimId: string): unknown;
   };
@@ -264,6 +280,16 @@ export async function runHostAgentDimensionCompletionWorkflow(
     skippedAnalysisUnitIds: input.value.skippedAnalysisUnitIds,
   });
 
+  const evidenceGateResponse = validateDimensionCompletionBeforeSideEffects({
+    input: input.value,
+    referencedFiles,
+    session: session.value,
+    submittedRecipeIds,
+  });
+  if (evidenceGateResponse) {
+    return evidenceGateResponse;
+  }
+
   const recipesBound = await bindSubmittedRecipes({
     ctx,
     session: session.value,
@@ -288,6 +314,15 @@ export async function runHostAgentDimensionCompletionWorkflow(
     recipeIds: submittedRecipeIds,
     candidateCount: input.value.candidateCount || submittedRecipeIds.length,
   });
+  if (qualityReport && !qualityReport.pass) {
+    return validateDimensionCompletionFailedQuality({
+      input: input.value,
+      qualityReport,
+      referencedFiles,
+      session: session.value,
+      submittedRecipeIds,
+    });
+  }
 
   await persistDimensionCheckpoint({
     session: session.value,
@@ -387,6 +422,66 @@ export async function runHostAgentDimensionCompletionWorkflow(
       responseTimeMs: (dependencies.now?.() ?? Date.now()) - startedAtMs,
     },
   };
+}
+
+function validateDimensionCompletionBeforeSideEffects({
+  input,
+  referencedFiles,
+  session,
+  submittedRecipeIds,
+}: {
+  input: CompletionInput;
+  referencedFiles: string[];
+  session: HostAgentWorkflowSession;
+  submittedRecipeIds: string[];
+}): HostAgentDimensionCompletionResponse | null {
+  const previewQualityReport = previewDimensionQualityReport({
+    analysisText: input.analysisText,
+    dimensionId: input.dimensionId,
+    referencedFiles,
+    session,
+  });
+  const evidenceGate = validateDimensionCompletionEvidenceGate({
+    analysisText: input.analysisText,
+    candidateCount: input.candidateCount,
+    dimensionId: input.dimensionId,
+    keyFindings: input.keyFindings,
+    qualityReport: previewQualityReport,
+    referencedFiles,
+    session,
+    submittedRecipeIds,
+  });
+  return evidenceGate.ok
+    ? null
+    : evidenceGateFailureResponse('alembic_dimension_complete', evidenceGate);
+}
+
+function validateDimensionCompletionFailedQuality({
+  input,
+  qualityReport,
+  referencedFiles,
+  session,
+  submittedRecipeIds,
+}: {
+  input: CompletionInput;
+  qualityReport: NonNullable<
+    ReturnType<HostAgentWorkflowSession['markDimensionComplete']>['qualityReport']
+  >;
+  referencedFiles: string[];
+  session: HostAgentWorkflowSession;
+  submittedRecipeIds: string[];
+}): HostAgentDimensionCompletionResponse {
+  const failedQualityGate = validateDimensionCompletionEvidenceGate({
+    analysisText: input.analysisText,
+    candidateCount: input.candidateCount,
+    dimensionId: input.dimensionId,
+    keyFindings: input.keyFindings,
+    qualityReport,
+    referencedFiles,
+    session,
+    submittedRecipeIds,
+  });
+  return evidenceGateFailureResponse('alembic_dimension_complete', failedQualityGate);
 }
 
 function normalizeCompletionInput(
@@ -1002,5 +1097,29 @@ function validationFailure(
     message,
     errorCode,
     meta: { tool: 'alembic_dimension_complete' },
+  };
+}
+
+function evidenceGateFailureResponse(
+  tool: string,
+  evidenceGate: ReturnType<typeof validateDimensionCompletionEvidenceGate>
+): HostAgentDimensionCompletionResponse {
+  return {
+    success: false,
+    errorCode: primaryEvidenceGateCode(evidenceGate),
+    message:
+      'Dimension evidence gate failed before checkpoint/progress finalization. Rebuild the bootstrap Recipe loop evidence.',
+    data: {
+      ...buildEvidenceGateFailureData(evidenceGate),
+      problem: {
+        type: 'alembic.dimension-evidence-gate.rebuild-required',
+        status: 'rebuild-required',
+        title: 'Dimension completion evidence did not meet the production floor',
+        nextAction:
+          evidenceGate.violations[0]?.nextAction ||
+          'Repair submitted Recipe ids, referenced files, findings, and analysis before retrying.',
+      },
+    },
+    meta: { tool },
   };
 }

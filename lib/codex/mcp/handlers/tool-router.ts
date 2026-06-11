@@ -14,6 +14,13 @@ import type { CreateRecipeResult } from '@alembic/core/knowledge';
 import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import {
+  buildEvidenceGateFailureData,
+  primaryEvidenceGateCode,
+  resolveBootstrapSession,
+  shouldRunRecipeEvidenceGate,
+  validateRecipeProductionEvidenceGate,
+} from '#codex/mcp/host-agent-workflows/recipe-evidence-gate.js';
+import {
   CODEX_HOST_AGENT_SOURCE,
   normalizeCodexHostAgentWriteSource,
 } from '#codex/SourceBoundary.js';
@@ -226,6 +233,12 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   const skipConsolidation = (args.skipConsolidation as boolean) === true;
   const source = normalizeCodexHostAgentWriteSource(args.source);
   const dimensionId = args.dimensionId as string | undefined;
+  const bootstrapSessionId =
+    typeof args.sessionId === 'string'
+      ? args.sessionId
+      : typeof args.bootstrapSessionRef === 'string'
+        ? args.bootstrapSessionRef
+        : undefined;
   const clientId = args.client_id as string | undefined;
   const supersedes = args.supersedes as string | undefined;
 
@@ -259,12 +272,23 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
     }
   }
 
+  const bootstrapSession = resolveBootstrapSession(ctx.container, bootstrapSessionId);
+  const evidenceGateResponse = buildSubmitKnowledgeEvidenceGateResponse({
+    args,
+    bootstrapSession,
+    items,
+    projectRoot,
+    skipConsolidation,
+  });
+  if (evidenceGateResponse) {
+    return evidenceGateResponse;
+  }
+
   // 获取 bootstrapSession 已提交标题用于跨维度去重
   let existingTitles: Set<string> | undefined;
   let existingTriggers: Set<string> | undefined;
   try {
-    const sessionManager = ctx.container.get('bootstrapSessionManager');
-    const bsSession = sessionManager?.getSession?.();
+    const bsSession = bootstrapSession;
     if (bsSession?.submissionTracker?.getAllSubmittedTitles) {
       existingTitles = bsSession.submissionTracker.getAllSubmittedTitles();
     }
@@ -470,6 +494,61 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
     message: allOk
       ? `已提交 ${successCount} 条知识条目。`
       : `已提交 ${successCount}/${items.length} 条知识条目。`,
+    meta: { tool: 'alembic_submit_knowledge' },
+  });
+}
+
+function buildSubmitKnowledgeEvidenceGateResponse({
+  args,
+  bootstrapSession,
+  items,
+  projectRoot,
+  skipConsolidation,
+}: {
+  args: Record<string, unknown>;
+  bootstrapSession: ReturnType<typeof resolveBootstrapSession>;
+  items: Array<Record<string, unknown>>;
+  projectRoot: string;
+  skipConsolidation: boolean;
+}) {
+  if (
+    !shouldRunRecipeEvidenceGate({
+      args,
+      items,
+      session: bootstrapSession,
+    })
+  ) {
+    return null;
+  }
+
+  const evidenceGate = validateRecipeProductionEvidenceGate({
+    args,
+    items,
+    projectRoot,
+    session: bootstrapSession,
+    skipConsolidation,
+  });
+  if (evidenceGate.ok) {
+    return null;
+  }
+
+  return envelope({
+    success: false,
+    errorCode: primaryEvidenceGateCode(evidenceGate),
+    message:
+      'Recipe evidence gate failed before persistence. Rebuild the rejected candidates with concrete source evidence.',
+    data: {
+      ...buildEvidenceGateFailureData(evidenceGate),
+      problem: {
+        type: 'alembic.recipe-evidence-gate.rebuild-required',
+        status: 'rebuild-required',
+        title: 'Recipe evidence did not meet the bootstrap production floor',
+        nextAction:
+          evidenceGate.violations[0]?.nextAction ||
+          'Repair source refs, snippets, and bootstrap session binding before resubmitting.',
+      },
+      requiredFields: getRequiredFieldsDescription(),
+    },
     meta: { tool: 'alembic_submit_knowledge' },
   });
 }

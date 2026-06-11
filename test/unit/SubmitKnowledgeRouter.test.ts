@@ -1,8 +1,13 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { routeSubmitKnowledgeTool } from '../../lib/codex/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
 
 const gatewayState = vi.hoisted(() => ({
+  createCalls: [] as unknown[],
+  projectRoot: '/tmp/alembic-project',
   result: {
     created: [
       {
@@ -42,7 +47,8 @@ const gatewayState = vi.hoisted(() => ({
 vi.mock('@alembic/core/knowledge', () => ({
   getRequiredFieldsDescription: () => 'title, trigger, body',
   RecipeProductionGateway: class RecipeProductionGateway {
-    async create() {
+    async create(request: unknown) {
+      gatewayState.createCalls.push(request);
       return gatewayState.result;
     }
   },
@@ -57,7 +63,7 @@ vi.mock('@alembic/core/workspace', async (importOriginal) => {
   return {
     ...actual,
     resolveDataRoot: () => '/tmp/alembic-data',
-    resolveProjectRoot: () => '/tmp/alembic-project',
+    resolveProjectRoot: () => gatewayState.projectRoot,
   };
 });
 
@@ -67,6 +73,8 @@ vi.mock('#http/middleware/RateLimiter.js', () => ({
 
 describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
   beforeEach(() => {
+    gatewayState.createCalls = [];
+    gatewayState.projectRoot = '/tmp/alembic-project';
     gatewayState.result = {
       created: [
         {
@@ -201,17 +209,110 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
       },
     });
   });
+
+  it('blocks bootstrap Recipe submissions without source evidence before Core persistence', async () => {
+    const projectRoot = makeProjectRoot();
+    gatewayState.projectRoot = projectRoot;
+    const result = await routeSubmitKnowledgeTool(makeContext({ projectRoot }), {
+      dimensionId: 'architecture',
+      sessionId: 'session-1',
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Missing Evidence',
+          kind: 'fact',
+          content: { markdown: 'This candidate has no source refs.' },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('SOURCE_REFS_MISSING');
+    expect(result.data).toMatchObject({
+      problem: {
+        status: 'rebuild-required',
+      },
+      evidenceGate: {
+        status: 'rebuild-required',
+      },
+    });
+    expect(gatewayState.createCalls).toHaveLength(0);
+  });
+
+  it('allows source-bound bootstrap Recipe submissions into the Core gateway', async () => {
+    const projectRoot = makeProjectRoot();
+    gatewayState.projectRoot = projectRoot;
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, 'src', 'source.ts'),
+      ['export function realSource() {', '  return "source-bound";', '}', ''].join('\n')
+    );
+
+    const result = await routeSubmitKnowledgeTool(makeContext({ projectRoot }), {
+      dimensionId: 'architecture',
+      sessionId: 'session-1',
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Source Bound Fact',
+          kind: 'fact',
+          sourceRefs: ['src/source.ts:1-3'],
+          coreCode: 'export function realSource() {\n  return "source-bound";\n}',
+          content: {
+            markdown:
+              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production bootstrap context.',
+          },
+          reasoning: {
+            sources: ['src/source.ts:1-3'],
+            confidence: 0.9,
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(gatewayState.createCalls).toHaveLength(1);
+    expect(gatewayState.createCalls[0]).toMatchObject({
+      options: {
+        skipConsolidation: true,
+      },
+    });
+  });
 });
 
-function makeContext(): McpContext {
+function makeContext({ projectRoot }: { projectRoot?: string } = {}): McpContext {
+  const session = projectRoot
+    ? {
+        id: 'session-1',
+        projectRoot,
+        dimensions: [{ id: 'architecture' }],
+        getProgress: () => ({ remainingDimIds: ['architecture'] }),
+        submissionTracker: {
+          getAllSubmittedTitles: () => new Set<string>(),
+          getAllSubmittedTriggers: () => new Set<string>(),
+          recordRejection: vi.fn(),
+          recordSubmission: vi.fn(),
+        },
+      }
+    : null;
   return {
     container: {
       get(name: string) {
         if (name === 'knowledgeService') {
           return {};
         }
+        if (name === 'bootstrapSessionManager') {
+          return {
+            getSession: (sessionId?: string) =>
+              session && (!sessionId || sessionId === session.id) ? session : null,
+          };
+        }
         return null;
       },
     },
   };
+}
+
+function makeProjectRoot(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-submit-gate-'));
 }
