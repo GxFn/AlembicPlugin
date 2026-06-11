@@ -281,8 +281,8 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     });
 
     test('should accept code + language', () => {
-      const result = GuardInput.parse({ code: 'eval("x")', language: 'js' });
-      expect(result.code).toBe('eval("x")');
+      const result = GuardInput.parse({ code: 'console.log("x")', language: 'js' });
+      expect(result.code).toBe('console.log("x")');
     });
   });
 
@@ -359,7 +359,6 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         'alembic_project_skill',
         'alembic_bootstrap',
         'alembic_dimension_complete',
-        'alembic_enrich_candidates',
         'alembic_knowledge_lifecycle',
       ];
       for (const tool of expectedTools) {
@@ -369,7 +368,8 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     });
 
     test('should have at least 13 entries', () => {
-      expect(Object.keys(TOOL_SCHEMAS).length).toBeGreaterThanOrEqual(13);
+      expect(Object.keys(TOOL_SCHEMAS).length).toBeGreaterThanOrEqual(12);
+      expect(TOOL_SCHEMAS).not.toHaveProperty('alembic_enrich_candidates');
     });
   });
 });

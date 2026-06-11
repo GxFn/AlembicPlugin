@@ -187,8 +187,6 @@ function sampleBusinessData(toolName) {
       return { completed: true, dimensionId: 'architecture' };
     case 'alembic_panorama':
       return { modules: [], overview: { moduleCount: 0 } };
-    case 'alembic_enrich_candidates':
-      return { entries: [], needsEnrichment: 0, total: 0 };
     case 'alembic_knowledge_lifecycle':
       return { action: 'reactivate', updated: 1 };
     default:

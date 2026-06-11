@@ -127,7 +127,6 @@ interface GatewayMappingEntry {
 // ─── Handler 模块 ─────────────────────────────────────────────
 
 import * as agentPublicToolHandlers from './handlers/agent-public-tools.js';
-import * as candidateHandlers from './handlers/candidate.js';
 import * as knowledgeHandlers from './handlers/knowledge.js';
 import * as systemHandlers from './handlers/system.js';
 import * as toolRouter from './handlers/tool-router.js';
@@ -603,8 +602,7 @@ export class McpServer {
           ctx as Parameters<typeof consolidateHandler>[0],
           args as Parameters<typeof consolidateHandler>[1]
         ),
-      // ── Admin 层 (+4) ──
-      alembic_enrich_candidates: (ctx, args) => candidateHandlers.enrichCandidates(ctx, args),
+      // ── Admin 层 (+1) ──
       alembic_knowledge_lifecycle: (ctx, args) => knowledgeHandlers.knowledgeLifecycle(ctx, args),
     };
     return HANDLER_MAP[name] ?? null;

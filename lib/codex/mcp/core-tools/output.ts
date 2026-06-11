@@ -22,7 +22,6 @@ export const CORE_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_consolidate',
   'alembic_dimension_complete',
   'alembic_panorama',
-  'alembic_enrich_candidates',
   'alembic_knowledge_lifecycle',
 ] as const;
 
@@ -144,17 +143,6 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'skillCreated',
     'subpackageCoverageWarning',
     'updated',
-  ],
-  alembic_enrich_candidates: [
-    'entries',
-    'found',
-    'fullyComplete',
-    'hint',
-    'missingFields',
-    'needsEnrichment',
-    'needsRecipeFields',
-    'recipeReadyMissing',
-    'total',
   ],
   alembic_evolve: [
     'deprecated',
@@ -681,8 +669,6 @@ function buildCoreToolSummary(
       return 'Dimension completion processed.';
     case 'alembic_panorama':
       return 'Panorama request completed.';
-    case 'alembic_enrich_candidates':
-      return 'Candidate enrichment check completed.';
     case 'alembic_knowledge_lifecycle':
       return 'Knowledge lifecycle request completed.';
   }

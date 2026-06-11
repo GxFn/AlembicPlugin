@@ -30,7 +30,6 @@ const expectedCoreToolNames = [
   'alembic_consolidate',
   'alembic_dimension_complete',
   'alembic_panorama',
-  'alembic_enrich_candidates',
   'alembic_knowledge_lifecycle',
 ] as const;
 
@@ -48,6 +47,12 @@ describe('MCP core tools clean output contract', () => {
         withMcpOutputSchema(activeToolsByName.get(toolName) ?? { name: toolName })
       ).toHaveProperty('outputSchema');
     }
+  });
+
+  test('does not expose removed candidate enrichment tool on active core surfaces', () => {
+    expect(CORE_CLEAN_OUTPUT_TOOL_NAMES).not.toContain('alembic_enrich_candidates');
+    expect(TOOLS.map((tool) => tool.name)).not.toContain('alembic_enrich_candidates');
+    expect(CORE_TOOL_OUTPUT_SCHEMAS).not.toHaveProperty('alembic_enrich_candidates');
   });
 
   test('exposes tool-specific outputSchema business fields instead of a generic catchall payload', () => {
@@ -298,8 +303,6 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
       return { completed: true, dimensionId: 'architecture' };
     case 'alembic_panorama':
       return { modules: [], overview: { moduleCount: 0 } };
-    case 'alembic_enrich_candidates':
-      return { entries: [], needsEnrichment: 0, total: 0 };
     case 'alembic_knowledge_lifecycle':
       return { action: 'reactivate', updated: 1 };
   }

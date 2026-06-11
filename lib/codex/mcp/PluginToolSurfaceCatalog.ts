@@ -556,17 +556,6 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'resident-project-scope',
   }),
-  alembic_enrich_candidates: catalogEntry({
-    name: 'alembic_enrich_candidates',
-    owner: 'plugin-embedded-core',
-    handlerOwner: 'McpServer.knowledge-admin',
-    tier: 'admin',
-    schema: 'EnrichCandidatesInput',
-    annotations: readOnlyTool('Diagnose Alembic Candidate Fields'),
-    gateway: { action: 'knowledge:update', resource: 'knowledge' },
-    knowledgeGate: 'admin-opt-in',
-    residentRoutePolicy: 'none',
-  }),
   alembic_knowledge_lifecycle: catalogEntry({
     name: 'alembic_knowledge_lifecycle',
     owner: 'plugin-embedded-core',

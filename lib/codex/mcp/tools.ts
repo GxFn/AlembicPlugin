@@ -1,5 +1,5 @@
 /**
- * MCP Tool Definitions — V3 Routed Surface (21 agent + 2 admin = 23 tools)
+ * MCP Tool Definitions — V3 Routed Surface (21 agent + 1 admin = 22 tools)
  *
  * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
@@ -12,8 +12,8 @@
  *   Project Skill delivery: project_skill
  *   Workflow tools: bootstrap/rescan/evolve/consolidate/dimension_complete/panorama
  *
- * Admin tools (2):
- *   enrich_candidates/knowledge_lifecycle
+ * Admin tools (1):
+ *   knowledge_lifecycle
  */
 
 import { z } from 'zod';
@@ -25,7 +25,6 @@ import {
   ConsolidateInput,
   DecisionRecordInput,
   DimensionCompleteInput,
-  EnrichCandidatesInput,
   EvolveInput,
   GraphInput,
   GuardInput,
@@ -121,7 +120,7 @@ export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES = new Set(
 
 export const TOOLS = [
   // ══════════════════════════════════════════════════════
-  //  Tier: agent — Core Agent Toolset (22)
+  //  Tier: agent — Core Agent Toolset (21)
   // ══════════════════════════════════════════════════════
 
   // Agent-facing public workflow tools
@@ -392,17 +391,8 @@ export const TOOLS = [
   },
 
   // ══════════════════════════════════════════════════════
-  //  Tier: admin — Admin/CI Tools (+2)
+  //  Tier: admin — Admin/CI Tools (+1)
   // ══════════════════════════════════════════════════════
-
-  // Candidate Field Diagnosis
-  {
-    name: 'alembic_enrich_candidates',
-    tier: 'admin',
-    description:
-      'Diagnose field completeness of candidate entries (no AI). Returns missingFields list per candidate for Agent to fill in and resubmit.',
-    inputSchema: zodToMcpSchema(EnrichCandidatesInput),
-  },
 
   // Knowledge Lifecycle
   {

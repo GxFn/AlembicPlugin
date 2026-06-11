@@ -458,9 +458,9 @@ describe('MCP Tool Definitions (V3)', () => {
       'alembic_consolidate',
       'alembic_dimension_complete',
       'alembic_panorama',
-      'alembic_enrich_candidates',
       'alembic_knowledge_lifecycle',
     ]);
+    expect(TOOLS.some((t) => t.name === 'alembic_enrich_candidates')).toBe(false);
     expect(TOOLS.some((t) => t.name === 'alembic_project_skill')).toBe(true);
     expect(TOOLS.some((t) => t.name === 'alembic_skill')).toBe(false);
   });

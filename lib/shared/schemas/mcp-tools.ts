@@ -689,16 +689,7 @@ export type TaskInput = z.infer<typeof TaskInput>;
 //  Admin Tools
 // ══════════════════════════════════════════════════════
 
-// 14. alembic_enrich_candidates
-export const EnrichCandidatesInput = z.object({
-  candidateIds: z
-    .array(z.string())
-    .min(1, 'at least one candidate ID required')
-    .max(20, 'max 20 candidates per call'),
-});
-export type EnrichCandidatesInput = z.infer<typeof EnrichCandidatesInput>;
-
-// 15. alembic_knowledge_lifecycle
+// 14. alembic_knowledge_lifecycle
 export const KnowledgeLifecycleInput = z.object({
   id: IdField,
   action: z
@@ -813,7 +804,6 @@ export const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_bootstrap: BootstrapInput,
   alembic_rescan: RescanInput,
   alembic_dimension_complete: DimensionCompleteInput,
-  alembic_enrich_candidates: EnrichCandidatesInput,
   alembic_knowledge_lifecycle: KnowledgeLifecycleInput,
   alembic_panorama: PanoramaInput,
   alembic_evolve: EvolveInput,

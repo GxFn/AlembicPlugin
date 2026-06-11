@@ -117,7 +117,6 @@ Submit multiple entries at once. Each is validated independently; failures are r
 3. Check response:
    - Success → inform user "Submitted. Review in Dashboard Candidates."
    - Has rejectedItems → fill in missing fields per rejectedSummary.commonMissingFields, retry
-4. [Optional] alembic_enrich_candidates → diagnose candidate field completeness
 ```
 
 ### One Entry Per Scenario
@@ -143,8 +142,8 @@ Splitting principle: different use cases, different API endpoints, different con
 | Need | Tool |
 |------|------|
 | Check candidate status | `alembic_knowledge(operation=list)` |
-| Diagnose missing fields | `alembic_enrich_candidates` |
-| Review/publish | `alembic_knowledge_lifecycle(operation=approve/publish/fast_track)` |
+| Diagnose missing fields | Use `alembic_submit_knowledge` rejectedItems / rejectedSummary details, then retry |
+| Review/publish | Dashboard or explicit admin route; default MCP lifecycle only supports `reactivate` |
 | Search existing knowledge to avoid duplicates | `alembic_search(mode=context, query=...)` |
 
 ---
