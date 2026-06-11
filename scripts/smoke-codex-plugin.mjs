@@ -99,6 +99,7 @@ try {
 
   const installedPlugin = simulateMarketplaceInstall({ packageRoot, runtimeSpecifier });
   const shellDryRun = runStartupDryRun(installedPlugin.installedRoot, runtimeSpecifier);
+  const startupRuntime = verifyStartupRuntimeProbe();
 
   process.env.ALEMBIC_HOME = alembicHome;
   process.env.ALEMBIC_CHANNEL_ID = 'codex';
@@ -214,6 +215,7 @@ try {
         packageVersion: packageJson.version,
         runtimeSpecifier,
         runtimePackageBoundary,
+        startupRuntime,
         install: 'passed',
         shellBootstrap:
           shellDryRun.runtimePackage?.specifier === runtimeSpecifier ? 'passed' : 'failed',
@@ -264,6 +266,7 @@ function requiredPackageFiles() {
     'package/scripts/verify-codex-plugin.mjs',
     'package/scripts/verify-codex-channel.mjs',
     'package/scripts/smoke-codex-plugin.mjs',
+    'package/scripts/probe-codex-plugin-startup-runtime.mjs',
     'package/scripts/prepare-codex-plugin-runtime.mjs',
     'package/scripts/release-codex-plugin.mjs',
     'package/package.json',
@@ -427,13 +430,43 @@ function runStartupDryRun(installedRoot, runtimeSpecifier) {
     dryRun.runtimePackage?.specifier === runtimeSpecifier,
     'startup dry-run runtime specifier mismatch'
   );
-  assert(dryRun.command === 'npx', 'startup dry-run command must be npx');
+  assert(dryRun.command === process.execPath, 'startup dry-run command must launch Node runtime');
   assert(
-    JSON.stringify(dryRun.args.slice(0, 4)) ===
-      JSON.stringify(['-y', '--package', runtimeSpecifier, 'alembic-codex-mcp']),
-    'startup dry-run args mismatch'
+    String(dryRun.args?.[0] || '').endsWith('dist/bin/codex-mcp.js'),
+    'startup dry-run must target the cached runtime MCP entrypoint'
+  );
+  assert(dryRun.npm?.command === 'npm', 'startup dry-run npm command mismatch');
+  assert(
+    Array.isArray(dryRun.npm?.args) && dryRun.npm.args.includes(runtimeSpecifier),
+    'startup dry-run npm args must install the pinned runtime'
+  );
+  assert(
+    dryRun.runtimeCache?.lockDir?.endsWith('.install.lock'),
+    'startup dry-run must expose a startup/install lock'
   );
   return dryRun;
+}
+
+function verifyStartupRuntimeProbe() {
+  const result = run(
+    process.execPath,
+    [join(root, 'scripts', 'probe-codex-plugin-startup-runtime.mjs')],
+    {
+      cwd: root,
+    }
+  );
+  const summary = JSON.parse(result.stdout);
+  assert(summary.ok === true, 'startup runtime probe did not report ok=true');
+  assert(summary.runtimeSpecifier, 'startup runtime probe did not report runtimeSpecifier');
+  assert(summary.firstRunInstall === 'passed', 'startup runtime first-run probe failed');
+  assert(summary.secondRunCached === 'passed', 'startup runtime cached probe failed');
+  assert(summary.networkDisabledCached === 'passed', 'startup runtime offline cached probe failed');
+  assert(
+    summary.versionMismatchReplacement === 'passed',
+    'startup runtime version replacement probe failed'
+  );
+  assert(summary.lockConcurrency === 'passed', 'startup runtime concurrency probe failed');
+  return 'passed';
 }
 
 async function runStdioSmoke({

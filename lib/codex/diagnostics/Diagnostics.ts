@@ -279,7 +279,7 @@ function buildCodexRuntimeChecks(input: {
     adminGate: input.context.requestedTier !== 'admin' || input.context.adminEnabled,
     node: input.nodeMajor >= 22,
     npm: input.npmAvailable,
-    npx: input.npxAvailable,
+    npx: true,
     runtimeMode: input.context.runtimeMode === input.context.expectedRuntimeMode,
     runtimePluginHost: input.context.pluginHost === input.context.expectedPluginHost,
     embeddedRuntime: input.plugin.mcp.embeddedRuntime,
@@ -377,7 +377,7 @@ function buildCodexRuntimeReportSections(input: {
       },
     },
     offlineFallback: {
-      note: 'The Codex plugin ships a lightweight marketplace shell. The shell starts the exact pinned @gxfn/alembic-codex-runtime package through npx; detailed first-run cache and offline behavior are handled by the shell bootstrap path.',
+      note: 'The Codex plugin ships a lightweight marketplace shell. The shell installs the exact pinned @gxfn/alembic-codex-runtime package into a startup cache with lock protection, then starts the cached MCP entrypoint with Node.',
       registryPackageFallback: false,
       localPackage: input.context.pinnedRuntimeSpecifier,
       command: input.context.runtimeBin,
@@ -425,12 +425,7 @@ function buildCodexPluginMcpDiagnostics(
   const startupSource =
     startupPath && existsSync(startupPath) ? readFileSync(startupPath, 'utf8') : '';
   const runtimeTarballPath = join(registry.plugin.root, 'runtime.tgz');
-  const shellUsesPinnedRuntime =
-    startupSource.includes('npx') &&
-    startupSource.includes('--package') &&
-    startupSource.includes(context.pinnedRuntimeSpecifier) &&
-    startupSource.includes(context.runtimeBin) &&
-    !startupSource.includes('latest');
+  const shellUsesPinnedRuntime = startupSourceUsesPinnedRuntime(startupSource, context);
   const entry = buildCodexMcpEntryDiagnostics({
     args,
     command,
@@ -452,45 +447,32 @@ function buildCodexPluginMcpDiagnostics(
     binary === context.runtimeBin &&
     !args.includes('latest');
   const packagePin = embeddedRuntime;
-  const adminDisabledByDefault = registry.mcp.env?.[CODEX_ADMIN_ENABLE_ENV] === '0';
-  const agentTierByDefault = registry.mcp.env?.ALEMBIC_MCP_TIER === CODEX_DEFAULT_MCP_TIER;
-  const pluginHostValue =
-    typeof registry.mcp.env?.[ALEMBIC_PLUGIN_HOST_ENV] === 'string'
-      ? registry.mcp.env[ALEMBIC_PLUGIN_HOST_ENV]
-      : null;
-  const runtimeModeValue =
-    typeof registry.mcp.env?.[ALEMBIC_RUNTIME_MODE_ENV] === 'string'
-      ? registry.mcp.env[ALEMBIC_RUNTIME_MODE_ENV]
-      : null;
-  const pluginHost = pluginHostValue === CODEX_PLUGIN_HOST;
-  const runtimeMode = runtimeModeValue === ALEMBIC_RUNTIME_MODE_PLUGIN;
-  const mcpMode = registry.mcp.env?.[CODEX_MCP_MODE_ENV] === '1';
-  const codexShimMode = registry.mcp.env?.[CODEX_MCP_SHIM_ENV] === '1';
+  const envDiagnostics = buildCodexPluginMcpEnvDiagnostics(registry);
   const mcpOk =
     embeddedRuntime &&
-    adminDisabledByDefault &&
-    agentTierByDefault &&
-    pluginHost &&
-    runtimeMode &&
-    mcpMode &&
-    codexShimMode;
+    envDiagnostics.adminDisabledByDefault &&
+    envDiagnostics.agentTierByDefault &&
+    envDiagnostics.pluginHost &&
+    envDiagnostics.runtimeMode &&
+    envDiagnostics.mcpMode &&
+    envDiagnostics.codexShimMode;
 
   return {
-    adminDisabledByDefault,
-    agentTierByDefault,
+    adminDisabledByDefault: envDiagnostics.adminDisabledByDefault,
+    agentTierByDefault: envDiagnostics.agentTierByDefault,
     binary,
-    codexShimMode,
+    codexShimMode: envDiagnostics.codexShimMode,
     command,
     embeddedRuntime,
-    mcpMode,
+    mcpMode: envDiagnostics.mcpMode,
     ok: mcpOk,
     packagePin,
     path: registry.mcp.json.path,
-    pluginHost,
-    pluginHostValue,
+    pluginHost: envDiagnostics.pluginHost,
+    pluginHostValue: envDiagnostics.pluginHostValue,
     pinnedSpecifier: context.pinnedRuntimeSpecifier,
-    runtimeMode,
-    runtimeModeValue,
+    runtimeMode: envDiagnostics.runtimeMode,
+    runtimeModeValue: envDiagnostics.runtimeModeValue,
     runtimeSpecifier: context.pinnedRuntimeSpecifier,
     entry,
     wrapper: {
@@ -500,6 +482,57 @@ function buildCodexPluginMcpDiagnostics(
       startupLockDiagnostics,
     },
   };
+}
+
+function buildCodexPluginMcpEnvDiagnostics(
+  registry: CodexPluginRegistry
+): Pick<
+  CodexPluginDiagnostics['mcp'],
+  | 'adminDisabledByDefault'
+  | 'agentTierByDefault'
+  | 'codexShimMode'
+  | 'mcpMode'
+  | 'pluginHost'
+  | 'pluginHostValue'
+  | 'runtimeMode'
+  | 'runtimeModeValue'
+> {
+  const pluginHostValue = asString(registry.mcp.env?.[ALEMBIC_PLUGIN_HOST_ENV]) || null;
+  const runtimeModeValue = asString(registry.mcp.env?.[ALEMBIC_RUNTIME_MODE_ENV]) || null;
+  return {
+    adminDisabledByDefault: registry.mcp.env?.[CODEX_ADMIN_ENABLE_ENV] === '0',
+    agentTierByDefault: registry.mcp.env?.ALEMBIC_MCP_TIER === CODEX_DEFAULT_MCP_TIER,
+    codexShimMode: registry.mcp.env?.[CODEX_MCP_SHIM_ENV] === '1',
+    mcpMode: registry.mcp.env?.[CODEX_MCP_MODE_ENV] === '1',
+    pluginHost: pluginHostValue === CODEX_PLUGIN_HOST,
+    pluginHostValue,
+    runtimeMode: runtimeModeValue === ALEMBIC_RUNTIME_MODE_PLUGIN,
+    runtimeModeValue,
+  };
+}
+
+function startupSourceUsesPinnedRuntime(
+  startupSource: string,
+  context: CodexRuntimeContext
+): boolean {
+  const requiredMarkers = [
+    "'npm'",
+    "'install'",
+    context.pinnedRuntimeSpecifier,
+    context.runtimeBin,
+    'ALEMBIC_CODEX_RUNTIME_CACHE_DIR',
+    'ALEMBIC_CODEX_RUNTIME_OFFLINE',
+    'acquireRuntimeLock',
+    'ALEMBIC_CODEX_RUNTIME_LOCK_TIMEOUT',
+    'ALEMBIC_CODEX_RUNTIME_CACHE_NOT_WRITABLE',
+    'ALEMBIC_CODEX_RUNTIME_INSTALL_FAILED',
+    'ALEMBIC_CODEX_RUNTIME_VERSION_MISMATCH_AFTER_INSTALL',
+    'ALEMBIC_CODEX_RUNTIME_ENTRYPOINT_MISSING',
+  ];
+  return (
+    requiredMarkers.every((marker) => startupSource.includes(marker)) &&
+    !startupSource.includes('latest')
+  );
 }
 
 function buildCodexPluginAssetDiagnostics(
@@ -648,6 +681,18 @@ function collectCodexMcpEntryStaleReasons(input: {
   if (input.marker.exists && input.marker.mode === 'local-mcp') {
     collectLocalMcpMarkerStaleReasons(input, staleReasons);
   }
+  collectRefreshMarkerStaleReasons(input, staleReasons);
+  return staleReasons;
+}
+
+function collectRefreshMarkerStaleReasons(
+  input: {
+    configMode: CodexMcpConfigMode;
+    input: CodexMcpEntryDiagnosticsInput;
+    marker: CodexMcpEntryDiagnostics['cacheMarker'];
+  },
+  staleReasons: string[]
+): void {
   if (
     input.marker.exists &&
     input.marker.entryMode &&
@@ -679,7 +724,6 @@ function collectCodexMcpEntryStaleReasons(input: {
   ) {
     staleReasons.push('refresh-marker-packaged-but-config-not-shell');
   }
-  return staleReasons;
 }
 
 function collectLocalMcpMarkerStaleReasons(
@@ -712,46 +756,46 @@ function buildWrapperStartupLockDiagnostics(
   wrapperSource: string
 ): CodexWrapperStartupLockDiagnostics {
   const configured =
-    wrapperSource.includes('acquireStartupLock') && wrapperSource.includes('lockDir');
+    wrapperSource.includes('acquireRuntimeLock') && wrapperSource.includes('lockDir');
   const releaseSignals = [
-    wrapperSource.includes("releaseStartupLock('stdout')") ? 'stdout' : null,
-    wrapperSource.includes("releaseStartupLock('stderr')") ? 'stderr' : null,
-    wrapperSource.includes("releaseStartupLock('child-exit')") ? 'child-exit' : null,
-    wrapperSource.includes("releaseStartupLock('child-error')") ? 'child-error' : null,
-    wrapperSource.includes("releaseStartupLock('hold-timeout')") ? 'hold-timeout' : null,
+    wrapperSource.includes('releaseRuntimeLock') ? 'finally-release' : null,
+    wrapperSource.includes('runtime-lock-acquired') ? 'lock-acquired' : null,
+    wrapperSource.includes('runtime-lock-stale-removed') ? 'stale-removed' : null,
+    wrapperSource.includes('ALEMBIC_CODEX_RUNTIME_LOCK_TIMEOUT') ? 'timeout-diagnostic' : null,
   ].filter((signal): signal is string => typeof signal === 'string');
+  let scope: CodexWrapperStartupLockDiagnostics['scope'] = 'missing';
+  if (configured) {
+    scope = 'global-cache-base';
+  }
+  if (
+    wrapperSource.includes('lockScope') &&
+    wrapperSource.includes('pluginRoot') &&
+    wrapperSource.includes('runtimeTarball')
+  ) {
+    scope = 'plugin-root-runtime-tarball';
+  }
   return {
     cacheParentCreation:
-      wrapperSource.includes('mkdirSync(npmCacheRoot') && wrapperSource.includes('recursive: true'),
+      wrapperSource.includes('mkdirSync(cache.installRoot') &&
+      wrapperSource.includes('recursive: true'),
     configured,
-    holdTimeoutEnv: 'ALEMBIC_CODEX_NPM_LOCK_HOLD_MS',
+    holdTimeoutEnv: 'not-used',
     ownerMetadata:
       wrapperSource.includes('owner.json') &&
-      wrapperSource.includes('pluginRoot') &&
-      wrapperSource.includes('runtimeTarball'),
+      wrapperSource.includes('acquiredAtMs') &&
+      wrapperSource.includes('source'),
     releaseSignals,
-    runtimeTarballPreflight:
-      wrapperSource.includes('assertRuntimeTarballReady') &&
-      wrapperSource.includes('runtime-tarball-missing') &&
-      wrapperSource.includes('ALEMBIC_CODEX_RUNTIME_TARBALL_MISSING'),
-    scope:
-      wrapperSource.includes('lockScope') &&
-      wrapperSource.includes('pluginRoot') &&
-      wrapperSource.includes('runtimeTarball')
-        ? 'plugin-root-runtime-tarball'
-        : configured
-          ? 'global-cache-base'
-          : 'missing',
-    staleTimeoutEnv: 'ALEMBIC_CODEX_NPM_LOCK_STALE_MS',
-    timeoutEnv: 'ALEMBIC_CODEX_NPM_LOCK_TIMEOUT_MS',
+    runtimeTarballPreflight: false,
+    scope,
+    staleTimeoutEnv: 'ALEMBIC_CODEX_LOCK_STALE_MS',
+    timeoutEnv: 'ALEMBIC_CODEX_LOCK_TIMEOUT_MS',
     waitDiagnostics:
-      wrapperSource.includes('startup-lock-wait') &&
-      wrapperSource.includes('waitMs') &&
+      wrapperSource.includes('delay(') &&
       wrapperSource.includes('timeoutMs') &&
-      wrapperSource.includes('nextAction'),
+      wrapperSource.includes('ALEMBIC_CODEX_RUNTIME_LOCK_TIMEOUT'),
     nextAction: configured
-      ? 'If startup waits or times out, inspect the wrapper lock owner metadata or run npm run dev:codex-plugin:reload.'
-      : 'Restore the packaged wrapper startup lock before shipping the Codex plugin.',
+      ? 'If startup waits or times out, inspect the runtime cache .install.lock owner metadata or run npm run dev:codex-plugin:reload.'
+      : 'Restore the packaged startup install lock before shipping the Codex plugin.',
   };
 }
 
@@ -841,15 +885,6 @@ function buildRuntimeCommandIssues(input: BuildDiagnosticIssuesInput): CodexDiag
       action: 'Install npm or use a Node.js distribution that includes npm.',
       code: 'NPM_UNAVAILABLE',
       message: String(input.npm.error || 'npm is not available.'),
-      severity: 'error',
-    });
-  }
-  if (!input.checks.npx && input.npx.staleCwd !== true) {
-    issues.push({
-      action:
-        'Install npm/npx support so the Codex plugin shell can launch the pinned @gxfn/alembic-codex-runtime package.',
-      code: 'NPX_UNAVAILABLE',
-      message: String(input.npx.error || 'npx is not available.'),
       severity: 'error',
     });
   }

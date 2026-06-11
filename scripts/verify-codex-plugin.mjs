@@ -61,6 +61,7 @@ for (const requiredFile of [
   'scripts/prepare-codex-runtime-package.mjs',
   'scripts/verify-codex-runtime-package-boundary.mjs',
   'scripts/verify-codex-plugin.mjs',
+  'scripts/probe-codex-plugin-startup-runtime.mjs',
   'scripts/smoke-codex-plugin.mjs',
   'scripts/prepare-codex-plugin-runtime.mjs',
   'scripts/release-codex-plugin.mjs',
@@ -152,8 +153,28 @@ expect(!server?.env?.npm_config_cache, '.mcp.json must not force an npm cache pa
 
 expect(existsSync(startupPath), 'marketplace shell startup script must exist');
 expect(startupSource.includes(expectedRuntime), `startup script must target ${expectedRuntime}`);
-expect(startupSource.includes("'npx'"), 'startup script must launch through npx by default');
-expect(startupSource.includes("'--package'"), 'startup script must pass --package');
+expect(startupSource.includes("'npm'"), 'startup script must install through npm by default');
+expect(startupSource.includes("'install'"), 'startup script must run npm install when needed');
+expect(
+  startupSource.includes('ALEMBIC_CODEX_RUNTIME_CACHE_DIR'),
+  'startup script must support deterministic runtime cache selection'
+);
+expect(
+  startupSource.includes('ALEMBIC_CODEX_RUNTIME_OFFLINE'),
+  'startup script must support offline cached startup'
+);
+expect(
+  startupSource.includes('ALEMBIC_CODEX_RUNTIME_LOCK_TIMEOUT'),
+  'startup script must classify startup lock timeout'
+);
+expect(
+  startupSource.includes('ALEMBIC_CODEX_RUNTIME_VERSION_MISMATCH_AFTER_INSTALL'),
+  'startup script must classify post-install version mismatch'
+);
+expect(
+  startupSource.includes('ALEMBIC_CODEX_RUNTIME_ENTRYPOINT_MISSING'),
+  'startup script must classify missing runtime entrypoint'
+);
 expect(startupSource.includes('alembic-codex-mcp'), 'startup script must invoke alembic-codex-mcp');
 expect(!startupSource.includes('latest'), 'startup script must not use latest');
 expect(
@@ -165,8 +186,8 @@ expect(
   'startup script must not refer to the old runtime tarball'
 );
 expect(
-  !startupSource.includes('node_modules'),
-  'startup script must not depend on a public node_modules directory'
+  !startupSource.includes("resolve(pluginRoot, 'node_modules')"),
+  'startup script must not depend on a public plugin-root node_modules directory'
 );
 verifyStartupDryRun();
 verifyForbiddenShellArtifacts();
@@ -315,19 +336,31 @@ function verifyStartupDryRun() {
   const dryRun = safeParseJson(result.stdout, 'startup dry-run JSON');
   expect(dryRun.ok === true, 'startup dry-run must report ok=true');
   expect(dryRun.cwd === pluginRoot, 'startup dry-run cwd must resolve to plugin root');
-  expect(dryRun.command === 'npx', 'startup dry-run command must default to npx');
+  expect(dryRun.command === process.execPath, 'startup dry-run command must launch Node runtime');
   expect(
-    JSON.stringify(dryRun.args?.slice(0, 4)) ===
-      JSON.stringify(['-y', '--package', expectedRuntime, 'alembic-codex-mcp']),
-    'startup dry-run args must target the exact pinned runtime package'
+    String(dryRun.args?.[0] || '').endsWith('dist/bin/codex-mcp.js'),
+    'startup dry-run args must point at the cached runtime MCP entrypoint'
   );
   expect(
     dryRun.runtimePackage?.specifier === expectedRuntime,
     'startup dry-run runtime specifier mismatch'
   );
+  expect(dryRun.npm?.command === 'npm', 'startup dry-run npm command must default to npm');
+  expect(
+    Array.isArray(dryRun.npm?.args) && dryRun.npm.args.includes(expectedRuntime),
+    'startup dry-run npm args must install the exact pinned runtime package'
+  );
+  expect(
+    dryRun.runtimeCache?.lockDir?.endsWith('.install.lock'),
+    'startup dry-run must expose the runtime install lock path'
+  );
   expect(
     dryRun.env?.ALEMBIC_CODEX_PLUGIN_ROOT === pluginRoot,
     'startup dry-run must pass absolute plugin root to runtime'
+  );
+  expect(
+    dryRun.env?.ALEMBIC_CODEX_RUNTIME_PACKAGE_SPECIFIER === expectedRuntime,
+    'startup dry-run must pass pinned runtime specifier to runtime env'
   );
 }
 
