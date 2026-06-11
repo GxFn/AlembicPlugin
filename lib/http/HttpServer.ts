@@ -25,7 +25,6 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { roleResolverMiddleware } from './middleware/roleResolver.js';
 import auditRouter from './routes/audit.js';
 import authRouter from './routes/auth.js';
-import candidatesRouter from './routes/candidates.js';
 import commandsRouter from './routes/commands.js';
 import daemonRouter from './routes/daemon.js';
 import evolutionRouter from './routes/evolution.js';
@@ -41,7 +40,6 @@ import modulesRouter from './routes/modules.js';
 import monitoringRouter from './routes/monitoring.js';
 import panoramaRouter from './routes/panorama.js';
 import searchRouter from './routes/search.js';
-import signalsRouter from './routes/signals.js';
 import skillsRouter from './routes/skills.js';
 import violationsRouter from './routes/violations.js';
 
@@ -303,9 +301,6 @@ export class HttpServer {
     // Skills 路由
     this.app.use(`${apiPrefix}/skills`, skillsRouter);
 
-    // Candidates 路由（宿主托管补齐/润色边界）
-    this.app.use(`${apiPrefix}/candidates`, candidatesRouter);
-
     // Modules 路由（v3.2 统一多语言模块扫描）
     this.app.use(`${apiPrefix}/modules`, modulesRouter);
 
@@ -320,9 +315,6 @@ export class HttpServer {
 
     // 进化路由（文件变更驱动 Recipe 修复/弃用）
     this.app.use(`${apiPrefix}/evolution`, evolutionRouter);
-
-    // 信号留痕 & 报告路由
-    this.app.use(`${apiPrefix}/signals`, signalsRouter);
 
     // 审计日志路由
     this.app.use(`${apiPrefix}/audit`, auditRouter);

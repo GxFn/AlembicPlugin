@@ -13,7 +13,6 @@ export const CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES = [
   '/api/v1/jobs/rescan',
   '/api/v1/search',
   '/api/v1/skills',
-  '/api/v1/candidates',
   '/api/v1/knowledge',
 ] as const;
 

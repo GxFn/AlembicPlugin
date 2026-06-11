@@ -41,6 +41,26 @@ describe('Plugin HTTP surface boundary', () => {
     expect(httpServer).not.toContain(literal('`${apiPrefix}/', 'recipes`'));
   });
 
+  it('does not keep removed candidate refine and Dashboard signal page HTTP routes', () => {
+    expect(exists(literal('lib/http/routes/', 'candidates.ts'))).toBe(false);
+    expect(exists(literal('lib/http/routes/', 'signals.ts'))).toBe(false);
+
+    const httpServer = source('lib/http/HttpServer.ts');
+    const requestSchemas = source('lib/shared/schemas/http-requests.ts');
+    const embeddedRuntimeContract = source('lib/codex/runtime/EmbeddedRuntimeContract.ts');
+
+    expect(httpServer).not.toContain(literal('candidates', 'Router'));
+    expect(httpServer).not.toContain(literal('signals', 'Router'));
+    expect(httpServer).not.toContain(literal('`${apiPrefix}/', 'candidates`'));
+    expect(httpServer).not.toContain(literal('`${apiPrefix}/', 'signals`'));
+    expect(requestSchemas).not.toContain('EnrichBody');
+    expect(requestSchemas).not.toContain('BootstrapRefineBody');
+    expect(requestSchemas).not.toContain('RefinePreviewBody');
+    expect(requestSchemas).not.toContain('RefineApplyBody');
+    expect(embeddedRuntimeContract).not.toContain(literal('/api/v1/', 'candidates'));
+    expect(embeddedRuntimeContract).not.toContain(literal('/api/v1/', 'signals'));
+  });
+
   it('does not expose old Dashboard caller-only HTTP aliases', () => {
     const monitoring = source('lib/http/routes/monitoring.ts');
     const jobs = source('lib/http/routes/jobs.ts');

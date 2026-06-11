@@ -5,7 +5,6 @@
  *   - knowledge（CRUD + 生命周期）
  *   - guardRules（规则管理 + 批量操作）
  *   - search（mode 路由搜索 + 上下文搜索）
- *   - candidates（候选条目操作）
  *   - guard（文件质量检查）
  *   - skills（技能管理）
  *   - task（统一任务分发）
@@ -189,29 +188,6 @@ export const SimilarityBody = z.object({
       markdown: z.string().optional(),
     })
     .optional(),
-});
-
-// ═══ Candidates ══════════════════════════════════
-
-export const EnrichBody = z.object({
-  candidateIds: z.array(z.string().min(1)).min(1).max(20),
-});
-
-export const BootstrapRefineBody = z.object({
-  candidateIds: z.array(z.string().min(1)).optional(),
-  userPrompt: z.string().optional(),
-  dryRun: z.boolean().default(false),
-});
-
-export const RefinePreviewBody = z.object({
-  candidateId: z.string().min(1, 'candidateId is required'),
-  userPrompt: z.string().min(1, 'userPrompt is required'),
-});
-
-export const RefineApplyBody = z.object({
-  candidateId: z.string().min(1, 'candidateId is required'),
-  userPrompt: z.string().optional(),
-  preview: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ═══ Guard (file check) ══════════════════════════

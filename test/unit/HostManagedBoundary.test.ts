@@ -12,7 +12,7 @@ const legacyDeterministicField = ['legacy', 'Host', 'Managed'].join('');
 
 describe('Host-managed capability boundary payloads', () => {
   it('exposes host-agent ownership without old Dashboard caller fields', () => {
-    const payload = attachHostAgentManagedBoundary({ total: 1 }, 'candidate-enrich');
+    const payload = attachHostAgentManagedBoundary({ total: 1 }, 'module-scan');
 
     expect(payload.hostAgentManaged).toBe(true);
     expect(payload.boundaryCode).toBe(HOST_AGENT_MANAGED_CODE);
