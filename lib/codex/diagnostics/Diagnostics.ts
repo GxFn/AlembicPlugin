@@ -437,19 +437,23 @@ function buildCodexPluginMcpDiagnostics(
     wrapperPath: startupPath,
   });
   const startupLockDiagnostics = buildWrapperStartupLockDiagnostics(startupSource);
+  const localDevRuntime =
+    entry.mode === 'local-dev-direct-dist' &&
+    entry.localDistEntry.exists === true &&
+    !args.includes('latest');
   const binary =
     args.find((arg) => arg === context.runtimeBin) ||
-    (shellUsesPinnedRuntime ? context.runtimeBin : null);
+    (shellUsesPinnedRuntime || localDevRuntime ? context.runtimeBin : null);
   const embeddedRuntime =
     command === 'node' &&
     args.includes(CODEX_MARKETPLACE_SHELL_ENTRY) &&
     shellUsesPinnedRuntime &&
     binary === context.runtimeBin &&
     !args.includes('latest');
-  const packagePin = embeddedRuntime;
+  const packagePin = embeddedRuntime || localDevRuntime;
   const envDiagnostics = buildCodexPluginMcpEnvDiagnostics(registry);
   const mcpOk =
-    embeddedRuntime &&
+    packagePin &&
     envDiagnostics.adminDisabledByDefault &&
     envDiagnostics.agentTierByDefault &&
     envDiagnostics.pluginHost &&
