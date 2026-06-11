@@ -58,7 +58,7 @@ describe('Codex plugin cache sync script', () => {
     const marker = JSON.parse(readFileSync(markerPath, 'utf8')) as {
       canonicalLocalDevCommand: string;
       entryMode: string;
-      hashes: { mcp: string; wrapper: string };
+      hashes: { mcp: string; startup: string };
       localMcpEntry: string;
       mode: string;
       runtimeModeSeparation: {
@@ -75,7 +75,7 @@ describe('Codex plugin cache sync script', () => {
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_RUNTIME_MODE).toBe('plugin');
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_PLUGIN_HOST).toBe('codex');
     expect(repoMcp.mcpServers.alembic.command).toBe('node');
-    expect(repoMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-mcp-wrapper.mjs');
+    expect(repoMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-start.mjs');
     expect(marker).toMatchObject({
       canonicalLocalDevCommand: 'npm run dev:codex-plugin:reload',
       entryMode: 'local-dev-direct-dist',
@@ -88,14 +88,14 @@ describe('Codex plugin cache sync script', () => {
           localMcpEntry: localEntry,
         },
         packaged: {
-          entryMode: 'packaged-wrapper',
-          runtimeSpecifier: './runtime.tgz',
+          entryMode: 'marketplace-shell',
+          runtimeSpecifier: '@gxfn/alembic-codex-runtime@0.2.0',
         },
       },
     });
-    expect(marker.runtimeModeSeparation.packaged.cacheIsolation).toContain('startup lock');
+    expect(marker.runtimeModeSeparation.packaged.cacheIsolation).toContain('shell bootstrap');
     expect(marker.hashes.mcp).toMatch(/^[a-f0-9]{64}$/);
-    expect(marker.hashes.wrapper).toMatch(/^[a-f0-9]{64}$/);
+    expect(marker.hashes.startup).toMatch(/^[a-f0-9]{64}$/);
   }, 30_000);
 });
 

@@ -1542,7 +1542,7 @@ describe('CodexMcpServer', () => {
 
     expect(result.success).toBe(true);
     expect(result.data.package.pinnedSpecifier).toBe(
-      `alembic-codex-plugin-runtime@${getPackageVersion()}`
+      `@gxfn/alembic-codex-runtime@${getPackageVersion()}`
     );
     expect(result.data.checks).toMatchObject({
       packagePin: true,
@@ -1552,25 +1552,16 @@ describe('CodexMcpServer', () => {
     });
     expect(result.data.plugin.mcp).toMatchObject({ ok: true, packagePin: true });
     expect(result.data.plugin.mcp.entry).toMatchObject({
-      mode: 'packaged-wrapper',
-      runtimeTarball: { exists: true },
+      mode: 'marketplace-shell',
       staleReasons: [],
     });
-    expect(result.data.plugin.mcp.wrapper.startupLockDiagnostics).toMatchObject({
-      cacheParentCreation: true,
-      runtimeTarballPreflight: true,
-      scope: 'plugin-root-runtime-tarball',
-      waitDiagnostics: true,
-    });
-    expect(result.data.plugin.mcp.wrapper.startupLockDiagnostics.releaseSignals).toEqual(
-      expect.arrayContaining(['stderr', 'hold-timeout'])
-    );
+    expect(result.data.plugin.mcp.wrapper.path).toContain('alembic-codex-start.mjs');
     expect(result.data.plugin.skills.ok).toBe(true);
     expect(result.data.nextActions).toContain('Alembic Codex runtime checks passed.');
     expect(result.data.primaryAction.tool).toBe('alembic_codex_status');
     expect(result.data.summary).toContain('runtime checks passed');
     expect(result.data.offlineFallback).toMatchObject({
-      localPackage: './runtime.tgz',
+      localPackage: `@gxfn/alembic-codex-runtime@${getPackageVersion()}`,
       registryPackageFallback: false,
     });
     expect(result.data.cleanup).toMatchObject({
@@ -1578,7 +1569,7 @@ describe('CodexMcpServer', () => {
       command: 'alembic_codex_cleanup',
     });
     expect(result.data.projectRuntime).toMatchObject({
-      entryMode: { mode: 'packaged-wrapper' },
+      entryMode: { mode: 'marketplace-shell' },
       sourcePolicy: {
         selectedOrActiveCanOverrideEffectiveIdentity: false,
       },
@@ -2278,14 +2269,14 @@ describe('CodexMcpServer', () => {
     );
     expect(packageJson.scripts['verify:codex-plugin']).toBe('node scripts/verify-codex-plugin.mjs');
     expect(pluginMcp.mcpServers.alembic.command).toBe('node');
-    expect(pluginMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-mcp-wrapper.mjs');
+    expect(pluginMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-start.mjs');
     expect(
       fs
         .readFileSync(
-          path.resolve('plugins/alembic-codex/bin/alembic-codex-mcp-wrapper.mjs'),
+          path.resolve('plugins/alembic-codex/bin/alembic-codex-start.mjs'),
           'utf8'
         )
-        .includes('./runtime.tgz')
+        .includes(`@gxfn/alembic-codex-runtime@${getPackageVersion()}`)
     ).toBe(true);
     expect(pluginMcp.mcpServers.alembic.cwd).toBe('.');
     expect(pluginMcp.mcpServers.alembic.env.ALEMBIC_RUNTIME_MODE).toBe('plugin');

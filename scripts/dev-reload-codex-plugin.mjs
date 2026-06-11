@@ -38,7 +38,7 @@ try {
     runStep('build local Codex MCP runtime', 'npm', ['run', 'build']);
   }
   if (!options.skipPrepare) {
-    runStep('prepare packaged runtime tarball', 'npm', ['run', 'prepare:codex-plugin-runtime']);
+    runStep('prepare packaged marketplace shell', 'npm', ['run', 'prepare:codex-plugin-runtime']);
   }
 
   report.sync = runSync();
@@ -166,10 +166,10 @@ function buildRuntimeModeSeparation() {
       currentHostMcpProcessLifecycle: 'not-managed-by-plugin',
     },
     packaged: {
-      command: 'plugins/alembic-codex/bin/alembic-codex-mcp-wrapper.mjs',
-      entryMode: 'packaged-wrapper',
-      runtimeSpecifier: './runtime.tgz',
-      cacheIsolation: 'per-wrapper-process npm cache plus scoped startup lock',
+      command: 'plugins/alembic-codex/bin/alembic-codex-start.mjs',
+      entryMode: 'marketplace-shell',
+      runtimeSpecifier: '@gxfn/alembic-codex-runtime@0.2.0',
+      cacheIsolation: 'owned by the marketplace shell bootstrap path',
       usedByReload: false,
     },
   };
@@ -279,7 +279,7 @@ Usage:
   node scripts/dev-reload-codex-plugin.mjs [options]
 
 Behavior:
-  Builds the local Codex MCP runtime, prepares runtime.tgz, rewrites installed
+  Builds the local Codex MCP runtime, verifies the marketplace shell, rewrites installed
   plugin cache roots to local dist/bin/codex-mcp.js and starts a fresh MCP probe
   against the rewritten cache. The probe calls alembic_codex_status and validates
   projectRuntime identity, sourcePolicy, fallback isolation, entryMode, and
@@ -294,7 +294,7 @@ Options:
   --probe-report-path <path>   Persist nested MCP probe report.
   --mcp-timeout-ms <ms>        MCP probe timeout, defaults to 30000.
   --skip-build                 Skip npm run build.
-  --skip-prepare               Skip prepare:codex-plugin-runtime.
+  --skip-prepare               Skip prepare:codex-plugin-runtime shell verification.
   --skip-probe                 Skip fresh MCP probe.
   --dry-run                    Print the reload plan without writing or probing.
   --legacy-refresh             Compatibility marker for dev:codex-plugin:refresh.

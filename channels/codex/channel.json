@@ -1,7 +1,7 @@
 {
   "id": "codex",
   "displayName": "Codex",
-  "description": "Codex distribution entry for the Alembic Codex plugin and embedded portable runtime artifact.",
+  "description": "Codex distribution entry for the Alembic Codex plugin marketplace shell and pinned runtime package.",
   "marketplace": {
     "name": "gxfn",
     "displayName": "GxFn",
@@ -22,10 +22,10 @@
       "name": "alembic-codex",
       "path": "plugins/alembic-codex",
       "marketplaceEntry": "alembic-codex",
-      "runtimePackage": "alembic-codex-plugin-runtime",
+      "runtimePackage": "@gxfn/alembic-codex-runtime",
       "runtimeMode": "plugin",
-      "runtimeSpecifier": "./runtime.tgz",
-      "embeddedRuntimePath": "runtime",
+      "runtimeSpecifier": "@gxfn/alembic-codex-runtime@0.2.0",
+      "shellEntry": "bin/alembic-codex-start.mjs",
       "pluginHost": "codex",
       "distributionRepo": "GxFn/AlembicCodex",
       "runtimeBin": "alembic-codex-mcp",
@@ -35,10 +35,10 @@
   ],
   "packages": [
     {
-      "name": "alembic-codex-plugin-runtime",
-      "registry": "portable-artifact",
-      "installScope": "embedded-plugin-runtime",
-      "artifact": "plugins/alembic-codex/runtime.tgz",
+      "name": "@gxfn/alembic-codex-runtime",
+      "registry": "npm",
+      "installScope": "marketplace-shell-runtime",
+      "specifier": "@gxfn/alembic-codex-runtime@0.2.0",
       "version": "0.2.0",
       "binaries": [
         "alembic-codex-mcp"

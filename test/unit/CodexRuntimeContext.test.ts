@@ -101,10 +101,14 @@ describe('Codex runtime context', () => {
 
     expect(context.expectedChannelId).toBe('codex');
     expect(context.runtimeBin).toBe('alembic-codex-mcp');
+    expect(context.runtimePackage).toBe('@gxfn/alembic-codex-runtime');
+    expect(context.pinnedRuntimeSpecifier).toBe(
+      `@gxfn/alembic-codex-runtime@${context.packageVersion}`
+    );
     expect(registry.channel.value?.id).toBe('codex');
     expect(registry.plugin.manifest.value?.name).toBe('alembic-codex');
     expect(registry.mcp.server?.command).toBe('node');
-    expect(registry.mcp.args).toContain('./bin/alembic-codex-mcp-wrapper.mjs');
+    expect(registry.mcp.args).toContain('./bin/alembic-codex-start.mjs');
   });
 
   test('builds plugin diagnostics from shared Codex registry facts', () => {
@@ -117,25 +121,13 @@ describe('Codex runtime context', () => {
     expect(diagnostics.mcp.agentTierByDefault).toBe(true);
     expect(diagnostics.mcp.runtimeMode).toBe(true);
     expect(diagnostics.mcp.pluginHost).toBe(true);
-    expect(diagnostics.mcp.runtimeSpecifier).toBe(context.embeddedRuntimeSpecifier);
+    expect(diagnostics.mcp.runtimeSpecifier).toBe(context.pinnedRuntimeSpecifier);
     expect(diagnostics.mcp.entry).toMatchObject({
-      mode: 'packaged-wrapper',
-      nextAction: expect.stringContaining('packaged runtime diagnostics'),
-      runtimeTarball: {
-        exists: true,
-      },
+      mode: 'marketplace-shell',
+      nextAction: expect.stringContaining('marketplace shell diagnostics'),
     });
-    expect(diagnostics.mcp.wrapper.startupLockDiagnostics).toMatchObject({
-      cacheParentCreation: true,
-      configured: true,
-      ownerMetadata: true,
-      runtimeTarballPreflight: true,
-      scope: 'plugin-root-runtime-tarball',
-      waitDiagnostics: true,
-    });
-    expect(diagnostics.mcp.wrapper.startupLockDiagnostics.releaseSignals).toEqual(
-      expect.arrayContaining(['stdout', 'stderr', 'child-exit', 'child-error', 'hold-timeout'])
-    );
+    expect(diagnostics.mcp.wrapper.exists).toBe(true);
+    expect(diagnostics.mcp.wrapper.path).toContain('alembic-codex-start.mjs');
     expect(diagnostics.skills.missing).toEqual([]);
     expect(diagnostics.assets.missing).toEqual([]);
     expect(context.defaultTier).toBe(CODEX_DEFAULT_MCP_TIER);

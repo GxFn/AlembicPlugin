@@ -7,56 +7,37 @@ const root = resolve(import.meta.dirname, '..');
 const channelPath = join(root, 'channels', 'codex', 'channel.json');
 const channelReadmePath = join(root, 'channels', 'codex', 'README.md');
 const packageJsonPath = join(root, 'package.json');
+const runtimePackageJsonPath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
 const marketplacePath = join(root, '.agents', 'plugins', 'marketplace.json');
 const errors = [];
 
 const channel = readJson(channelPath);
 const packageJson = readJson(packageJsonPath);
+const runtimePackageJson = readJson(runtimePackageJsonPath);
 const marketplace = readJson(marketplacePath);
 const packageVersion = packageJson.version;
+const runtimeSpecifier = `${runtimePackageJson.name}@${runtimePackageJson.version}`;
 
 expect(existsSync(channelReadmePath), 'channels/codex/README.md must exist');
 expect(channel.id === 'codex', 'Codex channel id must be codex');
 expect(channel.displayName === 'Codex', 'Codex channel displayName must be Codex');
 expect(
+  channel.description ===
+    'Codex distribution entry for the Alembic Codex plugin marketplace shell and pinned runtime package.',
+  'Codex channel description must stay scoped to the current plugin shell/runtime package'
+);
+expect(
   channel.marketplace?.name === marketplace.name,
-  'Codex channel marketplace name must match .agents/plugins/marketplace.json'
-);
-expect(
-  channel.marketplace?.displayName === marketplace.interface?.displayName,
-  'Codex channel marketplace displayName must match .agents/plugins/marketplace.json'
-);
-expect(
-  channel.marketplace?.manifestPath === '.agents/plugins/marketplace.json',
-  'Codex channel marketplace manifestPath must point to .agents/plugins/marketplace.json'
+  'Codex channel marketplace name must match marketplace.json'
 );
 expect(channel.runtime?.channelId === channel.id, 'Codex channel runtime.channelId must match id');
-expect(
-  channel.runtime?.env?.ALEMBIC_CHANNEL_ID === channel.id,
-  'Codex channel runtime env must set ALEMBIC_CHANNEL_ID to the channel id'
-);
 expect(channel.runtime?.mode === 'plugin', 'Codex channel runtime.mode must be plugin');
 expect(channel.runtime?.pluginHost === 'codex', 'Codex channel runtime.pluginHost must be codex');
-expect(
-  channel.runtime?.env?.ALEMBIC_RUNTIME_MODE === 'plugin',
-  'Codex channel runtime env must set ALEMBIC_RUNTIME_MODE=plugin'
-);
-expect(
-  channel.runtime?.env?.ALEMBIC_PLUGIN_HOST === 'codex',
-  'Codex channel runtime env must set ALEMBIC_PLUGIN_HOST=codex'
-);
 
 const plugins = Array.isArray(channel.plugins) ? channel.plugins : [];
 const packages = Array.isArray(channel.packages) ? channel.packages : [];
-expect(plugins.length === 1, 'Codex channel must list exactly one plugin in the current phase');
-expect(packages.length === 1, 'Codex channel must list exactly one package in the current phase');
-expect(plugins[0]?.name === 'alembic-codex', 'Codex channel plugin must be alembic-codex');
-expect(packages[0]?.name === packageJson.name, `Codex channel package must be ${packageJson.name}`);
-expect(
-  channel.description ===
-    'Codex distribution entry for the Alembic Codex plugin and embedded portable runtime artifact.',
-  'Codex channel description must stay scoped to the current plugin/runtime'
-);
+expect(plugins.length === 1, 'Codex channel must list exactly one plugin');
+expect(packages.length === 1, 'Codex channel must list exactly one runtime package');
 
 const marketplaceEntries = Array.isArray(marketplace.plugins) ? marketplace.plugins : [];
 for (const plugin of plugins) {
@@ -68,10 +49,8 @@ for (const plugin of plugins) {
   );
   const server = mcpJson.mcpServers?.alembic;
   const args = Array.isArray(server?.args) ? server.args : [];
-  const wrapperArg = args.find((arg) => arg.endsWith('alembic-codex-mcp-wrapper.mjs'));
-  const wrapperPath = wrapperArg ? join(pluginRoot, wrapperArg.replace(/^\.\//, '')) : '';
-  const wrapperSource =
-    wrapperPath && existsSync(wrapperPath) ? readFileSync(wrapperPath, 'utf8') : '';
+  const startupPath = join(pluginRoot, 'bin', 'alembic-codex-start.mjs');
+  const startupSource = existsSync(startupPath) ? readFileSync(startupPath, 'utf8') : '';
 
   expect(
     plugin.name === pluginJson.name,
@@ -84,33 +63,37 @@ for (const plugin of plugins) {
     `marketplace path for ${plugin.name} must be ./${plugin.path}`
   );
   expect(
-    server?.command === 'node' && args.includes('./bin/alembic-codex-mcp-wrapper.mjs'),
-    `plugin ${plugin.name} MCP config must launch the plugin-local Node wrapper`
+    server?.command === 'node' &&
+      JSON.stringify(args) === JSON.stringify(['./bin/alembic-codex-start.mjs']),
+    `plugin ${plugin.name} MCP config must launch the relative marketplace shell`
   );
   expect(
-    wrapperSource.includes(plugin.runtimeSpecifier),
-    `plugin ${plugin.name} MCP wrapper must use embedded specifier ${plugin.runtimeSpecifier}`
+    startupSource.includes(plugin.runtimeSpecifier),
+    `plugin ${plugin.name} startup shell must use ${plugin.runtimeSpecifier}`
   );
   expect(
-    plugin.embeddedRuntimePath === 'runtime' &&
-      existsSync(join(pluginRoot, plugin.embeddedRuntimePath, 'package.json')),
-    `plugin ${plugin.name} must declare an embedded runtime package path`
+    !existsSync(join(pluginRoot, 'runtime')),
+    `plugin ${plugin.name} must not contain old runtime directory`
   );
   expect(
-    plugin.runtimePackage === packageJson.name,
-    `plugin ${plugin.name} runtimePackage must be ${packageJson.name}`
+    !existsSync(join(pluginRoot, 'runtime.tgz')),
+    `plugin ${plugin.name} must not contain old runtime tarball`
   );
   expect(
-    plugin.distributionRepo === 'GxFn/AlembicCodex',
-    `plugin ${plugin.name} must declare the AlembicCodex distribution repo`
+    !existsSync(join(pluginRoot, 'node_modules')),
+    `plugin ${plugin.name} must not contain node_modules`
   );
   expect(
-    wrapperSource.includes(plugin.runtimeBin),
-    `plugin ${plugin.name} MCP wrapper must call ${plugin.runtimeBin}`
+    plugin.runtimePackage === runtimePackageJson.name,
+    `plugin ${plugin.name} runtimePackage must be ${runtimePackageJson.name}`
   );
   expect(
-    server?.env?.ALEMBIC_CHANNEL_ID === channel.runtime?.channelId,
-    `plugin ${plugin.name} MCP config must set ALEMBIC_CHANNEL_ID=${channel.runtime?.channelId}`
+    plugin.runtimeSpecifier === runtimeSpecifier,
+    `plugin ${plugin.name} runtimeSpecifier must be ${runtimeSpecifier}`
+  );
+  expect(
+    plugin.shellEntry === 'bin/alembic-codex-start.mjs',
+    `plugin ${plugin.name} shellEntry must be bin/alembic-codex-start.mjs`
   );
   expect(
     plugin.runtimeMode === channel.runtime?.mode,
@@ -130,46 +113,46 @@ for (const plugin of plugins) {
   );
   expect(
     packageJson.scripts?.[plugin.releaseScript],
-    `package.json must expose ${plugin.releaseScript} for channel plugin ${plugin.name}`
+    `package.json must expose ${plugin.releaseScript}`
   );
   expect(
     packageJson.scripts?.[plugin.smokeScript],
-    `package.json must expose ${plugin.smokeScript} for channel plugin ${plugin.name}`
+    `package.json must expose ${plugin.smokeScript}`
   );
 }
 
 for (const pkg of packages) {
-  expect(pkg.name === packageJson.name, `channel package ${pkg.name} must match package.json name`);
+  expect(
+    pkg.name === runtimePackageJson.name,
+    `channel package ${pkg.name} must match runtime package name`
+  );
   expect(
     pkg.version === packageVersion,
     `channel package ${pkg.name} version must match package.json`
   );
+  expect(pkg.registry === 'npm', `channel package ${pkg.name} registry must be npm`);
   expect(
-    pkg.registry === 'portable-artifact',
-    `channel package ${pkg.name} registry must be portable-artifact`
+    pkg.installScope === 'marketplace-shell-runtime',
+    `channel package ${pkg.name} installScope must be marketplace-shell-runtime`
   );
   expect(
-    pkg.installScope === 'embedded-plugin-runtime',
-    `channel package ${pkg.name} installScope must be embedded-plugin-runtime`
+    pkg.specifier === runtimeSpecifier,
+    `channel package ${pkg.name} specifier must be ${runtimeSpecifier}`
   );
   expect(
-    pkg.artifact === 'plugins/alembic-codex/runtime.tgz',
-    `channel package ${pkg.name} artifact must point to plugins/alembic-codex/runtime.tgz`
-  );
-  expect(
-    existsSync(join(root, pkg.artifact || '')),
-    `channel package ${pkg.name} artifact must exist`
+    !pkg.artifact,
+    `channel package ${pkg.name} must not point to a public runtime.tgz artifact`
   );
   for (const bin of pkg.binaries || []) {
     expect(
-      typeof packageJson.bin?.[bin] === 'string',
-      `package.json must expose bin ${bin} for channel package ${pkg.name}`
+      typeof runtimePackageJson.bin?.[bin] === 'string',
+      `runtime package must expose bin ${bin}`
     );
   }
   for (const pluginName of pkg.usedBy || []) {
     expect(
       plugins.some((plugin) => plugin.name === pluginName),
-      `channel package ${pkg.name} usedBy references missing plugin ${pluginName}`
+      `channel package usedBy references missing plugin ${pluginName}`
     );
   }
 }
@@ -187,10 +170,6 @@ expect(
   packageJson.scripts?.['verify:codex-channel'] === 'node scripts/verify-codex-channel.mjs',
   'package.json must expose verify:codex-channel'
 );
-expect(
-  packageJson.scripts?.['release:codex-channel'] === 'node scripts/release-codex-channel.mjs',
-  'package.json must expose release:codex-channel'
-);
 
 if (errors.length > 0) {
   console.error('Codex channel verification failed:');
@@ -200,9 +179,7 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-process.stdout.write(
-  `Codex channel verification passed (${packageJson.name}@${packageVersion}).\n`
-);
+process.stdout.write(`Codex channel verification passed (${runtimeSpecifier}).\n`);
 
 function expect(condition, message) {
   if (!condition) {

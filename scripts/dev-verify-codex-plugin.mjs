@@ -12,7 +12,7 @@ const options = parseArgs(process.argv.slice(2));
 const tmpRoot = mkdtempSync(join(tmpdir(), 'alembic-codex-dev-verify-'));
 const report = {
   ok: false,
-  mode: options.localMcp ? 'local-mcp' : 'packaged-runtime',
+  mode: options.localMcp ? 'local-mcp' : 'packaged-shell',
   projectRoot: options.projectRoot,
   readbackContract: {
     blockedEffectiveIdentityFallbacks: [
@@ -44,16 +44,13 @@ try {
       ]);
     }
     if (!options.skipPrepare) {
-      runStep('prepare codex plugin runtime', 'npm', ['run', 'prepare:codex-plugin-runtime']);
+      runStep('prepare codex plugin shell', 'npm', ['run', 'prepare:codex-plugin-runtime']);
     }
     if (!options.skipVerify) {
       runStep('verify codex plugin metadata', 'npm', ['run', 'verify:codex-plugin']);
     }
     if (!options.skipSmoke) {
       const smokeArgs = ['run', 'smoke:codex-plugin', '--'];
-      if (!options.withNpxRuntime) {
-        smokeArgs.push('--no-npx-runtime');
-      }
       runStep('smoke codex plugin', 'npm', smokeArgs);
     }
   }
@@ -374,8 +371,8 @@ function expectedEntryModeForMarker(marker) {
   if (mode === 'local-mcp') {
     return 'local-dev-direct-dist';
   }
-  if (mode === 'packaged-runtime') {
-    return 'packaged-wrapper';
+  if (mode === 'packaged-shell') {
+    return 'marketplace-shell';
   }
   return null;
 }
@@ -401,7 +398,6 @@ function parseArgs(args) {
     skipTests: false,
     skipVerify: false,
     syncTargets: [],
-    withNpxRuntime: false,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -438,7 +434,7 @@ function parseArgs(args) {
     } else if (arg === '--skip-verify') {
       parsed.skipVerify = true;
     } else if (arg === '--with-npx-runtime') {
-      parsed.withNpxRuntime = true;
+      // Compatibility no-op: MPB2 smoke proves the shell with dry-run and keeps live install semantics for MPB3.
     } else if (arg === '--project-root') {
       parsed.projectRoot = resolve(args[index + 1] || '');
       index += 1;

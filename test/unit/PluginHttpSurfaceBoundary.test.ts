@@ -102,7 +102,7 @@ describe('Plugin HTTP surface boundary', () => {
   it('documents the retained embedded runtime entry files and HTTP contract', () => {
     const moduleBoundary = source('lib/codex/ModuleBoundary.ts');
     const httpServer = source('lib/http/HttpServer.ts');
-    const verifyScript = source('scripts/verify-codex-plugin.mjs');
+    const runtimeVerifyScript = source('scripts/verify-codex-runtime-package-boundary.mjs');
     const smokeScript = source('scripts/smoke-codex-plugin.mjs');
 
     expect(CODEX_EMBEDDED_RUNTIME_RETAINED_DAEMON_ENTRY).toBe('dist/bin/daemon-server.js');
@@ -110,7 +110,7 @@ describe('Plugin HTTP surface boundary', () => {
     expect(moduleBoundary).toContain('CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES');
 
     for (const file of CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES) {
-      expect(verifyScript).toContain(file);
+      expect(runtimeVerifyScript).toContain(file);
       expect(smokeScript).toContain(file);
     }
 

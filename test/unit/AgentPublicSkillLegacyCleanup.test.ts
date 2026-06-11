@@ -20,25 +20,10 @@ const activeHostGuidanceFiles = [
   '../../injectable-skills/alembic-recipes/SKILL.md',
   '../../injectable-skills/alembic-guard/SKILL.md',
   '../../injectable-skills/alembic-structure/SKILL.md',
-  '../../plugins/alembic-codex/runtime/channels/README.md',
-  '../../plugins/alembic-codex/runtime/channels/codex/README.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/README.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/README.zh-CN.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/RELEASE-PLAYBOOK.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic/SKILL.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-create/SKILL.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-recipes/SKILL.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-guard/SKILL.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic-structure/SKILL.md',
-  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-create/SKILL.md',
-  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-recipes/SKILL.md',
-  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-guard/SKILL.md',
-  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-structure/SKILL.md',
 ] as const;
 
 const legacyCompatibilityGuidanceFiles = [
   '../../plugins/alembic-codex/skills/alembic/SKILL.md',
-  '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic/SKILL.md',
 ] as const;
 
 const forbiddenPrimaryLifecycleGuidance = [
@@ -60,8 +45,6 @@ const scopedGuardGuidanceFiles = [
   '../../injectable-skills/alembic-guard/SKILL.md',
   '../../injectable-skills/alembic-recipes/SKILL.md',
   '../../plugins/alembic-codex/skills/alembic-guard/SKILL.md',
-  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-guard/SKILL.md',
-  '../../plugins/alembic-codex/runtime/injectable-skills/alembic-recipes/SKILL.md',
 ] as const;
 
 function readFixture(relativePath: string): string {
@@ -101,13 +84,6 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     expect(mainSkill).toContain('CODEX_TOOL_RETIRED');
     expect(mainSkill).toContain('six agent-facing public tools');
     expect(mainSkill).toContain('clean `structuredContent`');
-    const runtimeMainSkill = readFixture(
-      '../../plugins/alembic-codex/runtime/plugins/alembic-codex/skills/alembic/SKILL.md'
-    );
-    expect(runtimeMainSkill).toContain('`alembic_task` is retired');
-    expect(runtimeMainSkill).toContain('CODEX_TOOL_RETIRED');
-    expect(runtimeMainSkill).toContain('six agent-facing public tools');
-    expect(runtimeMainSkill).toContain('clean `structuredContent`');
   });
 
   test('active tool descriptions remove alembic_task from the public surface', () => {

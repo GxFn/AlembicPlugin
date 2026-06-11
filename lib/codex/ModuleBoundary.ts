@@ -135,9 +135,10 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
     id: 'portable-runtime-packaging',
     owner: 'AlembicPlugin',
     pluginRole:
-      'Packages compiled Plugin runtime, embedded Core snapshot, and Codex wrapper without Dashboard frontend assets.',
+      'Maintains the lightweight Codex marketplace shell that starts the pinned runtime package without public embedded artifacts.',
     retainedInPlugin: true,
-    sourceOfTruth: 'scripts/prepare-codex-plugin-runtime.mjs',
+    sourceOfTruth:
+      'plugins/alembic-codex/bin/alembic-codex-start.mjs and packages/alembic-codex-runtime',
   },
   {
     id: 'dashboard-url-handoff',
@@ -249,7 +250,7 @@ export function buildCodexModuleBoundaryStatus(
         artifact: CODEX_EMBEDDED_RUNTIME_SPECIFIER,
         packageName: CODEX_RUNTIME_PACKAGE,
         requiredFiles: [...CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES],
-        role: 'Plugin-owned portable adapter that launches compiled daemon-server.js for Codex delivery, not the long-term Alembic daemon source of truth.',
+        role: 'Plugin-owned marketplace shell boundary that launches the pinned runtime package for Codex delivery, not the long-term Alembic daemon source of truth.',
         startCommand: CODEX_RUNTIME_BIN,
       },
       runtimeContract: {

@@ -5,83 +5,59 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const publishMode = process.argv.includes('--publish');
-const legacyRootRegistryScript = ['release', 'package-boundary', 'publish'].join(':');
 const packageJsonPath = join(root, 'package.json');
+const runtimePackageJsonPath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
 const rootConfigPath = join(root, 'config', 'default.json');
 const releaseWorkflowPath = join(root, '.github', 'workflows', 'release.yml');
-const runtimePackageJsonPath = join(root, 'plugins', 'alembic-codex', 'runtime', 'package.json');
-const runtimeConfigPath = join(
-  root,
-  'plugins',
-  'alembic-codex',
-  'runtime',
-  'config',
-  'default.json'
-);
-const runtimeCoreSourcePath = join(
-  root,
-  'plugins',
-  'alembic-codex',
-  'runtime',
-  'vendor',
-  'AlembicCore',
-  '.alembic-source.json'
-);
-
+const pluginRoot = join(root, 'plugins', 'alembic-codex');
 const packageJson = readJson(packageJsonPath);
+const runtimePackageJson = readJson(runtimePackageJsonPath);
 const rootConfig = readJson(rootConfigPath);
 const releaseWorkflowSource = existsSync(releaseWorkflowPath)
   ? readFileSync(releaseWorkflowPath, 'utf8')
   : '';
-const runtimePackageJson = readJson(runtimePackageJsonPath);
-const runtimeConfig = readJson(runtimeConfigPath);
-const runtimeCoreSource = existsSync(runtimeCoreSourcePath)
-  ? readJson(runtimeCoreSourcePath)
-  : null;
 const rootParentFileDependencies = collectFileParentDependencies(packageJson);
 const errors = [];
-const expectedRuntimePackageName = 'alembic-codex-plugin-runtime';
+const runtimeSpecifier = `${runtimePackageJson.name}@${runtimePackageJson.version}`;
 
 expect(
-  packageJson.name === expectedRuntimePackageName,
-  `root package identity must be ${expectedRuntimePackageName}`
+  packageJson.name === 'alembic-codex-plugin-runtime',
+  'root package identity must remain the private development package'
 );
 expect(packageJson.private === true, 'root package must be private and unavailable to registry');
+expect(
+  runtimePackageJson.name === '@gxfn/alembic-codex-runtime',
+  'runtime package must be @gxfn/alembic-codex-runtime'
+);
+expect(
+  runtimePackageJson.version === packageJson.version,
+  'runtime package version must match root package version'
+);
+expect(
+  runtimePackageJson.publishConfig?.access === 'public',
+  'runtime package publishConfig.access must be public'
+);
+expect(
+  runtimePackageJson.dependencies?.['@alembic/core'] === packageJson.version,
+  'runtime package must pin @alembic/core to the release version'
+);
 expect(
   !Object.hasOwn(rootConfig, 'ai'),
   'root config/default.json must not ship an AlembicPlugin-owned AI provider default'
 );
+expect(!existsSync(join(pluginRoot, 'runtime')), 'public plugin shell must not contain runtime/');
 expect(
-  !Object.hasOwn(runtimeConfig, 'ai'),
-  'embedded runtime config/default.json must not ship an AlembicPlugin-owned AI provider default'
+  !existsSync(join(pluginRoot, 'runtime.tgz')),
+  'public plugin shell must not contain runtime.tgz'
 );
 expect(
-  packageJson.dependencies?.['@alembic/core'] === 'file:../AlembicCore',
-  'root package must keep local development dependency @alembic/core: file:../AlembicCore'
+  !existsSync(join(pluginRoot, 'node_modules')),
+  'public plugin shell must not contain node_modules/'
 );
 expect(
-  runtimePackageJson.dependencies?.['@alembic/core'] === 'file:vendor/AlembicCore',
-  'embedded runtime package must keep portable @alembic/core: file:vendor/AlembicCore'
+  existsSync(join(pluginRoot, 'bin', 'alembic-codex-start.mjs')),
+  'public plugin shell must contain bin/alembic-codex-start.mjs'
 );
-expect(
-  runtimePackageJson.name === expectedRuntimePackageName,
-  `embedded runtime package identity must be ${expectedRuntimePackageName}`
-);
-expect(Boolean(runtimeCoreSource), 'embedded runtime Core source metadata must exist');
-if (runtimeCoreSource) {
-  expect(
-    typeof runtimeCoreSource.source === 'string' && runtimeCoreSource.source.length > 0,
-    'embedded runtime Core source metadata must record source'
-  );
-  expect(
-    /^[0-9a-f]{40}$/i.test(runtimeCoreSource.commit || ''),
-    'embedded runtime Core source metadata must record a 40-character source commit'
-  );
-  expect(
-    runtimeCoreSource.packageDependency === 'file:vendor/AlembicCore',
-    'embedded runtime Core source metadata must record packageDependency: file:vendor/AlembicCore'
-  );
-}
 
 expect(
   packageJson.scripts?.prepublishOnly === 'npm run release:root-npm-publish:disabled',
@@ -95,34 +71,37 @@ expect(
 for (const legacyReleaseAlias of ['release:patch', 'release:minor', 'release:major']) {
   expect(
     packageJson.scripts?.[legacyReleaseAlias] === 'npm run release:root-npm-publish:disabled',
-    `${legacyReleaseAlias} must fail closed through the artifact-only root publication guard`
+    `${legacyReleaseAlias} must fail closed through the root publication guard`
   );
 }
-expect(
-  !packageJson.scripts?.[legacyRootRegistryScript],
-  'legacy root registry publication script must be removed'
-);
+
 expect(Boolean(releaseWorkflowSource), 'Release workflow must exist');
 expect(
   !/\bnpm\s+publish\b/.test(releaseWorkflowSource),
-  'Release workflow must not invoke the root package registry publication command'
+  'Release workflow must not publish the private root package'
 );
 expect(
   releaseWorkflowSource.includes('actions/upload-artifact'),
-  'Release workflow must upload Codex plugin artifacts instead of publishing the root package'
+  'Release workflow must upload Codex plugin artifacts'
 );
 expect(
-  releaseWorkflowSource.includes('plugins/alembic-codex/runtime.tgz'),
-  'Release workflow must keep runtime.tgz as the portable plugin runtime artifact'
+  !releaseWorkflowSource.includes('AlembicPlugin/plugins/alembic-codex/runtime.tgz'),
+  'Release workflow must not upload the removed runtime.tgz artifact'
+);
+expect(
+  releaseWorkflowSource.includes('plugins/alembic-codex/bin/alembic-codex-start.mjs'),
+  'Release workflow must upload the marketplace shell startup'
+);
+expect(
+  releaseWorkflowSource.includes('packages/alembic-codex-runtime/package.json'),
+  'Release workflow must upload runtime package boundary metadata'
 );
 
 if (publishMode) {
   errors.push(
     [
-      'Blocked root registry publication: AlembicPlugin is artifact-only.',
-      'Publish Codex plugin snapshots through the channel, marketplace, and portable runtime artifact release path.',
-      'The root package is intentionally private; runtime.tgz is the portable runtime artifact.',
-      'The embedded Codex runtime must continue to use @alembic/core: file:vendor/AlembicCore.',
+      'Blocked root registry publication: AlembicPlugin root is private.',
+      `Publish or consume the runtime through ${runtimeSpecifier}; installable Codex plugin snapshots contain only the marketplace shell and metadata.`,
       rootParentFileDependencies.length > 0
         ? [
             'Root workspace-local file dependencies remain for development only:',
@@ -150,11 +129,11 @@ process.stdout.write(
       publishMode,
       rootPackage: `${packageJson.name}@${packageJson.version}`,
       private: packageJson.private === true,
+      runtimeSpecifier,
       rootParentFileDependencies,
       rootRegistryPublish: 'disabled',
-      codexPluginArtifactRelease: true,
-      embeddedRuntimeCoreDependency: runtimePackageJson.dependencies?.['@alembic/core'],
-      embeddedCoreSource: runtimeCoreSource,
+      codexPluginArtifactRelease: 'marketplace-shell',
+      forbiddenShellArtifactsAbsent: true,
     },
     null,
     2

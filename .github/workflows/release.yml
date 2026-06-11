@@ -60,8 +60,11 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
-      - name: Prepare Codex plugin runtime
+      - name: Prepare Codex plugin shell
         run: npm run prepare:codex-plugin-runtime
+
+      - name: Verify pinned runtime package
+        run: npm run verify:codex-runtime-package
 
       - name: Verify Codex channel
         run: npm run verify:codex-channel
@@ -72,11 +75,13 @@ jobs:
       - name: Verify release package boundary
         run: npm run verify:release-package-boundary
 
-      - name: Verify portable runtime artifact
+      - name: Verify marketplace shell artifact
         run: |
-          test -s plugins/alembic-codex/runtime.tgz
-          test -f plugins/alembic-codex/runtime/vendor/AlembicCore/.alembic-source.json
-          node -e "const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('plugins/alembic-codex/runtime/package.json', 'utf8')); const src = JSON.parse(fs.readFileSync('plugins/alembic-codex/runtime/vendor/AlembicCore/.alembic-source.json', 'utf8')); if (pkg.dependencies['@alembic/core'] !== 'file:vendor/AlembicCore') throw new Error('embedded runtime must keep @alembic/core: file:vendor/AlembicCore'); if (src.packageDependency !== 'file:vendor/AlembicCore') throw new Error('embedded runtime source metadata must record file:vendor/AlembicCore'); if (!/^[0-9a-f]{40}$/i.test(src.commit || '')) throw new Error('embedded runtime source metadata must record a 40-character commit');"
+          test -f plugins/alembic-codex/bin/alembic-codex-start.mjs
+          test ! -e plugins/alembic-codex/runtime
+          test ! -e plugins/alembic-codex/runtime.tgz
+          test ! -e plugins/alembic-codex/node_modules
+          node plugins/alembic-codex/bin/alembic-codex-start.mjs --dry-run
 
       - name: Lint
         run: npm run lint -- --diagnostic-level=error
@@ -98,10 +103,11 @@ jobs:
         with:
           name: alembic-codex-plugin-${{ github.ref_name }}
           path: |
-            AlembicPlugin/plugins/alembic-codex/runtime.tgz
             AlembicPlugin/plugins/alembic-codex/.codex-plugin/plugin.json
             AlembicPlugin/plugins/alembic-codex/.mcp.json
+            AlembicPlugin/plugins/alembic-codex/bin/alembic-codex-start.mjs
             AlembicPlugin/plugins/alembic-codex/README.md
             AlembicPlugin/plugins/alembic-codex/README.zh-CN.md
             AlembicPlugin/channels/codex/channel.json
+            AlembicPlugin/packages/alembic-codex-runtime/package.json
             AlembicPlugin/.agents/plugins/marketplace.json

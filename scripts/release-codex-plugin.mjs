@@ -21,12 +21,12 @@ const steps = [
         },
       ]),
   {
-    name: 'Prepare embedded Codex plugin runtime',
+    name: 'Prepare Codex plugin marketplace shell',
     command: 'npm',
     args: ['run', 'prepare:codex-plugin-runtime'],
     verifies: [
-      'plugins/alembic-codex/runtime/package.json',
-      'plugins/alembic-codex/runtime/dist/bin/codex-mcp.js',
+      'plugins/alembic-codex/bin/alembic-codex-start.mjs',
+      'packages/alembic-codex-runtime/package.json',
     ],
   },
   {

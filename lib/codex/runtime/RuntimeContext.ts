@@ -7,8 +7,9 @@ import {
 import { getPackageVersion, PACKAGE_ROOT } from '../../shared/package-assets.js';
 
 export const CODEX_PLUGIN_NAME = 'alembic-codex';
-export const CODEX_RUNTIME_PACKAGE = 'alembic-codex-plugin-runtime';
+export const CODEX_RUNTIME_PACKAGE = '@gxfn/alembic-codex-runtime';
 export const CODEX_RUNTIME_BIN = 'alembic-codex-mcp';
+export const CODEX_MARKETPLACE_SHELL_ENTRY = './bin/alembic-codex-start.mjs';
 export const CODEX_SETUP_PROFILE = 'codex-plugin';
 export const CODEX_DEFAULT_MCP_TIER = 'agent';
 export const ALEMBIC_RUNTIME_MODE_ENV = 'ALEMBIC_RUNTIME_MODE';
@@ -20,7 +21,7 @@ export const CODEX_MCP_SHIM_ENV = 'ALEMBIC_CODEX_MCP_MODE';
 export const CODEX_MCP_TIER_ENV = 'ALEMBIC_MCP_TIER';
 export const CODEX_ADMIN_ENABLE_ENV = 'ALEMBIC_CODEX_ENABLE_ADMIN';
 export const CODEX_PLUGIN_ROOT_ENV = 'ALEMBIC_CODEX_PLUGIN_ROOT';
-export const CODEX_EMBEDDED_RUNTIME_SPECIFIER = './runtime.tgz';
+export const CODEX_EMBEDDED_RUNTIME_SPECIFIER = `${CODEX_RUNTIME_PACKAGE}@0.2.0`;
 
 export interface CodexRuntimeContext {
   adminEnabled: boolean;

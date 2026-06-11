@@ -65,11 +65,11 @@ describe('Codex plugin local-dev reload script', () => {
       activeMode: 'local-dev-direct-dist',
       localDev: { entryMode: 'local-dev-direct-dist' },
       packaged: {
-        entryMode: 'packaged-wrapper',
+        entryMode: 'marketplace-shell',
         usedByReload: false,
       },
     });
-    expect(report.runtimeModeSeparation.packaged.cacheIsolation).toContain('startup lock');
+    expect(report.runtimeModeSeparation.packaged.cacheIsolation).toContain('shell bootstrap');
     expect(report.plan.freshMcpReadback).toMatchObject({
       expectedEntryMode: 'local-dev-direct-dist',
       expectedToolCall: 'alembic_codex_status',

@@ -344,7 +344,7 @@ function buildEnhancementRouteReason(input: {
     if (input.localInstall.available) {
       return 'Local Alembic install was detected, but no local daemon API is ready; plugin actions will start the embedded runtime on demand.';
     }
-    return 'No local Alembic daemon API is ready; plugin actions will use the embedded portable runtime on demand.';
+    return 'No local Alembic daemon API is ready; plugin actions will use the pinned Codex runtime package on demand.';
   }
   if (input.selected === 'local-alembic-install') {
     return 'Local Alembic CLI install was detected, but no daemon API is ready yet.';

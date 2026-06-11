@@ -83,6 +83,7 @@ try {
   for (const required of [
     'package/package.json',
     'package/dist/bin/codex-mcp.js',
+    'package/dist/bin/daemon-server.js',
     'package/dist/lib/codex/mcp/CodexMcpServer.js',
     'package/resources/grammars/tree-sitter-typescript.wasm',
     'package/.alembic-runtime-boundary.json',

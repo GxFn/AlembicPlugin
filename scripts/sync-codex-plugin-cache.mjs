@@ -22,6 +22,10 @@ const projectRoot = resolve(__dirname, '..');
 
 const options = parseArgs(process.argv.slice(2));
 const channel = readJson(join(projectRoot, 'channels', 'codex', 'channel.json'));
+const runtimePackage = readJson(
+  join(projectRoot, 'packages', 'alembic-codex-runtime', 'package.json')
+);
+const runtimeSpecifier = `${runtimePackage.name}@${runtimePackage.version}`;
 const pluginEntry = channel.plugins?.find((plugin) => plugin.name === 'alembic-codex');
 if (!pluginEntry) {
   throw new Error('channels/codex/channel.json is missing the alembic-codex plugin entry');
@@ -244,8 +248,8 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
   const marker = {
     schemaVersion: 1,
     refreshedAt: new Date().toISOString(),
-    mode: options.localMcp ? 'local-mcp' : 'packaged-runtime',
-    entryMode: options.localMcp ? 'local-dev-direct-dist' : 'packaged-wrapper',
+    mode: options.localMcp ? 'local-mcp' : 'packaged-shell',
+    entryMode: options.localMcp ? 'local-dev-direct-dist' : 'marketplace-shell',
     canonicalLocalDevCommand: 'npm run dev:codex-plugin:reload',
     sourceRoot: pluginRoot,
     targetRoot,
@@ -260,17 +264,16 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
         cacheRewrite: options.localMcp,
       },
       packaged: {
-        entryMode: 'packaged-wrapper',
-        wrapperEntry: './bin/alembic-codex-mcp-wrapper.mjs',
-        runtimeSpecifier: './runtime.tgz',
-        cacheIsolation: 'per-wrapper-process npm cache plus scoped startup lock',
+        entryMode: 'marketplace-shell',
+        shellEntry: './bin/alembic-codex-start.mjs',
+        runtimeSpecifier,
+        cacheIsolation: 'owned by the marketplace shell bootstrap path',
       },
     },
     hashes: {
       mcp: hashFile(join(cacheRoot, '.mcp.json')),
       manifest: hashFile(join(cacheRoot, '.codex-plugin', 'plugin.json')),
-      runtimeTarball: hashFile(join(cacheRoot, 'runtime.tgz')),
-      wrapper: hashFile(join(cacheRoot, 'bin', 'alembic-codex-mcp-wrapper.mjs')),
+      startup: hashFile(join(cacheRoot, 'bin', 'alembic-codex-start.mjs')),
     },
   };
   writeFileSync(

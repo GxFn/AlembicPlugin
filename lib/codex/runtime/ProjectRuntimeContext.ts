@@ -26,7 +26,7 @@ import { resolveCodexRuntimeContext } from './RuntimeContext.js';
 
 const PROJECT_RUNTIME_CONTEXT_VERSION = 1;
 
-export type CodexMcpEntryMode = 'local-dev-direct-dist' | 'packaged-wrapper' | 'unknown';
+export type CodexMcpEntryMode = 'local-dev-direct-dist' | 'marketplace-shell' | 'unknown';
 
 export interface CodexProjectRuntimeContext {
   contractVersion: typeof PROJECT_RUNTIME_CONTEXT_VERSION;
@@ -540,8 +540,8 @@ function detectCodexMcpEntryMode(runtime: CodexRuntimeContext): CodexProjectRunt
   const runtimeSpecifier = args.includes('--package')
     ? (args[args.indexOf('--package') + 1] ?? null)
     : null;
-  const mode = args.some((arg) => arg.endsWith('alembic-codex-mcp-wrapper.mjs'))
-    ? 'packaged-wrapper'
+  const mode = args.some((arg) => arg.endsWith('alembic-codex-start.mjs'))
+    ? 'marketplace-shell'
     : args.some(
           (arg) => arg.endsWith('/dist/bin/codex-mcp.js') || arg.endsWith('dist/bin/codex-mcp.js')
         )
@@ -552,7 +552,7 @@ function detectCodexMcpEntryMode(runtime: CodexRuntimeContext): CodexProjectRunt
     command,
     mcpConfigPath: existsSync(mcpConfigPath) ? mcpConfigPath : null,
     mode,
-    runtimeSpecifier: runtimeSpecifier ?? runtime.embeddedRuntimeSpecifier,
+    runtimeSpecifier: runtimeSpecifier ?? runtime.pinnedRuntimeSpecifier,
     source: existsSync(mcpConfigPath) ? 'plugin-mcp-config' : 'runtime-context',
   };
 }

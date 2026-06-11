@@ -28,6 +28,7 @@ import {
   ALEMBIC_RUNTIME_MODE_PLUGIN,
   CODEX_ADMIN_ENABLE_ENV,
   CODEX_DEFAULT_MCP_TIER,
+  CODEX_MARKETPLACE_SHELL_ENTRY,
   CODEX_MCP_MODE_ENV,
   CODEX_MCP_SHIM_ENV,
   CODEX_PLUGIN_HOST,
@@ -93,7 +94,7 @@ export interface CodexMcpEntryDiagnostics {
     exists: boolean | null;
     path: string | null;
   };
-  mode: 'local-dev-direct-dist' | 'packaged-wrapper' | 'stale-installed-cache' | 'unknown';
+  mode: 'local-dev-direct-dist' | 'marketplace-shell' | 'stale-installed-cache' | 'unknown';
   nextAction: string;
   runtimeTarball: {
     exists: boolean;
@@ -159,7 +160,7 @@ export type CodexCommandProbeRunner = (
   status: number | null;
 };
 
-type CodexMcpConfigMode = 'local-dev-direct-dist' | 'packaged-wrapper' | 'unknown';
+type CodexMcpConfigMode = 'local-dev-direct-dist' | 'marketplace-shell' | 'unknown';
 type CodexPluginRegistry = ReturnType<typeof loadCodexPluginRegistry>;
 type CodexRuntimeChecks = Record<string, boolean>;
 
@@ -376,9 +377,9 @@ function buildCodexRuntimeReportSections(input: {
       },
     },
     offlineFallback: {
-      note: 'The Codex plugin ships Plugin runtime code in ./runtime and starts MCP through ./bin/alembic-codex-mcp-wrapper.mjs. The wrapper invokes npx against ./runtime.tgz with a per-process npm cache under a plugin-specific base and a startup lock. This embedded route is for Codex host-agent recovery, not Alembic resident enhancement. AlembicPlugin does not provide a root registry package fallback.',
+      note: 'The Codex plugin ships a lightweight marketplace shell. The shell starts the exact pinned @gxfn/alembic-codex-runtime package through npx; detailed first-run cache and offline behavior are handled by the shell bootstrap path.',
       registryPackageFallback: false,
-      localPackage: input.context.embeddedRuntimeSpecifier,
+      localPackage: input.context.pinnedRuntimeSpecifier,
       command: input.context.runtimeBin,
     },
     cleanup: {
@@ -415,24 +416,21 @@ function buildCodexPluginMcpDiagnostics(
   registry: CodexPluginRegistry
 ): CodexPluginDiagnostics['mcp'] {
   const args = registry.mcp.args;
-  const packageIndex = args.indexOf('--package');
-  const runtimeSpecifier = packageIndex >= 0 ? args[packageIndex + 1] || null : null;
   const command =
     typeof registry.mcp.server?.command === 'string' ? registry.mcp.server.command : null;
-  const wrapperArg = args.find((arg) => arg.endsWith('alembic-codex-mcp-wrapper.mjs')) || null;
-  const wrapperPath = wrapperArg
-    ? join(registry.plugin.root, wrapperArg.replace(/^\.\//, ''))
+  const startupArg = args.find((arg) => arg.endsWith('alembic-codex-start.mjs')) || null;
+  const startupPath = startupArg
+    ? join(registry.plugin.root, startupArg.replace(/^\.\//, ''))
     : null;
-  const wrapperSource =
-    wrapperPath && existsSync(wrapperPath) ? readFileSync(wrapperPath, 'utf8') : '';
+  const startupSource =
+    startupPath && existsSync(startupPath) ? readFileSync(startupPath, 'utf8') : '';
   const runtimeTarballPath = join(registry.plugin.root, 'runtime.tgz');
-  const wrapperUsesRuntime =
-    wrapperSource.includes('npx') &&
-    wrapperSource.includes('--package') &&
-    wrapperSource.includes(context.embeddedRuntimeSpecifier) &&
-    wrapperSource.includes(context.runtimeBin);
-  const wrapperUsesStartupLock =
-    wrapperSource.includes('lockDir') && wrapperSource.includes('npm_config_cache');
+  const shellUsesPinnedRuntime =
+    startupSource.includes('npx') &&
+    startupSource.includes('--package') &&
+    startupSource.includes(context.pinnedRuntimeSpecifier) &&
+    startupSource.includes(context.runtimeBin) &&
+    !startupSource.includes('latest');
   const entry = buildCodexMcpEntryDiagnostics({
     args,
     command,
@@ -440,17 +438,17 @@ function buildCodexPluginMcpDiagnostics(
     pluginVersion: asString(registry.plugin.manifest.value?.version) || null,
     registryPluginRoot: registry.plugin.root,
     runtimeTarballPath,
-    wrapperArg,
-    wrapperPath,
+    wrapperArg: startupArg,
+    wrapperPath: startupPath,
   });
-  const startupLockDiagnostics = buildWrapperStartupLockDiagnostics(wrapperSource);
+  const startupLockDiagnostics = buildWrapperStartupLockDiagnostics(startupSource);
   const binary =
     args.find((arg) => arg === context.runtimeBin) ||
-    (wrapperUsesRuntime ? context.runtimeBin : null);
+    (shellUsesPinnedRuntime ? context.runtimeBin : null);
   const embeddedRuntime =
     command === 'node' &&
-    wrapperUsesRuntime &&
-    wrapperUsesStartupLock &&
+    args.includes(CODEX_MARKETPLACE_SHELL_ENTRY) &&
+    shellUsesPinnedRuntime &&
     binary === context.runtimeBin &&
     !args.includes('latest');
   const packagePin = embeddedRuntime;
@@ -490,15 +488,15 @@ function buildCodexPluginMcpDiagnostics(
     path: registry.mcp.json.path,
     pluginHost,
     pluginHostValue,
-    pinnedSpecifier: context.embeddedRuntimeSpecifier,
+    pinnedSpecifier: context.pinnedRuntimeSpecifier,
     runtimeMode,
     runtimeModeValue,
-    runtimeSpecifier: runtimeSpecifier || context.embeddedRuntimeSpecifier,
+    runtimeSpecifier: context.pinnedRuntimeSpecifier,
     entry,
     wrapper: {
-      exists: Boolean(wrapperPath && existsSync(wrapperPath)),
-      path: wrapperPath,
-      startupLock: wrapperUsesStartupLock,
+      exists: Boolean(startupPath && existsSync(startupPath)),
+      path: startupPath,
+      startupLock: false,
       startupLockDiagnostics,
     },
   };
@@ -547,7 +545,7 @@ function buildCodexPluginReadmeDiagnostics(
   context: CodexRuntimeContext,
   registry: CodexPluginRegistry
 ): CodexPluginDiagnostics['readme'] {
-  const mentionsEmbeddedRuntime = registry.plugin.readme.includes(context.embeddedRuntimeSpecifier);
+  const mentionsEmbeddedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
   const mentionsPinnedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
   return {
     mentionsEmbeddedRuntime,
@@ -628,7 +626,7 @@ function resolveCodexMcpConfigMode(
   if (localDistArg) {
     return 'local-dev-direct-dist';
   }
-  return hasWrapper ? 'packaged-wrapper' : 'unknown';
+  return hasWrapper ? 'marketplace-shell' : 'unknown';
 }
 
 function collectCodexMcpEntryStaleReasons(input: {
@@ -644,11 +642,8 @@ function collectCodexMcpEntryStaleReasons(input: {
   if (input.configMode === 'local-dev-direct-dist' && input.localDistEntryExists === false) {
     staleReasons.push('local-dev-dist-entry-missing');
   }
-  if (input.configMode === 'packaged-wrapper' && !input.runtimeTarballExists) {
-    staleReasons.push('runtime-tarball-missing');
-  }
   if (input.hasWrapper && input.input.wrapperPath && !existsSync(input.input.wrapperPath)) {
-    staleReasons.push('wrapper-entry-missing');
+    staleReasons.push('startup-entry-missing');
   }
   if (input.marker.exists && input.marker.mode === 'local-mcp') {
     collectLocalMcpMarkerStaleReasons(input, staleReasons);
@@ -680,9 +675,9 @@ function collectCodexMcpEntryStaleReasons(input: {
   if (
     input.marker.exists &&
     input.marker.mode === 'packaged-runtime' &&
-    input.configMode !== 'packaged-wrapper'
+    input.configMode !== 'marketplace-shell'
   ) {
-    staleReasons.push('refresh-marker-packaged-but-config-not-wrapper');
+    staleReasons.push('refresh-marker-packaged-but-config-not-shell');
   }
   return staleReasons;
 }
@@ -783,12 +778,12 @@ function entryModeNextAction(mode: CodexMcpEntryDiagnostics['mode']): string {
   switch (mode) {
     case 'local-dev-direct-dist':
       return 'Use npm run dev:codex-plugin:reload after local source changes so installed caches keep pointing at the fresh dist build.';
-    case 'packaged-wrapper':
-      return 'Use packaged runtime diagnostics when startup fails; wrapper lock waits should report owner, wait reason, timeout, and next action.';
+    case 'marketplace-shell':
+      return 'Use marketplace shell diagnostics when startup fails; the shell should target the exact pinned runtime package.';
     case 'stale-installed-cache':
       return 'Run npm run dev:codex-plugin:reload to rebuild, rewrite installed cache, and probe a fresh MCP startup. Restart Codex itself if the current host MCP transport is closed.';
     case 'unknown':
-      return 'Inspect the installed .mcp.json; expected either local dist/bin/codex-mcp.js or ./bin/alembic-codex-mcp-wrapper.mjs.';
+      return 'Inspect the installed .mcp.json; expected either local dist/bin/codex-mcp.js or ./bin/alembic-codex-start.mjs.';
   }
 }
 
@@ -852,7 +847,7 @@ function buildRuntimeCommandIssues(input: BuildDiagnosticIssuesInput): CodexDiag
   if (!input.checks.npx && input.npx.staleCwd !== true) {
     issues.push({
       action:
-        'Install npm/npx support so the Codex plugin wrapper can launch the embedded ./runtime.tgz artifact.',
+        'Install npm/npx support so the Codex plugin shell can launch the pinned @gxfn/alembic-codex-runtime package.',
       code: 'NPX_UNAVAILABLE',
       message: String(input.npx.error || 'npx is not available.'),
       severity: 'error',
@@ -881,10 +876,9 @@ function buildPluginConfigurationIssues(input: BuildDiagnosticIssuesInput): Code
   if (!input.checks.packagePin) {
     issues.push({
       action:
-        'Update plugins/alembic-codex/.mcp.json to launch ./bin/alembic-codex-mcp-wrapper.mjs, then run npm run prepare:codex-plugin-runtime.',
+        'Update plugins/alembic-codex/.mcp.json to launch ./bin/alembic-codex-start.mjs, then run npm run prepare:codex-plugin-runtime.',
       code: 'PLUGIN_RUNTIME_PIN_MISMATCH',
-      message:
-        'Codex plugin MCP config is not using the embedded Alembic runtime tarball from ./runtime.tgz.',
+      message: 'Codex plugin MCP config is not using the pinned Alembic Codex runtime package.',
       severity: 'error',
     });
   }
@@ -928,7 +922,7 @@ function buildPluginMcpEntryIssue(entry: CodexMcpEntryDiagnostics): CodexDiagnos
     code: stale ? 'CODEX_MCP_ENTRY_STALE_CACHE' : 'CODEX_MCP_ENTRY_MODE_UNKNOWN',
     message: stale
       ? `Installed Codex plugin cache is stale: ${entry.staleReasons.join(', ')}.`
-      : 'Codex plugin MCP entry mode is neither packaged wrapper nor local-dev direct dist.',
+      : 'Codex plugin MCP entry mode is neither marketplace shell nor local-dev direct dist.',
     severity: 'error',
   };
 }
