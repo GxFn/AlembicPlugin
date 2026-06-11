@@ -382,6 +382,18 @@ describe('Codex status service', () => {
 
     const status = await buildCodexStatus(projectRoot, { supervisor });
     const serialized = JSON.stringify(status);
+    const onboarding = status.onboarding as {
+      bootstrapState?: { status?: string };
+      currentDomainSop?: { domainId?: string; toolSequence?: string[] };
+      domainQueue?: Array<{ domainId?: string }>;
+      gates?: Record<string, unknown>;
+      repairState?: { status?: string };
+      sopPack?: Record<string, unknown>;
+      toolCapabilities?: {
+        canonicalSourceGraph?: Array<{ name?: string }>;
+        removedOrBlocked?: Array<{ name?: string }>;
+      };
+    };
 
     expect(status).toMatchObject({
       initialized: true,
@@ -407,6 +419,26 @@ describe('Codex status service', () => {
     expect(status.nextActions).toContain(
       'Start Codex host-agent bootstrap: call alembic_bootstrap'
     );
+    expect(onboarding.bootstrapState).toMatchObject({
+      status: 'initialized_empty',
+    });
+    expect(onboarding.domainQueue?.[0]).toMatchObject({
+      domainId: 'D1-runtime-entrypoints',
+    });
+    expect(onboarding.currentDomainSop).toMatchObject({
+      domainId: 'D1-runtime-entrypoints',
+      toolSequence: expect.arrayContaining(['alembic_source_graph_status']),
+    });
+    expect(onboarding.toolCapabilities?.canonicalSourceGraph?.map((entry) => entry.name)).toEqual(
+      expect.arrayContaining(['alembic_source_graph_status', 'alembic_validation_plan'])
+    );
+    expect(onboarding.toolCapabilities?.removedOrBlocked?.map((entry) => entry.name)).toEqual(
+      expect.arrayContaining(['alembic_call_context', 'alembic_affected_tests'])
+    );
+    expect(JSON.stringify(onboarding.currentDomainSop)).not.toContain('alembic_call_context');
+    expect(JSON.stringify(onboarding.sopPack)).not.toContain('alembic_affected_tests');
+    expect(onboarding.gates).toHaveProperty('graphFreshness');
+    expect(onboarding.repairState).toMatchObject({ status: 'ready' });
     expect(serialized).not.toContain('secret-token');
   });
 

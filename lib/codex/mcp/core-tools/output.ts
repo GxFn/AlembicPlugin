@@ -105,13 +105,24 @@ export const CORE_BASE_OUTPUT_FIELD_NAMES = [
 
 export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   alembic_bootstrap: [
+    'bootstrapState',
+    'currentDomainNextActions',
+    'currentDomainSop',
+    'domainQueue',
     'fileCount',
     'files',
+    'gates',
     'guardAudit',
     'dimensions',
     'executionPlan',
+    'initialToolBriefing',
+    'progress',
     'projectRoot',
+    'repairState',
+    'session',
+    'sopPack',
     'targets',
+    'toolCapabilities',
     'businessMessage',
   ],
   alembic_call_context: [

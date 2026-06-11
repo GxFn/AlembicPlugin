@@ -10,6 +10,12 @@
 如果你要找完整的 Alembic 产品（CLI、Dashboard、IDE 集成），它在主仓库
 `Alembic` 中维护，以 `alembic-ai` 发布到 npm。本仓库只负责 Codex 插件运行时。
 
+## Codex 插件
+
+本仓库负责 Alembic 在 Codex 内的插件运行时、marketplace 壳契约、MCP 工具面
+和本地验证流程。它不发布完整 Alembic 产品，也不引入独立 AI provider runtime；
+Codex 仍是宿主 Agent，本插件提供本地项目记忆、bootstrap、Guard 与状态工具。
+
 ## 运行结构
 
 - **MCP 服务器入口**：`bin/codex-mcp.ts`，构建为 `dist/bin/codex-mcp.js`，

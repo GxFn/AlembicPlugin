@@ -13,6 +13,14 @@ If you are looking for the full Alembic product (CLI, Dashboard, IDE
 integrations), that lives in the main `Alembic` repository and is published as
 `alembic-ai` on npm. This repository only owns the Codex plugin runtime.
 
+## Codex 插件
+
+This repository owns the Codex plugin runtime, marketplace shell contract, MCP
+tool surface, and local verification flow for Alembic inside Codex. It does not
+publish the full Alembic product and it does not add a separate AI provider
+runtime; Codex remains the host agent, while this plugin provides local project
+memory, bootstrap, Guard, and status tools.
+
 ## What runs where
 
 - **MCP server entry**: `bin/codex-mcp.ts`, built to `dist/bin/codex-mcp.js`

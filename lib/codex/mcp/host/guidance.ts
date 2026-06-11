@@ -63,6 +63,7 @@ export function buildCodexMcpGuidance(tools: readonly GuidanceToolLike[]): Codex
   const validationTools = visibleToolNames.filter((name) => VALIDATION_TOOL_NAMES.has(name));
 
   const playbook = [
+    buildOnboardingPlaybookLine(visibleToolNameSet),
     buildSourceGraphPlaybookLine(sourceGraphTools, sourceGraphQueryTools),
     buildKnowledgePlaybookLine(knowledgeTools),
     buildGuardPlaybookLine(guardTools),
@@ -133,6 +134,16 @@ function buildLifecyclePlaybookLine(lifecycleTools: string[]): string {
   return `Lifecycle: use ${formatToolList(
     lifecycleTools
   )} for intent, prime, scoped work, finish, Guard handoff, and durable decisions; source graph evidence does not replace these refs.`;
+}
+
+function buildOnboardingPlaybookLine(visibleToolNameSet: Set<string>): string {
+  const statusTool = visibleToolNameSet.has('alembic_codex_status')
+    ? '`alembic_codex_status`'
+    : 'status output when available';
+  const bootstrapTool = visibleToolNameSet.has('alembic_bootstrap')
+    ? '`alembic_bootstrap`'
+    : 'bootstrap output when available';
+  return `Onboarding: read ${statusTool}/${bootstrapTool} fields \`bootstrapState\`, \`toolCapabilities\`, \`domainQueue\`, \`currentDomainSop\`, \`sopPack\`, \`gates\`, and \`repairState\` before choosing the next tool.`;
 }
 
 function buildFallbackPlaybookLine(visibleToolNameSet: Set<string>): string {

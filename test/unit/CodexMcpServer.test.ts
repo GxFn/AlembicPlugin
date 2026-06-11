@@ -486,6 +486,9 @@ describe('CodexMcpServer', () => {
     expect(instructions).toContain('`alembic_symbol_search`');
     expect(instructions).toContain('`alembic_search`');
     expect(instructions).toContain('`alembic_code_guard`');
+    expect(instructions).toContain('`bootstrapState`');
+    expect(instructions).toContain('`currentDomainSop`');
+    expect(instructions).toContain('`toolCapabilities`');
     expect(instructions).toContain('raw file reads/search');
     expect(instructions).toContain('Validation is still required');
   });
@@ -511,7 +514,9 @@ describe('CodexMcpServer', () => {
   test('keeps source graph tool-list descriptions aligned with first-tool guidance', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const byName = new Map(getVisibleCodexTools('agent', projectRoot).map((tool) => [tool.name, tool]));
+    const byName = new Map(
+      getVisibleCodexTools('agent', projectRoot).map((tool) => [tool.name, tool])
+    );
 
     expect(byName.get('alembic_source_graph_status')?.description).toContain(
       'First source graph check'
@@ -1967,12 +1972,28 @@ describe('CodexMcpServer', () => {
 
     const result = (await server.handleToolCall('alembic_bootstrap', {})) as {
       data?: {
+        bootstrapState?: {
+          runtime?: { daemonRequiredForBootstrap?: boolean; owner?: string };
+          sourceGraph?: { firstTool?: string };
+          status?: string;
+        };
+        currentDomainSop?: {
+          domainId?: string;
+          toolSequence?: string[];
+        };
+        domainQueue?: Array<{ domainId?: string }>;
         dimensions?: unknown;
         executionPlan?: unknown;
+        gates?: Record<string, unknown>;
+        sopPack?: Record<string, unknown>;
         serviceBoundary?: {
           executionPath: string;
           owner: string;
           tool: string;
+        };
+        toolCapabilities?: {
+          canonicalSourceGraph?: Array<{ name?: string }>;
+          removedOrBlocked?: Array<{ name?: string; replacementTools?: string[] }>;
         };
       };
       success: boolean;
@@ -1986,6 +2007,39 @@ describe('CodexMcpServer', () => {
       owner: 'alembic-plugin',
       tool: 'alembic_bootstrap',
     });
+    expect(result.data?.bootstrapState).toMatchObject({
+      runtime: {
+        daemonRequiredForBootstrap: false,
+        owner: 'alembic-plugin',
+      },
+      sourceGraph: {
+        firstTool: 'alembic_source_graph_status',
+      },
+      status: 'bootstrap_ready',
+    });
+    expect(result.data?.domainQueue?.[0]).toMatchObject({
+      domainId: 'D1-runtime-entrypoints',
+    });
+    expect(result.data?.currentDomainSop).toMatchObject({
+      domainId: 'D1-runtime-entrypoints',
+      toolSequence: expect.arrayContaining(['alembic_source_graph_status', 'alembic_code_explore']),
+    });
+    expect(result.data?.toolCapabilities?.canonicalSourceGraph?.map((entry) => entry.name)).toEqual(
+      expect.arrayContaining([
+        'alembic_source_graph_status',
+        'alembic_code_explore',
+        'alembic_symbol_search',
+        'alembic_validation_plan',
+      ])
+    );
+    expect(result.data?.toolCapabilities?.removedOrBlocked?.map((entry) => entry.name)).toEqual(
+      expect.arrayContaining(['alembic_call_context', 'alembic_affected_tests'])
+    );
+    expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_call_context');
+    expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_affected_tests');
+    expect(JSON.stringify(result.data?.sopPack)).not.toContain('alembic_call_context');
+    expect(JSON.stringify(result.data?.sopPack)).not.toContain('alembic_affected_tests');
+    expect(result.data?.gates).toHaveProperty('runtimeTransport');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
@@ -2272,10 +2326,7 @@ describe('CodexMcpServer', () => {
     expect(pluginMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-start.mjs');
     expect(
       fs
-        .readFileSync(
-          path.resolve('plugins/alembic-codex/bin/alembic-codex-start.mjs'),
-          'utf8'
-        )
+        .readFileSync(path.resolve('plugins/alembic-codex/bin/alembic-codex-start.mjs'), 'utf8')
         .includes(`@gxfn/alembic-codex-runtime@${getPackageVersion()}`)
     ).toBe(true);
     expect(pluginMcp.mcpServers.alembic.cwd).toBe('.');

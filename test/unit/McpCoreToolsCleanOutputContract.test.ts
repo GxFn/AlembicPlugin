@@ -292,7 +292,17 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
     case 'alembic_project_skill':
       return { operation: 'list', skills: [] };
     case 'alembic_bootstrap':
-      return { dimensions: [], executionPlan: [] };
+      return {
+        bootstrapState: { status: 'bootstrap_ready' },
+        currentDomainSop: { domainId: 'D1-runtime-entrypoints' },
+        dimensions: [],
+        domainQueue: [{ domainId: 'D1-runtime-entrypoints' }],
+        executionPlan: [],
+        gates: { graphFreshness: { rule: 'check status first' } },
+        repairState: { status: 'ready' },
+        sopPack: { contractVersion: 1 },
+        toolCapabilities: { canonicalSourceGraph: [] },
+      };
     case 'alembic_rescan':
       return { allRecipes: [], dimensions: [], executionPlan: [] };
     case 'alembic_evolve':

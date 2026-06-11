@@ -28,6 +28,7 @@ import {
 } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import { buildCodexColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 
@@ -36,6 +37,19 @@ interface McpContext {
   logger: WorkflowLogger;
   startedAt?: number;
   [key: string]: unknown;
+}
+
+interface AttachColdStartOnboardingInput<T extends { meta?: Record<string, unknown> }> {
+  allFiles: readonly unknown[];
+  briefing: T;
+  dataRoot: string;
+  depGraphData?: { nodes?: unknown[] } | null;
+  dimensions: readonly unknown[];
+  langProfile: unknown;
+  primaryLang: string | null;
+  projectRoot: string;
+  projectType: string | null;
+  session: unknown;
 }
 
 // ── 主入口 ─────────────────────────────────────────────────────
@@ -163,24 +177,36 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext) {
   );
   const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
   const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(briefing, ideAgentAnalysis);
+  const briefingWithOnboardingContract = attachColdStartOnboardingSurface({
+    allFiles,
+    briefing: briefingWithIdeAgentSurface,
+    dataRoot,
+    depGraphData,
+    dimensions: briefingDimensions,
+    langProfile,
+    primaryLang,
+    projectRoot,
+    projectType: snapshot.discoverer.id,
+    session,
+  });
 
   // 附加 warnings
   if (phaseResults.warnings.length > 0) {
-    briefingWithIdeAgentSurface.meta = briefingWithIdeAgentSurface.meta || {};
-    const existingWarnings = Array.isArray(briefingWithIdeAgentSurface.meta.warnings)
-      ? briefingWithIdeAgentSurface.meta.warnings
+    briefingWithOnboardingContract.meta = briefingWithOnboardingContract.meta || {};
+    const existingWarnings = Array.isArray(briefingWithOnboardingContract.meta.warnings)
+      ? briefingWithOnboardingContract.meta.warnings
       : [];
-    briefingWithIdeAgentSurface.meta.warnings = [...existingWarnings, ...phaseResults.warnings];
+    briefingWithOnboardingContract.meta.warnings = [...existingWarnings, ...phaseResults.warnings];
   }
 
   ctx.logger.info(
     `[BootstrapHostAgent] Mission Briefing ready: ${allFiles.length} files, ${briefingDimensions.length} dims, ` +
-      `${briefingWithIdeAgentSurface.meta?.responseSizeKB || '?'}KB — session ${session.id}`
+      `${briefingWithOnboardingContract.meta?.responseSizeKB || '?'}KB — session ${session.id}`
   );
 
   return presentHostAgentColdStartResponse({
     cleanupResult,
-    briefing: briefingWithIdeAgentSurface,
+    briefing: briefingWithOnboardingContract,
     dimensionCount: briefingDimensions.length,
     responseTimeMs: Date.now() - t0,
   });
@@ -211,6 +237,50 @@ function attachIDEAgentAnalysisSurface<T extends { meta?: Record<string, unknown
       },
     },
   };
+}
+
+function attachColdStartOnboardingSurface<T extends { meta?: Record<string, unknown> }>(
+  input: AttachColdStartOnboardingInput<T>
+): T &
+  ReturnType<typeof buildCodexColdStartOnboardingContract> & { meta: Record<string, unknown> } {
+  const onboardingContract = buildCodexColdStartOnboardingContract({
+    dataRoot: input.dataRoot,
+    dimensions: input.dimensions,
+    fileCount: input.allFiles.length,
+    moduleCount: input.depGraphData?.nodes?.length || 0,
+    primaryLanguage: input.primaryLang,
+    projectRoot: input.projectRoot,
+    projectType: input.projectType,
+    secondaryLanguages: readSecondaryLanguages(input.langProfile),
+    session: input.session,
+  });
+  return attachCodexOnboardingContract(input.briefing, onboardingContract);
+}
+
+function attachCodexOnboardingContract<T extends { meta?: Record<string, unknown> }>(
+  briefing: T,
+  onboardingContract: ReturnType<typeof buildCodexColdStartOnboardingContract>
+): T &
+  ReturnType<typeof buildCodexColdStartOnboardingContract> & { meta: Record<string, unknown> } {
+  return {
+    ...briefing,
+    ...onboardingContract,
+    meta: {
+      ...(briefing.meta || {}),
+      onboardingContract: {
+        contractVersion: 1,
+        currentDomainId: onboardingContract.progress.currentDomainId,
+        stagedDomainCount: onboardingContract.domainQueue.length,
+      },
+    },
+  };
+}
+
+function readSecondaryLanguages(langProfile: unknown): string[] {
+  const secondary = (langProfile as { secondary?: unknown }).secondary;
+  return Array.isArray(secondary)
+    ? secondary.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 function normalizeGuardAuditForBriefing<T>(guardAudit: T): T {

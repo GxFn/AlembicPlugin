@@ -48,6 +48,7 @@ import {
   type CodexToolPolicyState,
   resolveCodexToolPolicyState,
 } from '../ToolPolicy.js';
+import { buildCodexStatusOnboardingContract } from './OnboardingContract.js';
 
 export interface CodexDaemonStatusProvider {
   status(projectRoot: string): Promise<DaemonStatus>;
@@ -129,6 +130,20 @@ export interface CodexStatusData {
     skillsDir: string;
     wikiDir: string;
     workspaceExists: boolean;
+  };
+}
+
+interface CodexStatusOnboardingInput {
+  daemonStatus: DaemonStatus;
+  diagnostics: Record<string, unknown>;
+  enhancementRoute?: CodexEnhancementRouteChoice;
+  hostProjectAlignment?: CodexHostProjectAlignment;
+  knowledge: CodexKnowledgeState;
+  projectRootResolution?: CodexProjectRootResolution;
+  workspace?: {
+    ghost: boolean;
+    mode: string;
+    registered: boolean;
   };
 }
 
@@ -502,21 +517,13 @@ export function buildCodexKnowledgeGateActions(
   return actions;
 }
 
-export function buildCodexStatusOnboarding(input: {
-  daemonStatus: DaemonStatus;
-  diagnostics: Record<string, unknown>;
-  enhancementRoute?: CodexEnhancementRouteChoice;
-  hostProjectAlignment?: CodexHostProjectAlignment;
-  knowledge: CodexKnowledgeState;
-  projectRootResolution?: CodexProjectRootResolution;
-  workspace?: {
-    ghost: boolean;
-    mode: string;
-    registered: boolean;
-  };
-}): Record<string, unknown> {
+export function buildCodexStatusOnboarding(
+  input: CodexStatusOnboardingInput
+): Record<string, unknown> {
   const boundaryNotes = buildCodexRouteBoundaryNotes(input.enhancementRoute);
   const alignmentNotes = buildCodexHostProjectAlignmentNotes(input.hostProjectAlignment);
+  const diagnosticsOk = input.diagnostics.ok !== false;
+  const onboardingContract = buildStatusOnboardingContract(input, diagnosticsOk);
   if (input.projectRootResolution && input.projectRootResolution.trust !== 'trusted') {
     return {
       state: 'project_root_unresolved',
@@ -544,10 +551,10 @@ export function buildCodexStatusOnboarding(input: {
         ...alignmentNotes,
         ...boundaryNotes,
       ],
+      ...onboardingContract,
     };
   }
 
-  const diagnosticsOk = input.diagnostics.ok !== false;
   if (!diagnosticsOk) {
     return {
       state: 'runtime_issue',
@@ -568,6 +575,7 @@ export function buildCodexStatusOnboarding(input: {
         }),
       ],
       notes: ['Status checks do not start the daemon.', ...alignmentNotes, ...boundaryNotes],
+      ...onboardingContract,
     };
   }
 
@@ -613,6 +621,7 @@ export function buildCodexStatusOnboarding(input: {
         ...alignmentNotes,
         ...boundaryNotes,
       ],
+      ...onboardingContract,
     };
   }
 
@@ -639,6 +648,7 @@ export function buildCodexStatusOnboarding(input: {
         ...alignmentNotes,
         ...boundaryNotes,
       ],
+      ...onboardingContract,
     };
   }
 
@@ -669,6 +679,7 @@ export function buildCodexStatusOnboarding(input: {
         'Plugin does not switch Alembic projects or start an embedded runtime to cover a different selected project.',
         ...boundaryNotes,
       ],
+      ...onboardingContract,
     };
   }
 
@@ -712,7 +723,35 @@ export function buildCodexStatusOnboarding(input: {
           ...alignmentNotes,
           ...boundaryNotes,
         ],
+    ...onboardingContract,
   };
+}
+
+function buildStatusOnboardingContract(
+  input: CodexStatusOnboardingInput,
+  diagnosticsOk: boolean
+): ReturnType<typeof buildCodexStatusOnboardingContract> {
+  const latestSnapshot = input.knowledge.snapshots?.latest;
+  return buildCodexStatusOnboardingContract({
+    dataRoot: input.daemonStatus.dataRoot,
+    diagnosticsOk,
+    dimensions: latestSnapshot
+      ? [{ id: 'latest-bootstrap-snapshot', title: 'Latest Bootstrap Snapshot' }]
+      : [],
+    fileCount: latestSnapshot?.fileCount ?? null,
+    hostProjectAlignment: input.hostProjectAlignment,
+    knowledge: input.knowledge,
+    primaryLanguage: latestSnapshot?.primaryLang ?? null,
+    projectRoot: input.daemonStatus.projectRoot,
+    projectRootTrusted: input.projectRootResolution
+      ? input.projectRootResolution.trust === 'trusted'
+      : true,
+    session: latestSnapshot
+      ? {
+          id: latestSnapshot.sessionId,
+        }
+      : null,
+  });
 }
 
 function buildCodexHostProjectAlignmentNotes(alignment?: CodexHostProjectAlignment): string[] {
