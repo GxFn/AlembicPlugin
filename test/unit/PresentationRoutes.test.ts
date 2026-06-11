@@ -1,7 +1,9 @@
 /**
- * Phase 5: Presentation Layer HTTP Routes — 单元测试
+ * Presentation Layer HTTP Routes — 单元测试
  *
- * 测试 panorama / guardReport / audit 三个新路由对 DI 服务的调用
+ * 测试 panorama 路由对 DI 服务的调用。
+ * RC4 route pruning removed the unconsumed guardReport / audit routes;
+ * panorama stays keep-with-reason pending the RC6 surface decision.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getRouter } from '../helpers/express.js';
@@ -84,39 +86,6 @@ const mockModuleDetail = {
   summary: 'Utils is a Foundation layer module.',
 };
 
-const mockReport = {
-  timestamp: '2024-01-01T00:00:00.000Z',
-  projectRoot: '/test',
-  qualityGate: { status: 'PASS', score: 85, thresholds: {} },
-  complianceScore: 85,
-  coverageScore: 90,
-  confidenceScore: 95,
-  summary: { filesScanned: 50, errors: 2, warnings: 5, infos: 3, totalViolations: 10 },
-  topViolations: [],
-  fileHotspots: [],
-  ruleHealth: [],
-  trend: { errorsChange: 0, warningsChange: 0, hasHistory: false },
-};
-
-const mockAuditLogs = [
-  {
-    id: 'audit_1',
-    timestamp: Date.now(),
-    actor: 'agent',
-    action: 'check',
-    resource: '/file.ts',
-    result: 'success',
-  },
-  {
-    id: 'audit_2',
-    timestamp: Date.now(),
-    actor: 'user',
-    action: 'create',
-    resource: '/recipe',
-    result: 'success',
-  },
-];
-
 /* ═══ Mock services ════════════════════════════════════════ */
 
 const mockPanoramaService = {
@@ -128,21 +97,11 @@ const mockPanoramaService = {
     .mockImplementation((name: string) => (name === 'Utils' ? mockModuleDetail : null)),
 };
 
-const mockComplianceReporter = {
-  generate: vi.fn().mockResolvedValue(mockReport),
-};
-
-const mockAuditStore = {
-  query: vi.fn().mockReturnValue(mockAuditLogs),
-};
-
 vi.mock('../../lib/injection/ServiceContainer.js', () => ({
   getServiceContainer: vi.fn(() => ({
     get: (name: string) => {
       const map: Record<string, unknown> = {
         panoramaService: mockPanoramaService,
-        complianceReporter: mockComplianceReporter,
-        auditStore: mockAuditStore,
       };
       return map[name] ?? null;
     },
@@ -157,8 +116,6 @@ vi.mock('@alembic/core/workspace', () => ({
 
 /* ═══ Import routes (after mocks) ═════════════════════════ */
 
-import auditRouter from '../../lib/http/routes/audit.js';
-import guardReportRouter from '../../lib/http/routes/guardReport.js';
 import panoramaRouter from '../../lib/http/routes/panorama.js';
 
 /* ═══ Test helper ═════════════════════════════════════════ */
@@ -167,18 +124,12 @@ async function testGet(path: string): Promise<{ status: number; body: Record<str
   if (path.startsWith('/api/v1/panorama')) {
     return getRouter(panoramaRouter, path, { mountPath: '/api/v1/panorama' });
   }
-  if (path.startsWith('/api/v1/guard/report')) {
-    return getRouter(guardReportRouter, path, { mountPath: '/api/v1/guard/report' });
-  }
-  if (path.startsWith('/api/v1/audit')) {
-    return getRouter(auditRouter, path, { mountPath: '/api/v1/audit' });
-  }
   throw new Error(`Unknown route under test: ${path}`);
 }
 
 /* ═══ Tests ════════════════════════════════════════════════ */
 
-describe('Phase 5: Panorama Route', () => {
+describe('Panorama Route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -216,57 +167,5 @@ describe('Phase 5: Panorama Route', () => {
     const { status, body } = await testGet('/api/v1/panorama/module/Unknown');
     expect(status).toBe(404);
     expect(body.success).toBe(false);
-  });
-});
-
-describe('Phase 5: Guard Report Route', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('GET /guard/report returns compliance report', async () => {
-    const { status, body } = await testGet('/api/v1/guard/report');
-    expect(status).toBe(200);
-    expect(body.success).toBe(true);
-    expect((body.data as Record<string, unknown>).complianceScore).toBe(85);
-    expect(mockComplianceReporter.generate).toHaveBeenCalled();
-  });
-
-  it('GET /guard/report passes query params', async () => {
-    await testGet('/api/v1/guard/report?minScore=80&maxFiles=100');
-    expect(mockComplianceReporter.generate).toHaveBeenCalledWith(
-      '/test',
-      expect.objectContaining({
-        qualityGate: { minScore: 80, maxErrors: undefined },
-        maxFiles: 100,
-      })
-    );
-  });
-});
-
-describe('Phase 5: Audit Route', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('GET /audit returns logs', async () => {
-    const { status, body } = await testGet('/api/v1/audit');
-    expect(status).toBe(200);
-    expect(body.success).toBe(true);
-    const data = body.data as { logs: unknown[]; total: number };
-    expect(data.logs.length).toBe(2);
-    expect(data.total).toBe(2);
-  });
-
-  it('GET /audit passes filter params', async () => {
-    await testGet('/api/v1/audit?actor=agent&action=check&limit=50');
-    expect(mockAuditStore.query).toHaveBeenCalledWith(
-      expect.objectContaining({ actor: 'agent', action: 'check', limit: 50 })
-    );
-  });
-
-  it('GET /audit caps limit at 500', async () => {
-    await testGet('/api/v1/audit?limit=999');
-    expect(mockAuditStore.query).toHaveBeenCalledWith(expect.objectContaining({ limit: 500 }));
   });
 });

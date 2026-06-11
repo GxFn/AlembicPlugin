@@ -3,16 +3,11 @@
  *
  * 为 Express 路由提供运行时输入校验，覆盖：
  *   - knowledge（CRUD + 生命周期）
- *   - guardRules（规则管理 + 批量操作）
  *   - search（mode 路由搜索 + 上下文搜索）
  *   - guard（文件质量检查）
  *   - skills（技能管理）
- *   - task（统一任务分发）
  *   - modules（模块扫描）
- *   - ai（AI 配置、摘要、翻译、对话、Agent 工具/任务）
- *   - extract（路径/文本提取）
  *   - auth（登录）
- *   - commands（文件读写）
  *
  * @module shared/schemas/http-requests
  */
@@ -92,67 +87,6 @@ export const KnowledgeListQuery = PaginationQuery.extend({
   keyword: z.string().optional(),
   tag: z.string().optional(),
   source: z.string().optional(),
-});
-
-// ═══ Guard Rules ═════════════════════════════════
-
-export const CreateGuardRuleBody = z
-  .object({
-    name: z.string().min(1).optional(),
-    ruleId: z.string().min(1).optional(),
-    description: z.string().optional(),
-    message: z.string().optional(),
-    pattern: z.string().min(1, 'pattern is required'),
-    severity: z.enum(['error', 'warning', 'info']).default('warning'),
-    category: z.string().optional(),
-    sourceRecipeId: z.string().optional(),
-    sourceReason: z.string().optional(),
-    note: z.string().optional(),
-    languages: z.array(z.string()).optional(),
-    dimension: z.string().optional(),
-  })
-  .refine((data) => data.name || data.ruleId, {
-    message: 'Either name or ruleId is required',
-  });
-
-export const BatchEnableBody = BatchIds;
-
-export const BatchDisableBody = BatchIds.extend({
-  reason: z.string().optional(),
-});
-
-export const DisableRuleBody = z.object({
-  reason: z.string().optional(),
-});
-
-export const CheckCodeBody = z.object({
-  code: z.string().min(1, 'code is required'),
-  language: z.string().optional(),
-  ruleIds: z.array(z.string()).optional(),
-});
-
-export const ImportFromRecipeBody = z.object({
-  recipeId: z.string().min(1, 'recipeId is required'),
-  rules: z.array(z.record(z.string(), z.unknown())).min(1, 'rules array must not be empty'),
-});
-
-export const GuardRulesListQuery = PaginationQuery.extend({
-  severity: z.string().optional(),
-  category: z.string().optional(),
-  sourceRecipe: z.string().optional(),
-  keyword: z.string().optional(),
-  enabled: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((v) => (v === undefined ? undefined : v === 'true')),
-});
-
-export const ComplianceQuery = z.object({
-  path: z.string().optional(),
-  maxErrors: z.coerce.number().int().min(0).default(0),
-  maxWarnings: z.coerce.number().int().min(0).default(20),
-  minScore: z.coerce.number().int().min(0).max(100).default(70),
-  maxFiles: z.coerce.number().int().min(1).max(10000).default(500),
 });
 
 // ═══ Search ══════════════════════════════════════
@@ -287,34 +221,9 @@ export const AiFormatUsageGuideBody = z.object({
   text: z.string().optional(),
 });
 
-// ═══ Extract Routes ══════════════════════════════
-
-export const ExtractPathBody = z.object({
-  relativePath: z.string().min(1, 'relativePath is required'),
-  projectRoot: z.string().optional(),
-});
-
-export const ExtractTextBody = z.object({
-  text: z.string().min(1, 'text is required'),
-  language: z.string().optional(),
-  relativePath: z.string().optional(),
-  projectRoot: z.string().optional(),
-});
-
 // ═══ Auth Routes ═════════════════════════════════
 
 export const AuthLoginBody = z.object({
   username: z.string().min(1, '用户名不能为空'),
   password: z.string().min(1, '密码不能为空'),
-});
-
-// ═══ Commands Routes ═════════════════════════════
-
-export const FileReadQuery = z.object({
-  path: z.string().min(1, 'path is required'),
-});
-
-export const FileSaveBody = z.object({
-  path: z.string().min(1, 'path is required'),
-  content: z.string({ message: 'content is required' }),
 });

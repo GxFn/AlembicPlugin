@@ -4,23 +4,27 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CodexMcpServer } from '../dist/lib/codex/mcp/CodexMcpServer.js';
 import { serializeMcpToolResult } from '../dist/lib/codex/mcp/output-contract.js';
-import { LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS, TOOLS } from '../dist/lib/codex/mcp/tools.js';
+import * as toolsModule from '../dist/lib/codex/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../dist/lib/shared/schemas/mcp-tools.js';
+
+const { TOOLS } = toolsModule;
 
 const options = parseArgs(process.argv.slice(2));
 const issues = [];
 
 const activeToolNames = TOOLS.map((tool) => tool.name);
-const hiddenCompatibilityToolNames = LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.map(
-  (tool) => tool.name
+// RC4 removed the always-empty LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS surface;
+// the probe now guards against the export coming back.
+const legacyCompatibilityExports = Object.keys(toolsModule).filter((name) =>
+  name.startsWith('LEGACY_DIRECT_CALL_COMPATIBILITY')
 );
 
 if (activeToolNames.includes('alembic_task')) {
   issues.push('alembic_task is still present in active TOOLS');
 }
-if (hiddenCompatibilityToolNames.length !== 0) {
+if (legacyCompatibilityExports.length !== 0) {
   issues.push(
-    `legacy direct-call compatibility tools are still present: ${hiddenCompatibilityToolNames.join(', ')}`
+    `legacy direct-call compatibility exports reappeared: ${legacyCompatibilityExports.join(', ')}`
   );
 }
 if (Object.hasOwn(TOOL_SCHEMAS, 'alembic_task')) {
@@ -109,7 +113,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   mode: 'mcp-clean-output-final-legacy-docs-cache-probe',
   activeToolNamesIncludeTask: activeToolNames.includes('alembic_task'),
-  hiddenCompatibilityToolNames,
+  legacyCompatibilityExports,
   schemaIncludesTask: Object.hasOwn(TOOL_SCHEMAS, 'alembic_task'),
   retiredDirectCall: {
     ok: retiredStructured.ok ?? null,

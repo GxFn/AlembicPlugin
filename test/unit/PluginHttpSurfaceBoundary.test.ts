@@ -21,11 +21,7 @@ describe('Plugin HTTP surface boundary', () => {
     ).toBe(false);
     expect(
       exists(
-        literal(
-          'lib/http/compatibility/operations/dashboard-',
-          'compatibility-',
-          'operation.ts'
-        )
+        literal('lib/http/compatibility/operations/dashboard-', 'compatibility-', 'operation.ts')
       )
     ).toBe(false);
   });
@@ -62,37 +58,58 @@ describe('Plugin HTTP surface boundary', () => {
   });
 
   it('does not expose old Dashboard caller-only HTTP aliases', () => {
-    const monitoring = source('lib/http/routes/monitoring.ts');
     const jobs = source('lib/http/routes/jobs.ts');
 
-    expect(monitoring).toContain("router.get('/summary'");
-    expect(monitoring).not.toContain(literal("router.get('/", 'dashboard', "'"));
     expect(jobs).toContain('apiBaseUrl');
     expect(jobs).not.toContain('dashboardUrl: buildJobsApiOrigin');
     expect(jobs).not.toContain(literal("'dashboard'"));
   });
 
-  it('keeps commands and modules free of Dashboard compatibility dispatch', () => {
-    const commands = source('lib/http/routes/commands.ts');
-    const modules = source('lib/http/routes/modules.ts');
-    const combined = `${commands}\n${modules}`;
+  it('does not keep RC4-pruned routes without a plugin-runtime consumer', () => {
+    // RC4 route pruning: per-route consumer scans found no MCP handler, daemon,
+    // smoke, or acceptance-pack consumer for these HTTP route files.
+    for (const route of [
+      'audit',
+      'commands',
+      'extract',
+      'guardReport',
+      'guardRules',
+      'logs',
+      'monitoring',
+      'violations',
+    ]) {
+      expect(exists(`lib/http/routes/${route}.ts`)).toBe(false);
+    }
 
-    expect(combined).not.toContain(literal('DASHBOARD_', 'COMPATIBILITY_', 'OPERATION_IDS'));
-    expect(combined).not.toContain(literal('executeDashboard', 'CompatibilityOperation'));
-    expect(combined).not.toContain(literal('sendDashboard', 'CompatibilityOperationResponse'));
-    expect(combined).not.toContain(literal('dashboard.', 'update_module_map'));
-    expect(combined).not.toContain(literal('dashboard.', 'rebuild_semantic_index'));
-    expect(combined).not.toContain(literal('dashboard.', 'scan_project'));
-    expect(combined).not.toContain(literal('dashboard.', 'bootstrap_project'));
-    expect(combined).not.toContain(literal('dashboard.', 'cancel_bootstrap'));
-    expect(combined).not.toContain(literal('dashboard.', 'rescan_project'));
+    const httpServer = source('lib/http/HttpServer.ts');
+    for (const mount of ['monitoring', 'extract', 'commands', 'violations', 'audit', 'logs']) {
+      expect(httpServer).not.toContain(`\`\${apiPrefix}/${mount}\``);
+    }
+    expect(httpServer).not.toContain(literal('`${apiPrefix}/', 'guard/report`'));
+    expect(httpServer).not.toContain(literal('`${apiPrefix}/', 'rules`'));
+  });
+
+  it('keeps modules free of Dashboard compatibility dispatch', () => {
+    const modules = source('lib/http/routes/modules.ts');
+
+    expect(modules).not.toContain(literal('DASHBOARD_', 'COMPATIBILITY_', 'OPERATION_IDS'));
+    expect(modules).not.toContain(literal('executeDashboard', 'CompatibilityOperation'));
+    expect(modules).not.toContain(literal('sendDashboard', 'CompatibilityOperationResponse'));
+    expect(modules).not.toContain(literal('dashboard.', 'update_module_map'));
+    expect(modules).not.toContain(literal('dashboard.', 'rebuild_semantic_index'));
+    expect(modules).not.toContain(literal('dashboard.', 'scan_project'));
+    expect(modules).not.toContain(literal('dashboard.', 'bootstrap_project'));
+    expect(modules).not.toContain(literal('dashboard.', 'cancel_bootstrap'));
+    expect(modules).not.toContain(literal('dashboard.', 'rescan_project'));
   });
 
   it('registers SkillHooks through a SkillHooks semantic module', () => {
     const container = source('lib/injection/ServiceContainer.ts');
     const skillHooksModule = source('lib/injection/modules/SkillHooksModule.ts');
 
-    expect(container).toContain("import * as SkillHooksModule from './modules/SkillHooksModule.js'");
+    expect(container).toContain(
+      "import * as SkillHooksModule from './modules/SkillHooksModule.js'"
+    );
     expect(container).toContain('SkillHooksModule.register(this)');
     expect(container).not.toContain(literal('Agent', 'Module'));
     expect(skillHooksModule).toContain("c.singleton('skillHooks'");
@@ -115,8 +132,7 @@ describe('Plugin HTTP surface boundary', () => {
     }
 
     for (const route of CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES) {
-      const [, mountedPath, childPath = ''] =
-        route.match(/^\/api\/v1\/([^/]+)(?:\/(.+))?$/) ?? [];
+      const [, mountedPath, childPath = ''] = route.match(/^\/api\/v1\/([^/]+)(?:\/(.+))?$/) ?? [];
       expect(mountedPath).toBeTruthy();
       expect(httpServer).toContain(`\${apiPrefix}/${mountedPath}`);
       if (childPath) {

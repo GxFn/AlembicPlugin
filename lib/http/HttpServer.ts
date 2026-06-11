@@ -23,25 +23,17 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { gatewayMiddleware } from './middleware/gatewayMiddleware.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { roleResolverMiddleware } from './middleware/roleResolver.js';
-import auditRouter from './routes/audit.js';
 import authRouter from './routes/auth.js';
-import commandsRouter from './routes/commands.js';
 import daemonRouter from './routes/daemon.js';
 import evolutionRouter from './routes/evolution.js';
-import extractRouter from './routes/extract.js';
 import guardRouter from './routes/guard.js';
-import guardReportRouter from './routes/guardReport.js';
-import guardRuleRouter from './routes/guardRules.js';
 import healthRouter from './routes/health.js';
 import jobsRouter from './routes/jobs.js';
 import knowledgeRouter from './routes/knowledge.js';
-import logsRouter from './routes/logs.js';
 import modulesRouter from './routes/modules.js';
-import monitoringRouter from './routes/monitoring.js';
 import panoramaRouter from './routes/panorama.js';
 import searchRouter from './routes/search.js';
 import skillsRouter from './routes/skills.js';
-import violationsRouter from './routes/violations.js';
 
 interface HttpServerConfig {
   port: number;
@@ -216,8 +208,7 @@ export class HttpServer {
         req.path.includes('/spm/scan') ||
         req.path.includes('/spm/bootstrap') ||
         req.path.includes('/modules/scan') ||
-        req.path.includes('/modules/bootstrap') ||
-        req.path.includes('/extract/');
+        req.path.includes('/modules/bootstrap');
       const isStreaming = req.path.includes('/stream') || req.path.includes('/events/');
       req.setTimeout(isLongRunning ? 600000 : isStreaming ? 300000 : 60000); // 扫描 10分钟, SSE/EventSource 5分钟, 其他 60秒
       next();
@@ -275,52 +266,26 @@ export class HttpServer {
       });
     });
 
-    // 监控端点
-    if (this.config.enableMonitoring) {
-      this.app.use(`${apiPrefix}/monitoring`, monitoringRouter);
-    }
-
     // Guard 检查路由
     this.app.use(`${apiPrefix}/guard`, guardRouter);
-
-    // Guard 合规报告路由
-    this.app.use(`${apiPrefix}/guard/report`, guardReportRouter);
-
-    // 守护规则路由
-    this.app.use(`${apiPrefix}/rules`, guardRuleRouter);
 
     // 搜索路由
     this.app.use(`${apiPrefix}/search`, searchRouter);
 
-    // 提取路由
-    this.app.use(`${apiPrefix}/extract`, extractRouter);
-
-    // 命令路由
-    this.app.use(`${apiPrefix}/commands`, commandsRouter);
-
     // Skills 路由
     this.app.use(`${apiPrefix}/skills`, skillsRouter);
 
-    // Modules 路由（v3.2 统一多语言模块扫描）
+    // Modules 路由（v3.2 统一多语言模块扫描；Dashboard scan-stream 消费方）
     this.app.use(`${apiPrefix}/modules`, modulesRouter);
-
-    // 违规记录路由
-    this.app.use(`${apiPrefix}/violations`, violationsRouter);
 
     // 知识条目路由 (V3)
     this.app.use(`${apiPrefix}/knowledge`, knowledgeRouter);
 
-    // Panorama 全景路由（项目结构 + 覆盖率 + 健康度）
+    // Panorama 全景路由（项目结构 + 覆盖率 + 健康度；keep-with-reason，归属决策在 RC6）
     this.app.use(`${apiPrefix}/panorama`, panoramaRouter);
 
-    // 进化路由（文件变更驱动 Recipe 修复/弃用）
+    // 进化路由（文件变更驱动 Recipe 修复/弃用；keep-with-reason，归属决策在 RC6）
     this.app.use(`${apiPrefix}/evolution`, evolutionRouter);
-
-    // 审计日志路由
-    this.app.use(`${apiPrefix}/audit`, auditRouter);
-
-    // 日志文件路由
-    this.app.use(`${apiPrefix}/logs`, logsRouter);
 
     // 根路径 — 返回 API 元信息（避免外部探测产生无意义 404）
     this.app.all('/', (_req: Request, res: Response) => {

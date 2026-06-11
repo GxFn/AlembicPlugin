@@ -3,7 +3,7 @@
  *
  * 用法：
  *   import { validate, validateQuery } from '../middleware/validate.js';
- *   router.post('/batch-enable', validate(BatchEnableBody), async (req, res) => { ... });
+ *   router.post('/batch-publish', validate(BatchPublishBody), async (req, res) => { ... });
  *   router.get('/search', validateQuery(SearchQuery), async (req, res) => { ... });
  *
  * 校验通过后：

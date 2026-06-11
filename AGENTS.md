@@ -116,7 +116,10 @@ This section is maintained by the Wakeflow runtime installer. It records this wi
 - 正式脚本：`scripts/`。
 - 正式文档：`docs/`；仓库内 `docs/` 仅放随源码长期维护的产品/发布文档，跨仓库迁移和验收文档写入 `../workspace-ledger/AlembicPlugin/`。
 - 开发临时文档：`docs-dev/`（不跟随 git）。
-- 临时测试脚本：`scratch/`（不跟随 git）。
+- 临时测试脚本：`scratch/`（不跟随 git）。保留规则：已完成需求的
+  `afapi-*` 验收/探针产物由 `scripts/clean-scratch.mjs` 回收（默认 dry-run，
+  默认保留 7 天，`--apply` 仅在受监督场景使用）；被 workspace ledger 验收记录
+  引用的产物登记在脚本内白名单中，禁止删除；非 `afapi-*` 条目不在脚本范围内。
 - 插件资源：`plugins/`、`channels/`、`.agents/`、`injectable-skills/`。
 - Dashboard 前端已迁出到 `AlembicDashboard`，不要在本仓库新增 Dashboard 源码。
 - Core 本地源仓库：`../AlembicCore`。
@@ -167,3 +170,27 @@ lib/
 - 改 MCP、tool、skill、plugin runtime、channel 或 marketplace 时，默认这是本仓库职责，不要强行迁入 Core。
 - 删除旧实现必须先有扫描、替代入口、测试和可解释的提交。
 - 如果需要同步 Core 开发能力，先在 workspace `../AlembicCore` 提交并由本仓库通过 `file:../AlembicCore` 验证；只有 release、Codex portable runtime、离线安装、远程 CI 或 workspace 外 fallback 需要时，才更新 `vendor/AlembicCore` 指针并记录源 commit。
+
+### vendor/AlembicCore 快照刷新流程
+
+`vendor/AlembicCore` 是固定在精确 Core commit 上的 git submodule，仅作为
+portable/fallback Core 源：本地开发始终优先解析同级 `../AlembicCore`
+（`scripts/local-source-paths.mjs` 先找 `../AlembicCore` 再找
+`vendor/AlembicCore`），已发布运行时包消费的是 registry 上的
+`@alembic/core` 版本而非快照。因此快照落后 Core HEAD 是预期内、可解释的
+状态，不是异常。
+
+- **何时刷新（发布步骤）**：在 `plugins/alembic-codex/RELEASE-PLAYBOOK.md`
+  Version And Tag Flow 第 2 步（更新包元数据）期间，且仅当本次发布需要
+  快照固定点之后落地的 Core 变更（portable runtime / 离线安装 / 远程 CI
+  构建，或 state root 显式要求）。不消费新 Core 行为的常规插件发布保持
+  现有固定点。禁止直接编辑 `vendor/AlembicCore` 内文件；Core 变更先在
+  AlembicCore 仓库提交，再移动固定点：
+  `git -C vendor/AlembicCore fetch origin && git -C vendor/AlembicCore
+  checkout <released-core-commit>`，然后 `git add vendor/AlembicCore` 随
+  发布准备一起提交 gitlink。
+- **如何检查滞后（每次发布决策前）**：
+  `git -C ../AlembicCore rev-list --count "$(git -C vendor/AlembicCore
+  rev-parse HEAD)"..HEAD` 得到快照落后的 Core commit 数；有意保持固定点
+  时把该滞后数记入发布说明，让下次发布能区分「已解释的滞后」与「忘了
+  同步」。

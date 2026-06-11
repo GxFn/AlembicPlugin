@@ -110,12 +110,6 @@ const WORK_FINISH_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_
 const CODE_GUARD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_code_guard');
 const DECISION_RECORD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_decision_record');
 
-export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS: readonly { name: string }[] = [];
-
-export const LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES = new Set(
-  LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS.map((tool) => tool.name)
-);
-
 // ─── Tool Declarations ───────────────────────────────────────
 
 export const TOOLS = [

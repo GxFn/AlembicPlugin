@@ -220,19 +220,6 @@ describe('Integration: HTTP API Endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════
-  //  Guard Rules
-  // ═══════════════════════════════════════════════════════
-
-  describe('Guard Rules Endpoints', () => {
-    test('GET /rules → 200', async () => {
-      const res = await fetch(`${BASE}/rules`);
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.success).toBe(true);
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════
   //  角色访问控制
   // ═══════════════════════════════════════════════════════
 

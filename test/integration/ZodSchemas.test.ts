@@ -32,7 +32,6 @@ import { z } from 'zod';
 import {
   AuthLoginBody,
   BatchPublishBody,
-  CreateGuardRuleBody,
   CreateKnowledgeBody,
   SearchQuery,
   UpdateKnowledgeBody,
@@ -424,25 +423,6 @@ describe('Integration: Zod Schemas — http-requests.ts', () => {
 
     test('should reject empty string in ids', () => {
       expect(() => BatchPublishBody.parse({ ids: [''] })).toThrow();
-    });
-  });
-
-  describe('CreateGuardRuleBody', () => {
-    test('should accept with name and pattern', () => {
-      const result = CreateGuardRuleBody.parse({
-        name: 'no-eval',
-        pattern: 'eval\\(',
-      });
-      expect(result.name).toBe('no-eval');
-      expect(result.severity).toBe('warning'); // default
-    });
-
-    test('should require name or ruleId', () => {
-      expect(() => CreateGuardRuleBody.parse({ pattern: 'x' })).toThrow();
-    });
-
-    test('should require pattern', () => {
-      expect(() => CreateGuardRuleBody.parse({ name: 'test' })).toThrow();
     });
   });
 
