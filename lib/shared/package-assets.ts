@@ -9,7 +9,10 @@ import path from 'node:path';
 import { DEFAULT_FOLDER_NAMES } from '@alembic/core/workspace';
 
 const __dirname = import.meta.dirname;
-const PLUGIN_RUNTIME_PACKAGE_NAME = 'alembic-codex-plugin-runtime';
+const PLUGIN_RUNTIME_PACKAGE_NAMES = new Set([
+  '@gxfn/alembic-codex-runtime',
+  'alembic-codex-plugin-runtime',
+]);
 
 function findPackageRoot(): string {
   let dir = __dirname;
@@ -18,7 +21,7 @@ function findPackageRoot(): string {
     if (existsSync(candidate)) {
       try {
         const pkg = JSON.parse(readFileSync(candidate, 'utf-8')) as { name?: string };
-        if (pkg.name === PLUGIN_RUNTIME_PACKAGE_NAME) {
+        if (pkg.name && PLUGIN_RUNTIME_PACKAGE_NAMES.has(pkg.name)) {
           return dir;
         }
       } catch {
@@ -33,7 +36,9 @@ function findPackageRoot(): string {
   }
   throw new Error(
     '[Alembic] Could not locate Plugin package root. ' +
-      `No ancestor directory contains a package.json with name "${PLUGIN_RUNTIME_PACKAGE_NAME}".`
+      `No ancestor directory contains a package.json with one of ${JSON.stringify([
+        ...PLUGIN_RUNTIME_PACKAGE_NAMES,
+      ])}.`
   );
 }
 

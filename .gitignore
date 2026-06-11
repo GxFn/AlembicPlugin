@@ -65,6 +65,7 @@ nohup.out
 
 # ─── Misc temp ───────────────────────────────────────
 /tmp/
+.tmp/
 .cache/
 .git-commit-msg.tmp
 prettier-output.log

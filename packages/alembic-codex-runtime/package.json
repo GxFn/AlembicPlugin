@@ -1,0 +1,85 @@
+{
+  "name": "@gxfn/alembic-codex-runtime",
+  "version": "0.2.0",
+  "description": "Pinned Alembic Codex MCP runtime package for Codex marketplace plugin startup.",
+  "type": "module",
+  "main": "dist/lib/bootstrap.js",
+  "imports": {
+    "#shared/*": {
+      "alembic-dev": "./lib/shared/*",
+      "default": "./dist/lib/shared/*"
+    },
+    "#infra/*": {
+      "alembic-dev": "./lib/infrastructure/*",
+      "default": "./dist/lib/infrastructure/*"
+    },
+    "#service/*": {
+      "alembic-dev": "./lib/service/*",
+      "default": "./dist/lib/service/*"
+    },
+    "#inject/*": {
+      "alembic-dev": "./lib/injection/*",
+      "default": "./dist/lib/injection/*"
+    },
+    "#governance/*": {
+      "alembic-dev": "./lib/governance/*",
+      "default": "./dist/lib/governance/*"
+    },
+    "#http/*": {
+      "alembic-dev": "./lib/http/*",
+      "default": "./dist/lib/http/*"
+    },
+    "#workflows/*": {
+      "alembic-dev": "./lib/workflows/*",
+      "default": "./dist/lib/workflows/*"
+    },
+    "#codex/*": {
+      "alembic-dev": "./lib/codex/*",
+      "default": "./dist/lib/codex/*"
+    }
+  },
+  "bin": {
+    "alembic-codex-mcp": "dist/bin/codex-mcp.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@alembic/core": "0.2.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "ajv": "^8.20.0",
+    "better-sqlite3": "^12.6.2",
+    "commander": "^14.0.3",
+    "cors": "^2.8.6",
+    "drizzle-orm": "^0.45.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "js-yaml": "^4.1.1",
+    "minimist": "^1.2.8",
+    "ora": "^9.3.0",
+    "p-limit": "^7.3.0",
+    "socket.io": "^4.8.3",
+    "undici": "^7.22.0",
+    "uuid": "^13.0.0",
+    "web-tree-sitter": "^0.26.6",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
+  },
+  "files": [
+    ".alembic-runtime-boundary.json",
+    ".agents",
+    "channels",
+    "config",
+    "dist",
+    "injectable-skills",
+    "resources",
+    "templates",
+    "template.json",
+    "README.md",
+    "README_CN.md"
+  ]
+}
