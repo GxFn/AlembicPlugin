@@ -1974,18 +1974,29 @@ describe('CodexMcpServer', () => {
       data?: {
         bootstrapState?: {
           runtime?: { daemonRequiredForBootstrap?: boolean; owner?: string };
+          singleWriterLease?: { publicStatus?: string; status?: string };
           sourceGraph?: { firstTool?: string };
           status?: string;
         };
         currentDomainSop?: {
           domainId?: string;
+          recipeGuidanceFloor?: {
+            candidateCounts?: { minimumPerDimension?: number; targetPerDimension?: number };
+          };
           toolSequence?: string[];
         };
         domainQueue?: Array<{ domainId?: string }>;
         dimensions?: unknown;
         executionPlan?: unknown;
         gates?: Record<string, unknown>;
-        sopPack?: Record<string, unknown>;
+        sopPack?: {
+          knowledgeResetContract?: { backupByDefault?: boolean; scopes?: string[] };
+          recipeAuthoringRubric?: Record<string, unknown>;
+          resumePrompt?: Record<string, unknown>;
+          scopeBrief?: Record<string, unknown>;
+          stopConditions?: string[];
+          toolCapabilityMatrix?: Array<{ name?: string }>;
+        };
         serviceBoundary?: {
           executionPath: string;
           owner: string;
@@ -2015,6 +2026,10 @@ describe('CodexMcpServer', () => {
       sourceGraph: {
         firstTool: 'alembic_source_graph_status',
       },
+      singleWriterLease: {
+        publicStatus: 'no_active_bootstrap',
+        status: 'available',
+      },
       status: 'bootstrap_ready',
     });
     expect(result.data?.domainQueue?.[0]).toMatchObject({
@@ -2023,6 +2038,12 @@ describe('CodexMcpServer', () => {
     expect(result.data?.currentDomainSop).toMatchObject({
       domainId: 'D1-runtime-entrypoints',
       toolSequence: expect.arrayContaining(['alembic_source_graph_status', 'alembic_code_explore']),
+      recipeGuidanceFloor: expect.objectContaining({
+        candidateCounts: expect.objectContaining({
+          minimumPerDimension: 3,
+          targetPerDimension: 5,
+        }),
+      }),
     });
     expect(result.data?.toolCapabilities?.canonicalSourceGraph?.map((entry) => entry.name)).toEqual(
       expect.arrayContaining([
@@ -2039,6 +2060,27 @@ describe('CodexMcpServer', () => {
     expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_affected_tests');
     expect(JSON.stringify(result.data?.sopPack)).not.toContain('alembic_call_context');
     expect(JSON.stringify(result.data?.sopPack)).not.toContain('alembic_affected_tests');
+    expect(result.data?.sopPack).toMatchObject({
+      scopeBrief: expect.any(Object),
+      recipeAuthoringRubric: expect.objectContaining({
+        futureActionability: expect.any(String),
+      }),
+      knowledgeResetContract: expect.objectContaining({
+        backupByDefault: true,
+        scopes: expect.arrayContaining(['host-agent bootstrap session state']),
+      }),
+      resumePrompt: expect.objectContaining({
+        bootstrapSessionRefField: 'bootstrapState.session.id',
+      }),
+      stopConditions: expect.arrayContaining(['another bootstrap writer holds the lease']),
+    });
+    expect(result.data?.sopPack?.toolCapabilityMatrix).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'alembic_source_graph_status',
+        }),
+      ])
+    );
     expect(result.data?.gates).toHaveProperty('runtimeTransport');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();

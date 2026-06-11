@@ -625,6 +625,43 @@ export function buildCodexStatusOnboarding(
     };
   }
 
+  if (input.knowledge.jobs?.bootstrapRunning) {
+    return {
+      state: 'bootstrap_in_progress',
+      summary:
+        'Alembic Codex bootstrap is already running for this project; a second writer must not be started.',
+      primaryAction: buildCodexRecommendedAction({
+        label: 'Check bootstrap progress',
+        reason:
+          'Read the single-writer bootstrap lease and wait for the existing Codex-owned bootstrap route to finish.',
+        startsDaemon: false,
+        tool: 'alembic_codex_status',
+      }),
+      nextActions: [
+        buildCodexRecommendedAction({
+          label: 'Check bootstrap progress',
+          reason:
+            'Read bootstrapState.singleWriterLease and current progress without starting work.',
+          startsDaemon: false,
+          tool: 'alembic_codex_status',
+        }),
+        buildCodexRecommendedAction({
+          label: 'Inspect bootstrap job',
+          reason: 'Inspect Codex bootstrap job state when job tools are available.',
+          startsDaemon: false,
+          tool: 'alembic_codex_job',
+        }),
+      ],
+      notes: [
+        'bootstrap_in_progress is a visibility state; CKG3 owns hard lease enforcement and takeover.',
+        'Do not start another host-agent bootstrap while the lease holder is visible.',
+        ...alignmentNotes,
+        ...boundaryNotes,
+      ],
+      ...onboardingContract,
+    };
+  }
+
   if (!input.knowledge.usable) {
     return {
       state: 'needs_bootstrap',

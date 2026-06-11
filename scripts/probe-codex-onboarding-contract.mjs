@@ -63,15 +63,33 @@ function summarizeContract(data) {
     bootstrapState: data?.bootstrapState,
     currentDomainSop: {
       domainId: data?.currentDomainSop?.domainId,
+      languageProfile: data?.currentDomainSop?.languageProfile,
+      recipeGuidanceFloor: data?.currentDomainSop?.recipeGuidanceFloor,
       toolSequence: data?.currentDomainSop?.toolSequence,
     },
     domainQueueFirst: data?.domainQueue?.[0],
     gates: Object.keys(data?.gates || {}),
     repairState: data?.repairState,
     sopPackFields: Object.keys(data?.sopPack || {}),
+    sopPackRequiredReadback: {
+      hasKnowledgeResetContract: Boolean(data?.sopPack?.knowledgeResetContract?.scopes),
+      hasRecipeAuthoringRubric: Boolean(data?.sopPack?.recipeAuthoringRubric),
+      hasResumePrompt: Boolean(data?.sopPack?.resumePrompt),
+      hasScopeBrief: Boolean(data?.sopPack?.scopeBrief),
+      hasStopConditions: Boolean(data?.sopPack?.stopConditions),
+      hasToolCapabilityMatrix: Boolean(data?.sopPack?.toolCapabilityMatrix),
+    },
     toolCapabilities: {
       canonicalSourceGraph: data?.toolCapabilities?.canonicalSourceGraph?.map((tool) => tool.name),
       removedOrBlocked: data?.toolCapabilities?.removedOrBlocked?.map((tool) => tool.name),
+    },
+    agentReadinessWalkthrough: {
+      firstTool: data?.initialToolBriefing?.defaultOrder?.[0],
+      currentDomainEvidenceTool:
+        data?.currentDomainNextActions?.[1]?.tool || data?.currentDomainSop?.toolSequence?.[1],
+      blockedConclusions: data?.repairState?.blockedConclusions?.slice(0, 4),
+      stopConditions: data?.sopPack?.stopConditions?.slice(0, 4),
+      hiddenProjectKnowledgeRequired: false,
     },
   };
 }

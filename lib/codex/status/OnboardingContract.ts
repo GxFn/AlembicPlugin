@@ -71,6 +71,15 @@ interface DomainQueueEntry {
   toolSequence: string[];
 }
 
+interface LanguageOverlaySummary {
+  confidence: 'full' | 'reduced';
+  grounding: string[];
+  id: string;
+  inspect: string[];
+  language: string;
+  uncertainty: string | null;
+}
+
 export interface CodexOnboardingContract {
   bootstrapState: Record<string, unknown>;
   currentDomainNextActions: Array<Record<string, unknown>>;
@@ -325,8 +334,12 @@ function buildCodexOnboardingContract(
   const currentPlaybook = DOMAIN_PLAYBOOKS.find(
     (playbook) => playbook.domainId === currentDomain?.domainId
   );
-  const currentDomainSop = buildCurrentDomainSop(currentPlaybook || DOMAIN_PLAYBOOKS[0]);
-  const toolCapabilities = buildToolCapabilities(listPluginToolSurfaceCatalog());
+  const toolSurface = listPluginToolSurfaceCatalog();
+  const languageProfile = buildLanguageProfile(input);
+  const currentDomainSop = buildCurrentDomainSop(currentPlaybook || DOMAIN_PLAYBOOKS[0], {
+    languageProfile,
+  });
+  const toolCapabilities = buildToolCapabilities(toolSurface);
   const bootstrapState = buildBootstrapState(input, {
     currentDomainId: currentDomain?.domainId || DOMAIN_PLAYBOOKS[0].domainId,
     dimensions,
@@ -352,12 +365,21 @@ function buildCodexOnboardingContract(
         'alembic_dimension_complete',
       ],
       rule: 'Use source graph tools only after freshness is known; fall back to raw file reads and repository validation when graph facts are stale or partial.',
+      agentDecisionChecklist: buildAgentDecisionChecklist(currentDomainSop),
+      blockedConclusionsField: 'repairState.blockedConclusions',
+      evidenceFields: [
+        'bootstrapState.projectIdentity',
+        'bootstrapState.sourceGraph',
+        'toolCapabilities',
+        'currentDomainSop.requiredEvidence',
+        'currentDomainSop.recipeGuidanceFloor',
+      ],
       sopField: 'currentDomainSop',
       toolCapabilityField: 'toolCapabilities',
     },
     progress,
     repairState,
-    sopPack: buildSopPack(),
+    sopPack: buildSopPack(input, { languageProfile, toolSurface }),
     toolCapabilities,
   };
 }
@@ -393,6 +415,7 @@ function buildBootstrapState(
       tool: 'alembic_bootstrap',
     },
     sourceGraph: buildSourceGraphState(input),
+    singleWriterLease: buildSingleWriterLeaseVisibility(input),
     session: sessionSummary,
     progress: {
       currentDomainId: context.currentDomainId,
@@ -420,7 +443,7 @@ function resolveBootstrapStatus(input: BuildCodexOnboardingContractInput): strin
     return knowledge.hasKnowledge ? 'needs_init_existing_knowledge' : 'needs_init';
   }
   if (knowledge.jobs?.bootstrapRunning) {
-    return 'bootstrap_running';
+    return 'bootstrap_in_progress';
   }
   if (knowledge.status === 'knowledge_stale' || knowledge.sourceRefs?.status === 'stale') {
     return 'graph_stale';
@@ -450,6 +473,44 @@ function buildSourceGraphState(input: BuildCodexOnboardingContractInput): Record
     sourceRefStatus: sourceRefs?.status || null,
     staleRecipeCount: sourceRefs?.staleRecipeCount ?? null,
     unsupportedStates: ['stale', 'pending', 'partial', 'wrong-scope', 'unsupported-language'],
+  };
+}
+
+function buildSingleWriterLeaseVisibility(
+  input: BuildCodexOnboardingContractInput
+): Record<string, unknown> {
+  const activeBootstrap =
+    input.knowledge?.jobs?.active.find((job) => job.kind === 'bootstrap') || null;
+  return {
+    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    status: activeBootstrap ? 'held' : 'available',
+    publicStatus: activeBootstrap ? 'bootstrap_in_progress' : 'no_active_bootstrap',
+    leaseHolder: activeBootstrap
+      ? {
+          jobId: activeBootstrap.id,
+          channelId: activeBootstrap.channelId || null,
+          createdByTool: activeBootstrap.createdByTool || null,
+          kind: activeBootstrap.kind,
+          source: activeBootstrap.source || null,
+          status: activeBootstrap.status,
+        }
+      : null,
+    heartbeat: activeBootstrap
+      ? {
+          lastHeartbeatAt: activeBootstrap.updatedAt || activeBootstrap.createdAt || null,
+          staleAfter: 'CKG1 exposes heartbeat visibility only; CKG3 owns hard timeout enforcement.',
+        }
+      : null,
+    takeoverRule: activeBootstrap
+      ? 'Do not start a second bootstrap writer. Re-check alembic_codex_status and wait, or let a later lease-enforcement slice decide takeover.'
+      : 'No active bootstrap writer is visible; alembic_bootstrap may start or resume the Codex-owned bootstrap route.',
+    sharedEntrypoints: [
+      'Codex host-agent alembic_bootstrap',
+      'Plugin job route alembic_codex_bootstrap',
+      'Alembic daemon job provider',
+    ],
+    enforcementBoundary:
+      'Visibility-only in CKG1; this field does not implement CKG3 hard gate enforcement.',
   };
 }
 
@@ -538,7 +599,10 @@ function dimensionMatchesPlaybook(dimension: DimensionSummary, playbook: DomainP
   return playbook.keywordHints.some((hint) => text.includes(hint));
 }
 
-function buildCurrentDomainSop(playbook: DomainPlaybook): Record<string, unknown> {
+function buildCurrentDomainSop(
+  playbook: DomainPlaybook,
+  context: { languageProfile: Record<string, unknown> }
+): Record<string, unknown> {
   return {
     contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
     domainId: playbook.domainId,
@@ -547,6 +611,21 @@ function buildCurrentDomainSop(playbook: DomainPlaybook): Record<string, unknown
     stage: 'domain-discovery',
     toolSequence: playbook.toolSequence,
     toolToInformation: playbook.toolToInformation,
+    languageProfile: context.languageProfile,
+    sectionBoundaries: {
+      maxCurrentDomainSteps: 8,
+      maxOverlayCount: 3,
+      renderedFrom: 'domain-sop-baseline-2026-06-12 plus current bootstrap state',
+      runtimeLlmGeneration: false,
+    },
+    recipeGuidanceFloor: buildRecipeGuidanceFloor(),
+    candidateVariety: {
+      minimumPerDimension: 3,
+      targetPerDimension: 5,
+      requiredKinds: ['fact', 'rule', 'pattern'],
+      noPaddingRule:
+        'Submit fewer only when evidence is genuinely absent; never pad weak candidates to satisfy numeric targets.',
+    },
     recipeOntologyReminders: [
       'Recipe candidates must describe reusable project guidance, not raw symbol dumps.',
       'Relationship claims require source evidence such as callers, callees, impact, or exact source nodes.',
@@ -560,6 +639,15 @@ function buildCurrentDomainSop(playbook: DomainPlaybook): Record<string, unknown
       'Complete the dimension only after candidates, no-op reasons, and validation notes are recorded.',
     ],
     requiredEvidence: playbook.requiredEvidence,
+    requiredEvidenceFields: [
+      'repo-relative file path',
+      'line citation',
+      'module attribution',
+      'sourceRefs',
+      'graph relation refs when making caller/callee/impact claims',
+      'validation command or explicit no-op reason',
+    ],
+    rejectionExamples: buildDomainRejectionExamples(playbook.domainId),
     qualityGates: [
       'No generic advice without project-specific source evidence.',
       'No bare filename claims without symbol or snippet context.',
@@ -576,6 +664,12 @@ function buildCurrentDomainSop(playbook: DomainPlaybook): Record<string, unknown
       'stale or partial graph used as final proof',
       'missing validation for behavior-changing edits',
       'Recipe candidate lacks source-backed reusable guidance',
+    ],
+    completionRules: [
+      'Every claim cites repo-relative file paths and line numbers or names a raw-read fallback.',
+      'Every relationship claim cites source graph relation evidence or explicitly marks graph uncertainty.',
+      'Dimension completion records referencedFiles, 3-5 keyFindings, and analysisText >= 500 chars.',
+      'Cross-domain duplicates are rejected before submission.',
     ],
     nextActions: [
       {
@@ -600,64 +694,571 @@ function buildCurrentDomainSop(playbook: DomainPlaybook): Record<string, unknown
   };
 }
 
-function buildSopPack(): Record<string, unknown> {
+function buildSopPack(
+  input: BuildCodexOnboardingContractInput,
+  context: { languageProfile: Record<string, unknown>; toolSurface: PluginToolSurfaceEntry[] }
+): Record<string, unknown> {
   return {
     contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
     source: 'wakeflow-ledger/domain-sop-baseline-2026-06-12',
+    scopeBrief: buildScopeBrief(input),
+    toolCapabilityMatrix: buildToolCapabilityMatrix(context.toolSurface),
     stagedProtocol: [
       'Read bootstrapState and confirm project identity, runtime route, graph readiness, and current domain.',
       'Run the currentDomainSop tool sequence and keep source evidence tied to file paths or symbols.',
       'Submit knowledge only when the Recipe ontology and quality gates are satisfied.',
       'Complete the domain, then move to the next pending domain in domainQueue.',
     ],
-    domainPlaybooks: DOMAIN_PLAYBOOKS.map((playbook) => ({
-      domainId: playbook.domainId,
-      title: playbook.title,
-      goal: playbook.goal,
-      requiredEvidence: playbook.requiredEvidence,
-      toolSequence: playbook.toolSequence,
-    })),
-    recipeOntology: {
-      candidateKinds: ['rule', 'pattern', 'boundary', 'workflow', 'validation', 'failure-mode'],
-      sourceFactKinds: ['file', 'symbol', 'call-chain', 'command-output', 'runtime-json'],
-      rejectionReasons: [
-        'generic-advice',
-        'unsupported-relationship',
-        'duplicate-existing-recipe',
-        'padding-without-project-signal',
-      ],
-    },
-    submitKnowledgeContract: {
-      tool: 'alembic_submit_knowledge',
-      requiredBeforeSubmit: [
-        'source evidence',
-        'specific reusable guidance',
-        'when and when-not notes',
-        'validation or failure-path guidance',
-      ],
-    },
-    dimensionCompletionContract: {
-      tool: 'alembic_dimension_complete',
-      requiredBeforeComplete: [
-        'submitted candidate ids or explicit no-op reason',
-        'current domain evidence summary',
-        'residual risks and next domain handoff',
-      ],
-    },
-    knowledgeResetContract: {
-      tool: 'alembic_bootstrap',
-      rule: 'Host-agent bootstrap resets and rebuilds deterministic analysis state, then waits for Codex to submit Recipes and complete staged domains.',
-    },
+    domainPlaybooks: buildDomainPlaybookContracts(),
+    languageOverlayContract: context.languageProfile,
+    recipeGuidanceFloor: buildRecipeGuidanceFloor(),
+    recipeOntology: buildRecipeOntologyContract(),
+    recipeAuthoringRubric: buildRecipeAuthoringRubric(),
+    submitKnowledgeContract: buildSubmitKnowledgeContract(),
+    dimensionCompletionContract: buildDimensionCompletionContract(),
+    knowledgeResetContract: buildKnowledgeResetContract(),
     repairPrompts: [
       'If graph status is stale, refresh or use raw file reads and state the uncertainty.',
       'If runtime transport closes, repair MCP/plugin transport before using live-output claims.',
       'If scope differs from the host project, stop and resolve project identity.',
     ],
     nextDomainPrompt:
-      'After completing the current domain, read domainQueue for the next pending domain and repeat the same status, evidence, submit, and complete loop.',
+      'After the current domain passes dimension completion, read domainQueue for the next pending domain and repeat the same status, evidence, submit, and complete loop; skip only after controller/user decision records the block.',
+    resumePrompt: {
+      bootstrapSessionRefField: 'bootstrapState.session.id',
+      resumeTools: ['alembic_codex_status', 'alembic_bootstrap'],
+      rule: 'After MCP process restart, read status, compare project identity, then resume the current domain from progress.currentDomainId instead of starting a hidden second bootstrap writer.',
+    },
+    stopConditions: [
+      'project root or data root mismatch',
+      'another bootstrap writer holds the lease',
+      'source graph stale/partial/wrong-scope used as final proof',
+      'language overlay missing without generic fallback uncertainty',
+      'Recipe floor cannot be met and no no-op reason is recorded',
+      'runtime transport lacks real MCP readback',
+    ],
+    renderingBudget: {
+      currentDomainSop: 'compact current domain plus selected language overlays only',
+      sopPack: 'sectioned machine-readable fields; no giant free-form briefing',
+      domainPlaybooks: 'stable seven-domain summaries with per-domain detail rendered on demand',
+    },
     llmParticipationBoundary:
       'This SOP pack is deterministic plugin output. Codex is responsible for judgment; plugin runtime does not perform provider-backed Recipe writing on the default route.',
   };
+}
+
+function buildDomainPlaybookContracts(): Array<Record<string, unknown>> {
+  return DOMAIN_PLAYBOOKS.map((playbook) => ({
+    domainId: playbook.domainId,
+    title: playbook.title,
+    goal: playbook.goal,
+    candidateVariety: {
+      minimumPerDimension: 3,
+      targetPerDimension: 5,
+      requiredKinds: ['fact', 'rule', 'pattern'],
+    },
+    requiredEvidenceFields: [
+      'sourceRefs',
+      'repo-relative file path',
+      'line citation',
+      'module attribution',
+      'validation or no-op reason',
+    ],
+    requiredEvidence: playbook.requiredEvidence,
+    rejectionExamples: buildDomainRejectionExamples(playbook.domainId),
+    completionRules: buildDomainCompletionRules(playbook.domainId),
+    toolSequence: playbook.toolSequence,
+  }));
+}
+
+function buildRecipeOntologyContract(): Record<string, unknown> {
+  return {
+    candidateKinds: ['rule', 'pattern', 'boundary', 'workflow', 'validation', 'failure-mode'],
+    sourceFactKinds: ['file', 'symbol', 'call-chain', 'command-output', 'runtime-json'],
+    notRecipe: [
+      'generic language advice',
+      'raw directory inventory without future action guidance',
+      'tool output pasted without reusable project rule',
+      'relationship claim without source or graph proof',
+    ],
+    rejectionReasons: [
+      'generic-advice',
+      'unsupported-relationship',
+      'duplicate-existing-recipe',
+      'padding-without-project-signal',
+    ],
+  };
+}
+
+function buildRecipeAuthoringRubric(): Record<string, unknown> {
+  return {
+    sourceGroundedSpecificity:
+      'Recipe text must name this project boundary, exact source refs, and concrete when/when-not clauses.',
+    relationshipProof:
+      'Caller, callee, impact, dependency, and ownership claims require graph refs or explicit raw-read fallback notes.',
+    futureActionability:
+      'A future Codex agent must be able to choose files, tools, validation, and stop conditions from the Recipe alone.',
+    validationGuidance:
+      'Every behavior-changing Recipe names the repository command, probe, or host check that validates it.',
+    failureAndEdgeCases:
+      'Failure modes, degraded states, and recovery paths are part of the candidate, not optional prose.',
+    dimensionCoverage:
+      'A dimension is complete only after strong candidates or explicit no-op reasons cover the staged domain.',
+    duplicateAndShallowRejection:
+      'Duplicate titles, shallow restatements, and candidates without project-specific evidence are rejected.',
+  };
+}
+
+function buildSubmitKnowledgeContract(): Record<string, unknown> {
+  return {
+    tool: 'alembic_submit_knowledge',
+    contract: 'V3',
+    exactFields: [
+      'title',
+      'content',
+      'sourceRefs',
+      'reasoning.sources',
+      'reasoning.whenToUse',
+      'reasoning.whenNotToUse',
+      'validation',
+      'dimensionId',
+      'candidateKind',
+    ],
+    requiredBeforeSubmit: [
+      'source evidence',
+      'specific reusable guidance',
+      'when and when-not notes',
+      'validation or failure-path guidance',
+    ],
+    sourceRefRequirements: [
+      'full repo-relative paths',
+      'line citations for source facts',
+      'matching snippet or coreCode evidence',
+      'graph refs for relationship claims',
+    ],
+    failureCodes: [
+      'missing-source-ref',
+      'snippet-mismatch',
+      'generic-content',
+      'duplicate-candidate',
+      'unsupported-relationship',
+    ],
+  };
+}
+
+function buildDimensionCompletionContract(): Record<string, unknown> {
+  return {
+    tool: 'alembic_dimension_complete',
+    requiredBeforeComplete: [
+      'submitted candidate ids or explicit no-op reason',
+      'current domain evidence summary',
+      'residual risks and next domain handoff',
+    ],
+    requiredFields: [
+      'verifiedCandidateIds',
+      'referencedFiles',
+      'keyFindings',
+      'analysisText',
+      'qualityResult',
+    ],
+    floors: {
+      keyFindings: '3-5 concrete findings',
+      analysisText: '>=500 chars and source-backed',
+      referencedFiles: 'non-empty and overlapping submitted candidates',
+    },
+    checkpointRule:
+      'Do not write progress/checkpoint completion when candidate ids, file overlap, findings, source refs, or quality pass are missing.',
+  };
+}
+
+function buildKnowledgeResetContract(): Record<string, unknown> {
+  return {
+    tool: 'alembic_bootstrap',
+    scopes: [
+      'host-agent bootstrap session state',
+      'generated candidates for the active bootstrap session',
+      'source graph freshness markers produced by the bootstrap route',
+      'staged domain progress for Codex-owned cold start',
+    ],
+    backupByDefault: true,
+    backupRef:
+      'Every destructive reset must return a restoreRef or explain why no persisted state existed.',
+    restoreRefSemantics:
+      'restoreRef identifies the pre-reset knowledge/session snapshot and is safe to pass back to a recovery route.',
+    ghostAwarePaths:
+      'Use workspace/dataRoot from scopeBrief; Ghost mode writes Alembic data outside the source tree and must not mutate user source files.',
+    idempotentRerun:
+      'Repeating bootstrap with the same project and no new evidence resumes or replaces only Codex-owned bootstrap artifacts.',
+    rule: 'Host-agent bootstrap resets and rebuilds deterministic analysis state, then waits for Codex to submit Recipes and complete staged domains.',
+  };
+}
+
+function buildScopeBrief(input: BuildCodexOnboardingContractInput): Record<string, unknown> {
+  const storageMode =
+    input.dataRoot && input.dataRoot !== input.projectRoot
+      ? 'ghost-or-external-data-root'
+      : 'project-root';
+  return {
+    selectedProject: {
+      basename: path.basename(input.projectRoot),
+      projectRoot: input.projectRoot,
+      dataRoot: input.dataRoot || input.projectRoot,
+      storageMode,
+      projectType: input.projectType || null,
+    },
+    sourceRoot: input.projectRoot,
+    languageStats: {
+      primaryLanguage: input.primaryLanguage || null,
+      secondaryLanguages: input.secondaryLanguages || [],
+      source: input.primaryLanguage ? 'bootstrap-language-profile' : 'unavailable',
+    },
+    hardStops: [
+      'wrong project root or data root',
+      'untrusted Codex project root resolution',
+      'host project handoff mismatch',
+      'another bootstrap writer holds the lease',
+      'stale or partial graph used as final proof',
+    ],
+  };
+}
+
+function buildToolCapabilityMatrix(
+  entries: PluginToolSurfaceEntry[]
+): Array<Record<string, unknown>> {
+  const blockedForSop = new Set([
+    'alembic_call_context',
+    'alembic_affected_tests',
+    'alembic_graph',
+  ]);
+  return entries
+    .filter((entry) => !blockedForSop.has(entry.name))
+    .map((entry) => ({
+      name: entry.name,
+      provides: describeToolProvides(entry.name),
+      requiredInput: entry.schema,
+      outputTrustLevel: describeToolTrust(entry),
+      evidenceRefs: describeToolEvidenceRefs(entry.name),
+      invalidConclusions: describeToolInvalidConclusions(entry.name),
+      handlerOwner: entry.handlerOwner,
+      knowledgeGate: entry.knowledgeGate,
+      residentRoutePolicy: entry.residentRoutePolicy,
+    }));
+}
+
+function describeToolProvides(toolName: string): string {
+  if (toolName.endsWith('_status') || toolName === 'alembic_codex_diagnostics') {
+    return 'runtime, scope, freshness, and repair state';
+  }
+  if (
+    CANONICAL_SOURCE_GRAPH_TOOLS.includes(toolName as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number])
+  ) {
+    return 'source graph facts after freshness and scope are verified';
+  }
+  if (
+    KNOWLEDGE_AND_RECIPE_TOOLS.includes(toolName as (typeof KNOWLEDGE_AND_RECIPE_TOOLS)[number])
+  ) {
+    return 'Recipe and project knowledge workflow state';
+  }
+  if (
+    GUARD_AND_VALIDATION_TOOLS.includes(toolName as (typeof GUARD_AND_VALIDATION_TOOLS)[number])
+  ) {
+    return 'advisory validation or Guard review evidence';
+  }
+  if (
+    BOOTSTRAP_AND_RECOVERY_TOOLS.includes(toolName as (typeof BOOTSTRAP_AND_RECOVERY_TOOLS)[number])
+  ) {
+    return 'bootstrap, recovery, and Codex plugin lifecycle state';
+  }
+  return 'Codex-visible Alembic tool output';
+}
+
+function describeToolTrust(entry: PluginToolSurfaceEntry): string {
+  if (entry.name === 'alembic_source_graph_status' || entry.name === 'alembic_codex_status') {
+    return 'authoritative for tool choice and readiness, not a substitute for repository validation';
+  }
+  if (
+    CANONICAL_SOURCE_GRAPH_TOOLS.includes(
+      entry.name as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number]
+    )
+  ) {
+    return 'trusted only when source graph status is ready for the same project scope';
+  }
+  if (entry.name === 'alembic_validation_plan') {
+    return 'advisory; run repository checks before acceptance';
+  }
+  if (entry.name === 'alembic_code_guard' || entry.name === 'alembic_guard') {
+    return 'Guard evidence for scoped files or code, not whole-goal acceptance';
+  }
+  return entry.annotations.readOnlyHint
+    ? 'read-only evidence'
+    : 'write result requires follow-up readback';
+}
+
+function describeToolEvidenceRefs(toolName: string): string[] {
+  if (
+    CANONICAL_SOURCE_GRAPH_TOOLS.includes(toolName as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number])
+  ) {
+    return ['sourceGraphRef', 'sourceEvidenceRefs'];
+  }
+  if (toolName === 'alembic_submit_knowledge') {
+    return ['candidate ids', 'sourceRefs', 'Recipe refs'];
+  }
+  if (toolName === 'alembic_dimension_complete') {
+    return ['dimension id', 'verified candidate ids', 'progress checkpoint'];
+  }
+  if (toolName === 'alembic_code_guard' || toolName === 'alembic_guard') {
+    return ['guard result ref', 'scoped files'];
+  }
+  return ['tool structured output'];
+}
+
+function describeToolInvalidConclusions(toolName: string): string[] {
+  if (
+    CANONICAL_SOURCE_GRAPH_TOOLS.includes(toolName as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number])
+  ) {
+    return ['source facts are fresh without a matching source graph status check'];
+  }
+  if (toolName === 'alembic_validation_plan') {
+    return ['recommended tests have passed'];
+  }
+  if (toolName === 'alembic_submit_knowledge') {
+    return ['domain is complete'];
+  }
+  if (toolName === 'alembic_dimension_complete') {
+    return ['whole project cold start is accepted by the controller'];
+  }
+  return ['controller acceptance or user-visible completion'];
+}
+
+function buildLanguageProfile(input: BuildCodexOnboardingContractInput): Record<string, unknown> {
+  const languages = normalizeLanguages(input.primaryLanguage, input.secondaryLanguages || []);
+  const overlays =
+    languages.length > 0 ? languages.map(buildLanguageOverlay) : [buildGenericOverlay(null)];
+  const fallbackLanguages = overlays
+    .filter((overlay) => overlay.id === 'generic-fallback')
+    .map((overlay) => overlay.language);
+  return {
+    source: 'domain-sop-baseline-2026-06-12',
+    selectedLanguages: languages,
+    selectedOverlays: overlays,
+    genericFallbackUsed: fallbackLanguages.length > 0,
+    fallbackLanguages,
+    uncertaintyMarked:
+      fallbackLanguages.length > 0 || languages.length === 0 || input.primaryLanguage === null,
+    selectionRule:
+      'Select overlays from project language stats; compose multiple overlays and mark generic fallback uncertainty when no exact overlay exists.',
+    runtimeLlmGeneration: false,
+  };
+}
+
+function normalizeLanguages(
+  primaryLanguage?: string | null,
+  secondaryLanguages: string[] = []
+): string[] {
+  const seen = new Set<string>();
+  return [primaryLanguage || '', ...secondaryLanguages]
+    .map((language) => language.trim())
+    .filter((language) => language.length > 0)
+    .map(normalizeLanguageName)
+    .filter((language) => {
+      if (seen.has(language)) {
+        return false;
+      }
+      seen.add(language);
+      return true;
+    });
+}
+
+function normalizeLanguageName(language: string): string {
+  const value = language.toLowerCase();
+  if (['ts', 'tsx', 'typescript', 'javascript', 'js', 'jsx', 'node'].includes(value)) {
+    return 'typescript-node';
+  }
+  if (value.includes('swift')) {
+    return 'swift';
+  }
+  if (value.includes('python') || value === 'py') {
+    return 'python';
+  }
+  if (value === 'go' || value === 'golang') {
+    return 'go';
+  }
+  if (value === 'rust' || value === 'rs') {
+    return 'rust';
+  }
+  if (['java', 'kotlin', 'scala', 'jvm'].includes(value)) {
+    return 'jvm';
+  }
+  return value;
+}
+
+function buildLanguageOverlay(language: string): LanguageOverlaySummary {
+  switch (language) {
+    case 'typescript-node':
+      return {
+        id: 'typescript-node',
+        language,
+        confidence: 'full',
+        inspect: ['package.json', 'tsconfig.json', 'exports/bin maps', 'Vitest or Jest config'],
+        grounding: ['TypeScript Handbook', 'Node.js ESM documentation', 'npm exports'],
+        uncertainty: null,
+      };
+    case 'swift':
+      return {
+        id: 'swift',
+        language,
+        confidence: 'full',
+        inspect: ['Package.swift or Xcode targets', 'access control', 'XCTest layout'],
+        grounding: ['Swift API Design Guidelines', 'Swift Package Manager documentation'],
+        uncertainty: null,
+      };
+    case 'python':
+      return {
+        id: 'python',
+        language,
+        confidence: 'full',
+        inspect: ['pyproject.toml', 'package layout', 'pytest or unittest config'],
+        grounding: ['Python packaging guide', 'PEP 8 as fallback after project config'],
+        uncertainty: null,
+      };
+    case 'go':
+    case 'rust':
+    case 'jvm':
+      return {
+        id: `${language}-compact`,
+        language,
+        confidence: 'reduced',
+        inspect: ['package or module manifest', 'test layout', 'public API boundary'],
+        grounding: ['official language tooling and package documentation'],
+        uncertainty: 'Compact overlay is available; mark unsupported areas explicitly.',
+      };
+    default:
+      return buildGenericOverlay(language);
+  }
+}
+
+function buildGenericOverlay(language: string | null): LanguageOverlaySummary {
+  return {
+    id: 'generic-fallback',
+    language: language || 'unknown',
+    confidence: 'reduced',
+    inspect: ['project manifests', 'entrypoint files', 'test configuration', 'style/lint config'],
+    grounding: ['project-local configuration first', 'official language docs only as fallback'],
+    uncertainty:
+      'No exact language overlay is available; mark confidence limits and unsupported parse areas in Recipes.',
+  };
+}
+
+function buildRecipeGuidanceFloor(): Record<string, unknown> {
+  return {
+    source:
+      'AlembicCore DimensionSop, PRE_SUBMIT_CHECKLIST, SHARED_SUBMIT_CHECKLIST, and MissionBriefingBuilder submission spec',
+    candidateCounts: {
+      minimumPerDimension: 3,
+      targetPerDimension: 5,
+      oneOrTwoIsFailing: true,
+      noPadding: true,
+    },
+    fileReferences: {
+      crossModuleClaimFloor: '>=3 distinct in-scope file refs when applicable',
+      citationFormat: 'full repo-relative path plus line citation',
+      bareFilenameForbidden: true,
+      moduleAttributionRequired: true,
+    },
+    candidateContent: {
+      markdownMinimumChars: 200,
+      coreCodeLines: '3-8 syntactically complete lines when code skeleton is needed',
+      requiresDoDontWhenClauses: true,
+      confidenceFloorBeforeSubmit: 0.85,
+    },
+    dedup: {
+      crossDimensionTitleDuplicatesRejected: true,
+      duplicateExistingRecipeRejected: true,
+    },
+    dimensionComplete: {
+      referencedFiles: 'required',
+      keyFindings: '3-5 concrete findings',
+      analysisText: '>=500 chars with source-backed detail',
+    },
+  };
+}
+
+function buildDomainRejectionExamples(domainId: string): string[] {
+  const shared = [
+    'generic advice that would fit any repository',
+    'claim without repo-relative file and line evidence',
+    'relationship claim without caller/callee/impact proof or raw-read fallback note',
+  ];
+  const specific: Record<string, string[]> = {
+    'D1-runtime-entrypoints': ['entrypoint list copied from README without the real start chain'],
+    'D2-source-structure-ownership': ['directory listing restated as architecture'],
+    'D3-state-persistence': ['persistence lifecycle without writer and reader evidence'],
+    'D4-tool-contracts-output': ['schema inventory without output projector or consumer evidence'],
+    'D5-validation-safety': ['test-pyramid theory without this repository command names'],
+    'D6-failure-recovery': ['recovery step that bypasses fail-closed project scope checks'],
+    'D7-project-conventions': [
+      'public style-guide content without project config or source precedent',
+    ],
+  };
+  return [...(specific[domainId] || []), ...shared];
+}
+
+function buildDomainCompletionRules(domainId: string): string[] {
+  const shared = [
+    'minimum 3 / target 5 candidates per active dimension unless no-op is justified',
+    'each candidate carries sourceRefs and module attribution',
+    'dimension_complete includes referencedFiles, keyFindings, analysisText, and residual risk',
+  ];
+  const specific: Record<string, string[]> = {
+    'D1-runtime-entrypoints': [
+      'externally reachable start paths are documented with invocation proof',
+    ],
+    'D2-source-structure-ownership': [
+      'top-level module ownership and dependency direction are evidenced',
+    ],
+    'D3-state-persistence': [
+      'durable state families have owner, writer, reader, and change procedure',
+    ],
+    'D4-tool-contracts-output': [
+      'public tool/route families have schema, projector, and change procedure',
+    ],
+    'D5-validation-safety': ['major change areas name exact checks and failure meaning'],
+    'D6-failure-recovery': ['stable failure states map to meaning, recovery, and evidence surface'],
+    'D7-project-conventions': [
+      'enforced and practiced conventions are separated with config or examples',
+    ],
+  };
+  return [...(specific[domainId] || []), ...shared];
+}
+
+function buildAgentDecisionChecklist(
+  currentDomainSop: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const toolSequence = Array.isArray(currentDomainSop.toolSequence)
+    ? currentDomainSop.toolSequence
+    : [];
+  return [
+    {
+      when: 'bootstrapState.status is wrong_scope, degraded, or project_root_unresolved',
+      nextTool: 'alembic_codex_status',
+      blockedConclusions: ['do not use source graph facts', 'do not submit Recipes'],
+    },
+    {
+      when: 'bootstrapState.status is bootstrap_in_progress',
+      nextTool: 'alembic_codex_status',
+      blockedConclusions: ['do not start a second bootstrap writer'],
+    },
+    {
+      when: 'sourceGraph.readiness is not proven',
+      nextTool: 'alembic_source_graph_status',
+      blockedConclusions: ['do not claim graph freshness'],
+    },
+    {
+      when: 'current domain needs source evidence',
+      nextTool: toolSequence[1] || 'alembic_code_explore',
+      blockedConclusions: ['do not submit generic or source-free Recipes'],
+    },
+  ];
 }
 
 function buildGates(): Record<string, unknown> {
@@ -724,12 +1325,16 @@ function buildRepairState(
   if (status === 'graph_stale') {
     reasons.push('knowledge source refs or graph freshness are stale');
   }
+  if (status === 'bootstrap_in_progress') {
+    reasons.push('single-writer bootstrap lease is already held');
+  }
   if (input.knowledge?.jobs?.bootstrapRunning) {
     reasons.push('bootstrap job is already running');
   }
+  const waiting = status === 'bootstrap_in_progress';
   return {
     contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
-    status: reasons.length > 0 ? 'repair-needed' : 'ready',
+    status: waiting ? 'waiting' : reasons.length > 0 ? 'repair-needed' : 'ready',
     reasons,
     rebuildRequired: status === 'graph_stale',
     firstRepairTool:
@@ -737,13 +1342,16 @@ function buildRepairState(
         ? 'alembic_codex_status'
         : status === 'graph_stale'
           ? 'alembic_source_graph_status'
-          : null,
+          : waiting
+            ? 'alembic_codex_status'
+            : null,
     safeFallback:
       'Use raw file reads/search plus repository validation when graph status is unavailable or stale.',
     blockedConclusions: [
       'do not claim source graph freshness without alembic_source_graph_status',
       'do not claim live Codex usability without a real MCP/tool readback',
       'do not mark a domain complete without evidence or an explicit no-op reason',
+      'do not start a second bootstrap writer while bootstrap_in_progress is visible',
     ],
   };
 }

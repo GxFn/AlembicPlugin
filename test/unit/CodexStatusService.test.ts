@@ -33,6 +33,28 @@ function makeInitializedWorkspace(projectRoot: string): void {
   fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
 }
 
+function writeRunningBootstrapJob(projectRoot: string): void {
+  const jobsDir = path.join(projectRoot, '.asd', 'jobs');
+  fs.mkdirSync(jobsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jobsDir, 'bootstrap_active.json'),
+    `${JSON.stringify(
+      {
+        id: 'bootstrap_active',
+        kind: 'bootstrap',
+        status: 'running',
+        source: 'codex',
+        channelId: 'codex',
+        createdByTool: 'alembic_bootstrap',
+        createdAt: '2026-06-12T08:00:00.000Z',
+        updatedAt: '2026-06-12T08:01:00.000Z',
+      },
+      null,
+      2
+    )}\n`
+  );
+}
+
 function writeRuntimeControlState(
   state: Parameters<typeof createProjectRuntimeControlState>[0]
 ): void {
@@ -383,12 +405,30 @@ describe('Codex status service', () => {
     const status = await buildCodexStatus(projectRoot, { supervisor });
     const serialized = JSON.stringify(status);
     const onboarding = status.onboarding as {
-      bootstrapState?: { status?: string };
-      currentDomainSop?: { domainId?: string; toolSequence?: string[] };
+      bootstrapState?: { singleWriterLease?: { status?: string }; status?: string };
+      currentDomainSop?: {
+        domainId?: string;
+        languageProfile?: Record<string, unknown>;
+        recipeGuidanceFloor?: {
+          candidateCounts?: { minimumPerDimension?: number; targetPerDimension?: number };
+        };
+        toolSequence?: string[];
+      };
       domainQueue?: Array<{ domainId?: string }>;
       gates?: Record<string, unknown>;
+      initialToolBriefing?: {
+        agentDecisionChecklist?: Array<Record<string, unknown>>;
+        blockedConclusionsField?: string;
+      };
       repairState?: { status?: string };
-      sopPack?: Record<string, unknown>;
+      sopPack?: {
+        knowledgeResetContract?: { backupByDefault?: boolean; scopes?: string[] };
+        recipeAuthoringRubric?: Record<string, unknown>;
+        resumePrompt?: Record<string, unknown>;
+        scopeBrief?: Record<string, unknown>;
+        stopConditions?: string[];
+        toolCapabilityMatrix?: Array<{ name?: string; outputTrustLevel?: string }>;
+      };
       toolCapabilities?: {
         canonicalSourceGraph?: Array<{ name?: string }>;
         removedOrBlocked?: Array<{ name?: string }>;
@@ -421,6 +461,7 @@ describe('Codex status service', () => {
     );
     expect(onboarding.bootstrapState).toMatchObject({
       status: 'initialized_empty',
+      singleWriterLease: { status: 'available' },
     });
     expect(onboarding.domainQueue?.[0]).toMatchObject({
       domainId: 'D1-runtime-entrypoints',
@@ -428,6 +469,22 @@ describe('Codex status service', () => {
     expect(onboarding.currentDomainSop).toMatchObject({
       domainId: 'D1-runtime-entrypoints',
       toolSequence: expect.arrayContaining(['alembic_source_graph_status']),
+      languageProfile: expect.objectContaining({
+        runtimeLlmGeneration: false,
+        source: 'domain-sop-baseline-2026-06-12',
+      }),
+      recipeGuidanceFloor: expect.objectContaining({
+        candidateCounts: expect.objectContaining({
+          minimumPerDimension: 3,
+          targetPerDimension: 5,
+        }),
+      }),
+    });
+    expect(onboarding.initialToolBriefing).toMatchObject({
+      blockedConclusionsField: 'repairState.blockedConclusions',
+      agentDecisionChecklist: expect.arrayContaining([
+        expect.objectContaining({ nextTool: 'alembic_source_graph_status' }),
+      ]),
     });
     expect(onboarding.toolCapabilities?.canonicalSourceGraph?.map((entry) => entry.name)).toEqual(
       expect.arrayContaining(['alembic_source_graph_status', 'alembic_validation_plan'])
@@ -437,9 +494,77 @@ describe('Codex status service', () => {
     );
     expect(JSON.stringify(onboarding.currentDomainSop)).not.toContain('alembic_call_context');
     expect(JSON.stringify(onboarding.sopPack)).not.toContain('alembic_affected_tests');
+    expect(onboarding.sopPack).toMatchObject({
+      scopeBrief: expect.objectContaining({
+        selectedProject: expect.objectContaining({
+          storageMode: 'project-root',
+        }),
+      }),
+      recipeAuthoringRubric: expect.objectContaining({
+        relationshipProof: expect.any(String),
+      }),
+      knowledgeResetContract: expect.objectContaining({
+        backupByDefault: true,
+        scopes: expect.arrayContaining(['host-agent bootstrap session state']),
+      }),
+      resumePrompt: expect.objectContaining({
+        bootstrapSessionRefField: 'bootstrapState.session.id',
+      }),
+      stopConditions: expect.arrayContaining(['another bootstrap writer holds the lease']),
+    });
+    expect(onboarding.sopPack?.toolCapabilityMatrix).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'alembic_source_graph_status',
+          outputTrustLevel: expect.any(String),
+        }),
+      ])
+    );
     expect(onboarding.gates).toHaveProperty('graphFreshness');
     expect(onboarding.repairState).toMatchObject({ status: 'ready' });
     expect(serialized).not.toContain('secret-token');
+  });
+
+  test('reports bootstrap_in_progress with single-writer lease visibility', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    writeRunningBootstrapJob(projectRoot);
+    const supervisor = {
+      status: vi.fn(async () => makeDaemonStatus(projectRoot, true)),
+    };
+
+    const status = await buildCodexStatus(projectRoot, { supervisor });
+    const onboarding = status.onboarding as {
+      bootstrapState?: {
+        singleWriterLease?: {
+          heartbeat?: { lastHeartbeatAt?: string };
+          leaseHolder?: { jobId?: string };
+          publicStatus?: string;
+          status?: string;
+        };
+        status?: string;
+      };
+      primaryAction?: { tool?: string };
+      repairState?: { status?: string };
+      state?: string;
+    };
+
+    expect(status.knowledge.status).toBe('bootstrap_running');
+    expect(onboarding).toMatchObject({
+      state: 'bootstrap_in_progress',
+      primaryAction: { tool: 'alembic_codex_status' },
+      bootstrapState: {
+        status: 'bootstrap_in_progress',
+        singleWriterLease: {
+          status: 'held',
+          publicStatus: 'bootstrap_in_progress',
+          leaseHolder: { jobId: 'bootstrap_active' },
+          heartbeat: { lastHeartbeatAt: '2026-06-12T08:01:00.000Z' },
+        },
+      },
+      repairState: { status: 'waiting' },
+    });
   });
 
   test('exposes resident ProjectScope identity in status and diagnostics', async () => {
