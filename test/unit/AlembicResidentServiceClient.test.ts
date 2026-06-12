@@ -8,7 +8,7 @@ import {
 } from '@alembic/core/daemon';
 import { getProjectRegistryDir } from '@alembic/core/workspace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY } from '../../lib/codex/mcp/plugin-host-contracts.js';
+import { PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY } from '../../lib/runtime/mcp/plugin-host-contracts.js';
 import { AlembicResidentServiceClient } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 

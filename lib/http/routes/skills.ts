@@ -11,7 +11,7 @@ import {
   listSkills,
   loadSkill,
   updateSkill,
-} from '../../codex/mcp/handlers/skill.js';
+} from '../../runtime/mcp/handlers/skill.js';
 import { validate } from '../middleware/validate.js';
 
 const router = express.Router();

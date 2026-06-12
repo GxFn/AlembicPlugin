@@ -33,7 +33,7 @@ describe('HostIntentFrame recognized intent draft', () => {
         action: 'implement',
         confidence: 0.8,
         query: 'Implement task lifecycle policy',
-        sourceRefs: ['lib/codex/mcp/handlers/task.ts'],
+        sourceRefs: ['lib/runtime/mcp/handlers/task.ts'],
       },
     });
     const extracted = extractIntent(prepared.userQuery, prepared.activeFile, prepared.language);
@@ -47,7 +47,7 @@ describe('HostIntentFrame recognized intent draft', () => {
       action: 'implement',
       query: 'Implement task lifecycle policy',
       source: 'mixed',
-      sourceRefs: ['lib/codex/mcp/handlers/task.ts'],
+      sourceRefs: ['lib/runtime/mcp/handlers/task.ts'],
       status: 'recognized',
     });
     expect(JSON.stringify(frame.recognizedIntentDraft)).not.toContain('dispatchGroup');

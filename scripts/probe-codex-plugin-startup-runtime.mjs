@@ -15,7 +15,7 @@ import { delimiter, join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
-const startupPath = join(pluginRoot, 'bin', 'alembic-codex-start.mjs');
+const startupPath = join(pluginRoot, 'bin', 'alembic-start.mjs');
 const runtimePackageName = '@gxfn/alembic-runtime';
 const runtimeVersion = readJson(
   join(root, 'packages', 'alembic-codex-runtime', 'package.json')

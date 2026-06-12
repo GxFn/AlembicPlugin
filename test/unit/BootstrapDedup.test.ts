@@ -7,10 +7,7 @@
  *   - 阈值拦截逻辑
  */
 
-import {
-  BootstrapDedup,
-  type CandidateSummary,
-} from '@alembic/core/service/bootstrap';
+import { BootstrapDedup, type CandidateSummary } from '@alembic/core/service/bootstrap';
 import { describe, expect, it } from 'vitest';
 
 function makeSummary(overrides: Partial<CandidateSummary> = {}): CandidateSummary {

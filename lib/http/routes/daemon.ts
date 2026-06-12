@@ -1,8 +1,8 @@
 import { resolveProjectRoot, WorkspaceResolver } from '@alembic/core/workspace';
 import express, { type Request } from 'express';
 import { getLatestSchemaMigrationVersion } from '#infra/database/SqliteDatabaseAccess.js';
-import { CODEX_RUNTIME_PACKAGE } from '../../codex/runtime/RuntimeContext.js';
 import { getServiceContainer } from '../../injection/ServiceContainer.js';
+import { CODEX_RUNTIME_PACKAGE } from '../../runtime/runtime/RuntimeContext.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
 

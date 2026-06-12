@@ -55,7 +55,7 @@ describe('TaskLifecyclePolicy', () => {
         confidence: 0.82,
         keywords: ['task lifecycle', 'guard'],
         query: 'Implement Codex-aware task lifecycle policy',
-        sourceRefs: ['lib/codex/mcp/handlers/task.ts'],
+        sourceRefs: ['lib/runtime/mcp/handlers/task.ts'],
       },
     });
 
@@ -73,7 +73,7 @@ describe('TaskLifecyclePolicy', () => {
       action: 'run',
       curatedQuery: 'Implement Codex-aware task lifecycle policy',
       reasonCode: 'knowledge-ready-code-task',
-      sourceRefs: ['lib/codex/mcp/handlers/task.ts'],
+      sourceRefs: ['lib/runtime/mcp/handlers/task.ts'],
     });
     expect(result.taskAnchorDecision).toMatchObject({
       action: 'create',

@@ -20,7 +20,7 @@ import {
   SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   SOURCE_GRAPH_TOOL_BUSINESS_SCHEMAS,
   type SourceGraphOperationToolName,
-} from '../../lib/codex/mcp/source-graph/output.js';
+} from '../../lib/runtime/mcp/source-graph/output.js';
 
 const projectRoot = '/tmp/alembic-plugin-source-graph';
 const freshness = {
@@ -228,14 +228,14 @@ function sampleOperationResults(): Record<SourceGraphOperationToolName, unknown>
     }),
     alembic_code_impact: createSourceGraphImpactResult({
       ...base,
-      changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+      changedFiles: ['lib/runtime/mcp/source-graph/status.ts'],
       impactedFiles: ['test/unit/McpSourceGraphOutputContract.test.ts'],
       edges: [edge],
       affectedValidations: ['npm run test:unit -- test/unit/McpSourceGraphOutputContract.test.ts'],
     }),
     alembic_affected_tests: createSourceGraphAffectedTestsResult({
       ...base,
-      changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+      changedFiles: ['lib/runtime/mcp/source-graph/status.ts'],
       testFiles: ['test/unit/McpSourceGraphOutputContract.test.ts'],
       unknownReason: 'affected tests are illustrative until Core query path is connected',
     }),
@@ -250,9 +250,9 @@ function sampleValidationPlanResult(
 ) {
   return createSourceGraphValidationPlanResult({
     ...base,
-    changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+    changedFiles: ['lib/runtime/mcp/source-graph/status.ts'],
     impactedFiles: [
-      'lib/codex/mcp/source-graph/status.ts',
+      'lib/runtime/mcp/source-graph/status.ts',
       'test/unit/McpSourceGraphOutputContract.test.ts',
     ],
     impactedSymbols: [symbol],
@@ -274,8 +274,8 @@ function sampleMustRunRecommendation() {
     evidence: [
       {
         kind: 'changed-file' as const,
-        ref: 'lib/codex/mcp/source-graph/status.ts',
-        filePath: 'lib/codex/mcp/source-graph/status.ts',
+        ref: 'lib/runtime/mcp/source-graph/status.ts',
+        filePath: 'lib/runtime/mcp/source-graph/status.ts',
         reason: 'Changed Plugin source graph runtime.',
       },
     ],
@@ -357,7 +357,7 @@ function sampleGraphFixtures() {
     displayName: 'resolveProjectRoot',
     qualifiedName: 'resolveProjectRoot',
     kind: 'function',
-    filePath: 'lib/codex/mcp/source-graph/status.ts',
+    filePath: 'lib/runtime/mcp/source-graph/status.ts',
     range: { startLine: 1, startColumn: 1, endLine: 8, endColumn: 1 },
     metadata: { internal: 'must-not-leak' },
     provenance: { parser: 'must-not-leak' },
@@ -367,7 +367,7 @@ function sampleGraphFixtures() {
     symbolId: 'symbol-caller',
     displayName: 'handleToolCall',
     kind: 'method',
-    filePath: 'lib/codex/mcp/CodexMcpServer.ts',
+    filePath: 'lib/runtime/mcp/CodexMcpServer.ts',
     range: { startLine: 1, startColumn: 1, endLine: 10, endColumn: 1 },
     metadata: { internal: 'must-not-leak' },
   });
@@ -382,7 +382,7 @@ function sampleGraphFixtures() {
     metadata: { internal: 'must-not-leak' },
   });
   const section = createSourceSection({
-    filePath: 'lib/codex/mcp/source-graph/status.ts',
+    filePath: 'lib/runtime/mcp/source-graph/status.ts',
     startLine: 1,
     endLine: 8,
     text: 'export function buildSourceGraphStatus() {}',

@@ -265,7 +265,7 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
       },
       packaged: {
         entryMode: 'marketplace-shell',
-        shellEntry: './bin/alembic-codex-start.mjs',
+        shellEntry: './bin/alembic-start.mjs',
         runtimeSpecifier,
         cacheIsolation: 'owned by the marketplace shell bootstrap path',
       },
@@ -273,7 +273,7 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
     hashes: {
       mcp: hashFile(join(cacheRoot, '.mcp.json')),
       manifest: hashFile(join(cacheRoot, '.codex-plugin', 'plugin.json')),
-      startup: hashFile(join(cacheRoot, 'bin', 'alembic-codex-start.mjs')),
+      startup: hashFile(join(cacheRoot, 'bin', 'alembic-start.mjs')),
     },
   };
   writeFileSync(

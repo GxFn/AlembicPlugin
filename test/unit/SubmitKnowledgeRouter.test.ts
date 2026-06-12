@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { routeSubmitKnowledgeTool } from '../../lib/codex/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
+import { routeSubmitKnowledgeTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
+import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 
 const gatewayState = vi.hoisted(() => ({
   createCalls: [] as unknown[],

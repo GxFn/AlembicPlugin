@@ -9,7 +9,7 @@ import {
   resolveCodexProjectRoot,
   summarizeCodexProjectRootResolution,
   writeCodexSavedProjectRoot,
-} from '../../lib/codex/ProjectRootResolver.js';
+} from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 function makeDir(prefix: string): string {

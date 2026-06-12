@@ -12,7 +12,10 @@ import { createCleanMcpError } from '#codex/mcp/output-contract.js';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const registry = JSON.parse(
-  readFileSync(path.join(repoRoot, 'vendor', 'AlembicCore', 'config', 'error-registry.json'), 'utf8')
+  readFileSync(
+    path.join(repoRoot, 'vendor', 'AlembicCore', 'config', 'error-registry.json'),
+    'utf8'
+  )
 ) as { failureKinds: string[] };
 const adoption = JSON.parse(
   readFileSync(path.join(repoRoot, 'config', 'error-registry-adoption.json'), 'utf8')
@@ -46,7 +49,8 @@ describe('plugin error codes adopt the Core error registry', () => {
     for (const code of adoption.deferredCkg3GateCodes.codes) {
       expect(
         Object.keys(adoption.pluginOwnedCodeMappings).filter(
-          (mapped) => mapped === code && !adoption.pluginOwnedCodeMappings[mapped].startsWith('deferred')
+          (mapped) =>
+            mapped === code && !adoption.pluginOwnedCodeMappings[mapped].startsWith('deferred')
         ),
         `${code} must not be mapped this wave`
       ).toHaveLength(0);

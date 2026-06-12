@@ -16,8 +16,8 @@ import {
 } from 'node:path';
 import Logger from '@alembic/core/logging';
 import { getDiscovererRegistry } from '@alembic/core/project-intelligence';
-import { inferLang } from '../../codex/mcp/handlers/LanguageExtensions.js';
 import { attachHostAgentManagedBoundary } from '../../http/utils/host-managed-boundary.js';
+import { inferLang } from '../../runtime/mcp/handlers/LanguageExtensions.js';
 
 /** 全局排除目录 */
 const SCAN_EXCLUDE_DIRS = new Set([

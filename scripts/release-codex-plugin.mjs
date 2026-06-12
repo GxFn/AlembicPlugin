@@ -25,7 +25,7 @@ const steps = [
     command: 'npm',
     args: ['run', 'prepare:codex-plugin-runtime'],
     verifies: [
-      'plugins/alembic-codex/bin/alembic-codex-start.mjs',
+      'plugins/alembic-codex/bin/alembic-start.mjs',
       'packages/alembic-codex-runtime/package.json',
     ],
   },

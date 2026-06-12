@@ -1,5 +1,5 @@
 import { type DaemonStatus, DaemonSupervisor } from '../../../lib/daemon/DaemonSupervisor.js';
-import { CodexMcpServer, getVisibleCodexTools } from '../../../lib/codex/mcp/CodexMcpServer.js';
+import { CodexMcpServer, getVisibleCodexTools } from '../../../lib/runtime/mcp/CodexMcpServer.js';
 import { FakeDaemonSupervisor } from './FakeDaemonSupervisor.js';
 import type {
   CodexScenarioToolCallFact,

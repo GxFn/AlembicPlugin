@@ -9,9 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { inspectCodexKnowledge } from '#codex/KnowledgeState.js';
 import { buildCodexHostProjectHandoffBlock } from '#codex/mcp/host/host-project-handoff.js';
 import { buildBootstrapRebuildConfirmationBlock } from '#codex/mcp/host-agent-workflows/cold-start.js';
-import { inspectCodexKnowledge } from '#codex/KnowledgeState.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 
@@ -34,7 +34,11 @@ describe('P3-1: rescan archives knowledge projections instead of deleting them',
   for (const method of ['rescanClean', 'forceRescanClean'] as const) {
     it(`${method} moves candidates+wiki into .asd/.trash and reports the archive`, async () => {
       const root = makeDataRoot(true);
-      const service = new CleanupService({ projectRoot: root, dataRoot: root, logger: silentLogger });
+      const service = new CleanupService({
+        projectRoot: root,
+        dataRoot: root,
+        logger: silentLogger,
+      });
       const result = await service[method]();
 
       expect(result.trash).toBeDefined();
@@ -93,7 +97,9 @@ describe('P3-2: bootstrap rebuild confirmation gate', () => {
       errorCode: 'CODEX_BOOTSTRAP_REBUILD_CONFIRMATION_REQUIRED',
       success: false,
     });
-    const data = (block as { data: { needsUserInput: boolean; nextActions: Array<{ tool: string }> } }).data;
+    const data = (
+      block as { data: { needsUserInput: boolean; nextActions: Array<{ tool: string }> } }
+    ).data;
     expect(data.needsUserInput).toBe(true);
     expect(data.nextActions.map((a) => a.tool)).toEqual(['alembic_rescan', 'alembic_bootstrap']);
   });

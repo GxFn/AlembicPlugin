@@ -10,9 +10,9 @@ import {
 } from '@alembic/core/daemon';
 import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { buildCodexStatus } from '../../lib/codex/index.js';
-import { buildCodexPostInitActions } from '../../lib/codex/status/StatusService.js';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import { buildCodexStatus } from '../../lib/runtime/index.js';
+import { buildCodexPostInitActions } from '../../lib/runtime/status/StatusService.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;

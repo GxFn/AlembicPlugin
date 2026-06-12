@@ -10,12 +10,12 @@
  *   - KnowledgeEntry 值对象整合
  */
 
-import { KnowledgeEntry } from '@alembic/core/knowledge';
 import {
   inferKind,
   isCandidate,
   isValidLifecycle,
   isValidTransition,
+  KnowledgeEntry,
   Lifecycle,
 } from '@alembic/core/knowledge';
 

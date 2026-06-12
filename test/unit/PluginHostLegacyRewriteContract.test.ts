@@ -2,20 +2,20 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { projectCoreToolOutput } from '../../lib/runtime/mcp/core-tools/output.js';
+import {
+  PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES,
+  summarizePluginHostMcpContracts,
+} from '../../lib/runtime/mcp/plugin-host-contracts.js';
+import {
+  AgentPublicToolResultEnvelopeSchema,
+  createAgentPublicToolResultEnvelope,
+} from '../../lib/runtime/mcp/public-tools/index.js';
 import {
   isTrustedCodexProjectRoot,
   resolveCodexProjectRoot,
   summarizeCodexProjectRootResolution,
-} from '../../lib/codex/ProjectRootResolver.js';
-import { projectCoreToolOutput } from '../../lib/codex/mcp/core-tools/output.js';
-import {
-  PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES,
-  summarizePluginHostMcpContracts,
-} from '../../lib/codex/mcp/plugin-host-contracts.js';
-import {
-  AgentPublicToolResultEnvelopeSchema,
-  createAgentPublicToolResultEnvelope,
-} from '../../lib/codex/mcp/public-tools/index.js';
+} from '../../lib/runtime/ProjectRootResolver.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Plugin host legacy rewrite D12 contract', () => {
@@ -119,6 +119,8 @@ describe('Plugin host legacy rewrite D12 contract', () => {
       trust: 'fallback',
     });
     expect(summary.userMessage).toContain('Pass the current workspace directory');
-    expect(summary.requiredActions).toContain('Provide the target project root as an absolute path.');
+    expect(summary.requiredActions).toContain(
+      'Provide the target project root as an absolute path.'
+    );
   });
 });

@@ -18,18 +18,18 @@ import {
   ProjectRegistry,
 } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
   CodexMcpServer,
   getVisibleCodexTools,
   resetCodexPluginOwnedMcpServerForTests,
-} from '../../lib/codex/mcp/CodexMcpServer.js';
+} from '../../lib/runtime/mcp/CodexMcpServer.js';
+import { buildCodexMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
 import {
   getCodexSavedProjectRootPath,
   readCodexInitMarker,
-} from '../../lib/codex/ProjectRootResolver.js';
-import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
-import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
-import { buildCodexMcpGuidance } from '../../lib/codex/mcp/host/guidance.js';
+} from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
@@ -1560,7 +1560,7 @@ describe('CodexMcpServer', () => {
       mode: 'marketplace-shell',
       staleReasons: [],
     });
-    expect(result.data.plugin.mcp.wrapper.path).toContain('alembic-codex-start.mjs');
+    expect(result.data.plugin.mcp.wrapper.path).toContain('alembic-start.mjs');
     expect(result.data.plugin.skills.ok).toBe(true);
     expect(result.data.nextActions).toContain('Alembic Codex runtime checks passed.');
     expect(result.data.primaryAction.tool).toBe('alembic_codex_status');
@@ -2365,10 +2365,10 @@ describe('CodexMcpServer', () => {
     );
     expect(packageJson.scripts['verify:codex-plugin']).toBe('node scripts/verify-codex-plugin.mjs');
     expect(pluginMcp.mcpServers.alembic.command).toBe('node');
-    expect(pluginMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-start.mjs');
+    expect(pluginMcp.mcpServers.alembic.args).toContain('./bin/alembic-start.mjs');
     expect(
       fs
-        .readFileSync(path.resolve('plugins/alembic-codex/bin/alembic-codex-start.mjs'), 'utf8')
+        .readFileSync(path.resolve('plugins/alembic-codex/bin/alembic-start.mjs'), 'utf8')
         .includes(`@gxfn/alembic-runtime@${getPackageVersion()}`)
     ).toBe(true);
     expect(pluginMcp.mcpServers.alembic.cwd).toBe('.');

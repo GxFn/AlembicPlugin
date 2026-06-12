@@ -3,7 +3,9 @@ import { defineConfig } from 'vitest/config';
 
 const sourceImportAliases = new Map([
   ['agent', 'agent'],
-  ['codex', 'codex'],
+  // The #codex import key is an identifier (kept per the SN5 files/dirs-only
+  // scope); its source directory moved to lib/runtime in the SN5 rename.
+  ['codex', 'runtime'],
   ['governance', 'governance'],
   ['domain', 'domain'],
   ['external', 'external'],

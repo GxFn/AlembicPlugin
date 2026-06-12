@@ -6,12 +6,12 @@ import {
   CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS,
   findForbiddenCodexLocalOutputField,
-} from '../../lib/codex/mcp/codex-local-tools/output.js';
+} from '../../lib/runtime/mcp/codex-local-tools/output.js';
 import {
   getMcpOutputProjector,
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../../lib/codex/mcp/output-contract.js';
+} from '../../lib/runtime/mcp/output-contract.js';
 
 const expectedCodexLocalToolNames = [
   'alembic_codex_status',

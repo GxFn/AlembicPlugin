@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { getMcpOutputProjector, withMcpOutputSchema } from '../../lib/codex/mcp/output-contract.js';
-import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
+import {
+  getMcpOutputProjector,
+  withMcpOutputSchema,
+} from '../../lib/runtime/mcp/output-contract.js';
+import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
 import {
   AGENT_ACTION_KINDS,
   AGENT_INTENT_DESIGN_FIELD_MAPPINGS,
@@ -8,16 +11,16 @@ import {
   AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS,
   AGENT_RESULT_STATUSES,
   AgentPublicToolResultEnvelopeSchema,
-  createAgentPublicToolOutput,
   createAgentDetailRef,
+  createAgentPublicToolOutput,
   createAgentPublicToolResultEnvelope,
   createPrimePublicPackage,
   getAgentPublicToolContractDefinition,
   getAgentPublicToolDescriptionBase,
   listAgentPublicToolContractCatalog,
   PrimePublicPackageSchema,
-} from '../../lib/codex/mcp/public-tools/index.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+} from '../../lib/runtime/mcp/public-tools/index.js';
+import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Agent-facing public tools contract foundation', () => {
@@ -95,50 +98,43 @@ describe('Agent-facing public tools contract foundation', () => {
       summary: 'Intent output stays tool-specific.',
       toolName: 'alembic_intent' as const,
     };
-    const validIntent = createAgentPublicToolOutput(
-      createAgentPublicToolResultEnvelope(base),
-      {
-        detailRefs: [],
-        intentClassification: {
-          actionKind: 'implement',
-          confidenceBand: 'high',
-          objectKind: 'code',
-          scopeKind: 'project',
+    const validIntent = createAgentPublicToolOutput(createAgentPublicToolResultEnvelope(base), {
+      detailRefs: [],
+      intentClassification: {
+        actionKind: 'implement',
+        confidenceBand: 'high',
+        objectKind: 'code',
+        scopeKind: 'project',
+      },
+      intentPersistence: { consumable: true, created: true, kind: 'session-local' },
+      localRecord: {
+        createdAt: '2026-06-10T04:00:00.000Z',
+        intentRef: 'intent-d22',
+        status: 'ready',
+      },
+      recognizedIntent: {
+        query: 'Tighten MCP output schema',
+        action: 'implement',
+        confidence: 0.9,
+        evidenceSpans: [{ text: 'private span must stay summarized' }],
+        source: 'host-declared',
+        status: 'recognized',
+      },
+      retrievalPlan: { route: 'structure-first', vectorUseKind: 'none' },
+      toolPlan: {
+        decisionNeed: 'record-if-confirmed',
+        guardNeed: 'recommend-if-code-changed',
+        knowledgeNeed: 'optional',
+        primeNeed: 'optional',
+        sourceGraphNeed: 'recommended',
+        sourceGraphPlan: {
+          action: 'validation-plan-after-work',
+          reasonCode: 'source-graph-validation-plan-after-changes',
+          tools: ['alembic_source_graph_status', 'alembic_code_explore', 'alembic_validation_plan'],
         },
-        intentPersistence: { consumable: true, created: true, kind: 'session-local' },
-        localRecord: {
-          createdAt: '2026-06-10T04:00:00.000Z',
-          intentRef: 'intent-d22',
-          status: 'ready',
-        },
-        recognizedIntent: {
-          query: 'Tighten MCP output schema',
-          action: 'implement',
-          confidence: 0.9,
-          evidenceSpans: [{ text: 'private span must stay summarized' }],
-          source: 'host-declared',
-          status: 'recognized',
-        },
-        retrievalPlan: { route: 'structure-first', vectorUseKind: 'none' },
-        toolPlan: {
-          decisionNeed: 'record-if-confirmed',
-          guardNeed: 'recommend-if-code-changed',
-          knowledgeNeed: 'optional',
-          primeNeed: 'optional',
-          sourceGraphNeed: 'recommended',
-          sourceGraphPlan: {
-            action: 'validation-plan-after-work',
-            reasonCode: 'source-graph-validation-plan-after-changes',
-            tools: [
-              'alembic_source_graph_status',
-              'alembic_code_explore',
-              'alembic_validation_plan',
-            ],
-          },
-          workNeed: 'maybe-start',
-        },
-      }
-    );
+        workNeed: 'maybe-start',
+      },
+    });
 
     expect(validIntent.recognizedIntent).toMatchObject({
       evidenceSpanCount: 1,
@@ -191,7 +187,7 @@ describe('Agent-facing public tools contract foundation', () => {
       id: 'contract:public-tools',
       kind: 'contract',
       summary: 'Public tools contract catalog and result envelope evidence',
-      uri: 'lib/codex/mcp/public-tools/contract.ts',
+      uri: 'lib/runtime/mcp/public-tools/contract.ts',
       requiredForCompletion: true,
     });
 

@@ -301,12 +301,12 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         operation: 'close',
         id: 'asd-123',
         reason: 'done',
-        changedFiles: ['lib/codex/mcp/handlers/task.ts'],
+        changedFiles: ['lib/runtime/mcp/handlers/task.ts'],
         sourceRefs: ['lib/service/task/TaskLifecyclePolicy.ts'],
       });
       expect(result.operation).toBe('close');
       expect(result.id).toBe('asd-123');
-      expect(result.changedFiles).toEqual(['lib/codex/mcp/handlers/task.ts']);
+      expect(result.changedFiles).toEqual(['lib/runtime/mcp/handlers/task.ts']);
       expect(result.sourceRefs).toEqual(['lib/service/task/TaskLifecyclePolicy.ts']);
     });
 

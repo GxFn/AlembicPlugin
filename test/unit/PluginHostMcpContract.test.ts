@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/codex/mcp/codex-local-tools/output.js';
-import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/codex/mcp/core-tools/output.js';
-import { getMcpOutputProjector, withMcpOutputSchema } from '../../lib/codex/mcp/output-contract.js';
+import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/codex-local-tools/output.js';
+import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
+import {
+  getMcpOutputProjector,
+  withMcpOutputSchema,
+} from '../../lib/runtime/mcp/output-contract.js';
 import {
   listPluginToolSurfaceCatalog,
   PLUGIN_TOOL_SURFACE_CATALOG,
-} from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
+} from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
 import {
   PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS,
   PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES,
@@ -15,9 +18,9 @@ import {
   PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS,
   PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY,
   summarizePluginHostMcpContracts,
-} from '../../lib/codex/mcp/plugin-host-contracts.js';
-import { AGENT_PUBLIC_TOOL_NAMES } from '../../lib/codex/mcp/public-tools/contract.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+} from '../../lib/runtime/mcp/plugin-host-contracts.js';
+import { AGENT_PUBLIC_TOOL_NAMES } from '../../lib/runtime/mcp/public-tools/contract.js';
+import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 
 describe('Plugin host MCP D4 contract', () => {
   test('maps accepted D4 registry rows to executable Plugin tool families', () => {

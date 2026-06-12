@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { AgentHost, AgentPublicToolName } from '../../lib/codex/mcp/public-tools/index.js';
+import type { AgentHost, AgentPublicToolName } from '../../lib/runtime/mcp/public-tools/index.js';
 import {
   AGENT_HOSTS,
   AGENT_PUBLIC_TOOL_NAMES,
@@ -8,8 +8,8 @@ import {
   CROSS_HOST_FORBIDDEN_LEGACY_PRIMARY_GUIDANCE,
   createAgentPublicToolResultEnvelope,
   getAgentPublicToolContractDefinition,
-} from '../../lib/codex/mcp/public-tools/index.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+} from '../../lib/runtime/mcp/public-tools/index.js';
+import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const sharedSchemaSignature =
@@ -182,7 +182,7 @@ function envelopeSample(toolName: AgentPublicToolName, agentHost: AgentHost) {
           kind: 'contract',
           requiredForCompletion: true,
           summary: 'Cross-host readiness uses a shared public result envelope.',
-          uri: 'lib/codex/mcp/public-tools/cross-host-readiness.ts',
+          uri: 'lib/runtime/mcp/public-tools/cross-host-readiness.ts',
         },
       ],
     },

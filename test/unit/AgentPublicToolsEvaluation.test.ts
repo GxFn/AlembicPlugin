@@ -7,21 +7,21 @@ import {
   primeHandler,
   workFinishHandler,
   workStartHandler,
-} from '../../lib/codex/mcp/handlers/agent-public-tools.js';
-import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
-import { createIdleIntent } from '../../lib/codex/mcp/handlers/types.js';
+} from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
+import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { createIdleIntent } from '../../lib/runtime/mcp/handlers/types.js';
 import type {
   AgentPublicToolName,
   AgentPublicToolResultEnvelope,
-} from '../../lib/codex/mcp/public-tools/contract.js';
+} from '../../lib/runtime/mcp/public-tools/contract.js';
 import {
   AGENT_PUBLIC_TOOL_NAMES,
   AgentPublicToolResultEnvelopeSchema,
   buildAgentPublicCrossHostReadinessReport,
   getAgentPublicToolContractDefinition,
   getAgentPublicToolDescriptionBase,
-} from '../../lib/codex/mcp/public-tools/index.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+} from '../../lib/runtime/mcp/public-tools/index.js';
+import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 

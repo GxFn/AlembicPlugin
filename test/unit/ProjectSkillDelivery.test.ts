@@ -128,9 +128,15 @@ function writeSourceSkill(projectRoot: string, skillName: string): string {
   const sourcePath = path.join(skillDir, 'SKILL.md');
   fs.writeFileSync(
     sourcePath,
-    ['---', `name: ${skillName}`, 'description: Project API skill', '---', '', '# Project API', ''].join(
-      '\n'
-    ),
+    [
+      '---',
+      `name: ${skillName}`,
+      'description: Project API skill',
+      '---',
+      '',
+      '# Project API',
+      '',
+    ].join('\n'),
     'utf8'
   );
   return sourcePath;

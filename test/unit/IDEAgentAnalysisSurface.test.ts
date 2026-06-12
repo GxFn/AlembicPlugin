@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildIDEAgentAnalysisProgressBackfill,
   buildIDEAgentAnalysisSurface,
-} from '../../lib/codex/ide-agent/IDEAgentAnalysisSurface.js';
+} from '../../lib/runtime/ide-agent/IDEAgentAnalysisSurface.js';
 
 type TestSourceRef = IDEAgentAnalysisPacket['sourceRefs'][number] & {
   folderDisplayName?: string;

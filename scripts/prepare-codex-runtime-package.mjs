@@ -15,7 +15,7 @@ const corePackage = readJson(join(coreSource.path, 'package.json'));
 const requiredBuildArtifacts = [
   'dist/bin/codex-mcp.js',
   'dist/bin/daemon-server.js',
-  'dist/lib/codex/mcp/CodexMcpServer.js',
+  'dist/lib/runtime/mcp/CodexMcpServer.js',
 ];
 
 for (const artifact of requiredBuildArtifacts) {

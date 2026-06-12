@@ -3,9 +3,9 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
-import '../dist/lib/codex/mcp/codex-local-tools/output.js';
-import '../dist/lib/codex/mcp/core-tools/output.js';
-import { serializeMcpToolResult } from '../dist/lib/codex/mcp/output-contract.js';
+import '../dist/lib/runtime/mcp/codex-local-tools/output.js';
+import '../dist/lib/runtime/mcp/core-tools/output.js';
+import { serializeMcpToolResult } from '../dist/lib/runtime/mcp/output-contract.js';
 
 const options = parseArgs(process.argv.slice(2));
 const forbiddenKeys = [

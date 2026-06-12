@@ -11,7 +11,7 @@
  */
 
 import { z } from 'zod';
-import { zodToMcpSchema } from '../../lib/codex/mcp/zodToMcpSchema.js';
+import { zodToMcpSchema } from '../../lib/runtime/mcp/zodToMcpSchema.js';
 import { HealthInput, SearchInput, TaskInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Integration: zodToMcpSchema', () => {

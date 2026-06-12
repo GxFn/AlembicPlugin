@@ -8,11 +8,11 @@ import {
   CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES,
   CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   findForbiddenCodexLocalOutputField,
-} from '../dist/lib/codex/mcp/codex-local-tools/output.js';
+} from '../dist/lib/runtime/mcp/codex-local-tools/output.js';
 import {
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../dist/lib/codex/mcp/output-contract.js';
+} from '../dist/lib/runtime/mcp/output-contract.js';
 
 const options = parseArgs(process.argv.slice(2));
 const calls = {};

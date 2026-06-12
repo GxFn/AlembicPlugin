@@ -252,12 +252,12 @@ function requiredPackageFiles() {
     'package/channels/codex/README.md',
     'package/dist/bin/codex-mcp.js',
     'package/dist/bin/daemon-server.js',
-    'package/dist/lib/codex/mcp/CodexMcpServer.js',
+    'package/dist/lib/runtime/mcp/CodexMcpServer.js',
     'package/packages/alembic-codex-runtime/package.json',
     'package/plugins/alembic-codex/.codex-plugin/plugin.json',
     'package/plugins/alembic-codex/.agents/plugins/marketplace.json',
     'package/plugins/alembic-codex/.mcp.json',
-    'package/plugins/alembic-codex/bin/alembic-codex-start.mjs',
+    'package/plugins/alembic-codex/bin/alembic-start.mjs',
     'package/plugins/alembic-codex/RELEASE-PLAYBOOK.md',
     'package/plugins/alembic-codex/README.md',
     'package/plugins/alembic-codex/README.zh-CN.md',
@@ -277,7 +277,7 @@ function requiredRuntimePackageFiles() {
   return [
     'dist/bin/codex-mcp.js',
     'dist/bin/daemon-server.js',
-    'dist/lib/codex/mcp/CodexMcpServer.js',
+    'dist/lib/runtime/mcp/CodexMcpServer.js',
     '.alembic-runtime-boundary.json',
   ];
 }
@@ -359,11 +359,11 @@ function simulateMarketplaceInstall({ packageRoot, runtimeSpecifier }) {
   const env = mcp.mcpServers?.alembic?.env || {};
   assert(mcp.mcpServers?.alembic?.command === 'node', 'installed plugin MCP must launch Node');
   assert(
-    JSON.stringify(args) === JSON.stringify(['./bin/alembic-codex-start.mjs']),
+    JSON.stringify(args) === JSON.stringify(['./bin/alembic-start.mjs']),
     'installed plugin MCP shell entry mismatch'
   );
   assert(
-    existsSync(join(installedRoot, 'bin', 'alembic-codex-start.mjs')),
+    existsSync(join(installedRoot, 'bin', 'alembic-start.mjs')),
     'installed plugin shell startup file missing'
   );
   assert(
@@ -392,7 +392,7 @@ function simulateMarketplaceInstall({ packageRoot, runtimeSpecifier }) {
   );
   assert(!env.npm_config_cache, 'installed plugin MCP config must not force npm cache setup');
 
-  const startupSource = readFileSync(join(installedRoot, 'bin', 'alembic-codex-start.mjs'), 'utf8');
+  const startupSource = readFileSync(join(installedRoot, 'bin', 'alembic-start.mjs'), 'utf8');
   assert(
     startupSource.includes(runtimeSpecifier),
     'installed startup shell does not target the pinned runtime package'
@@ -419,7 +419,7 @@ function simulateMarketplaceInstall({ packageRoot, runtimeSpecifier }) {
 function runStartupDryRun(installedRoot, runtimeSpecifier) {
   const result = run(
     process.execPath,
-    [join(installedRoot, 'bin', 'alembic-codex-start.mjs'), '--dry-run'],
+    [join(installedRoot, 'bin', 'alembic-start.mjs'), '--dry-run'],
     {
       cwd: installedRoot,
     }

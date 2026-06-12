@@ -26,7 +26,7 @@ Codex 仍是宿主 Agent，本插件提供本地项目记忆、bootstrap、Guard
   初始化默认 Ghost 模式。仅当项目知识、Guard、Dashboard 交接、bootstrap 或
   rescan 真正需要时才启动/连接每工作区守护进程（`bin/daemon-server.ts`）。
   嵌入式 HTTP 路由面由 `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`
-  （`lib/codex/runtime/EmbeddedRuntimeContract.ts`）钉死。
+  （`lib/runtime/runtime/EmbeddedRuntimeContract.ts`）钉死。
 - **Codex 内推荐首跑**：`alembic_codex_diagnostics` → `alembic_codex_status`
   → 未初始化时 `alembic_codex_init` → 首次建知识用
   `alembic_codex_bootstrap`；已有知识则编码前用 `alembic_intent` +
@@ -37,7 +37,7 @@ Codex 仍是宿主 Agent，本插件提供本地项目记忆、bootstrap、Guard
 1. `channels/codex/channel.json` 是 Codex 分发入口，指向 marketplace 清单
    （`.agents/plugins/marketplace.json`）与运行时包版本固定。
 2. `plugins/alembic-codex/` 是公开可安装的 **marketplace 壳**（submodule →
-   `GxFn/AlembicCodex`）。其 MCP 配置启动 `bin/alembic-codex-start.mjs`；壳
+   `GxFn/AlembicCodex`）。其 MCP 配置启动 `bin/alembic-start.mjs`；壳
    不携带运行时代码。
 3. 壳在首跑时把固定版本的 npm 运行时包（`@gxfn/alembic-runtime`，包
    边界在 `packages/alembic-codex-runtime/`）安装进 Alembic 启动缓存，之后

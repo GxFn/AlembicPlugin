@@ -1,7 +1,4 @@
-import {
-  assessDiffImpact,
-  type RecipeTokens,
-} from '@alembic/core/evolution';
+import { assessDiffImpact, type RecipeTokens } from '@alembic/core/evolution';
 import {
   extractApiTokens,
   extractCodeBlocksFromMarkdown,

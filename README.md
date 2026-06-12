@@ -34,7 +34,7 @@ memory, bootstrap, Guard, and status tools.
   connected only when project knowledge, Guard, Dashboard handoff, bootstrap,
   or rescan actually need it. The embedded HTTP surface is pinned by
   `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`
-  (`lib/codex/runtime/EmbeddedRuntimeContract.ts`).
+  (`lib/runtime/runtime/EmbeddedRuntimeContract.ts`).
 - **Recommended first run inside Codex**: `alembic_codex_diagnostics` →
   `alembic_codex_status` → `alembic_codex_init` (if not initialized) →
   `alembic_codex_bootstrap` for first project knowledge, or `alembic_intent` +
@@ -47,7 +47,7 @@ memory, bootstrap, Guard, and status tools.
    package pin.
 2. `plugins/alembic-codex/` is the public installable **marketplace shell**
    (submodule → `GxFn/AlembicCodex`). Its MCP config starts
-   `bin/alembic-codex-start.mjs`; the shell ships no runtime code.
+   `bin/alembic-start.mjs`; the shell ships no runtime code.
 3. The shell installs the exact pinned npm runtime package
    (`@gxfn/alembic-runtime`, boundary in
    `packages/alembic-codex-runtime/`) into the Alembic startup cache on first

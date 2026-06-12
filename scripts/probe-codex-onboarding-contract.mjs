@@ -17,7 +17,7 @@ fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
 fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const onboardingProbe = 42;\n');
 
 const [{ CodexMcpServer }, { resolveDaemonPaths }] = await Promise.all([
-  import('../dist/lib/codex/mcp/CodexMcpServer.js'),
+  import('../dist/lib/runtime/mcp/CodexMcpServer.js'),
   import('@alembic/core/daemon'),
 ]);
 

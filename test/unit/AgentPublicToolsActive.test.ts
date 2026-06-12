@@ -7,10 +7,10 @@ import {
   primeHandler,
   workFinishHandler,
   workStartHandler,
-} from '../../lib/codex/mcp/handlers/agent-public-tools.js';
-import type { McpContext } from '../../lib/codex/mcp/handlers/types.js';
-import { createIdleIntent } from '../../lib/codex/mcp/handlers/types.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+} from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
+import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { createIdleIntent } from '../../lib/runtime/mcp/handlers/types.js';
+import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
@@ -230,7 +230,7 @@ function deliveredSearchResult(): PrimeSearchResult {
         kind: 'rule',
         language: 'typescript',
         score: 0.86,
-        sourceRefs: ['lib/codex/mcp/handlers/agent-public-tools.ts:42'],
+        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts:42'],
         title: 'Keep public tools Plugin-owned',
         trigger: '@plugin-public-tools',
       },
@@ -385,7 +385,7 @@ describe('agent-facing active public tools', () => {
     ).toBe(true);
     expect(
       TOOL_SCHEMAS.alembic_work_finish.safeParse({
-        changedFiles: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+        changedFiles: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
         workRef: 'work-public-1',
       }).success
     ).toBe(true);
@@ -1028,7 +1028,7 @@ describe('agent-facing active public tools', () => {
         inputSource: 'host-declared-intent',
         title: 'Implement Stage 4 active work tool',
         workScope: {
-          files: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+          files: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
           goal: 'Implement active work lifecycle',
         },
       })
@@ -1052,7 +1052,7 @@ describe('agent-facing active public tools', () => {
 
     const finish = publicToolLegacyTestView(
       await workFinishHandler(ctx, {
-        changedFiles: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+        changedFiles: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
         evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts'],
         inputSource: 'host-declared-intent',
         summary: 'Implemented Stage 4 active work tool.',
@@ -1079,7 +1079,7 @@ describe('agent-facing active public tools', () => {
       tool: 'alembic_code_guard',
     });
     expect(finish.data.guardRecommendation.input?.files).toEqual(
-      expect.arrayContaining(['lib/codex/mcp/handlers/agent-public-tools.ts'])
+      expect.arrayContaining(['lib/runtime/mcp/handlers/agent-public-tools.ts'])
     );
   });
 
@@ -1215,7 +1215,7 @@ describe('agent-facing active public tools', () => {
       await workStartHandler(ctx, {
         inputSource: 'host-declared-intent',
         title: 'Implement scoped guard contract',
-        workScope: { files: ['lib/codex/mcp/handlers/agent-public-tools.ts'] },
+        workScope: { files: ['lib/runtime/mcp/handlers/agent-public-tools.ts'] },
       })
     ) as {
       data: { workRef: string };
@@ -1239,12 +1239,12 @@ describe('agent-facing active public tools', () => {
     expect(start.success).toBe(true);
     expect(result.success).toBe(true);
     expect(result.data.explicitScope).toEqual({
-      files: ['lib/codex/mcp/handlers/agent-public-tools.ts'],
+      files: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
       kind: 'workRef',
       workRef: start.data.workRef,
     });
     expect(auditFile).toHaveBeenCalledWith(
-      expect.stringContaining('lib/codex/mcp/handlers/agent-public-tools.ts'),
+      expect.stringContaining('lib/runtime/mcp/handlers/agent-public-tools.ts'),
       expect.any(String),
       { isTest: false }
     );
@@ -1313,7 +1313,7 @@ describe('agent-facing active public tools', () => {
           decision: 'Plugin should consume Alembic durable decision route.',
           description: 'Plugin should consume Alembic durable decision route.',
           detailRefs: expect.arrayContaining([
-            'lib/codex/mcp/handlers/agent-public-tools.ts',
+            'lib/runtime/mcp/handlers/agent-public-tools.ts',
             'lib/shared/schemas/mcp-tools.ts',
             'test/unit/AgentPublicToolsActive.test.ts:1',
           ]),
@@ -1534,7 +1534,7 @@ describe('agent-facing active public tools', () => {
 
   test('does not import or call the legacy task handler', () => {
     const source = readFileSync(
-      new URL('../../lib/codex/mcp/handlers/agent-public-tools.ts', import.meta.url),
+      new URL('../../lib/runtime/mcp/handlers/agent-public-tools.ts', import.meta.url),
       'utf8'
     );
     expect(source).not.toContain('taskHandler');

@@ -3,11 +3,11 @@ import path from 'node:path';
 import { JobStore } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
-import { inspectCodexKnowledge } from '../../../lib/codex/KnowledgeState.js';
+import { inspectCodexKnowledge } from '../../../lib/runtime/KnowledgeState.js';
 import {
   getCodexSavedProjectRootPath,
   readCodexInitMarker,
-} from '../../../lib/codex/ProjectRootResolver.js';
+} from '../../../lib/runtime/ProjectRootResolver.js';
 import type { AlembicMcpHarness } from './McpHarness.js';
 import type {
   CodexScenarioRunFacts,

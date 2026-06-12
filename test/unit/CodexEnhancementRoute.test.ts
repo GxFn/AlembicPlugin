@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
 import { createAlembicResidentServiceStatus } from '@alembic/core/daemon';
+import { describe, expect, it } from 'vitest';
+import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import {
   buildCodexEnhancementRouteChoice,
   summarizeEnhancementDaemon,
-} from '../../lib/codex/EnhancementRoute.js';
-import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+} from '../../lib/runtime/EnhancementRoute.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const LOCAL_INSTALL_UNAVAILABLE = {

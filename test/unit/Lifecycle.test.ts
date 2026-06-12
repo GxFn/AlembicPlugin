@@ -1,7 +1,7 @@
 /**
  * 六态 Lifecycle 单元测试
  */
-import { describe, expect, it } from 'vitest';
+
 import {
   CANDIDATE_STATES,
   CONSUMABLE_STATES,
@@ -13,6 +13,7 @@ import {
   isValidTransition,
   Lifecycle,
 } from '@alembic/core/knowledge';
+import { describe, expect, it } from 'vitest';
 
 describe('Lifecycle — 六态状态机', () => {
   it('should define 6 states', () => {

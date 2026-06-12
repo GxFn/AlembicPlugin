@@ -25,7 +25,7 @@
       "runtimePackage": "@gxfn/alembic-runtime",
       "runtimeMode": "plugin",
       "runtimeSpecifier": "@gxfn/alembic-runtime@0.2.0",
-      "shellEntry": "bin/alembic-codex-start.mjs",
+      "shellEntry": "bin/alembic-start.mjs",
       "pluginHost": "codex",
       "distributionRepo": "GxFn/AlembicCodex",
       "runtimeBin": "alembic-codex-mcp",

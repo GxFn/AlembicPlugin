@@ -18,7 +18,7 @@ const readmePath = join(pluginRoot, 'README.md');
 const readmeCnPath = join(pluginRoot, 'README.zh-CN.md');
 const releasePlaybookPath = join(pluginRoot, 'RELEASE-PLAYBOOK.md');
 const runtimePackagePath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
-const startupPath = join(pluginRoot, 'bin', 'alembic-codex-start.mjs');
+const startupPath = join(pluginRoot, 'bin', 'alembic-start.mjs');
 const errors = [];
 
 const pluginJson = readJson(pluginJsonPath);
@@ -134,8 +134,8 @@ for (const keyword of ['codex', 'codex-plugin', 'local-first', 'dashboard', 'boo
 
 expect(server?.command === 'node', '.mcp.json must launch Node');
 expect(
-  JSON.stringify(args) === JSON.stringify(['./bin/alembic-codex-start.mjs']),
-  '.mcp.json must call the relative marketplace shell ./bin/alembic-codex-start.mjs'
+  JSON.stringify(args) === JSON.stringify(['./bin/alembic-start.mjs']),
+  '.mcp.json must call the relative marketplace shell ./bin/alembic-start.mjs'
 );
 expect(server?.cwd === '.', '.mcp.json must run from the installed plugin root');
 expect(!args.includes('latest'), '.mcp.json must not use latest');
@@ -266,12 +266,9 @@ const rootReadmeCn = readText(rootReadmeCnPath);
 expect(existsSync(readmeCnPath), 'plugin Chinese README must exist');
 expect(readme.includes(expectedRuntime), `README.md must mention ${expectedRuntime}`);
 expect(readmeCn.includes(expectedRuntime), `README.zh-CN.md must mention ${expectedRuntime}`);
+expect(readme.includes('alembic-start.mjs'), 'README.md must mention the marketplace shell entry');
 expect(
-  readme.includes('alembic-codex-start.mjs'),
-  'README.md must mention the marketplace shell entry'
-);
-expect(
-  readmeCn.includes('alembic-codex-start.mjs'),
+  readmeCn.includes('alembic-start.mjs'),
   'README.zh-CN.md must mention the marketplace shell entry'
 );
 expect(

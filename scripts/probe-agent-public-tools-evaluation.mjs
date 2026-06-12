@@ -350,7 +350,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
     client,
     'alembic_code_explore',
     {
-      filePath: 'lib/codex/mcp/source-graph/status.ts',
+      filePath: 'lib/runtime/mcp/source-graph/status.ts',
       includeText: true,
       maxSectionLines: 8,
       now: nowBase + 3,
@@ -413,7 +413,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
     client,
     'alembic_validation_plan',
     {
-      changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+      changedFiles: ['lib/runtime/mcp/source-graph/status.ts'],
       now: nowBase + 8,
       packageScripts: { test: 'vitest run test/unit/McpSourceGraphRuntime.test.ts' },
       projectRoot: workspaceRoot,
@@ -426,7 +426,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
     client,
     'alembic_code_impact',
     {
-      changedFiles: ['lib/codex/mcp/source-graph/status.ts'],
+      changedFiles: ['lib/runtime/mcp/source-graph/status.ts'],
       now: nowBase + 9,
       projectRoot: workspaceRoot,
       projectScope: 'AlembicPlugin',
@@ -451,7 +451,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
       client,
       'alembic_code_explore',
       {
-        filePath: 'lib/codex/mcp/source-graph/status.ts',
+        filePath: 'lib/runtime/mcp/source-graph/status.ts',
         includeText: true,
         maxSectionLines: 4,
         now: nowBase + 11,

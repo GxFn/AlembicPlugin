@@ -166,7 +166,7 @@ function buildRuntimeModeSeparation() {
       currentHostMcpProcessLifecycle: 'not-managed-by-plugin',
     },
     packaged: {
-      command: 'plugins/alembic-codex/bin/alembic-codex-start.mjs',
+      command: 'plugins/alembic-codex/bin/alembic-start.mjs',
       entryMode: 'marketplace-shell',
       runtimeSpecifier: '@gxfn/alembic-runtime@0.2.0',
       cacheIsolation: 'owned by the marketplace shell bootstrap path',

@@ -69,7 +69,9 @@ describe('WorkflowSkillCompletionCapability', () => {
         'SKILL.md'
       );
       expect(fs.lstatSync(runtimeSkillPath).isSymbolicLink()).toBe(true);
-      expect(fs.readFileSync(runtimeSkillPath, 'utf8')).toContain('name: project-workflow-skill-test');
+      expect(fs.readFileSync(runtimeSkillPath, 'utf8')).toContain(
+        'name: project-workflow-skill-test'
+      );
       const projectWrites = [...writes.keys()].filter((filePath) =>
         filePath.includes(`${path.sep}project${path.sep}`)
       );

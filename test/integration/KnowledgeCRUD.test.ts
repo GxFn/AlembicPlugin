@@ -6,9 +6,7 @@
  *   创建 → 查询 → 更新 → 发布 → 弃用 → 重新激活 → 删除
  */
 
-import { KnowledgeEntry } from '@alembic/core/knowledge';
-import { Lifecycle } from '@alembic/core/knowledge';
-import { KnowledgeService } from '@alembic/core/knowledge';
+import { KnowledgeEntry, KnowledgeService, Lifecycle } from '@alembic/core/knowledge';
 import { createAlembicRepositories } from '@alembic/core/repositories';
 import { createTestBootstrap } from '../fixtures/factory.js';
 

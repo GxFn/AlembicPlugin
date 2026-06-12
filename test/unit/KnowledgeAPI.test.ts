@@ -109,7 +109,7 @@ vi.mock('@alembic/core/shared', async (importOriginal) => {
 });
 
 const { submitKnowledge, submitKnowledgeBatch, knowledgeLifecycle } = await import(
-  '../../lib/codex/mcp/handlers/knowledge.js'
+  '../../lib/runtime/mcp/handlers/knowledge.js'
 );
 // 从 #imports 别名导入 mock — 与 handler 内部的 dynamic import 一致
 const { checkRecipeSave } = await import('#http/middleware/RateLimiter.js');
@@ -400,7 +400,7 @@ describe('MCP Knowledge Handlers', () => {
  *  Part 2: MCP Tool Definition Tests
  * ════════════════════════════════════════════ */
 
-const { TOOLS, TOOL_GATEWAY_MAP } = await import('../../lib/codex/mcp/tools.js');
+const { TOOLS, TOOL_GATEWAY_MAP } = await import('../../lib/runtime/mcp/tools.js');
 
 describe('MCP Tool Definitions (V3)', () => {
   const _v3Tools = TOOLS.filter((t) => t.name.includes('knowledge'));

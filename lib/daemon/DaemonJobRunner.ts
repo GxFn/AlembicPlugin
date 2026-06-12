@@ -153,13 +153,15 @@ export function getJobStore(container: ServiceContainer): JobStore {
 
 async function executeHostDrivenWorkflow(options: RunDaemonJobOptions): Promise<unknown> {
   if (options.kind === 'bootstrap') {
-    const { bootstrapForHostAgent } = await import('../codex/mcp/handlers/host-agent/bootstrap.js');
+    const { bootstrapForHostAgent } = await import(
+      '../runtime/mcp/handlers/host-agent/bootstrap.js'
+    );
     return unwrapEnvelope(
       await bootstrapForHostAgent({ container: options.container, logger: options.logger })
     );
   }
 
-  const { rescanForHostAgent } = await import('../codex/mcp/handlers/host-agent/rescan.js');
+  const { rescanForHostAgent } = await import('../runtime/mcp/handlers/host-agent/rescan.js');
   return unwrapEnvelope(
     await rescanForHostAgent(
       { container: options.container, logger: options.logger },

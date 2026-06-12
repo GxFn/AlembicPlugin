@@ -1,12 +1,15 @@
-import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathGuard } from '@alembic/core/io';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { getCodexProjectSkillRoot, PROJECT_SKILL_MARKER_FILE } from '#codex/ProjectSkillDelivery.js';
-import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
 import { createSkill, loadSkill } from '#codex/mcp/handlers/skill.js';
+import {
+  getCodexProjectSkillRoot,
+  PROJECT_SKILL_MARKER_FILE,
+} from '#codex/ProjectSkillDelivery.js';
+import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
 
 describe('ProjectSkillService', () => {
   afterEach(() => {
@@ -21,9 +24,9 @@ describe('ProjectSkillService', () => {
 
     expect(result.success).toBe(true);
     expect(result.data?.hasKnowledgeBase).toBe(false);
-    expect(
-      fs.existsSync(path.join(root, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md'))
-    ).toBe(false);
+    expect(fs.existsSync(path.join(root, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md'))).toBe(
+      false
+    );
     expect(
       fs.existsSync(path.join(getCodexProjectSkillRoot(root), 'alembic-recipes', 'SKILL.md'))
     ).toBe(false);
@@ -46,7 +49,9 @@ describe('ProjectSkillService', () => {
     expect(fs.existsSync(sourcePath)).toBe(true);
     expect(fs.lstatSync(runtimePath).isSymbolicLink()).toBe(true);
     expect(path.resolve(fs.readlinkSync(runtimePath))).toBe(path.resolve(sourcePath));
-    expect(fs.readFileSync(runtimePath, 'utf8')).toContain('This project has a local Alembic knowledge base');
+    expect(fs.readFileSync(runtimePath, 'utf8')).toContain(
+      'This project has a local Alembic knowledge base'
+    );
 
     const loaded = service.load({ name: 'alembic-recipes' });
     expect(loaded.data?.source).toBe('codex-runtime');
@@ -57,7 +62,9 @@ describe('ProjectSkillService', () => {
     const recipeRoot = makeRoot();
     fs.mkdirSync(path.join(recipeRoot, 'Alembic', 'recipes'), { recursive: true });
     fs.writeFileSync(path.join(recipeRoot, 'Alembic', 'recipes', 'recipe.md'), '# Recipe\n');
-    expect(createProjectSkillService(createContext(recipeRoot)).collectKnowledgeScope()).toMatchObject({
+    expect(
+      createProjectSkillService(createContext(recipeRoot)).collectKnowledgeScope()
+    ).toMatchObject({
       hasKnowledgeBase: true,
       markdownFiles: [path.join(recipeRoot, 'Alembic', 'recipes', 'recipe.md')],
     });
@@ -116,7 +123,9 @@ describe('ProjectSkillService', () => {
       })
     );
     expect(created.success).toBe(true);
-    expect(created.data.path).toBe(path.join(root, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md'));
+    expect(created.data.path).toBe(
+      path.join(root, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md')
+    );
 
     const loaded = JSON.parse(loadSkill(ctx, { skillName: 'alembic-recipes' }));
     expect(loaded.success).toBe(true);
@@ -137,7 +146,9 @@ describe('ProjectSkillService', () => {
     });
     expect(created.success).toBe(true);
     expect(
-      fs.existsSync(path.join(getCodexProjectSkillRoot(root), 'alembic-guard', PROJECT_SKILL_MARKER_FILE))
+      fs.existsSync(
+        path.join(getCodexProjectSkillRoot(root), 'alembic-guard', PROJECT_SKILL_MARKER_FILE)
+      )
     ).toBe(true);
 
     const deleted = service.delete({ name: 'alembic-guard' });

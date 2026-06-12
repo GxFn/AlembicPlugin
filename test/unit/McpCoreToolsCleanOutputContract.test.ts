@@ -1,18 +1,18 @@
-import { describe, expect, test } from 'vitest';
 import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
+import { describe, expect, test } from 'vitest';
 import {
   CORE_BASE_OUTPUT_FIELD_NAMES,
   CORE_CLEAN_OUTPUT_TOOL_NAMES,
   CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   CORE_TOOL_OUTPUT_SCHEMAS,
   findForbiddenCoreOutputField,
-} from '../../lib/codex/mcp/core-tools/output.js';
+} from '../../lib/runtime/mcp/core-tools/output.js';
 import {
   getMcpOutputProjector,
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../../lib/codex/mcp/output-contract.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+} from '../../lib/runtime/mcp/output-contract.js';
+import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 
 const expectedCoreToolNames = [
   'alembic_health',

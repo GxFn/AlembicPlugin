@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "registrySource": "vendor/AlembicCore/config/error-registry.json (IC4, Train A ef83a41 lineage)",
   "adoptedAt": "2026-06-12",
-  "surface": "lib/codex/mcp/error-taxonomy.ts — createCleanMcpFailureTaxonomy derives every MCP error envelope from the Core FailureTaxonomy entry for the resolved failure kind; LEGACY_ERROR_CODE_FAILURE_KINDS maps plugin-owned error codes onto registry failureKinds; codes carrying core.failure.* ids resolve directly.",
+  "surface": "lib/runtime/mcp/error-taxonomy.ts — createCleanMcpFailureTaxonomy derives every MCP error envelope from the Core FailureTaxonomy entry for the resolved failure kind; LEGACY_ERROR_CODE_FAILURE_KINDS maps plugin-owned error codes onto registry failureKinds; codes carrying core.failure.* ids resolve directly.",
   "proof": "test/unit/McpErrorRegistryAdoption.test.ts — every mapped code resolves through the live createCleanMcpError path to a failureKind present in the pinned registry; drift against the vendor registry fails the suite.",
   "pluginOwnedCodeMappings": {
     "CODEX_ADMIN_OPT_IN_REQUIRED": "permission-denied",

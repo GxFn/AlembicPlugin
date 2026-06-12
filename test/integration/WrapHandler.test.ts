@@ -11,7 +11,7 @@
  */
 
 import { z } from 'zod';
-import { wrapHandler } from '../../lib/codex/mcp/errorHandler.js';
+import { wrapHandler } from '../../lib/runtime/mcp/errorHandler.js';
 
 function getStructuredContent(result: Record<string, unknown>) {
   const structuredContent = result.structuredContent;

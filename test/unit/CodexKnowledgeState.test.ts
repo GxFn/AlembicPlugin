@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
-import { inspectCodexKnowledge } from '../../lib/codex/index.js';
+import { inspectCodexKnowledge } from '../../lib/runtime/index.js';
 
 const roots: string[] = [];
 

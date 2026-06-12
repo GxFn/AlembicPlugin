@@ -8,9 +8,9 @@
  *   - SignalBus 通配符订阅收集所有信号
  */
 
-import { GuardCheckEngine } from '@alembic/core/guard';
 import type { Signal } from '@alembic/core/events';
 import { SignalBus } from '@alembic/core/events';
+import { GuardCheckEngine } from '@alembic/core/guard';
 import { SearchEngine } from '@alembic/core/search';
 import { createTestBootstrap } from '../fixtures/factory.js';
 

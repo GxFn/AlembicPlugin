@@ -75,7 +75,7 @@ describe('Codex plugin cache sync script', () => {
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_RUNTIME_MODE).toBe('plugin');
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_PLUGIN_HOST).toBe('codex');
     expect(repoMcp.mcpServers.alembic.command).toBe('node');
-    expect(repoMcp.mcpServers.alembic.args).toContain('./bin/alembic-codex-start.mjs');
+    expect(repoMcp.mcpServers.alembic.args).toContain('./bin/alembic-start.mjs');
     expect(marker).toMatchObject({
       canonicalLocalDevCommand: 'npm run dev:codex-plugin:reload',
       entryMode: 'local-dev-direct-dist',

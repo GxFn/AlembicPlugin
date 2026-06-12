@@ -3,12 +3,12 @@ import {
   CODEX_LOCAL_TOOLS,
   type CodexKnowledgeState,
   resolveCodexToolPolicy,
-} from '../../lib/codex/index.js';
+} from '../../lib/runtime/index.js';
 import {
   getPluginToolSurfaceEntry,
   listPluginToolSurfaceCatalog,
-} from '../../lib/codex/mcp/PluginToolSurfaceCatalog.js';
-import { TOOLS } from '../../lib/codex/mcp/tools.js';
+} from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 
 const tierOrder = { agent: 0, admin: 1 };
 const hostWorkflowToolNames = [

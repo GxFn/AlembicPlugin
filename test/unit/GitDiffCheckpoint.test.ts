@@ -2,10 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type {
-  FileChangeEvent,
-  ReactiveEvolutionReport,
-} from '@alembic/core/types';
+import type { FileChangeEvent, ReactiveEvolutionReport } from '@alembic/core/types';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   createInactiveGitDiffCheckpointStatus,

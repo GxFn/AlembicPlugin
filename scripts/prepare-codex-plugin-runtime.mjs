@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const packageJson = readJson(join(root, 'package.json'));
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
-const startupPath = join(pluginRoot, 'bin', 'alembic-codex-start.mjs');
+const startupPath = join(pluginRoot, 'bin', 'alembic-start.mjs');
 const runtimePackagePath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
 const runtimePackage = readJson(runtimePackagePath);
 const runtimeSpecifier = `${runtimePackage.name}@${runtimePackage.version}`;
@@ -19,7 +19,7 @@ for (const forbidden of ['runtime', 'runtime.tgz', 'node_modules']) {
   }
 }
 if (!existsSync(startupPath)) {
-  throw new Error('Public Codex plugin shell is missing bin/alembic-codex-start.mjs');
+  throw new Error('Public Codex plugin shell is missing bin/alembic-start.mjs');
 }
 if (runtimePackage.name !== '@gxfn/alembic-runtime') {
   throw new Error(`Unexpected runtime package name: ${runtimePackage.name}`);
@@ -45,7 +45,7 @@ process.stdout.write(
       ok: true,
       mode: 'marketplace-shell',
       pluginRoot,
-      startup: 'bin/alembic-codex-start.mjs',
+      startup: 'bin/alembic-start.mjs',
       runtimeSpecifier,
       forbiddenShellArtifactsAbsent: true,
       verification: 'scripts/verify-codex-plugin.mjs',

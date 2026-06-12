@@ -5,7 +5,7 @@ import {
   CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES,
   CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES,
   CODEX_EMBEDDED_RUNTIME_RETAINED_DAEMON_ENTRY,
-} from '../../lib/codex/runtime/EmbeddedRuntimeContract.js';
+} from '../../lib/runtime/runtime/EmbeddedRuntimeContract.js';
 
 const repoRoot = process.cwd();
 const source = (path: string) => readFileSync(join(repoRoot, path), 'utf8');
@@ -43,7 +43,7 @@ describe('Plugin HTTP surface boundary', () => {
 
     const httpServer = source('lib/http/HttpServer.ts');
     const requestSchemas = source('lib/shared/schemas/http-requests.ts');
-    const embeddedRuntimeContract = source('lib/codex/runtime/EmbeddedRuntimeContract.ts');
+    const embeddedRuntimeContract = source('lib/runtime/runtime/EmbeddedRuntimeContract.ts');
 
     expect(httpServer).not.toContain(literal('candidates', 'Router'));
     expect(httpServer).not.toContain(literal('signals', 'Router'));
@@ -117,7 +117,7 @@ describe('Plugin HTTP surface boundary', () => {
   });
 
   it('documents the retained embedded runtime entry files and HTTP contract', () => {
-    const moduleBoundary = source('lib/codex/ModuleBoundary.ts');
+    const moduleBoundary = source('lib/runtime/ModuleBoundary.ts');
     const httpServer = source('lib/http/HttpServer.ts');
     const runtimeVerifyScript = source('scripts/verify-codex-runtime-package-boundary.mjs');
     const smokeScript = source('scripts/smoke-codex-plugin.mjs');

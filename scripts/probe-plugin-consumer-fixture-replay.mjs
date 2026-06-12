@@ -2,16 +2,16 @@
 
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import '../dist/lib/codex/mcp/codex-local-tools/output.js';
-import '../dist/lib/codex/mcp/core-tools/output.js';
+import '../dist/lib/runtime/mcp/codex-local-tools/output.js';
+import '../dist/lib/runtime/mcp/core-tools/output.js';
 import {
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../dist/lib/codex/mcp/output-contract.js';
+} from '../dist/lib/runtime/mcp/output-contract.js';
 import {
   PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS,
   PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY,
-} from '../dist/lib/codex/mcp/plugin-host-contracts.js';
+} from '../dist/lib/runtime/mcp/plugin-host-contracts.js';
 
 const options = parseArgs(process.argv.slice(2));
 const acceptedFixtureIds = new Set(

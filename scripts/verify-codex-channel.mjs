@@ -49,7 +49,7 @@ for (const plugin of plugins) {
   );
   const server = mcpJson.mcpServers?.alembic;
   const args = Array.isArray(server?.args) ? server.args : [];
-  const startupPath = join(pluginRoot, 'bin', 'alembic-codex-start.mjs');
+  const startupPath = join(pluginRoot, 'bin', 'alembic-start.mjs');
   const startupSource = existsSync(startupPath) ? readFileSync(startupPath, 'utf8') : '';
 
   expect(
@@ -64,7 +64,7 @@ for (const plugin of plugins) {
   );
   expect(
     server?.command === 'node' &&
-      JSON.stringify(args) === JSON.stringify(['./bin/alembic-codex-start.mjs']),
+      JSON.stringify(args) === JSON.stringify(['./bin/alembic-start.mjs']),
     `plugin ${plugin.name} MCP config must launch the relative marketplace shell`
   );
   expect(
@@ -92,8 +92,8 @@ for (const plugin of plugins) {
     `plugin ${plugin.name} runtimeSpecifier must be ${runtimeSpecifier}`
   );
   expect(
-    plugin.shellEntry === 'bin/alembic-codex-start.mjs',
-    `plugin ${plugin.name} shellEntry must be bin/alembic-codex-start.mjs`
+    plugin.shellEntry === 'bin/alembic-start.mjs',
+    `plugin ${plugin.name} shellEntry must be bin/alembic-start.mjs`
   );
   expect(
     plugin.runtimeMode === channel.runtime?.mode,

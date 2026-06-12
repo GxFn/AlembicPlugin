@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCodexModuleBoundaryStatus } from '../../lib/codex/ModuleBoundary.js';
+import { buildCodexModuleBoundaryStatus } from '../../lib/runtime/ModuleBoundary.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 describe('Codex module boundary status', () => {

@@ -1,8 +1,5 @@
+import { recipeBelongsToDimension, resolveRecipeDimensionId } from '@alembic/core/dimensions';
 import { describe, expect, test } from 'vitest';
-import {
-  recipeBelongsToDimension,
-  resolveRecipeDimensionId,
-} from '@alembic/core/dimensions';
 
 describe('RecipeDimension resolver', () => {
   test('uses explicit dimensionId as the canonical owner', () => {

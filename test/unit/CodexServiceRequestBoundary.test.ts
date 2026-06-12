@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveCodexServiceRequestBoundary } from '../../lib/codex/ServiceRequestBoundary.js';
+import { resolveCodexServiceRequestBoundary } from '../../lib/runtime/ServiceRequestBoundary.js';
 
 describe('Codex service request boundary', () => {
   it('keeps retired alembic_task direct calls fail-closed in AlembicPlugin', () => {

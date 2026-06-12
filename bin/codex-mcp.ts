@@ -5,7 +5,7 @@
  * Lightweight stdio entry: lists tools immediately and starts/connects daemon only when a tool needs Core.
  */
 
-const { ensureCodexRuntimeEnvironment } = await import('../lib/codex/index.js');
+const { ensureCodexRuntimeEnvironment } = await import('../lib/runtime/index.js');
 ensureCodexRuntimeEnvironment();
 
 process.on('uncaughtException', (error) => {
@@ -29,7 +29,7 @@ shutdown.register(async () => {
   await timerRegistry.dispose();
 }, 'timer-registry');
 
-const { startCodexMcpServer } = await import('../lib/codex/mcp/CodexMcpServer.js');
+const { startCodexMcpServer } = await import('../lib/runtime/mcp/CodexMcpServer.js');
 
 startCodexMcpServer()
   .then((server) => {

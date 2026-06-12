@@ -38,8 +38,8 @@
       "default": "./dist/lib/workflows/*"
     },
     "#codex/*": {
-      "alembic-dev": "./lib/codex/*",
-      "default": "./dist/lib/codex/*"
+      "alembic-dev": "./lib/runtime/*",
+      "default": "./dist/lib/runtime/*"
     }
   },
   "scripts": {

@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
 import { getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
+import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import {
   CleanMcpResponseBaseSchema,
@@ -9,7 +9,7 @@ import {
   registerMcpOutputProjector,
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../../lib/codex/mcp/output-contract.js';
+} from '../../lib/runtime/mcp/output-contract.js';
 
 describe('MCP clean output contract foundation', () => {
   test('creates structured tool results with summary-only visible text', () => {

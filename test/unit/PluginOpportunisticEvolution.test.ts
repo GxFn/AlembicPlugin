@@ -1,10 +1,10 @@
-import type { GitDiffScanResult } from '../../lib/service/evolution/git-diff-checkpoint/GitDiffScanner.js';
 import { describe, expect, it } from 'vitest';
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractTaskCloseOutcome,
   shouldAttachPluginOpportunisticEvolution,
-} from '../../lib/codex/evolution/PluginOpportunisticEvolution.js';
+} from '../../lib/runtime/evolution/PluginOpportunisticEvolution.js';
+import type { GitDiffScanResult } from '../../lib/service/evolution/git-diff-checkpoint/GitDiffScanner.js';
 
 const fallbackGate = {
   mainServiceCanHandleProjectScope: false,

@@ -128,12 +128,7 @@ describe('Codex plugin local-dev reload script', () => {
     const root = tempDir();
 
     expect(() =>
-      runReloadScript(
-        '--dry-run',
-        '--stop-mcp',
-        '--report-path',
-        join(root, 'reload-report.json')
-      )
+      runReloadScript('--dry-run', '--stop-mcp', '--report-path', join(root, 'reload-report.json'))
     ).toThrow(/does not manage the current Codex MCP process lifecycle/);
 
     expect(() =>
@@ -196,11 +191,7 @@ describe('Codex plugin local-dev reload script', () => {
 
   test('dry run keeps current MCP process management out of the report', () => {
     const root = tempDir();
-    const output = runReloadScript(
-      '--dry-run',
-      '--report-path',
-      join(root, 'reload-report.json')
-    );
+    const output = runReloadScript('--dry-run', '--report-path', join(root, 'reload-report.json'));
     const report = JSON.parse(output) as {
       mcpProcessHandling: string;
       plan: Record<string, unknown>;

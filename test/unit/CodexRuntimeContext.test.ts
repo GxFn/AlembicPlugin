@@ -4,14 +4,13 @@ import { join } from 'node:path';
 import { PROJECT_SCOPE_CONTRACT_VERSION, type ProjectScopeSummary } from '@alembic/core/shared';
 import { afterEach, describe, expect, test } from 'vitest';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
-import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
   ALEMBIC_RUNTIME_MODE_PLUGIN,
+  buildCodexPluginDiagnostics,
   buildCodexProjectRuntimeContext,
   buildCodexRuntimeDiagnostics,
-  buildCodexPluginDiagnostics,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_MODE_ENV,
   CODEX_MCP_SHIM_ENV,
@@ -21,7 +20,8 @@ import {
   loadCodexPluginRegistry,
   probeCodexRuntimeCommand,
   resolveCodexRuntimeContext,
-} from '../../lib/codex/index.js';
+} from '../../lib/runtime/index.js';
+import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import { ALEMBIC_CHANNEL_ID_ENV } from '../../lib/shared/channel.js';
 
 const tempRoots: string[] = [];
@@ -102,13 +102,11 @@ describe('Codex runtime context', () => {
     expect(context.expectedChannelId).toBe('codex');
     expect(context.runtimeBin).toBe('alembic-codex-mcp');
     expect(context.runtimePackage).toBe('@gxfn/alembic-runtime');
-    expect(context.pinnedRuntimeSpecifier).toBe(
-      `@gxfn/alembic-runtime@${context.packageVersion}`
-    );
+    expect(context.pinnedRuntimeSpecifier).toBe(`@gxfn/alembic-runtime@${context.packageVersion}`);
     expect(registry.channel.value?.id).toBe('codex');
     expect(registry.plugin.manifest.value?.name).toBe('alembic');
     expect(registry.mcp.server?.command).toBe('node');
-    expect(registry.mcp.args).toContain('./bin/alembic-codex-start.mjs');
+    expect(registry.mcp.args).toContain('./bin/alembic-start.mjs');
   });
 
   test('builds plugin diagnostics from shared Codex registry facts', () => {
@@ -127,7 +125,7 @@ describe('Codex runtime context', () => {
       nextAction: expect.stringContaining('marketplace shell diagnostics'),
     });
     expect(diagnostics.mcp.wrapper.exists).toBe(true);
-    expect(diagnostics.mcp.wrapper.path).toContain('alembic-codex-start.mjs');
+    expect(diagnostics.mcp.wrapper.path).toContain('alembic-start.mjs');
     expect(diagnostics.skills.missing).toEqual([]);
     expect(diagnostics.assets.missing).toEqual([]);
     expect(context.defaultTier).toBe(CODEX_DEFAULT_MCP_TIER);
@@ -299,10 +297,7 @@ describe('Codex runtime context', () => {
               },
             ],
             failure: {
-              blockedFallbacks: [
-                'plugin-selected-root-fallback',
-                'implicit-runtime-control-write',
-              ],
+              blockedFallbacks: ['plugin-selected-root-fallback', 'implicit-runtime-control-write'],
               blockingCondition: 'Selected project does not match active daemon state.',
               diagnostics: [
                 {

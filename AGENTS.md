@@ -81,8 +81,8 @@ This section is maintained by the Wakeflow runtime installer. It records this wi
 
 ## 插件保留边界
 
-- `lib/codex/**`：Codex runtime、状态、策略、session、plugin cache 适配。
-- `lib/codex/mcp/**`：Codex MCP tool 声明、schema、annotation、gateway 映射和 stdio/http glue。
+- `lib/runtime/**`：Codex runtime、状态、策略、session、plugin cache 适配。
+- `lib/runtime/mcp/**`：Codex MCP tool 声明、schema、annotation、gateway 映射和 stdio/http glue。
 - `plugins/**`、`channels/**`、`.agents/**`、`injectable-skills/**`：插件与 marketplace/channel 交付资源。
 - `scripts/*codex*`、`scripts/release-codex-*`、`scripts/sync-codex-*`：Codex 插件同步、验证和发布脚本。
 - MCP stdio/http 接入、tool schema、Codex skill 文案、runtime env、dev cache、release packaging。

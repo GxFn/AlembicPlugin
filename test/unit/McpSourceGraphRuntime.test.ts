@@ -5,14 +5,14 @@ import { DatabaseConnection } from '@alembic/core/database';
 import { SourceGraphRepositoryImpl } from '@alembic/core/source-graph';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test } from 'vitest';
-import { CodexMcpServer } from '../../lib/codex/mcp/CodexMcpServer.js';
-import { serializeMcpToolResult } from '../../lib/codex/mcp/output-contract.js';
+import { CodexMcpServer } from '../../lib/runtime/mcp/CodexMcpServer.js';
+import { serializeMcpToolResult } from '../../lib/runtime/mcp/output-contract.js';
 import {
   buildFullSourceGraphIndexForProject,
   buildSourceGraphOperation,
   buildSourceGraphStatus,
   resetSourceGraphRuntimeCacheForTests,
-} from '../../lib/codex/mcp/source-graph/status.js';
+} from '../../lib/runtime/mcp/source-graph/status.js';
 
 const sourceGraphToolNames = [
   'alembic_source_graph_status',

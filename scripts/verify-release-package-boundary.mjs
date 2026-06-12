@@ -55,8 +55,8 @@ expect(
   'public plugin shell must not contain node_modules/'
 );
 expect(
-  existsSync(join(pluginRoot, 'bin', 'alembic-codex-start.mjs')),
-  'public plugin shell must contain bin/alembic-codex-start.mjs'
+  existsSync(join(pluginRoot, 'bin', 'alembic-start.mjs')),
+  'public plugin shell must contain bin/alembic-start.mjs'
 );
 
 expect(
@@ -89,7 +89,7 @@ expect(
   'Release workflow must not upload the removed runtime.tgz artifact'
 );
 expect(
-  releaseWorkflowSource.includes('plugins/alembic-codex/bin/alembic-codex-start.mjs'),
+  releaseWorkflowSource.includes('plugins/alembic-codex/bin/alembic-start.mjs'),
   'Release workflow must upload the marketplace shell startup'
 );
 expect(

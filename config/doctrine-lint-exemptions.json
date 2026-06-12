@@ -3,73 +3,73 @@
   "description": "P2 AD6 side-effect doctrine lint exemptions (census 2026-06-12, 17 rows). Every row needs file+binding+owner+reason; scripts/lint-doctrine.mjs validates integrity and fails on unknown rows. Null-initialized lazy slots are idiom-allowed and not listed.",
   "exemptions": [
     {
-      "file": "lib/codex/mcp/output-contract.ts",
+      "file": "lib/runtime/mcp/output-contract.ts",
       "binding": "outputProjectors",
       "owner": "AlembicPlugin",
       "reason": "Projector registry populated once at import by tool-family modules; bounded by the tool surface; duplicate registration throws."
     },
     {
-      "file": "lib/codex/mcp/handlers/guard.ts",
+      "file": "lib/runtime/mcp/handlers/guard.ts",
       "binding": "_reviewRounds",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime guard review-round accumulator; process-scoped MCP session state."
     },
     {
-      "file": "lib/codex/mcp/handlers/guard.ts",
+      "file": "lib/runtime/mcp/handlers/guard.ts",
       "binding": "_lastReviewPassed",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime guard verdict cache paired with _reviewRounds."
     },
     {
-      "file": "lib/codex/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "intentCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter for session-scoped agent-public-tool envelopes."
     },
     {
-      "file": "lib/codex/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "primeCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (prime)."
     },
     {
-      "file": "lib/codex/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "workCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (work-start)."
     },
     {
-      "file": "lib/codex/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "finishCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (work-finish)."
     },
     {
-      "file": "lib/codex/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "guardCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (code-guard)."
     },
     {
-      "file": "lib/codex/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "INTENT_RECORDS",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime intent record store consumed by work/finish chaining; bounded by session activity."
     },
     {
-      "file": "lib/codex/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "WORK_RECORDS",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime work record store paired with INTENT_RECORDS."
     },
     {
-      "file": "lib/codex/mcp/handlers/task.ts",
+      "file": "lib/runtime/mcp/handlers/task.ts",
       "binding": "_taskCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic id counter for the retired-task compatibility envelope."
     },
     {
-      "file": "lib/codex/mcp/handlers/task.ts",
+      "file": "lib/runtime/mcp/handlers/task.ts",
       "binding": "_primeReceiptCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (legacy prime path)."

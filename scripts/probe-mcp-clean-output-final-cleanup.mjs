@@ -2,9 +2,9 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { CodexMcpServer } from '../dist/lib/codex/mcp/CodexMcpServer.js';
-import { serializeMcpToolResult } from '../dist/lib/codex/mcp/output-contract.js';
-import * as toolsModule from '../dist/lib/codex/mcp/tools.js';
+import { CodexMcpServer } from '../dist/lib/runtime/mcp/CodexMcpServer.js';
+import { serializeMcpToolResult } from '../dist/lib/runtime/mcp/output-contract.js';
+import * as toolsModule from '../dist/lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../dist/lib/shared/schemas/mcp-tools.js';
 
 const { TOOLS } = toolsModule;
