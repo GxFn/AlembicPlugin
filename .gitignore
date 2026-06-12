@@ -70,3 +70,6 @@ nohup.out
 .git-commit-msg.tmp
 prettier-output.log
 .claude/settings.local.json
+
+# Vitest coverage output (register carry, 2026-06-13 audit; C4 note)
+coverage/
