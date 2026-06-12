@@ -4,3 +4,6 @@
 [submodule "vendor/AlembicCore"]
 	path = vendor/AlembicCore
 	url = https://github.com/GxFn/AlembicCore.git
+[submodule "plugins/alembic-claude-code"]
+	path = plugins/alembic-claude-code
+	url = https://github.com/GxFn/AlembicClaudeCode.git
