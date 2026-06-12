@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "description": "SN5 naming lint config (AlembicPlugin, ported from the SN2/SN3 shape). Codifies THIS repo's as-found dominants per SN0 user gate #1 (codify, do not redesign): lib modules are camelCase (middleware/util positions), PascalCase (class/contract positions), or kebab (the MCP tool/contract module family: output-contract.ts, agent-public-tools.ts, error-taxonomy.ts); snake_case and mixed-case-kebab are blocked everywhere in lib. bin entrypoints, scripts (incl. scripts/lib), and configs are kebab-case. test/ filenames are mixed as-found (PascalCase.test.ts dominates but kebab fixtures live) and stay unscoped until an SN wave censuses them, mirroring the SN2/SN3 decision. vendor/ and dist/ are never scanned (scan roots are explicit). Exceptions require {file, owner, reason}.",
+  "rules": [
+    {
+      "scope": "lib",
+      "filePattern": "\\.tsx?$",
+      "namePattern": "^([a-zA-Z][A-Za-z0-9]*|[a-z0-9]+(-[a-z0-9]+)+)(\\.d)?\\.tsx?$",
+      "label": "lib modules are camelCase/PascalCase or kebab (no snake_case, no mixed-case kebab)"
+    },
+    {
+      "scope": "bin",
+      "filePattern": "\\.ts$",
+      "namePattern": "^[a-z0-9]+(-[a-z0-9]+)*\\.ts$",
+      "label": "bin entrypoints are kebab-case"
+    },
+    {
+      "scope": "scripts",
+      "filePattern": "\\.(mjs|cjs|js)$",
+      "namePattern": "^[a-z0-9]+(-[a-z0-9]+)*\\.(mjs|cjs|js)$",
+      "label": "scripts are kebab-case"
+    },
+    {
+      "scope": "scripts",
+      "filePattern": "\\.ts$",
+      "namePattern": "^[a-z0-9]+(-[a-z0-9]+)*\\.ts$",
+      "label": "TypeScript scripts are kebab-case"
+    },
+    {
+      "scope": "config",
+      "filePattern": "\\.json$",
+      "namePattern": "^[a-z0-9]+(-[a-z0-9]+)*\\.json$",
+      "label": "configs are kebab-case"
+    }
+  ],
+  "barrelNames": ["index.ts"],
+  "exemptScopes": [],
+  "exceptions": []
+}
