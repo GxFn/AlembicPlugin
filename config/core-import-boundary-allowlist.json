@@ -1,17 +1,65 @@
 {
-  "version": 1,
-  "phase": "CCIC-6 accepted Core facade consumption",
-  "generatedAt": "2026-05-23",
-  "sourcePlan": "workspace docs/workspace/capability-code-interface-cleanup-workspace-plan-2026-05-22.md",
+  "version": 2,
+  "phase": "IC5 P3 plugin-train fold on Core ef83a41 (true-count recalibration)",
+  "generatedAt": "2026-06-12",
+  "sourcePlan": "wakeflow-ledger/requirement-designs/alembic-portfolio-execution-plan/portfolio-execution-plan-2026-06-12.md",
   "scanRoots": ["lib", "bin", "scripts", "test"],
   "allowedRootSpecifiers": ["@alembic/core"],
-  "referenceCount": 457,
-  "uniqueSpecifierCount": 36,
+  "referenceCount": 544,
+  "uniqueSpecifierCount": 37,
   "referenceLimits": {
-    "@alembic/core/infrastructure/database/drizzle": 1,
+    "@alembic/core/core/ast/lang-dart": 2,
+    "@alembic/core/core/ast/lang-go": 2,
+    "@alembic/core/core/ast/lang-java": 2,
+    "@alembic/core/core/ast/lang-kotlin": 3,
+    "@alembic/core/core/ast/lang-rust": 2,
+    "@alembic/core/core/ast/lang-swift": 2,
+    "@alembic/core/infrastructure/database/drizzle": 4,
     "@alembic/core/infrastructure/database/drizzle/schema": 1,
     "@alembic/core/infrastructure/database/migrations/001_initial_schema": 1,
     "@alembic/core/infrastructure/database/migrations/004_evolution_proposals": 3
+  },
+  "referenceLimitsNote": "Limits are TRUE from-line/grep counts (multi-line import forms included), recalibrated 2026-06-12 so the Core scanner multi-line regex fix (CO1-SCANNER-MULTILINE-BLIND-SPOT) can land without turning this gate red. Shrink-only.",
+  "keepWithOwner": {
+    "@alembic/core/infrastructure/database/drizzle": {
+      "owner": "AlembicPlugin",
+      "consumers": [
+        "lib/infrastructure/audit/AuditStore.ts (getDrizzle singleton fallback)",
+        "test/integration/DrizzleORM.test.ts (singleton lifecycle under test)",
+        "test/unit/ProposalRepository.test.ts",
+        "test/unit/SubmitKnowledgeProposalRouter.test.ts"
+      ],
+      "reason": "No stable facade exports the drizzle singleton lifecycle (initDrizzle/getDrizzle/resetDrizzle). @alembic/core/database wires the singleton via DatabaseConnection.connect(), cannot open :memory: fixtures, and redirects excluded projects to a shared tmp DB, so it is not a semantics-preserving target for isolated test fixtures.",
+      "removalTrigger": "Core ships a stable test/fixture facade (in-memory migrated DB + DrizzleDB without global singleton mutation); route via the IC/AD export-surface wave."
+    },
+    "@alembic/core/infrastructure/database/drizzle/schema": {
+      "owner": "AlembicPlugin",
+      "consumers": ["lib/infrastructure/audit/AuditStore.ts (auditLogs table)"],
+      "reason": "No stable facade exports the drizzle schema tables (auditLogs).",
+      "removalTrigger": "Core promotes schema table exports onto a stable facade, or an AuditStore DI wave removes the singleton fallback."
+    },
+    "@alembic/core/infrastructure/database/migrations/001_initial_schema": {
+      "owner": "AlembicPlugin",
+      "consumers": ["test/integration/DrizzleORM.test.ts"],
+      "reason": "Isolated :memory: fixtures need callable migration modules; openAlembicDatabase cannot target :memory: and mutates the global drizzle singleton. Hand-copied DDL (Alembic Train B shape) was rejected for the 40+ column knowledge_entries table after Alembic needed drift coordination (Alembic f5ff9e1) for a far smaller copy.",
+      "removalTrigger": "Same stable test/fixture facade as the drizzle row."
+    },
+    "@alembic/core/infrastructure/database/migrations/004_evolution_proposals": {
+      "owner": "AlembicPlugin",
+      "consumers": [
+        "test/integration/DrizzleORM.test.ts",
+        "test/unit/ProposalRepository.test.ts",
+        "test/unit/SubmitKnowledgeProposalRouter.test.ts"
+      ],
+      "reason": "Same isolated-fixture constraint as migration 001.",
+      "removalTrigger": "Same stable test/fixture facade as the drizzle row."
+    },
+    "@alembic/core/core/ast/lang-*": {
+      "owner": "AlembicPlugin",
+      "consumers": ["dynamic import() lazy loading of optional language grammars"],
+      "reason": "Deliberate lazy loading of optional grammar parsers; no stable lazy-grammar facade exists. Mirrors the Alembic kept rows with identical true counts.",
+      "removalTrigger": "Core ships a stable lazy language-parser facade."
+    }
   },
   "allowedSpecifiers": [
     "@alembic/core/core/ast/lang-dart",
@@ -37,6 +85,7 @@
     "@alembic/core/io",
     "@alembic/core/knowledge",
     "@alembic/core/logging",
+    "@alembic/core/memory",
     "@alembic/core/project-intelligence",
     "@alembic/core/repositories",
     "@alembic/core/search",
@@ -46,6 +95,7 @@
     "@alembic/core/service/quality",
     "@alembic/core/service/recipe",
     "@alembic/core/shared",
+    "@alembic/core/source-graph",
     "@alembic/core/types",
     "@alembic/core/vector",
     "@alembic/core/workspace"
