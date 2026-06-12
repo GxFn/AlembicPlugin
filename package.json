@@ -89,9 +89,10 @@
     "report:agent-extraction-boundary": "node scripts/report-agent-extraction-boundary.mjs",
     "format": "biome format --write lib/ bin/ config/ scripts/",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run lint && npm run lint:core-import-boundary && npm run check:shared-asset-drift && npm run check:cross-shell-drift",
+    "check": "npm run typecheck && npm run lint && npm run lint:core-import-boundary && npm run check:shared-asset-drift && npm run check:cross-shell-drift && npm run lint:doctrine",
     "check:shared-asset-drift": "node scripts/run-shared-asset-drift-gate.mjs",
     "check:cross-shell-drift": "node scripts/check-cross-shell-drift.mjs",
+    "lint:doctrine": "node scripts/lint-doctrine.mjs",
     "prepare": "husky"
   },
   "author": "gaoxuefeng",
