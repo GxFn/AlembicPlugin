@@ -29,6 +29,7 @@ import type {
   KnowledgeEdgeRepository,
   KnowledgeRepository,
 } from '@alembic/core/repositories';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export const PanoramaModule = {
@@ -39,7 +40,13 @@ export const PanoramaModule = {
       config: { projectRoot?: string };
     };
 
-    const getProjectRoot = () => ct.config?.projectRoot ?? process.cwd();
+    // Must match the other modules' resolution (container _projectRoot →
+    // ALEMBIC_PROJECT_DIR → cwd). The old `config.projectRoot ?? cwd` read a
+    // field the MCP path never sets, so under plugin-shell launches (runtime
+    // spawned with cwd=pluginRoot) the panorama chain bound the SHELL tree
+    // while knowledge repos stayed on the project workspace — the language/
+    // dimension mismatch behind certification F-V2-3.
+    const getProjectRoot = () => ct.config?.projectRoot ?? resolveProjectRoot(container);
 
     const getBootstrapRepo = () =>
       container.get('bootstrapRepository') as unknown as BootstrapRepository;

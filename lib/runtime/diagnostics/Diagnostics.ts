@@ -549,9 +549,13 @@ function buildCodexPluginAssetDiagnostics(
   const missingAssets = registry.plugin.assets.filter(
     (asset) => !existsSync(join(registry.plugin.root, asset))
   );
+  // Marketplace interface assets are a Codex-shell manifest requirement; the
+  // Claude Code spec-form manifest has no interface block, so an empty asset
+  // list is the correct healthy state for that host shape (F-V2-2).
+  const emptyIsHealthy = registry.plugin.hostShape === 'claude-code';
   return {
     missing: missingAssets,
-    ok: registry.plugin.assets.length > 0 && missingAssets.length === 0,
+    ok: (registry.plugin.assets.length > 0 || emptyIsHealthy) && missingAssets.length === 0,
     required: registry.plugin.assets,
   };
 }

@@ -16,6 +16,7 @@ import { WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import type { CodexEnhancementRouteChoice } from '../../runtime/EnhancementRoute.js';
 import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
+import { readCodexPluginMcpDeclaration } from '../../runtime/PluginRegistry.js';
 import type { CodexProjectRootResolution } from '../../runtime/ProjectRootResolver.js';
 import type { CodexRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
 import { resolveCodexRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
@@ -529,14 +530,12 @@ function summarizeReadiness(
 }
 
 function detectCodexMcpEntryMode(runtime: CodexRuntimeContext): CodexProjectRuntimeEntryMode {
-  const mcpConfigPath = join(runtime.pluginRoot, '.mcp.json');
-  const parsed = readJsonFile(mcpConfigPath);
-  const mcpServers = asRecord(parsed?.mcpServers);
-  const server = asRecord(mcpServers?.alembic);
-  const command = stringFrom(server?.command);
-  const args = Array.isArray(server?.args)
-    ? server.args.filter((arg): arg is string => typeof arg === 'string')
-    : [];
+  // Shared per-host declaration reader: .mcp.json (Codex shell, historical
+  // byte-identical behavior) or the inline .claude-plugin manifest mcpServers
+  // (Claude Code shell). Fixes the mode=unknown meta riding F-V2-2.
+  const declaration = readCodexPluginMcpDeclaration(runtime.pluginRoot);
+  const command = stringFrom(declaration.server?.command);
+  const args = declaration.args;
   const runtimeSpecifier = args.includes('--package')
     ? (args[args.indexOf('--package') + 1] ?? null)
     : null;
@@ -548,12 +547,15 @@ function detectCodexMcpEntryMode(runtime: CodexRuntimeContext): CodexProjectRunt
       ? 'local-dev-direct-dist'
       : 'unknown';
 
+  // Existence (not parse success) keeps the historical Codex-side semantics
+  // for present-but-unparsable declarations byte-identical.
+  const declarationExists = existsSync(declaration.json.path);
   return {
     command,
-    mcpConfigPath: existsSync(mcpConfigPath) ? mcpConfigPath : null,
+    mcpConfigPath: declarationExists ? declaration.json.path : null,
     mode,
     runtimeSpecifier: runtimeSpecifier ?? runtime.pinnedRuntimeSpecifier,
-    source: existsSync(mcpConfigPath) ? 'plugin-mcp-config' : 'runtime-context',
+    source: declarationExists ? 'plugin-mcp-config' : 'runtime-context',
   };
 }
 

@@ -19,6 +19,15 @@ export interface JsonReadResult {
   value: Record<string, unknown> | null;
 }
 
+export type CodexPluginHostShape = 'codex' | 'claude-code';
+
+export interface CodexPluginMcpDeclaration {
+  args: string[];
+  hostShape: CodexPluginHostShape;
+  json: JsonReadResult;
+  server: Record<string, unknown> | null;
+}
+
 export interface CodexPluginRegistry {
   channel: JsonReadResult;
   context: CodexRuntimeContext;
@@ -31,6 +40,7 @@ export interface CodexPluginRegistry {
   };
   plugin: {
     assets: string[];
+    hostShape: CodexPluginHostShape;
     manifest: JsonReadResult;
     readme: string;
     readmePath: string;
@@ -38,18 +48,46 @@ export interface CodexPluginRegistry {
   };
 }
 
-export function loadCodexPluginRegistry(
-  context: CodexRuntimeContext = resolveCodexRuntimeContext()
-): CodexPluginRegistry {
-  const manifestPath = join(context.pluginRoot, '.codex-plugin', 'plugin.json');
-  const mcpPath = join(context.pluginRoot, '.mcp.json');
-  const readmePath = join(context.pluginRoot, 'README.md');
-  const manifest = readJsonObject(manifestPath);
-  const mcpJson = readJsonObject(mcpPath);
-  const server = asPlainRecord(asPlainRecord(mcpJson.value?.mcpServers)?.alembic);
+/**
+ * Single source for the per-host MCP declaration shape. The Codex shell ships
+ * `.mcp.json` next to `.codex-plugin/plugin.json`; the Claude Code shell
+ * declares `mcpServers` inline in `.claude-plugin/plugin.json` (spec form
+ * with `${CLAUDE_PLUGIN_ROOT}` paths, normalized here to plugin-root-relative
+ * form so downstream entry/pin checks evaluate identically on both shells).
+ * When `.mcp.json` exists the read is byte-for-byte the historical Codex
+ * behavior — host-shape awareness must not move Codex wire bytes (F-V2-2).
+ */
+export function readCodexPluginMcpDeclaration(pluginRoot: string): CodexPluginMcpDeclaration {
+  const mcpPath = join(pluginRoot, '.mcp.json');
+  const claudeManifestPath = join(pluginRoot, '.claude-plugin', 'plugin.json');
+  if (!existsSync(mcpPath) && existsSync(claudeManifestPath)) {
+    const json = readJsonObject(claudeManifestPath);
+    const server = asPlainRecord(asPlainRecord(json.value?.mcpServers)?.alembic);
+    const args = Array.isArray(server?.args)
+      ? server.args
+          .filter((arg): arg is string => typeof arg === 'string')
+          .map((arg) => arg.replaceAll('${CLAUDE_PLUGIN_ROOT}', '.'))
+      : [];
+    return { args, hostShape: 'claude-code', json, server };
+  }
+  const json = readJsonObject(mcpPath);
+  const server = asPlainRecord(asPlainRecord(json.value?.mcpServers)?.alembic);
   const args = Array.isArray(server?.args)
     ? server.args.filter((arg): arg is string => typeof arg === 'string')
     : [];
+  return { args, hostShape: 'codex', json, server };
+}
+
+export function loadCodexPluginRegistry(
+  context: CodexRuntimeContext = resolveCodexRuntimeContext()
+): CodexPluginRegistry {
+  const mcpDeclaration = readCodexPluginMcpDeclaration(context.pluginRoot);
+  const manifestPath =
+    mcpDeclaration.hostShape === 'claude-code'
+      ? join(context.pluginRoot, '.claude-plugin', 'plugin.json')
+      : join(context.pluginRoot, '.codex-plugin', 'plugin.json');
+  const readmePath = join(context.pluginRoot, 'README.md');
+  const manifest = readJsonObject(manifestPath);
   const manifestInterface = asPlainRecord(manifest.value?.interface);
 
   return {
@@ -57,13 +95,14 @@ export function loadCodexPluginRegistry(
     context,
     marketplace: readJsonObject(context.marketplacePath),
     mcp: {
-      args,
-      env: asPlainRecord(server?.env),
-      json: mcpJson,
-      server,
+      args: mcpDeclaration.args,
+      env: asPlainRecord(mcpDeclaration.server?.env),
+      json: mcpDeclaration.json,
+      server: mcpDeclaration.server,
     },
     plugin: {
       assets: collectManifestAssetPaths(manifestInterface),
+      hostShape: mcpDeclaration.hostShape,
       manifest,
       readme: existsSync(readmePath) ? readFileSync(readmePath, 'utf8') : '',
       readmePath,
