@@ -51,13 +51,28 @@ export interface CreateCleanMcpFailureTaxonomyInput {
   status?: string;
 }
 
+// IC4/P3 step-7 registry adoption: every plugin-owned error code maps to a
+// Core failure kind from config/error-registry.json (vendor ef83a41 lineage);
+// unmapped codes fall back to internal-error. CKG3-owned evidence-gate codes
+// (SOURCE_REF_*, SNIPPET_MISMATCH, DIMENSION_*, QUALITY_GATE_FAILED, …) are
+// deliberately NOT mapped here — their classification review belongs to the
+// CKG resumption package (F2). Census + deferred list:
+// config/error-registry-adoption.json.
 const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   CANCELLED: 'cancelled',
   CLEAN_OUTPUT_PROJECTOR_MISSING: 'capability-mismatch',
+  CODEX_ADMIN_OPT_IN_REQUIRED: 'permission-denied',
+  CODEX_BOOTSTRAP_REBUILD_CONFIRMATION_REQUIRED: 'needs-confirmation',
   CODEX_DASHBOARD_HANDOFF_UNAVAILABLE: 'unavailable',
   CODEX_DASHBOARD_UNAVAILABLE: 'unavailable',
+  CODEX_HOST_PROJECT_DISCONNECTED: 'unavailable',
+  CODEX_HOST_PROJECT_MISMATCH: 'conflict',
+  CODEX_INVALID_PROJECT_ROOT_ARGUMENT: 'invalid-input',
   CODEX_MCP_ERROR: 'internal-error',
+  CODEX_TOOL_NOT_AVAILABLE: 'capability-mismatch',
   CODEX_TOOL_RETIRED: 'capability-mismatch',
+  CODEX_UNKNOWN_TOOL: 'capability-mismatch',
+  CODEX_WORKSPACE_MODE_CONFLICT: 'conflict',
   CONFLICT: 'conflict',
   CONSTITUTION_VIOLATION: 'permission-denied',
   GUARD_SCOPE_REQUIRED: 'invalid-input',
@@ -68,10 +83,14 @@ const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   NOT_FOUND: 'not-found',
   PERMISSION_DENIED: 'permission-denied',
   PROVIDER_ERROR: 'provider-error',
+  RATE_LIMIT: 'unavailable',
   RESIDENT_SEARCH_UNAVAILABLE: 'unavailable',
+  SERVICE_UNAVAILABLE: 'unavailable',
+  SESSION_NOT_FOUND: 'not-found',
   TIMEOUT: 'timeout',
   TOOL_ERROR: 'internal-error',
   TOOL_FAILED: 'internal-error',
+  UNKNOWN_PROJECT_SKILL_OPERATION: 'invalid-input',
   VALIDATION_ERROR: 'invalid-input',
 };
 

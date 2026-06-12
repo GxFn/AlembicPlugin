@@ -192,3 +192,21 @@ describe('MCP clean output contract foundation', () => {
     });
   });
 });
+
+// MT/CC3 F1 回归：错误信封必须满足按工具声明的输出 schema（顶层 toolName 为
+// z.literal 必填）。CC3 现场证据：缺顶层 toolName 时 SDK 客户端以 -32602 拒收。
+describe('clean error responses satisfy the declared core-tools output schema (F1)', () => {
+  it('carries the top-level toolName required by the per-tool literal schema', async () => {
+    const { createCleanMcpErrorResponse } = await import('#codex/mcp/output-contract.js');
+    const { CORE_TOOL_OUTPUT_SCHEMAS } = await import('#codex/mcp/core-tools/output.js');
+    const response = createCleanMcpErrorResponse({
+      code: 'VALIDATION_ERROR',
+      message: '输入校验失败: dimensionId is required',
+      responseTimeMs: 1,
+      toolName: 'alembic_dimension_complete',
+    });
+    expect(response.toolName).toBe('alembic_dimension_complete');
+    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_dimension_complete.safeParse(response);
+    expect(parsed.success, JSON.stringify(parsed.success ? null : parsed.error.issues)).toBe(true);
+  });
+});

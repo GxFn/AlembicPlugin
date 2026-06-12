@@ -154,6 +154,10 @@ export function createCleanMcpErrorResponse(input: {
       ok: false,
       status: input.status ?? 'failed',
       summary: input.message,
+      // MT/CC3 F1: the declared core-tools output schemas require a TOP-LEVEL
+      // toolName (z.literal per tool); meta.toolName alone makes schema-
+      // validating MCP clients reject error envelopes with -32602.
+      toolName: input.toolName,
       error: createCleanMcpError({
         code: input.code,
         failureKind: input.failureKind,
