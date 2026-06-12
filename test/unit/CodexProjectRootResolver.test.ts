@@ -95,7 +95,7 @@ describe('CodexProjectRootResolver', () => {
       'plugins',
       'cache',
       'gxfn',
-      'alembic-codex',
+      'alembic',
       getPackageVersion()
     );
     fs.mkdirSync(cacheRoot, { recursive: true });

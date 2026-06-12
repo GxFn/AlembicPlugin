@@ -49,7 +49,7 @@ memory, bootstrap, Guard, and status tools.
    (submodule → `GxFn/AlembicCodex`). Its MCP config starts
    `bin/alembic-codex-start.mjs`; the shell ships no runtime code.
 3. The shell installs the exact pinned npm runtime package
-   (`@gxfn/alembic-codex-runtime`, boundary in
+   (`@gxfn/alembic-runtime`, boundary in
    `packages/alembic-codex-runtime/`) into the Alembic startup cache on first
    run and reuses the cache afterwards.
 

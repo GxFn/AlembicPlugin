@@ -4,7 +4,7 @@
 
 这里管理的是插件入口需要共享的稳定事实和策略：通用插件运行时模式、Codex 插件宿主标识、Codex 渠道标识、插件名、runtime package/bin、MCP 默认 tier、admin gate、channel/marketplace/plugin manifest 路径、插件资产与 Skill 校验、runtime diagnostics、workspace knowledge state、工具可见性策略、MCP status、Codex long-running job 来源上下文。
 
-当前阶段只维护 `alembic-codex` 这一个 Codex 插件 shell 和 `@gxfn/alembic-codex-runtime` pinned runtime package，不在这里做多插件或多个非插件包的提前抽象。
+当前阶段只维护 `alembic-codex` 这一个 Codex 插件 shell 和 `@gxfn/alembic-runtime` pinned runtime package，不在这里做多插件或多个非插件包的提前抽象。
 
 边界：
 

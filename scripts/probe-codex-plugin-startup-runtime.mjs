@@ -16,7 +16,7 @@ import { delimiter, join, resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
 const startupPath = join(pluginRoot, 'bin', 'alembic-codex-start.mjs');
-const runtimePackageName = '@gxfn/alembic-codex-runtime';
+const runtimePackageName = '@gxfn/alembic-runtime';
 const runtimeVersion = readJson(
   join(root, 'packages', 'alembic-codex-runtime', 'package.json')
 ).version;
@@ -323,13 +323,7 @@ function installCount(logPath) {
 }
 
 function writeCachedRuntime({ cacheDir, version }) {
-  const packageRoot = join(
-    cacheDir,
-    'runtime-install',
-    'node_modules',
-    '@gxfn',
-    'alembic-codex-runtime'
-  );
+  const packageRoot = join(cacheDir, 'runtime-install', 'node_modules', '@gxfn', 'alembic-runtime');
   mkdirSync(join(packageRoot, 'dist', 'bin'), { recursive: true });
   writeFileSync(
     join(packageRoot, 'package.json'),
@@ -373,10 +367,10 @@ const prefixIndex = args.indexOf('--prefix');
 const prefix = prefixIndex >= 0 ? args[prefixIndex + 1] : process.cwd();
 const specifier = args[args.length - 1];
 const version = process.env.FAKE_RUNTIME_VERSION || specifier.slice(specifier.lastIndexOf('@') + 1);
-const packageRoot = join(prefix, 'node_modules', '@gxfn', 'alembic-codex-runtime');
+const packageRoot = join(prefix, 'node_modules', '@gxfn', 'alembic-runtime');
 mkdirSync(join(packageRoot, 'dist', 'bin'), { recursive: true });
 writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
-  name: '@gxfn/alembic-codex-runtime',
+  name: '@gxfn/alembic-runtime',
   version,
   bin: { 'alembic-codex-mcp': 'dist/bin/codex-mcp.js' }
 }, null, 2) + '\\n');

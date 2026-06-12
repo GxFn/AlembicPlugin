@@ -29,16 +29,16 @@ const distributionMarketplaceJson = readJson(distributionMarketplacePath);
 const runtimePackageJson = readJson(runtimePackagePath);
 const startupSource = existsSync(startupPath) ? readFileSync(startupPath, 'utf8') : '';
 const packageVersion = packageJson.version;
-const runtimePackageName = '@gxfn/alembic-codex-runtime';
+const runtimePackageName = '@gxfn/alembic-runtime';
 const expectedRuntime = `${runtimePackageName}@${packageVersion}`;
 const server = mcpJson.mcpServers?.alembic;
 const args = Array.isArray(server?.args) ? server.args : [];
 const iface = pluginJson.interface || {};
 const marketplaceEntry = Array.isArray(marketplaceJson.plugins)
-  ? marketplaceJson.plugins.find((entry) => entry?.name === 'alembic-codex')
+  ? marketplaceJson.plugins.find((entry) => entry?.name === 'alembic')
   : null;
 const distributionMarketplaceEntry = Array.isArray(distributionMarketplaceJson.plugins)
-  ? distributionMarketplaceJson.plugins.find((entry) => entry?.name === 'alembic-codex')
+  ? distributionMarketplaceJson.plugins.find((entry) => entry?.name === 'alembic')
   : null;
 
 expect(
@@ -116,7 +116,10 @@ for (const forbiddenRuntimeFile of [
   );
 }
 
-expect(pluginJson.name === 'alembic-codex', 'plugin.json name must be alembic-codex');
+expect(
+  pluginJson.name === 'alembic',
+  'plugin.json name must be alembic (naming ruling C2, 2026-06-13)'
+);
 expect(pluginJson.interface?.displayName === 'Alembic', 'plugin displayName must be Alembic');
 expect(
   pluginJson.interface?.shortDescription?.includes('Local project memory'),
@@ -198,7 +201,7 @@ expect(
 );
 expect(
   Boolean(distributionMarketplaceEntry),
-  'plugin distribution marketplace must include alembic-codex'
+  'plugin distribution marketplace must include alembic'
 );
 if (distributionMarketplaceEntry) {
   expect(
@@ -216,7 +219,7 @@ if (distributionMarketplaceEntry) {
   );
 }
 expect(marketplaceJson.name === 'gxfn', 'root marketplace must be named gxfn');
-expect(Boolean(marketplaceEntry), 'root marketplace must include alembic-codex');
+expect(Boolean(marketplaceEntry), 'root marketplace must include alembic');
 if (marketplaceEntry) {
   expect(marketplaceEntry.source?.source === 'local', 'root marketplace source must be local');
   expect(

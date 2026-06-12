@@ -26,8 +26,8 @@ expect(
 );
 expect(packageJson.private === true, 'root package must be private and unavailable to registry');
 expect(
-  runtimePackageJson.name === '@gxfn/alembic-codex-runtime',
-  'runtime package must be @gxfn/alembic-codex-runtime'
+  runtimePackageJson.name === '@gxfn/alembic-runtime',
+  'runtime package must be @gxfn/alembic-runtime'
 );
 expect(
   runtimePackageJson.version === packageJson.version,

@@ -101,12 +101,12 @@ describe('Codex runtime context', () => {
 
     expect(context.expectedChannelId).toBe('codex');
     expect(context.runtimeBin).toBe('alembic-codex-mcp');
-    expect(context.runtimePackage).toBe('@gxfn/alembic-codex-runtime');
+    expect(context.runtimePackage).toBe('@gxfn/alembic-runtime');
     expect(context.pinnedRuntimeSpecifier).toBe(
-      `@gxfn/alembic-codex-runtime@${context.packageVersion}`
+      `@gxfn/alembic-runtime@${context.packageVersion}`
     );
     expect(registry.channel.value?.id).toBe('codex');
-    expect(registry.plugin.manifest.value?.name).toBe('alembic-codex');
+    expect(registry.plugin.manifest.value?.name).toBe('alembic');
     expect(registry.mcp.server?.command).toBe('node');
     expect(registry.mcp.args).toContain('./bin/alembic-codex-start.mjs');
   });

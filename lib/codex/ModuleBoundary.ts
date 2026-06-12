@@ -7,7 +7,7 @@ import {
 } from './runtime/EmbeddedRuntimeContract.js';
 import {
   CODEX_EMBEDDED_RUNTIME_SPECIFIER,
-  CODEX_PLUGIN_NAME,
+  CODEX_PLUGIN_SHELL_DIR,
   CODEX_RUNTIME_BIN,
   CODEX_RUNTIME_PACKAGE,
 } from './runtime/RuntimeContext.js';
@@ -129,7 +129,7 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
     pluginRole:
       'Codex plugin shell, channel metadata, skills, cache sync, and marketplace artifact.',
     retainedInPlugin: true,
-    sourceOfTruth: `plugins/${CODEX_PLUGIN_NAME}, channels/**, .agents/**`,
+    sourceOfTruth: `plugins/${CODEX_PLUGIN_SHELL_DIR}, channels/**, .agents/**`,
   },
   {
     id: 'portable-runtime-packaging',

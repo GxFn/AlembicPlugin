@@ -243,7 +243,7 @@ export class CodexMcpServer {
   async start(): Promise<void> {
     const visibleTools = getVisibleCodexTools(undefined, this.projectRoot);
     this.sdkServer = new SdkMcpServer(
-      { name: 'alembic-codex', version: getPackageVersion() },
+      { name: 'alembic', version: getPackageVersion() },
       {
         capabilities: { tools: {} },
         instructions: buildCodexMcpInitializeInstructions(visibleTools),

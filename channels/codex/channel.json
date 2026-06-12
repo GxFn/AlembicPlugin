@@ -19,12 +19,12 @@
   },
   "plugins": [
     {
-      "name": "alembic-codex",
+      "name": "alembic",
       "path": "plugins/alembic-codex",
-      "marketplaceEntry": "alembic-codex",
-      "runtimePackage": "@gxfn/alembic-codex-runtime",
+      "marketplaceEntry": "alembic",
+      "runtimePackage": "@gxfn/alembic-runtime",
       "runtimeMode": "plugin",
-      "runtimeSpecifier": "@gxfn/alembic-codex-runtime@0.2.0",
+      "runtimeSpecifier": "@gxfn/alembic-runtime@0.2.0",
       "shellEntry": "bin/alembic-codex-start.mjs",
       "pluginHost": "codex",
       "distributionRepo": "GxFn/AlembicCodex",
@@ -35,16 +35,16 @@
   ],
   "packages": [
     {
-      "name": "@gxfn/alembic-codex-runtime",
+      "name": "@gxfn/alembic-runtime",
       "registry": "npm",
       "installScope": "marketplace-shell-runtime",
-      "specifier": "@gxfn/alembic-codex-runtime@0.2.0",
+      "specifier": "@gxfn/alembic-runtime@0.2.0",
       "version": "0.2.0",
       "binaries": [
         "alembic-codex-mcp"
       ],
       "usedBy": [
-        "alembic-codex"
+        "alembic"
       ]
     }
   ]

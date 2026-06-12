@@ -39,7 +39,7 @@ Codex 仍是宿主 Agent，本插件提供本地项目记忆、bootstrap、Guard
 2. `plugins/alembic-codex/` 是公开可安装的 **marketplace 壳**（submodule →
    `GxFn/AlembicCodex`）。其 MCP 配置启动 `bin/alembic-codex-start.mjs`；壳
    不携带运行时代码。
-3. 壳在首跑时把固定版本的 npm 运行时包（`@gxfn/alembic-codex-runtime`，包
+3. 壳在首跑时把固定版本的 npm 运行时包（`@gxfn/alembic-runtime`，包
    边界在 `packages/alembic-codex-runtime/`）安装进 Alembic 启动缓存，之后
    复用缓存。
 

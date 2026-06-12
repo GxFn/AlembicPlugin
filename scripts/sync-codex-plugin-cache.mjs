@@ -26,7 +26,7 @@ const runtimePackage = readJson(
   join(projectRoot, 'packages', 'alembic-codex-runtime', 'package.json')
 );
 const runtimeSpecifier = `${runtimePackage.name}@${runtimePackage.version}`;
-const pluginEntry = channel.plugins?.find((plugin) => plugin.name === 'alembic-codex');
+const pluginEntry = channel.plugins?.find((plugin) => plugin.name === 'alembic');
 if (!pluginEntry) {
   throw new Error('channels/codex/channel.json is missing the alembic-codex plugin entry');
 }

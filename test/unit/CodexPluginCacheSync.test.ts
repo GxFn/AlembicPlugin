@@ -32,7 +32,7 @@ describe('Codex plugin cache sync script', () => {
     };
 
     expect(targetRoot).toBe(
-      join(codexHome, 'plugins', 'cache', 'gxfn', 'alembic-codex', pluginManifest.version)
+      join(codexHome, 'plugins', 'cache', 'gxfn', 'alembic', pluginManifest.version)
     );
     expect(existsSync(targetRoot)).toBe(false);
   });
@@ -89,7 +89,7 @@ describe('Codex plugin cache sync script', () => {
         },
         packaged: {
           entryMode: 'marketplace-shell',
-          runtimeSpecifier: '@gxfn/alembic-codex-runtime@0.2.0',
+          runtimeSpecifier: '@gxfn/alembic-runtime@0.2.0',
         },
       },
     });

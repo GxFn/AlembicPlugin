@@ -377,7 +377,7 @@ function buildCodexRuntimeReportSections(input: {
       },
     },
     offlineFallback: {
-      note: 'The Codex plugin ships a lightweight marketplace shell. The shell installs the exact pinned @gxfn/alembic-codex-runtime package into a startup cache with lock protection, then starts the cached MCP entrypoint with Node.',
+      note: 'The Codex plugin ships a lightweight marketplace shell. The shell installs the exact pinned @gxfn/alembic-runtime package into a startup cache with lock protection, then starts the cached MCP entrypoint with Node.',
       registryPackageFallback: false,
       localPackage: input.context.pinnedRuntimeSpecifier,
       command: input.context.runtimeBin,

@@ -44,9 +44,9 @@ describe('Codex module boundary status', () => {
     const status = buildCodexModuleBoundaryStatus({
       enhancementRoute: {
         embeddedRuntime: {
-          artifact: '@gxfn/alembic-codex-runtime@0.2.0',
+          artifact: '@gxfn/alembic-runtime@0.2.0',
           available: true,
-          packageName: '@gxfn/alembic-codex-runtime',
+          packageName: '@gxfn/alembic-runtime',
           route: 'embedded-plugin-runtime',
           version: getPackageVersion(),
         },

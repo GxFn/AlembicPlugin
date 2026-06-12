@@ -339,7 +339,7 @@ function assertForbiddenPackageFiles(listing) {
 function simulateMarketplaceInstall({ packageRoot, runtimeSpecifier }) {
   const marketplace = readJson(join(packageRoot, '.agents', 'plugins', 'marketplace.json'));
   const entry = Array.isArray(marketplace.plugins)
-    ? marketplace.plugins.find((item) => item?.name === 'alembic-codex')
+    ? marketplace.plugins.find((item) => item?.name === 'alembic')
     : null;
   assert(entry, 'marketplace install smoke missing alembic-codex entry');
   assert(entry.source?.source === 'local', 'marketplace install smoke requires local source');
@@ -353,7 +353,7 @@ function simulateMarketplaceInstall({ packageRoot, runtimeSpecifier }) {
   cpSync(sourceRoot, installedRoot, { recursive: true });
 
   const manifest = readJson(join(installedRoot, '.codex-plugin', 'plugin.json'));
-  assert(manifest.name === 'alembic-codex', 'installed plugin manifest name mismatch');
+  assert(manifest.name === 'alembic', 'installed plugin manifest name mismatch');
   const mcp = readJson(join(installedRoot, '.mcp.json'));
   const args = Array.isArray(mcp.mcpServers?.alembic?.args) ? mcp.mcpServers.alembic.args : [];
   const env = mcp.mcpServers?.alembic?.env || {};

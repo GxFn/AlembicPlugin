@@ -54,7 +54,7 @@ export interface CodexToolPolicyResult<T extends CodexToolDefinition = CodexTool
   visibleTools: Array<T | CodexToolDefinition>;
 }
 
-// Codex 插件当前只有 alembic-codex 一个入口；这里维护单插件工具策略，不做多插件抽象。
+// Codex 插件当前只有 alembic（壳目录 plugins/alembic-codex）一个入口；这里维护单插件工具策略，不做多插件抽象。
 export const CODEX_PROJECT_ROOT_PROPERTY = {
   type: 'string',
   description:

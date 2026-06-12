@@ -1015,8 +1015,8 @@ describe('CodexMcpServer', () => {
       '.codex',
       'plugins',
       'cache',
-      'alembic-codex',
-      'alembic-codex',
+      'gxfn',
+      'alembic',
       getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
@@ -1061,8 +1061,8 @@ describe('CodexMcpServer', () => {
       '.codex',
       'plugins',
       'cache',
-      'alembic-codex',
-      'alembic-codex',
+      'gxfn',
+      'alembic',
       getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
@@ -1326,8 +1326,8 @@ describe('CodexMcpServer', () => {
       '.codex',
       'plugins',
       'cache',
-      'alembic-codex',
-      'alembic-codex',
+      'gxfn',
+      'alembic',
       getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
@@ -1394,7 +1394,7 @@ describe('CodexMcpServer', () => {
       'plugins',
       'cache',
       'gxfn',
-      'alembic-codex',
+      'alembic',
       getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
@@ -1448,8 +1448,8 @@ describe('CodexMcpServer', () => {
       '.codex',
       'plugins',
       'cache',
-      'alembic-codex',
-      'alembic-codex',
+      'gxfn',
+      'alembic',
       getPackageVersion()
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
@@ -1547,7 +1547,7 @@ describe('CodexMcpServer', () => {
 
     expect(result.success).toBe(true);
     expect(result.data.package.pinnedSpecifier).toBe(
-      `@gxfn/alembic-codex-runtime@${getPackageVersion()}`
+      `@gxfn/alembic-runtime@${getPackageVersion()}`
     );
     expect(result.data.checks).toMatchObject({
       packagePin: true,
@@ -1566,7 +1566,7 @@ describe('CodexMcpServer', () => {
     expect(result.data.primaryAction.tool).toBe('alembic_codex_status');
     expect(result.data.summary).toContain('runtime checks passed');
     expect(result.data.offlineFallback).toMatchObject({
-      localPackage: `@gxfn/alembic-codex-runtime@${getPackageVersion()}`,
+      localPackage: `@gxfn/alembic-runtime@${getPackageVersion()}`,
       registryPackageFallback: false,
     });
     expect(result.data.cleanup).toMatchObject({
@@ -2369,7 +2369,7 @@ describe('CodexMcpServer', () => {
     expect(
       fs
         .readFileSync(path.resolve('plugins/alembic-codex/bin/alembic-codex-start.mjs'), 'utf8')
-        .includes(`@gxfn/alembic-codex-runtime@${getPackageVersion()}`)
+        .includes(`@gxfn/alembic-runtime@${getPackageVersion()}`)
     ).toBe(true);
     expect(pluginMcp.mcpServers.alembic.cwd).toBe('.');
     expect(pluginMcp.mcpServers.alembic.env.ALEMBIC_RUNTIME_MODE).toBe('plugin');

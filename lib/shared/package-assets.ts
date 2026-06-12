@@ -10,7 +10,7 @@ import { DEFAULT_FOLDER_NAMES } from '@alembic/core/workspace';
 
 const __dirname = import.meta.dirname;
 const PLUGIN_RUNTIME_PACKAGE_NAMES = new Set([
-  '@gxfn/alembic-codex-runtime',
+  '@gxfn/alembic-runtime',
   'alembic-codex-plugin-runtime',
 ]);
 

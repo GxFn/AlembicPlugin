@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "alembic-codex",
+      "name": "alembic",
       "source": {
         "source": "local",
         "path": "./plugins/alembic-codex"

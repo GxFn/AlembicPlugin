@@ -6,8 +6,11 @@ import {
 } from '../../shared/channel.js';
 import { getPackageVersion, PACKAGE_ROOT } from '../../shared/package-assets.js';
 
-export const CODEX_PLUGIN_NAME = 'alembic-codex';
-export const CODEX_RUNTIME_PACKAGE = '@gxfn/alembic-codex-runtime';
+export const CODEX_PLUGIN_NAME = 'alembic';
+// Shell directory keeps its host-descriptive name; only the distribution
+// identity was unified to "alembic" (naming ruling 2026-06-13, D1/D4).
+export const CODEX_PLUGIN_SHELL_DIR = 'alembic-codex';
+export const CODEX_RUNTIME_PACKAGE = '@gxfn/alembic-runtime';
 export const CODEX_RUNTIME_BIN = 'alembic-codex-mcp';
 export const CODEX_MARKETPLACE_SHELL_ENTRY = './bin/alembic-codex-start.mjs';
 export const CODEX_SETUP_PROFILE = 'codex-plugin';
@@ -91,7 +94,7 @@ function resolveCodexPluginRoot(env: NodeJS.ProcessEnv): string {
   if (configured) {
     return isAbsolute(configured) ? configured : resolve(process.cwd(), configured);
   }
-  return join(PACKAGE_ROOT, 'plugins', CODEX_PLUGIN_NAME);
+  return join(PACKAGE_ROOT, 'plugins', CODEX_PLUGIN_SHELL_DIR);
 }
 
 export function resolveEffectiveCodexTier(tierName: string, adminEnabled: boolean): string {
