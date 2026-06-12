@@ -554,10 +554,19 @@ export const ProjectSkillInput = z.object({
 export type ProjectSkillInput = z.infer<typeof ProjectSkillInput>;
 
 // ══════════════════════════════════════════════════════
-//  11. alembic_bootstrap — 无参数
+//  11. alembic_bootstrap — 仅重建确认参数
 // ══════════════════════════════════════════════════════
 
-export const BootstrapInput = z.object({});
+export const BootstrapInput = z.object({
+  // MT1 P1 数据丢失门禁：可用知识库存在时，bootstrap 会把全部现有知识
+  // 移入 .asd/.trash/<ts>/ 并从零重建，必须显式 rebuild:true 确认。
+  rebuild: z
+    .boolean()
+    .optional()
+    .describe(
+      'Required confirmation when a usable knowledge base already exists: pass true to archive ALL existing knowledge to .asd/.trash/<timestamp>/ and rebuild from zero. Without it, bootstrap refuses and recommends alembic_rescan instead.'
+    ),
+});
 export type BootstrapInput = z.infer<typeof BootstrapInput>;
 
 // ══════════════════════════════════════════════════════

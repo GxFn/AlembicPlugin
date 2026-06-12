@@ -587,8 +587,11 @@ export class McpServer {
       alembic_project_skill: (ctx, args) => toolRouter.routeProjectSkillTool(ctx, args),
       alembic_panorama: (ctx, args) => panoramaHandler(ctx, args),
       // ── Host Agent Bootstrap (v3.1) ──
-      alembic_bootstrap: (ctx, _args) =>
-        bootstrapForHostAgent(ctx as Parameters<typeof bootstrapForHostAgent>[0]),
+      alembic_bootstrap: (ctx, args) =>
+        bootstrapForHostAgent(
+          ctx as Parameters<typeof bootstrapForHostAgent>[0],
+          args as Parameters<typeof bootstrapForHostAgent>[1]
+        ),
       alembic_rescan: (ctx, args) =>
         rescanForHostAgent(ctx as Parameters<typeof rescanForHostAgent>[0], args),
       alembic_evolve: (ctx, args) =>

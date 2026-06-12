@@ -33,6 +33,7 @@ import {
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
@@ -280,7 +281,7 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
     reasons: knowledgeRescanPlan.executionReasons,
   });
 
-  return presentHostAgentKnowledgeRescanResponse({
+  const response = presentHostAgentKnowledgeRescanResponse({
     recipeSnapshot,
     cleanResult,
     auditSummary,
@@ -289,7 +290,22 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
     dimensions: requestedDimensions,
     reason: intent.reason,
     responseTimeMs: Date.now() - t0,
-  });
+  }) as Record<string, unknown> & { message?: string; meta?: Record<string, unknown> };
+
+  // MT1 P1 归档诚实性：候选/wiki 投影被移动时，摘要必须说明归档去向
+  // （结构化的 rescan.archive 字段由 Core presenter 携带）。
+  if (cleanResult.trash && cleanResult.trash.movedItems > 0) {
+    response.message =
+      `📦 已清理的 candidates/wiki 投影归档到 .asd/.trash/${cleanResult.trash.folder.split(/[\\/]/).filter(Boolean).pop()}/` +
+      `（${cleanResult.trash.movedItems} 项，可恢复）。${response.message ?? ''}`;
+  }
+
+  // MT1 P3-3 一致性：与 alembic_bootstrap 相同的选择不一致事实回带。
+  const mismatch = buildCodexLocalSelectionMismatch(projectRoot);
+  if (mismatch) {
+    response.meta = { ...(response.meta ?? {}), hostProjectSelectionMismatch: mismatch };
+  }
+  return response;
 }
 
 function attachIDEAgentAnalysisSurface(

@@ -27,10 +27,13 @@ import {
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import { type CodexKnowledgeState, inspectCodexKnowledge } from '#codex/KnowledgeState.js';
 import { buildCodexColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
+import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 
 interface McpContext {
   container: ServiceContainer;
@@ -63,10 +66,25 @@ interface AttachColdStartOnboardingInput<T extends { meta?: Record<string, unkno
  * @param ctx { container, logger, startedAt }
  * @returns envelope({ success, data: MissionBriefing })
  */
-export async function runHostAgentColdStartWorkflow(ctx: McpContext) {
+export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: BootstrapInput) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveDataRoot(ctx.container);
+
+  // ═══════════════════════════════════════════════════════════
+  // Step 0: 重建确认门禁（MT1 P1 数据丢失门禁的 bootstrap 半边）
+  // fullReset 会把全部现有知识移入垃圾桶并清空 DB；可用知识库存在时
+  // 必须显式 rebuild:true 确认，否则拒绝并推荐保留式 alembic_rescan。
+  // 使用与 tools/list 知识门同一谓词（inspectCodexKnowledge.usable），
+  // 保证确认门禁与工具面收合发生在同一事实上。
+  // ═══════════════════════════════════════════════════════════
+
+  const knowledgeBefore = inspectCodexKnowledge(projectRoot);
+  const confirmationBlock = buildBootstrapRebuildConfirmationBlock(knowledgeBefore, args);
+  if (confirmationBlock) {
+    return attachLocalSelectionMismatch(confirmationBlock, projectRoot);
+  }
+
   const intent = createHostAgentColdStartIntent();
   const plan = buildColdStartWorkflowPlan({ intent, projectRoot, dataRoot });
 
@@ -204,12 +222,93 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext) {
       `${briefingWithOnboardingContract.meta?.responseSizeKB || '?'}KB — session ${session.id}`
   );
 
-  return presentHostAgentColdStartResponse({
+  const response = presentHostAgentColdStartResponse({
     cleanupResult,
     briefing: briefingWithOnboardingContract,
     dimensionCount: briefingDimensions.length,
     responseTimeMs: Date.now() - t0,
-  });
+  }) as Record<string, unknown> & { message?: string };
+
+  // MT1 P1 归档诚实性：销毁式重建必须在摘要里说明归档去向与工具面变化，
+  // 不允许只在结构化字段里携带。
+  if (cleanupResult.trash && cleanupResult.trash.movedItems > 0) {
+    response.message =
+      `⚠️ 原有知识已归档到 .asd/.trash/${baseName(cleanupResult.trash.folder)}/` +
+      `（${cleanupResult.trash.movedItems} 项，含 DB 快照 ${cleanupResult.trash.dbSnapshotRows} 行，可恢复）。` +
+      `知识库清空后，知识相关工具会从 tools/list 暂时隐藏，直到重建出可用知识。` +
+      `${response.message ?? ''}`;
+  }
+  return attachLocalSelectionMismatch(response, projectRoot);
+}
+
+/**
+ * 可用知识库 + 未确认 rebuild → 拒绝销毁（导出供单测直接验证门禁矩阵）。
+ */
+export function buildBootstrapRebuildConfirmationBlock(
+  knowledge: CodexKnowledgeState,
+  args?: BootstrapInput
+): Record<string, unknown> | null {
+  if (!knowledge.usable || args?.rebuild === true) {
+    return null;
+  }
+  return {
+    success: false,
+    errorCode: 'CODEX_BOOTSTRAP_REBUILD_CONFIRMATION_REQUIRED',
+    tool: 'alembic_bootstrap',
+    message:
+      `当前项目已有可用知识库（Recipe ${knowledge.recipeCount} 个、Skill ${knowledge.skillCount} 个、DB 条目 ${knowledge.databaseEntryCount} 条）。` +
+      `bootstrap 会把全部现有知识移入 .asd/.trash/<时间戳>/ 并从零重建。` +
+      `如需保留 Recipe 并刷新知识，请改用 alembic_rescan；` +
+      `确认要重建请显式传入 { "rebuild": true } 重新调用。本次未做任何修改。`,
+    data: {
+      knowledge: {
+        databaseEntryCount: knowledge.databaseEntryCount,
+        recipeCount: knowledge.recipeCount,
+        skillCount: knowledge.skillCount,
+        usable: knowledge.usable,
+      },
+      needsUserInput: true,
+      nextActions: [
+        {
+          label: 'Refresh while preserving Recipes',
+          reason: 'alembic_rescan keeps reviewed Recipes and rebuilds derived knowledge.',
+          tool: 'alembic_rescan',
+        },
+        {
+          arguments: { rebuild: true },
+          label: 'Rebuild from zero (destructive, archived to trash)',
+          reason: 'Archives ALL existing knowledge to .asd/.trash/<timestamp>/ before rebuilding.',
+          tool: 'alembic_bootstrap',
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * MT1 P3-3 一致性：本地工作流在全局选择不一致时照常工作（只动宿主项目
+ * 自己的数据根），但必须把 codex_* 门禁所依据的同一事实带回响应，
+ * 不允许静默绕过。
+ */
+function attachLocalSelectionMismatch(
+  response: Record<string, unknown>,
+  projectRoot: string
+): Record<string, unknown> {
+  const mismatch = buildCodexLocalSelectionMismatch(projectRoot);
+  if (!mismatch) {
+    return response;
+  }
+  const meta =
+    response.meta && typeof response.meta === 'object' && !Array.isArray(response.meta)
+      ? (response.meta as Record<string, unknown>)
+      : {};
+  response.meta = { ...meta, hostProjectSelectionMismatch: mismatch };
+  return response;
+}
+
+function baseName(value: string): string {
+  const segments = value.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] ?? value;
 }
 
 /**

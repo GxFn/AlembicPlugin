@@ -418,6 +418,41 @@ function findRegisteredProjectRootById(projectId: string | null): string | null 
   }
 }
 
+/**
+ * Local-selection awareness for host-local workflows (MT1 P3-3 no-bypass
+ * rule): alembic_bootstrap / alembic_rescan operate only on the host
+ * project's own data root and therefore proceed under a global selection
+ * mismatch, but they must consult and surface the same alignment fact the
+ * codex_* gate blocks on instead of silently ignoring it. Root comparison
+ * is realpath-based only (no daemon project-scope identity available on
+ * this path), so the warning is informational, never blocking.
+ */
+export function buildCodexLocalSelectionMismatch(projectRoot: string): {
+  activeProjectRoot: string | null;
+  hostProjectRoot: string;
+  note: string;
+  selectedProjectRoot: string | null;
+} | null {
+  const runtimeControl = readProjectRuntimeControlState();
+  if (runtimeControl.summary.source !== 'readable') {
+    return null;
+  }
+  const hostRoot = safeNormalizeProjectPath(projectRoot);
+  const selectedRoot = runtimeControl.state.selectedProjectRoot;
+  const activeRoot = runtimeControl.state.activeProjectRoot;
+  const selectedDiffers = Boolean(selectedRoot && !sameProjectRoot(hostRoot, selectedRoot));
+  const activeDiffers = Boolean(activeRoot && !sameProjectRoot(hostRoot, activeRoot));
+  if (!selectedDiffers && !activeDiffers) {
+    return null;
+  }
+  return {
+    activeProjectRoot: activeDiffers ? activeRoot : null,
+    hostProjectRoot: projectRoot,
+    note: 'The global Alembic runtime selection points at a different project. This operation affected ONLY the Codex host project; the shared Alembic runtime selection was not read, started, or changed.',
+    selectedProjectRoot: selectedDiffers ? selectedRoot : null,
+  };
+}
+
 function sameProjectRoot(left: string | null, right: string | null): boolean {
   if (!left || !right) {
     return false;

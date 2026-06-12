@@ -303,7 +303,7 @@ export const TOOLS = [
     name: 'alembic_bootstrap',
     tier: 'agent',
     description:
-      'Cold-start — no parameters needed. Auto-analyzes the project (AST, dependency graph, Guard audit) and returns a Mission Briefing:\n' +
+      'Cold-start — DESTRUCTIVE on an existing knowledge base: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). On a fresh project no parameters are needed. Auto-analyzes the project (AST, dependency graph, Guard audit) and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
       '• Dimension task list (8 dimensions × 3 Tiers)\n' +
       '• ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +

@@ -742,6 +742,7 @@ export class CodexMcpServer {
       daemon,
       enhancementRoute,
       hostProjectAlignment,
+      projectRoot: this.projectRoot,
       requirement: 'dashboard',
       tool: 'alembic_codex_dashboard',
     });
@@ -1246,6 +1247,7 @@ export class CodexMcpServer {
       daemon: currentDaemon,
       enhancementRoute: currentEnhancementRoute,
       hostProjectAlignment: currentHostProjectAlignment,
+      projectRoot: this.projectRoot,
       requirement,
       tool,
     });
@@ -1284,6 +1286,7 @@ export class CodexMcpServer {
       daemon,
       enhancementRoute,
       hostProjectAlignment,
+      projectRoot: this.projectRoot,
       requirement,
       tool,
     });

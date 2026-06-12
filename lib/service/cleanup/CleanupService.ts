@@ -344,21 +344,18 @@ export class CleanupService {
       );
     }
 
-    // 2. 清空 candidates/ 目录
-    result.deletedFiles += this.#clearDirectory(path.join(this.#dataRoot, CANDIDATES_DIR));
+    // 2+4. candidates/ 与 wiki/ 归档进垃圾桶（MT1 P1 数据丢失门禁）：
+    //    rescan 响应声明保留知识，按 Core DestructiveResetReport 契约，
+    //    删除这些用户可见投影时必须携带归档引用，否则即静默数据丢失。
+    this.#trashRescanProjections(result);
 
     // 3. 保留 skills/：AP-KS Project Skill source 的唯一真源在 dataRoot/Alembic/skills。
     //    如果这里清空，projectRoot/.agents/skills 的 Codex runtime symlink 会变成断链。
 
-    // 4. 清空 wiki/ 目录
-    result.deletedFiles += this.#clearDirectory(
-      path.join(getProjectKnowledgePath(this.#dataRoot), 'wiki')
-    );
-
-    // 5. 删除向量索引
+    // 5. 删除向量索引（可再生派生缓存，无信息损失，不归档）
     result.deletedFiles += this.#clearDirectory(getContextIndexPath(this.#dataRoot));
 
-    // 6. 删除 bootstrap-report.json
+    // 6. 删除 bootstrap-report.json（同上：派生缓存）
     result.deletedFiles += this.#deleteFile(
       path.join(this.#dataRoot, '.asd', 'bootstrap-report.json')
     );
@@ -418,20 +415,15 @@ export class CleanupService {
       );
     }
 
-    // 2. 清空 candidates/ 目录
-    result.deletedFiles += this.#clearDirectory(path.join(this.#dataRoot, CANDIDATES_DIR));
+    // 2+4. candidates/ 与 wiki/ 归档进垃圾桶（MT1 P1，与 rescanClean 同一门禁）
+    this.#trashRescanProjections(result);
 
     // 3. 保留 skills/，原因同 rescanClean：这是 Project Skill source，不是衍生缓存。
 
-    // 4. 清空 wiki/ 目录
-    result.deletedFiles += this.#clearDirectory(
-      path.join(getProjectKnowledgePath(this.#dataRoot), 'wiki')
-    );
-
-    // 5. 删除向量索引
+    // 5. 删除向量索引（可再生派生缓存，不归档）
     result.deletedFiles += this.#clearDirectory(getContextIndexPath(this.#dataRoot));
 
-    // 6. 删除 bootstrap-report.json
+    // 6. 删除 bootstrap-report.json（派生缓存）
     result.deletedFiles += this.#deleteFile(
       path.join(this.#dataRoot, '.asd', 'bootstrap-report.json')
     );
@@ -572,6 +564,39 @@ export class CleanupService {
    * 使用 rename 实现（同文件系统内是原子操作，速度极快）
    * @returns 移动的顶层条目数
    */
+  /**
+   * Rescan 投影归档（MT1 P1 数据丢失门禁的 rescan 半边）：
+   * candidates/ 与 wiki/ 是用户可见的知识投影，rescan 声明保留知识，
+   * 因此它们只能移入 .asd/.trash/<ts>/（与 fullReset 同一垃圾桶机制）
+   * 而不能直接删除。两个目录都为空时不创建空垃圾桶。
+   * DB 侧 rescan 仅清理 pending/rejected/deprecated 条目，其用户可见
+   * 投影正是这里归档的 candidates/ 文件。
+   */
+  #trashRescanProjections(result: CleanupResult): void {
+    const dirsToTrash: Array<{ src: string; name: string }> = [
+      { src: path.join(this.#dataRoot, CANDIDATES_DIR), name: 'candidates' },
+      { src: path.join(getProjectKnowledgePath(this.#dataRoot), 'wiki'), name: 'wiki' },
+    ];
+    const hasContent = dirsToTrash.some(
+      ({ src }) => fs.existsSync(src) && fs.readdirSync(src).length > 0
+    );
+    if (!hasContent) {
+      return;
+    }
+
+    const trashFolder = this.#createTrashFolder();
+    let movedItems = 0;
+    for (const { src, name } of dirsToTrash) {
+      movedItems += this.#moveToTrash(src, path.join(trashFolder, name));
+    }
+    result.deletedFiles += movedItems;
+    result.trash = { folder: trashFolder, movedItems, dbSnapshotRows: 0 };
+    this.#logger.info('[CleanupService] Rescan projections archived to trash', {
+      trashFolder: path.basename(trashFolder),
+      movedItems,
+    });
+  }
+
   #moveToTrash(srcDir: string, trashSubDir: string): number {
     if (!fs.existsSync(srcDir)) {
       return 0;
