@@ -139,12 +139,12 @@ export const CODEX_SOURCE_GRAPH_TOOL_NAMES = new Set([
 ]);
 
 export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
-  'alembic_codex_status',
+  'alembic_mcp_status',
   'alembic_codex_diagnostics',
   ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
 ]);
 
-export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_codex_init']);
+export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_mcp_init']);
 
 const CODEX_RETIRED_TOOL_NAMES = new Set(['alembic_task']);
 
@@ -191,8 +191,8 @@ export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
 
 export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
   'alembic_codex_dashboard',
-  'alembic_codex_bootstrap',
-  'alembic_codex_rescan',
+  'alembic_mcp_bootstrap_job',
+  'alembic_mcp_rescan_job',
   'alembic_codex_job',
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
@@ -205,7 +205,7 @@ export const CODEX_COLD_START_TOOL_NAMES = new Set([
 
 export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
   {
-    name: 'alembic_codex_status',
+    name: 'alembic_mcp_status',
     tier: 'agent',
     description:
       'Check Alembic Codex plugin status without starting the daemon. Reports workspace, Ghost data root, initialization, daemon state, and the recommended next tool call.',
@@ -323,7 +323,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     }),
   },
   {
-    name: 'alembic_codex_init',
+    name: 'alembic_mcp_init',
     tier: 'agent',
     description:
       'Initialize Alembic for Codex plugin use. Unregistered projects default to Ghost mode; registered projects inherit their existing Alembic workspace mode.',
@@ -347,7 +347,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     inputSchema: codexInputSchema(),
   },
   {
-    name: 'alembic_codex_bootstrap',
+    name: 'alembic_mcp_bootstrap_job',
     tier: 'agent',
     description:
       'Explicit resident bootstrap job path. A local Alembic daemon owns provider-backed job execution when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
@@ -361,7 +361,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     }),
   },
   {
-    name: 'alembic_codex_rescan',
+    name: 'alembic_mcp_rescan_job',
     tier: 'agent',
     description:
       'Explicit resident rescan job path. A local Alembic daemon owns provider-backed job execution when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
@@ -382,7 +382,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     inputSchema: codexInputSchema({
       jobId: {
         type: 'string',
-        description: 'Job id returned by alembic_codex_bootstrap or alembic_codex_rescan.',
+        description: 'Job id returned by alembic_mcp_bootstrap_job or alembic_mcp_rescan_job.',
       },
       kind: { type: 'string', enum: ['bootstrap', 'rescan'] },
       status: {

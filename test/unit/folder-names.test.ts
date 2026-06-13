@@ -7,9 +7,9 @@ import {
 import { describe, expect, test } from 'vitest';
 import {
   CONFIG_DIR,
-  INJECTABLE_SKILLS_DIR,
   INTERNAL_SKILLS_DIR,
   PACKAGE_ROOT,
+  PACKAGE_SKILLS_DIR,
   RESOURCES_DIR,
   SKILLS_DIR,
   TEMPLATES_DIR,
@@ -62,9 +62,9 @@ describe('folder names', () => {
 
   test('derives package paths from the shared default folder names', () => {
     expect(CONFIG_DIR).toBe(path.join(PACKAGE_ROOT, 'config'));
+    expect(PACKAGE_SKILLS_DIR).toBe(path.join(PACKAGE_ROOT, 'skills'));
     expect(INTERNAL_SKILLS_DIR).toBe(path.join(PACKAGE_ROOT, 'skills'));
-    expect(INJECTABLE_SKILLS_DIR).toBe(path.join(PACKAGE_ROOT, 'injectable-skills'));
-    expect(SKILLS_DIR).toBe(INJECTABLE_SKILLS_DIR);
+    expect(SKILLS_DIR).toBe(PACKAGE_SKILLS_DIR);
     expect(TEMPLATES_DIR).toBe(path.join(PACKAGE_ROOT, 'templates'));
     expect(RESOURCES_DIR).toBe(path.join(PACKAGE_ROOT, 'resources'));
   });

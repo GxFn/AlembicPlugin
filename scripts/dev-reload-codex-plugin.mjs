@@ -177,7 +177,7 @@ function buildRuntimeModeSeparation() {
 
 function buildReadbackProofSummary() {
   return {
-    expectedToolCall: 'alembic_codex_status',
+    expectedToolCall: 'alembic_mcp_status',
     expectedEntryMode: 'local-dev-direct-dist',
     proves: [
       'fresh installed-cache MCP startup',
@@ -281,7 +281,7 @@ Usage:
 Behavior:
   Builds the local Codex MCP runtime, verifies the marketplace shell, rewrites installed
   plugin cache roots to local dist/bin/codex-mcp.js and starts a fresh MCP probe
-  against the rewritten cache. The probe calls alembic_codex_status and validates
+  against the rewritten cache. The probe calls alembic_mcp_status and validates
   projectRuntime identity, sourcePolicy, fallback isolation, entryMode, and
   failureEnvelopes. It never inspects, stops, or restarts the current Codex host
   MCP process. Restart Codex itself if the current transport is closed.

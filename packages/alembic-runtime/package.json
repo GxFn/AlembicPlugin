@@ -72,10 +72,9 @@
   "files": [
     ".alembic-runtime-boundary.json",
     ".agents",
-    "channels",
     "config",
     "dist",
-    "injectable-skills",
+    "skills",
     "resources",
     "templates",
     "template.json",

@@ -7,12 +7,12 @@ import { join, resolve } from 'node:path';
 import { resolveCoreSource } from './local-source-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const tmpRoot = mkdtempSync(join(tmpdir(), 'alembic-codex-runtime-boundary-'));
+const tmpRoot = mkdtempSync(join(tmpdir(), 'alembic-runtime-boundary-'));
 const packageRoot = join(tmpRoot, 'package-root');
 const packDir = join(tmpRoot, 'pack');
 const installRoot = join(tmpRoot, 'install');
 const npmCache = join(tmpRoot, 'npm-cache');
-const sourceManifestPath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
+const sourceManifestPath = join(root, 'packages', 'alembic-runtime', 'package.json');
 const sourceManifest = readJson(sourceManifestPath);
 const coreSource = resolveCoreSource({ requireDist: true });
 const coreManifest = readJson(join(coreSource.path, 'package.json'));
@@ -121,7 +121,7 @@ try {
       cwd: installRoot,
       env: { ...process.env, HUSKY: '0', npm_config_cache: npmCache },
       maxBuffer: 80 * 1024 * 1024,
-      timeout: 120000,
+      timeout: 300000,
     }
   );
   const installedRoot = join(installRoot, 'node_modules', sourceManifest.name);

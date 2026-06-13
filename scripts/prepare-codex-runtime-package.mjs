@@ -6,8 +6,8 @@ import { computeDistContentHash, computeSourceHash } from './lib/runtime-pack-fr
 import { resolveCoreGrammarSource, resolveCoreSource } from './local-source-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const sourceManifestPath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
-const outputRoot = resolveArg('--output') || join(root, '.tmp', 'alembic-codex-runtime-package');
+const sourceManifestPath = join(root, 'packages', 'alembic-runtime', 'package.json');
+const outputRoot = resolveArg('--output') || join(root, '.tmp', 'alembic-runtime-package');
 const rootPackage = readJson(join(root, 'package.json'));
 const sourceManifest = readJson(sourceManifestPath);
 const coreSource = resolveCoreSource({ requireDist: true });
@@ -47,13 +47,12 @@ writeRuntimePackageJson();
 copyTree('dist', 'dist', { skipDeclarations: true });
 copyTree('config', 'config');
 copyTree('templates', 'templates');
-copyTree('injectable-skills', 'injectable-skills');
-copyTree('channels', 'channels');
+copyTree('skills', 'skills');
 copyTree('.agents', '.agents');
 copyFile('template.json', 'template.json', { optional: true });
 copyFile('README.md', 'README.md', { optional: true });
 copyFile('README_CN.md', 'README_CN.md', { optional: true });
-copyFile('packages/alembic-codex-runtime/README.md', 'README.md');
+copyFile('packages/alembic-runtime/README.md', 'README.md');
 copyCoreGrammars();
 writeRuntimeBoundaryMetadata();
 

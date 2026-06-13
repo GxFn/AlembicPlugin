@@ -17,9 +17,7 @@ const root = resolve(import.meta.dirname, '..');
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
 const startupPath = join(pluginRoot, 'bin', 'alembic-start.mjs');
 const runtimePackageName = '@gxfn/alembic-runtime';
-const runtimeVersion = readJson(
-  join(root, 'packages', 'alembic-codex-runtime', 'package.json')
-).version;
+const runtimeVersion = readJson(join(root, 'packages', 'alembic-runtime', 'package.json')).version;
 const runtimeSpecifier = `${runtimePackageName}@${runtimeVersion}`;
 const keepTmp = process.argv.includes('--keep') || process.env.KEEP_STARTUP_PROBE_TMP === '1';
 const tmpRoot = mkdtempSync(join(tmpdir(), 'alembic-codex-startup-probe-'));

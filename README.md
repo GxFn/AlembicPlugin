@@ -36,21 +36,20 @@ memory, bootstrap, Guard, and status tools.
   `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`
   (`lib/runtime/runtime/EmbeddedRuntimeContract.ts`).
 - **Recommended first run inside Codex**: `alembic_codex_diagnostics` →
-  `alembic_codex_status` → `alembic_codex_init` (if not initialized) →
-  `alembic_codex_bootstrap` for first project knowledge, or `alembic_intent` +
+  `alembic_mcp_status` → `alembic_mcp_init` (if not initialized) →
+  `alembic_mcp_bootstrap_job` for first project knowledge, or `alembic_intent` +
   `alembic_prime` before coding once knowledge exists.
 
-## Delivery chain (channel → marketplace shell → pinned runtime)
+## Delivery chain (marketplace shell → pinned runtime)
 
-1. `channels/codex/channel.json` is the Codex distribution entry; it names the
-   marketplace manifest (`.agents/plugins/marketplace.json`) and the runtime
-   package pin.
+1. `.agents/plugins/marketplace.json` is the Codex distribution entry; it points
+   at the installable plugin shell.
 2. `plugins/alembic-codex/` is the public installable **marketplace shell**
    (submodule → `GxFn/AlembicCodex`). Its MCP config starts
    `bin/alembic-start.mjs`; the shell ships no runtime code.
 3. The shell installs the exact pinned npm runtime package
    (`@gxfn/alembic-runtime`, boundary in
-   `packages/alembic-codex-runtime/`) into the Alembic startup cache on first
+   `packages/alembic-runtime/`) into the Alembic startup cache on first
    run and reuses the cache afterwards.
 
 Users install via the Codex plugin marketplace:
@@ -92,7 +91,7 @@ npm run dev:codex-plugin:verify     # verify the synced cache
 npm run build:check                 # core + plugin type-check
 npm run smoke:codex-plugin          # end-to-end plugin smoke (required files, routes, MCP)
 npm run verify:codex-plugin         # plugin artifact verification
-npm run verify:codex-channel       # channel/marketplace alignment
+npm run verify:plugin-distribution  # marketplace/runtime distribution alignment
 npm run lint:repo-boundary          # repository boundary lint
 npm run release:check               # aggregate release gate
 ```

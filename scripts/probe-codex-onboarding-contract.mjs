@@ -43,7 +43,7 @@ const supervisor = {
 
 const server = new CodexMcpServer({ projectRoot, supervisor });
 const bootstrap = await server.handleToolCall('alembic_bootstrap', {});
-const status = await server.handleToolCall('alembic_codex_status', {});
+const status = await server.handleToolCall('alembic_mcp_status', {});
 
 console.log(
   JSON.stringify(

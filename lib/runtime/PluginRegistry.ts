@@ -29,7 +29,6 @@ export interface CodexPluginMcpDeclaration {
 }
 
 export interface CodexPluginRegistry {
-  channel: JsonReadResult;
   context: CodexRuntimeContext;
   marketplace: JsonReadResult;
   mcp: {
@@ -91,7 +90,6 @@ export function loadCodexPluginRegistry(
   const manifestInterface = asPlainRecord(manifest.value?.interface);
 
   return {
-    channel: readJsonObject(context.channelPath),
     context,
     marketplace: readJsonObject(context.marketplacePath),
     mcp: {

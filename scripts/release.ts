@@ -249,7 +249,9 @@ function main() {
       `release:${command} 已禁用：AlembicPlugin root package 是 artifact-only，不走 npm registry 发布。`
     );
     info('请使用 `npm run release:codex-plugin` 检查 Codex 插件 artifact。');
-    info('请使用 `npm run release:codex-channel` 检查 Codex channel metadata。');
+    info(
+      '请使用 `npm run verify:plugin-distribution` 检查 Codex marketplace/runtime distribution metadata。'
+    );
     process.exit(1);
   }
 

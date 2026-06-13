@@ -22,7 +22,7 @@ describe('Codex skill source graph guidance', () => {
 
   test('keeps structure skills short and separates Recipe graph from source freshness', () => {
     const pluginSkill = readRepoFile('plugins/alembic-codex/skills/alembic-structure/SKILL.md');
-    const injectableSkill = readRepoFile('injectable-skills/alembic-structure/SKILL.md');
+    const injectableSkill = readRepoFile('skills/alembic-structure/SKILL.md');
 
     for (const content of [pluginSkill, injectableSkill]) {
       expect(content).toContain('live MCP source graph guidance');

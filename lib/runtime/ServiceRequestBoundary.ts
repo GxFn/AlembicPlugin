@@ -17,8 +17,8 @@ export interface CodexServiceBoundaryDecision {
 const RESIDENT_SERVICE_REQUEST_TOOLS = new Set([
   'alembic_search',
   'alembic_codex_dashboard',
-  'alembic_codex_bootstrap',
-  'alembic_codex_rescan',
+  'alembic_mcp_bootstrap_job',
+  'alembic_mcp_rescan_job',
   'alembic_codex_job',
 ]);
 
@@ -56,8 +56,8 @@ function buildPluginOwnedReason(tool: string, operation: string | null): string 
   }
   if (
     tool === 'alembic_codex_dashboard' ||
-    tool === 'alembic_codex_bootstrap' ||
-    tool === 'alembic_codex_rescan' ||
+    tool === 'alembic_mcp_bootstrap_job' ||
+    tool === 'alembic_mcp_rescan_job' ||
     tool === 'alembic_codex_job'
   ) {
     return `${tool} is Codex-facing and owned by AlembicPlugin; local Alembic is requested only through explicit resident service APIs.`;

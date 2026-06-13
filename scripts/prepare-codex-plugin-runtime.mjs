@@ -8,7 +8,7 @@ const root = resolve(import.meta.dirname, '..');
 const packageJson = readJson(join(root, 'package.json'));
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
 const startupPath = join(pluginRoot, 'bin', 'alembic-start.mjs');
-const runtimePackagePath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
+const runtimePackagePath = join(root, 'packages', 'alembic-runtime', 'package.json');
 const runtimePackage = readJson(runtimePackagePath);
 const runtimeSpecifier = `${runtimePackage.name}@${runtimePackage.version}`;
 

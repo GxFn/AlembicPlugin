@@ -163,10 +163,10 @@ function buildMechanicalAssistantText(input: {
   result: unknown;
   toolName: string;
 }): string {
-  if (input.toolName === 'alembic_codex_status' && input.fixtureProjectRootMode === 'missing') {
+  if (input.toolName === 'alembic_mcp_status' && input.fixtureProjectRootMode === 'missing') {
     return 'Alembic 需要目标项目的绝对 projectRoot。当前 Codex 插件没有拿到可信项目目录，请提供项目根目录后再继续。';
   }
-  if (input.toolName === 'alembic_codex_init') {
+  if (input.toolName === 'alembic_mcp_init') {
     return isSuccess(input.result)
       ? 'Alembic Codex 初始化已完成。这里只完成工作区初始化，还没有开始知识挖掘。'
       : 'Alembic Codex 初始化没有完成，请查看工具返回的诊断信息后重试。';
@@ -258,7 +258,7 @@ async function waitForLiveJobs(options: {
 function extractCreatedJobIds(toolCalls: AlembicMcpHarness['toolCalls']): string[] {
   const ids: string[] = [];
   for (const call of toolCalls) {
-    if (call.name !== 'alembic_codex_bootstrap' && call.name !== 'alembic_codex_rescan') {
+    if (call.name !== 'alembic_mcp_bootstrap_job' && call.name !== 'alembic_mcp_rescan_job') {
       continue;
     }
     const data =

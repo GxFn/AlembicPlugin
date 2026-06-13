@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const publishMode = process.argv.includes('--publish');
 const packageJsonPath = join(root, 'package.json');
-const runtimePackageJsonPath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
+const runtimePackageJsonPath = join(root, 'packages', 'alembic-runtime', 'package.json');
 const rootConfigPath = join(root, 'config', 'default.json');
 const releaseWorkflowPath = join(root, '.github', 'workflows', 'release.yml');
 const pluginRoot = join(root, 'plugins', 'alembic-codex');
@@ -93,7 +93,7 @@ expect(
   'Release workflow must upload the marketplace shell startup'
 );
 expect(
-  releaseWorkflowSource.includes('packages/alembic-codex-runtime/package.json'),
+  releaseWorkflowSource.includes('packages/alembic-runtime/package.json'),
   'Release workflow must upload runtime package boundary metadata'
 );
 

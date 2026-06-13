@@ -71,7 +71,7 @@ describe('Codex plugin cache sync script', () => {
     expect(existsSync(join(targetRoot, '.codex-plugin', 'plugin.json'))).toBe(true);
     expect(cachedMcp.mcpServers.alembic.command).toBe(process.execPath);
     expect(cachedMcp.mcpServers.alembic.args).toEqual([localEntry]);
-    expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_CHANNEL_ID).toBe('codex');
+    expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_CHANNEL_ID).toBeUndefined();
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_RUNTIME_MODE).toBe('plugin');
     expect(cachedMcp.mcpServers.alembic.env.ALEMBIC_PLUGIN_HOST).toBe('codex');
     expect(repoMcp.mcpServers.alembic.command).toBe('node');

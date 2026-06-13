@@ -22,7 +22,7 @@ const report = {
     ],
     failureEnvelopePath: 'projectRuntime.failureEnvelopes',
     sourcePolicyPath: 'projectRuntime.sourcePolicy',
-    tool: 'alembic_codex_status',
+    tool: 'alembic_mcp_status',
   },
   steps: [],
   synced: null,
@@ -121,7 +121,7 @@ async function probeInstalledTarget(targetRoot) {
     `Explicit projectRoot was not trusted for ${targetRoot}: ${JSON.stringify(first.projectRootResolution)}`
   );
   const runtimeReadback = assertRuntimeReadback(first, marker, targetRoot);
-  const savedData = await callMcpTool(targetRoot, savedHome, 'alembic_codex_status', {});
+  const savedData = await callMcpTool(targetRoot, savedHome, 'alembic_mcp_status', {});
   const savedResolution = savedData.projectRootResolution;
   assertProbe(
     savedResolution?.source !== 'saved-project-root' &&
@@ -132,7 +132,7 @@ async function probeInstalledTarget(targetRoot) {
       projectRootResolution: savedResolution,
     })}`
   );
-  const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_codex_init', {});
+  const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_mcp_init', {});
   assertProbe(
     failClosed.ok === false &&
       ['CODEX_PROJECT_ROOT_REJECTED', 'CODEX_PROJECT_ROOT_UNRESOLVED'].includes(
@@ -155,8 +155,8 @@ async function probeInstalledTarget(targetRoot) {
 }
 
 async function callMcpStatus(targetRoot, alembicHome, args) {
-  const result = await callMcpTool(targetRoot, alembicHome, 'alembic_codex_status', args);
-  assertProbe(result.ok === true, `alembic_codex_status failed: ${JSON.stringify(result)}`);
+  const result = await callMcpTool(targetRoot, alembicHome, 'alembic_mcp_status', args);
+  assertProbe(result.ok === true, `alembic_mcp_status failed: ${JSON.stringify(result)}`);
   return result;
 }
 

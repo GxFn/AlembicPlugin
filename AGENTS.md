@@ -47,30 +47,30 @@ This section is maintained by the Wakeflow runtime installer. It records this wi
 
 ### 先停下
 
-- 如果当前任务没有明确分配给 `AlembicPlugin`，或目标不是 Codex MCP、skill、channel/marketplace、插件 runtime、安装验证、Codex host adaptation，停止。
-- 如果我准备把完整插件能力改成薄实现、空壳接口、静态 mock、无真实 host 调用、无 MCP schema、无 channel / marketplace 验证或无 Codex 会话证据，停止。
+- 如果当前任务没有明确分配给 `AlembicPlugin`，或目标不是 Codex MCP、skill、marketplace/distribution、插件 runtime、安装验证、Codex host adaptation，停止。
+- 如果我准备把完整插件能力改成薄实现、空壳接口、静态 mock、无真实 host 调用、无 MCP schema、无 marketplace/distribution 验证或无 Codex 会话证据，停止。
 - 如果我准备把迁移、整理、重构、优化或插件化解释成删减功能，或把用户目标替换成“干净”“薄”“轻量”“空壳”“先搭框架”，停止。
 - 如果我准备重新引入独立 Agent runtime、AI provider runtime 或 Agent Tool V2 runtime，包括 `@alembic/agent`、`#agent/*`、`#tools/*`、`#external/ai/*`、`lib/agent/**`、`lib/tools/**`、`lib/external/ai/**`，但用户和总控文档没有明确改变边界，停止。
 - 如果我准备把 Codex 插件发布链路迁回 `Alembic` 主仓库，或把插件适配层误删成 Core 内核，停止。
 - 如果共享能力可以通过 `../AlembicCore` / `@alembic/core` 消费，却准备绕过包入口引用 Core 源码、复制 Core 实现或把 Core 实现写进本仓库，停止。
 - 如果下一跳或回填涉及 `AlembicTest`，但当前计划和 delivery envelope 没有同时显式授权本窗口处理 TestWindow heartbeat，停止。
 - 如果计划涉及删减、替换、降级、延期、只做部分、只搭框架、只保留接口、暂不接入或改变完整范围，停止并回到用户或总控确认。
-- 如果准备修改相邻仓库、更新 Core 子仓库指针、发布 channel、同步 marketplace、清理缓存或改变安装路径，但当前任务没有明确授权，停止。
-- 如果无法提供提交 hash 或 no-commit 理由、验证命令、验证结果、插件 / channel / session 证据、遗留风险和下一步建议，不得回填完成。
+- 如果准备修改相邻仓库、更新 Core 子仓库指针、同步 marketplace、清理缓存或改变安装路径，但当前任务没有明确授权，停止。
+- 如果无法提供提交 hash 或 no-commit 理由、验证命令、验证结果、插件 / marketplace / session 证据、遗留风险和下一步建议，不得回填完成。
 
 ### 正确顺序
 
 1. 先确认任务属于 `AlembicPlugin` 的 Codex host / plugin 边界。
-2. 再读取 Core exports、Codex adapter、MCP schema、skill / channel / runtime 入口和当前计划证据。
+2. 再读取 Core exports、Codex adapter、MCP schema、skill / marketplace / runtime 入口和当前计划证据。
 3. 再实现或修复真实插件链路，保留真实 host 调用、状态变化和可复核证据。
-4. 最后运行对应 build / boundary / plugin / channel / session 验证，并按总控要求回填。
+4. 最后运行对应 build / boundary / plugin / marketplace / session 验证，并按总控要求回填。
 
 ## 职责边界
 
-- `AlembicPlugin` 负责 Codex 插件、Codex MCP runtime、Codex skills、channel/marketplace 发布、插件 smoke、插件缓存同步、Codex 会话验证和宿主插件集成。
+- `AlembicPlugin` 负责 Codex 插件、Codex MCP runtime、Codex skills、marketplace 发布、插件 smoke、插件缓存同步、Codex 会话验证和宿主插件集成。
 - 共享内核能力在本 workspace 日常开发中优先通过 `../AlembicCore` 和 `@alembic/core: file:../AlembicCore` 接入；`vendor/AlembicCore` 只作为 workspace 外 fallback、release snapshot 或 Codex portable runtime 快照来源/目标。
 - Codex 主 Agent 能力属于宿主环境；本仓库负责把 Codex MCP tool/skill/runtime 与 Alembic Core 能力连接起来。
-- Core 需要提供可复用 workflow/session/briefing/persistence/contract，本仓库保留 Codex MCP tool schema、policy、runtime、channel、skill 和发布适配层。
+- Core 需要提供可复用 workflow/session/briefing/persistence/contract，本仓库保留 Codex MCP tool schema、policy、runtime、skill 和发布适配层。
 - 不要在旧工作区或旧克隆路径下工作；当前统一以本 workspace 内的 Alembic 系列仓库为准。
 
 ## Core 接入规则
@@ -80,14 +80,14 @@ This section is maintained by the Wakeflow runtime installer. It records this wi
 - 外层仓库只提交子仓库指针、`package.json` / lockfile 和 Codex 接入代码；Core 内部实现必须在 `AlembicCore` 仓库提交。
 - 构建通过 `npm run build:core` 先构建 Core 的 `dist/`，再运行本仓库 TypeScript 构建。
 - 不要绕过 `@alembic/core` 包入口直接从 `../AlembicCore/src/**` 或 `vendor/AlembicCore/src/**` 引用源码。
-- 已迁入 Core 的共享逻辑应通过 `@alembic/core` 子路径导入；Codex MCP、channel、plugin release、marketplace sync、runtime env、tool policy 和 skills 仍属于本仓库。
+- 已迁入 Core 的共享逻辑应通过 `@alembic/core` 子路径导入；Codex MCP、plugin release、marketplace sync、runtime env、tool policy 和 skills 仍属于本仓库。
 - 删除本仓库重复实现前，必须确认所有 import 已切到 Core 或 Codex adapter，且对应 build/test/verify 通过。
 
 ## 插件保留边界
 
 - `lib/runtime/**`：Codex runtime、状态、策略、session、plugin cache 适配。
 - `lib/runtime/mcp/**`：Codex MCP tool 声明、schema、annotation、gateway 映射和 stdio/http glue。
-- `plugins/**`、`channels/**`、`.agents/**`、`injectable-skills/**`：插件与 marketplace/channel 交付资源。
+- `plugins/**`、`.agents/**`、`skills/**`：插件与 marketplace 交付资源。
 - `scripts/*codex*`、`scripts/release-codex-*`、`scripts/sync-codex-*`：Codex 插件同步、验证和发布脚本。
 - MCP stdio/http 接入、tool schema、Codex skill 文案、runtime env、dev cache、release packaging。
 - `scripts/report-agent-extraction-boundary.mjs` 可保留旧 `lib/agent/`、`lib/tools/`、`lib/external/ai/` 字符串作为删除边界审计标签；这些标签不得被解释为允许恢复本地 Agent/Tool/AI runtime。
@@ -105,7 +105,7 @@ This section is maintained by the Wakeflow runtime installer. It records this wi
 - Codex 插件链路改动必须按范围运行：
   - `npm run smoke:codex-plugin`
   - `npm run verify:codex-plugin`
-  - `npm run verify:codex-channel`
+  - `npm run verify:plugin-distribution`
   - `npm run verify:codex-session`
 - 本地插件同步/调试常用：
   - `npm run dev:codex-plugin:sync`
@@ -124,7 +124,7 @@ This section is maintained by the Wakeflow runtime installer. It records this wi
   `afapi-*` 验收/探针产物由 `scripts/clean-scratch.mjs` 回收（默认 dry-run，
   默认保留 7 天，`--apply` 仅在受监督场景使用）；被 workspace ledger 验收记录
   引用的产物登记在脚本内白名单中，禁止删除；非 `afapi-*` 条目不在脚本范围内。
-- 插件资源：`plugins/`、`channels/`、`.agents/`、`injectable-skills/`。
+- 插件资源：`plugins/`、`.agents/`、`skills/`。
 - Dashboard 前端已迁出到 `AlembicDashboard`，不要在本仓库新增 Dashboard 源码。
 - Core 本地源仓库：`../AlembicCore`。
 - Core portable snapshot / fallback 子仓库：`vendor/AlembicCore`。
@@ -171,7 +171,7 @@ lib/
 ## 长期维护规则
 
 - 改 Core 接入前先确认 Core exports 和 Codex adapter 边界。
-- 改 MCP、tool、skill、plugin runtime、channel 或 marketplace 时，默认这是本仓库职责，不要强行迁入 Core。
+- 改 MCP、tool、skill、plugin runtime 或 marketplace 时，默认这是本仓库职责，不要强行迁入 Core。
 - 删除旧实现必须先有扫描、替代入口、测试和可解释的提交。
 - 如果需要同步 Core 开发能力，先在 workspace `../AlembicCore` 提交并由本仓库通过 `file:../AlembicCore` 验证；只有 release、Codex portable runtime、离线安装、远程 CI 或 workspace 外 fallback 需要时，才更新 `vendor/AlembicCore` 指针并记录源 commit。
 

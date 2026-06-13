@@ -127,7 +127,7 @@ function writeRunningBootstrapJob(projectRoot: string): void {
         status: 'running',
         source: 'codex',
         channelId: 'codex',
-        createdByTool: 'alembic_codex_bootstrap',
+        createdByTool: 'alembic_mcp_bootstrap_job',
         createdAt: '2026-05-24T08:00:00.000Z',
         updatedAt: '2026-05-24T08:01:00.000Z',
       },
@@ -461,11 +461,11 @@ describe('CodexMcpServer', () => {
     const tools = getVisibleCodexTools('agent', projectRoot);
     const names = tools.map((tool) => tool.name);
 
-    expect(names).toContain('alembic_codex_status');
+    expect(names).toContain('alembic_mcp_status');
     expect(names).toContain('alembic_codex_diagnostics');
     expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
     expect(names).toContain('alembic_codex_dashboard');
-    expect(names).toContain('alembic_codex_bootstrap');
+    expect(names).toContain('alembic_mcp_bootstrap_job');
     expect(names).toContain('alembic_codex_job');
     expect(names).toContain('alembic_codex_cleanup');
     expect(names).toContain('alembic_bootstrap');
@@ -545,7 +545,7 @@ describe('CodexMcpServer', () => {
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
     expect(tools.every((tool) => tool.annotations)).toBe(true);
-    expect(byName.get('alembic_codex_status')?.annotations).toMatchObject({
+    expect(byName.get('alembic_mcp_status')?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -555,7 +555,7 @@ describe('CodexMcpServer', () => {
       readOnlyHint: true,
       destructiveHint: false,
     });
-    expect(byName.get('alembic_codex_bootstrap')?.annotations).toMatchObject({
+    expect(byName.get('alembic_mcp_bootstrap_job')?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: false,
       openWorldHint: true,
@@ -571,13 +571,13 @@ describe('CodexMcpServer', () => {
     const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).toEqual([
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_diagnostics',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
       ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
       ...CODEX_HOST_AGENT_TOOL_NAMES,
@@ -590,13 +590,13 @@ describe('CodexMcpServer', () => {
     const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).toEqual([
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_diagnostics',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
@@ -912,13 +912,13 @@ describe('CodexMcpServer', () => {
     );
 
     expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).toEqual([
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_diagnostics',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
@@ -969,15 +969,11 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_status', {})) as {
+    const result = (await server.handleToolCall('alembic_mcp_status', {})) as {
       success: boolean;
       data: {
         initialized: boolean;
         daemon: { ready: boolean };
-        diagnostics: {
-          moduleBoundary: { dashboard: { artifactPath: string; sourceOwner: string } };
-          node: { ok: boolean };
-        };
         nextActions: string[];
         onboarding: {
           primaryAction: { startsDaemon: boolean; tool: string };
@@ -989,17 +985,12 @@ describe('CodexMcpServer', () => {
     expect(result.success).toBe(true);
     expect(result.data.initialized).toBe(false);
     expect(result.data.daemon.ready).toBe(false);
-    expect(result.data.diagnostics.node.ok).toBe(true);
-    expect(result.data.diagnostics.moduleBoundary.dashboard).toMatchObject({
-      artifactPath: null,
-      sourceOwner: 'Alembic/AlembicDashboard',
-    });
     expect(result.data.onboarding).toMatchObject({
       state: 'needs_init',
-      primaryAction: { startsDaemon: false, tool: 'alembic_codex_init' },
+      primaryAction: { startsDaemon: false, tool: 'alembic_mcp_init' },
     });
     expect(result.data.nextActions).toContain(
-      'Initialize Ghost workspace: call alembic_codex_init'
+      'Initialize Ghost workspace: call alembic_mcp_init'
     );
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
@@ -1033,20 +1024,18 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_status', { projectRoot })) as {
+    const result = (await server.handleToolCall('alembic_mcp_status', { projectRoot })) as {
       data: {
-        projectRoot: string;
-        projectRootResolution: { path: string; source: string; trust: string };
+        project: { root: string; trust: string; trusted: boolean };
       };
       success: boolean;
     };
 
     expect(result.success).toBe(true);
-    expect(result.data.projectRoot).toBe(projectRoot);
-    expect(result.data.projectRootResolution).toMatchObject({
-      path: projectRoot,
-      source: 'explicit-option',
+    expect(result.data.project).toMatchObject({
+      root: projectRoot,
       trust: 'trusted',
+      trusted: true,
     });
     expect(supervisor.status).toHaveBeenCalledWith(projectRoot);
   });
@@ -1079,28 +1068,22 @@ describe('CodexMcpServer', () => {
       })
     );
     const firstServer = new CodexMcpServer({ supervisor });
-    await firstServer.handleToolCall('alembic_codex_status', { projectRoot });
+    await firstServer.handleToolCall('alembic_mcp_status', { projectRoot });
 
     const secondServer = new CodexMcpServer({ supervisor });
-    const result = (await secondServer.handleToolCall('alembic_codex_status', {})) as {
+    const result = (await secondServer.handleToolCall('alembic_mcp_status', {})) as {
       data: {
         errorCode?: string;
-        projectRoot?: string;
-        projectRootResolution: { path: string; source: string; trust: string };
+        project?: { root: string; trust: string };
       };
       success: boolean;
     };
 
     expect(fs.existsSync(getCodexSavedProjectRootPath())).toBe(true);
-    expect(result.data.projectRoot).not.toBe(projectRoot);
-    expect(result.data.projectRootResolution.path).not.toBe(projectRoot);
-    expect(result.data.projectRootResolution.source).not.toBe('saved-project-root');
+    expect(result.data.project?.root).not.toBe(projectRoot);
     if (!result.success) {
       expect(result.data.errorCode).toBe('CODEX_PROJECT_ROOT_REJECTED');
-      expect(result.data.projectRootResolution).toMatchObject({
-        source: 'INIT_CWD',
-        trust: 'rejected',
-      });
+      expect(result.data.project?.trust).toBe('rejected');
     }
     expect(fs.existsSync(path.join(pluginRoot, '.asd'))).toBe(false);
   });
@@ -1119,7 +1102,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_status', {})) as {
+    const result = (await server.handleToolCall('alembic_mcp_status', {})) as {
       success: boolean;
       data: {
         initialized: boolean;
@@ -1151,7 +1134,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_init', {})) as {
+    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
       success: boolean;
       data: {
         status: {
@@ -1171,7 +1154,7 @@ describe('CodexMcpServer', () => {
       route: 'explicit',
     });
     expect(marker).toMatchObject({
-      initializedBy: 'alembic_codex_init',
+      initializedBy: 'alembic_mcp_init',
       route: 'explicit',
       projectRoot,
     });
@@ -1193,12 +1176,13 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_init', {})) as {
+    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
       data: {
         mode: string;
         status: {
           initialized: boolean;
-          workspace: { dataRoot: string; ghost: boolean; mode: string };
+          project: { root: string };
+          workspace: { ghost: boolean; mode: string };
         };
       };
       success: boolean;
@@ -1206,8 +1190,10 @@ describe('CodexMcpServer', () => {
 
     expect(result.success).toBe(true);
     expect(result.data.mode).toBe('standard');
+    expect(result.data.status.project).toMatchObject({
+      root: projectRoot,
+    });
     expect(result.data.status.workspace).toMatchObject({
-      dataRoot: projectRoot,
       ghost: false,
       mode: 'standard',
     });
@@ -1233,7 +1219,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_init', {
+    const result = (await server.handleToolCall('alembic_mcp_init', {
       standard: true,
     })) as {
       data: {
@@ -1344,7 +1330,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_init', { projectRoot })) as {
+    const result = (await server.handleToolCall('alembic_mcp_init', { projectRoot })) as {
       data: { status: { initialized: boolean; workspace: { ghost: boolean } } };
       success: boolean;
     };
@@ -1353,7 +1339,7 @@ describe('CodexMcpServer', () => {
     expect(result.success).toBe(true);
     expect(result.data.status.workspace.ghost).toBe(true);
     expect(marker).toMatchObject({
-      initializedBy: 'alembic_codex_init',
+      initializedBy: 'alembic_mcp_init',
       projectRoot,
       route: 'explicit',
     });
@@ -1374,7 +1360,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    await server.handleToolCall('alembic_codex_status', {});
+    await server.handleToolCall('alembic_mcp_status', {});
     await server.handleToolCall('alembic_codex_diagnostics', {});
 
     expect(readCodexInitMarker(projectRoot)).toBeNull();
@@ -1409,7 +1395,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_init', {})) as {
+    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
       data: {
         errorCode: string;
         needsUserInput: boolean;
@@ -1563,7 +1549,7 @@ describe('CodexMcpServer', () => {
     expect(result.data.plugin.mcp.wrapper.path).toContain('alembic-start.mjs');
     expect(result.data.plugin.skills.ok).toBe(true);
     expect(result.data.nextActions).toContain('Alembic Codex runtime checks passed.');
-    expect(result.data.primaryAction.tool).toBe('alembic_codex_status');
+    expect(result.data.primaryAction.tool).toBe('alembic_mcp_status');
     expect(result.data.summary).toContain('runtime checks passed');
     expect(result.data.offlineFallback).toMatchObject({
       localPackage: `@gxfn/alembic-runtime@${getPackageVersion()}`,
@@ -1950,7 +1936,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = await server.handleToolCall('alembic_codex_bootstrap', { maxFiles: 25 });
+    const result = await server.handleToolCall('alembic_mcp_bootstrap_job', { maxFiles: 25 });
 
     expect(result).toMatchObject({ success: true, data: { jobId: 'bootstrap_test' } });
     expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
@@ -2175,7 +2161,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = await server.handleToolCall('alembic_codex_bootstrap', { maxFiles: 25 });
+    const result = await server.handleToolCall('alembic_mcp_bootstrap_job', { maxFiles: 25 });
     const [url, init] = fetchSpy.mock.calls[0];
     const headers = init?.headers as Record<string, string>;
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -2187,9 +2173,8 @@ describe('CodexMcpServer', () => {
     expect(body).toMatchObject({
       jobContext: {
         actor: { role: 'host-mcp' },
-        channelId: 'codex',
         client: 'codex-plugin',
-        createdByTool: 'alembic_codex_bootstrap',
+        createdByTool: 'alembic_mcp_bootstrap_job',
       },
       maxFiles: 25,
     });

@@ -126,10 +126,9 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
   {
     id: 'marketplace-artifact',
     owner: 'AlembicPlugin',
-    pluginRole:
-      'Codex plugin shell, channel metadata, skills, cache sync, and marketplace artifact.',
+    pluginRole: 'Codex plugin shell, skills, cache sync, and marketplace artifact.',
     retainedInPlugin: true,
-    sourceOfTruth: `plugins/${CODEX_PLUGIN_SHELL_DIR}, channels/**, .agents/**`,
+    sourceOfTruth: `plugins/${CODEX_PLUGIN_SHELL_DIR}, .agents/**`,
   },
   {
     id: 'portable-runtime-packaging',
@@ -137,7 +136,7 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
     pluginRole:
       'Maintains the lightweight Codex marketplace shell that starts the pinned runtime package without public embedded artifacts.',
     retainedInPlugin: true,
-    sourceOfTruth: 'plugins/alembic-codex/bin/alembic-start.mjs and packages/alembic-codex-runtime',
+    sourceOfTruth: 'plugins/alembic-codex/bin/alembic-start.mjs and packages/alembic-runtime',
   },
   {
     id: 'dashboard-url-handoff',

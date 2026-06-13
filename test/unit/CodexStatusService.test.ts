@@ -294,71 +294,22 @@ describe('Codex status service', () => {
 
     expect(status).toMatchObject({
       initialized: false,
-      channel: { id: 'codex', expectedId: 'codex' },
-      profile: 'codex-plugin',
-      projectRoot,
-      projectRuntime: {
-        blockedFallbacks: [
-          'saved-project-root-effective-identity',
-          'runtime-control-selected-active-effective-identity',
-          'local-jobstore-default-effective-identity',
-        ],
-        identity: {
-          projectRoot,
-          dataRoot: projectRoot,
-          dataRootSource: 'project-root',
-        },
-        sourcePolicy: {
-          effectiveIdentitySource: 'codex-current-project',
-          selectedOrActiveCanOverrideEffectiveIdentity: false,
-        },
+      project: {
+        root: projectRoot,
+        dataRootSource: 'project-root',
+        trusted: true,
+      },
+      workspace: {
+        dataRootSource: 'project-root',
+        ghost: false,
+        mode: 'standard',
       },
     });
     expect(onboarding).toMatchObject({
       state: 'needs_init',
-      primaryAction: { tool: 'alembic_codex_init' },
+      primaryAction: { tool: 'alembic_mcp_init' },
     });
-    expect(status.projectRuntime.fallbackIsolation).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          effectiveIdentityAllowed: false,
-          id: 'saved-project-root',
-        }),
-        expect.objectContaining({
-          allowedUse: 'embedded-host-agent-recovery',
-          effectiveIdentityAllowed: false,
-          id: 'local-jobstore',
-        }),
-      ])
-    );
-    expect(status.policy.state).toBe('needs_init');
-    expect(status.enhancementRoute).toMatchObject({
-      hostAgentRoute: {
-        requiresAiProvider: false,
-        source: 'host-agent',
-      },
-      residentDaemonJobProvider: {
-        available: false,
-        configSource: null,
-      },
-    });
-    expect(status.moduleBoundary.dashboard).toMatchObject({
-      artifactPath: null,
-      deletionCompletedThisWave: true,
-      sourceOwner: 'Alembic/AlembicDashboard',
-    });
-    expect(status.moduleBoundary.adapters.embeddedRuntime.role).toContain(
-      'not the long-term Alembic daemon'
-    );
-    expect(status.diagnostics).toMatchObject({
-      moduleBoundary: {
-        dashboard: {
-          artifactPath: null,
-          sourceOwner: 'Alembic/AlembicDashboard',
-        },
-      },
-    });
-    expect(status.nextActions).toContain('Initialize Ghost workspace: call alembic_codex_init');
+    expect(status.nextActions).toContain('Initialize Ghost workspace: call alembic_mcp_init');
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
 
@@ -384,10 +335,10 @@ describe('Codex status service', () => {
     });
     expect(onboarding).toMatchObject({
       state: 'needs_init',
-      primaryAction: { label: 'Attach Standard workspace', tool: 'alembic_codex_init' },
+      primaryAction: { label: 'Attach Standard workspace', tool: 'alembic_mcp_init' },
     });
-    expect(status.nextActions).toContain('Attach Standard workspace: call alembic_codex_init');
-    expect(status.nextActions).not.toContain('Initialize Ghost workspace: call alembic_codex_init');
+    expect(status.nextActions).toContain('Attach Standard workspace: call alembic_mcp_init');
+    expect(status.nextActions).not.toContain('Initialize Ghost workspace: call alembic_mcp_init');
     expect(onboarding.notes).toContain(
       'This project is already registered as Standard; Codex init inherits that mode unless the user explicitly migrates it.'
     );
@@ -455,116 +406,15 @@ describe('Codex status service', () => {
       },
       daemon: {
         ready: true,
-        state: {
-          url: 'http://127.0.0.1:39127',
-          dashboardUrl: 'http://127.0.0.1:39127',
-        },
       },
     });
-    expect(status.enhancementRoute.residentDaemonJobProvider).toMatchObject({
-      available: false,
-      configSource: null,
-      provider: null,
-    });
-    expect(status.policy.state).toBe('needs_bootstrap');
     expect(status.nextActions).toContain(
       'Start Codex host-agent bootstrap: call alembic_bootstrap'
     );
-    expect(onboarding.bootstrapState).toMatchObject({
-      status: 'initialized_empty',
-      singleWriterLease: { status: 'available' },
+    expect(onboarding).toMatchObject({
+      state: 'needs_bootstrap',
+      primaryAction: { tool: 'alembic_bootstrap' },
     });
-    expect(onboarding.domainQueue?.[0]).toMatchObject({
-      domainId: 'D1-runtime-entrypoints',
-    });
-    expect(onboarding.currentDomainSop).toMatchObject({
-      domainId: 'D1-runtime-entrypoints',
-      toolSequence: expect.arrayContaining(['alembic_source_graph_status']),
-      languageProfile: expect.objectContaining({
-        runtimeLlmGeneration: false,
-        source: 'domain-sop-baseline-2026-06-12',
-      }),
-      recipeGuidanceFloor: expect.objectContaining({
-        candidateCounts: expect.objectContaining({
-          minimumPerDimension: 3,
-          targetPerDimension: 5,
-        }),
-      }),
-    });
-    expect(onboarding.initialToolBriefing).toMatchObject({
-      blockedConclusionsField: 'repairState.blockedConclusions',
-      agentDecisionChecklist: expect.arrayContaining([
-        expect.objectContaining({ nextTool: 'alembic_source_graph_status' }),
-      ]),
-    });
-    expect(onboarding.toolCapabilities?.canonicalSourceGraph?.map((entry) => entry.name)).toEqual(
-      expect.arrayContaining(['alembic_source_graph_status', 'alembic_validation_plan'])
-    );
-    expect(onboarding.toolCapabilities?.removedOrBlocked?.map((entry) => entry.name)).toEqual(
-      expect.arrayContaining(['alembic_call_context', 'alembic_affected_tests'])
-    );
-    expect(JSON.stringify(onboarding.currentDomainSop)).not.toContain('alembic_call_context');
-    expect(JSON.stringify(onboarding.sopPack)).not.toContain('alembic_affected_tests');
-    expect(onboarding.sopPack).toMatchObject({
-      scopeBrief: expect.objectContaining({
-        selectedProject: expect.objectContaining({
-          storageMode: 'project-root',
-        }),
-      }),
-      recipeAuthoringRubric: expect.objectContaining({
-        relationshipProof: expect.any(String),
-      }),
-      knowledgeResetContract: expect.objectContaining({
-        backupByDefault: true,
-        scopes: expect.arrayContaining(['host-agent bootstrap session state']),
-      }),
-      dimensionCompletionContract: expect.objectContaining({
-        sessionField: expect.stringContaining('sessionId'),
-        requiredFields: expect.arrayContaining([
-          'sessionId',
-          'dimensionId',
-          'submittedRecipeIds',
-          'referencedFiles',
-          'keyFindings',
-          'analysisText',
-          'candidateCount',
-        ]),
-        firstCallExample: expect.objectContaining({
-          sessionId: 'bootstrapState.session.id',
-        }),
-      }),
-      resumePrompt: expect.objectContaining({
-        bootstrapSessionRefField: 'bootstrapState.session.id',
-      }),
-      stopConditions: expect.arrayContaining(['another bootstrap writer holds the lease']),
-      submitKnowledgeContract: expect.objectContaining({
-        exactFields: expect.arrayContaining([
-          'content',
-          'content.markdown',
-          'reasoning.whyStandard',
-          'reasoning.confidence',
-          'usageGuide',
-        ]),
-        fieldFloors: expect.objectContaining({
-          category: expect.stringContaining('View/Service/Tool'),
-          contentMarkdown: expect.stringContaining('>=200 chars'),
-        }),
-        purpose: expect.stringContaining('before the first submit call'),
-        sourceRefCardinality: expect.objectContaining({
-          universalRuleOrPattern: expect.stringContaining('>=3'),
-        }),
-      }),
-    });
-    expect(onboarding.sopPack?.toolCapabilityMatrix).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: 'alembic_source_graph_status',
-          outputTrustLevel: expect.any(String),
-        }),
-      ])
-    );
-    expect(onboarding.gates).toHaveProperty('graphFreshness');
-    expect(onboarding.repairState).toMatchObject({ status: 'ready' });
     expect(serialized).not.toContain('secret-token');
   });
 
@@ -579,34 +429,14 @@ describe('Codex status service', () => {
 
     const status = await buildCodexStatus(projectRoot, { supervisor });
     const onboarding = status.onboarding as {
-      bootstrapState?: {
-        singleWriterLease?: {
-          heartbeat?: { lastHeartbeatAt?: string };
-          leaseHolder?: { jobId?: string };
-          publicStatus?: string;
-          status?: string;
-        };
-        status?: string;
-      };
       primaryAction?: { tool?: string };
-      repairState?: { status?: string };
       state?: string;
     };
 
     expect(status.knowledge.status).toBe('bootstrap_running');
     expect(onboarding).toMatchObject({
       state: 'bootstrap_in_progress',
-      primaryAction: { tool: 'alembic_codex_status' },
-      bootstrapState: {
-        status: 'bootstrap_in_progress',
-        singleWriterLease: {
-          status: 'held',
-          publicStatus: 'bootstrap_in_progress',
-          leaseHolder: { jobId: 'bootstrap_active' },
-          heartbeat: { lastHeartbeatAt: '2026-06-12T08:01:00.000Z' },
-        },
-      },
-      repairState: { status: 'waiting' },
+      primaryAction: { tool: 'alembic_mcp_status' },
     });
   });
 
@@ -623,64 +453,11 @@ describe('Codex status service', () => {
 
     const status = await buildCodexStatus(projectRoot, { supervisor });
 
-    expect(status.projectScopeIdentity).toMatchObject({
-      available: true,
-      mode: 'project-scope',
-      projectScopeId: 'project-scope-workspace',
-      serviceScopeId: 'project-scope:project-scope-workspace',
-      source: 'resident-service-scope',
+    expect(status.project).toMatchObject({
+      hostConnectionState: 'connected',
+      handoffAllowed: true,
+      root: projectRoot,
     });
-    expect(status.residentService.status.serviceScope.projectIdentity).toMatchObject({
-      projectScopeId: 'project-scope-workspace',
-    });
-    expect(status.diagnostics).toMatchObject({
-      projectRuntime: {
-        sourceOfTruth: {
-          owner: 'alembic',
-          route: 'daemon-health',
-          runtimeControl: {
-            diagnostics: [],
-            readOnly: true,
-            selectedMatchesCurrentProject: true,
-            stateCleanup: {
-              activeState: {
-                cleaned: false,
-              },
-            },
-          },
-        },
-      },
-      projectScopeIdentity: {
-        mode: 'project-scope',
-        projectScopeId: 'project-scope-workspace',
-      },
-    });
-    expect(status.projectRuntime).toMatchObject({
-      readinessState: 'degraded',
-      sourceOfTruth: {
-        owner: 'alembic',
-        readiness: {
-          ready: true,
-          reasonCode: 'ready',
-        },
-        requiredService: {
-          kind: 'local-alembic-daemon',
-        },
-      },
-      sourcePolicy: {
-        runtimeControlSource: 'read-only-diagnostics',
-        selectedOrActiveCanOverrideEffectiveIdentity: false,
-      },
-    });
-    expect(status.projectRuntime.fallbackIsolation).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          allowedUse: 'read-only-diagnostics',
-          effectiveIdentityAllowed: false,
-          id: 'runtime-control-selected-active',
-        }),
-      ])
-    );
   });
 
   test('treats an active controlRoot resident as aligned for a bound source folder', async () => {
@@ -742,26 +519,10 @@ describe('Codex status service', () => {
 
     const status = await buildCodexStatus(boundFolder, { supervisor });
 
-    expect(status.projectScopeIdentity).toMatchObject({
-      available: true,
-      currentFolderPath: boundFolder,
-      mode: 'project-scope',
-      projectScopeId: 'project-scope-workspace',
-      source: 'resident-project-scope-endpoint',
-    });
-    expect(status.hostProjectAlignment).toMatchObject({
-      connectionState: 'connected',
+    expect(status.project).toMatchObject({
+      hostConnectionState: 'connected',
       handoffAllowed: true,
-      handoffMismatch: null,
-    });
-    expect(status.diagnostics).toMatchObject({
-      hostProjectAlignment: {
-        connectionState: 'connected',
-      },
-      projectScopeIdentity: {
-        mode: 'project-scope',
-        projectScopeId: 'project-scope-workspace',
-      },
+      root: boundFolder,
     });
   });
 
@@ -790,29 +551,13 @@ describe('Codex status service', () => {
 
     const status = await buildCodexStatus(hostProjectRoot, { supervisor });
 
-    expect(status.hostProjectAlignment).toMatchObject({
-      connectionState: 'mismatch',
+    expect(status.project).toMatchObject({
+      hostConnectionState: 'mismatch',
       handoffAllowed: false,
-      handoffMismatch: {
-        reason: 'selected-project-differs',
-      },
-      selectedProject: {
-        projectId: selectedEntry.id,
-      },
     });
     expect(status.onboarding).toMatchObject({
       state: 'project_handoff_mismatch',
-      primaryAction: { startsDaemon: false, tool: 'alembic_codex_status' },
-    });
-    expect(status.diagnostics).toMatchObject({
-      hostProjectAlignment: {
-        connectionState: 'mismatch',
-      },
-    });
-    expect(status.moduleBoundary.adapters.hostProjectAlignment).toMatchObject({
-      connectionState: 'mismatch',
-      handoffAllowed: false,
-      switchOwnership: 'Alembic/Dashboard',
+      primaryAction: { startsDaemon: false, tool: 'alembic_mcp_status' },
     });
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
@@ -836,24 +581,13 @@ describe('Codex status service', () => {
 
     const status = await buildCodexStatus(hostProjectRoot, { supervisor });
 
-    expect(status.hostProjectAlignment).toMatchObject({
-      connectionState: 'mismatch',
+    expect(status.project).toMatchObject({
+      hostConnectionState: 'mismatch',
       handoffAllowed: false,
-      handoffMismatch: {
-        reason: 'selected-project-differs',
-      },
     });
     expect(status.onboarding).toMatchObject({
       state: 'needs_bootstrap',
       primaryAction: { tool: 'alembic_bootstrap' },
-      bootstrapState: {
-        status: 'initialized_empty',
-      },
-    });
-    expect(status.onboarding).not.toMatchObject({
-      bootstrapState: {
-        status: 'wrong_scope',
-      },
     });
   });
 });

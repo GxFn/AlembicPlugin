@@ -52,7 +52,7 @@ export interface CodexPreflightBlocked {
 export type CodexPreflightResult = CodexPreflightOk | CodexPreflightBlocked;
 
 const PROJECT_ROOT_DISCOVERY_TOOL_NAMES = new Set([
-  'alembic_codex_status',
+  'alembic_mcp_status',
   'alembic_codex_diagnostics',
 ]);
 

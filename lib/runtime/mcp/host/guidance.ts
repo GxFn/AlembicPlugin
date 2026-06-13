@@ -33,9 +33,9 @@ const KNOWLEDGE_TOOL_NAMES = new Set([
 const GUARD_TOOL_NAMES = new Set(['alembic_code_guard', 'alembic_guard']);
 
 const RECOVERY_TOOL_NAMES = new Set([
-  'alembic_codex_init',
-  'alembic_codex_bootstrap',
-  'alembic_codex_rescan',
+  'alembic_mcp_init',
+  'alembic_mcp_bootstrap_job',
+  'alembic_mcp_rescan_job',
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 
@@ -137,8 +137,8 @@ function buildLifecyclePlaybookLine(lifecycleTools: string[]): string {
 }
 
 function buildOnboardingPlaybookLine(visibleToolNameSet: Set<string>): string {
-  const statusTool = visibleToolNameSet.has('alembic_codex_status')
-    ? '`alembic_codex_status`'
+  const statusTool = visibleToolNameSet.has('alembic_mcp_status')
+    ? '`alembic_mcp_status`'
     : 'status output when available';
   const bootstrapTool = visibleToolNameSet.has('alembic_bootstrap')
     ? '`alembic_bootstrap`'

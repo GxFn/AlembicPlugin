@@ -36,12 +36,12 @@ const GUARD_AND_VALIDATION_TOOLS = [
 ] as const;
 
 const BOOTSTRAP_AND_RECOVERY_TOOLS = [
-  'alembic_codex_status',
-  'alembic_codex_init',
+  'alembic_mcp_status',
+  'alembic_mcp_init',
   'alembic_bootstrap',
   'alembic_rescan',
-  'alembic_codex_bootstrap',
-  'alembic_codex_rescan',
+  'alembic_mcp_bootstrap_job',
+  'alembic_mcp_rescan_job',
   'alembic_codex_job',
 ] as const;
 
@@ -261,14 +261,14 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     goal: 'Describe degraded states, repair triggers, and rebuild requirements without hiding transport or graph freshness failures.',
     keywordHints: ['failure', 'error', 'recovery', 'diagnostics', 'degraded', 'stale'],
     toolSequence: [
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_source_graph_status',
       'alembic_symbol_search',
       'alembic_validation_plan',
     ],
     toolToInformation: [
       {
-        tool: 'alembic_codex_status',
+        tool: 'alembic_mcp_status',
         information: 'runtime, initialization, knowledge, and repair state',
       },
       {
@@ -358,7 +358,7 @@ function buildCodexOnboardingContract(
     initialToolBriefing: {
       contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
       defaultOrder: [
-        'alembic_codex_status',
+        'alembic_mcp_status',
         'alembic_source_graph_status',
         currentPlaybook?.toolSequence[1] || 'alembic_code_explore',
         'alembic_submit_knowledge',
@@ -500,11 +500,11 @@ function buildSingleWriterLeaseVisibility(
         }
       : null,
     takeoverRule: activeBootstrap
-      ? 'Do not start a second bootstrap writer. Re-check alembic_codex_status and wait, or let a later lease-enforcement slice decide takeover.'
+      ? 'Do not start a second bootstrap writer. Re-check alembic_mcp_status and wait, or let a later lease-enforcement slice decide takeover.'
       : 'No active bootstrap writer is visible; alembic_bootstrap may start or resume the Codex-owned bootstrap route.',
     sharedEntrypoints: [
       'Codex host-agent alembic_bootstrap',
-      'Plugin job route alembic_codex_bootstrap',
+      'Plugin job route alembic_mcp_bootstrap_job',
       'Alembic daemon job provider',
     ],
     enforcementBoundary:
@@ -727,7 +727,7 @@ function buildSopPack(
       'After the current domain passes dimension completion, read domainQueue for the next pending domain and repeat the same status, evidence, submit, and complete loop; skip only after controller/user decision records the block.',
     resumePrompt: {
       bootstrapSessionRefField: 'bootstrapState.session.id',
-      resumeTools: ['alembic_codex_status', 'alembic_bootstrap'],
+      resumeTools: ['alembic_mcp_status', 'alembic_bootstrap'],
       rule: 'After MCP process restart, read status, compare project identity, then resume the current domain from progress.currentDomainId instead of starting a hidden second bootstrap writer.',
     },
     stopConditions: [
@@ -1035,7 +1035,7 @@ function describeToolProvides(toolName: string): string {
 }
 
 function describeToolTrust(entry: PluginToolSurfaceEntry): string {
-  if (entry.name === 'alembic_source_graph_status' || entry.name === 'alembic_codex_status') {
+  if (entry.name === 'alembic_source_graph_status' || entry.name === 'alembic_mcp_status') {
     return 'authoritative for tool choice and readiness, not a substitute for repository validation';
   }
   if (
@@ -1337,12 +1337,12 @@ function buildAgentDecisionChecklist(
   return [
     {
       when: 'bootstrapState.status is wrong_scope, degraded, or project_root_unresolved',
-      nextTool: 'alembic_codex_status',
+      nextTool: 'alembic_mcp_status',
       blockedConclusions: ['do not use source graph facts', 'do not submit Recipes'],
     },
     {
       when: 'bootstrapState.status is bootstrap_in_progress',
-      nextTool: 'alembic_codex_status',
+      nextTool: 'alembic_mcp_status',
       blockedConclusions: ['do not start a second bootstrap writer'],
     },
     {
@@ -1363,7 +1363,7 @@ function buildGates(): Record<string, unknown> {
     contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
     scope: {
       rule: 'Project root and data root must match the active Codex host project before source facts can be trusted.',
-      firstRepairTool: 'alembic_codex_status',
+      firstRepairTool: 'alembic_mcp_status',
     },
     graphFreshness: {
       rule: 'Run alembic_source_graph_status before source graph query tools.',
@@ -1436,11 +1436,11 @@ function buildRepairState(
     rebuildRequired: status === 'graph_stale',
     firstRepairTool:
       status === 'wrong_scope' || status === 'degraded'
-        ? 'alembic_codex_status'
+        ? 'alembic_mcp_status'
         : status === 'graph_stale'
           ? 'alembic_source_graph_status'
           : waiting
-            ? 'alembic_codex_status'
+            ? 'alembic_mcp_status'
             : null,
     safeFallback:
       'Use raw file reads/search plus repository validation when graph status is unavailable or stale.',

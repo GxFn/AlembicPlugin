@@ -11,7 +11,7 @@
  *      rebuild, so a stale dist can never be packed/cert-seeded silently.
  *
  *   B. .tmp freshness pin: a prepared runtime package
- *      (.tmp/alembic-codex-runtime-package) must match the current repo dist.
+ *      (.tmp/alembic-runtime-package) must match the current repo dist.
  *      Compares the distContentHash pinned into its
  *      .alembic-runtime-boundary.json against the live repo dist hash. Fails if
  *      repo dist moved since the package was prepared (i.e. .tmp dist != repo dist).
@@ -28,8 +28,7 @@ import { computeDistContentHash, computeSourceHash } from './lib/runtime-pack-fr
 const repoRoot = resolve(import.meta.dirname, '..');
 const distDir = join(repoRoot, 'dist');
 const requirePrepared = process.argv.includes('--require-prepared');
-const preparedDir =
-  resolveArg('--prepared') || join(repoRoot, '.tmp', 'alembic-codex-runtime-package');
+const preparedDir = resolveArg('--prepared') || join(repoRoot, '.tmp', 'alembic-runtime-package');
 
 const failures = [];
 const notes = [];

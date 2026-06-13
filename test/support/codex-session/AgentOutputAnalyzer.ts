@@ -353,7 +353,7 @@ function collectKnowledgeArtifacts(
 function extractCreatedJobIds(toolCalls: CodexScenarioRunFacts['toolCalls']): string[] {
   const ids: string[] = [];
   for (const call of toolCalls) {
-    if (call.name !== 'alembic_codex_bootstrap' && call.name !== 'alembic_codex_rescan') {
+    if (call.name !== 'alembic_mcp_bootstrap_job' && call.name !== 'alembic_mcp_rescan_job') {
       continue;
     }
     const data =

@@ -131,7 +131,7 @@ describe('P3-3: selection-mismatch block carries an executable local recovery', 
       hostProjectAlignment: { connectionState: 'mismatch' } as never,
       projectRoot,
       requirement: 'jobs' as const,
-      tool: 'alembic_codex_bootstrap',
+      tool: 'alembic_mcp_bootstrap_job',
     };
   }
 
@@ -143,7 +143,7 @@ describe('P3-3: selection-mismatch block carries an executable local recovery', 
     };
     expect(block).not.toBeNull();
     expect(block.data.nextActions[0].tool).toBe('alembic_bootstrap');
-    expect(block.data.nextActions.map((a) => a.tool)).toContain('alembic_codex_status');
+    expect(block.data.nextActions.map((a) => a.tool)).toContain('alembic_mcp_status');
     expect(block.message).toContain('local host-agent workflow');
   });
 });

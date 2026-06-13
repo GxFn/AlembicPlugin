@@ -1,5 +1,3 @@
-import { CODEX_CHANNEL_ID } from '../shared/channel.js';
-
 export const CODEX_JOB_CLIENT = 'codex-plugin';
 
 export interface CodexJobContextInput {
@@ -14,7 +12,6 @@ export function createCodexJobContext(input: CodexJobContextInput) {
       role: 'host-mcp',
       ...(input.user ? { user: input.user } : {}),
     },
-    channelId: CODEX_CHANNEL_ID,
     client: CODEX_JOB_CLIENT,
     createdByTool: input.createdByTool,
     sessionId: input.sessionId,

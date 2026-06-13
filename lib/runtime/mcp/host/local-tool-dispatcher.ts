@@ -29,7 +29,7 @@ export function dispatchCodexLocalTool(
   handlers: CodexLocalToolHandlers
 ): CodexLocalToolDispatchResult {
   switch (name) {
-    case 'alembic_codex_status':
+    case 'alembic_mcp_status':
       return { handled: true, result: handlers.buildStatus() };
     case 'alembic_codex_diagnostics':
       return { handled: true, result: handlers.buildDiagnostics() };
@@ -44,13 +44,13 @@ export function dispatchCodexLocalTool(
     case 'alembic_affected_tests':
     case 'alembic_validation_plan':
       return { handled: true, result: handlers.buildSourceGraphOperation(name, args) };
-    case 'alembic_codex_init':
+    case 'alembic_mcp_init':
       return { handled: true, result: handlers.initializeWorkspace(args) };
     case 'alembic_codex_dashboard':
       return { handled: true, result: handlers.openDashboard() };
-    case 'alembic_codex_bootstrap':
+    case 'alembic_mcp_bootstrap_job':
       return { handled: true, result: handlers.enqueueJob('bootstrap', args) };
-    case 'alembic_codex_rescan':
+    case 'alembic_mcp_rescan_job':
       return { handled: true, result: handlers.enqueueJob('rescan', args) };
     case 'alembic_codex_job':
       return { handled: true, result: handlers.readJob(args) };

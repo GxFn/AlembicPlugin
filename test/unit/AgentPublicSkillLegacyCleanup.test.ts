@@ -6,8 +6,6 @@ const activeHostGuidanceFiles = [
   '../../README.md',
   '../../README_CN.md',
   '../../SOUL.md',
-  '../../channels/README.md',
-  '../../channels/codex/README.md',
   '../../plugins/alembic-codex/README.md',
   '../../plugins/alembic-codex/README.zh-CN.md',
   '../../plugins/alembic-codex/RELEASE-PLAYBOOK.md',
@@ -16,10 +14,10 @@ const activeHostGuidanceFiles = [
   '../../plugins/alembic-codex/skills/alembic-recipes/SKILL.md',
   '../../plugins/alembic-codex/skills/alembic-guard/SKILL.md',
   '../../plugins/alembic-codex/skills/alembic-structure/SKILL.md',
-  '../../injectable-skills/alembic-create/SKILL.md',
-  '../../injectable-skills/alembic-recipes/SKILL.md',
-  '../../injectable-skills/alembic-guard/SKILL.md',
-  '../../injectable-skills/alembic-structure/SKILL.md',
+  '../../skills/alembic-create/SKILL.md',
+  '../../skills/alembic-recipes/SKILL.md',
+  '../../skills/alembic-guard/SKILL.md',
+  '../../skills/alembic-structure/SKILL.md',
 ] as const;
 
 const legacyCompatibilityGuidanceFiles = [
@@ -42,8 +40,8 @@ const forbiddenPrimaryLifecycleGuidance = [
 ] as const;
 
 const scopedGuardGuidanceFiles = [
-  '../../injectable-skills/alembic-guard/SKILL.md',
-  '../../injectable-skills/alembic-recipes/SKILL.md',
+  '../../skills/alembic-guard/SKILL.md',
+  '../../skills/alembic-recipes/SKILL.md',
   '../../plugins/alembic-codex/skills/alembic-guard/SKILL.md',
 ] as const;
 

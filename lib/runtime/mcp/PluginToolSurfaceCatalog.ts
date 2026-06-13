@@ -112,8 +112,8 @@ function catalogEntry(entry: Omit<PluginToolSurfaceEntry, 'admin'>): PluginToolS
 // owner, and resident-service policy cannot drift across tools.ts, ToolPolicy,
 // and the Codex router.
 export const PLUGIN_TOOL_SURFACE_CATALOG = {
-  alembic_codex_status: catalogEntry({
-    name: 'alembic_codex_status',
+  alembic_mcp_status: catalogEntry({
+    name: 'alembic_mcp_status',
     owner: 'codex-local',
     handlerOwner: 'CodexMcpServer.local',
     tier: 'agent',
@@ -233,8 +233,8 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'none',
   }),
-  alembic_codex_init: catalogEntry({
-    name: 'alembic_codex_init',
+  alembic_mcp_init: catalogEntry({
+    name: 'alembic_mcp_init',
     owner: 'codex-local',
     handlerOwner: 'CodexMcpServer.local',
     tier: 'agent',
@@ -255,8 +255,8 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'dashboard-handoff',
   }),
-  alembic_codex_bootstrap: catalogEntry({
-    name: 'alembic_codex_bootstrap',
+  alembic_mcp_bootstrap_job: catalogEntry({
+    name: 'alembic_mcp_bootstrap_job',
     owner: 'codex-local',
     handlerOwner: 'CodexMcpServer.resident-jobs',
     tier: 'agent',
@@ -266,8 +266,8 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'resident-or-embedded-jobs',
   }),
-  alembic_codex_rescan: catalogEntry({
-    name: 'alembic_codex_rescan',
+  alembic_mcp_rescan_job: catalogEntry({
+    name: 'alembic_mcp_rescan_job',
     owner: 'codex-local',
     handlerOwner: 'CodexMcpServer.resident-jobs',
     tier: 'agent',

@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
-import { DEFAULT_FOLDER_NAMES, WorkspaceResolver } from '@alembic/core/workspace';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import { buildCodexRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
@@ -15,10 +14,7 @@ import {
   type CodexHostProjectAlignment,
 } from '../../runtime/HostProjectAlignment.js';
 import { type CodexKnowledgeState, inspectCodexKnowledge } from '../../runtime/KnowledgeState.js';
-import {
-  buildCodexModuleBoundaryStatus,
-  type CodexModuleBoundaryStatus,
-} from '../../runtime/ModuleBoundary.js';
+import { buildCodexModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
 import {
   buildCodexProjectRootRequiredActions,
   buildCodexProjectRootRequiredMessage,
@@ -26,29 +22,14 @@ import {
   getCodexInitMarkerPath,
   readCodexInitMarker,
   resolveCodexProjectRoot,
-  summarizeCodexProjectRootResolution,
 } from '../../runtime/ProjectRootResolver.js';
+import { buildCodexProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
 import {
-  buildCodexProjectRuntimeContext,
-  type CodexProjectRuntimeContext,
-} from '../../runtime/runtime/ProjectRuntimeContext.js';
-import {
-  CODEX_SETUP_PROFILE,
   type CodexRuntimeContext,
   resolveCodexRuntimeContext,
 } from '../../runtime/runtime/RuntimeContext.js';
 import { buildCodexStatusOnboardingContract } from '../../runtime/status/OnboardingContract.js';
-import {
-  buildCodexToolPolicySignals,
-  type CodexToolPolicySignal,
-  type CodexToolPolicyState,
-  resolveCodexToolPolicyState,
-} from '../../runtime/ToolPolicy.js';
-import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
-import {
-  type AlembicResidentProjectScopeIdentity,
-  AlembicResidentServiceClient,
-} from '../../service/resident/AlembicResidentServiceClient.js';
+import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
 
 export interface CodexDaemonStatusProvider {
   status(projectRoot: string): Promise<DaemonStatus>;
@@ -70,65 +51,63 @@ export interface CodexStatusServiceOptions {
 }
 
 export interface CodexStatusData {
-  channel: { expectedId: string; id: string };
-  daemon: CodexDaemonSummary & {
-    health: Record<string, unknown> | null;
+  autoInit: {
+    attempted: boolean;
+    enabled: boolean;
+    lastAttemptedAt: unknown;
+    lastError: unknown;
+    markerExists: boolean;
+    ok: boolean;
+    requestedTool: unknown;
+    route: unknown;
+    skippedReason: unknown;
+  };
+  daemon: Pick<CodexDaemonSummary, 'message' | 'pidAlive' | 'projectId' | 'ready' | 'status'> & {
     implemented: boolean;
     pidExists: boolean;
     stateExists: boolean;
   };
-  diagnostics: Record<string, unknown>;
-  enhancementRoute: CodexEnhancementRouteChoice;
-  gitDiffCheckpoint: GitDiffCheckpointStatus | null;
   initialized: boolean;
-  knowledge: CodexKnowledgeState;
-  autoInit: Record<string, unknown>;
-  hostProjectAlignment: CodexHostProjectAlignment;
-  mcp: Record<string, unknown>;
-  moduleBoundary: CodexModuleBoundaryStatus;
+  knowledge: {
+    bootstrapRunning: boolean;
+    databaseEntryCount: number | null;
+    freshness: Record<string, unknown>;
+    hasKnowledge: boolean;
+    initialized: boolean;
+    jobs: Record<string, unknown>;
+    recipeCount: number | null;
+    skillCount: number | null;
+    status: string | null;
+    usable: boolean;
+  };
   nextActions: string[];
   ok: boolean;
   onboarding: Record<string, unknown>;
-  packageVersion: string;
-  policy: {
-    signals: CodexToolPolicySignal[];
-    state: CodexToolPolicyState;
+  project: {
+    dataRootSource: string;
+    expectedProjectId: string | null;
+    handoffAllowed: boolean | null;
+    hostConnectionState: string | null;
+    projectId: string | null;
+    registered: boolean;
+    root: string;
+    trusted: boolean;
+    trust: string | null;
   };
-  profile: string;
-  projectRuntime: CodexProjectRuntimeContext;
-  projectRootResolution: Record<string, unknown>;
-  projectScopeIdentity: AlembicResidentProjectScopeIdentity;
-  projectArtifacts: {
-    knowledgeDir: string;
-    knowledgeExists: boolean;
-    runtimeDir: string;
-    runtimeExists: boolean;
-  };
-  projectRoot: string;
-  registry: Record<string, unknown>;
-  residentService: AlembicResidentServiceProbe;
   workspace: {
-    candidatesDir: string;
+    candidatesExists: boolean;
     configExists: boolean;
-    configPath: string;
-    dataRoot: string;
     dataRootSource: string;
     databaseExists: boolean;
-    databasePath: string;
     ghost: boolean;
-    knowledgeDir: string;
     knowledgeExists: boolean;
     mode: string;
-    recipesDir: string;
     recipesExists: boolean;
-    runtimeDir: string;
     runtimeExists: boolean;
     secretsExists: boolean;
-    secretsPath: string;
     settingsExists: boolean;
-    settingsPath: string;
-    skillsDir: string;
-    wikiDir: string;
+    skillsExists: boolean;
+    wikiExists: boolean;
     workspaceExists: boolean;
   };
 }
@@ -202,13 +181,6 @@ export async function buildCodexStatus(
     projectScopeIdentity,
     residentService,
   });
-  const policyInput = {
-    coreTools: [],
-    daemon: daemonStatus,
-    knowledge,
-    tierOrder: {},
-  };
-  const policyState = resolveCodexToolPolicyState(policyInput);
   const onboarding = buildCodexStatusOnboarding({
     daemonStatus,
     diagnostics,
@@ -224,103 +196,48 @@ export async function buildCodexStatus(
   });
   const daemonStatePath = join(resolver.runtimeDir, 'daemon.json');
   const daemonPidPath = join(resolver.runtimeDir, 'daemon.pid');
-  const gitDiffCheckpoint = readGitDiffCheckpointStatus(daemonStatus.health);
 
   return {
     ok: knowledge.initialized,
-    packageVersion: runtime.packageVersion,
-    profile: CODEX_SETUP_PROFILE,
-    channel: {
-      id: runtime.channelId,
-      expectedId: runtime.expectedChannelId,
-    },
     initialized: knowledge.initialized,
-    projectRoot,
-    projectRuntime,
-    projectRootResolution: summarizeCodexProjectRootResolution(projectRootResolution),
-    registry: {
+    project: {
+      root: projectRoot,
+      trusted: projectRootResolution.trust === 'trusted',
+      trust: projectRootResolution.trust,
       registered: facts.registered,
-      path: facts.registryPath,
       projectId: facts.projectId,
       expectedProjectId: facts.expectedProjectId,
+      dataRootSource: facts.dataRootSource,
+      hostConnectionState: hostProjectAlignment.connectionState,
+      handoffAllowed: hostProjectAlignment.handoffAllowed,
     },
-    residentService,
-    projectScopeIdentity,
     workspace: {
       mode: facts.mode,
       ghost: facts.ghost,
-      dataRoot: facts.dataRoot,
       dataRootSource: facts.dataRootSource,
       workspaceExists: facts.workspaceExists,
-      runtimeDir: resolver.runtimeDir,
       runtimeExists: existsSync(resolver.runtimeDir),
-      configPath: resolver.configPath,
       configExists: existsSync(resolver.configPath),
-      databasePath: resolver.databasePath,
       databaseExists: existsSync(resolver.databasePath),
-      knowledgeDir: resolver.knowledgeDir,
       knowledgeExists: existsSync(resolver.knowledgeDir),
-      recipesDir: resolver.recipesDir,
       recipesExists: existsSync(resolver.recipesDir),
-      candidatesDir: resolver.candidatesDir,
-      skillsDir: resolver.skillsDir,
-      wikiDir: resolver.wikiDir,
-      settingsPath: settingsStore.settingsPath,
+      candidatesExists: existsSync(resolver.candidatesDir),
+      skillsExists: existsSync(resolver.skillsDir),
+      wikiExists: existsSync(resolver.wikiDir),
       settingsExists: existsSync(settingsStore.settingsPath),
-      secretsPath: settingsStore.secretsPath,
       secretsExists: existsSync(settingsStore.secretsPath),
     },
-    autoInit,
-    knowledge,
-    hostProjectAlignment,
-    projectArtifacts: {
-      runtimeDir: join(projectRoot, DEFAULT_FOLDER_NAMES.project.runtime),
-      runtimeExists: existsSync(join(projectRoot, DEFAULT_FOLDER_NAMES.project.runtime)),
-      knowledgeDir: join(projectRoot, DEFAULT_FOLDER_NAMES.project.knowledgeBase),
-      knowledgeExists: existsSync(join(projectRoot, DEFAULT_FOLDER_NAMES.project.knowledgeBase)),
-    },
-    mcp: {
-      runtimeCommand: runtime.runtimeBin,
-      channelId: runtime.channelId,
-      tier: runtime.requestedTier,
-      effectiveTier: runtime.effectiveTier,
-      adminEnabled: runtime.adminEnabled,
-      requiresProjectEnv: null,
-    },
-    gitDiffCheckpoint,
-    enhancementRoute,
-    moduleBoundary,
     daemon: {
-      ...summarizeCodexDaemonStatus(daemonStatus),
+      ...summarizeCompactCodexDaemonStatus(daemonStatus),
       implemented: true,
-      statePath: daemonStatePath,
       stateExists: existsSync(daemonStatePath),
-      pidPath: daemonPidPath,
       pidExists: existsSync(daemonPidPath),
-      health: daemonStatus.health,
-      state:
-        summarizeCodexDaemonState(daemonStatus.state) ||
-        summarizeCodexDaemonState(readJsonIfExists(daemonStatePath)),
     },
-    diagnostics,
-    onboarding,
+    knowledge: summarizeCodexKnowledgeState(knowledge),
+    autoInit: summarizeCodexAutoInitStatus(autoInit),
+    onboarding: summarizeCodexOnboarding(onboarding),
     nextActions: buildCodexActionLabels(onboarding.nextActions),
-    policy: {
-      signals: buildCodexToolPolicySignals(policyInput, policyState),
-      state: policyState,
-    },
   };
-}
-
-function readGitDiffCheckpointStatus(
-  health: Record<string, unknown> | null
-): GitDiffCheckpointStatus | null {
-  const data = (health?.data || null) as Record<string, unknown> | null;
-  const status = data?.gitDiffCheckpoint;
-  if (!status || typeof status !== 'object') {
-    return null;
-  }
-  return status as GitDiffCheckpointStatus;
 }
 
 function buildCodexAutoInitStatus(
@@ -389,6 +306,101 @@ export function summarizeCodexDaemonStatus(status: DaemonStatus): CodexDaemonSum
     state: summarizeCodexDaemonState(status.state),
     message: status.message,
   };
+}
+
+function summarizeCompactCodexDaemonStatus(
+  status: DaemonStatus
+): Pick<CodexDaemonSummary, 'message' | 'pidAlive' | 'projectId' | 'ready' | 'status'> {
+  return {
+    status: status.status,
+    ready: status.ready,
+    projectId: status.projectId,
+    pidAlive: status.pidAlive,
+    message: status.message,
+  };
+}
+
+function summarizeCodexKnowledgeState(
+  knowledge: CodexKnowledgeState
+): CodexStatusData['knowledge'] {
+  const jobs = asPlainRecord(knowledge.jobs) || {};
+  return {
+    initialized: knowledge.initialized,
+    hasKnowledge: knowledge.hasKnowledge,
+    usable: knowledge.usable,
+    status: typeof knowledge.status === 'string' ? knowledge.status : null,
+    recipeCount: typeof knowledge.recipeCount === 'number' ? knowledge.recipeCount : null,
+    skillCount: typeof knowledge.skillCount === 'number' ? knowledge.skillCount : null,
+    databaseEntryCount:
+      typeof knowledge.databaseEntryCount === 'number' ? knowledge.databaseEntryCount : null,
+    freshness: summarizeStringRecord(knowledge.freshness, [
+      'status',
+      'stale',
+      'reason',
+      'latestKnowledgeAt',
+      'latestJobAt',
+      'checkedAt',
+    ]),
+    bootstrapRunning: jobs.bootstrapRunning === true,
+    jobs: summarizeStringRecord(jobs, ['running', 'bootstrapRunning', 'rescanRunning', 'total']),
+  };
+}
+
+function summarizeCodexAutoInitStatus(value: Record<string, unknown>): CodexStatusData['autoInit'] {
+  return {
+    enabled: value.enabled === true,
+    attempted: value.attempted === true,
+    ok: value.ok === true,
+    skippedReason: value.skippedReason ?? null,
+    route: value.route ?? null,
+    requestedTool: value.requestedTool ?? null,
+    lastError: value.lastError ?? null,
+    lastAttemptedAt: value.lastAttemptedAt ?? null,
+    markerExists: value.markerExists === true,
+  };
+}
+
+function summarizeCodexOnboarding(value: unknown): Record<string, unknown> {
+  const onboarding = asPlainRecord(value) || {};
+  return {
+    state: onboarding.state ?? null,
+    summary: onboarding.summary ?? null,
+    primaryAction: summarizeCodexRecommendedAction(onboarding.primaryAction),
+    nextActions: Array.isArray(onboarding.nextActions)
+      ? onboarding.nextActions.map(summarizeCodexRecommendedAction).filter(Boolean)
+      : [],
+    notes: Array.isArray(onboarding.notes)
+      ? onboarding.notes.filter((note): note is string => typeof note === 'string').slice(0, 6)
+      : [],
+  };
+}
+
+function summarizeCodexRecommendedAction(value: unknown): Record<string, unknown> | null {
+  const action = asPlainRecord(value);
+  if (!action) {
+    return null;
+  }
+  return {
+    label: action.label ?? null,
+    tool: action.tool ?? null,
+    startsDaemon: action.startsDaemon === true,
+    reason: action.reason ?? null,
+    ...(asPlainRecord(action.arguments) ? { arguments: action.arguments } : {}),
+  };
+}
+
+function summarizeStringRecord(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  const record = asPlainRecord(value);
+  if (!record) {
+    return {};
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (key in record) {
+      out[key] = record[key];
+    }
+  }
+  return out;
 }
 
 function buildCodexHostAgentBootstrapAction(input: {
@@ -492,7 +504,7 @@ export function buildCodexKnowledgeGateActions(
       label: 'Check workspace status',
       reason: 'Inspect whether this project is initialized and whether Alembic knowledge exists.',
       startsDaemon: false,
-      tool: 'alembic_codex_status',
+      tool: 'alembic_mcp_status',
     }),
   ];
   if (!knowledge.initialized) {
@@ -502,7 +514,7 @@ export function buildCodexKnowledgeGateActions(
         reason:
           'Create or attach Alembic Codex data roots according to the ProjectRegistry workspace mode.',
         startsDaemon: false,
-        tool: 'alembic_codex_init',
+        tool: 'alembic_mcp_init',
       })
     );
   } else {
@@ -599,7 +611,7 @@ export function buildCodexStatusOnboarding(
         label: initLabel,
         reason: initReason,
         startsDaemon: false,
-        tool: 'alembic_codex_init',
+        tool: 'alembic_mcp_init',
       }),
       nextActions: [
         buildCodexRecommendedAction({
@@ -608,7 +620,7 @@ export function buildCodexStatusOnboarding(
             ? 'Set up Codex runtime files in the registered Standard data root.'
             : 'Set up local Alembic config, database, knowledge, and Recipe directories.',
           startsDaemon: false,
-          tool: 'alembic_codex_init',
+          tool: 'alembic_mcp_init',
         }),
       ],
       notes: [
@@ -635,7 +647,7 @@ export function buildCodexStatusOnboarding(
         reason:
           'Read the single-writer bootstrap lease and wait for the existing Codex-owned bootstrap route to finish.',
         startsDaemon: false,
-        tool: 'alembic_codex_status',
+        tool: 'alembic_mcp_status',
       }),
       nextActions: [
         buildCodexRecommendedAction({
@@ -643,7 +655,7 @@ export function buildCodexStatusOnboarding(
           reason:
             'Read bootstrapState.singleWriterLease and current progress without starting work.',
           startsDaemon: false,
-          tool: 'alembic_codex_status',
+          tool: 'alembic_mcp_status',
         }),
         buildCodexRecommendedAction({
           label: 'Inspect bootstrap job',
@@ -701,7 +713,7 @@ export function buildCodexStatusOnboarding(
         reason:
           'Inspect the Codex host project, Alembic selected project, and active runtime project before Dashboard handoff.',
         startsDaemon: false,
-        tool: 'alembic_codex_status',
+        tool: 'alembic_mcp_status',
       }),
       nextActions: [
         buildCodexRecommendedAction({
@@ -877,17 +889,6 @@ function summarizeCodexDaemonState(state: unknown): Record<string, unknown> | nu
     startedAt: value.startedAt,
     lastReadyAt: value.lastReadyAt,
   };
-}
-
-function readJsonIfExists(filePath: string): unknown | null {
-  if (!existsSync(filePath)) {
-    return null;
-  }
-  try {
-    return JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
-  } catch {
-    return null;
-  }
 }
 
 function asPlainRecord(value: unknown): Record<string, unknown> | null {

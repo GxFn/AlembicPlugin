@@ -13,7 +13,7 @@ import {
   type ProjectSkillRuntimeExportResult,
 } from '#codex/ProjectSkillDelivery.js';
 import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
-import { INJECTABLE_SKILLS_DIR } from '#shared/package-assets.js';
+import { PACKAGE_SKILLS_DIR } from '#shared/package-assets.js';
 import { countProjectSkillKnowledgeEntries } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 
 interface ProjectSkillContext {
@@ -93,7 +93,7 @@ export class ProjectSkillService {
     const projectRoot = this.projectRoot();
     const sourceRoot = this.sourceRoot();
     const runtimeRoot = getCodexProjectSkillRoot(projectRoot);
-    const builtin = listSkillDirs(INJECTABLE_SKILLS_DIR).map((name) =>
+    const builtin = listSkillDirs(PACKAGE_SKILLS_DIR).map((name) =>
       this.describeSkillLocation(this.builtinLocation(name))
     );
     const projectSource = listSkillDirs(sourceRoot).map((name) =>
@@ -345,7 +345,7 @@ export class ProjectSkillService {
     }
 
     for (const name of KNOWLEDGE_DEPENDENT_SKILLS) {
-      const templatePath = path.join(INJECTABLE_SKILLS_DIR, name, 'SKILL.md');
+      const templatePath = path.join(PACKAGE_SKILLS_DIR, name, 'SKILL.md');
       if (!fs.existsSync(templatePath)) {
         continue;
       }
@@ -430,7 +430,7 @@ export class ProjectSkillService {
   }
 
   private builtinLocation(name: string): SkillLocation {
-    return buildLocation('builtin', name, path.join(INJECTABLE_SKILLS_DIR, name));
+    return buildLocation('builtin', name, path.join(PACKAGE_SKILLS_DIR, name));
   }
 
   private describeSkillLocation(location: SkillLocation): Record<string, unknown> {

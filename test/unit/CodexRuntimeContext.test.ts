@@ -22,7 +22,6 @@ import {
   resolveCodexRuntimeContext,
 } from '../../lib/runtime/index.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
-import { ALEMBIC_CHANNEL_ID_ENV } from '../../lib/shared/channel.js';
 
 const tempRoots: string[] = [];
 
@@ -50,9 +49,8 @@ afterEach(() => {
 });
 
 describe('Codex runtime context', () => {
-  test('sets Codex MCP defaults without overwriting explicit channel and tier', () => {
+  test('sets Codex MCP defaults without overwriting explicit tier', () => {
     const env: NodeJS.ProcessEnv = {
-      [ALEMBIC_CHANNEL_ID_ENV]: 'custom-codex',
       [CODEX_MCP_TIER_ENV]: 'admin',
     };
 
@@ -62,7 +60,6 @@ describe('Codex runtime context', () => {
     expect(env[CODEX_MCP_SHIM_ENV]).toBe('1');
     expect(env[ALEMBIC_RUNTIME_MODE_ENV]).toBe(ALEMBIC_RUNTIME_MODE_PLUGIN);
     expect(env[ALEMBIC_PLUGIN_HOST_ENV]).toBe(CODEX_PLUGIN_HOST);
-    expect(env[ALEMBIC_CHANNEL_ID_ENV]).toBe('custom-codex');
     expect(env[CODEX_MCP_TIER_ENV]).toBe('admin');
   });
 
@@ -78,15 +75,13 @@ describe('Codex runtime context', () => {
     expect(env[ALEMBIC_PLUGIN_HOST_ENV]).toBe('custom-host');
   });
 
-  test('resolves channel and tier from the supplied runtime environment', () => {
+  test('resolves plugin host and tier from the supplied runtime environment', () => {
     const context = resolveCodexRuntimeContext({
-      [ALEMBIC_CHANNEL_ID_ENV]: 'Custom-Codex',
       [ALEMBIC_PLUGIN_HOST_ENV]: 'Codex',
       [ALEMBIC_RUNTIME_MODE_ENV]: 'Plugin',
       [CODEX_MCP_TIER_ENV]: 'admin',
     });
 
-    expect(context.channelId).toBe('custom-codex');
     expect(context.runtimeMode).toBe(ALEMBIC_RUNTIME_MODE_PLUGIN);
     expect(context.pluginHost).toBe(CODEX_PLUGIN_HOST);
     expect(context.expectedRuntimeMode).toBe(ALEMBIC_RUNTIME_MODE_PLUGIN);
@@ -95,15 +90,14 @@ describe('Codex runtime context', () => {
     expect(context.effectiveTier).toBe(CODEX_DEFAULT_MCP_TIER);
   });
 
-  test('resolves the Codex plugin registry from the channel manifest', () => {
+  test('resolves the Codex plugin registry from the marketplace manifest', () => {
     const context = resolveCodexRuntimeContext();
     const registry = loadCodexPluginRegistry(context);
 
-    expect(context.expectedChannelId).toBe('codex');
     expect(context.runtimeBin).toBe('alembic-codex-mcp');
     expect(context.runtimePackage).toBe('@gxfn/alembic-runtime');
     expect(context.pinnedRuntimeSpecifier).toBe(`@gxfn/alembic-runtime@${context.packageVersion}`);
-    expect(registry.channel.value?.id).toBe('codex');
+    expect(registry.marketplace.value?.name).toBe('gxfn');
     expect(registry.plugin.manifest.value?.name).toBe('alembic');
     expect(registry.mcp.server?.command).toBe('node');
     expect(registry.mcp.args).toContain('./bin/alembic-start.mjs');
@@ -604,7 +598,7 @@ describe('Codex runtime context', () => {
 });
 
 function tempDir(label: string): string {
-  const root = mkdtempSync(join(tmpdir(), `alembic-codex-runtime-${label}-`));
+  const root = mkdtempSync(join(tmpdir(), `alembic-runtime-${label}-`));
   tempRoots.push(root);
   return root;
 }

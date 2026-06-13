@@ -150,13 +150,13 @@ describe('Codex tool policy', () => {
     expect(result.hiddenReason).toBe('CODEX_ALEMBIC_KNOWLEDGE_REQUIRED');
     expect(result.state).toBe('needs_init');
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_diagnostics',
       ...sourceGraphToolNames,
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
       ...hostWorkflowToolNames,
     ]);
@@ -172,13 +172,13 @@ describe('Codex tool policy', () => {
 
     expect(result.state).toBe('needs_bootstrap');
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_diagnostics',
       ...sourceGraphToolNames,
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
@@ -288,13 +288,13 @@ describe('Codex tool policy', () => {
     expect(result.state).toBe('bootstrap_running');
     expect(result.signals.map((signal) => signal.code)).toContain('CODEX_BOOTSTRAP_RUNNING');
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_diagnostics',
       ...sourceGraphToolNames,
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',

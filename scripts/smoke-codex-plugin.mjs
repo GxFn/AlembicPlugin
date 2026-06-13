@@ -51,7 +51,6 @@ writeFileSync(
 writeFileSync(join(stdioProjectRoot, 'index.js'), 'export const stdioSmoke = true;\n');
 
 const previousEnv = {
-  ALEMBIC_CHANNEL_ID: process.env.ALEMBIC_CHANNEL_ID,
   ALEMBIC_PLUGIN_HOST: process.env.ALEMBIC_PLUGIN_HOST,
   ALEMBIC_CODEX_PLUGIN_ROOT: process.env.ALEMBIC_CODEX_PLUGIN_ROOT,
   ALEMBIC_HOME: process.env.ALEMBIC_HOME,
@@ -64,7 +63,7 @@ let server = null;
 
 try {
   const packageJson = readJson(join(root, 'package.json'));
-  const runtimePackage = readJson(join(root, 'packages', 'alembic-codex-runtime', 'package.json'));
+  const runtimePackage = readJson(join(root, 'packages', 'alembic-runtime', 'package.json'));
   const runtimeSpecifier = `${runtimePackage.name}@${runtimePackage.version}`;
   const runtimePackageBoundary = verifyPreparedRuntimePackageBoundary({
     outputRoot: runtimePackageDir,
@@ -102,7 +101,6 @@ try {
   const startupRuntime = verifyStartupRuntimeProbe();
 
   process.env.ALEMBIC_HOME = alembicHome;
-  process.env.ALEMBIC_CHANNEL_ID = 'codex';
   process.env.ALEMBIC_PLUGIN_HOST = 'codex';
   process.env.ALEMBIC_CODEX_PLUGIN_ROOT = installedPlugin.installedRoot;
   process.env.ALEMBIC_RUNTIME_MODE = 'plugin';
@@ -126,14 +124,13 @@ try {
     'diagnostics runtime specifier mismatch'
   );
   assert(diagnostics.data?.plugin?.ok === true, 'diagnostics plugin checks did not pass');
-  assert(diagnostics.data?.codex?.channelId === 'codex', 'diagnostics channel id mismatch');
   assert(diagnostics.data?.runtimeIdentity?.mode === 'plugin', 'diagnostics runtime mode mismatch');
   assert(
-    diagnostics.data?.primaryAction?.tool === 'alembic_codex_status',
+    diagnostics.data?.primaryAction?.tool === 'alembic_mcp_status',
     'diagnostics should point healthy installs to status'
   );
 
-  const beforeStatus = await server.handleToolCall('alembic_codex_status', {});
+  const beforeStatus = await server.handleToolCall('alembic_mcp_status', {});
   assertResult(beforeStatus, 'status before init');
   assert(
     beforeStatus.data?.initialized === false,
@@ -144,11 +141,11 @@ try {
     'fresh smoke workspace should recommend initialization'
   );
 
-  const init = await server.handleToolCall('alembic_codex_init', {});
+  const init = await server.handleToolCall('alembic_mcp_init', {});
   assertResult(init, 'codex init');
   assert(init.data?.status?.initialized === true, 'codex init did not produce initialized status');
 
-  const afterStatus = await server.handleToolCall('alembic_codex_status', {});
+  const afterStatus = await server.handleToolCall('alembic_mcp_status', {});
   assertResult(afterStatus, 'status after init');
   assert(afterStatus.data?.initialized === true, 'status after init should be initialized');
   assert(afterStatus.data?.workspace?.ghost === true, 'codex init should default to Ghost mode');
@@ -247,13 +244,10 @@ try {
 function requiredPackageFiles() {
   return [
     'package/.agents/plugins/marketplace.json',
-    'package/channels/README.md',
-    'package/channels/codex/channel.json',
-    'package/channels/codex/README.md',
     'package/dist/bin/codex-mcp.js',
     'package/dist/bin/daemon-server.js',
     'package/dist/lib/runtime/mcp/CodexMcpServer.js',
-    'package/packages/alembic-codex-runtime/package.json',
+    'package/packages/alembic-runtime/package.json',
     'package/plugins/alembic-codex/.codex-plugin/plugin.json',
     'package/plugins/alembic-codex/.agents/plugins/marketplace.json',
     'package/plugins/alembic-codex/.mcp.json',
@@ -264,7 +258,7 @@ function requiredPackageFiles() {
     'package/plugins/alembic-codex/assets/alembic-codex-status.svg',
     'package/plugins/alembic-codex/skills/alembic/SKILL.md',
     'package/scripts/verify-codex-plugin.mjs',
-    'package/scripts/verify-codex-channel.mjs',
+    'package/scripts/verify-plugin-distribution.mjs',
     'package/scripts/smoke-codex-plugin.mjs',
     'package/scripts/probe-codex-plugin-startup-runtime.mjs',
     'package/scripts/prepare-codex-plugin-runtime.mjs',
@@ -482,7 +476,6 @@ async function runStdioSmoke({
     args: [join(packageRoot, 'dist', 'bin', 'codex-mcp.js')],
     cwd: pluginRoot,
     env: {
-      ALEMBIC_CHANNEL_ID: 'codex',
       ALEMBIC_CODEX_ENABLE_ADMIN: '0',
       ALEMBIC_CODEX_PLUGIN_ROOT: pluginRoot,
       ALEMBIC_HOME: alembicHome,
@@ -512,12 +505,12 @@ async function runStdioSmoke({
     );
     const toolNames = new Set(toolsResult.tools.map((tool) => tool.name));
     for (const required of [
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_diagnostics',
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
       'alembic_submit_knowledge',
       'alembic_bootstrap',
@@ -539,14 +532,14 @@ async function runStdioSmoke({
     );
     assert(diagnostics.plugin?.ok === true, 'MCP stdio diagnostics plugin checks did not pass');
 
-    const beforeStatus = await callStdioJsonTool(client, 'alembic_codex_status', {}, stderr);
+    const beforeStatus = await callStdioJsonTool(client, 'alembic_mcp_status', {}, stderr);
     assertResult(beforeStatus, 'MCP stdio status before init');
     assert(
       beforeStatus.initialized === false,
       'MCP stdio fresh workspace should start uninitialized'
     );
 
-    const init = await callStdioJsonTool(client, 'alembic_codex_init', {}, stderr);
+    const init = await callStdioJsonTool(client, 'alembic_mcp_init', {}, stderr);
     assertResult(init, 'MCP stdio codex init');
     assert(
       init.statusSnapshot?.initialized === true,

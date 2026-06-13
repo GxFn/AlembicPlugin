@@ -1,9 +1,4 @@
 import { isAbsolute, join, resolve } from 'node:path';
-import {
-  ALEMBIC_CHANNEL_ID_ENV,
-  ALEMBIC_CHANNEL_ID_FALLBACK_ENV,
-  CODEX_CHANNEL_ID,
-} from '../../shared/channel.js';
 import { getPackageVersion, PACKAGE_ROOT } from '../../shared/package-assets.js';
 
 export const CODEX_PLUGIN_NAME = 'alembic';
@@ -28,11 +23,8 @@ export const CODEX_EMBEDDED_RUNTIME_SPECIFIER = `${CODEX_RUNTIME_PACKAGE}@0.2.0`
 
 export interface CodexRuntimeContext {
   adminEnabled: boolean;
-  channelId: string;
-  channelPath: string;
   defaultTier: string;
   effectiveTier: string;
-  expectedChannelId: string;
   expectedPluginHost: string;
   expectedRuntimeMode: string;
   marketplacePath: string;
@@ -53,7 +45,6 @@ export function ensureCodexRuntimeEnvironment(env: NodeJS.ProcessEnv = process.e
   env[ALEMBIC_PLUGIN_HOST_ENV] = env[ALEMBIC_PLUGIN_HOST_ENV] || CODEX_PLUGIN_HOST;
   env[CODEX_MCP_MODE_ENV] = '1';
   env[CODEX_MCP_SHIM_ENV] = '1';
-  env[ALEMBIC_CHANNEL_ID_ENV] = env[ALEMBIC_CHANNEL_ID_ENV] || CODEX_CHANNEL_ID;
   env[CODEX_MCP_TIER_ENV] = env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
 }
 
@@ -64,14 +55,10 @@ export function resolveCodexRuntimeContext(
   const requestedTier = env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
   const adminEnabled = env[CODEX_ADMIN_ENABLE_ENV] === '1';
   const effectiveTier = resolveEffectiveCodexTier(requestedTier, adminEnabled);
-  const channelId = resolveCodexChannelId(env);
   return {
     adminEnabled,
-    channelId,
-    channelPath: join(PACKAGE_ROOT, 'channels', CODEX_CHANNEL_ID, 'channel.json'),
     defaultTier: CODEX_DEFAULT_MCP_TIER,
     effectiveTier,
-    expectedChannelId: CODEX_CHANNEL_ID,
     expectedPluginHost: CODEX_PLUGIN_HOST,
     expectedRuntimeMode: ALEMBIC_RUNTIME_MODE_PLUGIN,
     marketplacePath: join(PACKAGE_ROOT, '.agents', 'plugins', 'marketplace.json'),
@@ -102,18 +89,6 @@ export function resolveEffectiveCodexTier(tierName: string, adminEnabled: boolea
     return CODEX_DEFAULT_MCP_TIER;
   }
   return tierName || CODEX_DEFAULT_MCP_TIER;
-}
-
-export function resolveCodexChannelId(env: NodeJS.ProcessEnv = process.env): string {
-  return (
-    normalizeChannelId(env[ALEMBIC_CHANNEL_ID_ENV]) ||
-    normalizeChannelId(env[ALEMBIC_CHANNEL_ID_FALLBACK_ENV]) ||
-    CODEX_CHANNEL_ID
-  );
-}
-
-function normalizeChannelId(value: string | undefined): string {
-  return (value || '').trim().toLowerCase();
 }
 
 function normalizeRuntimeIdentity(value: string | undefined): string {

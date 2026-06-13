@@ -26,14 +26,14 @@ const steps = [
     args: ['run', 'prepare:codex-plugin-runtime'],
     verifies: [
       'plugins/alembic-codex/bin/alembic-start.mjs',
-      'packages/alembic-codex-runtime/package.json',
+      'packages/alembic-runtime/package.json',
     ],
   },
   {
-    name: 'Verify Codex channel entry',
+    name: 'Verify plugin distribution entry',
     command: 'npm',
-    args: ['run', 'verify:codex-channel'],
-    verifies: ['channels/codex/channel.json'],
+    args: ['run', 'verify:plugin-distribution'],
+    verifies: ['.agents/plugins/marketplace.json', 'packages/alembic-runtime/package.json'],
   },
   {
     name: 'Verify Codex plugin metadata',

@@ -245,11 +245,11 @@ async function probeTarget(targetRoot) {
     }
 
     probePhase = 'codex-init';
-    const init = await callJsonTool(client, 'alembic_codex_init', { projectRoot }, stderr);
+    const init = await callJsonTool(client, 'alembic_mcp_init', { projectRoot }, stderr);
     expectIssue(
       issues,
       init.payload?.success === true || init.payload?.ok === true,
-      'alembic_codex_init did not succeed'
+      'alembic_mcp_init did not succeed'
     );
     probePhase = 'after-init-tools';
     const afterInitTools = await listTools(client, stderr);

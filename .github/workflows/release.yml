@@ -66,8 +66,8 @@ jobs:
       - name: Verify pinned runtime package
         run: npm run verify:codex-runtime-package
 
-      - name: Verify Codex channel
-        run: npm run verify:codex-channel
+      - name: Verify plugin distribution
+        run: npm run verify:plugin-distribution
 
       - name: Verify Codex plugin packaging
         run: npm run verify:codex-plugin
@@ -77,11 +77,11 @@ jobs:
 
       - name: Verify marketplace shell artifact
         run: |
-          test -f plugins/alembic-codex/bin/alembic-codex-start.mjs
+          test -f plugins/alembic-codex/bin/alembic-start.mjs
           test ! -e plugins/alembic-codex/runtime
           test ! -e plugins/alembic-codex/runtime.tgz
           test ! -e plugins/alembic-codex/node_modules
-          node plugins/alembic-codex/bin/alembic-codex-start.mjs --dry-run
+          node plugins/alembic-codex/bin/alembic-start.mjs --dry-run
 
       - name: Lint
         run: npm run lint -- --diagnostic-level=error
@@ -105,9 +105,8 @@ jobs:
           path: |
             AlembicPlugin/plugins/alembic-codex/.codex-plugin/plugin.json
             AlembicPlugin/plugins/alembic-codex/.mcp.json
-            AlembicPlugin/plugins/alembic-codex/bin/alembic-codex-start.mjs
+            AlembicPlugin/plugins/alembic-codex/bin/alembic-start.mjs
             AlembicPlugin/plugins/alembic-codex/README.md
             AlembicPlugin/plugins/alembic-codex/README.zh-CN.md
-            AlembicPlugin/channels/codex/channel.json
-            AlembicPlugin/packages/alembic-codex-runtime/package.json
+            AlembicPlugin/packages/alembic-runtime/package.json
             AlembicPlugin/.agents/plugins/marketplace.json

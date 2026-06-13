@@ -17,7 +17,7 @@ const distributionMarketplacePath = join(pluginRoot, '.agents', 'plugins', 'mark
 const readmePath = join(pluginRoot, 'README.md');
 const readmeCnPath = join(pluginRoot, 'README.zh-CN.md');
 const releasePlaybookPath = join(pluginRoot, 'RELEASE-PLAYBOOK.md');
-const runtimePackagePath = join(root, 'packages', 'alembic-codex-runtime', 'package.json');
+const runtimePackagePath = join(root, 'packages', 'alembic-runtime', 'package.json');
 const startupPath = join(pluginRoot, 'bin', 'alembic-start.mjs');
 const errors = [];
 
@@ -57,7 +57,7 @@ expect(
 for (const requiredFile of [
   '.agents/plugins/marketplace.json',
   'plugins',
-  'packages/alembic-codex-runtime',
+  'packages/alembic-runtime',
   'scripts/prepare-codex-runtime-package.mjs',
   'scripts/verify-codex-runtime-package-boundary.mjs',
   'scripts/verify-codex-plugin.mjs',
@@ -141,7 +141,6 @@ expect(server?.cwd === '.', '.mcp.json must run from the installed plugin root')
 expect(!args.includes('latest'), '.mcp.json must not use latest');
 expect(!args.some((arg) => arg.startsWith('/')), '.mcp.json args must stay relative');
 for (const [envName, envValue] of [
-  ['ALEMBIC_CHANNEL_ID', 'codex'],
   ['ALEMBIC_RUNTIME_MODE', 'plugin'],
   ['ALEMBIC_PLUGIN_HOST', 'codex'],
   ['ALEMBIC_MCP_MODE', '1'],
@@ -152,6 +151,10 @@ for (const [envName, envValue] of [
 ]) {
   expect(server?.env?.[envName] === envValue, `.mcp.json must set ${envName}=${envValue}`);
 }
+expect(
+  !Object.hasOwn(server?.env || {}, 'ALEMBIC_CHANNEL_ID'),
+  '.mcp.json must not set removed ALEMBIC_CHANNEL_ID'
+);
 expect(!server?.env?.npm_config_cache, '.mcp.json must not force an npm cache path');
 
 expect(existsSync(startupPath), 'marketplace shell startup script must exist');

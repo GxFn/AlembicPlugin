@@ -15,7 +15,7 @@ const watchEntries = [
   'bin',
   'channels',
   'config',
-  'injectable-skills',
+  'skills',
   'lib',
   'package.json',
   'plugins/alembic-codex/.agents',

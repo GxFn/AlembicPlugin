@@ -167,7 +167,7 @@ function sampleLegacyEnvelope(toolName) {
 
 function sampleBusinessData(toolName) {
   switch (toolName) {
-    case 'alembic_codex_status':
+    case 'alembic_mcp_status':
       return {
         initialized: true,
         projectRoot: '/tmp/project',
@@ -179,10 +179,10 @@ function sampleBusinessData(toolName) {
         checks: { node: true },
         ok: true,
         package: { pinnedSpecifier: 'alembic-ai@0.0.0' },
-        primaryAction: { tool: 'alembic_codex_status' },
+        primaryAction: { tool: 'alembic_mcp_status' },
         summary: 'runtime checks passed',
       };
-    case 'alembic_codex_init':
+    case 'alembic_mcp_init':
       return {
         mode: 'ghost',
         nextActions: [{ tool: 'alembic_bootstrap' }],
@@ -194,11 +194,11 @@ function sampleBusinessData(toolName) {
       return {
         errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
         needsUserInput: true,
-        nextActions: [{ tool: 'alembic_codex_status' }],
+        nextActions: [{ tool: 'alembic_mcp_status' }],
       };
-    case 'alembic_codex_bootstrap':
+    case 'alembic_mcp_bootstrap_job':
       return { job: { id: 'bootstrap-1' }, jobId: 'bootstrap-1' };
-    case 'alembic_codex_rescan':
+    case 'alembic_mcp_rescan_job':
       return { job: { id: 'rescan-1' }, jobId: 'rescan-1' };
     case 'alembic_codex_job':
       return {

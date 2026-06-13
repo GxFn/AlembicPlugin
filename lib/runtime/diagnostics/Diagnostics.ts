@@ -255,7 +255,7 @@ export function buildCodexRuntimeDiagnostics(
               ? 'Runtime checks passed; inspect project initialization and daemon state next.'
               : 'Only non-blocking plugin packaging warnings remain; project knowledge workflows can continue.',
           startsDaemon: false,
-          tool: 'alembic_codex_status',
+          tool: 'alembic_mcp_status',
         })
       : buildRecommendedAction({
           label: 'Fix diagnostics',
@@ -383,8 +383,6 @@ function buildCodexRuntimeReportSections(input: {
       healthVersion: readHealthVersion(input.daemonStatus.health),
     },
     codex: {
-      channelId: input.context.channelId,
-      expectedChannelId: input.context.expectedChannelId,
       pluginHost: input.context.pluginHost,
       runtimeMode: input.context.runtimeMode,
       requestedTier: input.context.requestedTier,
@@ -403,7 +401,6 @@ function buildCodexRuntimeReportSections(input: {
       env: {
         mode: ALEMBIC_RUNTIME_MODE_ENV,
         pluginHost: ALEMBIC_PLUGIN_HOST_ENV,
-        channelId: 'ALEMBIC_CHANNEL_ID',
       },
     },
     offlineFallback: {

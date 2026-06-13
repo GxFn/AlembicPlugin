@@ -16,7 +16,7 @@
   "expect": {
     "toolCalls": [
       {
-        "name": "alembic_codex_status",
+        "name": "alembic_mcp_status",
         "arguments": {
           "projectRoot": "$projectRoot"
         },
@@ -26,7 +26,7 @@
         }
       },
       {
-        "name": "alembic_codex_init",
+        "name": "alembic_mcp_init",
         "arguments": {
           "projectRoot": "$projectRoot"
         },

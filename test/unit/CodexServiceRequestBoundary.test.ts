@@ -38,8 +38,8 @@ describe('Codex service request boundary', () => {
   it('marks dashboard and recoverable job tools as explicit resident service requests', () => {
     for (const tool of [
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_job',
     ]) {
       expect(resolveCodexServiceRequestBoundary(tool, {})).toMatchObject({

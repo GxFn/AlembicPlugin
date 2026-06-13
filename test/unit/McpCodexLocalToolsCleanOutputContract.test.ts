@@ -14,7 +14,7 @@ import {
 } from '../../lib/runtime/mcp/output-contract.js';
 
 const expectedCodexLocalToolNames = [
-  'alembic_codex_status',
+  'alembic_mcp_status',
   'alembic_codex_diagnostics',
   'alembic_source_graph_status',
   'alembic_symbol_search',
@@ -25,10 +25,10 @@ const expectedCodexLocalToolNames = [
   'alembic_code_impact',
   'alembic_affected_tests',
   'alembic_validation_plan',
-  'alembic_codex_init',
+  'alembic_mcp_init',
   'alembic_codex_dashboard',
-  'alembic_codex_bootstrap',
-  'alembic_codex_rescan',
+  'alembic_mcp_bootstrap_job',
+  'alembic_mcp_rescan_job',
   'alembic_codex_job',
   'alembic_codex_stop',
   'alembic_codex_cleanup',
@@ -106,10 +106,10 @@ describe('MCP Codex local tools clean output contract', () => {
 
   test('strips implicit runtime diagnostics from non-diagnostic tools', () => {
     for (const toolName of [
-      'alembic_codex_init',
+      'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_codex_bootstrap',
-      'alembic_codex_rescan',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
       'alembic_codex_stop',
     ] as const) {
       const result = serializeMcpToolResult(toolName, sampleLegacyEnvelope(toolName), {
@@ -144,7 +144,7 @@ describe('MCP Codex local tools clean output contract', () => {
           },
           data: {
             needsUserInput: failureKind === 'needs-confirmation',
-            nextActions: [{ tool: 'alembic_codex_status' }],
+            nextActions: [{ tool: 'alembic_mcp_status' }],
           },
         },
         {
@@ -179,14 +179,14 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('rejects already-clean Codex local outputs with non-whitelisted fields', () => {
-    const parsed = CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS.alembic_codex_status.safeParse({
+    const parsed = CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS.alembic_mcp_status.safeParse({
       ok: true,
       status: 'ready',
       summary: 'Status checked.',
-      toolName: 'alembic_codex_status',
+      toolName: 'alembic_mcp_status',
       initialized: true,
       unexpectedContractLeak: true,
-      meta: { contractVersion: 1, toolName: 'alembic_codex_status' },
+      meta: { contractVersion: 1, toolName: 'alembic_mcp_status' },
     });
 
     expect(parsed.success).toBe(false);
@@ -233,7 +233,7 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
     return sourceGraphData;
   }
   switch (toolName) {
-    case 'alembic_codex_status':
+    case 'alembic_mcp_status':
       return {
         initialized: true,
         projectRoot: '/tmp/project',
@@ -245,10 +245,10 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         checks: { node: true },
         ok: true,
         package: { pinnedSpecifier: 'alembic-ai@0.0.0' },
-        primaryAction: { tool: 'alembic_codex_status' },
+        primaryAction: { tool: 'alembic_mcp_status' },
         summary: 'runtime checks passed',
       };
-    case 'alembic_codex_init':
+    case 'alembic_mcp_init':
       return {
         mode: 'ghost',
         nextActions: [{ tool: 'alembic_bootstrap' }],
@@ -260,11 +260,11 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
       return {
         errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
         needsUserInput: true,
-        nextActions: [{ tool: 'alembic_codex_status' }],
+        nextActions: [{ tool: 'alembic_mcp_status' }],
       };
-    case 'alembic_codex_bootstrap':
+    case 'alembic_mcp_bootstrap_job':
       return { job: { id: 'bootstrap-1' }, jobId: 'bootstrap-1' };
-    case 'alembic_codex_rescan':
+    case 'alembic_mcp_rescan_job':
       return { job: { id: 'rescan-1' }, jobId: 'rescan-1' };
     case 'alembic_codex_job':
       return {
@@ -368,7 +368,7 @@ function sampleSourceGraphStatusData(): Record<string, unknown> {
         'alembic_affected_tests',
         'alembic_validation_plan',
       ],
-      recoveryTools: ['alembic_codex_init', 'alembic_codex_bootstrap'],
+      recoveryTools: ['alembic_mcp_init', 'alembic_mcp_bootstrap_job'],
       playbook: ['Use alembic_source_graph_status first.'],
     },
     actions: [

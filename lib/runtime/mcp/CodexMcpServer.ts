@@ -118,7 +118,7 @@ interface CodexToolCallOptions {
 
 interface WorkspaceInitializationInput {
   force: boolean;
-  initializedBy: 'alembic_codex_init' | 'codex-plugin-init-on-demand';
+  initializedBy: 'alembic_mcp_init' | 'codex-plugin-init-on-demand';
   requestedMode: 'ghost' | 'standard' | null;
   requestedTool?: string;
   route: 'explicit' | 'tool-call';
@@ -493,7 +493,7 @@ export class CodexMcpServer {
     const requestedMode = standardExplicit ? (args.standard === true ? 'standard' : 'ghost') : null;
     const initResult = await this.runWorkspaceInitialization({
       force: Boolean(args.force),
-      initializedBy: 'alembic_codex_init',
+      initializedBy: 'alembic_mcp_init',
       requestedMode,
       route: 'explicit',
       seed: Boolean(args.seed),
@@ -579,7 +579,7 @@ export class CodexMcpServer {
         route: input.route,
       };
       return failureResult(
-        input.requestedTool || 'alembic_codex_init',
+        input.requestedTool || 'alembic_mcp_init',
         buildCodexProjectRootRequiredMessage(this.projectRootResolution),
         {
           errorCode,
@@ -624,7 +624,7 @@ export class CodexMcpServer {
         ok: false,
       };
       return failureResult(
-        input.requestedTool || 'alembic_codex_init',
+        input.requestedTool || 'alembic_mcp_init',
         `${message} Ordinary Codex init will not switch workspace mode automatically.`,
         {
           errorCode: 'CODEX_WORKSPACE_MODE_CONFLICT',
@@ -637,7 +637,7 @@ export class CodexMcpServer {
               label: 'Check workspace status',
               reason: 'Inspect the registered Alembic workspace mode before retrying init.',
               startsDaemon: false,
-              tool: 'alembic_codex_status',
+              tool: 'alembic_mcp_status',
             }),
           ],
         }
@@ -682,7 +682,7 @@ export class CodexMcpServer {
           ok: false,
         };
         return failureResult(
-          input.requestedTool || 'alembic_codex_init',
+          input.requestedTool || 'alembic_mcp_init',
           'Alembic Codex initialization failed. Run diagnostics before retrying.',
           {
             errorCode: 'CODEX_AUTO_INIT_FAILED',
@@ -724,7 +724,7 @@ export class CodexMcpServer {
         ok: false,
       };
       return failureResult(
-        input.requestedTool || 'alembic_codex_init',
+        input.requestedTool || 'alembic_mcp_init',
         'Alembic Codex initialization failed. Run diagnostics before retrying.',
         {
           errorCode: 'CODEX_AUTO_INIT_FAILED',
@@ -800,7 +800,7 @@ export class CodexMcpServer {
               label: 'Check workspace status',
               reason: 'Inspect host project alignment and local Alembic daemon readiness.',
               startsDaemon: false,
-              tool: 'alembic_codex_status',
+              tool: 'alembic_mcp_status',
             }),
             buildCodexRecommendedAction({
               label: 'Run diagnostics',
@@ -935,8 +935,9 @@ export class CodexMcpServer {
   }
 
   async enqueueJob(kind: 'bootstrap' | 'rescan', args: Record<string, unknown>): Promise<unknown> {
+    const toolName = kind === 'bootstrap' ? 'alembic_mcp_bootstrap_job' : 'alembic_mcp_rescan_job';
     const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
-      await this.ensureEnhancementDaemon('jobs', `alembic_codex_${kind}`);
+      await this.ensureEnhancementDaemon('jobs', toolName);
     const projectScopeIdentity =
       await this.residentClients().projectScope.resolveProjectScopeIdentity({
         daemonStatus: daemon,
@@ -954,31 +955,27 @@ export class CodexMcpServer {
       return attachProjectRuntimeContext(blocked, projectRuntime);
     }
     if (!daemon.ready || !daemon.state) {
-      return failureResult(
-        `alembic_codex_${kind}`,
-        daemon.message || 'Alembic daemon is not ready yet.',
-        {
-          daemon: summarizeCodexDaemonStatus(daemon),
-          enhancementRoute,
-          hostProjectAlignment,
-          projectRuntime,
-          nextActions: [
-            buildCodexRecommendedAction({
-              label: 'Run diagnostics',
-              reason: 'Check daemon startup state before retrying the job.',
-              startsDaemon: false,
-              tool: 'alembic_codex_diagnostics',
-            }),
-          ],
-        }
-      );
+      return failureResult(toolName, daemon.message || 'Alembic daemon is not ready yet.', {
+        daemon: summarizeCodexDaemonStatus(daemon),
+        enhancementRoute,
+        hostProjectAlignment,
+        projectRuntime,
+        nextActions: [
+          buildCodexRecommendedAction({
+            label: 'Run diagnostics',
+            reason: 'Check daemon startup state before retrying the job.',
+            startsDaemon: false,
+            tool: 'alembic_codex_diagnostics',
+          }),
+        ],
+      });
     }
     const residentResult = await this.residentClients().jobs.enqueueJob(kind, {
       daemonStatus: daemon,
       body: {
         ...args,
         jobContext: createCodexJobContext({
-          createdByTool: `alembic_codex_${kind}`,
+          createdByTool: toolName,
           sessionId: this.sessionId,
           user: process.env.USER || undefined,
         }),
@@ -986,7 +983,7 @@ export class CodexMcpServer {
     });
     if (!residentResult.ok) {
       return failureResult(
-        `alembic_codex_${kind}`,
+        toolName,
         residentResult.message || 'Alembic resident job API is unavailable.',
         {
           daemon: summarizeCodexDaemonStatus(daemon),

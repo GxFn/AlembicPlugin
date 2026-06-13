@@ -101,15 +101,15 @@ describe('Plugin host MCP D4 contract', () => {
     ]);
     expect(residentCatalogEntries.map((entry) => [entry.name, entry.residentRoutePolicy])).toEqual([
       ['alembic_code_guard', 'resident-project-scope'],
-      ['alembic_codex_bootstrap', 'resident-or-embedded-jobs'],
       ['alembic_codex_dashboard', 'dashboard-handoff'],
       ['alembic_codex_diagnostics', 'status-probe'],
       ['alembic_codex_job', 'resident-or-embedded-jobs'],
-      ['alembic_codex_rescan', 'resident-or-embedded-jobs'],
-      ['alembic_codex_status', 'status-probe'],
       ['alembic_decision_record', 'resident-project-scope'],
       ['alembic_health', 'resident-project-scope'],
       ['alembic_intent', 'resident-project-scope'],
+      ['alembic_mcp_bootstrap_job', 'resident-or-embedded-jobs'],
+      ['alembic_mcp_rescan_job', 'resident-or-embedded-jobs'],
+      ['alembic_mcp_status', 'status-probe'],
       ['alembic_prime', 'resident-project-scope'],
       ['alembic_search', 'explicit-resident-search'],
       ['alembic_source_graph_status', 'status-probe'],
@@ -164,7 +164,7 @@ describe('Plugin host MCP D4 contract', () => {
     expect(PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS.map((scenario) => scenario.toolName)).toEqual([
       'alembic_health',
       'alembic_search',
-      'alembic_codex_status',
+      'alembic_mcp_status',
       'alembic_codex_job',
     ]);
 

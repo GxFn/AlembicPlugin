@@ -21,22 +21,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, '..');
 
 const options = parseArgs(process.argv.slice(2));
-const channel = readJson(join(projectRoot, 'channels', 'codex', 'channel.json'));
-const runtimePackage = readJson(
-  join(projectRoot, 'packages', 'alembic-codex-runtime', 'package.json')
-);
+const marketplace = readJson(join(projectRoot, '.agents', 'plugins', 'marketplace.json'));
+const runtimePackage = readJson(join(projectRoot, 'packages', 'alembic-runtime', 'package.json'));
 const runtimeSpecifier = `${runtimePackage.name}@${runtimePackage.version}`;
-const pluginEntry = channel.plugins?.find((plugin) => plugin.name === 'alembic');
+const pluginEntry = marketplace.plugins?.find((plugin) => plugin.name === 'alembic');
 if (!pluginEntry) {
-  throw new Error('channels/codex/channel.json is missing the alembic-codex plugin entry');
+  throw new Error('.agents/plugins/marketplace.json is missing the alembic plugin entry');
 }
 
-const pluginRoot = join(projectRoot, pluginEntry.path);
+const pluginRoot = join(projectRoot, pluginEntry.source?.path || '');
 const pluginManifest = readJson(join(pluginRoot, '.codex-plugin', 'plugin.json'));
 const codexHome = resolve(options.codexHome || process.env.CODEX_HOME || join(homedir(), '.codex'));
-const marketplaceName = channel.marketplace?.name || 'gxfn';
+const marketplaceName = marketplace.name || 'gxfn';
 const pluginName = pluginManifest.name || pluginEntry.name;
-const pluginVersion = pluginManifest.version || pluginEntry.version;
+const pluginVersion = pluginManifest.version;
 if (!pluginVersion) {
   // cache 目录名必须跟随当前插件 manifest，缺失版本时直接失败，避免开发态同步落到旧版本槽位。
   throw new Error('Codex plugin cache sync requires a plugin manifest version.');
@@ -166,7 +164,6 @@ function rewriteCachedMcpForLocalDist(cacheRoot) {
     args: [localMcpEntry],
     env: {
       ...serverEnv,
-      ALEMBIC_CHANNEL_ID: 'codex',
       ALEMBIC_PLUGIN_HOST: 'codex',
       ALEMBIC_CODEX_MCP_MODE: '1',
       ALEMBIC_MCP_MODE: '1',

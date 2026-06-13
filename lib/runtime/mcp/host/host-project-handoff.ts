@@ -67,7 +67,7 @@ export function buildCodexHostProjectHandoffBlock(input: {
         label: 'Check workspace status',
         reason: 'Inspect host, selected, and active runtime project alignment.',
         startsDaemon: false,
-        tool: 'alembic_codex_status',
+        tool: 'alembic_mcp_status',
       }),
       buildCodexRecommendedAction({
         label: 'Run diagnostics',

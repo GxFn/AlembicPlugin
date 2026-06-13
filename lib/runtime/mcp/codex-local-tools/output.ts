@@ -11,7 +11,7 @@ import {
 } from '../../../runtime/mcp/source-graph/output.js';
 
 export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
-  'alembic_codex_status',
+  'alembic_mcp_status',
   'alembic_codex_diagnostics',
   'alembic_source_graph_status',
   'alembic_symbol_search',
@@ -22,10 +22,10 @@ export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_code_impact',
   'alembic_affected_tests',
   'alembic_validation_plan',
-  'alembic_codex_init',
+  'alembic_mcp_init',
   'alembic_codex_dashboard',
-  'alembic_codex_bootstrap',
-  'alembic_codex_rescan',
+  'alembic_mcp_bootstrap_job',
+  'alembic_mcp_rescan_job',
   'alembic_codex_job',
   'alembic_codex_stop',
   'alembic_codex_cleanup',
@@ -45,7 +45,7 @@ export const CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES = [
 ] as const;
 
 export const CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES = [
-  'alembic_codex_status',
+  'alembic_mcp_status',
   'alembic_codex_diagnostics',
   'alembic_source_graph_status',
   'alembic_codex_job',
@@ -67,6 +67,21 @@ export const CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set([
   'projectRuntime',
   'residentService',
   'serviceBoundary',
+]);
+
+const MCP_STATUS_FORBIDDEN_OUTPUT_KEYS = new Set([
+  'capabilities',
+  'channel',
+  'channelId',
+  'diagnostics',
+  'expectedChannelId',
+  'health',
+  'moduleBoundary',
+  'projectRuntime',
+  'projectScopeIdentity',
+  'residentService',
+  'sourceOfTruth',
+  'statusDiagnostics',
 ]);
 
 const CODEX_LOCAL_SENSITIVE_OUTPUT_KEYS = new Set([
@@ -103,7 +118,7 @@ const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
 const ALLOWED_CLEAN_META_KEYS = new Set(['responseTimeMs', 'source']);
 
 export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
-  alembic_codex_bootstrap: [
+  alembic_mcp_bootstrap_job: [
     'job',
     'jobId',
     'jobRoute',
@@ -151,7 +166,7 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   alembic_code_impact: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_code_impact,
   alembic_affected_tests: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_affected_tests,
   alembic_validation_plan: SOURCE_GRAPH_TOOL_ALLOWED_BUSINESS_FIELD_NAMES.alembic_validation_plan,
-  alembic_codex_init: [
+  alembic_mcp_init: [
     'alreadyInitialized',
     'initialized',
     'marker',
@@ -164,21 +179,22 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'statusSnapshot',
   ],
   alembic_codex_job: ['job', 'jobs', 'jobRoute', 'projectRuntime', 'residentService'],
-  alembic_codex_rescan: ['job', 'jobId', 'jobRoute', 'nextActions', 'needsUserInput', 'reasonCode'],
-  alembic_codex_status: [
+  alembic_mcp_rescan_job: [
+    'job',
+    'jobId',
+    'jobRoute',
+    'nextActions',
+    'needsUserInput',
+    'reasonCode',
+  ],
+  alembic_mcp_status: [
     'autoInit',
-    'channel',
     'daemon',
-    'hostProjectAlignment',
     'initialized',
     'knowledge',
     'nextActions',
     'onboarding',
-    'package',
-    'projectRoot',
-    'projectRootResolution',
-    'projectRuntime',
-    'statusDiagnostics',
+    'project',
     'workspace',
   ],
   alembic_codex_stop: ['daemonReady', 'daemonStatus', 'pidAlive', 'stopped'],
@@ -199,7 +215,7 @@ type CodexLocalToolSummaryInput = {
 const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
   Record<CodexLocalCleanOutputToolName, (input: CodexLocalToolSummaryInput) => string>
 > = {
-  alembic_codex_status: () => 'Alembic Codex status checked.',
+  alembic_mcp_status: () => 'Alembic MCP host status checked.',
   alembic_codex_diagnostics: (input) =>
     typeof input.business.businessSummary === 'string'
       ? input.business.businessSummary
@@ -213,13 +229,13 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
   alembic_code_impact: buildSourceGraphOperationSummary,
   alembic_affected_tests: buildSourceGraphOperationSummary,
   alembic_validation_plan: buildSourceGraphOperationSummary,
-  alembic_codex_init: () => 'Alembic Codex workspace initialized.',
+  alembic_mcp_init: () => 'Alembic Codex workspace initialized.',
   alembic_codex_dashboard: (input) =>
     input.business.dashboardUrl
       ? 'Alembic Dashboard handoff ready.'
       : 'Alembic Dashboard handoff checked.',
-  alembic_codex_bootstrap: () => 'Alembic Codex bootstrap job checked.',
-  alembic_codex_rescan: () => 'Alembic Codex rescan job checked.',
+  alembic_mcp_bootstrap_job: () => 'Alembic Codex bootstrap job checked.',
+  alembic_mcp_rescan_job: () => 'Alembic Codex rescan job checked.',
   alembic_codex_job: (input) =>
     Array.isArray(input.business.jobs)
       ? `Alembic Codex job list returned ${input.business.jobs.length} item(s).`
@@ -315,6 +331,9 @@ export function findForbiddenCodexLocalOutputField(
     if (path[0] !== 'meta' && isSensitiveCodexLocalOutputKey(key)) {
       return { path: [...path, key] };
     }
+    if (toolName === 'alembic_mcp_status' && shouldForbidMcpStatusField(key, path)) {
+      return { path: [...path, key] };
+    }
     if (path[0] !== 'meta' && shouldForbidRuntimeField(key, toolName)) {
       return { path: [...path, key] };
     }
@@ -386,11 +405,7 @@ function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputT
     return value;
   }
   const out: Record<string, unknown> = { ...value };
-  if (toolName === 'alembic_codex_status' && 'diagnostics' in out) {
-    out.statusDiagnostics = out.diagnostics;
-    delete out.diagnostics;
-  }
-  if (toolName === 'alembic_codex_init' && 'status' in out) {
+  if (toolName === 'alembic_mcp_init' && 'status' in out) {
     out.statusSnapshot = out.status;
     delete out.status;
   }
@@ -402,7 +417,7 @@ function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputT
     delete out.daemon;
   }
   if (
-    (toolName === 'alembic_codex_bootstrap' || toolName === 'alembic_codex_rescan') &&
+    (toolName === 'alembic_mcp_bootstrap_job' || toolName === 'alembic_mcp_rescan_job') &&
     out.errorCode
   ) {
     out.reasonCode = out.errorCode;
@@ -477,6 +492,13 @@ function shouldForbidRuntimeField(key: string, toolName?: CodexLocalCleanOutputT
     return false;
   }
   return CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key);
+}
+
+function shouldForbidMcpStatusField(key: string, path: string[]): boolean {
+  if (path[0] === 'meta') {
+    return false;
+  }
+  return MCP_STATUS_FORBIDDEN_OUTPUT_KEYS.has(key);
 }
 
 function isRuntimeDiagnosticTool(toolName: CodexLocalCleanOutputToolName): boolean {
