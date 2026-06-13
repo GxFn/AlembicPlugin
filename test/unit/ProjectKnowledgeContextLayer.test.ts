@@ -14,6 +14,7 @@ function readResult(output: KnowledgeContextToolOutput) {
   return output.result as {
     route?: string;
     truncated?: {
+      content?: boolean;
       detailRefs?: boolean;
       items?: boolean;
       matrixNodes?: boolean;
@@ -177,6 +178,79 @@ describe('ProjectKnowledgeContextLayer support layer foundation', () => {
       matrixNodes: true,
       nextActions: true,
     });
+    expect(structured.status).toBe('partial');
+  });
+
+  test('applies content text budget to summary and structured text fields', () => {
+    const layer = new ProjectKnowledgeContextLayer();
+    const longText = `content-budget-start ${'x'.repeat(180)} content-budget-tail`;
+    const result = layer.resolveMcpResult(
+      'alembic_search',
+      {
+        budget: { contentCharLimit: 120, detailLimit: 5, itemLimit: 5, nextActionLimit: 2 },
+        operation: 'search',
+        query: 'budget text content',
+      },
+      {
+        payload: {
+          detailRefs: [
+            {
+              domain: 'knowledge',
+              id: 'knowledge:detail-long',
+              summary: longText,
+              title: longText,
+            },
+          ],
+          items: [
+            {
+              contentPreview: longText,
+              id: 'item-1',
+              nested: { content: longText },
+              summary: longText,
+              title: longText,
+            },
+          ],
+          nextActions: [
+            {
+              operation: 'expand',
+              reason: longText,
+              tool: 'alembic_search',
+            },
+          ],
+          relations: [{ description: longText, id: 'relation-1' }],
+          result: { content: longText, summary: longText },
+          summary: longText,
+        },
+      }
+    );
+    const structured = result.structuredContent as KnowledgeContextToolOutput;
+    const projected = readResult(structured);
+    const item = structured.items?.[0] as {
+      contentPreview?: string;
+      nested?: { content?: string };
+      summary?: string;
+      title?: string;
+    };
+    const payloadResult = structured.result as { content?: string; summary?: string };
+
+    expect(result.content).toEqual([{ type: 'text', text: structured.summary }]);
+    expect(structured.summary.length).toBeLessThanOrEqual(120);
+    expect(structured.summary).not.toContain('content-budget-tail');
+    expect(JSON.stringify(result.content)).not.toContain('content-budget-tail');
+    expect(item.summary?.length).toBeLessThanOrEqual(120);
+    expect(item.contentPreview?.length).toBeLessThanOrEqual(120);
+    expect(item.nested?.content?.length).toBeLessThanOrEqual(120);
+    expect(structured.detailRefs.every((ref) => ref.summary.length <= 120)).toBe(true);
+    expect(structured.nextActions[0]?.reason.length).toBeLessThanOrEqual(120);
+    expect(payloadResult.content?.length).toBeLessThanOrEqual(120);
+    expect(payloadResult.summary?.length).toBeLessThanOrEqual(120);
+    expect(projected.truncated).toMatchObject({ content: true });
+    expect(structured.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'budget-truncated-content',
+        severity: 'info',
+      })
+    );
     expect(structured.status).toBe('partial');
   });
 
