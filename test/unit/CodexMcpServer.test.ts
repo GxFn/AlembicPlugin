@@ -727,10 +727,10 @@ describe('CodexMcpServer', () => {
       mode: 'auto',
       limit: 1,
     })) as {
-      data: {
-        searchMeta: { residentSearch: { projectScopeIdentity: { projectScopeId: string } } };
+      structuredContent: {
+        ok: boolean;
+        result: { residentSearch: { projectScopeIdentity: { projectScopeId: string } } };
       };
-      success: boolean;
     };
     const primeResult = (await server.handleToolCall('alembic_prime', {
       hostDeclaredIntent: {
@@ -775,10 +775,12 @@ describe('CodexMcpServer', () => {
         }),
       ])
     );
-    expect(searchResult.success).toBe(true);
-    expect(searchResult.data.searchMeta.residentSearch.projectScopeIdentity).toMatchObject({
-      projectScopeId: projectScope.projectScopeId,
-    });
+    expect(searchResult.structuredContent.ok).toBe(true);
+    expect(searchResult.structuredContent.result.residentSearch.projectScopeIdentity).toMatchObject(
+      {
+        projectScopeId: projectScope.projectScopeId,
+      }
+    );
     expect(primeResult.ok).toBe(true);
     expect(['ready', 'degraded']).toContain(primeResult.status);
     expect(primeResult.primePackage.trustReceipt.status).toBe('delivered');
@@ -989,9 +991,7 @@ describe('CodexMcpServer', () => {
       state: 'needs_init',
       primaryAction: { startsDaemon: false, tool: 'alembic_mcp_init' },
     });
-    expect(result.data.nextActions).toContain(
-      'Initialize Ghost workspace: call alembic_mcp_init'
-    );
+    expect(result.data.nextActions).toContain('Initialize Ghost workspace: call alembic_mcp_init');
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });

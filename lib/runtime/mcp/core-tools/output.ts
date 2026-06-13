@@ -8,7 +8,6 @@ import {
 
 export const CORE_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_health',
-  'alembic_search',
   'alembic_knowledge',
   'alembic_structure',
   'alembic_graph',
@@ -314,17 +313,6 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'projectRoot',
     'requestedDimensions',
     'reasons',
-  ],
-  alembic_search: [
-    'byKind',
-    'degraded',
-    'degradedReason',
-    'items',
-    'kind',
-    'kindCounts',
-    'mode',
-    'query',
-    'totalResults',
   ],
   alembic_structure: [
     'businessSummary',
@@ -652,8 +640,6 @@ function buildCoreToolSummary(
   switch (toolName) {
     case 'alembic_health':
       return 'Health check completed.';
-    case 'alembic_search':
-      return `Search completed with ${numberField(input.business.totalResults)} result(s).`;
     case 'alembic_knowledge':
       return 'Knowledge request completed.';
     case 'alembic_structure':

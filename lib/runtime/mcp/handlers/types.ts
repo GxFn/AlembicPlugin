@@ -189,12 +189,20 @@ export interface McpContext {
 
 /** Common search handler args */
 export interface SearchArgs {
-  query: string;
+  query?: string;
+  operation?: 'search' | 'get' | 'expand' | string;
+  refId?: string;
+  id?: string;
+  detailRefId?: string;
+  keywords?: string[];
   limit?: number;
   kind?: string;
   type?: string;
   mode?: string;
+  category?: string;
   language?: string;
+  activeFile?: string;
+  module?: string;
   sessionHistory?: unknown[];
   [key: string]: unknown;
 }

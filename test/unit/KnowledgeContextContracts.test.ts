@@ -17,6 +17,7 @@ function sampleOutput(status: (typeof KNOWLEDGE_CONTEXT_STATUSES)[number]) {
     ok: status === 'ready' || status === 'partial',
     status,
     tool: 'alembic_project_matrix' as const,
+    toolName: 'alembic_project_matrix' as const,
     operation: 'overview',
     summary: `Project matrix contract is ${status}.`,
     request: {

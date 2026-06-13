@@ -141,10 +141,12 @@ describe('Integration: zodToMcpSchema', () => {
       const result = zodToMcpSchema(SearchInput);
       expect(result.type).toBe('object');
       expect(result.properties['query']).toBeDefined();
+      expect(result.properties['operation']).toBeDefined();
+      expect(result.properties['refId']).toBeDefined();
       expect(result.properties['hostDeclaredIntent']).toBeDefined();
       expect(result.properties['hostTurnMeta']).toBeDefined();
-      expect(result.required).toContain('query');
-      // mode has default, should not be required
+      // query is required only for operation=search; get/expand are ref-driven.
+      expect(result.required).not.toContain('query');
       expect(result.required).not.toContain('mode');
       expect(result.required).not.toContain('limit');
     });

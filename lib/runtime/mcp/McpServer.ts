@@ -546,6 +546,17 @@ export class McpServer {
       if (typeof obj.query === 'string') {
         return obj.query;
       }
+      const structuredContent =
+        obj.structuredContent && typeof obj.structuredContent === 'object'
+          ? (obj.structuredContent as Record<string, unknown>)
+          : null;
+      const request =
+        structuredContent?.request && typeof structuredContent.request === 'object'
+          ? (structuredContent.request as Record<string, unknown>)
+          : null;
+      if (typeof request?.query === 'string') {
+        return request.query;
+      }
     }
     return null;
   }

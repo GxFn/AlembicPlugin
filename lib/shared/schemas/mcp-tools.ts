@@ -471,31 +471,80 @@ export type ProjectMatrixInput = z.infer<typeof ProjectMatrixInput>;
 //  3. alembic_search
 // ══════════════════════════════════════════════════════
 
-export const SearchInput = z.object({
-  query: z.string().min(1, 'query is required').describe('搜索关键词或自然语言描述'),
-  mode: z
-    .enum(['auto', 'keyword', 'bm25', 'semantic', 'context'])
-    .default('auto')
-    .describe(
-      'auto=自动选策略 | keyword=精确匹配 | bm25=全文检索 | semantic=向量语义 | context=综合+上下文'
+const SearchKindInput = z.enum(['all', 'rule', 'pattern', 'fact', 'guide', 'decision', 'standard']);
+
+export const SearchInput = z
+  .object({
+    operation: z
+      .enum(['search', 'get', 'expand'])
+      .default('search')
+      .describe('search=检索候选 | get=按 ref/id 获取详情 | expand=按 ref/id 展开上下文'),
+    query: z.string().min(1).max(4000).optional().describe('搜索关键词或自然语言描述'),
+    keywords: z
+      .array(z.string().min(1).max(120))
+      .max(40)
+      .optional()
+      .describe('Optional keyword hints for recipe/knowledge search.'),
+    mode: z
+      .enum(['auto', 'keyword', 'bm25', 'semantic', 'context'])
+      .default('auto')
+      .describe(
+        'auto=自动选策略 | keyword=精确匹配 | bm25=全文检索 | semantic=向量语义 | context=综合+上下文'
+      ),
+    kind: SearchKindInput.default('all').describe(
+      '过滤知识类型: all/rule/pattern/fact/guide/decision/standard'
     ),
-  kind: KindEnum.default('all').describe('过滤知识类型: all/rule/pattern/fact'),
-  limit: z.number().int().min(1).max(100).default(10),
-  language: z.string().optional().describe('按编程语言过滤，如 swift/typescript'),
-  sessionId: z.string().optional(),
-  sessionHistory: z.array(z.record(z.string(), z.unknown())).optional(),
-  hostDeclaredIntent: HostDeclaredIntentInput.optional().describe(
-    'Optional host-declared intent frame for resident search handoff'
-  ),
-  hostTurnMeta: HostTurnMetaInput.optional().describe(
-    'Optional redacted host turn metadata for resident search handoff'
-  ),
-  sourceRefs: z
-    .array(z.string().min(1).max(200))
-    .max(20)
-    .optional()
-    .describe('Optional non-private source refs for resident search handoff'),
-});
+    category: z.string().min(1).max(160).optional(),
+    refId: z.string().min(1).max(240).optional().describe('get/expand 的知识 refId'),
+    id: z.string().min(1).max(240).optional().describe('get/expand 的知识 id 别名'),
+    detailRefId: z.string().min(1).max(240).optional().describe('get/expand 的 detailRefId'),
+    limit: z.number().int().min(1).max(100).default(10),
+    language: z.string().optional().describe('按编程语言过滤，如 swift/typescript'),
+    activeFile: z.string().min(1).max(2000).optional(),
+    module: z.string().min(1).max(240).optional(),
+    sessionId: z.string().optional(),
+    sessionHistory: z.array(z.record(z.string(), z.unknown())).optional(),
+    hostDeclaredIntent: HostDeclaredIntentInput.optional().describe(
+      'Optional host-declared intent frame for resident search handoff'
+    ),
+    hostTurnMeta: HostTurnMetaInput.optional().describe(
+      'Optional redacted host turn metadata for resident search handoff'
+    ),
+    sourceRefs: z
+      .array(z.string().min(1).max(240))
+      .max(80)
+      .optional()
+      .describe('Optional non-private source refs for resident search handoff'),
+    sourceGraphRef: z.string().min(1).max(240).optional(),
+    sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
+    projectRoot: z.string().min(1).max(2000).optional(),
+    detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
+    budget: KnowledgeContextBudgetInput.optional(),
+    freshnessPolicy: KnowledgeContextFreshnessInput.optional(),
+  })
+  .superRefine((input, ctx) => {
+    const ref = input.refId ?? input.id ?? input.detailRefId;
+    if (input.operation === 'search') {
+      const hasQuery = typeof input.query === 'string' && input.query.length > 0;
+      const hasKeywords = (input.keywords?.length ?? 0) > 0;
+      const hasHostIntent = typeof input.hostDeclaredIntent?.query === 'string';
+      if (!hasQuery && !hasKeywords && !hasHostIntent) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'query, keywords, or hostDeclaredIntent.query is required for search',
+          path: ['query'],
+        });
+      }
+      return;
+    }
+    if (!ref) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'refId, id, or detailRefId is required for get/expand operations',
+        path: ['refId'],
+      });
+    }
+  });
 export type SearchInput = z.infer<typeof SearchInput>;
 
 // ══════════════════════════════════════════════════════

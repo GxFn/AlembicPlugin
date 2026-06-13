@@ -204,6 +204,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     test('should apply defaults', () => {
       const result = SearchInput.parse({ query: 'auth' });
       expect(result.query).toBe('auth');
+      expect(result.operation).toBe('search');
       expect(result.mode).toBe('auto');
       expect(result.kind).toBe('all');
       expect(result.limit).toBe(10);
@@ -220,6 +221,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     test('should accept optional fields', () => {
       const result = SearchInput.parse({
         query: 'test',
+        keywords: ['runtime'],
         language: 'typescript',
         sessionId: 'sess-1',
         hostDeclaredIntent: {
@@ -232,8 +234,19 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         },
       });
       expect(result.language).toBe('typescript');
+      expect(result.keywords).toEqual(['runtime']);
       expect(result.hostDeclaredIntent?.sourceRefs).toEqual(['host:intent']);
       expect(result.hostTurnMeta?.threadId).toBe('raw-thread-id');
+    });
+
+    test('should accept ref-driven get/expand operations without query', () => {
+      const result = SearchInput.parse({
+        operation: 'expand',
+        refId: 'knowledge:contract',
+      });
+
+      expect(result.operation).toBe('expand');
+      expect(result.refId).toBe('knowledge:contract');
     });
   });
 

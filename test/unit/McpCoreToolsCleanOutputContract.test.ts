@@ -16,7 +16,6 @@ import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 
 const expectedCoreToolNames = [
   'alembic_health',
-  'alembic_search',
   'alembic_knowledge',
   'alembic_structure',
   'alembic_graph',
@@ -155,7 +154,7 @@ describe('MCP core tools clean output contract', () => {
     for (const failureKind of CORE_D25_REQUIRED_FAILURE_KINDS) {
       const taxonomy = getCoreFailureTaxonomyEntry(failureKind);
       const result = serializeMcpToolResult(
-        'alembic_search',
+        'alembic_graph',
         {
           success: false,
           error: {
@@ -168,8 +167,9 @@ describe('MCP core tools clean output contract', () => {
             secretToken: 'must-not-leak',
           },
           data: {
-            query: 'taxonomy',
-            totalResults: 0,
+            impacted: [],
+            impactedCount: 0,
+            nodeId: 'taxonomy',
           },
         },
         {
@@ -203,27 +203,27 @@ describe('MCP core tools clean output contract', () => {
   });
 
   test('rejects diagnostic/runtime/source/search metadata bags in ordinary business output', () => {
-    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_search.safeParse({
+    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_graph.safeParse({
       ok: true,
       status: 'ready',
-      summary: 'Search completed.',
-      toolName: 'alembic_search',
+      summary: 'Graph completed.',
+      toolName: 'alembic_graph',
       searchMeta: { residentSearch: { used: true } },
-      meta: { contractVersion: 1, toolName: 'alembic_search' },
+      meta: { contractVersion: 1, toolName: 'alembic_graph' },
     });
 
     expect(parsed.success).toBe(false);
   });
 
   test('rejects already-clean core outputs with non-whitelisted business fields', () => {
-    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_search.safeParse({
+    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_graph.safeParse({
       ok: true,
       status: 'ready',
-      summary: 'Search completed.',
-      toolName: 'alembic_search',
-      totalResults: 0,
+      summary: 'Graph completed.',
+      toolName: 'alembic_graph',
+      impactedCount: 0,
       unexpectedContractLeak: true,
-      meta: { contractVersion: 1, toolName: 'alembic_search' },
+      meta: { contractVersion: 1, toolName: 'alembic_graph' },
     });
 
     expect(parsed.success).toBe(false);
@@ -270,13 +270,6 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
   switch (toolName) {
     case 'alembic_health':
       return { checks: { database: true }, status: 'ok', version: '0.0.0' };
-    case 'alembic_search':
-      return {
-        items: [],
-        kindCounts: { fact: 0, pattern: 0, rule: 0 },
-        query: 'contract',
-        totalResults: 0,
-      };
     case 'alembic_knowledge':
       return { count: 0, items: [], total: 0 };
     case 'alembic_structure':

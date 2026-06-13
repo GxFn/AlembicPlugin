@@ -173,13 +173,16 @@ describe('MCP clean output contract foundation', () => {
   test('fails closed with clean structuredContent when a tool has no output projector', () => {
     const legacy = { success: true, data: { total: 1 } };
 
-    const serialized = serializeMcpToolResult('alembic_search', legacy, {
+    const serialized = serializeMcpToolResult('alembic_unregistered_tool', legacy, {
       isErrorResult: () => false,
     });
 
     expect(serialized.isError).toBe(true);
     expect(serialized.content).toEqual([
-      { type: 'text', text: 'No clean MCP output projector is registered for alembic_search.' },
+      {
+        type: 'text',
+        text: 'No clean MCP output projector is registered for alembic_unregistered_tool.',
+      },
     ]);
     expect(serialized.structuredContent).toMatchObject({
       ok: false,
@@ -187,7 +190,7 @@ describe('MCP clean output contract foundation', () => {
       error: { code: 'CLEAN_OUTPUT_PROJECTOR_MISSING' },
       meta: {
         contractVersion: 1,
-        toolName: 'alembic_search',
+        toolName: 'alembic_unregistered_tool',
       },
     });
   });

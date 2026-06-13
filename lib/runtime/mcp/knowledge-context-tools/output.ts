@@ -8,7 +8,10 @@ import {
   registerMcpOutputProjector,
 } from '../../../runtime/mcp/output-contract.js';
 
-export const KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES = ['alembic_project_matrix'] as const;
+export const KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES = [
+  'alembic_project_matrix',
+  'alembic_search',
+] as const;
 
 export type KnowledgeContextCleanOutputToolName =
   (typeof KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES)[number];
@@ -22,6 +25,13 @@ export const KNOWLEDGE_CONTEXT_TOOL_OUTPUT_SCHEMAS = {
     (output) => output.toolName === 'alembic_project_matrix',
     {
       message: 'Knowledge context output toolName must be alembic_project_matrix.',
+      path: ['toolName'],
+    }
+  ),
+  alembic_search: KnowledgeContextToolOutputSchema.refine(
+    (output) => output.toolName === 'alembic_search',
+    {
+      message: 'Knowledge context output toolName must be alembic_search.',
       path: ['toolName'],
     }
   ),

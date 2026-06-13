@@ -197,8 +197,16 @@ export const PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS = [
     toolName: 'alembic_health',
   },
   {
-    consumerScenario: 'Plugin MCP search projection consumes resident knowledge search fixture',
-    expectedFields: ['items', 'kindCounts', 'query', 'totalResults'],
+    consumerScenario:
+      'Plugin MCP search projection consumes resident knowledge search fixture through KnowledgeContextToolOutput',
+    expectedFields: [
+      'detailRefs',
+      'items',
+      'request.query',
+      'result.totalResults',
+      'sources',
+      'toolName',
+    ],
     forbiddenOrdinaryOutputFields: [
       'apiKey',
       'diagnostics',

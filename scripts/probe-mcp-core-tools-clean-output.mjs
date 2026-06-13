@@ -154,13 +154,6 @@ function sampleBusinessData(toolName) {
   switch (toolName) {
     case 'alembic_health':
       return { checks: { database: true }, status: 'ok', version: '0.0.0' };
-    case 'alembic_search':
-      return {
-        items: [],
-        kindCounts: { fact: 0, pattern: 0, rule: 0 },
-        query: 'contract',
-        totalResults: 0,
-      };
     case 'alembic_knowledge':
       return { count: 0, items: [], total: 0 };
     case 'alembic_structure':

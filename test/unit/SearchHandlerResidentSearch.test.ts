@@ -176,6 +176,7 @@ function primeInjectionPackageSummary() {
 
 function context(input: {
   engineSearch?: ReturnType<typeof vi.fn>;
+  knowledgeService?: Record<string, unknown>;
   residentSearch?: ReturnType<typeof vi.fn>;
 }): McpContext {
   return {
@@ -187,9 +188,73 @@ function context(input: {
         if (name === 'residentServiceClient') {
           return { search: input.residentSearch ?? vi.fn(async () => ({ items: [] })) };
         }
+        if (name === 'knowledgeService' && input.knowledgeService) {
+          return input.knowledgeService;
+        }
         throw new Error(`Unexpected service: ${name}`);
       }),
     },
+  };
+}
+
+const alphaContent =
+  'Use structuredContent as the machine-readable source of truth. Visible MCP content stays summary-only, while detail refs carry long Recipe evidence within caller budgets.';
+
+function recipeEntries() {
+  return [
+    {
+      id: 'recipe-alpha',
+      title: 'Structured search result contract',
+      trigger: '@structured-search-result',
+      kind: 'pattern',
+      language: 'typescript',
+      category: 'mcp',
+      description: 'Project alembic_search through the knowledge-context output contract.',
+      doClause: 'Return compact structuredContent with stable detail refs and source evidence.',
+      whenClause: 'When MCP tools expose Recipe or knowledge search results.',
+      content: {
+        markdown: alphaContent,
+      },
+      quality: {
+        overall: 0.88,
+      },
+      relations: {
+        supports: ['recipe-beta'],
+      },
+      tags: ['mcp', 'knowledge-context'],
+    },
+    {
+      id: 'recipe-beta',
+      title: 'Resident vector fallback contract',
+      trigger: '@resident-vector-fallback',
+      kind: 'fact',
+      language: 'typescript',
+      category: 'mcp',
+      description: 'Report resident/vector availability or degraded diagnostics for search surfaces.',
+      content: {
+        markdown: 'Resident and vector routes may be unavailable; the output must say so explicitly.',
+      },
+      quality: {
+        overall: 0.73,
+      },
+      relations: {},
+      tags: ['resident', 'vector'],
+    },
+  ];
+}
+
+function knowledgeServiceFixture() {
+  const entries = recipeEntries();
+  return {
+    get: vi.fn(async (refId: string) => {
+      const normalized = refId.startsWith('knowledge:')
+        ? refId.slice('knowledge:'.length)
+        : refId;
+      return entries.find((entry) => entry.id === normalized) ?? null;
+    }),
+    list: vi.fn(async () => ({
+      data: entries,
+    })),
   };
 }
 
@@ -239,22 +304,23 @@ describe('alembic_search resident search enhancement', () => {
       query: 'resident search',
       mode: 'semantic',
       limit: 3,
-    })) as { data: Record<string, unknown>; success: boolean };
+    })) as { structuredContent: Record<string, unknown> };
+    const structured = result.structuredContent as {
+      items: Array<Record<string, unknown>>;
+      result: Record<string, unknown>;
+      ok: boolean;
+    };
 
-    expect(result.success).toBe(true);
+    expect(structured.ok).toBe(true);
     expect(engineSearch).not.toHaveBeenCalled();
-    expect(result.data.items).toMatchObject([{ id: 'resident-1' }]);
-    expect(result.data.searchMeta).toMatchObject({
+    expect(structured.items).toMatchObject([{ id: 'resident-1' }]);
+    expect(structured.items[0]?.scoreBreakdown).toMatchObject({
+      semanticScore: 0.72,
+    });
+    expect(structured.result).toMatchObject({
       residentVector: { available: true },
       residentSearch: {
         available: true,
-        intentEvidence: {
-          semanticAnchors: [
-            expect.objectContaining({
-              value: 'resident search',
-            }),
-          ],
-        },
         projectScopeIdentity: {
           mode: 'project-scope',
           projectScopeId: 'project-scope-workspace',
@@ -263,32 +329,22 @@ describe('alembic_search resident search enhancement', () => {
         semanticUsed: true,
         vectorUsed: true,
       },
-      intentEvidence: {
-        scoreBreakdown: [
-          expect.objectContaining({
-            itemId: 'resident-1',
-            semanticScore: 0.72,
-          }),
-        ],
-        topAnchorMatches: [
-          expect.objectContaining({
-            itemId: 'resident-1',
-          }),
-        ],
-      },
-      primeInjectionPackage: {
-        injection: {
-          selectedCount: 1,
-          status: 'ready',
+      searchMeta: {
+        intentEvidence: {
+          semanticAnchors: [
+            expect.objectContaining({
+              value: 'resident search',
+            }),
+          ],
         },
-        selectedKnowledge: [
-          expect.objectContaining({
-            injectionStatus: 'selected',
-            itemId: 'resident-1',
-          }),
-        ],
-        trace: {
-          sources: ['intentSearchPlan', 'intentEvidence'],
+        primeInjectionPackage: {
+          injection: {
+            selectedCount: 1,
+            status: 'ready',
+          },
+          trace: {
+            sources: ['intentSearchPlan', 'intentEvidence'],
+          },
         },
       },
     });
@@ -336,9 +392,9 @@ describe('alembic_search resident search enhancement', () => {
       query: 'resident search',
       mode: 'auto',
       limit: 3,
-    })) as { data: Record<string, unknown>; success: boolean };
+    })) as { structuredContent: { result: Record<string, unknown>; ok: boolean } };
 
-    expect(result.success).toBe(true);
+    expect(result.structuredContent.ok).toBe(true);
     expect(residentSearch).toHaveBeenCalledWith({
       query: 'resident search',
       mode: 'auto',
@@ -347,7 +403,7 @@ describe('alembic_search resident search enhancement', () => {
       kind: 'all',
     });
     expect(engineSearch).not.toHaveBeenCalled();
-    expect(result.data.searchMeta).toMatchObject({
+    expect(result.structuredContent.result).toMatchObject({
       residentSearch: {
         requestedMode: 'auto',
         residentRequestMode: 'semantic',
@@ -408,9 +464,9 @@ describe('alembic_search resident search enhancement', () => {
       },
       sessionHistory: [{ content: 'previous host turn' }],
       sourceRefs: ['host:top-level', '/tmp/private.ts'],
-    })) as { data: Record<string, unknown>; success: boolean };
+    })) as { structuredContent: { result: Record<string, unknown>; ok: boolean } };
 
-    expect(result.success).toBe(true);
+    expect(result.structuredContent.ok).toBe(true);
     expect(residentSearch).toHaveBeenCalledWith(
       expect.objectContaining({
         hostDeclaredIntent: expect.objectContaining({
@@ -442,7 +498,7 @@ describe('alembic_search resident search enhancement', () => {
     );
     expect(JSON.stringify(residentSearch.mock.calls[0]?.[0])).not.toContain('/tmp/private.ts');
     expect(JSON.stringify(residentSearch.mock.calls[0]?.[0])).not.toContain('thread-plain');
-    expect(result.data.searchMeta).toMatchObject({
+    expect(result.structuredContent.result).toMatchObject({
       residentSearch: {
         hostIntentHandoff: {
           enabled: true,
@@ -485,12 +541,18 @@ describe('alembic_search resident search enhancement', () => {
       query: 'resident search',
       mode: 'semantic',
       limit: 3,
-    })) as { data: Record<string, unknown>; success: boolean };
+    })) as {
+      structuredContent: {
+        items: Array<Record<string, unknown>>;
+        result: Record<string, unknown>;
+        ok: boolean;
+      };
+    };
 
-    expect(result.success).toBe(true);
+    expect(result.structuredContent.ok).toBe(true);
     expect(engineSearch).toHaveBeenCalled();
-    expect(result.data.items).toMatchObject([{ id: 'embedded-1' }]);
-    expect(result.data.searchMeta).toMatchObject({
+    expect(result.structuredContent.items).toMatchObject([{ id: 'embedded-1' }]);
+    expect(result.structuredContent.result).toMatchObject({
       residentVector: { available: false, reason: 'daemon_state_missing' },
       residentSearch: {
         available: false,
@@ -498,5 +560,132 @@ describe('alembic_search resident search enhancement', () => {
         used: false,
       },
     });
+  });
+
+  it('resolves get and expand through the real handler with stable detail refs and degraded vector diagnostics', async () => {
+    const knowledgeService = knowledgeServiceFixture();
+    const baseContext = context({ knowledgeService });
+
+    const getResult = (await search(baseContext, {
+      operation: 'get',
+      refId: 'knowledge:recipe-alpha',
+      limit: 5,
+      budget: {
+        contentCharLimit: 160,
+        relationHopLimit: 2,
+      },
+    })) as {
+      content: Array<{ text: string; type: 'text' }>;
+      structuredContent: {
+        detailRefs: Array<Record<string, unknown>>;
+        diagnostics: Array<Record<string, unknown>>;
+        items: Array<Record<string, unknown>>;
+        ok: boolean;
+        relations: Array<Record<string, unknown>>;
+        result: Record<string, unknown>;
+        summary: string;
+      };
+    };
+
+    expect(getResult.content).toEqual([
+      { type: 'text', text: getResult.structuredContent.summary },
+    ]);
+    expect(getResult.structuredContent.ok).toBe(true);
+    expect(getResult.structuredContent.items).toMatchObject([
+      {
+        id: 'recipe-alpha',
+        detailRefId: 'knowledge:recipe-alpha',
+        whyMatched: ['knowledge-service'],
+        scoreBreakdown: {
+          vectorUsed: false,
+        },
+      },
+    ]);
+    expect(getResult.structuredContent.detailRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'knowledge:get:knowledge:recipe-alpha',
+          operation: 'get',
+          requiredForCompletion: true,
+        }),
+      ])
+    );
+    expect(getResult.structuredContent.relations).toEqual([
+      expect.objectContaining({
+        hops: ['recipe-alpha', 'recipe-beta'],
+        relationType: 'supports',
+      }),
+    ]);
+    expect(getResult.structuredContent.result).toMatchObject({
+      found: true,
+      refId: 'knowledge:recipe-alpha',
+      residentSearch: {
+        available: false,
+        reason: 'detail-operation-uses-knowledge-service',
+      },
+      residentVector: {
+        available: false,
+        reason: 'detail-operation-uses-knowledge-service',
+      },
+      vector: {
+        available: false,
+        used: false,
+      },
+    });
+    expect(getResult.structuredContent.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domain: 'vector',
+          severity: 'warning',
+        }),
+      ])
+    );
+
+    const expandResult = (await search(baseContext, {
+      operation: 'expand',
+      detailRefId: 'knowledge:recipe-alpha',
+      limit: 5,
+      budget: {
+        contentCharLimit: 120,
+        relationHopLimit: 1,
+      },
+    })) as {
+      content: Array<{ text: string; type: 'text' }>;
+      structuredContent: {
+        detailRefs: Array<Record<string, unknown>>;
+        items: Array<Record<string, unknown>>;
+        ok: boolean;
+        relations: Array<Record<string, unknown>>;
+        result: {
+          expanded?: {
+            contentPreview?: string;
+            detailRefs?: string[];
+          };
+          vector?: Record<string, unknown>;
+        };
+        summary: string;
+      };
+    };
+
+    expect(expandResult.content[0]?.text).toBe(expandResult.structuredContent.summary);
+    expect(expandResult.structuredContent.ok).toBe(true);
+    expect(expandResult.structuredContent.detailRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'knowledge:expand:knowledge:recipe-alpha',
+          operation: 'expand',
+          requiredForCompletion: true,
+        }),
+      ])
+    );
+    expect(expandResult.structuredContent.result.expanded).toMatchObject({
+      detailRefs: ['knowledge:recipe-alpha'],
+    });
+    expect(expandResult.structuredContent.result.expanded?.contentPreview).toMatch(/\.\.\.$/);
+    expect(expandResult.structuredContent.result.vector).toMatchObject({
+      available: false,
+      used: false,
+    });
+    expect(expandResult.structuredContent.relations).toHaveLength(1);
   });
 });
