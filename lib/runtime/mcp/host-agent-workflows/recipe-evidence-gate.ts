@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
 
 export type RecipeEvidenceViolationCode =
   | 'SESSION_NOT_FOUND'
@@ -69,15 +70,15 @@ interface SourceRefEvidence {
 }
 
 export function resolveBootstrapSession(
-  container: { get(name: string): unknown },
+  container: {
+    get(name: string): unknown;
+    register?: (name: string, factory: () => unknown) => void;
+  },
   sessionId?: string
 ): BootstrapSessionLike | null {
   try {
-    const sessionManager = container.get('bootstrapSessionManager') as
-      | { getSession?(sessionId?: string): unknown }
-      | null
-      | undefined;
-    const session = sessionManager?.getSession?.(sessionId);
+    const sessionManager = getOrCreateSessionManager(container as never);
+    const session = sessionManager.getSession(sessionId);
     return isBootstrapSessionLike(session) ? session : null;
   } catch {
     return null;

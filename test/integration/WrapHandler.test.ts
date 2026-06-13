@@ -150,6 +150,48 @@ describe('Integration: wrapHandler', () => {
       expect(content[0].text).toContain('unexpected boom');
     });
 
+    test('should preserve public bootstrap lease taxonomy from Error.toJSON', async () => {
+      class LeaseError extends Error {
+        code = 'BOOTSTRAP_IN_PROGRESS';
+        errorCode = 'BOOTSTRAP_IN_PROGRESS';
+
+        constructor() {
+          super('Bootstrap already in progress for this project.');
+        }
+
+        toJSON() {
+          return {
+            activeSessionId: 'bs-active',
+            mcpErrorCode: 'core.failure.conflict',
+            problemClass: 'state-conflict',
+            retryable: true,
+            state: 'bootstrap_in_progress',
+          };
+        }
+      }
+
+      const handler = wrapHandler(
+        'alembic_bootstrap',
+        async () => {
+          throw new LeaseError();
+        },
+        z.object({})
+      );
+
+      const result = (await handler({}, {})) as Record<string, unknown>;
+      expect(result.isError).toBe(true);
+      const parsed = getStructuredContent(result);
+      const error = parsed.error as Record<string, unknown>;
+      expect(error.code).toBe('BOOTSTRAP_IN_PROGRESS');
+      expect(error.failureId).toBe('core.failure.conflict');
+      expect(error.problemClass).toBe('state-conflict');
+      expect(error.details).toMatchObject({
+        activeSessionId: 'bs-active',
+        mcpErrorCode: 'core.failure.conflict',
+        state: 'bootstrap_in_progress',
+      });
+    });
+
     test('should include meta.responseTimeMs', async () => {
       const handler = wrapHandler(
         'test_timing',

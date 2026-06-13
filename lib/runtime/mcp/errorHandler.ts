@@ -31,7 +31,9 @@ const logger = Logger.getInstance();
 /** Error-like object with optional code and details */
 interface ErrorWithDetails extends Error {
   code?: string;
+  errorCode?: string;
   details?: unknown;
+  toJSON?: () => unknown;
 }
 
 /** Handler function signature for MCP tools */
@@ -58,10 +60,31 @@ function inferErrorCode(err: unknown): string {
     return 'CONSTITUTION_VIOLATION';
   }
   const errRecord = err as ErrorWithDetails;
+  if (errRecord.errorCode) {
+    return errRecord.errorCode;
+  }
   if (errRecord.code) {
     return errRecord.code;
   }
   return 'INTERNAL_ERROR';
+}
+
+function extractErrorDetails(err: unknown): unknown {
+  if (!(err instanceof Error)) {
+    return undefined;
+  }
+  const record = err as ErrorWithDetails;
+  if (record.details !== undefined) {
+    return record.details;
+  }
+  if (typeof record.toJSON === 'function') {
+    try {
+      return record.toJSON();
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -114,7 +137,7 @@ export function wrapHandler(toolName: string, handlerFn: McpHandlerFn, schema?: 
       // 业务错误 / 未知异常
       const errorCode = inferErrorCode(err);
       const message = (err instanceof Error ? err.message : '') || 'Unknown error';
-      const errDetails = err instanceof Error ? (err as ErrorWithDetails).details : undefined;
+      const errDetails = extractErrorDetails(err);
 
       logger.error(`[MCP:${toolName}] ${errorCode}: ${message}`, {
         tool: toolName,

@@ -58,6 +58,7 @@ export interface CreateCleanMcpFailureTaxonomyInput {
 // internal failures over the real MCP shell route.
 const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   CANCELLED: 'cancelled',
+  BOOTSTRAP_IN_PROGRESS: 'conflict',
   CLEAN_OUTPUT_PROJECTOR_MISSING: 'capability-mismatch',
   CODEX_ADMIN_OPT_IN_REQUIRED: 'permission-denied',
   CODEX_BOOTSTRAP_REBUILD_CONFIRMATION_REQUIRED: 'needs-confirmation',

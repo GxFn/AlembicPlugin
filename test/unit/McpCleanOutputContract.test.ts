@@ -223,6 +223,37 @@ describe('MCP clean output contract foundation', () => {
       toolName: 'alembic_submit_knowledge',
     });
   });
+
+  test('classifies durable bootstrap lease conflicts as public state conflicts', () => {
+    const response = createCleanMcpErrorResponse({
+      code: 'BOOTSTRAP_IN_PROGRESS',
+      details: {
+        activeSessionId: 'bs-active',
+        mcpErrorCode: 'core.failure.conflict',
+        problemClass: 'state-conflict',
+        reason: 'bootstrap_in_progress',
+        retryable: true,
+        state: 'bootstrap_in_progress',
+      },
+      message: 'Bootstrap already in progress for this project.',
+      toolName: 'alembic_bootstrap',
+    });
+
+    expect(response.error).toMatchObject({
+      code: 'BOOTSTRAP_IN_PROGRESS',
+      details: {
+        activeSessionId: 'bs-active',
+        mcpErrorCode: 'core.failure.conflict',
+        state: 'bootstrap_in_progress',
+      },
+      failureId: 'core.failure.conflict',
+      mcpErrorCode: 'core.failure.conflict',
+      mcpStatus: 'conflict',
+      problemClass: 'state-conflict',
+      reasonCode: 'conflict',
+      retryable: true,
+    });
+  });
 });
 
 // MT/CC3 F1 回归：错误信封必须满足按工具声明的输出 schema（顶层 toolName 为

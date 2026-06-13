@@ -18,6 +18,7 @@
     "CODEX_TOOL_RETIRED": "capability-mismatch",
     "CODEX_UNKNOWN_TOOL": "capability-mismatch",
     "CODEX_WORKSPACE_MODE_CONFLICT": "conflict",
+    "BOOTSTRAP_IN_PROGRESS": "conflict",
     "CONSENT_REQUIRED": "needs-confirmation",
     "DIMENSION_ANALYSIS_TEXT_INSUFFICIENT": "invalid-input",
     "DIMENSION_CANDIDATE_COUNT_INSUFFICIENT": "invalid-input",
