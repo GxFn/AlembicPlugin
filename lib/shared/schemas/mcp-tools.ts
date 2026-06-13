@@ -794,7 +794,19 @@ export type ConsolidateInput = z.infer<typeof ConsolidateInput>;
 //  工具名 → Schema 映射表（用于 wrapHandler 自动注入校验）
 // ══════════════════════════════════════════════════════
 
-export const TOOL_SCHEMAS: Record<string, z.ZodType> = {
+// QD2 schema honesty (CODE-GUARD-SCHEMA-LOOSENESS): reject unknown top-level
+// keys at call-time parse so malformed input fails with a structured
+// VALIDATION_ERROR instead of being silently stripped. This does NOT move the
+// published tools/list wire schema — zodToMcpSchema strips
+// additionalProperties:false, so the strict and non-strict variants serialize
+// identically; only the runtime parse tightens. No routed schema uses
+// .passthrough()/.catchall(), so every documented field-set still parses; any
+// tool that legitimately needed extra keys would be excluded here (none do).
+function strictToolInput(schema: z.ZodType): z.ZodType {
+  return schema instanceof z.ZodObject ? schema.strict() : schema;
+}
+
+const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_intent: IntentInput,
   alembic_prime: PrimeInput,
   alembic_work_start: WorkStartInput,
@@ -818,3 +830,7 @@ export const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_evolve: EvolveInput,
   alembic_consolidate: ConsolidateInput,
 };
+
+export const TOOL_SCHEMAS: Record<string, z.ZodType> = Object.fromEntries(
+  Object.entries(ROUTED_TOOL_SCHEMAS).map(([name, schema]) => [name, strictToolInput(schema)])
+);

@@ -995,6 +995,89 @@ function normalizeStringOption(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+// QD2 / F-V2-1: the source-graph wire schema declares typed fields (e.g.
+// `limit: number`), but normalizeNumberOption/normalizeBooleanOption silently
+// drop wrong-typed values, so the server used to ACCEPT `limit: "ten"` while a
+// schema-validating client rejects it. This validator restores schema honesty:
+// a field that is PRESENT but the wrong primitive type is reported so the
+// dispatch boundary can reject it with a structured taxonomy error. Omitted
+// (undefined/null) fields stay valid — only genuinely-malformed values fail,
+// so every correctly-typed or omitted input still parses byte-identically.
+type SourceGraphFieldType = 'number' | 'boolean' | 'string' | 'string-array';
+
+// Mirrors the published SOURCE_GRAPH_COMMON_INPUT_PROPERTIES + per-tool string
+// additions in ToolPolicy.ts. Internal-only fields (e.g. `now`) are not in the
+// published schema and are intentionally excluded.
+const SOURCE_GRAPH_TYPED_FIELDS: ReadonlyArray<readonly [string, SourceGraphFieldType]> = [
+  ['maxCatchUpFiles', 'number'],
+  ['limit', 'number'],
+  ['contextLines', 'number'],
+  ['maxSectionLines', 'number'],
+  ['sourceSectionLineBudget', 'number'],
+  ['edgeLimit', 'number'],
+  ['catchUp', 'boolean'],
+  ['includeEdges', 'boolean'],
+  ['includeText', 'boolean'],
+  ['includeTests', 'boolean'],
+  ['includeGenerated', 'boolean'],
+  ['includeConfig', 'boolean'],
+  ['repoId', 'string'],
+  ['projectScope', 'string'],
+  ['generationId', 'string'],
+  ['kind', 'string'],
+  ['filePath', 'string'],
+  ['query', 'string'],
+  ['focus', 'string'],
+  ['nodeId', 'string'],
+  ['symbolId', 'string'],
+  ['changedFiles', 'string-array'],
+];
+
+function matchesSourceGraphFieldType(value: unknown, type: SourceGraphFieldType): boolean {
+  switch (type) {
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'string':
+      return typeof value === 'string';
+    case 'string-array':
+      return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+  }
+}
+
+function describeSourceGraphReceivedType(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  if (Array.isArray(value)) {
+    return 'array';
+  }
+  return typeof value;
+}
+
+/**
+ * Report source-graph args that are present but violate their declared wire
+ * type. Returns one human-readable issue per offending field (empty = valid).
+ * Pure: callers decide how to surface the rejection.
+ */
+export function findSourceGraphArgTypeIssues(args: Record<string, unknown>): string[] {
+  const issues: string[] = [];
+  for (const [field, type] of SOURCE_GRAPH_TYPED_FIELDS) {
+    const value = args[field];
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (!matchesSourceGraphFieldType(value, type)) {
+      const expected = type === 'string-array' ? 'array of strings' : type;
+      issues.push(
+        `${field} (expected ${expected}, received ${describeSourceGraphReceivedType(value)})`
+      );
+    }
+  }
+  return issues;
+}
+
 function normalizeNumberOption(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }

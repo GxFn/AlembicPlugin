@@ -1185,7 +1185,7 @@ async function loadSourceGraphIndexingModules() {
   if (sourceGraphIndexingModules) {
     return sourceGraphIndexingModules;
   }
-  const statusModulePath = join(root, 'dist', 'lib', 'codex', 'mcp', 'source-graph', 'status.js');
+  const statusModulePath = join(root, 'dist', 'lib', 'runtime', 'mcp', 'source-graph', 'status.js');
   if (!existsSync(statusModulePath)) {
     throw new Error(
       `Missing ${statusModulePath}; run npm run build before --fused-workflow probe execution.`

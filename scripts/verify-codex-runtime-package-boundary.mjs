@@ -141,7 +141,7 @@ try {
       '--input-type=module',
       '--eval',
       `const mod = await import(${JSON.stringify(
-        join(installedRoot, 'dist', 'lib', 'codex', 'mcp', 'CodexMcpServer.js')
+        join(installedRoot, 'dist', 'lib', 'runtime', 'mcp', 'CodexMcpServer.js')
       )}); if (typeof mod.startCodexMcpServer !== 'function') throw new Error('missing startCodexMcpServer');`,
     ],
     { cwd: installRoot, timeout: 15000 }
