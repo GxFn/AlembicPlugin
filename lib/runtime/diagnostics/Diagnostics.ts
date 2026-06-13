@@ -237,26 +237,32 @@ export function buildCodexRuntimeDiagnostics(
     runtimeMode: context.runtimeMode,
   });
 
+  const blockingIssues = issues.filter((issue) => issue.severity === 'error');
+  const requiresDiagnosticsAction =
+    blockingIssues.length > 0 ||
+    issues.some((issue) => issue.code === 'CODEX_ADMIN_OPT_IN_REQUIRED');
   return {
-    ok: Object.values(checks).every(Boolean),
+    ok: areKnowledgeWorkflowDiagnosticsOk(checks),
     summary: buildDiagnosticSummary(issues),
     checks,
     issues,
     nextActions: buildDiagnosticNextActions(issues),
-    primaryAction:
-      issues.length === 0
-        ? buildRecommendedAction({
-            label: 'Check workspace status',
-            reason: 'Runtime checks passed; inspect project initialization and daemon state next.',
-            startsDaemon: false,
-            tool: 'alembic_codex_status',
-          })
-        : buildRecommendedAction({
-            label: 'Fix diagnostics',
-            reason: 'Resolve the reported runtime or plugin metadata issue before using Alembic.',
-            startsDaemon: false,
-            tool: 'alembic_codex_diagnostics',
-          }),
+    primaryAction: !requiresDiagnosticsAction
+      ? buildRecommendedAction({
+          label: 'Check workspace status',
+          reason:
+            issues.length === 0
+              ? 'Runtime checks passed; inspect project initialization and daemon state next.'
+              : 'Only non-blocking plugin packaging warnings remain; project knowledge workflows can continue.',
+          startsDaemon: false,
+          tool: 'alembic_codex_status',
+        })
+      : buildRecommendedAction({
+          label: 'Fix diagnostics',
+          reason: 'Resolve the reported runtime or plugin metadata issue before using Alembic.',
+          startsDaemon: false,
+          tool: 'alembic_codex_diagnostics',
+        }),
     ...buildCodexRuntimeReportSections({
       checks,
       context,
@@ -303,6 +309,26 @@ function buildCodexRuntimeChecks(input: {
     residentServiceContract:
       !input.options.residentService || input.options.residentService.status.contractVersion === 1,
   };
+}
+
+function areKnowledgeWorkflowDiagnosticsOk(checks: CodexRuntimeChecks): boolean {
+  const blockingChecks = [
+    'adminGate',
+    'node',
+    'npm',
+    'runtimeMode',
+    'runtimePluginHost',
+    'packagePin',
+    'pluginHost',
+    'pluginRuntimeMode',
+    'pluginAssets',
+    'pluginMcp',
+    'pluginMcpEntry',
+    'pluginSkills',
+    'projectRoot',
+    'residentServiceContract',
+  ];
+  return blockingChecks.every((checkName) => checks[checkName] === true);
 }
 
 function buildCodexRuntimeReportSections(input: {
@@ -943,10 +969,12 @@ function buildPluginConfigurationIssues(input: BuildDiagnosticIssuesInput): Code
   }
   if (!input.checks.pluginManifest || !input.plugin.readme.ok) {
     issues.push({
-      action: 'Run npm run verify:codex-plugin and repair plugin metadata before publishing.',
+      action:
+        'Run npm run verify:codex-plugin and repair plugin metadata before publishing or refreshing marketplace cache.',
       code: 'PLUGIN_METADATA_INCOMPLETE',
-      message: 'Codex plugin manifest or README metadata is incomplete.',
-      severity: 'error',
+      message:
+        'Codex plugin manifest or README metadata is incomplete. This blocks publish readiness, not local Codex host-agent knowledge workflows.',
+      severity: 'warning',
     });
   }
   if (!input.checks.pluginAssets || !input.checks.pluginSkills) {
@@ -1049,6 +1077,9 @@ function buildDiagnosticSummary(issues: CodexDiagnosticIssue[]): string {
   }
   if (warningCount > 0) {
     parts.push(`${warningCount} warning${warningCount === 1 ? '' : 's'}`);
+  }
+  if (errorCount === 0) {
+    return `Alembic Codex diagnostics found ${parts.join(' and ')}. Knowledge workflows can continue; review warnings before publishing or refreshing plugin caches.`;
   }
   return `Alembic Codex diagnostics found ${parts.join(' and ')}. Review issues before starting project knowledge workflows.`;
 }

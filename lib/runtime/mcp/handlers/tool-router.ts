@@ -13,6 +13,7 @@ import { dimensionTags } from '@alembic/core/dimensions';
 import type { CreateRecipeResult } from '@alembic/core/knowledge';
 import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
 import { getDeveloperIdentity } from '@alembic/core/shared';
+import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
   primaryEvidenceGateCode,
@@ -244,9 +245,8 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
 
   // ── Step 1: 限流 ──
   const { checkRecipeSave } = await import('#http/middleware/RateLimiter.js');
-  const { resolveDataRoot, resolveProjectRoot } = await import('@alembic/core/workspace');
+  const { resolveProjectRoot } = await import('@alembic/core/workspace');
   const projectRoot = resolveProjectRoot(ctx.container);
-  const dataRoot = resolveDataRoot(ctx.container as never) || projectRoot;
   const limitCheck = checkRecipeSave(projectRoot, clientId || process.env.USER || 'mcp-client');
   if (!limitCheck.allowed) {
     return envelope({
@@ -273,6 +273,10 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   }
 
   const bootstrapSession = resolveBootstrapSession(ctx.container, bootstrapSessionId);
+  const dataRoot = resolveHostAgentDataRoot(
+    ctx.container,
+    bootstrapSession?.projectRoot || projectRoot
+  );
   const evidenceGateResponse = buildSubmitKnowledgeEvidenceGateResponse({
     args,
     bootstrapSession,

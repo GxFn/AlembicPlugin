@@ -26,10 +26,11 @@ import {
   buildProjectSnapshot,
   ProjectIntelligenceCapability,
 } from '@alembic/core/project-intelligence';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import { type CodexKnowledgeState, inspectCodexKnowledge } from '#codex/KnowledgeState.js';
+import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
 import { buildCodexColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
@@ -69,7 +70,7 @@ interface AttachColdStartOnboardingInput<T extends { meta?: Record<string, unkno
 export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: BootstrapInput) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
-  const dataRoot = resolveDataRoot(ctx.container);
+  const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);
 
   // ═══════════════════════════════════════════════════════════
   // Step 0: 重建确认门禁（MT1 P1 数据丢失门禁的 bootstrap 半边）

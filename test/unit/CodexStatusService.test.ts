@@ -422,11 +422,22 @@ describe('Codex status service', () => {
       };
       repairState?: { status?: string };
       sopPack?: {
+        dimensionCompletionContract?: {
+          firstCallExample?: Record<string, unknown>;
+          requiredFields?: string[];
+          sessionField?: string;
+        };
         knowledgeResetContract?: { backupByDefault?: boolean; scopes?: string[] };
         recipeAuthoringRubric?: Record<string, unknown>;
         resumePrompt?: Record<string, unknown>;
         scopeBrief?: Record<string, unknown>;
         stopConditions?: string[];
+        submitKnowledgeContract?: {
+          exactFields?: string[];
+          fieldFloors?: Record<string, unknown>;
+          purpose?: string;
+          sourceRefCardinality?: Record<string, unknown>;
+        };
         toolCapabilityMatrix?: Array<{ name?: string; outputTrustLevel?: string }>;
       };
       toolCapabilities?: {
@@ -507,10 +518,42 @@ describe('Codex status service', () => {
         backupByDefault: true,
         scopes: expect.arrayContaining(['host-agent bootstrap session state']),
       }),
+      dimensionCompletionContract: expect.objectContaining({
+        sessionField: expect.stringContaining('sessionId'),
+        requiredFields: expect.arrayContaining([
+          'sessionId',
+          'dimensionId',
+          'submittedRecipeIds',
+          'referencedFiles',
+          'keyFindings',
+          'analysisText',
+          'candidateCount',
+        ]),
+        firstCallExample: expect.objectContaining({
+          sessionId: 'bootstrapState.session.id',
+        }),
+      }),
       resumePrompt: expect.objectContaining({
         bootstrapSessionRefField: 'bootstrapState.session.id',
       }),
       stopConditions: expect.arrayContaining(['another bootstrap writer holds the lease']),
+      submitKnowledgeContract: expect.objectContaining({
+        exactFields: expect.arrayContaining([
+          'content',
+          'content.markdown',
+          'reasoning.whyStandard',
+          'reasoning.confidence',
+          'usageGuide',
+        ]),
+        fieldFloors: expect.objectContaining({
+          category: expect.stringContaining('View/Service/Tool'),
+          contentMarkdown: expect.stringContaining('>=200 chars'),
+        }),
+        purpose: expect.stringContaining('before the first submit call'),
+        sourceRefCardinality: expect.objectContaining({
+          universalRuleOrPattern: expect.stringContaining('>=3'),
+        }),
+      }),
     });
     expect(onboarding.sopPack?.toolCapabilityMatrix).toEqual(
       expect.arrayContaining([
@@ -772,5 +815,45 @@ describe('Codex status service', () => {
       switchOwnership: 'Alembic/Dashboard',
     });
     expect(supervisor.status).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps local host-agent bootstrap available when only the selected project differs', async () => {
+    useTempAlembicHome();
+    const hostProjectRoot = makeProjectRoot();
+    const selectedProjectRoot = makeProjectRoot();
+    makeInitializedWorkspace(hostProjectRoot);
+    ProjectRegistry.register(hostProjectRoot, false);
+    const selectedEntry = ProjectRegistry.register(selectedProjectRoot, false);
+    writeRuntimeControlState({
+      selectedAt: '2026-05-19T00:00:00.000Z',
+      selectedProjectId: selectedEntry.id,
+      selectedProjectRoot,
+      updatedAt: '2026-05-19T00:00:00.000Z',
+    });
+    const supervisor = {
+      status: vi.fn(async () => makeDaemonStatus(hostProjectRoot, false)),
+    };
+
+    const status = await buildCodexStatus(hostProjectRoot, { supervisor });
+
+    expect(status.hostProjectAlignment).toMatchObject({
+      connectionState: 'mismatch',
+      handoffAllowed: false,
+      handoffMismatch: {
+        reason: 'selected-project-differs',
+      },
+    });
+    expect(status.onboarding).toMatchObject({
+      state: 'needs_bootstrap',
+      primaryAction: { tool: 'alembic_bootstrap' },
+      bootstrapState: {
+        status: 'initialized_empty',
+      },
+    });
+    expect(status.onboarding).not.toMatchObject({
+      bootstrapState: {
+        status: 'wrong_scope',
+      },
+    });
   });
 });

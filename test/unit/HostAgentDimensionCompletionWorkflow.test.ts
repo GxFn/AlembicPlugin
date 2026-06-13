@@ -141,6 +141,101 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     });
   });
 
+  it('enriches generated project skills with submitted Recipe guidance even for long analysis', async () => {
+    const generated: string[] = [];
+    const session = createSession({ skillWorthy: true });
+    const context = createContext({
+      get: (name: string) => {
+        if (name === 'knowledgeService') {
+          return {
+            get: async (recipeId: string) => ({
+              title: `Recipe ${recipeId}`,
+              description: `Description for ${recipeId}`,
+              whenClause: `Use ${recipeId} when completing the bootstrap dimension.`,
+              doClause: `Apply ${recipeId} with source-backed evidence.`,
+              dontClause: `Do not apply ${recipeId} without session-bound Recipes.`,
+              coreCode: `const ${recipeId.replaceAll('-', '_')} = true;`,
+              tags: ['existing'],
+            }),
+            update: async () => undefined,
+          };
+        }
+        return null;
+      },
+    });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      context,
+      {
+        dimensionId: 'architecture',
+        analysisText: `${longAnalysisText()}\n\n${longAnalysisText()}`,
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        generateSkill: async (_ctx, _dimension, analysisText) => {
+          generated.push(analysisText);
+          return { success: true };
+        },
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(generated).toHaveLength(1);
+    expect(generated[0]).toContain('### Recipe recipe-a');
+    expect(generated[0]).toContain(
+      '**When**: Use recipe-a when completing the bootstrap dimension.'
+    );
+    expect(generated[0]).toContain('**Do**: Apply recipe-a with source-backed evidence.');
+    expect(generated[0]).toContain(
+      "**Don't**: Do not apply recipe-a without session-bound Recipes."
+    );
+    expect(generated[0]).toContain('const recipe_a = true;');
+  });
+
+  it('does not synthesize Recipe guidance when no submitted Recipes are bound', async () => {
+    const generated: string[] = [];
+    const session = createSession({ skillWorthy: true, submissions: [] });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      createContext(),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+        submittedRecipeIds: [],
+      },
+      {
+        getActiveSession: () => session,
+        generateSkill: async (_ctx, _dimension, analysisText) => {
+          generated.push(analysisText);
+          return { success: true };
+        },
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(generated).toHaveLength(0);
+  });
+
   it('blocks completion before checkpoint when session-bound recipe ids are insufficient', async () => {
     const checkpoint = vi.fn(async () => undefined);
     const emitted = vi.fn();
@@ -187,12 +282,14 @@ function createContext(overrides: Partial<HostAgentDimensionCompletionContext['c
 }
 
 function createSession({
+  skillWorthy = false,
   submissions = [
     { recipeId: 'recipe-a', sources: ['src/a.ts:10-20'], title: 'A' },
     { recipeId: 'recipe-b', sources: ['packages/core/b.ts:5-15'], title: 'B' },
     { recipeId: 'recipe-c', sources: ['lib/c.ts:1-12'], title: 'C' },
   ],
 }: {
+  skillWorthy?: boolean;
   submissions?: Array<{ recipeId: string; sources: string[]; title?: string }>;
 } = {}): HostAgentWorkflowSession {
   let completed = false;
@@ -201,7 +298,7 @@ function createSession({
     projectRoot: '/tmp/alembic-test-project',
     expiresAt: Date.now(),
     dimensions: [
-      { id: 'architecture', label: 'Architecture', skillWorthy: false },
+      { id: 'architecture', label: 'Architecture', skillWorthy },
       { id: 'tooling', label: 'Tooling', skillWorthy: false },
     ],
     submissionTracker: {

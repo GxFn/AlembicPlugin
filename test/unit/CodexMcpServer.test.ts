@@ -1990,11 +1990,22 @@ describe('CodexMcpServer', () => {
         executionPlan?: unknown;
         gates?: Record<string, unknown>;
         sopPack?: {
+          dimensionCompletionContract?: {
+            firstCallExample?: Record<string, unknown>;
+            requiredFields?: string[];
+            sessionField?: string;
+          };
           knowledgeResetContract?: { backupByDefault?: boolean; scopes?: string[] };
           recipeAuthoringRubric?: Record<string, unknown>;
           resumePrompt?: Record<string, unknown>;
           scopeBrief?: Record<string, unknown>;
           stopConditions?: string[];
+          submitKnowledgeContract?: {
+            exactFields?: string[];
+            fieldFloors?: Record<string, unknown>;
+            purpose?: string;
+            sourceRefCardinality?: Record<string, unknown>;
+          };
           toolCapabilityMatrix?: Array<{ name?: string }>;
         };
         serviceBoundary?: {
@@ -2069,10 +2080,41 @@ describe('CodexMcpServer', () => {
         backupByDefault: true,
         scopes: expect.arrayContaining(['host-agent bootstrap session state']),
       }),
+      dimensionCompletionContract: expect.objectContaining({
+        sessionField: expect.stringContaining('sessionId'),
+        requiredFields: expect.arrayContaining([
+          'sessionId',
+          'dimensionId',
+          'submittedRecipeIds',
+          'referencedFiles',
+          'keyFindings',
+          'analysisText',
+          'candidateCount',
+        ]),
+        firstCallExample: expect.objectContaining({
+          sessionId: 'bootstrapState.session.id',
+        }),
+      }),
       resumePrompt: expect.objectContaining({
         bootstrapSessionRefField: 'bootstrapState.session.id',
       }),
       stopConditions: expect.arrayContaining(['another bootstrap writer holds the lease']),
+      submitKnowledgeContract: expect.objectContaining({
+        exactFields: expect.arrayContaining([
+          'content.markdown',
+          'reasoning.whyStandard',
+          'reasoning.confidence',
+          'usageGuide',
+        ]),
+        fieldFloors: expect.objectContaining({
+          category: expect.stringContaining('View/Service/Tool'),
+          contentMarkdown: expect.stringContaining('>=200 chars'),
+        }),
+        purpose: expect.stringContaining('before the first submit call'),
+        sourceRefCardinality: expect.objectContaining({
+          universalRuleOrPattern: expect.stringContaining('>=3'),
+        }),
+      }),
     });
     expect(result.data?.sopPack?.toolCapabilityMatrix).toEqual(
       expect.arrayContaining([

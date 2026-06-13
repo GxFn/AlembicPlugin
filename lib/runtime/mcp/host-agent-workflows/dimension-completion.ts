@@ -6,8 +6,8 @@ import {
 import Logger from '@alembic/core/logging';
 import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared';
-import { resolveDataRoot } from '@alembic/core/workspace';
 import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
   previewDimensionQualityReport,
@@ -261,7 +261,7 @@ export async function runHostAgentDimensionCompletionWorkflow(
   }
 
   const projectRoot = session.value.projectRoot;
-  const dataRoot = resolveDataRoot(ctx.container as never) || projectRoot;
+  const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);
   const referencedFiles =
     input.value.referencedFiles.length > 0
       ? input.value.referencedFiles
@@ -769,7 +769,7 @@ async function synthesizeSkillAnalysisIfNeeded({
   keyFindings: string[];
   submittedRecipeIds: string[];
 }): Promise<string> {
-  if (analysisText.length >= 500 || submittedRecipeIds.length === 0) {
+  if (submittedRecipeIds.length === 0) {
     return analysisText;
   }
 

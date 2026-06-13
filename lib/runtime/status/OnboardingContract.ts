@@ -429,9 +429,6 @@ function resolveBootstrapStatus(input: BuildCodexOnboardingContractInput): strin
   if (input.projectRootTrusted === false) {
     return 'wrong_scope';
   }
-  if (input.hostProjectAlignment && !input.hostProjectAlignment.handoffAllowed) {
-    return 'wrong_scope';
-  }
   if (input.diagnosticsOk === false) {
     return 'degraded';
   }
@@ -629,12 +626,14 @@ function buildCurrentDomainSop(
     },
     recipeOntologyReminders: [
       'Recipe candidates must describe reusable project guidance, not raw symbol dumps.',
+      'Submit-ready candidates must already satisfy the submit_knowledge schema floor: content.markdown >= 200 chars, standard category, concrete sourceRefs, reasoning.sources, and a 3-8 line copyable coreCode when code behavior is claimed.',
       'Relationship claims require source evidence such as callers, callees, impact, or exact source nodes.',
       'A good Recipe states when to use it, when not to use it, and which validation proves the behavior.',
     ],
     recipeCreationSop: [
       'Check source graph freshness first.',
       'Collect exact source facts with file paths, symbols, and relationship evidence.',
+      'Draft candidates against submitKnowledgeContract before calling alembic_submit_knowledge; do not rely on tool rejection to discover missing fields.',
       'Compare with existing Recipes before submitting a new candidate.',
       'Submit only project-specific, reusable guidance.',
       'Complete the dimension only after candidates, no-op reasons, and validation notes are recorded.',
@@ -669,6 +668,7 @@ function buildCurrentDomainSop(
     completionRules: [
       'Every claim cites repo-relative file paths and line numbers or names a raw-read fallback.',
       'Every relationship claim cites source graph relation evidence or explicitly marks graph uncertainty.',
+      'Every candidate includes content.markdown >= 200 chars, description <= 80 chars, a standard category, sourceRefs matching coreCode, and reasoning.sources before the first submit attempt.',
       'Dimension completion records referencedFiles, 3-5 keyFindings, and analysisText >= 500 chars.',
       'Cross-domain duplicates are rejected before submission.',
     ],
@@ -707,7 +707,7 @@ function buildSopPack(
     stagedProtocol: [
       'Read bootstrapState and confirm project identity, runtime route, graph readiness, and current domain.',
       'Run the currentDomainSop tool sequence and keep source evidence tied to file paths or symbols.',
-      'Submit knowledge only when the Recipe ontology and quality gates are satisfied.',
+      'Before submit, draft against submitKnowledgeContract so the first alembic_submit_knowledge call is already schema-complete and source-grounded.',
       'Complete the domain, then move to the next pending domain in domainQueue.',
     ],
     domainPlaybooks: buildDomainPlaybookContracts(),
@@ -814,21 +814,58 @@ function buildSubmitKnowledgeContract(): Record<string, unknown> {
   return {
     tool: 'alembic_submit_knowledge',
     contract: 'V3',
+    purpose:
+      'Prepare valid candidates before the first submit call; rejection remains a safety net, not the normal instruction path.',
     exactFields: [
       'title',
+      'description',
+      'trigger',
+      'language',
+      'kind',
+      'category',
+      'knowledgeType',
       'content',
+      'content.markdown',
+      'content.rationale',
       'sourceRefs',
       'reasoning.sources',
-      'reasoning.whenToUse',
-      'reasoning.whenNotToUse',
-      'validation',
+      'reasoning.whyStandard',
+      'reasoning.confidence',
+      'doClause',
+      'dontClause',
+      'whenClause',
+      'coreCode',
+      'headers',
+      'usageGuide',
       'dimensionId',
-      'candidateKind',
     ],
+    fieldFloors: {
+      title: 'Project-local title, <=20 chars when possible, no generic project-name prefix.',
+      description: 'Concise project-specific summary, <=80 chars.',
+      trigger: '@kebab-case unique trigger.',
+      category: 'Use one of View/Service/Tool/Model/Network/Storage/UI/Utility.',
+      contentMarkdown:
+        '>=200 chars; include project-specific context, a code block when code behavior is claimed, and source labels.',
+      coreCode:
+        '3-8 syntactically complete lines copied or tightly adapted from cited source when code behavior is claimed.',
+      usageGuide: 'Markdown with ### When to Use / Key Points / When Not to Use sections.',
+      reasoningSources: 'Non-empty repo-relative paths with line ranges matching sourceRefs.',
+      confidence: '>=0.85 for normal submit; otherwise narrow the candidate or keep analyzing.',
+    },
+    sourceRefCardinality: {
+      universalRuleOrPattern:
+        '>=3 distinct in-scope repo-relative file refs unless scope is explicitly narrow or file-local.',
+      fact: 'At least one exact source ref; use more when the fact spans entrypoint, consumer, and validation.',
+      relationshipClaim:
+        'Requires caller/callee/impact/source-node evidence or an explicit raw-read fallback note.',
+    },
     requiredBeforeSubmit: [
       'source evidence',
+      'content.markdown >= 200 chars',
+      'standard category',
       'specific reusable guidance',
       'when and when-not notes',
+      '3-8 line coreCode matching cited source when code behavior is claimed',
       'validation or failure-path guidance',
     ],
     sourceRefRequirements: [
@@ -850,25 +887,49 @@ function buildSubmitKnowledgeContract(): Record<string, unknown> {
 function buildDimensionCompletionContract(): Record<string, unknown> {
   return {
     tool: 'alembic_dimension_complete',
+    sessionField:
+      'Use sessionId: bootstrapState.session.id. Do not send bootstrapSessionRef to alembic_dimension_complete; bootstrapSessionRef is accepted by alembic_submit_knowledge only.',
     requiredBeforeComplete: [
-      'submitted candidate ids or explicit no-op reason',
-      'current domain evidence summary',
-      'residual risks and next domain handoff',
+      'session-bound Recipe ids returned by alembic_submit_knowledge',
+      'current domain evidence summary tied to submitted sourceRefs',
+      'residual risks and next domain handoff notes',
     ],
     requiredFields: [
-      'verifiedCandidateIds',
+      'sessionId',
+      'dimensionId',
+      'submittedRecipeIds',
       'referencedFiles',
       'keyFindings',
       'analysisText',
-      'qualityResult',
+      'candidateCount',
+    ],
+    optionalFields: [
+      'unitId',
+      'analysisUnitIds',
+      'skippedAnalysisUnitIds',
+      'rejectedAnalysisUnitIds',
+      'remainingAnalysisUnitIds',
+      'deviationReason',
+      'crossDimensionHints',
     ],
     floors: {
       keyFindings: '3-5 concrete findings',
       analysisText: '>=500 chars and source-backed',
       referencedFiles: 'non-empty and overlapping submitted candidates',
+      submittedRecipeIds:
+        'non-empty ids returned by this bootstrap session; never invent ids from titles',
     },
     checkpointRule:
       'Do not write progress/checkpoint completion when candidate ids, file overlap, findings, source refs, or quality pass are missing.',
+    firstCallExample: {
+      sessionId: 'bootstrapState.session.id',
+      dimensionId: 'current dimension id',
+      submittedRecipeIds: ['ids returned by alembic_submit_knowledge'],
+      referencedFiles: ['repo-relative files used by submitted Recipe sourceRefs'],
+      keyFindings: ['3-5 source-backed findings'],
+      analysisText: '>=500 chars with headings, source summary, and code block where useful',
+      candidateCount: 'number of submitted Recipe ids',
+    },
   };
 }
 
@@ -1167,10 +1228,45 @@ function buildRecipeGuidanceFloor(): Record<string, unknown> {
       moduleAttributionRequired: true,
     },
     candidateContent: {
+      allowedCategories: [
+        'View',
+        'Service',
+        'Tool',
+        'Model',
+        'Network',
+        'Storage',
+        'UI',
+        'Utility',
+      ],
+      categoryOtherValuesWarn: true,
+      descriptionMaximumChars: 80,
+      titleMaximumChars: 20,
       markdownMinimumChars: 200,
       coreCodeLines: '3-8 syntactically complete lines when code skeleton is needed',
+      coreCodeMustMatchSourceRefs: true,
       requiresDoDontWhenClauses: true,
       confidenceFloorBeforeSubmit: 0.85,
+      requiredFieldsBeforeFirstSubmit: [
+        'title',
+        'description',
+        'trigger',
+        'language',
+        'kind',
+        'category',
+        'knowledgeType',
+        'doClause',
+        'dontClause',
+        'whenClause',
+        'coreCode',
+        'headers',
+        'usageGuide',
+        'content.markdown',
+        'content.rationale',
+        'reasoning.whyStandard',
+        'reasoning.sources',
+        'reasoning.confidence',
+        'sourceRefs',
+      ],
     },
     dedup: {
       crossDimensionTitleDuplicatesRejected: true,
