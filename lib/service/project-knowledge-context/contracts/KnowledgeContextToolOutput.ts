@@ -41,6 +41,7 @@ export const KnowledgeContextProjectSummarySchema = z
 
 export const KnowledgeContextInteractionSchema = z
   .object({
+    currentTask: KnowledgeContextObjectSchema.optional(),
     intentRef: KnowledgeContextRefIdSchema.optional(),
     primeRef: KnowledgeContextRefIdSchema.optional(),
     workRef: KnowledgeContextRefIdSchema.optional(),

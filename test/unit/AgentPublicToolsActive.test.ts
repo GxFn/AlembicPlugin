@@ -47,7 +47,9 @@ function publicToolLegacyTestView(output: unknown) {
   expect(clean).not.toHaveProperty('data');
   expect(clean).not.toHaveProperty('errorCode');
   expect(clean).not.toHaveProperty('message');
-  expect(clean).not.toHaveProperty('result');
+  if (clean.toolName !== 'alembic_prime') {
+    expect(clean).not.toHaveProperty('result');
+  }
   expect(JSON.stringify(clean)).not.toContain('legacyCompatibility');
   expect(JSON.stringify(clean)).not.toContain('outputBudget');
 
@@ -220,138 +222,117 @@ function numberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function deliveredGuardRules(): PrimeSearchResult['guardRules'] {
+  return [
+    {
+      actionHint: 'Keep Plugin-owned Codex MCP boundaries.',
+      description: 'Do not route Codex public tools through legacy task operations.',
+      id: 'guard-public-api',
+      kind: 'rule',
+      language: 'typescript',
+      score: 0.86,
+      sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts:42'],
+      title: 'Keep public tools Plugin-owned',
+      trigger: '@plugin-public-tools',
+    },
+  ];
+}
+
+function deliveredRelatedKnowledge(): PrimeSearchResult['relatedKnowledge'] {
+  return [
+    {
+      actionHint: 'Use structure-first Recipe retrieval.',
+      description: 'Prime should search with extracted structure and host intent context.',
+      id: 'recipe-public-prime',
+      kind: 'pattern',
+      language: 'typescript',
+      score: 0.92,
+      sourceRefs: ['lib/service/task/PrimeSearchPipeline.ts:112'],
+      title: 'Agent public prime',
+      trigger: '@agent-public-prime',
+    },
+  ];
+}
+
+function deliveredRelationEvidence() {
+  return {
+    count: 1,
+    evidence: [
+      {
+        direction: 'outgoing',
+        itemId: 'recipe-public-prime',
+        relatedId: 'decision-active-1',
+        relation: 'supports',
+        source: 'knowledgeGraphService',
+      },
+    ],
+    omitted: [],
+  };
+}
+
+function deliveredRetrievalConsumer(): NonNullable<
+  PrimeSearchResult['searchMeta']['retrievalConsumer']
+> {
+  return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 1,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+    },
+    feedback: {
+      observeOnly: true,
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
+    producerContract: {
+      available: true,
+      missingFields: [],
+      reasonCode: 'resident-search-stage1a-contract-present',
+      requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
+      stage: 'AFAPI-FULL-STAGE1A',
+    },
+    relationEvidence: deliveredRelationEvidence(),
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      sourceRefCoverage: 1,
+      version: 1,
+    },
+    source: 'resident-search-meta',
+    version: 1,
+  };
+}
+
+function deliveredSearchMeta(): PrimeSearchResult['searchMeta'] {
+  return {
+    filteredCount: 2,
+    language: 'typescript',
+    module: 'codex/mcp',
+    queries: ['Implement public prime active tool'],
+    resultCount: 2,
+    scenario: 'generate',
+    retrievalConsumer: deliveredRetrievalConsumer(),
+    residentSearch: {
+      attempted: true,
+      available: true,
+      retrievalConsumer: deliveredRetrievalConsumer(),
+      route: 'alembic-resident-service',
+      semanticUsed: true,
+      vectorUsed: true,
+      residentVector: { available: true },
+    },
+  };
+}
+
 function deliveredSearchResult(): PrimeSearchResult {
   return {
-    guardRules: [
-      {
-        actionHint: 'Keep Plugin-owned Codex MCP boundaries.',
-        description: 'Do not route Codex public tools through legacy task operations.',
-        id: 'guard-public-api',
-        kind: 'rule',
-        language: 'typescript',
-        score: 0.86,
-        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts:42'],
-        title: 'Keep public tools Plugin-owned',
-        trigger: '@plugin-public-tools',
-      },
-    ],
-    relatedKnowledge: [
-      {
-        actionHint: 'Use structure-first Recipe retrieval.',
-        description: 'Prime should search with extracted structure and host intent context.',
-        id: 'recipe-public-prime',
-        kind: 'pattern',
-        language: 'typescript',
-        score: 0.92,
-        sourceRefs: ['lib/service/task/PrimeSearchPipeline.ts:112'],
-        title: 'Agent public prime',
-        trigger: '@agent-public-prime',
-      },
-    ],
-    searchMeta: {
-      filteredCount: 2,
-      language: 'typescript',
-      module: 'codex/mcp',
-      queries: ['Implement public prime active tool'],
-      resultCount: 2,
-      scenario: 'generate',
-      retrievalConsumer: {
-        decisionRegister: {
-          acceptedDecisionRefs: ['decision-active-1'],
-          auditExcludedCount: 1,
-          available: true,
-          defaultLifecycle: 'active-effective-only',
-          excludedStatuses: ['revoked', 'deleted'],
-          route: '/api/v1/decision-register/searchable',
-        },
-        feedback: {
-          observeOnly: true,
-          supportedSignals: ['searchHit', 'view', 'adoption'],
-          version: 1,
-        },
-        producerContract: {
-          available: true,
-          missingFields: [],
-          reasonCode: 'resident-search-stage1a-contract-present',
-          requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
-          stage: 'AFAPI-FULL-STAGE1A',
-        },
-        relationEvidence: {
-          count: 1,
-          evidence: [
-            {
-              direction: 'outgoing',
-              itemId: 'recipe-public-prime',
-              relatedId: 'decision-active-1',
-              relation: 'supports',
-              source: 'knowledgeGraphService',
-            },
-          ],
-          omitted: [],
-        },
-        retrievalQuality: {
-          decisionRefCount: 1,
-          feedbackSignalCount: 3,
-          relationEvidenceCount: 1,
-          sourceRefCoverage: 1,
-          version: 1,
-        },
-        source: 'resident-search-meta',
-        version: 1,
-      },
-      residentSearch: {
-        attempted: true,
-        available: true,
-        retrievalConsumer: {
-          decisionRegister: {
-            acceptedDecisionRefs: ['decision-active-1'],
-            auditExcludedCount: 1,
-            available: true,
-            defaultLifecycle: 'active-effective-only',
-            excludedStatuses: ['revoked', 'deleted'],
-            route: '/api/v1/decision-register/searchable',
-          },
-          feedback: {
-            observeOnly: true,
-            supportedSignals: ['searchHit', 'view', 'adoption'],
-            version: 1,
-          },
-          producerContract: {
-            available: true,
-            missingFields: [],
-            reasonCode: 'resident-search-stage1a-contract-present',
-            requiredFields: ['decisionRegister', 'feedback', 'retrievalQuality'],
-            stage: 'AFAPI-FULL-STAGE1A',
-          },
-          relationEvidence: {
-            count: 1,
-            evidence: [
-              {
-                direction: 'outgoing',
-                itemId: 'recipe-public-prime',
-                relatedId: 'decision-active-1',
-                relation: 'supports',
-                source: 'knowledgeGraphService',
-              },
-            ],
-            omitted: [],
-          },
-          retrievalQuality: {
-            decisionRefCount: 1,
-            feedbackSignalCount: 3,
-            relationEvidenceCount: 1,
-            sourceRefCoverage: 1,
-            version: 1,
-          },
-          source: 'resident-search-meta',
-          version: 1,
-        },
-        route: 'alembic-resident-service',
-        semanticUsed: true,
-        vectorUsed: true,
-        residentVector: { available: true },
-      },
-    },
+    guardRules: deliveredGuardRules(),
+    relatedKnowledge: deliveredRelatedKnowledge(),
+    searchMeta: deliveredSearchMeta(),
   };
 }
 
@@ -642,14 +623,14 @@ describe('agent-facing active public tools', () => {
       })
     ) as { data: { intentRef: string } };
 
-    const result = publicToolLegacyTestView(
-      await primeHandler(ctx, {
-        agentHost: 'codex',
-        inputSource: 'host-declared-intent',
-        intentRef: intent.data.intentRef,
-        projectRoot: '/tmp/alembic-plugin-public-tools',
-      })
-    ) as {
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      inputSource: 'host-declared-intent',
+      intentRef: intent.data.intentRef,
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const result = publicToolLegacyTestView(primeOutput) as {
       data: {
         primeKnowledgeMaterial: {
           acceptedGuards: unknown[];
@@ -706,6 +687,37 @@ describe('agent-facing active public tools', () => {
       success: boolean;
     };
 
+    expect(cleanPrime).toMatchObject({
+      tool: 'alembic_prime',
+      operation: 'auto',
+      interaction: {
+        currentTask: {
+          intentRef: intent.data.intentRef,
+          query: expect.stringContaining('Implement public prime active tool'),
+        },
+      },
+      result: {
+        acceptedKnowledge: [expect.objectContaining({ id: 'recipe-public-prime' })],
+        contextOnlyEvidence: {
+          projectGraphIncluded: true,
+          projectMatrixSummary: expect.stringContaining('Project matrix overview'),
+        },
+        primePackage: { kind: 'PrimePublicPackage' },
+        retrieval: { relationChainCount: 1 },
+      },
+    });
+    expect(arrayValue(cleanPrime.detailRefs)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'prime-knowledge:recipe-public-prime' }),
+        expect.objectContaining({ id: 'prime-guard:guard-public-api' }),
+      ])
+    );
+    expect(arrayValue(cleanPrime.relations)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ relationType: 'supports' })])
+    );
+    expect(JSON.stringify(asRecord(asRecord(cleanPrime.primePackage).trustReceipt))).not.toContain(
+      'As Codex'
+    );
     expect(search).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(true);
     expect(result.data.result.status).toBe('ready');

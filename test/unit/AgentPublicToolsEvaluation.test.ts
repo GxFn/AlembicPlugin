@@ -1003,16 +1003,28 @@ const forbiddenTopLevelPublicOutputKeys = new Set([
 ]);
 
 function expectPublicOutputWhitelist(value: unknown) {
-  expect(findForbiddenPublicOutputKey(value)).toBeNull();
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  expect(findForbiddenPublicOutputKey(value, [], record.toolName === 'alembic_prime')).toBeNull();
 }
 
-function findForbiddenPublicOutputKey(value: unknown, path: string[] = []): string | null {
+function findForbiddenPublicOutputKey(
+  value: unknown,
+  path: string[] = [],
+  allowPrimeKnowledgeContextResult = false
+): string | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      const found = findForbiddenPublicOutputKey(item, [...path, String(index)]);
+      const found = findForbiddenPublicOutputKey(
+        item,
+        [...path, String(index)],
+        allowPrimeKnowledgeContextResult
+      );
       if (found) {
         return found;
       }
@@ -1021,13 +1033,24 @@ function findForbiddenPublicOutputKey(value: unknown, path: string[] = []): stri
   }
 
   for (const [key, child] of Object.entries(value)) {
+    if (
+      allowPrimeKnowledgeContextResult &&
+      ((path.length === 0 && (key === 'diagnostics' || key === 'result')) ||
+        (path[0] === 'result' && key === 'truncated'))
+    ) {
+      continue;
+    }
     if (forbiddenPublicOutputKeys.has(key)) {
       return [...path, key].join('.');
     }
     if (path.length === 0 && forbiddenTopLevelPublicOutputKeys.has(key)) {
       return key;
     }
-    const found = findForbiddenPublicOutputKey(child, [...path, key]);
+    const found = findForbiddenPublicOutputKey(
+      child,
+      [...path, key],
+      allowPrimeKnowledgeContextResult
+    );
     if (found) {
       return found;
     }

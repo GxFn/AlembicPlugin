@@ -1,6 +1,9 @@
 import type { CoreFieldFailureKind } from '@alembic/core/shared';
 import { z } from 'zod';
+import { KnowledgeContextToolOutputSchema } from '#service/project-knowledge-context/index.js';
 import {
+  CleanMcpErrorSchema,
+  CleanMcpMetaSchema,
   CleanMcpResponseBaseSchema,
   createCleanMcpError,
   createCleanMcpResponse,
@@ -302,11 +305,43 @@ export const AgentIntentOutputSchema = AgentPublicToolOutputBaseSchema.safeExten
   toolName: z.literal('alembic_intent'),
 });
 
-export const AgentPrimeOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
-  detailRefs: z.array(AgentDetailRefSchema).max(40),
-  primePackage: PrimePublicPackageSchema,
-  toolName: z.literal('alembic_prime'),
-});
+export const AgentPrimeOutputSchema = KnowledgeContextToolOutputSchema.omit({
+  meta: true,
+  status: true,
+})
+  .safeExtend({
+    actionKind: z.literal('prime'),
+    agentHost: AgentHostSchema,
+    error: CleanMcpErrorSchema.optional(),
+    inputSource: AgentInputSourceSchema,
+    intentKind: AgentIntentKindSchema.optional(),
+    meta: CleanMcpMetaSchema.optional(),
+    reason: AgentPublicToolReasonSchema.optional(),
+    refs: AgentPublicToolRefsSchema,
+    status: AgentResultStatusSchema,
+    primePackage: PrimePublicPackageSchema,
+    tool: z.literal('alembic_prime'),
+    toolName: z.literal('alembic_prime'),
+  })
+  .superRefine((output, ctx) => {
+    const expectedReasonKind =
+      output.status === 'blocked'
+        ? 'blocked'
+        : output.status === 'degraded'
+          ? 'degraded'
+          : output.status === 'failed'
+            ? 'failure'
+            : output.status === 'skipped'
+              ? 'skip'
+              : null;
+    if (expectedReasonKind && output.reason?.kind !== expectedReasonKind) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reason'],
+        message: `${output.status} prime outputs require a ${expectedReasonKind} reason`,
+      });
+    }
+  });
 
 export const AgentWorkStartOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
   detailRefs: z.array(AgentDetailRefSchema).max(40).optional(),

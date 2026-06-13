@@ -1,6 +1,11 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { KnowledgeContextToolName, KnowledgeContextToolOutput } from '../contracts/index.js';
 import {
+  defaultInteractionStateProvider,
+  type InteractionStateProvider,
+  type KnowledgeContextInteractionState,
+} from '../interaction/index.js';
+import {
   type ContextIndexSnapshotOptions,
   createContextIndexSnapshot,
 } from './ContextIndexSnapshot.js';
@@ -22,17 +27,21 @@ export interface ResolveKnowledgeContextOptions {
 
 export interface ProjectKnowledgeContextLayerOptions {
   inputNormalizer?: KnowledgeContextInputNormalizer;
+  interactionStateProvider?: InteractionStateProvider;
   outputProjector?: KnowledgeContextOutputProjector;
   retrievalPlanner?: RetrievalPlanner;
 }
 
 export class ProjectKnowledgeContextLayer {
   private readonly inputNormalizer: KnowledgeContextInputNormalizer;
+  private readonly interactionStateProvider: InteractionStateProvider;
   private readonly outputProjector: KnowledgeContextOutputProjector;
   private readonly retrievalPlanner: RetrievalPlanner;
 
   constructor(options: ProjectKnowledgeContextLayerOptions = {}) {
     this.inputNormalizer = options.inputNormalizer ?? defaultKnowledgeContextInputNormalizer;
+    this.interactionStateProvider =
+      options.interactionStateProvider ?? defaultInteractionStateProvider;
     this.outputProjector = options.outputProjector ?? defaultKnowledgeContextOutputProjector;
     this.retrievalPlanner = options.retrievalPlanner ?? defaultRetrievalPlanner;
   }
@@ -79,6 +88,15 @@ export class ProjectKnowledgeContextLayer {
 
   resolveProjectGraph(input: unknown, options: ResolveKnowledgeContextOptions = {}) {
     return this.resolve('alembic_graph', input, options);
+  }
+
+  resolveInteractionState(
+    input: unknown,
+    tool: KnowledgeContextToolName = 'alembic_prime'
+  ): KnowledgeContextInteractionState {
+    return this.interactionStateProvider.resolveInteractionState(
+      this.inputNormalizer.normalize(tool, input)
+    );
   }
 
   resolvePrimeContext(input: unknown, options: ResolveKnowledgeContextOptions = {}) {

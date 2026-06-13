@@ -33,7 +33,9 @@ const TEXT_BUDGET_KEYS = new Set([
 
 export interface KnowledgeContextProjectionPayload {
   detailRefs?: KnowledgeContextDetailRef[];
+  diagnostics?: KnowledgeContextDiagnostic[];
   inventory?: KnowledgeContextObject;
+  interaction?: KnowledgeContextObject;
   items?: KnowledgeContextObject[];
   matrixNodes?: KnowledgeContextObject[];
   nextActions?: KnowledgeContextNextAction[];
@@ -84,15 +86,7 @@ export class KnowledgeContextOutputProjector {
         matrixRef: snapshot.snapshotId,
         freshness: snapshot.freshness,
       },
-      interaction: {
-        ...(normalized.intentRef === undefined ? {} : { intentRef: normalized.intentRef }),
-        ...(normalized.primeRef === undefined ? {} : { primeRef: normalized.primeRef }),
-        ...(normalized.recognizedIntent === undefined
-          ? {}
-          : { recognizedIntent: normalized.recognizedIntent }),
-        sourceEvidenceRefs: normalized.sourceEvidenceRefs,
-        ...(normalized.workRef === undefined ? {} : { workRef: normalized.workRef }),
-      },
+      interaction: parts.interaction.value,
       result: {
         route: plan.route,
         retrievalTrace: plan.trace,
@@ -106,7 +100,11 @@ export class KnowledgeContextOutputProjector {
       items: parts.items.value,
       detailRefs: parts.detailRefs.value,
       sources: parts.sources.value,
-      diagnostics: [...freshnessSummary.diagnostics, ...truncationDiagnostics],
+      diagnostics: [
+        ...freshnessSummary.diagnostics,
+        ...(input.payload?.diagnostics ?? []),
+        ...truncationDiagnostics,
+      ],
       nextActions: parts.nextActions.value,
       meta: {
         contractVersion: 1,
@@ -124,6 +122,7 @@ export class KnowledgeContextOutputProjector {
 interface ProjectionParts {
   detailRefs: TextBudgetResult<KnowledgeContextDetailRef[]>;
   inventory: TextBudgetResult<KnowledgeContextObject>;
+  interaction: TextBudgetResult<KnowledgeContextObject>;
   items: TextBudgetResult<KnowledgeContextObject[]>;
   matrixNodes: TextBudgetResult<KnowledgeContextObject[]>;
   nextActions: TextBudgetResult<KnowledgeContextNextAction[]>;
@@ -173,6 +172,7 @@ function prepareProjectionParts(input: KnowledgeContextOutputProjectorInput): Pr
   const projected = {
     detailRefs: budgetDetailRefs(detailRefSlice.items, contentCharLimit),
     inventory: budgetTextObject(payload?.inventory ?? defaultInventory(snapshot), contentCharLimit),
+    interaction: budgetTextObject(buildInteraction(normalized, payload), contentCharLimit),
     items: budgetTextObjectArray(itemSlice.items, contentCharLimit),
     matrixNodes: budgetTextObjectArray(matrixNodeSlice.items, contentCharLimit),
     nextActions: budgetNextActions(nextActionSlice.items, contentCharLimit),
@@ -194,6 +194,22 @@ function prepareProjectionParts(input: KnowledgeContextOutputProjectorInput): Pr
       nextActions: nextActionSlice.truncated,
       relations: relationSlice.truncated,
     },
+  };
+}
+
+function buildInteraction(
+  normalized: NormalizedKnowledgeContextInput,
+  payload?: KnowledgeContextProjectionPayload
+): KnowledgeContextObject {
+  return {
+    ...(payload?.interaction ?? {}),
+    ...(normalized.intentRef === undefined ? {} : { intentRef: normalized.intentRef }),
+    ...(normalized.primeRef === undefined ? {} : { primeRef: normalized.primeRef }),
+    ...(normalized.recognizedIntent === undefined
+      ? {}
+      : { recognizedIntent: normalized.recognizedIntent }),
+    sourceEvidenceRefs: normalized.sourceEvidenceRefs,
+    ...(normalized.workRef === undefined ? {} : { workRef: normalized.workRef }),
   };
 }
 

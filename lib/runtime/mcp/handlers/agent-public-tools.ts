@@ -1,6 +1,19 @@
 import type { AlembicResidentServiceResult } from '@alembic/core/daemon';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
+import {
+  defaultProjectGraphProvider,
+  defaultProjectKnowledgeContextLayer,
+  defaultProjectMatrixProvider,
+  type KnowledgeContextDetailRef,
+  type KnowledgeContextDiagnostic,
+  type KnowledgeContextNextAction,
+  type KnowledgeContextProjectionPayload,
+  type KnowledgeContextSource,
+  type KnowledgeContextToolOutput,
+  ProjectGraphInputSchema,
+  type ProjectMatrixKnowledgeEntry,
+} from '#service/project-knowledge-context/index.js';
 import type {
   ResidentDecisionRegisterRequest,
   ResidentDecisionRegisterResult,
@@ -178,6 +191,13 @@ interface PrimeHandlerReadyInput extends PrimeHandlerSharedInput {
 interface PrimeMaterialProjection {
   primeKnowledgeMaterial: PrimeKnowledgeMaterial;
   retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
+}
+
+interface PrimeKnowledgeContextProjection {
+  output: KnowledgeContextToolOutput;
+  projectGraphIncluded: boolean;
+  projectMatrixSummary: string;
+  recipeRelationCount: number;
 }
 
 interface AgentVectorPlan {
@@ -363,10 +383,77 @@ function buildPrimeBlockingOutput(
     searchDegraded: false,
     searchResult: null,
   });
+  const knowledgeContext = buildPrimeBlockingKnowledgeContext(input, result, primePackage);
   return createAgentPublicToolOutput(result, {
-    detailRefs: input.detailRefs,
+    ...primeKnowledgeContextPublicFields(knowledgeContext),
     primePackage,
   });
+}
+
+function buildPrimeBlockingKnowledgeContext(
+  input: PrimeHandlerSharedInput,
+  result: AgentPublicToolResultEnvelope,
+  primePackage: PrimePublicPackage
+): KnowledgeContextToolOutput {
+  return defaultProjectKnowledgeContextLayer.resolvePrimeContext(
+    buildPrimeKnowledgeContextInput({
+      args: input.args,
+      effectiveProjectRoot: resolveString(input.args.projectRoot),
+      intake: input.intake,
+      primeRef: input.primeRef,
+    }),
+    {
+      payload: {
+        detailRefs: input.detailRefs.map(agentDetailRefToKnowledgeContextRef),
+        diagnostics: [
+          {
+            code: result.reason?.code ?? 'prime-blocked',
+            domain: 'runtime',
+            message: result.reason?.message ?? result.summary,
+            retryable: result.reason?.retryable ?? false,
+            severity: 'warning',
+          },
+        ],
+        inventory: {
+          acceptedGuards: 0,
+          acceptedKnowledge: 0,
+          detailRefs: input.detailRefs.length,
+          projectGraphIncluded: false,
+        },
+        interaction: {
+          ...defaultProjectKnowledgeContextLayer.resolveInteractionState(
+            buildPrimeKnowledgeContextInput({
+              args: input.args,
+              effectiveProjectRoot: resolveString(input.args.projectRoot),
+              intake: input.intake,
+              primeRef: input.primeRef,
+            })
+          ),
+        },
+        nextActions: [
+          {
+            tool: 'alembic_prime',
+            reason:
+              result.reason?.message ?? 'Repair the prime input and call alembic_prime again.',
+            required: true,
+          },
+        ],
+        result: {
+          primePackage,
+          reason: result.reason,
+        },
+        summary: result.summary,
+      },
+      snapshot: {
+        domainFreshness: {
+          runtime: {
+            degradedReason: result.reason?.message ?? result.summary,
+            state: 'unavailable',
+          },
+        },
+      },
+    }
+  );
 }
 
 function buildPrimeBlockingResult(
@@ -434,11 +521,512 @@ function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     searchDegraded: input.primeSearch.searchDegraded,
     searchResult: input.primeSearch.searchResult,
   });
+  const knowledgeContext = buildPrimeReadyKnowledgeContext({
+    ...input,
+    material,
+    primePackage,
+    status,
+  }).output;
 
   return createAgentPublicToolOutput(result, {
-    detailRefs: input.detailRefs,
+    ...primeKnowledgeContextPublicFields(knowledgeContext),
     primePackage,
   });
+}
+
+function primeKnowledgeContextPublicFields(output: KnowledgeContextToolOutput) {
+  const { meta: _meta, ...publicFields } = output;
+  return publicFields;
+}
+
+function buildPrimeReadyKnowledgeContext(
+  input: PrimeHandlerReadyInput & {
+    material: PrimeMaterialProjection;
+    primePackage: PrimePublicPackage;
+    status: Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string };
+  }
+): PrimeKnowledgeContextProjection {
+  const primeContextInput = buildPrimeKnowledgeContextInput({
+    args: input.args,
+    effectiveProjectRoot: input.effectiveProjectRoot,
+    intake: input.intake,
+    primeRef: input.primeRef,
+    record: input.record,
+  });
+  const interaction =
+    defaultProjectKnowledgeContextLayer.resolveInteractionState(primeContextInput);
+  const acceptedKnowledgeEntries = input.material.primeKnowledgeMaterial.acceptedKnowledge.map(
+    primeKnowledgeToMatrixEntry
+  );
+  const projectMatrix = defaultProjectMatrixProvider.resolveMatrix({
+    activeFile: input.intake.hostIntentInput.activeFile,
+    knowledgeEntries: acceptedKnowledgeEntries,
+    operation: 'overview',
+    projectRoot: input.effectiveProjectRoot,
+    sourceEvidenceRefs: input.args.sourceEvidenceRefs,
+    sourceGraphRef: input.args.sourceGraphRef,
+    sourceRefs: input.args.sourceRefs,
+  });
+  const projectGraph = shouldIncludePrimeProjectGraph(input)
+    ? defaultProjectGraphProvider.resolveProjectGraph(
+        ProjectGraphInputSchema.parse({
+          activeFile: input.intake.hostIntentInput.activeFile,
+          agentHost: input.intake.agentHost,
+          budget: {
+            contentCharLimit: 1200,
+            detailLimit: 6,
+            itemLimit: 6,
+            matrixNodeLimit: 8,
+            nextActionLimit: 3,
+            relationHopLimit: 2,
+          },
+          inputSource: input.intake.inputSource,
+          intentKind: input.intake.intentKind,
+          operation: 'neighborhood',
+          projectRoot: input.effectiveProjectRoot,
+          query: input.intake.hostIntentFrame.recognizedIntentDraft.query,
+          sourceEvidenceRefs: input.args.sourceEvidenceRefs,
+          sourceGraphRef: input.args.sourceGraphRef,
+          sourceRefs: input.args.sourceRefs,
+        })
+      )
+    : null;
+  const relationEvidence = input.material.retrievalConsumer?.relationEvidence;
+  const recipeRelations = relationEvidence?.evidence ?? [];
+  const vectorCandidateCount = input.primeSearch.searchResult?.searchMeta.residentSearch?.vectorUsed
+    ? input.primeSearch.searchResult.searchMeta.resultCount
+    : 0;
+  const payload = buildPrimeKnowledgeContextPayload({
+    graphPayload: projectGraph?.payload ?? null,
+    interaction: { ...interaction },
+    material: input.material.primeKnowledgeMaterial,
+    matrixSummary: projectMatrix.summary,
+    primePackage: input.primePackage,
+    projectGraphIncluded: projectGraph !== null,
+    projectMatrix,
+    recipeRelations,
+    searchDegraded: input.primeSearch.searchDegraded,
+    searchResult: input.primeSearch.searchResult,
+    status: input.status,
+  });
+  const output = defaultProjectKnowledgeContextLayer.resolvePrimeContext(primeContextInput, {
+    payload,
+    snapshot: {
+      domainFreshness: {
+        ...projectMatrix.domainFreshness,
+        knowledge: {
+          state:
+            input.material.primeKnowledgeMaterial.acceptedKnowledge.length > 0 ||
+            input.material.primeKnowledgeMaterial.acceptedGuards.length > 0
+              ? 'ready'
+              : input.primeSearch.searchDegraded
+                ? 'stale'
+                : 'partial',
+          degradedReason:
+            input.material.primeKnowledgeMaterial.acceptedKnowledge.length > 0 ||
+            input.material.primeKnowledgeMaterial.acceptedGuards.length > 0
+              ? undefined
+              : input.primeSearch.searchDegraded
+                ? 'Prime search degraded before accepted knowledge could be selected.'
+                : 'Prime search returned no accepted Recipe or Guard material.',
+        },
+        recipeRelation: {
+          state: recipeRelations.length > 0 ? 'ready' : 'partial',
+          degradedReason:
+            recipeRelations.length > 0
+              ? undefined
+              : 'No Recipe relation-chain evidence was available in the prime retrieval metadata.',
+        },
+        vector: {
+          state: vectorCandidateCount > 0 ? 'ready' : 'partial',
+          degradedReason:
+            vectorCandidateCount > 0
+              ? undefined
+              : 'Vector/rerank evidence was unavailable or unused for this prime retrieval.',
+        },
+        ...(projectGraph?.snapshot.domainFreshness?.sourceGraph
+          ? { sourceGraph: projectGraph.snapshot.domainFreshness.sourceGraph }
+          : {}),
+      },
+      knowledgeItemCount:
+        input.material.primeKnowledgeMaterial.acceptedKnowledge.length +
+        input.material.primeKnowledgeMaterial.acceptedGuards.length,
+      projectNodes: projectGraph?.projectNodes ?? projectMatrix.projectNodes,
+      recipeRelationCount: recipeRelations.length,
+      sourceGraphSupported: input.args.sourceGraphRef !== undefined,
+      vectorCandidateCount,
+    },
+  });
+  return {
+    output,
+    projectGraphIncluded: projectGraph !== null,
+    projectMatrixSummary: projectMatrix.summary,
+    recipeRelationCount: recipeRelations.length,
+  };
+}
+
+function buildPrimeKnowledgeContextInput(input: {
+  args: AgentPrimeArgs;
+  effectiveProjectRoot?: string;
+  intake: ReturnType<typeof buildIntentIntake>;
+  primeRef: string;
+  record?: IntentRecord | null;
+}) {
+  const intentRef = input.record?.intentRef ?? input.args.intentRef;
+  const query = resolveString(input.intake.hostIntentFrame.recognizedIntentDraft.query);
+  const language = resolveString(input.intake.extracted.language);
+  const hostDeclaredIntent = sanitizePrimeHostDeclaredIntent(input.args.hostDeclaredIntent);
+  const recognizedIntent = sanitizePrimeRecognizedIntent(
+    input.intake.hostIntentFrame.recognizedIntentDraft,
+    input.intake.sourceRefs
+  );
+  return {
+    activeFile: input.intake.hostIntentInput.activeFile,
+    agentHost: input.intake.agentHost,
+    budget: {
+      contentCharLimit: 1200,
+      detailLimit: 12,
+      itemLimit: 8,
+      matrixNodeLimit: 10,
+      nextActionLimit: 5,
+      relationHopLimit: 2,
+    },
+    ...(hostDeclaredIntent === undefined ? {} : { hostDeclaredIntent }),
+    inputSource: input.intake.inputSource,
+    intentKind: input.intake.intentKind,
+    ...(intentRef === undefined ? {} : { intentRef }),
+    ...(language === undefined ? {} : { language }),
+    operation: 'auto',
+    primeRef: input.primeRef,
+    projectRoot: input.effectiveProjectRoot,
+    ...(query === undefined ? {} : { query }),
+    ...(recognizedIntent === undefined ? {} : { recognizedIntent }),
+    sourceEvidenceRefs: input.args.sourceEvidenceRefs,
+    sourceGraphRef: input.args.sourceGraphRef,
+    sourceRefs: input.intake.sourceRefs,
+    tool: 'alembic_prime' as const,
+  };
+}
+
+function sanitizePrimeRecognizedIntent(
+  value: object,
+  sourceRefs: string[]
+): Record<string, unknown> | undefined {
+  const record = value as Record<string, unknown>;
+  const query = resolveString(record.query);
+  if (query === undefined) {
+    return undefined;
+  }
+  return {
+    ...(resolveString(record.action) === undefined ? {} : { action: resolveString(record.action) }),
+    ...(resolveString(record.target) === undefined ? {} : { target: resolveString(record.target) }),
+    ...(readFiniteNumber(record.confidence) === undefined
+      ? {}
+      : { confidence: readFiniteNumber(record.confidence) }),
+    query,
+    ...(sourceRefs.length === 0 ? {} : { sourceRefs }),
+  };
+}
+
+function sanitizePrimeHostDeclaredIntent(
+  value: HostDeclaredIntentInput | undefined
+): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const query = resolveString(value.query);
+  const action = resolveString(value.action);
+  const target = resolveString(value.target);
+  const confidence = readFiniteNumber(value.confidence);
+  const sourceRefs = Array.isArray(value.sourceRefs)
+    ? value.sourceRefs.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
+  if (
+    query === undefined &&
+    action === undefined &&
+    target === undefined &&
+    confidence === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    ...(action === undefined ? {} : { action }),
+    ...(target === undefined ? {} : { target }),
+    ...(confidence === undefined ? {} : { confidence }),
+    ...(query === undefined ? {} : { query }),
+    ...(sourceRefs.length === 0 ? {} : { sourceRefs }),
+  };
+}
+
+function buildPrimeKnowledgeContextPayload(input: {
+  graphPayload: KnowledgeContextProjectionPayload | null;
+  interaction: Record<string, unknown>;
+  material: PrimeKnowledgeMaterial;
+  matrixSummary: string;
+  primePackage: PrimePublicPackage;
+  projectGraphIncluded: boolean;
+  projectMatrix: ReturnType<typeof defaultProjectMatrixProvider.resolveMatrix>;
+  recipeRelations: NonNullable<
+    PrimeSearchResult['searchMeta']['retrievalConsumer']
+  >['relationEvidence']['evidence'];
+  searchDegraded: boolean;
+  searchResult: PrimeSearchResult | null;
+  status: Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string };
+}): KnowledgeContextProjectionPayload {
+  const acceptedRefs = [
+    ...input.material.acceptedKnowledge.map(acceptedKnowledgeToDetailRef),
+    ...input.material.acceptedGuards.map(acceptedGuardToDetailRef),
+  ];
+  const graphDetailRefs = input.projectGraphIncluded ? (input.graphPayload?.detailRefs ?? []) : [];
+  const detailRefs = [
+    ...acceptedRefs,
+    ...input.projectMatrix.detailRefs.slice(0, 6),
+    ...graphDetailRefs.slice(0, 4),
+  ];
+  const relationItems = input.recipeRelations.map((relation) => ({
+    ...relation,
+    relationType: relation.relation,
+  }));
+  const graphNextActions = input.projectGraphIncluded
+    ? (input.graphPayload?.nextActions ?? [])
+    : [];
+
+  return {
+    detailRefs,
+    diagnostics: buildPrimeKnowledgeContextDiagnostics(input),
+    interaction: input.interaction,
+    inventory: {
+      acceptedGuardCount: input.material.acceptedGuards.length,
+      acceptedKnowledgeCount: input.material.acceptedKnowledge.length,
+      detailRefCount: detailRefs.length,
+      graphDetailRefCount: graphDetailRefs.length,
+      projectGraphIncluded: input.projectGraphIncluded,
+      recipeRelationCount: input.recipeRelations.length,
+      searchDegraded: input.searchDegraded,
+      trustReceiptStatus: input.material.status,
+    },
+    items: [
+      ...input.material.acceptedKnowledge.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        score: item.score,
+        summary: item.summary,
+        title: item.title,
+        trustLayer: 'trusted-to-use',
+      })),
+      ...input.material.acceptedGuards.map((item) => ({
+        id: item.id,
+        kind: 'guard',
+        score: item.score,
+        summary: item.actionHint ?? item.title,
+        title: item.title,
+        trustLayer: 'trusted-to-obey',
+      })),
+    ],
+    matrixNodes: input.projectMatrix.matrixNodes.slice(0, 10),
+    nextActions: [
+      ...primeMaterialNextActions(input.material),
+      ...input.projectMatrix.nextActions.slice(0, 2),
+      ...graphNextActions.slice(0, 1),
+    ],
+    relations: [
+      ...relationItems,
+      ...(input.projectGraphIncluded ? (input.graphPayload?.relations ?? []).slice(0, 4) : []),
+    ],
+    result: {
+      acceptedGuards: input.primePackage.compactPackage.acceptedGuards,
+      acceptedKnowledge: input.primePackage.compactPackage.acceptedKnowledge,
+      contextOnlyEvidence: {
+        projectMatrixSummary: input.matrixSummary,
+        projectGraphIncluded: input.projectGraphIncluded,
+        sourceGraphRef: input.searchResult?.searchMeta.residentSearch?.route ?? null,
+      },
+      primePackage: input.primePackage,
+      retrieval: {
+        relationChainCount: input.recipeRelations.length,
+        residentSearchAttempted: input.searchResult?.searchMeta.residentSearch?.attempted ?? false,
+        searchDegraded: input.searchDegraded,
+      },
+      trustReceipt: input.primePackage.trustReceipt,
+    },
+    sources: [
+      ...acceptedRefs.map(detailRefToSource),
+      ...input.projectMatrix.sources.slice(0, 6),
+      ...(input.projectGraphIncluded ? (input.graphPayload?.sources ?? []).slice(0, 4) : []),
+    ],
+    summary: buildPrimeKnowledgeContextSummary(input),
+  };
+}
+
+function primeKnowledgeToMatrixEntry(
+  item: PrimeKnowledgeMaterial['acceptedKnowledge'][number]
+): ProjectMatrixKnowledgeEntry {
+  return {
+    id: item.id,
+    kind: item.kind,
+    language: undefined,
+    title: item.title,
+    description: item.summary,
+  };
+}
+
+function shouldIncludePrimeProjectGraph(input: PrimeHandlerReadyInput): boolean {
+  return Boolean(
+    input.args.sourceGraphRef ||
+      input.intake.hostIntentInput.activeFile ||
+      (input.primeSearch.searchResult?.relatedKnowledge.length ?? 0) > 0 ||
+      (input.primeSearch.searchResult?.guardRules.length ?? 0) > 0
+  );
+}
+
+function acceptedKnowledgeToDetailRef(
+  item: PrimeKnowledgeMaterial['acceptedKnowledge'][number]
+): KnowledgeContextDetailRef {
+  return {
+    domain: 'knowledge',
+    id: `prime-knowledge:${item.id}`,
+    operation: 'prime-accepted-knowledge',
+    requiredForCompletion: false,
+    summary: item.summary || item.title,
+    title: item.title,
+    tool: 'alembic_prime',
+    uri: item.evidenceRefs[0] ? evidenceRefToUri(item.evidenceRefs[0]) : undefined,
+  };
+}
+
+function acceptedGuardToDetailRef(
+  item: PrimeKnowledgeMaterial['acceptedGuards'][number]
+): KnowledgeContextDetailRef {
+  return {
+    domain: 'knowledge',
+    id: `prime-guard:${item.id}`,
+    operation: 'prime-accepted-guard',
+    requiredForCompletion: false,
+    summary: item.actionHint || item.title,
+    title: item.title,
+    tool: 'alembic_prime',
+    uri: item.evidenceRefs[0] ? evidenceRefToUri(item.evidenceRefs[0]) : undefined,
+  };
+}
+
+function agentDetailRefToKnowledgeContextRef(ref: AgentDetailRef): KnowledgeContextDetailRef {
+  return {
+    domain: agentDetailRefDomain(ref.kind),
+    id: ref.id,
+    requiredForCompletion: ref.requiredForCompletion,
+    summary: ref.summary,
+    tool: 'alembic_prime',
+    uri: ref.uri,
+  };
+}
+
+function agentDetailRefDomain(kind: AgentDetailRef['kind']): KnowledgeContextDetailRef['domain'] {
+  if (kind === 'source-ref' || kind === 'file' || kind === 'report' || kind === 'test-output') {
+    return 'document';
+  }
+  if (kind === 'contract' || kind === 'schema' || kind === 'runtime-json' || kind === 'log') {
+    return 'runtime';
+  }
+  return 'knowledge';
+}
+
+function detailRefToSource(ref: KnowledgeContextDetailRef): KnowledgeContextSource {
+  return {
+    confidence: ref.domain === 'knowledge' ? 0.85 : 0.7,
+    detailRefId: ref.id,
+    domain: ref.domain,
+    id: ref.ref ?? ref.id,
+    summary: ref.summary,
+    title: ref.title,
+  };
+}
+
+function primeMaterialNextActions(material: PrimeKnowledgeMaterial): KnowledgeContextNextAction[] {
+  return material.nextActions.slice(0, 3).map((action) => ({
+    tool: action.tool === 'alembic_code_guard' ? 'alembic_prime' : 'alembic_search',
+    operation: action.tool,
+    reason: action.reason,
+    required: action.required,
+  }));
+}
+
+function buildPrimeKnowledgeContextDiagnostics(input: {
+  material: PrimeKnowledgeMaterial;
+  recipeRelations: NonNullable<
+    PrimeSearchResult['searchMeta']['retrievalConsumer']
+  >['relationEvidence']['evidence'];
+  searchDegraded: boolean;
+  searchResult: PrimeSearchResult | null;
+}): KnowledgeContextDiagnostic[] {
+  const diagnostics: KnowledgeContextDiagnostic[] = [];
+  if (input.searchDegraded) {
+    diagnostics.push({
+      code: 'prime-search-degraded',
+      domain: 'knowledge',
+      message: 'Prime search degraded before full Recipe retrieval material could be selected.',
+      retryable: true,
+      severity: 'warning',
+    });
+  }
+  if (input.material.status === 'empty') {
+    diagnostics.push({
+      code: 'prime-accepted-knowledge-empty',
+      domain: 'knowledge',
+      message: 'Prime completed without accepted Recipe or Guard material.',
+      retryable: false,
+      severity: 'info',
+    });
+  }
+  if (input.recipeRelations.length === 0) {
+    diagnostics.push({
+      code: 'prime-relation-chain-empty',
+      domain: 'recipeRelation',
+      message: 'No Recipe relation-chain evidence was available for this prime retrieval.',
+      retryable: false,
+      severity: 'info',
+    });
+  }
+  if (!input.searchResult?.searchMeta.residentSearch?.residentVector?.available) {
+    diagnostics.push({
+      code: 'prime-vector-evidence-unavailable',
+      domain: 'vector',
+      message: 'Resident vector/rerank evidence was unavailable or unused.',
+      retryable: false,
+      severity: 'info',
+    });
+  }
+  return diagnostics;
+}
+
+function buildPrimeKnowledgeContextSummary(input: {
+  material: PrimeKnowledgeMaterial;
+  projectGraphIncluded: boolean;
+  recipeRelations: NonNullable<
+    PrimeSearchResult['searchMeta']['retrievalConsumer']
+  >['relationEvidence']['evidence'];
+  searchDegraded: boolean;
+}): string {
+  const acceptedKnowledgeCount = input.material.acceptedKnowledge.length;
+  const acceptedGuardCount = input.material.acceptedGuards.length;
+  const graphPhrase = input.projectGraphIncluded
+    ? 'project graph detail refs available'
+    : 'project graph omitted';
+  const degradedPhrase = input.searchDegraded ? ' with degraded search evidence' : '';
+  return `Prime prepared compact task context${degradedPhrase}: ${acceptedKnowledgeCount} accepted knowledge item(s), ${acceptedGuardCount} guard item(s), ${input.recipeRelations.length} relation-chain link(s), ${graphPhrase}.`;
+}
+
+function evidenceRefToUri(
+  ref: PrimeKnowledgeMaterial['acceptedKnowledge'][number]['evidenceRefs'][number]
+) {
+  return ref.line === null ? ref.path : `${ref.path}:${ref.line}`;
+}
+
+function resolveString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function buildPrimeMaterialProjection(
@@ -2350,8 +2938,8 @@ function buildPrimePublicPackage(input: {
 }): PrimePublicPackage {
   const producerBoundary = buildPrimeProducerBoundary(input.searchResult);
 
-  // 这里生成的是 Codex host 可稳定消费的 compact 投影；完整 Recipe / Guard
-  // material 仍留在 primeKnowledgeMaterial，避免把长知识包塞进可见 summary。
+  // Keep visible prime output compact; full Recipe and Guard material stays
+  // available through the trust material and detail refs.
   return createPrimePublicPackage({
     compactPackage: {
       acceptedGuards: (input.primeKnowledgeMaterial?.acceptedGuards ?? [])
@@ -2399,12 +2987,29 @@ function buildPrimePublicPackage(input: {
     trustPosture: buildPrimeTrustPostureProjection(input.primeKnowledgeMaterial, input.result),
     trustReceipt: {
       hostResponse: input.primeKnowledgeMaterial
-        ? { ...input.primeKnowledgeMaterial.hostResponse }
+        ? sanitizePrimeHostResponse(input.primeKnowledgeMaterial.hostResponse)
         : null,
       receiptId: input.primeKnowledgeMaterial?.receiptId ?? input.primeRef,
       status: input.primeKnowledgeMaterial?.status ?? primeTrustStatusFromResult(input.result),
     },
   });
+}
+
+function sanitizePrimeHostResponse(
+  response: PrimeKnowledgeMaterial['hostResponse']
+): Record<string, unknown> {
+  return {
+    ...response,
+    reason: hostNeutralPrimeText(response.reason),
+  };
+}
+
+function hostNeutralPrimeText(text: string): string {
+  return text
+    .replace(/\bAs Codex\b/g, 'As the host agent')
+    .replace(/\bCodex\b/g, 'host agent')
+    .replace(/\bClaude Code\b/g, 'host agent')
+    .replace(/\bClaude\b/g, 'host agent');
 }
 
 function buildPrimeSourceGraphGuidance(input: {
