@@ -321,6 +321,17 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'resident-project-scope',
   }),
+  alembic_project_matrix: catalogEntry({
+    name: 'alembic_project_matrix',
+    owner: 'plugin-embedded-core',
+    handlerOwner: 'McpServer.tool-router',
+    tier: 'agent',
+    schema: 'ProjectMatrixInput',
+    annotations: readOnlyTool('Read Alembic Project Matrix'),
+    gateway: null,
+    knowledgeGate: 'resident-project-scope',
+    residentRoutePolicy: 'resident-project-scope',
+  }),
   alembic_search: catalogEntry({
     name: 'alembic_search',
     owner: 'plugin-embedded-core',

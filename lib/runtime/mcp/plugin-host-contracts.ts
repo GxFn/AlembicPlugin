@@ -1,5 +1,6 @@
 import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/codex-local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/core-tools/output.js';
+import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/knowledge-context-tools/output.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolResidentRoutePolicy,
@@ -23,7 +24,11 @@ export const PLUGIN_HOST_MCP_D4_REGISTRY_ROW_IDS = [
 
 export type PluginHostMcpD4RegistryRowId = (typeof PLUGIN_HOST_MCP_D4_REGISTRY_ROW_IDS)[number];
 
-export type PluginHostMcpToolFamily = 'agent-public' | 'codex-local' | 'embedded-core';
+export type PluginHostMcpToolFamily =
+  | 'agent-public'
+  | 'codex-local'
+  | 'embedded-core'
+  | 'knowledge-context';
 
 export interface PluginHostMcpToolFamilyContract {
   family: PluginHostMcpToolFamily;
@@ -99,6 +104,11 @@ export const PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS = [
     family: 'agent-public',
     registryRowIds: ['I10', 'I11', 'I13', 'I21'],
     toolNames: AGENT_PUBLIC_TOOL_NAMES,
+  },
+  {
+    family: 'knowledge-context',
+    registryRowIds: ['I12', 'I13', 'I22'],
+    toolNames: KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,
   },
 ] as const satisfies readonly PluginHostMcpToolFamilyContract[];
 

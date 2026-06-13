@@ -186,6 +186,7 @@ export const CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES = new Set(['alembic_project
 export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
   'alembic_health',
   ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
+  'alembic_project_matrix',
   'alembic_search',
 ]);
 

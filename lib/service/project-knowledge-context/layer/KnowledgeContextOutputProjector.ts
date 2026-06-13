@@ -39,6 +39,7 @@ export interface KnowledgeContextProjectionPayload {
   nextActions?: KnowledgeContextNextAction[];
   relations?: KnowledgeContextObject[];
   result?: KnowledgeContextObject;
+  sources?: KnowledgeContextSource[];
   summary?: string;
 }
 
@@ -62,6 +63,7 @@ export class KnowledgeContextOutputProjector {
       ok: status !== 'blocked' && status !== 'failed',
       status,
       tool: normalized.tool,
+      toolName: normalized.tool,
       operation: normalized.operation,
       summary: parts.summaryText,
       request: {
@@ -176,7 +178,7 @@ function prepareProjectionParts(input: KnowledgeContextOutputProjectorInput): Pr
     nextActions: budgetNextActions(nextActionSlice.items, contentCharLimit),
     payloadResult: budgetTextObject(payload?.result ?? {}, contentCharLimit),
     relations: budgetTextObjectArray(relationSlice.items, contentCharLimit),
-    sources: budgetSources(snapshot.sources, contentCharLimit),
+    sources: budgetSources(payload?.sources ?? snapshot.sources, contentCharLimit),
   };
   const contentTruncated =
     summary.truncated || Object.values(projected).some((part) => part.truncated);

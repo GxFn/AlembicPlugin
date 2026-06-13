@@ -34,6 +34,7 @@ import {
   KnowledgeLifecycleInput,
   PanoramaInput,
   PrimeInput,
+  ProjectMatrixInput,
   ProjectSkillInput,
   RescanInput,
   SearchInput,
@@ -47,6 +48,7 @@ import {
   withPluginToolAnnotations,
 } from '../../runtime/mcp/PluginToolSurfaceCatalog.js';
 import '../../runtime/mcp/core-tools/output.js';
+import '../../runtime/mcp/knowledge-context-tools/output.js';
 import { getAgentPublicToolDescriptionBase } from '../../runtime/mcp/public-tools/descriptions.js';
 import '../../runtime/mcp/public-tools/output.js';
 import { zodToMcpSchema } from '../../runtime/mcp/zodToMcpSchema.js';
@@ -139,6 +141,18 @@ export const TOOLS = [
       `${PRIME_DESCRIPTION.selectionHint}\n` +
       `Non-goal: ${PRIME_DESCRIPTION.nonGoal}`,
     inputSchema: zodToMcpSchema(PrimeInput),
+  },
+
+  {
+    name: 'alembic_project_matrix',
+    tier: 'agent',
+    description:
+      'Compact, read-only project matrix.\n' +
+      '• overview — project hierarchy, key nodes, structural hotspots, source graph status, knowledge category summary, refs, and nextActions\n' +
+      '• node — expand one matrix node only\n' +
+      '• relations/layers/sources/catalog — bounded internal relations, layer/source summaries, or knowledge category catalog\n' +
+      'Does not return full source, full file lists, full Recipe text, full graph edge sets, lifecycle/governance actions, or knowledge coverage judgments.',
+    inputSchema: zodToMcpSchema(ProjectMatrixInput),
   },
 
   {

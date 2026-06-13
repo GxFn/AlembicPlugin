@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/codex-local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
+import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
 import {
   getMcpOutputProjector,
   withMcpOutputSchema,
@@ -40,6 +41,7 @@ describe('Plugin host MCP D4 contract', () => {
       'codex-local',
       'embedded-core',
       'agent-public',
+      'knowledge-context',
     ]);
     expect(PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS[0]?.toolNames).toEqual(
       CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES
@@ -48,6 +50,9 @@ describe('Plugin host MCP D4 contract', () => {
       CORE_CLEAN_OUTPUT_TOOL_NAMES
     );
     expect(PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS[2]?.toolNames).toEqual(AGENT_PUBLIC_TOOL_NAMES);
+    expect(PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS[3]?.toolNames).toEqual(
+      KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES
+    );
   });
 
   test('requires every active Plugin MCP tool to have a clean projector and output schema', () => {
@@ -60,6 +65,7 @@ describe('Plugin host MCP D4 contract', () => {
         ...CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
         ...CORE_CLEAN_OUTPUT_TOOL_NAMES,
         ...AGENT_PUBLIC_TOOL_NAMES,
+        ...KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,
       ])
     );
     expect(mcpToolNames.every((toolName) => catalogNames.includes(toolName))).toBe(true);
@@ -111,6 +117,7 @@ describe('Plugin host MCP D4 contract', () => {
       ['alembic_mcp_rescan_job', 'resident-or-embedded-jobs'],
       ['alembic_mcp_status', 'status-probe'],
       ['alembic_prime', 'resident-project-scope'],
+      ['alembic_project_matrix', 'resident-project-scope'],
       ['alembic_search', 'explicit-resident-search'],
       ['alembic_source_graph_status', 'status-probe'],
       ['alembic_work_finish', 'resident-project-scope'],
@@ -147,11 +154,11 @@ describe('Plugin host MCP D4 contract', () => {
       'workflow.unavailable',
     ]);
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 40,
-      cleanOutputToolCount: 40,
+      activeToolCount: 41,
+      cleanOutputToolCount: 41,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
-      residentRouteToolCount: 15,
+      residentRouteToolCount: 16,
       version: 1,
     });
   });

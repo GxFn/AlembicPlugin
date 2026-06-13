@@ -581,6 +581,7 @@ export class McpServer {
       alembic_decision_record: (ctx, args) =>
         agentPublicToolHandlers.decisionRecordHandler(ctx, args),
       alembic_health: (ctx) => systemHandlers.health(ctx),
+      alembic_project_matrix: (ctx, args) => toolRouter.routeProjectMatrixTool(ctx, args),
       alembic_search: (ctx, args) =>
         toolRouter.routeSearchTool(ctx, args as Parameters<typeof toolRouter.routeSearchTool>[1]),
       alembic_knowledge: (ctx, args) => toolRouter.routeKnowledgeTool(ctx, args),

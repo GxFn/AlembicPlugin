@@ -86,6 +86,7 @@ export const KnowledgeContextToolOutputSchema = z
     ok: z.boolean(),
     status: KnowledgeContextStatusSchema,
     tool: KnowledgeContextToolNameSchema,
+    toolName: KnowledgeContextToolNameSchema,
     operation: z.string().min(1).max(120),
     summary: z.string().min(1).max(2000),
     request: KnowledgeContextRequestSchema.optional(),

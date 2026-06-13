@@ -295,7 +295,180 @@ export const DecisionRecordInput = AgentPublicToolBaseInput.extend({
 export type DecisionRecordInput = z.infer<typeof DecisionRecordInput>;
 
 // ══════════════════════════════════════════════════════
-//  2. alembic_search
+//  2. alembic_project_matrix
+// ══════════════════════════════════════════════════════
+
+const KnowledgeContextBudgetInput = z
+  .object({
+    tokenBudget: z.number().int().min(256).max(100000).optional(),
+    itemLimit: z.number().int().min(1).max(500).default(20),
+    detailLimit: z.number().int().min(0).max(200).default(20),
+    relationHopLimit: z.number().int().min(1).max(10).default(2),
+    contentCharLimit: z.number().int().min(120).max(20000).default(1200),
+    matrixNodeLimit: z.number().int().min(1).max(5000).default(500),
+    nextActionLimit: z.number().int().min(0).max(20).default(5),
+  })
+  .strict()
+  .describe('Budget limits for matrix nodes, refs, relations, text, and next actions.');
+
+const KnowledgeContextFreshnessInput = z
+  .object({
+    policy: z
+      .enum(['preferFresh', 'allowStale', 'requireFresh', 'snapshotOnly'])
+      .default('preferFresh')
+      .describe('Freshness policy for project, knowledge, source graph, and document domains.'),
+    maxAgeMs: z.number().int().min(0).optional(),
+    snapshotRef: z.string().min(1).max(240).optional(),
+    observedAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+
+export const ProjectMatrixInput = z
+  .object({
+    projectRoot: z.string().min(1).max(2000).optional().describe('Absolute project root override'),
+    operation: z
+      .enum(['overview', 'node', 'relations', 'layers', 'sources', 'catalog'])
+      .default('overview')
+      .describe(
+        'overview=compact project map | node=one matrix node expansion | relations=bounded internal relations | layers=project layers | sources=data source summary | catalog=knowledge category summary'
+      ),
+    nodeId: z.string().min(1).max(240).optional().describe('Matrix node id for node expansion'),
+    nodeType: z
+      .enum([
+        'project',
+        'package',
+        'target',
+        'module',
+        'directory',
+        'file',
+        'symbol',
+        'source-graph-node',
+        'knowledge-category',
+        'knowledge-cluster',
+        'document',
+      ])
+      .optional()
+      .describe('Optional matrix node type hint. Does not request a full graph traversal.'),
+    query: z.string().min(1).max(4000).optional().describe('Optional user task/query context'),
+    activeFile: z.string().min(1).max(2000).optional().describe('Optional active file context'),
+    language: z.string().min(1).max(80).optional().describe('Optional language hint'),
+    agentHost: z
+      .enum([
+        'codex',
+        'claude-code',
+        'generic-host-agent',
+        'desktop-host-agent',
+        'terminal-host-agent',
+        'automation-host-agent',
+      ])
+      .optional(),
+    inputSource: z
+      .enum([
+        'host-declared-intent',
+        'host-turn-metadata',
+        'user-message',
+        'automation-envelope',
+        'source-ref',
+        'tool-result',
+      ])
+      .optional(),
+    intentKind: z
+      .enum([
+        'implementation-task',
+        'fix-task',
+        'refactor-task',
+        'review-task',
+        'read-only-analysis',
+        'status-only',
+        'decision',
+        'design-or-planning',
+        'mechanical-envelope',
+        'unknown',
+      ])
+      .optional(),
+    detailLevel: z
+      .enum(['summary', 'standard', 'detailed'])
+      .default('summary')
+      .describe('Default summary keeps matrix output compact and ref-based.'),
+    hostDeclaredIntent: HostDeclaredIntentInput.optional(),
+    hostTurnMeta: HostTurnMetaInput.optional(),
+    sourceRefs: z
+      .array(z.string().min(1).max(240))
+      .max(80)
+      .optional()
+      .describe('Optional knowledge refs carried into matrix source accounting.'),
+    sourceGraphRef: z
+      .string()
+      .min(1)
+      .max(240)
+      .optional()
+      .describe('Optional source graph status/ref from source graph tools.'),
+    sourceEvidenceRefs: z
+      .array(z.string().min(1).max(240))
+      .max(80)
+      .optional()
+      .describe('Optional source or relation evidence refs carried into the matrix.'),
+    intentRef: z.string().min(1).max(240).optional(),
+    primeRef: z.string().min(1).max(240).optional(),
+    workRef: z.string().min(1).max(240).optional(),
+    scope: z
+      .object({
+        projectRoot: z.string().min(1).max(2000).optional(),
+        workspaceRoot: z.string().min(1).max(2000).optional(),
+        activeFile: z.string().min(1).max(2000).optional(),
+        language: z.string().min(1).max(80).optional(),
+        files: z.array(z.string().min(1).max(2000)).max(200).optional(),
+        directories: z.array(z.string().min(1).max(2000)).max(80).optional(),
+        packages: z.array(z.string().min(1).max(240)).max(80).optional(),
+      })
+      .strict()
+      .optional(),
+    include: z
+      .object({
+        project: z.boolean().default(true),
+        knowledge: z.boolean().default(true),
+        recipeRelations: z.boolean().default(true),
+        vector: z.boolean().default(true),
+        sourceGraph: z.boolean().default(true),
+        documents: z.boolean().default(true),
+        runtime: z.boolean().default(false),
+      })
+      .strict()
+      .optional(),
+    filters: z
+      .object({
+        domains: z
+          .array(
+            z.enum([
+              'project',
+              'knowledge',
+              'recipeRelation',
+              'vector',
+              'sourceGraph',
+              'document',
+              'runtime',
+            ])
+          )
+          .max(8)
+          .optional(),
+        kinds: z.array(z.string().min(1).max(120)).max(40).optional(),
+        languages: z.array(z.string().min(1).max(80)).max(40).optional(),
+        tags: z.array(z.string().min(1).max(120)).max(80).optional(),
+        changedOnly: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    budget: KnowledgeContextBudgetInput.optional(),
+    freshnessPolicy: KnowledgeContextFreshnessInput.optional(),
+  })
+  .strict()
+  .describe(
+    'Compact, read-only project matrix. Returns project hierarchy, key nodes, structural hotspots, source graph status, knowledge category summary, representative refs, and nextActions. It never returns full source, full file lists, full Recipe text, full graph edge sets, or knowledge coverage judgments.'
+  );
+export type ProjectMatrixInput = z.infer<typeof ProjectMatrixInput>;
+
+// ══════════════════════════════════════════════════════
+//  3. alembic_search
 // ══════════════════════════════════════════════════════
 
 export const SearchInput = z.object({
@@ -817,6 +990,7 @@ function strictToolInput(schema: z.ZodType): z.ZodType {
 const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_intent: IntentInput,
   alembic_prime: PrimeInput,
+  alembic_project_matrix: ProjectMatrixInput,
   alembic_work_start: WorkStartInput,
   alembic_work_finish: WorkFinishInput,
   alembic_code_guard: CodeGuardInput,
