@@ -11,7 +11,6 @@ import {
   PACKAGE_ROOT,
   PACKAGE_SKILLS_DIR,
   RESOURCES_DIR,
-  SKILLS_DIR,
   TEMPLATES_DIR,
 } from '../../lib/shared/package-assets.js';
 
@@ -20,11 +19,17 @@ describe('folder names', () => {
     expect(DEFAULT_FOLDER_NAMES.package).toMatchObject({
       config: 'config',
       dashboard: 'dashboard',
-      injectableSkills: 'injectable-skills',
       internalSkills: 'skills',
       resources: 'resources',
       templates: 'templates',
     });
+    expect(Object.keys(DEFAULT_FOLDER_NAMES.package).sort()).toEqual([
+      'config',
+      'dashboard',
+      'internalSkills',
+      'resources',
+      'templates',
+    ]);
     expect(DEFAULT_FOLDER_NAMES.project).toMatchObject({
       cache: 'cache',
       knowledgeBase: 'Alembic',
@@ -36,12 +41,11 @@ describe('folder names', () => {
   test('merges partial overrides without dropping defaults', () => {
     const names = resolveFolderNames({
       dev: { scratch: 'tmp-scratch' },
-      package: { injectableSkills: 'product-skills' },
+      package: { internalSkills: 'product-skills' },
       project: { skills: 'project-skills' },
     });
 
-    expect(names.package.injectableSkills).toBe('product-skills');
-    expect(names.package.internalSkills).toBe('skills');
+    expect(names.package.internalSkills).toBe('product-skills');
     expect(names.dev.scratch).toBe('tmp-scratch');
     expect(names.dev.chainRuns).toBe('chain-runs');
     expect(names.project.skills).toBe('project-skills');
@@ -57,14 +61,13 @@ describe('folder names', () => {
   });
 
   test('validates override values while resolving folder names', () => {
-    expect(() => resolveFolderNames({ package: { injectableSkills: '../skills' } })).toThrow(Error);
+    expect(() => resolveFolderNames({ package: { internalSkills: '../skills' } })).toThrow(Error);
   });
 
   test('derives package paths from the shared default folder names', () => {
     expect(CONFIG_DIR).toBe(path.join(PACKAGE_ROOT, 'config'));
     expect(PACKAGE_SKILLS_DIR).toBe(path.join(PACKAGE_ROOT, 'skills'));
     expect(INTERNAL_SKILLS_DIR).toBe(path.join(PACKAGE_ROOT, 'skills'));
-    expect(SKILLS_DIR).toBe(PACKAGE_SKILLS_DIR);
     expect(TEMPLATES_DIR).toBe(path.join(PACKAGE_ROOT, 'templates'));
     expect(RESOURCES_DIR).toBe(path.join(PACKAGE_ROOT, 'resources'));
   });

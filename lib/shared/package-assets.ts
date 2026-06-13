@@ -60,7 +60,6 @@ export const PACKAGE_SKILLS_DIR = path.join(
   DEFAULT_FOLDER_NAMES.package.internalSkills
 );
 export const INTERNAL_SKILLS_DIR = PACKAGE_SKILLS_DIR;
-export const SKILLS_DIR = PACKAGE_SKILLS_DIR;
 
 export const TEMPLATES_DIR = path.join(PACKAGE_ROOT, DEFAULT_FOLDER_NAMES.package.templates);
 export const RESOURCES_DIR = path.join(PACKAGE_ROOT, DEFAULT_FOLDER_NAMES.package.resources);
