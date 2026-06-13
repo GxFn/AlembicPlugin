@@ -502,7 +502,7 @@ export const SubmitKnowledgeInput = z.object({
     .describe(
       '知识条目数组（1~N 条）。单条与批量统一处理，所有条目严格校验 + 融合分析。' +
         '每条字段: title, language, content(对象), kind, doClause, dontClause, whenClause, coreCode, category(业务/组件分类), trigger, description, headers, usageGuide, knowledgeType(知识类型), reasoning(对象), dimensionId(维度归属)。' +
-        '可选 unitId / analysisUnitIds / sourceRefs 用于 IDE Agent packet linkage，不传时沿用既有路径。'
+        '可选 unitId / analysisUnitIds / sourceRefs 用于 IDE Agent packet linkage；sourceRefs 可引用 package.json:1 等根文件；rule/pattern 的单文件正当例外请显式传 scope: "narrow" 或 "file-local"。'
     ),
   target_name: z.string().optional().describe('来源标识，如 network-module-scan'),
   source: z.string().optional().describe('来源标记，默认 mcp'),
@@ -513,6 +513,14 @@ export const SubmitKnowledgeInput = z.object({
   skipDuplicateCheck: z.boolean().default(false),
   client_id: z.string().optional(),
   dimensionId: z.string().optional().describe('冷启动/增量扫描关联维度 ID'),
+  sessionId: z
+    .string()
+    .optional()
+    .describe('alembic_bootstrap 返回的 bootstrap session id，用于把提交绑定到当前冷启动会话'),
+  bootstrapSessionRef: z
+    .string()
+    .optional()
+    .describe('bootstrap session id 的兼容别名；新调用优先使用 sessionId'),
   supersedes: z
     .string()
     .optional()

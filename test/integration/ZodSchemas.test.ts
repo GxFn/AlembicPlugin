@@ -44,6 +44,7 @@ import {
   KnowledgeInput,
   SearchInput,
   StructureInput,
+  SubmitKnowledgeInput,
   TaskInput,
   TOOL_SCHEMAS,
 } from '../../lib/shared/schemas/mcp-tools.js';
@@ -282,6 +283,27 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     test('should accept code + language', () => {
       const result = GuardInput.parse({ code: 'console.log("x")', language: 'js' });
       expect(result.code).toBe('console.log("x")');
+    });
+  });
+
+  describe('SubmitKnowledgeInput', () => {
+    test('should accept bootstrap session fields used by the evidence gate route', () => {
+      const result = SubmitKnowledgeInput.parse({
+        dimensionId: 'architecture',
+        sessionId: 'session-1',
+        bootstrapSessionRef: 'session-1',
+        skipConsolidation: true,
+        items: [
+          {
+            title: 'Source Bound Fact',
+            sourceRefs: ['package.json:1'],
+          },
+        ],
+      });
+
+      expect(result.sessionId).toBe('session-1');
+      expect(result.bootstrapSessionRef).toBe('session-1');
+      expect(result.dimensionId).toBe('architecture');
     });
   });
 

@@ -262,7 +262,7 @@ function validateCodeSnippets({
     }
     if (
       validRefs.length > 0 &&
-      !validRefs.some((ref) => normalizedCode(ref.rangeText).includes(normalizedCode(snippet)))
+      !validRefs.some((ref) => snippetMatchesSourceRange(snippet, ref.rangeText))
     ) {
       violations.push({
         code: 'SNIPPET_MISMATCH',
@@ -297,7 +297,7 @@ function validateEvidenceFloor({
         message:
           'Rule/pattern candidates require at least three distinct source files unless explicitly scoped narrower.',
         nextAction:
-          'Add at least three distinct repo-relative file references or narrow the candidate scope.',
+          'Add at least three distinct repo-relative file references, or declare scope: "narrow" / "file-local" for a legitimately local rule.',
       },
     ];
   }
@@ -520,19 +520,6 @@ function validateSourceRef({
   const rawPath = match[1] ?? '';
   const startLine = Number(match[2]);
   const endLine = match[3] ? Number(match[3]) : startLine;
-  if (!rawPath.includes('/') && !rawPath.includes('\\')) {
-    return {
-      violation: {
-        code: 'SOURCE_REF_BARE',
-        itemIndex,
-        sourceRef,
-        title,
-        message: 'Bare filenames are not accepted as source evidence.',
-        nextAction: 'Use a repo-relative path with directories and line numbers.',
-      },
-    };
-  }
-
   const sourcePath = path.posix.normalize(rawPath.replaceAll('\\', '/'));
   if (path.isAbsolute(sourcePath) || sourcePath.startsWith('..')) {
     return {
@@ -651,7 +638,15 @@ function validateGraphEvidence(
 }
 
 function hasRelationshipClaim(item: Record<string, unknown>): boolean {
-  if (item.graphRefs || item.sourceGraphRefs || item.relations || item.relationships) {
+  if (
+    item.graphRefs ||
+    item.sourceGraphRefs ||
+    item.relations ||
+    item.relationships ||
+    item.relationshipClaim === true ||
+    item.requiresGraphEvidence === true ||
+    item.relationshipEvidenceRequired === true
+  ) {
     return true;
   }
   const text = [
@@ -661,8 +656,10 @@ function hasRelationshipClaim(item: Record<string, unknown>): boolean {
   ]
     .filter(Boolean)
     .join('\n');
-  return /\b(call chain|caller|callee|called by|depends on|impact path|relationship|invokes)\b/i.test(
-    text
+  return (
+    /\b(call chain|caller|callee|called by|depends on|impact path|relationship|invokes)\b/i.test(
+      text
+    ) || /调用链|调用方|被调用|依赖|影响路径|关系|上游|下游/.test(text)
   );
 }
 
@@ -703,6 +700,37 @@ function looksLikePlaceholder(value: string): boolean {
 
 function normalizedCode(value: string): string {
   return value.replace(/\s+/g, '').trim();
+}
+
+function snippetMatchesSourceRange(snippet: string, rangeText: string): boolean {
+  const source = normalizedCode(rangeText);
+  const candidate = normalizedCode(snippet);
+  if (candidate.length > 0 && source.includes(candidate)) {
+    return true;
+  }
+  const sourceLines = rangeText.split(/\r?\n/).map(normalizedCode).filter(Boolean);
+  const significantSnippetLines = snippet
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:\/\/|#)\s*/, '').trim())
+    .filter((line) => !/^(?:[{}()[\],;]|\.\.\.)*$/.test(line))
+    .map(normalizedCode)
+    .filter((line) => line.length >= 6);
+  if (significantSnippetLines.length === 0) {
+    return false;
+  }
+
+  let sourceCursor = 0;
+  for (const snippetLine of significantSnippetLines) {
+    const nextIndex = sourceLines.findIndex(
+      (line, index) =>
+        index >= sourceCursor && (line.includes(snippetLine) || snippetLine.includes(line))
+    );
+    if (nextIndex < 0) {
+      return false;
+    }
+    sourceCursor = nextIndex + 1;
+  }
+  return true;
 }
 
 function cleanSourceRef(value: string): string {

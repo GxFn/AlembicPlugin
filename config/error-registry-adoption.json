@@ -18,15 +18,37 @@
     "CODEX_TOOL_RETIRED": "capability-mismatch",
     "CODEX_UNKNOWN_TOOL": "capability-mismatch",
     "CODEX_WORKSPACE_MODE_CONFLICT": "conflict",
-    "INCOMPLETE_SUBMISSION": "deferred (submission-gate family, see deferredCkg3GateCodes)",
+    "CONSENT_REQUIRED": "needs-confirmation",
+    "DIMENSION_ANALYSIS_TEXT_INSUFFICIENT": "invalid-input",
+    "DIMENSION_CANDIDATE_COUNT_INSUFFICIENT": "invalid-input",
+    "DIMENSION_KEY_FINDINGS_INSUFFICIENT": "invalid-input",
+    "DIMENSION_RECIPE_ID_NOT_BOUND": "invalid-input",
+    "DIMENSION_REFERENCED_FILES_MISSING": "invalid-input",
+    "GRAPH_REF_INVALID": "invalid-input",
+    "INCOMPLETE_SUBMISSION": "invalid-input",
+    "INSUFFICIENT_EVIDENCE": "invalid-input",
+    "NOTHING_TO_UPDATE": "invalid-input",
+    "PLACEHOLDER_EVIDENCE": "invalid-input",
+    "QUALITY_GATE_FAILED": "invalid-input",
     "RATE_LIMIT": "unavailable",
+    "REBUILD_CONFIRMATION_REQUIRED": "needs-confirmation",
     "SERVICE_UNAVAILABLE": "unavailable",
     "SESSION_NOT_FOUND": "not-found",
-    "UNKNOWN_PROJECT_SKILL_OPERATION": "invalid-input"
+    "SNIPPET_MISMATCH": "invalid-input",
+    "SOURCE_REF_BARE": "invalid-input",
+    "SOURCE_REF_INVALID": "invalid-input",
+    "SOURCE_REF_LINE_MISSING": "invalid-input",
+    "SOURCE_REF_LINE_OUT_OF_RANGE": "invalid-input",
+    "SOURCE_REF_NOT_FOUND": "invalid-input",
+    "SOURCE_REFS_MISSING": "invalid-input",
+    "STALE_GRAPH": "invalid-input",
+    "UNKNOWN_PROJECT_SKILL_OPERATION": "invalid-input",
+    "USER_CONSENT_REQUIRED": "needs-confirmation",
+    "WRONG_SCOPE": "conflict"
   },
-  "deferredCkg3GateCodes": {
-    "owner": "CKG sequence (resumption package); classification review is finding F2 from the P3 CC3 run — evidence-gate rejections currently fall back to internal-error, which presents input-quality rejections as 500-class failures.",
-    "rule": "No semantic reclassification in the P3 train; these stay on the fallback until the CKG resumption rules them.",
+  "recipeEvidenceGateCodeMappings": {
+    "owner": "Recipe evidence gate classification review.",
+    "rule": "Evidence-gate and repair-loop rejections are caller-repairable input-quality failures; consent gates are confirmation-required; scope mismatches are conflicts. They must not fall back to internal-error.",
     "codes": [
       "DIMENSION_ANALYSIS_TEXT_INSUFFICIENT",
       "DIMENSION_CANDIDATE_COUNT_INSUFFICIENT",
@@ -48,7 +70,8 @@
       "SOURCE_REFS_MISSING",
       "STALE_GRAPH",
       "WRONG_SCOPE"
-    ]
+    ],
+    "consentCodes": ["CONSENT_REQUIRED", "REBUILD_CONFIRMATION_REQUIRED", "USER_CONSENT_REQUIRED"]
   },
   "coreRegistryRowNote": "Core's adoption.alembicPlugin row still says deferred-ic5; updating that row lives in AlembicCore (registry authority) — routed to the Core window, not edited from here."
 }

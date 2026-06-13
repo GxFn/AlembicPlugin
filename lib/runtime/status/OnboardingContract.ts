@@ -498,7 +498,8 @@ function buildSingleWriterLeaseVisibility(
     heartbeat: activeBootstrap
       ? {
           lastHeartbeatAt: activeBootstrap.updatedAt || activeBootstrap.createdAt || null,
-          staleAfter: 'CKG1 exposes heartbeat visibility only; CKG3 owns hard timeout enforcement.',
+          staleAfter:
+            'Heartbeat visibility is exposed here; hard timeout enforcement belongs to a later lease-enforcement route.',
         }
       : null,
     takeoverRule: activeBootstrap
@@ -510,7 +511,7 @@ function buildSingleWriterLeaseVisibility(
       'Alembic daemon job provider',
     ],
     enforcementBoundary:
-      'Visibility-only in CKG1; this field does not implement CKG3 hard gate enforcement.',
+      'Visibility-only; this field does not implement hard lease gate enforcement.',
   };
 }
 

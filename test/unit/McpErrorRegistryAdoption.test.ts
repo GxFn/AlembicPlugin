@@ -3,7 +3,8 @@
  * - 插件自有错误码经真实 createCleanMcpError 路径解析出的 failureKind
  *   必须存在于钉死的 Core 注册表（vendor ef83a41）failureKinds 中；
  * - 采纳清单（config/error-registry-adoption.json）与注册表漂移时测试失败；
- * - CKG3 证据门错误码本波不重分类（F2 路由 CKG 复工包），仅作清单存在性校验。
+ * - Recipe evidence gates adopt honest request/consent
+ *   taxonomy so they never fall back to core.failure.internal-error.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -21,7 +22,7 @@ const adoption = JSON.parse(
   readFileSync(path.join(repoRoot, 'config', 'error-registry-adoption.json'), 'utf8')
 ) as {
   pluginOwnedCodeMappings: Record<string, string>;
-  deferredCkg3GateCodes: { codes: string[] };
+  recipeEvidenceGateCodeMappings: { codes: string[]; consentCodes: string[] };
 };
 
 describe('plugin error codes adopt the Core error registry', () => {
@@ -44,16 +45,21 @@ describe('plugin error codes adopt the Core error registry', () => {
     }
   });
 
-  it('CKG3 gate codes are listed as deferred, not silently reclassified', () => {
-    expect(adoption.deferredCkg3GateCodes.codes.length).toBeGreaterThanOrEqual(15);
-    for (const code of adoption.deferredCkg3GateCodes.codes) {
-      expect(
-        Object.keys(adoption.pluginOwnedCodeMappings).filter(
-          (mapped) =>
-            mapped === code && !adoption.pluginOwnedCodeMappings[mapped].startsWith('deferred')
-        ),
-        `${code} must not be mapped this wave`
-      ).toHaveLength(0);
+  it('recipe evidence gate codes resolve to caller-repairable taxonomy instead of internal-error', () => {
+    expect(adoption.recipeEvidenceGateCodeMappings.codes.length).toBeGreaterThanOrEqual(15);
+    for (const code of adoption.recipeEvidenceGateCodeMappings.codes) {
+      const error = createCleanMcpError({ code, message: `probe: ${code}` });
+      expect(error.reasonCode, `${code} must not be internal`).not.toBe('internal-error');
+      expect(error.problemClass, `${code} problemClass`).not.toBe('internal-problem');
+      expect(error.retryPolicy, `${code} retryPolicy`).toBeTypeOf('string');
+    }
+  });
+
+  it('recipe evidence gate consent codes resolve to confirmation-required taxonomy', () => {
+    for (const code of adoption.recipeEvidenceGateCodeMappings.consentCodes) {
+      const error = createCleanMcpError({ code, message: `probe: ${code}` });
+      expect(error.reasonCode, code).toBe('needs-confirmation');
+      expect(error.problemClass, code).toBe('confirmation-required');
     }
   });
 });

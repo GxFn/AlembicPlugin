@@ -281,6 +281,7 @@ export const TOOLS = [
       '• Set skipConsolidation: true to skip consolidation check. content and reasoning must be objects.\n' +
       '• Set supersedes: "old-recipe-id" to declare the new Recipe replaces an existing one (creates a supersede proposal with observation window).\n' +
       '• Optional unitId / analysisUnitIds / sourceRefs link submissions to Core IDEAgentAnalysisUnit progress; omit them for legacy flows.\n' +
+      '• Evidence refs may cite root-level files such as package.json:1; rule/pattern candidates normally need 3 distinct files, or scope: "narrow" / "file-local" for a legitimate local rule.\n' +
       '⚠️ Batch rule: items in the array must NOT be cross-redundant — no highly overlapping doClause/coreCode/trigger within the same batch. ' +
       'If two entries share 80%+ content, merge into one or split into primary + extends supplementary entries.',
     inputSchema: zodToMcpSchema(SubmitKnowledgeInput),

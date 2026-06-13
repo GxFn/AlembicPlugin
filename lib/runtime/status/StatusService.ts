@@ -653,7 +653,7 @@ export function buildCodexStatusOnboarding(
         }),
       ],
       notes: [
-        'bootstrap_in_progress is a visibility state; CKG3 owns hard lease enforcement and takeover.',
+        'bootstrap_in_progress is a visibility state; hard lease enforcement and takeover are handled by the lease-enforcement route.',
         'Do not start another host-agent bootstrap while the lease holder is visible.',
         ...alignmentNotes,
         ...boundaryNotes,

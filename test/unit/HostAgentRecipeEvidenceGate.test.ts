@@ -11,11 +11,6 @@ import {
 describe('HostAgentRecipeEvidenceGate', () => {
   it.each([
     {
-      name: 'bare filename',
-      item: { sourceRefs: ['File.ts:1'], coreCode: 'export const a = 1;' },
-      code: 'SOURCE_REF_BARE',
-    },
-    {
       name: 'out-of-root source ref',
       item: { sourceRefs: ['../outside.ts:1'], coreCode: 'export const a = 1;' },
       code: 'SOURCE_REF_INVALID',
@@ -112,6 +107,122 @@ describe('HostAgentRecipeEvidenceGate', () => {
       sessionId: 'session-1',
       skipConsolidationChecked: true,
     });
+  });
+
+  it('accepts root-level source refs when the file exists at project root', () => {
+    const projectRoot = makeProjectRoot();
+
+    fs.writeFileSync(
+      path.join(projectRoot, 'package.json'),
+      '{"name":"root-level-source-ref","type":"module"}\n'
+    );
+    const result = validateRecipeProductionEvidenceGate({
+      args: { dimensionId: 'architecture' },
+      items: [
+        candidate({
+          sourceRefs: ['package.json:1'],
+          coreCode: '{"name":"root-level-source-ref","type":"module"}',
+          reasoning: {
+            confidence: 0.9,
+            sources: ['package.json:1'],
+          },
+        }),
+      ],
+      projectRoot,
+      session: session(projectRoot),
+      skipConsolidation: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.acceptedEvidence).toMatchObject({
+      referencedFiles: ['package.json'],
+    });
+  });
+
+  it('allows explicitly narrow rule candidates to cite one source file', () => {
+    const projectRoot = makeProjectRoot();
+
+    const result = validateRecipeProductionEvidenceGate({
+      args: { dimensionId: 'architecture' },
+      items: [
+        candidate({
+          kind: 'pattern',
+          scope: 'narrow',
+          sourceRefs: ['src/a.ts:1'],
+          coreCode: 'export const a = 1;',
+        }),
+      ],
+      projectRoot,
+      session: session(projectRoot),
+      skipConsolidation: true,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('matches real-agent snippets by significant source lines instead of exact block text', () => {
+    const projectRoot = makeProjectRoot();
+    fs.writeFileSync(
+      path.join(projectRoot, 'src', 'snippet.ts'),
+      [
+        'export function configureSourceGraph() {',
+        '  const mode = "fresh";',
+        '  return { mode, ready: true };',
+        '}',
+        '',
+      ].join('\n')
+    );
+
+    const result = validateRecipeProductionEvidenceGate({
+      args: { dimensionId: 'architecture' },
+      items: [
+        candidate({
+          sourceRefs: ['src/snippet.ts:1-4'],
+          coreCode: [
+            'export function configureSourceGraph() {',
+            '  const mode = "fresh";',
+            '  return { mode, ready: true };',
+          ].join('\n'),
+        }),
+      ],
+      projectRoot,
+      session: session(projectRoot),
+      skipConsolidation: true,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('requires graph refs for structured or localized relationship claims', () => {
+    const projectRoot = makeProjectRoot();
+
+    const structured = validateRecipeProductionEvidenceGate({
+      args: { dimensionId: 'architecture' },
+      items: [
+        candidate({
+          relationshipClaim: true,
+        }),
+      ],
+      projectRoot,
+      session: session(projectRoot),
+      skipConsolidation: true,
+    });
+    const localized = validateRecipeProductionEvidenceGate({
+      args: { dimensionId: 'architecture' },
+      items: [
+        candidate({
+          content: {
+            markdown: '这条知识描述调用链和上游依赖关系，因此必须绑定 fresh source graph refs。',
+          },
+        }),
+      ],
+      projectRoot,
+      session: session(projectRoot),
+      skipConsolidation: true,
+    });
+
+    expect(codes(structured)).toContain('GRAPH_REF_INVALID');
+    expect(codes(localized)).toContain('GRAPH_REF_INVALID');
   });
 
   it('blocks dimension completion when qualityReport fails', () => {

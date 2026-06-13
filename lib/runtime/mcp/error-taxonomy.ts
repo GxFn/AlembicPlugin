@@ -53,11 +53,9 @@ export interface CreateCleanMcpFailureTaxonomyInput {
 
 // IC4/P3 step-7 registry adoption: every plugin-owned error code maps to a
 // Core failure kind from config/error-registry.json (vendor ef83a41 lineage);
-// unmapped codes fall back to internal-error. CKG3-owned evidence-gate codes
-// (SOURCE_REF_*, SNIPPET_MISMATCH, DIMENSION_*, QUALITY_GATE_FAILED, …) are
-// deliberately NOT mapped here — their classification review belongs to the
-// CKG resumption package (F2). Census + deferred list:
-// config/error-registry-adoption.json.
+// unmapped codes fall back to internal-error. Recipe evidence gate refusals
+// are mapped here so source-quality and consent refusals no longer present as
+// internal failures over the real MCP shell route.
 const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   CANCELLED: 'cancelled',
   CLEAN_OUTPUT_PROJECTOR_MISSING: 'capability-mismatch',
@@ -74,24 +72,47 @@ const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   CODEX_UNKNOWN_TOOL: 'capability-mismatch',
   CODEX_WORKSPACE_MODE_CONFLICT: 'conflict',
   CONFLICT: 'conflict',
+  CONSENT_REQUIRED: 'needs-confirmation',
   CONSTITUTION_VIOLATION: 'permission-denied',
+  DIMENSION_ANALYSIS_TEXT_INSUFFICIENT: 'invalid-input',
+  DIMENSION_CANDIDATE_COUNT_INSUFFICIENT: 'invalid-input',
+  DIMENSION_KEY_FINDINGS_INSUFFICIENT: 'invalid-input',
+  DIMENSION_RECIPE_ID_NOT_BOUND: 'invalid-input',
+  DIMENSION_REFERENCED_FILES_MISSING: 'invalid-input',
+  GRAPH_REF_INVALID: 'invalid-input',
   GUARD_SCOPE_REQUIRED: 'invalid-input',
   HOST_FAILURE: 'host-failure',
+  INCOMPLETE_SUBMISSION: 'invalid-input',
+  INSUFFICIENT_EVIDENCE: 'invalid-input',
   INTERNAL_ERROR: 'internal-error',
   INVALID_INPUT: 'invalid-input',
   MISSING_GUARD_SCOPE: 'invalid-input',
   NOT_FOUND: 'not-found',
+  NOTHING_TO_UPDATE: 'invalid-input',
   PERMISSION_DENIED: 'permission-denied',
+  PLACEHOLDER_EVIDENCE: 'invalid-input',
   PROVIDER_ERROR: 'provider-error',
+  QUALITY_GATE_FAILED: 'invalid-input',
   RATE_LIMIT: 'unavailable',
+  REBUILD_CONFIRMATION_REQUIRED: 'needs-confirmation',
   RESIDENT_SEARCH_UNAVAILABLE: 'unavailable',
   SERVICE_UNAVAILABLE: 'unavailable',
   SESSION_NOT_FOUND: 'not-found',
+  SNIPPET_MISMATCH: 'invalid-input',
+  SOURCE_REFS_MISSING: 'invalid-input',
+  SOURCE_REF_BARE: 'invalid-input',
+  SOURCE_REF_INVALID: 'invalid-input',
+  SOURCE_REF_LINE_MISSING: 'invalid-input',
+  SOURCE_REF_LINE_OUT_OF_RANGE: 'invalid-input',
+  SOURCE_REF_NOT_FOUND: 'invalid-input',
+  STALE_GRAPH: 'invalid-input',
   TIMEOUT: 'timeout',
   TOOL_ERROR: 'internal-error',
   TOOL_FAILED: 'internal-error',
   UNKNOWN_PROJECT_SKILL_OPERATION: 'invalid-input',
+  USER_CONSENT_REQUIRED: 'needs-confirmation',
   VALIDATION_ERROR: 'invalid-input',
+  WRONG_SCOPE: 'conflict',
 };
 
 const CLEAN_MCP_ERROR_SENSITIVE_KEYS = new Set([

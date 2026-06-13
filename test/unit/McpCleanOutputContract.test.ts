@@ -191,6 +191,38 @@ describe('MCP clean output contract foundation', () => {
       },
     });
   });
+
+  test('classifies legacy evidence-gate errors as caller-repairable input quality', () => {
+    const serialized = serializeMcpToolResult(
+      'alembic_submit_knowledge',
+      {
+        success: false,
+        errorCode: 'SOURCE_REF_LINE_MISSING',
+        message: 'Source ref must include a line or line range.',
+        data: {
+          evidenceGate: {
+            status: 'rebuild-required',
+          },
+        },
+      },
+      {
+        isErrorResult: () => true,
+      }
+    );
+
+    expect(serialized.isError).toBe(true);
+    expect(serialized.structuredContent).toMatchObject({
+      ok: false,
+      error: {
+        code: 'SOURCE_REF_LINE_MISSING',
+        failureId: 'core.failure.invalid-input',
+        mcpStatus: 'invalid-input',
+        problemClass: 'request-problem',
+        reasonCode: 'invalid-input',
+      },
+      toolName: 'alembic_submit_knowledge',
+    });
+  });
 });
 
 // MT/CC3 F1 回归：错误信封必须满足按工具声明的输出 schema（顶层 toolName 为
