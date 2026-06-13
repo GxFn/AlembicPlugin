@@ -1,7 +1,6 @@
 import {
   BaseError,
   ConflictError,
-  ConstitutionViolation,
   InternalError,
   NotFoundError,
   PermissionDenied,
@@ -36,18 +35,6 @@ describe('Error Classes', () => {
       const error = new PermissionDenied('Access denied');
       expect(error.statusCode).toBe(403);
       expect(error.code).toContain('PERMISSION_DENIED');
-    });
-  });
-
-  describe('ConstitutionViolation', () => {
-    test('should include violations array', () => {
-      const violations = [
-        { priority: 1, rule: 'Rule 1', reason: 'Reason 1' },
-        { priority: 2, rule: 'Rule 2', reason: 'Reason 2' },
-      ];
-      const error = new ConstitutionViolation(violations);
-      expect(error.violations).toEqual(violations);
-      expect(error.statusCode).toBe(400);
     });
   });
 

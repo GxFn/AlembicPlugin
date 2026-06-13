@@ -31,7 +31,7 @@ describe('Integration: KnowledgeService CRUD + Lifecycle', () => {
     };
   }
 
-  const ctx = { userId: 'developer' };
+  const ctx = { userId: 'author-metadata' };
 
   beforeAll(async () => {
     ({ bootstrap, components } = await createTestBootstrap());

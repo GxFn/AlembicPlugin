@@ -3,7 +3,7 @@
  *
  * 提供：
  *   - createTestBootstrap()      — 轻量化 Bootstrap（内存 DB、静默日志）
- *   - createTempGitRepo()        — 临时 git 仓库（用于 CapabilityProbe 测试）
+ *   - createTempGitRepo()        — 临时 git 仓库（用于 source resolver compatibility tests）
  *   - mockCandidate / mockRecipe — 填充完整的实体数据
  *   - createTestToken()          — 签发用于 Auth 测试的 token
  */
@@ -101,7 +101,7 @@ export function mockCandidate(overrides = {}) {
     language: 'javascript',
     category: 'utility',
     status: 'pending',
-    source: { type: 'manual', actor: 'developer' },
+    source: { type: 'manual', actor: 'author-metadata' },
     metadata: {
       capturedAt: new Date().toISOString(),
       context: 'test',
@@ -163,7 +163,7 @@ export function mockGuardRule(overrides = {}) {
 /** 生成带 reasoning 的完整 Gateway 请求数据 */
 export function mockGatewayRequest(overrides = {}) {
   return {
-    actor: 'developer',
+    actor: 'http-request',
     action: 'test_action',
     resource: '/test',
     data: {
@@ -197,7 +197,7 @@ const DEFAULT_TOKEN_SECRET = 'test-secret-key-for-integration-tests';
 export function createTestToken(payload = {}, secret = DEFAULT_TOKEN_SECRET) {
   const fullPayload = {
     sub: 'test-user',
-    role: 'developer',
+    role: 'http-request',
     iat: Date.now(),
     exp: Date.now() + 3600_000, // 1 小时
     ...payload,

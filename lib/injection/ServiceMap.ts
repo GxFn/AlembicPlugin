@@ -65,7 +65,6 @@ import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/servi
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
 // ── Domain Types ──
 // ── Core Types ──
-import type Constitution from '../governance/constitution/Constitution.js';
 import type Gateway from '../governance/gateway/Gateway.js';
 // ── InfraModule Types ──
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
@@ -146,7 +145,6 @@ export interface ServiceMap {
   enhancementRegistry: unknown; // dynamic registry, type varies
   languageService: typeof LanguageService;
   dimensionCopy: typeof DimensionCopy;
-  constitution: Constitution | null;
   projectGraph: ProjectGraph | null;
 
   // ═══ VectorModule ═══

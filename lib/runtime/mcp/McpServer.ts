@@ -10,7 +10,7 @@
  * 冷启动路径:
  *   - 宿主 Agent 路径: bootstrap (Mission Briefing) → dimension_complete × N
  *
- * Gateway 权限 gating: 写操作经过 Gateway 权限/宪法/审计检查（支持动态 resolver）
+ * Gateway gating: 写操作经过具体工具策略/确认/项目范围校验，Gateway 保留路由与审计。
  *
  * 本文件仅包含服务编排层（初始化、路由、Gateway gating、生命周期）。
  * 工具定义 → tools.js
@@ -18,7 +18,6 @@
  * 参数路由 → handlers/tool-router.js
  */
 
-import { CapabilityProbe } from '@alembic/core/core/capability';
 import Logger from '@alembic/core/logging';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -154,7 +153,6 @@ import { panoramaHandler } from '../../runtime/mcp/handlers/panorama.js';
 export class McpServer {
   container: McpServiceContainer | null;
   logger: ReturnType<typeof Logger.getInstance> | null;
-  _capabilityProbe: CapabilityProbe | null;
   _defaultActorRole: string | null;
   _defaultSource: ToolCallSource;
   _defaultSurface: ToolSurface;
@@ -169,7 +167,6 @@ export class McpServer {
     this.bootstrap = options.bootstrap || null;
     this.sdkServer = null;
     this._startedAt = Date.now();
-    this._capabilityProbe = null;
     this._defaultActorRole = options.actorRole || null;
     this._defaultSource = options.source || { kind: 'mcp', name: 'tools/call' };
     this._defaultSurface = options.surface || 'mcp';
@@ -248,7 +245,6 @@ export class McpServer {
         db: components.db,
         auditLogger: components.auditLogger,
         gateway: components.gateway,
-        constitution: components.constitution,
         config: components.config,
         skillHooks: components.skillHooks,
         projectRoot,
@@ -620,26 +616,6 @@ export class McpServer {
     return HANDLER_MAP[name] ?? null;
   }
 
-  /**
-   * 获取（或懒创建）CapabilityProbe 实例，用于探测子仓库写权限
-   * 配置来自 constitution capabilities.git_write
-   */
-  _getCapabilityProbe(): CapabilityProbe {
-    if (!this._capabilityProbe) {
-      try {
-        const constitution = this.container?.get('constitution');
-        const caps = constitution?.config?.capabilities?.git_write || {};
-        this._capabilityProbe = new CapabilityProbe({
-          cacheTTL: caps.cache_ttl || 86400,
-          noRemote: caps.no_remote || 'allow',
-        });
-      } catch {
-        this._capabilityProbe = new CapabilityProbe();
-      }
-    }
-    return this._capabilityProbe;
-  }
-
   _resolveMcpGatewayMapping(toolName: string, args: Record<string, unknown>) {
     let mapping = (TOOL_GATEWAY_MAP as Record<string, GatewayMappingEntry | undefined>)[toolName] as
       | GatewayMappingEntry
@@ -666,11 +642,7 @@ export class McpServer {
   }
 
   _resolveMcpActorRole() {
-    try {
-      return this._getCapabilityProbe().probeRole();
-    } catch {
-      return 'external_agent';
-    }
+    return 'host-mcp';
   }
 
   // ─── Lifecycle ────────────────────────────────────────

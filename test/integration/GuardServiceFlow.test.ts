@@ -38,7 +38,6 @@ describe('Integration: Guard Service Full Flow', () => {
         db: components.db,
         auditLogger: components.auditLogger,
         gateway: components.gateway,
-        constitution: components.constitution,
         config: components.config,
         skillHooks: components.skillHooks,
       });
@@ -49,9 +48,9 @@ describe('Integration: Guard Service Full Flow', () => {
     test('should create a guard rule', async () => {
       const result = await guardService.createRule(
         {
-          name: 'No eval()',
-          description: 'Disallow use of eval() function',
-          pattern: 'eval\\(',
+          name: 'No dynamic execution',
+          description: 'Disallow dynamic execution helper calls',
+          pattern: 'dynamicExecution\\(',
           languages: ['javascript'],
           severity: 'error',
           category: 'security',
@@ -65,8 +64,11 @@ describe('Integration: Guard Service Full Flow', () => {
     });
 
     test('should check code with created rules', () => {
-      const violations = guardCheckEngine.checkCode('const result = eval("1+1");', 'javascript');
-      // 内置规则可能存在 eval 检查
+      const violations = guardCheckEngine.checkCode(
+        'const result = dynamicExecution("1+1");',
+        'javascript'
+      );
+      // 内置规则或测试规则可能存在动态执行检查
       expect(Array.isArray(violations)).toBe(true);
     });
 
@@ -81,7 +83,7 @@ describe('Integration: Guard Service Full Flow', () => {
       // auditFile(filePath, code, options)
       const result = guardCheckEngine.auditFile?.(
         'test.js',
-        'function test() { return eval("x"); }',
+        'function test() { return dynamicExecution("x"); }',
         { scope: 'project' }
       );
       if (result) {

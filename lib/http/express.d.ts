@@ -3,10 +3,10 @@ import 'express-serve-static-core';
 
 declare module 'express-serve-static-core' {
   interface Request {
-    /** Resolved RBAC role (set by roleResolverMiddleware) */
-    resolvedRole?: string;
-    /** Resolved user identifier (set by roleResolverMiddleware) */
-    resolvedUser?: string;
+    /** Neutral request source label set by sourceResolver middleware. */
+    resolvedSource?: string;
+    /** Audit source identifier set by sourceResolver middleware. */
+    resolvedSourceActor?: string;
     /** Gateway shortcut (set by gatewayMiddleware) */
     gw: (
       action: string,

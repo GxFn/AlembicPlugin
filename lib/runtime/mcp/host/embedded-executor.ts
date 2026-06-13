@@ -74,7 +74,7 @@ export class CodexEmbeddedToolExecutor {
       const localMcp = await this.#getPluginOwnedMcpServer(executionContext);
       const result = await localMcp._executeMcpHandler(name, args, {
         actor: {
-          role: 'external_agent',
+          role: 'host-mcp',
           user: process.env.USER || undefined,
           sessionId: this.#getSessionId(),
         },
@@ -126,7 +126,7 @@ export class CodexEmbeddedToolExecutor {
       delete process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
     }
     const server = new EmbeddedMcpServer({
-      actorRole: 'external_agent',
+      actorRole: 'host-mcp',
       source: { kind: 'codex', name: 'plugin-owned-codex-facing' },
       surface: 'codex',
     });

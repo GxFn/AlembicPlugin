@@ -29,7 +29,7 @@ describe('JobStore', () => {
     const store = new JobStore({ projectRoot });
 
     const first = store.create({
-      actor: { role: 'external_agent', user: 'codex-user' },
+      actor: { role: 'host-mcp', user: 'codex-user' },
       channelId: 'codex',
       client: 'codex-plugin',
       createdByTool: 'alembic_codex_bootstrap',
@@ -53,7 +53,7 @@ describe('JobStore', () => {
     });
 
     expect(completed).toMatchObject({
-      actor: { role: 'external_agent', user: 'codex-user' },
+      actor: { role: 'host-mcp', user: 'codex-user' },
       channelId: 'codex',
       client: 'codex-plugin',
       createdByTool: 'alembic_codex_bootstrap',

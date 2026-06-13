@@ -14,7 +14,6 @@
 import Logger from '@alembic/core/logging';
 import {
   ConflictError,
-  ConstitutionViolation,
   NotFoundError,
   PermissionDenied,
   ValidationError,
@@ -55,9 +54,6 @@ function inferErrorCode(err: unknown): string {
   }
   if (err instanceof PermissionDenied) {
     return 'PERMISSION_DENIED';
-  }
-  if (err instanceof ConstitutionViolation) {
-    return 'CONSTITUTION_VIOLATION';
   }
   const errRecord = err as ErrorWithDetails;
   if (errRecord.errorCode) {

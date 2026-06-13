@@ -2186,7 +2186,7 @@ describe('CodexMcpServer', () => {
     expect(headers['x-alembic-daemon-token']).toBe('test-token');
     expect(body).toMatchObject({
       jobContext: {
-        actor: { role: 'external_agent' },
+        actor: { role: 'host-mcp' },
         channelId: 'codex',
         client: 'codex-plugin',
         createdByTool: 'alembic_codex_bootstrap',

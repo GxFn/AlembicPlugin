@@ -5,7 +5,7 @@
  *   - knowledgeService, knowledgeGraphService, codeEntityGraph, confidenceRouter
  *   - searchEngine, vectorStore, indexingPipeline
  *   - discovererRegistry, enhancementRegistry, languageService, dimensionCopy
- *   - constitution, projectGraph
+ *   - projectGraph
  */
 
 import { createHash } from 'node:crypto';
@@ -83,8 +83,13 @@ function resolveVectorRuntimeRoot(ct: ServiceContainer): VectorRuntimeRoot {
 }
 
 export function register(c: ServiceContainer) {
-  // ═══ Knowledge ═══
+  registerKnowledgeServices(c);
+  registerSearchServices(c);
+  registerSharedServices(c);
+  registerEvolutionServices(c);
+}
 
+function registerKnowledgeServices(c: ServiceContainer) {
   c.singleton(
     'confidenceRouter',
     (ct: ServiceContainer) =>
@@ -130,9 +135,9 @@ export function register(c: ServiceContainer) {
       { projectRoot }
     );
   });
+}
 
-  // ═══ Search + Vector ═══
-
+function registerSearchServices(c: ServiceContainer) {
   c.singleton('searchEngine', (ct: ServiceContainer) => {
     const vectorService = ct.services.vectorService ? ct.get('vectorService') : null;
     return new SearchEngine(
@@ -225,18 +230,24 @@ export function register(c: ServiceContainer) {
       alpha: (hybrid.alpha as number) || 0.5,
     } as ConstructorParameters<typeof HybridRetriever>[0]);
   });
+}
 
-  // ═══ Discovery + Shared ═══
-
+function registerSharedServices(c: ServiceContainer) {
   c.register('discovererRegistry', () => getDiscovererRegistry());
   c.register('enhancementRegistry', () => getEnhancementRegistry());
   c.register('languageService', () => LanguageService);
   c.register('dimensionCopy', () => DimensionCopy);
-  c.register('constitution', () => c.singletons.constitution || null);
   c.register('projectGraph', () => c.singletons.projectGraph || null);
+}
 
-  // ═══ Governance / Evolution ═══
+function registerEvolutionServices(c: ServiceContainer) {
+  registerEvolutionAnalysisServices(c);
+  registerEvolutionWorkflowServices(c);
+  registerRecipeProductionServices(c);
+  registerFileChangeServices(c);
+}
 
+function registerEvolutionAnalysisServices(c: ServiceContainer) {
   c.singleton('sourceRefReconciler', (ct: ServiceContainer) => {
     const projectRoot = resolveProjectRoot();
     const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
@@ -295,7 +306,9 @@ export function register(c: ServiceContainer) {
     const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
     return new ContentPatcher(knowledgeRepo, sourceRefRepo);
   });
+}
 
+function registerEvolutionWorkflowServices(c: ServiceContainer) {
   c.singleton('lifecycleStateMachine', (ct: ServiceContainer) => {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     const lifecycleEventRepo = ct.get(
@@ -326,7 +339,9 @@ export function register(c: ServiceContainer) {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new EvolutionGateway(proposalRepo, lifecycle, knowledgeRepo);
   });
+}
 
+function registerRecipeProductionServices(c: ServiceContainer) {
   c.singleton('recipeProductionGateway', (ct: ServiceContainer) => {
     const knowledgeService = ct.get('knowledgeService');
     const dataRoot = resolveDataRoot(ct) as string;
@@ -365,7 +380,9 @@ export function register(c: ServiceContainer) {
       findSimilarRecipes,
     });
   });
+}
 
+function registerFileChangeServices(c: ServiceContainer) {
   c.singleton('fileChangeHandler', (ct: ServiceContainer) => {
     const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;

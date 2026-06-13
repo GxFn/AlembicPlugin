@@ -2,7 +2,7 @@
  * 集成测试：Bootstrap 生命周期 — 初始化/关闭 + 组件一致性
  *
  * 覆盖范围:
- *   - Bootstrap 完整初始化链路 (config → logger → db → constitution → core → gateway)
+ *   - Bootstrap 完整初始化链路 (config → logger → db → audit → gateway)
  *   - 组件依赖注入完整性
  *   - 多次 initialize/shutdown 稳定性
  *   - PathGuard 配置
@@ -28,9 +28,6 @@ describe('Integration: Bootstrap Lifecycle', () => {
       expect(components.config).toBeDefined();
       expect(components.logger).toBeDefined();
       expect(components.db).toBeDefined();
-      expect(components.constitution).toBeDefined();
-      expect(components.constitutionValidator).toBeDefined();
-      expect(components.permissionManager).toBeDefined();
       expect(components.auditStore).toBeDefined();
       expect(components.auditLogger).toBeDefined();
       expect(components.gateway).toBeDefined();
@@ -42,7 +39,7 @@ describe('Integration: Bootstrap Lifecycle', () => {
       gateway.register('lifecycle_test', async () => ({ alive: true }));
 
       const result = await gateway.execute({
-        actor: 'developer',
+        actor: 'http-request',
         action: 'lifecycle_test',
         resource: '/test',
       });
@@ -53,16 +50,8 @@ describe('Integration: Bootstrap Lifecycle', () => {
     test('should have functional database', () => {
       const { db } = components;
       expect(db).toBeDefined();
-      // DB 应该已经连接并迁移
       const dbInstance = db.getDb?.() || db;
       expect(dbInstance).toBeDefined();
-    });
-
-    test('should have functional constitution', () => {
-      const { constitution } = components;
-      expect(constitution).toBeDefined();
-      const json = constitution.toJSON();
-      expect(json).toBeDefined();
     });
 
     test('should have functional audit system', async () => {
@@ -76,13 +65,11 @@ describe('Integration: Bootstrap Lifecycle', () => {
     test('should support sequential init/shutdown', async () => {
       const { Bootstrap } = await import('../../lib/bootstrap.js');
 
-      // 第一个实例
       const b1 = new Bootstrap({ env: 'test' });
       const c1 = await b1.initialize();
       expect(c1.gateway).toBeDefined();
       await b1.shutdown();
 
-      // 第二个实例
       const b2 = new Bootstrap({ env: 'test' });
       const c2 = await b2.initialize();
       expect(c2.gateway).toBeDefined();
@@ -93,7 +80,6 @@ describe('Integration: Bootstrap Lifecycle', () => {
   describe('PathGuard configuration', () => {
     test('should configure PathGuard with project root', async () => {
       const { Bootstrap } = await import('../../lib/bootstrap.js');
-      // Static method should not throw
       expect(() => {
         Bootstrap.configurePathGuard('/tmp/test-project');
       }).not.toThrow();

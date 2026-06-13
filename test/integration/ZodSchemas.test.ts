@@ -5,7 +5,7 @@
  *   - common.ts 基础 schema（PaginationSchema, ContentSchema, ReasoningSchema 等）
  *   - mcp-tools.ts MCP 工具输入 schema（SearchInput, KnowledgeInput, TaskInput 等）
  *   - http-requests.ts HTTP 路由 schema（CRUD + 批量 + 搜索）
- *   - config.ts 配置文件 schema（AppConfigSchema, ConstitutionSchema）
+ *   - config.ts 配置文件 schema（AppConfigSchema, compatibility policy schema）
  *   - TOOL_SCHEMAS 映射表完整性
  */
 
@@ -512,21 +512,20 @@ describe('Integration: Zod Schemas — config.ts', () => {
     });
   });
 
-  describe('ConstitutionSchema', () => {
-    test('should accept empty constitution', () => {
+  describe('Compatibility policy schema', () => {
+    test('should accept empty compatibility policy', () => {
       const result = ConstitutionSchema.parse({});
       expect(result.rules).toEqual([]);
       expect(result.capabilities).toEqual({});
     });
 
-    test('should accept valid constitution', () => {
+    test('should accept valid entrypoint safety policy', () => {
       const result = ConstitutionSchema.parse({
-        version: '1.0',
-        rules: [{ id: 'r1', check: 'no-eval' }],
-        roles: [{ id: 'dev', name: 'Developer' }],
+        version: '4.0',
+        rules: [{ id: 'destructive_confirm', check: 'destructive_needs_confirmation' }],
       });
       expect(result.rules).toHaveLength(1);
-      expect(result.roles).toHaveLength(1);
+      expect(result.roles).toEqual([]);
     });
 
     test('should reject rule without id', () => {
@@ -537,12 +536,9 @@ describe('Integration: Zod Schemas — config.ts', () => {
       ).toThrow();
     });
 
-    test('should reject role without name', () => {
-      expect(() =>
-        ConstitutionSchema.parse({
-          roles: [{ id: 'dev' }],
-        })
-      ).toThrow();
+    test('keeps retired role arrays empty for Plugin policy files', () => {
+      const result = ConstitutionSchema.parse({ roles: [] });
+      expect(result.roles).toEqual([]);
     });
   });
 });

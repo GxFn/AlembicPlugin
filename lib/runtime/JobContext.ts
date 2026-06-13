@@ -11,7 +11,7 @@ export interface CodexJobContextInput {
 export function createCodexJobContext(input: CodexJobContextInput) {
   return {
     actor: {
-      role: 'external_agent',
+      role: 'host-mcp',
       ...(input.user ? { user: input.user } : {}),
     },
     channelId: CODEX_CHANNEL_ID,

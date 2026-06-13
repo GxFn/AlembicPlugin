@@ -27,7 +27,6 @@ describe('Cross-module: Signal Bus DI wiring', () => {
       db: components.db,
       auditLogger: components.auditLogger,
       gateway: components.gateway,
-      constitution: components.constitution,
       config: components.config,
       skillHooks: components.skillHooks,
     });

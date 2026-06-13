@@ -6,7 +6,6 @@
 
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
-import { CapabilityProbe } from '@alembic/core/core/capability';
 import Logger from '@alembic/core/logging';
 import { resolveDataRoot } from '@alembic/core/workspace';
 import cors from 'cors';
@@ -22,7 +21,7 @@ import apiSpec from './api-spec.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { gatewayMiddleware } from './middleware/gatewayMiddleware.js';
 import { requestLogger } from './middleware/requestLogger.js';
-import { roleResolverMiddleware } from './middleware/roleResolver.js';
+import { sourceResolverMiddleware } from './middleware/sourceResolver.js';
 import authRouter from './routes/auth.js';
 import daemonRouter from './routes/daemon.js';
 import guardRouter from './routes/guard.js';
@@ -48,7 +47,6 @@ type AppLogger = ReturnType<typeof Logger.getInstance>;
 export class HttpServer {
   app: Application;
   cacheAdapter: unknown;
-  capabilityProbe: CapabilityProbe | null;
   config: HttpServerConfig;
   errorTracker: ErrorTracker | null;
   logger: AppLogger;
@@ -71,7 +69,6 @@ export class HttpServer {
     this.errorTracker = null;
     this.cacheAdapter = null;
     this.realtimeService = null;
-    this.capabilityProbe = null;
   }
 
   /** 初始化服务器 */
@@ -184,18 +181,8 @@ export class HttpServer {
       })
     );
 
-    // 角色解析中间件（双路径：token / 探针）
-    try {
-      const constitution = getServiceContainer().get('constitution');
-      const caps = (constitution?.config?.capabilities?.git_write || {}) as Record<string, unknown>;
-      this.capabilityProbe = new CapabilityProbe({
-        cacheTTL: (caps.cache_ttl as number) || 86400,
-        noRemote: ((caps.no_remote as string) || 'allow') as 'allow' | 'deny',
-      });
-    } catch {
-      this.capabilityProbe = new CapabilityProbe();
-    }
-    this.app.use(roleResolverMiddleware({ capabilityProbe: this.capabilityProbe }));
+    // 请求来源解析；不使用 git/probe/login 推导运行时权限。
+    this.app.use(sourceResolverMiddleware());
 
     // Gateway 中间件 (注入 req.gw)
     this.app.use(gatewayMiddleware());
@@ -249,18 +236,13 @@ export class HttpServer {
     // 认证路由
     this.app.use(`${apiPrefix}/auth`, authRouter);
 
-    // 权限探针端点
+    // 请求来源探针端点
     this.app.get(`${apiPrefix}/auth/probe`, (req: Request, res: Response) => {
-      const role = req.resolvedRole || 'visitor';
-      const user = req.resolvedUser || 'anonymous';
-      const mode =
-        process.env.VITE_AUTH_ENABLED === 'true' || process.env.ALEMBIC_AUTH_ENABLED === 'true'
-          ? 'token'
-          : 'probe';
-      const probeCache = this.capabilityProbe ? this.capabilityProbe.getCacheStatus() : null;
+      const source = req.resolvedSource || 'http-request';
+      const sourceActor = req.resolvedSourceActor || 'anonymous';
       res.json({
         success: true,
-        data: { role, user, mode, probeCache },
+        data: { source, sourceActor, mode: 'source' },
       });
     });
 
@@ -327,109 +309,15 @@ export class HttpServer {
       let settled = false;
 
       const onError = (error: NodeJS.ErrnoException) => {
-        if (settled) {
-          this.logger.error('HTTP Server error', {
-            error: error.message,
-            code: error.code,
-            timestamp: new Date().toISOString(),
-          });
-          return;
-        }
-        settled = true;
-        this.logger.error('HTTP Server error', {
-          error: error.message,
-          code: error.code,
-          timestamp: new Date().toISOString(),
-        });
-        this.server = null;
-        reject(error);
+        settled = this.handleStartError(error, settled, reject);
       };
 
       const onListening = () => {
-        const address = this.server?.address();
-        if (!address || typeof address !== 'object' || address.port <= 0) {
-          const error = new Error(
-            `HTTP Server did not bind to a valid port: ${JSON.stringify(address)}`
-          );
-          onError(error as NodeJS.ErrnoException);
-          return;
+        const activeServer = this.handleStartListening(onError, reject);
+        if (activeServer) {
+          settled = true;
+          resolve(activeServer);
         }
-        this.config.port = address.port;
-
-        this.logger.info('HTTP Server started', {
-          host: this.config.host,
-          port: this.config.port,
-          url: `http://${this.config.host}:${this.config.port}`,
-          timestamp: new Date().toISOString(),
-        });
-
-        // 初始化 WebSocket 服务（使用 HTTP 服务器实例）
-        try {
-          const server = this.server;
-          if (!server) {
-            throw new Error('HTTP server was not created before realtime initialization');
-          }
-          this.realtimeService = initRealtimeService(server) as unknown as Record<string, unknown>;
-          this.logger.info('Realtime service initialized');
-
-          // 桥接 EventBus / SignalBus → RealtimeService
-          try {
-            const container = getServiceContainer();
-            const rs = this.realtimeService as {
-              broadcastEvent?: (name: string, data: unknown) => void;
-            };
-            if (typeof rs?.broadcastEvent !== 'function') {
-              throw new Error('broadcastEvent not available');
-            }
-            const { broadcastEvent } = rs;
-
-            // EventBus → lifecycle:transition
-            const eventBus = container.services.eventBus ? container.get('eventBus') : null;
-            if (eventBus) {
-              eventBus.on('lifecycle:transition', (data: unknown) => {
-                broadcastEvent('lifecycle:transition', data);
-              });
-            }
-
-            // SignalBridge 已将信号转发到 EventBus，HttpServer 只听 EventBus
-            if (eventBus) {
-              eventBus.on('signal:event', (signal: unknown) => {
-                broadcastEvent('signal:event', signal);
-              });
-              eventBus.on('guard:updated', (signal: unknown) => {
-                broadcastEvent('guard:updated', signal);
-              });
-            }
-
-            // 确保 SignalBridge 已初始化（触发 lazy singleton）
-            try {
-              container.get('signalBridge');
-            } catch {
-              // SignalBridge 未注册时静默跳过
-            }
-
-            // EventBus → audit:entry
-            if (eventBus) {
-              eventBus.on('audit:entry', (data: unknown) => {
-                broadcastEvent('audit:entry', data);
-              });
-            }
-          } catch {
-            // EventBus/SignalBus 不可用时静默跳过
-          }
-        } catch (error: unknown) {
-          this.logger.warn('Failed to initialize realtime service', {
-            error: (error as Error).message,
-          });
-        }
-
-        settled = true;
-        const activeServer = this.server;
-        if (!activeServer) {
-          reject(new Error('HTTP server failed to initialize'));
-          return;
-        }
-        resolve(activeServer);
       };
 
       this.server.on('error', onError);
@@ -443,6 +331,105 @@ export class HttpServer {
       reject(error);
     }
     return promise;
+  }
+
+  private handleStartError(
+    error: NodeJS.ErrnoException,
+    settled: boolean,
+    reject: (reason?: unknown) => void
+  ) {
+    this.logger.error('HTTP Server error', {
+      error: error.message,
+      code: error.code,
+      timestamp: new Date().toISOString(),
+    });
+    if (settled) {
+      return true;
+    }
+    this.server = null;
+    reject(error);
+    return true;
+  }
+
+  private handleStartListening(
+    onError: (error: NodeJS.ErrnoException) => void,
+    reject: (reason?: unknown) => void
+  ) {
+    const address = this.server?.address();
+    if (!address || typeof address !== 'object' || address.port <= 0) {
+      const error = new Error(
+        `HTTP Server did not bind to a valid port: ${JSON.stringify(address)}`
+      );
+      onError(error as NodeJS.ErrnoException);
+      return null;
+    }
+    this.config.port = address.port;
+    this.logger.info('HTTP Server started', {
+      host: this.config.host,
+      port: this.config.port,
+      url: `http://${this.config.host}:${this.config.port}`,
+      timestamp: new Date().toISOString(),
+    });
+    this.initializeRealtimeServiceBridge();
+
+    const activeServer = this.server;
+    if (!activeServer) {
+      reject(new Error('HTTP server failed to initialize'));
+      return null;
+    }
+    return activeServer;
+  }
+
+  private initializeRealtimeServiceBridge() {
+    try {
+      const server = this.server;
+      if (!server) {
+        throw new Error('HTTP server was not created before realtime initialization');
+      }
+      this.realtimeService = initRealtimeService(server) as unknown as Record<string, unknown>;
+      this.logger.info('Realtime service initialized');
+      this.bindRealtimeEvents();
+    } catch (error: unknown) {
+      this.logger.warn('Failed to initialize realtime service', {
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  private bindRealtimeEvents() {
+    try {
+      const container = getServiceContainer();
+      const rs = this.realtimeService as {
+        broadcastEvent?: (name: string, data: unknown) => void;
+      };
+      if (typeof rs?.broadcastEvent !== 'function') {
+        throw new Error('broadcastEvent not available');
+      }
+
+      const eventBus = container.services.eventBus ? container.get('eventBus') : null;
+      if (!eventBus) {
+        return;
+      }
+      eventBus.on('lifecycle:transition', (data: unknown) => {
+        rs.broadcastEvent?.('lifecycle:transition', data);
+      });
+      eventBus.on('signal:event', (signal: unknown) => {
+        rs.broadcastEvent?.('signal:event', signal);
+      });
+      eventBus.on('guard:updated', (signal: unknown) => {
+        rs.broadcastEvent?.('guard:updated', signal);
+      });
+      eventBus.on('audit:entry', (data: unknown) => {
+        rs.broadcastEvent?.('audit:entry', data);
+      });
+      try {
+        container.get('signalBridge');
+      } catch {
+        // SignalBridge 未注册时静默跳过
+      }
+    } catch {
+      // EventBus/SignalBus 不可用时静默跳过
+    }
   }
 
   /** 停止服务器 */
