@@ -113,11 +113,11 @@ function buildSourceGraphPlaybookLine(
 
 function buildKnowledgePlaybookLine(knowledgeTools: string[]): string {
   if (knowledgeTools.length === 0) {
-    return 'Project knowledge: no Recipe/knowledge tools are visible; do not infer project standards from source graph facts alone.';
+    return 'Project knowledge/context: no Recipe or project-context tools are visible; do not infer project standards from source graph facts alone.';
   }
-  return `Project knowledge: use visible Recipe/knowledge tools ${formatToolList(
+  return `Project knowledge/context: use visible tools ${formatToolList(
     knowledgeTools
-  )} for standards, prior decisions, and reusable patterns.`;
+  )}; use Recipe/search tools for standards and prior decisions, and use alembic_graph only for project-internal graph/source/dependency relations.`;
 }
 
 function buildGuardPlaybookLine(guardTools: string[]): string {

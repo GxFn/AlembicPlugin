@@ -243,16 +243,17 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(StructureInput),
   },
 
-  // Knowledge Graph
+  // Project Graph
   {
     name: 'alembic_graph',
     tier: 'agent',
     description:
-      'Knowledge relationship graph queries.\n' +
-      '• query — query relationships of a node\n' +
-      '• impact — analyze impact scope of modifying a knowledge entry\n' +
-      '• path — find relationship path between two knowledge nodes\n' +
-      '• stats — global graph statistics (nodes/edges/density)',
+      'Project-internal graph queries over project structure, package dependencies, source files, symbols, and source graph refs.\n' +
+      '• query — list bounded project graph nodes/relations\n' +
+      '• impact — analyze project impact radius from a project/source node\n' +
+      '• path — find a directed project relation path between two project nodes\n' +
+      '• stats — summarize project graph node/relation counts\n' +
+      '• neighborhood — inspect a bounded node neighborhood',
     inputSchema: zodToMcpSchema(GraphInput),
   },
 

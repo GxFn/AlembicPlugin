@@ -276,14 +276,24 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
   });
 
   describe('GraphInput', () => {
-    test('should require operation', () => {
-      expect(() => GraphInput.parse({})).toThrow();
+    test('should default to project graph query operation', () => {
+      const result = GraphInput.parse({});
+
+      expect(result.operation).toBe('query');
+      expect(result.direction).toBe('both');
+      expect(result.detailLevel).toBe('summary');
     });
 
     test('should accept valid operation', () => {
       const result = GraphInput.parse({ operation: 'stats' });
       expect(result.direction).toBe('both');
-      expect(result.maxDepth).toBe(3);
+      expect(result.maxDepth).toBe(2);
+    });
+
+    test('should reject recipe graph semantics', () => {
+      expect(GraphInput.safeParse({ nodeType: 'recipe' }).success).toBe(false);
+      expect(GraphInput.safeParse({ nodeType: 'knowledge' }).success).toBe(false);
+      expect(GraphInput.safeParse({ relation: 'coveredByKnowledge' }).success).toBe(false);
     });
   });
 

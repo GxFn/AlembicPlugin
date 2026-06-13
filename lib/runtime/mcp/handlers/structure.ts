@@ -9,6 +9,12 @@ import path from 'node:path';
 import { ConfigPaths as Paths } from '@alembic/core/config';
 import { LanguageService } from '@alembic/core/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import {
+  defaultProjectGraphProvider,
+  defaultProjectKnowledgeContextLayer,
+  ProjectGraphInputSchema,
+  type ProjectGraphInput,
+} from '#service/project-knowledge-context/index.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import type { McpContext } from '../../../runtime/mcp/handlers/types.js';
 
@@ -68,14 +74,17 @@ interface StructureArgs {
 }
 
 interface GraphArgs {
+  operation?: string;
   nodeId?: string;
   nodeType?: string;
   direction?: string;
-  relation?: string;
+  relationType?: string;
   fromId?: string;
   toId?: string;
   fromType?: string;
   toType?: string;
+  projectRoot?: string;
+  sourceGraphRef?: string;
   maxDepth?: number;
   methodName?: string;
   [key: string]: unknown;
@@ -379,283 +388,36 @@ export async function getTargetMetadata(ctx: McpContext, args: StructureArgs) {
 }
 
 export async function graphQuery(ctx: McpContext, args: GraphArgs) {
-  if (!args.nodeId) {
-    throw new Error('nodeId is required');
-  }
-  const graphService = ctx.container.get('knowledgeGraphService');
-  if (!graphService) {
-    return envelope({
-      success: false,
-      message: 'KnowledgeGraphService not available — knowledge_edges 表可能未初始化',
-      meta: { tool: 'alembic_graph' },
-    });
-  }
-  const nodeType = args.nodeType || 'recipe';
-  const direction = args.direction || 'both';
-  const { nodeId } = args;
-  let data: unknown;
-  try {
-    if (args.relation) {
-      data = await graphService.getRelated(nodeId, nodeType, args.relation);
-    } else {
-      data = await graphService.getEdges(nodeId, nodeType, direction);
-    }
-  } catch (err: unknown) {
-    // knowledge_edges 表不存在时 graceful 降级到 relations 字段
-    if (err instanceof Error && err.message?.includes('no such table')) {
-      data = await _fallbackRelationsFromRecipe(ctx, nodeId, args.relation, direction);
-      return envelope({
-        success: true,
-        data,
-        meta: { tool: 'alembic_graph', source: 'relations-fallback' },
-      });
-    }
-    throw err;
-  }
-  return envelope({ success: true, data, meta: { tool: 'alembic_graph' } });
+  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'query' });
 }
 
 export async function graphImpact(ctx: McpContext, args: GraphArgs) {
-  if (!args.nodeId) {
-    throw new Error('nodeId is required');
-  }
-  const graphService = ctx.container.get('knowledgeGraphService');
-  if (!graphService) {
-    return envelope({
-      success: false,
-      message: 'KnowledgeGraphService not available — knowledge_edges 表可能未初始化',
-      meta: { tool: 'alembic_graph' },
-    });
-  }
-  const nodeType = args.nodeType || 'recipe';
-  const { nodeId } = args;
-  let impacted: Array<unknown>;
-  try {
-    impacted = await graphService.getImpactAnalysis(nodeId, nodeType, args.maxDepth ?? 3);
-  } catch (err: unknown) {
-    // knowledge_edges 表不存在时 graceful 降级
-    if (err instanceof Error && err.message?.includes('no such table')) {
-      impacted = await _fallbackImpactFromRecipe(ctx, nodeId);
-      return envelope({
-        success: true,
-        data: {
-          nodeId,
-          impactedCount: impacted.length,
-          impacted,
-          degraded: true,
-          degradedReason: 'knowledge_edges 表不存在，仅从 relations 字段反查',
-        },
-        meta: { tool: 'alembic_graph', source: 'relations-fallback' },
-      });
-    }
-    throw err;
-  }
-  return envelope({
-    success: true,
-    data: { nodeId: args.nodeId, impactedCount: impacted.length, impacted },
-    meta: { tool: 'alembic_graph' },
+  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'impact' });
+}
+
+export async function graphPath(ctx: McpContext, args: GraphArgs) {
+  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'path' });
+}
+
+export async function graphNeighborhood(ctx: McpContext, args: GraphArgs) {
+  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'neighborhood' });
+}
+
+async function resolveProjectGraphMcpResult(ctx: McpContext, args: GraphArgs) {
+  const input = normalizeProjectGraphInput(ctx, args);
+  const graph = defaultProjectGraphProvider.resolveProjectGraph(input);
+  return defaultProjectKnowledgeContextLayer.resolveMcpResult('alembic_graph', input, {
+    payload: graph.payload,
+    snapshot: graph.snapshot,
   });
 }
 
-/** 降级：从 knowledge_entries.relations 提取关系（不依赖 knowledge_edges 表） */
-async function _fallbackRelationsFromRecipe(
-  ctx: McpContext,
-  nodeId: string,
-  relation: string | undefined,
-  direction: string
-) {
-  try {
-    const knowledgeService = ctx.container.get('knowledgeService');
-    const entry = await knowledgeService.get(nodeId);
-    if (!entry) {
-      return { outgoing: [], incoming: [] };
-    }
-
-    const relJson =
-      typeof entry.relations?.toJSON === 'function'
-        ? entry.relations.toJSON()
-        : entry.relations || {};
-    const outgoing: {
-      fromId: string;
-      fromType: string;
-      toId: string;
-      toType: string;
-      relation: string;
-    }[] = [];
-    if (direction === 'both' || direction === 'out') {
-      for (const [relType, targets] of Object.entries(relJson)) {
-        if (relation && relType !== relation) {
-          continue;
-        }
-        for (const t of Array.isArray(targets) ? targets : []) {
-          outgoing.push({
-            fromId: nodeId,
-            fromType: 'knowledge',
-            toId: t.target || t.id || t,
-            toType: 'knowledge',
-            relation: relType,
-          });
-        }
-      }
-    }
-
-    // 反向查找：其他条目中 relations 包含当前 nodeId
-    const incoming: {
-      fromId: string;
-      fromType: string;
-      toId: string;
-      toType: string;
-      relation: string;
-    }[] = [];
-    if (direction === 'both' || direction === 'in') {
-      const knowledgeRepo = ctx.container.get('knowledgeRepository') as {
-        findByRelationLike(
-          nodeId: string,
-          excludeId: string
-        ): Promise<Array<{ id: string; title: string; relations: string }>>;
-      };
-      const reverseRows = await knowledgeRepo.findByRelationLike(nodeId, nodeId);
-      for (const row of reverseRows) {
-        try {
-          const rels = JSON.parse(row.relations || '{}');
-          for (const [relType, targets] of Object.entries(rels)) {
-            if (relation && relType !== relation) {
-              continue;
-            }
-            for (const t of Array.isArray(targets) ? targets : []) {
-              const targetId = t.target || t.id || t;
-              if (targetId === nodeId) {
-                incoming.push({
-                  fromId: row.id,
-                  fromType: 'knowledge',
-                  toId: nodeId,
-                  toType: 'knowledge',
-                  relation: relType,
-                });
-              }
-            }
-          }
-        } catch {
-          /* ignore parse error */
-        }
-      }
-    }
-
-    return { outgoing, incoming };
-  } catch {
-    return { outgoing: [], incoming: [] };
-  }
-}
-
-/** 降级：从 knowledge_entries.relations 反查受影响的条目 */
-async function _fallbackImpactFromRecipe(ctx: McpContext, nodeId: string) {
-  try {
-    const knowledgeRepo = ctx.container.get('knowledgeRepository') as {
-      findByRelationLike(
-        nodeId: string,
-        excludeId: string
-      ): Promise<Array<{ id: string; title: string; relations: string }>>;
-    };
-    const rows = await knowledgeRepo.findByRelationLike(nodeId, nodeId);
-
-    const impacted: { id: string; title: string; type: string; relation: string; depth: number }[] =
-      [];
-    for (const row of rows) {
-      try {
-        const rels = JSON.parse(row.relations || '{}');
-        for (const [relType, targets] of Object.entries(rels)) {
-          for (const t of Array.isArray(targets) ? targets : []) {
-            if ((t.target || t.id || t) === nodeId) {
-              impacted.push({
-                id: row.id,
-                title: row.title,
-                type: 'knowledge',
-                relation: relType,
-                depth: 1,
-              });
-            }
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    return impacted;
-  } catch {
-    return [];
-  }
-}
-
-// ─── graph_path — 路径查找 ─────────────────────────────────
-
-export async function graphPath(ctx: McpContext, args: GraphArgs) {
-  if (!args.fromId || !args.toId) {
-    throw new Error('fromId and toId are required');
-  }
-  const graphService = ctx.container.get('knowledgeGraphService');
-  if (!graphService) {
-    return envelope({
-      success: false,
-      message: 'KnowledgeGraphService not available',
-      meta: { tool: 'alembic_graph' },
-    });
-  }
-  const fromType = args.fromType || 'recipe';
-  const toType = args.toType || 'recipe';
-  const maxDepth = Math.min(Math.max(args.maxDepth ?? 5, 1), 10);
-  let result: unknown;
-  try {
-    result = await graphService.findPath(args.fromId, fromType, args.toId, toType, maxDepth);
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message?.includes('no such table')) {
-      // 降级：用 relations 字段做单跳查找
-      result = await _fallbackPathFromRecipe(ctx, args.fromId, args.toId);
-      return envelope({
-        success: true,
-        data: result,
-        meta: { tool: 'alembic_graph', source: 'relations-fallback' },
-      });
-    }
-    throw err;
-  }
-  return envelope({ success: true, data: result, meta: { tool: 'alembic_graph' } });
-}
-
-/** 降级路径查找：只能发现 1-hop 直接关系 */
-async function _fallbackPathFromRecipe(ctx: McpContext, fromId: string, toId: string) {
-  try {
-    const knowledgeService = ctx.container.get('knowledgeService');
-    const entry = await knowledgeService.get(fromId);
-    if (!entry) {
-      return { found: false, path: [], depth: -1 };
-    }
-
-    const relJson =
-      typeof entry.relations?.toJSON === 'function'
-        ? entry.relations.toJSON()
-        : entry.relations || {};
-    for (const [relType, targets] of Object.entries(relJson)) {
-      for (const t of Array.isArray(targets) ? targets : []) {
-        const targetId = t.target || t.id || t;
-        if (targetId === toId) {
-          return {
-            found: true,
-            path: [
-              {
-                from: { id: fromId, type: 'knowledge' },
-                to: { id: toId, type: 'knowledge' },
-                relation: relType,
-              },
-            ],
-            depth: 1,
-          };
-        }
-      }
-    }
-    return { found: false, path: [], depth: -1 };
-  } catch {
-    return { found: false, path: [], depth: -1 };
-  }
+function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGraphInput {
+  const containerProjectRoot = resolveProjectRoot(ctx?.container);
+  return ProjectGraphInputSchema.parse({
+    projectRoot: args.projectRoot ?? containerProjectRoot,
+    ...args,
+  });
 }
 
 // ─── call_context — 调用链上下文 (Phase 5) ──────────────────
@@ -722,32 +484,6 @@ export async function callContext(ctx: McpContext, args: GraphArgs) {
 
 // ─── graph_stats — 图谱统计 ────────────────────────────────
 
-export async function graphStats(ctx: McpContext) {
-  const graphService = ctx.container.get('knowledgeGraphService');
-  if (!graphService) {
-    return envelope({
-      success: false,
-      message: 'KnowledgeGraphService not available',
-      meta: { tool: 'alembic_graph' },
-    });
-  }
-  let stats: unknown;
-  try {
-    stats = await graphService.getStats();
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message?.includes('no such table')) {
-      return envelope({
-        success: true,
-        data: {
-          totalEdges: 0,
-          byRelation: {},
-          nodeTypes: [],
-          note: 'knowledge_edges 表不存在，请运行数据库迁移',
-        },
-        meta: { tool: 'alembic_graph' },
-      });
-    }
-    throw err;
-  }
-  return envelope({ success: true, data: stats, meta: { tool: 'alembic_graph' } });
+export async function graphStats(ctx: McpContext, args: GraphArgs = {}) {
+  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'stats' });
 }

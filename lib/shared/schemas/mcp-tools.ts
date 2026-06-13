@@ -602,18 +602,84 @@ export type StructureInput = z.infer<typeof StructureInput>;
 //  5. alembic_graph
 // ══════════════════════════════════════════════════════
 
-export const GraphInput = z.object({
-  operation: z
-    .enum(['query', 'impact', 'path', 'stats'])
-    .describe('query=节点关系 | impact=影响分析 | path=路径查找 | stats=全局统计'),
-  nodeId: z.string().optional().describe('query/impact 时指定节点 ID'),
-  nodeType: z.string().default('recipe'),
-  fromId: z.string().optional(),
-  toId: z.string().optional(),
-  direction: z.enum(['out', 'in', 'both']).default('both'),
-  maxDepth: z.number().int().min(1).max(10).default(3),
-  relation: z.string().optional(),
-});
+export const GraphInput = z
+  .object({
+    operation: z
+      .enum(['query', 'impact', 'path', 'stats', 'neighborhood'])
+      .default('query')
+      .describe(
+        'query=项目图查询 | impact=项目影响半径 | path=项目关系路径 | stats=项目图统计 | neighborhood=节点邻域'
+      ),
+    nodeId: z
+      .string()
+      .min(1)
+      .max(240)
+      .optional()
+      .describe('query/impact/neighborhood 时指定项目图节点 ID'),
+    nodeType: z
+      .enum([
+        'project',
+        'package',
+        'target',
+        'module',
+        'directory',
+        'file',
+        'symbol',
+        'source-graph-node',
+      ])
+      .optional(),
+    fromId: z.string().optional(),
+    toId: z.string().optional(),
+    fromType: z
+      .enum([
+        'project',
+        'package',
+        'target',
+        'module',
+        'directory',
+        'file',
+        'symbol',
+        'source-graph-node',
+      ])
+      .optional(),
+    toType: z
+      .enum([
+        'project',
+        'package',
+        'target',
+        'module',
+        'directory',
+        'file',
+        'symbol',
+        'source-graph-node',
+      ])
+      .optional(),
+    direction: z.enum(['out', 'in', 'both']).default('both'),
+    maxDepth: z.number().int().min(1).max(10).default(2),
+    relationType: z
+      .enum([
+        'partOf',
+        'dependsOn',
+        'imports',
+        'exports',
+        'definesSymbol',
+        'referencesSymbol',
+        'calls',
+        'calledBy',
+        'ownsFile',
+        'entrypointFor',
+      ])
+      .optional(),
+    query: z.string().min(1).max(4000).optional(),
+    activeFile: z.string().min(1).max(2000).optional(),
+    sourceGraphRef: z.string().min(1).max(240).optional(),
+    sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
+    projectRoot: z.string().min(1).max(2000).optional(),
+    detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
+    budget: KnowledgeContextBudgetInput.optional(),
+    freshnessPolicy: KnowledgeContextFreshnessInput.optional(),
+  })
+  .strict();
 export type GraphInput = z.infer<typeof GraphInput>;
 
 // ══════════════════════════════════════════════════════

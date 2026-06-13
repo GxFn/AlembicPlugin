@@ -18,7 +18,6 @@ const expectedCoreToolNames = [
   'alembic_health',
   'alembic_knowledge',
   'alembic_structure',
-  'alembic_graph',
   'alembic_call_context',
   'alembic_guard',
   'alembic_submit_knowledge',
@@ -154,7 +153,7 @@ describe('MCP core tools clean output contract', () => {
     for (const failureKind of CORE_D25_REQUIRED_FAILURE_KINDS) {
       const taxonomy = getCoreFailureTaxonomyEntry(failureKind);
       const result = serializeMcpToolResult(
-        'alembic_graph',
+        'alembic_call_context',
         {
           success: false,
           error: {
@@ -167,9 +166,8 @@ describe('MCP core tools clean output contract', () => {
             secretToken: 'must-not-leak',
           },
           data: {
-            impacted: [],
-            impactedCount: 0,
-            nodeId: 'taxonomy',
+            callers: [],
+            methodName: 'taxonomy',
           },
         },
         {
@@ -203,27 +201,27 @@ describe('MCP core tools clean output contract', () => {
   });
 
   test('rejects diagnostic/runtime/source/search metadata bags in ordinary business output', () => {
-    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_graph.safeParse({
+    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_call_context.safeParse({
       ok: true,
       status: 'ready',
-      summary: 'Graph completed.',
-      toolName: 'alembic_graph',
+      summary: 'Call context completed.',
+      toolName: 'alembic_call_context',
       searchMeta: { residentSearch: { used: true } },
-      meta: { contractVersion: 1, toolName: 'alembic_graph' },
+      meta: { contractVersion: 1, toolName: 'alembic_call_context' },
     });
 
     expect(parsed.success).toBe(false);
   });
 
   test('rejects already-clean core outputs with non-whitelisted business fields', () => {
-    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_graph.safeParse({
+    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_call_context.safeParse({
       ok: true,
       status: 'ready',
-      summary: 'Graph completed.',
-      toolName: 'alembic_graph',
-      impactedCount: 0,
+      summary: 'Call context completed.',
+      toolName: 'alembic_call_context',
+      methodName: 'run',
       unexpectedContractLeak: true,
-      meta: { contractVersion: 1, toolName: 'alembic_graph' },
+      meta: { contractVersion: 1, toolName: 'alembic_call_context' },
     });
 
     expect(parsed.success).toBe(false);
@@ -274,8 +272,6 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
       return { count: 0, items: [], total: 0 };
     case 'alembic_structure':
       return { summary: { targetCount: 1 }, targets: [{ name: 'App' }] };
-    case 'alembic_graph':
-      return { impactedCount: 0, impacted: [], nodeId: 'recipe-1' };
     case 'alembic_call_context':
       return { callers: [], callees: [], methodName: 'run' };
     case 'alembic_guard':

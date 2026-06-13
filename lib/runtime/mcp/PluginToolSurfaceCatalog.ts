@@ -371,9 +371,9 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     handlerOwner: 'McpServer.tool-router',
     tier: 'agent',
     schema: 'GraphInput',
-    annotations: readOnlyTool('Query Alembic Knowledge Graph'),
+    annotations: readOnlyTool('Query Alembic Project Graph'),
     gateway: null,
-    knowledgeGate: 'knowledge-ready',
+    knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'none',
   }),
   alembic_call_context: catalogEntry({

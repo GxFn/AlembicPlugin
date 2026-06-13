@@ -10,7 +10,6 @@ export const CORE_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_health',
   'alembic_knowledge',
   'alembic_structure',
-  'alembic_graph',
   'alembic_call_context',
   'alembic_guard',
   'alembic_submit_knowledge',
@@ -162,30 +161,6 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'quotaChange',
     'refreshed',
     'skipped',
-  ],
-  alembic_graph: [
-    'byRelation',
-    'degraded',
-    'degradedReason',
-    'depth',
-    'direction',
-    'found',
-    'fromId',
-    'fromType',
-    'impacted',
-    'impactedCount',
-    'incoming',
-    'maxDepth',
-    'nodeId',
-    'nodeType',
-    'nodeTypes',
-    'note',
-    'outgoing',
-    'path',
-    'relation',
-    'toId',
-    'toType',
-    'totalEdges',
   ],
   alembic_guard: [
     'blocked',
@@ -644,8 +619,6 @@ function buildCoreToolSummary(
       return 'Knowledge request completed.';
     case 'alembic_structure':
       return 'Structure request completed.';
-    case 'alembic_graph':
-      return 'Graph request completed.';
     case 'alembic_call_context':
       return 'Call context request completed.';
     case 'alembic_guard':

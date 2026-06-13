@@ -146,17 +146,15 @@ export async function routeCallContextTool(ctx: McpContext, args: ToolRouterStru
 // ─── alembic_graph (operation router) ─────────────────────────
 
 /**
- * 知识图谱：根据 operation 参数路由
- *   query   → graphQuery()
- *   impact  → graphImpact()
- *   path    → graphPath()
- *   stats   → graphStats()
+ * 项目图谱：根据 operation 参数路由
+ *   query        → graphQuery()
+ *   impact       → graphImpact()
+ *   path         → graphPath()
+ *   stats        → graphStats()
+ *   neighborhood → graphNeighborhood()
  */
 export async function routeGraphTool(ctx: McpContext, args: ToolRouterGraphArgs) {
-  const op = args.operation;
-  if (!op) {
-    throw new Error('Missing required parameter: operation. Expected: query, impact, path, stats');
-  }
+  const op = args.operation || 'query';
   switch (op) {
     case 'query':
       return structureHandlers.graphQuery(ctx, args);
@@ -165,9 +163,13 @@ export async function routeGraphTool(ctx: McpContext, args: ToolRouterGraphArgs)
     case 'path':
       return structureHandlers.graphPath(ctx, args);
     case 'stats':
-      return structureHandlers.graphStats(ctx);
+      return structureHandlers.graphStats(ctx, args);
+    case 'neighborhood':
+      return structureHandlers.graphNeighborhood(ctx, args);
     default:
-      throw new Error(`Unknown graph operation: ${op}. Expected: query, impact, path, stats`);
+      throw new Error(
+        `Unknown graph operation: ${op}. Expected: query, impact, path, stats, neighborhood`
+      );
   }
 }
 

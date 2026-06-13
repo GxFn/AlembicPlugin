@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
+import { getMcpOutputProjector } from '../../lib/runtime/mcp/output-contract.js';
 import {
   createKnowledgeContextMcpResult,
   KNOWLEDGE_CONTEXT_AGENT_HOSTS,
@@ -185,6 +187,18 @@ describe('Project knowledge context four-tool contracts', () => {
     expect(ProjectGraphInputSchema.safeParse({ nodeType: 'knowledge' }).success).toBe(false);
     expect(ProjectGraphInputSchema.safeParse({ nodeType: 'recipeRelation' }).success).toBe(false);
     expect(ProjectGraphInputSchema.safeParse({ nodeType: 'file' }).success).toBe(true);
+  });
+
+  test('registers alembic_graph as a knowledge context clean-output tool', () => {
+    expect(KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES).toEqual([
+      'alembic_project_matrix',
+      'alembic_search',
+      'alembic_graph',
+    ]);
+    expect(getMcpOutputProjector('alembic_graph')).toMatchObject({
+      outputSchemaName: 'alembic_graph_clean_output',
+      projectorName: 'knowledge-context-clean-output-projector',
+    });
   });
 
   test('accepts all five knowledge context output statuses', () => {
