@@ -2,6 +2,7 @@
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { computeDistContentHash, computeSourceHash } from './lib/runtime-pack-freshness.mjs';
 import { resolveCoreGrammarSource, resolveCoreSource } from './local-source-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -21,6 +22,19 @@ const requiredBuildArtifacts = [
 for (const artifact of requiredBuildArtifacts) {
   assert(existsSync(join(root, artifact)), `${artifact} is missing. Run npm run build first.`);
 }
+
+// QD1 clean-build-before-pack gate: refuse to stage a runtime package from a
+// dist that is stale vs current source (TEST-INFRA-STALE-DIST-ALIAS). The
+// source hash recorded by postbuild must match the live source.
+const buildManifest = readJsonOptional(join(root, 'dist', '.build-manifest.json'));
+assert(
+  buildManifest?.sourceHash,
+  'dist/.build-manifest.json is missing or has no sourceHash. Run npm run build before preparing the runtime package.'
+);
+assert(
+  buildManifest.sourceHash === computeSourceHash(root),
+  'dist is stale vs source (lib/bin/tsconfig changed since the last build). Run npm run build before preparing the runtime package.'
+);
 assert(
   sourceManifest.dependencies?.['@alembic/core'] === corePackage.version,
   `Runtime manifest must pin @alembic/core to ${corePackage.version}.`
@@ -92,7 +106,11 @@ function copyTree(sourceRelative, destinationRelative, options = {}) {
     force: true,
     recursive: true,
     filter(sourcePath) {
-      return !(options.skipDeclarations && sourcePath.endsWith('.d.ts'));
+      if (options.skipDeclarations && sourcePath.endsWith('.d.ts')) {
+        return false;
+      }
+      // QD1: the build manifest is local freshness metadata, not shipped code.
+      return !sourcePath.endsWith('/.build-manifest.json');
     },
   });
 }
@@ -130,6 +148,9 @@ function writeRuntimeBoundaryMetadata() {
         version: 1,
         packageName: sourceManifest.name,
         packageVersion: rootPackage.version,
+        // QD1 .tmp freshness pin: the repo dist hash this package was prepared
+        // from. check-runtime-pack-freshness fails if repo dist later diverges.
+        distContentHash: computeDistContentHash(join(root, 'dist')),
         corePackage: `${corePackage.name}@${corePackage.version}`,
         coreSource: coreSource.label,
         coreCommit: coreSource.commit,
@@ -154,6 +175,14 @@ function resolveArg(name) {
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function readJsonOptional(path) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 function assert(condition, message) {

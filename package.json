@@ -65,6 +65,7 @@
     "probe:agent-public-tools:evaluation": "node scripts/probe-agent-public-tools-evaluation.mjs",
     "probe:codex-plugin-startup-runtime": "node scripts/probe-codex-plugin-startup-runtime.mjs",
     "prepare:codex-runtime-package": "node scripts/prepare-codex-runtime-package.mjs",
+    "check:runtime-pack-freshness": "node scripts/check-runtime-pack-freshness.mjs",
     "verify:codex-runtime-package": "node scripts/verify-codex-runtime-package-boundary.mjs",
     "prepare:codex-plugin-runtime": "node scripts/prepare-codex-plugin-runtime.mjs",
     "release:check": "npm run build && node dist/scripts/release.js check",
