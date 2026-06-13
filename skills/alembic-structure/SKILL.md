@@ -1,52 +1,53 @@
 ---
 name: alembic-structure
-description: This project has a local Alembic knowledge base. Use Alembic structure, target metadata, dependency graph, and Recipe graph context proactively for this project.
+description: This project has a local Alembic knowledge base. Use Alembic project matrix, project graph, and source graph context for structure and dependency questions.
 ---
 
 <!-- wakeflow-shared:begin section="title-intro" -->
-# Alembic — Structure & Dependencies & Knowledge Graph
+# Alembic — Structure & Dependencies & Project Graph
 
-Use this skill when the user asks about **project structure**, **module targets**, **dependency graph**, or **knowledge graph relationships**.
+Use this skill when the user asks about **project structure**, **module targets**, **dependency graph**, project-internal relations, or source-backed navigation.
 <!-- wakeflow-shared:end -->
 
 <!-- wakeflow-host:plugin — host-context trigger line + plugin-only source-graph guidance (alembic_source_graph_status / alembic_code_explore / alembic_symbol_search are not in the main MCP) -->
-This project has a local Alembic knowledge base. Use Alembic structure, target metadata, dependency graph, and Recipe graph context proactively for this project.
+This project has a local Alembic knowledge base. Use compact project matrix, project graph, and source graph context proactively for this project.
 
-For current source-code facts, follow the live MCP source graph guidance first. Call `alembic_source_graph_status`, then use visible source graph query tools such as `alembic_code_explore` or `alembic_symbol_search` before broad raw Read/Grep exploration. Use the Recipe graph tools below for knowledge relationships, not as proof that source code is fresh.
+For current source-code facts, follow the live MCP source graph guidance first. Call `alembic_source_graph_status`, then use visible source graph query tools such as `alembic_code_explore` or `alembic_symbol_search` before broad raw Read/Grep exploration. Use `alembic_project_matrix` for compact navigation and `alembic_graph` only for bounded project-internal structure/source/dependency relations.
 
 <!-- wakeflow-shared:begin section="tools-and-graph" -->
 ---
 
-## Project Structure Tools
+## Project Navigation Tools
 
 | Tool | Purpose | Key Input |
 |------|---------|-----------|
-| `alembic_structure(operation=targets)` | List all module Targets (file count, language stats, inferred role) | `includeSummary` |
-| `alembic_structure(operation=files)` | Get source files for a Target | `targetName` (required) |
-| `alembic_structure(operation=metadata)` | Target metadata (dependencies, package info, graph edges) | `targetName` (required) |
+| `alembic_project_matrix(operation=overview)` | Compact hierarchy, key nodes, hotspots, source status, category summary, detail refs, and next actions | optional `query`, `activeFile`, `budget` |
+| `alembic_project_matrix(operation=node)` | Expand one matrix node only | `nodeId` or `refId` |
+| `alembic_project_matrix(operation=relations/layers/sources/catalog)` | Bounded relations, layer/source summaries, or category catalog | optional node/query filters |
 
 ### Workflow
-1. `targets` → see all Targets with roles
-2. `files` → drill into specific Target
-3. `metadata` → get dependencies and relations
+1. Start with matrix `overview` for the smallest useful map.
+2. Use matrix `node` or `relations` to drill into one visible ref.
+3. Use source graph tools for current source proof before citing code behavior.
 
 ---
 
-## Knowledge Graph Tools
+## Project Graph Tools
 
-Captures **relationships between Recipes** (dependencies, extensions, conflicts, etc.).
+Use project graph queries for bounded internal relationships between project, package, directory, file, symbol, and source-graph nodes.
 
 | Tool | Purpose | Key Input |
 |------|---------|-----------|
-| `alembic_graph(operation=query)` | Get all relations for a Recipe node | `nodeId`, `relation`, `direction` |
-| `alembic_graph(operation=impact)` | Impact analysis: downstream dependencies | `nodeId`, `maxDepth` |
-| `alembic_graph(operation=path)` | Shortest path between two Recipes (BFS) | `fromId`, `toId` |
-| `alembic_graph(operation=stats)` | Global graph statistics | — |
+| `alembic_graph(operation=query)` | List bounded project graph nodes/relations | `nodeType`, `query`, `relationType` |
+| `alembic_graph(operation=impact)` | Project impact radius from a project/source node | `nodeId`, `maxDepth` |
+| `alembic_graph(operation=path)` | Directed project relation path between two nodes | `fromId`, `toId` |
+| `alembic_graph(operation=stats)` | Project graph node/relation counts | - |
+| `alembic_graph(operation=neighborhood)` | Bounded node neighborhood | `nodeId`, optional `relationType` |
 
 ### When to use
-- "修改这个 Recipe 会影响什么？" → `impact`
-- "这两个模块有什么关联？" → `path`
-- "知识图谱统计" → `stats`
+- "what depends on this file or symbol?" -> `impact`
+- "how are these modules connected?" -> `path`
+- "show neighboring project relations" -> `neighborhood`
 
 ---
 

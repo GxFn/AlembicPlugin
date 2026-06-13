@@ -20,11 +20,10 @@ const CANONICAL_SOURCE_GRAPH_TOOLS = [
 ] as const;
 
 const KNOWLEDGE_AND_RECIPE_TOOLS = [
-  'alembic_intent',
+  'alembic_project_matrix',
   'alembic_prime',
   'alembic_search',
-  'alembic_knowledge',
-  'alembic_structure',
+  'alembic_graph',
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
 ] as const;
@@ -291,7 +290,6 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
       'alembic_intent',
       'alembic_prime',
       'alembic_search',
-      'alembic_structure',
       'alembic_submit_knowledge',
       'alembic_dimension_complete',
     ],
@@ -531,17 +529,37 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
         status: byName.has('alembic_call_context') ? 'visible-legacy-surface' : 'not-visible',
       },
       {
+        name: 'alembic_knowledge',
+        reason:
+          'Legacy full-content knowledge browsing is not part of the default public knowledge navigation surface.',
+        replacementTools: ['alembic_search'],
+        status: byName.has('alembic_knowledge') ? 'visible-legacy-surface' : 'not-visible',
+      },
+      {
+        name: 'alembic_structure',
+        reason:
+          'Legacy structure browsing is replaced by compact matrix navigation and source graph/source reads.',
+        replacementTools: [
+          'alembic_project_matrix',
+          'alembic_graph',
+          'alembic_code_explore',
+          'alembic_symbol_search',
+        ],
+        status: byName.has('alembic_structure') ? 'visible-legacy-surface' : 'not-visible',
+      },
+      {
+        name: 'alembic_panorama',
+        reason:
+          'Legacy panorama/coverage guidance is not part of the default public knowledge navigation surface.',
+        replacementTools: ['alembic_project_matrix', 'alembic_search', 'alembic_graph'],
+        status: byName.has('alembic_panorama') ? 'visible-legacy-surface' : 'not-visible',
+      },
+      {
         name: 'alembic_affected_tests',
         reason:
           'Do not use as an acceptance surface in the onboarding SOP; validation planning owns test buckets.',
         replacementTools: ['alembic_validation_plan'],
         status: byName.has('alembic_affected_tests') ? 'fold-into-validation-plan' : 'not-visible',
-      },
-      {
-        name: 'alembic_graph',
-        reason: 'Knowledge graph context is useful for Recipes but is not source-code proof.',
-        replacementTools: CANONICAL_SOURCE_GRAPH_TOOLS,
-        status: byName.has('alembic_graph') ? 'knowledge-only' : 'not-visible',
       },
     ],
   };
@@ -990,7 +1008,9 @@ function buildToolCapabilityMatrix(
   const blockedForSop = new Set([
     'alembic_call_context',
     'alembic_affected_tests',
-    'alembic_graph',
+    'alembic_knowledge',
+    'alembic_structure',
+    'alembic_panorama',
   ]);
   return entries
     .filter((entry) => !blockedForSop.has(entry.name))
@@ -1019,6 +1039,15 @@ function describeToolProvides(toolName: string): string {
   if (
     KNOWLEDGE_AND_RECIPE_TOOLS.includes(toolName as (typeof KNOWLEDGE_AND_RECIPE_TOOLS)[number])
   ) {
+    if (toolName === 'alembic_project_matrix') {
+      return 'compact project navigation matrix with detail refs and next actions';
+    }
+    if (toolName === 'alembic_graph') {
+      return 'bounded project-internal graph relations, not Recipe coverage semantics';
+    }
+    if (toolName === 'alembic_search') {
+      return 'compact search/get/expand project knowledge context with detail refs';
+    }
     return 'Recipe and project knowledge workflow state';
   }
   if (
@@ -1047,6 +1076,9 @@ function describeToolTrust(entry: PluginToolSurfaceEntry): string {
   }
   if (entry.name === 'alembic_validation_plan') {
     return 'advisory; run repository checks before acceptance';
+  }
+  if (entry.name === 'alembic_graph') {
+    return 'read-only project graph evidence, not source freshness or Recipe coverage proof';
   }
   if (entry.name === 'alembic_code_guard' || entry.name === 'alembic_guard') {
     return 'Guard evidence for scoped files or code, not whole-goal acceptance';

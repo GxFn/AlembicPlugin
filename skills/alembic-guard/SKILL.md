@@ -63,8 +63,8 @@ For quick checks:
 
 For module audits:
 
-1. Use `alembic_structure(operation: "targets")` to find relevant modules.
-2. Use `alembic_structure(operation: "files")` for the chosen module.
+1. Use `alembic_project_matrix(operation: "overview")` to find relevant modules or source refs.
+2. Use matrix `node` / `relations`, source graph tools, or raw reads to choose an explicit file list.
 3. Call `alembic_code_guard` with selected files.
 4. Report the highest-severity issues first.
 

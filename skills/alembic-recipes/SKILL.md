@@ -33,19 +33,19 @@ This skill provides the agent with this project's context from Alembic Recipes. 
 | Allowed | Forbidden |
 |---------|-----------|
 | Submit candidates (`alembic_submit_knowledge` / `_batch`) | Directly create/modify Recipes |
-| Search/query (`alembic_search` / `alembic_knowledge`) | Publish/deprecate/delete |
-| Confirm usage (`confirm_usage`) | Write to `Alembic/recipes/` |
+| Search/get/expand compact context (`alembic_search`) | Publish/deprecate/delete |
+| Use returned `detailRefs` for follow-up context | Write to `Alembic/recipes/` |
 
 ---
 
 ## How to Find Recipes
 
 1. **In-context index**: Read `references/project-recipes-context.md` in this skill folder
-2. **MCP browse**: `alembic_knowledge(operation=list)` with kind/language/category filters
-3. **MCP get**: `alembic_knowledge(operation=get, id)` for full content
+2. **MCP search**: `alembic_search(operation=search, query=...)` with kind/language/category filters
+3. **MCP get/expand**: `alembic_search(operation=get|expand, refId=...)` for bounded follow-up context
 <!-- wakeflow-shared:end -->
 <!-- wakeflow-host:plugin — search description is host-specific (plugin: baseline plus resident enhancement) -->
-4. **MCP search**: `alembic_search(mode=auto)` for unified baseline search plus resident semantic/vector enhancement when local Alembic is ready
+4. **MCP search modes**: keep `mode=auto` unless exact keyword, BM25, semantic, or context search is needed
 <!-- wakeflow-shared:begin section="find-recipes-tail" -->
 5. **Terminal**: `alembic search <keyword>`
 
@@ -67,15 +67,15 @@ Use the clean `structuredContent` fields returned by `alembic_prime` and `alembi
 <!-- wakeflow-host:plugin — Guard tool naming differs per host (plugin: alembic_code_guard with explicit scope) -->
 4. **Guard/Audit**: `// as:audit` or MCP `alembic_code_guard` with explicit files, inline code, or current workRef scope — all use Recipes as standard
 <!-- wakeflow-shared:begin section="use-context-tail" -->
-5. **Confirm adoption**: `alembic_knowledge(operation=confirm_usage, id, usageType)` when user uses a Recipe
+5. **Adoption evidence**: mention the Recipe/detail ref in the work summary; default Codex MCP does not record adoption through a separate public usage tool
 
 ---
 
 ## Auto-Extracting Headers for New Candidates
 
 1. **From code** (Recommended): Extract all import statements from user's code
-2. **From existing Recipes**: Check index for matching modules, then `alembic_knowledge(operation=get, id)` for full content
-3. **Via semantic search**: `alembic_search(mode=context)` with query like "import ModuleName"
+2. **From existing Recipes**: Search matching modules, then use `alembic_search(operation=get|expand, refId=...)` for bounded context
+3. **Via semantic search**: `alembic_search(operation=search, mode=context, query="import ModuleName")`
 
 ---
 
@@ -83,5 +83,5 @@ Use the clean `structuredContent` fields returned by `alembic_prime` and `alembi
 
 - **alembic-create**: Submit knowledge candidates (V3 fields, validation, lifecycle)
 - **alembic-guard**: Code compliance checking against Recipe standards
-- **alembic-structure**: Project structure and knowledge graph
+- **alembic-structure**: Project structure, matrix navigation, and project graph
 <!-- wakeflow-shared:end -->

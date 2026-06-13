@@ -439,16 +439,14 @@ describe('MCP Tool Definitions (V3)', () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual([
       'alembic_intent',
       'alembic_prime',
+      'alembic_project_matrix',
       'alembic_work_start',
       'alembic_work_finish',
       'alembic_code_guard',
       'alembic_decision_record',
       'alembic_health',
       'alembic_search',
-      'alembic_knowledge',
-      'alembic_structure',
       'alembic_graph',
-      'alembic_call_context',
       'alembic_guard',
       'alembic_submit_knowledge',
       'alembic_project_skill',
@@ -457,12 +455,15 @@ describe('MCP Tool Definitions (V3)', () => {
       'alembic_evolve',
       'alembic_consolidate',
       'alembic_dimension_complete',
-      'alembic_panorama',
       'alembic_knowledge_lifecycle',
     ]);
     expect(TOOLS.some((t) => t.name === 'alembic_enrich_candidates')).toBe(false);
     expect(TOOLS.some((t) => t.name === 'alembic_project_skill')).toBe(true);
     expect(TOOLS.some((t) => t.name === 'alembic_skill')).toBe(false);
+    expect(TOOLS.some((t) => t.name === 'alembic_knowledge')).toBe(false);
+    expect(TOOLS.some((t) => t.name === 'alembic_structure')).toBe(false);
+    expect(TOOLS.some((t) => t.name === 'alembic_call_context')).toBe(false);
+    expect(TOOLS.some((t) => t.name === 'alembic_panorama')).toBe(false);
   });
 
   test('submit_knowledge items 字段应为数组类型', () => {

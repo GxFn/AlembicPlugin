@@ -1,5 +1,5 @@
 /**
- * MCP Tool Definitions — V3 Routed Surface (21 agent + 1 admin = 22 tools)
+ * MCP Tool Definitions — V3 Routed Surface (18 agent + 1 admin = 19 tools)
  *
  * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
@@ -7,10 +7,10 @@
  *
  * Agent tools:
  *   Agent-facing public tools: intent/prime/work_start/work_finish/code_guard/decision_record
- *   Query tools: health/search/knowledge/structure/graph/call_context/guard
+ *   Query tools: health/project_matrix/search/graph/guard
  *   Write tool: submit_knowledge
  *   Project Skill delivery: project_skill
- *   Workflow tools: bootstrap/rescan/evolve/consolidate/dimension_complete/panorama
+ *   Workflow tools: bootstrap/rescan/evolve/consolidate/dimension_complete
  *
  * Admin tools (1):
  *   knowledge_lifecycle
@@ -20,7 +20,6 @@ import { z } from 'zod';
 
 import {
   BootstrapInput,
-  CallContextInput,
   CodeGuardInput,
   ConsolidateInput,
   DecisionRecordInput,
@@ -30,15 +29,12 @@ import {
   GuardInput,
   HealthInput,
   IntentInput,
-  KnowledgeInput,
   KnowledgeLifecycleInput,
-  PanoramaInput,
   PrimeInput,
   ProjectMatrixInput,
   ProjectSkillInput,
   RescanInput,
   SearchInput,
-  StructureInput,
   SubmitKnowledgeInput,
   WorkFinishInput,
   WorkStartInput,
@@ -119,7 +115,7 @@ const DECISION_RECORD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_d
 
 export const TOOLS = [
   // ══════════════════════════════════════════════════════
-  //  Tier: agent — Core Agent Toolset (21)
+  //  Tier: agent — Core Agent Toolset (18)
   // ══════════════════════════════════════════════════════
 
   // Agent-facing public workflow tools
@@ -138,7 +134,7 @@ export const TOOLS = [
     tier: 'agent',
     description:
       `${PRIME_DESCRIPTION.title}. ${PRIME_DESCRIPTION.purpose}\n` +
-      `${PRIME_DESCRIPTION.selectionHint}\n` +
+      `${PRIME_DESCRIPTION.selectionHint} It orchestrates the public knowledge navigation surface: project matrix, search, and project graph context.\n` +
       `Non-goal: ${PRIME_DESCRIPTION.nonGoal}`,
     inputSchema: zodToMcpSchema(PrimeInput),
   },
@@ -147,11 +143,11 @@ export const TOOLS = [
     name: 'alembic_project_matrix',
     tier: 'agent',
     description:
-      'Compact, read-only project matrix.\n' +
-      '• overview — project hierarchy, key nodes, structural hotspots, source graph status, knowledge category summary, refs, and nextActions\n' +
-      '• node — expand one matrix node only\n' +
+      'Read the compact project matrix for navigation and orientation.\n' +
+      '• overview — project hierarchy, key nodes, structural hotspots, source graph status, knowledge category summary, detailRefs, and nextActions\n' +
+      '• node — expand one matrix node by refId/nodeId only\n' +
       '• relations/layers/sources/catalog — bounded internal relations, layer/source summaries, or knowledge category catalog\n' +
-      'Does not return full source, full file lists, full Recipe text, full graph edge sets, lifecycle/governance actions, or knowledge coverage judgments.',
+      'Non-goal: does not return full source, full file lists, full Recipe text, full graph edge sets, lifecycle/governance actions, or knowledge coverage judgments.',
     inputSchema: zodToMcpSchema(ProjectMatrixInput),
   },
 
@@ -208,39 +204,12 @@ export const TOOLS = [
     name: 'alembic_search',
     tier: 'agent',
     description:
-      'Search the knowledge base. 5 modes:\n' +
-      '• auto (default) — automatically selects optimal strategy\n' +
-      '• keyword — exact keyword matching, best for trigger/title lookup\n' +
-      '• bm25 — full-text search, best for natural language descriptions\n' +
-      '• semantic — vector semantic search, best for fuzzy concept matching\n' +
-      '• context — combined search + context association, best for coding assistance\n' +
-      'Returns results grouped by kind (rule/pattern/fact).',
+      'Search, get, or expand compact project knowledge context.\n' +
+      '• search — query by text, keywords, host intent, kind, language, activeFile, module, and summary budget\n' +
+      '• get — retrieve one result by refId/id/detailRefId as a bounded clean output\n' +
+      '• expand — expand one detailRef without switching to legacy full-content browsing\n' +
+      'Returns summary-only visible text plus structured detailRefs, whyMatched, scoreBreakdown, relationChains, and degraded diagnostics when available. Non-goal: does not expose usage-confirmation operations, quality-analysis operations, lifecycle mutation, or full Recipe browsing.',
     inputSchema: zodToMcpSchema(SearchInput),
-  },
-
-  // Knowledge Browser
-  {
-    name: 'alembic_knowledge',
-    tier: 'agent',
-    description:
-      'Knowledge entry management.\n' +
-      '• list — filter entries by kind/category/status\n' +
-      '• get — retrieve full content of a single entry (requires id)\n' +
-      '• insights — quality analysis and improvement suggestions (requires id)\n' +
-      '• confirm_usage — record that knowledge was actually adopted (requires id)',
-    inputSchema: zodToMcpSchema(KnowledgeInput),
-  },
-
-  // Project Structure
-  {
-    name: 'alembic_structure',
-    tier: 'agent',
-    description:
-      'Explore project structure.\n' +
-      '• targets — list build targets (modules/Targets/Packages)\n' +
-      '• files — list files for a specific Target\n' +
-      '• metadata — project metadata (language, dependencies, configuration)',
-    inputSchema: zodToMcpSchema(StructureInput),
   },
 
   // Project Graph
@@ -253,21 +222,9 @@ export const TOOLS = [
       '• impact — analyze project impact radius from a project/source node\n' +
       '• path — find a directed project relation path between two project nodes\n' +
       '• stats — summarize project graph node/relation counts\n' +
-      '• neighborhood — inspect a bounded node neighborhood',
+      '• neighborhood — inspect a bounded node neighborhood\n' +
+      'Non-goal: does not model Recipes, knowledge coverage, or Recipe-to-source coverage edges.',
     inputSchema: zodToMcpSchema(GraphInput),
-  },
-
-  // Call Context
-  {
-    name: 'alembic_call_context',
-    tier: 'agent',
-    description:
-      'Query function/method call chains.\n' +
-      '• callers — who calls it (upstream call chain)\n' +
-      '• callees — what it calls (downstream dependency chain)\n' +
-      '• impact — modification impact radius (upstream + downstream + affected file count)\n' +
-      '• both — retrieve callers + callees simultaneously',
-    inputSchema: zodToMcpSchema(CallContextInput),
   },
 
   // Guard Code Check
@@ -384,23 +341,6 @@ export const TOOLS = [
       'analysisText can be brief — the system auto-synthesizes detailed content from submitted candidates for Skill generation.\n' +
       'Optional unitId / analysisUnitIds / skippedAnalysisUnitIds / rejectedAnalysisUnitIds / remainingAnalysisUnitIds / deviationReason backfill IDE Agent unit progress.',
     inputSchema: zodToMcpSchema(DimensionCompleteInput),
-  },
-
-  // Project Panorama
-  {
-    name: 'alembic_panorama',
-    tier: 'agent',
-    description:
-      'Project panorama queries. Auto-triggers structure scan when no data exists — no manual cold-start needed.\n' +
-      '• overview (default) — project skeleton + architecture layers + module roles + knowledge coverage\n' +
-      '• module — single module details + neighbor relationships (requires module param)\n' +
-      '• gaps — knowledge gaps (modules with code but no Recipes)\n' +
-      '• health — panorama health score (coverage + coupling + circular deps + health score)\n' +
-      '• governance_cycle — full knowledge metabolism cycle (contradiction detection + redundancy analysis + decay assessment)\n' +
-      '• decay_report — decay assessment report (5 strategy detection + decayScore)\n' +
-      '• staging_check — staging entry check + auto-publish on expiry\n' +
-      '• enhancement_suggestions — Recipe enhancement suggestions based on usage data',
-    inputSchema: zodToMcpSchema(PanoramaInput),
   },
 
   // ══════════════════════════════════════════════════════

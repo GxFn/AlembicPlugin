@@ -1,6 +1,7 @@
 import {
   CODEX_AGENT_PUBLIC_TOOL_NAMES,
   CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
+  CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
   CODEX_SOURCE_GRAPH_TOOL_NAMES,
 } from '../../../runtime/ToolPolicy.js';
 
@@ -22,13 +23,7 @@ export interface CodexMcpGuidance {
   visibleToolNames: string[];
 }
 
-const KNOWLEDGE_TOOL_NAMES = new Set([
-  'alembic_prime',
-  'alembic_search',
-  'alembic_knowledge',
-  'alembic_graph',
-  'alembic_structure',
-]);
+const KNOWLEDGE_TOOL_NAMES = CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES;
 
 const GUARD_TOOL_NAMES = new Set(['alembic_code_guard', 'alembic_guard']);
 
@@ -72,7 +67,7 @@ export function buildCodexMcpGuidance(tools: readonly GuidanceToolLike[]): Codex
   ];
   const limitations = [
     'Source graph facts can lag the worktree; stale, pending, partial, wrong-scope, or unsupported-language states are not proof of current code behavior.',
-    'Recipe and Decision knowledge explain project standards and decisions; they do not prove current source freshness.',
+    'Project knowledge and decisions explain standards and prior choices; they do not prove current source freshness.',
     'Validation is still required after edits: use Guard when visible and run repository tests or targeted host checks that match the change.',
   ];
 
@@ -113,11 +108,11 @@ function buildSourceGraphPlaybookLine(
 
 function buildKnowledgePlaybookLine(knowledgeTools: string[]): string {
   if (knowledgeTools.length === 0) {
-    return 'Project knowledge/context: no Recipe or project-context tools are visible; do not infer project standards from source graph facts alone.';
+    return 'Project knowledge/context: no public project-context tools are visible; do not infer project standards from source graph facts alone.';
   }
   return `Project knowledge/context: use visible tools ${formatToolList(
     knowledgeTools
-  )}; use Recipe/search tools for standards and prior decisions, and use alembic_graph only for project-internal graph/source/dependency relations.`;
+  )}; use search/prime for standards and prior decisions, project_matrix for navigation, and alembic_graph only for project-internal structure/source/dependency relations.`;
 }
 
 function buildGuardPlaybookLine(guardTools: string[]): string {

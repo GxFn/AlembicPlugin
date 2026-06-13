@@ -110,6 +110,27 @@ function isErrorResult(value: unknown): boolean {
   return record.ok === false || record.success === false || Boolean(record.errorCode);
 }
 
+const RETIRED_PUBLIC_TOOL_REPLACEMENTS: Record<string, string> = {
+  alembic_knowledge: 'Use alembic_search with operation=search/get/expand.',
+  alembic_structure:
+    'Use alembic_project_matrix for navigation, alembic_graph for bounded project relations, and source graph tools for current source facts.',
+  alembic_call_context:
+    'Use alembic_callers, alembic_callees, or alembic_code_impact after alembic_source_graph_status.',
+  alembic_panorama: 'Use alembic_project_matrix, alembic_search, and alembic_graph.',
+};
+
+function createRetiredPublicToolResult(toolName: string): McpToolResponse {
+  const replacement = RETIRED_PUBLIC_TOOL_REPLACEMENTS[toolName];
+  return createMcpStructuredToolResult(
+    createCleanMcpErrorResponse({
+      code: 'CODEX_TOOL_RETIRED',
+      message: `${toolName} is retired from the default public Alembic MCP surface. ${replacement}`,
+      status: 'retired',
+      toolName,
+    })
+  );
+}
+
 /** Bootstrap instance minimal shape */
 interface BootstrapLike {
   initialize(): Promise<Record<string, unknown>>;
@@ -321,6 +342,9 @@ export class McpServer {
     args: Record<string, unknown>,
     options: McpToolCallOptions = {}
   ): Promise<McpToolResponse> {
+    if (Object.hasOwn(RETIRED_PUBLIC_TOOL_REPLACEMENTS, name)) {
+      return createRetiredPublicToolResult(name);
+    }
     if (name === 'alembic_task') {
       return createMcpStructuredToolResult(
         createCleanMcpErrorResponse({

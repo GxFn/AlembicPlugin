@@ -20,17 +20,19 @@ describe('Codex skill source graph guidance', () => {
     expect(content).not.toContain('additionalProperties');
   });
 
-  test('keeps structure skills short and separates Recipe graph from source freshness', () => {
+  test('keeps structure skills short and routes structure through matrix, project graph, and source graph', () => {
     const pluginSkill = readRepoFile('plugins/alembic-codex/skills/alembic-structure/SKILL.md');
     const injectableSkill = readRepoFile('skills/alembic-structure/SKILL.md');
 
     for (const content of [pluginSkill, injectableSkill]) {
       expect(content).toContain('live MCP source graph guidance');
       expect(content).toContain('alembic_source_graph_status');
-      expect(content).toContain('proof that');
-      expect(content).toContain('source code is fresh');
+      expect(content).toContain('alembic_project_matrix');
+      expect(content).toContain('alembic_graph');
+      expect(content).toContain('source proof');
       expect(content).not.toContain('SourceGraphSearchInput');
       expect(content).not.toContain('SourceGraphAffectedTestsInput');
+      expect(content).not.toContain('Recipe graph');
     }
   });
 });

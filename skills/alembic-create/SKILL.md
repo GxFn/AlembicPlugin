@@ -150,10 +150,10 @@ Splitting principle: different use cases, different API endpoints, different con
 
 | Need | Tool |
 |------|------|
-| Check candidate status | `alembic_knowledge(operation=list)` |
+| Check candidate status | Use the `alembic_submit_knowledge` response ids/rejectedItems, then review Candidates in Dashboard when user review is needed |
 | Diagnose missing fields | Use `alembic_submit_knowledge` rejectedItems / rejectedSummary details, then retry |
 | Review/publish | Dashboard or explicit admin route; default MCP lifecycle only supports `reactivate` |
-| Search existing knowledge to avoid duplicates | `alembic_search(mode=context, query=...)` |
+| Search existing knowledge to avoid duplicates | `alembic_search(operation=search, mode=context, query=...)` |
 
 ---
 

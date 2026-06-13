@@ -146,7 +146,24 @@ export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
 
 export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_mcp_init']);
 
-const CODEX_RETIRED_TOOL_NAMES = new Set(['alembic_task']);
+export const CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
+  'alembic_project_matrix',
+  'alembic_prime',
+  'alembic_search',
+  'alembic_graph',
+]);
+
+export const CODEX_LEGACY_PUBLIC_KNOWLEDGE_TOOL_NAMES = new Set([
+  'alembic_knowledge',
+  'alembic_structure',
+  'alembic_call_context',
+  'alembic_panorama',
+]);
+
+const CODEX_RETIRED_TOOL_NAMES = new Set([
+  'alembic_task',
+  ...CODEX_LEGACY_PUBLIC_KNOWLEDGE_TOOL_NAMES,
+]);
 
 export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_bootstrap',
@@ -186,8 +203,7 @@ export const CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES = new Set(['alembic_project
 export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
   'alembic_health',
   ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
-  'alembic_project_matrix',
-  'alembic_search',
+  ...CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
 ]);
 
 export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
@@ -478,6 +494,9 @@ export function isToolAllowedForCodexKnowledge(
   name: string,
   knowledge: CodexKnowledgeState
 ): boolean {
+  if (CODEX_RETIRED_TOOL_NAMES.has(name)) {
+    return false;
+  }
   if (knowledge.usable) {
     return true;
   }
