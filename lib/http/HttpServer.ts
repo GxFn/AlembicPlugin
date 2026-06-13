@@ -25,13 +25,11 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { roleResolverMiddleware } from './middleware/roleResolver.js';
 import authRouter from './routes/auth.js';
 import daemonRouter from './routes/daemon.js';
-import evolutionRouter from './routes/evolution.js';
 import guardRouter from './routes/guard.js';
 import healthRouter from './routes/health.js';
 import jobsRouter from './routes/jobs.js';
 import knowledgeRouter from './routes/knowledge.js';
 import modulesRouter from './routes/modules.js';
-import panoramaRouter from './routes/panorama.js';
 import searchRouter from './routes/search.js';
 import skillsRouter from './routes/skills.js';
 
@@ -281,11 +279,12 @@ export class HttpServer {
     // 知识条目路由 (V3)
     this.app.use(`${apiPrefix}/knowledge`, knowledgeRouter);
 
-    // Panorama 全景路由（项目结构 + 覆盖率 + 健康度；keep-with-reason，归属决策在 RC6）
-    this.app.use(`${apiPrefix}/panorama`, panoramaRouter);
-
-    // 进化路由（文件变更驱动 Recipe 修复/弃用；keep-with-reason，归属决策在 RC6）
-    this.app.use(`${apiPrefix}/evolution`, evolutionRouter);
+    // Panorama / evolution HTTP read surfaces removed in 0.3.0 (A3 ruling,
+    // r-group-rulings 2026-06-13): these were byte-identical twins of the
+    // main Alembic daemon routes (contract-mounted there, I22) with no plugin
+    // consumer — the Dashboard reaches the main daemon. The MCP alembic_panorama
+    // tool and the PanoramaService capability stay; only the dead HTTP read
+    // surfaces are gone. Git-recoverable; see docs/legacy-register.md D-row.
 
     // 根路径 — 返回 API 元信息（避免外部探测产生无意义 404）
     this.app.all('/', (_req: Request, res: Response) => {

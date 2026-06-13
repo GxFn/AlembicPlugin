@@ -111,7 +111,7 @@ try {
   process.env.ALEMBIC_QUIET = '1';
 
   const { CodexMcpServer } = await import(
-    pathToFileURL(join(packageRoot, 'dist', 'lib', 'codex', 'mcp', 'CodexMcpServer.js')).href
+    pathToFileURL(join(packageRoot, 'dist', 'lib', 'runtime', 'mcp', 'CodexMcpServer.js')).href
   );
   server = new CodexMcpServer({ projectRoot, waitUntilReadyMs: 10000 });
 

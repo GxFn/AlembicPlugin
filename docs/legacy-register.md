@@ -83,3 +83,25 @@ RC4 execution (2026-06-11).
 - **Disposition**: removed now — RC4 fresh 5-repo scan found zero consumers
   (the only remaining mention is a historical comment in Core
   `SearchTypes.ts`).
+
+### D3 — R-1 plugin `evolution` / `panorama` HTTP read surfaces (removed in 0.3.0 RW4, 2026-06-13)
+
+- **Was**: `lib/http/routes/evolution.ts` and `lib/http/routes/panorama.ts`
+  plus their `HttpServer` mounts (`/api/v1/evolution`, `/api/v1/panorama`)
+  and the panorama-only unit test `test/unit/PresentationRoutes.test.ts`.
+- **Was kept at RC6** as a deadline-marked R-1 entry (AD2 register A3): the
+  plugin copies were byte-identical twins of the main Alembic daemon routes
+  (contract-mounted there as I22 in `provider-contracts.ts`) with no named
+  plugin consumer.
+- **Disposition**: deleted per the user A3 ruling (r-group-rulings
+  2026-06-13: "delete in 0.3.0 with the RC4-style proof set; no consumer
+  named; git-recoverable"). Fresh 5-repo scan (dynamic `import(` + HTTP path
+  literals) confirmed the only importers were the plugin `HttpServer` mount
+  and the panorama unit test; the Dashboard's `/panorama` + `/evolution`
+  calls (`src/api.ts`, relative `/api/v1` base) reach the MAIN Alembic daemon,
+  whose twin routes stay (contract-required). Neither route is in
+  `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`. Behavior-neutral: the MCP
+  `alembic_panorama` tool and the `PanoramaService` capability are untouched
+  and reachable through other surfaces; only the dead HTTP read surfaces are
+  gone. Served MCP wire surface proven byte-stable (tools/list + callTool
+  parity unchanged).
