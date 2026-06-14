@@ -242,6 +242,29 @@ function recipeEntries() {
       relations: {},
       tags: ['resident', 'vector'],
     },
+    {
+      id: 'mcp-public-tool-quality',
+      title: 'MCP endpoint quality relevance contract',
+      trigger: '@mcp-public-tool-quality',
+      kind: 'pattern',
+      language: 'typescript',
+      category: 'mcp',
+      description:
+        'Keep the four MCP knowledge-context endpoints focused on handler schemas, ranking, and semantic quality.',
+      doClause:
+        'For alembic_search, alembic_prime, alembic_project_matrix, and alembic_graph quality repairs, inspect handler projections, search.ts ranking, ProjectGraphProvider, zodToMcpSchema, and KnowledgeContextToolOutput contracts.',
+      whenClause:
+        'When Chinese or English user intent asks to repair MCP tool returned content quality, relevance, ranking, or semantic-quality noise.',
+      content: {
+        markdown:
+          'MCP endpoints return structuredContent from knowledge-context providers; quality fixes belong in handlers, schema projection, relevance ranking, semantic-quality gates, and graph partial-boundary logic.',
+      },
+      quality: {
+        overall: 0.95,
+      },
+      relations: {},
+      tags: ['mcp', 'semantic-quality', 'ranking'],
+    },
   ];
 }
 
@@ -696,6 +719,113 @@ describe('alembic_search resident search enhancement', () => {
     expect(result.structuredContent.result.searchQuality).toMatchObject({
       degradedReason: expect.stringContaining('bounded Recipe detail/get/expand/detailRefs'),
       noTrustedMatch: true,
+    });
+  });
+
+  it('withholds low-information semantic candidates without caller context anchors', async () => {
+    const engineSearch = vi.fn(async () => {
+      throw new Error('embedded search should not run when resident search returns items');
+    });
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        items: [
+          item('logger', 'Logger transport and CLI output conventions', 0.95),
+          item('doctrine', 'Doctrine runtime service container pattern', 0.91),
+        ],
+        meta: {
+          attempted: true,
+          available: true,
+          actualMode: 'semantic',
+          requestedMode: 'auto',
+          residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
+          resultCount: 2,
+          route: 'alembic-resident-service',
+          searchMeta: {
+            actualMode: 'semantic',
+            requestedMode: 'semantic',
+            route: 'resident-search',
+            semanticUsed: true,
+            vectorUsed: true,
+          },
+          semanticUsed: true,
+          used: true,
+          vectorUsed: true,
+        },
+      })
+    );
+
+    const result = (await search(context({ engineSearch, residentSearch }), {
+      limit: 3,
+      mode: 'auto',
+      query: 'where do I start',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<Record<string, unknown>>;
+        nextActions: Array<Record<string, unknown>>;
+        result: { searchQuality?: Record<string, unknown> };
+        status: string;
+      };
+    };
+
+    expect(result.structuredContent.status).toBe('degraded');
+    expect(result.structuredContent.items).toEqual([]);
+    expect(result.structuredContent.inventory).toMatchObject({
+      noTrustedMatch: true,
+      trustedCandidateCount: 0,
+      weakCandidateCount: expect.any(Number),
+    });
+    expect(result.structuredContent.result.searchQuality).toMatchObject({
+      degradedReason: expect.stringContaining('Low-information search intent'),
+      noTrustedMatch: true,
+    });
+    expect(result.structuredContent.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'alembic_project_matrix', operation: 'overview' }),
+      ])
+    );
+  });
+
+  it('prioritizes Chinese MCP tool quality intent over noisy general knowledge', async () => {
+    const engineSearch = vi.fn(async () => ({
+      items: [
+        item('repo-boundary-ratchet', 'Repo Boundary Ratchet', 0.97),
+        item('logger', 'Logger output formatting conventions', 0.94),
+        item('soul-runtime', 'SOUL runtime doctrine', 0.92),
+      ],
+      mode: 'weighted',
+      searchMeta: {
+        actualMode: 'weighted',
+        requestedMode: 'auto',
+        route: 'field-weighted',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    }));
+    const knowledgeService = knowledgeServiceFixture();
+
+    const result = (await search(context({ engineSearch, knowledgeService }), {
+      limit: 4,
+      mode: 'auto',
+      query: '我要修四个 MCP 工具返回内容质量和语义相关性噪声',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<Record<string, unknown>>;
+        result: { searchQuality?: Record<string, unknown> };
+      };
+    };
+    const itemIds = result.structuredContent.items.map((entry) => entry.id);
+
+    expect(itemIds).toContain('mcp-public-tool-quality');
+    expect(itemIds).not.toEqual(expect.arrayContaining(['repo-boundary-ratchet', 'logger']));
+    expect(JSON.stringify(result.structuredContent.items)).not.toContain('SOUL runtime');
+    expect(result.structuredContent.inventory).toMatchObject({
+      noTrustedMatch: false,
+      trustedCandidateCount: expect.any(Number),
+    });
+    expect(result.structuredContent.result.searchQuality).toMatchObject({
+      noTrustedMatch: false,
     });
   });
 

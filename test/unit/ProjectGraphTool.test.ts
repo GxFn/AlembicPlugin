@@ -102,6 +102,65 @@ describe('alembic_graph project graph tool', () => {
     });
   });
 
+  test('returns compact project orientation for low-information graph queries', async () => {
+    const projectRoot = createFixtureProject();
+    const result = await routeGraphTool(createContext(projectRoot), {
+      budget: { itemLimit: 8, matrixNodeLimit: 8, nextActionLimit: 4, relationHopLimit: 1 },
+      operation: 'query',
+      projectRoot,
+      query: 'where do I start',
+    });
+    const structured = result.structuredContent as Record<string, unknown>;
+    const graphResult = structured.result as Record<string, unknown>;
+    const itemIds = (structured.items as Array<Record<string, unknown>>).map((item) => item.id);
+
+    expect(graphResult).toMatchObject({
+      lowInformationIntent: true,
+      operation: 'query',
+      orientation: true,
+      queryMatchMode: 'project-orientation',
+      sourceGraphRequiredForImpact: true,
+    });
+    expect(itemIds).toEqual(
+      expect.arrayContaining(['project:fixture-project', 'package:fixture-project'])
+    );
+    expect(JSON.stringify(structured.items)).not.toContain('Knowledge');
+    expect(structured.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'alembic_project_matrix', operation: 'overview' }),
+      ])
+    );
+  });
+
+  test('withholds impact traversal until a concrete nodeId or sourceGraphRef is supplied', async () => {
+    const projectRoot = createFixtureProject();
+    const result = await routeGraphTool(createContext(projectRoot), {
+      operation: 'impact',
+      projectRoot,
+      query: 'what changes if I touch this',
+    });
+    const structured = result.structuredContent as Record<string, unknown>;
+    const graphResult = structured.result as Record<string, unknown>;
+
+    expect(structured.items).toEqual([]);
+    expect(structured.relations).toEqual([]);
+    expect(graphResult).toMatchObject({
+      impactUnavailableReason: expect.stringContaining('concrete nodeId or sourceGraphRef'),
+      missing: 'nodeId',
+      operation: 'impact',
+      sourceGraphRequiredForImpact: true,
+    });
+    expect(structured.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: 'query',
+          required: true,
+          tool: 'alembic_graph',
+        }),
+      ])
+    );
+  });
+
   test('uses workspace.config repoNames as the default graph boundary', async () => {
     const projectRoot = createWorkspaceFixtureProject();
     const result = await routeGraphTool(createContext(projectRoot), {

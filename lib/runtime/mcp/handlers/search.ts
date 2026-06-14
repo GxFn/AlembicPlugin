@@ -567,6 +567,8 @@ interface SearchRelevanceAssessment {
   boundedDetailIntent: boolean;
   degradedReason?: string;
   items: KnowledgeRetrievalItem[];
+  lowInformationIntent: boolean;
+  mcpToolQualityIntent: boolean;
   noTrustedMatch: boolean;
   weakCandidateCount: number;
 }
@@ -581,14 +583,20 @@ function assessSearchRelevance(
       boundedDetailIntent: false,
       degradedReason: 'Search returned no candidate items.',
       items: [],
+      lowInformationIntent: false,
+      mcpToolQualityIntent: false,
       noTrustedMatch: true,
       weakCandidateCount: 0,
     };
   }
 
   const queryTerms = relevanceTerms([pipeline.query, ...(args.keywords ?? [])]);
+  const mcpToolQualityIntent = hasMcpToolQualityIntent(pipeline.query, args);
   const profile: SearchRelevanceProfile = {
     boundedDetailIntent: hasBoundedDetailIntent(queryTerms),
+    hasCallerContext: hasCallerRelevanceContext(args),
+    lowInformationIntent: hasLowInformationIntent(pipeline.query, args, queryTerms),
+    mcpToolQualityIntent,
     semanticEvidenceAvailable: hasSemanticSearchEvidence(pipeline),
     specificQuery: queryTerms.length >= 2 || (args.keywords?.length ?? 0) > 0,
   };
@@ -602,6 +610,8 @@ function assessSearchRelevance(
           ? 'Weak fallback candidates without query, keyword, sourceRef, or semantic evidence were withheld.'
           : undefined,
       items: trusted,
+      lowInformationIntent: profile.lowInformationIntent,
+      mcpToolQualityIntent: profile.mcpToolQualityIntent,
       noTrustedMatch: false,
       weakCandidateCount,
     };
@@ -609,10 +619,10 @@ function assessSearchRelevance(
 
   return {
     boundedDetailIntent: profile.boundedDetailIntent,
-    degradedReason: profile.boundedDetailIntent
-      ? 'Search produced only weak candidates without bounded Recipe detail/get/expand/detailRefs evidence.'
-      : 'Fallback search produced only weak candidates without enough query, keyword, sourceRef, or semantic evidence.',
+    degradedReason: noTrustedSearchReason(profile),
     items: [],
+    lowInformationIntent: profile.lowInformationIntent,
+    mcpToolQualityIntent: profile.mcpToolQualityIntent,
     noTrustedMatch: true,
     weakCandidateCount: items.length,
   };
@@ -620,6 +630,9 @@ function assessSearchRelevance(
 
 interface SearchRelevanceProfile {
   boundedDetailIntent: boolean;
+  hasCallerContext: boolean;
+  lowInformationIntent: boolean;
+  mcpToolQualityIntent: boolean;
   semanticEvidenceAvailable: boolean;
   specificQuery: boolean;
 }
@@ -646,8 +659,19 @@ function candidateHasTrustedRelevance(
   if (sourceRefHits > 0) {
     return true;
   }
+  if (profile.lowInformationIntent && !profile.hasCallerContext) {
+    return false;
+  }
   if (profile.boundedDetailIntent) {
     return candidateHasBoundedDetailSupport(item, {
+      evidenceSignals,
+      keywordHits,
+      queryHits,
+      semanticSupport,
+    });
+  }
+  if (profile.mcpToolQualityIntent) {
+    return candidateHasMcpToolQualitySupport(item, {
       evidenceSignals,
       keywordHits,
       queryHits,
@@ -683,6 +707,61 @@ function hasBoundedDetailIntent(queryTerms: readonly string[]): boolean {
   const terms = new Set(queryTerms);
   const detailSignals = BOUNDED_DETAIL_INTENT_TERMS.filter((term) => terms.has(term)).length;
   return detailSignals >= 2;
+}
+
+function hasLowInformationIntent(
+  query: string,
+  args: SearchArgs,
+  queryTerms: readonly string[]
+): boolean {
+  if (hasMcpToolQualityIntent(query, args)) {
+    return false;
+  }
+  const queryText = query.toLowerCase().trim();
+  if (LOW_INFORMATION_QUERY_PATTERNS.some((pattern) => pattern.test(queryText))) {
+    return true;
+  }
+  const meaningfulTerms = queryTerms.filter((term) => !LOW_INFORMATION_TERMS.has(term));
+  return meaningfulTerms.length === 0 && queryText.length <= 80;
+}
+
+function hasCallerRelevanceContext(args: SearchArgs): boolean {
+  const hostDeclaredIntent = readRecord(args.hostDeclaredIntent);
+  const hostKeywords = readStringArray(hostDeclaredIntent?.keywords);
+  const hostSourceRefs = readStringArray(hostDeclaredIntent?.sourceRefs);
+  return (
+    readString(args.activeFile) !== undefined ||
+    readString(args.module) !== undefined ||
+    readStringArray(args.sourceRefs).length > 0 ||
+    readStringArray(args.sourceEvidenceRefs).length > 0 ||
+    (args.keywords?.length ?? 0) > 0 ||
+    hostKeywords.length > 0 ||
+    hostSourceRefs.length > 0
+  );
+}
+
+function hasMcpToolQualityIntent(query: string, args: SearchArgs): boolean {
+  const text = [
+    query,
+    ...(args.keywords ?? []),
+    readString(args.module) ?? '',
+    readString(args.activeFile) ?? '',
+  ]
+    .join(' ')
+    .toLowerCase();
+  const mentionsMcpTools =
+    /\bmcp\b/u.test(text) &&
+    (/四个/u.test(text) ||
+      /\bfour\b/u.test(text) ||
+      /\btools?\b/u.test(text) ||
+      /工具/u.test(text));
+  const mentionsQuality =
+    /内容质量|返回内容|语义|相关性|排序|质量/u.test(text) ||
+    /\b(quality|semantic|relevance|ranking|rank|content)\b/u.test(text);
+  const mentionsPublicToolName =
+    /\balembic_(search|prime|project_matrix|graph)\b/u.test(text) ||
+    /public[-\s]?tools?|agent-public-tools|knowledge-context/u.test(text);
+  return (mentionsMcpTools && mentionsQuality) || (mentionsPublicToolName && mentionsQuality);
 }
 
 function candidateHasSemanticSupport(
@@ -721,10 +800,43 @@ function candidateHasBoundedDetailSupport(
   return evidence.queryHits >= 2 || evidence.keywordHits >= 2;
 }
 
+function candidateHasMcpToolQualitySupport(
+  item: KnowledgeRetrievalItem,
+  evidence: {
+    evidenceSignals: Set<string>;
+    keywordHits: number;
+    queryHits: number;
+    semanticSupport: boolean;
+  }
+): boolean {
+  const support = mcpToolQualitySupportScore(item);
+  if (support < 2) {
+    return false;
+  }
+  if (support >= 3) {
+    return true;
+  }
+  if (evidence.evidenceSignals.has('intent-anchor') || evidence.semanticSupport) {
+    return true;
+  }
+  return evidence.queryHits > 0 || evidence.keywordHits > 0;
+}
+
 function boundedDetailSupportScore(item: KnowledgeRetrievalItem): number {
   const text = searchableCandidateText(item);
   let score = 0;
   for (const pattern of BOUNDED_DETAIL_SUPPORT_PATTERNS) {
+    if (pattern.test(text)) {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+function mcpToolQualitySupportScore(item: KnowledgeRetrievalItem): number {
+  const text = searchableCandidateText(item);
+  let score = 0;
+  for (const pattern of MCP_TOOL_QUALITY_SUPPORT_PATTERNS) {
     if (pattern.test(text)) {
       score += 1;
     }
@@ -742,10 +854,24 @@ function searchableCandidateText(item: KnowledgeRetrievalItem): string {
     item.language,
     item.category,
     item.contentPreview,
+    ...(item.relationRefs ?? []),
   ]
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
     .join('\n')
     .toLowerCase();
+}
+
+function noTrustedSearchReason(profile: SearchRelevanceProfile): string {
+  if (profile.lowInformationIntent && !profile.hasCallerContext) {
+    return 'Low-information search intent lacked activeFile, sourceRefs, keywords, or concrete intent anchors; semantic/vector similarity alone was withheld.';
+  }
+  if (profile.mcpToolQualityIntent) {
+    return 'Search produced only weak candidates without MCP public-tool, handler, schema, ranking, or semantic-quality anchors.';
+  }
+  if (profile.boundedDetailIntent) {
+    return 'Search produced only weak candidates without bounded Recipe detail/get/expand/detailRefs evidence.';
+  }
+  return 'Fallback search produced only weak candidates without enough query, keyword, sourceRef, or semantic evidence.';
 }
 
 const BOUNDED_DETAIL_INTENT_TERMS = [
@@ -775,6 +901,24 @@ const BOUNDED_DETAIL_SUPPORT_PATTERNS = [
   /\bbounded\b/u,
 ];
 
+const MCP_TOOL_QUALITY_SUPPORT_PATTERNS = [
+  /\balembic_(search|prime|project_matrix|graph)\b/u,
+  /\bagent-public-tools\b/u,
+  /\bpublic[-\s]?tools?\b/u,
+  /\bmcp\b/u,
+  /\bhandler(s)?\b/u,
+  /\bschema\b/u,
+  /\bzodtomcpschema\b/u,
+  /\bknowledge-context\b/u,
+  /\bknowledge\s+context\b/u,
+  /\brank(ing)?\b/u,
+  /\brelevance\b/u,
+  /\bsemantic[-\s]?quality\b/u,
+  /\bprime(search|knowledge|material)?\b/u,
+  /\bprojectgraphprovider\b/u,
+  /\bsearch\.ts\b/u,
+];
+
 const GENERIC_RELEVANCE_TERMS = new Set([
   'alembic',
   'context',
@@ -785,6 +929,29 @@ const GENERIC_RELEVANCE_TERMS = new Set([
   'tool',
   'tools',
 ]);
+
+const LOW_INFORMATION_TERMS = new Set([
+  'begin',
+  'do',
+  'help',
+  'here',
+  'how',
+  'i',
+  'me',
+  'next',
+  'now',
+  'please',
+  'start',
+  'started',
+  'where',
+  'what',
+]);
+
+const LOW_INFORMATION_QUERY_PATTERNS = [
+  /^\s*where\s+do\s+i\s+start\s*[?.!]*\s*$/u,
+  /^\s*(how|where)\s+(should\s+i\s+)?(start|begin|get\s+started)\s*[?.!]*\s*$/u,
+  /^\s*(what\s+now|next\s+steps?|help)\s*[?.!]*\s*$/u,
+];
 
 async function listKnowledgeEntries(
   ctx: McpContext,

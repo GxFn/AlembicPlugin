@@ -52,6 +52,11 @@ export interface PrimeHostResponseInstruction {
   reason: string;
 }
 
+export interface PrimeKnowledgeMaterialDegradedReason {
+  code: 'low-information-intent' | 'search-degraded';
+  message: string;
+}
+
 export interface PrimeTrustPostureItem {
   id: string;
   title: string;
@@ -126,6 +131,7 @@ export interface PrimeIntentEpisodeMaterial {
 
 export interface PrimeKnowledgeMaterial {
   status: PrimeKnowledgeMaterialStatus;
+  degradedReason?: PrimeKnowledgeMaterialDegradedReason;
   receiptId: string;
   intent: {
     userQuery: string;
@@ -162,12 +168,14 @@ interface PrimeKnowledgeMaterialInput {
   intentEpisode: PrimeIntentEpisodeMaterial;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
+  sourceRefs?: string[];
   taskAnchorDecision: TaskAnchorDecision;
 }
 
 interface PrimeTrustPostureInput {
   acceptedGuards: AcceptedPrimeGuard[];
   acceptedKnowledge: AcceptedPrimeKnowledge[];
+  degradedReason?: PrimeKnowledgeMaterialDegradedReason;
   intent: PrimeKnowledgeMaterial['intent'];
   searchResult: PrimeSearchResult | null;
   status: PrimeKnowledgeMaterialStatus;
@@ -178,20 +186,56 @@ let primeReceiptCounter = 0;
 const PRIME_RECEIPT_ORDER =
   'This receipt must be the next developer-visible response after the prime tool result, before any further tool call, code reading, edit, Guard check, or final summary.';
 
+const LOW_INFORMATION_PRIME_TERMS = new Set([
+  'begin',
+  'do',
+  'help',
+  'here',
+  'how',
+  'i',
+  'me',
+  'next',
+  'now',
+  'please',
+  'should',
+  'start',
+  'started',
+  'steps',
+  'where',
+  'what',
+]);
+
+const LOW_INFORMATION_PRIME_QUERY_PATTERNS = [
+  /^\s*where\s+do\s+i\s+start\s*[?.!]*\s*$/u,
+  /^\s*(how|where)\s+(should\s+i\s+)?(start|begin|get\s+started)\s*[?.!]*\s*$/u,
+  /^\s*(what\s+now|next\s+steps?|help)\s*[?.!]*\s*$/u,
+  /^\s*(从哪里|哪里|怎么|如何)(开始|下手|继续)\s*[?？。!！]*\s*$/u,
+];
+
 export function buildPrimeKnowledgeMaterial(
   input: PrimeKnowledgeMaterialInput
 ): PrimeKnowledgeMaterial {
   const searchDegraded = input.searchDegraded || isPrimeSearchResultDegraded(input.searchResult);
-  const relatedKnowledge = searchDegraded ? [] : (input.searchResult?.relatedKnowledge ?? []);
-  const guardRules = searchDegraded ? [] : (input.searchResult?.guardRules ?? []);
+  const trustedMaterialGate = assessPrimeTrustedMaterialGate(input);
+  const trustedMaterialBlocked = !searchDegraded && trustedMaterialGate.blockTrustedMaterial;
+  const effectiveDegraded = searchDegraded || trustedMaterialBlocked;
+  const relatedKnowledge = effectiveDegraded ? [] : (input.searchResult?.relatedKnowledge ?? []);
+  const guardRules = effectiveDegraded ? [] : (input.searchResult?.guardRules ?? []);
   const acceptedKnowledge = relatedKnowledge.map(projectAcceptedKnowledge);
   const acceptedGuards = guardRules.map(projectAcceptedGuard);
   const hasDeliveredKnowledge = acceptedKnowledge.length > 0 || acceptedGuards.length > 0;
-  const status: PrimeKnowledgeMaterialStatus = searchDegraded
+  const status: PrimeKnowledgeMaterialStatus = effectiveDegraded
     ? 'degraded'
     : hasDeliveredKnowledge
       ? 'delivered'
       : 'empty';
+  const degradedReason: PrimeKnowledgeMaterialDegradedReason | undefined = searchDegraded
+    ? {
+        code: 'search-degraded',
+        message:
+          'Prime search degraded before accepted Recipe or Guard material could be selected.',
+      }
+    : trustedMaterialGate.degradedReason;
   const receiptId = generatePrimeReceiptId();
   const intent: PrimeKnowledgeMaterial['intent'] = {
     userQuery: input.hostIntentInput.userQuery,
@@ -213,6 +257,7 @@ export function buildPrimeKnowledgeMaterial(
   const trustPosture = buildPrimeTrustPosture({
     acceptedGuards,
     acceptedKnowledge,
+    degradedReason,
     intent,
     searchResult: input.searchResult,
     status,
@@ -220,6 +265,7 @@ export function buildPrimeKnowledgeMaterial(
 
   return {
     status,
+    ...(degradedReason ? { degradedReason } : {}),
     receiptId,
     intent,
     acceptedKnowledge,
@@ -274,6 +320,61 @@ function generatePrimeReceiptId(): string {
   return `prime-${Date.now().toString(36)}-${primeReceiptCounter}`;
 }
 
+function assessPrimeTrustedMaterialGate(input: PrimeKnowledgeMaterialInput): {
+  blockTrustedMaterial: boolean;
+  degradedReason?: PrimeKnowledgeMaterialDegradedReason;
+} {
+  if (!hasLowInformationPrimeIntent(input) || hasPrimeCallerContext(input)) {
+    return { blockTrustedMaterial: false };
+  }
+  return {
+    blockTrustedMaterial: true,
+    degradedReason: {
+      code: 'low-information-intent',
+      message:
+        'Prime withheld retrieved Recipe and Guard candidates because the request lacked activeFile, sourceRefs, keywords, module, or concrete host intent anchors.',
+    },
+  };
+}
+
+function hasLowInformationPrimeIntent(input: PrimeKnowledgeMaterialInput): boolean {
+  const queryText = [
+    input.hostIntentInput.userQuery,
+    input.hostIntentFrame.recognizedIntentDraft.query,
+    input.extracted.raw.userQuery,
+    ...input.extracted.queries,
+  ]
+    .join(' ')
+    .toLowerCase()
+    .trim();
+  if (!queryText) {
+    return true;
+  }
+  if (LOW_INFORMATION_PRIME_QUERY_PATTERNS.some((pattern) => pattern.test(queryText))) {
+    return true;
+  }
+  const terms = queryText.match(/[\p{L}\p{N}_./:-]+/gu) ?? [];
+  const meaningfulTerms = terms.filter(
+    (term) => term.length >= 2 && !LOW_INFORMATION_PRIME_TERMS.has(term)
+  );
+  return meaningfulTerms.length === 0 && queryText.length <= 100;
+}
+
+function hasPrimeCallerContext(input: PrimeKnowledgeMaterialInput): boolean {
+  const declared = input.hostIntentFrame.hostDeclaredIntent;
+  return Boolean(
+    input.hostIntentInput.activeFile ||
+      input.hostIntentFrame.extracted.module ||
+      input.extracted.module ||
+      declared?.module ||
+      (declared?.keywords?.length ?? 0) > 0 ||
+      (declared?.labels?.length ?? 0) > 0 ||
+      (declared?.sourceRefs?.length ?? 0) > 0 ||
+      input.hostIntentFrame.recognizedIntentDraft.sourceRefs.length > 0 ||
+      (input.sourceRefs?.length ?? 0) > 0
+  );
+}
+
 function buildPrimeTrustPosture(input: PrimeTrustPostureInput): PrimeTrustPosture {
   const primePackage = input.searchResult?.searchMeta.primeInjectionPackage;
   const packageStatus = primePackage?.injection.status;
@@ -326,7 +427,7 @@ function buildTrustedToUse(
   packageNeedsVerification: boolean,
   packageUnavailable: boolean
 ): PrimeTrustPostureItem[] {
-  if (packageNeedsVerification || packageUnavailable) {
+  if (input.status !== 'delivered' || packageNeedsVerification || packageUnavailable) {
     return [];
   }
   const trustedToUse: PrimeTrustPostureItem[] = input.acceptedKnowledge.map((item) => ({
@@ -512,6 +613,15 @@ function buildNotAvailableOrDegradedItems(
           : 'Do not claim project-specific knowledge was accepted; continue with normal code reading and verification.',
       status: input.status,
     });
+    if (input.degradedReason) {
+      items.push({
+        id: `prime-degraded:${input.degradedReason.code}`,
+        title: `Prime degraded: ${input.degradedReason.code}`,
+        source: 'prime-status',
+        reason: input.degradedReason.message,
+        status: input.degradedReason.code,
+      });
+    }
   }
   const packageStatus = input.searchResult?.searchMeta.primeInjectionPackage?.injection.status;
   if (packageUnavailable) {

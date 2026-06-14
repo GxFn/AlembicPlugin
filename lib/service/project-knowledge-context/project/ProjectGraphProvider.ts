@@ -630,6 +630,9 @@ function selectGraph(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
 }
 
 function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelection {
+  if (isLowInformationGraphQuery(input) && !hasFocusedGraphQuery(input)) {
+    return selectProjectOrientation(build, input);
+  }
   const filteredRelations = filterRelations(build.relations, input);
   const itemLimit = input.budget?.itemLimit ?? 20;
   const relationLimit = input.budget?.relationHopLimit ?? 2;
@@ -690,6 +693,61 @@ function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
       sourceOfTruth: false,
     },
   };
+}
+
+function selectProjectOrientation(build: GraphBuild, input: ProjectGraphInput): GraphSelection {
+  const itemLimit = input.budget?.itemLimit ?? 12;
+  const relationLimit = input.budget?.relationHopLimit ?? 2;
+  const preferredTypes = new Set<KnowledgeContextProjectNodeType>([
+    'project',
+    'package',
+    'target',
+    'module',
+  ]);
+  const preferredNodes = build.nodes
+    .filter((node) => preferredTypes.has(node.nodeType))
+    .sort((a, b) => orientationNodeWeight(a) - orientationNodeWeight(b) || a.id.localeCompare(b.id))
+    .slice(0, itemLimit);
+  const nodeIds = new Set(preferredNodes.map((node) => node.id));
+  const relations = build.relations
+    .filter((relation) => {
+      if (!(nodeIds.has(relation.fromId) || nodeIds.has(relation.toId))) {
+        return false;
+      }
+      return ['dependsOn', 'entrypointFor', 'ownsFile', 'partOf'].includes(relation.relationType);
+    })
+    .slice(0, Math.max(relationLimit * 12, 12));
+  const items = preferredNodes.map(projectNodeToOutput);
+  return {
+    items,
+    matrixNodes: items,
+    relations: relations.map(projectRelationToOutput),
+    result: {
+      graphKind: 'project-internal',
+      lowInformationIntent: true,
+      operation: 'query',
+      orientation: true,
+      queryMatchMode: 'project-orientation',
+      queryMatchedNodeCount: preferredNodes.length,
+      sourceGraphRequiredForImpact: !input.sourceGraphRef,
+      sourceOfTruth: false,
+    },
+  };
+}
+
+function orientationNodeWeight(node: ProjectGraphNode): number {
+  switch (node.nodeType) {
+    case 'project':
+      return 0;
+    case 'package':
+      return node.path === 'package.json' ? 1 : 4;
+    case 'target':
+      return 2;
+    case 'module':
+      return 3;
+    default:
+      return 9;
+  }
 }
 
 function selectStats(build: GraphBuild, input: ProjectGraphInput): GraphSelection {
@@ -799,8 +857,11 @@ function missingNodeSelection(operation: 'impact' | 'neighborhood'): GraphSelect
     relations: [],
     result: {
       graphKind: 'project-internal',
+      impactUnavailableReason:
+        'A concrete nodeId or sourceGraphRef is required before alembic_graph can make impact or neighborhood claims.',
       missing: 'nodeId',
       operation,
+      sourceGraphRequiredForImpact: true,
       sourceOfTruth: false,
     },
   };
@@ -908,6 +969,24 @@ function summarizeSelection(
 
 function nextActionsFor(operation: string, input: ProjectGraphInput): KnowledgeContextNextAction[] {
   const actions: KnowledgeContextNextAction[] = [];
+  if ((operation === 'impact' || operation === 'neighborhood') && !input.nodeId) {
+    actions.push({
+      tool: 'alembic_graph',
+      operation: 'query',
+      reason:
+        'First query or inspect a concrete project nodeId/sourceGraphRef; impact and neighborhood output is withheld without that anchor.',
+      required: true,
+    });
+  }
+  if (isLowInformationGraphQuery(input) && !hasFocusedGraphQuery(input)) {
+    actions.push({
+      tool: 'alembic_project_matrix',
+      operation: 'overview',
+      reason:
+        'Use the project matrix overview to choose a module, entrypoint, or sourceGraphRef before asking for graph impact.',
+      required: false,
+    });
+  }
   if (operation !== 'stats') {
     actions.push({
       tool: 'alembic_graph',
@@ -979,6 +1058,61 @@ function tokenizeGraphQuery(query: string): string[] {
 }
 
 const GENERIC_GRAPH_QUERY_TERMS = new Set(['alembic', 'graph', 'project', 'source']);
+
+const LOW_INFORMATION_GRAPH_TERMS = new Set([
+  'begin',
+  'do',
+  'help',
+  'here',
+  'how',
+  'i',
+  'me',
+  'next',
+  'now',
+  'please',
+  'should',
+  'start',
+  'started',
+  'steps',
+  'where',
+  'what',
+]);
+
+const LOW_INFORMATION_GRAPH_QUERY_PATTERNS = [
+  /^\s*where\s+do\s+i\s+start\s*[?.!]*\s*$/u,
+  /^\s*(how|where)\s+(should\s+i\s+)?(start|begin|get\s+started)\s*[?.!]*\s*$/u,
+  /^\s*(what\s+now|next\s+steps?|help)\s*[?.!]*\s*$/u,
+  /^\s*(从哪里|哪里|怎么|如何)(开始|下手|继续)\s*[?？。!！]*\s*$/u,
+];
+
+function isLowInformationGraphQuery(input: ProjectGraphInput): boolean {
+  const queryText = input.query?.toLowerCase().trim();
+  if (!queryText) {
+    return false;
+  }
+  if (LOW_INFORMATION_GRAPH_QUERY_PATTERNS.some((pattern) => pattern.test(queryText))) {
+    return true;
+  }
+  const terms = queryText.match(/[\p{L}\p{N}_./:-]+/gu) ?? [];
+  const meaningfulTerms = terms.filter(
+    (term) => term.length >= 2 && !LOW_INFORMATION_GRAPH_TERMS.has(term)
+  );
+  return meaningfulTerms.length === 0 && queryText.length <= 100;
+}
+
+function hasFocusedGraphQuery(input: ProjectGraphInput): boolean {
+  return Boolean(
+    input.nodeId ||
+      input.nodeType ||
+      input.fromId ||
+      input.toId ||
+      input.relationType ||
+      input.activeFile ||
+      input.sourceGraphRef ||
+      (input.sourceRefs?.length ?? 0) > 0 ||
+      (input.sourceEvidenceRefs?.length ?? 0) > 0
+  );
+}
 
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)

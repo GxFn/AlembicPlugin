@@ -510,7 +510,7 @@ function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   const status = resolvePrimeStatus({
     primeKnowledgeMaterial: material.primeKnowledgeMaterial,
     retrievalConsumer: material.retrievalConsumer,
-    searchDegraded: effectiveSearchDegraded,
+    searchDegraded: input.primeSearch.searchDegraded,
     searchResult: input.primeSearch.searchResult,
     skippedReason: input.primeSearch.skippedReason,
   });
@@ -1091,6 +1091,7 @@ function buildPrimeMaterialProjection(
       ),
       searchDegraded: primeSearch.searchDegraded,
       searchResult: primeSearch.searchResult,
+      sourceRefs: intake.sourceRefs,
       taskAnchorDecision: intake.lifecycle.taskAnchorDecision,
     }),
     retrievalConsumer: primeSearch.searchResult?.searchMeta.retrievalConsumer ?? null,
@@ -1959,7 +1960,7 @@ async function runPrimeSearch(
 }
 
 function resolvePrimeStatus(input: {
-  primeKnowledgeMaterial: { status: string };
+  primeKnowledgeMaterial: { degradedReason?: { code: string; message: string }; status: string };
   retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
@@ -2007,6 +2008,24 @@ function resolvePrimeStatus(input: {
       },
       status: 'degraded',
       summary: 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
+    };
+  }
+  if (input.primeKnowledgeMaterial.status === 'degraded') {
+    const reason = input.primeKnowledgeMaterial.degradedReason;
+    return {
+      reason: {
+        kind: 'degraded',
+        code: 'knowledge-empty',
+        message:
+          reason?.message ??
+          'Prime withheld retrieved Recipe or Guard candidates before marking them trusted.',
+        retryable: true,
+      },
+      status: 'degraded',
+      summary:
+        reason?.code === 'low-information-intent'
+          ? 'Prime withheld retrieved knowledge because the request lacked concrete anchors.'
+          : 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
     };
   }
   const relatedCount = input.searchResult?.relatedKnowledge.length ?? 0;
