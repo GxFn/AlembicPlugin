@@ -12,6 +12,7 @@
  */
 
 import { groupByKind, slimSearchResult } from '@alembic/core/search';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
   DefaultContextExpansionProvider,
   DefaultKnowledgeDetailProvider,
@@ -114,6 +115,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   if (operation === 'get' || operation === 'expand') {
     return projectDetailOperation(ctx, args, operation);
   }
+  const projectRoot = resolveSearchProjectRoot(ctx, args);
   const pipeline = await runSearchPipeline(ctx, args);
   const knowledgeItems = await buildKnowledgeCandidates(ctx, args, pipeline);
   const relationProvider = new DefaultRecipeRelationChainProvider();
@@ -168,6 +170,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       operation: 'search',
       query: pipeline.query,
       mode: pipeline.requestedMode,
+      projectRoot,
     }),
     {
       payload,
@@ -405,6 +408,7 @@ async function projectDetailOperation(
   args: SearchArgs,
   operation: 'get' | 'expand'
 ) {
+  const projectRoot = resolveSearchProjectRoot(ctx, args);
   const refId = resolveDetailRef(args);
   const entries = await listKnowledgeEntries(ctx, args, Math.max(args.limit ?? 10, 20));
   const directEntry = refId ? await getKnowledgeEntry(ctx, refId) : null;
@@ -474,7 +478,7 @@ async function projectDetailOperation(
 
   return defaultProjectKnowledgeContextLayer.resolveMcpResult(
     'alembic_search',
-    toKnowledgeContextSearchInput(args, { operation, refId }),
+    toKnowledgeContextSearchInput(args, { operation, projectRoot, refId }),
     {
       payload,
       snapshot: {
@@ -800,11 +804,13 @@ function toKnowledgeContextSearchInput(
   override: {
     mode?: string;
     operation: 'search' | 'get' | 'expand';
+    projectRoot?: string;
     query?: string;
     refId?: string;
   }
 ): Record<string, unknown> {
   const budget = readRecord(args.budget) ?? {};
+  const projectRoot = override.projectRoot ?? readString(args.projectRoot);
   return {
     tool: 'alembic_search',
     operation: override.operation,
@@ -822,9 +828,7 @@ function toKnowledgeContextSearchInput(
       ? {}
       : { activeFile: readString(args.activeFile) }),
     ...(readString(args.module) === undefined ? {} : { module: readString(args.module) }),
-    ...(readString(args.projectRoot) === undefined
-      ? {}
-      : { projectRoot: readString(args.projectRoot) }),
+    ...(projectRoot === undefined ? {} : { projectRoot }),
     ...(readString(args.sourceGraphRef) === undefined
       ? {}
       : { sourceGraphRef: readString(args.sourceGraphRef) }),
@@ -846,6 +850,18 @@ function toKnowledgeContextSearchInput(
     freshnessPolicy: readRecord(args.freshnessPolicy) ?? { policy: 'preferFresh' },
     hostDeclaredIntent: sanitizeHostDeclaredIntent(args.hostDeclaredIntent),
   };
+}
+
+function resolveSearchProjectRoot(ctx: McpContext, args: SearchArgs): string | undefined {
+  const explicit = readString(args.projectRoot);
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  try {
+    return resolveProjectRoot(ctx.container);
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeSearchOperation(value: unknown): 'search' | 'get' | 'expand' {

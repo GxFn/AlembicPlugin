@@ -178,6 +178,8 @@ function buildRuntimeModeSeparation() {
 function buildReadbackProofSummary() {
   return {
     expectedToolCall: 'alembic_mcp_status',
+    expectedToolCalls: ['alembic_mcp_status', 'alembic_codex_diagnostics'],
+    expectedDiagnosticsTool: 'alembic_codex_diagnostics',
     expectedEntryMode: 'local-dev-direct-dist',
     proves: [
       'fresh installed-cache MCP startup',

@@ -1040,6 +1040,52 @@ describe('CodexMcpServer', () => {
     expect(supervisor.status).toHaveBeenCalledWith(projectRoot);
   });
 
+  test('tool-call projectRoot override scopes search project identity to the requested project', async () => {
+    useTempAlembicHome();
+    delete process.env.ALEMBIC_PROJECT_DIR;
+    delete process.env.CODEX_WORKSPACE_DIR;
+    delete process.env.CODEX_WORKSPACE_ROOT;
+    const pluginRoot = path.join(
+      makeProjectRoot(),
+      '.codex',
+      'plugins',
+      'cache',
+      'gxfn',
+      'alembic',
+      getPackageVersion()
+    );
+    fs.mkdirSync(pluginRoot, { recursive: true });
+    process.env.PWD = pluginRoot;
+
+    const projectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(projectRoot);
+    const supervisor = makeSupervisor(
+      makeDaemonStatus(projectRoot, {
+        status: 'stopped',
+        ready: false,
+        state: null,
+        pidAlive: false,
+      })
+    );
+    const server = new CodexMcpServer({ supervisor });
+
+    const result = (await server.handleToolCall('alembic_search', {
+      projectRoot,
+      query: 'http client',
+      limit: 1,
+    })) as {
+      structuredContent: {
+        project?: { projectId?: string; projectRoot?: string };
+      };
+    };
+
+    expect(result.structuredContent.project).toMatchObject({
+      projectRoot,
+    });
+    expect(result.structuredContent.project?.projectId).not.toBe('project:unknown');
+    expect(result.structuredContent.project?.projectId).toBeTruthy();
+  });
+
   test('tool-call projectRoot override saves diagnostics but is not reused as effective identity', async () => {
     useTempAlembicHome();
     delete process.env.ALEMBIC_PROJECT_DIR;

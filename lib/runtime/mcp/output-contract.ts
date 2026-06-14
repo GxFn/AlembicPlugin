@@ -25,11 +25,14 @@ export const CleanMcpErrorSchema = CleanMcpFailureTaxonomySchema.extend({
 export const CleanMcpMetaSchema = z
   .object({
     contractVersion: z.literal(CLEAN_MCP_OUTPUT_CONTRACT_VERSION),
+    generatedAt: z.string().datetime({ offset: true }).optional(),
     outputSchema: z.string().min(1).max(160).optional(),
+    producer: z.string().min(1).max(160).optional(),
     projector: z.string().min(1).max(160).optional(),
     responseTimeMs: z.number().nonnegative().optional(),
     source: z.string().min(1).max(160).optional(),
     toolName: z.string().min(1).max(160).optional(),
+    traceRef: z.string().min(1).max(240).optional(),
   })
   .strict();
 

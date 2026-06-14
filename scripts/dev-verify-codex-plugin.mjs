@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -22,7 +22,8 @@ const report = {
     ],
     failureEnvelopePath: 'projectRuntime.failureEnvelopes',
     sourcePolicyPath: 'projectRuntime.sourcePolicy',
-    tool: 'alembic_mcp_status',
+    diagnosticsTool: 'alembic_codex_diagnostics',
+    statusTool: 'alembic_mcp_status',
   },
   steps: [],
   synced: null,
@@ -101,11 +102,16 @@ function readSyncedTargets() {
     return report.synced.targetRoots;
   }
   const plugin = readJson(join(root, 'plugins', 'alembic-codex', '.codex-plugin', 'plugin.json'));
+  const pluginRoot = join(root, 'plugins', 'alembic-codex');
+  const pluginNameAliases = [...new Set([plugin.name, basename(pluginRoot)])].filter(Boolean);
   const cacheRoot = resolve(options.codexHome || join(process.env.HOME || '', '.codex'));
-  return [
+  const candidates = [
     join(cacheRoot, 'plugins', 'cache', 'alembic-codex', plugin.name, plugin.version),
-    join(cacheRoot, 'plugins', 'cache', 'gxfn', plugin.name, plugin.version),
-  ].filter((target) => existsSync(join(target, '.mcp.json')));
+    ...pluginNameAliases.map((alias) =>
+      join(cacheRoot, 'plugins', 'cache', 'gxfn', alias, plugin.version)
+    ),
+  ];
+  return [...new Set(candidates)].filter((target) => existsSync(join(target, '.mcp.json')));
 }
 
 async function probeInstalledTarget(targetRoot) {
@@ -115,21 +121,19 @@ async function probeInstalledTarget(targetRoot) {
   const savedHome = join(tmpRoot, `home-${report.probes.length}`);
   const failedHome = join(tmpRoot, `failed-home-${report.probes.length}`);
   const first = await callMcpStatus(targetRoot, savedHome, { projectRoot: options.projectRoot });
-  assertProbe(
-    first.projectRootResolution?.source === 'explicit-option' &&
-      first.projectRootResolution?.trust === 'trusted',
-    `Explicit projectRoot was not trusted for ${targetRoot}: ${JSON.stringify(first.projectRootResolution)}`
-  );
-  const runtimeReadback = assertRuntimeReadback(first, marker, targetRoot);
+  assertStatusProjectRootReadback(first, targetRoot);
+  const diagnostics = await callMcpDiagnostics(targetRoot, savedHome, {
+    projectRoot: options.projectRoot,
+  });
+  assertDiagnosticsProjectRootReadback(diagnostics, targetRoot);
+  const runtimeReadback = assertRuntimeReadback(diagnostics, marker, targetRoot);
   const savedData = await callMcpTool(targetRoot, savedHome, 'alembic_mcp_status', {});
-  const savedResolution = savedData.projectRootResolution;
+  const savedResolution = summarizeStatus(savedData);
   assertProbe(
-    savedResolution?.source !== 'saved-project-root' &&
-      savedResolution?.path !== options.projectRoot &&
-      savedData.projectRoot !== options.projectRoot,
+    savedResolution.source !== 'saved-project-root' &&
+      savedResolution.projectRoot !== options.projectRoot,
     `Saved projectRoot was unexpectedly reused for ${targetRoot}: ${JSON.stringify({
-      projectRoot: savedData.projectRoot,
-      projectRootResolution: savedResolution,
+      statusReadback: savedResolution,
     })}`
   );
   const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_mcp_init', {});
@@ -144,6 +148,7 @@ async function probeInstalledTarget(targetRoot) {
     targetRoot,
     marker,
     explicit: summarizeStatus(first),
+    diagnostics: summarizeDiagnostics(diagnostics),
     runtimeReadback,
     saved: summarizeStatus(savedData),
     failClosed: {
@@ -157,6 +162,12 @@ async function probeInstalledTarget(targetRoot) {
 async function callMcpStatus(targetRoot, alembicHome, args) {
   const result = await callMcpTool(targetRoot, alembicHome, 'alembic_mcp_status', args);
   assertProbe(result.ok === true, `alembic_mcp_status failed: ${JSON.stringify(result)}`);
+  return result;
+}
+
+async function callMcpDiagnostics(targetRoot, alembicHome, args) {
+  const result = await callMcpTool(targetRoot, alembicHome, 'alembic_codex_diagnostics', args);
+  assertProbe(result.ok === true, `alembic_codex_diagnostics failed: ${JSON.stringify(result)}`);
   return result;
 }
 
@@ -236,13 +247,69 @@ function runStep(name, command, args, stepOptions = {}) {
 }
 
 function summarizeStatus(data) {
+  const project = objectFrom(data.project);
+  const resolution = objectFrom(data.projectRootResolution);
   return {
-    projectRoot: data.projectRoot,
+    ok: data.ok === true,
+    projectRoot:
+      stringFrom(project?.root) ??
+      stringFrom(project?.projectRoot) ??
+      stringFrom(data.projectRoot) ??
+      stringFrom(resolution?.path) ??
+      null,
     initialized: data.initialized,
-    source: data.projectRootResolution?.source,
-    trust: data.projectRootResolution?.trust,
-    rejected: data.projectRootResolution?.rejected,
+    source: stringFrom(resolution?.source),
+    trust: stringFrom(project?.trust) ?? stringFrom(resolution?.trust),
+    rejected:
+      typeof project?.trusted === 'boolean'
+        ? project.trusted !== true
+        : typeof resolution?.rejected === 'boolean'
+          ? resolution.rejected
+          : null,
+    status: stringFrom(data.status),
+    trusted:
+      typeof project?.trusted === 'boolean'
+        ? project.trusted
+        : stringFrom(resolution?.trust) === 'trusted',
   };
+}
+
+function summarizeDiagnostics(data) {
+  const resolution = objectFrom(data.projectRootResolution);
+  const runtime = objectFrom(data.projectRuntime);
+  const identity = objectFrom(runtime?.identity);
+  return {
+    ok: data.ok === true,
+    projectRoot: stringFrom(resolution?.path) ?? null,
+    runtimeProjectRoot: stringFrom(identity?.projectRoot) ?? null,
+    source: stringFrom(resolution?.source) ?? null,
+    trust: stringFrom(resolution?.trust) ?? null,
+  };
+}
+
+function assertStatusProjectRootReadback(data, targetRoot) {
+  const status = summarizeStatus(data);
+  assertProbe(
+    status.projectRoot === options.projectRoot,
+    `Status project root did not preserve explicit projectRoot for ${targetRoot}: ${JSON.stringify(status)}`
+  );
+  assertProbe(
+    status.trust === 'trusted' && status.trusted === true,
+    `Status project root was not trusted for ${targetRoot}: ${JSON.stringify(status)}`
+  );
+}
+
+function assertDiagnosticsProjectRootReadback(data, targetRoot) {
+  const diagnostics = summarizeDiagnostics(data);
+  assertProbe(
+    diagnostics.projectRoot === options.projectRoot &&
+      diagnostics.runtimeProjectRoot === options.projectRoot,
+    `Diagnostics project root did not preserve explicit projectRoot for ${targetRoot}: ${JSON.stringify(diagnostics)}`
+  );
+  assertProbe(
+    diagnostics.source === 'explicit-option' && diagnostics.trust === 'trusted',
+    `Diagnostics projectRootResolution was not trusted for ${targetRoot}: ${JSON.stringify(diagnostics)}`
+  );
 }
 
 function assertRuntimeReadback(data, marker, targetRoot) {
@@ -379,6 +446,10 @@ function expectedEntryModeForMarker(marker) {
 
 function objectFrom(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function stringFrom(value) {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function parseArgs(args) {

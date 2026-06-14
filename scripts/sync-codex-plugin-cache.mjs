@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +34,7 @@ const pluginManifest = readJson(join(pluginRoot, '.codex-plugin', 'plugin.json')
 const codexHome = resolve(options.codexHome || process.env.CODEX_HOME || join(homedir(), '.codex'));
 const marketplaceName = marketplace.name || 'gxfn';
 const pluginName = pluginManifest.name || pluginEntry.name;
+const pluginNameAliases = resolvePluginNameAliases();
 const pluginVersion = pluginManifest.version;
 if (!pluginVersion) {
   // cache 目录名必须跟随当前插件 manifest，缺失版本时直接失败，避免开发态同步落到旧版本槽位。
@@ -111,13 +112,30 @@ function findInstalledPluginRoots() {
           continue;
         }
         const manifest = readJson(manifestPath);
-        if (manifest.name === pluginName && manifest.version === pluginVersion) {
+        const manifestName = typeof manifest.name === 'string' ? manifest.name : '';
+        const manifestVersion = typeof manifest.version === 'string' ? manifest.version : '';
+        if (
+          manifestVersion === pluginVersion &&
+          (pluginNameAliases.includes(manifestName) || pluginNameAliases.includes(second))
+        ) {
           found.push(candidate);
         }
       }
     }
   }
   return found;
+}
+
+function resolvePluginNameAliases() {
+  const aliases = new Set([pluginName, pluginEntry.name, basename(pluginRoot)]);
+  const shellPackagePath = join(pluginRoot, 'package.json');
+  if (existsSync(shellPackagePath)) {
+    const shellPackage = readJson(shellPackagePath);
+    if (typeof shellPackage.name === 'string' && shellPackage.name.length > 0) {
+      aliases.add(shellPackage.name);
+    }
+  }
+  return [...aliases].filter((alias) => typeof alias === 'string' && alias.length > 0);
 }
 
 function syncTarget(targetRoot) {
@@ -299,6 +317,7 @@ function printSummary(input) {
     dryRun: input.dryRun,
     marketplaceName,
     pluginName,
+    pluginNameAliases,
     pluginVersion,
     pluginRoot,
     targetRoots,

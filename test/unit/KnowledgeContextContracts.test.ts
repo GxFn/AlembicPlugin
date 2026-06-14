@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
-import { getMcpOutputProjector } from '../../lib/runtime/mcp/output-contract.js';
+import {
+  createMcpStructuredToolResult,
+  getMcpOutputProjector,
+} from '../../lib/runtime/mcp/output-contract.js';
 import {
   createKnowledgeContextMcpResult,
   KNOWLEDGE_CONTEXT_AGENT_HOSTS,
@@ -233,5 +236,27 @@ describe('Project knowledge context four-tool contracts', () => {
         structuredContent: output,
       }).success
     ).toBe(false);
+  });
+
+  test('serializes knowledge context meta through the shared clean MCP envelope', () => {
+    const output = KnowledgeContextToolOutputSchema.parse({
+      ...sampleOutput('ready'),
+      meta: {
+        contractVersion: 1,
+        generatedAt: '2026-06-14T00:00:00Z',
+        producer: 'ProjectKnowledgeContextLayer',
+        traceRef: 'trace:knowledge-context',
+      },
+    });
+
+    const result = createMcpStructuredToolResult(output);
+
+    expect(result.structuredContent?.meta).toMatchObject({
+      contractVersion: 1,
+      generatedAt: '2026-06-14T00:00:00Z',
+      producer: 'ProjectKnowledgeContextLayer',
+      traceRef: 'trace:knowledge-context',
+    });
+    expect(result.content).toEqual([{ type: 'text', text: output.summary }]);
   });
 });
