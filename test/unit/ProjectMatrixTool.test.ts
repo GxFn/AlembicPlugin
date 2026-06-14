@@ -1,6 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 import { routeProjectMatrixTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 import { getPluginToolSurfaceEntry } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
@@ -9,6 +11,7 @@ import type { KnowledgeContextToolOutput } from '../../lib/service/project-knowl
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const projectRoot = path.resolve(process.cwd());
+const tempRoots: string[] = [];
 
 function createContext(entries = representativeKnowledgeEntries()): McpContext {
   return {
@@ -53,6 +56,12 @@ function structured(result: CallToolResult): KnowledgeContextToolOutput {
 }
 
 describe('alembic_project_matrix public MCP tool', () => {
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) {
+      fs.rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   test('is exposed through schema, tools list, and catalog surfaces', () => {
     expect(TOOL_SCHEMAS.alembic_project_matrix.safeParse({ operation: 'overview' }).success).toBe(
       true
@@ -132,6 +141,24 @@ describe('alembic_project_matrix public MCP tool', () => {
     expect(serialized).not.toContain('content markdown');
   });
 
+  test('uses workspace.config repoNames as the project matrix boundary', async () => {
+    const root = createWorkspaceFixtureProject();
+    const result = (await routeProjectMatrixTool(createContext(), {
+      budget: { itemLimit: 20, matrixNodeLimit: 80, relationHopLimit: 10 },
+      operation: 'overview',
+      projectRoot: root,
+    })) as CallToolResult;
+    const output = structured(result);
+    const serialized = JSON.stringify(output);
+
+    expect(serialized).toContain('AlembicPlugin');
+    expect(serialized).toContain('AlembicCore');
+    expect(serialized).not.toContain('Test');
+    expect(serialized).not.toContain('wakeflow-ledger');
+    expect(serialized).not.toContain('workspace-ledger');
+    expect(serialized).not.toContain('legacy-docs-do-not-use');
+  });
+
   test('reports degraded or partial data instead of pretending missing domains are ready', async () => {
     const result = (await routeProjectMatrixTool(createContext([]), {
       operation: 'overview',
@@ -150,3 +177,36 @@ describe('alembic_project_matrix public MCP tool', () => {
     );
   });
 });
+
+function createWorkspaceFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-matrix-workspace-fixture-'));
+  tempRoots.push(root);
+  fs.writeFileSync(
+    path.join(root, 'workspace.config.json'),
+    JSON.stringify(
+      {
+        repoNames: ['AlembicCore', 'AlembicPlugin'],
+        repositories: [
+          { name: 'AlembicCore', mode: 'external', path: 'AlembicCore' },
+          { name: 'AlembicPlugin', mode: 'external', path: 'AlembicPlugin' },
+          { name: 'Test', mode: 'internal', path: 'Test' },
+        ],
+      },
+      null,
+      2
+    )
+  );
+  writeFile(root, 'AlembicCore/src/index.ts', 'export const core = "core";\n');
+  writeFile(root, 'AlembicPlugin/lib/index.ts', 'export const plugin = "plugin";\n');
+  writeFile(root, 'Test/lib/index.ts', 'export const testSurface = true;\n');
+  writeFile(root, 'wakeflow-ledger/AlembicWorkspace/index.md', '# ledger\n');
+  writeFile(root, 'workspace-ledger/index.md', '# workspace ledger\n');
+  writeFile(root, 'legacy-docs-do-not-use/index.md', '# legacy\n');
+  return root;
+}
+
+function writeFile(root: string, relativePath: string, content: string) {
+  const target = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, content);
+}

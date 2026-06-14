@@ -11,6 +11,7 @@ import type {
 import type { ContextIndexNode, ContextIndexSnapshotOptions } from '../layer/index.js';
 import type { KnowledgeContextProjectionPayload } from '../layer/KnowledgeContextOutputProjector.js';
 import { defaultRefRegistry, stableRefSegment } from '../support/index.js';
+import { resolveProjectScopeSourceFolders } from './ProjectScopeFolders.js';
 
 export interface ProjectGraphNode {
   detailRefId?: string;
@@ -51,6 +52,11 @@ interface GraphBuild {
 interface FileCandidate {
   extension: string;
   relativePath: string;
+}
+
+interface ProjectWalkRoot {
+  absolutePath: string;
+  relativePrefix: string;
 }
 
 const ALLOWED_NODE_TYPES = [
@@ -379,37 +385,65 @@ function readEntrypoints(packageJson: Record<string, unknown>): string[] {
 
 function walkProject(projectRoot: string): FileCandidate[] {
   const files: FileCandidate[] = [];
-  const stack = ['.'];
+  const roots = resolveProjectWalkRoots(projectRoot);
   let directoryCount = 0;
-  while (stack.length > 0 && directoryCount < MAX_SCANNED_DIRECTORIES) {
-    const relativeDirectory = stack.pop() ?? '.';
-    const absoluteDirectory =
-      relativeDirectory === '.' ? projectRoot : path.join(projectRoot, relativeDirectory);
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(absoluteDirectory, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    directoryCount += 1;
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (entry.isDirectory()) {
-        if (!EXCLUDED_DIRECTORY_NAMES.has(entry.name)) {
-          stack.push(normalizeRelativePath(path.join(relativeDirectory, entry.name)));
+  for (const root of roots) {
+    const stack = ['.'];
+    while (stack.length > 0 && directoryCount < MAX_SCANNED_DIRECTORIES) {
+      const relativeDirectory = stack.pop() ?? '.';
+      const absoluteDirectory =
+        relativeDirectory === '.'
+          ? root.absolutePath
+          : path.join(root.absolutePath, relativeDirectory);
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(absoluteDirectory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      directoryCount += 1;
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (entry.isDirectory()) {
+          if (!EXCLUDED_DIRECTORY_NAMES.has(entry.name)) {
+            stack.push(normalizeRelativePath(path.join(relativeDirectory, entry.name)));
+          }
+          continue;
         }
-        continue;
-      }
-      if (!entry.isFile() || files.length >= MAX_SCANNED_FILES) {
-        continue;
-      }
-      const relativePath = normalizeRelativePath(path.join(relativeDirectory, entry.name));
-      const extension = path.extname(entry.name);
-      if (CODE_OR_CONFIG_EXTENSIONS.has(extension)) {
-        files.push({ extension, relativePath });
+        if (!entry.isFile() || files.length >= MAX_SCANNED_FILES) {
+          continue;
+        }
+        const relativePath = normalizeWalkedPath(
+          root.relativePrefix,
+          relativeDirectory,
+          entry.name
+        );
+        const extension = path.extname(entry.name);
+        if (CODE_OR_CONFIG_EXTENSIONS.has(extension)) {
+          files.push({ extension, relativePath });
+        }
       }
     }
   }
   return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+function resolveProjectWalkRoots(projectRoot: string): ProjectWalkRoot[] {
+  const folders = resolveProjectScopeSourceFolders(projectRoot);
+  if (folders.length === 0) {
+    return [{ absolutePath: projectRoot, relativePrefix: '' }];
+  }
+  return folders.map((folder) => ({
+    absolutePath: folder.absolutePath,
+    relativePrefix: folder.relativePath,
+  }));
+}
+
+function normalizeWalkedPath(prefix: string, relativeDirectory: string, fileName: string): string {
+  return normalizeRelativePath(
+    [prefix, relativeDirectory === '.' ? '' : relativeDirectory, fileName]
+      .filter((segment) => segment.length > 0)
+      .join('/')
+  );
 }
 
 function addDirectoryAndFileNodes(
@@ -589,7 +623,6 @@ function selectGraph(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
       return selectNeighborhood(build, input, 'impact');
     case 'neighborhood':
       return selectNeighborhood(build, input, 'neighborhood');
-    case 'query':
     default:
       return selectQuery(build, input);
   }

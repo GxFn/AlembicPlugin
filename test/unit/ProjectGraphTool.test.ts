@@ -82,6 +82,24 @@ describe('alembic_graph project graph tool', () => {
     expect(neighborhoodStructured.result).toMatchObject({ graphKind: 'project-internal' });
   });
 
+  test('uses workspace.config repoNames as the default graph boundary', async () => {
+    const projectRoot = createWorkspaceFixtureProject();
+    const result = await routeGraphTool(createContext(projectRoot), {
+      operation: 'stats',
+      projectRoot,
+      budget: { itemLimit: 100, matrixNodeLimit: 200, relationHopLimit: 10 },
+    });
+    const structured = result.structuredContent as Record<string, unknown>;
+    const serialized = JSON.stringify(structured);
+
+    expect(serialized).toContain('AlembicPlugin/lib/index.ts');
+    expect(serialized).toContain('AlembicCore/src/index.ts');
+    expect(serialized).not.toContain('Test');
+    expect(serialized).not.toContain('wakeflow-ledger');
+    expect(serialized).not.toContain('workspace-ledger');
+    expect(serialized).not.toContain('legacy-docs-do-not-use');
+  });
+
   test('rejects legacy Recipe graph input at the public schema boundary', () => {
     expect(GraphInput.safeParse({ nodeType: 'recipe' }).success).toBe(false);
     expect(GraphInput.safeParse({ nodeType: 'knowledge' }).success).toBe(false);
@@ -118,6 +136,43 @@ function createFixtureProject(): string {
     'import { helper } from "./helper";\nexport function run() { return helper(); }\n'
   );
   return root;
+}
+
+function createWorkspaceFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-workspace-fixture-'));
+  tempRoots.push(root);
+  fs.writeFileSync(
+    path.join(root, 'workspace.config.json'),
+    JSON.stringify(
+      {
+        repoNames: ['AlembicCore', 'AlembicPlugin'],
+        repositories: [
+          { name: 'AlembicCore', mode: 'external', path: 'AlembicCore' },
+          { name: 'AlembicPlugin', mode: 'external', path: 'AlembicPlugin' },
+          { name: 'Test', mode: 'internal', path: 'Test' },
+        ],
+      },
+      null,
+      2
+    )
+  );
+  writeFile(root, 'AlembicCore/src/index.ts', 'export const core = "core";\n');
+  writeFile(
+    root,
+    'AlembicPlugin/lib/index.ts',
+    'import { core } from "../../AlembicCore/src/index";\nexport const plugin = core;\n'
+  );
+  writeFile(root, 'Test/lib/index.ts', 'export const testSurface = true;\n');
+  writeFile(root, 'wakeflow-ledger/AlembicWorkspace/index.md', '# ledger\n');
+  writeFile(root, 'workspace-ledger/index.md', '# workspace ledger\n');
+  writeFile(root, 'legacy-docs-do-not-use/index.md', '# legacy\n');
+  return root;
+}
+
+function writeFile(root: string, relativePath: string, content: string) {
+  const target = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, content);
 }
 
 function createContext(projectRoot: string): McpContext {

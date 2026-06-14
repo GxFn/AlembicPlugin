@@ -1,3 +1,4 @@
+import { resolveSearchWorkspaceIdentity } from '@alembic/core/search';
 import type {
   KnowledgeContextDetailRef,
   KnowledgeContextSource,
@@ -68,14 +69,19 @@ export interface ContextIndexSnapshotOptions {
   vectorCandidateCount?: number;
 }
 
+interface ResolvedProjectIdentity {
+  projectId: string;
+  projectRoot?: string;
+}
+
 export function createContextIndexSnapshot(
   input: NormalizedKnowledgeContextInput,
   options: ContextIndexSnapshotOptions = {}
 ): ContextIndexSnapshot {
   const createdAt = new Date().toISOString();
   const freshness = createKnowledgeContextFreshnessByDomain(options.domainFreshness, createdAt);
-  const projectId = `project:${stableRefSegment(input.projectRoot ?? 'unknown')}`;
-  const snapshotId = `snapshot:${stableRefSegment(projectId)}:${input.tool}:${input.operation}`;
+  const projectIdentity = resolveProjectIdentity(input);
+  const snapshotId = `snapshot:${stableRefSegment(projectIdentity.projectId)}:${input.tool}:${input.operation}`;
   const snapshotRef = defaultRefRegistry.createDetailRef({
     budget: {
       detailLimit: input.budget.detailLimit,
@@ -95,7 +101,7 @@ export function createContextIndexSnapshot(
       'ContextIndexSnapshot is a rebuildable derived view of project, knowledge, recipeRelation, sourceGraph, vector, document, and runtime domains.',
     tool: input.tool,
   });
-  const defaultNodes = createDefaultProjectNodes(input, snapshotRef.id);
+  const defaultNodes = createDefaultProjectNodes(input, projectIdentity, snapshotRef.id);
   const budgetedNodes = defaultContextBudgeter.trimArray(
     options.projectNodes ?? defaultNodes,
     input.budget.matrixNodeLimit
@@ -109,8 +115,10 @@ export function createContextIndexSnapshot(
     rebuildable: true,
     snapshotId,
     project: {
-      projectId,
-      ...(input.projectRoot === undefined ? {} : { projectRoot: input.projectRoot }),
+      projectId: projectIdentity.projectId,
+      ...(projectIdentity.projectRoot === undefined
+        ? {}
+        : { projectRoot: projectIdentity.projectRoot }),
       ...(input.language === undefined ? {} : { language: input.language }),
     },
     projectMap: {
@@ -145,15 +153,29 @@ export function isContextIndexSnapshotSourceOfTruth(snapshot: ContextIndexSnapsh
   return snapshot.sourceOfTruth;
 }
 
+function resolveProjectIdentity(input: NormalizedKnowledgeContextInput): ResolvedProjectIdentity {
+  const workspace = resolveSearchWorkspaceIdentity({ projectRoot: input.projectRoot });
+  const projectRoot = workspace?.projectRoot ?? input.projectRoot;
+  const projectId =
+    workspace?.projectId ??
+    (projectRoot === undefined ? 'project:unknown' : `project:${stableRefSegment(projectRoot)}`);
+
+  return {
+    projectId,
+    ...(projectRoot === undefined ? {} : { projectRoot }),
+  };
+}
+
 function createDefaultProjectNodes(
   input: NormalizedKnowledgeContextInput,
+  projectIdentity: ResolvedProjectIdentity,
   detailRefId: string
 ): ContextIndexNode[] {
   const nodes: ContextIndexNode[] = [
     {
       detailRefId,
-      id: input.projectRoot === undefined ? 'project:unknown' : `project:${input.projectRoot}`,
-      label: input.projectRoot ?? 'Unknown project',
+      id: projectIdentity.projectId,
+      label: projectIdentity.projectRoot ?? 'Unknown project',
       type: 'project',
     },
   ];

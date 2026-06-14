@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
   ContextCache,
@@ -92,6 +95,29 @@ describe('ProjectKnowledgeContextLayer support layer foundation', () => {
     expect(snapshot.projectMap.nodes).toHaveLength(2);
     expect(isContextIndexSnapshotSourceOfTruth(snapshot)).toBe(false);
     expect(snapshot.detailRefs[0]?.id).toBe(secondSnapshot.detailRefs[0]?.id);
+  });
+
+  test('derives project identity from the Core search workspace contract', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-context-identity-'));
+    try {
+      const normalizer = new KnowledgeContextInputNormalizer();
+      const normalized = normalizer.normalize('alembic_search', {
+        operation: 'search',
+        projectRoot,
+        query: 'contract identity',
+      });
+      const snapshot = createContextIndexSnapshot(normalized);
+
+      expect(snapshot.project.projectRoot).toBe(projectRoot);
+      expect(snapshot.project.projectId).toMatch(/^[a-f0-9]{8}$/);
+      expect(snapshot.project.projectId).not.toBe('project:unknown');
+      expect(snapshot.projectMap.nodes[0]).toMatchObject({
+        id: snapshot.project.projectId,
+        label: projectRoot,
+      });
+    } finally {
+      fs.rmSync(projectRoot, { force: true, recursive: true });
+    }
   });
 
   test('selects matrix-first, search-first, graph-first, and prime-orchestrated routes', () => {

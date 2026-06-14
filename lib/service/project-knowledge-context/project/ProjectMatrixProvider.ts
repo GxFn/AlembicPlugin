@@ -8,6 +8,7 @@ import type {
 } from '../contracts/index.js';
 import type { KnowledgeContextDomainFreshness } from '../evidence/index.js';
 import { defaultRefRegistry, stableRefSegment } from '../support/index.js';
+import { resolveProjectScopeSourceFolders } from './ProjectScopeFolders.js';
 
 export interface ProjectMatrixNode {
   childCount?: number;
@@ -87,6 +88,12 @@ interface KnowledgeCatalog {
   itemCount: number;
   items: Record<string, unknown>[];
   sources: KnowledgeContextSource[];
+}
+
+interface ProjectTreeTopLevelEntry {
+  absolutePath: string;
+  isDirectory: boolean;
+  name: string;
 }
 
 const EXCLUDED_TOP_LEVEL_NAMES = new Set([
@@ -326,16 +333,12 @@ function collectProjectTreeParts(input: {
   const nodes = [rootNode];
   const relations: Record<string, unknown>[] = [];
   const detailRefs = [rootDetailRef];
-  const entries = readSortedEntries(projectRoot)
-    .filter((entry) => !EXCLUDED_TOP_LEVEL_NAMES.has(entry.name))
-    .filter((entry) => IMPORTANT_TOP_LEVEL_NAMES.has(entry.name) || entry.isDirectory())
-    .slice(0, MAX_TOP_LEVEL_NODES);
+  const entries = readProjectTreeTopLevelEntries(projectRoot).slice(0, MAX_TOP_LEVEL_NODES);
 
   for (const entry of entries) {
     const relPath = entry.name;
-    const absPath = path.join(projectRoot, relPath);
-    const childCount = entry.isDirectory() ? countVisibleChildren(absPath) : undefined;
-    const type = classifyNodeType(relPath, entry.isDirectory());
+    const childCount = entry.isDirectory ? countVisibleChildren(entry.absolutePath) : undefined;
+    const type = classifyNodeType(relPath, entry.isDirectory);
     const detailRef = createProjectDetailRef(projectRoot, relPath, type, observedAt);
     detailRefs.push(detailRef);
     const node: ProjectMatrixNode = {
@@ -352,7 +355,7 @@ function collectProjectTreeParts(input: {
     nodes.push(node);
     relations.push(createPartOfRelation(node, rootNode));
 
-    if (entry.isDirectory()) {
+    if (entry.isDirectory) {
       const childNodes = readDirectoryChildren(projectRoot, relPath, node.id, observedAt);
       for (const childNode of childNodes) {
         nodes.push(childNode);
@@ -385,6 +388,26 @@ function collectProjectTreeParts(input: {
     nodes,
     relations,
   };
+}
+
+function readProjectTreeTopLevelEntries(projectRoot: string): ProjectTreeTopLevelEntry[] {
+  const scopeFolders = resolveProjectScopeSourceFolders(projectRoot);
+  if (scopeFolders.length > 0) {
+    return scopeFolders.map((folder) => ({
+      absolutePath: folder.absolutePath,
+      isDirectory: true,
+      name: folder.relativePath,
+    }));
+  }
+
+  return readSortedEntries(projectRoot)
+    .filter((entry) => !EXCLUDED_TOP_LEVEL_NAMES.has(entry.name))
+    .filter((entry) => IMPORTANT_TOP_LEVEL_NAMES.has(entry.name) || entry.isDirectory())
+    .map((entry) => ({
+      absolutePath: path.join(projectRoot, entry.name),
+      isDirectory: entry.isDirectory(),
+      name: entry.name,
+    }));
 }
 
 function buildProjectTreeSources(
