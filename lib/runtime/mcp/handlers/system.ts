@@ -70,7 +70,7 @@ export async function health(ctx: McpContext) {
             candidates: { total: 0, pending: 0 },
           } as KnowledgeBaseStats);
         knowledgeBase.vectorIndex = {
-          documentCount: vsStats.documentCount ?? vsStats.totalDocuments ?? 0,
+          documentCount: resolveVectorDocumentCount(vsStats),
         };
       }
     }
@@ -136,6 +136,11 @@ export async function health(ctx: McpContext) {
     },
     meta: { tool: 'alembic_health' },
   });
+}
+
+function resolveVectorDocumentCount(stats: Record<string, unknown>): number {
+  const value = stats.documentCount ?? stats.totalDocuments ?? stats.count;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 let _pkgVersion: string | null = null;
