@@ -639,6 +639,110 @@ describe('alembic_search resident search enhancement', () => {
     });
   });
 
+  it('withholds resident vector candidates that miss bounded Recipe detail intent anchors', async () => {
+    const engineSearch = vi.fn(async () => {
+      throw new Error('embedded search should not run when resident search returns items');
+    });
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        items: [
+          item('service-container', 'ServiceContainer lazy initialization singleton pattern', 0.95),
+          item('layer-contract', 'layer-contract.json hard layer reference contract', 0.93),
+        ],
+        meta: {
+          attempted: true,
+          available: true,
+          actualMode: 'semantic',
+          requestedMode: 'auto',
+          residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
+          resultCount: 2,
+          route: 'alembic-resident-service',
+          searchMeta: {
+            actualMode: 'semantic',
+            requestedMode: 'semantic',
+            route: 'resident-search',
+            semanticUsed: true,
+            vectorUsed: true,
+          },
+          semanticUsed: true,
+          used: true,
+          vectorUsed: true,
+        },
+      })
+    );
+
+    const result = (await search(context({ engineSearch, residentSearch }), {
+      keywords: ['bounded', 'Recipe', 'detailRefs', 'expand', 'summary-only', 'get'],
+      limit: 3,
+      mode: 'auto',
+      query:
+        'how should I fetch bounded Recipe details with get expand detailRefs summary only content contract',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<Record<string, unknown>>;
+        result: { searchQuality?: Record<string, unknown> };
+        summary: string;
+      };
+    };
+
+    expect(result.structuredContent.items).toEqual([]);
+    expect(result.structuredContent.summary).toContain('no trusted candidate');
+    expect(result.structuredContent.inventory).toMatchObject({
+      noTrustedMatch: true,
+      trustedCandidateCount: 0,
+      weakCandidateCount: expect.any(Number),
+    });
+    expect(result.structuredContent.result.searchQuality).toMatchObject({
+      degradedReason: expect.stringContaining('bounded Recipe detail/get/expand/detailRefs'),
+      noTrustedMatch: true,
+    });
+  });
+
+  it('keeps bounded Recipe detail contract candidates with real retrieval anchors', async () => {
+    const engineSearch = vi.fn(async () => ({
+      items: [
+        item('service-container', 'ServiceContainer lazy initialization singleton pattern', 0.95),
+        item('layer-contract', 'layer-contract.json hard layer reference contract', 0.93),
+      ],
+      mode: 'weighted',
+      searchMeta: {
+        actualMode: 'weighted',
+        requestedMode: 'auto',
+        route: 'field-weighted',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    }));
+    const knowledgeService = knowledgeServiceFixture();
+
+    const result = (await search(context({ engineSearch, knowledgeService }), {
+      keywords: ['bounded', 'Recipe', 'detailRefs', 'expand', 'summary-only', 'get'],
+      limit: 3,
+      mode: 'auto',
+      query:
+        'how should I fetch bounded Recipe details with get expand detailRefs summary only content contract',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<{ id: string; scoreBreakdown: Record<string, unknown> }>;
+      };
+    };
+
+    expect(result.structuredContent.items).toEqual([
+      expect.objectContaining({
+        id: 'recipe-alpha',
+      }),
+    ]);
+    expect(result.structuredContent.items[0]?.scoreBreakdown).toMatchObject({
+      queryHits: expect.any(Number),
+    });
+    expect(result.structuredContent.inventory).toMatchObject({
+      noTrustedMatch: false,
+      trustedCandidateCount: 1,
+    });
+  });
+
   it('resolves get and expand through the real handler with stable detail refs and degraded vector diagnostics', async () => {
     const knowledgeService = knowledgeServiceFixture();
     const baseContext = context({ knowledgeService });

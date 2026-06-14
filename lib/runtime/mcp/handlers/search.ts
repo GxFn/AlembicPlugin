@@ -564,6 +564,7 @@ async function buildKnowledgeCandidates(
 }
 
 interface SearchRelevanceAssessment {
+  boundedDetailIntent: boolean;
   degradedReason?: string;
   items: KnowledgeRetrievalItem[];
   noTrustedMatch: boolean;
@@ -577,6 +578,7 @@ function assessSearchRelevance(
 ): SearchRelevanceAssessment {
   if (items.length === 0) {
     return {
+      boundedDetailIntent: false,
       degradedReason: 'Search returned no candidate items.',
       items: [],
       noTrustedMatch: true,
@@ -584,20 +586,17 @@ function assessSearchRelevance(
     };
   }
 
-  if (canTrustSemanticSearchEvidence(pipeline)) {
-    return {
-      items: [...items],
-      noTrustedMatch: false,
-      weakCandidateCount: 0,
-    };
-  }
-
   const queryTerms = relevanceTerms([pipeline.query, ...(args.keywords ?? [])]);
-  const specificQuery = queryTerms.length >= 2 || (args.keywords?.length ?? 0) > 0;
-  const trusted = items.filter((item) => candidateHasTrustedRelevance(item, specificQuery));
+  const profile: SearchRelevanceProfile = {
+    boundedDetailIntent: hasBoundedDetailIntent(queryTerms),
+    semanticEvidenceAvailable: hasSemanticSearchEvidence(pipeline),
+    specificQuery: queryTerms.length >= 2 || (args.keywords?.length ?? 0) > 0,
+  };
+  const trusted = items.filter((item) => candidateHasTrustedRelevance(item, profile));
   const weakCandidateCount = items.length - trusted.length;
   if (trusted.length > 0) {
     return {
+      boundedDetailIntent: profile.boundedDetailIntent,
       degradedReason:
         weakCandidateCount > 0
           ? 'Weak fallback candidates without query, keyword, sourceRef, or semantic evidence were withheld.'
@@ -609,15 +608,23 @@ function assessSearchRelevance(
   }
 
   return {
-    degradedReason:
-      'Fallback search produced only weak candidates without enough query, keyword, sourceRef, or semantic evidence.',
+    boundedDetailIntent: profile.boundedDetailIntent,
+    degradedReason: profile.boundedDetailIntent
+      ? 'Search produced only weak candidates without bounded Recipe detail/get/expand/detailRefs evidence.'
+      : 'Fallback search produced only weak candidates without enough query, keyword, sourceRef, or semantic evidence.',
     items: [],
     noTrustedMatch: true,
     weakCandidateCount: items.length,
   };
 }
 
-function canTrustSemanticSearchEvidence(pipeline: SearchPipelineResult): boolean {
+interface SearchRelevanceProfile {
+  boundedDetailIntent: boolean;
+  semanticEvidenceAvailable: boolean;
+  specificQuery: boolean;
+}
+
+function hasSemanticSearchEvidence(pipeline: SearchPipelineResult): boolean {
   return (
     vectorUsed(pipeline.searchMeta) ||
     (pipeline.residentAttempt?.meta.available === true &&
@@ -628,20 +635,35 @@ function canTrustSemanticSearchEvidence(pipeline: SearchPipelineResult): boolean
 
 function candidateHasTrustedRelevance(
   item: KnowledgeRetrievalItem,
-  specificQuery: boolean
+  profile: SearchRelevanceProfile
 ): boolean {
   const scoreBreakdown = item.scoreBreakdown ?? {};
   const queryHits = readNumber(scoreBreakdown.queryHits) ?? 0;
   const keywordHits = readNumber(scoreBreakdown.keywordHits) ?? 0;
   const sourceRefHits = readNumber(scoreBreakdown.sourceRefHits) ?? 0;
   const evidenceSignals = new Set(item.whyMatched ?? []);
-  if (sourceRefHits > 0 || keywordHits > 0 || evidenceSignals.has('intent-anchor')) {
+  const semanticSupport = candidateHasSemanticSupport(item, profile);
+  if (sourceRefHits > 0) {
     return true;
   }
-  if (specificQuery) {
-    return queryHits >= 2;
+  if (profile.boundedDetailIntent) {
+    return candidateHasBoundedDetailSupport(item, {
+      evidenceSignals,
+      keywordHits,
+      queryHits,
+      semanticSupport,
+    });
   }
-  return queryHits > 0;
+  if (evidenceSignals.has('intent-anchor')) {
+    return true;
+  }
+  if (keywordHits >= (profile.specificQuery ? 2 : 1)) {
+    return true;
+  }
+  if (profile.specificQuery) {
+    return queryHits >= 2 || (queryHits > 0 && semanticSupport);
+  }
+  return queryHits > 0 || semanticSupport;
 }
 
 function relevanceTerms(values: readonly string[]): string[] {
@@ -656,6 +678,102 @@ function relevanceTerms(values: readonly string[]): string[] {
   }
   return [...terms].slice(0, 80);
 }
+
+function hasBoundedDetailIntent(queryTerms: readonly string[]): boolean {
+  const terms = new Set(queryTerms);
+  const detailSignals = BOUNDED_DETAIL_INTENT_TERMS.filter((term) => terms.has(term)).length;
+  return detailSignals >= 2;
+}
+
+function candidateHasSemanticSupport(
+  item: KnowledgeRetrievalItem,
+  profile: SearchRelevanceProfile
+): boolean {
+  if (!profile.semanticEvidenceAvailable) {
+    return false;
+  }
+  const scoreBreakdown = item.scoreBreakdown ?? {};
+  return (
+    readNumber(scoreBreakdown.semanticScore) !== undefined ||
+    readNumber(scoreBreakdown.vectorEvidence) !== undefined ||
+    readNumber(scoreBreakdown.vectorScore) !== undefined ||
+    item.whyMatched?.includes('vector-rerank') === true ||
+    item.whyMatched?.includes('score-breakdown') === true
+  );
+}
+
+function candidateHasBoundedDetailSupport(
+  item: KnowledgeRetrievalItem,
+  evidence: {
+    evidenceSignals: Set<string>;
+    keywordHits: number;
+    queryHits: number;
+    semanticSupport: boolean;
+  }
+): boolean {
+  const support = boundedDetailSupportScore(item);
+  if (support < 2) {
+    return false;
+  }
+  if (evidence.evidenceSignals.has('intent-anchor') || evidence.semanticSupport) {
+    return true;
+  }
+  return evidence.queryHits >= 2 || evidence.keywordHits >= 2;
+}
+
+function boundedDetailSupportScore(item: KnowledgeRetrievalItem): number {
+  const text = searchableCandidateText(item);
+  let score = 0;
+  for (const pattern of BOUNDED_DETAIL_SUPPORT_PATTERNS) {
+    if (pattern.test(text)) {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+function searchableCandidateText(item: KnowledgeRetrievalItem): string {
+  return [
+    item.id,
+    item.title,
+    item.summary,
+    item.trigger,
+    item.kind,
+    item.language,
+    item.category,
+    item.contentPreview,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join('\n')
+    .toLowerCase();
+}
+
+const BOUNDED_DETAIL_INTENT_TERMS = [
+  'bounded',
+  'content',
+  'detail',
+  'detailrefs',
+  'details',
+  'expand',
+  'fetch',
+  'get',
+  'ref',
+  'refs',
+  'summary',
+];
+
+// 这些锚点把“检索 Recipe 详情”与普通 contract/get 等弱词区分开，避免向宿主暴露无关可信结果。
+const BOUNDED_DETAIL_SUPPORT_PATTERNS = [
+  /\balembic_search\b/u,
+  /\bdetail\s*refs?\b/u,
+  /\bdetailrefs?\b/u,
+  /\bexpand\b/u,
+  /\bstructuredcontent\b/u,
+  /\bknowledge-context\b/u,
+  /\bknowledge\s+context\b/u,
+  /\bsummary-only\b/u,
+  /\bbounded\b/u,
+];
 
 const GENERIC_RELEVANCE_TERMS = new Set([
   'alembic',
