@@ -97,10 +97,12 @@ interface ProjectTreeTopLevelEntry {
 }
 
 const EXCLUDED_TOP_LEVEL_NAMES = new Set([
+  '.DS_Store',
   '.git',
   '.workspace-active',
   '.workspace-local',
   '.tmp',
+  '.localized',
   'coverage',
   'dist',
   'node_modules',
@@ -136,6 +138,7 @@ const MAX_KEY_NODES = 12;
 const MAX_HOTSPOTS = 10;
 const MAX_KNOWLEDGE_CATEGORIES = 12;
 const MAX_REPRESENTATIVE_REFS = 6;
+const COARSE_KNOWLEDGE_CATEGORIES = new Set(['general', 'service', 'uncategorized', 'utility']);
 
 export class FileSystemProjectMatrixProvider implements ProjectMatrixProvider {
   resolveMatrix(input: ProjectMatrixResolveInput): ProjectMatrixProviderResult {
@@ -401,7 +404,7 @@ function readProjectTreeTopLevelEntries(projectRoot: string): ProjectTreeTopLeve
   }
 
   return readSortedEntries(projectRoot)
-    .filter((entry) => !EXCLUDED_TOP_LEVEL_NAMES.has(entry.name))
+    .filter(isVisibleProjectEntry)
     .filter((entry) => IMPORTANT_TOP_LEVEL_NAMES.has(entry.name) || entry.isDirectory())
     .map((entry) => ({
       absolutePath: path.join(projectRoot, entry.name),
@@ -445,7 +448,7 @@ function readDirectoryChildren(
 ): ProjectMatrixNode[] {
   const absDir = path.join(projectRoot, relDir);
   return readSortedEntries(absDir)
-    .filter((entry) => !EXCLUDED_TOP_LEVEL_NAMES.has(entry.name))
+    .filter(isVisibleProjectEntry)
     .slice(0, MAX_CHILDREN_PER_DIRECTORY)
     .map((entry) => {
       const relPath = path.join(relDir, entry.name);
@@ -507,7 +510,7 @@ function buildKnowledgeCatalog(
   const now = new Date().toISOString();
   const groups = new Map<string, ProjectMatrixKnowledgeEntry[]>();
   for (const entry of entries) {
-    const category = normalizePublicLabel(entry.category ?? entry.kind ?? 'uncategorized');
+    const category = normalizeKnowledgeCatalogCategory(entry);
     groups.set(category, [...(groups.get(category) ?? []), entry]);
   }
   for (const sourceRef of sourceRefs) {
@@ -906,6 +909,16 @@ function readSortedEntries(dir: string) {
   }
 }
 
+function isVisibleProjectEntry(entry: { name: string }): boolean {
+  return !EXCLUDED_TOP_LEVEL_NAMES.has(entry.name) && !isLowValueProjectEntryName(entry.name);
+}
+
+function isLowValueProjectEntryName(name: string): boolean {
+  return (
+    name.startsWith('.') || name.endsWith('~') || name.endsWith('.swp') || name.endsWith('.tmp')
+  );
+}
+
 function readProjectName(projectRoot: string): string {
   const packagePath = path.join(projectRoot, 'package.json');
   if (existsSync(packagePath)) {
@@ -929,7 +942,7 @@ function projectNameFromRoot(projectRoot?: string): string {
 }
 
 function countVisibleChildren(dir: string): number {
-  return readSortedEntries(dir).filter((entry) => !EXCLUDED_TOP_LEVEL_NAMES.has(entry.name)).length;
+  return readSortedEntries(dir).filter(isVisibleProjectEntry).length;
 }
 
 function createPartOfRelation(
@@ -1021,6 +1034,39 @@ function summarizeKnowledgeEntry(entry: ProjectMatrixKnowledgeEntry): string {
 function normalizePublicLabel(value: string): string {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized.slice(0, 120) : 'uncategorized';
+}
+
+function normalizeKnowledgeCatalogCategory(entry: ProjectMatrixKnowledgeEntry): string {
+  const original = normalizePublicLabel(entry.category ?? entry.kind ?? 'uncategorized');
+  if (!COARSE_KNOWLEDGE_CATEGORIES.has(original.toLowerCase())) {
+    return original;
+  }
+  const text = [entry.title, entry.description, entry.id, entry.kind, entry.language]
+    .filter(isNonEmptyString)
+    .join(' ')
+    .toLowerCase();
+  if (/\b(wakeflow|dispatch|controller|target|task[- ]?package|delivery)\b/.test(text)) {
+    return 'Wakeflow';
+  }
+  if (/\b(source[- ]?graph|symbol|caller|callee|impact|validation[- ]?plan)\b/.test(text)) {
+    return 'Source Graph';
+  }
+  if (/\b(mcp|tool|structuredcontent|catalog|public[- ]?surface)\b/.test(text)) {
+    return 'MCP';
+  }
+  if (/\b(runtime|daemon|resident|session|project[- ]?scope|bootstrap)\b/.test(text)) {
+    return 'Runtime';
+  }
+  if (/\b(boundary|scope|repo|repository|workspace|root)\b/.test(text)) {
+    return 'Boundary';
+  }
+  if (/\b(skill|agents\.md|readme|docs?|documentation)\b/.test(text)) {
+    return 'Docs/Skills';
+  }
+  if (/\b(recipe|knowledge|guard|decision|prime|search)\b/.test(text)) {
+    return 'Knowledge';
+  }
+  return original;
 }
 
 function uniqueStrings(values: string[]): string[] {

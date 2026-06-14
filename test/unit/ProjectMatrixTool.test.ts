@@ -153,10 +153,45 @@ describe('alembic_project_matrix public MCP tool', () => {
 
     expect(serialized).toContain('AlembicPlugin');
     expect(serialized).toContain('AlembicCore');
+    expect(serialized).not.toContain('.DS_Store');
     expect(serialized).not.toContain('Test');
     expect(serialized).not.toContain('wakeflow-ledger');
     expect(serialized).not.toContain('workspace-ledger');
     expect(serialized).not.toContain('legacy-docs-do-not-use');
+  });
+
+  test('derives useful catalog categories from coarse Utility and Service entries', async () => {
+    const result = (await routeProjectMatrixTool(
+      createContext([
+        {
+          category: 'Utility',
+          description: 'Controller return delivery envelope and task package routing.',
+          id: 'recipe-wakeflow-dispatch-gate',
+          kind: 'pattern',
+          language: 'typescript',
+          title: 'Wakeflow dispatch gate',
+        },
+        {
+          category: 'Service',
+          description: 'Callers, callees, and validation plan source graph workflow.',
+          id: 'recipe-source-graph-callers',
+          kind: 'rule',
+          language: 'typescript',
+          title: 'Source graph callers',
+        },
+      ]),
+      {
+        operation: 'catalog',
+        projectRoot,
+      }
+    )) as CallToolResult;
+    const output = structured(result);
+    const categories = (
+      (output.result?.catalog as { categories?: Array<{ category: string }> }).categories ?? []
+    ).map((entry) => entry.category);
+
+    expect(categories).toEqual(expect.arrayContaining(['Source Graph', 'Wakeflow']));
+    expect(categories).not.toEqual(expect.arrayContaining(['Service', 'Utility']));
   });
 
   test('reports degraded or partial data instead of pretending missing domains are ready', async () => {
@@ -197,6 +232,7 @@ function createWorkspaceFixtureProject(): string {
     )
   );
   writeFile(root, 'AlembicCore/src/index.ts', 'export const core = "core";\n');
+  writeFile(root, 'AlembicPlugin/.DS_Store', 'noise');
   writeFile(root, 'AlembicPlugin/lib/index.ts', 'export const plugin = "plugin";\n');
   writeFile(root, 'Test/lib/index.ts', 'export const testSurface = true;\n');
   writeFile(root, 'wakeflow-ledger/AlembicWorkspace/index.md', '# ledger\n');

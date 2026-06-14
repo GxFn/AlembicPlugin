@@ -230,9 +230,11 @@ function recipeEntries() {
       kind: 'fact',
       language: 'typescript',
       category: 'mcp',
-      description: 'Report resident/vector availability or degraded diagnostics for search surfaces.',
+      description:
+        'Report resident/vector availability or degraded diagnostics for search surfaces.',
       content: {
-        markdown: 'Resident and vector routes may be unavailable; the output must say so explicitly.',
+        markdown:
+          'Resident and vector routes may be unavailable; the output must say so explicitly.',
       },
       quality: {
         overall: 0.73,
@@ -247,9 +249,7 @@ function knowledgeServiceFixture() {
   const entries = recipeEntries();
   return {
     get: vi.fn(async (refId: string) => {
-      const normalized = refId.startsWith('knowledge:')
-        ? refId.slice('knowledge:'.length)
-        : refId;
+      const normalized = refId.startsWith('knowledge:') ? refId.slice('knowledge:'.length) : refId;
       return entries.find((entry) => entry.id === normalized) ?? null;
     }),
     list: vi.fn(async () => ({
@@ -510,7 +510,7 @@ describe('alembic_search resident search enhancement', () => {
 
   it('falls back to embedded search when resident search is unavailable', async () => {
     const engineSearch = vi.fn(async () => ({
-      items: [item('embedded-1', 'Embedded baseline', 0.81)],
+      items: [item('embedded-1', 'Resident search embedded baseline', 0.81)],
       mode: 'weighted',
       searchMeta: {
         route: 'field-weighted',
@@ -559,6 +559,83 @@ describe('alembic_search resident search enhancement', () => {
         reason: 'daemon_state_missing',
         used: false,
       },
+    });
+  });
+
+  it('withholds weak fallback candidates that have no query, keyword, or source evidence', async () => {
+    const engineSearch = vi.fn(async () => ({
+      items: [item('repo-boundary-ratchet', 'Repo Boundary Ratchet', 0.91)],
+      mode: 'weighted',
+      searchMeta: {
+        actualMode: 'weighted',
+        requestedMode: 'auto',
+        route: 'field-weighted',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    }));
+    const knowledgeService = knowledgeServiceFixture();
+
+    const result = (await search(context({ engineSearch, knowledgeService }), {
+      keywords: ['get', 'expand', 'detailRefs'],
+      limit: 3,
+      mode: 'auto',
+      query: 'old public surface retired tools get expand detailRefs',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<Record<string, unknown>>;
+        result: { searchQuality?: Record<string, unknown> };
+        status: string;
+        summary: string;
+      };
+    };
+
+    expect(result.structuredContent.status).toBe('degraded');
+    expect(result.structuredContent.items).toEqual([]);
+    expect(result.structuredContent.summary).toContain('no trusted candidate');
+    expect(result.structuredContent.inventory).toMatchObject({
+      noTrustedMatch: true,
+      trustedCandidateCount: 0,
+    });
+    expect(result.structuredContent.result.searchQuality).toMatchObject({
+      noTrustedMatch: true,
+      weakCandidateCount: expect.any(Number),
+    });
+  });
+
+  it('keeps fallback candidates when the lexical evidence matches the caller intent', async () => {
+    const engineSearch = vi.fn(async () => ({
+      items: [item('repo-boundary-ratchet', 'Repo Boundary Ratchet', 0.91)],
+      mode: 'weighted',
+      searchMeta: {
+        actualMode: 'weighted',
+        requestedMode: 'auto',
+        route: 'field-weighted',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    }));
+    const knowledgeService = knowledgeServiceFixture();
+
+    const result = (await search(context({ engineSearch, knowledgeService }), {
+      limit: 3,
+      mode: 'auto',
+      query: 'repo boundary ratchet',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<{ id: string; scoreBreakdown: Record<string, unknown> }>;
+      };
+    };
+
+    expect(result.structuredContent.items[0]).toMatchObject({
+      id: 'repo-boundary-ratchet',
+      scoreBreakdown: { queryHits: 3 },
+    });
+    expect(result.structuredContent.inventory).toMatchObject({
+      noTrustedMatch: false,
+      trustedCandidateCount: expect.any(Number),
     });
   });
 

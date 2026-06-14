@@ -93,9 +93,7 @@ export function scoreCandidate(
 }
 
 function tokenize(value: string): string[] {
-  return value
-    .toLowerCase()
-    .split(/[^a-z0-9_./:-]+/i)
+  return (value.toLowerCase().match(/[\p{L}\p{N}_./:-]+/gu) ?? [])
     .map((part) => part.trim())
     .filter((part) => part.length >= 2)
     .slice(0, 40);

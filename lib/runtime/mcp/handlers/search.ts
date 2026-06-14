@@ -117,7 +117,9 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   }
   const projectRoot = resolveSearchProjectRoot(ctx, args);
   const pipeline = await runSearchPipeline(ctx, args);
-  const knowledgeItems = await buildKnowledgeCandidates(ctx, args, pipeline);
+  const candidateItems = await buildKnowledgeCandidates(ctx, args, pipeline);
+  const relevance = assessSearchRelevance(candidateItems, args, pipeline);
+  const knowledgeItems = relevance.items;
   const relationProvider = new DefaultRecipeRelationChainProvider();
   const relationChains = knowledgeItems.flatMap((item) =>
     relationProvider.expandRecipeRelationChains(item.id, relationHopLimit(args), {
@@ -134,16 +136,19 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   const payload: KnowledgeContextProjectionPayload = {
     detailRefs,
     inventory: {
-      candidateCount: knowledgeItems.length,
+      candidateCount: candidateItems.length,
       candidateSources: pipeline.residentAttempt?.meta.available
         ? ['resident-search', 'embedded-search']
         : ['embedded-search'],
       kindCounts: pipeline.kindCounts,
+      noTrustedMatch: relevance.noTrustedMatch,
       operation: 'search',
       recipeRelationCount: relationChains.length,
+      trustedCandidateCount: knowledgeItems.length,
+      weakCandidateCount: relevance.weakCandidateCount,
     },
     items: knowledgeItems.map(projectKnowledgeItem),
-    nextActions: nextActionsForSearch(knowledgeItems, detailRefs),
+    nextActions: nextActionsForSearch(knowledgeItems, detailRefs, pipeline.query, relevance),
     relations: relationChains.map((chain) => ({ ...chain })),
     result: {
       actualMode: pipeline.actualMode,
@@ -154,6 +159,12 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       residentSearch: sanitizeResidentSearchMeta(pipeline.residentAttempt?.meta),
       residentVector: sanitizeResidentVector(pipeline.searchMeta.residentVector),
       searchMeta: sanitizeSearchMeta(pipeline.searchMeta),
+      searchQuality: {
+        degradedReason: relevance.degradedReason,
+        noTrustedMatch: relevance.noTrustedMatch,
+        trustedCandidateCount: knowledgeItems.length,
+        weakCandidateCount: relevance.weakCandidateCount,
+      },
       totalResults: knowledgeItems.length,
       vector: {
         available: vectorAvailable(pipeline.searchMeta),
@@ -161,7 +172,9 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       },
     },
     sources,
-    summary: `Knowledge search found ${knowledgeItems.length} candidate(s) for "${pipeline.query}".`,
+    summary: relevance.noTrustedMatch
+      ? `Knowledge search found no trusted candidate for "${pipeline.query}"; weak fallback matches were withheld.`
+      : `Knowledge search found ${knowledgeItems.length} trusted candidate(s) for "${pipeline.query}".`,
   };
 
   return defaultProjectKnowledgeContextLayer.resolveMcpResult(
@@ -176,7 +189,14 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       payload,
       snapshot: {
         domainFreshness: {
-          knowledge: { state: 'ready' },
+          knowledge: relevance.noTrustedMatch
+            ? {
+                state: 'stale',
+                degradedReason:
+                  relevance.degradedReason ??
+                  'No candidate had enough lexical, keyword, sourceRef, or semantic evidence to trust.',
+              }
+            : { state: 'ready' },
           recipeRelation: {
             state: relationChains.length > 0 ? 'ready' : 'stale',
             degradedReason:
@@ -543,6 +563,111 @@ async function buildKnowledgeCandidates(
   );
 }
 
+interface SearchRelevanceAssessment {
+  degradedReason?: string;
+  items: KnowledgeRetrievalItem[];
+  noTrustedMatch: boolean;
+  weakCandidateCount: number;
+}
+
+function assessSearchRelevance(
+  items: readonly KnowledgeRetrievalItem[],
+  args: SearchArgs,
+  pipeline: SearchPipelineResult
+): SearchRelevanceAssessment {
+  if (items.length === 0) {
+    return {
+      degradedReason: 'Search returned no candidate items.',
+      items: [],
+      noTrustedMatch: true,
+      weakCandidateCount: 0,
+    };
+  }
+
+  if (canTrustSemanticSearchEvidence(pipeline)) {
+    return {
+      items: [...items],
+      noTrustedMatch: false,
+      weakCandidateCount: 0,
+    };
+  }
+
+  const queryTerms = relevanceTerms([pipeline.query, ...(args.keywords ?? [])]);
+  const specificQuery = queryTerms.length >= 2 || (args.keywords?.length ?? 0) > 0;
+  const trusted = items.filter((item) => candidateHasTrustedRelevance(item, specificQuery));
+  const weakCandidateCount = items.length - trusted.length;
+  if (trusted.length > 0) {
+    return {
+      degradedReason:
+        weakCandidateCount > 0
+          ? 'Weak fallback candidates without query, keyword, sourceRef, or semantic evidence were withheld.'
+          : undefined,
+      items: trusted,
+      noTrustedMatch: false,
+      weakCandidateCount,
+    };
+  }
+
+  return {
+    degradedReason:
+      'Fallback search produced only weak candidates without enough query, keyword, sourceRef, or semantic evidence.',
+    items: [],
+    noTrustedMatch: true,
+    weakCandidateCount: items.length,
+  };
+}
+
+function canTrustSemanticSearchEvidence(pipeline: SearchPipelineResult): boolean {
+  return (
+    vectorUsed(pipeline.searchMeta) ||
+    (pipeline.residentAttempt?.meta.available === true &&
+      pipeline.residentAttempt.meta.used !== false &&
+      pipeline.residentAttempt.items.length > 0)
+  );
+}
+
+function candidateHasTrustedRelevance(
+  item: KnowledgeRetrievalItem,
+  specificQuery: boolean
+): boolean {
+  const scoreBreakdown = item.scoreBreakdown ?? {};
+  const queryHits = readNumber(scoreBreakdown.queryHits) ?? 0;
+  const keywordHits = readNumber(scoreBreakdown.keywordHits) ?? 0;
+  const sourceRefHits = readNumber(scoreBreakdown.sourceRefHits) ?? 0;
+  const evidenceSignals = new Set(item.whyMatched ?? []);
+  if (sourceRefHits > 0 || keywordHits > 0 || evidenceSignals.has('intent-anchor')) {
+    return true;
+  }
+  if (specificQuery) {
+    return queryHits >= 2;
+  }
+  return queryHits > 0;
+}
+
+function relevanceTerms(values: readonly string[]): string[] {
+  const terms = new Set<string>();
+  for (const value of values) {
+    for (const match of value.toLowerCase().match(/[\p{L}\p{N}_./:-]+/gu) ?? []) {
+      const term = match.trim();
+      if (term.length >= 2 && !GENERIC_RELEVANCE_TERMS.has(term)) {
+        terms.add(term);
+      }
+    }
+  }
+  return [...terms].slice(0, 80);
+}
+
+const GENERIC_RELEVANCE_TERMS = new Set([
+  'alembic',
+  'context',
+  'knowledge',
+  'mcp',
+  'project',
+  'recipe',
+  'tool',
+  'tools',
+]);
+
 async function listKnowledgeEntries(
   ctx: McpContext,
   args: SearchArgs,
@@ -767,8 +892,27 @@ function createKnowledgeSource(
 
 function nextActionsForSearch(
   items: readonly KnowledgeRetrievalItem[],
-  detailRefs: readonly KnowledgeContextDetailRef[]
+  detailRefs: readonly KnowledgeContextDetailRef[],
+  query: string,
+  relevance: SearchRelevanceAssessment
 ): KnowledgeContextNextAction[] {
+  if (relevance.noTrustedMatch) {
+    return [
+      {
+        operation: 'search',
+        reason: `Refine "${query}" with concrete module names, symbols, source refs, or narrower keywords before trusting fallback knowledge.`,
+        required: false,
+        tool: 'alembic_search',
+      },
+      {
+        operation: 'overview',
+        reason:
+          'Use the project matrix to choose a bounded project area before retrying knowledge search.',
+        required: false,
+        tool: 'alembic_project_matrix',
+      },
+    ];
+  }
   return items.slice(0, 3).map((item, index) => ({
     detailRefId: detailRefs[index]?.id,
     operation: 'expand',

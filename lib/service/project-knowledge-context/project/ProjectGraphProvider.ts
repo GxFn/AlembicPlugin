@@ -171,7 +171,7 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
           sourceGraphStatus: input.sourceGraphRef ? 'linked' : 'not-supplied',
         },
         items: selection.items,
-        matrixNodes: projectNodes.map((node) => ({ ...node })),
+        matrixNodes: selection.matrixNodes,
         nextActions: nextActionsFor(operation, input),
         relations: selection.relations,
         result: selection.result,
@@ -608,6 +608,7 @@ function resolveRelativeImport(
 
 interface GraphSelection {
   items: Record<string, unknown>[];
+  matrixNodes: Record<string, unknown>[];
   relations: Record<string, unknown>[];
   result: Record<string, unknown>;
 }
@@ -632,20 +633,33 @@ function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
   const filteredRelations = filterRelations(build.relations, input);
   const itemLimit = input.budget?.itemLimit ?? 20;
   const relationLimit = input.budget?.relationHopLimit ?? 2;
-  const nodeMatches = build.nodes.filter((node) => {
-    if (input.nodeId && node.id !== input.nodeId) {
-      return false;
-    }
-    if (input.nodeType && node.nodeType !== input.nodeType) {
-      return false;
-    }
-    if (input.query) {
+  const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
+  const nodeMatches = build.nodes
+    .map((node) => {
+      if (input.nodeId && node.id !== input.nodeId) {
+        return null;
+      }
+      if (input.nodeType && node.nodeType !== input.nodeType) {
+        return null;
+      }
+      if (queryTerms.length === 0) {
+        return { matchScore: 1, node, queryMatchedTerms: [] };
+      }
       const text = `${node.id} ${node.label} ${node.path ?? ''}`.toLowerCase();
-      return text.includes(input.query.toLowerCase());
-    }
-    return true;
-  });
-  const nodeIds = new Set(nodeMatches.map((node) => node.id));
+      const queryMatchedTerms = queryTerms.filter((term) => text.includes(term));
+      if (queryMatchedTerms.length === 0) {
+        return null;
+      }
+      return { matchScore: queryMatchedTerms.length, node, queryMatchedTerms };
+    })
+    .filter(
+      (
+        entry
+      ): entry is { matchScore: number; node: ProjectGraphNode; queryMatchedTerms: string[] } =>
+        entry !== null
+    )
+    .sort((a, b) => b.matchScore - a.matchScore || a.node.id.localeCompare(b.node.id));
+  const nodeIds = new Set(nodeMatches.map((entry) => entry.node.id));
   const relations = filteredRelations
     .filter((relation) => {
       if (input.nodeId) {
@@ -654,12 +668,24 @@ function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
       return nodeIds.has(relation.fromId) || nodeIds.has(relation.toId);
     })
     .slice(0, Math.max(relationLimit * 20, 20));
+  const items = nodeMatches.slice(0, itemLimit).map((entry) => ({
+    ...projectNodeToOutput(entry.node),
+    ...(entry.queryMatchedTerms.length > 0 ? { queryMatchedTerms: entry.queryMatchedTerms } : {}),
+  }));
   return {
-    items: nodeMatches.slice(0, itemLimit).map(projectNodeToOutput),
+    items,
+    matrixNodes: items,
     relations: relations.map(projectRelationToOutput),
     result: {
       graphKind: 'project-internal',
+      insufficientSourceGraph:
+        !input.sourceGraphRef && input.query !== undefined && items.length === 0,
+      noMatchReason:
+        input.query !== undefined && items.length === 0
+          ? 'No bounded project graph nodes matched the focused query terms.'
+          : undefined,
       operation: 'query',
+      queryMatchMode: queryTerms.length > 0 ? 'term-overlap' : 'unfiltered',
       queryMatchedNodeCount: nodeMatches.length,
       sourceOfTruth: false,
     },
@@ -668,8 +694,10 @@ function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
 
 function selectStats(build: GraphBuild, input: ProjectGraphInput): GraphSelection {
   const relationLimit = input.budget?.relationHopLimit ?? 10;
+  const items = build.nodes.slice(0, 20).map(projectNodeToOutput);
   return {
-    items: build.nodes.slice(0, 20).map(projectNodeToOutput),
+    items,
+    matrixNodes: items,
     relations: build.relations.slice(0, relationLimit).map(projectRelationToOutput),
     result: {
       graphKind: 'project-internal',
@@ -701,11 +729,13 @@ function selectNeighborhood(
     input.relationType
   );
   const itemLimit = input.budget?.itemLimit ?? 20;
+  const items = build.nodes
+    .filter((node) => traversed.nodeIds.has(node.id))
+    .slice(0, itemLimit)
+    .map(projectNodeToOutput);
   return {
-    items: build.nodes
-      .filter((node) => traversed.nodeIds.has(node.id))
-      .slice(0, itemLimit)
-      .map(projectNodeToOutput),
+    items,
+    matrixNodes: items,
     relations: traversed.relations.map(projectRelationToOutput),
     result: {
       depthReached: traversed.depthReached,
@@ -722,6 +752,7 @@ function selectPath(build: GraphBuild, input: ProjectGraphInput): GraphSelection
   if (!input.fromId || !input.toId) {
     return {
       items: [],
+      matrixNodes: [],
       relations: [],
       result: {
         found: false,
@@ -744,8 +775,10 @@ function selectPath(build: GraphBuild, input: ProjectGraphInput): GraphSelection
     nodeIds.add(relation.fromId);
     nodeIds.add(relation.toId);
   }
+  const items = build.nodes.filter((node) => nodeIds.has(node.id)).map(projectNodeToOutput);
   return {
-    items: build.nodes.filter((node) => nodeIds.has(node.id)).map(projectNodeToOutput),
+    items,
+    matrixNodes: items,
     relations: pathResult.path.map(projectRelationToOutput),
     result: {
       depth: pathResult.depth,
@@ -762,6 +795,7 @@ function selectPath(build: GraphBuild, input: ProjectGraphInput): GraphSelection
 function missingNodeSelection(operation: 'impact' | 'neighborhood'): GraphSelection {
   return {
     items: [],
+    matrixNodes: [],
     relations: [],
     result: {
       graphKind: 'project-internal',
@@ -933,6 +967,18 @@ function countBy<T>(values: T[], keyOf: (value: T) => string): Record<string, nu
   }
   return counts;
 }
+
+function tokenizeGraphQuery(query: string): string[] {
+  return Array.from(
+    new Set(
+      (query.toLowerCase().match(/[\p{L}\p{N}_./:-]+/gu) ?? [])
+        .map((term) => term.trim())
+        .filter((term) => term.length >= 2 && !GENERIC_GRAPH_QUERY_TERMS.has(term))
+    )
+  ).slice(0, 40);
+}
+
+const GENERIC_GRAPH_QUERY_TERMS = new Set(['alembic', 'graph', 'project', 'source']);
 
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)

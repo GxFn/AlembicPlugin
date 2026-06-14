@@ -200,6 +200,9 @@ interface PrimeKnowledgeContextProjection {
   recipeRelationCount: number;
 }
 
+type PrimeProjectGraphResult = ReturnType<typeof defaultProjectGraphProvider.resolveProjectGraph>;
+type PrimeProjectMatrixResult = ReturnType<typeof defaultProjectMatrixProvider.resolveMatrix>;
+
 interface AgentVectorPlan {
   keywordQueries: string[];
   language: string | null;
@@ -502,10 +505,12 @@ function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     residentSearch: input.primeSearch.searchResult?.searchMeta.residentSearch ?? null,
   });
   const material = buildPrimeMaterialProjection(input.intake, input.primeSearch);
+  const effectiveSearchDegraded =
+    input.primeSearch.searchDegraded || material.primeKnowledgeMaterial.status === 'degraded';
   const status = resolvePrimeStatus({
     primeKnowledgeMaterial: material.primeKnowledgeMaterial,
     retrievalConsumer: material.retrievalConsumer,
-    searchDegraded: input.primeSearch.searchDegraded,
+    searchDegraded: effectiveSearchDegraded,
     searchResult: input.primeSearch.searchResult,
     skippedReason: input.primeSearch.skippedReason,
   });
@@ -518,7 +523,7 @@ function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     primeKnowledgeMaterial: material.primeKnowledgeMaterial,
     primeRef: input.primeRef,
     result,
-    searchDegraded: input.primeSearch.searchDegraded,
+    searchDegraded: effectiveSearchDegraded,
     searchResult: input.primeSearch.searchResult,
   });
   const knowledgeContext = buildPrimeReadyKnowledgeContext({
@@ -555,47 +560,13 @@ function buildPrimeReadyKnowledgeContext(
   });
   const interaction =
     defaultProjectKnowledgeContextLayer.resolveInteractionState(primeContextInput);
-  const acceptedKnowledgeEntries = input.material.primeKnowledgeMaterial.acceptedKnowledge.map(
-    primeKnowledgeToMatrixEntry
-  );
-  const projectMatrix = defaultProjectMatrixProvider.resolveMatrix({
-    activeFile: input.intake.hostIntentInput.activeFile,
-    knowledgeEntries: acceptedKnowledgeEntries,
-    operation: 'overview',
-    projectRoot: input.effectiveProjectRoot,
-    sourceEvidenceRefs: input.args.sourceEvidenceRefs,
-    sourceGraphRef: input.args.sourceGraphRef,
-    sourceRefs: input.args.sourceRefs,
-  });
-  const projectGraph = shouldIncludePrimeProjectGraph(input)
-    ? defaultProjectGraphProvider.resolveProjectGraph(
-        ProjectGraphInputSchema.parse({
-          activeFile: input.intake.hostIntentInput.activeFile,
-          agentHost: input.intake.agentHost,
-          budget: {
-            contentCharLimit: 1200,
-            detailLimit: 6,
-            itemLimit: 6,
-            matrixNodeLimit: 8,
-            nextActionLimit: 3,
-            relationHopLimit: 2,
-          },
-          inputSource: input.intake.inputSource,
-          intentKind: input.intake.intentKind,
-          operation: 'neighborhood',
-          projectRoot: input.effectiveProjectRoot,
-          query: input.intake.hostIntentFrame.recognizedIntentDraft.query,
-          sourceEvidenceRefs: input.args.sourceEvidenceRefs,
-          sourceGraphRef: input.args.sourceGraphRef,
-          sourceRefs: input.args.sourceRefs,
-        })
-      )
-    : null;
+  const projectMatrix = resolvePrimeReadyProjectMatrix(input);
+  const projectGraph = resolvePrimeReadyProjectGraph(input);
   const relationEvidence = input.material.retrievalConsumer?.relationEvidence;
   const recipeRelations = relationEvidence?.evidence ?? [];
-  const vectorCandidateCount = input.primeSearch.searchResult?.searchMeta.residentSearch?.vectorUsed
-    ? input.primeSearch.searchResult.searchMeta.resultCount
-    : 0;
+  const vectorCandidateCount = countPrimeVectorCandidates(input.primeSearch.searchResult);
+  const effectiveSearchDegraded =
+    input.primeSearch.searchDegraded || input.material.primeKnowledgeMaterial.status === 'degraded';
   const payload = buildPrimeKnowledgeContextPayload({
     graphPayload: projectGraph?.payload ?? null,
     interaction: { ...interaction },
@@ -605,49 +576,21 @@ function buildPrimeReadyKnowledgeContext(
     projectGraphIncluded: projectGraph !== null,
     projectMatrix,
     recipeRelations,
-    searchDegraded: input.primeSearch.searchDegraded,
+    searchDegraded: effectiveSearchDegraded,
     searchResult: input.primeSearch.searchResult,
     status: input.status,
   });
   const output = defaultProjectKnowledgeContextLayer.resolvePrimeContext(primeContextInput, {
     payload,
     snapshot: {
-      domainFreshness: {
-        ...projectMatrix.domainFreshness,
-        knowledge: {
-          state:
-            input.material.primeKnowledgeMaterial.acceptedKnowledge.length > 0 ||
-            input.material.primeKnowledgeMaterial.acceptedGuards.length > 0
-              ? 'ready'
-              : input.primeSearch.searchDegraded
-                ? 'stale'
-                : 'partial',
-          degradedReason:
-            input.material.primeKnowledgeMaterial.acceptedKnowledge.length > 0 ||
-            input.material.primeKnowledgeMaterial.acceptedGuards.length > 0
-              ? undefined
-              : input.primeSearch.searchDegraded
-                ? 'Prime search degraded before accepted knowledge could be selected.'
-                : 'Prime search returned no accepted Recipe or Guard material.',
-        },
-        recipeRelation: {
-          state: recipeRelations.length > 0 ? 'ready' : 'partial',
-          degradedReason:
-            recipeRelations.length > 0
-              ? undefined
-              : 'No Recipe relation-chain evidence was available in the prime retrieval metadata.',
-        },
-        vector: {
-          state: vectorCandidateCount > 0 ? 'ready' : 'partial',
-          degradedReason:
-            vectorCandidateCount > 0
-              ? undefined
-              : 'Vector/rerank evidence was unavailable or unused for this prime retrieval.',
-        },
-        ...(projectGraph?.snapshot.domainFreshness?.sourceGraph
-          ? { sourceGraph: projectGraph.snapshot.domainFreshness.sourceGraph }
-          : {}),
-      },
+      domainFreshness: buildPrimeReadyDomainFreshness({
+        material: input.material.primeKnowledgeMaterial,
+        projectGraph,
+        projectMatrix,
+        recipeRelations,
+        searchDegraded: effectiveSearchDegraded,
+        vectorCandidateCount,
+      }),
       knowledgeItemCount:
         input.material.primeKnowledgeMaterial.acceptedKnowledge.length +
         input.material.primeKnowledgeMaterial.acceptedGuards.length,
@@ -662,6 +605,111 @@ function buildPrimeReadyKnowledgeContext(
     projectGraphIncluded: projectGraph !== null,
     projectMatrixSummary: projectMatrix.summary,
     recipeRelationCount: recipeRelations.length,
+  };
+}
+
+function resolvePrimeReadyProjectMatrix(
+  input: PrimeHandlerReadyInput & {
+    material: PrimeMaterialProjection;
+  }
+): PrimeProjectMatrixResult {
+  const acceptedKnowledgeEntries = input.material.primeKnowledgeMaterial.acceptedKnowledge.map(
+    primeKnowledgeToMatrixEntry
+  );
+  return defaultProjectMatrixProvider.resolveMatrix({
+    activeFile: input.intake.hostIntentInput.activeFile,
+    knowledgeEntries: acceptedKnowledgeEntries,
+    operation: 'overview',
+    projectRoot: input.effectiveProjectRoot,
+    sourceEvidenceRefs: input.args.sourceEvidenceRefs,
+    sourceGraphRef: input.args.sourceGraphRef,
+    sourceRefs: input.args.sourceRefs,
+  });
+}
+
+function resolvePrimeReadyProjectGraph(
+  input: PrimeHandlerReadyInput
+): PrimeProjectGraphResult | null {
+  if (!shouldIncludePrimeProjectGraph(input)) {
+    return null;
+  }
+  return defaultProjectGraphProvider.resolveProjectGraph(
+    ProjectGraphInputSchema.parse({
+      activeFile: input.intake.hostIntentInput.activeFile,
+      agentHost: input.intake.agentHost,
+      budget: {
+        contentCharLimit: 1200,
+        detailLimit: 6,
+        itemLimit: 6,
+        matrixNodeLimit: 8,
+        nextActionLimit: 3,
+        relationHopLimit: 2,
+      },
+      inputSource: input.intake.inputSource,
+      intentKind: input.intake.intentKind,
+      operation: 'neighborhood',
+      projectRoot: input.effectiveProjectRoot,
+      query: input.intake.hostIntentFrame.recognizedIntentDraft.query,
+      sourceEvidenceRefs: input.args.sourceEvidenceRefs,
+      sourceGraphRef: input.args.sourceGraphRef,
+      sourceRefs: input.args.sourceRefs,
+    })
+  );
+}
+
+function countPrimeVectorCandidates(searchResult: PrimeSearchResult | null): number {
+  return searchResult?.searchMeta.residentSearch?.vectorUsed
+    ? searchResult.searchMeta.resultCount
+    : 0;
+}
+
+function buildPrimeReadyDomainFreshness(input: {
+  material: PrimeKnowledgeMaterial;
+  projectGraph: PrimeProjectGraphResult | null;
+  projectMatrix: PrimeProjectMatrixResult;
+  recipeRelations: NonNullable<
+    PrimeSearchResult['searchMeta']['retrievalConsumer']
+  >['relationEvidence']['evidence'];
+  searchDegraded: boolean;
+  vectorCandidateCount: number;
+}) {
+  return {
+    ...input.projectMatrix.domainFreshness,
+    knowledge: primeKnowledgeFreshness(input.material, input.searchDegraded),
+    recipeRelation: {
+      state: input.recipeRelations.length > 0 ? ('ready' as const) : ('partial' as const),
+      degradedReason:
+        input.recipeRelations.length > 0
+          ? undefined
+          : 'No Recipe relation-chain evidence was available in the prime retrieval metadata.',
+    },
+    vector: {
+      state: input.vectorCandidateCount > 0 ? ('ready' as const) : ('partial' as const),
+      degradedReason:
+        input.vectorCandidateCount > 0
+          ? undefined
+          : 'Vector/rerank evidence was unavailable or unused for this prime retrieval.',
+    },
+    ...(input.projectGraph?.snapshot.domainFreshness?.sourceGraph
+      ? { sourceGraph: input.projectGraph.snapshot.domainFreshness.sourceGraph }
+      : {}),
+  };
+}
+
+function primeKnowledgeFreshness(material: PrimeKnowledgeMaterial, searchDegraded: boolean) {
+  const hasAcceptedMaterial =
+    material.acceptedKnowledge.length > 0 || material.acceptedGuards.length > 0;
+  return {
+    state: hasAcceptedMaterial
+      ? ('ready' as const)
+      : searchDegraded
+        ? ('stale' as const)
+        : ('partial' as const),
+    degradedReason: hasAcceptedMaterial
+      ? undefined
+      : searchDegraded
+        ? 'Prime search degraded before accepted knowledge could be selected.'
+        : 'Prime search returned no accepted Recipe or Guard material.',
   };
 }
 
@@ -1929,19 +1977,6 @@ function resolvePrimeStatus(input: {
       summary: `Prime skipped: ${input.skippedReason}.`,
     };
   }
-  if (input.searchDegraded) {
-    return {
-      reason: {
-        kind: 'degraded',
-        code: 'resident-unavailable',
-        message:
-          'Prime search degraded because the search pipeline or resident route was unavailable.',
-        retryable: true,
-      },
-      status: 'degraded',
-      summary: 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
-    };
-  }
   if (input.retrievalConsumer && !input.retrievalConsumer.producerContract.available) {
     const isResidentUnavailable =
       input.retrievalConsumer.producerContract.reasonCode === 'resident-search-unavailable';
@@ -1959,6 +1994,19 @@ function resolvePrimeStatus(input: {
       summary: isResidentUnavailable
         ? 'Prime retrieval metadata is unavailable because the resident route was unavailable.'
         : 'Prime retrieval metadata is degraded because the resident Stage 1A contract is incomplete.',
+    };
+  }
+  if (input.searchDegraded) {
+    return {
+      reason: {
+        kind: 'degraded',
+        code: 'resident-unavailable',
+        message:
+          'Prime search degraded because the search pipeline or resident route was unavailable.',
+        retryable: true,
+      },
+      status: 'degraded',
+      summary: 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
     };
   }
   const relatedCount = input.searchResult?.relatedKnowledge.length ?? 0;

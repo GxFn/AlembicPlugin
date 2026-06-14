@@ -82,6 +82,26 @@ describe('alembic_graph project graph tool', () => {
     expect(neighborhoodStructured.result).toMatchObject({ graphKind: 'project-internal' });
   });
 
+  test('keeps zero-match focused queries compact instead of returning broad matrix nodes', async () => {
+    const projectRoot = createFixtureProject();
+    const result = await routeGraphTool(createContext(projectRoot), {
+      budget: { itemLimit: 5, matrixNodeLimit: 20, relationHopLimit: 1 },
+      operation: 'query',
+      projectRoot,
+      query: 'nonexistent catalog router handler',
+    });
+    const structured = result.structuredContent as Record<string, unknown>;
+    const graphResult = structured.result as Record<string, unknown>;
+
+    expect(structured.items).toEqual([]);
+    expect(graphResult).toMatchObject({
+      insufficientSourceGraph: true,
+      matrixNodes: [],
+      noMatchReason: 'No bounded project graph nodes matched the focused query terms.',
+      queryMatchedNodeCount: 0,
+    });
+  });
+
   test('uses workspace.config repoNames as the default graph boundary', async () => {
     const projectRoot = createWorkspaceFixtureProject();
     const result = await routeGraphTool(createContext(projectRoot), {

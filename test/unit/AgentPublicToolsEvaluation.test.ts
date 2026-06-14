@@ -963,6 +963,60 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       expect(outcome.toolName).not.toBe('alembic_task');
     }
   });
+
+  test('does not trust weak prime candidates when resident retrieval metadata is unavailable', async () => {
+    const weakResult = deliveredSearchResult();
+    const degradedRetrievalConsumer = {
+      ...weakResult.searchMeta.retrievalConsumer,
+      producerContract: {
+        ...weakResult.searchMeta.retrievalConsumer?.producerContract,
+        available: false,
+        missingFields: ['decisionRegister', 'retrievalQuality'],
+        reasonCode: 'resident-search-unavailable' as const,
+      },
+    };
+    weakResult.searchMeta.retrievalConsumer = degradedRetrievalConsumer;
+    weakResult.searchMeta.residentSearch = {
+      ...weakResult.searchMeta.residentSearch,
+      available: false,
+      reason: 'resident-search-unavailable',
+      retrievalConsumer: degradedRetrievalConsumer,
+      used: false,
+    };
+
+    const prime = await callPublicTool(
+      primeHandler(
+        makeContext(async () => weakResult),
+        {
+          hostDeclaredIntent: {
+            action: 'implement',
+            query: 'Use Wakeflow dispatch gate knowledge',
+          },
+          inputSource: 'host-declared-intent',
+          projectRoot: '/tmp/alembic-plugin-stage6',
+        }
+      )
+    );
+    const primePackage = recordFrom(prime.raw, ['primePackage']);
+    const trustPosture = recordFrom(primePackage, ['trustPosture']);
+    const checklist = trustPosture.receiptChecklist as Array<{
+      itemCount: number;
+      layer: string;
+    }>;
+    const trustedToUse = checklist.find((entry) => entry.layer === 'trusted-to-use');
+    const requiresVerification = checklist.find((entry) => entry.layer === 'requires-verification');
+    const compactPackage = recordFrom(primePackage, ['compactPackage']);
+
+    expect(prime.envelope).toMatchObject({
+      reason: { code: 'resident-unavailable', kind: 'degraded' },
+      status: 'degraded',
+      toolName: 'alembic_prime',
+    });
+    expect(trustedToUse?.itemCount).toBe(0);
+    expect(requiresVerification?.itemCount).toBeGreaterThan(0);
+    expect(compactPackage.acceptedKnowledge).toEqual([]);
+    expect(JSON.stringify(prime.raw)).not.toContain('"trustLayer":"trusted-to-use"');
+  });
 });
 
 async function callPublicTool(promise: Promise<unknown>) {

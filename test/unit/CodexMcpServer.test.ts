@@ -783,7 +783,7 @@ describe('CodexMcpServer', () => {
     );
     expect(primeResult.ok).toBe(true);
     expect(['ready', 'degraded']).toContain(primeResult.status);
-    expect(primeResult.primePackage.trustReceipt.status).toBe('delivered');
+    expect(primeResult.primePackage.trustReceipt.status).toBe('degraded');
     expect(fs.existsSync(path.join(sourceRoot, '.asd'))).toBe(false);
     expect(fs.existsSync(path.join(sourceRoot, 'Alembic'))).toBe(false);
     expect(fetchSpy).toHaveBeenCalled();

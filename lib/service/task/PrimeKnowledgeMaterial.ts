@@ -165,6 +165,14 @@ interface PrimeKnowledgeMaterialInput {
   taskAnchorDecision: TaskAnchorDecision;
 }
 
+interface PrimeTrustPostureInput {
+  acceptedGuards: AcceptedPrimeGuard[];
+  acceptedKnowledge: AcceptedPrimeKnowledge[];
+  intent: PrimeKnowledgeMaterial['intent'];
+  searchResult: PrimeSearchResult | null;
+  status: PrimeKnowledgeMaterialStatus;
+}
+
 let primeReceiptCounter = 0;
 
 const PRIME_RECEIPT_ORDER =
@@ -173,12 +181,13 @@ const PRIME_RECEIPT_ORDER =
 export function buildPrimeKnowledgeMaterial(
   input: PrimeKnowledgeMaterialInput
 ): PrimeKnowledgeMaterial {
-  const relatedKnowledge = input.searchResult?.relatedKnowledge ?? [];
-  const guardRules = input.searchResult?.guardRules ?? [];
+  const searchDegraded = input.searchDegraded || isPrimeSearchResultDegraded(input.searchResult);
+  const relatedKnowledge = searchDegraded ? [] : (input.searchResult?.relatedKnowledge ?? []);
+  const guardRules = searchDegraded ? [] : (input.searchResult?.guardRules ?? []);
   const acceptedKnowledge = relatedKnowledge.map(projectAcceptedKnowledge);
   const acceptedGuards = guardRules.map(projectAcceptedGuard);
   const hasDeliveredKnowledge = acceptedKnowledge.length > 0 || acceptedGuards.length > 0;
-  const status: PrimeKnowledgeMaterialStatus = input.searchDegraded
+  const status: PrimeKnowledgeMaterialStatus = searchDegraded
     ? 'degraded'
     : hasDeliveredKnowledge
       ? 'delivered'
@@ -265,56 +274,93 @@ function generatePrimeReceiptId(): string {
   return `prime-${Date.now().toString(36)}-${primeReceiptCounter}`;
 }
 
-function buildPrimeTrustPosture(input: {
-  acceptedGuards: AcceptedPrimeGuard[];
-  acceptedKnowledge: AcceptedPrimeKnowledge[];
-  intent: PrimeKnowledgeMaterial['intent'];
-  searchResult: PrimeSearchResult | null;
-  status: PrimeKnowledgeMaterialStatus;
-}): PrimeTrustPosture {
+function buildPrimeTrustPosture(input: PrimeTrustPostureInput): PrimeTrustPosture {
   const primePackage = input.searchResult?.searchMeta.primeInjectionPackage;
   const packageStatus = primePackage?.injection.status;
   const packageNeedsVerification = isPrimePackageVerificationStatus(packageStatus);
   const packageUnavailable = isPrimePackageUnavailableStatus(packageStatus);
-  const acceptedKnowledgeIds = new Set(input.acceptedKnowledge.map((item) => item.id));
 
-  const trustedToObey = input.acceptedGuards.map((guard) => ({
+  return {
+    status: input.status,
+    receiptChecklist: [
+      buildPrimeTrustChecklistLayer('trusted-to-obey', buildTrustedToObey(input.acceptedGuards)),
+      buildPrimeTrustChecklistLayer(
+        'trusted-to-use',
+        buildTrustedToUse(input, packageNeedsVerification, packageUnavailable)
+      ),
+      buildPrimeTrustChecklistLayer('context-only', buildPrimeContextOnlyItems(input)),
+      buildPrimeTrustChecklistLayer(
+        'requires-verification',
+        buildRequiresVerificationItems(input, packageNeedsVerification)
+      ),
+      buildPrimeTrustChecklistLayer(
+        'not-available-or-degraded',
+        buildNotAvailableOrDegradedItems(input, packageUnavailable)
+      ),
+    ],
+    antiEmptyReceipt: {
+      required: true,
+      forbiddenGenericReceipts: [
+        'received knowledge',
+        'I received project knowledge',
+        '收到了知识',
+      ],
+      instruction:
+        'The developer-visible receipt must name the trust layers that are present; a generic received/accepted slogan is not sufficient.',
+    },
+  };
+}
+
+function buildTrustedToObey(acceptedGuards: AcceptedPrimeGuard[]): PrimeTrustPostureItem[] {
+  return acceptedGuards.map((guard) => ({
     id: `guard:${guard.id}`,
     title: guard.trigger || guard.title,
-    source: 'accepted-guard' as const,
+    source: 'accepted-guard',
     reason: 'Follow this Guard or rule as an accepted constraint before acting.',
     evidenceRefs: guard.evidenceRefs,
   }));
+}
 
-  const trustedToUse: PrimeTrustPostureItem[] =
-    packageNeedsVerification || packageUnavailable
-      ? []
-      : input.acceptedKnowledge.map((item) => ({
-          id: `knowledge:${item.id}`,
-          title: item.trigger || item.title,
-          source: 'accepted-knowledge' as const,
-          reason:
-            'Use this Recipe or pattern as project knowledge while preserving its evidence for later checks.',
-          evidenceRefs: item.evidenceRefs,
-        }));
-  if (packageStatus === 'ready') {
-    for (const item of primePackage?.selectedKnowledge ?? []) {
-      const itemId = recordString(item, 'itemId');
-      if (!itemId || acceptedKnowledgeIds.has(itemId)) {
-        continue;
-      }
-      trustedToUse.push({
-        id: `prime-package-selected:${itemId}`,
-        title: recordString(item, 'trigger') ?? recordString(item, 'title') ?? itemId,
-        source: 'prime-injection-package',
-        reason:
-          'Use this resident-selected knowledge because the prime injection package marked it ready.',
-        status: recordString(item, 'injectionStatus') ?? packageStatus,
-        evidenceRefs: extractEvidenceRefs(recordStringArray(item.sourceRefs)),
-      });
-    }
+function buildTrustedToUse(
+  input: PrimeTrustPostureInput,
+  packageNeedsVerification: boolean,
+  packageUnavailable: boolean
+): PrimeTrustPostureItem[] {
+  if (packageNeedsVerification || packageUnavailable) {
+    return [];
   }
+  const trustedToUse: PrimeTrustPostureItem[] = input.acceptedKnowledge.map((item) => ({
+    id: `knowledge:${item.id}`,
+    title: item.trigger || item.title,
+    source: 'accepted-knowledge',
+    reason:
+      'Use this Recipe or pattern as project knowledge while preserving its evidence for later checks.',
+    evidenceRefs: item.evidenceRefs,
+  }));
+  const primePackage = input.searchResult?.searchMeta.primeInjectionPackage;
+  if (primePackage?.injection.status !== 'ready') {
+    return trustedToUse;
+  }
+  const acceptedKnowledgeIds = new Set(input.acceptedKnowledge.map((item) => item.id));
+  for (const item of primePackage.selectedKnowledge ?? []) {
+    const itemId = recordString(item, 'itemId');
+    if (!itemId || acceptedKnowledgeIds.has(itemId)) {
+      continue;
+    }
+    trustedToUse.push({
+      id: `prime-package-selected:${itemId}`,
+      title: recordString(item, 'trigger') ?? recordString(item, 'title') ?? itemId,
+      source: 'prime-injection-package',
+      reason:
+        'Use this resident-selected knowledge because the prime injection package marked it ready.',
+      status: recordString(item, 'injectionStatus') ?? primePackage.injection.status,
+      evidenceRefs: extractEvidenceRefs(recordStringArray(item.sourceRefs)),
+    });
+  }
+  return trustedToUse;
+}
 
+function buildPrimeContextOnlyItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
   const contextOnly: PrimeTrustPostureItem[] = [
     {
       id: 'prime-query-context',
@@ -336,45 +382,72 @@ function buildPrimeTrustPosture(input: {
         : input.intent.hostIntentFrame.source,
     });
   }
-  if (input.searchResult?.searchMeta.intentEvidence) {
+  const intentEvidence = input.searchResult?.searchMeta.intentEvidence;
+  if (intentEvidence) {
     contextOnly.push({
       id: 'resident-intent-evidence',
       title: 'Resident intent evidence summary',
       source: 'intent-evidence',
       reason:
         'Use ranking, relation, and anchor evidence as context for why material was selected, not as a rule to obey.',
-      status: input.searchResult.searchMeta.intentEvidence.degraded ? 'degraded' : 'available',
+      status: intentEvidence.degraded ? 'degraded' : 'available',
     });
   }
+  return contextOnly;
+}
 
-  const requiresVerification: PrimeTrustPostureItem[] = [];
+function buildRequiresVerificationItems(
+  input: PrimeTrustPostureInput,
+  packageNeedsVerification: boolean
+): PrimeTrustPostureItem[] {
+  return [
+    ...acceptedMaterialVerificationItems(input),
+    ...primePackageVerificationItems(input, packageNeedsVerification),
+    ...degradedSearchCandidateItems(input),
+  ];
+}
+
+function acceptedMaterialVerificationItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
   const acceptedEvidenceRefs = uniquePrimeEvidenceRefs(
     [...input.acceptedKnowledge, ...input.acceptedGuards].flatMap((item) => item.evidenceRefs)
   );
-  if (acceptedEvidenceRefs.length > 0) {
-    requiresVerification.push({
-      id: 'accepted-material-evidence',
-      title: 'Accepted material evidenceRefs',
-      source: 'evidence-ref',
-      reason:
-        'Keep evidenceRefs as verification inputs for later code reading or user-requested citations; do not dump paths in the receipt by default.',
-      evidenceRefs: acceptedEvidenceRefs,
-    });
-  }
+  return acceptedEvidenceRefs.length > 0
+    ? [
+        {
+          id: 'accepted-material-evidence',
+          title: 'Accepted material evidenceRefs',
+          source: 'evidence-ref',
+          reason:
+            'Keep evidenceRefs as verification inputs for later code reading or user-requested citations; do not dump paths in the receipt by default.',
+          evidenceRefs: acceptedEvidenceRefs,
+        },
+      ]
+    : [];
+}
+
+function primePackageVerificationItems(
+  input: PrimeTrustPostureInput,
+  packageNeedsVerification: boolean
+): PrimeTrustPostureItem[] {
+  const primePackage = input.searchResult?.searchMeta.primeInjectionPackage;
+  const packageStatus = primePackage?.injection.status;
   const packageTraceRefs = extractEvidenceRefs(primePackage?.trace.sourceRefs ?? []);
-  if (packageTraceRefs.length > 0) {
-    requiresVerification.push({
-      id: 'prime-package-source-refs',
-      title: 'Prime package sourceRefs',
-      source: 'prime-injection-package',
-      reason:
-        'Treat sourceRefs from the injection package as verification anchors, not as automatically verified facts.',
-      evidenceRefs: packageTraceRefs,
-      status: packageStatus,
-    });
-  }
+  const items: PrimeTrustPostureItem[] =
+    packageTraceRefs.length > 0
+      ? [
+          {
+            id: 'prime-package-source-refs',
+            title: 'Prime package sourceRefs',
+            source: 'prime-injection-package',
+            reason:
+              'Treat sourceRefs from the injection package as verification anchors, not as automatically verified facts.',
+            evidenceRefs: packageTraceRefs,
+            status: packageStatus,
+          },
+        ]
+      : [];
   if (packageNeedsVerification) {
-    requiresVerification.push({
+    items.push({
       id: `prime-package-status:${packageStatus}`,
       title: `Prime injection package status: ${packageStatus}`,
       source: 'prime-injection-package',
@@ -385,24 +458,48 @@ function buildPrimeTrustPosture(input: {
   }
   for (const item of primePackage?.selectedKnowledge ?? []) {
     const injectionStatus = recordString(item, 'injectionStatus');
-    if (injectionStatus !== 'candidate') {
-      continue;
+    if (injectionStatus === 'candidate') {
+      items.push(candidateKnowledgeVerificationItem(item));
     }
-    const itemId = recordString(item, 'itemId') ?? 'unknown';
-    requiresVerification.push({
-      id: `candidate-knowledge:${itemId}`,
-      title: recordString(item, 'trigger') ?? recordString(item, 'title') ?? itemId,
-      source: 'prime-injection-package',
-      reason:
-        'This selectedKnowledge item is only a candidate and must be presented as requiring verification.',
-      status: injectionStatus,
-      evidenceRefs: extractEvidenceRefs(recordStringArray(item.sourceRefs)),
-    });
   }
+  return items;
+}
 
-  const notAvailableOrDegraded: PrimeTrustPostureItem[] = [];
+function candidateKnowledgeVerificationItem(item: Record<string, unknown>): PrimeTrustPostureItem {
+  const itemId = recordString(item, 'itemId') ?? 'unknown';
+  return {
+    id: `candidate-knowledge:${itemId}`,
+    title: recordString(item, 'trigger') ?? recordString(item, 'title') ?? itemId,
+    source: 'prime-injection-package',
+    reason:
+      'This selectedKnowledge item is only a candidate and must be presented as requiring verification.',
+    status: 'candidate',
+    evidenceRefs: extractEvidenceRefs(recordStringArray(item.sourceRefs)),
+  };
+}
+
+function degradedSearchCandidateItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
+  if (input.status !== 'degraded') {
+    return [];
+  }
+  return (input.searchResult?.relatedKnowledge.slice(0, 3) ?? []).map((item) => ({
+    id: `weak-search-candidate:${item.id}`,
+    title: item.trigger || item.title,
+    source: 'accepted-knowledge',
+    reason:
+      'Prime search was degraded, so this candidate is only a weak retrieval hint and must not be used as trusted project knowledge.',
+    status: 'degraded',
+    evidenceRefs: extractEvidenceRefs(item.sourceRefs),
+  }));
+}
+
+function buildNotAvailableOrDegradedItems(
+  input: PrimeTrustPostureInput,
+  packageUnavailable: boolean
+): PrimeTrustPostureItem[] {
+  const items: PrimeTrustPostureItem[] = [];
   if (input.status === 'empty' || input.status === 'degraded') {
-    notAvailableOrDegraded.push({
+    items.push({
       id: `prime-status:${input.status}`,
       title:
         input.status === 'degraded'
@@ -416,8 +513,9 @@ function buildPrimeTrustPosture(input: {
       status: input.status,
     });
   }
+  const packageStatus = input.searchResult?.searchMeta.primeInjectionPackage?.injection.status;
   if (packageUnavailable) {
-    notAvailableOrDegraded.push({
+    items.push({
       id: `prime-package-unavailable:${packageStatus}`,
       title: `Prime injection package status: ${packageStatus}`,
       source: 'prime-injection-package',
@@ -426,27 +524,7 @@ function buildPrimeTrustPosture(input: {
       status: packageStatus,
     });
   }
-
-  return {
-    status: input.status,
-    receiptChecklist: [
-      buildPrimeTrustChecklistLayer('trusted-to-obey', trustedToObey),
-      buildPrimeTrustChecklistLayer('trusted-to-use', trustedToUse),
-      buildPrimeTrustChecklistLayer('context-only', contextOnly),
-      buildPrimeTrustChecklistLayer('requires-verification', requiresVerification),
-      buildPrimeTrustChecklistLayer('not-available-or-degraded', notAvailableOrDegraded),
-    ],
-    antiEmptyReceipt: {
-      required: true,
-      forbiddenGenericReceipts: [
-        'received knowledge',
-        'I received project knowledge',
-        '收到了知识',
-      ],
-      instruction:
-        'The developer-visible receipt must name the trust layers that are present; a generic received/accepted slogan is not sufficient.',
-    },
-  };
+  return items;
 }
 
 function buildPrimeTrustChecklistLayer(
@@ -499,6 +577,18 @@ function isPrimePackageVerificationStatus(status: string | undefined): boolean {
 
 function isPrimePackageUnavailableStatus(status: string | undefined): boolean {
   return status === 'degraded' || status === 'empty';
+}
+
+function isPrimeSearchResultDegraded(searchResult: PrimeSearchResult | null): boolean {
+  if (!searchResult) {
+    return false;
+  }
+  const retrievalConsumer = searchResult.searchMeta.retrievalConsumer;
+  if (retrievalConsumer && retrievalConsumer.producerContract.available === false) {
+    return true;
+  }
+  const packageStatus = searchResult.searchMeta.primeInjectionPackage?.injection.status;
+  return isPrimePackageUnavailableStatus(packageStatus);
 }
 
 function recordString(record: Record<string, unknown>, key: string): string | undefined {
