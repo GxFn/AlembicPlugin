@@ -425,14 +425,7 @@ export const ProjectMatrixInput = z
       .object({
         domains: z
           .array(
-            z.enum([
-              'project',
-              'knowledge',
-              'recipeRelation',
-              'vector',
-              'document',
-              'runtime',
-            ])
+            z.enum(['project', 'knowledge', 'recipeRelation', 'vector', 'document', 'runtime'])
           )
           .max(8)
           .optional(),
@@ -601,39 +594,15 @@ export const GraphInput = z
       .optional()
       .describe('query/impact/neighborhood 时指定项目图节点 ID'),
     nodeType: z
-      .enum([
-        'project',
-        'package',
-        'target',
-        'module',
-        'directory',
-        'file',
-        'symbol',
-      ])
+      .enum(['project', 'package', 'target', 'module', 'directory', 'file', 'symbol'])
       .optional(),
     fromId: z.string().optional(),
     toId: z.string().optional(),
     fromType: z
-      .enum([
-        'project',
-        'package',
-        'target',
-        'module',
-        'directory',
-        'file',
-        'symbol',
-      ])
+      .enum(['project', 'package', 'target', 'module', 'directory', 'file', 'symbol'])
       .optional(),
     toType: z
-      .enum([
-        'project',
-        'package',
-        'target',
-        'module',
-        'directory',
-        'file',
-        'symbol',
-      ])
+      .enum(['project', 'package', 'target', 'module', 'directory', 'file', 'symbol'])
       .optional(),
     direction: z.enum(['out', 'in', 'both']).default('both'),
     maxDepth: z.number().int().min(1).max(10).default(2),
@@ -653,6 +622,14 @@ export const GraphInput = z
       .optional(),
     query: z.string().min(1).max(4000).optional(),
     activeFile: z.string().min(1).max(2000).optional(),
+    hostDeclaredIntent: HostDeclaredIntentInput.optional().describe(
+      'Optional host-declared intent frame; query is used when query is omitted.'
+    ),
+    sourceRefs: z
+      .array(z.string().min(1).max(240))
+      .max(80)
+      .optional()
+      .describe('Optional non-private ProjectContext source refs.'),
     sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
     detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),

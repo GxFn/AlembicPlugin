@@ -191,6 +191,54 @@ describe('Project knowledge context four-tool contracts', () => {
     expect(ProjectGraphInputSchema.safeParse({ nodeType: 'file' }).success).toBe(true);
   });
 
+  test('accepts hostDeclaredIntent on alembic_graph with the shared MCP intent shape', () => {
+    const parsed = ProjectGraphInputSchema.parse({
+      hostDeclaredIntent: {
+        action: 'review',
+        confidence: 0.8,
+        goal: 'Inspect project graph boundary',
+        keywords: ['ProjectContext'],
+        labels: ['graph'],
+        language: 'typescript',
+        module: 'ProjectGraphProvider',
+        query: 'ProjectContext direct graph boundary',
+        scenario: 'boundary-review',
+        source: 'codex',
+        sourceRefs: ['host:intent'],
+        summary: 'Review graph direct boundary',
+      },
+      operation: 'query',
+    });
+
+    expect(parsed.hostDeclaredIntent?.query).toBe('ProjectContext direct graph boundary');
+    expect(parsed.hostDeclaredIntent?.summary).toBe('Review graph direct boundary');
+    expect(parsed.hostDeclaredIntent?.sourceRefs).toEqual(['host:intent']);
+  });
+
+  test('accepts hostDeclaredIntent on alembic_project_matrix with the shared MCP intent shape', () => {
+    const parsed = ProjectMatrixInputSchema.parse({
+      hostDeclaredIntent: {
+        action: 'inspect',
+        confidence: 0.75,
+        goal: 'Inspect ProjectContext matrix output limits',
+        keywords: ['ProjectContext', 'matrix'],
+        labels: ['schema'],
+        language: 'typescript',
+        module: 'KnowledgeContextOutputProjector',
+        query: 'ProjectContext matrix diagnostics budget',
+        scenario: 'schema-repair',
+        source: 'codex',
+        sourceRefs: ['host:intent'],
+        summary: 'Review matrix schema repair',
+      },
+      operation: 'overview',
+    });
+
+    expect(parsed.hostDeclaredIntent?.query).toBe('ProjectContext matrix diagnostics budget');
+    expect(parsed.hostDeclaredIntent?.goal).toBe('Inspect ProjectContext matrix output limits');
+    expect(parsed.hostDeclaredIntent?.keywords).toEqual(['ProjectContext', 'matrix']);
+  });
+
   test('registers alembic_graph as a knowledge context clean-output tool', () => {
     expect(KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES).toEqual([
       'alembic_project_matrix',

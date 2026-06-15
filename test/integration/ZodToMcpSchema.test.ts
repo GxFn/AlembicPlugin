@@ -12,7 +12,13 @@
 
 import { z } from 'zod';
 import { zodToMcpSchema } from '../../lib/runtime/mcp/zodToMcpSchema.js';
-import { HealthInput, SearchInput, TaskInput } from '../../lib/shared/schemas/mcp-tools.js';
+import {
+  GraphInput,
+  HealthInput,
+  ProjectMatrixInput,
+  SearchInput,
+  TaskInput,
+} from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Integration: zodToMcpSchema', () => {
   describe('basic shape', () => {
@@ -156,6 +162,22 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.type).toBe('object');
       // All fields optional → required should be empty
       expect(result.required).toEqual([]);
+    });
+
+    test('GraphInput should expose host intent and source refs in MCP schema', () => {
+      const result = zodToMcpSchema(GraphInput);
+      expect(result.type).toBe('object');
+      expect(result.properties.hostDeclaredIntent).toBeDefined();
+      expect(result.properties.sourceRefs).toBeDefined();
+      expect(result.properties.query).toBeDefined();
+    });
+
+    test('ProjectMatrixInput should expose host intent and source refs in MCP schema', () => {
+      const result = zodToMcpSchema(ProjectMatrixInput);
+      expect(result.type).toBe('object');
+      expect(result.properties.hostDeclaredIntent).toBeDefined();
+      expect(result.properties.sourceRefs).toBeDefined();
+      expect(result.properties.query).toBeDefined();
     });
 
     test('TaskInput should produce valid MCP schema', () => {

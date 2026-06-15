@@ -42,6 +42,7 @@ import {
   GuardInput,
   HealthInput,
   KnowledgeInput,
+  ProjectMatrixInput,
   SearchInput,
   StructureInput,
   SubmitKnowledgeInput,
@@ -200,6 +201,26 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     });
   });
 
+  describe('ProjectMatrixInput', () => {
+    test('should accept host-declared intent and source refs', () => {
+      const result = ProjectMatrixInput.parse({
+        hostDeclaredIntent: {
+          goal: 'Inspect ProjectContext matrix output',
+          keywords: ['ProjectContext', 'matrix'],
+          query: 'matrix diagnostics budget',
+          sourceRefs: ['host:intent'],
+          summary: 'Matrix schema repair',
+        },
+        sourceRefs: ['project-context:matrix'],
+      });
+
+      expect(result.operation).toBe('overview');
+      expect(result.hostDeclaredIntent?.goal).toBe('Inspect ProjectContext matrix output');
+      expect(result.hostDeclaredIntent?.keywords).toEqual(['ProjectContext', 'matrix']);
+      expect(result.sourceRefs).toEqual(['project-context:matrix']);
+    });
+  });
+
   describe('SearchInput', () => {
     test('should apply defaults', () => {
       const result = SearchInput.parse({ query: 'auth' });
@@ -288,6 +309,21 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       const result = GraphInput.parse({ operation: 'stats' });
       expect(result.direction).toBe('both');
       expect(result.maxDepth).toBe(2);
+    });
+
+    test('should accept host-declared intent and source refs', () => {
+      const result = GraphInput.parse({
+        hostDeclaredIntent: {
+          query: 'Find the ProjectContext graph boundary',
+          sourceRefs: ['host:intent'],
+          summary: 'Graph boundary review',
+        },
+        sourceRefs: ['project-context:ref'],
+      });
+
+      expect(result.hostDeclaredIntent?.query).toBe('Find the ProjectContext graph boundary');
+      expect(result.hostDeclaredIntent?.summary).toBe('Graph boundary review');
+      expect(result.sourceRefs).toEqual(['project-context:ref']);
     });
 
     test('should reject recipe graph semantics', () => {

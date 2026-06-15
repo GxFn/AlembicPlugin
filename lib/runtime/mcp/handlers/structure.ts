@@ -430,6 +430,8 @@ async function resolveProjectGraphMcpResult(ctx: McpContext, args: GraphArgs) {
 
 function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGraphInput {
   const containerProjectRoot = resolveProjectRoot(ctx?.container);
+  const hostDeclaredIntent = readRecord(args.hostDeclaredIntent);
+  const query = readString(args.query) ?? readString(hostDeclaredIntent?.query);
   return ProjectGraphInputSchema.parse({
     ...(args.activeFile ? { activeFile: args.activeFile } : {}),
     ...(args.budget ? { budget: args.budget } : {}),
@@ -445,13 +447,24 @@ function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGr
     ...(args.nodeType ? { nodeType: args.nodeType } : {}),
     ...(args.operation ? { operation: args.operation } : {}),
     projectRoot: args.projectRoot ?? containerProjectRoot,
-    ...(args.query ? { query: args.query } : {}),
+    ...(hostDeclaredIntent === undefined ? {} : { hostDeclaredIntent }),
+    ...(query === undefined ? {} : { query }),
     ...(args.relationType ? { relationType: args.relationType } : {}),
     ...(args.sourceEvidenceRefs ? { sourceEvidenceRefs: args.sourceEvidenceRefs } : {}),
     ...(args.sourceRefs ? { sourceRefs: args.sourceRefs } : {}),
     ...(args.toId ? { toId: args.toId } : {}),
     ...(args.toType ? { toType: args.toType } : {}),
   });
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 // ─── call_context — 调用链上下文 (Phase 5) ──────────────────

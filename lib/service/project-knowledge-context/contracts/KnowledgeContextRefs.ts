@@ -73,13 +73,23 @@ export const KnowledgeContextSourceSchema = z
   })
   .strict();
 
+const KnowledgeContextHostIntentTextSchema = z.string().min(1).max(1200);
+
 export const KnowledgeContextHostDeclaredIntentSchema = z
   .object({
-    action: z.string().min(1).max(120).optional(),
+    action: z.string().min(1).max(600).optional(),
     target: z.string().min(1).max(240).optional(),
     confidence: z.number().min(0).max(1).optional(),
-    query: z.string().min(1).max(2000).optional(),
-    sourceRefs: KnowledgeContextPublicStringArraySchema.optional(),
+    goal: z.string().min(1).max(600).optional(),
+    keywords: z.array(z.string().min(1).max(80)).max(12).optional(),
+    labels: z.array(z.string().min(1).max(80)).max(12).optional(),
+    language: z.string().min(1).max(80).optional(),
+    module: z.string().min(1).max(160).optional(),
+    query: KnowledgeContextHostIntentTextSchema.optional(),
+    scenario: z.string().min(1).max(80).optional(),
+    source: z.string().min(1).max(120).optional(),
+    sourceRefs: z.array(z.string().min(1).max(200)).max(20).optional(),
+    summary: KnowledgeContextHostIntentTextSchema.optional(),
   })
   .strict();
 

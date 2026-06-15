@@ -7,7 +7,11 @@ import {
   createContextIndexSnapshot,
   defaultResultRanker,
   isContextIndexSnapshotSourceOfTruth,
+  type KnowledgeContextDetailRef,
+  type KnowledgeContextDiagnostic,
   KnowledgeContextInputNormalizer,
+  type KnowledgeContextNextAction,
+  type KnowledgeContextSource,
   type KnowledgeContextToolOutput,
   ProjectKnowledgeContextLayer,
   RetrievalPlanner,
@@ -19,10 +23,12 @@ function readResult(output: KnowledgeContextToolOutput) {
     truncated?: {
       content?: boolean;
       detailRefs?: boolean;
+      diagnostics?: boolean;
       items?: boolean;
       matrixNodes?: boolean;
       nextActions?: boolean;
       relations?: boolean;
+      sources?: boolean;
     };
     retrievalTrace?: {
       degradedReasons?: string[];
@@ -279,6 +285,66 @@ describe('ProjectKnowledgeContextLayer support layer foundation', () => {
     expect(structured.status).toBe('partial');
   });
 
+  test('caps schema-bound projection arrays before MCP output validation', () => {
+    const layer = new ProjectKnowledgeContextLayer();
+    const output = layer.resolveProjectMatrix(
+      {
+        budget: {
+          contentCharLimit: 300,
+          detailLimit: 200,
+          itemLimit: 500,
+          matrixNodeLimit: 5000,
+          nextActionLimit: 20,
+          relationHopLimit: 10,
+        },
+        operation: 'overview',
+        query: 'wide ProjectContext projection',
+      },
+      {
+        payload: {
+          detailRefs: buildDetailRefs(205),
+          diagnostics: buildDiagnostics(230),
+          items: buildObjects('item', 520),
+          matrixNodes: buildObjects('matrix-node', 260),
+          nextActions: buildNextActions(22),
+          relations: buildObjects('relation', 12),
+          sources: buildSources(210),
+        },
+      }
+    );
+    const projected = readResult(output);
+    const diagnosticCodes = output.diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(output.detailRefs).toHaveLength(200);
+    expect(output.sources).toHaveLength(200);
+    expect(output.items).toHaveLength(500);
+    expect(output.relations).toHaveLength(10);
+    expect(output.nextActions).toHaveLength(20);
+    expect(projected.matrixNodes).toHaveLength(200);
+    expect(output.diagnostics.length).toBeLessThanOrEqual(200);
+    expect(projected.truncated).toMatchObject({
+      detailRefs: true,
+      diagnostics: true,
+      items: true,
+      matrixNodes: true,
+      nextActions: true,
+      relations: true,
+      sources: true,
+    });
+    expect(diagnosticCodes).toEqual(
+      expect.arrayContaining([
+        'budget-truncated-detail-refs',
+        'budget-truncated-diagnostics',
+        'budget-truncated-items',
+        'budget-truncated-matrix-nodes',
+        'budget-truncated-next-actions',
+        'budget-truncated-relations',
+        'budget-truncated-sources',
+      ])
+    );
+    expect(output.status).toBe('partial');
+  });
+
   test('keeps freshness degraded diagnostics separated by source domain', () => {
     const layer = new ProjectKnowledgeContextLayer();
     const output = layer.resolveProjectGraph(
@@ -330,3 +396,47 @@ describe('ProjectKnowledgeContextLayer support layer foundation', () => {
     expect(ranked.map((item) => item.id)).toEqual(['a', 'b', 'c']);
   });
 });
+
+function buildObjects(prefix: string, count: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${prefix}:${index}`,
+    summary: `${prefix} ${index}`,
+  }));
+}
+
+function buildDetailRefs(count: number): KnowledgeContextDetailRef[] {
+  return Array.from({ length: count }, (_, index) => ({
+    domain: 'project',
+    id: `detail:${index}`,
+    operation: 'overview',
+    requiredForCompletion: false,
+    summary: `Detail ref ${index}`,
+    tool: 'alembic_project_matrix',
+  }));
+}
+
+function buildDiagnostics(count: number): KnowledgeContextDiagnostic[] {
+  return Array.from({ length: count }, (_, index) => ({
+    code: `wide-diagnostic-${index}`,
+    message: `Wide diagnostic ${index}`,
+    retryable: false,
+    severity: 'warning',
+  }));
+}
+
+function buildNextActions(count: number): KnowledgeContextNextAction[] {
+  return Array.from({ length: count }, (_, index) => ({
+    operation: 'expand',
+    reason: `Expand follow-up ${index}`,
+    tool: 'alembic_search',
+  }));
+}
+
+function buildSources(count: number): KnowledgeContextSource[] {
+  return Array.from({ length: count }, (_, index) => ({
+    confidence: 0.8,
+    domain: 'project',
+    id: `source:${index}`,
+    summary: `Source ${index}`,
+  }));
+}
