@@ -11,6 +11,7 @@ import type { JobStore } from '@alembic/core/daemon';
 import type { DatabaseConnection } from '@alembic/core/database';
 import type { DimensionCopy } from '@alembic/core/dimensions';
 import type { EventBus, SignalBus } from '@alembic/core/events';
+import type ProjectGraph from '@alembic/core/core/ast/ProjectGraph';
 import type {
   ComplianceReporter,
   ExclusionManager,
@@ -35,15 +36,14 @@ import type Logger from '@alembic/core/logging';
 import type { MemoryRepositoryImpl } from '@alembic/core/memory';
 // ── Core AST / Discovery / Enhancement ──
 // ── Shared Types ──
+import type { LanguageService } from '@alembic/core/project-intelligence';
 import type {
   CouplingAnalyzer,
-  LanguageService,
   LayerInferrer,
   PanoramaAggregator,
   PanoramaService,
-  ProjectGraph,
   RoleRefiner,
-} from '@alembic/core/project-intelligence';
+} from '@alembic/core/service/panorama';
 // ── Repository Types ──
 import type {
   BootstrapRepository,

@@ -405,7 +405,7 @@ export async function graphNeighborhood(ctx: McpContext, args: GraphArgs) {
 
 async function resolveProjectGraphMcpResult(ctx: McpContext, args: GraphArgs) {
   const input = normalizeProjectGraphInput(ctx, args);
-  const graph = defaultProjectGraphProvider.resolveProjectGraph(input);
+  const graph = await defaultProjectGraphProvider.resolveProjectGraph(input);
   return defaultProjectKnowledgeContextLayer.resolveMcpResult('alembic_graph', input, {
     payload: graph.payload,
     snapshot: graph.snapshot,

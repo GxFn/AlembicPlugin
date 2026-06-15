@@ -9,7 +9,6 @@
  * Phase 1-4 分析逻辑由 ProjectIntelligenceRunner 执行。
  */
 
-import type { WorkflowLogger } from '@alembic/core/host-agent-workflows';
 import {
   buildColdStartWorkflowPlan,
   buildHostAgentMissionBriefing,
@@ -20,12 +19,11 @@ import {
   presentHostAgentColdStartEmptyProject,
   presentHostAgentColdStartResponse,
   runFullResetPolicy,
+  type ProjectSnapshot,
+  type WorkflowLogger,
 } from '@alembic/core/host-agent-workflows';
-import type { ProjectSnapshot } from '@alembic/core/project-intelligence';
-import {
-  buildProjectSnapshot,
-  ProjectIntelligenceCapability,
-} from '@alembic/core/project-intelligence';
+import { buildProjectSnapshot } from '@alembic/core/types';
+import { ProjectIntelligenceCapability } from '@alembic/core/workflows/capabilities/project-intelligence';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';

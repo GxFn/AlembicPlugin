@@ -200,8 +200,12 @@ interface PrimeKnowledgeContextProjection {
   recipeRelationCount: number;
 }
 
-type PrimeProjectGraphResult = ReturnType<typeof defaultProjectGraphProvider.resolveProjectGraph>;
-type PrimeProjectMatrixResult = ReturnType<typeof defaultProjectMatrixProvider.resolveMatrix>;
+type PrimeProjectGraphResult = Awaited<
+  ReturnType<typeof defaultProjectGraphProvider.resolveProjectGraph>
+>;
+type PrimeProjectMatrixResult = Awaited<
+  ReturnType<typeof defaultProjectMatrixProvider.resolveMatrix>
+>;
 
 interface AgentVectorPlan {
   keywordQueries: string[];
@@ -499,7 +503,7 @@ function buildPrimeRefs(input: PrimeHandlerSharedInput) {
   };
 }
 
-function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
+async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   const projectRuntime = buildCodexPrimeRuntimeContext({
     projectRoot: input.effectiveProjectRoot,
     residentSearch: input.primeSearch.searchResult?.searchMeta.residentSearch ?? null,
@@ -526,12 +530,14 @@ function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     searchDegraded: effectiveSearchDegraded,
     searchResult: input.primeSearch.searchResult,
   });
-  const knowledgeContext = buildPrimeReadyKnowledgeContext({
+  const knowledgeContext = (
+    await buildPrimeReadyKnowledgeContext({
     ...input,
     material,
     primePackage,
     status,
-  }).output;
+    })
+  ).output;
 
   return createAgentPublicToolOutput(result, {
     ...primeKnowledgeContextPublicFields(knowledgeContext),
@@ -544,13 +550,13 @@ function primeKnowledgeContextPublicFields(output: KnowledgeContextToolOutput) {
   return publicFields;
 }
 
-function buildPrimeReadyKnowledgeContext(
+async function buildPrimeReadyKnowledgeContext(
   input: PrimeHandlerReadyInput & {
     material: PrimeMaterialProjection;
     primePackage: PrimePublicPackage;
     status: Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string };
   }
-): PrimeKnowledgeContextProjection {
+): Promise<PrimeKnowledgeContextProjection> {
   const primeContextInput = buildPrimeKnowledgeContextInput({
     args: input.args,
     effectiveProjectRoot: input.effectiveProjectRoot,
@@ -560,8 +566,8 @@ function buildPrimeReadyKnowledgeContext(
   });
   const interaction =
     defaultProjectKnowledgeContextLayer.resolveInteractionState(primeContextInput);
-  const projectMatrix = resolvePrimeReadyProjectMatrix(input);
-  const projectGraph = resolvePrimeReadyProjectGraph(input);
+  const projectMatrix = await resolvePrimeReadyProjectMatrix(input);
+  const projectGraph = await resolvePrimeReadyProjectGraph(input);
   const relationEvidence = input.material.retrievalConsumer?.relationEvidence;
   const recipeRelations = relationEvidence?.evidence ?? [];
   const vectorCandidateCount = countPrimeVectorCandidates(input.primeSearch.searchResult);
@@ -612,7 +618,7 @@ function resolvePrimeReadyProjectMatrix(
   input: PrimeHandlerReadyInput & {
     material: PrimeMaterialProjection;
   }
-): PrimeProjectMatrixResult {
+): Promise<PrimeProjectMatrixResult> {
   const acceptedKnowledgeEntries = input.material.primeKnowledgeMaterial.acceptedKnowledge.map(
     primeKnowledgeToMatrixEntry
   );
@@ -629,9 +635,9 @@ function resolvePrimeReadyProjectMatrix(
 
 function resolvePrimeReadyProjectGraph(
   input: PrimeHandlerReadyInput
-): PrimeProjectGraphResult | null {
+): Promise<PrimeProjectGraphResult | null> {
   if (!shouldIncludePrimeProjectGraph(input)) {
-    return null;
+    return Promise.resolve(null);
   }
   return defaultProjectGraphProvider.resolveProjectGraph(
     ProjectGraphInputSchema.parse({
@@ -813,7 +819,7 @@ function buildPrimeKnowledgeContextPayload(input: {
   matrixSummary: string;
   primePackage: PrimePublicPackage;
   projectGraphIncluded: boolean;
-  projectMatrix: ReturnType<typeof defaultProjectMatrixProvider.resolveMatrix>;
+  projectMatrix: PrimeProjectMatrixResult;
   recipeRelations: NonNullable<
     PrimeSearchResult['searchMeta']['retrievalConsumer']
   >['relationEvidence']['evidence'];

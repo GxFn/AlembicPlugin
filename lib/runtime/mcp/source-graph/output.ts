@@ -1,4 +1,3 @@
-import type { SourceGraphOperationKind } from '@alembic/core/source-graph';
 import { z } from 'zod';
 
 export const SOURCE_GRAPH_OPERATION_TOOL_NAMES = [
@@ -14,6 +13,17 @@ export const SOURCE_GRAPH_OPERATION_TOOL_NAMES = [
 ] as const;
 
 export type SourceGraphOperationToolName = (typeof SOURCE_GRAPH_OPERATION_TOOL_NAMES)[number];
+
+export type SourceGraphOperationKind =
+  | 'status'
+  | 'search'
+  | 'explore'
+  | 'node'
+  | 'callers'
+  | 'callees'
+  | 'impact'
+  | 'affected-tests'
+  | 'validation-plan';
 
 export const SOURCE_GRAPH_OPERATION_BY_TOOL = {
   alembic_source_graph_status: 'status',

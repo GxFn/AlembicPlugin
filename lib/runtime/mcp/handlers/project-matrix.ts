@@ -51,7 +51,7 @@ export async function projectMatrix(ctx: McpContext, args: ProjectMatrixArgs) {
   const sourceEvidenceRefs = readStringArray(args.sourceEvidenceRefs);
   const sourceGraphRef = readString(args.sourceGraphRef);
   const knowledgeEntries = await readKnowledgeCatalogEntries(ctx);
-  const matrix = defaultProjectMatrixProvider.resolveMatrix({
+  const matrix = await defaultProjectMatrixProvider.resolveMatrix({
     activeFile: readString(args.activeFile),
     knowledgeEntries,
     nodeId: readString(args.nodeId),
@@ -93,6 +93,7 @@ export async function projectMatrix(ctx: McpContext, args: ProjectMatrixArgs) {
     {
       payload: {
         detailRefs: matrix.detailRefs,
+        diagnostics: matrix.diagnostics,
         inventory: matrix.inventory,
         items: matrix.items,
         matrixNodes: matrix.matrixNodes,

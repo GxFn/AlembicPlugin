@@ -1,10 +1,10 @@
 import { dimensionTags } from '@alembic/core/dimensions';
 import {
+  type DimensionDef,
   type ProjectSkillDeliveryReceipt,
   saveDimensionCheckpoint,
 } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
-import type { DimensionDef } from '@alembic/core/project-intelligence';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';

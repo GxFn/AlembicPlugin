@@ -1,23 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { DatabaseConnection } from '@alembic/core/database';
-import {
-  createSourceGraphAffectedTestsResult,
-  createSourceGraphCalleesResult,
-  createSourceGraphCallersResult,
-  createSourceGraphExploreResult,
-  createSourceGraphFreshness,
-  createSourceGraphImpactResult,
-  createSourceGraphNodeResult,
-  createSourceGraphSearchResult,
-  createSourceGraphStatusResult,
-  createSourceGraphValidationPlanResult,
-  type SourceGraphFreshnessState,
-  type SourceGraphOperationResult,
-  SourceGraphRepositoryImpl,
-  SourceGraphService,
-  type SourceGraphStatusResult,
-} from '@alembic/core/source-graph';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { buildCodexMcpGuidance } from '../../../runtime/mcp/host/guidance.js';
 import {
@@ -26,6 +8,176 @@ import {
   type SourceGraphOperationToolName,
 } from '../../../runtime/mcp/source-graph/output.js';
 import { CODEX_LOCAL_TOOLS } from '../../../runtime/ToolPolicy.js';
+
+type SourceGraphFreshnessState =
+  | 'fresh'
+  | 'partial'
+  | 'stale'
+  | 'pending'
+  | 'degraded'
+  | 'uninitialized'
+  | 'wrong-scope'
+  | 'unavailable';
+
+interface SourceGraphFreshness {
+  checkedAt?: number;
+  degradedReason?: string;
+  generationId?: string;
+  indexedAt?: number;
+  nextAction?: string;
+  pendingFileCount?: number;
+  reason?: string;
+  staleFileCount?: number;
+  status: SourceGraphFreshnessState;
+}
+
+interface SourceGraphDiagnostic {
+  blocksReady?: boolean;
+  code: string;
+  filePath?: string;
+  invalidConclusion?: string;
+  line?: number;
+  message: string;
+  nextAction?: string;
+  owner?: string;
+  severity: 'info' | 'warning' | 'error';
+}
+
+interface SourceGraphCounts {
+  edgeCount: number;
+  fileCount: number;
+  parseErrorCount: number;
+  symbolCount: number;
+}
+
+interface SourceGraphStatusResult {
+  counts: SourceGraphCounts;
+  detailRefs: Array<Record<string, unknown>>;
+  diagnostics: SourceGraphDiagnostic[];
+  freshness: SourceGraphFreshness;
+  generationId?: string;
+  nextActions: string[];
+  projectRoot: string;
+  ready: boolean;
+  repoId: string;
+}
+
+type SourceGraphOperationResult = SourceGraphStatusResult & Record<string, unknown>;
+
+interface SourceGraphFreshnessInput extends Omit<SourceGraphFreshness, 'checkedAt'> {
+  checkedAt?: number;
+}
+
+interface SourceGraphStatusInput {
+  counts?: Partial<SourceGraphCounts>;
+  detailRefs?: Array<Record<string, unknown>>;
+  diagnostics?: SourceGraphDiagnostic[];
+  freshness: SourceGraphFreshness;
+  generationId?: string;
+  nextActions?: string[];
+  projectRoot: string;
+  repoId: string;
+}
+
+interface SourceGraphIndexResult {
+  changedFiles: string[];
+  deletedFiles: string[];
+  status: SourceGraphStatusResult;
+}
+
+interface SourceGraphFreshnessReport {
+  changedFiles: string[];
+  deletedFiles: string[];
+  freshness: SourceGraphFreshness;
+  snapshot?: { generationId?: string };
+  status: SourceGraphStatusResult;
+}
+
+interface SourceGraphServiceLike {
+  buildFullIndex(input: Record<string, unknown>): Promise<SourceGraphIndexResult>;
+  buildIncrementalIndex(input: Record<string, unknown>): Promise<SourceGraphIndexResult>;
+  exploreSourceGraph(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+  getSourceGraphAffectedTests(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+  getSourceGraphCallees(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+  getSourceGraphCallers(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+  getSourceGraphImpact(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+  getSourceGraphNode(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+  getSourceGraphValidationPlan(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+  inspectFreshness(input: Record<string, unknown>): Promise<SourceGraphFreshnessReport>;
+  searchSourceGraph(input: Record<string, unknown>): Promise<SourceGraphOperationResult>;
+}
+
+function createSourceGraphFreshness(input: SourceGraphFreshnessInput): SourceGraphFreshness {
+  return {
+    ...input,
+    checkedAt: input.checkedAt ?? Date.now(),
+  };
+}
+
+function createSourceGraphStatusResult(input: SourceGraphStatusInput): SourceGraphStatusResult {
+  const counts = {
+    edgeCount: input.counts?.edgeCount ?? 0,
+    fileCount: input.counts?.fileCount ?? 0,
+    parseErrorCount: input.counts?.parseErrorCount ?? 0,
+    symbolCount: input.counts?.symbolCount ?? 0,
+  };
+  return {
+    counts,
+    detailRefs: input.detailRefs ?? [],
+    diagnostics: input.diagnostics ?? [],
+    freshness: input.freshness,
+    generationId: input.generationId ?? input.freshness.generationId,
+    nextActions: input.nextActions ?? [input.freshness.nextAction].filter(isString),
+    projectRoot: input.projectRoot,
+    ready: input.freshness.status === 'fresh' && Boolean(input.generationId),
+    repoId: input.repoId,
+  };
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function createSourceGraphSearchResult(input: SourceGraphOperationResult): SourceGraphOperationResult {
+  return { symbols: [], sourceSections: [], edges: [], ...input };
+}
+
+function createSourceGraphExploreResult(input: SourceGraphOperationResult): SourceGraphOperationResult {
+  return { symbols: [], sourceSections: [], edges: [], ...input };
+}
+
+function createSourceGraphNodeResult(input: SourceGraphOperationResult): SourceGraphOperationResult {
+  return { sourceSections: [], edges: [], ...input };
+}
+
+function createSourceGraphCallersResult(input: SourceGraphOperationResult): SourceGraphOperationResult {
+  return { callers: [], sourceSections: [], edges: [], ...input };
+}
+
+function createSourceGraphCalleesResult(input: SourceGraphOperationResult): SourceGraphOperationResult {
+  return { callees: [], sourceSections: [], edges: [], ...input };
+}
+
+function createSourceGraphImpactResult(input: SourceGraphOperationResult): SourceGraphOperationResult {
+  return { impactedFiles: [], edges: [], affectedValidations: [], ...input };
+}
+
+function createSourceGraphAffectedTestsResult(
+  input: SourceGraphOperationResult
+): SourceGraphOperationResult {
+  return { testFiles: [], ...input };
+}
+
+function createSourceGraphValidationPlanResult(
+  input: SourceGraphOperationResult
+): SourceGraphOperationResult {
+  return {
+    impactedFiles: [],
+    impactedSymbols: [],
+    validationPlan: [],
+    ...input,
+  };
+}
 
 interface SourceGraphStatusOptions {
   catchUp?: boolean;
@@ -59,13 +211,13 @@ interface SourceGraphOperationOptions extends SourceGraphStatusOptions {
 }
 
 interface SourceGraphRuntime {
-  connection: DatabaseConnection;
+  connection: { close(): void };
   databasePath: string;
   coreProjectScope?: string;
   projectRoot: string;
   repoId: string;
   resolver: WorkspaceResolver;
-  service: SourceGraphService;
+  service: SourceGraphServiceLike;
 }
 
 interface SourceGraphRuntimeResolution {
@@ -336,12 +488,15 @@ function createBlockedOperationResult(
   toolName: Exclude<SourceGraphOperationToolName, 'alembic_source_graph_status'>
 ): SourceGraphOperationResult {
   const base = {
+    counts: status.counts,
+    ready: status.ready,
     generationId: status.generationId,
     projectRoot: status.projectRoot,
     repoId: status.repoId,
     freshness: status.freshness,
     diagnostics: status.diagnostics,
     detailRefs: status.detailRefs,
+    nextActions: status.nextActions,
   };
   switch (toolName) {
     case 'alembic_symbol_search':
@@ -410,7 +565,7 @@ function createBlockedOperationResult(
 
 async function maybeCatchUpSourceGraph(
   runtime: SourceGraphRuntime,
-  report: Awaited<ReturnType<SourceGraphService['inspectFreshness']>>,
+  report: SourceGraphFreshnessReport,
   options: SourceGraphStatusOptions
 ): Promise<{ catchUp: SourceGraphCatchUpState; status: SourceGraphStatusResult }> {
   const changedFiles = report.changedFiles;
@@ -643,36 +798,10 @@ function sourceGraphRuntimeCacheKey(resolution: SourceGraphRuntimeResolution): s
 async function openSourceGraphRuntime(
   resolution: SourceGraphRuntimeResolution
 ): Promise<SourceGraphRuntime> {
-  const connection = new DatabaseConnection(
-    { path: resolution.resolver.databasePath },
-    resolution.resolver
+  void resolution;
+  throw new Error(
+    'Core source graph public runtime has been withdrawn; use ProjectContext-backed project graph tools for current project structure facts.'
   );
-  await connection.connect();
-  await runMigrationsQuietly(connection);
-  const repository = new SourceGraphRepositoryImpl(connection.getDrizzle());
-  return {
-    connection,
-    coreProjectScope: resolution.coreProjectScope,
-    databasePath: resolution.resolver.databasePath,
-    projectRoot: resolution.projectRoot,
-    repoId: resolution.repoId,
-    resolver: resolution.resolver,
-    service: new SourceGraphService(repository),
-  };
-}
-
-async function runMigrationsQuietly(connection: DatabaseConnection): Promise<void> {
-  const previous = process.env.ALEMBIC_QUIET;
-  process.env.ALEMBIC_QUIET = '1';
-  try {
-    await connection.runMigrations();
-  } finally {
-    if (previous === undefined) {
-      delete process.env.ALEMBIC_QUIET;
-    } else {
-      process.env.ALEMBIC_QUIET = previous;
-    }
-  }
 }
 
 function createUninitializedStatus(

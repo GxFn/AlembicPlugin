@@ -26,12 +26,11 @@ import {
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
   syncKnowledgeStoreForRescan,
+  type DimensionDef,
+  type ProjectSnapshot,
 } from '@alembic/core/host-agent-workflows';
-import type { DimensionDef, ProjectSnapshot } from '@alembic/core/project-intelligence';
-import {
-  buildProjectSnapshot,
-  ProjectIntelligenceCapability,
-} from '@alembic/core/project-intelligence';
+import { buildProjectSnapshot } from '@alembic/core/types';
+import { ProjectIntelligenceCapability } from '@alembic/core/workflows/capabilities/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';

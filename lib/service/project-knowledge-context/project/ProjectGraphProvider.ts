@@ -1,6 +1,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  ProjectContext,
+  type AnchorRangeContext,
+  type FileFlowContext,
+  type ModuleContext,
+  type ModuleLayerContext,
+  type ProjectContextEnvelope,
+  type ProjectContextQueryError,
+  type ProjectContextRef,
+  type ProjectContextRequestKind,
+  type ProjectContextResult,
+  type ProjectMap,
+  type RepoContext,
+  type SpaceContext,
+} from '@alembic/core/project-context';
 import type {
+  KnowledgeContextDiagnostic,
   KnowledgeContextDetailRef,
   KnowledgeContextNextAction,
   KnowledgeContextProjectNodeType,
@@ -37,16 +53,25 @@ export interface ProjectGraphResult {
 }
 
 export interface ProjectGraphProvider {
-  resolveProjectGraph(input: ProjectGraphInput): ProjectGraphResult;
+  resolveProjectGraph(input: ProjectGraphInput): Promise<ProjectGraphResult>;
   resolveProjectRelations(projectRoot?: string): ProjectGraphRelation[];
 }
 
 interface GraphBuild {
   detailRefs: KnowledgeContextDetailRef[];
+  diagnostics: KnowledgeContextDiagnostic[];
   nodes: ProjectGraphNode[];
+  projectContext: ProjectGraphProjectContextTrace;
   projectRef: KnowledgeContextDetailRef;
   relations: ProjectGraphRelation[];
   sources: KnowledgeContextSource[];
+}
+
+interface ProjectGraphProjectContextTrace {
+  errorCount: number;
+  partial: boolean;
+  refCount: number;
+  requestKinds: ProjectContextRequestKind[];
 }
 
 interface FileCandidate {
@@ -128,11 +153,27 @@ const MAX_SCANNED_FILES = 420;
 const MAX_SCANNED_SYMBOLS = 180;
 const MAX_SCANNED_IMPORTS = 260;
 const MAX_PACKAGE_DEPENDENCIES = 80;
+const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
+
+interface ProjectContextGraphFacts {
+  anchorRanges: AnchorRangeContext[];
+  detailRefs: KnowledgeContextDetailRef[];
+  diagnostics: KnowledgeContextDiagnostic[];
+  fileFlows: FileFlowContext[];
+  files: FileCandidate[];
+  maps: ProjectMap[];
+  moduleLayers: ModuleLayerContext[];
+  modules: ModuleContext[];
+  packageInfo?: PackageInfo;
+  repos: RepoContext[];
+  sources: KnowledgeContextSource[];
+  trace: ProjectGraphProjectContextTrace;
+}
 
 export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
-  resolveProjectGraph(input: ProjectGraphInput): ProjectGraphResult {
+  async resolveProjectGraph(input: ProjectGraphInput): Promise<ProjectGraphResult> {
     const projectRoot = input.projectRoot ?? process.cwd();
-    const build = this.buildGraph(projectRoot, input.sourceGraphRef);
+    const build = await this.buildGraph(projectRoot, input);
     const operation = input.operation ?? 'query';
     const selection = selectGraph(build, input);
     const summary = summarizeSelection(operation, selection, input.sourceGraphRef);
@@ -166,10 +207,12 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
           allowedRelationTypes: [...ALLOWED_RELATION_TYPES],
           nodeCount: build.nodes.length,
           nodeTypes: countBy(build.nodes, (node) => node.nodeType),
+          projectContext: build.projectContext,
           relationCount: build.relations.length,
           relationTypes: countBy(build.relations, (relation) => relation.relationType),
           sourceGraphStatus: input.sourceGraphRef ? 'linked' : 'not-supplied',
         },
+        diagnostics: build.diagnostics,
         items: selection.items,
         matrixNodes: selection.matrixNodes,
         nextActions: nextActionsFor(operation, input),
@@ -184,11 +227,21 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
   }
 
   resolveProjectRelations(projectRoot?: string): ProjectGraphRelation[] {
-    return this.buildGraph(projectRoot ?? process.cwd()).relations;
+    const root = projectRoot ?? process.cwd();
+    const projectRefId = `project:${stableRefSegment(root) || 'project'}`;
+    const nodes = new NodeStore(projectRefId);
+    const relations = new RelationStore();
+    nodes.add({ id: projectRefId, label: path.basename(root) || 'project', nodeType: 'project' });
+    const files = walkProject(root);
+    addDirectoryAndFileNodes(nodes, relations, projectRefId, files);
+    addImportAndSymbolEdges(root, files, nodes, relations);
+    return relations.values();
   }
 
-  private buildGraph(projectRoot: string, sourceGraphRef?: string): GraphBuild {
-    const packageInfo = readPackageInfo(projectRoot);
+  private async buildGraph(projectRoot: string, input: ProjectGraphInput): Promise<GraphBuild> {
+    const sourceGraphRef = input.sourceGraphRef;
+    const projectContextFacts = await buildProjectContextGraphFacts(projectRoot, input);
+    const packageInfo = projectContextFacts.packageInfo ?? readPackageInfo(projectRoot);
     const projectName = packageInfo.name ?? path.basename(projectRoot) ?? 'project';
     const projectId = `project:${stableRefSegment(projectName) || 'project'}`;
     const projectRef = defaultRefRegistry.createDetailRef({
@@ -242,9 +295,24 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
       }
     }
 
-    const files = walkProject(projectRoot);
+    for (const repoContext of projectContextFacts.repos) {
+      addRepoContextNodes(nodes, relations, projectId, repoContext);
+    }
+    for (const moduleContext of projectContextFacts.modules) {
+      addModuleContextNodes(nodes, relations, projectId, moduleContext);
+    }
+    for (const layerContext of projectContextFacts.moduleLayers) {
+      addModuleLayerContextNodes(nodes, relations, layerContext);
+    }
+    for (const mapContext of projectContextFacts.maps) {
+      addProjectMapContextNodes(nodes, relations, projectId, mapContext);
+    }
+
+    const files =
+      projectContextFacts.files.length > 0 ? projectContextFacts.files : walkProject(projectRoot);
     addDirectoryAndFileNodes(nodes, relations, projectId, files);
-    addImportAndSymbolEdges(projectRoot, files, nodes, relations);
+    addProjectContextFileFlowEdges(projectContextFacts.fileFlows, nodes, relations);
+    addAnchorRangeContextNodes(projectContextFacts.anchorRanges, nodes, relations, projectId);
 
     if (sourceGraphRef) {
       const sourceGraphId = `source-graph-node:${stableRefSegment(sourceGraphRef)}`;
@@ -253,8 +321,13 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
     }
 
     return {
-      detailRefs: [projectRef],
+      detailRefs: dedupeDetailRefs([projectRef, ...projectContextFacts.detailRefs]).slice(
+        0,
+        MAX_PROJECT_CONTEXT_DETAIL_REFS
+      ),
+      diagnostics: projectContextFacts.diagnostics,
       nodes: nodes.values(),
+      projectContext: projectContextFacts.trace,
       projectRef,
       relations: relations.values(),
       sources: [
@@ -265,6 +338,7 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
           summary:
             'Project graph facts were derived from local project files and package metadata.',
         },
+        ...projectContextFacts.sources,
         ...(sourceGraphRef
           ? [
               {
@@ -277,6 +351,609 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
       ],
     };
   }
+}
+
+async function buildProjectContextGraphFacts(
+  projectRoot: string,
+  input: ProjectGraphInput
+): Promise<ProjectContextGraphFacts> {
+  const facts: ProjectContextGraphFacts = {
+    anchorRanges: [],
+    detailRefs: [],
+    diagnostics: [],
+    fileFlows: [],
+    files: [],
+    maps: [],
+    moduleLayers: [],
+    modules: [],
+    repos: [],
+    sources: [],
+    trace: {
+      errorCount: 0,
+      partial: false,
+      refCount: 0,
+      requestKinds: [],
+    },
+  };
+
+  try {
+    const spaceEnvelope = await executeGraphProjectContextRequest('space', projectRoot, {
+      activeFile: input.activeFile,
+      includeProjectTree: true,
+      includeStructuralHotspots: true,
+      maxTreeEntries: 80,
+      sourceRefs: input.sourceRefs,
+    });
+    collectGraphEnvelope(facts, spaceEnvelope, 'project-context-space');
+    const folders = isSpaceContext(spaceEnvelope.data)
+      ? selectGraphRepoFolders(spaceEnvelope.data, projectRoot)
+      : [{ repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }];
+
+    for (const folder of folders.slice(0, 4)) {
+      const repoEnvelope = await executeGraphProjectContextRequest(
+        'repo',
+        projectRoot,
+        {
+          includeCommands: true,
+          includeEntrypoints: true,
+          includeMapSummary: false,
+          includeTopAreas: true,
+          maxFiles: 240,
+          repoName: folder.repoName,
+          repoRoot: folder.sourceFolder,
+        },
+        { repoId: folder.repoId, sourceFolder: folder.sourceFolder }
+      );
+      collectGraphEnvelope(facts, repoEnvelope, 'project-context-repo');
+      if (isRepoContext(repoEnvelope.data)) {
+        facts.repos.push(repoEnvelope.data);
+      }
+    }
+
+    facts.packageInfo = packageInfoFromRepoContexts(facts.repos);
+    facts.files = walkProject(projectRoot);
+    const moduleSeeds = createGraphModuleSeeds(facts.files);
+
+    if (moduleSeeds.length > 0) {
+      const mapEnvelope = await executeGraphProjectContextRequest('map', projectRoot, {
+        includeCycles: true,
+        includeExternalDeps: false,
+        includeHotspots: true,
+        includeMajorFlows: true,
+        moduleSeeds: moduleSeeds.slice(0, 4),
+        repoName: facts.packageInfo?.name ?? projectNameFromRoot(projectRoot),
+      });
+      collectGraphEnvelope(facts, mapEnvelope, 'project-context-map');
+      if (isProjectMapContext(mapEnvelope.data)) {
+        facts.maps.push(mapEnvelope.data);
+      }
+    }
+
+    for (const seed of moduleSeeds.slice(0, 4)) {
+      const moduleEnvelope = await executeGraphProjectContextRequest('module', projectRoot, {
+        ...seed,
+        includeDependencies: true,
+        includePublicSurfaces: true,
+      });
+      collectGraphEnvelope(facts, moduleEnvelope, 'project-context-module');
+      if (isModuleContext(moduleEnvelope.data)) {
+        facts.modules.push(moduleEnvelope.data);
+      }
+
+      const layersEnvelope = await executeGraphProjectContextRequest('module-layers', projectRoot, {
+        ...seed,
+        includeBoundaryCrossings: true,
+      });
+      collectGraphEnvelope(facts, layersEnvelope, 'project-context-module-layers');
+      if (isModuleLayerContext(layersEnvelope.data)) {
+        facts.moduleLayers.push(layersEnvelope.data);
+      }
+    }
+
+    const sourceFiles = facts.files
+      .filter((file) => SOURCE_EXTENSIONS.has(file.extension))
+      .slice(0, 90);
+    for (const file of sourceFiles) {
+      const flowEnvelope = await executeGraphProjectContextRequest('file-flow', projectRoot, {
+        filePath: file.relativePath,
+      });
+      collectGraphEnvelope(facts, flowEnvelope, 'project-context-file-flow');
+      if (isFileFlowContext(flowEnvelope.data)) {
+        facts.fileFlows.push(flowEnvelope.data);
+      }
+    }
+
+    const anchorFilePath = selectAnchorRangeFilePath(input, facts.files);
+    if (anchorFilePath) {
+      const anchorEnvelope = await executeGraphProjectContextRequest('anchor-range', projectRoot, {
+        afterLines: 8,
+        beforeLines: 8,
+        filePath: anchorFilePath,
+        includeContainingRefs: true,
+        includeRelatedRefs: true,
+        includeRelations: true,
+        includeSourceSlices: true,
+        includeSymbols: true,
+        line: 1,
+        relationHops: 1,
+      });
+      collectGraphEnvelope(facts, anchorEnvelope, 'project-context-anchor-range');
+      if (isAnchorRangeContext(anchorEnvelope.data)) {
+        facts.anchorRanges.push(anchorEnvelope.data);
+      }
+    }
+  } catch (error) {
+    facts.diagnostics.push({
+      code: 'project-context-execution-failed',
+      domain: 'project',
+      message: `ProjectContext graph projection failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      retryable: true,
+      severity: 'warning',
+    });
+    facts.trace.errorCount += 1;
+    facts.trace.partial = true;
+  }
+
+  facts.detailRefs = dedupeDetailRefs(facts.detailRefs);
+  facts.diagnostics = dedupeDiagnostics(facts.diagnostics);
+  facts.sources = dedupeSources(facts.sources);
+  facts.trace.requestKinds = uniqueProjectContextKinds(facts.trace.requestKinds);
+  return facts;
+}
+
+async function executeGraphProjectContextRequest(
+  kind: ProjectContextRequestKind,
+  projectRoot: string,
+  payload: Record<string, unknown>,
+  scope: { repoId?: string; sourceFolder?: string } = {}
+): Promise<ProjectContextEnvelope<ProjectContextResult>> {
+  return ProjectContext.execute({
+    kind,
+    payload,
+    project: { projectRoot, source: 'alembic-plugin-mcp' },
+    scope: {
+      projectRoot,
+      ...(scope.repoId === undefined ? {} : { repoId: scope.repoId }),
+      ...(scope.sourceFolder === undefined ? {} : { sourceFolder: scope.sourceFolder }),
+    },
+  });
+}
+
+function collectGraphEnvelope(
+  facts: ProjectContextGraphFacts,
+  envelope: ProjectContextEnvelope<ProjectContextResult>,
+  operation: string
+) {
+  facts.trace.requestKinds.push(envelope.queryLevel);
+  facts.trace.errorCount += envelope.errors?.length ?? 0;
+  facts.trace.partial = facts.trace.partial || Boolean(envelope.errors?.length);
+  facts.trace.refCount += envelope.refs.length;
+  facts.detailRefs.push(
+    ...envelope.refs.map((ref) =>
+      detailRefFromProjectContextRef(ref, 'alembic_graph', operation)
+    )
+  );
+  facts.sources.push(
+    ...envelope.refs.slice(0, 12).map((ref) => sourceFromProjectContextRef(ref, operation))
+  );
+  facts.diagnostics.push(
+    ...(envelope.errors
+      ?.filter((error) => error.severity === 'error')
+      .map(projectContextErrorToDiagnostic) ?? [])
+  );
+}
+
+function addRepoContextNodes(
+  nodes: NodeStore,
+  relations: RelationStore,
+  projectId: string,
+  repo: RepoContext
+) {
+  const packageName = repo.localPackages[0]?.name ?? repo.repo.name;
+  const packageId = `package:${stableRefSegment(packageName)}`;
+  nodes.add({ id: packageId, label: packageName, nodeType: 'package', path: 'package.json' });
+  relations.add(nodes, packageId, 'partOf', projectId);
+
+  for (const command of repo.commands.slice(0, 40)) {
+    const targetId = `target:script:${stableRefSegment(command.name)}`;
+    nodes.add({ id: targetId, label: `script:${command.name}`, nodeType: 'target', path: 'package.json' });
+    relations.add(nodes, targetId, 'partOf', packageId);
+  }
+  for (const target of repo.targets.slice(0, 40)) {
+    const targetId = `target:${stableRefSegment(target.name)}`;
+    nodes.add({ id: targetId, label: target.name, nodeType: 'target', path: 'package.json' });
+    relations.add(nodes, targetId, 'partOf', packageId);
+  }
+  for (const entrypoint of repo.entrypoints) {
+    for (const ref of entrypoint.refs) {
+      const filePath = ref.scope.filePath;
+      if (!filePath) {
+        continue;
+      }
+      const fileId = fileNodeId(filePath);
+      nodes.add({ id: fileId, label: path.posix.basename(filePath), nodeType: 'file', path: filePath });
+      relations.add(nodes, fileId, 'entrypointFor', packageId);
+    }
+  }
+  for (const area of [...repo.sourceRoots, ...repo.topAreas]) {
+    const areaPath = normalizeRelativePath(area.path);
+    if (!areaPath || areaPath === '.') {
+      continue;
+    }
+    const moduleId = `module:${stableRefSegment(areaPath)}`;
+    nodes.add({ id: moduleId, label: path.posix.basename(areaPath), nodeType: 'module', path: areaPath });
+    relations.add(nodes, moduleId, 'partOf', projectId);
+  }
+}
+
+function addModuleContextNodes(
+  nodes: NodeStore,
+  relations: RelationStore,
+  projectId: string,
+  context: ModuleContext
+) {
+  const modulePath = normalizeRelativePath(
+    context.module.ref?.scope.filePath ?? context.module.name
+  );
+  const moduleId = `module:${stableRefSegment(modulePath || context.module.name)}`;
+  nodes.add({
+    id: moduleId,
+    label: context.module.name,
+    nodeType: 'module',
+    path: modulePath || undefined,
+  });
+  relations.add(nodes, moduleId, 'partOf', projectId);
+  for (const file of context.ownedFiles) {
+    const fileId = fileNodeId(file.filePath);
+    nodes.add({ id: fileId, label: path.posix.basename(file.filePath), nodeType: 'file', path: file.filePath });
+    relations.add(nodes, moduleId, 'ownsFile', fileId);
+  }
+  for (const symbol of context.publicSurfaces) {
+    addSymbolNode(nodes, relations, symbol.filePath, symbol.name);
+  }
+  for (const relation of [...context.inflow, ...context.outflow]) {
+    addProjectContextRelation(nodes, relations, relation);
+  }
+}
+
+function addModuleLayerContextNodes(
+  nodes: NodeStore,
+  relations: RelationStore,
+  context: ModuleLayerContext
+) {
+  const modulePath = normalizeRelativePath(
+    context.module.ref?.scope.filePath ?? context.module.name
+  );
+  const moduleId = `module:${stableRefSegment(modulePath || context.module.name)}`;
+  for (const group of context.fileGroups) {
+    const groupId = `directory:${stableRefSegment(group.ref?.scope.filePath ?? `${context.module.name}/${group.name}`)}`;
+    nodes.add({
+      id: groupId,
+      label: group.name,
+      nodeType: 'directory',
+      path: group.ref?.scope.filePath,
+    });
+    relations.add(nodes, groupId, 'partOf', moduleId);
+    for (const file of group.files) {
+      const fileId = fileNodeId(file.filePath);
+      nodes.add({ id: fileId, label: path.posix.basename(file.filePath), nodeType: 'file', path: file.filePath });
+      relations.add(nodes, groupId, 'ownsFile', fileId);
+    }
+  }
+  for (const relation of context.boundaryCrossings) {
+    addProjectContextRelation(nodes, relations, relation);
+  }
+}
+
+function addProjectMapContextNodes(
+  nodes: NodeStore,
+  relations: RelationStore,
+  projectId: string,
+  map: ProjectMap
+) {
+  for (const moduleRecord of map.modules) {
+    const modulePath = normalizeRelativePath(
+      moduleRecord.ref?.scope.filePath ?? moduleRecord.name
+    );
+    const moduleId = `module:${stableRefSegment(modulePath || moduleRecord.name)}`;
+    nodes.add({
+      id: moduleId,
+      label: moduleRecord.name,
+      nodeType: 'module',
+      path: modulePath || undefined,
+    });
+    relations.add(nodes, moduleId, 'partOf', projectId);
+  }
+  for (const layer of map.layers) {
+    const layerPath = normalizeRelativePath(layer.ref?.scope.filePath ?? layer.name);
+    const layerId = `directory:${stableRefSegment(layerPath || layer.id)}`;
+    nodes.add({
+      id: layerId,
+      label: layer.name,
+      nodeType: 'directory',
+      path: layerPath || undefined,
+    });
+    relations.add(nodes, layerId, 'partOf', projectId);
+  }
+}
+
+function addProjectContextFileFlowEdges(
+  flows: readonly FileFlowContext[],
+  nodes: NodeStore,
+  relations: RelationStore
+) {
+  for (const flow of flows) {
+    const sourceFileId = fileNodeId(flow.file.filePath);
+    nodes.add({
+      id: sourceFileId,
+      label: path.posix.basename(flow.file.filePath),
+      nodeType: 'file',
+      path: flow.file.filePath,
+    });
+    for (const importRelation of flow.imports) {
+      const targetPath = importRelation.to?.filePath ?? importRelation.targetRef?.scope.filePath;
+      if (!targetPath) {
+        continue;
+      }
+      const targetFileId = fileNodeId(targetPath);
+      nodes.add({
+        id: targetFileId,
+        label: path.posix.basename(targetPath),
+        nodeType: 'file',
+        path: targetPath,
+      });
+      relations.add(nodes, sourceFileId, 'imports', targetFileId);
+    }
+    for (const symbol of flow.exports) {
+      addSymbolNode(nodes, relations, symbol.filePath, symbol.name);
+    }
+    for (const relation of [...flow.callees, ...flow.outflow]) {
+      addProjectContextRelation(nodes, relations, relation);
+    }
+  }
+}
+
+function addAnchorRangeContextNodes(
+  anchors: readonly AnchorRangeContext[],
+  nodes: NodeStore,
+  relations: RelationStore,
+  projectId: string
+) {
+  for (const anchor of anchors) {
+    const fileId = fileNodeId(anchor.file.filePath);
+    nodes.add({
+      id: fileId,
+      label: path.posix.basename(anchor.file.filePath),
+      nodeType: 'file',
+      path: anchor.file.filePath,
+    });
+    relations.add(nodes, fileId, 'partOf', projectId);
+    for (const symbol of anchor.symbols) {
+      addSymbolNode(nodes, relations, symbol.filePath, symbol.name);
+    }
+    for (const relation of anchor.relationSites) {
+      addProjectContextRelation(nodes, relations, relation);
+    }
+  }
+}
+
+function addProjectContextRelation(
+  nodes: NodeStore,
+  relations: RelationStore,
+  relation: {
+    from?: { filePath?: string; symbol?: string; label?: string };
+    kind: string;
+    to?: { filePath?: string; symbol?: string; label?: string };
+    filePath?: string;
+  }
+) {
+  const relationType = projectContextRelationType(relation.kind);
+  if (!relationType) {
+    return;
+  }
+  const fromId = endpointNodeId(relation.from, relation.filePath);
+  const toId = endpointNodeId(relation.to, relation.filePath);
+  if (!fromId || !toId || fromId === toId) {
+    return;
+  }
+  addEndpointNode(nodes, fromId, relation.from, relation.filePath);
+  addEndpointNode(nodes, toId, relation.to, relation.filePath);
+  relations.add(nodes, fromId, relationType, toId);
+}
+
+function addSymbolNode(
+  nodes: NodeStore,
+  relations: RelationStore,
+  filePath: string,
+  symbolName: string
+) {
+  const fileId = fileNodeId(filePath);
+  const symbolId = `symbol:${stableRefSegment(`${filePath}#${symbolName}`)}`;
+  nodes.add({ id: fileId, label: path.posix.basename(filePath), nodeType: 'file', path: filePath });
+  nodes.add({ id: symbolId, label: symbolName, nodeType: 'symbol', path: filePath });
+  relations.add(nodes, fileId, 'definesSymbol', symbolId);
+  relations.add(nodes, fileId, 'exports', symbolId);
+}
+
+function addEndpointNode(
+  nodes: NodeStore,
+  id: string,
+  endpoint: { filePath?: string; symbol?: string; label?: string } | undefined,
+  fallbackFilePath?: string
+) {
+  if (id.startsWith('symbol:')) {
+    nodes.add({
+      id,
+      label: endpoint?.symbol ?? endpoint?.label ?? id.replace(/^symbol:/, ''),
+      nodeType: 'symbol',
+      path: endpoint?.filePath ?? fallbackFilePath,
+    });
+    return;
+  }
+  const filePath = endpoint?.filePath ?? fallbackFilePath ?? id.replace(/^file:/, '');
+  nodes.add({ id, label: path.posix.basename(filePath), nodeType: 'file', path: filePath });
+}
+
+function endpointNodeId(
+  endpoint: { filePath?: string; symbol?: string; label?: string } | undefined,
+  fallbackFilePath?: string
+): string | undefined {
+  const filePath = endpoint?.filePath ?? fallbackFilePath;
+  if (endpoint?.symbol && filePath) {
+    return `symbol:${stableRefSegment(`${filePath}#${endpoint.symbol}`)}`;
+  }
+  return filePath ? fileNodeId(filePath) : undefined;
+}
+
+function projectContextRelationType(
+  kind: string
+): KnowledgeContextProjectRelationType | undefined {
+  if (isAllowedRelationType(kind)) {
+    return kind;
+  }
+  if (kind === 'import') {
+    return 'imports';
+  }
+  if (kind === 'export') {
+    return 'exports';
+  }
+  return undefined;
+}
+
+function packageInfoFromRepoContexts(repos: readonly RepoContext[]): PackageInfo | undefined {
+  if (repos.length === 0) {
+    return undefined;
+  }
+  const localPackage = repos.flatMap((repo) => repo.localPackages)[0];
+  return {
+    dependencies: [],
+    entrypoints: uniqueStrings(
+      repos.flatMap((repo) =>
+        repo.entrypoints.flatMap((entrypoint) =>
+          entrypoint.refs.map((ref) => ref.scope.filePath).filter(isNonEmptyString)
+        )
+      )
+    ),
+    name: localPackage?.name ?? repos[0]?.repo.name,
+    scripts: uniqueStrings(repos.flatMap((repo) => repo.commands.map((command) => command.name))),
+  };
+}
+
+function createGraphModuleSeeds(files: readonly FileCandidate[]): Record<string, unknown>[] {
+  const candidates = new Map<string, string[]>();
+  for (const file of files.filter((item) => SOURCE_EXTENSIONS.has(item.extension))) {
+    const topLevel = file.relativePath.split('/')[0];
+    if (!TOP_LEVEL_MODULE_NAMES.has(topLevel)) {
+      continue;
+    }
+    const existing = candidates.get(topLevel) ?? [];
+    if (existing.length < 40) {
+      existing.push(file.relativePath);
+    }
+    candidates.set(topLevel, existing);
+  }
+  return [...candidates.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .slice(0, 6)
+    .map(([modulePath, ownedFiles]) => ({
+      moduleName: path.posix.basename(modulePath),
+      modulePath,
+      ownedFiles,
+    }));
+}
+
+function selectAnchorRangeFilePath(
+  input: ProjectGraphInput,
+  files: readonly FileCandidate[]
+): string | undefined {
+  if (input.activeFile) {
+    return normalizeRelativePath(input.activeFile);
+  }
+  if (input.nodeId) {
+    const file = files.find((candidate) => fileNodeId(candidate.relativePath) === input.nodeId);
+    return file?.relativePath;
+  }
+  return undefined;
+}
+
+function selectGraphRepoFolders(space: SpaceContext, projectRoot: string) {
+  if (space.sourceFolders.length === 0) {
+    return [{ repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }];
+  }
+  return space.sourceFolders.map((folder) => ({
+    repoId: folder.repositoryId ?? folder.id,
+    repoName: folder.displayName ?? folder.repositoryId ?? folder.id,
+    sourceFolder: normalizeRelativePath(folder.path || '.'),
+  }));
+}
+
+function detailRefFromProjectContextRef(
+  ref: ProjectContextRef,
+  tool: 'alembic_graph',
+  operation: string
+): KnowledgeContextDetailRef {
+  const relPath = ref.scope.filePath ?? ref.scope.sourceFolder ?? '.';
+  return defaultRefRegistry.createDetailRef({
+    domain: ref.kind === 'file' || ref.kind === 'path' || ref.kind === 'source-slice' ? 'document' : 'project',
+    id: ref.id,
+    operation,
+    summary: `${ref.kind} ProjectContext ref ${ref.label ?? ref.id}.`,
+    title: ref.label ?? ref.id,
+    tool,
+    uri: path.join(ref.scope.projectRoot, relPath),
+  });
+}
+
+function sourceFromProjectContextRef(
+  ref: ProjectContextRef,
+  operation: string
+): KnowledgeContextSource {
+  return {
+    domain: ref.kind === 'file' || ref.kind === 'path' || ref.kind === 'source-slice' ? 'document' : 'project',
+    id: ref.id,
+    summary: `${operation} ProjectContext ref ${ref.label ?? ref.id}.`,
+    title: ref.label,
+  };
+}
+
+function projectContextErrorToDiagnostic(error: ProjectContextQueryError): KnowledgeContextDiagnostic {
+  return {
+    code: `project-context-${error.code}`,
+    domain: 'project',
+    message: error.path ? `${error.message} (${error.path})` : error.message,
+    retryable: error.retryable,
+    severity: error.severity === 'error' ? 'warning' : error.severity,
+  };
+}
+
+function isSpaceContext(value: ProjectContextResult): value is SpaceContext {
+  return isRecord(value) && isRecord(value.space) && Array.isArray(value.sourceFolders);
+}
+
+function isRepoContext(value: ProjectContextResult): value is RepoContext {
+  return isRecord(value) && isRecord(value.repo) && Array.isArray(value.entrypoints);
+}
+
+function isProjectMapContext(value: ProjectContextResult): value is ProjectMap {
+  return isRecord(value) && Array.isArray(value.modules) && isRecord(value.dependencySummary);
+}
+
+function isModuleContext(value: ProjectContextResult): value is ModuleContext {
+  return isRecord(value) && isRecord(value.module) && Array.isArray(value.ownedFiles);
+}
+
+function isModuleLayerContext(value: ProjectContextResult): value is ModuleLayerContext {
+  return isRecord(value) && isRecord(value.module) && Array.isArray(value.fileGroups);
+}
+
+function isFileFlowContext(value: ProjectContextResult): value is FileFlowContext {
+  return isRecord(value) && isRecord(value.file) && Array.isArray(value.imports);
+}
+
+function isAnchorRangeContext(value: ProjectContextResult): value is AnchorRangeContext {
+  return isRecord(value) && isRecord(value.file) && isRecord(value.anchor);
 }
 
 class NodeStore {
@@ -1118,6 +1795,49 @@ function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function projectNameFromRoot(projectRoot?: string): string {
+  if (!projectRoot) {
+    return 'Unknown project';
+  }
+  return path.basename(projectRoot) || projectRoot;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function dedupeDetailRefs(refs: KnowledgeContextDetailRef[]): KnowledgeContextDetailRef[] {
+  return [...new Map(refs.map((ref) => [ref.id, ref])).values()];
+}
+
+function dedupeSources(sources: KnowledgeContextSource[]): KnowledgeContextSource[] {
+  return [...new Map(sources.map((source) => [source.id, source])).values()];
+}
+
+function dedupeDiagnostics(
+  diagnostics: KnowledgeContextDiagnostic[]
+): KnowledgeContextDiagnostic[] {
+  return [
+    ...new Map(
+      diagnostics.map((diagnostic) => [`${diagnostic.code}\u0000${diagnostic.message}`, diagnostic])
+    ).values(),
+  ];
+}
+
+function uniqueProjectContextKinds(
+  values: ProjectContextRequestKind[]
+): ProjectContextRequestKind[] {
+  return [...new Set(values)].sort();
 }
 
 function normalizeRelativePath(value: string): string {
