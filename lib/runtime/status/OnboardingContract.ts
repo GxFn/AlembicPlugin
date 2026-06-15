@@ -8,15 +8,9 @@ import {
 
 export const CODEX_ONBOARDING_CONTRACT_VERSION = 1;
 
-const CANONICAL_SOURCE_GRAPH_TOOLS = [
-  'alembic_source_graph_status',
-  'alembic_code_explore',
-  'alembic_symbol_search',
-  'alembic_source_node',
-  'alembic_callers',
-  'alembic_callees',
-  'alembic_code_impact',
-  'alembic_validation_plan',
+const CANONICAL_PROJECT_CONTEXT_TOOLS = [
+  'alembic_project_matrix',
+  'alembic_graph',
 ] as const;
 
 const KNOWLEDGE_AND_RECIPE_TOOLS = [
@@ -31,7 +25,6 @@ const KNOWLEDGE_AND_RECIPE_TOOLS = [
 const GUARD_AND_VALIDATION_TOOLS = [
   'alembic_code_guard',
   'alembic_guard',
-  'alembic_validation_plan',
 ] as const;
 
 const BOOTSTRAP_AND_RECOVERY_TOOLS = [
@@ -115,28 +108,19 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Runtime And Entrypoints',
     goal: 'Identify real commands, package exports, runtime entrypoints, and host-owned execution paths before describing behavior.',
     keywordHints: ['runtime', 'entry', 'cli', 'daemon', 'mcp', 'bootstrap', 'server'],
-    toolSequence: [
-      'alembic_source_graph_status',
-      'alembic_code_explore',
-      'alembic_symbol_search',
-      'alembic_source_node',
-    ],
+    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_search'],
     toolToInformation: [
       {
-        tool: 'alembic_source_graph_status',
-        information: 'freshness, scope, and whether graph facts can be trusted',
+        tool: 'alembic_project_matrix',
+        information: 'ProjectContext orientation, key modules, entrypoints, detail refs, and partial notes',
       },
       {
-        tool: 'alembic_code_explore',
-        information: 'entrypoint files, package-level structure, and owned modules',
+        tool: 'alembic_graph',
+        information: 'ProjectContext-backed entrypoint, package, file, symbol, and relation hints',
       },
       {
-        tool: 'alembic_symbol_search',
-        information: 'runtime functions, exported bins, and MCP handlers by symbol name',
-      },
-      {
-        tool: 'alembic_source_node',
-        information: 'exact source body before any Recipe candidate references it',
+        tool: 'alembic_search',
+        information: 'prior Recipes and decisions relevant to runtime entrypoint conventions',
       },
     ],
     requiredEvidence: [
@@ -150,20 +134,15 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Source Structure And Ownership',
     goal: 'Map owned modules, boundaries, and cross-package imports without moving responsibility between repositories.',
     keywordHints: ['architecture', 'module', 'package', 'ownership', 'boundary', 'dependency'],
-    toolSequence: [
-      'alembic_source_graph_status',
-      'alembic_code_explore',
-      'alembic_symbol_search',
-      'alembic_code_impact',
-    ],
+    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_search'],
     toolToInformation: [
       {
-        tool: 'alembic_code_explore',
+        tool: 'alembic_project_matrix',
         information: 'directory and module inventory for the requested scope',
       },
       {
-        tool: 'alembic_code_impact',
-        information: 'affected owners and files when a boundary changes',
+        tool: 'alembic_graph',
+        information: 'bounded dependency, import/export, entrypoint, and ownership relations',
       },
     ],
     requiredEvidence: [
@@ -177,21 +156,15 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'State And Persistence',
     goal: 'Trace data roots, persisted files, sessions, job state, and recovery markers before writing lifecycle guidance.',
     keywordHints: ['state', 'persistence', 'session', 'job', 'database', 'storage'],
-    toolSequence: [
-      'alembic_source_graph_status',
-      'alembic_symbol_search',
-      'alembic_callers',
-      'alembic_callees',
-      'alembic_source_node',
-    ],
+    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_search'],
     toolToInformation: [
       {
-        tool: 'alembic_callers',
-        information: 'who writes or reads a persistence function',
+        tool: 'alembic_graph',
+        information: 'ProjectContext file/module/function relation hints for state readers and writers',
       },
       {
-        tool: 'alembic_callees',
-        information: 'which storage helpers a workflow depends on',
+        tool: 'alembic_search',
+        information: 'existing project rules or decisions about persisted state',
       },
     ],
     requiredEvidence: [
@@ -205,20 +178,15 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Tool Contracts And Outputs',
     goal: 'Confirm MCP schemas, clean output fields, and host-facing tool semantics before changing tool guidance.',
     keywordHints: ['tool', 'mcp', 'schema', 'output', 'contract', 'structuredcontent'],
-    toolSequence: [
-      'alembic_source_graph_status',
-      'alembic_code_explore',
-      'alembic_symbol_search',
-      'alembic_validation_plan',
-    ],
+    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_code_guard'],
     toolToInformation: [
       {
-        tool: 'alembic_validation_plan',
-        information: 'advisory check buckets for schema and output contract changes',
+        tool: 'alembic_project_matrix',
+        information: 'tool declaration, handler-owner, and output-contract orientation',
       },
       {
-        tool: 'alembic_symbol_search',
-        information: 'tool declarations, handler owners, and projector symbols',
+        tool: 'alembic_graph',
+        information: 'bounded schema/handler/projector relation detail',
       },
     ],
     requiredEvidence: [
@@ -230,18 +198,13 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
   {
     domainId: 'D5-validation-safety',
     title: 'Validation And Safety',
-    goal: 'Choose checks that match the actual behavior changed, then separate advisory graph output from acceptance.',
+    goal: 'Choose checks that match the actual behavior changed, then separate ProjectContext orientation from acceptance.',
     keywordHints: ['test', 'validation', 'guard', 'safety', 'lint', 'check'],
-    toolSequence: [
-      'alembic_source_graph_status',
-      'alembic_code_impact',
-      'alembic_validation_plan',
-      'alembic_code_guard',
-    ],
+    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_code_guard'],
     toolToInformation: [
       {
-        tool: 'alembic_code_impact',
-        information: 'candidate affected runtime paths and likely validation scope',
+        tool: 'alembic_graph',
+        information: 'candidate affected modules, entrypoints, and relation hints',
       },
       {
         tool: 'alembic_code_guard',
@@ -257,22 +220,17 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
   {
     domainId: 'D6-failure-recovery',
     title: 'Failure And Recovery',
-    goal: 'Describe degraded states, repair triggers, and rebuild requirements without hiding transport or graph freshness failures.',
+    goal: 'Describe degraded states, repair triggers, and rebuild requirements without hiding transport or ProjectContext partial-state failures.',
     keywordHints: ['failure', 'error', 'recovery', 'diagnostics', 'degraded', 'stale'],
-    toolSequence: [
-      'alembic_mcp_status',
-      'alembic_source_graph_status',
-      'alembic_symbol_search',
-      'alembic_validation_plan',
-    ],
+    toolSequence: ['alembic_mcp_status', 'alembic_project_matrix', 'alembic_graph'],
     toolToInformation: [
       {
         tool: 'alembic_mcp_status',
         information: 'runtime, initialization, knowledge, and repair state',
       },
       {
-        tool: 'alembic_source_graph_status',
-        information: 'graph stale, pending, partial, wrong-scope, or ready signals',
+        tool: 'alembic_project_matrix',
+        information: 'ProjectContext freshness, partial notes, and current project orientation',
       },
     ],
     requiredEvidence: [
@@ -357,17 +315,17 @@ function buildCodexOnboardingContract(
       contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
       defaultOrder: [
         'alembic_mcp_status',
-        'alembic_source_graph_status',
-        currentPlaybook?.toolSequence[1] || 'alembic_code_explore',
+        'alembic_project_matrix',
+        currentPlaybook?.toolSequence[1] || 'alembic_graph',
         'alembic_submit_knowledge',
         'alembic_dimension_complete',
       ],
-      rule: 'Use source graph tools only after freshness is known; fall back to raw file reads and repository validation when graph facts are stale or partial.',
+      rule: 'Use ProjectContext matrix/graph for compact orientation; fall back to raw file reads and repository validation when project context is partial or ambiguous.',
       agentDecisionChecklist: buildAgentDecisionChecklist(currentDomainSop),
       blockedConclusionsField: 'repairState.blockedConclusions',
       evidenceFields: [
         'bootstrapState.projectIdentity',
-        'bootstrapState.sourceGraph',
+        'bootstrapState.projectContext',
         'toolCapabilities',
         'currentDomainSop.requiredEvidence',
         'currentDomainSop.recipeGuidanceFloor',
@@ -412,7 +370,7 @@ function buildBootstrapState(
       owner: 'alembic-plugin',
       tool: 'alembic_bootstrap',
     },
-    sourceGraph: buildSourceGraphState(input),
+    projectContext: buildProjectContextState(input),
     singleWriterLease: buildSingleWriterLeaseVisibility(input),
     session: sessionSummary,
     progress: {
@@ -441,12 +399,12 @@ function resolveBootstrapStatus(input: BuildCodexOnboardingContractInput): strin
     return 'bootstrap_in_progress';
   }
   if (knowledge.status === 'knowledge_stale' || knowledge.sourceRefs?.status === 'stale') {
-    return 'graph_stale';
+    return 'project_context_stale';
   }
   return knowledge.usable ? 'knowledge_ready' : 'initialized_empty';
 }
 
-function buildSourceGraphState(input: BuildCodexOnboardingContractInput): Record<string, unknown> {
+function buildProjectContextState(input: BuildCodexOnboardingContractInput): Record<string, unknown> {
   const sourceRefs = input.knowledge?.sourceRefs;
   const snapshots = input.knowledge?.snapshots;
   const freshness = input.knowledge?.freshness;
@@ -458,12 +416,10 @@ function buildSourceGraphState(input: BuildCodexOnboardingContractInput): Record
         : 'not_yet_proven';
   return {
     acceptanceRule:
-      'Source graph output is evidence only after alembic_source_graph_status reports the correct project scope and fresh/ready state.',
-    firstTool: 'alembic_source_graph_status',
+      'ProjectContext matrix/graph output is orientation evidence only; validate current behavior with raw source reads, Guard, and repository tests.',
+    firstTool: 'alembic_project_matrix',
     freshnessStatus: freshness?.status || null,
-    queryTools: CANONICAL_SOURCE_GRAPH_TOOLS.filter(
-      (toolName) => toolName !== 'alembic_source_graph_status'
-    ),
+    queryTools: CANONICAL_PROJECT_CONTEXT_TOOLS,
     readiness,
     sourceRefStatus: sourceRefs?.status || null,
     staleRecipeCount: sourceRefs?.staleRecipeCount ?? null,
@@ -516,7 +472,7 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
     contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
     source: 'PluginToolSurfaceCatalog',
     visibleToolNames: entries.map((entry) => entry.name),
-    canonicalSourceGraph: summarizeToolGroup(CANONICAL_SOURCE_GRAPH_TOOLS, byName),
+    canonicalProjectContext: summarizeToolGroup(CANONICAL_PROJECT_CONTEXT_TOOLS, byName),
     knowledgeAndRecipes: summarizeToolGroup(KNOWLEDGE_AND_RECIPE_TOOLS, byName),
     guardAndValidation: summarizeToolGroup(GUARD_AND_VALIDATION_TOOLS, byName),
     bootstrapAndRecovery: summarizeToolGroup(BOOTSTRAP_AND_RECOVERY_TOOLS, byName),
@@ -524,8 +480,8 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
       {
         name: 'alembic_call_context',
         reason:
-          'Do not use for current-source relationship evidence in the onboarding SOP; prefer caller/callee/impact source graph tools.',
-        replacementTools: ['alembic_callers', 'alembic_callees', 'alembic_code_impact'],
+          'Legacy call-context browsing is not part of the default public project-information surface.',
+        replacementTools: ['alembic_project_matrix', 'alembic_graph'],
         status: byName.has('alembic_call_context') ? 'visible-legacy-surface' : 'not-visible',
       },
       {
@@ -538,28 +494,16 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
       {
         name: 'alembic_structure',
         reason:
-          'Legacy structure browsing is replaced by compact matrix navigation and source graph/source reads.',
-        replacementTools: [
-          'alembic_project_matrix',
-          'alembic_graph',
-          'alembic_code_explore',
-          'alembic_symbol_search',
-        ],
+          'Legacy structure browsing is replaced by compact ProjectContext matrix and graph navigation.',
+        replacementTools: ['alembic_project_matrix', 'alembic_graph'],
         status: byName.has('alembic_structure') ? 'visible-legacy-surface' : 'not-visible',
       },
       {
         name: 'alembic_panorama',
         reason:
-          'Legacy panorama/coverage guidance is not part of the default public knowledge navigation surface.',
+          'Legacy panorama guidance is retired from the default public knowledge navigation surface.',
         replacementTools: ['alembic_project_matrix', 'alembic_search', 'alembic_graph'],
         status: byName.has('alembic_panorama') ? 'visible-legacy-surface' : 'not-visible',
-      },
-      {
-        name: 'alembic_affected_tests',
-        reason:
-          'Do not use as an acceptance surface in the onboarding SOP; validation planning owns test buckets.',
-        replacementTools: ['alembic_validation_plan'],
-        status: byName.has('alembic_affected_tests') ? 'fold-into-validation-plan' : 'not-visible',
       },
     ],
   };
@@ -645,12 +589,12 @@ function buildCurrentDomainSop(
     recipeOntologyReminders: [
       'Recipe candidates must describe reusable project guidance, not raw symbol dumps.',
       'Submit-ready candidates must already satisfy the submit_knowledge schema floor: content.markdown >= 200 chars, standard category, concrete sourceRefs, reasoning.sources, and a 3-8 line copyable coreCode when code behavior is claimed.',
-      'Relationship claims require source evidence such as callers, callees, impact, or exact source nodes.',
+      'Relationship claims require ProjectContext detail refs or raw source evidence, with uncertainty named when context is partial.',
       'A good Recipe states when to use it, when not to use it, and which validation proves the behavior.',
     ],
     recipeCreationSop: [
-      'Check source graph freshness first.',
-      'Collect exact source facts with file paths, symbols, and relationship evidence.',
+      'Check ProjectContext matrix/graph orientation first.',
+      'Collect exact source facts with file paths, symbols, and relationship evidence from ProjectContext detail refs or raw source reads.',
       'Draft candidates against submitKnowledgeContract before calling alembic_submit_knowledge; do not rely on tool rejection to discover missing fields.',
       'Compare with existing Recipes before submitting a new candidate.',
       'Submit only project-specific, reusable guidance.',
@@ -662,42 +606,42 @@ function buildCurrentDomainSop(
       'line citation',
       'module attribution',
       'sourceRefs',
-      'graph relation refs when making caller/callee/impact claims',
+      'ProjectContext relation/detail refs when making caller/callee/impact claims',
       'validation command or explicit no-op reason',
     ],
     rejectionExamples: buildDomainRejectionExamples(playbook.domainId),
     qualityGates: [
       'No generic advice without project-specific source evidence.',
       'No bare filename claims without symbol or snippet context.',
-      'No relationship claim without caller, callee, impact, or exact source node evidence.',
-      'No acceptance from graph output alone; run matching repository validation.',
+      'No relationship claim without ProjectContext relation/detail refs or raw source fallback.',
+      'No acceptance from ProjectContext output alone; run matching repository validation.',
     ],
     repairRebuildRules: [
       'If scope is wrong, stop and resolve the project root before using source facts.',
-      'If graph freshness is stale, re-check after rebuild or fall back to raw file reads and name the uncertainty.',
+      'If ProjectContext is partial or stale, use matrix/graph partial notes, fall back to raw file reads, and name the uncertainty.',
       'If transport closes, repair MCP/runtime transport before claiming live Codex usability.',
     ],
     stopConditions: [
       'wrong project root',
-      'stale or partial graph used as final proof',
+      'partial ProjectContext used as final proof',
       'missing validation for behavior-changing edits',
       'Recipe candidate lacks source-backed reusable guidance',
     ],
     completionRules: [
       'Every claim cites repo-relative file paths and line numbers or names a raw-read fallback.',
-      'Every relationship claim cites source graph relation evidence or explicitly marks graph uncertainty.',
+      'Every relationship claim cites ProjectContext relation/detail refs or explicitly marks context uncertainty.',
       'Every candidate includes content.markdown >= 200 chars, description <= 80 chars, a standard category, sourceRefs matching coreCode, and reasoning.sources before the first submit attempt.',
       'Dimension completion records referencedFiles, 3-5 keyFindings, and analysisText >= 500 chars.',
       'Cross-domain duplicates are rejected before submission.',
     ],
     nextActions: [
       {
-        label: 'Check source graph status',
-        tool: 'alembic_source_graph_status',
+        label: 'Read ProjectContext matrix',
+        tool: 'alembic_project_matrix',
       },
       {
         label: `Collect evidence for ${playbook.title}`,
-        tool: playbook.toolSequence[1] || 'alembic_code_explore',
+        tool: playbook.toolSequence[1] || 'alembic_graph',
       },
       {
         label: 'Submit source-grounded Recipe candidates',
@@ -723,7 +667,7 @@ function buildSopPack(
     scopeBrief: buildScopeBrief(input),
     toolCapabilityMatrix: buildToolCapabilityMatrix(context.toolSurface),
     stagedProtocol: [
-      'Read bootstrapState and confirm project identity, runtime route, graph readiness, and current domain.',
+      'Read bootstrapState and confirm project identity, runtime route, ProjectContext readiness, and current domain.',
       'Run the currentDomainSop tool sequence and keep source evidence tied to file paths or symbols.',
       'Before submit, draft against submitKnowledgeContract so the first alembic_submit_knowledge call is already schema-complete and source-grounded.',
       'Complete the domain, then move to the next pending domain in domainQueue.',
@@ -737,7 +681,7 @@ function buildSopPack(
     dimensionCompletionContract: buildDimensionCompletionContract(),
     knowledgeResetContract: buildKnowledgeResetContract(),
     repairPrompts: [
-      'If graph status is stale, refresh or use raw file reads and state the uncertainty.',
+      'If ProjectContext is stale or partial, use raw file reads and state the uncertainty.',
       'If runtime transport closes, repair MCP/plugin transport before using live-output claims.',
       'If scope differs from the host project, stop and resolve project identity.',
     ],
@@ -751,7 +695,7 @@ function buildSopPack(
     stopConditions: [
       'project root or data root mismatch',
       'another bootstrap writer holds the lease',
-      'source graph stale/partial/wrong-scope used as final proof',
+      'ProjectContext stale/partial/wrong-scope used as final proof',
       'language overlay missing without generic fallback uncertainty',
       'Recipe floor cannot be met and no no-op reason is recorded',
       'runtime transport lacks real MCP readback',
@@ -957,7 +901,7 @@ function buildKnowledgeResetContract(): Record<string, unknown> {
     scopes: [
       'host-agent bootstrap session state',
       'generated candidates for the active bootstrap session',
-      'source graph freshness markers produced by the bootstrap route',
+      'ProjectContext freshness and partial markers produced by the bootstrap route',
       'staged domain progress for Codex-owned cold start',
     ],
     backupByDefault: true,
@@ -997,7 +941,7 @@ function buildScopeBrief(input: BuildCodexOnboardingContractInput): Record<strin
       'untrusted Codex project root resolution',
       'host project handoff mismatch',
       'another bootstrap writer holds the lease',
-      'stale or partial graph used as final proof',
+      'stale or partial ProjectContext used as final proof',
     ],
   };
 }
@@ -1007,7 +951,6 @@ function buildToolCapabilityMatrix(
 ): Array<Record<string, unknown>> {
   const blockedForSop = new Set([
     'alembic_call_context',
-    'alembic_affected_tests',
     'alembic_knowledge',
     'alembic_structure',
     'alembic_panorama',
@@ -1032,9 +975,11 @@ function describeToolProvides(toolName: string): string {
     return 'runtime, scope, freshness, and repair state';
   }
   if (
-    CANONICAL_SOURCE_GRAPH_TOOLS.includes(toolName as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number])
+    CANONICAL_PROJECT_CONTEXT_TOOLS.includes(
+      toolName as (typeof CANONICAL_PROJECT_CONTEXT_TOOLS)[number]
+    )
   ) {
-    return 'source graph facts after freshness and scope are verified';
+    return 'ProjectContext orientation, project nodes, relation hints, detail refs, and partial notes';
   }
   if (
     KNOWLEDGE_AND_RECIPE_TOOLS.includes(toolName as (typeof KNOWLEDGE_AND_RECIPE_TOOLS)[number])
@@ -1064,18 +1009,15 @@ function describeToolProvides(toolName: string): string {
 }
 
 function describeToolTrust(entry: PluginToolSurfaceEntry): string {
-  if (entry.name === 'alembic_source_graph_status' || entry.name === 'alembic_mcp_status') {
+  if (entry.name === 'alembic_mcp_status') {
     return 'authoritative for tool choice and readiness, not a substitute for repository validation';
   }
   if (
-    CANONICAL_SOURCE_GRAPH_TOOLS.includes(
-      entry.name as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number]
+    CANONICAL_PROJECT_CONTEXT_TOOLS.includes(
+      entry.name as (typeof CANONICAL_PROJECT_CONTEXT_TOOLS)[number]
     )
   ) {
-    return 'trusted only when source graph status is ready for the same project scope';
-  }
-  if (entry.name === 'alembic_validation_plan') {
-    return 'advisory; run repository checks before acceptance';
+    return 'orientation evidence only; validate behavior with raw source reads, Guard, and repository checks';
   }
   if (entry.name === 'alembic_graph') {
     return 'read-only project graph evidence, not source freshness or Recipe coverage proof';
@@ -1090,9 +1032,11 @@ function describeToolTrust(entry: PluginToolSurfaceEntry): string {
 
 function describeToolEvidenceRefs(toolName: string): string[] {
   if (
-    CANONICAL_SOURCE_GRAPH_TOOLS.includes(toolName as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number])
+    CANONICAL_PROJECT_CONTEXT_TOOLS.includes(
+      toolName as (typeof CANONICAL_PROJECT_CONTEXT_TOOLS)[number]
+    )
   ) {
-    return ['sourceGraphRef', 'sourceEvidenceRefs'];
+    return ['detailRefs', 'sourceEvidenceRefs'];
   }
   if (toolName === 'alembic_submit_knowledge') {
     return ['candidate ids', 'sourceRefs', 'Recipe refs'];
@@ -1108,12 +1052,11 @@ function describeToolEvidenceRefs(toolName: string): string[] {
 
 function describeToolInvalidConclusions(toolName: string): string[] {
   if (
-    CANONICAL_SOURCE_GRAPH_TOOLS.includes(toolName as (typeof CANONICAL_SOURCE_GRAPH_TOOLS)[number])
+    CANONICAL_PROJECT_CONTEXT_TOOLS.includes(
+      toolName as (typeof CANONICAL_PROJECT_CONTEXT_TOOLS)[number]
+    )
   ) {
-    return ['source facts are fresh without a matching source graph status check'];
-  }
-  if (toolName === 'alembic_validation_plan') {
-    return ['recommended tests have passed'];
+    return ['current behavior is proven without raw source reads or validation'];
   }
   if (toolName === 'alembic_submit_knowledge') {
     return ['domain is complete'];
@@ -1370,7 +1313,7 @@ function buildAgentDecisionChecklist(
     {
       when: 'bootstrapState.status is wrong_scope, degraded, or project_root_unresolved',
       nextTool: 'alembic_mcp_status',
-      blockedConclusions: ['do not use source graph facts', 'do not submit Recipes'],
+      blockedConclusions: ['do not use ProjectContext facts', 'do not submit Recipes'],
     },
     {
       when: 'bootstrapState.status is bootstrap_in_progress',
@@ -1378,13 +1321,13 @@ function buildAgentDecisionChecklist(
       blockedConclusions: ['do not start a second bootstrap writer'],
     },
     {
-      when: 'sourceGraph.readiness is not proven',
-      nextTool: 'alembic_source_graph_status',
-      blockedConclusions: ['do not claim graph freshness'],
+      when: 'projectContext readiness is not proven',
+      nextTool: 'alembic_project_matrix',
+      blockedConclusions: ['do not claim ProjectContext completeness'],
     },
     {
       when: 'current domain needs source evidence',
-      nextTool: toolSequence[1] || 'alembic_code_explore',
+      nextTool: toolSequence[1] || 'alembic_graph',
       blockedConclusions: ['do not submit generic or source-free Recipes'],
     },
   ];
@@ -1397,21 +1340,21 @@ function buildGates(): Record<string, unknown> {
       rule: 'Project root and data root must match the active Codex host project before source facts can be trusted.',
       firstRepairTool: 'alembic_mcp_status',
     },
-    graphFreshness: {
-      rule: 'Run alembic_source_graph_status before source graph query tools.',
+    projectContext: {
+      rule: 'Use alembic_project_matrix and alembic_graph for compact ProjectContext orientation before broad raw exploration.',
       degradedStates: ['stale', 'pending', 'partial', 'wrong-scope', 'unsupported-language'],
     },
     sourceEvidence: {
-      rule: 'Recipe candidates require exact source references, not graph labels alone.',
-      acceptableRefs: ['file path', 'symbol id', 'source node', 'call relation', 'command output'],
+      rule: 'Recipe candidates require exact source references, not ProjectContext labels alone.',
+      acceptableRefs: ['file path', 'symbol id', 'ProjectContext detail ref', 'relation hint', 'command output'],
     },
     relationshipEvidence: {
-      rule: 'Caller, callee, and impact claims require source graph relation evidence or raw source fallback.',
-      preferredTools: ['alembic_callers', 'alembic_callees', 'alembic_code_impact'],
+      rule: 'Caller, callee, and impact claims require ProjectContext relation/detail evidence or raw source fallback.',
+      preferredTools: ['alembic_project_matrix', 'alembic_graph'],
     },
     validation: {
-      rule: 'Validation plan is advisory; acceptance still requires repository tests or targeted host checks.',
-      preferredTools: ['alembic_validation_plan', 'alembic_code_guard'],
+      rule: 'ProjectContext orientation is advisory; acceptance still requires Guard, repository tests, or targeted host checks.',
+      preferredTools: ['alembic_code_guard'],
     },
     runtimeTransport: {
       rule: 'Live Codex usability requires a real MCP/tool readback, not only a unit test.',
@@ -1432,7 +1375,7 @@ function buildProgress(
     pendingDomainIds: domainQueue.map((domain) => domain.domainId),
     dimensionCount: dimensions.length,
     nextRequiredTools: [
-      'alembic_source_graph_status',
+      'alembic_project_matrix',
       'alembic_submit_knowledge',
       'alembic_dimension_complete',
     ],
@@ -1451,8 +1394,8 @@ function buildRepairState(
   if (status === 'degraded') {
     reasons.push('runtime diagnostics are not healthy');
   }
-  if (status === 'graph_stale') {
-    reasons.push('knowledge source refs or graph freshness are stale');
+  if (status === 'project_context_stale') {
+    reasons.push('knowledge source refs or ProjectContext freshness are stale');
   }
   if (status === 'bootstrap_in_progress') {
     reasons.push('single-writer bootstrap lease is already held');
@@ -1465,19 +1408,19 @@ function buildRepairState(
     contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
     status: waiting ? 'waiting' : reasons.length > 0 ? 'repair-needed' : 'ready',
     reasons,
-    rebuildRequired: status === 'graph_stale',
+    rebuildRequired: status === 'project_context_stale',
     firstRepairTool:
       status === 'wrong_scope' || status === 'degraded'
         ? 'alembic_mcp_status'
-        : status === 'graph_stale'
-          ? 'alembic_source_graph_status'
+        : status === 'project_context_stale'
+          ? 'alembic_project_matrix'
           : waiting
             ? 'alembic_mcp_status'
             : null,
     safeFallback:
-      'Use raw file reads/search plus repository validation when graph status is unavailable or stale.',
+      'Use raw file reads/search plus repository validation when ProjectContext is unavailable or stale.',
     blockedConclusions: [
-      'do not claim source graph freshness without alembic_source_graph_status',
+      'do not claim ProjectContext completeness without matrix/graph evidence',
       'do not claim live Codex usability without a real MCP/tool readback',
       'do not mark a domain complete without evidence or an explicit no-op reason',
       'do not start a second bootstrap writer while bootstrap_in_progress is visible',

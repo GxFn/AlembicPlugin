@@ -72,7 +72,6 @@ describe('ProjectKnowledgeContextLayer support layer foundation', () => {
       budget: { matrixNodeLimit: 2 },
       operation: 'overview',
       projectRoot: '/workspace/project',
-      sourceGraphRef: 'source-graph:current',
     });
     const snapshot = createContextIndexSnapshot(normalized, {
       projectNodes: [
@@ -292,8 +291,8 @@ describe('ProjectKnowledgeContextLayer support layer foundation', () => {
         snapshot: {
           domainFreshness: {
             knowledge: { state: 'ready' },
-            sourceGraph: {
-              degradedReason: 'Source graph catch-up is pending.',
+            project: {
+              degradedReason: 'ProjectContext projection is stale.',
               state: 'stale',
             },
           },
@@ -305,12 +304,12 @@ describe('ProjectKnowledgeContextLayer support layer foundation', () => {
     expect(output.status).toBe('degraded');
     expect(output.diagnostics).toContainEqual(
       expect.objectContaining({
-        code: 'freshness-sourceGraph-stale',
-        domain: 'sourceGraph',
+        code: 'freshness-project-stale',
+        domain: 'project',
       })
     );
-    expect(projected.retrievalTrace?.domains).toEqual(['project', 'sourceGraph']);
-    expect(projected.retrievalTrace?.degradedReasons).toContain('sourceGraph:stale');
+    expect(projected.retrievalTrace?.domains).toEqual(['project']);
+    expect(projected.retrievalTrace?.degradedReasons).toContain('project:stale');
   });
 
   test('provides support primitives for cache and deterministic ranking', () => {

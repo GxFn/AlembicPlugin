@@ -22,89 +22,39 @@ interface PanoramaArgs {
   module?: string;
 }
 
+const RETIRED_PROJECT_INFORMATION_OPS = new Set(['overview', 'module', 'gaps', 'health']);
+
 /**
  * alembic_panorama — unified panorama query
  */
 export async function panoramaHandler(ctx: McpContext, args: PanoramaArgs) {
   const op = args.operation || 'overview';
 
-  const panoramaService = ctx.container.get('panoramaService') as
-    | {
-        ensureData(): Promise<void>;
-        getOverview(): unknown;
-        getModule(name: string): unknown;
-        getGaps(): unknown;
-        getHealth(): unknown;
-      }
-    | undefined;
-
-  if (!panoramaService) {
-    return envelope({
-      success: false,
-      message: 'Panorama service not initialized',
-      meta: { tool: 'alembic_panorama' },
-    });
+  if (RETIRED_PROJECT_INFORMATION_OPS.has(op)) {
+    return retiredProjectInformationResponse(op, args.module);
   }
 
-  // Auto-ensure data is ready (triggers built-in scan when no data exists)
-  await panoramaService.ensureData();
+  // ── Governance operations remain independent of the retired project-information provider. ──
+  return handleGovernanceOps(ctx, op);
+}
 
-  switch (op) {
-    case 'overview': {
-      const overview = await panoramaService.getOverview();
-      return envelope({
-        success: true,
-        data: overview,
-        meta: { tool: 'alembic_panorama' },
-      });
-    }
-
-    case 'module': {
-      const moduleName = args.module;
-      if (!moduleName) {
-        return envelope({
-          success: false,
-          message: 'operation=module requires the "module" parameter (module name)',
-          meta: { tool: 'alembic_panorama' },
-        });
-      }
-      const detail = await panoramaService.getModule(moduleName);
-      if (!detail) {
-        return envelope({
-          success: false,
-          message: `Module not found: ${moduleName}`,
-          meta: { tool: 'alembic_panorama' },
-        });
-      }
-      return envelope({
-        success: true,
-        data: detail,
-        meta: { tool: 'alembic_panorama' },
-      });
-    }
-
-    case 'gaps': {
-      const gaps = await panoramaService.getGaps();
-      return envelope({
-        success: true,
-        data: { gaps },
-        meta: { tool: 'alembic_panorama' },
-      });
-    }
-
-    case 'health': {
-      const health = await panoramaService.getHealth();
-      return envelope({
-        success: true,
-        data: health,
-        meta: { tool: 'alembic_panorama' },
-      });
-    }
-
-    default:
-      // ── Governance operations (independent of panoramaService) ──
-      return handleGovernanceOps(ctx, op);
-  }
+function retiredProjectInformationResponse(operation: string, moduleName?: string) {
+  return envelope({
+    success: false,
+    data: {
+      module: moduleName ?? null,
+      operation,
+      replacementTools: ['alembic_project_matrix', 'alembic_graph'],
+      retired: true,
+    },
+    message:
+      'alembic_panorama project-information operations are retired; use alembic_project_matrix for overview or alembic_graph for ProjectContext-backed relation details.',
+    meta: {
+      operation,
+      retired: true,
+      tool: 'alembic_panorama',
+    },
+  });
 }
 
 /* ────────────────────── Governance Handlers ────────────────────── */

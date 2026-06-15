@@ -4,15 +4,16 @@ import { describe, expect, test, vi } from 'vitest';
 import { runWorkflowCompletionFinalizer } from '#workflows/capabilities/completion/WorkflowCompletionFinalizer.js';
 
 describe('WorkflowCompletionFinalizer', () => {
-  test('runs panorama before immediate semantic memory', async () => {
+  test('keeps retired project refresh as a no-op before immediate semantic memory', async () => {
     const events: string[] = [];
     const container = createContainer(events);
+    const log = { info: vi.fn(), warn: vi.fn() };
 
     const result = await runWorkflowCompletionFinalizer({
       ctx: { container: { get: () => undefined } },
       session: { id: 'session-1' },
       dataRoot: process.cwd(),
-      log: { info: vi.fn(), warn: vi.fn() },
+      log,
       dependencies: {
         getServiceContainer: () => container,
         scheduleTask: () => events.push('schedule'),
@@ -20,8 +21,12 @@ describe('WorkflowCompletionFinalizer', () => {
       semanticMemory: { mode: 'immediate' },
     });
 
-    expect(events).toEqual(['panorama:rescan', 'panorama:overview']);
+    expect(events).toEqual([]);
+    expect(log.info).toHaveBeenCalledWith(
+      '[DimensionComplete] Project information refresh skipped: panorama provider retired; ProjectContext reads are live.'
+    );
     expect(result.semanticMemoryResult).toBeNull();
+    expect(result.panoramaStatus).toBe('completed');
   });
 
   test('scheduled semantic memory uses the workflow scheduler', async () => {
@@ -77,22 +82,9 @@ describe('WorkflowCompletionFinalizer', () => {
 });
 
 function createContainer(events: string[]) {
-  const panoramaService = {
-    rescan: vi.fn(async () => {
-      events.push('panorama:rescan');
-    }),
-    getOverview: vi.fn(async () => {
-      events.push('panorama:overview');
-      return { moduleCount: 1, gapCount: 0 };
-    }),
-  };
+  void events;
   return {
-    services: { panoramaService: true },
-    get: (name: string) => {
-      if (name === 'panoramaService') {
-        return panoramaService;
-      }
-      return undefined;
-    },
+    services: {},
+    get: () => undefined,
   };
 }

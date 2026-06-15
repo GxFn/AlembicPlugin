@@ -997,7 +997,7 @@ function createInitialIndexFailedStatus(
 function buildSourceGraphInitializeGuidance(): Record<string, unknown> {
   const guidance = buildCodexMcpGuidance(CODEX_LOCAL_TOOLS);
   return {
-    sourceGraphTools: guidance.sourceGraphTools,
+    sourceGraphTools: [],
     recoveryTools: guidance.recoveryTools,
     playbook: guidance.playbook,
     limitations: guidance.limitations,

@@ -10,8 +10,9 @@
 import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { LanguageService } from '@alembic/core/project-intelligence';
+import { LanguageService } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
+import { ModuleService } from '#service/module/ModuleService.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import type { McpContext } from '../../../runtime/mcp/handlers/types.js';
 
@@ -959,7 +960,7 @@ export async function guardComplianceReport(ctx: McpContext, _args: ComplianceRe
   });
 }
 
-/** 从 Panorama 或目录结构构建模块→文件映射 */
+/** 从 ProjectContext 或目录结构构建模块→文件映射 */
 async function _buildModuleFiles(
   ctx: McpContext,
   projectRoot: string
@@ -967,19 +968,26 @@ async function _buildModuleFiles(
   const moduleFiles = new Map<string, string[]>();
 
   try {
-    const panorama = ctx.container.get('panoramaService') as {
-      getResult(): Promise<{ modules: Map<string, { name: string; files: string[] }> }>;
-    };
-    const result = await panorama.getResult();
-    if (result?.modules) {
-      for (const [name, mod] of result.modules) {
-        if (mod.files?.length > 0) {
-          moduleFiles.set(name, mod.files);
-        }
+    let moduleService: ModuleService | undefined;
+    try {
+      moduleService = ctx.container.get('moduleService') as ModuleService | undefined;
+    } catch {
+      moduleService = undefined;
+    }
+    moduleService ??= new ModuleService(projectRoot);
+    await moduleService.load();
+    const targets = await moduleService.listTargets();
+    for (const target of targets) {
+      const files = await moduleService.getTargetFiles(target);
+      const filePaths = files
+        .map((file) => file.path)
+        .filter((filePath): filePath is string => typeof filePath === 'string' && filePath !== '');
+      if (filePaths.length > 0) {
+        moduleFiles.set(target.name, filePaths);
       }
     }
   } catch {
-    /* PanoramaService not available */
+    /* ProjectContext module facts may be unavailable in lightweight contexts */
   }
 
   if (moduleFiles.size === 0) {

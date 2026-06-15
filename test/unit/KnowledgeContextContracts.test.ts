@@ -32,14 +32,13 @@ function sampleOutput(status: (typeof KNOWLEDGE_CONTEXT_STATUSES)[number]) {
     project: {
       projectRoot: '/workspace/project',
       name: 'project',
-      sourceGraphRef: 'source-graph:current',
     },
     result: {
       matrixRef: `matrix:${status}`,
       nodeCount: 3,
     },
     inventory: {
-      domains: ['project', 'knowledge', 'sourceGraph'],
+      domains: ['project', 'knowledge', 'document'],
     },
     relations: [
       {
@@ -66,8 +65,8 @@ function sampleOutput(status: (typeof KNOWLEDGE_CONTEXT_STATUSES)[number]) {
     ],
     sources: [
       {
-        domain: 'sourceGraph' as const,
-        id: 'source-graph:current',
+        domain: 'project' as const,
+        id: 'project:current',
         detailRefId: `detail:${status}`,
         confidence: 0.9,
       },
@@ -210,7 +209,7 @@ describe('Project knowledge context four-tool contracts', () => {
 
       expect(parsed.status).toBe(status);
       expect(parsed.detailRefs[0]?.id).toBe(`detail:${status}`);
-      expect(parsed.sources[0]?.domain).toBe('sourceGraph');
+      expect(parsed.sources[0]?.domain).toBe('project');
       expect(parsed.meta).toMatchObject({
         contractVersion: 1,
         outputSchema: 'KnowledgeContextToolOutput',

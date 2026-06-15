@@ -22,7 +22,6 @@ export const KNOWLEDGE_CONTEXT_SOURCE_DOMAINS = [
   'knowledge',
   'recipeRelation',
   'vector',
-  'sourceGraph',
   'document',
   'runtime',
 ] as const;

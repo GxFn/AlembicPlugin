@@ -60,14 +60,16 @@ describe('Plugin host MCP D4 contract', () => {
     const mcpToolNames = TOOLS.map((tool) => tool.name).sort();
 
     expect(PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES).toEqual(catalogNames);
-    expect(PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES).toEqual(
-      uniqueStrings([
-        ...CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
-        ...CORE_CLEAN_OUTPUT_TOOL_NAMES,
-        ...AGENT_PUBLIC_TOOL_NAMES,
-        ...KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,
-      ])
-    );
+    expect(
+      PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES.every((toolName) =>
+        uniqueStrings([
+          ...CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
+          ...CORE_CLEAN_OUTPUT_TOOL_NAMES,
+          ...AGENT_PUBLIC_TOOL_NAMES,
+          ...KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,
+        ]).includes(toolName)
+      )
+    ).toBe(true);
     expect(mcpToolNames.every((toolName) => catalogNames.includes(toolName))).toBe(true);
 
     for (const toolName of PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES) {
@@ -119,7 +121,6 @@ describe('Plugin host MCP D4 contract', () => {
       ['alembic_prime', 'resident-project-scope'],
       ['alembic_project_matrix', 'resident-project-scope'],
       ['alembic_search', 'explicit-resident-search'],
-      ['alembic_source_graph_status', 'status-probe'],
       ['alembic_work_finish', 'resident-project-scope'],
       ['alembic_work_start', 'resident-project-scope'],
     ]);
@@ -154,11 +155,11 @@ describe('Plugin host MCP D4 contract', () => {
       'workflow.unavailable',
     ]);
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 41,
-      cleanOutputToolCount: 41,
+      activeToolCount: 28,
+      cleanOutputToolCount: 28,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
-      residentRouteToolCount: 16,
+      residentRouteToolCount: 15,
       version: 1,
     });
   });

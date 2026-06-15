@@ -46,11 +46,6 @@ export interface ServiceContainerLike extends CompletionContainerLike {
   singletons?: Record<string, unknown>;
 }
 
-export interface PanoramaServiceLike {
-  rescan(): Promise<void>;
-  getOverview(): Promise<{ moduleCount: number; gapCount: number }>;
-}
-
 export type LoadServiceContainer = () => Promise<ServiceContainerLike> | ServiceContainerLike;
 export type ScheduleTask = (task: () => Promise<void>) => void;
 export type PersistentMemoryDb = unknown;

@@ -27,7 +27,6 @@ interface ProjectMatrixArgs {
   query?: unknown;
   scope?: unknown;
   sourceEvidenceRefs?: unknown;
-  sourceGraphRef?: unknown;
   sourceRefs?: unknown;
   workRef?: unknown;
 }
@@ -49,7 +48,6 @@ export async function projectMatrix(ctx: McpContext, args: ProjectMatrixArgs) {
   const operation = readString(args.operation) ?? 'overview';
   const sourceRefs = readStringArray(args.sourceRefs);
   const sourceEvidenceRefs = readStringArray(args.sourceEvidenceRefs);
-  const sourceGraphRef = readString(args.sourceGraphRef);
   const knowledgeEntries = await readKnowledgeCatalogEntries(ctx);
   const matrix = await defaultProjectMatrixProvider.resolveMatrix({
     activeFile: readString(args.activeFile),
@@ -59,7 +57,6 @@ export async function projectMatrix(ctx: McpContext, args: ProjectMatrixArgs) {
     operation,
     projectRoot,
     sourceEvidenceRefs,
-    sourceGraphRef,
     sourceRefs,
   });
 
@@ -86,7 +83,6 @@ export async function projectMatrix(ctx: McpContext, args: ProjectMatrixArgs) {
       query: readString(args.query),
       scope: args.scope,
       sourceEvidenceRefs,
-      sourceGraphRef,
       sourceRefs,
       workRef: readString(args.workRef),
     },
@@ -108,7 +104,6 @@ export async function projectMatrix(ctx: McpContext, args: ProjectMatrixArgs) {
         knowledgeItemCount: matrix.knowledgeItemCount,
         projectNodes: matrix.projectNodes,
         recipeRelationCount: matrix.recipeRelationCount,
-        sourceGraphSupported: sourceGraphRef !== undefined,
       },
     }
   );

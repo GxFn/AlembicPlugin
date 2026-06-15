@@ -27,15 +27,14 @@ export type KnowledgeContextFreshnessByDomain = Record<
 >;
 
 const TOOL_REQUIRED_DOMAINS: Record<KnowledgeContextToolName, KnowledgeContextSourceDomain[]> = {
-  alembic_project_matrix: ['project', 'knowledge', 'recipeRelation', 'sourceGraph', 'document'],
+  alembic_project_matrix: ['project', 'knowledge', 'recipeRelation', 'document'],
   alembic_search: ['knowledge', 'recipeRelation', 'vector', 'document'],
-  alembic_graph: ['project', 'sourceGraph'],
+  alembic_graph: ['project'],
   alembic_prime: [
     'project',
     'knowledge',
     'recipeRelation',
     'vector',
-    'sourceGraph',
     'document',
     'runtime',
   ],

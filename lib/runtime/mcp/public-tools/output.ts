@@ -83,7 +83,6 @@ const GuardRecommendationSchema = z
     reason: OptionalPublicStringSchema,
     reasonCode: PublicStringSchema,
     sourceEvidenceRefs: PublicStringArraySchema.optional(),
-    sourceGraphRef: PublicStringSchema.optional(),
     taskScopedFiles: PublicStringArraySchema,
     tool: z.literal('alembic_code_guard'),
     validationPlan: z
@@ -126,7 +125,6 @@ const GuardRecommendationSchema = z
               .strict(),
           })
           .strict(),
-        sourceGraphRef: PublicStringSchema.optional(),
       })
       .strict()
       .optional(),
@@ -246,10 +244,10 @@ const IntentToolPlanSchema = z
     guardNeed: z.enum(['none', 'recommend-if-code-changed', 'explicit-scope-required']),
     knowledgeNeed: z.enum(['none', 'optional', 'recommended', 'required']),
     primeNeed: z.enum(['none', 'optional', 'recommended', 'required']),
-    sourceGraphNeed: z.enum(['none', 'optional', 'recommended', 'required']),
-    sourceGraphPlan: z
+    projectContextNeed: z.enum(['none', 'optional', 'recommended', 'required']),
+    projectContextPlan: z
       .object({
-        action: z.enum(['skip', 'status-first', 'query-before-work', 'validation-plan-after-work']),
+        action: z.enum(['skip', 'matrix-first', 'graph-before-work', 'graph-after-work']),
         reasonCode: PublicStringSchema,
         tools: z.array(PublicStringSchema).max(8),
       })
@@ -359,7 +357,6 @@ export const AgentWorkFinishOutputSchema = AgentPublicToolOutputBaseSchema.safeE
   localRecord: WorkFinishLocalRecordSchema.optional(),
   outcome: z.enum(['completed', 'blocked', 'abandoned']).optional(),
   sourceEvidenceRefs: z.array(z.string()).max(80).optional(),
-  sourceGraphRef: z.string().min(1).max(240).optional(),
   toolName: z.literal('alembic_work_finish'),
   workRef: z.string().min(1).max(240).optional(),
 });

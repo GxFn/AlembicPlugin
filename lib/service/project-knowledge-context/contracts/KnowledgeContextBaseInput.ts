@@ -24,7 +24,6 @@ export const KnowledgeContextProjectNodeTypeSchema = z.enum([
   'directory',
   'file',
   'symbol',
-  'source-graph-node',
 ]);
 
 export const KnowledgeContextProjectRelationTypeSchema = z.enum([
@@ -52,7 +51,6 @@ export const KnowledgeContextBaseInputSchema = z
     hostDeclaredIntent: KnowledgeContextHostDeclaredIntentSchema.optional(),
     hostTurnMeta: KnowledgeContextHostTurnMetaSchema.optional(),
     sourceRefs: z.array(KnowledgeContextRefIdSchema).max(80).optional(),
-    sourceGraphRef: KnowledgeContextRefIdSchema.optional(),
     sourceEvidenceRefs: z.array(KnowledgeContextRefIdSchema).max(80).optional(),
     intentRef: KnowledgeContextRefIdSchema.optional(),
     primeRef: KnowledgeContextRefIdSchema.optional(),
@@ -83,7 +81,6 @@ export const ProjectMatrixNodeTypeSchema = z.enum([
   'directory',
   'file',
   'symbol',
-  'source-graph-node',
   'knowledge-category',
   'knowledge-cluster',
   'document',

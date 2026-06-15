@@ -33,7 +33,6 @@ import {
   RecipeProductionGateway,
   SourceRefReconciler,
 } from '@alembic/core/knowledge';
-import { getDiscovererRegistry, LanguageService } from '@alembic/core/project-intelligence';
 import type {
   EvolutionLifecycleEventRepository,
   EvolutionProposalRepository,
@@ -43,7 +42,7 @@ import type {
 } from '@alembic/core/repositories';
 import { HybridRetriever, SearchEngine } from '@alembic/core/search';
 import { findSimilarRecipes } from '@alembic/core/service/candidate';
-import { isExcludedProject } from '@alembic/core/shared';
+import { isExcludedProject, LanguageService } from '@alembic/core/shared';
 import { HnswVectorAdapter, IndexingPipeline, JsonVectorAdapter } from '@alembic/core/vector';
 import {
   resolveDataRoot,
@@ -233,7 +232,6 @@ function registerSearchServices(c: ServiceContainer) {
 }
 
 function registerSharedServices(c: ServiceContainer) {
-  c.register('discovererRegistry', () => getDiscovererRegistry());
   c.register('enhancementRegistry', () => getEnhancementRegistry());
   c.register('languageService', () => LanguageService);
   c.register('dimensionCopy', () => DimensionCopy);

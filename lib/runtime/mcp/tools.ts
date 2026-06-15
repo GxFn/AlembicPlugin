@@ -144,7 +144,7 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Read the compact project matrix for navigation and orientation.\n' +
-      '• overview — project hierarchy, key nodes, structural hotspots, source graph status, knowledge category summary, detailRefs, and nextActions\n' +
+      '• overview — ProjectContext hierarchy, key nodes, structural hotspots, knowledge category summary, detailRefs, freshness/partial notes, and nextActions\n' +
       '• node — expand one matrix node by refId/nodeId only\n' +
       '• relations/layers/sources/catalog — bounded internal relations, layer/source summaries, or knowledge category catalog\n' +
       'Non-goal: does not return full source, full file lists, full Recipe text, full graph edge sets, lifecycle/governance actions, or knowledge coverage judgments.',
@@ -217,7 +217,7 @@ export const TOOLS = [
     name: 'alembic_graph',
     tier: 'agent',
     description:
-      'Project-internal graph queries over project structure, package dependencies, source files, symbols, and source graph refs.\n' +
+      'ProjectContext-backed graph queries over project structure, package dependencies, source files, symbols, and detail refs.\n' +
       '• query — list bounded project graph nodes/relations\n' +
       '• impact — analyze project impact radius from a project/source node\n' +
       '• path — find a directed project relation path between two project nodes\n' +

@@ -103,14 +103,14 @@ export const AGENT_INTENT_DESIGN_FIELD_MAPPINGS = [
     evidence: ['alembic_intent.toolPlan.guardNeed'],
   },
   {
-    field: 'sourceGraphNeed',
+    field: 'projectContextNeed',
     disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.sourceGraphNeed'],
+    evidence: ['alembic_intent.toolPlan.projectContextNeed'],
   },
   {
-    field: 'sourceGraphPlan',
+    field: 'projectContextPlan',
     disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.sourceGraphPlan'],
+    evidence: ['alembic_intent.toolPlan.projectContextPlan'],
   },
   {
     field: 'knowledgeNeed',
@@ -202,7 +202,7 @@ export const AgentPublicToolRefSchema = z.object({
   refType: z.enum([
     'intent',
     'prime',
-    'source-graph',
+    'project-context',
     'work',
     'finish',
     'guard-result',
@@ -265,7 +265,6 @@ export const AgentPublicToolReasonSchema = z.discriminatedUnion('kind', [
 export const AgentPublicToolRefsSchema = z.object({
   intentRef: AgentPublicToolRefSchema.optional(),
   primeRef: AgentPublicToolRefSchema.optional(),
-  sourceGraphRef: AgentPublicToolRefSchema.optional(),
   workRef: AgentPublicToolRefSchema.optional(),
   finishRef: AgentPublicToolRefSchema.optional(),
   guardResultRef: AgentPublicToolRefSchema.optional(),
@@ -350,7 +349,7 @@ export const PrimePublicPackageSchema = z
         )
         .length(PRIME_PUBLIC_TRUST_LAYERS.length),
     }),
-    sourceGraphGuidance: z.object({
+    projectContextGuidance: z.object({
       boundary: z.string().min(1).max(600),
       recommendedQueries: z
         .array(
@@ -363,8 +362,8 @@ export const PrimePublicPackageSchema = z
         )
         .max(8),
       recommendedTools: z.array(z.string().min(1).max(120)).max(8),
+      projectContextRefs: z.array(z.string().min(1).max(240)).max(40),
       sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(40),
-      sourceGraphRef: z.string().min(1).max(240).nullable(),
       status: z.enum(['not-requested', 'recommended', 'ready-evidence', 'degraded']),
     }),
     trustReceipt: z.object({
@@ -530,7 +529,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_prime',
     {
-      acceptedRefs: ['intentRef', 'sourceGraphRef', 'detailRefs'],
+      acceptedRefs: ['intentRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource', 'intentRef'],
     },
     ['primeRef', 'detailRefs'],
@@ -543,7 +542,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_work_start',
     {
-      acceptedRefs: ['intentRef', 'primeRef', 'sourceGraphRef', 'detailRefs'],
+      acceptedRefs: ['intentRef', 'primeRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource', 'intentRef'],
     },
     ['workRef', 'detailRefs'],
@@ -556,7 +555,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_work_finish',
     {
-      acceptedRefs: ['intentRef', 'primeRef', 'sourceGraphRef', 'workRef', 'detailRefs'],
+      acceptedRefs: ['intentRef', 'primeRef', 'workRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource', 'workRef'],
     },
     ['workRef', 'finishRef', 'detailRefs'],
@@ -569,7 +568,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_code_guard',
     {
-      acceptedRefs: ['intentRef', 'sourceGraphRef', 'workRef', 'detailRefs'],
+      acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource'],
     },
     ['guardResultRef', 'detailRefs'],
@@ -582,7 +581,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_decision_record',
     {
-      acceptedRefs: ['intentRef', 'sourceGraphRef', 'workRef', 'detailRefs'],
+      acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource'],
     },
     ['decisionRef', 'detailRefs'],

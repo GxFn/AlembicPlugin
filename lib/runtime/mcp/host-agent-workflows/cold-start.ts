@@ -1,33 +1,34 @@
 /**
  * HostAgentColdStartWorkflow — 宿主 Agent 驱动的冷启动
  *
- * Phase 1-4 同步执行（文件收集 / AST / 依赖图 / Guard），
+ * ProjectContext 同步执行项目结构/源码/符号查询，
  * 构建 Mission Briefing 一次性返回，不启动异步 AI pipeline。
  * 等待 IDE 插件宿主中的宿主 Agent 主动提交知识 + 完成维度。
  *
  * 本文件只返回宿主 Agent Mission Briefing；插件侧不启动本地 AI pipeline。
- * Phase 1-4 分析逻辑由 ProjectIntelligenceRunner 执行。
+ * 项目信息由 ProjectContext 直接提供，不再经过旧 snapshot 兼容载体。
  */
 
 import {
   buildColdStartWorkflowPlan,
-  buildHostAgentMissionBriefing,
-  buildIDEAgentAnalysisPacketFromSnapshot,
+  buildIDEAgentAnalysisPacketFromProjectContext,
+  buildProjectContextMissionBriefing,
   createHostAgentColdStartIntent,
-  createHostAgentWorkflowSession,
   getActiveHostAgentWorkflowSession,
   presentHostAgentColdStartEmptyProject,
   presentHostAgentColdStartResponse,
   runFullResetPolicy,
-  type ProjectSnapshot,
   type WorkflowLogger,
 } from '@alembic/core/host-agent-workflows';
-import { buildProjectSnapshot } from '@alembic/core/types';
-import { ProjectIntelligenceCapability } from '@alembic/core/workflows/capabilities/project-intelligence';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import { type CodexKnowledgeState, inspectCodexKnowledge } from '#codex/KnowledgeState.js';
+import {
+  buildHostAgentProjectContextAnalysis,
+  createProjectContextHostAgentSession,
+  selectProjectContextDimensions,
+} from '#codex/mcp/host-agent-workflows/project-context-analysis.js';
 import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
 import { buildCodexColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
@@ -42,15 +43,15 @@ interface McpContext {
 }
 
 interface AttachColdStartOnboardingInput<T extends { meta?: Record<string, unknown> }> {
-  allFiles: readonly unknown[];
   briefing: T;
   dataRoot: string;
-  depGraphData?: { nodes?: unknown[] } | null;
   dimensions: readonly unknown[];
-  langProfile: unknown;
+  fileCount: number;
+  moduleCount: number;
   primaryLang: string | null;
   projectRoot: string;
   projectType: string | null;
+  secondaryLanguages: string[];
   session: unknown;
 }
 
@@ -106,118 +107,71 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: Boot
       }),
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase 1-4: 共享数据收集管线（永远全量，无增量检测）
-  // ═══════════════════════════════════════════════════════════
-
-  const phaseResults = await ProjectIntelligenceCapability.run({
+  const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
+    maxFiles: plan.projectAnalysis.scan.maxFiles,
     projectRoot: plan.projectAnalysis.projectRoot,
-    ctx,
-    prepare: plan.projectAnalysis.prepare,
-    scan: plan.projectAnalysis.scan,
-    materialize: plan.projectAnalysis.materialize,
+    source: 'codex-host-bootstrap',
   });
 
   // 空项目 fast-path
-  if (phaseResults.isEmpty) {
+  if (projectContextAnalysis.isEmpty) {
     return presentHostAgentColdStartEmptyProject({ responseTimeMs: Date.now() - t0 });
   }
 
-  const {
-    allFiles,
-    primaryLang,
-    depGraphData,
-    langStats,
-    astProjectSummary,
-    codeEntityResult,
-    callGraphResult,
-    guardAudit,
-    activeDimensions: dimensions,
-    targetsSummary,
-    localPackageModules,
-    langProfile,
-  } = phaseResults;
-  const briefingDimensions = Array.isArray(dimensions) ? dimensions : [];
-
-  // ── Build immutable ProjectSnapshot ──
-  const snapshot: ProjectSnapshot = buildProjectSnapshot({
-    projectRoot,
-    sourceTag: 'codex-host-bootstrap',
-    ...phaseResults,
-    report: phaseResults.report,
-  });
-
-  // ═══════════════════════════════════════════════════════════
-  // Phase 4: 构建 Mission Briefing
-  // ═══════════════════════════════════════════════════════════
-
-  const session = createHostAgentWorkflowSession({
-    container: ctx.container,
-    projectRoot,
-    dimensions: briefingDimensions,
-    snapshot,
-    primaryLang,
-    fileCount: allFiles.length,
-    moduleCount: depGraphData?.nodes?.length || 0,
-  });
-
-  const briefing = buildHostAgentMissionBriefing({
-    projectRoot,
-    primaryLang,
-    secondaryLanguages: (langProfile as { secondary?: string[] }).secondary || [],
-    isMultiLang: (langProfile as { isMultiLang?: boolean }).isMultiLang || false,
-    fileCount: allFiles.length,
-    projectType: snapshot.discoverer.id,
-    profile: 'cold-start-host-agent',
-    briefing: {
-      astData: astProjectSummary,
-      codeEntityResult,
-      callGraphResult,
-      depGraphData,
-      guardAudit: normalizeGuardAuditForBriefing(guardAudit),
-      // Core MissionBriefingBuilder expects an array target list. ProjectIntelligence
-      // may expose a summary object for generic projects, so Plugin normalizes at the
-      // adapter boundary instead of teaching Codex a private schema.
-      targets: Array.isArray(targetsSummary) ? targetsSummary : [],
-      activeDimensions: briefingDimensions,
-      session,
-      languageStats: langStats,
-      panoramaResult: snapshot.panorama,
-      localPackageModules: Array.isArray(localPackageModules) ? localPackageModules : [],
-    },
-  });
-  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(
-    normalizeProjectSnapshotForIDEAgent(snapshot),
-    {
-      profile: 'cold-start',
-    }
+  const briefingDimensions = selectProjectContextDimensions(
+    projectContextAnalysis.dimensions,
+    intent.dimensionIds
   );
+
+  // ═══════════════════════════════════════════════════════════
+  // 构建 ProjectContext-backed Mission Briefing
+  // ═══════════════════════════════════════════════════════════
+
+  const session = createProjectContextHostAgentSession({
+    container: ctx.container,
+    dimensions: briefingDimensions,
+    fileCount: projectContextAnalysis.fileCount,
+    moduleCount: projectContextAnalysis.moduleCount,
+    primaryLang: projectContextAnalysis.primaryLang,
+    projectRoot,
+  });
+
+  const briefing = buildProjectContextMissionBriefing({
+    activeDimensions: briefingDimensions,
+    projectContext: projectContextAnalysis.presenterInput,
+    profile: 'cold-start-host-agent',
+    session,
+  });
+  const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
+    dimensions: briefingDimensions,
+    options: {
+      profile: 'cold-start',
+      projectRoot,
+    },
+    projectContext: projectContextAnalysis.presenterInput,
+  });
   const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
   const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(briefing, ideAgentAnalysis);
   const briefingWithOnboardingContract = attachColdStartOnboardingSurface({
-    allFiles,
     briefing: briefingWithIdeAgentSurface,
     dataRoot,
-    depGraphData,
     dimensions: briefingDimensions,
-    langProfile,
-    primaryLang,
+    fileCount: projectContextAnalysis.fileCount,
+    moduleCount: projectContextAnalysis.moduleCount,
+    primaryLang: projectContextAnalysis.primaryLang,
     projectRoot,
-    projectType: snapshot.discoverer.id,
+    projectType: projectContextAnalysis.projectType,
+    secondaryLanguages: projectContextAnalysis.secondaryLanguages,
     session,
   });
 
-  // 附加 warnings
-  if (phaseResults.warnings.length > 0) {
-    briefingWithOnboardingContract.meta = briefingWithOnboardingContract.meta || {};
-    const existingWarnings = Array.isArray(briefingWithOnboardingContract.meta.warnings)
-      ? briefingWithOnboardingContract.meta.warnings
-      : [];
-    briefingWithOnboardingContract.meta.warnings = [...existingWarnings, ...phaseResults.warnings];
-  }
+  briefingWithOnboardingContract.meta.projectContextDirectSwitch = {
+    moduleSeedCount: projectContextAnalysis.moduleSeeds.length,
+    requestKinds: projectContextAnalysis.requestKinds,
+  };
 
   ctx.logger.info(
-    `[BootstrapHostAgent] Mission Briefing ready: ${allFiles.length} files, ${briefingDimensions.length} dims, ` +
+    `[BootstrapHostAgent] ProjectContext Mission Briefing ready: ${projectContextAnalysis.fileCount} files, ${briefingDimensions.length} dims, ` +
       `${briefingWithOnboardingContract.meta?.responseSizeKB || '?'}KB — session ${session.id}`
   );
 
@@ -344,12 +298,12 @@ function attachColdStartOnboardingSurface<T extends { meta?: Record<string, unkn
   const onboardingContract = buildCodexColdStartOnboardingContract({
     dataRoot: input.dataRoot,
     dimensions: input.dimensions,
-    fileCount: input.allFiles.length,
-    moduleCount: input.depGraphData?.nodes?.length || 0,
+    fileCount: input.fileCount,
+    moduleCount: input.moduleCount,
     primaryLanguage: input.primaryLang,
     projectRoot: input.projectRoot,
     projectType: input.projectType,
-    secondaryLanguages: readSecondaryLanguages(input.langProfile),
+    secondaryLanguages: input.secondaryLanguages,
     session: input.session,
   });
   return attachCodexOnboardingContract(input.briefing, onboardingContract);
@@ -372,58 +326,4 @@ function attachCodexOnboardingContract<T extends { meta?: Record<string, unknown
       },
     },
   };
-}
-
-function readSecondaryLanguages(langProfile: unknown): string[] {
-  const secondary = (langProfile as { secondary?: unknown }).secondary;
-  return Array.isArray(secondary)
-    ? secondary.filter((item): item is string => typeof item === 'string')
-    : [];
-}
-
-function normalizeGuardAuditForBriefing<T>(guardAudit: T): T {
-  if (!guardAudit || typeof guardAudit !== 'object' || Array.isArray(guardAudit)) {
-    return guardAudit;
-  }
-  const record = guardAudit as Record<string, unknown>;
-  // Core briefing expects array fields; Plugin accepts older/newer Guard audit DTOs here.
-  return {
-    ...record,
-    files: Array.isArray(record.files) ? record.files.map(normalizeGuardAuditFile) : [],
-    crossFileViolations: Array.isArray(record.crossFileViolations)
-      ? record.crossFileViolations
-      : [],
-  } as T;
-}
-
-function normalizeGuardAuditFile(file: unknown): unknown {
-  if (!file || typeof file !== 'object' || Array.isArray(file)) {
-    return file;
-  }
-  const record = file as Record<string, unknown>;
-  return {
-    ...record,
-    violations: Array.isArray(record.violations) ? record.violations : [],
-  };
-}
-
-function normalizeProjectSnapshotForIDEAgent(snapshot: ProjectSnapshot): ProjectSnapshot {
-  return {
-    ...snapshot,
-    guardAudit: normalizeGuardAuditForBriefing(snapshot.guardAudit),
-    panorama: normalizePanoramaForIDEAgent(snapshot.panorama),
-  };
-}
-
-function normalizePanoramaForIDEAgent<T>(panorama: T): T {
-  if (!panorama || typeof panorama !== 'object' || Array.isArray(panorama)) {
-    return panorama;
-  }
-  const record = panorama as Record<string, unknown>;
-  return {
-    ...record,
-    layers: Array.isArray(record.layers) ? record.layers : [],
-    couplingHotspots: Array.isArray(record.couplingHotspots) ? record.couplingHotspots : [],
-    cyclicDependencies: Array.isArray(record.cyclicDependencies) ? record.cyclicDependencies : [],
-  } as T;
 }

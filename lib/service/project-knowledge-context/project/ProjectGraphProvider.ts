@@ -92,7 +92,6 @@ const ALLOWED_NODE_TYPES = [
   'directory',
   'file',
   'symbol',
-  'source-graph-node',
 ] as const satisfies readonly KnowledgeContextProjectNodeType[];
 
 const ALLOWED_RELATION_TYPES = [
@@ -176,7 +175,7 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
     const build = await this.buildGraph(projectRoot, input);
     const operation = input.operation ?? 'query';
     const selection = selectGraph(build, input);
-    const summary = summarizeSelection(operation, selection, input.sourceGraphRef);
+    const summary = summarizeSelection(operation, selection, build.projectContext);
     const projectNodes = build.nodes.map(toContextIndexNode);
     const snapshot: ContextIndexSnapshotOptions = {
       domainFreshness: {
@@ -187,16 +186,8 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
               degradedReason: `Project root does not exist: ${projectRoot}`,
               sourceRef: build.projectRef.id,
             },
-        sourceGraph: input.sourceGraphRef
-          ? { state: 'ready', sourceRef: input.sourceGraphRef }
-          : {
-              state: 'partial',
-              degradedReason:
-                'No sourceGraphRef was supplied; alembic_graph returned a bounded project/source scan instead of resident source graph facts.',
-            },
       },
       projectNodes,
-      sourceGraphSupported: Boolean(input.sourceGraphRef),
     };
 
     return {
@@ -210,7 +201,6 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
           projectContext: build.projectContext,
           relationCount: build.relations.length,
           relationTypes: countBy(build.relations, (relation) => relation.relationType),
-          sourceGraphStatus: input.sourceGraphRef ? 'linked' : 'not-supplied',
         },
         diagnostics: build.diagnostics,
         items: selection.items,
@@ -239,7 +229,6 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
   }
 
   private async buildGraph(projectRoot: string, input: ProjectGraphInput): Promise<GraphBuild> {
-    const sourceGraphRef = input.sourceGraphRef;
     const projectContextFacts = await buildProjectContextGraphFacts(projectRoot, input);
     const packageInfo = projectContextFacts.packageInfo ?? readPackageInfo(projectRoot);
     const projectName = packageInfo.name ?? path.basename(projectRoot) ?? 'project';
@@ -250,7 +239,7 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
       operation: 'project-graph',
       requiredForCompletion: true,
       summary:
-        'Bounded project graph derived from package metadata, directory structure, local import/export statements, and optional sourceGraphRef.',
+        'Bounded ProjectContext graph derived from package metadata, directory structure, local import/export statements, and ProjectContext producer refs.',
       title: `Project graph: ${projectName}`,
       tool: 'alembic_graph',
       uri: projectRoot,
@@ -314,12 +303,6 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
     addProjectContextFileFlowEdges(projectContextFacts.fileFlows, nodes, relations);
     addAnchorRangeContextNodes(projectContextFacts.anchorRanges, nodes, relations, projectId);
 
-    if (sourceGraphRef) {
-      const sourceGraphId = `source-graph-node:${stableRefSegment(sourceGraphRef)}`;
-      nodes.add({ id: sourceGraphId, label: sourceGraphRef, nodeType: 'source-graph-node' });
-      relations.add(nodes, sourceGraphId, 'partOf', projectId);
-    }
-
     return {
       detailRefs: dedupeDetailRefs([projectRef, ...projectContextFacts.detailRefs]).slice(
         0,
@@ -339,15 +322,6 @@ export class FileSystemProjectGraphProvider implements ProjectGraphProvider {
             'Project graph facts were derived from local project files and package metadata.',
         },
         ...projectContextFacts.sources,
-        ...(sourceGraphRef
-          ? [
-              {
-                domain: 'sourceGraph' as const,
-                id: sourceGraphRef,
-                summary: 'Caller supplied a sourceGraphRef for resident/source-graph freshness.',
-              },
-            ]
-          : []),
       ],
     };
   }
@@ -1358,8 +1332,8 @@ function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
     relations: relations.map(projectRelationToOutput),
     result: {
       graphKind: 'project-internal',
-      insufficientSourceGraph:
-        !input.sourceGraphRef && input.query !== undefined && items.length === 0,
+      projectContextPartial:
+        build.projectContext.partial || (input.query !== undefined && items.length === 0),
       noMatchReason:
         input.query !== undefined && items.length === 0
           ? 'No bounded project graph nodes matched the focused query terms.'
@@ -1406,7 +1380,7 @@ function selectProjectOrientation(build: GraphBuild, input: ProjectGraphInput): 
       orientation: true,
       queryMatchMode: 'project-orientation',
       queryMatchedNodeCount: preferredNodes.length,
-      sourceGraphRequiredForImpact: !input.sourceGraphRef,
+      projectContextRefRequiredForImpact: true,
       sourceOfTruth: false,
     },
   };
@@ -1535,10 +1509,10 @@ function missingNodeSelection(operation: 'impact' | 'neighborhood'): GraphSelect
     result: {
       graphKind: 'project-internal',
       impactUnavailableReason:
-        'A concrete nodeId or sourceGraphRef is required before alembic_graph can make impact or neighborhood claims.',
+        'A concrete ProjectContext nodeId, detailRefId, file, symbol, or relation anchor is required before alembic_graph can make impact or neighborhood claims.',
       missing: 'nodeId',
       operation,
-      sourceGraphRequiredForImpact: true,
+      projectContextRefRequiredForImpact: true,
       sourceOfTruth: false,
     },
   };
@@ -1638,10 +1612,13 @@ function findPath(
 function summarizeSelection(
   operation: string,
   selection: GraphSelection,
-  sourceGraphRef?: string
+  projectContext: ProjectGraphProjectContextTrace
 ): string {
-  const freshnessText = sourceGraphRef ? 'sourceGraphRef linked' : 'sourceGraph freshness partial';
-  return `alembic_graph ${operation} returned ${selection.items.length} project graph items and ${selection.relations.length} project graph relations (${freshnessText}).`;
+  const projectContextText =
+    projectContext.partial || projectContext.errorCount > 0
+      ? 'ProjectContext partial'
+      : 'ProjectContext ready';
+  return `alembic_graph ${operation} returned ${selection.items.length} project graph items and ${selection.relations.length} project graph relations (${projectContextText}).`;
 }
 
 function nextActionsFor(operation: string, input: ProjectGraphInput): KnowledgeContextNextAction[] {
@@ -1651,7 +1628,7 @@ function nextActionsFor(operation: string, input: ProjectGraphInput): KnowledgeC
       tool: 'alembic_graph',
       operation: 'query',
       reason:
-        'First query or inspect a concrete project nodeId/sourceGraphRef; impact and neighborhood output is withheld without that anchor.',
+        'First query or inspect a concrete ProjectContext nodeId/detailRef; impact and neighborhood output is withheld without that anchor.',
       required: true,
     });
   }
@@ -1660,7 +1637,7 @@ function nextActionsFor(operation: string, input: ProjectGraphInput): KnowledgeC
       tool: 'alembic_project_matrix',
       operation: 'overview',
       reason:
-        'Use the project matrix overview to choose a module, entrypoint, or sourceGraphRef before asking for graph impact.',
+        'Use the project matrix overview to choose a module, entrypoint, file, symbol, or detailRef before asking for graph impact.',
       required: false,
     });
   }
@@ -1670,15 +1647,6 @@ function nextActionsFor(operation: string, input: ProjectGraphInput): KnowledgeC
       operation: 'stats',
       reason:
         'Use stats to inspect available project node and relation types before a broader traversal.',
-      required: false,
-    });
-  }
-  if (!input.sourceGraphRef) {
-    actions.push({
-      tool: 'alembic_graph',
-      operation: input.nodeId ? 'neighborhood' : 'query',
-      reason:
-        'Supply sourceGraphRef when resident source graph evidence is available; without it, output remains a bounded project/source scan.',
       required: false,
     });
   }
@@ -1785,7 +1753,6 @@ function hasFocusedGraphQuery(input: ProjectGraphInput): boolean {
       input.toId ||
       input.relationType ||
       input.activeFile ||
-      input.sourceGraphRef ||
       (input.sourceRefs?.length ?? 0) > 0 ||
       (input.sourceEvidenceRefs?.length ?? 0) > 0
   );

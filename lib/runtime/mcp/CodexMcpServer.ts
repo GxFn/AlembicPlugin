@@ -77,12 +77,6 @@ import {
   serializeMcpToolResult,
 } from '../../runtime/mcp/output-contract.js';
 import {
-  buildSourceGraphOperation,
-  buildSourceGraphStatus,
-  findSourceGraphArgTypeIssues,
-} from '../../runtime/mcp/source-graph/status.js';
-import { CODEX_SOURCE_GRAPH_TOOL_NAMES } from '../../runtime/ToolPolicy.js';
-import {
   type AlembicResidentCapabilityClients,
   createAlembicResidentCapabilityClients,
   isResidentProjectScopeReady,
@@ -381,31 +375,8 @@ export class CodexMcpServer {
       return executePreflight.failure;
     }
 
-    // QD2 / F-V2-1: reject source-graph calls whose typed args (e.g. limit)
-    // are present but the wrong type, with a structured taxonomy error + next
-    // action, instead of silently coercing/dropping them downstream. Returned
-    // as an McpCallToolResult so serializeMcpToolResult passes it through
-    // verbatim (the source-graph success projector would otherwise reshape an
-    // ok:false envelope). Valid/omitted args are unaffected.
-    if (CODEX_SOURCE_GRAPH_TOOL_NAMES.has(name)) {
-      const argTypeIssues = findSourceGraphArgTypeIssues(args);
-      if (argTypeIssues.length > 0) {
-        return createMcpStructuredToolResult(
-          createCleanMcpErrorResponse({
-            code: 'VALIDATION_ERROR',
-            message: `Invalid argument type(s): ${argTypeIssues.join('; ')}. Pass each listed argument with its declared type or omit it.`,
-            toolName: name,
-          })
-        );
-      }
-    }
-
     const localDispatch = dispatchCodexLocalTool(name, args, {
       buildDiagnostics: () => this.buildDiagnostics(),
-      buildSourceGraphOperation: async (toolName, nextArgs) =>
-        buildSourceGraphOperation(this.projectRoot, nextArgs, toolName),
-      buildSourceGraphStatus: async (nextArgs) =>
-        buildSourceGraphStatus(this.projectRoot, nextArgs),
       buildStatus: () => this.buildStatus(),
       cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
       initializeWorkspace: (nextArgs) => this.initializeWorkspace(nextArgs),

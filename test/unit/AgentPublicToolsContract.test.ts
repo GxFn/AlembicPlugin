@@ -126,11 +126,11 @@ describe('Agent-facing public tools contract foundation', () => {
         guardNeed: 'recommend-if-code-changed',
         knowledgeNeed: 'optional',
         primeNeed: 'optional',
-        sourceGraphNeed: 'recommended',
-        sourceGraphPlan: {
-          action: 'validation-plan-after-work',
-          reasonCode: 'source-graph-validation-plan-after-changes',
-          tools: ['alembic_source_graph_status', 'alembic_code_explore', 'alembic_validation_plan'],
+        projectContextNeed: 'recommended',
+        projectContextPlan: {
+          action: 'graph-after-work',
+          reasonCode: 'project-context-after-changes',
+          tools: ['alembic_project_matrix', 'alembic_graph'],
         },
         workNeed: 'maybe-start',
       },
@@ -271,18 +271,18 @@ describe('Agent-facing public tools contract foundation', () => {
       primeRef: 'prime-public-contract',
       refs: result.refs,
       status: 'ready',
-      sourceGraphGuidance: {
+      projectContextGuidance: {
         boundary:
-          'Source graph guidance is code-fact evidence only; it does not replace validation.',
+          'ProjectContext guidance is code-structure evidence only; it does not replace validation.',
         recommendedQueries: [
           {
-            query: 'source graph',
-            tool: 'alembic_code_explore',
+            query: 'project graph',
+            tool: 'alembic_graph',
           },
         ],
-        recommendedTools: ['alembic_source_graph_status', 'alembic_code_explore'],
+        recommendedTools: ['alembic_project_matrix', 'alembic_graph'],
+        projectContextRefs: [],
         sourceEvidenceRefs: [],
-        sourceGraphRef: null,
         status: 'recommended',
       },
       summary: result.summary,
@@ -414,8 +414,8 @@ describe('Agent-facing public tools contract foundation', () => {
       'primeNeed',
       'workNeed',
       'guardNeed',
-      'sourceGraphNeed',
-      'sourceGraphPlan',
+      'projectContextNeed',
+      'projectContextPlan',
       'knowledgeNeed',
       'decisionNeed',
       'vectorUseKind',

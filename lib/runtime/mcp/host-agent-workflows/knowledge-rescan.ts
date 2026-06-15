@@ -6,34 +6,35 @@
  * 流程:
  *   1. snapshotRecipes — 快照保留知识
  *   2. rescanClean — 清理衍生缓存
- *   3. Phase 1-4 全量分析 (ProjectIntelligenceCapability)
+ *   3. ProjectContext 直接读取项目结构/源码/符号事实
  *   4. 构建 Mission Briefing（含 allRecipes + evolutionGuide）
  *   5. 返回给宿主 Agent 按维度执行: evolve → gap-fill → dimension_complete
  */
 
 import {
   auditRecipesForRescan,
-  buildHostAgentMissionBriefing,
-  buildIDEAgentAnalysisPacketFromSnapshot,
+  buildIDEAgentAnalysisPacketFromProjectContext,
   buildKnowledgeRescanPlan,
   buildKnowledgeRescanWorkflowPlan,
+  buildProjectContextMissionBriefing,
   buildRescanPrescreen,
   createHostAgentKnowledgeRescanIntent,
-  createHostAgentWorkflowSession,
+  type DimensionDef,
   presentHostAgentKnowledgeRescanEmptyProject,
   presentHostAgentKnowledgeRescanResponse,
   projectHostAgentRescanEvidencePlan,
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
   syncKnowledgeStoreForRescan,
-  type DimensionDef,
-  type ProjectSnapshot,
 } from '@alembic/core/host-agent-workflows';
-import { buildProjectSnapshot } from '@alembic/core/types';
-import { ProjectIntelligenceCapability } from '@alembic/core/workflows/capabilities/project-intelligence';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import {
+  buildHostAgentProjectContextAnalysis,
+  createProjectContextHostAgentSession,
+  selectProjectContextDimensions,
+} from '#codex/mcp/host-agent-workflows/project-context-analysis.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
@@ -47,6 +48,10 @@ interface McpContext {
   };
   startedAt?: number;
   [key: string]: unknown;
+}
+
+interface ProjectContextAuditFile {
+  filePath: string;
 }
 
 // ── 主入口 ─────────────────────────────────────────────────
@@ -126,46 +131,18 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
   // 引入 LLM 调用不合理（无超时、可能阻塞、需要 API key）。
   // 向量索引会在后续 Agent 提交新知识时由 SyncCoordinator 增量更新。
 
-  // ═══════════════════════════════════════════════════════════
-  // Step 3: Phase 1-4 全量分析
-  // ═══════════════════════════════════════════════════════════
-
-  const phaseResults = await ProjectIntelligenceCapability.run({
+  const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
+    maxFiles: plan.projectAnalysis.scan.maxFiles,
     projectRoot: plan.projectAnalysis.projectRoot,
-    ctx,
-    prepare: plan.projectAnalysis.prepare,
-    scan: plan.projectAnalysis.scan,
-    materialize: plan.projectAnalysis.materialize,
+    source: 'codex-host-rescan',
   });
 
   // 空项目 fast-path
-  if (phaseResults.isEmpty) {
+  if (projectContextAnalysis.isEmpty) {
     return presentHostAgentKnowledgeRescanEmptyProject({ responseTimeMs: Date.now() - t0 });
   }
 
-  const {
-    allFiles,
-    primaryLang,
-    depGraphData,
-    langStats,
-    astProjectSummary,
-    codeEntityResult,
-    callGraphResult,
-    guardAudit,
-    activeDimensions: allDimensions,
-    targetsSummary,
-    localPackageModules,
-    langProfile,
-  } = phaseResults;
-  const activeDimensions = Array.isArray(allDimensions) ? allDimensions : [];
-
-  // ── Build immutable ProjectSnapshot ──
-  const snapshot: ProjectSnapshot = buildProjectSnapshot({
-    projectRoot,
-    sourceTag: 'codex-host-rescan',
-    ...phaseResults,
-    report: phaseResults.report,
-  });
+  const activeDimensions = projectContextAnalysis.dimensions;
 
   // ═══════════════════════════════════════════════════════════
   // Step 4: Recipe 证据验证 + 快速衰退
@@ -175,7 +152,7 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
     container: ctx.container,
     logger: ctx.logger,
     recipeEntries: recipeSnapshot.entries,
-    allFiles,
+    allFiles: projectContextFilesForRescanAudit(projectContextAnalysis.presenterInput.files),
     projectRoot,
   });
 
@@ -185,7 +162,10 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
     dimensions: activeDimensions as DimensionDef[],
     requestedDimensionIds: intent.dimensionIds,
   });
-  const dimensions = knowledgeRescanPlan.executionDimensions;
+  const dimensions = selectProjectContextDimensions(
+    knowledgeRescanPlan.executionDimensions,
+    intent.dimensionIds
+  );
   const requestedDimensions = knowledgeRescanPlan.requestedDimensions;
 
   // ═══════════════════════════════════════════════════════════
@@ -204,61 +184,39 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
   // Step 5: 构建 Mission Briefing + 过滤维度
   // ═══════════════════════════════════════════════════════════
 
-  const session = createHostAgentWorkflowSession({
+  const session = createProjectContextHostAgentSession({
     container: ctx.container,
-    projectRoot,
     dimensions: Array.isArray(dimensions) ? dimensions : [],
-    snapshot,
-    primaryLang,
-    fileCount: allFiles.length,
-    moduleCount: depGraphData?.nodes?.length || 0,
+    fileCount: projectContextAnalysis.fileCount,
+    moduleCount: projectContextAnalysis.moduleCount,
+    primaryLang: projectContextAnalysis.primaryLang,
+    projectRoot,
   });
 
-  const briefing = buildHostAgentMissionBriefing({
-    projectRoot,
-    primaryLang,
-    secondaryLanguages: (langProfile as { secondary?: string[] }).secondary || [],
-    isMultiLang: (langProfile as { isMultiLang?: boolean }).isMultiLang || false,
-    fileCount: allFiles.length,
-    projectType: snapshot.discoverer.id,
+  const briefing = buildProjectContextMissionBriefing({
+    activeDimensions: Array.isArray(dimensions) ? dimensions : [],
+    projectContext: projectContextAnalysis.presenterInput,
     profile: 'rescan-host-agent',
     rescan: { evidencePlan, prescreen },
-    briefing: {
-      astData: astProjectSummary,
-      codeEntityResult,
-      callGraphResult,
-      depGraphData,
-      guardAudit: normalizeGuardAuditForBriefing(guardAudit),
-      // Core MissionBriefingBuilder consumes a target array; generic project scans can
-      // provide a summary object, so keep the compatibility normalization in Plugin.
-      targets: Array.isArray(targetsSummary) ? targetsSummary : [],
-      activeDimensions: Array.isArray(dimensions) ? dimensions : [],
-      session,
-      languageStats: langStats,
-      panoramaResult: snapshot.panorama,
-      localPackageModules: Array.isArray(localPackageModules) ? localPackageModules : [],
-    },
+    session,
   });
-  const ideAgentPacket = buildIDEAgentAnalysisPacketFromSnapshot(
-    normalizeProjectSnapshotForIDEAgent(snapshot),
-    {
+  const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
+    dimensions: Array.isArray(dimensions) ? dimensions : [],
+    options: {
       profile: 'rescan',
-    }
-  );
+      projectRoot,
+    },
+    projectContext: projectContextAnalysis.presenterInput,
+  });
   const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
   const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(
     briefing as Record<string, unknown>,
     ideAgentAnalysis
   );
-
-  // 附加 warnings
-  if (phaseResults.warnings.length > 0) {
-    briefingWithIdeAgentSurface.meta = briefingWithIdeAgentSurface.meta || {};
-    const existingWarnings = Array.isArray(briefingWithIdeAgentSurface.meta.warnings)
-      ? briefingWithIdeAgentSurface.meta.warnings
-      : [];
-    briefingWithIdeAgentSurface.meta.warnings = [...existingWarnings, ...phaseResults.warnings];
-  }
+  briefingWithIdeAgentSurface.meta.projectContextDirectSwitch = {
+    moduleSeedCount: projectContextAnalysis.moduleSeeds.length,
+    requestKinds: projectContextAnalysis.requestKinds,
+  };
 
   const dimGapLog = evidencePlan.dimensionGaps
     .map(
@@ -267,7 +225,7 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
     )
     .join(', ');
   ctx.logger.info(
-    `[Rescan] Mission Briefing ready: ${allFiles.length} files, ${
+    `[Rescan] ProjectContext Mission Briefing ready: ${projectContextAnalysis.fileCount} files, ${
       Array.isArray(dimensions) ? dimensions.length : 0
     } dims, ` +
       `preserved: ${recipeSnapshot.count}, decayed: ${evidencePlan.decayCount}, totalGap: ${evidencePlan.totalGap}, ` +
@@ -333,53 +291,6 @@ function attachIDEAgentAnalysisSurface(
   };
 }
 
-function normalizeGuardAuditForBriefing<T>(guardAudit: T): T {
-  if (!guardAudit || typeof guardAudit !== 'object' || Array.isArray(guardAudit)) {
-    return guardAudit;
-  }
-  const record = guardAudit as Record<string, unknown>;
-  // Core briefing expects array fields; Plugin accepts older/newer Guard audit DTOs here.
-  return {
-    ...record,
-    files: Array.isArray(record.files) ? record.files.map(normalizeGuardAuditFile) : [],
-    crossFileViolations: Array.isArray(record.crossFileViolations)
-      ? record.crossFileViolations
-      : [],
-  } as T;
-}
-
-function normalizeGuardAuditFile(file: unknown): unknown {
-  if (!file || typeof file !== 'object' || Array.isArray(file)) {
-    return file;
-  }
-  const record = file as Record<string, unknown>;
-  return {
-    ...record,
-    violations: Array.isArray(record.violations) ? record.violations : [],
-  };
-}
-
-function normalizeProjectSnapshotForIDEAgent(snapshot: ProjectSnapshot): ProjectSnapshot {
-  return {
-    ...snapshot,
-    guardAudit: normalizeGuardAuditForBriefing(snapshot.guardAudit),
-    panorama: normalizePanoramaForIDEAgent(snapshot.panorama),
-  };
-}
-
-function normalizePanoramaForIDEAgent<T>(panorama: T): T {
-  if (!panorama || typeof panorama !== 'object' || Array.isArray(panorama)) {
-    return panorama;
-  }
-  const record = panorama as Record<string, unknown>;
-  return {
-    ...record,
-    layers: Array.isArray(record.layers) ? record.layers : [],
-    couplingHotspots: Array.isArray(record.couplingHotspots) ? record.couplingHotspots : [],
-    cyclicDependencies: Array.isArray(record.cyclicDependencies) ? record.cyclicDependencies : [],
-  } as T;
-}
-
 function createWorkflowCleanupService(ctx: {
   projectRoot: string;
   dataRoot?: string;
@@ -392,4 +303,16 @@ function createWorkflowCleanupService(ctx: {
     db: ctx.db,
     logger: ctx.logger,
   });
+}
+
+function projectContextFilesForRescanAudit(files: readonly ProjectContextAuditFile[]): Array<{
+  name: string;
+  path?: string;
+  relativePath?: string;
+}> {
+  return files.map((file) => ({
+    name: file.filePath.split(/[\\/]/).filter(Boolean).pop() ?? file.filePath,
+    path: file.filePath,
+    relativePath: file.filePath,
+  }));
 }

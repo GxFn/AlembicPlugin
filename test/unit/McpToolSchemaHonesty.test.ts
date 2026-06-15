@@ -5,8 +5,8 @@
  *   1. Routed tool input schemas reject unknown top-level keys (strict) with a
  *      structured VALIDATION_ERROR — malformed input no longer silently
  *      stripped (CODE-GUARD-SCHEMA-LOOSENESS).
- *   2. Source-graph tools reject type-mismatched args (e.g. limit:"ten") with a
- *      taxonomy problem + next action instead of coercing/dropping (F-V2-1).
+ *   2. Retired source-graph tools do not remain reachable through the routed
+ *      public schema/server surface.
  *
  * Behavior guard: every correctly-typed / documented input still parses; only
  * genuinely-malformed input newly rejects.
@@ -17,7 +17,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import type { z } from 'zod';
 import { CodexMcpServer } from '../../lib/runtime/mcp/CodexMcpServer.js';
-import { findSourceGraphArgTypeIssues } from '../../lib/runtime/mcp/source-graph/status.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 let projectRoots: string[] = [];
@@ -63,60 +62,31 @@ describe('QD2 routed tool schemas reject unknown top-level keys', () => {
   });
 });
 
-describe('QD2 / F-V2-1 source-graph arg type honesty', () => {
-  test('findSourceGraphArgTypeIssues flags present-but-wrong-typed fields only', () => {
-    // The exact F-V2-1 case: limit as a string.
-    expect(findSourceGraphArgTypeIssues({ query: 'greet', limit: 'ten' })).toEqual([
-      'limit (expected number, received string)',
-    ]);
-    // Other typed fields.
-    expect(findSourceGraphArgTypeIssues({ includeEdges: 'yes' })).toEqual([
-      'includeEdges (expected boolean, received string)',
-    ]);
-    expect(findSourceGraphArgTypeIssues({ changedFiles: 'a.ts' })).toEqual([
-      'changedFiles (expected array of strings, received string)',
-    ]);
-    // Correctly-typed and omitted values are accepted.
-    expect(findSourceGraphArgTypeIssues({ query: 'greet', limit: 5 })).toEqual([]);
-    expect(findSourceGraphArgTypeIssues({ query: 'greet' })).toEqual([]);
-    expect(findSourceGraphArgTypeIssues({ limit: undefined, includeEdges: null })).toEqual([]);
-    expect(findSourceGraphArgTypeIssues({})).toEqual([]);
-    // Non-finite numbers are not honest numbers.
-    expect(findSourceGraphArgTypeIssues({ limit: Number.NaN })).toEqual([
-      'limit (expected number, received number)',
-    ]);
+describe('QD2 / PCI-2 retired source-graph public-surface honesty', () => {
+  test('source graph operation names are not routed TOOL_SCHEMAS entries', () => {
+    expect(TOOL_SCHEMAS).not.toHaveProperty('alembic_source_graph_status');
+    expect(TOOL_SCHEMAS).not.toHaveProperty('alembic_symbol_search');
+    expect(TOOL_SCHEMAS).not.toHaveProperty('alembic_code_explore');
+    expect(TOOL_SCHEMAS).not.toHaveProperty('alembic_validation_plan');
   });
 
-  test('alembic_symbol_search rejects limit:"ten" over the server with VALIDATION_ERROR', async () => {
+  test('alembic_symbol_search fails as an unknown public tool over the server', async () => {
     const projectRoot = createProject();
     const server = new CodexMcpServer({ projectRoot });
     const result = (await server.handleToolCall('alembic_symbol_search', {
       query: 'greet',
       limit: 'ten',
     })) as {
-      content?: unknown;
-      isError?: boolean;
-      structuredContent?: { ok?: boolean; toolName?: string; error?: { code?: string } };
+      data?: { errorCode?: string };
+      errorCode?: string;
+      message?: string;
+      success?: boolean;
+      tool?: string;
     };
 
-    // Returned as an McpCallToolResult so the success projector cannot reshape it.
-    expect(Array.isArray(result.content)).toBe(true);
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent?.ok).toBe(false);
-    expect(result.structuredContent?.toolName).toBe('alembic_symbol_search');
-    expect(result.structuredContent?.error?.code).toBe('VALIDATION_ERROR');
-  });
-
-  test('alembic_symbol_search with a correctly-typed limit is not a validation error', async () => {
-    const projectRoot = createProject();
-    const server = new CodexMcpServer({ projectRoot });
-    const result = (await server.handleToolCall('alembic_symbol_search', {
-      query: 'greet',
-      limit: 5,
-    })) as { structuredContent?: { error?: { code?: string } } } & Record<string, unknown>;
-
-    // It may be cold-gated/partial, but it must NOT be the malformed-arg rejection.
-    const code = (result?.structuredContent as { error?: { code?: string } })?.error?.code;
-    expect(code).not.toBe('VALIDATION_ERROR');
+    expect(result.success).toBe(false);
+    expect(result.tool).toBe('alembic_symbol_search');
+    expect(result.data?.errorCode).toBe('CODEX_UNKNOWN_TOOL');
+    expect(result.message).toContain('Unknown Alembic tool');
   });
 });

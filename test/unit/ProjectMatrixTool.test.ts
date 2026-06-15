@@ -89,7 +89,6 @@ describe('alembic_project_matrix public MCP tool', () => {
       operation: 'overview',
       projectRoot,
       sourceEvidenceRefs: ['recipeRelation:test'],
-      sourceGraphRef: 'source-graph:test',
       sourceRefs: ['knowledge:recipe-runtime-boundary'],
     })) as CallToolResult;
     const output = structured(result);
@@ -100,7 +99,7 @@ describe('alembic_project_matrix public MCP tool', () => {
     expect(output.tool).toBe('alembic_project_matrix');
     expect(output.operation).toBe('overview');
     expect(output.project?.projectRoot).toBe(projectRoot);
-    expect(output.result?.sourceGraphStatus).toMatchObject({ state: 'ready' });
+    expect(output.result?.projectContext).toMatchObject({ refCount: expect.any(Number) });
     expect(output.result?.matrixNodes).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: 'project' })])
     );
@@ -122,7 +121,6 @@ describe('alembic_project_matrix public MCP tool', () => {
       operation: 'catalog',
       projectRoot,
       sourceEvidenceRefs: ['recipeRelation:test'],
-      sourceGraphRef: 'source-graph:test',
     })) as CallToolResult;
     const output = structured(result);
     const serialized = JSON.stringify(output);
@@ -207,7 +205,7 @@ describe('alembic_project_matrix public MCP tool', () => {
       expect.arrayContaining([
         expect.objectContaining({ domain: 'project' }),
         expect.objectContaining({ domain: 'knowledge' }),
-        expect.objectContaining({ domain: 'sourceGraph' }),
+        expect.objectContaining({ domain: 'document' }),
       ])
     );
   });

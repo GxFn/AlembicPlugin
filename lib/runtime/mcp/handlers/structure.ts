@@ -7,13 +7,14 @@ import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ConfigPaths as Paths } from '@alembic/core/config';
-import { LanguageService } from '@alembic/core/project-intelligence';
+import { LanguageService } from '@alembic/core/shared';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { ModuleService } from '#service/module/ModuleService.js';
 import {
   defaultProjectGraphProvider,
   defaultProjectKnowledgeContextLayer,
-  ProjectGraphInputSchema,
   type ProjectGraphInput,
+  ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import type { McpContext } from '../../../runtime/mcp/handlers/types.js';
@@ -42,16 +43,16 @@ interface FileInfo {
   [key: string]: unknown;
 }
 
-interface DiscovererLike {
-  load(projectRoot: string): Promise<void>;
+interface ModuleServiceLike {
+  load(): Promise<void>;
   listTargets(): Promise<TargetInfo[]>;
   getTargetFiles(target: TargetInfo): Promise<FileInfo[]>;
   getDependencyGraph?(): unknown;
 }
 
-interface DiscovererCache {
+interface ModuleServiceCache {
   projectRoot: string;
-  discoverer: DiscovererLike;
+  service: ModuleServiceLike;
   targets: TargetInfo[];
 }
 
@@ -84,37 +85,52 @@ interface GraphArgs {
   fromType?: string;
   toType?: string;
   projectRoot?: string;
-  sourceGraphRef?: string;
   maxDepth?: number;
   methodName?: string;
   [key: string]: unknown;
 }
 
-// ─── Discoverer 缓存 ─────────────────────────────────────
+// ─── ProjectContext-backed module service cache ──────────
 // 同一 projectRoot 在模块生命期内只初始化一次
-let _discovererCache: DiscovererCache | null = null; // { projectRoot, discoverer, targets }
+let _moduleServiceCache: ModuleServiceCache | null = null;
 
-async function _getLoadedDiscoverer(ctx?: {
+async function _getLoadedModuleService(ctx?: {
   container?: { singletons?: { _projectRoot?: unknown } };
 }) {
   const projectRoot = resolveProjectRoot(ctx?.container);
-  if (_discovererCache && _discovererCache.projectRoot === projectRoot) {
-    return _discovererCache;
+  if (_moduleServiceCache && _moduleServiceCache.projectRoot === projectRoot) {
+    return _moduleServiceCache;
   }
 
-  // 优先使用 DiscovererRegistry（多语言统一接口）
-  const { getDiscovererRegistry } = await import('@alembic/core/project-intelligence');
-  const registry = getDiscovererRegistry();
-  const discoverer = await registry.detect(projectRoot);
-  await discoverer.load(projectRoot);
-  const targets = (await discoverer.listTargets()) || [];
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- structural duck-typing across module boundary
-  _discovererCache = {
+  const service = _resolveModuleService(ctx as McpContext, projectRoot);
+  await service.load();
+  const targets = (await service.listTargets()) || [];
+  _moduleServiceCache = {
     projectRoot,
-    discoverer: discoverer as unknown as DiscovererLike,
+    service,
     targets: targets as unknown as TargetInfo[],
   };
-  return _discovererCache;
+  return _moduleServiceCache;
+}
+
+function _resolveModuleService(
+  ctx: McpContext | undefined,
+  projectRoot: string
+): ModuleServiceLike {
+  try {
+    const service = ctx?.container?.get?.('moduleService') as ModuleServiceLike | undefined;
+    if (
+      service &&
+      typeof service.load === 'function' &&
+      typeof service.listTargets === 'function' &&
+      typeof service.getTargetFiles === 'function'
+    ) {
+      return service;
+    }
+  } catch {
+    /* moduleService is optional in lightweight MCP contexts */
+  }
+  return new ModuleService(projectRoot) as unknown as ModuleServiceLike;
 }
 
 function _findTarget(targets: TargetInfo[], targetName: string): TargetInfo {
@@ -177,7 +193,7 @@ function _inferTargetRole(targetName: string): string {
 // ═══════════════════════════════════════════════════════════
 
 export async function getTargets(ctx: McpContext, args: StructureArgs = {}) {
-  const { discoverer, targets } = await _getLoadedDiscoverer(ctx);
+  const { service, targets } = await _getLoadedModuleService(ctx);
   const includeSummary = args.includeSummary !== false; // 默认 true
 
   if (!includeSummary) {
@@ -200,7 +216,7 @@ export async function getTargets(ctx: McpContext, args: StructureArgs = {}) {
     let fileCount = 0;
     const langStats: Record<string, number> = {};
     try {
-      const fileList = await discoverer.getTargetFiles(t);
+      const fileList = await service.getTargetFiles(t);
       fileCount = fileList.length;
       for (const f of fileList) {
         const lang = _inferLang(f.name);
@@ -239,11 +255,11 @@ export async function getTargetFiles(ctx: McpContext, args: StructureArgs) {
   if (!args.targetName) {
     throw new Error('targetName is required');
   }
-  const { discoverer, targets } = await _getLoadedDiscoverer(ctx);
+  const { service, targets } = await _getLoadedModuleService(ctx);
   const target = _findTarget(targets, args.targetName);
 
-  // 使用 Discoverer.getTargetFiles — 统一接口定位源文件
-  const rawFiles = await discoverer.getTargetFiles(target);
+  // 使用 ProjectContext-backed ModuleService 定位源文件
+  const rawFiles = await service.getTargetFiles(target);
 
   const includeContent = args.includeContent || false;
   const contentMaxLines = args.contentMaxLines || 100;
@@ -322,10 +338,10 @@ export async function getTargetMetadata(ctx: McpContext, args: StructureArgs) {
   if (!args.targetName) {
     throw new Error('targetName is required');
   }
-  const loadedDiscoverer = await _getLoadedDiscoverer(ctx);
-  const { targets } = loadedDiscoverer;
+  const loadedService = await _getLoadedModuleService(ctx);
+  const { targets } = loadedService;
   const target = _findTarget(targets, args.targetName);
-  const { projectRoot } = loadedDiscoverer;
+  const { projectRoot } = loadedService;
 
   // ── 基础元数据 ──
   const meta: Record<string, unknown> = {
@@ -415,8 +431,26 @@ async function resolveProjectGraphMcpResult(ctx: McpContext, args: GraphArgs) {
 function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGraphInput {
   const containerProjectRoot = resolveProjectRoot(ctx?.container);
   return ProjectGraphInputSchema.parse({
+    ...(args.activeFile ? { activeFile: args.activeFile } : {}),
+    ...(args.budget ? { budget: args.budget } : {}),
+    ...(args.detailLevel ? { detailLevel: args.detailLevel } : {}),
+    ...(args.direction ? { direction: args.direction } : {}),
+    ...(args.freshnessPolicy ? { freshnessPolicy: args.freshnessPolicy } : {}),
+    ...(args.fromId ? { fromId: args.fromId } : {}),
+    ...(args.fromType ? { fromType: args.fromType } : {}),
+    ...(args.inputSource ? { inputSource: args.inputSource } : {}),
+    ...(args.intentKind ? { intentKind: args.intentKind } : {}),
+    ...(args.maxDepth ? { maxDepth: args.maxDepth } : {}),
+    ...(args.nodeId ? { nodeId: args.nodeId } : {}),
+    ...(args.nodeType ? { nodeType: args.nodeType } : {}),
+    ...(args.operation ? { operation: args.operation } : {}),
     projectRoot: args.projectRoot ?? containerProjectRoot,
-    ...args,
+    ...(args.query ? { query: args.query } : {}),
+    ...(args.relationType ? { relationType: args.relationType } : {}),
+    ...(args.sourceEvidenceRefs ? { sourceEvidenceRefs: args.sourceEvidenceRefs } : {}),
+    ...(args.sourceRefs ? { sourceRefs: args.sourceRefs } : {}),
+    ...(args.toId ? { toId: args.toId } : {}),
+    ...(args.toType ? { toType: args.toType } : {}),
   });
 }
 

@@ -98,7 +98,6 @@ export const KnowledgeContextIncludeSchema = z
     knowledge: z.boolean().default(true),
     recipeRelations: z.boolean().default(true),
     vector: z.boolean().default(true),
-    sourceGraph: z.boolean().default(true),
     documents: z.boolean().default(true),
     runtime: z.boolean().default(false),
   })

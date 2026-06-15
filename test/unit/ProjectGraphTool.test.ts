@@ -20,7 +20,6 @@ describe('alembic_graph project graph tool', () => {
     const result = await routeGraphTool(createContext(projectRoot), {
       operation: 'stats',
       projectRoot,
-      sourceGraphRef: 'source-graph:fixture',
       budget: { itemLimit: 100, matrixNodeLimit: 100, relationHopLimit: 10 },
     });
     const structured = result.structuredContent as Record<string, unknown>;
@@ -36,7 +35,6 @@ describe('alembic_graph project graph tool', () => {
     expect(structured.inventory).toMatchObject({
       allowedNodeTypes: expect.arrayContaining(['project', 'package', 'file', 'symbol']),
       allowedRelationTypes: expect.arrayContaining(['partOf', 'imports', 'definesSymbol']),
-      sourceGraphStatus: 'linked',
     });
     expect(JSON.stringify(structured.items)).not.toContain('recipe');
     expect(JSON.stringify(structured.relations)).not.toContain('coveredByKnowledge');
@@ -95,7 +93,7 @@ describe('alembic_graph project graph tool', () => {
 
     expect(structured.items).toEqual([]);
     expect(graphResult).toMatchObject({
-      insufficientSourceGraph: true,
+      projectContextPartial: true,
       matrixNodes: [],
       noMatchReason: 'No bounded project graph nodes matched the focused query terms.',
       queryMatchedNodeCount: 0,
@@ -119,7 +117,7 @@ describe('alembic_graph project graph tool', () => {
       operation: 'query',
       orientation: true,
       queryMatchMode: 'project-orientation',
-      sourceGraphRequiredForImpact: true,
+      projectContextRefRequiredForImpact: true,
     });
     expect(itemIds).toEqual(
       expect.arrayContaining(['project:fixture-project', 'package:fixture-project'])
@@ -132,7 +130,7 @@ describe('alembic_graph project graph tool', () => {
     );
   });
 
-  test('withholds impact traversal until a concrete nodeId or sourceGraphRef is supplied', async () => {
+  test('withholds impact traversal until a concrete ProjectContext anchor is supplied', async () => {
     const projectRoot = createFixtureProject();
     const result = await routeGraphTool(createContext(projectRoot), {
       operation: 'impact',
@@ -145,10 +143,10 @@ describe('alembic_graph project graph tool', () => {
     expect(structured.items).toEqual([]);
     expect(structured.relations).toEqual([]);
     expect(graphResult).toMatchObject({
-      impactUnavailableReason: expect.stringContaining('concrete nodeId or sourceGraphRef'),
+      impactUnavailableReason: expect.stringContaining('concrete ProjectContext nodeId'),
       missing: 'nodeId',
       operation: 'impact',
-      sourceGraphRequiredForImpact: true,
+      projectContextRefRequiredForImpact: true,
     });
     expect(structured.nextActions).toEqual(
       expect.arrayContaining([
@@ -185,7 +183,7 @@ describe('alembic_graph project graph tool', () => {
     expect(GraphInput.safeParse({ relation: 'hasGap' }).success).toBe(false);
     expect(
       GraphInput.safeParse({ operation: 'neighborhood', nodeType: 'source-graph-node' }).success
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 

@@ -113,10 +113,11 @@ function isErrorResult(value: unknown): boolean {
 const RETIRED_PUBLIC_TOOL_REPLACEMENTS: Record<string, string> = {
   alembic_knowledge: 'Use alembic_search with operation=search/get/expand.',
   alembic_structure:
-    'Use alembic_project_matrix for navigation, alembic_graph for bounded project relations, and source graph tools for current source facts.',
+    'Use alembic_project_matrix for navigation and alembic_graph for ProjectContext-backed project relations.',
   alembic_call_context:
-    'Use alembic_callers, alembic_callees, or alembic_code_impact after alembic_source_graph_status.',
-  alembic_panorama: 'Use alembic_project_matrix, alembic_search, and alembic_graph.',
+    'Use alembic_graph with concrete ProjectContext node/detail refs, then validate dynamic behavior with raw source reads or repository tests.',
+  alembic_panorama:
+    'Use alembic_project_matrix and alembic_graph. This retired route does not invoke the old panorama service.',
 };
 
 function createRetiredPublicToolResult(toolName: string): McpToolResponse {
@@ -167,7 +168,6 @@ import { bootstrapForHostAgent } from '../../runtime/mcp/handlers/host-agent/boo
 import { dimensionComplete } from '../../runtime/mcp/handlers/host-agent/dimension-completion.js';
 import { evolveForHostAgent } from '../../runtime/mcp/handlers/host-agent/evolve.js';
 import { rescanForHostAgent } from '../../runtime/mcp/handlers/host-agent/rescan.js';
-import { panoramaHandler } from '../../runtime/mcp/handlers/panorama.js';
 
 // ─── McpServer 类 ─────────────────────────────────────────────
 
@@ -626,7 +626,6 @@ export class McpServer {
       alembic_guard: (ctx, args) => toolRouter.routeGuardTool(ctx, args),
       alembic_submit_knowledge: (ctx, args) => toolRouter.routeSubmitKnowledgeTool(ctx, args),
       alembic_project_skill: (ctx, args) => toolRouter.routeProjectSkillTool(ctx, args),
-      alembic_panorama: (ctx, args) => panoramaHandler(ctx, args),
       // ── Host Agent Bootstrap (v3.1) ──
       alembic_bootstrap: (ctx, args) =>
         bootstrapForHostAgent(

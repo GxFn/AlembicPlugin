@@ -1258,9 +1258,6 @@ function toKnowledgeContextSearchInput(
       : { activeFile: readString(args.activeFile) }),
     ...(readString(args.module) === undefined ? {} : { module: readString(args.module) }),
     ...(projectRoot === undefined ? {} : { projectRoot }),
-    ...(readString(args.sourceGraphRef) === undefined
-      ? {}
-      : { sourceGraphRef: readString(args.sourceGraphRef) }),
     ...(readStringArray(args.sourceRefs).length === 0
       ? {}
       : { sourceRefs: readStringArray(args.sourceRefs) }),

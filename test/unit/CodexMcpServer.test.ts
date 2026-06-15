@@ -55,17 +55,7 @@ const CODEX_AGENT_PUBLIC_TOOL_NAMES = [
   'alembic_code_guard',
   'alembic_decision_record',
 ];
-const CODEX_SOURCE_GRAPH_TOOL_NAMES = [
-  'alembic_source_graph_status',
-  'alembic_symbol_search',
-  'alembic_code_explore',
-  'alembic_source_node',
-  'alembic_callers',
-  'alembic_callees',
-  'alembic_code_impact',
-  'alembic_affected_tests',
-  'alembic_validation_plan',
-];
+const CODEX_SOURCE_GRAPH_TOOL_NAMES: string[] = [];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
   ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
   'alembic_submit_knowledge',
@@ -481,9 +471,8 @@ describe('CodexMcpServer', () => {
     const server = new CodexMcpServer({ projectRoot });
     const instructions = server.getInitializeInstructions();
 
-    expect(instructions).toContain('`alembic_source_graph_status`');
-    expect(instructions).toContain('`alembic_code_explore`');
-    expect(instructions).toContain('`alembic_symbol_search`');
+    expect(instructions).toContain('`alembic_project_matrix`');
+    expect(instructions).toContain('`alembic_graph`');
     expect(instructions).toContain('`alembic_search`');
     expect(instructions).toContain('`alembic_code_guard`');
     expect(instructions).toContain('`bootstrapState`');
@@ -493,49 +482,40 @@ describe('CodexMcpServer', () => {
     expect(instructions).toContain('Validation is still required');
   });
 
-  test('does not advertise source graph tools filtered out of the visible catalog', () => {
+  test('does not advertise retired source graph tools in initialize guidance', () => {
     const guidance = buildCodexMcpGuidance([
       { name: 'alembic_source_graph_status' },
       { name: 'alembic_code_explore' },
+      { name: 'alembic_project_matrix' },
+      { name: 'alembic_graph' },
       { name: 'alembic_prime' },
     ]);
 
-    expect(guidance.sourceGraphTools).toEqual([
-      'alembic_source_graph_status',
-      'alembic_code_explore',
-    ]);
-    expect(guidance.instructions).toContain('`alembic_code_explore`');
+    expect(guidance.knowledgeTools).toEqual(
+      expect.arrayContaining(['alembic_project_matrix', 'alembic_graph'])
+    );
+    expect(guidance.instructions).toContain('`alembic_project_matrix`');
+    expect(guidance.instructions).toContain('`alembic_graph`');
+    expect(guidance.instructions).not.toContain('alembic_source_graph_status');
+    expect(guidance.instructions).not.toContain('alembic_code_explore');
     expect(guidance.instructions).not.toContain('alembic_symbol_search');
     expect(guidance.instructions).not.toContain('alembic_callers');
     expect(guidance.instructions).not.toContain('alembic_affected_tests');
     expect(guidance.instructions).not.toContain('alembic_validation_plan');
   });
 
-  test('keeps source graph tool-list descriptions aligned with first-tool guidance', () => {
+  test('keeps ProjectContext tool-list descriptions aligned with initialize guidance', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
     const byName = new Map(
       getVisibleCodexTools('agent', projectRoot).map((tool) => [tool.name, tool])
     );
 
-    expect(byName.get('alembic_source_graph_status')?.description).toContain(
-      'First source graph check'
-    );
-    expect(byName.get('alembic_code_explore')?.description).toContain(
-      'Primary first tool for current-code understanding'
-    );
-    expect(byName.get('alembic_symbol_search')?.description).toContain(
-      'Use before broad raw Read/Grep'
-    );
-    expect(byName.get('alembic_code_impact')?.description).toContain(
-      'pair with Guard and repository tests'
-    );
-    expect(byName.get('alembic_affected_tests')?.description).toContain(
-      'do not replace repository validation'
-    );
-    expect(byName.get('alembic_validation_plan')?.description).toContain(
-      'mustRun, recommended, manualReview, and unknown'
-    );
+    expect(byName.get('alembic_project_matrix')?.description).toContain('ProjectContext');
+    expect(byName.get('alembic_graph')?.description).toContain('ProjectContext');
+    expect(byName.has('alembic_source_graph_status')).toBe(false);
+    expect(byName.has('alembic_code_explore')).toBe(false);
+    expect(byName.has('alembic_symbol_search')).toBe(false);
   });
 
   test('exposes MCP tool annotations so clients can reduce approval prompts', () => {
@@ -2007,7 +1987,7 @@ describe('CodexMcpServer', () => {
         bootstrapState?: {
           runtime?: { daemonRequiredForBootstrap?: boolean; owner?: string };
           singleWriterLease?: { publicStatus?: string; status?: string };
-          sourceGraph?: { firstTool?: string };
+          projectContext?: { firstTool?: string };
           status?: string;
         };
         currentDomainSop?: {
@@ -2046,7 +2026,7 @@ describe('CodexMcpServer', () => {
           tool: string;
         };
         toolCapabilities?: {
-          canonicalSourceGraph?: Array<{ name?: string }>;
+          canonicalProjectContext?: Array<{ name?: string }>;
           removedOrBlocked?: Array<{ name?: string; replacementTools?: string[] }>;
         };
       };
@@ -2066,8 +2046,8 @@ describe('CodexMcpServer', () => {
         daemonRequiredForBootstrap: false,
         owner: 'alembic-plugin',
       },
-      sourceGraph: {
-        firstTool: 'alembic_source_graph_status',
+      projectContext: {
+        firstTool: 'alembic_project_matrix',
       },
       singleWriterLease: {
         publicStatus: 'no_active_bootstrap',
@@ -2080,7 +2060,7 @@ describe('CodexMcpServer', () => {
     });
     expect(result.data?.currentDomainSop).toMatchObject({
       domainId: 'D1-runtime-entrypoints',
-      toolSequence: expect.arrayContaining(['alembic_source_graph_status', 'alembic_code_explore']),
+      toolSequence: expect.arrayContaining(['alembic_project_matrix', 'alembic_graph']),
       recipeGuidanceFloor: expect.objectContaining({
         candidateCounts: expect.objectContaining({
           minimumPerDimension: 3,
@@ -2088,16 +2068,14 @@ describe('CodexMcpServer', () => {
         }),
       }),
     });
-    expect(result.data?.toolCapabilities?.canonicalSourceGraph?.map((entry) => entry.name)).toEqual(
+    expect(result.data?.toolCapabilities?.canonicalProjectContext?.map((entry) => entry.name)).toEqual(
       expect.arrayContaining([
-        'alembic_source_graph_status',
-        'alembic_code_explore',
-        'alembic_symbol_search',
-        'alembic_validation_plan',
+        'alembic_project_matrix',
+        'alembic_graph',
       ])
     );
     expect(result.data?.toolCapabilities?.removedOrBlocked?.map((entry) => entry.name)).toEqual(
-      expect.arrayContaining(['alembic_call_context', 'alembic_affected_tests'])
+      expect.arrayContaining(['alembic_call_context', 'alembic_panorama'])
     );
     expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_call_context');
     expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_affected_tests');
@@ -2151,7 +2129,7 @@ describe('CodexMcpServer', () => {
     expect(result.data?.sopPack?.toolCapabilityMatrix).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: 'alembic_source_graph_status',
+          name: 'alembic_project_matrix',
         }),
       ])
     );

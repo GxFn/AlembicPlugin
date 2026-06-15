@@ -71,7 +71,7 @@ describe('public knowledge context surface guidance', () => {
 
     expect(guidance.knowledgeTools.sort()).toEqual(publicKnowledgeNavigationToolNames.sort());
     expect(guidance.instructions).toContain('project_matrix');
-    expect(guidance.instructions).toContain('alembic_graph only for project-internal');
+    expect(guidance.instructions).toContain('alembic_graph for ProjectContext-backed');
     for (const toolName of legacyPublicKnowledgeToolNames) {
       expect(guidance.instructions).not.toContain(toolName);
     }

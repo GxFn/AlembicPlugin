@@ -112,9 +112,9 @@ export const PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS = [
   },
 ] as const satisfies readonly PluginHostMcpToolFamilyContract[];
 
-export const PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES = uniqueStrings(
-  PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS.flatMap((contract) => contract.toolNames)
-);
+export const PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES = listPluginToolSurfaceCatalog()
+  .map((entry) => entry.name)
+  .sort();
 
 export const PLUGIN_HOST_MCP_RESIDENT_ROUTE_TOOL_NAMES = listPluginToolSurfaceCatalog()
   .filter((entry) => entry.residentRoutePolicy !== 'none')

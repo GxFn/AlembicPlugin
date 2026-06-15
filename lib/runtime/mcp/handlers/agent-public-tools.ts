@@ -71,7 +71,6 @@ interface AgentPublicBaseArgs {
   language?: string;
   projectRoot?: string;
   sourceEvidenceRefs?: string[];
-  sourceGraphRef?: string;
   sourceRefs?: string[];
   userQuery?: string;
   [key: string]: unknown;
@@ -158,7 +157,6 @@ interface WorkRecord {
   intentRef?: string;
   primeRef?: string;
   sourceEvidenceRefs: string[];
-  sourceGraphRef?: string;
   scopeFiles: string[];
   sourceRefs: string[];
   title: string;
@@ -240,7 +238,7 @@ type AgentPrimeSkippedReason =
   | 'status-only-turn'
   | 'not-relevant-to-project-knowledge';
 type AgentScopeKind = 'file' | 'module' | 'none' | 'project' | 'source-ref';
-type AgentSourceGraphNeed = 'none' | 'optional' | 'recommended' | 'required';
+type AgentProjectContextNeed = 'none' | 'optional' | 'recommended' | 'required';
 type AgentVectorUseKind = 'none' | 'semantic-expand' | 'hybrid-rerank';
 type AgentWorkNeed = 'none' | 'maybe-start' | 'start-required';
 
@@ -288,7 +286,6 @@ export async function intentHandler(ctx: McpContext, args: AgentPublicBaseArgs) 
     intentKind: intake.intentKind,
     refs: {
       detailRefs,
-      ...buildSourceGraphRefEntry(args.sourceGraphRef),
       ...(intentRef
         ? {
             intentRef: {
@@ -488,7 +485,6 @@ function buildPrimeBlockingResult(
 
 function buildPrimeRefs(input: PrimeHandlerSharedInput) {
   return {
-    ...buildSourceGraphRefEntry(input.args.sourceGraphRef),
     ...(input.args.intentRef
       ? {
           intentRef: {
@@ -602,7 +598,6 @@ async function buildPrimeReadyKnowledgeContext(
         input.material.primeKnowledgeMaterial.acceptedGuards.length,
       projectNodes: projectGraph?.projectNodes ?? projectMatrix.projectNodes,
       recipeRelationCount: recipeRelations.length,
-      sourceGraphSupported: input.args.sourceGraphRef !== undefined,
       vectorCandidateCount,
     },
   });
@@ -628,7 +623,6 @@ function resolvePrimeReadyProjectMatrix(
     operation: 'overview',
     projectRoot: input.effectiveProjectRoot,
     sourceEvidenceRefs: input.args.sourceEvidenceRefs,
-    sourceGraphRef: input.args.sourceGraphRef,
     sourceRefs: input.args.sourceRefs,
   });
 }
@@ -657,7 +651,6 @@ function resolvePrimeReadyProjectGraph(
       projectRoot: input.effectiveProjectRoot,
       query: input.intake.hostIntentFrame.recognizedIntentDraft.query,
       sourceEvidenceRefs: input.args.sourceEvidenceRefs,
-      sourceGraphRef: input.args.sourceGraphRef,
       sourceRefs: input.args.sourceRefs,
     })
   );
@@ -696,9 +689,6 @@ function buildPrimeReadyDomainFreshness(input: {
           ? undefined
           : 'Vector/rerank evidence was unavailable or unused for this prime retrieval.',
     },
-    ...(input.projectGraph?.snapshot.domainFreshness?.sourceGraph
-      ? { sourceGraph: input.projectGraph.snapshot.domainFreshness.sourceGraph }
-      : {}),
   };
 }
 
@@ -756,7 +746,6 @@ function buildPrimeKnowledgeContextInput(input: {
     ...(query === undefined ? {} : { query }),
     ...(recognizedIntent === undefined ? {} : { recognizedIntent }),
     sourceEvidenceRefs: input.args.sourceEvidenceRefs,
-    sourceGraphRef: input.args.sourceGraphRef,
     sourceRefs: input.intake.sourceRefs,
     tool: 'alembic_prime' as const,
   };
@@ -893,7 +882,7 @@ function buildPrimeKnowledgeContextPayload(input: {
       contextOnlyEvidence: {
         projectMatrixSummary: input.matrixSummary,
         projectGraphIncluded: input.projectGraphIncluded,
-        sourceGraphRef: input.searchResult?.searchMeta.residentSearch?.route ?? null,
+        projectContextRoute: input.searchResult?.searchMeta.residentSearch?.route ?? null,
       },
       primePackage: input.primePackage,
       retrieval: {
@@ -926,8 +915,7 @@ function primeKnowledgeToMatrixEntry(
 
 function shouldIncludePrimeProjectGraph(input: PrimeHandlerReadyInput): boolean {
   return Boolean(
-    input.args.sourceGraphRef ||
-      input.intake.hostIntentInput.activeFile ||
+    input.intake.hostIntentInput.activeFile ||
       (input.primeSearch.searchResult?.relatedKnowledge.length ?? 0) > 0 ||
       (input.primeSearch.searchResult?.guardRules.length ?? 0) > 0
   );
@@ -1128,7 +1116,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     'alembic_work_start',
     uniqueStrings([
       ...(args.sourceRefs ?? []),
-      ...(args.sourceGraphRef ? [args.sourceGraphRef] : []),
       ...(args.sourceEvidenceRefs ?? []),
       ...(args.workScope?.files ?? []),
     ])
@@ -1142,7 +1129,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
       intentKind: intake.intentKind,
       reason: status.reason,
       refs: {
-        ...buildSourceGraphRefEntry(args.sourceGraphRef),
         ...(args.intentRef
           ? {
               intentRef: {
@@ -1186,7 +1172,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     intentKind: intake.intentKind,
     ...(args.intentRef ? { intentRef: args.intentRef } : {}),
     ...(args.primeRef ? { primeRef: args.primeRef } : {}),
-    ...(args.sourceGraphRef ? { sourceGraphRef: args.sourceGraphRef } : {}),
     sourceEvidenceRefs: uniqueStrings(args.sourceEvidenceRefs ?? []),
     scopeFiles,
     sourceRefs: intake.sourceRefs,
@@ -1202,7 +1187,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
     refs: {
-      ...buildSourceGraphRefEntry(args.sourceGraphRef),
       ...(args.intentRef
         ? {
             intentRef: {
@@ -1247,7 +1231,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
     'alembic_work_finish',
     uniqueStrings([
       ...(args.sourceRefs ?? []),
-      ...(args.sourceGraphRef ? [args.sourceGraphRef] : []),
       ...(args.sourceEvidenceRefs ?? []),
       ...(args.evidenceRefs ?? []),
     ])
@@ -1268,7 +1251,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
         retryable: false,
       },
       refs: {
-        ...buildSourceGraphRefEntry(args.sourceGraphRef),
         detailRefs,
       },
       status: 'blocked',
@@ -1292,9 +1274,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
   const finishedAt = new Date().toISOString();
   record.finishRef = finishRef;
   record.finishedAt = finishedAt;
-  if (args.sourceGraphRef) {
-    record.sourceGraphRef = args.sourceGraphRef;
-  }
   record.sourceEvidenceRefs = uniqueStrings([
     ...record.sourceEvidenceRefs,
     ...(args.sourceEvidenceRefs ?? []),
@@ -1312,7 +1291,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
     refs: {
-      ...buildSourceGraphRefEntry(record.sourceGraphRef),
       ...(record.intentRef
         ? {
             intentRef: {
@@ -1347,7 +1325,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
     finishRef,
     guardRecommendation: buildGuardRecommendation(guardDecision, {
       sourceEvidenceRefs: record.sourceEvidenceRefs,
-      sourceGraphRef: record.sourceGraphRef,
       validationPlan: args.validationPlan,
     }),
     localRecord: {
@@ -1357,7 +1334,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
     },
     outcome,
     ...(record.sourceEvidenceRefs.length ? { sourceEvidenceRefs: record.sourceEvidenceRefs } : {}),
-    ...(record.sourceGraphRef ? { sourceGraphRef: record.sourceGraphRef } : {}),
     workRef: record.workRef,
   });
 }
@@ -1368,7 +1344,6 @@ export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs
     'alembic_code_guard',
     uniqueStrings([
       ...(args.sourceRefs ?? []),
-      ...(args.sourceGraphRef ? [args.sourceGraphRef] : []),
       ...(args.sourceEvidenceRefs ?? []),
     ])
   );
@@ -1452,7 +1427,7 @@ function buildMissingWorkRefGuardOutput(input: {
       message: `No active work record exists for workRef ${args.workRef}; provide explicit files/code or start scoped work first.`,
       retryable: false,
     },
-    refs: { ...buildSourceGraphRefEntry(args.sourceGraphRef), detailRefs },
+    refs: { detailRefs },
     status: 'blocked',
     summary: buildResultSummary(
       'Code Guard blocked because the requested workRef is not active in this Plugin session.'
@@ -1487,7 +1462,6 @@ function buildEmptyWorkRefGuardOutput(
       retryable: false,
     },
     refs: {
-      ...buildSourceGraphRefEntry(args.sourceGraphRef),
       workRef: {
         refType: 'work' as const,
         id: workRecord.workRef,
@@ -1526,7 +1500,6 @@ function buildMissingScopeGuardOutput(input: {
       retryable: false,
     },
     refs: {
-      ...buildSourceGraphRefEntry(args.sourceGraphRef),
       ...buildWorkRefEntry(args.workRef),
       detailRefs,
     },
@@ -1569,7 +1542,6 @@ function buildCodeGuardReadyOutput(input: {
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
     refs: {
-      ...buildSourceGraphRefEntry(args.sourceGraphRef),
       ...buildIntentRefEntry(args.intentRef),
       ...buildWorkRefEntry(args.workRef),
       detailRefs,
@@ -1614,7 +1586,7 @@ function buildCodeGuardFailureOutput(input: {
       message: `Scoped Code Guard failed: ${err instanceof Error ? err.message : String(err)}.`,
       retryable: true,
     },
-    refs: { ...buildSourceGraphRefEntry(args.sourceGraphRef), detailRefs },
+    refs: { detailRefs },
     status: 'failed',
     summary: buildResultSummary('Scoped Code Guard failed before producing results.'),
     toolName: 'alembic_code_guard',
@@ -1639,7 +1611,6 @@ export async function decisionRecordHandler(ctx: McpContext, args: AgentDecision
   const intake = buildIntentIntake(ctx, args);
   const sourceRefs = uniqueStrings([
     ...(args.sourceRefs ?? []),
-    ...(args.sourceGraphRef ? [args.sourceGraphRef] : []),
     ...(args.sourceEvidenceRefs ?? []),
     ...(args.evidenceRefs ?? []),
   ]);
@@ -1659,7 +1630,6 @@ export async function decisionRecordHandler(ctx: McpContext, args: AgentDecision
         retryable: false,
       },
       refs: {
-        ...buildSourceGraphRefEntry(args.sourceGraphRef),
         detailRefs,
       },
       status: 'blocked',
@@ -1780,7 +1750,6 @@ function buildIntentIntake(ctx: McpContext, args: AgentPublicBaseArgs) {
   });
   const sourceRefs = uniqueStrings([
     ...(args.sourceRefs ?? []),
-    ...(args.sourceGraphRef ? [args.sourceGraphRef] : []),
     ...(args.sourceEvidenceRefs ?? []),
     ...(hostIntentFrame.recognizedIntentDraft.sourceRefs ?? []),
     ...(hostIntentFrame.hostDeclaredIntent?.sourceRefs ?? []),
@@ -2117,19 +2086,15 @@ function resolveWorkStartStatus(
 
 function buildGuardRecommendation(
   decision: ReturnType<typeof decideGuardTrigger>,
-  sourceGraph?: {
+  evidence?: {
     sourceEvidenceRefs?: string[];
-    sourceGraphRef?: string;
     validationPlan?: Record<string, unknown>;
   }
 ) {
-  const validationPlan = projectValidationPlanAdvisory(sourceGraph?.validationPlan, {
-    sourceGraphRef: sourceGraph?.sourceGraphRef,
-  });
-  const sourceGraphEvidence = compactRecord({
-    ...(sourceGraph?.sourceGraphRef ? { sourceGraphRef: sourceGraph.sourceGraphRef } : {}),
-    ...(sourceGraph?.sourceEvidenceRefs?.length
-      ? { sourceEvidenceRefs: uniqueStrings(sourceGraph.sourceEvidenceRefs).slice(0, 40) }
+  const validationPlan = projectValidationPlanAdvisory(evidence?.validationPlan);
+  const guardEvidence = compactRecord({
+    ...(evidence?.sourceEvidenceRefs?.length
+      ? { sourceEvidenceRefs: uniqueStrings(evidence.sourceEvidenceRefs).slice(0, 40) }
       : {}),
     ...(validationPlan ? { validationPlan } : {}),
   });
@@ -2138,7 +2103,7 @@ function buildGuardRecommendation(
       action: 'run',
       input: { files: decision.taskScopedFiles },
       reasonCode: decision.reasonCode,
-      ...sourceGraphEvidence,
+      ...guardEvidence,
       taskScopedFiles: decision.taskScopedFiles,
       tool: 'alembic_code_guard',
     };
@@ -2147,21 +2112,19 @@ function buildGuardRecommendation(
     action: 'skip',
     reason: `Guard skipped by Codex-aware lifecycle policy: ${decision.reasonCode}.`,
     reasonCode: decision.reasonCode,
-    ...sourceGraphEvidence,
+    ...guardEvidence,
     taskScopedFiles: decision.taskScopedFiles,
     tool: 'alembic_code_guard',
   };
 }
 
 function projectValidationPlanAdvisory(
-  value: unknown,
-  options: { sourceGraphRef?: string } = {}
+  value: unknown
 ):
   | {
       acceptanceBoundary?: string;
       advisoryOnly: true;
       buckets: Record<'manualReview' | 'mustRun' | 'recommended' | 'unknown', ValidationBucket>;
-      sourceGraphRef?: string;
     }
   | undefined {
   const source = asValidationPlanSource(value);
@@ -2180,7 +2143,6 @@ function projectValidationPlanAdvisory(
       : {}),
     advisoryOnly: true,
     buckets,
-    ...(options.sourceGraphRef ? { sourceGraphRef: options.sourceGraphRef } : {}),
   };
 }
 
@@ -2337,7 +2299,6 @@ function buildDecisionRecordRefs(
   decisionId: string | null
 ) {
   return {
-    ...buildSourceGraphRefEntry(args.sourceGraphRef),
     ...(args.intentRef
       ? {
           intentRef: {
@@ -2366,21 +2327,6 @@ function buildDecisionRecordRefs(
         }
       : {}),
     detailRefs,
-  };
-}
-
-function buildSourceGraphRefEntry(sourceGraphRef: unknown) {
-  const id = firstString(sourceGraphRef);
-  if (!id) {
-    return {};
-  }
-  return {
-    sourceGraphRef: {
-      refType: 'source-graph' as const,
-      id,
-      label: 'Core source graph evidence',
-      source: 'tool-result' as const,
-    },
   };
 }
 
@@ -2505,7 +2451,6 @@ function buildDecisionRegisterRequestBody(input: {
     sourceEvidenceRefs: input.args.sourceEvidenceRefs?.length
       ? uniqueStrings(input.args.sourceEvidenceRefs)
       : undefined,
-    sourceGraphRef: firstString(input.args.sourceGraphRef),
     tags: input.args.tags?.length ? uniqueStrings(input.args.tags) : undefined,
     title,
     turnId: firstString(input.args.hostTurnMeta?.turnId, input.args.hostTurnMeta?.messageId),
@@ -2790,8 +2735,8 @@ function buildIntentToolPlan(
     guardNeed: resolveGuardNeed(intake),
     knowledgeNeed: resolveKnowledgeNeed(primeNeed),
     primeNeed,
-    sourceGraphNeed: resolveSourceGraphNeed(intake, persistence),
-    sourceGraphPlan: buildSourceGraphPlan(intake, persistence),
+    projectContextNeed: resolveProjectContextNeed(intake, persistence),
+    projectContextPlan: buildProjectContextPlan(intake, persistence),
     workNeed: resolveWorkNeed(intake),
   };
 }
@@ -2878,10 +2823,10 @@ function resolveKnowledgeNeed(primeNeed: AgentPrimeNeed): AgentKnowledgeNeed {
   return primeNeed;
 }
 
-function resolveSourceGraphNeed(
+function resolveProjectContextNeed(
   intake: ReturnType<typeof buildIntentIntake>,
   persistence: AgentIntentPersistence
-): AgentSourceGraphNeed {
+): AgentProjectContextNeed {
   if (!persistence.consumable) {
     return 'none';
   }
@@ -2902,15 +2847,15 @@ function resolveSourceGraphNeed(
   return 'none';
 }
 
-function buildSourceGraphPlan(
+function buildProjectContextPlan(
   intake: ReturnType<typeof buildIntentIntake>,
   persistence: AgentIntentPersistence
 ) {
-  const need = resolveSourceGraphNeed(intake, persistence);
+  const need = resolveProjectContextNeed(intake, persistence);
   if (need === 'none') {
     return {
       action: 'skip' as const,
-      reasonCode: 'no-source-graph-needed',
+      reasonCode: 'no-project-context-needed',
       tools: [],
     };
   }
@@ -2920,14 +2865,14 @@ function buildSourceGraphPlan(
     intake.intentKind === 'refactor-task';
   return {
     action: changedFileLikely
-      ? ('validation-plan-after-work' as const)
-      : ('query-before-work' as const),
+      ? ('graph-after-work' as const)
+      : ('graph-before-work' as const),
     reasonCode: changedFileLikely
-      ? 'source-graph-validation-plan-after-changes'
-      : 'source-graph-query-before-source-claim',
+      ? 'project-context-graph-after-changes'
+      : 'project-context-graph-before-source-claim',
     tools: changedFileLikely
-      ? ['alembic_source_graph_status', 'alembic_code_explore', 'alembic_validation_plan']
-      : ['alembic_source_graph_status', 'alembic_code_explore'],
+      ? ['alembic_project_matrix', 'alembic_graph', 'alembic_code_guard']
+      : ['alembic_project_matrix', 'alembic_graph'],
   };
 }
 
@@ -3055,7 +3000,7 @@ function buildPrimePublicPackage(input: {
     reason: input.result.reason,
     refs: input.result.refs,
     status: input.result.status,
-    sourceGraphGuidance: buildPrimeSourceGraphGuidance(input),
+    projectContextGuidance: buildPrimeProjectContextGuidance(input),
     summary: input.result.summary,
     trustPosture: buildPrimeTrustPostureProjection(input.primeKnowledgeMaterial, input.result),
     trustReceipt: {
@@ -3085,11 +3030,14 @@ function hostNeutralPrimeText(text: string): string {
     .replace(/\bClaude\b/g, 'host agent');
 }
 
-function buildPrimeSourceGraphGuidance(input: {
+function buildPrimeProjectContextGuidance(input: {
   intake: ReturnType<typeof buildIntentIntake>;
   result: AgentPublicToolResultEnvelope;
 }) {
-  const sourceGraphRef = input.result.refs.sourceGraphRef?.id ?? null;
+  const projectContextRefs = input.result.refs.detailRefs
+    .filter((ref) => ['file', 'runtime-json', 'schema', 'source-ref'].includes(ref.kind))
+    .map((ref) => ref.id)
+    .slice(0, 40);
   const sourceEvidenceRefs = input.result.refs.detailRefs
     .filter((ref) => ref.kind === 'source-ref')
     .map((ref) => ref.id)
@@ -3103,29 +3051,25 @@ function buildPrimeSourceGraphGuidance(input: {
     {
       ...(query ? { query } : {}),
       ...(activeFile ? { focus: activeFile } : {}),
-      tool: 'alembic_code_explore',
+      tool: 'alembic_project_matrix',
     },
     ...(activeFile
       ? [
           {
-            changedFiles: [activeFile],
-            tool: 'alembic_validation_plan',
+            focus: activeFile,
+            tool: 'alembic_graph',
           },
         ]
       : []),
   ].slice(0, 8);
   return {
     boundary:
-      'Source graph guidance is code-fact evidence only; it does not backfill Recipe provenance or replace Guard, repository tests, controller acceptance, or Test-window validation.',
+      'ProjectContext guidance is compact project orientation only; it does not backfill Recipe provenance or replace raw source reads, Guard, repository tests, controller acceptance, or Test-window validation.',
     recommendedQueries,
-    recommendedTools: [
-      'alembic_source_graph_status',
-      'alembic_code_explore',
-      'alembic_validation_plan',
-    ],
+    recommendedTools: ['alembic_project_matrix', 'alembic_graph'],
+    projectContextRefs,
     sourceEvidenceRefs,
-    sourceGraphRef,
-    status: sourceGraphRef ? ('ready-evidence' as const) : ('recommended' as const),
+    status: projectContextRefs.length > 0 ? ('ready-evidence' as const) : ('recommended' as const),
   };
 }
 

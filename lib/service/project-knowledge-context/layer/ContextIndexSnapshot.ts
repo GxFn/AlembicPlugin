@@ -46,10 +46,6 @@ export interface ContextIndexSnapshot {
     representativeRefs: string[];
   };
   snapshotId: string;
-  sourceGraph: {
-    sourceGraphRef?: string;
-    supported: boolean;
-  };
   sourceOfTruth: false;
   sources: KnowledgeContextSource[];
   vector: {
@@ -65,7 +61,6 @@ export interface ContextIndexSnapshotOptions {
   knowledgeItemCount?: number;
   projectNodes?: ContextIndexNode[];
   recipeRelationCount?: number;
-  sourceGraphSupported?: boolean;
   vectorCandidateCount?: number;
 }
 
@@ -98,7 +93,7 @@ export function createContextIndexSnapshot(
     operation: 'context-index-snapshot',
     requiredForCompletion: true,
     summary:
-      'ContextIndexSnapshot is a rebuildable derived view of project, knowledge, recipeRelation, sourceGraph, vector, document, and runtime domains.',
+      'ContextIndexSnapshot is a rebuildable derived view of project, knowledge, recipeRelation, vector, document, and runtime domains.',
     tool: input.tool,
   });
   const defaultNodes = createDefaultProjectNodes(input, projectIdentity, snapshotRef.id);
@@ -134,10 +129,6 @@ export function createContextIndexSnapshot(
     recipeRelationIndex: {
       relationCount: options.recipeRelationCount ?? 0,
       representativeRefs: input.sourceEvidenceRefs.slice(0, input.budget.detailLimit),
-    },
-    sourceGraph: {
-      supported: options.sourceGraphSupported ?? input.sourceGraphRef !== undefined,
-      ...(input.sourceGraphRef === undefined ? {} : { sourceGraphRef: input.sourceGraphRef }),
     },
     vector: {
       available: (options.vectorCandidateCount ?? 0) > 0,
@@ -196,12 +187,5 @@ function createSnapshotSources(input: NormalizedKnowledgeContextInput): Knowledg
     id: sourceRef,
     summary: 'Input source ref carried into the rebuildable context snapshot.',
   }));
-  if (input.sourceGraphRef !== undefined) {
-    sources.push({
-      domain: 'sourceGraph',
-      id: input.sourceGraphRef,
-      summary: 'Source graph ref carried into the rebuildable context snapshot.',
-    });
-  }
   return sources;
 }

@@ -146,17 +146,11 @@ const AgentPublicToolBaseInput = z.object({
     .max(50)
     .optional()
     .describe('Non-private source refs used as detailRefs and automation evidence'),
-  sourceGraphRef: z
-    .string()
-    .min(1)
-    .max(240)
-    .optional()
-    .describe('Operation-owned sourceGraphRef returned by Alembic source graph tools'),
   sourceEvidenceRefs: z
     .array(z.string().min(1).max(240))
     .max(50)
     .optional()
-    .describe('Compact source evidence refs from source graph tools; never raw source dumps'),
+    .describe('Compact non-private source/detail refs used as evidence; never raw source dumps'),
   projectRoot: z
     .string()
     .min(1)
@@ -225,7 +219,7 @@ export const WorkFinishInput = AgentPublicToolBaseInput.extend({
     .record(z.string(), z.unknown())
     .optional()
     .describe(
-      'Optional compact output from alembic_validation_plan. Buckets are advisory and do not replace Guard, repository tests, controller acceptance, or Test-window validation.'
+      'Optional compact validation advisory supplied by the host. Buckets are advisory and do not replace Guard, repository tests, controller acceptance, or Test-window validation.'
     ),
   reason: z.string().min(1).max(1200).optional().describe('Blocked or abandoned reason'),
 }).describe(
@@ -316,7 +310,7 @@ const KnowledgeContextFreshnessInput = z
     policy: z
       .enum(['preferFresh', 'allowStale', 'requireFresh', 'snapshotOnly'])
       .default('preferFresh')
-      .describe('Freshness policy for project, knowledge, source graph, and document domains.'),
+      .describe('Freshness policy for ProjectContext, knowledge, and document domains.'),
     maxAgeMs: z.number().int().min(0).optional(),
     snapshotRef: z.string().min(1).max(240).optional(),
     observedAt: z.string().datetime({ offset: true }).optional(),
@@ -342,7 +336,6 @@ export const ProjectMatrixInput = z
         'directory',
         'file',
         'symbol',
-        'source-graph-node',
         'knowledge-category',
         'knowledge-cluster',
         'document',
@@ -396,18 +389,12 @@ export const ProjectMatrixInput = z
       .array(z.string().min(1).max(240))
       .max(80)
       .optional()
-      .describe('Optional knowledge refs carried into matrix source accounting.'),
-    sourceGraphRef: z
-      .string()
-      .min(1)
-      .max(240)
-      .optional()
-      .describe('Optional source graph status/ref from source graph tools.'),
+      .describe('Optional knowledge/detail refs carried into matrix source accounting.'),
     sourceEvidenceRefs: z
       .array(z.string().min(1).max(240))
       .max(80)
       .optional()
-      .describe('Optional source or relation evidence refs carried into the matrix.'),
+      .describe('Optional source, detail, or relation evidence refs carried into the matrix.'),
     intentRef: z.string().min(1).max(240).optional(),
     primeRef: z.string().min(1).max(240).optional(),
     workRef: z.string().min(1).max(240).optional(),
@@ -429,7 +416,6 @@ export const ProjectMatrixInput = z
         knowledge: z.boolean().default(true),
         recipeRelations: z.boolean().default(true),
         vector: z.boolean().default(true),
-        sourceGraph: z.boolean().default(true),
         documents: z.boolean().default(true),
         runtime: z.boolean().default(false),
       })
@@ -444,7 +430,6 @@ export const ProjectMatrixInput = z
               'knowledge',
               'recipeRelation',
               'vector',
-              'sourceGraph',
               'document',
               'runtime',
             ])
@@ -463,7 +448,7 @@ export const ProjectMatrixInput = z
   })
   .strict()
   .describe(
-    'Compact, read-only project matrix. Returns project hierarchy, key nodes, structural hotspots, source graph status, knowledge category summary, representative refs, and nextActions. It never returns full source, full file lists, full Recipe text, full graph edge sets, or knowledge coverage judgments.'
+    'Compact, read-only ProjectContext matrix. Returns project hierarchy, key nodes, structural hotspots, knowledge category summary, representative detail refs, freshness/partial notes, and nextActions. It never returns full source, full file lists, full Recipe text, full graph edge sets, or knowledge coverage judgments.'
   );
 export type ProjectMatrixInput = z.infer<typeof ProjectMatrixInput>;
 
@@ -515,7 +500,6 @@ export const SearchInput = z
       .max(80)
       .optional()
       .describe('Optional non-private source refs for resident search handoff'),
-    sourceGraphRef: z.string().min(1).max(240).optional(),
     sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
     detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
@@ -625,7 +609,6 @@ export const GraphInput = z
         'directory',
         'file',
         'symbol',
-        'source-graph-node',
       ])
       .optional(),
     fromId: z.string().optional(),
@@ -639,7 +622,6 @@ export const GraphInput = z
         'directory',
         'file',
         'symbol',
-        'source-graph-node',
       ])
       .optional(),
     toType: z
@@ -651,7 +633,6 @@ export const GraphInput = z
         'directory',
         'file',
         'symbol',
-        'source-graph-node',
       ])
       .optional(),
     direction: z.enum(['out', 'in', 'both']).default('both'),
@@ -672,7 +653,6 @@ export const GraphInput = z
       .optional(),
     query: z.string().min(1).max(4000).optional(),
     activeFile: z.string().min(1).max(2000).optional(),
-    sourceGraphRef: z.string().min(1).max(240).optional(),
     sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
     detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
@@ -1010,27 +990,6 @@ export const KnowledgeLifecycleInput = z.object({
 });
 export type KnowledgeLifecycleInput = z.infer<typeof KnowledgeLifecycleInput>;
 
-// 18. alembic_panorama
-export const PanoramaInput = z.object({
-  operation: z
-    .enum([
-      'overview',
-      'module',
-      'gaps',
-      'health',
-      'governance_cycle',
-      'decay_report',
-      'staging_check',
-      'enhancement_suggestions',
-    ])
-    .default('overview')
-    .describe(
-      'overview=项目骨架+层级+模块角色 | module=单模块详情+邻居关系 | gaps=知识空白区 | health=全景健康度 | governance_cycle=新陈代谢完整周期 | decay_report=衰退报告 | staging_check=staging检查+自动发布 | enhancement_suggestions=增强建议'
-    ),
-  module: z.string().optional().describe('模块名称（operation=module 时必填）'),
-});
-export type PanoramaInput = z.infer<typeof PanoramaInput>;
-
 // 19. alembic_evolve
 const EvolveDecisionSchema = z.object({
   recipeId: z.string().describe('目标 Recipe ID'),
@@ -1123,7 +1082,6 @@ const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_rescan: RescanInput,
   alembic_dimension_complete: DimensionCompleteInput,
   alembic_knowledge_lifecycle: KnowledgeLifecycleInput,
-  alembic_panorama: PanoramaInput,
   alembic_evolve: EvolveInput,
   alembic_consolidate: ConsolidateInput,
 };

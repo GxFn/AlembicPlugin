@@ -33,7 +33,6 @@ export const KnowledgeContextProjectSummarySchema = z
     projectId: KnowledgeContextRefIdSchema.optional(),
     name: z.string().min(1).max(240).optional(),
     language: z.string().min(1).max(80).optional(),
-    sourceGraphRef: KnowledgeContextRefIdSchema.optional(),
     matrixRef: KnowledgeContextRefIdSchema.optional(),
     freshness: KnowledgeContextObjectSchema.optional(),
   })
@@ -61,7 +60,6 @@ export const KnowledgeContextDiagnosticSchema = z
         'knowledge',
         'recipeRelation',
         'vector',
-        'sourceGraph',
         'document',
         'runtime',
       ])

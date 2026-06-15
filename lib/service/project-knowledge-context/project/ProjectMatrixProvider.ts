@@ -51,7 +51,6 @@ export interface ProjectMatrixResolveInput {
   operation?: string;
   projectRoot?: string;
   sourceEvidenceRefs?: string[];
-  sourceGraphRef?: string;
   sourceRefs?: string[];
 }
 
@@ -168,13 +167,11 @@ export class FileSystemProjectMatrixProvider implements ProjectMatrixProvider {
     const operation = input.operation ?? 'overview';
     const tree = await readProjectContextProjectTree(input);
     const catalog = buildKnowledgeCatalog(input.knowledgeEntries ?? [], input.sourceRefs ?? []);
-    const sourceGraphStatus = buildSourceGraphStatus(input.sourceGraphRef);
     const selected = selectOperationView(operation, {
       catalog,
       nodeId: input.nodeId,
       nodeType: input.nodeType,
       sourceEvidenceRefs: input.sourceEvidenceRefs ?? [],
-      sourceGraphStatus,
       tree,
     });
     const domainFreshness = buildDomainFreshness({
@@ -183,14 +180,12 @@ export class FileSystemProjectMatrixProvider implements ProjectMatrixProvider {
       projectTree: tree,
       requestedNodeFound: selected.requestedNodeFound,
       sourceEvidenceRefs: input.sourceEvidenceRefs ?? [],
-      sourceGraphRef: input.sourceGraphRef,
     });
     const projectName = tree.projectName ?? projectNameFromRoot(input.projectRoot);
     const summary = summarizeOperation(operation, {
       categoryCount: catalog.categories.length,
       nodeCount: selected.matrixNodes.length,
       projectName,
-      sourceGraphStatus,
       statusHint: selected.statusHint,
     });
 
@@ -209,7 +204,6 @@ export class FileSystemProjectMatrixProvider implements ProjectMatrixProvider {
         projectContext: tree.projectContext,
         projectName,
         projectRoot: input.projectRoot,
-        sourceGraphStatus,
         structuralHotspots: tree.structuralHotspots,
       },
       items: selected.items,
@@ -230,11 +224,10 @@ export class FileSystemProjectMatrixProvider implements ProjectMatrixProvider {
         projectName,
         requestedNode: selected.requestedNode,
         projectContext: tree.projectContext,
-        sourceGraphStatus,
         sources: selected.sourceSummaries,
         structuralHotspots: tree.structuralHotspots,
       },
-      sources: [...tree.sources, ...catalog.sources, sourceGraphStatus.source],
+      sources: [...tree.sources, ...catalog.sources],
       summary,
     };
   }
@@ -835,7 +828,6 @@ interface OperationSelectionInput {
   nodeId?: string;
   nodeType?: string;
   sourceEvidenceRefs: string[];
-  sourceGraphStatus: SourceGraphStatus;
   tree: RawProjectTree;
 }
 
@@ -848,12 +840,6 @@ interface OperationSelection {
   requestedNodeFound: boolean;
   sourceSummaries: Record<string, unknown>[];
   statusHint?: string;
-}
-
-interface SourceGraphStatus {
-  ref?: string;
-  source: KnowledgeContextSource;
-  state: 'ready' | 'partial';
 }
 
 function readProjectTree(projectRoot?: string, activeFile?: string): RawProjectTree {
@@ -1208,13 +1194,13 @@ function selectOperationView(
           : 'Knowledge catalog metadata was not available; output remains partial.',
     },
     {
-      domain: 'sourceGraph',
-      ref: input.sourceGraphStatus.ref,
-      state: input.sourceGraphStatus.state,
+      domain: 'projectContext',
+      partial: input.tree.projectContext?.partial ?? false,
+      refCount: input.tree.projectContext?.refCount ?? 0,
       summary:
-        input.sourceGraphStatus.state === 'ready'
-          ? 'Caller supplied a source graph ref/status.'
-          : 'No source graph ref was supplied; source graph status is partial.',
+        input.tree.projectContext && input.tree.projectContext.refCount > 0
+          ? 'ProjectContext producer refs are available for bounded project orientation.'
+          : 'ProjectContext refs are partial; matrix falls back to bounded project structure.',
     },
   ];
   const layers = buildLayers(input.tree.nodes, input.catalog);
@@ -1319,7 +1305,6 @@ function buildDomainFreshness(input: {
   projectTree: RawProjectTree;
   requestedNodeFound: boolean;
   sourceEvidenceRefs: string[];
-  sourceGraphRef?: string;
 }): Partial<Record<KnowledgeContextSourceDomain, Partial<KnowledgeContextDomainFreshness>>> {
   return {
     document: input.projectTree.sources.some((source) => source.domain === 'document')
@@ -1360,37 +1345,6 @@ function buildDomainFreshness(input: {
               'No recipe relation/source evidence refs were supplied; relation summary is partial.',
             state: 'partial',
           },
-    sourceGraph:
-      input.sourceGraphRef !== undefined
-        ? { sourceRef: input.sourceGraphRef, state: 'ready' }
-        : {
-            degradedReason:
-              'No sourceGraphRef was supplied; source graph status is reported as partial.',
-            state: 'partial',
-          },
-  };
-}
-
-function buildSourceGraphStatus(sourceGraphRef?: string): SourceGraphStatus {
-  if (sourceGraphRef) {
-    return {
-      ref: sourceGraphRef,
-      source: {
-        domain: 'sourceGraph',
-        id: sourceGraphRef,
-        summary: 'Source graph ref supplied by the caller and carried into project matrix output.',
-      },
-      state: 'ready',
-    };
-  }
-  return {
-    source: {
-      domain: 'sourceGraph',
-      id: 'source-graph:unavailable',
-      summary:
-        'No source graph ref was supplied; project matrix used bounded filesystem structure.',
-    },
-    state: 'partial',
   };
 }
 
@@ -1446,7 +1400,7 @@ function buildNextActions(selection: OperationSelection): KnowledgeContextNextAc
     {
       operation: 'neighborhood',
       reason:
-        'Use project graph for focused internal relationship detail when source graph data exists.',
+        'Use project graph for focused ProjectContext-backed relationship detail.',
       required: false,
       tool: 'alembic_graph',
     },
@@ -1490,22 +1444,20 @@ function summarizeOperation(
     categoryCount: number;
     nodeCount: number;
     projectName?: string;
-    sourceGraphStatus: SourceGraphStatus;
     statusHint?: string;
   }
 ): string {
   if (input.statusHint === 'requested-node-not-found') {
     return `Project matrix node was not found in the bounded ${input.projectName ?? 'project'} matrix sample.`;
   }
-  const sourceGraphText =
-    input.sourceGraphStatus.state === 'ready' ? 'source graph ref present' : 'source graph partial';
+  const projectContextText = 'ProjectContext orientation with bounded refs';
   if (operation === 'catalog') {
-    return `Project knowledge catalog summary for ${input.projectName ?? 'project'}: ${input.categoryCount} categories, ${sourceGraphText}.`;
+    return `Project knowledge catalog summary for ${input.projectName ?? 'project'}: ${input.categoryCount} categories, ${projectContextText}.`;
   }
   if (operation === 'node') {
-    return `Project matrix node summary for ${input.projectName ?? 'project'}: ${input.nodeCount} bounded nodes, ${sourceGraphText}.`;
+    return `Project matrix node summary for ${input.projectName ?? 'project'}: ${input.nodeCount} bounded nodes, ${projectContextText}.`;
   }
-  return `Project matrix ${operation} for ${input.projectName ?? 'project'}: ${input.nodeCount} bounded nodes, ${input.categoryCount} knowledge categories, ${sourceGraphText}.`;
+  return `Project matrix ${operation} for ${input.projectName ?? 'project'}: ${input.nodeCount} bounded nodes, ${input.categoryCount} knowledge categories, ${projectContextText}.`;
 }
 
 function readSortedEntries(dir: string) {

@@ -11,7 +11,6 @@ import type { JobStore } from '@alembic/core/daemon';
 import type { DatabaseConnection } from '@alembic/core/database';
 import type { DimensionCopy } from '@alembic/core/dimensions';
 import type { EventBus, SignalBus } from '@alembic/core/events';
-import type ProjectGraph from '@alembic/core/core/ast/ProjectGraph';
 import type {
   ComplianceReporter,
   ExclusionManager,
@@ -34,16 +33,8 @@ import type {
 } from '@alembic/core/knowledge';
 import type Logger from '@alembic/core/logging';
 import type { MemoryRepositoryImpl } from '@alembic/core/memory';
-// ── Core AST / Discovery / Enhancement ──
 // ── Shared Types ──
-import type { LanguageService } from '@alembic/core/project-intelligence';
-import type {
-  CouplingAnalyzer,
-  LayerInferrer,
-  PanoramaAggregator,
-  PanoramaService,
-  RoleRefiner,
-} from '@alembic/core/service/panorama';
+import type { LanguageService } from '@alembic/core/shared';
 // ── Repository Types ──
 import type {
   BootstrapRepository,
@@ -141,11 +132,10 @@ export interface ServiceMap {
   vectorStore: VectorStore;
   indexingPipeline: IndexingPipeline;
   hybridRetriever: HybridRetriever;
-  discovererRegistry: unknown; // dynamic registry, type varies
   enhancementRegistry: unknown; // dynamic registry, type varies
   languageService: typeof LanguageService;
   dimensionCopy: typeof DimensionCopy;
-  projectGraph: ProjectGraph | null;
+  projectGraph: unknown | null;
 
   // ═══ VectorModule ═══
   vectorService: VectorService;
@@ -166,13 +156,6 @@ export interface ServiceMap {
   // ═══ SignalModule ═══
   signalBus: SignalBus;
   hitRecorder: HitRecorder;
-
-  // ═══ PanoramaModule ═══
-  roleRefiner: RoleRefiner;
-  couplingAnalyzer: CouplingAnalyzer;
-  layerInferrer: LayerInferrer;
-  panoramaAggregator: PanoramaAggregator;
-  panoramaService: PanoramaService;
 
   // ═══ Cross-Process Cache ═══
   cacheCoordinator: CacheCoordinator;

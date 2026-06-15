@@ -72,76 +72,11 @@ function codexInputSchema(properties: Record<string, unknown> = {}): Record<stri
   };
 }
 
-const SOURCE_GRAPH_COMMON_INPUT_PROPERTIES = {
-  repoId: {
-    type: 'string',
-    description: 'Optional Core source graph repository id. Defaults to the current project.',
-  },
-  projectScope: {
-    type: 'string',
-    description: 'Optional repo-relative project scope/folder to inspect before trusting facts.',
-  },
-  catchUp: {
-    type: 'boolean',
-    description:
-      'Whether the tool may run a bounded Core incremental catch-up when stale files are detected. Defaults to true.',
-  },
-  maxCatchUpFiles: {
-    type: 'number',
-    description:
-      'Maximum number of changed/deleted files the tool may catch up in one bounded pass.',
-  },
-  generationId: {
-    type: 'string',
-    description:
-      'Optional Core source graph generation id. By default the latest fresh generation for the selected project is used.',
-  },
-  limit: { type: 'number', description: 'Maximum symbols, sections, or relations to return.' },
-  kind: { type: 'string', description: 'Optional source symbol kind filter.' },
-  filePath: { type: 'string', description: 'Optional repo-relative file path filter.' },
-  includeEdges: { type: 'boolean', description: 'Whether relation edges should be returned.' },
-  includeText: {
-    type: 'boolean',
-    description: 'Whether line-numbered source text may be returned when freshness permits it.',
-  },
-  includeTests: { type: 'boolean', description: 'Whether test files should be included.' },
-  includeGenerated: {
-    type: 'boolean',
-    description: 'Whether generated files should be included.',
-  },
-  includeConfig: { type: 'boolean', description: 'Whether config files should be included.' },
-  contextLines: { type: 'number', description: 'Line context around matched symbols.' },
-  maxSectionLines: { type: 'number', description: 'Maximum lines in one source section.' },
-  sourceSectionLineBudget: {
-    type: 'number',
-    description: 'Total line budget across source sections.',
-  },
-  edgeLimit: { type: 'number', description: 'Maximum relation edges to inspect or return.' },
-};
-
-function sourceGraphInputSchema(properties: Record<string, unknown> = {}): Record<string, unknown> {
-  return codexInputSchema({
-    ...SOURCE_GRAPH_COMMON_INPUT_PROPERTIES,
-    ...properties,
-  });
-}
-
-export const CODEX_SOURCE_GRAPH_TOOL_NAMES = new Set([
-  'alembic_source_graph_status',
-  'alembic_symbol_search',
-  'alembic_code_explore',
-  'alembic_source_node',
-  'alembic_callers',
-  'alembic_callees',
-  'alembic_code_impact',
-  'alembic_affected_tests',
-  'alembic_validation_plan',
-]);
+export const CODEX_SOURCE_GRAPH_TOOL_NAMES = new Set<string>();
 
 export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
   'alembic_mcp_status',
   'alembic_codex_diagnostics',
-  ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
 ]);
 
 export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_mcp_init']);
@@ -234,110 +169,6 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     description:
       'Run Alembic Codex runtime diagnostics without starting the daemon. Checks Node, npm, marketplace shell runtime cache wiring, daemon version, portable runtime artifact guidance, admin mode gate, and first-run next actions.',
     inputSchema: codexInputSchema(),
-  },
-  {
-    name: 'alembic_source_graph_status',
-    tier: 'agent',
-    description:
-      'First source graph check before trusting current code facts. Reports Core-owned source graph freshness, scope, degraded states, recovery actions, and compact tool-choice guidance. It stays callable during cold start, unavailable graph runtime, catch-up failure, stale output, or wrong project scope, and it never claims ready source facts unless Core freshness permits it.',
-    inputSchema: sourceGraphInputSchema(),
-  },
-  {
-    name: 'alembic_symbol_search',
-    tier: 'agent',
-    description:
-      'Use before broad raw Read/Grep when looking for a symbol, file, route, or text anchor in current code. Searches Core source graph symbols and source sections, returns operation-specific clean output, and withholds source text unless freshness is fresh. Use Recipe/knowledge tools separately for standards or decisions.',
-    inputSchema: sourceGraphInputSchema({
-      query: { type: 'string', description: 'Symbol, file, route, or text query.' },
-    }),
-  },
-  {
-    name: 'alembic_code_explore',
-    tier: 'agent',
-    description:
-      'Primary first tool for current-code understanding questions. Explore Core source graph context around a behavior, symbol, file, or focus area before wide raw file exploration; returns ranked symbols, source sections, and relations when freshness permits. Validate conclusions with raw reads/tests when status is stale, partial, or low-confidence.',
-    inputSchema: sourceGraphInputSchema({
-      query: { type: 'string', description: 'Optional search phrase.' },
-      focus: { type: 'string', description: 'Optional source area or behavior to explore.' },
-    }),
-  },
-  {
-    name: 'alembic_source_node',
-    tier: 'agent',
-    description:
-      'Use after search/explore identifies a symbol id or repo-relative file. Reads one Core source graph node with line-numbered source sections and direct relations only when freshness permits; fall back to raw file reads when source text is withheld or scope is ambiguous.',
-    inputSchema: sourceGraphInputSchema({
-      nodeId: { type: 'string', description: 'Source graph symbol id or repo-relative file path.' },
-    }),
-  },
-  {
-    name: 'alembic_callers',
-    tier: 'agent',
-    description:
-      'Use for upstream impact and call-chain questions after a symbol id is known. Returns Core source graph callers with relation edges and source sections only when freshness permits; validate dynamic dispatch or unsupported-language gaps with raw code reads.',
-    inputSchema: sourceGraphInputSchema({
-      symbolId: { type: 'string', description: 'Source graph symbol id to inspect.' },
-    }),
-  },
-  {
-    name: 'alembic_callees',
-    tier: 'agent',
-    description:
-      'Use for downstream dependency and implementation-flow questions after a symbol id is known. Returns Core source graph callees with relation edges and source sections only when freshness permits; validate dynamic dispatch or unsupported-language gaps with raw code reads.',
-    inputSchema: sourceGraphInputSchema({
-      symbolId: { type: 'string', description: 'Source graph symbol id to inspect.' },
-    }),
-  },
-  {
-    name: 'alembic_code_impact',
-    tier: 'agent',
-    description:
-      'Use during change planning or review to estimate source impact for changed files or a symbol. Uses Core impact traversal and keeps unknown coverage explicit; pair with Guard and repository tests instead of treating impact as acceptance.',
-    inputSchema: sourceGraphInputSchema({
-      changedFiles: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Repo-relative changed files to seed the impact query.',
-      },
-      symbolId: { type: 'string', description: 'Optional source graph symbol id seed.' },
-    }),
-  },
-  {
-    name: 'alembic_affected_tests',
-    tier: 'agent',
-    description:
-      'Use after edits or during validation planning to map changed files to likely tests. Returns Core source graph affected-test candidates; unknown mappings stay explicit through diagnostics and do not replace repository validation or controller/Test acceptance.',
-    inputSchema: sourceGraphInputSchema({
-      changedFiles: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Repo-relative changed files to map to affected tests.',
-      },
-    }),
-  },
-  {
-    name: 'alembic_validation_plan',
-    tier: 'agent',
-    description:
-      'Use after source-scoped edits or when sourceGraphRef evidence exists to ask Core for an advisory validation plan. Returns mustRun, recommended, manualReview, and unknown buckets plus explicit sourceGraphRef/sourceEvidenceRefs; it does not replace Guard, repository tests, controller acceptance, or Test-window validation.',
-    inputSchema: sourceGraphInputSchema({
-      changedFiles: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Repo-relative changed files to seed validation planning.',
-      },
-      symbolIds: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Optional source graph symbol ids to seed validation planning.',
-      },
-      packageScripts: {
-        type: 'object',
-        description:
-          'Optional package-script command hints keyed by script name; Core treats them as advisory validation candidates.',
-        additionalProperties: { type: 'string' },
-      },
-    }),
   },
   {
     name: 'alembic_mcp_init',

@@ -1,21 +1,33 @@
 /**
- * ModuleService — 多语言统一模块扫描服务
+ * ModuleService — ProjectContext-backed module and scan service.
  *
- * 通过 DiscovererRegistry 自动检测项目类型，
- * 统一 SPM / Node / Go / JVM / Python / Generic 等语言的模块扫描和依赖分析。
- * 语言特有操作（如 SPM 依赖管理）由对应的 Discoverer / Service 直接暴露，不经此类代理。
+ * The Plugin keeps the historical ModuleService API because HTTP/MCP callers
+ * still use it, but PCI cleanup removes the old Core discoverer registry as a
+ * project-information source. Project, target, module, dependency, and file
+ * facts now come from `ProjectContext.execute(...)`.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import {
   basename as _pathBasename,
+  dirname as _pathDirname,
   extname as _pathExtname,
   isAbsolute as _pathIsAbsolute,
   join as _pathJoin,
+  resolve as _pathResolve,
   relative,
 } from 'node:path';
 import Logger from '@alembic/core/logging';
-import { getDiscovererRegistry } from '@alembic/core/project-intelligence';
+import {
+  type ModuleContext,
+  ProjectContext,
+  type ProjectContextEnvelope,
+  type ProjectContextRef,
+  type ProjectContextRequestKind,
+  type ProjectContextResult,
+  type ProjectMap,
+  type RepoContext,
+} from '@alembic/core/project-context';
 import { attachHostAgentManagedBoundary } from '../../http/utils/host-managed-boundary.js';
 import { inferLang } from '../../runtime/mcp/handlers/LanguageExtensions.js';
 
@@ -43,7 +55,6 @@ const SCAN_EXCLUDE_DIRS = new Set([
   '.tox',
   '.mypy_cache',
   '.pytest_cache',
-  // DEFAULT_KNOWLEDGE_BASE_DIR — 知识库目录排除（与 ProjectMarkers.ts 同步）
   'Alembic',
 ]);
 
@@ -73,20 +84,55 @@ const SOURCE_CODE_EXTS = new Set([
   '.cs',
 ]);
 
+interface TargetInfo {
+  discovererId?: string;
+  discovererName?: string;
+  framework?: string;
+  info?: { path?: string; sources?: string; dependencies?: unknown[]; source?: string };
+  isVirtual?: boolean;
+  language?: string;
+  metadata?: { dependencies?: unknown[]; fileCount?: number; source?: string };
+  name: string;
+  packageName?: string;
+  packagePath?: string;
+  path?: string;
+  refs?: ProjectContextRef[];
+  targetDir?: string;
+  type?: string;
+  [key: string]: unknown;
+}
+
+interface FileInfo {
+  language?: string;
+  name: string;
+  path: string;
+  relativePath: string;
+  size?: number;
+  [key: string]: unknown;
+}
+
+interface ProjectContextModuleSeed {
+  configLayer?: string;
+  kind?: string;
+  moduleName: string;
+  modulePath?: string;
+  ownedFiles?: string[];
+  ref?: ProjectContextRef;
+  role?: string;
+}
+
+type ProjectContextTargetSummary = RepoContext['targets'][number];
+type ProjectContextFileSummary = ModuleContext['ownedFiles'][number];
+
 export class ModuleService {
-  #projectRoot;
-
-  #registry;
-
-  /** >} */
-  #activeDiscoverers: Array<{
-    discoverer: import('@alembic/core/project-intelligence').ProjectDiscoverer;
-    confidence: number;
-  }> = [];
-
+  #projectRoot: string;
+  #repoContext: RepoContext | null = null;
+  #mapContext: ProjectMap | null = null;
+  #targets: TargetInfo[] = [];
+  #moduleFileCache = new Map<string, FileInfo[]>();
   #loaded = false;
 
-  #logger;
+  #logger: ReturnType<typeof Logger.getInstance>;
 
   #container;
   #recipeExtractor;
@@ -104,7 +150,6 @@ export class ModuleService {
     } = {}
   ) {
     this.#projectRoot = projectRoot;
-    this.#registry = getDiscovererRegistry();
     this.#logger = Logger.getInstance();
     this.#container = options.container || null;
     this.#recipeExtractor = options.recipeExtractor || null;
@@ -116,44 +161,45 @@ export class ModuleService {
   //  Lifecycle
   // ═══════════════════════════════════════════════════════
 
-  /** 自动检测项目类型并加载所有匹配的 Discoverer */
   async load() {
     if (this.#loaded) {
       return;
     }
 
-    const matches = await this.#registry.detectAll(this.#projectRoot);
-    this.#activeDiscoverers = [];
+    const repoEnvelope = await this.#executeProjectContext('repo', {
+      includeMapSummary: true,
+      maxFiles: 2000,
+    });
+    this.#repoContext = isRepoContext(repoEnvelope.data) ? repoEnvelope.data : null;
+    this.#targets = this.#repoContext ? this.#targetsFromRepo(this.#repoContext) : [];
 
-    for (const { discoverer, confidence } of matches) {
-      try {
-        await discoverer.load(this.#projectRoot);
-        this.#activeDiscoverers.push({ discoverer, confidence });
-        this.#logger.info(
-          `[ModuleService] Loaded discoverer: ${discoverer.displayName} (confidence=${confidence.toFixed(2)})`
-        );
-      } catch (err: unknown) {
-        this.#logger.warn(
-          `[ModuleService] Failed to load discoverer ${discoverer.id}: ${(err as Error).message}`
-        );
-      }
+    const moduleSeeds = this.#repoContext ? this.#moduleSeedsFromRepo(this.#repoContext) : [];
+    if (moduleSeeds.length > 0) {
+      const mapEnvelope = await this.#executeProjectContext('map', {
+        moduleSeeds,
+        repoName: this.#repoContext?.repo.name,
+      });
+      this.#mapContext = isProjectMap(mapEnvelope.data) ? mapEnvelope.data : null;
     }
 
-    if (this.#activeDiscoverers.length === 0) {
-      this.#logger.warn('[ModuleService] No discoverer matched, using empty state');
+    if (this.#targets.length === 0) {
+      this.#logger.warn('[ModuleService] ProjectContext returned no project targets');
+    } else {
+      this.#logger.info(`[ModuleService] ProjectContext loaded ${this.#targets.length} targets`);
     }
 
     this.#loaded = true;
   }
 
-  /** 清除缓存，重新检测 */
   async reload() {
     this.#loaded = false;
-    this.#activeDiscoverers = [];
+    this.#repoContext = null;
+    this.#mapContext = null;
+    this.#targets = [];
+    this.#moduleFileCache.clear();
     await this.load();
   }
 
-  /** 确保已加载 */
   async #ensureLoaded() {
     if (!this.#loaded) {
       await this.load();
@@ -161,212 +207,106 @@ export class ModuleService {
   }
 
   // ═══════════════════════════════════════════════════════
-  //  Query — 委托到 Discoverer
+  //  Query — ProjectContext-backed
   // ═══════════════════════════════════════════════════════
 
-  /** 列出所有模块/Target（合并所有 Discoverer 的结果） */
   async listTargets() {
     await this.#ensureLoaded();
-
-    const allTargets: Record<string, unknown>[] = [];
-    const seenNames = new Set();
-    let hasRealDiscovererTargets = false;
-
-    // 第一遍：加载非 generic 的 Discoverer（真实项目结构识别器）
-    for (const { discoverer } of this.#activeDiscoverers) {
-      if (discoverer.id === 'generic') {
-        continue;
-      }
-      try {
-        const targets = await discoverer.listTargets();
-        for (const t of targets) {
-          const key = `${discoverer.id}::${t.name}`;
-          if (seenNames.has(key)) {
-            continue;
-          }
-          seenNames.add(key);
-          allTargets.push(this.#normalizeTarget(t, discoverer));
-          hasRealDiscovererTargets = true;
-        }
-      } catch (err: unknown) {
-        this.#logger.warn(
-          `[ModuleService] listTargets failed for ${discoverer.id}: ${(err as Error).message}`
-        );
-      }
-    }
-
-    // 第二遍：仅当没有真实 Discoverer 产出 target 时，才加载 GenericDiscoverer 的结果（兜底）
-    if (!hasRealDiscovererTargets) {
-      for (const { discoverer } of this.#activeDiscoverers) {
-        if (discoverer.id !== 'generic') {
-          continue;
-        }
-        try {
-          const targets = await discoverer.listTargets();
-          for (const t of targets) {
-            const key = `${discoverer.id}::${t.name}`;
-            if (seenNames.has(key)) {
-              continue;
-            }
-            seenNames.add(key);
-            allTargets.push(this.#normalizeTarget(t, discoverer));
-          }
-        } catch (err: unknown) {
-          this.#logger.warn(
-            `[ModuleService] listTargets failed for ${discoverer.id}: ${(err as Error).message}`
-          );
-        }
-      }
-    }
-
-    return allTargets;
+    return this.#targets.map((target) => ({ ...target }));
   }
 
-  /**
-   * 统一 target 格式 — 兼容前端 ModuleTarget 接口
-   * 各 Discoverer 返回 { name, path, type, language, framework, metadata }
-   * 前端还需要 { packageName, packagePath, targetDir, info } 等扩展字段
-   */
-  #normalizeTarget(t: Record<string, unknown>, discoverer: { id: string; displayName: string }) {
-    return {
-      ...t,
-      // 兼容字段 — 如果 discoverer 已设置则保留，否则从通用字段推导
-      packageName: t.packageName || (t.metadata as Record<string, unknown>)?.modulePath || t.name,
-      packagePath: t.packagePath || t.path || '',
-      targetDir: t.targetDir || t.path || '',
-      info: t.info || t.metadata || {},
-      // discoverer 来源
-      discovererId: discoverer.id,
-      discovererName: discoverer.displayName,
-      // 确保语言字段始终存在
-      language: t.language || discoverer.id || 'unknown',
-    };
-  }
-
-  /** 获取 Target 的文件列表 */
   async getTargetFiles(target: string | Record<string, unknown>) {
     await this.#ensureLoaded();
 
-    const targetObj = typeof target === 'string' ? { name: target } : target;
-    const discovererId = targetObj.discovererId;
-
-    // 虚拟目录扫描 — 直接收集文件（无需 discoverer）
-    if (discovererId === 'folder-scan' && targetObj.path && existsSync(targetObj.path as string)) {
-      return this.#collectFolderFiles(targetObj.path as string);
+    const targetObj = typeof target === 'string' ? this.#targetByName(target) : target;
+    if (!targetObj) {
+      return [];
     }
 
-    // 如果指定了 discovererId，直接找对应的 discoverer
-    if (discovererId) {
-      const entry = this.#activeDiscoverers.find((e) => e.discoverer.id === discovererId);
-      if (entry) {
-        return entry.discoverer.getTargetFiles(
-          targetObj as import('@alembic/core/project-intelligence').DiscoveredTarget
-        );
-      }
+    if (
+      targetObj.discovererId === 'folder-scan' &&
+      typeof targetObj.path === 'string' &&
+      existsSync(targetObj.path)
+    ) {
+      return this.#collectFolderFiles(targetObj.path);
     }
 
-    // 否则遍历所有 discoverer 找到第一个有该 target 的
-    for (const { discoverer } of this.#activeDiscoverers) {
-      try {
-        const targets = await discoverer.listTargets();
-        if (targets.some((t) => t.name === targetObj.name)) {
-          return discoverer.getTargetFiles(
-            targetObj as import('@alembic/core/project-intelligence').DiscoveredTarget
-          );
-        }
-      } catch {}
+    const seed = this.#moduleSeedFromTarget(targetObj);
+    if (!seed) {
+      return [];
     }
 
-    // 兜底：如果 target 有 path 属性且目录存在，直接收集
-    if (targetObj.path && existsSync(targetObj.path as string)) {
-      this.#logger.info(
-        `[ModuleService] getTargetFiles fallback: collecting from ${targetObj.path}`
-      );
-      return this.#collectFolderFiles(targetObj.path as string);
+    const cacheKey = JSON.stringify(seed);
+    const cached = this.#moduleFileCache.get(cacheKey);
+    if (cached) {
+      return cached;
     }
 
-    return [];
+    const files = await this.#queryModuleFiles(seed);
+    this.#moduleFileCache.set(cacheKey, files);
+    return files;
   }
 
-  /**
-   * 获取依赖关系图
-   * @param [options]
-   * @returns [] }>}
-   */
   async getDependencyGraph(options: { level?: 'package' | 'target' } = {}) {
     await this.#ensureLoaded();
 
-    // 合并所有 Discoverer 的依赖图
-    const allNodes: Record<string, unknown>[] = [];
-    const allEdges: { from: string; to: string; type: string; source: string }[] = [];
+    const nodes = this.#mapContext?.modules
+      ? this.#mapContext.modules.map((item) => ({
+          id: item.id,
+          label: item.name,
+          type: item.kind || options.level || 'module',
+          source: 'project-context',
+          ...(item.ownedFileCount !== undefined ? { ownedFileCount: item.ownedFileCount } : {}),
+        }))
+      : this.#targets.map((item) => ({
+          id: `target:${item.name}`,
+          label: item.name,
+          type: item.type || options.level || 'target',
+          source: 'project-context',
+        }));
 
-    // 如果有专业 Discoverer（非 generic），则跳过 GenericDiscoverer 的依赖图
-    // 避免 generic fallback 生成的冗余根节点（如项目名本身）干扰图结构
-    const hasSpecializedDiscoverer = this.#activeDiscoverers.some(
-      ({ discoverer }) => discoverer.id !== 'generic'
-    );
-
-    for (const { discoverer } of this.#activeDiscoverers) {
-      if (hasSpecializedDiscoverer && discoverer.id === 'generic') {
-        continue;
+    const edges = (this.#mapContext?.majorFlows ?? []).flatMap((flow, flowIndex) => {
+      const refs = flow.refs ?? [];
+      if (refs.length < 2) {
+        return [];
       }
-      try {
-        const graph = await discoverer.getDependencyGraph();
-        for (const _n of graph.nodes || []) {
-          const n = _n as string | Record<string, unknown>;
-          const id = typeof n === 'string' ? n : n.id || _n;
-          allNodes.push({
-            id: `${discoverer.id}::${id}`,
-            label: typeof n === 'string' ? n : ((n.label || n.id) as string),
-            type: (typeof n === 'object' && n.type) || options.level || 'module',
-            discovererId: discoverer.id,
-            ...(typeof n === 'object' && n.fullPath ? { fullPath: n.fullPath } : {}),
-            ...(typeof n === 'object' && n.indirect != null ? { indirect: n.indirect } : {}),
-          });
-        }
-        for (const e of graph.edges || []) {
-          allEdges.push({
-            from: `${discoverer.id}::${e.from}`,
-            to: `${discoverer.id}::${e.to}`,
-            type: e.type || 'depends_on',
-            source: discoverer.id,
-          });
-        }
-      } catch (err: unknown) {
-        this.#logger.warn(
-          `[ModuleService] getDependencyGraph failed for ${discoverer.id}: ${(err as Error).message}`
-        );
-      }
-    }
+      return refs.slice(1).map((ref, index) => ({
+        from: refs[0]?.id ?? `flow:${flowIndex}:source`,
+        source: 'project-context',
+        to: ref.id,
+        type: flow.summary || `flow-${index + 1}`,
+      }));
+    });
 
     return {
-      nodes: allNodes,
-      edges: allEdges,
-      projectRoot: this.#projectRoot,
+      edges,
       generatedAt: new Date().toISOString(),
+      nodes,
+      projectRoot: this.#projectRoot,
     };
   }
 
-  /** 项目信息摘要 */
   getProjectInfo() {
-    const discoverers = this.#activeDiscoverers.map((e) => ({
-      id: e.discoverer.id,
-      name: e.discoverer.displayName,
-      confidence: e.confidence,
-    }));
-
-    const languages = [...new Set(discoverers.map((d) => d.id).filter((id) => id !== 'generic'))];
-    const primaryDiscoverer = discoverers[0] || null;
+    const repo = this.#repoContext;
+    const languages = (repo?.languages ?? []).map((language) => language.language);
+    const primaryLanguage =
+      [...(repo?.languages ?? [])].sort(
+        (left, right) => (right.fileCount ?? 0) - (left.fileCount ?? 0)
+      )[0]?.language ?? 'unknown';
 
     return {
-      projectRoot: this.#projectRoot,
-      projectName: _pathBasename(this.#projectRoot) || '',
-      primaryLanguage: primaryDiscoverer
-        ? this.#discovererToLanguage(primaryDiscoverer.id)
-        : 'unknown',
-      discoverers,
+      discoverers: [
+        {
+          confidence: repo ? 1 : 0,
+          id: 'project-context',
+          name: 'ProjectContext',
+        },
+      ],
+      hasSpm: (repo?.packageSystems ?? []).some((system) => system.kind === 'spm'),
       languages,
-      hasSpm: this.#activeDiscoverers.some((d) => d.discoverer.id === 'spm'),
+      primaryLanguage,
+      projectName: repo?.repo.name ?? _pathBasename(this.#projectRoot) ?? '',
+      projectRoot: this.#projectRoot,
     };
   }
 
@@ -374,10 +314,6 @@ export class ModuleService {
   //  Scanning
   // ═══════════════════════════════════════════════════════
 
-  /**
-   * 扫描 Target。插件模式只负责确定性文件收集；候选生成 / 语义增强由
-   * Codex host agent 或 Alembic resident service 接管。
-   */
   async scanTarget(
     target: string | Record<string, unknown>,
     options: { onProgress?: (event: Record<string, unknown>) => void } = {}
@@ -387,14 +323,13 @@ export class ModuleService {
     const targetName = typeof target === 'string' ? target : String(target?.name ?? '');
     const onProgress = options.onProgress;
 
-    // 1. 获取源文件列表
-    onProgress?.({ type: 'scan:started', targetName });
+    onProgress?.({ targetName, type: 'scan:started' });
     const fileList = await this.getTargetFiles(target);
     if (!fileList || fileList.length === 0) {
       return {
+        message: `No source files found for module: ${targetName}`,
         recipes: [],
         scannedFiles: [],
-        message: `No source files found for module: ${targetName}`,
       };
     }
 
@@ -402,20 +337,19 @@ export class ModuleService {
       const filePath = typeof f === 'string' ? f : (f.path as string);
       return { name: _pathBasename(filePath), path: f.relativePath || _pathBasename(filePath) };
     });
-    onProgress?.({ type: 'scan:files-loaded', files: scannedFilesMeta, count: fileList.length });
+    onProgress?.({ count: fileList.length, files: scannedFilesMeta, type: 'scan:files-loaded' });
 
-    // 2. 读取文件内容
-    onProgress?.({ type: 'scan:reading', count: fileList.length });
+    onProgress?.({ count: fileList.length, type: 'scan:reading' });
     const files = fileList
       .map((f: Record<string, unknown>) => {
         const filePath = typeof f === 'string' ? f : (f.path as string);
         try {
           return {
+            content: readFileSync(filePath, 'utf8'),
             name: _pathBasename(filePath),
             path: filePath,
             relativePath:
               ((f as Record<string, unknown>).relativePath as string) || _pathBasename(filePath),
-            content: readFileSync(filePath, 'utf8'),
           };
         } catch (err: unknown) {
           this.#logger.warn(
@@ -427,7 +361,7 @@ export class ModuleService {
       .filter((f): f is NonNullable<typeof f> => f !== null);
 
     if (files.length === 0) {
-      return { recipes: [], scannedFiles: [], message: 'All source files unreadable' };
+      return { message: 'All source files unreadable', recipes: [], scannedFiles: [] };
     }
 
     const scannedFiles = files.map((f) => ({ name: f.name, path: f.relativePath }));
@@ -435,23 +369,22 @@ export class ModuleService {
 
     const result: Record<string, unknown> = attachHostAgentManagedBoundary(
       {
-        recipes: [],
-        scannedFiles,
-        noAi: true,
         message:
           'AlembicPlugin 只返回模块文件扫描结果，不执行本地 AI 提取；请由 Codex host agent 或 Alembic resident service 使用扫描文件完成候选提交。',
+        noAi: true,
+        recipes: [],
+        scannedFiles,
       },
       'module-target-scan'
     );
     onProgress?.({
-      type: 'scan:completed',
-      recipeCount: 0,
       fileCount: scannedFiles.length,
+      recipeCount: 0,
+      type: 'scan:completed',
     });
     return result;
   }
 
-  /** 全项目扫描 — 遍历所有 Target + Guard 审计 */
   async scanProject(
     options: {
       maxFiles?: number;
@@ -463,10 +396,7 @@ export class ModuleService {
     await this.#ensureLoaded();
     this.#logger.info('[ModuleService] scanProject: starting full-project scan');
 
-    // 1. 列出所有 target
     const allTargets = await this.listTargets();
-
-    // 2. 收集所有源文件（去重）
     const seenPaths = new Set<string>();
     const allFiles: Record<string, unknown>[] = [];
     const MAX_FILES = options.maxFiles || 200;
@@ -484,10 +414,10 @@ export class ModuleService {
             try {
               const content = readFileSync(fp, 'utf8');
               allFiles.push({
+                content,
                 name: _pathBasename(fp),
                 path: fp,
                 relativePath: (f as Record<string, unknown>).relativePath || _pathBasename(fp),
-                content,
                 targetName: t.name,
               });
             } catch {
@@ -508,10 +438,9 @@ export class ModuleService {
       }
     }
 
-    // 如果没有 target 收集到文件，回退到目录扫描
     if (allFiles.length === 0) {
       this.#logger.info(
-        '[ModuleService] scanProject: No module targets, falling back to directory scan'
+        '[ModuleService] scanProject: No ProjectContext module files, falling back to directory scan'
       );
       this.#walkProjectForFiles(allFiles, seenPaths, MAX_FILES);
     }
@@ -522,11 +451,11 @@ export class ModuleService {
 
     if (allFiles.length === 0) {
       return {
-        targets: (allTargets || []).map((t) => t.name),
-        recipes: [],
         guardAudit: null,
-        scannedFiles: [],
         message: 'No readable source files',
+        recipes: [],
+        scannedFiles: [],
+        targets: (allTargets || []).map((t) => t.name),
       };
     }
 
@@ -536,13 +465,12 @@ export class ModuleService {
       targetName: f.targetName,
     }));
 
-    // 3. Guard 审计
     let guardAudit: Record<string, unknown> | null = null;
     if (this.#guardCheckEngine) {
       try {
         const guardFiles = allFiles.map((f) => ({
-          path: f.path as string,
           content: f.content as string,
+          path: f.path as string,
         }));
         const engine = this.#guardCheckEngine as {
           auditFiles(
@@ -555,16 +483,16 @@ export class ModuleService {
         if (this.#violationsStore && guardAudit && guardAudit.files) {
           const auditFileResults = guardAudit.files as Array<{
             filePath: string;
-            violations: unknown[];
             summary: { errors: number; warnings: number };
+            violations: unknown[];
           }>;
           const store = this.#violationsStore as { appendRun(data: Record<string, unknown>): void };
           for (const fileResult of auditFileResults) {
             if (fileResult.violations.length > 0) {
               store.appendRun({
                 filePath: fileResult.filePath,
-                violations: fileResult.violations,
                 summary: `Project scan: ${fileResult.summary.errors} errors, ${fileResult.summary.warnings} warnings`,
+                violations: fileResult.violations,
               });
             }
           }
@@ -580,30 +508,28 @@ export class ModuleService {
 
     return attachHostAgentManagedBoundary(
       {
-        targets: allTargets.map((t) => t.name),
-        recipes: [],
         guardAudit,
-        scannedFiles,
         message:
           'AlembicPlugin 只返回项目扫描与 Guard 结果，不执行本地 AI 提取；请由 Codex host agent 或 Alembic resident service 使用扫描结果完成候选提交。',
+        recipes: [],
+        scannedFiles,
+        targets: allTargets.map((t) => t.name),
       },
       'module-project-scan'
     );
   }
 
-  /** 刷新模块映射（替代 updateDependencyMap） */
-  async updateModuleMap(options: Record<string, unknown> = {}) {
-    // 重新加载 discoverer
+  async updateModuleMap(_options: Record<string, unknown> = {}) {
     await this.reload();
     const targets = await this.listTargets();
     const graph = await this.getDependencyGraph();
 
     return {
-      success: true,
-      message: `Module map updated (${targets.length} modules)`,
-      targets: targets.length,
       edges: (graph.edges || []).length,
+      message: `Module map updated (${targets.length} modules)`,
       projectRoot: this.#projectRoot,
+      success: true,
+      targets: targets.length,
     };
   }
 
@@ -611,12 +537,6 @@ export class ModuleService {
   //  Folder Scanning — 目录浏览与手动扫描
   // ═══════════════════════════════════════════════════════
 
-  /**
-   * 浏览项目目录结构 — 供前端目录选择器使用
-   * @param [basePath=''] 相对于项目根目录的起始路径
-   * @param [maxDepth=2] 最大递归深度
-   * @returns >>}
-   */
   async browseDirectories(basePath = '', maxDepth = 2) {
     const root = basePath ? _pathJoin(this.#projectRoot, basePath) : this.#projectRoot;
 
@@ -625,24 +545,17 @@ export class ModuleService {
     }
 
     const dirs: {
+      depth: number;
+      hasSourceFiles: boolean;
+      language: string;
       name: string;
       path: string;
-      depth: number;
-      language: string;
       sourceFileCount: number;
-      hasSourceFiles: boolean;
     }[] = [];
     this.#walkDirsForBrowse(root, dirs, 0, maxDepth);
     return dirs;
   }
 
-  /**
-   * 扫描任意文件夹 — 创建虚拟 Target 并走标准扫描管线
-   * 用于 Discoverer 未覆盖的目录（自定义目录名、新语言等）
-   * @param folderPath 相对/绝对路径
-   * @param [options] scanTarget options (onProgress 等)
-   * @returns >}
-   */
   async scanFolder(
     folderPath: string,
     options: { onProgress?: (event: Record<string, unknown>) => void } = {}
@@ -660,58 +573,244 @@ export class ModuleService {
     const lang = this.#detectFolderLanguage(absPath);
     const folderName = _pathBasename(absPath);
 
-    // 构建虚拟 Target — 兼容 ModuleTarget 接口
     const virtualTarget = {
-      name: folderName,
-      path: absPath,
-      packageName: folderName,
-      packagePath: absPath,
-      targetDir: absPath,
-      type: 'directory',
-      language: lang,
       discovererId: 'folder-scan',
       discovererName: '目录扫描',
-      info: { source: 'manual-folder-scan', originalPath: folderPath },
+      info: { originalPath: folderPath, source: 'manual-folder-scan' },
       isVirtual: true,
+      language: lang,
+      name: folderName,
+      packageName: folderName,
+      packagePath: absPath,
+      path: absPath,
+      targetDir: absPath,
+      type: 'directory',
     };
 
     this.#logger.info(`[ModuleService] scanFolder: ${folderPath} (lang=${lang})`);
     return this.scanTarget(virtualTarget, options);
   }
 
-  /** 静态语义标准化 */
   static normalizeSemanticFields(recipe: Record<string, unknown>) {
     return recipe;
   }
 
   // ═══════════════════════════════════════════════════════
-  //  Private Helpers
+  //  ProjectContext Helpers
   // ═══════════════════════════════════════════════════════
 
-  /** Discoverer ID → 语言映射 */
-  #discovererToLanguage(id: string) {
-    const map: Record<string, string> = {
-      spm: 'swift',
-      node: 'javascript',
-      go: 'go',
-      jvm: 'java',
-      python: 'python',
-      customConfig: 'swift',
-      generic: 'unknown',
-    };
-    return map[id] || 'unknown';
+  async #executeProjectContext(
+    kind: ProjectContextRequestKind,
+    payload?: Record<string, unknown>
+  ): Promise<ProjectContextEnvelope<ProjectContextResult>> {
+    return ProjectContext.execute({
+      kind,
+      payload,
+      project: {
+        displayName: _pathBasename(this.#projectRoot),
+        projectRoot: this.#projectRoot,
+        source: 'alembic-plugin-module-service',
+      },
+      scope: {
+        projectRoot: this.#projectRoot,
+      },
+    });
   }
 
-  /** 目录遍历 — 浏览子目录结构 */
+  #targetsFromRepo(repo: RepoContext): TargetInfo[] {
+    const targets = repo.targets.map((target) => this.#targetFromSummary(target, repo));
+    if (targets.length > 0) {
+      return targets;
+    }
+    const packageTargets = repo.localPackages.map((pkg) =>
+      this.#targetFromPath({
+        kind: 'local-package',
+        name: pkg.name,
+        path: pkg.path,
+        ref: pkg.ref,
+      })
+    );
+    const pathTargets = [...repo.sourceRoots, ...repo.topAreas].map((item) =>
+      this.#targetFromPath({
+        kind: 'project-area',
+        name: moduleNameFromPath(item.path, item.role ?? 'project-area'),
+        path: item.path,
+        ref: item.ref,
+      })
+    );
+    return [...packageTargets, ...pathTargets];
+  }
+
+  #targetFromSummary(target: ProjectContextTargetSummary, repo: RepoContext): TargetInfo {
+    const ref = target.refs[0];
+    const metadata = readMetadata(ref);
+    const targetPath = readString(ref?.scope.filePath) ?? '.';
+    const fileCount = readNumber(metadata.fileCount);
+    const language =
+      readString(metadata.language) ??
+      repo.languages[0]?.language ??
+      inferLang(targetPath) ??
+      'unknown';
+    return {
+      discovererId: 'project-context',
+      discovererName: 'ProjectContext',
+      framework: readString(metadata.framework),
+      info: { path: targetPath, source: 'project-context-repo-target' },
+      language,
+      metadata: { fileCount, source: 'project-context' },
+      name: target.name,
+      packageName: target.name,
+      packagePath: targetPath,
+      path: targetPath,
+      refs: target.refs,
+      targetDir: targetPath,
+      type: target.kind || readString(metadata.role) || 'target',
+    };
+  }
+
+  #targetFromPath(input: {
+    kind: string;
+    name: string;
+    path?: string;
+    ref?: ProjectContextRef;
+  }): TargetInfo {
+    const targetPath = input.path ?? input.ref?.scope.filePath ?? '.';
+    return {
+      discovererId: 'project-context',
+      discovererName: 'ProjectContext',
+      info: { path: targetPath, source: 'project-context-path' },
+      language: inferLang(targetPath) || 'unknown',
+      metadata: { source: 'project-context' },
+      name: input.name,
+      packageName: input.name,
+      packagePath: targetPath,
+      path: targetPath,
+      refs: input.ref ? [input.ref] : [],
+      targetDir: targetPath,
+      type: input.kind,
+    };
+  }
+
+  #moduleSeedsFromRepo(repo: RepoContext): ProjectContextModuleSeed[] {
+    const seeds: ProjectContextModuleSeed[] = [];
+    seeds.push(
+      ...repo.targets.flatMap((target) =>
+        target.refs.map((ref) => ({
+          kind: target.kind ?? 'target',
+          moduleName: target.name,
+          modulePath: ref.scope.filePath,
+          ref,
+          role: 'target',
+        }))
+      )
+    );
+    seeds.push(
+      ...repo.localPackages.map((pkg) => ({
+        kind: 'local-package',
+        moduleName: pkg.name,
+        modulePath: pkg.path ?? pkg.ref?.scope.filePath,
+        ref: pkg.ref,
+        role: 'local-package',
+      }))
+    );
+    seeds.push(
+      ...repo.sourceRoots.map((root) => ({
+        kind: 'source-root',
+        moduleName: moduleNameFromPath(root.path, root.role ?? 'source'),
+        modulePath: root.path,
+        ref: root.ref,
+        role: root.role ?? 'source-root',
+      }))
+    );
+    return dedupeSeeds(
+      seeds.filter((seed) => Boolean(seed.modulePath || seed.ownedFiles?.length))
+    ).slice(0, 24);
+  }
+
+  #targetByName(targetName: string): TargetInfo | null {
+    return this.#targets.find((target) => target.name === targetName) ?? null;
+  }
+
+  #moduleSeedFromTarget(target: Record<string, unknown>): ProjectContextModuleSeed | null {
+    const name = readString(target.name);
+    if (!name) {
+      return null;
+    }
+    const refs = readRefArray(target.refs);
+    const ref = refs[0];
+    const pathValue = readString(target.path) ?? ref?.scope.filePath;
+    const relativePath = normalizeProjectPath(this.#projectRoot, pathValue);
+    const absolutePath = relativePath ? _pathJoin(this.#projectRoot, relativePath) : undefined;
+    const ownedFiles =
+      absolutePath && isExistingSourceFile(absolutePath) && relativePath ? [relativePath] : [];
+    return {
+      kind: readString(target.type) ?? 'target',
+      moduleName: name,
+      ...(relativePath
+        ? {
+            modulePath: isExistingSourceFile(absolutePath)
+              ? _pathDirname(relativePath)
+              : relativePath,
+          }
+        : {}),
+      ...(ownedFiles.length > 0 ? { ownedFiles } : {}),
+      ref,
+      role: readString(target.type) ?? 'target',
+    };
+  }
+
+  async #queryModuleFiles(seed: ProjectContextModuleSeed): Promise<FileInfo[]> {
+    try {
+      const envelope = await this.#executeProjectContext('module', {
+        ...seed,
+        includeDependencies: true,
+        includePublicSurfaces: false,
+      });
+      if (!isModuleContext(envelope.data)) {
+        this.#logger.warn(
+          `[ModuleService] ProjectContext module unavailable for ${seed.moduleName}`
+        );
+        return [];
+      }
+      return envelope.data.ownedFiles.map((file) => this.#fileInfoFromSummary(file));
+    } catch (err: unknown) {
+      this.#logger.warn(
+        `[ModuleService] ProjectContext module query failed for ${seed.moduleName}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      return [];
+    }
+  }
+
+  #fileInfoFromSummary(file: ProjectContextFileSummary): FileInfo {
+    const relativePath = normalizeProjectPath(this.#projectRoot, file.filePath) ?? file.filePath;
+    const absolutePath = _pathIsAbsolute(file.filePath)
+      ? file.filePath
+      : _pathJoin(this.#projectRoot, relativePath);
+    return {
+      language: file.language ?? inferLang(file.filePath) ?? 'unknown',
+      name: _pathBasename(file.filePath),
+      path: absolutePath,
+      relativePath,
+      ...(file.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
+      ...(file.lineCount !== undefined ? { lineCount: file.lineCount } : {}),
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  Folder Helpers
+  // ═══════════════════════════════════════════════════════
+
   #walkDirsForBrowse(
     dir: string,
     dirs: {
+      depth: number;
+      hasSourceFiles: boolean;
+      language: string;
       name: string;
       path: string;
-      depth: number;
-      language: string;
       sourceFileCount: number;
-      hasSourceFiles: boolean;
     }[],
     depth: number,
     maxDepth: number
@@ -722,32 +821,26 @@ export class ModuleService {
     try {
       const entries = readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory()) {
-          continue;
-        }
-        if (entry.name.startsWith('.')) {
-          continue;
-        }
-        if (SCAN_EXCLUDE_DIRS.has(entry.name)) {
+        if (
+          !entry.isDirectory() ||
+          entry.name.startsWith('.') ||
+          SCAN_EXCLUDE_DIRS.has(entry.name)
+        ) {
           continue;
         }
 
         const fullPath = _pathJoin(dir, entry.name);
         const relativePath = relative(this.#projectRoot, fullPath);
-
-        // 递归统计源码文件数（覆盖 Java/Go 等深层包目录结构）
         const sourceFileCount = this.#countSourceFilesDeep(fullPath, 8);
-
-        // 快速检测主要语言
         const lang = sourceFileCount > 0 ? this.#detectFolderLanguage(fullPath) : 'unknown';
 
         dirs.push({
+          depth,
+          hasSourceFiles: sourceFileCount > 0,
+          language: lang,
           name: entry.name,
           path: relativePath,
-          depth,
-          language: lang,
           sourceFileCount,
-          hasSourceFiles: sourceFileCount > 0,
         });
 
         this.#walkDirsForBrowse(fullPath, dirs, depth + 1, maxDepth);
@@ -757,7 +850,6 @@ export class ModuleService {
     }
   }
 
-  /** 递归统计目录下源码文件数（限深度 + 上限 999 防止超大目录卡顿） */
   #countSourceFilesDeep(dir: string, maxDepth: number, depth = 0) {
     if (depth >= maxDepth) {
       return 0;
@@ -781,18 +873,16 @@ export class ModuleService {
     return count;
   }
 
-  /** 从目录收集源码文件列表 */
   #collectFolderFiles(dirPath: string, maxDepth = 15) {
-    const files: { name: string; path: string; relativePath: string; language: string }[] = [];
+    const files: FileInfo[] = [];
     this.#walkCollectSourceFiles(dirPath, dirPath, files, 0, maxDepth);
     return files;
   }
 
-  /** 递归收集源码文件 */
   #walkCollectSourceFiles(
     dir: string,
     rootDir: string,
-    files: { name: string; path: string; relativePath: string; language: string }[],
+    files: FileInfo[],
     depth: number,
     maxDepth: number
   ) {
@@ -802,10 +892,7 @@ export class ModuleService {
     try {
       const entries = readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.name.startsWith('.')) {
-          continue;
-        }
-        if (SCAN_EXCLUDE_DIRS.has(entry.name)) {
+        if (entry.name.startsWith('.') || SCAN_EXCLUDE_DIRS.has(entry.name)) {
           continue;
         }
 
@@ -816,10 +903,10 @@ export class ModuleService {
           const ext = _pathExtname(entry.name).toLowerCase();
           if (SOURCE_CODE_EXTS.has(ext)) {
             files.push({
+              language: inferLang(entry.name) || 'unknown',
               name: entry.name,
               path: fullPath,
               relativePath: relative(rootDir, fullPath),
-              language: inferLang(entry.name) || 'unknown',
             });
           }
         }
@@ -829,7 +916,6 @@ export class ModuleService {
     }
   }
 
-  /** 检测目录主要编程语言 */
   #detectFolderLanguage(dirPath: string) {
     const langCount: Record<string, number> = {};
     try {
@@ -854,15 +940,14 @@ export class ModuleService {
     let maxLang = 'unknown';
     let maxCount = 0;
     for (const [lang, count] of Object.entries(langCount)) {
-      if ((count as number) > maxCount) {
-        maxCount = count as number;
+      if (count > maxCount) {
+        maxCount = count;
         maxLang = lang;
       }
     }
     return maxLang;
   }
 
-  /** 目录遍历兜底（收集源码文件） */
   #walkProjectForFiles(
     allFiles: Record<string, unknown>[],
     seenPaths: Set<string>,
@@ -920,10 +1005,10 @@ export class ModuleService {
               continue;
             }
             allFiles.push({
+              content,
               name: ent.name,
               path: fp,
               relativePath: relative(this.#projectRoot, fp),
-              content,
               targetName,
             });
           } catch {
@@ -944,4 +1029,91 @@ export class ModuleService {
       walkDir(this.#projectRoot, 'root');
     }
   }
+}
+
+function isRepoContext(value: ProjectContextResult): value is RepoContext {
+  return 'repo' in value && 'targets' in value && 'sourceRoots' in value;
+}
+
+function isProjectMap(value: ProjectContextResult): value is ProjectMap {
+  return 'modules' in value && 'dependencySummary' in value && 'majorFlows' in value;
+}
+
+function isModuleContext(value: ProjectContextResult): value is ModuleContext {
+  return 'module' in value && 'ownedFiles' in value && 'publicSurfaces' in value;
+}
+
+function readMetadata(ref: ProjectContextRef | undefined): Record<string, unknown> {
+  return ref?.metadata && typeof ref.metadata === 'object' ? ref.metadata : {};
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readRefArray(value: unknown): ProjectContextRef[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isProjectContextRef);
+}
+
+function isProjectContextRef(value: unknown): value is ProjectContextRef {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    typeof (value as ProjectContextRef).id === 'string' &&
+    typeof (value as ProjectContextRef).kind === 'string' &&
+    Boolean((value as ProjectContextRef).scope)
+  );
+}
+
+function normalizeProjectPath(projectRoot: string, value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const absolute = _pathIsAbsolute(value) ? _pathResolve(value) : _pathResolve(projectRoot, value);
+  const relativePath = relative(projectRoot, absolute);
+  if (relativePath.startsWith('..') || _pathIsAbsolute(relativePath)) {
+    return undefined;
+  }
+  return relativePath || '.';
+}
+
+function isExistingSourceFile(pathValue: string | undefined): boolean {
+  if (!pathValue) {
+    return false;
+  }
+  try {
+    const stat = statSync(pathValue);
+    return stat.isFile() && SOURCE_CODE_EXTS.has(_pathExtname(pathValue).toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function moduleNameFromPath(pathValue: string, fallback: string): string {
+  return (
+    pathValue
+      .split(/[\\/]/)
+      .filter(Boolean)
+      .pop()
+      ?.replace(/\.[^.]+$/, '') || fallback
+  );
+}
+
+function dedupeSeeds(seeds: readonly ProjectContextModuleSeed[]): ProjectContextModuleSeed[] {
+  const byKey = new Map<string, ProjectContextModuleSeed>();
+  for (const seed of seeds) {
+    const key = `${seed.modulePath ?? seed.ownedFiles?.join(',') ?? ''}:${seed.moduleName}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, seed);
+    }
+  }
+  return [...byKey.values()];
 }

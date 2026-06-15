@@ -86,18 +86,17 @@ function selectRoute(input: NormalizedKnowledgeContextInput): KnowledgeContextRe
 function domainsForRoute(route: KnowledgeContextRetrievalRoute): KnowledgeContextSourceDomain[] {
   switch (route) {
     case 'matrix-first':
-      return ['project', 'knowledge', 'recipeRelation', 'sourceGraph', 'document'];
+      return ['project', 'knowledge', 'recipeRelation', 'document'];
     case 'search-first':
       return ['knowledge', 'recipeRelation', 'vector', 'document'];
     case 'graph-first':
-      return ['project', 'sourceGraph'];
+      return ['project'];
     case 'prime-orchestrated':
       return [
         'project',
         'knowledge',
         'recipeRelation',
         'vector',
-        'sourceGraph',
         'document',
         'runtime',
       ];

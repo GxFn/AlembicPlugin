@@ -31,7 +31,6 @@ export interface NormalizedKnowledgeContextInput {
   recognizedIntent?: Record<string, unknown>;
   scope?: Record<string, unknown>;
   sourceEvidenceRefs: string[];
-  sourceGraphRef?: string;
   sourceRefs: string[];
   tool: KnowledgeContextToolName;
   workRef?: string;
@@ -88,9 +87,6 @@ export class KnowledgeContextInputNormalizer {
       ...(query === undefined ? {} : { query }),
       ...(recognizedIntent === undefined ? {} : { recognizedIntent }),
       ...(readRecord(record.scope) === undefined ? {} : { scope: readRecord(record.scope) }),
-      ...(readString(record.sourceGraphRef) === undefined
-        ? {}
-        : { sourceGraphRef: readString(record.sourceGraphRef) }),
       ...(readString(record.workRef) === undefined ? {} : { workRef: readString(record.workRef) }),
     };
   }

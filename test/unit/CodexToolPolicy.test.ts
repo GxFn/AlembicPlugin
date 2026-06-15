@@ -18,17 +18,7 @@ const hostWorkflowToolNames = [
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
 ];
-const sourceGraphToolNames = [
-  'alembic_source_graph_status',
-  'alembic_symbol_search',
-  'alembic_code_explore',
-  'alembic_source_node',
-  'alembic_callers',
-  'alembic_callees',
-  'alembic_code_impact',
-  'alembic_affected_tests',
-  'alembic_validation_plan',
-];
+const sourceGraphToolNames: string[] = [];
 const publicKnowledgeNavigationToolNames = [...CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES];
 const legacyPublicKnowledgeToolNames = [
   'alembic_knowledge',
@@ -134,23 +124,7 @@ describe('Codex tool policy', () => {
       handlerOwner: 'CodexMcpServer.resident-dashboard',
       residentRoutePolicy: 'dashboard-handoff',
     });
-    expect(getPluginToolSurfaceEntry('alembic_source_graph_status')).toMatchObject({
-      handlerOwner: 'CodexMcpServer.local',
-      knowledgeGate: 'cold-start',
-      owner: 'codex-local',
-      residentRoutePolicy: 'status-probe',
-      schema: 'SourceGraphStatusInput',
-    });
-    for (const toolName of sourceGraphToolNames.filter(
-      (name) => name !== 'alembic_source_graph_status'
-    )) {
-      expect(getPluginToolSurfaceEntry(toolName)).toMatchObject({
-        handlerOwner: 'CodexMcpServer.local',
-        knowledgeGate: 'cold-start',
-        owner: 'codex-local',
-        residentRoutePolicy: 'none',
-      });
-    }
+    expect(getPluginToolSurfaceEntry('alembic_source_graph_status')).toBeNull();
   });
 
   test('keeps uninitialized workspaces on diagnostics/status/init and init-on-demand tools', () => {
