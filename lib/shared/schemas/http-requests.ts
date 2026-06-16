@@ -94,7 +94,7 @@ export const KnowledgeListQuery = PaginationQuery.extend({
 export const SearchQuery = PaginationQuery.extend({
   q: z.string().min(1, 'search query is required'),
   type: z.enum(['all', 'recipe', 'solution', 'rule', 'candidate']).default('all'),
-  mode: z.enum(['keyword', 'bm25', 'semantic']).default('keyword'),
+  mode: z.enum(['auto', 'keyword', 'semantic']).default('keyword'),
   groupByKind: z
     .enum(['true', 'false'])
     .optional()

@@ -214,7 +214,7 @@ export class PrimeSearchPipeline {
   /**
    * Multi-query parallel search with optional Reciprocal Rank Fusion (RRF).
    *
-   * Single-query: preserves original search engine scores (BM25/CoarseRanker).
+   * Single-query: preserves original search engine scores (lexical/CoarseRanker).
    * Multi-query: uses RRF to fuse results, but weights by original score to
    * retain magnitude information.
    */
@@ -225,8 +225,8 @@ export class PrimeSearchPipeline {
     residentIntentHandoff: ResidentIntentHandoff | null,
     projectRoot?: string
   ): Promise<{ items: SlimSearchResult[]; residentSearch?: ResidentSearchAttemptMeta }> {
-    // Auto-mode searches (BM25 without CoarseRanker ranking)
-    // Using rank: false preserves raw BM25/FWS score magnitude,
+    // Auto-mode searches (lexical without CoarseRanker ranking)
+    // Using rank: false preserves raw lexical/FWS score magnitude,
     // which the quality filter needs for effective discrimination.
     // CoarseRanker's max-normalization + freshness/popularity signals
     // would cluster scores around 0.35–0.41, defeating the filter.
@@ -277,7 +277,7 @@ export class PrimeSearchPipeline {
 
     // Single-query shortcut: preserve original scores from search engine.
     // RRF is pointless with one response — it just converts rank to score,
-    // discarding the magnitude information from BM25/CoarseRanker.
+    // discarding the magnitude information from lexical/CoarseRanker.
     if (allResponses.length === 1) {
       const items = (allResponses[0]?.items || []) as SearchResultItem[];
       return {

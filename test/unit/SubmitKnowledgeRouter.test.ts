@@ -239,6 +239,41 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     expect(gatewayState.createCalls).toHaveLength(0);
   });
 
+  it('requires a production session when controller submissions request one', async () => {
+    const projectRoot = makeProjectRoot();
+    gatewayState.projectRoot = projectRoot;
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, 'src', 'source.ts'),
+      ['export function sourceBoundRoute() {', '  return "production-session";', '}', ''].join('\n')
+    );
+
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      requireProductionSession: true,
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Production Session Required',
+          kind: 'fact',
+          sourceRefs: ['src/source.ts:1-3'],
+          coreCode: 'export function sourceBoundRoute() {\n  return "production-session";\n}',
+          content: {
+            markdown:
+              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production session requirement.',
+          },
+          reasoning: {
+            sources: ['src/source.ts:1-3'],
+            confidence: 0.9,
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('SESSION_NOT_FOUND');
+    expect(gatewayState.createCalls).toHaveLength(0);
+  });
+
   it('allows source-bound bootstrap Recipe submissions into the Core gateway', async () => {
     const projectRoot = makeProjectRoot();
     gatewayState.projectRoot = projectRoot;
@@ -251,6 +286,47 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     const result = await routeSubmitKnowledgeTool(makeContext({ projectRoot }), {
       dimensionId: 'architecture',
       sessionId: 'session-1',
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Source Bound Fact',
+          kind: 'fact',
+          sourceRefs: ['src/source.ts:1-3'],
+          coreCode: 'export function realSource() {\n  return "source-bound";\n}',
+          content: {
+            markdown:
+              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production bootstrap context.',
+          },
+          reasoning: {
+            sources: ['src/source.ts:1-3'],
+            confidence: 0.9,
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(gatewayState.createCalls).toHaveLength(1);
+    expect(gatewayState.createCalls[0]).toMatchObject({
+      options: {
+        skipConsolidation: true,
+      },
+    });
+  });
+
+  it('forwards p11 bootstrapSessionRef references to the production evidence gate', async () => {
+    const projectRoot = makeProjectRoot();
+    gatewayState.projectRoot = projectRoot;
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, 'src', 'source.ts'),
+      ['export function realSource() {', '  return "source-bound";', '}', ''].join('\n')
+    );
+
+    const result = await routeSubmitKnowledgeTool(makeContext({ projectRoot }), {
+      bootstrapSessionRef: 'bootstrap-session:session-1',
+      dimensionId: 'architecture',
+      requireProductionSession: true,
       skipConsolidation: true,
       items: [
         {

@@ -100,6 +100,9 @@ export function shouldRunRecipeEvidenceGate({
   if (typeof args.sessionId === 'string' || typeof args.bootstrapSessionRef === 'string') {
     return true;
   }
+  if (args.requireProductionSession === true) {
+    return true;
+  }
   if (typeof args.dimensionId === 'string') {
     return true;
   }

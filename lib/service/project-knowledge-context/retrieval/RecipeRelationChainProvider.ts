@@ -32,7 +32,7 @@ export class DefaultRecipeRelationChainProvider implements RecipeRelationChainPr
     ]);
     const chains: RecipeRelationChain[] = [];
     const queue: Array<{ hops: string[]; relationType: string; source?: string }> = edges
-      .filter((edge) => edge.from === refId || edge.from === stripKnowledgePrefix(refId))
+      .filter((edge) => sameKnowledgeRef(edge.from, refId))
       .slice(0, fanout)
       .map((edge) => ({
         hops: [refId, edge.to],
@@ -53,8 +53,8 @@ export class DefaultRecipeRelationChainProvider implements RecipeRelationChainPr
         continue;
       }
       const last = current.hops[current.hops.length - 1];
-      for (const edge of edges.filter((candidate) => candidate.from === last).slice(0, fanout)) {
-        if (current.hops.includes(edge.to)) {
+      for (const edge of edges.filter((candidate) => sameKnowledgeRef(candidate.from, last)).slice(0, fanout)) {
+        if (current.hops.some((hop) => sameKnowledgeRef(hop, edge.to))) {
           continue;
         }
         queue.push({
@@ -96,8 +96,12 @@ function collectEdgesFromItems(items: readonly Record<string, unknown>[]): Relat
 function collectExplicitEdges(edges: readonly Record<string, unknown>[]): RelationEdge[] {
   return edges
     .map((edge) => {
-      const from = readString(edge.from) ?? readString(edge.fromId);
-      const to = readString(edge.to) ?? readString(edge.toId) ?? readString(edge.targetId);
+      const from = readString(edge.from) ?? readString(edge.fromId) ?? readString(edge.itemId);
+      const to =
+        readString(edge.to) ??
+        readString(edge.toId) ??
+        readString(edge.targetId) ??
+        readString(edge.relatedId);
       const relationType =
         readString(edge.relationType) ?? readString(edge.relation) ?? readString(edge.type);
       if (!from || !to || !relationType) {
@@ -145,16 +149,15 @@ function collectRelationArrayEntry(
   entry: unknown,
   source: string
 ): RelationEdge[] {
-  const to =
-    typeof entry === 'string'
-      ? entry
-      : (readString(readRecord(entry)?.id) ??
-        readString(readRecord(entry)?.refId) ??
-        readString(readRecord(entry)?.targetId));
+  const record = readRecord(entry);
+  const to = typeof entry === 'string' ? entry : readRelationTarget(record);
   if (!to) {
     return [];
   }
-  return [{ from, relationType, source, to }];
+  const entryRelationType =
+    readString(record?.relationType) ?? readString(record?.relation) ?? readString(record?.type);
+  const entrySource = readString(record?.source);
+  return [{ from, relationType: entryRelationType ?? relationType, source: entrySource ?? source, to }];
 }
 
 function scoreImpactForRelation(relationType: string): 'positive' | 'neutral-or-caution' {
@@ -165,6 +168,22 @@ function scoreImpactForRelation(relationType: string): 'positive' | 'neutral-or-
 
 function stripKnowledgePrefix(refId: string): string {
   return refId.startsWith('knowledge:') ? refId.slice('knowledge:'.length) : refId;
+}
+
+function sameKnowledgeRef(left: string, right: string): boolean {
+  return left === right || stripKnowledgePrefix(left) === stripKnowledgePrefix(right);
+}
+
+function readRelationTarget(record: Record<string, unknown> | undefined): string | undefined {
+  return (
+    readString(record?.target) ??
+    readString(record?.targetId) ??
+    readString(record?.to) ??
+    readString(record?.toId) ??
+    readString(record?.relatedId) ??
+    readString(record?.refId) ??
+    readString(record?.id)
+  );
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

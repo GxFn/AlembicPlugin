@@ -29,15 +29,18 @@ import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 type FetchLike = typeof fetch;
 
 export interface ResidentSearchRequest {
+  category?: string;
   query: string;
   confidence?: number;
   degraded?: boolean;
   degradedReason?: string;
+  dimensionId?: string;
   hostDeclaredIntent?: Record<string, unknown>;
   hostTurnMeta?: Record<string, unknown>;
   intentContext?: Record<string, unknown>;
+  knowledgeType?: string;
   language?: string;
-  mode?: string;
+  mode?: 'auto' | 'keyword' | 'semantic';
   projectRoot?: string;
   limit?: number;
   rank?: boolean;
@@ -46,6 +49,8 @@ export interface ResidentSearchRequest {
   searchIntent?: string;
   sessionHistory?: Array<{ content: string }>;
   sourceRefs?: string[];
+  scope?: string;
+  tags?: string[];
   type?: string;
 }
 
@@ -469,15 +474,7 @@ export class AlembicResidentServiceClient {
 
     const endpoint = new URL(RESIDENT_SEARCH_PATH, status.apiBaseUrl || resolved.state.url);
     const requestBody = buildResidentSearchBody(request, residentRequestMode);
-    if (!requestBody) {
-      endpoint.searchParams.set('q', request.query);
-      endpoint.searchParams.set('mode', residentRequestMode);
-      endpoint.searchParams.set('limit', String(request.limit ?? 8));
-    }
-    const type = normalizeResidentType(request.type ?? request.kind);
-    if (type && !requestBody) {
-      endpoint.searchParams.set('type', type);
-    }
+    applyResidentSearchQueryParams(endpoint, request, residentRequestMode, requestBody);
 
     try {
       const response = await this.#fetchJson(endpoint, {
@@ -490,21 +487,14 @@ export class AlembicResidentServiceClient {
         response.payload?.success === false ||
         !isRecord(response.payload?.data)
       ) {
-        return createAlembicResidentServiceUnavailable<ResidentSearchResult>(
+        return createResidentSearchHttpFailure({
+          endpoint,
+          feature,
+          hostIntentHandoff,
+          projectScopeIdentity,
+          response,
           status,
-          response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
-          extractResponseError(response.payload) || `resident_search_http_${response.status}`,
-          {
-            retryable: true,
-            telemetry: {
-              endpoint: endpoint.toString(),
-              feature,
-              hostIntentHandoff,
-              projectScopeIdentity,
-              status: response.status,
-            },
-          }
-        );
+        });
       }
 
       const data = response.payload.data;
@@ -528,20 +518,15 @@ export class AlembicResidentServiceClient {
         targetProjectRoot,
       });
       if (workspaceMismatch) {
-        return createAlembicResidentServiceUnavailable<ResidentSearchResult>(
+        return createResidentSearchWorkspaceMismatch({
+          endpoint,
+          feature,
+          hostIntentHandoff,
+          meta,
+          projectScopeIdentity,
           status,
-          'unsupported-route',
           workspaceMismatch,
-          {
-            telemetry: {
-              endpoint: endpoint.toString(),
-              feature,
-              hostIntentHandoff,
-              projectScopeIdentity,
-              residentSearch: meta,
-            },
-          }
-        );
+        });
       }
       return createAlembicResidentServiceSuccess(
         {
@@ -1612,22 +1597,24 @@ function buildResidentMeta(input: {
     intentEvidence,
     primeInjectionPackage,
   });
-  const residentVector = isRecord(meta.residentVector)
-    ? (meta.residentVector as ResidentSearchAttemptMeta['residentVector'])
-    : {
-        available:
-          meta.vectorUsed === true ||
-          meta.semanticUsed === true ||
-          (input.residentRequestMode !== 'semantic' && input.items.length > 0),
-        reason:
-          typeof meta.fallbackReason === 'string'
-            ? meta.fallbackReason
-            : input.residentRequestMode === 'semantic' &&
-                meta.vectorUsed !== true &&
-                meta.semanticUsed !== true
-              ? 'resident_search_telemetry_missing'
-              : null,
-      };
+  const residentVector = normalizeResidentSearchVector(
+    isRecord(meta.residentVector)
+      ? (meta.residentVector as ResidentSearchAttemptMeta['residentVector'])
+      : {
+          available:
+            meta.vectorUsed === true ||
+            meta.semanticUsed === true ||
+            (input.residentRequestMode !== 'semantic' && input.items.length > 0),
+          reason:
+            typeof meta.fallbackReason === 'string'
+              ? meta.fallbackReason
+              : input.residentRequestMode === 'semantic' &&
+                  meta.vectorUsed !== true &&
+                  meta.semanticUsed !== true
+                ? 'resident_search_telemetry_missing'
+                : null,
+        }
+  );
   const resultCount =
     numberFrom(meta.resultCount) ?? numberFrom(input.data.total) ?? input.items.length;
 
@@ -1661,12 +1648,157 @@ function buildResidentMeta(input: {
       residentRequestMode: input.residentRequestMode,
       retrievalConsumer,
     },
-    semanticUsed: booleanFrom(meta.semanticUsed),
+    semanticUsed: residentVector.available ? booleanFrom(meta.semanticUsed) : false,
     service: stringFrom(meta.service),
     used: input.items.length > 0,
-    vectorUsed: booleanFrom(meta.vectorUsed),
+    vectorUsed: residentVector.available ? booleanFrom(meta.vectorUsed) : false,
     workspace: isRecord(meta.workspace) ? (meta.workspace as Record<string, unknown>) : null,
   };
+}
+
+function applyResidentSearchQueryParams(
+  endpoint: URL,
+  request: ResidentSearchRequest,
+  residentRequestMode: string,
+  requestBody: Record<string, unknown> | null
+): void {
+  if (requestBody) {
+    return;
+  }
+  endpoint.searchParams.set('q', request.query);
+  endpoint.searchParams.set('mode', residentRequestMode);
+  endpoint.searchParams.set('limit', String(request.limit ?? 8));
+  const type = normalizeResidentType(request.type ?? request.kind);
+  if (type) {
+    endpoint.searchParams.set('type', type);
+  }
+}
+
+function createResidentSearchHttpFailure(input: {
+  endpoint: URL;
+  feature: AlembicResidentFeature;
+  hostIntentHandoff?: ResidentSearchHandoffMeta;
+  projectScopeIdentity: AlembicResidentProjectScopeIdentity;
+  response: { ok: boolean; payload: ResidentHttpPayload | null; status: number };
+  status: AlembicResidentServiceStatus;
+}): AlembicResidentServiceResult<ResidentSearchResult> {
+  return createAlembicResidentServiceUnavailable<ResidentSearchResult>(
+    input.status,
+    input.response.ok ? 'request-failed' : reasonForHttpStatus(input.response.status),
+    extractResponseError(input.response.payload) || `resident_search_http_${input.response.status}`,
+    {
+      retryable: true,
+      telemetry: {
+        endpoint: input.endpoint.toString(),
+        feature: input.feature,
+        hostIntentHandoff: input.hostIntentHandoff,
+        projectScopeIdentity: input.projectScopeIdentity,
+        status: input.response.status,
+      },
+    }
+  );
+}
+
+function createResidentSearchWorkspaceMismatch(input: {
+  endpoint: URL;
+  feature: AlembicResidentFeature;
+  hostIntentHandoff?: ResidentSearchHandoffMeta;
+  meta: ResidentSearchAttemptMeta;
+  projectScopeIdentity: AlembicResidentProjectScopeIdentity;
+  status: AlembicResidentServiceStatus;
+  workspaceMismatch: string;
+}): AlembicResidentServiceResult<ResidentSearchResult> {
+  return createAlembicResidentServiceUnavailable<ResidentSearchResult>(
+    input.status,
+    'unsupported-route',
+    input.workspaceMismatch,
+    {
+      telemetry: {
+        endpoint: input.endpoint.toString(),
+        feature: input.feature,
+        hostIntentHandoff: input.hostIntentHandoff,
+        projectScopeIdentity: input.projectScopeIdentity,
+        residentSearch: input.meta,
+      },
+    }
+  );
+}
+
+function normalizeResidentSearchVector(
+  vector: ResidentSearchAttemptMeta['residentVector']
+): ResidentSearchAttemptMeta['residentVector'] {
+  const unavailableReason = residentSearchVectorUnavailableReason(vector);
+  if (!unavailableReason) {
+    return vector;
+  }
+  return {
+    ...vector,
+    available: false,
+    reason: unavailableReason,
+  };
+}
+
+function residentSearchVectorIndexEmpty(
+  vector: ResidentSearchAttemptMeta['residentVector']
+): boolean {
+  if (stringFrom(vector.reason) === 'empty-vector-index') {
+    return true;
+  }
+  const stats = isRecord(vector.stats) ? vector.stats : null;
+  if (numberFrom(stats?.indexSize) !== 0) {
+    return false;
+  }
+  if (booleanFrom(stats?.hasIndex) === false) {
+    return true;
+  }
+  const count = numberFrom(stats?.count);
+  const dimension = numberFrom(stats?.dimension);
+  const embedProviderAvailable = booleanFrom(stats?.embedProviderAvailable);
+  if ((count ?? 0) > 0 && (dimension ?? 0) > 0 && embedProviderAvailable !== false) {
+    return false;
+  }
+  return true;
+}
+
+function residentSearchVectorSparseOnly(
+  vector: ResidentSearchAttemptMeta['residentVector']
+): boolean {
+  if (booleanFrom(vector.sparseOnly) === true) {
+    return true;
+  }
+  const stats = isRecord(vector.stats) ? vector.stats : null;
+  if (booleanFrom(stats?.sparseOnly) === true) {
+    return true;
+  }
+  const signals = [
+    stringFrom(vector.reason),
+    stringFrom(vector.mode),
+    stringFrom(vector.route),
+    stringFrom(vector.strategy),
+    stringFrom(stats?.mode),
+    stringFrom(stats?.route),
+    stringFrom(stats?.strategy),
+  ];
+  return signals.some((signal) => signal === 'sparse-only');
+}
+
+function residentSearchVectorUnavailableReason(
+  vector: ResidentSearchAttemptMeta['residentVector']
+): string | null {
+  const explicitReason = stringFrom(vector.reason);
+  if (explicitReason === 'empty-vector-index') {
+    return explicitReason;
+  }
+  if (residentSearchVectorSparseOnly(vector)) {
+    return 'sparse-only';
+  }
+  if (residentSearchVectorIndexEmpty(vector)) {
+    return 'empty-vector-index';
+  }
+  if (booleanFrom(vector.available) === false) {
+    return explicitReason ?? 'resident-vector-unavailable';
+  }
+  return null;
 }
 
 function findResidentSearchWorkspaceMismatch(input: {
@@ -1970,28 +2102,47 @@ function buildResidentSearchBody(
   request: ResidentSearchRequest,
   residentRequestMode: string
 ): Record<string, unknown> | null {
-  if (!summarizeResidentHostIntentHandoff(request) && !request.projectRoot) {
+  if (!shouldUseResidentSearchBody(request)) {
     return null;
   }
   return stripUndefined({
+    category: request.category,
     confidence: request.confidence,
     degraded: request.degraded,
     degradedReason: request.degradedReason,
+    dimensionId: request.dimensionId,
     hostDeclaredIntent: request.hostDeclaredIntent,
     hostTurnMeta: request.hostTurnMeta,
     intentContext: request.intentContext,
+    knowledgeType: request.knowledgeType,
     language: request.language,
     limit: request.limit ?? 8,
     mode: residentRequestMode,
     projectRoot: request.projectRoot,
     query: request.query,
     q: request.query,
+    rank: request.rank,
     scenario: request.scenario,
     searchIntent: request.searchIntent,
     sessionHistory: request.sessionHistory,
     sourceRefs: request.sourceRefs,
+    scope: request.scope,
+    tags: Array.isArray(request.tags) && request.tags.length > 0 ? request.tags : undefined,
     type: normalizeResidentType(request.type ?? request.kind) ?? undefined,
   });
+}
+
+function shouldUseResidentSearchBody(request: ResidentSearchRequest): boolean {
+  return (
+    Boolean(summarizeResidentHostIntentHandoff(request)) ||
+    Boolean(request.projectRoot) ||
+    Boolean(request.language) ||
+    Boolean(request.category) ||
+    Boolean(request.dimensionId) ||
+    Boolean(request.knowledgeType) ||
+    Boolean(request.scope) ||
+    (Array.isArray(request.tags) && request.tags.length > 0)
+  );
 }
 
 function summarizeResidentHostIntentHandoff(
@@ -2080,165 +2231,212 @@ export function compactResidentPrimeInjectionPackage(
   if (!isRecord(value)) {
     return undefined;
   }
-  const injection = isRecord(value.injection) ? value.injection : {};
-  const intent = isRecord(value.intent) ? value.intent : {};
-  const relations = isRecord(value.relations) ? value.relations : {};
   const decisionRegisterRecord = isRecord(value.decisionRegister) ? value.decisionRegister : {};
   const feedbackRecord = isRecord(value.feedback) ? value.feedback : {};
   const retrievalQualityRecord = isRecord(value.retrievalQuality) ? value.retrievalQuality : {};
   const decisionRegister = compactResidentDecisionRegister(value.decisionRegister);
   const feedback = compactResidentRetrievalFeedback(value.feedback);
   const retrievalQuality = compactResidentRetrievalQuality(value.retrievalQuality);
-  const search = isRecord(value.search) ? value.search : {};
-  const trace = isRecord(value.trace) ? value.trace : {};
-  const vector = isRecord(value.vector) ? value.vector : {};
 
   return {
-    decisionRegister: {
-      ...decisionRegister,
-      ...(stringFrom(decisionRegisterRecord.source)
-        ? {
-            source: redactEvidenceString(stringFrom(decisionRegisterRecord.source) ?? ''),
-          }
-        : {}),
-      ...(stringFrom(decisionRegisterRecord.vectorAdmission)
-        ? {
-            vectorAdmission: redactEvidenceString(
-              stringFrom(decisionRegisterRecord.vectorAdmission) ?? ''
-            ),
-          }
-        : {}),
-    },
-    feedback: {
-      ...feedback,
-      ...(stringFrom(feedbackRecord.recorder)
-        ? {
-            recorder: redactEvidenceString(stringFrom(feedbackRecord.recorder) ?? ''),
-          }
-        : {}),
-    },
-    injection: {
-      degradedReasons: compactEvidenceStringArray(injection.degradedReasons, 8),
-      omittedCount: numberFrom(injection.omittedCount) ?? 0,
-      selectedCount: numberFrom(injection.selectedCount) ?? 0,
-      status: stringFrom(injection.status) ?? 'degraded',
-    },
-    intent: {
-      applied: booleanFrom(intent.applied) ?? false,
-      ...(numberFrom(intent.confidence) !== undefined
-        ? { confidence: numberFrom(intent.confidence) }
-        : {}),
-      degraded: booleanFrom(intent.degraded) ?? false,
-      degradedReasons: compactEvidenceStringArray(intent.degradedReasons, 8),
-      executableQuery:
-        typeof intent.executableQuery === 'string'
-          ? redactEvidenceString(intent.executableQuery)
-          : null,
-      ...(stringFrom(intent.rankingProfile)
-        ? { rankingProfile: redactEvidenceString(stringFrom(intent.rankingProfile) ?? '') }
-        : {}),
-      ...(stringFrom(intent.requestedMode)
-        ? { requestedMode: redactEvidenceString(stringFrom(intent.requestedMode) ?? '') }
-        : {}),
-      sourceRefs: compactEvidenceStringArray(intent.sourceRefs, 12),
-      whySelected: compactEvidenceStringArray(intent.whySelected, 12),
-    },
+    decisionRegister: compactPrimeDecisionRegister(decisionRegister, decisionRegisterRecord),
+    feedback: compactPrimeFeedback(feedback, feedbackRecord),
+    injection: compactPrimeInjection(value.injection),
+    intent: compactPrimeIntent(value.intent),
     omitted: compactPackageRecords(value.omitted, ['detail', 'itemId', 'reason', 'source'], 16),
-    relations: {
-      evidence: compactPackageRecords(
-        relations.evidence,
-        ['direction', 'itemId', 'relatedId', 'relatedType', 'relation', 'source'],
-        12
-      ),
-      omitted: compactEvidenceStringArray(relations.omitted, 8),
-    },
-    retrievalQuality: {
-      ...retrievalQuality,
-      ...(numberFrom(retrievalQualityRecord.selectedWithSourceRefs) !== undefined
-        ? {
-            selectedWithSourceRefs: numberFrom(retrievalQualityRecord.selectedWithSourceRefs),
-          }
-        : {}),
-    },
-    search: {
-      ...(stringFrom(search.actualMode)
-        ? { actualMode: redactEvidenceString(stringFrom(search.actualMode) ?? '') }
-        : {}),
-      ...(numberFrom(search.filteredCount) !== undefined
-        ? { filteredCount: numberFrom(search.filteredCount) }
-        : {}),
-      ...(stringFrom(search.query)
-        ? { query: redactEvidenceString(stringFrom(search.query) ?? '') }
-        : {}),
-      queries: compactEvidenceStringArray(search.queries, 8),
-      ...(stringFrom(search.requestedMode)
-        ? { requestedMode: redactEvidenceString(stringFrom(search.requestedMode) ?? '') }
-        : {}),
-      ...(numberFrom(search.resultCount) !== undefined
-        ? { resultCount: numberFrom(search.resultCount) }
-        : {}),
-    },
-    selectedKnowledge: compactPackageRecords(
-      value.selectedKnowledge,
+    relations: compactPrimeRelations(value.relations),
+    retrievalQuality: compactPrimeRetrievalQuality(retrievalQuality, retrievalQualityRecord),
+    search: compactPrimeSearch(value.search),
+    selectedKnowledge: compactPrimeSelectedKnowledge(value.selectedKnowledge),
+    trace: compactPrimeTrace(value.trace),
+    vector: compactPrimeVector(value.vector),
+    version: numberFrom(value.version) ?? 1,
+  };
+}
+
+function compactPrimeDecisionRegister(
+  decisionRegister: ResidentDecisionRegisterRetrievalSummary,
+  record: Record<string, unknown>
+): ResidentPrimeInjectionPackageSummary['decisionRegister'] {
+  return {
+    ...decisionRegister,
+    ...(stringFrom(record.source)
+      ? {
+          source: redactEvidenceString(stringFrom(record.source) ?? ''),
+        }
+      : {}),
+    ...(stringFrom(record.vectorAdmission)
+      ? {
+          vectorAdmission: redactEvidenceString(stringFrom(record.vectorAdmission) ?? ''),
+        }
+      : {}),
+  };
+}
+
+function compactPrimeFeedback(
+  feedback: ResidentRetrievalFeedbackSummary,
+  record: Record<string, unknown>
+): ResidentPrimeInjectionPackageSummary['feedback'] {
+  return {
+    ...feedback,
+    ...(stringFrom(record.recorder)
+      ? {
+          recorder: redactEvidenceString(stringFrom(record.recorder) ?? ''),
+        }
+      : {}),
+  };
+}
+
+function compactPrimeInjection(value: unknown): ResidentPrimeInjectionPackageSummary['injection'] {
+  const injection = isRecord(value) ? value : {};
+  return {
+    degradedReasons: compactEvidenceStringArray(injection.degradedReasons, 8),
+    omittedCount: numberFrom(injection.omittedCount) ?? 0,
+    selectedCount: numberFrom(injection.selectedCount) ?? 0,
+    status: stringFrom(injection.status) ?? 'degraded',
+  };
+}
+
+function compactPrimeIntent(value: unknown): ResidentPrimeInjectionPackageSummary['intent'] {
+  const intent = isRecord(value) ? value : {};
+  return {
+    applied: booleanFrom(intent.applied) ?? false,
+    ...(numberFrom(intent.confidence) !== undefined
+      ? { confidence: numberFrom(intent.confidence) }
+      : {}),
+    degraded: booleanFrom(intent.degraded) ?? false,
+    degradedReasons: compactEvidenceStringArray(intent.degradedReasons, 8),
+    executableQuery:
+      typeof intent.executableQuery === 'string'
+        ? redactEvidenceString(intent.executableQuery)
+        : null,
+    ...(stringFrom(intent.rankingProfile)
+      ? { rankingProfile: redactEvidenceString(stringFrom(intent.rankingProfile) ?? '') }
+      : {}),
+    ...(stringFrom(intent.requestedMode)
+      ? { requestedMode: redactEvidenceString(stringFrom(intent.requestedMode) ?? '') }
+      : {}),
+    sourceRefs: compactEvidenceStringArray(intent.sourceRefs, 12),
+    whySelected: compactEvidenceStringArray(intent.whySelected, 12),
+  };
+}
+
+function compactPrimeRelations(value: unknown): ResidentPrimeInjectionPackageSummary['relations'] {
+  const relations = isRecord(value) ? value : {};
+  return {
+    evidence: compactPackageRecords(
+      relations.evidence,
+      ['direction', 'itemId', 'relatedId', 'relatedType', 'relation', 'source'],
+      12
+    ),
+    omitted: compactEvidenceStringArray(relations.omitted, 8),
+  };
+}
+
+function compactPrimeRetrievalQuality(
+  retrievalQuality: ResidentRetrievalQualitySummary,
+  record: Record<string, unknown>
+): ResidentPrimeInjectionPackageSummary['retrievalQuality'] {
+  return {
+    ...retrievalQuality,
+    ...(numberFrom(record.selectedWithSourceRefs) !== undefined
+      ? {
+          selectedWithSourceRefs: numberFrom(record.selectedWithSourceRefs),
+        }
+      : {}),
+  };
+}
+
+function compactPrimeSearch(value: unknown): ResidentPrimeInjectionPackageSummary['search'] {
+  const search = isRecord(value) ? value : {};
+  return {
+    ...(stringFrom(search.actualMode)
+      ? { actualMode: redactEvidenceString(stringFrom(search.actualMode) ?? '') }
+      : {}),
+    ...(numberFrom(search.filteredCount) !== undefined
+      ? { filteredCount: numberFrom(search.filteredCount) }
+      : {}),
+    ...(stringFrom(search.query)
+      ? { query: redactEvidenceString(stringFrom(search.query) ?? '') }
+      : {}),
+    queries: compactEvidenceStringArray(search.queries, 8),
+    ...(stringFrom(search.requestedMode)
+      ? { requestedMode: redactEvidenceString(stringFrom(search.requestedMode) ?? '') }
+      : {}),
+    ...(numberFrom(search.resultCount) !== undefined
+      ? { resultCount: numberFrom(search.resultCount) }
+      : {}),
+  };
+}
+
+function compactPrimeSelectedKnowledge(value: unknown): Record<string, unknown>[] {
+  return compactPackageRecords(
+    value,
+    [
+      'evidenceRefs',
+      'injectionStatus',
+      'itemId',
+      'kind',
+      'knowledgeType',
+      'rank',
+      'score',
+      'scoreBreakdown',
+      'sourceRefs',
+      'title',
+      'trigger',
+      'whySelected',
+    ],
+    8
+  );
+}
+
+function compactPrimeTrace(value: unknown): ResidentPrimeInjectionPackageSummary['trace'] {
+  const trace = isRecord(value) ? value : {};
+  return {
+    evidenceRefs: compactEvidenceStringArray(trace.evidenceRefs, 16),
+    sourcePath: compactEvidenceStringArray(trace.sourcePath, 12),
+    sourceRefs: compactEvidenceStringArray(trace.sourceRefs, 16),
+    sources: compactEvidenceStringArray(trace.sources, 12),
+  };
+}
+
+function compactPrimeVector(value: unknown): ResidentPrimeInjectionPackageSummary['vector'] {
+  const vector = isRecord(value) ? value : {};
+  return {
+    omitted: compactEvidenceStringArray(vector.omitted, 8),
+    scoreBreakdown: compactPackageRecords(
+      vector.scoreBreakdown,
       [
-        'evidenceRefs',
-        'injectionStatus',
         'itemId',
-        'kind',
-        'knowledgeType',
         'rank',
-        'score',
-        'scoreBreakdown',
-        'sourceRefs',
-        'title',
-        'trigger',
-        'whySelected',
+        'finalScore',
+        'lexicalScore',
+        'relationScore',
+        'semanticScore',
+        'signals',
+        'vectorScore',
       ],
       8
     ),
-    trace: {
-      evidenceRefs: compactEvidenceStringArray(trace.evidenceRefs, 16),
-      sourcePath: compactEvidenceStringArray(trace.sourcePath, 12),
-      sourceRefs: compactEvidenceStringArray(trace.sourceRefs, 16),
-      sources: compactEvidenceStringArray(trace.sources, 12),
-    },
-    vector: {
-      omitted: compactEvidenceStringArray(vector.omitted, 8),
-      scoreBreakdown: compactPackageRecords(
-        vector.scoreBreakdown,
-        [
-          'itemId',
-          'rank',
-          'finalScore',
-          'lexicalScore',
-          'relationScore',
-          'semanticScore',
-          'signals',
-          'vectorScore',
-        ],
-        8
-      ),
-      semanticAnchors: compactPackageRecords(
-        vector.semanticAnchors,
-        ['kind', 'source', 'value', 'weight'],
-        12
-      ),
-      ...(booleanFrom(vector.semanticUsed) !== undefined
-        ? { semanticUsed: booleanFrom(vector.semanticUsed) }
-        : {}),
-      topAnchorMatches: compactPackageRecords(
-        vector.topAnchorMatches,
-        ['anchor', 'itemId', 'matchType', 'rank', 'score', 'sourceRefs', 'title'],
-        10
-      ),
-      ...(booleanFrom(vector.vectorAvailable) !== undefined
-        ? { vectorAvailable: booleanFrom(vector.vectorAvailable) }
-        : {}),
-      ...(booleanFrom(vector.vectorUsed) !== undefined
-        ? { vectorUsed: booleanFrom(vector.vectorUsed) }
-        : {}),
-    },
-    version: numberFrom(value.version) ?? 1,
+    semanticAnchors: compactPackageRecords(
+      vector.semanticAnchors,
+      ['kind', 'source', 'value', 'weight'],
+      12
+    ),
+    ...(booleanFrom(vector.semanticUsed) !== undefined
+      ? { semanticUsed: booleanFrom(vector.semanticUsed) }
+      : {}),
+    topAnchorMatches: compactPackageRecords(
+      vector.topAnchorMatches,
+      ['anchor', 'itemId', 'matchType', 'rank', 'score', 'sourceRefs', 'title'],
+      10
+    ),
+    ...(booleanFrom(vector.vectorAvailable) !== undefined
+      ? { vectorAvailable: booleanFrom(vector.vectorAvailable) }
+      : {}),
+    ...(booleanFrom(vector.vectorUsed) !== undefined
+      ? { vectorUsed: booleanFrom(vector.vectorUsed) }
+      : {}),
   };
 }
 
@@ -2708,15 +2906,11 @@ function normalizeRequestedMode(mode: unknown): string {
   return normalized || 'auto';
 }
 
-function normalizeResidentRequestMode(requestedMode: string): 'keyword' | 'bm25' | 'semantic' {
+function normalizeResidentRequestMode(requestedMode: string): 'keyword' | 'semantic' {
   // Codex-facing auto 仍表示“尽量增强”；Alembic resident API 只接受明确模式。
   switch (requestedMode) {
     case 'keyword':
       return 'keyword';
-    case 'bm25':
-    case 'context':
-    case 'weighted':
-      return 'bm25';
     case 'semantic':
     case 'auto':
       return 'semantic';

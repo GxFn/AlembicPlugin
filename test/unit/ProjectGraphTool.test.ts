@@ -267,6 +267,68 @@ describe('alembic_graph project graph tool', () => {
     expect(visibleOutput).not.toContain('.d.ts');
   });
 
+  test('keeps broad repo-root and config file-flow noise out of default graph probes', async () => {
+    const projectRoot = createWorkspaceFixtureProject();
+    const result = await routeGraphTool(createContext(projectRoot), {
+      budget: { itemLimit: 12, matrixNodeLimit: 20, relationHopLimit: 4 },
+      operation: 'query',
+      projectRoot,
+      query:
+        'ProjectContext execute request kinds source-slice file-symbols file-flow module map repo space repository',
+    });
+    const structured = result.structuredContent as Record<string, unknown>;
+    const diagnosticsText = JSON.stringify(structured.diagnostics ?? []).toLowerCase();
+
+    expect(diagnosticsText).not.toContain('file-flow parser is unavailable for language json');
+    expect(diagnosticsText).not.toContain('file-flow import target was not found: ./vitest.config');
+    expect(diagnosticsText).not.toContain('alembicplugin/lib/service/project-knowledge-context');
+  });
+
+  test('keeps default ProjectContext graph queries on a bounded file-flow workset', async () => {
+    const projectRoot = createWorkspaceFixtureProject();
+    const result = await routeGraphTool(createContext(projectRoot), {
+      operation: 'query',
+      projectRoot,
+      query:
+        'ProjectContext execute request kinds source-slice file-symbols file-flow module map repo space repository',
+    });
+    const structured = result.structuredContent as Record<string, unknown>;
+    const inventory = structured.inventory as Record<string, unknown>;
+    const projectContext = inventory.projectContext as Record<string, unknown>;
+
+    expect(projectContext).toMatchObject({
+      fileFlowTargetLimit: 12,
+      explicitFileTraversalFocused: false,
+      mapRequestCount: 1,
+      moduleRequestCount: 4,
+    });
+    expect(Number(projectContext.fileFlowTargetCount ?? 0)).toBeLessThanOrEqual(12);
+  });
+
+  test('keeps explicit ProjectContext file traversal from fanning out into module parser diagnostics', async () => {
+    const projectRoot = createWorkspaceFixtureProject();
+    const neighborhood = await routeGraphTool(createContext(projectRoot), {
+      maxDepth: 1,
+      nodeId: 'file:alembiccore/src/project-context.ts',
+      operation: 'neighborhood',
+      projectRoot,
+      relationType: 'partOf',
+    });
+    const structured = neighborhood.structuredContent as Record<string, unknown>;
+    const inventory = structured.inventory as Record<string, unknown>;
+    const projectContext = inventory.projectContext as Record<string, unknown>;
+    const diagnosticsText = JSON.stringify(structured.diagnostics ?? []).toLowerCase();
+
+    expect(projectContext).toMatchObject({
+      explicitFileTraversalFocused: true,
+      mapRequestCount: 0,
+      moduleRequestCount: 0,
+    });
+    expect(diagnosticsText).not.toContain('callgraphanalyzer');
+    expect(diagnosticsText).not.toContain('missing-call-edge');
+    expect(diagnosticsText).not.toContain('alembiccore/src/core/analysis');
+  });
+
   test('enriches real workspace file neighborhoods with ProjectContext ownership relations', async () => {
     const projectRoot = createWorkspaceFixtureProject();
     const result = await routeGraphTool(createContext(projectRoot), {
@@ -396,6 +458,14 @@ function createFixtureProject(): string {
 function createWorkspaceFixtureProject(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-workspace-fixture-'));
   tempRoots.push(root);
+  writeWorkspaceFixtureConfig(root);
+  writeWorkspaceCoreFixture(root);
+  writeWorkspacePluginFixture(root);
+  writeWorkspaceNoiseBoundaryFixture(root);
+  return root;
+}
+
+function writeWorkspaceFixtureConfig(root: string) {
   fs.writeFileSync(
     path.join(root, 'workspace.config.json'),
     JSON.stringify(
@@ -411,6 +481,9 @@ function createWorkspaceFixtureProject(): string {
       2
     )
   );
+}
+
+function writeWorkspaceCoreFixture(root: string) {
   writeFile(
     root,
     'AlembicCore/package.json',
@@ -424,7 +497,18 @@ function createWorkspaceFixtureProject(): string {
       2
     )
   );
+  writeFile(root, 'AlembicCore/.claude/settings.json', '{}\n');
+  writeFile(
+    root,
+    'AlembicCore/vitest.unit.config.ts',
+    'import baseConfig from "./vitest.config";\nexport default baseConfig;\n'
+  );
   writeFile(root, 'AlembicCore/src/index.ts', 'export const core = "core";\n');
+  writeFile(
+    root,
+    'AlembicCore/src/project-context.ts',
+    'export * from "./domain/project-context/ProjectContextRequestKinds";\n'
+  );
   writeFile(
     root,
     'AlembicCore/src/domain/project-context/ProjectContextRequestKinds.ts',
@@ -457,6 +541,16 @@ function createWorkspaceFixtureProject(): string {
   );
   writeFile(
     root,
+    'AlembicCore/src/core/analysis/CallGraphAnalyzer.ts',
+    'import missingCallEdge from "./MissingCallEdge";\nexport const analyzer = missingCallEdge;\n'
+  );
+  writeFile(
+    root,
+    'AlembicCore/src/core/analysis/CallSiteExtractor.ts',
+    'export const callSiteExtractor = true;\n'
+  );
+  writeFile(
+    root,
     'AlembicCore/dist/project-context/GeneratedProjectContext.js',
     'export const generatedProjectContext = true;\n'
   );
@@ -480,6 +574,9 @@ function createWorkspaceFixtureProject(): string {
     'AlembicCore/vendor/AlembicCore/src/project-context/GeneratedVendorProjectContext.ts',
     'export const generatedVendorProjectContext = true;\n'
   );
+}
+
+function writeWorkspacePluginFixture(root: string) {
   writeFile(
     root,
     'AlembicPlugin/lib/index.ts',
@@ -490,11 +587,18 @@ function createWorkspaceFixtureProject(): string {
     'AlembicPlugin/lib/runtime/mcp/handlers/structure.ts',
     'export const projectContextGraphHandler = true;\n'
   );
+  writeFile(
+    root,
+    'AlembicPlugin/lib/service/project-knowledge-context/project/NoisyProjectContextAdapter.ts',
+    'import missingProjectContext from "./missing-project-context";\nexport const adapter = missingProjectContext;\n'
+  );
+}
+
+function writeWorkspaceNoiseBoundaryFixture(root: string) {
   writeFile(root, 'Test/lib/index.ts', 'export const testSurface = true;\n');
   writeFile(root, 'wakeflow-ledger/AlembicWorkspace/index.md', '# ledger\n');
   writeFile(root, 'workspace-ledger/index.md', '# workspace ledger\n');
   writeFile(root, 'legacy-docs-do-not-use/index.md', '# legacy\n');
-  return root;
 }
 
 function writeFile(root: string, relativePath: string, content: string) {

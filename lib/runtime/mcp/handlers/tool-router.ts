@@ -61,7 +61,6 @@ export async function routeProjectMatrixTool(ctx: McpContext, args: Record<strin
  *   auto (默认) → search()
  *   keyword     → keywordSearch()
  *   semantic    → semanticSearch()
- *   context     → contextSearch()
  */
 export async function routeSearchTool(ctx: McpContext, args: ToolRouterSearchArgs) {
   const mode = args.mode || 'auto';
@@ -70,8 +69,6 @@ export async function routeSearchTool(ctx: McpContext, args: ToolRouterSearchArg
       return searchHandlers.keywordSearch(ctx, args);
     case 'semantic':
       return searchHandlers.semanticSearch(ctx, args);
-    case 'context':
-      return searchHandlers.contextSearch(ctx, args);
     default:
       return searchHandlers.search(ctx, { ...args, mode });
   }
@@ -245,7 +242,7 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
     typeof args.sessionId === 'string'
       ? args.sessionId
       : typeof args.bootstrapSessionRef === 'string'
-        ? args.bootstrapSessionRef
+        ? normalizeBootstrapSessionRef(args.bootstrapSessionRef)
         : undefined;
   const clientId = args.client_id as string | undefined;
   const supersedes = args.supersedes as string | undefined;
@@ -562,6 +559,10 @@ function buildSubmitKnowledgeEvidenceGateResponse({
     },
     meta: { tool: 'alembic_submit_knowledge' },
   });
+}
+
+function normalizeBootstrapSessionRef(ref: string): string {
+  return ref.startsWith('bootstrap-session:') ? ref.slice('bootstrap-session:'.length) : ref;
 }
 
 // ── BootstrapSession 提交追踪辅助函数 ───────────────────────

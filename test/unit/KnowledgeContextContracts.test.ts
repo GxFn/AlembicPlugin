@@ -156,6 +156,19 @@ describe('Project knowledge context four-tool contracts', () => {
       kind: 'guide',
     });
 
+    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'auto' }).success).toBe(true);
+    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'keyword' }).success).toBe(
+      true
+    );
+    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'semantic' }).success).toBe(
+      true
+    );
+    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'unsupported-mode' }).success)
+      .toBe(false);
+    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'legacy-mode' }).success).toBe(
+      false
+    );
+
     expect(
       ProjectGraphInputSchema.parse({
         operation: 'neighborhood',

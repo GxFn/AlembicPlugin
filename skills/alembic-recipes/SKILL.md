@@ -22,7 +22,7 @@ This skill provides the agent with this project's context from Alembic Recipes. 
 | **Recipes** | `Alembic/recipes/*.md` | Standard code patterns + usage guides; used for AI context, Guard, search |
 | **Snippets** | `Alembic/snippets/*.json` | Code snippets synced to IDE via `alembic install` |
 | **Candidates** | `Alembic/.asd/candidates.json` | AI-scanned candidates; review in Dashboard then approve |
-| **Context index** | `Alembic/.asd/context/` | Vector index built by `alembic embed`; semantic search via `alembic_search(mode=context)` |
+| **Context index** | `Alembic/.asd/context/` | Vector index built by `alembic embed`; semantic search via `alembic_search(mode=semantic)` |
 
 **Recipe** = one `.md` file = one specific usage pattern or code snippet. **kind**: `rule` (Guard enforced) / `pattern` (best practice) / `fact` (structural knowledge). **Recipe over project code**: When both exist, prefer Recipe as curated standard.
 
@@ -45,7 +45,7 @@ This skill provides the agent with this project's context from Alembic Recipes. 
 3. **MCP get/expand**: `alembic_search(operation=get|expand, refId=...)` for bounded follow-up context
 <!-- wakeflow-shared:end -->
 <!-- wakeflow-host:plugin — search description is host-specific (plugin: baseline plus resident enhancement) -->
-4. **MCP search modes**: keep `mode=auto` unless exact keyword, BM25, semantic, or context search is needed
+4. **MCP search modes**: keep `mode=auto` unless exact keyword (`keyword`) or concept-level semantic retrieval (`semantic`) is needed
 <!-- wakeflow-shared:begin section="find-recipes-tail" -->
 5. **Terminal**: `alembic search <keyword>`
 
@@ -75,7 +75,7 @@ Use the clean `structuredContent` fields returned by `alembic_prime` and `alembi
 
 1. **From code** (Recommended): Extract all import statements from user's code
 2. **From existing Recipes**: Search matching modules, then use `alembic_search(operation=get|expand, refId=...)` for bounded context
-3. **Via semantic search**: `alembic_search(operation=search, mode=context, query="import ModuleName")`
+3. **Via semantic search**: `alembic_search(operation=search, mode=semantic, query="import ModuleName")`
 
 ---
 

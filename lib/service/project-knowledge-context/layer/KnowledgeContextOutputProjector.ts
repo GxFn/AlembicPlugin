@@ -9,7 +9,7 @@ import {
   type KnowledgeContextToolOutput,
   KnowledgeContextToolOutputSchema,
 } from '../contracts/index.js';
-import { summarizeFreshnessForTool } from '../evidence/index.js';
+import { projectFreshnessForTool, summarizeFreshnessForTool } from '../evidence/index.js';
 import { defaultContextBudgeter } from '../support/index.js';
 import type { ContextIndexSnapshot } from './ContextIndexSnapshot.js';
 import type { NormalizedKnowledgeContextInput } from './KnowledgeContextInputNormalizer.js';
@@ -67,8 +67,10 @@ export class KnowledgeContextOutputProjector {
   project(input: KnowledgeContextOutputProjectorInput): KnowledgeContextToolOutput {
     const { input: normalized, plan, snapshot } = input;
     const budget = normalized.budget;
+    const publicBudget = publicBudgetForTool(normalized.tool, budget);
     const parts = prepareProjectionParts(input);
     const freshnessSummary = summarizeFreshnessForTool(normalized.tool, snapshot.freshness);
+    const projectFreshness = projectFreshnessForTool(normalized.tool, snapshot.freshness);
     const baseTruncationDiagnostics = createTruncationDiagnostics(parts.truncated);
     const diagnostics = budgetDiagnostics(
       [
@@ -78,7 +80,10 @@ export class KnowledgeContextOutputProjector {
       ],
       OUTPUT_ARRAY_LIMITS.diagnostics
     );
-    const truncated = { ...parts.truncated, diagnostics: diagnostics.truncated };
+    const truncated = publicTruncationForTool(normalized.tool, {
+      ...parts.truncated,
+      diagnostics: diagnostics.truncated,
+    });
     const status = statusWithBudget(
       freshnessSummary.status,
       diagnostics.value.filter(isBudgetTruncationDiagnostic)
@@ -96,7 +101,7 @@ export class KnowledgeContextOutputProjector {
         ...(normalized.inputSource === undefined ? {} : { inputSource: normalized.inputSource }),
         ...(normalized.intentKind === undefined ? {} : { intentKind: normalized.intentKind }),
         ...(normalized.query === undefined ? {} : { query: normalized.query }),
-        budget,
+        budget: publicBudget,
         detailLevel: normalized.detailLevel,
         freshnessPolicy: normalized.freshnessPolicy,
       },
@@ -107,20 +112,20 @@ export class KnowledgeContextOutputProjector {
           ? {}
           : { projectRoot: snapshot.project.projectRoot }),
         matrixRef: snapshot.snapshotId,
-        freshness: snapshot.freshness,
+        freshness: projectFreshness,
       },
       interaction: parts.interaction.value,
       result: {
         route: plan.route,
-        retrievalTrace: plan.trace,
-        budgetUsed: budget,
+        retrievalTrace: publicRetrievalTraceForTool(normalized.tool, plan.trace, snapshot),
+        budgetUsed: publicBudget,
         ...parts.payloadResult.value,
         truncated,
         matrixNodes: parts.matrixNodes.value,
       },
       inventory: parts.inventory.value,
-      relations: parts.relations.value,
       items: parts.items.value,
+      ...(normalized.tool === 'alembic_search' ? {} : { relations: parts.relations.value }),
       detailRefs: parts.detailRefs.value,
       sources: parts.sources.value,
       diagnostics: diagnostics.value,
@@ -136,6 +141,52 @@ export class KnowledgeContextOutputProjector {
   projectMcpResult(input: KnowledgeContextOutputProjectorInput): CallToolResult {
     return createKnowledgeContextMcpResult(this.project(input));
   }
+}
+
+function publicBudgetForTool(
+  tool: NormalizedKnowledgeContextInput['tool'],
+  budget: NormalizedKnowledgeContextInput['budget']
+): KnowledgeContextObject {
+  const publicBudget: KnowledgeContextObject = { ...budget };
+  if (tool === 'alembic_search') {
+    delete publicBudget.relationHopLimit;
+  }
+  return publicBudget;
+}
+
+function publicTruncationForTool(
+  tool: NormalizedKnowledgeContextInput['tool'],
+  truncated: ProjectionParts['truncated']
+): KnowledgeContextObject {
+  const publicTruncated: KnowledgeContextObject = { ...truncated };
+  if (tool === 'alembic_search') {
+    delete publicTruncated.relations;
+  }
+  return publicTruncated;
+}
+
+function publicRetrievalTraceForTool(
+  tool: NormalizedKnowledgeContextInput['tool'],
+  trace: KnowledgeContextRetrievalPlan['trace'],
+  snapshot: ContextIndexSnapshot
+): KnowledgeContextObject {
+  const publicTrace: KnowledgeContextObject = { ...trace };
+  if (tool === 'alembic_search') {
+    delete publicTrace.relationHopLimit;
+    publicTrace.domains = trace.domains.filter(
+      (domain) => domain !== 'recipeRelation' && (domain !== 'vector' || snapshot.vector.available)
+    );
+    publicTrace.candidatePoolSize =
+      snapshot.knowledgeCatalog.itemCount +
+      (snapshot.vector.available ? snapshot.vector.candidateCount : 0);
+    publicTrace.degradedReasons = trace.degradedReasons.filter(
+      (reason) => !reason.startsWith('recipeRelation:')
+    );
+    publicTrace.truncatedByBudget = Array.isArray(trace.truncatedByBudget)
+      ? trace.truncatedByBudget.filter((entry) => entry !== 'relationHops')
+      : [];
+  }
+  return publicTrace;
 }
 
 interface ProjectionParts {
@@ -173,7 +224,7 @@ function prepareProjectionParts(input: KnowledgeContextOutputProjectorInput): Pr
     outputArrayLimit(budget.itemLimit, OUTPUT_ARRAY_LIMITS.items)
   );
   const relationSlice = defaultContextBudgeter.trimArray(
-    payload?.relations ?? defaultRelations(snapshot),
+    payload?.relations ?? defaultRelations(normalized.tool, snapshot),
     outputArrayLimit(budget.relationHopLimit, OUTPUT_ARRAY_LIMITS.relations)
   );
   const matrixNodeSlice = defaultContextBudgeter.trimArray(
@@ -181,7 +232,7 @@ function prepareProjectionParts(input: KnowledgeContextOutputProjectorInput): Pr
     outputArrayLimit(budget.matrixNodeLimit, OUTPUT_ARRAY_LIMITS.matrixNodes)
   );
   const detailRefSlice = defaultContextBudgeter.trimArray(
-    [...snapshot.detailRefs, ...(payload?.detailRefs ?? [])],
+    [...defaultDetailRefs(normalized.tool, snapshot), ...(payload?.detailRefs ?? [])],
     outputArrayLimit(budget.detailLimit, OUTPUT_ARRAY_LIMITS.detailRefs)
   );
   const nextActionSlice = defaultContextBudgeter.trimArray(
@@ -198,8 +249,11 @@ function prepareProjectionParts(input: KnowledgeContextOutputProjectorInput): Pr
     Math.min(contentCharLimit, MAX_PUBLIC_SUMMARY_CHARS)
   );
   const projected = {
-    detailRefs: budgetDetailRefs(detailRefSlice.items, contentCharLimit),
-    inventory: budgetTextObject(payload?.inventory ?? defaultInventory(snapshot), contentCharLimit),
+    detailRefs: budgetDetailRefs(detailRefSlice.items, contentCharLimit, normalized.tool),
+    inventory: budgetTextObject(
+      payload?.inventory ?? defaultInventory(normalized.tool, snapshot),
+      contentCharLimit
+    ),
     interaction: budgetTextObject(buildInteraction(normalized, payload), contentCharLimit),
     items: budgetTextObjectArray(itemSlice.items, contentCharLimit),
     matrixNodes: budgetTextObjectArray(matrixNodeSlice.items, contentCharLimit),
@@ -243,7 +297,18 @@ function buildInteraction(
   };
 }
 
-function defaultInventory(snapshot: ContextIndexSnapshot): KnowledgeContextObject {
+function defaultInventory(
+  tool: NormalizedKnowledgeContextInput['tool'],
+  snapshot: ContextIndexSnapshot
+): KnowledgeContextObject {
+  if (tool === 'alembic_search') {
+    return {
+      derivedView: snapshot.derivedView,
+      sourceOfTruth: snapshot.sourceOfTruth,
+      knowledgeItemCount: snapshot.knowledgeCatalog.itemCount,
+      vectorCandidateCount: snapshot.vector.candidateCount,
+    };
+  }
   return {
     derivedView: snapshot.derivedView,
     sourceOfTruth: snapshot.sourceOfTruth,
@@ -253,6 +318,16 @@ function defaultInventory(snapshot: ContextIndexSnapshot): KnowledgeContextObjec
   };
 }
 
+function defaultDetailRefs(
+  tool: NormalizedKnowledgeContextInput['tool'],
+  snapshot: ContextIndexSnapshot
+): KnowledgeContextDetailRef[] {
+  if (tool === 'alembic_search') {
+    return [];
+  }
+  return snapshot.detailRefs;
+}
+
 function defaultItems(snapshot: ContextIndexSnapshot): KnowledgeContextObject[] {
   return snapshot.knowledgeCatalog.representativeRefs.map((ref) => ({
     id: ref,
@@ -260,7 +335,13 @@ function defaultItems(snapshot: ContextIndexSnapshot): KnowledgeContextObject[] 
   }));
 }
 
-function defaultRelations(snapshot: ContextIndexSnapshot): KnowledgeContextObject[] {
+function defaultRelations(
+  tool: NormalizedKnowledgeContextInput['tool'],
+  snapshot: ContextIndexSnapshot
+): KnowledgeContextObject[] {
+  if (tool === 'alembic_search') {
+    return [];
+  }
   return snapshot.recipeRelationIndex.representativeRefs.map((ref) => ({
     id: ref,
     relationType: 'recipeRelation',
@@ -373,7 +454,8 @@ function truncationMessage(code: ProjectionTruncationKey): string {
 
 function budgetDetailRefs(
   refs: readonly KnowledgeContextDetailRef[],
-  limit: number
+  limit: number,
+  tool: NormalizedKnowledgeContextInput['tool']
 ): TextBudgetResult<KnowledgeContextDetailRef[]> {
   let truncated = false;
   const value = refs.map((ref) => {
@@ -385,14 +467,32 @@ function budgetDetailRefs(
       ref.title === undefined
         ? undefined
         : defaultContextBudgeter.trimText(ref.title, Math.min(limit, MAX_OPTIONAL_TITLE_CHARS));
+    const publicBudget = publicDetailRefBudgetForTool(tool, ref.budget);
+    const projectedRef = { ...ref };
+    delete projectedRef.budget;
     truncated = truncated || summary.truncated || (title?.truncated ?? false);
     return {
-      ...ref,
+      ...projectedRef,
+      ...(publicBudget === undefined ? {} : { budget: publicBudget }),
       summary: summary.text,
       ...(title === undefined ? {} : { title: title.text }),
     };
   });
   return { value, truncated };
+}
+
+function publicDetailRefBudgetForTool(
+  tool: NormalizedKnowledgeContextInput['tool'],
+  budget: KnowledgeContextDetailRef['budget']
+): KnowledgeContextDetailRef['budget'] {
+  if (budget === undefined) {
+    return undefined;
+  }
+  if (tool === 'alembic_search') {
+    return undefined;
+  }
+  const publicBudget = { ...budget };
+  return Object.keys(publicBudget).length === 0 ? undefined : publicBudget;
 }
 
 function budgetSources(

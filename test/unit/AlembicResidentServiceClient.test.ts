@@ -271,124 +271,164 @@ function intentEvidenceFixture() {
 
 function primeInjectionPackageFixture() {
   return {
-    decisionRegister: {
-      acceptedDecisionRefs: ['decision-active-1'],
-      auditExcludedCount: 2,
-      available: true,
-      defaultLifecycle: 'active-effective-only',
-      excludedStatuses: ['revoked', 'deleted'],
-      route: '/api/v1/decision-register/searchable',
-      source: 'alembic-decision-register',
-      vectorAdmission: 'accepted-only',
-    },
-    feedback: {
-      observeOnly: true,
-      recorder: 'HitRecorder',
-      supportedSignals: ['searchHit', 'view', 'adoption'],
-      version: 1,
-    },
-    injection: {
-      degradedReasons: [],
-      omittedCount: 0,
-      selectedCount: 1,
-      status: 'ready',
-    },
-    intent: {
-      applied: true,
-      confidence: 0.86,
-      degraded: false,
-      degradedReasons: [],
-      executableQuery: 'resident vector recipe',
-      rankingProfile: 'semantic',
-      requestedMode: 'semantic',
-      sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
-      whySelected: ['intent-search-plan'],
-    },
+    decisionRegister: primeDecisionRegisterFixture(),
+    feedback: primeFeedbackFixture(),
+    injection: primeInjectionFixture(),
+    intent: primeIntentFixture(),
     omitted: [],
-    relations: {
-      evidence: [
-        {
-          direction: 'outgoing',
-          itemId: 'resident-1',
-          relatedId: 'recipe-related',
-          relation: 'related',
-          source: 'knowledgeGraphService',
-        },
-      ],
-      omitted: [],
-    },
-    retrievalQuality: {
-      decisionRefCount: 1,
-      feedbackSignalCount: 3,
-      relationEvidenceCount: 1,
-      selectedWithSourceRefs: 1,
-      sourceRefCoverage: 1,
-      version: 1,
-    },
-    search: {
-      actualMode: 'semantic',
-      filteredCount: 1,
-      query: 'resident vector recipe',
-      queries: ['resident vector recipe'],
-      requestedMode: 'semantic',
-      resultCount: 1,
-    },
-    selectedKnowledge: [
+    relations: primeRelationsFixture(),
+    retrievalQuality: primeRetrievalQualityFixture(),
+    search: primeSearchFixture(),
+    selectedKnowledge: primeSelectedKnowledgeFixture(),
+    trace: primeTraceFixture(),
+    vector: primeVectorFixture(),
+    version: 1,
+  };
+}
+
+function primeDecisionRegisterFixture() {
+  return {
+    acceptedDecisionRefs: ['decision-active-1'],
+    auditExcludedCount: 2,
+    available: true,
+    defaultLifecycle: 'active-effective-only',
+    excludedStatuses: ['revoked', 'deleted'],
+    route: '/api/v1/decision-register/searchable',
+    source: 'alembic-decision-register',
+    vectorAdmission: 'accepted-only',
+  };
+}
+
+function primeFeedbackFixture() {
+  return {
+    observeOnly: true,
+    recorder: 'HitRecorder',
+    supportedSignals: ['searchHit', 'view', 'adoption'],
+    version: 1,
+  };
+}
+
+function primeInjectionFixture() {
+  return {
+    degradedReasons: [],
+    omittedCount: 0,
+    selectedCount: 1,
+    status: 'ready',
+  };
+}
+
+function primeIntentFixture() {
+  return {
+    applied: true,
+    confidence: 0.86,
+    degraded: false,
+    degradedReasons: [],
+    executableQuery: 'resident vector recipe',
+    rankingProfile: 'semantic',
+    requestedMode: 'semantic',
+    sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+    whySelected: ['intent-search-plan'],
+  };
+}
+
+function primeRelationsFixture() {
+  return {
+    evidence: [
       {
-        evidenceRefs: ['scoreBreakdown:resident-1', 'sourceRef:resident-1:1'],
-        injectionStatus: 'selected',
+        direction: 'outgoing',
         itemId: 'resident-1',
-        kind: 'pattern',
+        relatedId: 'recipe-related',
+        relation: 'related',
+        source: 'knowledgeGraphService',
+      },
+    ],
+    omitted: [],
+  };
+}
+
+function primeRetrievalQualityFixture() {
+  return {
+    decisionRefCount: 1,
+    feedbackSignalCount: 3,
+    relationEvidenceCount: 1,
+    selectedWithSourceRefs: 1,
+    sourceRefCoverage: 1,
+    version: 1,
+  };
+}
+
+function primeSearchFixture() {
+  return {
+    actualMode: 'semantic',
+    filteredCount: 1,
+    query: 'resident vector recipe',
+    queries: ['resident vector recipe'],
+    requestedMode: 'semantic',
+    resultCount: 1,
+  };
+}
+
+function primeSelectedKnowledgeFixture() {
+  return [
+    {
+      evidenceRefs: ['scoreBreakdown:resident-1', 'sourceRef:resident-1:1'],
+      injectionStatus: 'selected',
+      itemId: 'resident-1',
+      kind: 'pattern',
+      rank: 1,
+      score: 0.92,
+      sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+      title: 'Resident vector recipe',
+      trigger: '@resident-vector',
+      whySelected: ['semantic-score'],
+    },
+  ];
+}
+
+function primeTraceFixture() {
+  return {
+    evidenceRefs: ['scoreBreakdown:resident-1'],
+    sourcePath: ['searchMeta.primeInjectionPackage'],
+    sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+    sources: ['intentSearchPlan', 'intentEvidence'],
+  };
+}
+
+function primeVectorFixture() {
+  return {
+    omitted: [],
+    scoreBreakdown: [
+      {
+        finalScore: 0.92,
+        itemId: 'resident-1',
+        rank: 1,
+        semanticScore: 0.82,
+        signals: ['semantic-score'],
+        vectorScore: null,
+      },
+    ],
+    semanticAnchors: [
+      {
+        kind: 'source-ref',
+        source: 'intentSearchPlan.sourceRefs',
+        value: '/Users/example/private-project/src/service.ts:42',
+        weight: 0.55,
+      },
+    ],
+    semanticUsed: true,
+    topAnchorMatches: [
+      {
+        anchor: 'service factory',
+        itemId: 'resident-1',
+        matchType: 'text',
         rank: 1,
         score: 0.92,
         sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
         title: 'Resident vector recipe',
-        trigger: '@resident-vector',
-        whySelected: ['semantic-score'],
       },
     ],
-    trace: {
-      evidenceRefs: ['scoreBreakdown:resident-1'],
-      sourcePath: ['searchMeta.primeInjectionPackage'],
-      sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
-      sources: ['intentSearchPlan', 'intentEvidence'],
-    },
-    vector: {
-      omitted: [],
-      scoreBreakdown: [
-        {
-          finalScore: 0.92,
-          itemId: 'resident-1',
-          rank: 1,
-          semanticScore: 0.82,
-          signals: ['semantic-score'],
-          vectorScore: null,
-        },
-      ],
-      semanticAnchors: [
-        {
-          kind: 'source-ref',
-          source: 'intentSearchPlan.sourceRefs',
-          value: '/Users/example/private-project/src/service.ts:42',
-          weight: 0.55,
-        },
-      ],
-      semanticUsed: true,
-      topAnchorMatches: [
-        {
-          anchor: 'service factory',
-          itemId: 'resident-1',
-          matchType: 'text',
-          rank: 1,
-          score: 0.92,
-          sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
-          title: 'Resident vector recipe',
-        },
-      ],
-      vectorAvailable: true,
-      vectorUsed: true,
-    },
-    version: 1,
+    vectorAvailable: true,
+    vectorUsed: true,
   };
 }
 
@@ -1057,6 +1097,7 @@ describe('AlembicResidentServiceClient', () => {
         sourceRefs: ['host:intent'],
       },
       language: 'typescript',
+      kind: 'fact',
       sessionHistory: [{ content: 'previous host turn' }],
       sourceRefs: ['host:intent'],
     });
@@ -1075,7 +1116,9 @@ describe('AlembicResidentServiceClient', () => {
       query: 'resident host intent',
       sessionHistory: [{ content: 'previous host turn' }],
       sourceRefs: ['host:intent'],
+      type: 'fact',
     });
+    expect(body).not.toHaveProperty('kind');
     expect(JSON.stringify(body)).not.toContain('/tmp/project');
     expect(result.meta.hostIntentHandoff).toMatchObject({
       enabled: true,
@@ -1340,6 +1383,246 @@ describe('AlembicResidentServiceClient', () => {
       codexRequestedMode: 'auto',
       residentRequestMode: 'semantic',
     });
+  });
+
+  it('keeps resident vector telemetry when indexSize is zero but usable vector stats are present', async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            items: [{ id: 'resident-1', title: 'Resident vector recipe', score: 0.92 }],
+            searchMeta: {
+              semanticUsed: true,
+              vectorUsed: true,
+              residentVector: {
+                available: true,
+                reason: null,
+                stats: {
+                  count: 140,
+                  dimension: 1024,
+                  embedProviderAvailable: true,
+                  hasIndex: true,
+                  indexSize: 0,
+                },
+              },
+            },
+          },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 }
+      );
+    }) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({ query: 'semantic output quality', mode: 'semantic' });
+
+    expect(result.meta.residentVector).toMatchObject({
+      available: true,
+      reason: null,
+      stats: {
+        count: 140,
+        dimension: 1024,
+        embedProviderAvailable: true,
+        hasIndex: true,
+        indexSize: 0,
+      },
+    });
+    expect(result.meta.semanticUsed).toBe(true);
+    expect(result.meta.vectorUsed).toBe(true);
+  });
+
+  it('downgrades resident vector telemetry when the daemon explicitly reports an empty index', async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            items: [{ id: 'resident-1', title: 'Resident vector recipe', score: 0.92 }],
+            searchMeta: {
+              semanticUsed: true,
+              vectorUsed: true,
+              residentVector: {
+                available: true,
+                reason: 'empty-vector-index',
+                stats: {
+                  count: 140,
+                  dimension: 1024,
+                  embedProviderAvailable: true,
+                  hasIndex: true,
+                  indexSize: 0,
+                },
+              },
+            },
+          },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 }
+      );
+    }) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({ query: 'semantic output quality', mode: 'semantic' });
+
+    expect(result.meta.residentVector).toMatchObject({
+      available: false,
+      reason: 'empty-vector-index',
+      stats: {
+        indexSize: 0,
+      },
+    });
+    expect(result.meta.semanticUsed).toBe(false);
+    expect(result.meta.vectorUsed).toBe(false);
+  });
+
+  it('downgrades resident vector telemetry when the daemon reports sparse-only search', async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            items: [{ id: 'resident-1', title: 'Resident sparse recipe', score: 0.92 }],
+            searchMeta: {
+              semanticUsed: true,
+              vectorUsed: true,
+              residentVector: {
+                available: true,
+                reason: null,
+                stats: {
+                  count: 140,
+                  dimension: 1024,
+                  embedProviderAvailable: true,
+                  hasIndex: true,
+                  indexSize: 20,
+                  sparseOnly: true,
+                },
+              },
+            },
+          },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 }
+      );
+    }) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({ query: 'semantic output quality', mode: 'semantic' });
+
+    expect(result.meta.residentVector).toMatchObject({
+      available: false,
+      reason: 'sparse-only',
+      stats: {
+        sparseOnly: true,
+      },
+    });
+    expect(result.meta.semanticUsed).toBe(false);
+    expect(result.meta.vectorUsed).toBe(false);
+  });
+
+  it('sends explicit search filters in the resident POST body without host context', async () => {
+    const requests: Array<{ body?: Record<string, unknown>; method?: string; url: URL }> = [];
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        requests.push({
+          body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
+          method: init?.method,
+          url,
+        });
+        if (url.pathname === '/api/v1/daemon/health') {
+          return new Response(JSON.stringify(residentHealthPayload()), {
+            headers: { 'content-type': 'application/json' },
+            status: 200,
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              items: [],
+              searchMeta: {
+                actualMode: 'semantic',
+                requestedMode: 'semantic',
+                semanticUsed: false,
+                vectorUsed: false,
+                residentVector: { available: false, reason: 'empty-vector-index' },
+              },
+            },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      }
+    ) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    await client.search({
+      category: 'mcp',
+      dimensionId: 'asq-r4',
+      kind: 'pattern',
+      knowledgeType: 'semantic-quality',
+      language: 'typescript',
+      limit: 4,
+      mode: 'auto',
+      query: 'resident semantic vector truth',
+      rank: false,
+      scope: 'workspace',
+      tags: ['search', 'resident'],
+    });
+
+    const searchRequest = requests.find((request) => request.url.pathname === '/api/v1/search');
+    expect(searchRequest?.method).toBe('POST');
+    expect(searchRequest?.url.search).toBe('');
+    expect(searchRequest?.body).toMatchObject({
+      category: 'mcp',
+      dimensionId: 'asq-r4',
+      knowledgeType: 'semantic-quality',
+      language: 'typescript',
+      limit: 4,
+      mode: 'semantic',
+      query: 'resident semantic vector truth',
+      q: 'resident semantic vector truth',
+      rank: false,
+      scope: 'workspace',
+      tags: ['search', 'resident'],
+      type: 'pattern',
+    });
+    expect(JSON.stringify(searchRequest?.body)).not.toContain('hostDeclaredIntent');
+    expect(JSON.stringify(searchRequest?.body)).not.toContain('sourceRefs');
   });
 
   it('resolves ProjectScope from the resident endpoint when health only advertises baseline identity', async () => {

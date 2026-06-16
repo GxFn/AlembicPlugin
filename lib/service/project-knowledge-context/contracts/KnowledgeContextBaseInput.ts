@@ -116,7 +116,7 @@ export const PrimeInputSchema = KnowledgeContextBaseInputSchema.extend({
 
 export const KnowledgeSearchOperationSchema = z.enum(['search', 'get', 'expand']);
 
-export const KnowledgeSearchModeSchema = z.enum(['auto', 'keyword', 'bm25', 'semantic', 'context']);
+export const KnowledgeSearchModeSchema = z.enum(['auto', 'keyword', 'semantic']);
 
 export const KnowledgeSearchKindSchema = z.enum([
   'all',
@@ -135,12 +135,16 @@ export const KnowledgeSearchInputSchema = KnowledgeContextBaseInputSchema.extend
   id: KnowledgeContextRefIdSchema.optional(),
   refId: KnowledgeContextRefIdSchema.optional(),
   detailRefId: KnowledgeContextRefIdSchema.optional(),
-  kind: KnowledgeSearchKindSchema.default('all'),
-  category: z.string().min(1).max(160).optional(),
-  keywords: z.array(z.string().min(1).max(120)).max(40).optional(),
-  limit: z.number().int().min(1).max(100).optional(),
-  module: z.string().min(1).max(240).optional(),
-}).strict();
+	  kind: KnowledgeSearchKindSchema.default('all'),
+	  category: z.string().min(1).max(160).optional(),
+	  dimensionId: z.string().min(1).max(160).optional(),
+	  knowledgeType: z.string().min(1).max(160).optional(),
+	  keywords: z.array(z.string().min(1).max(120)).max(40).optional(),
+	  limit: z.number().int().min(1).max(100).optional(),
+	  module: z.string().min(1).max(240).optional(),
+	  scope: z.string().min(1).max(160).optional(),
+	  tags: z.array(z.string().min(1).max(120)).max(40).optional(),
+	}).strict();
 
 export const ProjectGraphOperationSchema = z.enum([
   'query',

@@ -2686,7 +2686,7 @@ function buildVectorPlan(
     queries: extracted.queries.slice(0, 5),
     retrievalOrder: [
       'structure hints from activeFile/module',
-      'auto BM25/FWS queries',
+      'auto lexical/FWS queries',
       'semantic resident search when available',
       'keyword synonym expansion',
       'quality-filtered Recipe/Guard split',

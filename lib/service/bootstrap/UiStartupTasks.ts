@@ -5,7 +5,7 @@
  *   1. syncAll:               .md → DB 全量同步 + sourceRefs 对账
  *   2. staging promote:       到期 staging → active 晋升
  *   3. vector reconcile:      向量对账（best-effort）
- *   4. refreshIndex:          BM25 增量刷新
+ *   4. refreshIndex:          keyword index 增量刷新
  *   5. proposalCheck:         启动时兜底清理（过期 Pending + Observing 兜底评估）
  *   6. signalSubscription:    订阅 SignalBus（信号驱动提案评估）
  */
@@ -134,7 +134,7 @@ export async function runUiStartupTasks(ctx: UiStartupContext): Promise<UiStartu
     logger.warn(`[UiStartupTasks] ${msg}`);
   }
 
-  // ── Stage 4: BM25 index refresh ──
+  // ── Stage 4: keyword index refresh ──
   try {
     if (ctx.container.services.searchEngine) {
       const searchEngine = ctx.container.get('searchEngine') as {
@@ -142,7 +142,7 @@ export async function runUiStartupTasks(ctx: UiStartupContext): Promise<UiStartu
       };
       searchEngine.refreshIndex({ force: true });
       report.indexRefresh = true;
-      logger.info('[UiStartupTasks] Stage 4: BM25 index refreshed');
+      logger.info('[UiStartupTasks] Stage 4: keyword index refreshed');
     }
   } catch (err: unknown) {
     const msg = `index refresh failed: ${(err as Error).message}`;

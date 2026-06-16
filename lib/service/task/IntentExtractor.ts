@@ -176,7 +176,7 @@ export function extract(
  * Q1: raw query, Q2: extracted tech terms, Q3: file context, Q4: synonym focus.
  * Q1 is enriched with cross-language synonyms to bridge EN↔CJK matching.
  * Q4 (long queries only): synonym expansion as a separate focused query
- * to prevent BM25 dilution in verbose natural language inputs.
+ * to prevent lexical-score dilution in verbose natural language inputs.
  */
 export function buildQueries(
   userQuery: string,
@@ -196,7 +196,7 @@ export function buildQueries(
   // Q4: For long queries (> 50 chars), add cross-language synonyms as a
   // separate focused query. In long sentences, synonym terms appended to Q1
   // get diluted by common words ("ViewController", "ViewModel"), causing
-  // BM25 to miss the user's actual intent. A short focused query matches
+  // lexical matching to miss the user's actual intent. A short focused query matches
   // domain-specific terms (e.g. "singleton 单例 inject 注入") directly.
   if (synonyms && userQuery.length > 50) {
     queries.push(synonyms);

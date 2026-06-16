@@ -422,7 +422,7 @@ export function initializeKnowledgeServices(c: ServiceContainer): void {
       refreshIndex: (opts?: { force?: boolean }) => void;
     };
 
-    // Bug 修复: BM25 索引与 Vector 索引一致性 — 将 knowledge:changed 事件绑定到 refreshIndex
+    // Bug 修复: keyword 索引与 Vector 索引一致性 — 将 knowledge:changed 事件绑定到 refreshIndex
     eventBus.on('knowledge:changed', () => {
       try {
         searchEngine.refreshIndex();

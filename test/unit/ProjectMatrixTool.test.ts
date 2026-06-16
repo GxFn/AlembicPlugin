@@ -156,6 +156,8 @@ describe('alembic_project_matrix public MCP tool', () => {
     expect(serialized).not.toContain('wakeflow-ledger');
     expect(serialized).not.toContain('workspace-ledger');
     expect(serialized).not.toContain('legacy-docs-do-not-use');
+    expect(serialized).not.toContain('file-flow parser is unavailable');
+    expect(serialized).not.toContain('file-flow import target was not found');
   });
 
   test('derives useful catalog categories from coarse Utility and Service entries', async () => {
@@ -230,8 +232,19 @@ function createWorkspaceFixtureProject(): string {
     )
   );
   writeFile(root, 'AlembicCore/src/index.ts', 'export const core = "core";\n');
+  writeFile(root, 'AlembicCore/.claude/settings.json', '{}\n');
+  writeFile(
+    root,
+    'AlembicCore/vitest.unit.config.ts',
+    'import baseConfig from "./vitest.config";\nexport default baseConfig;\n'
+  );
   writeFile(root, 'AlembicPlugin/.DS_Store', 'noise');
   writeFile(root, 'AlembicPlugin/lib/index.ts', 'export const plugin = "plugin";\n');
+  writeFile(
+    root,
+    'AlembicPlugin/lib/service/project-knowledge-context/project/NoisyProjectContextAdapter.ts',
+    'import missingProjectContext from "./missing-project-context";\nexport const adapter = missingProjectContext;\n'
+  );
   writeFile(root, 'Test/lib/index.ts', 'export const testSurface = true;\n');
   writeFile(root, 'wakeflow-ledger/AlembicWorkspace/index.md', '# ledger\n');
   writeFile(root, 'workspace-ledger/index.md', '# workspace ledger\n');

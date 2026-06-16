@@ -1,7 +1,7 @@
 /**
  * MCP Handlers — 搜索类
  *
- * v2: 将 search / contextSearch / keywordSearch / semanticSearch
+ * v2: 将 search / keywordSearch / semanticSearch
  * 收束到 search() 入口，通过 mode 参数路由。
  * tool-router.ts 的 mode 路由直接指向本函数。
  *
@@ -17,8 +17,6 @@ import {
   DefaultContextExpansionProvider,
   DefaultKnowledgeDetailProvider,
   DefaultRecipeCandidateProvider,
-  DefaultRecipeRelationChainProvider,
-  DefaultVectorRerankProvider,
   defaultProjectKnowledgeContextLayer,
   defaultRefRegistry,
   type KnowledgeContextDetailRef,
@@ -34,18 +32,16 @@ import type {
   ResidentSearchAttemptMeta,
   ResidentSearchRequest,
 } from '#service/resident/AlembicResidentServiceClient.js';
-import {
-  buildHostIntentFrame,
-  buildResidentIntentHandoff,
-  prepareHostIntentInput,
-} from '#service/task/HostIntentFrame.js';
-import { extract as extractIntent } from '#service/task/IntentExtractor.js';
 import type {
   KnowledgeEntryJSON,
   McpContext,
   SearchArgs,
   SearchResultItem,
 } from '../../../runtime/mcp/handlers/types.js';
+
+const KEYWORD_MATCH_THRESHOLD = 0.5;
+const SEMANTIC_MATCH_THRESHOLD = 0.55;
+const INTERNAL_SEARCH_ROUTES_KEY = '__alembicSearchRoutes';
 
 // ─── 工具函数 ────────────────────────────────────────────────
 
@@ -97,16 +93,13 @@ function filterByKind(items: SearchResultItem[], kind: string) {
 // ─── 统一搜索入口 ────────────────────────────────────────────
 
 /**
- * 统一搜索入口 — 支持 auto / keyword / weighted / semantic / context 五种模式
+ * 统一搜索入口 — 支持 auto / keyword / semantic 三种公开模式
  *
- * search / contextSearch / keywordSearch / semanticSearch 共享本入口。
+ * search / keywordSearch / semanticSearch 共享本入口。
  * mode 路由:
  *   - auto (默认): FieldWeighted + semantic 融合 + Ranking Pipeline
  *   - keyword: SQL LIKE 精确匹配，适合已知函数名/类名
- *   - weighted: 加权字段评分搜索（原 bm25 模式，已替换为 FieldWeightedScorer）
- *   - bm25: weighted 的向后兼容别名
  *   - semantic: 向量语义搜索（不可用时降级 weighted）
- *   - context: weighted + Ranking Pipeline + 会话上下文加成
  *
  * 所有模式共享: kind 过滤 → slimSearchResult 投影 → byKind 分组
  */
@@ -120,50 +113,55 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   const candidateItems = await buildKnowledgeCandidates(ctx, args, pipeline);
   const relevance = assessSearchRelevance(candidateItems, args, pipeline);
   const knowledgeItems = relevance.items;
-  const relationProvider = new DefaultRecipeRelationChainProvider();
-  const relationChains = knowledgeItems.flatMap((item) =>
-    relationProvider.expandRecipeRelationChains(item.id, relationHopLimit(args), {
-      fanout: relationFanout(args),
-      items: knowledgeItems.map(knowledgeItemToRecord),
-    })
-  );
   const detailRefs = knowledgeItems.map((item) =>
     createKnowledgeDetailRef(item, 'search', false, args)
   );
   const sources = knowledgeItems.map((item, index) =>
     createKnowledgeSource(item, detailRefs[index]?.id)
   );
+  const queryLabel = searchQueryLabel(pipeline.query, relevance.normalizedFilters);
   const payload: KnowledgeContextProjectionPayload = {
     detailRefs,
     inventory: {
       candidateCount: candidateItems.length,
-      candidateSources: pipeline.residentAttempt?.meta.available
-        ? ['resident-search', 'embedded-search']
-        : ['embedded-search'],
+      candidateSources: candidateSourcesForPipeline(pipeline),
+      belowThresholdCount: relevance.belowThresholdCount,
+      ignoredInputs: ignoredSearchInputs(args),
       kindCounts: pipeline.kindCounts,
-      noTrustedMatch: relevance.noTrustedMatch,
+      laneEvidence: relevance.laneEvidence,
+      matchedCount: relevance.matchedCount,
+      normalizedFilters: relevance.normalizedFilters,
+      omittedCount: relevance.omittedCount,
       operation: 'search',
-      recipeRelationCount: relationChains.length,
-      trustedCandidateCount: knowledgeItems.length,
-      weakCandidateCount: relevance.weakCandidateCount,
+      returnedCount: relevance.returnedCount,
+      thresholds: relevance.thresholds,
+      zeroMatch: relevance.zeroMatch,
     },
-    items: knowledgeItems.map(projectKnowledgeItem),
-    nextActions: nextActionsForSearch(knowledgeItems, detailRefs, pipeline.query, relevance),
-    relations: relationChains.map((chain) => ({ ...chain })),
+    items: knowledgeItems.map((item) =>
+      projectKnowledgeItem(item, { includeContentPreview: false })
+    ),
+    nextActions: nextActionsForSearch(knowledgeItems, detailRefs, queryLabel, relevance),
+    relations: [],
     result: {
       actualMode: pipeline.actualMode,
       degraded: pipeline.degraded,
       kind: pipeline.kind === 'all' ? undefined : pipeline.kind,
       mode: pipeline.requestedMode,
-      query: pipeline.query,
+      query: pipeline.query.length === 0 ? undefined : pipeline.query,
+      queryLabel,
       residentSearch: sanitizeResidentSearchMeta(pipeline.residentAttempt?.meta),
       residentVector: sanitizeResidentVector(pipeline.searchMeta.residentVector),
       searchMeta: sanitizeSearchMeta(pipeline.searchMeta),
       searchQuality: {
+        belowThresholdCount: relevance.belowThresholdCount,
         degradedReason: relevance.degradedReason,
-        noTrustedMatch: relevance.noTrustedMatch,
-        trustedCandidateCount: knowledgeItems.length,
-        weakCandidateCount: relevance.weakCandidateCount,
+        laneEvidence: relevance.laneEvidence,
+        matchedCount: relevance.matchedCount,
+        normalizedFilters: relevance.normalizedFilters,
+        omittedCount: relevance.omittedCount,
+        returnedCount: relevance.returnedCount,
+        thresholds: relevance.thresholds,
+        zeroMatch: relevance.zeroMatch,
       },
       totalResults: knowledgeItems.length,
       vector: {
@@ -172,16 +170,16 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       },
     },
     sources,
-    summary: relevance.noTrustedMatch
-      ? `Knowledge search found no trusted candidate for "${pipeline.query}"; weak fallback matches were withheld.`
-      : `Knowledge search found ${knowledgeItems.length} trusted candidate(s) for "${pipeline.query}".`,
+    summary: relevance.zeroMatch
+      ? `Knowledge search returned zero direct matches for ${queryLabel}.`
+      : `Knowledge search returned ${relevance.returnedCount} of ${relevance.matchedCount} direct match(es) for ${queryLabel}.`,
   };
 
   return defaultProjectKnowledgeContextLayer.resolveMcpResult(
     'alembic_search',
     toKnowledgeContextSearchInput(args, {
       operation: 'search',
-      query: pipeline.query,
+      query: pipeline.query.length === 0 ? undefined : pipeline.query,
       mode: pipeline.requestedMode,
       projectRoot,
     }),
@@ -189,30 +187,16 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       payload,
       snapshot: {
         domainFreshness: {
-          knowledge: relevance.noTrustedMatch
+          knowledge: relevance.zeroMatch
             ? {
                 state: 'stale',
                 degradedReason:
                   relevance.degradedReason ??
-                  'No candidate had enough lexical, keyword, sourceRef, or semantic evidence to trust.',
+                  'No candidate met exact id/ref/title/trigger, explicit filter, keyword, or semantic match thresholds.',
               }
             : { state: 'ready' },
-          recipeRelation: {
-            state: relationChains.length > 0 ? 'ready' : 'stale',
-            degradedReason:
-              relationChains.length > 0
-                ? undefined
-                : 'No recipe relation chain evidence was found in the bounded candidate pool.',
-          },
-          vector: {
-            state: vectorAvailable(pipeline.searchMeta) ? 'ready' : 'stale',
-            degradedReason: vectorAvailable(pipeline.searchMeta)
-              ? undefined
-              : 'Vector evidence was unavailable; results used resident or embedded lexical ranking.',
-          },
         },
         knowledgeItemCount: knowledgeItems.length,
-        recipeRelationCount: relationChains.length,
         vectorCandidateCount: vectorUsed(pipeline.searchMeta) ? knowledgeItems.length : 0,
       },
     }
@@ -224,21 +208,39 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
   const engine = getSearchEngine(ctx) || (await getFallbackEngine(ctx));
   const residentSearchClient = getResidentSearchClient(ctx);
   const query = resolveSearchQuery(args);
-  const mode = args.mode || 'auto';
+  const mode = parsePublicSearchMode(args.mode);
   const kind = args.kind || args.type || 'all';
-  const residentIntentHandoff = prepareResidentSearchHandoff(args, query);
   const execution = createSearchExecutionOptions(args, mode, kind);
+  const hasTextQuery = hasExplicitTextSearchQuery(args);
 
-  const residentAttempt = await tryResidentSearch(residentSearchClient, {
-    kind,
-    limit: execution.engineLimit,
-    mode,
-    query,
-    rank: execution.rank,
-    ...residentIntentHandoff,
-  });
+  const residentAttempt = hasTextQuery
+    ? await tryResidentSearch(residentSearchClient, {
+        category: readString(args.category),
+        dimensionId: readString(args.dimensionId),
+        kind,
+        knowledgeType: readString(args.knowledgeType),
+        language: args.language,
+        limit: execution.engineLimit,
+        mode,
+        query,
+        rank: execution.rank,
+        scope: readString(args.scope),
+        tags: readStringArray(args.tags),
+      })
+    : null;
 
-  const result = await resolveSearchResult(engine, residentAttempt, query, mode, execution);
+  const result = hasTextQuery
+    ? await resolveSearchResult(engine, residentAttempt, query, mode, execution)
+    : {
+        items: [],
+        mode,
+        ranked: false,
+        searchMeta: {
+          route: 'metadata-filter-only',
+          semanticUsed: false,
+          vectorUsed: false,
+        },
+      };
 
   let items = result.items;
   const actualMode = result.mode || mode;
@@ -255,15 +257,14 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
   // ── semantic 降级提示 ──
   const degraded = mode === 'semantic' && actualMode !== 'semantic';
 
-  const source = result.ranked ? 'search-engine+ranking' : 'search-engine';
+  const source =
+    readString(result.searchMeta?.route) === 'metadata-filter-only'
+      ? 'metadata-filter-only'
+      : result.ranked
+        ? 'search-engine+ranking'
+        : 'search-engine';
   const searchMeta = {
     ...(result.searchMeta || {}),
-    ...(residentAttempt?.meta.intentEvidence
-      ? { intentEvidence: residentAttempt.meta.intentEvidence }
-      : {}),
-    ...(residentAttempt?.meta.primeInjectionPackage
-      ? { primeInjectionPackage: residentAttempt.meta.primeInjectionPackage }
-      : {}),
     ...(residentAttempt ? { residentSearch: residentAttempt.meta } : {}),
     ...(residentAttempt ? { residentVector: residentAttempt.meta.residentVector } : {}),
   };
@@ -288,54 +289,8 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
   };
 }
 
-function prepareResidentSearchHandoff(
-  args: SearchArgs,
-  query: string
-): Partial<ResidentSearchRequest> {
-  const hostIntentInput = prepareHostIntentInput({
-    userQuery: query,
-    language: args.language,
-    hostDeclaredIntent: args.hostDeclaredIntent,
-    hostTurnMeta: args.hostTurnMeta,
-  });
-  const extractedHostIntent = extractIntent(
-    hostIntentInput.userQuery,
-    undefined,
-    hostIntentInput.language
-  );
-  const handoff = buildResidentIntentHandoff({
-    hostIntentFrame: buildHostIntentFrame(hostIntentInput, extractedHostIntent),
-    language: args.language,
-    sessionHistory: args.sessionHistory,
-    sourceRefs: args.sourceRefs,
-    userQuery: query,
-  });
-  if (!handoff) {
-    return {};
-  }
-  return {
-    confidence: handoff.confidence,
-    degraded: handoff.degraded,
-    degradedReason: handoff.degradedReason,
-    hostDeclaredIntent: handoff.hostDeclaredIntent,
-    hostTurnMeta: handoff.hostTurnMeta,
-    intentContext: handoff.intentContext,
-    language: handoff.language,
-    scenario: handoff.scenario,
-    searchIntent: handoff.searchIntent,
-    sessionHistory: handoff.sessionHistory,
-    sourceRefs: handoff.sourceRefs,
-  };
-}
-
 interface SearchExecutionOptions {
-  context?: {
-    intent: 'search';
-    language?: string;
-    sessionHistory: unknown[];
-  };
   engineLimit: number;
-  isContext: boolean;
   limit: number;
   rank: boolean;
 }
@@ -345,21 +300,12 @@ function createSearchExecutionOptions(
   mode: string,
   kind: string
 ): SearchExecutionOptions {
-  const isContext = mode === 'context';
-  const limit = args.limit ?? (isContext ? 5 : 10);
+  const limit = args.limit ?? 10;
   const recallLimit = kind !== 'all' ? limit * 2 : limit;
   return {
-    context: isContext
-      ? {
-          intent: 'search',
-          language: args.language,
-          sessionHistory: args.sessionHistory || [],
-        }
-      : undefined,
     engineLimit: mode === 'semantic' ? recallLimit * 2 : recallLimit,
-    isContext,
     limit,
-    rank: mode !== 'keyword',
+    rank: false,
   };
 }
 
@@ -373,21 +319,128 @@ async function resolveSearchResult(
   execution: SearchExecutionOptions
 ): Promise<SearchEnginePipelineResult> {
   if (residentAttempt?.meta.available && residentAttempt.items.length > 0) {
+    const residentItems = residentAttempt.items.map((item) => markSearchRoute(item, 'semantic'));
+    if (mode === 'auto') {
+      const embedded = await tryEmbeddedSearch(engine, query, mode, execution);
+      if (embedded.items.length > 0) {
+        return {
+          items: mergeSearchResultItems([
+            ...embedded.items.map((item) => markSearchRoute(item, 'keyword')),
+            ...residentItems,
+          ]),
+          mode: residentAttempt.meta.actualMode || embedded.mode || mode,
+          ranked: embedded.ranked,
+          searchMeta: {
+            ...(embedded.searchMeta ?? {}),
+            residentSearchMeta: readRecord(residentAttempt.meta.searchMeta),
+          },
+        };
+      }
+    }
     return {
-      items: residentAttempt.items,
+      items: residentItems,
       mode: residentAttempt.meta.actualMode || mode,
       ranked: false,
       searchMeta: readRecord(residentAttempt.meta.searchMeta),
     };
   }
-  const result = await engine.search(query, {
-    mode: execution.isContext ? 'bm25' : mode,
-    limit: execution.engineLimit,
-    rank: execution.rank,
-    groupByKind: true,
-    context: execution.context,
-  });
-  return normalizeSearchEnginePipelineResult(result);
+  if (mode === 'semantic') {
+    return {
+      items: [],
+      mode,
+      ranked: false,
+      searchMeta: {
+        residentSearchMeta: readRecord(residentAttempt?.meta),
+        route: 'resident-semantic-unavailable',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    };
+  }
+  return tryEmbeddedSearch(engine, query, mode, execution);
+}
+
+async function tryEmbeddedSearch(
+  engine: {
+    search: (query: string, options: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  },
+  query: string,
+  mode: string,
+  execution: SearchExecutionOptions
+): Promise<SearchEnginePipelineResult> {
+  try {
+    const result = await engine.search(query, {
+      mode,
+      limit: execution.engineLimit,
+      rank: execution.rank,
+      groupByKind: true,
+    });
+    const normalized = normalizeSearchEnginePipelineResult(result);
+    return {
+      ...normalized,
+      items: normalized.items.map((item) => markSearchRoute(item, 'keyword')),
+    };
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[MCP/Search] embedded keyword search failed: ${reason}\n`);
+    return {
+      items: [],
+      mode,
+      ranked: false,
+      searchMeta: {
+        embeddedSearchError: reason,
+        route: 'embedded-search-unavailable',
+      },
+    };
+  }
+}
+
+function mergeSearchResultItems(items: readonly SearchResultItem[]): SearchResultItem[] {
+  const byId = new Map<string, SearchResultItem>();
+  for (const item of items) {
+    const existing = byId.get(item.id);
+    if (!existing || (item.score ?? 0) > (existing.score ?? 0)) {
+      byId.set(item.id, mergeSearchResultItem(existing, item));
+    } else {
+      byId.set(item.id, mergeSearchResultItem(item, existing));
+    }
+  }
+  return [...byId.values()];
+}
+
+function mergeSearchResultItem(
+  lowerPriority: SearchResultItem | undefined,
+  higherPriority: SearchResultItem
+): SearchResultItem {
+  const lowerMetadata = readRecord(lowerPriority?.metadata) ?? {};
+  const higherMetadata = readRecord(higherPriority.metadata) ?? {};
+  const routes = uniqueStrings([
+    ...readStringArray(lowerMetadata[INTERNAL_SEARCH_ROUTES_KEY]),
+    ...readStringArray(higherMetadata[INTERNAL_SEARCH_ROUTES_KEY]),
+  ]);
+  return {
+    ...lowerPriority,
+    ...higherPriority,
+    metadata: {
+      ...lowerMetadata,
+      ...higherMetadata,
+      ...(routes.length === 0 ? {} : { [INTERNAL_SEARCH_ROUTES_KEY]: routes }),
+    },
+  };
+}
+
+function markSearchRoute(item: SearchResultItem, route: 'keyword' | 'semantic'): SearchResultItem {
+  const metadata = readRecord(item.metadata) ?? {};
+  return {
+    ...item,
+    metadata: {
+      ...metadata,
+      [INTERNAL_SEARCH_ROUTES_KEY]: uniqueStrings([
+        ...readStringArray(metadata[INTERNAL_SEARCH_ROUTES_KEY]),
+        route,
+      ]),
+    },
+  };
 }
 
 interface SearchEnginePipelineResult {
@@ -438,21 +491,24 @@ async function projectDetailOperation(
   ]);
   const detailProvider = new DefaultKnowledgeDetailProvider(candidates);
   const expansionProvider = new DefaultContextExpansionProvider(detailProvider);
-  const relationProvider = new DefaultRecipeRelationChainProvider();
   const detail = refId ? detailProvider.getKnowledgeDetail(refId) : null;
-  const expanded =
+  const rawExpanded =
     operation === 'expand' && refId
       ? expansionProvider.expandContext(refId, contentCharLimit(args))
       : null;
+  const expanded =
+    rawExpanded && refId
+      ? {
+          ...rawExpanded,
+          detailRefs: uniqueStrings(
+            [refId, ...rawExpanded.detailRefs].map((value) => canonicalKnowledgeDetailRef(value))
+          ),
+          refId,
+        }
+      : rawExpanded;
   const selectedItem = detail ? candidates.find((candidate) => candidate.id === detail.id) : null;
   const detailRefs = selectedItem
     ? [createKnowledgeDetailRef(selectedItem, operation, true, args)]
-    : [];
-  const relationChains = selectedItem
-    ? relationProvider.expandRecipeRelationChains(selectedItem.id, relationHopLimit(args), {
-        fanout: relationFanout(args),
-        items: candidates.map(knowledgeItemToRecord),
-      })
     : [];
   const sources =
     selectedItem && detailRefs[0] ? [createKnowledgeSource(selectedItem, detailRefs[0].id)] : [];
@@ -462,11 +518,10 @@ async function projectDetailOperation(
       candidateCount: candidates.length,
       found: detail !== null,
       operation,
-      recipeRelationCount: relationChains.length,
     },
     items: selectedItem ? [projectKnowledgeItem(selectedItem)] : [],
-    nextActions: nextActionsForDetail(operation, refId, detailRefs[0]),
-    relations: relationChains.map((chain) => ({ ...chain })),
+    nextActions: selectedItem ? nextActionsForDetail(operation, refId, detailRefs[0]) : [],
+    relations: [],
     result: {
       expanded,
       found: detail !== null,
@@ -507,21 +562,8 @@ async function projectDetailOperation(
             state: detail === null ? 'stale' : 'ready',
             degradedReason: detail === null ? 'Requested knowledge ref was not found.' : undefined,
           },
-          recipeRelation: {
-            state: relationChains.length > 0 ? 'ready' : 'stale',
-            degradedReason:
-              relationChains.length > 0
-                ? undefined
-                : 'No recipe relation chain evidence was found for the requested ref.',
-          },
-          vector: {
-            state: 'stale',
-            degradedReason:
-              'Detail operations resolve a stable knowledge ref from the knowledge service and do not invoke vector/rerank.',
-          },
         },
         knowledgeItemCount: candidates.length,
-        recipeRelationCount: relationChains.length,
       },
     }
   );
@@ -532,9 +574,10 @@ async function buildKnowledgeCandidates(
   args: SearchArgs,
   pipeline: SearchPipelineResult
 ): Promise<KnowledgeRetrievalItem[]> {
-  const entryCandidates = (
-    await listKnowledgeEntries(ctx, args, Math.max((args.limit ?? 10) * 2, 20))
-  ).map(knowledgeEntryToCandidate);
+  const candidateLimit = Math.max((args.limit ?? 10) * 4, 20);
+  const entryCandidates = (await listKnowledgeEntries(ctx, args, candidateLimit)).map(
+    knowledgeEntryToCandidate
+  );
   const searchCandidates = pipeline.rawItems.map((item, index) =>
     searchItemToCandidate(item, pipeline.slimItems[index], pipeline.searchMeta)
   );
@@ -543,34 +586,45 @@ async function buildKnowledgeCandidates(
   );
   const ranked = provider.listRecipeCandidates(
     {
-      activeFile: args.activeFile,
       category: args.category,
+      dimensionId: readString(args.dimensionId),
       kind: args.kind ?? args.type ?? 'all',
-      keywords: args.keywords,
+      knowledgeType: readString(args.knowledgeType),
+      keywords: candidateKeywordsForSearch(args),
       language: args.language,
-      limit: args.limit ?? 10,
-      module: args.module,
-      query: pipeline.query,
-      sourceRefs: readStringArray(args.sourceRefs),
+      limit: candidateLimit,
+      query: candidateQueryForSearch(pipeline.query),
+      scope: readString(args.scope),
+      tags: readStringArray(args.tags),
     },
-    args.limit ?? 10
+    candidateLimit
   );
-  return new DefaultVectorRerankProvider().rerank(
-    pipeline.query,
-    ranked,
-    args.limit ?? 10,
-    vectorRerankEvidence(pipeline.searchMeta)
-  );
+  return ranked;
+}
+
+function candidateQueryForSearch(query: string): string {
+  return query;
+}
+
+function candidateKeywordsForSearch(args: SearchArgs): string[] {
+  return uniqueStrings([...(args.keywords ?? [])]);
 }
 
 interface SearchRelevanceAssessment {
-  boundedDetailIntent: boolean;
+  belowThresholdCount: number;
   degradedReason?: string;
   items: KnowledgeRetrievalItem[];
+  laneEvidence: Record<string, unknown>;
   lowInformationIntent: boolean;
-  mcpToolQualityIntent: boolean;
-  noTrustedMatch: boolean;
-  weakCandidateCount: number;
+  matchedCount: number;
+  normalizedFilters: Record<string, string | string[]>;
+  omittedCount: number;
+  returnedCount: number;
+  thresholds: {
+    keyword: number;
+    semantic: number;
+  };
+  zeroMatch: boolean;
 }
 
 function assessSearchRelevance(
@@ -578,116 +632,335 @@ function assessSearchRelevance(
   args: SearchArgs,
   pipeline: SearchPipelineResult
 ): SearchRelevanceAssessment {
-  if (items.length === 0) {
-    return {
-      boundedDetailIntent: false,
-      degradedReason: 'Search returned no candidate items.',
-      items: [],
-      lowInformationIntent: false,
-      mcpToolQualityIntent: false,
-      noTrustedMatch: true,
-      weakCandidateCount: 0,
-    };
-  }
-
+  const normalizedFilters = normalizeSearchFilters(args);
   const queryTerms = relevanceTerms([pipeline.query, ...(args.keywords ?? [])]);
-  const mcpToolQualityIntent = hasMcpToolQualityIntent(pipeline.query, args);
-  const profile: SearchRelevanceProfile = {
-    boundedDetailIntent: hasBoundedDetailIntent(queryTerms),
-    hasCallerContext: hasCallerRelevanceContext(args),
-    lowInformationIntent: hasLowInformationIntent(pipeline.query, args, queryTerms),
-    mcpToolQualityIntent,
-    semanticEvidenceAvailable: hasSemanticSearchEvidence(pipeline),
-    specificQuery: queryTerms.length >= 2 || (args.keywords?.length ?? 0) > 0,
-  };
-  const trusted = items.filter((item) => candidateHasTrustedRelevance(item, profile));
-  const weakCandidateCount = items.length - trusted.length;
-  if (trusted.length > 0) {
-    return {
-      boundedDetailIntent: profile.boundedDetailIntent,
-      degradedReason:
-        weakCandidateCount > 0
-          ? 'Weak fallback candidates without query, keyword, sourceRef, or semantic evidence were withheld.'
-          : undefined,
-      items: trusted,
-      lowInformationIntent: profile.lowInformationIntent,
-      mcpToolQualityIntent: profile.mcpToolQualityIntent,
-      noTrustedMatch: false,
-      weakCandidateCount,
-    };
-  }
-
+  const lowInformationIntent =
+    !hasExplicitSearchFilter(normalizedFilters) &&
+    !hasExplicitKnowledgeRef(args) &&
+    hasLowInformationIntent(pipeline.query, args, queryTerms);
+  const annotated = items.map((item) =>
+    annotateDirectSearchPrecision(item, args, pipeline, normalizedFilters, queryTerms)
+  );
+  const semanticEvidenceAvailable = hasSemanticSearchEvidence(pipeline);
+  const matched = lowInformationIntent
+    ? []
+    : pipeline.requestedMode === 'semantic'
+      ? annotated.filter((item) =>
+          readStringArray(item.scoreBreakdown?.matchRoutes).includes('semantic')
+        )
+      : annotated.filter((item) => readStringArray(item.scoreBreakdown?.matchRoutes).length > 0);
+  const limit = args.limit ?? 10;
+  const returned = matched.slice(0, limit);
+  const belowThresholdCount = annotated.length - matched.length;
+  const omittedCount = Math.max(0, matched.length - returned.length);
+  const zeroMatch = returned.length === 0;
   return {
-    boundedDetailIntent: profile.boundedDetailIntent,
-    degradedReason: noTrustedSearchReason(profile),
-    items: [],
-    lowInformationIntent: profile.lowInformationIntent,
-    mcpToolQualityIntent: profile.mcpToolQualityIntent,
-    noTrustedMatch: true,
-    weakCandidateCount: items.length,
+    belowThresholdCount,
+    degradedReason: directSearchDegradedReason({
+      belowThresholdCount,
+      candidateCount: annotated.length,
+      lowInformationIntent,
+      omittedCount,
+      residentUnavailableReason: residentSemanticUnavailableReason(pipeline),
+      semanticEvidenceAvailable,
+      semanticMode: pipeline.requestedMode === 'semantic',
+      zeroMatch,
+    }),
+    items: returned,
+    laneEvidence: buildDirectSearchLaneEvidence(pipeline, annotated, returned, normalizedFilters),
+    lowInformationIntent,
+    matchedCount: matched.length,
+    normalizedFilters,
+    omittedCount,
+    returnedCount: returned.length,
+    thresholds: {
+      keyword: KEYWORD_MATCH_THRESHOLD,
+      semantic: SEMANTIC_MATCH_THRESHOLD,
+    },
+    zeroMatch,
   };
 }
 
-interface SearchRelevanceProfile {
-  boundedDetailIntent: boolean;
-  hasCallerContext: boolean;
+type SearchMatchRoute = 'exact' | 'filter' | 'keyword' | 'semantic';
+
+function annotateDirectSearchPrecision(
+  item: KnowledgeRetrievalItem,
+  args: SearchArgs,
+  pipeline: SearchPipelineResult,
+  normalizedFilters: Record<string, string | string[]>,
+  queryTerms: readonly string[]
+): KnowledgeRetrievalItem {
+  const scoreBreakdown = item.scoreBreakdown ?? {};
+  const exactMatch = candidateHasExactMatch(item, args, pipeline.query);
+  const matchedFilters = matchedFilterLabels(scoreBreakdown, normalizedFilters);
+  const filterMatch =
+    hasExplicitSearchFilter(normalizedFilters) &&
+    matchedFilters.length === Object.keys(normalizedFilters).length;
+  const keywordMatchRate = exactMatch
+    ? 1
+    : directKeywordMatchRate(scoreBreakdown, queryTerms, args);
+  const semanticMatchRate = directSemanticMatchRate(item, pipeline);
+  const filterRouteAllowed = pipeline.requestedMode !== 'semantic';
+  const keywordRouteAllowed =
+    pipeline.requestedMode === 'auto' || pipeline.requestedMode === 'keyword';
+  const filterRouteMatched = filterRouteAllowed && filterMatch && !hasExplicitTextSearchQuery(args);
+  const keywordRouteMatched = keywordRouteAllowed && keywordMatchRate >= KEYWORD_MATCH_THRESHOLD;
+  const semanticRouteMatched =
+    semanticMatchRate !== undefined && semanticMatchRate >= SEMANTIC_MATCH_THRESHOLD;
+  const matchRoutes: SearchMatchRoute[] = [];
+  if (exactMatch) {
+    matchRoutes.push('exact');
+  }
+  if (filterRouteMatched) {
+    matchRoutes.push('filter');
+  }
+  if (keywordRouteMatched) {
+    matchRoutes.push('keyword');
+  }
+  if (semanticRouteMatched) {
+    matchRoutes.push('semantic');
+  }
+  const matchRate = Math.max(
+    exactMatch ? 1 : 0,
+    filterRouteMatched ? 1 : 0,
+    keywordRouteMatched ? keywordMatchRate : 0,
+    semanticRouteMatched ? (semanticMatchRate ?? 0) : 0
+  );
+  const routeEvidence = [
+    ...(exactMatch ? ['exact:id-ref-title-trigger'] : []),
+    ...(filterRouteMatched ? matchedFilters : []),
+    ...(keywordRouteMatched ? [`keyword:${keywordMatchRate.toFixed(2)}`] : []),
+    ...(semanticRouteMatched ? [`semantic:${semanticMatchRate.toFixed(2)}`] : []),
+  ];
+  return {
+    ...item,
+    scoreBreakdown: {
+      ...scoreBreakdown,
+      belowThreshold: matchRoutes.length === 0,
+      keywordMatchRate: Number(keywordMatchRate.toFixed(6)),
+      keywordThreshold: KEYWORD_MATCH_THRESHOLD,
+      matchRate: Number(matchRate.toFixed(6)),
+      matchRoutes,
+      matchedFilters,
+      routeEvidence,
+      semanticMatchRate:
+        semanticMatchRate === undefined ? undefined : Number(semanticMatchRate.toFixed(6)),
+      semanticThreshold: SEMANTIC_MATCH_THRESHOLD,
+    },
+    whyMatched: uniqueStrings([...(item.whyMatched ?? []), ...routeEvidence]),
+  };
+}
+
+function normalizeSearchFilters(args: SearchArgs): Record<string, string | string[]> {
+  const filters: Record<string, string | string[]> = {};
+  const kind = readString(args.kind ?? args.type);
+  if (kind && kind !== 'all') {
+    filters.kind = kind;
+  }
+  for (const [key, value] of Object.entries({
+    category: readString(args.category),
+    dimensionId: readString(args.dimensionId),
+    knowledgeType: readString(args.knowledgeType),
+    language: readString(args.language),
+    scope: readString(args.scope),
+  })) {
+    if (value) {
+      filters[key] = value;
+    }
+  }
+  const tags = readStringArray(args.tags);
+  if (tags.length > 0) {
+    filters.tags = tags;
+  }
+  return filters;
+}
+
+function hasExplicitSearchFilter(filters: Record<string, string | string[]>): boolean {
+  return Object.keys(filters).length > 0;
+}
+
+function hasExplicitKnowledgeRef(args: SearchArgs): boolean {
+  return (
+    readString(args.id) !== undefined ||
+    readString(args.refId) !== undefined ||
+    readString(args.detailRefId) !== undefined
+  );
+}
+
+function candidateHasExactMatch(
+  item: KnowledgeRetrievalItem,
+  args: SearchArgs,
+  query: string
+): boolean {
+  const needles = uniqueStrings([
+    readString(args.id),
+    readString(args.refId),
+    readString(args.detailRefId),
+    query,
+  ]).flatMap((value) => normalizedExactNeedles(value));
+  const candidateValues = uniqueStrings([
+    item.id,
+    `knowledge:${item.id}`,
+    item.detailRefId,
+    item.title,
+    item.trigger,
+    item.trigger?.replace(/^@/u, ''),
+    stableRefSegment(item.detailRefId ?? item.id),
+  ]).flatMap((value) => normalizedExactNeedles(value));
+  const candidateSet = new Set(candidateValues);
+  return needles.some((needle) => candidateSet.has(needle));
+}
+
+function normalizedExactNeedles(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  const normalized = value.trim().toLowerCase();
+  return uniqueStrings([
+    normalized,
+    canonicalKnowledgeDetailRef(normalized),
+    normalized.startsWith('knowledge:') ? normalized.slice('knowledge:'.length) : undefined,
+    normalized.startsWith('detail:') ? normalized.slice('detail:'.length) : undefined,
+    normalized.startsWith('@') ? normalized.slice(1) : undefined,
+  ]);
+}
+
+function matchedFilterLabels(
+  scoreBreakdown: Record<string, unknown>,
+  normalizedFilters: Record<string, string | string[]>
+): string[] {
+  return Object.keys(normalizedFilters)
+    .filter((field) => readBoolean(scoreBreakdown[`${field}Match`]) === true)
+    .map((field) => `filter:${field}`);
+}
+
+function directKeywordMatchRate(
+  scoreBreakdown: Record<string, unknown>,
+  queryTerms: readonly string[],
+  args: SearchArgs
+): number {
+  const queryHits = readNumber(scoreBreakdown.queryHits) ?? 0;
+  const keywordHits = readNumber(scoreBreakdown.keywordHits) ?? 0;
+  const keywordTerms = relevanceTerms(args.keywords ?? []);
+  const denominator = Math.max(1, Math.min(queryTerms.length + keywordTerms.length, 6));
+  return clampConfidence((queryHits + keywordHits) / denominator) ?? 0;
+}
+
+function directSemanticMatchRate(
+  item: KnowledgeRetrievalItem,
+  pipeline: SearchPipelineResult
+): number | undefined {
+  if (!hasSemanticSearchEvidence(pipeline)) {
+    return undefined;
+  }
+  const scoreBreakdown = item.scoreBreakdown ?? {};
+  const explicit =
+    readNumber(scoreBreakdown.semanticScore) ??
+    readNumber(scoreBreakdown.vectorScore) ??
+    readNumber(scoreBreakdown.finalScore);
+  if (explicit !== undefined) {
+    return clampConfidence(explicit);
+  }
+  const laneRoutes = readStringArray(scoreBreakdown.laneRoutes);
+  if (laneRoutes.includes('semantic')) {
+    return clampConfidence(item.score);
+  }
+  return undefined;
+}
+
+function directSearchDegradedReason(input: {
+  belowThresholdCount: number;
+  candidateCount: number;
   lowInformationIntent: boolean;
-  mcpToolQualityIntent: boolean;
+  omittedCount: number;
+  residentUnavailableReason?: string;
   semanticEvidenceAvailable: boolean;
-  specificQuery: boolean;
+  semanticMode: boolean;
+  zeroMatch: boolean;
+}): string | undefined {
+  if (input.lowInformationIntent) {
+    return 'Low-information search lacked exact id/ref/title/trigger, explicit keywords, or metadata filters; no fallback candidates were returned.';
+  }
+  if (input.semanticMode && !input.semanticEvidenceAvailable) {
+    return `Semantic search requires resident semantic/vector evidence; Plugin keyword/filter fallback was withheld${input.residentUnavailableReason ? ` (${input.residentUnavailableReason})` : ''}.`;
+  }
+  if (input.candidateCount === 0) {
+    return 'Search returned no candidate items.';
+  }
+  if (input.semanticMode && input.zeroMatch) {
+    return 'No resident semantic candidate met direct semantic admission threshold.';
+  }
+  if (input.zeroMatch) {
+    return 'No candidate met exact, metadata-filter, keyword threshold, or semantic threshold admission rules.';
+  }
+  if (input.belowThresholdCount > 0) {
+    return `${input.belowThresholdCount} candidate(s) were omitted below direct admission thresholds.`;
+  }
+  if (input.omittedCount > 0) {
+    return `${input.omittedCount} matched candidate(s) were omitted by the caller limit.`;
+  }
+  return undefined;
+}
+
+function buildDirectSearchLaneEvidence(
+  pipeline: SearchPipelineResult,
+  candidates: readonly KnowledgeRetrievalItem[],
+  returned: readonly KnowledgeRetrievalItem[],
+  normalizedFilters: Record<string, string | string[]>
+): Record<string, unknown> {
+  return {
+    filter: {
+      applied: hasExplicitSearchFilter(normalizedFilters),
+      candidateCount: countCandidatesWithRoute(candidates, 'filter'),
+      returnedCount: countCandidatesWithRoute(returned, 'filter'),
+    },
+    keyword: {
+      attempted: pipeline.requestedMode === 'auto' || pipeline.requestedMode === 'keyword',
+      candidateCount: countCandidatesWithLane(candidates, 'keyword'),
+      returnedCount: countCandidatesWithRoute(returned, 'keyword'),
+      threshold: KEYWORD_MATCH_THRESHOLD,
+    },
+    semantic: {
+      attempted: pipeline.residentAttempt?.meta.attempted === true,
+      available: hasSemanticSearchEvidence(pipeline),
+      candidateCount: countCandidatesWithLane(candidates, 'semantic'),
+      residentAvailable: pipeline.residentAttempt?.meta.available === true,
+      returnedCount: countCandidatesWithRoute(returned, 'semantic'),
+      threshold: SEMANTIC_MATCH_THRESHOLD,
+      unavailableReason: residentSemanticUnavailableReason(pipeline),
+      used: hasSemanticSearchEvidence(pipeline),
+    },
+  };
+}
+
+function countCandidatesWithRoute(
+  items: readonly KnowledgeRetrievalItem[],
+  route: SearchMatchRoute
+): number {
+  return items.filter((item) => readStringArray(item.scoreBreakdown?.matchRoutes).includes(route))
+    .length;
+}
+
+function countCandidatesWithLane(
+  items: readonly KnowledgeRetrievalItem[],
+  lane: 'keyword' | 'semantic'
+): number {
+  return items.filter((item) => readStringArray(item.scoreBreakdown?.laneRoutes).includes(lane))
+    .length;
 }
 
 function hasSemanticSearchEvidence(pipeline: SearchPipelineResult): boolean {
+  const residentVector = readRecord(pipeline.searchMeta.residentVector);
+  if (!residentVector || residentVectorUnavailableForSemantic(residentVector)) {
+    return false;
+  }
   return (
     vectorUsed(pipeline.searchMeta) ||
     (pipeline.residentAttempt?.meta.available === true &&
       pipeline.residentAttempt.meta.used !== false &&
+      readBoolean(residentVector.available) !== false &&
       pipeline.residentAttempt.items.length > 0)
   );
-}
-
-function candidateHasTrustedRelevance(
-  item: KnowledgeRetrievalItem,
-  profile: SearchRelevanceProfile
-): boolean {
-  const scoreBreakdown = item.scoreBreakdown ?? {};
-  const queryHits = readNumber(scoreBreakdown.queryHits) ?? 0;
-  const keywordHits = readNumber(scoreBreakdown.keywordHits) ?? 0;
-  const sourceRefHits = readNumber(scoreBreakdown.sourceRefHits) ?? 0;
-  const evidenceSignals = new Set(item.whyMatched ?? []);
-  const semanticSupport = candidateHasSemanticSupport(item, profile);
-  if (sourceRefHits > 0) {
-    return true;
-  }
-  if (profile.lowInformationIntent && !profile.hasCallerContext) {
-    return false;
-  }
-  if (profile.boundedDetailIntent) {
-    return candidateHasBoundedDetailSupport(item, {
-      evidenceSignals,
-      keywordHits,
-      queryHits,
-      semanticSupport,
-    });
-  }
-  if (profile.mcpToolQualityIntent) {
-    return candidateHasMcpToolQualitySupport(item, {
-      evidenceSignals,
-      keywordHits,
-      queryHits,
-      semanticSupport,
-    });
-  }
-  if (evidenceSignals.has('intent-anchor')) {
-    return true;
-  }
-  if (keywordHits >= (profile.specificQuery ? 2 : 1)) {
-    return true;
-  }
-  if (profile.specificQuery) {
-    return queryHits >= 2 || (queryHits > 0 && semanticSupport);
-  }
-  return queryHits > 0 || semanticSupport;
 }
 
 function relevanceTerms(values: readonly string[]): string[] {
@@ -701,12 +974,6 @@ function relevanceTerms(values: readonly string[]): string[] {
     }
   }
   return [...terms].slice(0, 80);
-}
-
-function hasBoundedDetailIntent(queryTerms: readonly string[]): boolean {
-  const terms = new Set(queryTerms);
-  const detailSignals = BOUNDED_DETAIL_INTENT_TERMS.filter((term) => terms.has(term)).length;
-  return detailSignals >= 2;
 }
 
 function hasLowInformationIntent(
@@ -725,30 +992,8 @@ function hasLowInformationIntent(
   return meaningfulTerms.length === 0 && queryText.length <= 80;
 }
 
-function hasCallerRelevanceContext(args: SearchArgs): boolean {
-  const hostDeclaredIntent = readRecord(args.hostDeclaredIntent);
-  const hostKeywords = readStringArray(hostDeclaredIntent?.keywords);
-  const hostSourceRefs = readStringArray(hostDeclaredIntent?.sourceRefs);
-  return (
-    readString(args.activeFile) !== undefined ||
-    readString(args.module) !== undefined ||
-    readStringArray(args.sourceRefs).length > 0 ||
-    readStringArray(args.sourceEvidenceRefs).length > 0 ||
-    (args.keywords?.length ?? 0) > 0 ||
-    hostKeywords.length > 0 ||
-    hostSourceRefs.length > 0
-  );
-}
-
 function hasMcpToolQualityIntent(query: string, args: SearchArgs): boolean {
-  const text = [
-    query,
-    ...(args.keywords ?? []),
-    readString(args.module) ?? '',
-    readString(args.activeFile) ?? '',
-  ]
-    .join(' ')
-    .toLowerCase();
+  const text = [query, ...(args.keywords ?? [])].join(' ').toLowerCase();
   const mentionsMcpTools =
     /\bmcp\b/u.test(text) &&
     (/四个/u.test(text) ||
@@ -756,168 +1001,22 @@ function hasMcpToolQualityIntent(query: string, args: SearchArgs): boolean {
       /\btools?\b/u.test(text) ||
       /工具/u.test(text));
   const mentionsQuality =
-    /内容质量|返回内容|语义|相关性|排序|质量/u.test(text) ||
-    /\b(quality|semantic|relevance|ranking|rank|content)\b/u.test(text);
+    /内容质量|返回内容|输出质量|语义|相关性|排序|质量|有价值/u.test(text) ||
+    /\b(output[-\s]?quality|quality|semantic|relevance|ranking|rank|content|diagnostics?)\b/u.test(
+      text
+    );
   const mentionsPublicToolName =
     /\balembic_(search|prime|project_matrix|graph)\b/u.test(text) ||
+    /\b(graph\/search|projectcontext|projectgraphprovider)\b/u.test(text) ||
     /public[-\s]?tools?|agent-public-tools|knowledge-context/u.test(text);
-  return (mentionsMcpTools && mentionsQuality) || (mentionsPublicToolName && mentionsQuality);
-}
-
-function candidateHasSemanticSupport(
-  item: KnowledgeRetrievalItem,
-  profile: SearchRelevanceProfile
-): boolean {
-  if (!profile.semanticEvidenceAvailable) {
-    return false;
-  }
-  const scoreBreakdown = item.scoreBreakdown ?? {};
+  const mentionsSearchOrGraphQuality =
+    /\b(search|graph|prime|matrix)\b/u.test(text) && mentionsQuality;
   return (
-    readNumber(scoreBreakdown.semanticScore) !== undefined ||
-    readNumber(scoreBreakdown.vectorEvidence) !== undefined ||
-    readNumber(scoreBreakdown.vectorScore) !== undefined ||
-    item.whyMatched?.includes('vector-rerank') === true ||
-    item.whyMatched?.includes('score-breakdown') === true
+    (mentionsMcpTools && mentionsQuality) ||
+    (mentionsPublicToolName && mentionsQuality) ||
+    mentionsSearchOrGraphQuality
   );
 }
-
-function candidateHasBoundedDetailSupport(
-  item: KnowledgeRetrievalItem,
-  evidence: {
-    evidenceSignals: Set<string>;
-    keywordHits: number;
-    queryHits: number;
-    semanticSupport: boolean;
-  }
-): boolean {
-  const support = boundedDetailSupportScore(item);
-  if (support < 2) {
-    return false;
-  }
-  if (evidence.evidenceSignals.has('intent-anchor') || evidence.semanticSupport) {
-    return true;
-  }
-  return evidence.queryHits >= 2 || evidence.keywordHits >= 2;
-}
-
-function candidateHasMcpToolQualitySupport(
-  item: KnowledgeRetrievalItem,
-  evidence: {
-    evidenceSignals: Set<string>;
-    keywordHits: number;
-    queryHits: number;
-    semanticSupport: boolean;
-  }
-): boolean {
-  const support = mcpToolQualitySupportScore(item);
-  if (support < 2) {
-    return false;
-  }
-  if (support >= 3) {
-    return true;
-  }
-  if (evidence.evidenceSignals.has('intent-anchor') || evidence.semanticSupport) {
-    return true;
-  }
-  return evidence.queryHits > 0 || evidence.keywordHits > 0;
-}
-
-function boundedDetailSupportScore(item: KnowledgeRetrievalItem): number {
-  const text = searchableCandidateText(item);
-  let score = 0;
-  for (const pattern of BOUNDED_DETAIL_SUPPORT_PATTERNS) {
-    if (pattern.test(text)) {
-      score += 1;
-    }
-  }
-  return score;
-}
-
-function mcpToolQualitySupportScore(item: KnowledgeRetrievalItem): number {
-  const text = searchableCandidateText(item);
-  let score = 0;
-  for (const pattern of MCP_TOOL_QUALITY_SUPPORT_PATTERNS) {
-    if (pattern.test(text)) {
-      score += 1;
-    }
-  }
-  return score;
-}
-
-function searchableCandidateText(item: KnowledgeRetrievalItem): string {
-  return [
-    item.id,
-    item.title,
-    item.summary,
-    item.trigger,
-    item.kind,
-    item.language,
-    item.category,
-    item.contentPreview,
-    ...(item.relationRefs ?? []),
-  ]
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
-    .join('\n')
-    .toLowerCase();
-}
-
-function noTrustedSearchReason(profile: SearchRelevanceProfile): string {
-  if (profile.lowInformationIntent && !profile.hasCallerContext) {
-    return 'Low-information search intent lacked activeFile, sourceRefs, keywords, or concrete intent anchors; semantic/vector similarity alone was withheld.';
-  }
-  if (profile.mcpToolQualityIntent) {
-    return 'Search produced only weak candidates without MCP public-tool, handler, schema, ranking, or semantic-quality anchors.';
-  }
-  if (profile.boundedDetailIntent) {
-    return 'Search produced only weak candidates without bounded Recipe detail/get/expand/detailRefs evidence.';
-  }
-  return 'Fallback search produced only weak candidates without enough query, keyword, sourceRef, or semantic evidence.';
-}
-
-const BOUNDED_DETAIL_INTENT_TERMS = [
-  'bounded',
-  'content',
-  'detail',
-  'detailrefs',
-  'details',
-  'expand',
-  'fetch',
-  'get',
-  'ref',
-  'refs',
-  'summary',
-];
-
-// 这些锚点把“检索 Recipe 详情”与普通 contract/get 等弱词区分开，避免向宿主暴露无关可信结果。
-const BOUNDED_DETAIL_SUPPORT_PATTERNS = [
-  /\balembic_search\b/u,
-  /\bdetail\s*refs?\b/u,
-  /\bdetailrefs?\b/u,
-  /\bexpand\b/u,
-  /\bstructuredcontent\b/u,
-  /\bknowledge-context\b/u,
-  /\bknowledge\s+context\b/u,
-  /\bsummary-only\b/u,
-  /\bbounded\b/u,
-];
-
-const MCP_TOOL_QUALITY_SUPPORT_PATTERNS = [
-  /\balembic_(search|prime|project_matrix|graph)\b/u,
-  /\bagent-public-tools\b/u,
-  /\bpublic[-\s]?tools?\b/u,
-  /\bmcp\b/u,
-  /\bhandler(s)?\b/u,
-  /\bschema\b/u,
-  /\bzodtomcpschema\b/u,
-  /\bknowledge-context\b/u,
-  /\bknowledge\s+context\b/u,
-  /\brank(ing)?\b/u,
-  /\brelevance\b/u,
-  /\bsemantic[-\s]?quality\b/u,
-  /\bprime(search|knowledge|material)?\b/u,
-  /\bprojectgraphprovider\b/u,
-  /\bsearch\.ts\b/u,
-];
 
 const GENERIC_RELEVANCE_TERMS = new Set([
   'alembic',
@@ -951,6 +1050,8 @@ const LOW_INFORMATION_QUERY_PATTERNS = [
   /^\s*where\s+do\s+i\s+start\s*[?.!]*\s*$/u,
   /^\s*(how|where)\s+(should\s+i\s+)?(start|begin|get\s+started)\s*[?.!]*\s*$/u,
   /^\s*(what\s+now|next\s+steps?|help)\s*[?.!]*\s*$/u,
+  /^\s*(这个|这|那个|那)?\s*(怎么|如何|咋)\s*(处理|办|做|修|解决)\s*[？?。!！]*\s*$/u,
+  /^\s*(怎么办|怎么处理|怎么弄|怎么做|如何处理|咋办)\s*[？?。!！]*\s*$/u,
 ];
 
 async function listKnowledgeEntries(
@@ -977,6 +1078,19 @@ async function listKnowledgeEntries(
   }
   if (args.category) {
     filters.category = args.category;
+  }
+  for (const [key, value] of Object.entries({
+    dimensionId: readString(args.dimensionId),
+    knowledgeType: readString(args.knowledgeType),
+    scope: readString(args.scope),
+  })) {
+    if (value) {
+      filters[key] = value;
+    }
+  }
+  const tags = readStringArray(args.tags);
+  if (tags.length === 1) {
+    filters.tag = tags[0] ?? '';
   }
   try {
     const result = await service.list(filters, { page: 1, pageSize: limit });
@@ -1024,6 +1138,8 @@ function searchItemToCandidate(
     rawItem.title;
   const kind = readString(rawItem.kind) ?? readString(rawItem.metadata?.kind);
   const itemScoreBreakdown = scoreBreakdownForItem(id, searchMeta);
+  const rawMetadata = readRecord(rawItem.metadata);
+  const laneRoutes = readStringArray(rawMetadata?.[INTERNAL_SEARCH_ROUTES_KEY]);
   return {
     category: readString(rawItem.category) ?? readString(rawItem.metadata?.category),
     contentPreview: summary,
@@ -1031,12 +1147,12 @@ function searchItemToCandidate(
     id,
     kind,
     language: readString(rawItem.language),
-    metadata: rawItem.metadata,
-    relationRefs: relationRefsForItem(rawItem),
+    metadata: stripInternalSearchMetadata(rawItem.metadata),
     resident: sanitizeResidentSearchMeta(searchMeta.residentSearch),
     score: typeof rawItem.score === 'number' ? rawItem.score : undefined,
     scoreBreakdown: {
       ...(itemScoreBreakdown ?? {}),
+      laneRoutes,
       searchScore: typeof rawItem.score === 'number' ? rawItem.score : null,
     },
     summary,
@@ -1046,8 +1162,20 @@ function searchItemToCandidate(
       available: vectorAvailable(searchMeta),
       used: vectorUsed(searchMeta),
     },
-    whyMatched: whyMatchedForItem(id, rawItem, searchMeta),
+    whyMatched: uniqueStrings([
+      ...whyMatchedForItem(id, rawItem, searchMeta),
+      ...laneRoutes.map((route) => `lane:${route}`),
+    ]),
   };
+}
+
+function stripInternalSearchMetadata(value: unknown): Record<string, unknown> | undefined {
+  const metadata = readRecord(value);
+  if (!metadata) {
+    return undefined;
+  }
+  const { [INTERNAL_SEARCH_ROUTES_KEY]: _internalSearchRoutes, ...publicMetadata } = metadata;
+  return publicMetadata;
 }
 
 function knowledgeEntryToCandidate(entry: KnowledgeEntryJSON): KnowledgeRetrievalItem {
@@ -1076,11 +1204,11 @@ function knowledgeEntryToCandidate(entry: KnowledgeEntryJSON): KnowledgeRetrieva
     kind: json.kind,
     language: json.language,
     metadata: {
+      dimensionId: readString(json.dimensionId),
       knowledgeType: json.knowledgeType,
-      relations: json.relations,
+      scope: json.scope,
       tags: json.tags,
     },
-    relationRefs: relationRefsFromRelations(json.relations),
     score: typeof json.quality?.overall === 'number' ? json.quality.overall : undefined,
     scoreBreakdown: {
       baseScore: typeof json.quality?.overall === 'number' ? json.quality.overall : 0,
@@ -1105,14 +1233,24 @@ function mergeKnowledgeCandidates(
   for (const item of items) {
     const existing = byId.get(item.id);
     if (!existing || (item.score ?? 0) > (existing.score ?? 0)) {
+      const mergedScoreBreakdown = mergeScoreBreakdowns(
+        existing?.scoreBreakdown,
+        item.scoreBreakdown
+      );
       byId.set(item.id, {
         ...existing,
         ...item,
-        relationRefs: Array.from(
-          new Set([...(existing?.relationRefs ?? []), ...(item.relationRefs ?? [])])
-        ),
+        scoreBreakdown: mergedScoreBreakdown,
         whyMatched: Array.from(
           new Set([...(existing?.whyMatched ?? []), ...(item.whyMatched ?? [])])
+        ),
+      });
+    } else {
+      byId.set(item.id, {
+        ...existing,
+        scoreBreakdown: mergeScoreBreakdowns(item.scoreBreakdown, existing.scoreBreakdown),
+        whyMatched: Array.from(
+          new Set([...(existing.whyMatched ?? []), ...(item.whyMatched ?? [])])
         ),
       });
     }
@@ -1120,9 +1258,32 @@ function mergeKnowledgeCandidates(
   return [...byId.values()];
 }
 
-function projectKnowledgeItem(item: KnowledgeRetrievalItem): Record<string, unknown> {
+function mergeScoreBreakdowns(
+  lowerPriority: Record<string, unknown> | undefined,
+  higherPriority: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!lowerPriority && !higherPriority) {
+    return undefined;
+  }
+  const laneRoutes = uniqueStrings([
+    ...readStringArray(lowerPriority?.laneRoutes),
+    ...readStringArray(higherPriority?.laneRoutes),
+  ]);
+  return {
+    ...(lowerPriority ?? {}),
+    ...(higherPriority ?? {}),
+    ...(laneRoutes.length === 0 ? {} : { laneRoutes }),
+  };
+}
+
+function projectKnowledgeItem(
+  item: KnowledgeRetrievalItem,
+  options: { includeContentPreview?: boolean } = {}
+): Record<string, unknown> {
+  const scoreBreakdown = item.scoreBreakdown ?? {};
   return {
     id: item.id,
+    refId: item.detailRefId ?? `knowledge:${item.id}`,
     title: item.title,
     summary: item.summary,
     kind: item.kind,
@@ -1131,12 +1292,16 @@ function projectKnowledgeItem(item: KnowledgeRetrievalItem): Record<string, unkn
     score: item.score,
     whyMatched: item.whyMatched,
     scoreBreakdown: item.scoreBreakdown,
-    relationRefs: item.relationRefs,
-    sourceRefs: [`knowledge:${item.id}`],
+    matchRate: readNumber(scoreBreakdown.matchRate),
+    keywordMatchRate: readNumber(scoreBreakdown.keywordMatchRate),
+    semanticMatchRate: readNumber(scoreBreakdown.semanticMatchRate),
+    matchRoutes: readStringArray(scoreBreakdown.matchRoutes),
+    matchedFilters: readStringArray(scoreBreakdown.matchedFilters),
+    routeEvidence: readStringArray(scoreBreakdown.routeEvidence),
     detailRefId: item.detailRefId,
     vector: item.vector,
     resident: item.resident,
-    contentPreview: item.contentPreview,
+    ...(options.includeContentPreview === false ? {} : { contentPreview: item.contentPreview }),
   };
 }
 
@@ -1147,10 +1312,6 @@ function createKnowledgeDetailRef(
   args: SearchArgs
 ): KnowledgeContextDetailRef {
   return defaultRefRegistry.createDetailRef({
-    budget: {
-      contentCharLimit: contentCharLimit(args),
-      relationHopLimit: relationHopLimit(args),
-    },
     domain: 'knowledge',
     id: item.detailRefId ?? `knowledge:${item.id}`,
     operation,
@@ -1178,23 +1339,16 @@ function createKnowledgeSource(
 function nextActionsForSearch(
   items: readonly KnowledgeRetrievalItem[],
   detailRefs: readonly KnowledgeContextDetailRef[],
-  query: string,
+  queryLabel: string,
   relevance: SearchRelevanceAssessment
 ): KnowledgeContextNextAction[] {
-  if (relevance.noTrustedMatch) {
+  if (relevance.zeroMatch) {
     return [
       {
         operation: 'search',
-        reason: `Refine "${query}" with concrete module names, symbols, source refs, or narrower keywords before trusting fallback knowledge.`,
+        reason: `Retry ${queryLabel} with an exact Recipe id/ref/title/trigger, explicit keywords, or metadata filters that satisfy direct admission thresholds.`,
         required: false,
         tool: 'alembic_search',
-      },
-      {
-        operation: 'overview',
-        reason:
-          'Use the project matrix to choose a bounded project area before retrying knowledge search.',
-        required: false,
-        tool: 'alembic_project_matrix',
       },
     ];
   }
@@ -1220,12 +1374,25 @@ function nextActionsForDetail(
     {
       detailRefId: detailRef?.id,
       operation: 'expand',
-      reason: 'Expand relation chains and content preview for the resolved knowledge ref.',
+      reason: 'Expand bounded content preview for the resolved knowledge ref.',
       refId,
       required: false,
       tool: 'alembic_search',
     },
   ];
+}
+
+function ignoredSearchInputs(args: SearchArgs): string[] {
+  const ignored = [
+    readString(args.activeFile) === undefined ? undefined : 'activeFile',
+    readString(args.module) === undefined ? undefined : 'module',
+    Array.isArray(args.sessionHistory) ? 'sessionHistory' : undefined,
+    readRecord(args.hostDeclaredIntent) === undefined ? undefined : 'hostDeclaredIntent',
+    readRecord(args.hostTurnMeta) === undefined ? undefined : 'hostTurnMeta',
+    readStringArray(args.sourceRefs).length === 0 ? undefined : 'sourceRefs',
+    readStringArray(args.sourceEvidenceRefs).length === 0 ? undefined : 'sourceEvidenceRefs',
+  ];
+  return ignored.filter((value): value is string => typeof value === 'string');
 }
 
 function toKnowledgeContextSearchInput(
@@ -1253,17 +1420,15 @@ function toKnowledgeContextSearchInput(
     kind: normalizeKnowledgeKind(args.kind ?? args.type),
     ...(readString(args.category) === undefined ? {} : { category: readString(args.category) }),
     ...(readString(args.language) === undefined ? {} : { language: readString(args.language) }),
-    ...(readString(args.activeFile) === undefined
+    ...(readString(args.dimensionId) === undefined
       ? {}
-      : { activeFile: readString(args.activeFile) }),
-    ...(readString(args.module) === undefined ? {} : { module: readString(args.module) }),
+      : { dimensionId: readString(args.dimensionId) }),
+    ...(readString(args.knowledgeType) === undefined
+      ? {}
+      : { knowledgeType: readString(args.knowledgeType) }),
+    ...(readString(args.scope) === undefined ? {} : { scope: readString(args.scope) }),
+    ...(readStringArray(args.tags).length === 0 ? {} : { tags: readStringArray(args.tags) }),
     ...(projectRoot === undefined ? {} : { projectRoot }),
-    ...(readStringArray(args.sourceRefs).length === 0
-      ? {}
-      : { sourceRefs: readStringArray(args.sourceRefs) }),
-    ...(readStringArray(args.sourceEvidenceRefs).length === 0
-      ? {}
-      : { sourceEvidenceRefs: readStringArray(args.sourceEvidenceRefs) }),
     ...(Array.isArray(args.keywords) ? { keywords: args.keywords } : {}),
     budget: {
       ...budget,
@@ -1274,7 +1439,6 @@ function toKnowledgeContextSearchInput(
     },
     detailLevel: readString(args.detailLevel) ?? 'summary',
     freshnessPolicy: readRecord(args.freshnessPolicy) ?? { policy: 'preferFresh' },
-    hostDeclaredIntent: sanitizeHostDeclaredIntent(args.hostDeclaredIntent),
   };
 }
 
@@ -1294,12 +1458,20 @@ function normalizeSearchOperation(value: unknown): 'search' | 'get' | 'expand' {
   return value === 'get' || value === 'expand' ? value : 'search';
 }
 
-function normalizeKnowledgeSearchMode(
-  value: unknown
-): 'auto' | 'keyword' | 'bm25' | 'semantic' | 'context' {
-  return value === 'keyword' || value === 'bm25' || value === 'semantic' || value === 'context'
-    ? value
-    : 'auto';
+function parsePublicSearchMode(value: unknown): 'auto' | 'keyword' | 'semantic' {
+  if (value === undefined || value === null || value === '' || value === 'auto') {
+    return 'auto';
+  }
+  if (value === 'keyword' || value === 'semantic') {
+    return value;
+  }
+  throw new Error(
+    `Unsupported alembic_search mode "${String(value)}". Supported modes: auto, keyword, semantic.`
+  );
+}
+
+function normalizeKnowledgeSearchMode(value: unknown): 'auto' | 'keyword' | 'semantic' {
+  return value === 'keyword' || value === 'semantic' ? value : 'auto';
 }
 
 function normalizeKnowledgeKind(value: unknown): string {
@@ -1312,34 +1484,95 @@ function normalizeKnowledgeKind(value: unknown): string {
 function resolveSearchQuery(args: SearchArgs): string {
   return (
     readString(args.query) ??
-    readString(readRecord(args.hostDeclaredIntent)?.query) ??
     (Array.isArray(args.keywords) && args.keywords.length > 0
       ? args.keywords.join(' ')
       : undefined) ??
     readString(args.refId) ??
     readString(args.id) ??
-    'knowledge'
+    ''
   );
 }
 
+function hasExplicitTextSearchQuery(args: SearchArgs): boolean {
+  return (
+    readString(args.query) !== undefined ||
+    (Array.isArray(args.keywords) && args.keywords.length > 0) ||
+    readString(args.refId) !== undefined ||
+    readString(args.id) !== undefined
+  );
+}
+
+function searchQueryLabel(
+  query: string,
+  normalizedFilters: Record<string, string | string[]>
+): string {
+  if (query.length > 0) {
+    return `"${query}"`;
+  }
+  if (hasExplicitSearchFilter(normalizedFilters)) {
+    return 'metadata filters';
+  }
+  return 'the requested criteria';
+}
+
+function candidateSourcesForPipeline(pipeline: SearchPipelineResult): string[] {
+  return uniqueStrings([
+    pipeline.residentAttempt?.meta.available === true ? 'resident-search' : undefined,
+    pipeline.source === 'metadata-filter-only' ? undefined : 'embedded-search',
+    'knowledge-service',
+  ]);
+}
+
 function resolveDetailRef(args: SearchArgs): string | undefined {
-  return readString(args.refId) ?? readString(args.id) ?? readString(args.detailRefId);
+  const refId = readString(args.refId) ?? readString(args.id) ?? readString(args.detailRefId);
+  return refId === undefined ? undefined : canonicalKnowledgeDetailRef(refId);
 }
 
 function candidateDetailRefIds(refId: string): string[] {
+  const canonical = canonicalKnowledgeDetailRef(refId);
   const strippedKnowledge = refId.startsWith('knowledge:')
     ? refId.slice('knowledge:'.length)
     : refId;
   const strippedDetail = refId.startsWith('detail:') ? refId.slice('detail:'.length) : refId;
-  return Array.from(new Set([refId, strippedKnowledge, strippedDetail, stableRefSegment(refId)]));
+  const strippedCanonicalKnowledge = canonical.startsWith('knowledge:')
+    ? canonical.slice('knowledge:'.length)
+    : canonical;
+  const strippedCanonicalDetail = canonical.startsWith('detail:')
+    ? canonical.slice('detail:'.length)
+    : canonical;
+  return Array.from(
+    new Set([
+      refId,
+      canonical,
+      strippedKnowledge,
+      strippedDetail,
+      strippedCanonicalKnowledge,
+      strippedCanonicalDetail,
+      stableRefSegment(refId),
+      stableRefSegment(canonical),
+    ])
+  );
+}
+
+function canonicalKnowledgeDetailRef(refId: string): string {
+  let current = refId.trim();
+  for (let index = 0; index < 4; index += 1) {
+    const next = stripKnowledgeOperationRef(current);
+    if (next === current) {
+      return current;
+    }
+    current = next;
+  }
+  return current;
+}
+
+function stripKnowledgeOperationRef(refId: string): string {
+  const match = /^(?:knowledge|detail):(search|get|expand):(.+)$/.exec(refId);
+  return match?.[2] === undefined ? refId : match[2];
 }
 
 function relationHopLimit(args: SearchArgs): number {
   return clampNumber(numberFromRecord(readRecord(args.budget), 'relationHopLimit') ?? 2, 1, 10);
-}
-
-function relationFanout(args: SearchArgs): number {
-  return clampNumber(args.limit ?? 5, 1, 20);
 }
 
 function contentCharLimit(args: SearchArgs): number {
@@ -1351,18 +1584,140 @@ function contentCharLimit(args: SearchArgs): number {
 }
 
 function vectorRerankEvidence(searchMeta: Record<string, unknown>): VectorRerankEvidence {
-  const intentEvidence = readRecord(searchMeta.intentEvidence);
-  const primeInjectionPackage = readRecord(searchMeta.primeInjectionPackage);
-  const vector = readRecord(primeInjectionPackage?.vector);
+  const residentVector = normalizeResidentVectorTelemetry(readRecord(searchMeta.residentVector));
+  const vectorSuppressed = residentVectorUnavailableForSemantic(residentVector);
   return {
-    residentVector: readRecord(searchMeta.residentVector),
+    residentVector,
     scoreBreakdown:
-      readRecordArray(intentEvidence?.scoreBreakdown) ?? readRecordArray(vector?.scoreBreakdown),
-    semanticUsed: readBoolean(searchMeta.semanticUsed) ?? readBoolean(vector?.semanticUsed),
-    vectorAvailable:
-      readBoolean(readRecord(searchMeta.residentVector)?.available) ??
-      readBoolean(vector?.vectorAvailable),
-    vectorUsed: readBoolean(searchMeta.vectorUsed) ?? readBoolean(vector?.vectorUsed),
+      readRecordArray(searchMeta.scoreBreakdown) ??
+      readRecordArray(readRecord(searchMeta.searchMeta)?.scoreBreakdown),
+    semanticUsed: vectorSuppressed ? false : readBoolean(searchMeta.semanticUsed),
+    vectorAvailable: vectorSuppressed ? false : readBoolean(residentVector?.available),
+    vectorUsed: vectorSuppressed ? false : readBoolean(searchMeta.vectorUsed),
+  };
+}
+
+function normalizeResidentVectorTelemetry(
+  vector: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!vector) {
+    return undefined;
+  }
+  const unavailableReason = residentVectorUnavailableReason(vector);
+  if (!unavailableReason) {
+    return vector;
+  }
+  return {
+    ...vector,
+    available: false,
+    reason: unavailableReason,
+    vectorAvailable: false,
+    vectorUsed: false,
+  };
+}
+
+function residentVectorEmptyIndex(vector: Record<string, unknown> | undefined): boolean {
+  if (!vector) {
+    return false;
+  }
+  if (readString(vector.reason) === 'empty-vector-index') {
+    return true;
+  }
+  const stats = readRecord(vector?.stats);
+  if (!stats) {
+    return false;
+  }
+  const indexSize = readNumber(stats?.indexSize);
+  if (indexSize === 0) {
+    return true;
+  }
+  if (indexSize !== undefined) {
+    return false;
+  }
+  if (readBoolean(stats?.hasIndex) === false) {
+    return true;
+  }
+  const count = readNumber(stats?.count);
+  const dimension = readNumber(stats?.dimension);
+  const embedProviderAvailable = readBoolean(stats?.embedProviderAvailable);
+  if ((count ?? 0) > 0 && (dimension ?? 0) > 0 && embedProviderAvailable !== false) {
+    return false;
+  }
+  return false;
+}
+
+function residentVectorSparseOnly(vector: Record<string, unknown> | undefined): boolean {
+  if (!vector) {
+    return false;
+  }
+  if (readBoolean(vector.sparseOnly) === true) {
+    return true;
+  }
+  const stats = readRecord(vector.stats);
+  if (readBoolean(stats?.sparseOnly) === true) {
+    return true;
+  }
+  const signals = [
+    readString(vector.reason),
+    readString(vector.mode),
+    readString(vector.route),
+    readString(vector.strategy),
+    readString(stats?.mode),
+    readString(stats?.route),
+    readString(stats?.strategy),
+  ];
+  return signals.some((signal) => signal === 'sparse-only');
+}
+
+function residentVectorUnavailableForSemantic(
+  vector: Record<string, unknown> | undefined
+): boolean {
+  return residentVectorUnavailableReason(vector) !== undefined;
+}
+
+function residentVectorUnavailableReason(
+  vector: Record<string, unknown> | undefined
+): string | undefined {
+  if (!vector) {
+    return undefined;
+  }
+  const explicitReason = readString(vector.reason);
+  if (explicitReason === 'empty-vector-index') {
+    return explicitReason;
+  }
+  if (residentVectorSparseOnly(vector)) {
+    return 'sparse-only';
+  }
+  if (residentVectorEmptyIndex(vector)) {
+    return 'empty-vector-index';
+  }
+  if (readBoolean(vector.available) === false) {
+    return explicitReason ?? 'resident-vector-unavailable';
+  }
+  return undefined;
+}
+
+function residentSemanticUnavailableReason(pipeline: SearchPipelineResult): string | undefined {
+  return (
+    residentVectorUnavailableReason(readRecord(pipeline.searchMeta.residentVector)) ??
+    (pipeline.residentAttempt?.meta.available === false
+      ? pipeline.residentAttempt.meta.reason
+      : undefined)
+  );
+}
+
+function compactResidentVectorStats(
+  stats: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!stats) {
+    return undefined;
+  }
+  return {
+    count: readNumber(stats.count),
+    dimension: readNumber(stats.dimension),
+    embedProviderAvailable: readBoolean(stats.embedProviderAvailable),
+    hasIndex: readBoolean(stats.hasIndex),
+    indexSize: readNumber(stats.indexSize),
   };
 }
 
@@ -1373,12 +1728,11 @@ function sanitizeSearchMeta(searchMeta: Record<string, unknown>): Record<string,
     requestedMode: readString(searchMeta.requestedMode),
     residentRequestMode: readString(searchMeta.residentRequestMode),
     route: readString(searchMeta.route),
-    semanticUsed: readBoolean(searchMeta.semanticUsed),
-    vectorUsed: readBoolean(searchMeta.vectorUsed),
-    intentEvidence: compactIntentEvidence(readRecord(searchMeta.intentEvidence)),
-    primeInjectionPackage: compactPrimeInjectionPackage(
-      readRecord(searchMeta.primeInjectionPackage)
-    ),
+    semanticUsed: vectorUsed(searchMeta)
+      ? readBoolean(searchMeta.semanticUsed)
+      : (readBoolean(searchMeta.semanticUsed) ?? false) &&
+        !residentVectorUnavailableForSemantic(readRecord(searchMeta.residentVector)),
+    vectorUsed: vectorUsed(searchMeta),
   };
 }
 
@@ -1388,12 +1742,14 @@ function sanitizeResidentSearchMeta(value: unknown): Record<string, unknown> | u
     return undefined;
   }
   const projectScopeIdentity = readRecord(meta.projectScopeIdentity);
+  const residentVectorUnavailable = residentVectorUnavailableForSemantic(
+    readRecord(meta.residentVector)
+  );
   return {
     actualMode: readString(meta.actualMode),
     attempted: readBoolean(meta.attempted),
     available: readBoolean(meta.available),
     durationMs: readNumber(meta.durationMs),
-    hostIntentHandoff: readRecord(meta.hostIntentHandoff),
     projectScopeIdentity: projectScopeIdentity
       ? {
           mode: readString(projectScopeIdentity.mode),
@@ -1405,14 +1761,14 @@ function sanitizeResidentSearchMeta(value: unknown): Record<string, unknown> | u
     requestedMode: readString(meta.requestedMode),
     residentRequestMode: readString(meta.residentRequestMode),
     route: readString(meta.route),
-    semanticUsed: readBoolean(meta.semanticUsed),
+    semanticUsed: residentVectorUnavailable ? false : readBoolean(meta.semanticUsed),
     used: readBoolean(meta.used),
-    vectorUsed: readBoolean(meta.vectorUsed),
+    vectorUsed: residentVectorUnavailable ? false : readBoolean(meta.vectorUsed),
   };
 }
 
 function sanitizeResidentVector(value: unknown): Record<string, unknown> | undefined {
-  const vector = readRecord(value);
+  const vector = normalizeResidentVectorTelemetry(readRecord(value));
   if (!vector) {
     return undefined;
   }
@@ -1420,73 +1776,7 @@ function sanitizeResidentVector(value: unknown): Record<string, unknown> | undef
     available: readBoolean(vector.available),
     endpoint: readString(vector.endpoint),
     reason: readString(vector.reason),
-  };
-}
-
-function compactIntentEvidence(
-  value: Record<string, unknown> | undefined
-): Record<string, unknown> | undefined {
-  if (!value) {
-    return undefined;
-  }
-  return {
-    degraded: readBoolean(value.degraded),
-    degradedReasons: readStringArray(value.degradedReasons),
-    relationEvidence: readRecordArray(value.relationEvidence)?.slice(0, 10),
-    scoreBreakdown: readRecordArray(value.scoreBreakdown)?.slice(0, 10),
-    semanticAnchors: readRecordArray(value.semanticAnchors)?.slice(0, 10),
-    topAnchorMatches: readRecordArray(value.topAnchorMatches)?.slice(0, 10),
-    version: readNumber(value.version),
-  };
-}
-
-function compactPrimeInjectionPackage(
-  value: Record<string, unknown> | undefined
-): Record<string, unknown> | undefined {
-  if (!value) {
-    return undefined;
-  }
-  const injection = readRecord(value.injection);
-  const intent = readRecord(value.intent);
-  const search = readRecord(value.search);
-  const trace = readRecord(value.trace);
-  const vector = readRecord(value.vector);
-  return {
-    injection: injection
-      ? {
-          selectedCount: readNumber(injection.selectedCount),
-          status: readString(injection.status),
-        }
-      : undefined,
-    intent: intent
-      ? {
-          confidence: readNumber(intent.confidence),
-          executableQuery: readString(intent.executableQuery),
-          requestedMode: readString(intent.requestedMode),
-        }
-      : undefined,
-    search: search
-      ? {
-          actualMode: readString(search.actualMode),
-          filteredCount: readNumber(search.filteredCount),
-          requestedMode: readString(search.requestedMode),
-          resultCount: readNumber(search.resultCount),
-        }
-      : undefined,
-    trace: trace
-      ? {
-          evidenceRefs: readStringArray(trace.evidenceRefs),
-          sourceRefs: readStringArray(trace.sourceRefs),
-          sources: readStringArray(trace.sources),
-        }
-      : undefined,
-    vector: vector
-      ? {
-          semanticUsed: readBoolean(vector.semanticUsed),
-          vectorAvailable: readBoolean(vector.vectorAvailable),
-          vectorUsed: readBoolean(vector.vectorUsed),
-        }
-      : undefined,
+    stats: compactResidentVectorStats(readRecord(vector.stats)),
   };
 }
 
@@ -1503,13 +1793,9 @@ function whyMatchedForItem(
   item: SearchResultItem,
   searchMeta: Record<string, unknown>
 ): string[] {
-  const intentEvidence = readRecord(searchMeta.intentEvidence);
-  const topAnchorMatches = readRecordArray(intentEvidence?.topAnchorMatches) ?? [];
-  const anchorMatch = topAnchorMatches.find((entry) => entry.itemId === itemId);
   return [
     'search-result',
     ...(readString(item.trigger) ? ['trigger'] : []),
-    ...(anchorMatch ? ['intent-anchor'] : []),
     ...(scoreBreakdownForItem(itemId, searchMeta) ? ['score-breakdown'] : []),
   ];
 }
@@ -1522,49 +1808,6 @@ function vectorAvailable(searchMeta: Record<string, unknown>): boolean {
 function vectorUsed(searchMeta: Record<string, unknown>): boolean {
   const evidence = vectorRerankEvidence(searchMeta);
   return evidence.vectorUsed === true || evidence.semanticUsed === true;
-}
-
-function relationRefsForItem(item: SearchResultItem): string[] {
-  return relationRefsFromRelations(item.relations).concat(
-    relationRefsFromRelations(readRecord(item.metadata)?.relations)
-  );
-}
-
-function relationRefsFromRelations(relations: unknown): string[] {
-  if (!relations || typeof relations !== 'object') {
-    return [];
-  }
-  const refs: string[] = [];
-  if (Array.isArray(relations)) {
-    for (const item of relations) {
-      refs.push(...relationRefsFromRelationEntry(item));
-    }
-  } else {
-    for (const value of Object.values(relations)) {
-      if (Array.isArray(value)) {
-        refs.push(...value.flatMap(relationRefsFromRelationEntry));
-      } else {
-        refs.push(...relationRefsFromRelationEntry(value));
-      }
-    }
-  }
-  return Array.from(new Set(refs));
-}
-
-function relationRefsFromRelationEntry(value: unknown): string[] {
-  if (typeof value === 'string') {
-    return [value];
-  }
-  const record = readRecord(value);
-  const ref = readString(record?.id) ?? readString(record?.refId) ?? readString(record?.targetId);
-  return ref ? [ref] : [];
-}
-
-function knowledgeItemToRecord(item: KnowledgeRetrievalItem): Record<string, unknown> {
-  return {
-    ...item,
-    relations: item.metadata?.relations,
-  };
 }
 
 function toKnowledgeEntryJson(value: unknown): KnowledgeEntryJSON {
@@ -1584,24 +1827,6 @@ function safeContainerGet(ctx: McpContext, name: string): unknown {
   } catch {
     return null;
   }
-}
-
-function sanitizeHostDeclaredIntent(value: unknown): Record<string, unknown> | undefined {
-  const record = readRecord(value);
-  if (!record) {
-    return undefined;
-  }
-  return {
-    ...(readString(record.action) === undefined ? {} : { action: readString(record.action) }),
-    ...(readString(record.target) === undefined ? {} : { target: readString(record.target) }),
-    ...(readNumber(record.confidence) === undefined
-      ? {}
-      : { confidence: readNumber(record.confidence) }),
-    ...(readString(record.query) === undefined ? {} : { query: readString(record.query) }),
-    ...(readStringArray(record.sourceRefs).length === 0
-      ? {}
-      : { sourceRefs: readStringArray(record.sourceRefs) }),
-  };
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
@@ -1624,6 +1849,14 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.length > 0)
     : [];
+}
+
+function uniqueStrings(values: readonly (string | undefined)[]): string[] {
+  return Array.from(
+    new Set(
+      values.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    )
+  );
 }
 
 function readBoolean(value: unknown): boolean | undefined {
@@ -1655,14 +1888,23 @@ function clampConfidence(value: unknown): number | undefined {
 async function tryResidentSearch(
   residentSearchClient: ResidentSearchClient | null,
   request: ResidentSearchRequest & {
+    category?: string;
+    dimensionId?: string;
     kind: string;
+    knowledgeType?: string;
     limit: number;
     mode: string;
     query: string;
     rank: boolean;
+    scope?: string;
+    tags?: string[];
   }
 ): Promise<{ items: SearchResultItem[]; meta: ResidentSearchAttemptMeta } | null> {
-  if (!residentSearchClient || !shouldAskResidentSearch(request.mode)) {
+  if (
+    !residentSearchClient ||
+    !shouldAskResidentSearch(request.mode) ||
+    !readString(request.query)
+  ) {
     return null;
   }
   try {
@@ -1672,18 +1914,29 @@ async function tryResidentSearch(
       limit: request.limit,
       rank: request.rank,
       kind: request.kind,
-      confidence: request.confidence,
-      degraded: request.degraded,
-      degradedReason: request.degradedReason,
-      hostDeclaredIntent: request.hostDeclaredIntent,
-      hostTurnMeta: request.hostTurnMeta,
-      intentContext: request.intentContext,
       language: request.language,
-      scenario: request.scenario,
-      searchIntent: request.searchIntent,
-      sessionHistory: request.sessionHistory,
-      sourceRefs: request.sourceRefs,
+      ...(request.category ? { category: request.category } : {}),
+      ...(request.dimensionId ? { dimensionId: request.dimensionId } : {}),
+      ...(request.knowledgeType ? { knowledgeType: request.knowledgeType } : {}),
+      ...(request.scope ? { scope: request.scope } : {}),
+      ...(request.tags && request.tags.length > 0 ? { tags: request.tags } : {}),
     });
+    if (!result.meta) {
+      return {
+        items: [],
+        meta: {
+          attempted: true,
+          available: false,
+          durationMs: 0,
+          reason: 'invalid-resident-search-response',
+          requestedMode: request.mode,
+          residentVector: { available: false, reason: 'invalid-resident-search-response' },
+          resultCount: 0,
+          route: 'alembic-resident-service',
+          used: false,
+        },
+      };
+    }
     if (!result.meta.available) {
       process.stderr.write(`[MCP/Search] resident search unavailable: ${result.meta.reason}\n`);
     }
@@ -1713,14 +1966,6 @@ async function tryResidentSearch(
 
 function shouldAskResidentSearch(mode: string): boolean {
   return mode === 'auto' || mode === 'semantic';
-}
-
-// ─── Backward-compatible aliases ────────────────────────────
-// tool-router.ts 按 mode 路由时直接调用这些别名
-
-/** contextSearch — mode='context' 的别名 */
-export function contextSearch(ctx: McpContext, args: SearchArgs) {
-  return search(ctx, { ...args, mode: 'context' });
 }
 
 /** keywordSearch — mode='keyword' 的别名 */

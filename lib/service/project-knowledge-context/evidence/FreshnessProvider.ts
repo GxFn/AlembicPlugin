@@ -28,16 +28,9 @@ export type KnowledgeContextFreshnessByDomain = Record<
 
 const TOOL_REQUIRED_DOMAINS: Record<KnowledgeContextToolName, KnowledgeContextSourceDomain[]> = {
   alembic_project_matrix: ['project', 'knowledge', 'recipeRelation', 'document'],
-  alembic_search: ['knowledge', 'recipeRelation', 'vector', 'document'],
+  alembic_search: ['knowledge'],
   alembic_graph: ['project'],
-  alembic_prime: [
-    'project',
-    'knowledge',
-    'recipeRelation',
-    'vector',
-    'document',
-    'runtime',
-  ],
+  alembic_prime: ['project', 'knowledge', 'recipeRelation', 'vector', 'document', 'runtime'],
 };
 
 export function createKnowledgeContextFreshnessByDomain(
@@ -94,6 +87,16 @@ export function summarizeFreshnessForTool(
     return { degradedDomains, diagnostics, status: 'partial' };
   }
   return { degradedDomains, diagnostics, status: 'ready' };
+}
+
+export function projectFreshnessForTool(
+  tool: KnowledgeContextToolName,
+  freshness: KnowledgeContextFreshnessByDomain
+): Partial<KnowledgeContextFreshnessByDomain> {
+  const domains = TOOL_REQUIRED_DOMAINS[tool];
+  return Object.fromEntries(
+    domains.map((domain) => [domain, freshness[domain]])
+  ) as Partial<KnowledgeContextFreshnessByDomain>;
 }
 
 export interface FreshnessProvider {

@@ -16,7 +16,9 @@ import {
   GraphInput,
   HealthInput,
   ProjectMatrixInput,
+  RescanInput,
   SearchInput,
+  SubmitKnowledgeInput,
   TaskInput,
 } from '../../lib/shared/schemas/mcp-tools.js';
 
@@ -149,8 +151,14 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.properties['query']).toBeDefined();
       expect(result.properties['operation']).toBeDefined();
       expect(result.properties['refId']).toBeDefined();
-      expect(result.properties['hostDeclaredIntent']).toBeDefined();
-      expect(result.properties['hostTurnMeta']).toBeDefined();
+      expect(result.properties['hostDeclaredIntent']).toBeUndefined();
+      expect(result.properties['hostTurnMeta']).toBeUndefined();
+      expect(result.properties['activeFile']).toBeUndefined();
+      expect(result.properties['sourceRefs']).toBeUndefined();
+      expect(JSON.stringify(result.properties['budget'])).not.toContain('relationHopLimit');
+      expect(JSON.stringify(result.properties['mode'])).toContain('auto');
+      expect(JSON.stringify(result.properties['mode'])).toContain('keyword');
+      expect(JSON.stringify(result.properties['mode'])).toContain('semantic');
       // query is required only for operation=search; get/expand are ref-driven.
       expect(result.required).not.toContain('query');
       expect(result.required).not.toContain('mode');
@@ -178,6 +186,23 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.properties.hostDeclaredIntent).toBeDefined();
       expect(result.properties.sourceRefs).toBeDefined();
       expect(result.properties.query).toBeDefined();
+    });
+
+    test('RescanInput should expose controller-authorized produce session fields', () => {
+      const result = zodToMcpSchema(RescanInput);
+      expect(result.type).toBe('object');
+      expect(result.properties.produceSession).toBeDefined();
+      expect(result.properties.controllerAuthorizedGaps).toBeDefined();
+      expect(result.properties.produceSessionDimensions).toBeDefined();
+      expect(result.properties.controllerAuthorized).toBeDefined();
+    });
+
+    test('SubmitKnowledgeInput should expose production-session binding requirement', () => {
+      const result = zodToMcpSchema(SubmitKnowledgeInput);
+      expect(result.type).toBe('object');
+      expect(result.properties.sessionId).toBeDefined();
+      expect(result.properties.bootstrapSessionRef).toBeDefined();
+      expect(result.properties.requireProductionSession).toBeDefined();
     });
 
     test('TaskInput should produce valid MCP schema', () => {

@@ -305,6 +305,12 @@ const KnowledgeContextBudgetInput = z
   .strict()
   .describe('Budget limits for matrix nodes, refs, relations, text, and next actions.');
 
+const SearchBudgetInput = KnowledgeContextBudgetInput.omit({
+  relationHopLimit: true,
+})
+  .passthrough()
+  .describe('Budget limits for search items, detail refs, text, and next actions.');
+
 const KnowledgeContextFreshnessInput = z
   .object({
     policy: z
@@ -457,58 +463,52 @@ export const SearchInput = z
       .enum(['search', 'get', 'expand'])
       .default('search')
       .describe('search=检索候选 | get=按 ref/id 获取详情 | expand=按 ref/id 展开上下文'),
-    query: z.string().min(1).max(4000).optional().describe('搜索关键词或自然语言描述'),
+    query: z.string().min(1).max(4000).optional().describe('Explicit search query text.'),
     keywords: z
       .array(z.string().min(1).max(120))
       .max(40)
       .optional()
       .describe('Optional keyword hints for recipe/knowledge search.'),
     mode: z
-      .enum(['auto', 'keyword', 'bm25', 'semantic', 'context'])
+      .enum(['auto', 'keyword', 'semantic'])
       .default('auto')
-      .describe(
-        'auto=自动选策略 | keyword=精确匹配 | bm25=全文检索 | semantic=向量语义 | context=综合+上下文'
-      ),
+      .describe('auto=自动选策略 | keyword=精确匹配 | semantic=向量语义'),
     kind: SearchKindInput.default('all').describe(
       '过滤知识类型: all/rule/pattern/fact/guide/decision/standard'
     ),
     category: z.string().min(1).max(160).optional(),
+    dimensionId: z.string().min(1).max(160).optional(),
+    knowledgeType: z.string().min(1).max(160).optional(),
+    scope: z.string().min(1).max(160).optional(),
+    tags: z.array(z.string().min(1).max(120)).max(40).optional(),
     refId: z.string().min(1).max(240).optional().describe('get/expand 的知识 refId'),
     id: z.string().min(1).max(240).optional().describe('get/expand 的知识 id 别名'),
     detailRefId: z.string().min(1).max(240).optional().describe('get/expand 的 detailRefId'),
     limit: z.number().int().min(1).max(100).default(10),
     language: z.string().optional().describe('按编程语言过滤，如 swift/typescript'),
-    activeFile: z.string().min(1).max(2000).optional(),
-    module: z.string().min(1).max(240).optional(),
-    sessionId: z.string().optional(),
-    sessionHistory: z.array(z.record(z.string(), z.unknown())).optional(),
-    hostDeclaredIntent: HostDeclaredIntentInput.optional().describe(
-      'Optional host-declared intent frame for resident search handoff'
-    ),
-    hostTurnMeta: HostTurnMetaInput.optional().describe(
-      'Optional redacted host turn metadata for resident search handoff'
-    ),
-    sourceRefs: z
-      .array(z.string().min(1).max(240))
-      .max(80)
-      .optional()
-      .describe('Optional non-private source refs for resident search handoff'),
-    sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
     detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
-    budget: KnowledgeContextBudgetInput.optional(),
+    budget: SearchBudgetInput.optional(),
     freshnessPolicy: KnowledgeContextFreshnessInput.optional(),
   })
+  .passthrough()
   .superRefine((input, ctx) => {
     const ref = input.refId ?? input.id ?? input.detailRefId;
     if (input.operation === 'search') {
       const hasQuery = typeof input.query === 'string' && input.query.length > 0;
       const hasKeywords = (input.keywords?.length ?? 0) > 0;
-      const hasHostIntent = typeof input.hostDeclaredIntent?.query === 'string';
-      if (!hasQuery && !hasKeywords && !hasHostIntent) {
+      const hasExplicitFilter =
+        input.kind !== 'all' ||
+        typeof input.category === 'string' ||
+        typeof input.dimensionId === 'string' ||
+        typeof input.knowledgeType === 'string' ||
+        typeof input.scope === 'string' ||
+        typeof input.language === 'string' ||
+        (input.tags?.length ?? 0) > 0;
+      if (!hasQuery && !hasKeywords && !hasExplicitFilter) {
         ctx.addIssue({
           code: 'custom',
-          message: 'query, keywords, or hostDeclaredIntent.query is required for search',
+          message: 'query, keywords, or explicit Recipe metadata filters are required for search',
           path: ['query'],
         });
       }
@@ -765,7 +765,13 @@ export const SubmitKnowledgeInput = z.object({
   bootstrapSessionRef: z
     .string()
     .optional()
-    .describe('bootstrap session id 的兼容别名；新调用优先使用 sessionId'),
+    .describe('可选：调用方持有的 bootstrap-session:<id> 引用；用于诊断和生产 session 绑定'),
+  requireProductionSession: z
+    .boolean()
+    .optional()
+    .describe(
+      '可选：要求本次提交绑定可用的 bootstrap/rescan produce session；ASQ/controller 生产证明应设置。'
+    ),
   supersedes: z
     .string()
     .optional()
@@ -826,6 +832,28 @@ export type BootstrapInput = z.infer<typeof BootstrapInput>;
 //  11a. alembic_rescan — 增量知识更新
 // ══════════════════════════════════════════════════════
 
+const ProduceSessionGapInput = z
+  .object({
+    createBudget: z.number().int().positive().max(20).optional(),
+    dimensionId: z.string().optional(),
+    gapId: z.string().optional(),
+    source: z.string().optional(),
+    triggerPrefix: z.string().optional(),
+  })
+  .passthrough();
+
+const ProduceSessionRouteInput = z
+  .object({
+    controllerAuthorized: z.boolean().optional(),
+    createBudget: z.number().int().positive().max(20).optional(),
+    dimensions: z.array(z.string()).optional(),
+    enabled: z.boolean().optional(),
+    gaps: z.array(ProduceSessionGapInput).optional(),
+    reason: z.string().optional(),
+    source: z.string().optional(),
+  })
+  .passthrough();
+
 export const RescanInput = z.object({
   dimensions: z.array(z.string()).optional().describe('指定维度列表，空 = 全部活跃维度'),
   reason: z.string().optional().describe('触发原因（记录到报告）'),
@@ -833,6 +861,18 @@ export const RescanInput = z.object({
     .boolean()
     .optional()
     .describe('强制全量重扫（清会话态缓存 + 全量 Phase 1-4，但保留增量快照）'),
+  produceSession: ProduceSessionRouteInput.optional().describe(
+    '可选：打开或返回 controller 授权的非破坏性 produce session，供 alembic_submit_knowledge 绑定 sessionId/bootstrapSessionRef 使用'
+  ),
+  controllerAuthorizedGaps: z
+    .array(ProduceSessionGapInput)
+    .optional()
+    .describe('可选：produceSession.gaps 的兼容顶层别名'),
+  produceSessionDimensions: z
+    .array(z.string())
+    .optional()
+    .describe('可选：produceSession.dimensions 的兼容顶层别名'),
+  controllerAuthorized: z.boolean().optional().describe('可选：顶层 controller 授权标志'),
 });
 export type RescanInput = z.infer<typeof RescanInput>;
 

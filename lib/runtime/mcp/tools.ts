@@ -55,6 +55,11 @@ const _RescanSchema =
   z.object({
     dimensions: z.array(z.string()).optional(),
     reason: z.string().optional(),
+    force: z.boolean().optional(),
+    produceSession: z.record(z.string(), z.unknown()).optional(),
+    controllerAuthorizedGaps: z.array(z.record(z.string(), z.unknown())).optional(),
+    produceSessionDimensions: z.array(z.string()).optional(),
+    controllerAuthorized: z.boolean().optional(),
   });
 
 // EvolveInput — same defensive fallback for Vitest module transform edge case
@@ -200,17 +205,17 @@ export const TOOLS = [
   },
 
   // Unified Search
-  {
-    name: 'alembic_search',
-    tier: 'agent',
-    description:
-      'Search, get, or expand compact project knowledge context.\n' +
-      '• search — query by text, keywords, host intent, kind, language, activeFile, module, and summary budget\n' +
-      '• get — retrieve one result by refId/id/detailRefId as a bounded clean output\n' +
-      '• expand — expand one detailRef without switching to legacy full-content browsing\n' +
-      'Returns summary-only visible text plus structured detailRefs, whyMatched, scoreBreakdown, relationChains, and degraded diagnostics when available. Non-goal: does not expose usage-confirmation operations, quality-analysis operations, lifecycle mutation, or full Recipe browsing.',
-    inputSchema: zodToMcpSchema(SearchInput),
-  },
+	  {
+	    name: 'alembic_search',
+	    tier: 'agent',
+	    description:
+	      'Search, get, or expand compact Recipe / knowledge context.\n' +
+	      '• search — direct lookup by explicit query, keywords, mode, and Recipe metadata filters\n' +
+	      '• get — retrieve one result by refId/id/detailRefId as a bounded clean output\n' +
+	      '• expand — expand one detailRef without broad search fallback\n' +
+	      'Returns summary-only visible text plus structured detailRefs, direct whyMatched evidence, scoreBreakdown, and degraded diagnostics when available. Non-goal: no host-intent relevance, relation-chain traversal, prime context material, usage-confirmation operations, lifecycle mutation, or full Recipe browsing.',
+	    inputSchema: zodToMcpSchema(SearchInput),
+	  },
 
   // Project Graph
   {
@@ -299,7 +304,7 @@ export const TOOLS = [
       '\u2022 Returns Mission Briefing with allRecipes (full content + auditHint per recipe)\n' +
       '\u2022 Includes ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
       '\u2022 Per-dimension workflow: evolve (alembic_evolve) \u2192 gap-fill (submit_knowledge) \u2192 dimension_complete\n' +
-      '\u2022 Optional: dimensions (filter specific dimensions), reason (rescan justification)',
+      '\u2022 Optional: dimensions/reason plus controller-authorized produceSession fields for session-bound ASQ publication',
     inputSchema: zodToMcpSchema(_RescanSchema),
   },
 

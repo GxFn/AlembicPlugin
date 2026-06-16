@@ -12,8 +12,8 @@ import {
   type SpaceContext,
 } from '@alembic/core/project-context';
 import type {
-  KnowledgeContextDiagnostic,
   KnowledgeContextDetailRef,
+  KnowledgeContextDiagnostic,
   KnowledgeContextNextAction,
   KnowledgeContextSource,
   KnowledgeContextSourceDomain,
@@ -241,22 +241,13 @@ async function readProjectContextProjectTree(
   input: ProjectMatrixResolveInput
 ): Promise<RawProjectTree> {
   if (!input.projectRoot) {
-    return {
-      ...readProjectTree(input.projectRoot, input.activeFile),
-      diagnostics: [projectContextDiagnostic('project-context-missing-root')],
-      projectContext: {
-        errorCount: 1,
-        partial: true,
-        refCount: 0,
-        repoCount: 0,
-        requestKinds: [],
-      },
-    };
+    return missingProjectContextProjectTree(input);
   }
 
   const observedAt = new Date().toISOString();
+  const projectRoot = input.projectRoot;
   try {
-    const spaceEnvelope = await executeMatrixProjectContextRequest('space', input.projectRoot, {
+    const spaceEnvelope = await executeMatrixProjectContextRequest('space', projectRoot, {
       activeFile: input.activeFile,
       includeProjectTree: true,
       includeStructuralHotspots: true,
@@ -275,66 +266,9 @@ async function readProjectContextProjectTree(
       : readProjectTree(input.projectRoot, input.activeFile);
     collectProjectContextErrors(tree, spaceEnvelope);
 
-    const folders = isSpaceContext(spaceEnvelope.data)
-      ? selectProjectContextRepoFolders(spaceEnvelope.data, input.projectRoot)
-      : [{ repoId: undefined, repoName: projectNameFromRoot(input.projectRoot), sourceFolder: '.' }];
-
+    const folders = projectContextRepoFoldersFromEnvelope(spaceEnvelope, projectRoot);
     for (const folder of folders.slice(0, 6)) {
-      const repoEnvelope = await executeMatrixProjectContextRequest(
-        'repo',
-        input.projectRoot,
-        {
-          includeCommands: true,
-          includeEntrypoints: true,
-          includeMapSummary: false,
-          includeTopAreas: true,
-          maxFiles: 180,
-          repoName: folder.repoName,
-          repoRoot: folder.sourceFolder,
-        },
-        {
-          repoId: folder.repoId,
-          sourceFolder: folder.sourceFolder,
-        }
-      );
-      trace.requestKinds.push('repo');
-      trace.errorCount += repoEnvelope.errors?.length ?? 0;
-      trace.refCount += repoEnvelope.refs.length;
-      trace.repoCount += 1;
-      trace.partial = trace.partial || Boolean(repoEnvelope.errors?.length);
-      collectProjectContextErrors(tree, repoEnvelope);
-      if (!isRepoContext(repoEnvelope.data)) {
-        continue;
-      }
-      addRepoContextToProjectTree(tree, repoEnvelope, observedAt);
-
-      const moduleSeeds = createMatrixModuleSeeds(repoEnvelope.data);
-      if (moduleSeeds.length > 0) {
-        const mapEnvelope = await executeMatrixProjectContextRequest(
-          'map',
-          input.projectRoot,
-          {
-            includeCycles: true,
-            includeExternalDeps: false,
-            includeHotspots: true,
-            includeMajorFlows: true,
-            moduleSeeds,
-            repoName: repoEnvelope.data.repo.name,
-          },
-          {
-            repoId: folder.repoId,
-            sourceFolder: folder.sourceFolder,
-          }
-        );
-        trace.requestKinds.push('map');
-        trace.errorCount += mapEnvelope.errors?.length ?? 0;
-        trace.refCount += mapEnvelope.refs.length;
-        trace.partial = trace.partial || Boolean(mapEnvelope.errors?.length);
-        collectProjectContextErrors(tree, mapEnvelope);
-        if (isProjectMapContext(mapEnvelope.data)) {
-          addProjectMapToProjectTree(tree, mapEnvelope, observedAt);
-        }
-      }
+      await collectMatrixRepoContext(tree, trace, input, projectRoot, folder, observedAt);
     }
 
     tree.projectContext = {
@@ -344,7 +278,9 @@ async function readProjectContextProjectTree(
     tree.detailRefs = dedupeDetailRefs(tree.detailRefs);
     tree.nodes = dedupeMatrixNodes(tree.nodes);
     tree.keyNodes = tree.nodes
-      .filter((node) => node.type === 'project' || node.type === 'module' || node.type === 'package')
+      .filter(
+        (node) => node.type === 'project' || node.type === 'module' || node.type === 'package'
+      )
       .slice(0, MAX_KEY_NODES);
     tree.relations = dedupeRelationObjects(tree.relations);
     tree.sources = dedupeSources(tree.sources);
@@ -376,6 +312,124 @@ async function readProjectContextProjectTree(
   }
 }
 
+function missingProjectContextProjectTree(input: ProjectMatrixResolveInput): RawProjectTree {
+  return {
+    ...readProjectTree(input.projectRoot, input.activeFile),
+    diagnostics: [projectContextDiagnostic('project-context-missing-root')],
+    projectContext: {
+      errorCount: 1,
+      partial: true,
+      refCount: 0,
+      repoCount: 0,
+      requestKinds: [],
+    },
+  };
+}
+
+function projectContextRepoFoldersFromEnvelope(
+  envelope: ProjectContextEnvelope<ProjectContextResult>,
+  projectRoot: string
+) {
+  if (isSpaceContext(envelope.data)) {
+    return selectProjectContextRepoFolders(envelope.data, projectRoot);
+  }
+  return [{ repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }];
+}
+
+async function collectMatrixRepoContext(
+  tree: RawProjectTree,
+  trace: ProjectMatrixProjectContextTrace,
+  input: ProjectMatrixResolveInput,
+  projectRoot: string,
+  folder: { repoId?: string; repoName: string; sourceFolder: string },
+  observedAt: string
+) {
+  const repoEnvelope = await executeMatrixProjectContextRequest(
+    'repo',
+    projectRoot,
+    {
+      includeCommands: true,
+      includeEntrypoints: true,
+      includeMapSummary: false,
+      includeTopAreas: true,
+      maxFiles: 180,
+      repoName: folder.repoName,
+      repoRoot: folder.sourceFolder,
+    },
+    {
+      repoId: folder.repoId,
+      sourceFolder: folder.sourceFolder,
+    }
+  );
+  updateMatrixProjectContextTrace(trace, repoEnvelope, 'repo', true);
+  collectProjectContextErrors(tree, repoEnvelope);
+  if (!isRepoContext(repoEnvelope.data)) {
+    return;
+  }
+
+  addRepoContextToProjectTree(tree, repoEnvelope, observedAt);
+  await collectMatrixMapContextIfNeeded(
+    tree,
+    trace,
+    input,
+    projectRoot,
+    folder,
+    repoEnvelope.data,
+    observedAt
+  );
+}
+
+async function collectMatrixMapContextIfNeeded(
+  tree: RawProjectTree,
+  trace: ProjectMatrixProjectContextTrace,
+  input: ProjectMatrixResolveInput,
+  projectRoot: string,
+  folder: { repoId?: string; repoName: string; sourceFolder: string },
+  repo: RepoContext,
+  observedAt: string
+) {
+  const moduleSeeds = createMatrixModuleSeeds(repo);
+  if (moduleSeeds.length === 0 || !shouldCollectMatrixMapContext(input, folder)) {
+    return;
+  }
+  const mapEnvelope = await executeMatrixProjectContextRequest(
+    'map',
+    projectRoot,
+    {
+      includeCycles: true,
+      includeExternalDeps: false,
+      includeHotspots: true,
+      includeMajorFlows: true,
+      moduleSeeds,
+      repoName: repo.repo.name,
+    },
+    {
+      repoId: folder.repoId,
+      sourceFolder: folder.sourceFolder,
+    }
+  );
+  updateMatrixProjectContextTrace(trace, mapEnvelope, 'map');
+  collectProjectContextErrors(tree, mapEnvelope);
+  if (isProjectMapContext(mapEnvelope.data)) {
+    addProjectMapToProjectTree(tree, mapEnvelope, observedAt);
+  }
+}
+
+function updateMatrixProjectContextTrace(
+  trace: ProjectMatrixProjectContextTrace,
+  envelope: ProjectContextEnvelope<ProjectContextResult>,
+  kind: ProjectContextRequestKind,
+  countRepo = false
+) {
+  trace.requestKinds.push(kind);
+  trace.errorCount += envelope.errors?.length ?? 0;
+  trace.refCount += envelope.refs.length;
+  trace.partial = trace.partial || Boolean(envelope.errors?.length);
+  if (countRepo) {
+    trace.repoCount += 1;
+  }
+}
+
 async function executeMatrixProjectContextRequest(
   kind: ProjectContextRequestKind,
   projectRoot: string,
@@ -400,10 +454,16 @@ function projectTreeFromSpaceContext(
 ): RawProjectTree {
   const space = envelope.data as SpaceContext;
   const projectRoot = envelope.project.projectRoot;
-  const projectName = space.space.displayName ?? envelope.project.displayName ?? projectNameFromRoot(projectRoot);
+  const projectName =
+    space.space.displayName ?? envelope.project.displayName ?? projectNameFromRoot(projectRoot);
   const rootRef = envelope.refs.find((ref) => ref.kind === 'space') ?? space.nextRefs[0];
   const rootDetailRef = rootRef
-    ? detailRefFromProjectContextRef(rootRef, 'alembic_project_matrix', 'project-context-space', observedAt)
+    ? detailRefFromProjectContextRef(
+        rootRef,
+        'alembic_project_matrix',
+        'project-context-space',
+        observedAt
+      )
     : defaultRefRegistry.createDetailRef({
         domain: 'project',
         freshness: { observedAt, policy: 'preferFresh' },
@@ -424,7 +484,17 @@ function projectTreeFromSpaceContext(
     type: 'project',
   };
   const tree: RawProjectTree = {
-    detailRefs: [rootDetailRef, ...envelope.refs.map((ref) => detailRefFromProjectContextRef(ref, 'alembic_project_matrix', 'project-context-space-ref', observedAt))],
+    detailRefs: [
+      rootDetailRef,
+      ...envelope.refs.map((ref) =>
+        detailRefFromProjectContextRef(
+          ref,
+          'alembic_project_matrix',
+          'project-context-space-ref',
+          observedAt
+        )
+      ),
+    ],
     diagnostics: [],
     keyNodes: [rootNode],
     nodes: [rootNode],
@@ -436,9 +506,15 @@ function projectTreeFromSpaceContext(
 
   for (const folder of space.sourceFolders) {
     const relPath = normalizeProjectContextPath(folder.path);
-    const folderRef = folder.repoRef ?? space.repos.find((repo) => repo.id === folder.repositoryId)?.ref;
+    const folderRef =
+      folder.repoRef ?? space.repos.find((repo) => repo.id === folder.repositoryId)?.ref;
     const detailRef = folderRef
-      ? detailRefFromProjectContextRef(folderRef, 'alembic_project_matrix', 'project-context-source-folder', observedAt)
+      ? detailRefFromProjectContextRef(
+          folderRef,
+          'alembic_project_matrix',
+          'project-context-source-folder',
+          observedAt
+        )
       : createProjectDetailRef(projectRoot, relPath, 'package', observedAt);
     const node: ProjectMatrixNode = {
       childCount: folder.missing ? 0 : undefined,
@@ -463,7 +539,12 @@ function projectTreeFromSpaceContext(
       continue;
     }
     const detailRef = pathSummary.ref
-      ? detailRefFromProjectContextRef(pathSummary.ref, 'alembic_project_matrix', 'project-context-tree-root', observedAt)
+      ? detailRefFromProjectContextRef(
+          pathSummary.ref,
+          'alembic_project_matrix',
+          'project-context-tree-root',
+          observedAt
+        )
       : createProjectDetailRef(projectRoot, relPath, 'directory', observedAt);
     addMatrixNode(
       tree,
@@ -490,9 +571,16 @@ function addRepoContextToProjectTree(
   observedAt: string
 ) {
   const repo = envelope.data as RepoContext;
-  const repoPath = normalizeProjectContextPath(repo.repo.ref?.scope.sourceFolder ?? repo.repo.root ?? '.');
+  const repoPath = normalizeProjectContextPath(
+    repo.repo.ref?.scope.sourceFolder ?? repo.repo.root ?? '.'
+  );
   const repoDetailRef = repo.repo.ref
-    ? detailRefFromProjectContextRef(repo.repo.ref, 'alembic_project_matrix', 'project-context-repo', observedAt)
+    ? detailRefFromProjectContextRef(
+        repo.repo.ref,
+        'alembic_project_matrix',
+        'project-context-repo',
+        observedAt
+      )
     : createProjectDetailRef(envelope.project.projectRoot, repoPath, 'package', observedAt);
   const repoNode: ProjectMatrixNode = {
     detailRefId: repoDetailRef.id,
@@ -506,17 +594,63 @@ function addRepoContextToProjectTree(
   addMatrixNode(tree, repoNode, rootNode);
   tree.detailRefs.push(repoDetailRef);
 
+  addRepoEnvelopeDetailRefs(tree, envelope, observedAt);
+  addRepoLocalPackageNodes(
+    tree,
+    envelope.project.projectRoot,
+    repo,
+    repoPath,
+    repoNode,
+    observedAt
+  );
+  addRepoAreaNodes(tree, envelope.project.projectRoot, repo, repoPath, repoNode, observedAt);
+  addRepoEntrypointNodes(tree, envelope.project.projectRoot, repo, repoPath, repoNode, observedAt);
+  addRepoCommandTargetNodes(
+    tree,
+    envelope.project.projectRoot,
+    repo,
+    repoPath,
+    repoNode,
+    observedAt
+  );
+  addRepoConfigFileNodes(tree, envelope.project.projectRoot, repo, repoPath, repoNode, observedAt);
+}
+
+function addRepoEnvelopeDetailRefs(
+  tree: RawProjectTree,
+  envelope: ProjectContextEnvelope<ProjectContextResult>,
+  observedAt: string
+) {
   for (const ref of envelope.refs) {
     tree.detailRefs.push(
-      detailRefFromProjectContextRef(ref, 'alembic_project_matrix', 'project-context-repo-ref', observedAt)
+      detailRefFromProjectContextRef(
+        ref,
+        'alembic_project_matrix',
+        'project-context-repo-ref',
+        observedAt
+      )
     );
   }
+}
 
+function addRepoLocalPackageNodes(
+  tree: RawProjectTree,
+  projectRoot: string,
+  repo: RepoContext,
+  repoPath: string,
+  repoNode: ProjectMatrixNode,
+  observedAt: string
+) {
   for (const item of repo.localPackages) {
     const relPath = normalizeProjectContextPath(item.path ?? item.ref?.scope.filePath ?? repoPath);
     const detailRef = item.ref
-      ? detailRefFromProjectContextRef(item.ref, 'alembic_project_matrix', 'project-context-package', observedAt)
-      : createProjectDetailRef(envelope.project.projectRoot, relPath, 'package', observedAt);
+      ? detailRefFromProjectContextRef(
+          item.ref,
+          'alembic_project_matrix',
+          'project-context-package',
+          observedAt
+        )
+      : createProjectDetailRef(projectRoot, relPath, 'package', observedAt);
     addMatrixNode(
       tree,
       {
@@ -532,12 +666,26 @@ function addRepoContextToProjectTree(
     );
     tree.detailRefs.push(detailRef);
   }
+}
 
+function addRepoAreaNodes(
+  tree: RawProjectTree,
+  projectRoot: string,
+  repo: RepoContext,
+  repoPath: string,
+  repoNode: ProjectMatrixNode,
+  observedAt: string
+) {
   for (const item of [...repo.sourceRoots, ...repo.topAreas]) {
     const relPath = normalizeProjectContextPath(item.path);
     const detailRef = item.ref
-      ? detailRefFromProjectContextRef(item.ref, 'alembic_project_matrix', 'project-context-area', observedAt)
-      : createProjectDetailRef(envelope.project.projectRoot, relPath, 'module', observedAt);
+      ? detailRefFromProjectContextRef(
+          item.ref,
+          'alembic_project_matrix',
+          'project-context-area',
+          observedAt
+        )
+      : createProjectDetailRef(projectRoot, relPath, 'module', observedAt);
     addMatrixNode(
       tree,
       {
@@ -553,13 +701,27 @@ function addRepoContextToProjectTree(
     );
     tree.detailRefs.push(detailRef);
   }
+}
 
+function addRepoEntrypointNodes(
+  tree: RawProjectTree,
+  projectRoot: string,
+  repo: RepoContext,
+  repoPath: string,
+  repoNode: ProjectMatrixNode,
+  observedAt: string
+) {
   for (const item of repo.entrypoints) {
     const ref = item.refs[0];
     const relPath = normalizeProjectContextPath(ref?.scope.filePath ?? item.name);
     const detailRef = ref
-      ? detailRefFromProjectContextRef(ref, 'alembic_project_matrix', 'project-context-entrypoint', observedAt)
-      : createProjectDetailRef(envelope.project.projectRoot, relPath, 'file', observedAt);
+      ? detailRefFromProjectContextRef(
+          ref,
+          'alembic_project_matrix',
+          'project-context-entrypoint',
+          observedAt
+        )
+      : createProjectDetailRef(projectRoot, relPath, 'file', observedAt);
     const node = {
       detailRefId: detailRef.id,
       id: createMatrixNodeId('file', `${repoPath}:entrypoint:${relPath}`),
@@ -572,12 +734,33 @@ function addRepoContextToProjectTree(
     addMatrixNode(tree, node, repoNode, 'entrypointFor');
     tree.detailRefs.push(detailRef);
   }
+}
 
-  for (const item of [...repo.commands, ...repo.targets.map((target) => ({ command: target.kind ?? 'target', name: target.name, sourceRef: target.refs[0] }))]) {
+function addRepoCommandTargetNodes(
+  tree: RawProjectTree,
+  projectRoot: string,
+  repo: RepoContext,
+  repoPath: string,
+  repoNode: ProjectMatrixNode,
+  observedAt: string
+) {
+  for (const item of [
+    ...repo.commands,
+    ...repo.targets.map((target) => ({
+      command: target.kind ?? 'target',
+      name: target.name,
+      sourceRef: target.refs[0],
+    })),
+  ]) {
     const relPath = normalizeProjectContextPath(item.sourceRef?.scope.filePath ?? 'package.json');
     const detailRef = item.sourceRef
-      ? detailRefFromProjectContextRef(item.sourceRef, 'alembic_project_matrix', 'project-context-command', observedAt)
-      : createProjectDetailRef(envelope.project.projectRoot, relPath, 'target', observedAt);
+      ? detailRefFromProjectContextRef(
+          item.sourceRef,
+          'alembic_project_matrix',
+          'project-context-command',
+          observedAt
+        )
+      : createProjectDetailRef(projectRoot, relPath, 'target', observedAt);
     addMatrixNode(
       tree,
       {
@@ -593,12 +776,26 @@ function addRepoContextToProjectTree(
     );
     tree.detailRefs.push(detailRef);
   }
+}
 
+function addRepoConfigFileNodes(
+  tree: RawProjectTree,
+  projectRoot: string,
+  repo: RepoContext,
+  repoPath: string,
+  repoNode: ProjectMatrixNode,
+  observedAt: string
+) {
   for (const item of repo.configFiles) {
     const relPath = normalizeProjectContextPath(item.path);
     const detailRef = item.ref
-      ? detailRefFromProjectContextRef(item.ref, 'alembic_project_matrix', 'project-context-config', observedAt)
-      : createProjectDetailRef(envelope.project.projectRoot, relPath, 'file', observedAt);
+      ? detailRefFromProjectContextRef(
+          item.ref,
+          'alembic_project_matrix',
+          'project-context-config',
+          observedAt
+        )
+      : createProjectDetailRef(projectRoot, relPath, 'file', observedAt);
     addMatrixNode(
       tree,
       {
@@ -624,13 +821,25 @@ function addProjectMapToProjectTree(
   const map = envelope.data as ProjectMap;
   for (const ref of envelope.refs) {
     tree.detailRefs.push(
-      detailRefFromProjectContextRef(ref, 'alembic_project_matrix', 'project-context-map-ref', observedAt)
+      detailRefFromProjectContextRef(
+        ref,
+        'alembic_project_matrix',
+        'project-context-map-ref',
+        observedAt
+      )
     );
   }
   for (const moduleRecord of map.modules) {
-    const relPath = normalizeProjectContextPath(moduleRecord.ref?.scope.filePath ?? moduleRecord.name);
+    const relPath = normalizeProjectContextPath(
+      moduleRecord.ref?.scope.filePath ?? moduleRecord.name
+    );
     const detailRef = moduleRecord.ref
-      ? detailRefFromProjectContextRef(moduleRecord.ref, 'alembic_project_matrix', 'project-context-map-module', observedAt)
+      ? detailRefFromProjectContextRef(
+          moduleRecord.ref,
+          'alembic_project_matrix',
+          'project-context-map-module',
+          observedAt
+        )
       : createProjectDetailRef(envelope.project.projectRoot, relPath, 'module', observedAt);
     addMatrixNode(tree, {
       detailRefId: detailRef.id,
@@ -645,7 +854,12 @@ function addProjectMapToProjectTree(
   for (const layer of map.layers) {
     const relPath = normalizeProjectContextPath(layer.ref?.scope.filePath ?? layer.name);
     const detailRef = layer.ref
-      ? detailRefFromProjectContextRef(layer.ref, 'alembic_project_matrix', 'project-context-map-layer', observedAt)
+      ? detailRefFromProjectContextRef(
+          layer.ref,
+          'alembic_project_matrix',
+          'project-context-map-layer',
+          observedAt
+        )
       : createProjectDetailRef(envelope.project.projectRoot, relPath, 'module', observedAt);
     addMatrixNode(tree, {
       detailRefId: detailRef.id,
@@ -688,6 +902,27 @@ function createMatrixModuleSeeds(repo: RepoContext): Record<string, unknown>[] {
     moduleName: path.basename(modulePath) || modulePath,
     modulePath,
   }));
+}
+
+function shouldCollectMatrixMapContext(
+  input: ProjectMatrixResolveInput,
+  folder: { sourceFolder: string }
+): boolean {
+  if (input.activeFile) {
+    return matrixPathOwnsPath(folder.sourceFolder, normalizeProjectContextPath(input.activeFile));
+  }
+  if (input.nodeId || input.nodeType) {
+    return (
+      input.operation === 'node' || input.operation === 'relations' || input.operation === 'layers'
+    );
+  }
+  return input.operation === 'relations' || input.operation === 'layers';
+}
+
+function matrixPathOwnsPath(ownerPath: string, filePath: string): boolean {
+  const owner = normalizeProjectContextPath(ownerPath);
+  const child = normalizeProjectContextPath(filePath);
+  return owner === '.' || child === owner || child.startsWith(`${owner}/`);
 }
 
 function addMatrixNode(
@@ -749,7 +984,9 @@ function projectContextRefDomain(ref: ProjectContextRef): KnowledgeContextSource
   return 'project';
 }
 
-function projectContextErrorToDiagnostic(error: ProjectContextQueryError): KnowledgeContextDiagnostic {
+function projectContextErrorToDiagnostic(
+  error: ProjectContextQueryError
+): KnowledgeContextDiagnostic {
   return {
     code: `project-context-${error.code}`,
     domain: 'project',
@@ -1399,8 +1636,7 @@ function buildNextActions(selection: OperationSelection): KnowledgeContextNextAc
     },
     {
       operation: 'neighborhood',
-      reason:
-        'Use project graph for focused ProjectContext-backed relationship detail.',
+      reason: 'Use project graph for focused ProjectContext-backed relationship detail.',
       required: false,
       tool: 'alembic_graph',
     },

@@ -6,6 +6,7 @@ export interface KnowledgeRetrievalItem {
   kind?: string;
   language?: string;
   metadata?: Record<string, unknown>;
+  relations?: unknown;
   relationRefs?: string[];
   resident?: Record<string, unknown>;
   score?: number;
@@ -18,15 +19,16 @@ export interface KnowledgeRetrievalItem {
 }
 
 export interface KnowledgeRetrievalProviderSearchInput {
-  activeFile?: string;
-  category?: string;
-  kind?: string;
-  keywords?: readonly string[];
-  language?: string;
-  limit?: number;
-  module?: string;
-  query: string;
-  sourceRefs?: readonly string[];
+	category?: string;
+	dimensionId?: string;
+	kind?: string;
+	knowledgeType?: string;
+	keywords?: readonly string[];
+	language?: string;
+	limit?: number;
+	query: string;
+	scope?: string;
+	tags?: readonly string[];
 }
 
 export interface KnowledgeRetrievalProvider {

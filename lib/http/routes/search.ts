@@ -43,7 +43,7 @@ const logger = Logger.getInstance();
 /**
  * GET /api/v1/search
  * 统一搜索
- * ?q=keyword&type=all|recipe|solution|rule&limit=20&mode=keyword|bm25|semantic&groupByKind=true
+ * ?q=keyword&type=all|recipe|solution|rule&limit=20&mode=auto|keyword|semantic&groupByKind=true
  */
 router.get('/', validateQuery(SearchQuery), async (req: Request, res: Response): Promise<void> => {
   const { q, type = 'all', mode = 'keyword' } = req.query as Record<string, string>;
@@ -54,7 +54,7 @@ router.get('/', validateQuery(SearchQuery), async (req: Request, res: Response):
 
   const container = getServiceContainer();
 
-  // 所有模式优先通过 SearchEngine（含 auto/bm25/semantic/keyword/ranking）
+  // 所有模式优先通过 SearchEngine（含 auto/keyword/semantic/ranking）
   try {
     const searchEngine = container.get('searchEngine');
     const result = await searchEngine.search(q, { type, limit, mode, groupByKind });
@@ -281,11 +281,11 @@ router.post(
     let results: Record<string, unknown>[] = [];
     let source = 'knowledgeService';
 
-    // SearchEngine BM25 + 内置 Ranking Pipeline
+    // SearchEngine keyword recall + 内置 Ranking Pipeline
     try {
       const searchEngine = container.get('searchEngine');
       const result = await searchEngine.search(keyword, {
-        mode: 'bm25',
+        mode: 'keyword',
         limit: pageSize,
         rank: true,
         context: { intent: 'search', language, sessionHistory: sessionHistory || [] },
@@ -309,7 +309,7 @@ router.post(
             content: contentStr,
             similarity: r.score || 0,
             authority: r.authorityScore || 0,
-            matchType: result.ranked ? 'ranked' : 'bm25',
+            matchType: result.ranked ? 'ranked' : 'keyword',
             qualityScore: r.qualityScore || 0,
             usageCount: r.usageCount || 0,
           };

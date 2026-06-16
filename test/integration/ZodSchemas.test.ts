@@ -43,6 +43,7 @@ import {
   HealthInput,
   KnowledgeInput,
   ProjectMatrixInput,
+  RescanInput,
   SearchInput,
   StructureInput,
   SubmitKnowledgeInput,
@@ -239,6 +240,17 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       expect(() => SearchInput.parse({ query: 'x', mode: 'invalid' })).toThrow();
     });
 
+    test('should reject unsupported public search modes', () => {
+      expect(() => SearchInput.parse({ query: 'x', mode: 'unsupported-mode' })).toThrow();
+      expect(() => SearchInput.parse({ query: 'x', mode: 'legacy-mode' })).toThrow();
+    });
+
+    test('should accept current public search modes', () => {
+      expect(SearchInput.parse({ query: 'x', mode: 'auto' }).mode).toBe('auto');
+      expect(SearchInput.parse({ query: 'x', mode: 'keyword' }).mode).toBe('keyword');
+      expect(SearchInput.parse({ query: 'x', mode: 'semantic' }).mode).toBe('semantic');
+    });
+
     test('should accept optional fields', () => {
       const result = SearchInput.parse({
         query: 'test',
@@ -253,11 +265,32 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         hostTurnMeta: {
           threadId: 'raw-thread-id',
         },
-      });
+      }) as {
+        hostDeclaredIntent?: { sourceRefs?: string[] };
+        hostTurnMeta?: { threadId?: string };
+        keywords?: string[];
+        language?: string;
+      };
       expect(result.language).toBe('typescript');
       expect(result.keywords).toEqual(['runtime']);
       expect(result.hostDeclaredIntent?.sourceRefs).toEqual(['host:intent']);
       expect(result.hostTurnMeta?.threadId).toBe('raw-thread-id');
+    });
+
+    test('should accept retired compatibility fields without exposing them as typed search inputs', () => {
+      const result = SearchInput.parse({
+        budget: {
+          contentCharLimit: 1200,
+          relationHopLimit: 2,
+        },
+        hostDeclaredIntent: { query: 'host query' },
+        query: 'test',
+        sourceRefs: ['host:ref'],
+      }) as Record<string, unknown>;
+
+      expect(result.hostDeclaredIntent).toEqual({ query: 'host query' });
+      expect(result.sourceRefs).toEqual(['host:ref']);
+      expect(result.budget).toMatchObject({ relationHopLimit: 2 });
     });
 
     test('should accept ref-driven get/expand operations without query', () => {
@@ -363,6 +396,54 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       expect(result.sessionId).toBe('session-1');
       expect(result.bootstrapSessionRef).toBe('session-1');
       expect(result.dimensionId).toBe('architecture');
+    });
+
+    test('should accept production session requirement for controller submissions', () => {
+      const result = SubmitKnowledgeInput.parse({
+        bootstrapSessionRef: 'bootstrap-session:bs-asq',
+        items: [
+          {
+            title: 'ASQ production route fact',
+            sourceRefs: ['lib/runtime/mcp/handlers/tool-router.ts:240-250'],
+          },
+        ],
+        requireProductionSession: true,
+      });
+
+      expect(result.bootstrapSessionRef).toBe('bootstrap-session:bs-asq');
+      expect(result.requireProductionSession).toBe(true);
+    });
+  });
+
+  describe('RescanInput', () => {
+    test('should accept controller-authorized produce session route input', () => {
+      const result = RescanInput.parse({
+        controllerAuthorized: true,
+        controllerAuthorizedGaps: [
+          {
+            createBudget: 2,
+            dimensionId: 'asq-publication',
+            gapId: 'asq4b1b-knowledge-pack',
+            triggerPrefix: 'asq4b1b',
+          },
+        ],
+        produceSession: {
+          controllerAuthorized: true,
+          dimensions: ['asq-publication'],
+          source: 'asq-controller',
+        },
+        produceSessionDimensions: ['asq-publication'],
+        reason: 'asq-production-session-route',
+      });
+
+      expect(result.produceSession?.controllerAuthorized).toBe(true);
+      expect(result.controllerAuthorizedGaps?.[0]).toMatchObject({
+        createBudget: 2,
+        dimensionId: 'asq-publication',
+        gapId: 'asq4b1b-knowledge-pack',
+      });
+      expect(result.produceSessionDimensions).toEqual(['asq-publication']);
+      expect(result.controllerAuthorized).toBe(true);
     });
   });
 
@@ -516,6 +597,14 @@ describe('Integration: Zod Schemas — http-requests.ts', () => {
       const result = SearchQuery.parse({ q: 'auth' });
       expect(result.type).toBe('all');
       expect(result.mode).toBe('keyword');
+    });
+
+    test('should align HTTP search modes with current public contract', () => {
+      expect(SearchQuery.parse({ q: 'auth', mode: 'auto' }).mode).toBe('auto');
+      expect(SearchQuery.parse({ q: 'auth', mode: 'keyword' }).mode).toBe('keyword');
+      expect(SearchQuery.parse({ q: 'auth', mode: 'semantic' }).mode).toBe('semantic');
+      expect(() => SearchQuery.parse({ q: 'auth', mode: 'unsupported-mode' })).toThrow();
+      expect(() => SearchQuery.parse({ q: 'auth', mode: 'legacy-mode' })).toThrow();
     });
   });
 
