@@ -25,13 +25,13 @@ export const AGENT_PUBLIC_TOOL_DESCRIPTION_BASE = {
   },
   alembic_prime: {
     name: 'alembic_prime',
-    title: 'Prime agent context',
+    title: 'Prime code-development Recipe context',
     purpose:
-      'Load compact, trust-labeled project knowledge for a recognized intent and return primeRef plus detailRefs.',
+      'Load compact, trust-labeled Recipe guidance for a standalone code-development requirement frame and return primeRef plus detailRefs.',
     selectionHint:
-      'Use when project knowledge is relevant to the current semantic task and the host agent needs a concise context package.',
+      'Use before implementation, fixes, refactors, tests, or code-review edits when the host can provide taskAction, requirementGoal, and locator facets.',
     nonGoal:
-      'Does not create a work session, modify code, mark work complete, or run guard checks.',
+      'Does not consume alembic_intent intentRef/recognizedIntent, answer general knowledge lookup, provide project maps, create work sessions, modify code, mark work complete, or run guard checks.',
   },
   alembic_work_start: {
     name: 'alembic_work_start',

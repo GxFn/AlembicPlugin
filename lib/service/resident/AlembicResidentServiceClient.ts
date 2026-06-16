@@ -147,6 +147,7 @@ export interface ResidentPrimeInjectionPackageSummary {
     evidence: Array<Record<string, unknown>>;
     omitted: string[];
   };
+  residentRegionRetrieval?: Record<string, unknown>;
   retrievalQuality: ResidentRetrievalQualitySummary & {
     selectedWithSourceRefs?: number;
   };
@@ -2245,6 +2246,9 @@ export function compactResidentPrimeInjectionPackage(
     intent: compactPrimeIntent(value.intent),
     omitted: compactPackageRecords(value.omitted, ['detail', 'itemId', 'reason', 'source'], 16),
     relations: compactPrimeRelations(value.relations),
+    ...(isRecord(value.residentRegionRetrieval)
+      ? { residentRegionRetrieval: compactResidentRegionRetrieval(value.residentRegionRetrieval) }
+      : {}),
     retrievalQuality: compactPrimeRetrievalQuality(retrievalQuality, retrievalQualityRecord),
     search: compactPrimeSearch(value.search),
     selectedKnowledge: compactPrimeSelectedKnowledge(value.selectedKnowledge),
@@ -2374,11 +2378,18 @@ function compactPrimeSelectedKnowledge(value: unknown): Record<string, unknown>[
     value,
     [
       'evidenceRefs',
+      'entryId',
+      'id',
       'injectionStatus',
       'itemId',
       'kind',
+      'knowledgeId',
       'knowledgeType',
+      'matchedRegionClasses',
+      'matchedRegions',
       'rank',
+      'recipeId',
+      'ref',
       'score',
       'scoreBreakdown',
       'sourceRefs',
@@ -2626,8 +2637,58 @@ function compactPackageRecords(
 }
 
 function compactPackageValue(key: string, value: unknown): unknown {
-  if (['evidenceRefs', 'sourceRefs', 'signals', 'whySelected'].includes(key)) {
+  if (
+    [
+      'degradedReasons',
+      'evidenceRefs',
+      'matchedRegionClasses',
+      'sourceRefs',
+      'signals',
+      'whySelected',
+    ].includes(key)
+  ) {
     return compactEvidenceStringArray(value, 12);
+  }
+  if (key === 'matchedRegions' || key === 'selectedRecipes') {
+    return compactPackageRecords(
+      value,
+      [
+        'entryId',
+        'evidenceRefs',
+        'id',
+        'itemId',
+        'kind',
+        'knowledgeId',
+        'matchedRegionClasses',
+        'matchedRegions',
+        'rank',
+        'ref',
+        'recipeId',
+        'regionClass',
+        'score',
+        'snippet',
+        'sourceRefs',
+        'sourceRefsBridge',
+        'title',
+        'trigger',
+        'vectorId',
+        'whySelected',
+      ],
+      key === 'selectedRecipes' ? 8 : 6
+    );
+  }
+  if (key === 'metadataOnlyFallback') {
+    if (!isRecord(value)) {
+      return undefined;
+    }
+    const projected: Record<string, unknown> = {};
+    for (const fallbackKey of ['attempted', 'reason', 'used']) {
+      const compactValue = compactPackageValue(fallbackKey, value[fallbackKey]);
+      if (compactValue !== undefined) {
+        projected[fallbackKey] = compactValue;
+      }
+    }
+    return Object.keys(projected).length > 0 ? projected : undefined;
   }
   if (key === 'scoreBreakdown') {
     if (!isRecord(value)) {
@@ -2661,6 +2722,28 @@ function compactPackageValue(key: string, value: unknown): unknown {
     return value;
   }
   return undefined;
+}
+
+function compactResidentRegionRetrieval(value: Record<string, unknown>): Record<string, unknown> {
+  const projected: Record<string, unknown> = {};
+  for (const key of [
+    'attempted',
+    'degradedReasons',
+    'metadataOnlyFallback',
+    'queryCount',
+    'regionHitCount',
+    'route',
+    'selectedRecipes',
+    'used',
+    'vectorAvailable',
+    'wholeEntryOnlyRejectedCount',
+  ]) {
+    const compactValue = compactPackageValue(key, value[key]);
+    if (compactValue !== undefined) {
+      projected[key] = compactValue;
+    }
+  }
+  return projected;
 }
 
 function compactEvidenceRecords(

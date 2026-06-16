@@ -11,7 +11,11 @@ import {
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 import { createIdleIntent } from '../../lib/runtime/mcp/handlers/types.js';
 import { TOOLS } from '../../lib/runtime/mcp/tools.js';
-import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
+import type { ResidentSearchResult } from '../../lib/service/resident/AlembicResidentServiceClient.js';
+import {
+  PrimeSearchPipeline,
+  type PrimeSearchResult,
+} from '../../lib/service/task/PrimeSearchPipeline.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 function makeContext(
@@ -307,6 +311,116 @@ function deliveredRetrievalConsumer(): NonNullable<
   };
 }
 
+function deliveredPrimeInjectionPackage(): NonNullable<
+  PrimeSearchResult['searchMeta']['primeInjectionPackage']
+> {
+  return {
+    decisionRegister: {
+      acceptedDecisionRefs: ['decision-active-1'],
+      auditExcludedCount: 1,
+      available: true,
+      defaultLifecycle: 'active-effective-only',
+      excludedStatuses: ['revoked', 'deleted'],
+      route: '/api/v1/decision-register/searchable',
+      source: 'alembic-decision-register',
+      vectorAdmission: 'accepted-only',
+    },
+    feedback: {
+      observeOnly: true,
+      recorder: 'HitRecorder',
+      supportedSignals: ['searchHit', 'view', 'adoption'],
+      version: 1,
+    },
+    injection: {
+      degradedReasons: [],
+      omittedCount: 0,
+      selectedCount: 1,
+      status: 'ready',
+    },
+    intent: {
+      applied: true,
+      confidence: 0.9,
+      degraded: false,
+      degradedReasons: [],
+      executableQuery: 'Implement public prime active tool',
+      requestedMode: 'semantic',
+      sourceRefs: ['host:intent'],
+      whySelected: ['intent-search-plan'],
+    },
+    omitted: [],
+    relations: { evidence: [], omitted: [] },
+    residentRegionRetrieval: {
+      attempted: true,
+      degradedReasons: [],
+      metadataOnlyFallback: { attempted: false, used: false },
+      queryCount: 2,
+      regionHitCount: 2,
+      route: 'resident-vector-recipe-semantic-region',
+      selectedRecipes: [],
+      used: true,
+      vectorAvailable: true,
+      wholeEntryOnlyRejectedCount: 0,
+    },
+    retrievalQuality: {
+      decisionRefCount: 1,
+      feedbackSignalCount: 3,
+      relationEvidenceCount: 1,
+      selectedWithSourceRefs: 1,
+      sourceRefCoverage: 1,
+      version: 1,
+    },
+    search: {
+      actualMode: 'semantic',
+      filteredCount: 1,
+      query: 'Implement public prime active tool',
+      queries: ['Implement public prime active tool'],
+      requestedMode: 'semantic',
+      resultCount: 1,
+    },
+    selectedKnowledge: [
+      {
+        evidenceRefs: ['scoreBreakdown:recipe-public-prime'],
+        injectionStatus: 'selected',
+        itemId: 'recipe-public-prime',
+        kind: 'pattern',
+        matchedRegionClasses: ['applicability', 'integrationBoundary'],
+        matchedRegions: [
+          {
+            regionClass: 'applicability',
+            score: 0.94,
+            snippet: 'Use structure-first Recipe retrieval for public prime projections.',
+            sourceRefs: ['lib/service/task/PrimeSearchPipeline.ts:112'],
+            sourceRefsBridge: 'active',
+            vectorId: 'recipe_region_recipe-public-prime_applicability_hash',
+          },
+        ],
+        rank: 1,
+        score: 0.92,
+        sourceRefs: ['lib/service/task/PrimeSearchPipeline.ts:112'],
+        title: 'Agent public prime',
+        trigger: '@agent-public-prime',
+        whySelected: ['resident-region'],
+      },
+    ],
+    trace: {
+      evidenceRefs: ['scoreBreakdown:recipe-public-prime'],
+      sourcePath: ['searchMeta.primeInjectionPackage'],
+      sourceRefs: ['lib/service/task/PrimeSearchPipeline.ts:112'],
+      sources: ['intentSearchPlan', 'intentEvidence'],
+    },
+    vector: {
+      omitted: [],
+      scoreBreakdown: [],
+      semanticAnchors: [],
+      semanticUsed: true,
+      topAnchorMatches: [],
+      vectorAvailable: true,
+      vectorUsed: true,
+    },
+    version: 1,
+  };
+}
+
 function deliveredSearchMeta(): PrimeSearchResult['searchMeta'] {
   return {
     filteredCount: 2,
@@ -315,6 +429,7 @@ function deliveredSearchMeta(): PrimeSearchResult['searchMeta'] {
     queries: ['Implement public prime active tool'],
     resultCount: 2,
     scenario: 'generate',
+    primeInjectionPackage: deliveredPrimeInjectionPackage(),
     retrievalConsumer: deliveredRetrievalConsumer(),
     residentSearch: {
       attempted: true,
@@ -333,6 +448,239 @@ function deliveredSearchResult(): PrimeSearchResult {
     guardRules: deliveredGuardRules(),
     relatedKnowledge: deliveredRelatedKnowledge(),
     searchMeta: deliveredSearchMeta(),
+  };
+}
+
+function selectedOnlySearchResult(): PrimeSearchResult {
+  const primeInjectionPackage = deliveredPrimeInjectionPackage();
+  primeInjectionPackage.injection.selectedCount = 1;
+  primeInjectionPackage.search.filteredCount = 0;
+  primeInjectionPackage.search.resultCount = 1;
+  primeInjectionPackage.selectedKnowledge = [
+    {
+      body: 'FULL_RECIPE_BODY_MARKER_SHOULD_NOT_LEAK',
+      description: 'FULL_RECIPE_BODY_MARKER_SHOULD_NOT_LEAK',
+      evidenceRefs: ['scoreBreakdown:recipe-selected-only'],
+      injectionStatus: 'selected',
+      itemId: 'recipe-selected-only',
+      kind: 'pattern',
+      matchedRegionClasses: ['applicability', 'implementationSteps'],
+      matchedRegions: [
+        {
+          recipeId: 'recipe-selected-only',
+          regionClass: 'applicability',
+          score: 0.94,
+          snippet:
+            'Use this Recipe when resident selectedKnowledge already carries compact semantic-region evidence.',
+          sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+          sourceRefsBridge: 'active',
+        },
+        {
+          recipeId: 'recipe-selected-only',
+          regionClass: 'implementationSteps',
+          score: 0.89,
+          snippet:
+            'Project accepted material directly from the selected resident record when the filtered public pool omitted it.',
+          sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:43'],
+          sourceRefsBridge: 'active',
+        },
+      ],
+      rank: 1,
+      score: 0.94,
+      sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+      title: 'Selected-only resident bridge',
+      trigger: '@selected-only-resident-bridge',
+      whySelected: ['resident-region'],
+    },
+  ];
+  return {
+    guardRules: [],
+    relatedKnowledge: [],
+    searchMeta: {
+      ...deliveredSearchMeta(),
+      filteredCount: 0,
+      resultCount: 1,
+      primeInjectionPackage,
+    },
+  };
+}
+
+function realResidentDegradedSelectedSearchResult(): PrimeSearchResult {
+  const result = selectedOnlySearchResult();
+  const primeInjectionPackage = result.searchMeta.primeInjectionPackage;
+  if (!primeInjectionPackage) {
+    throw new Error('expected selected-only prime injection package');
+  }
+  primeInjectionPackage.injection = {
+    degradedReasons: ['selected-material-partial'],
+    omittedCount: 5,
+    selectedCount: 6,
+    status: 'degraded',
+  };
+  primeInjectionPackage.omitted = [
+    { itemId: 'recipe-weak-1', reason: 'missing-semantic-region-evidence' },
+    { itemId: 'recipe-weak-2', reason: 'missing-semantic-region-evidence' },
+    { itemId: 'recipe-weak-3', reason: 'missing-semantic-region-evidence' },
+    { itemId: 'recipe-weak-4', reason: 'missing-semantic-region-evidence' },
+    { itemId: 'recipe-weak-5', reason: 'missing-semantic-region-evidence' },
+  ];
+  primeInjectionPackage.search.filteredCount = 6;
+  primeInjectionPackage.search.resultCount = 6;
+  result.searchMeta.filteredCount = 6;
+  result.searchMeta.resultCount = 6;
+  return result;
+}
+
+function p21VectorSelectedRecipesSearchResult(): PrimeSearchResult {
+  const result = selectedOnlySearchResult();
+  const primeInjectionPackage = result.searchMeta.primeInjectionPackage;
+  if (!primeInjectionPackage) {
+    throw new Error('expected selected-only prime injection package');
+  }
+  primeInjectionPackage.injection = {
+    degradedReasons: ['knowledge:stale', 'document:partial'],
+    omittedCount: 4,
+    selectedCount: 6,
+    status: 'degraded',
+  };
+  primeInjectionPackage.selectedKnowledge = [];
+  primeInjectionPackage.residentRegionRetrieval = {
+    attempted: true,
+    degradedReasons: ['knowledge:stale', 'document:partial'],
+    metadataOnlyFallback: { attempted: false, used: false },
+    queryCount: 6,
+    regionHitCount: 18,
+    route: 'resident-vector-recipe-semantic-region',
+    selectedRecipes: [
+      {
+        itemId: 'recipe-selected-only',
+        matchedRegionClasses: ['applicability', 'implementationSteps'],
+        matchedRegions: [
+          {
+            recipeId: 'recipe-selected-only',
+            regionClass: 'applicability',
+            score: 0.94,
+            snippet:
+              'Use this Recipe when resident region retrieval selected compact semantic evidence.',
+            sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+            sourceRefsBridge: 'active',
+          },
+          {
+            recipeId: 'recipe-selected-only',
+            regionClass: 'implementationSteps',
+            score: 0.89,
+            snippet:
+              'Project accepted material from residentRegionRetrieval.selectedRecipes when selectedKnowledge is absent.',
+            sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:43'],
+            sourceRefsBridge: 'active',
+          },
+        ],
+        score: 0.94,
+        sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+        title: 'Selected-only resident bridge',
+        trigger: '@selected-only-resident-bridge',
+      },
+    ],
+    used: true,
+    vectorAvailable: true,
+    wholeEntryOnlyRejectedCount: 0,
+  };
+  primeInjectionPackage.omitted = [
+    { itemId: 'recipe-weak-1', reason: 'missing-semantic-region-evidence' },
+    { itemId: 'recipe-weak-2', reason: 'missing-semantic-region-evidence' },
+    { itemId: 'recipe-weak-3', reason: 'missing-semantic-region-evidence' },
+    { itemId: 'recipe-weak-4', reason: 'missing-semantic-region-evidence' },
+  ];
+  primeInjectionPackage.search.filteredCount = 6;
+  primeInjectionPackage.search.resultCount = 6;
+  result.searchMeta.filteredCount = 6;
+  result.searchMeta.resultCount = 6;
+  return result;
+}
+
+function p23ResidentVectorSelectedRecipesResult(): ResidentSearchResult {
+  return {
+    items: [],
+    meta: {
+      attempted: true,
+      available: true,
+      actualMode: 'semantic',
+      durationMs: 12,
+      requestedMode: 'semantic',
+      residentVector: { available: true, reason: null },
+      resultCount: 6,
+      route: 'alembic-resident-service',
+      semanticUsed: true,
+      used: true,
+      vectorUsed: true,
+      primeInjectionPackage: {
+        ...deliveredPrimeInjectionPackage(),
+        injection: {
+          degradedReasons: ['knowledge:stale', 'document:partial'],
+          omittedCount: 6,
+          selectedCount: 6,
+          status: 'degraded',
+        },
+        omitted: [
+          { itemId: 'recipe-weak-1', reason: 'missing-semantic-region-evidence' },
+          { itemId: 'recipe-weak-2', reason: 'missing-semantic-region-evidence' },
+          { itemId: 'recipe-weak-3', reason: 'missing-semantic-region-evidence' },
+          { itemId: 'recipe-weak-4', reason: 'missing-semantic-region-evidence' },
+          { itemId: 'recipe-weak-5', reason: 'missing-semantic-region-evidence' },
+          { itemId: 'recipe-weak-6', reason: 'missing-semantic-region-evidence' },
+        ],
+        residentRegionRetrieval: {
+          attempted: true,
+          degradedReasons: ['knowledge:stale', 'document:partial'],
+          metadataOnlyFallback: { attempted: false, used: false },
+          queryCount: 6,
+          regionHitCount: 18,
+          route: 'resident-vector-recipe-semantic-region',
+          selectedRecipes: [
+            {
+              itemId: 'recipe-selected-only',
+              matchedRegionClasses: ['applicability', 'implementationSteps'],
+              matchedRegions: [
+                {
+                  recipeId: 'recipe-selected-only',
+                  regionClass: 'applicability',
+                  score: 0.94,
+                  snippet:
+                    'Use this Recipe when resident region retrieval selected compact semantic evidence.',
+                  sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+                  sourceRefsBridge: 'active',
+                },
+                {
+                  recipeId: 'recipe-selected-only',
+                  regionClass: 'implementationSteps',
+                  score: 0.89,
+                  snippet:
+                    'Project accepted material from residentRegionRetrieval.selectedRecipes when selectedKnowledge is absent.',
+                  sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:43'],
+                  sourceRefsBridge: 'active',
+                },
+              ],
+              score: 0.94,
+              sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+              title: 'Selected-only resident bridge',
+              trigger: '@selected-only-resident-bridge',
+            },
+          ],
+          used: true,
+          vectorAvailable: true,
+          wholeEntryOnlyRejectedCount: 0,
+        },
+        search: {
+          actualMode: 'semantic',
+          filteredCount: 6,
+          query: 'resident vector selected material',
+          queries: ['resident vector selected material'],
+          requestedMode: 'semantic',
+          resultCount: 6,
+        },
+        selectedKnowledge: [],
+      },
+    },
   };
 }
 
@@ -355,10 +703,64 @@ describe('agent-facing active public tools', () => {
     ).toBe(true);
     expect(
       TOOL_SCHEMAS.alembic_prime.safeParse({
+        capability: 'MCP runtime',
+        integrationBoundary: 'Codex MCP tool',
+        projectRoot: '/tmp/project',
+        requirementGoal: 'Implement standalone prime gate',
+        taskAction: 'implement',
+      }).success
+    ).toBe(true);
+    const primeTool = TOOLS.find((tool) => tool.name === 'alembic_prime');
+    const primeProperties = Object.keys(primeTool?.inputSchema?.properties ?? {});
+    expect(primeProperties).toEqual(
+      expect.arrayContaining(['taskAction', 'requirementGoal', 'capability'])
+    );
+    for (const legacyField of [
+      'hostDeclaredIntent',
+      'intentRef',
+      'query',
+      'recognizedIntent',
+      'userQuery',
+    ]) {
+      expect(primeProperties).not.toContain(legacyField);
+    }
+    expect(primeTool?.inputSchema?.required).toEqual(
+      expect.arrayContaining(['taskAction', 'requirementGoal'])
+    );
+    expect(
+      TOOL_SCHEMAS.alembic_prime.safeParse({
         intentRef: 'intent-1',
         projectRoot: '/tmp/project',
       }).success
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      TOOL_SCHEMAS.alembic_prime.safeParse({
+        projectRoot: '/tmp/project',
+        query: 'Implement standalone prime gate',
+      }).success
+    ).toBe(false);
+    expect(
+      TOOL_SCHEMAS.alembic_prime.safeParse({
+        projectRoot: '/tmp/project',
+        userQuery: 'where do I start',
+      }).success
+    ).toBe(false);
+    expect(
+      TOOL_SCHEMAS.alembic_prime.safeParse({
+        projectRoot: '/tmp/project',
+        requirementGoal: 'Implement standalone prime gate',
+        taskAction: 'implement',
+      }).success
+    ).toBe(false);
+    expect(
+      TOOL_SCHEMAS.alembic_prime.safeParse({
+        hostDeclaredIntent: {
+          action: 'implement',
+          query: 'Implement standalone prime gate',
+        },
+        projectRoot: '/tmp/project',
+      }).success
+    ).toBe(false);
     expect(
       TOOL_SCHEMAS.alembic_work_start.safeParse({
         title: 'Implement active work public tool',
@@ -607,27 +1009,19 @@ describe('agent-facing active public tools', () => {
     });
   });
 
-  test('primes from an intentRef using PrimeSearchPipeline and Trust Receipt material', async () => {
+  test('primes from a standalone code-development frame using PrimeSearchPipeline and Trust Receipt material', async () => {
     const search = vi.fn(async () => deliveredSearchResult());
     const ctx = makeContext(search);
-    const intent = publicToolLegacyTestView(
-      await intentHandler(ctx, {
-        agentHost: 'codex',
-        hostDeclaredIntent: {
-          action: 'implement',
-          confidence: 0.9,
-          language: 'typescript',
-          query: 'Implement public prime active tool',
-        },
-        inputSource: 'host-declared-intent',
-      })
-    ) as { data: { intentRef: string } };
 
     const primeOutput = await primeHandler(ctx, {
       agentHost: 'codex',
+      capability: 'Codex MCP public tools',
+      integrationBoundary: 'MCP tool handler',
       inputSource: 'host-declared-intent',
-      intentRef: intent.data.intentRef,
+      keywords: ['prime', 'public tools'],
       projectRoot: '/tmp/alembic-plugin-public-tools',
+      requirementGoal: 'Implement public prime active tool',
+      taskAction: 'implement',
     });
     const cleanPrime = asRecord(primeOutput);
     const result = publicToolLegacyTestView(primeOutput) as {
@@ -679,10 +1073,7 @@ describe('agent-facing active public tools', () => {
           };
           trustReceipt: { receiptId: string; status: string };
         };
-        result: {
-          refs: { intentRef: { id: string }; primeRef: { id: string }; detailRefs: unknown[] };
-          status: string;
-        };
+        result: { refs: { primeRef: { id: string }; detailRefs: unknown[] }; status: string };
       };
       success: boolean;
     };
@@ -690,20 +1081,13 @@ describe('agent-facing active public tools', () => {
     expect(cleanPrime).toMatchObject({
       tool: 'alembic_prime',
       operation: 'auto',
-      interaction: {
-        currentTask: {
-          intentRef: intent.data.intentRef,
-          query: expect.stringContaining('Implement public prime active tool'),
-        },
-      },
       result: {
         acceptedKnowledge: [expect.objectContaining({ id: 'recipe-public-prime' })],
         contextOnlyEvidence: {
-          projectGraphIncluded: true,
+          projectGraphIncluded: false,
           projectMatrixSummary: expect.stringContaining('Project matrix overview'),
         },
         primePackage: { kind: 'PrimePublicPackage' },
-        retrieval: { relationChainCount: 1 },
       },
     });
     expect(arrayValue(cleanPrime.detailRefs)).toEqual(
@@ -712,16 +1096,20 @@ describe('agent-facing active public tools', () => {
         expect.objectContaining({ id: 'prime-guard:guard-public-api' }),
       ])
     );
-    expect(arrayValue(cleanPrime.relations)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ relationType: 'supports' })])
-    );
+    expect(JSON.stringify(cleanPrime)).not.toContain('relationChainCount');
+    expect(JSON.stringify(cleanPrime)).not.toContain('relationHopLimit');
+    expect(JSON.stringify(cleanPrime)).not.toContain('prime-relation-chain-empty');
+    expect(JSON.stringify(cleanPrime)).not.toContain('"domain":"recipeRelation"');
     expect(JSON.stringify(asRecord(asRecord(cleanPrime.primePackage).trustReceipt))).not.toContain(
       'As Codex'
     );
     expect(search).toHaveBeenCalledTimes(1);
+    expect(search.mock.calls[0]?.[0]).toMatchObject({
+      raw: { userQuery: expect.stringContaining('Implement public prime active tool') },
+    });
+    expect(search.mock.calls[0]?.[1]).toMatchObject({ standalonePrime: true });
     expect(result.success).toBe(true);
     expect(result.data.result.status).toBe('ready');
-    expect(result.data.result.refs.intentRef.id).toBe(intent.data.intentRef);
     expect(result.data.result.refs.primeRef.id).toMatch(/^prime-public-/);
     expect(result.data.result.refs.detailRefs).not.toHaveLength(0);
     expect(result.data.primeKnowledgeMaterial).toMatchObject({
@@ -770,7 +1158,7 @@ describe('agent-facing active public tools', () => {
         detailRefsMode: 'ref-based',
         evidenceDelivery: 'detailRefs-and-primeKnowledgeMaterial',
         primeInjectionPackage: {
-          availability: 'not-produced',
+          availability: 'resident-provided',
           missingProducerFields: [],
           pluginSynthesized: false,
         },
@@ -790,6 +1178,17 @@ describe('agent-facing active public tools', () => {
     expect(
       result.data.primePackage.compactPackage.primeInjectionPackage.producerBoundary
     ).toContain('AlembicPlugin only passes through');
+    expect(result.data.primePackage.compactPackage.acceptedKnowledge).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'recipe-public-prime',
+          matchedRegionClasses: expect.arrayContaining(['applicability']),
+          usefulSlices: expect.arrayContaining([
+            expect.objectContaining({ regionClass: 'applicability' }),
+          ]),
+        }),
+      ])
+    );
     expect(result.data.primeKnowledgeMaterial.acceptedKnowledge).toHaveLength(1);
     expect(result.data.primeKnowledgeMaterial.acceptedGuards).toHaveLength(1);
     expect(result.data.primeKnowledgeMaterial.trustPosture.receiptChecklist).toEqual(
@@ -802,26 +1201,529 @@ describe('agent-facing active public tools', () => {
     expect(result.data.primePackage.trustReceipt.receiptId).toMatch(/^prime-/);
   });
 
-  test('withholds trusted prime material for low-information intent without caller anchors', async () => {
+  test('reports selected-only accepted resident material as ready public prime output', async () => {
+    const search = vi.fn(async () => selectedOnlySearchResult());
+    const ctx = makeContext(search);
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      capability: 'Codex MCP runtime',
+      integrationBoundary: 'MCP prime handler',
+      inputSource: 'host-declared-intent',
+      keywords: ['resident', 'semantic-region'],
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      requirementGoal: 'Implement selected-only resident trust bridge',
+      taskAction: 'implement',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const result = publicToolLegacyTestView(primeOutput) as {
+      data: {
+        primeKnowledgeMaterial: { status: string };
+        primePackage: {
+          compactPackage: {
+            acceptedKnowledge: Array<{ id: string; trustEvidence?: unknown }>;
+            counts: { acceptedKnowledge: number };
+          };
+          reason?: { code?: string };
+          status: string;
+          trustPosture: { noTrustedClaimRequired: boolean };
+          trustReceipt: { status: string };
+        };
+        result: { reason?: { code?: string }; status: string; summary: string };
+      };
+      success: boolean;
+    };
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({
+      status: 'ready',
+      summary: expect.stringContaining('1 accepted Recipe/pattern item'),
+    });
+    expect(result.data.result.reason?.code).not.toBe('knowledge-empty');
+    expect(result.data.primePackage).toMatchObject({
+      status: 'ready',
+      compactPackage: {
+        counts: { acceptedKnowledge: 1 },
+        acceptedKnowledge: [
+          expect.objectContaining({
+            id: 'recipe-selected-only',
+            trustEvidence: expect.objectContaining({ kind: 'recipe-semantic-region' }),
+          }),
+        ],
+      },
+      trustPosture: { noTrustedClaimRequired: false },
+      trustReceipt: { status: 'delivered' },
+    });
+    expect(result.data.primePackage.reason?.code).not.toBe('knowledge-empty');
+    expect(result.data.primeKnowledgeMaterial.status).toBe('delivered');
+    expect(arrayValue(cleanPrime.detailRefs)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'prime-knowledge:recipe-selected-only' }),
+      ])
+    );
+    expect(JSON.stringify(cleanPrime)).not.toContain('FULL_RECIPE_BODY_MARKER_SHOULD_NOT_LEAK');
+    expect(JSON.stringify(cleanPrime)).not.toContain('relationChainCount');
+    expect(JSON.stringify(cleanPrime)).not.toContain('relationHopLimit');
+  });
+
+  test('projects real resident selected material from a partially degraded package as acceptedKnowledge', async () => {
+    const search = vi.fn(async () => realResidentDegradedSelectedSearchResult());
+    const ctx = makeContext(search);
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      capability: 'Codex MCP runtime',
+      integrationBoundary: 'MCP prime handler',
+      inputSource: 'host-declared-intent',
+      keywords: ['resident', 'semantic-region', 'acceptedKnowledge'],
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      requirementGoal: 'Fix prime output selected material projection',
+      taskAction: 'fix',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const result = publicToolLegacyTestView(primeOutput) as {
+      data: {
+        primeKnowledgeMaterial: { acceptedKnowledge: unknown[]; status: string };
+        primePackage: {
+          compactPackage: {
+            acceptedKnowledge: Array<{ id: string; matchedRegionClasses?: string[] }>;
+            counts: { acceptedKnowledge: number };
+          };
+          status: string;
+          trustPosture: { noTrustedClaimRequired: boolean };
+          trustReceipt: { status: string };
+        };
+        result: { reason?: { code?: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({ status: 'ready' });
+    expect(result.data.result.reason?.code).not.toBe('knowledge-empty');
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'delivered',
+      acceptedKnowledge: [
+        expect.objectContaining({
+          id: 'recipe-selected-only',
+          matchedRegionClasses: expect.arrayContaining(['applicability']),
+          trustEvidence: expect.objectContaining({ kind: 'recipe-semantic-region' }),
+          usefulSlices: expect.arrayContaining([
+            expect.objectContaining({ regionClass: 'applicability' }),
+          ]),
+        }),
+      ],
+    });
+    expect(result.data.primePackage).toMatchObject({
+      compactPackage: {
+        counts: { acceptedKnowledge: 1 },
+        acceptedKnowledge: [
+          expect.objectContaining({
+            id: 'recipe-selected-only',
+            matchedRegionClasses: expect.arrayContaining(['applicability']),
+          }),
+        ],
+      },
+      status: 'ready',
+      trustPosture: { noTrustedClaimRequired: false },
+      trustReceipt: { status: 'delivered' },
+    });
+    expect(arrayValue(cleanPrime.detailRefs)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'prime-knowledge:recipe-selected-only' }),
+      ])
+    );
+    expect(JSON.stringify(cleanPrime)).not.toContain('FULL_RECIPE_BODY_MARKER_SHOULD_NOT_LEAK');
+    expect(JSON.stringify(cleanPrime)).not.toContain('recipeRelation');
+    expect(JSON.stringify(cleanPrime)).not.toContain('relationHops');
+  });
+
+  test('projects p21 resident vector selectedRecipes as acceptedKnowledge when selectedKnowledge is absent', async () => {
+    const search = vi.fn(async () => p21VectorSelectedRecipesSearchResult());
+    const ctx = makeContext(search);
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      capability: 'Codex MCP runtime',
+      domainObjects: ['Recipe', 'residentRegionRetrieval', 'selectedRecipes'],
+      inputSource: 'host-declared-intent',
+      integrationBoundary: 'MCP prime handler',
+      keywords: ['resident', 'vector', 'semantic-region', 'acceptedKnowledge'],
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      qualityConcerns: ['trust gating', 'public output projection'],
+      requirementGoal:
+        'Fix resident vector selectedRecipes so semantic-region Recipe evidence becomes acceptedKnowledge',
+      scenario: 'APQ6 p21 positive code-development probe',
+      taskAction: 'fix',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const result = publicToolLegacyTestView(primeOutput) as {
+      data: {
+        primeKnowledgeMaterial: { acceptedKnowledge: unknown[]; status: string };
+        primePackage: {
+          compactPackage: {
+            acceptedKnowledge: Array<{ id: string; matchedRegionClasses?: string[] }>;
+            counts: { acceptedKnowledge: number };
+            primeInjectionPackage: { selectedCount: number | null; status: string | null };
+          };
+          status: string;
+          trustPosture: { noTrustedClaimRequired: boolean };
+          trustReceipt: { status: string };
+        };
+        result: { reason?: { code?: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({ status: 'ready' });
+    expect(result.data.result.reason?.code).not.toBe('knowledge-empty');
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'delivered',
+      acceptedKnowledge: [
+        expect.objectContaining({
+          id: 'recipe-selected-only',
+          matchedRegionClasses: expect.arrayContaining(['applicability', 'implementationSteps']),
+          trustEvidence: expect.objectContaining({ kind: 'recipe-semantic-region' }),
+          usefulSlices: expect.arrayContaining([
+            expect.objectContaining({ regionClass: 'applicability' }),
+            expect.objectContaining({ regionClass: 'implementationSteps' }),
+          ]),
+        }),
+      ],
+    });
+    expect(result.data.primePackage).toMatchObject({
+      compactPackage: {
+        counts: { acceptedKnowledge: 1 },
+        acceptedKnowledge: [
+          expect.objectContaining({
+            id: 'recipe-selected-only',
+            matchedRegionClasses: expect.arrayContaining(['applicability', 'implementationSteps']),
+          }),
+        ],
+        primeInjectionPackage: {
+          selectedCount: 6,
+          status: 'degraded',
+        },
+      },
+      status: 'ready',
+      trustPosture: { noTrustedClaimRequired: false },
+      trustReceipt: { status: 'delivered' },
+    });
+    expect(arrayValue(cleanPrime.detailRefs)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'prime-knowledge:recipe-selected-only' }),
+      ])
+    );
+    expect(JSON.stringify(cleanPrime)).not.toContain('FULL_RECIPE_BODY_MARKER_SHOULD_NOT_LEAK');
+    expect(JSON.stringify(cleanPrime)).not.toContain('recipeRelation');
+    expect(JSON.stringify(cleanPrime)).not.toContain('relationHops');
+  });
+
+  test('direct method chain projects p23 itemId-only resident vector selectedRecipes', async () => {
+    const engine = {
+      search: vi.fn(async () => ({ items: [] })),
+    };
+    const residentServiceClient = {
+      search: vi.fn(async () => p23ResidentVectorSelectedRecipesResult()),
+    };
+    const pipeline = new PrimeSearchPipeline(engine, { residentServiceClient });
+    const search = vi.fn((intent: unknown, options?: unknown) =>
+      pipeline.search(
+        intent as Parameters<PrimeSearchPipeline['search']>[0],
+        options as Parameters<PrimeSearchPipeline['search']>[1]
+      )
+    );
+    const ctx = makeContext(search);
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      capability: 'Codex MCP runtime',
+      domainObjects: ['Recipe', 'residentRegionRetrieval', 'selectedRecipes'],
+      inputSource: 'host-declared-intent',
+      integrationBoundary: 'MCP prime handler',
+      keywords: ['resident', 'vector', 'semantic-region', 'acceptedKnowledge'],
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      qualityConcerns: ['trust gating', 'public output projection'],
+      requirementGoal:
+        'Fix resident vector selected material projection so semantic-region Recipe evidence becomes acceptedKnowledge',
+      scenario: 'APQ6 p24 direct non-MCP method-chain probe',
+      taskAction: 'fix',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const result = publicToolLegacyTestView(primeOutput) as {
+      data: {
+        primeKnowledgeMaterial: { acceptedKnowledge: unknown[]; status: string };
+        primePackage: {
+          compactPackage: {
+            acceptedKnowledge: Array<{ id: string; matchedRegionClasses?: string[] }>;
+            counts: { acceptedKnowledge: number };
+            primeInjectionPackage: { omittedCount: number | null; selectedCount: number | null };
+          };
+          status: string;
+          trustPosture: { noTrustedClaimRequired: boolean };
+          trustReceipt: { status: string };
+        };
+        result: { reason?: { code?: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(residentServiceClient.search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'semantic',
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+      })
+    );
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({ status: 'ready' });
+    expect(result.data.result.reason?.code).not.toBe('knowledge-empty');
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'delivered',
+      acceptedKnowledge: [
+        expect.objectContaining({
+          id: 'recipe-selected-only',
+          matchedRegionClasses: expect.arrayContaining(['applicability', 'implementationSteps']),
+          trustEvidence: expect.objectContaining({ kind: 'recipe-semantic-region' }),
+          usefulSlices: expect.arrayContaining([
+            expect.objectContaining({ regionClass: 'applicability' }),
+            expect.objectContaining({ regionClass: 'implementationSteps' }),
+          ]),
+        }),
+      ],
+    });
+    expect(result.data.primePackage).toMatchObject({
+      compactPackage: {
+        counts: { acceptedKnowledge: 1 },
+        primeInjectionPackage: {
+          omittedCount: 6,
+          selectedCount: 6,
+        },
+      },
+      status: 'ready',
+      trustPosture: { noTrustedClaimRequired: false },
+      trustReceipt: { status: 'delivered' },
+    });
+    expect(arrayValue(cleanPrime.detailRefs)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'prime-knowledge:recipe-selected-only' }),
+      ])
+    );
+    expect(JSON.stringify(cleanPrime)).not.toContain('FULL_RECIPE_BODY_MARKER_SHOULD_NOT_LEAK');
+    expect(JSON.stringify(cleanPrime)).not.toContain('recipeRelation');
+    expect(JSON.stringify(cleanPrime)).not.toContain('relationHops');
+  });
+
+  test('does not skip a complete standalone code frame when the requirement mentions status output', async () => {
     const search = vi.fn(async () => deliveredSearchResult());
     const ctx = makeContext(search);
-    const intent = publicToolLegacyTestView(
-      await intentHandler(ctx, {
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      capability: 'Codex MCP runtime',
+      integrationBoundary: 'MCP prime handler',
+      inputSource: 'host-declared-intent',
+      keywords: ['resident', 'trust bridge'],
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      requirementGoal: 'Implement prime status receipt projection for resident selected material',
+      taskAction: 'implement',
+    });
+    const result = publicToolLegacyTestView(primeOutput) as {
+      data: {
+        primeKnowledgeMaterial: { status: string };
+        result: { reason?: { code: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search.mock.calls[0]?.[0]).toMatchObject({
+      raw: { userQuery: expect.stringContaining('Implement prime status receipt projection') },
+    });
+    expect(result).toMatchObject({
+      success: true,
+      data: {
+        result: { status: 'ready' },
+        primeKnowledgeMaterial: { status: 'delivered' },
+      },
+    });
+    expect(result.data.result.reason?.code).not.toBe('status-only-turn');
+  });
+
+  test('bounds public project context recommended queries for long standalone prime frames', async () => {
+    const search = vi.fn(async () => deliveredSearchResult());
+    const ctx = makeContext(search);
+    const longGoal = [
+      'Implement a realistic host-facing prime projection repair that keeps taskAction and requirementGoal standalone',
+      'while preserving APQ schema guarantees, active locator facets, compact trusted Recipe guidance,',
+      'resident semantic-region evidence, public package diagnostics, Chinese and English code-development wording,',
+      'and no relation-chain fields in the primary output for Codex MCP installed runtime validation.',
+    ].join(' ');
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      capability: 'Codex MCP public tools',
+      integrationBoundary: 'MCP tool handler',
+      inputSource: 'host-declared-intent',
+      keywords: ['prime', 'projection', 'schema', 'diagnostics'],
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      requirementGoal: longGoal,
+      taskAction: 'implement',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const primePackage = asRecord(cleanPrime.primePackage);
+    const projectContextGuidance = asRecord(primePackage.projectContextGuidance);
+    const recommendedQueries = arrayValue(projectContextGuidance.recommendedQueries).map(asRecord);
+
+    expect(cleanPrime.ok).toBe(true);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(recommendedQueries[0]?.query).toEqual(expect.any(String));
+    expect(String(recommendedQueries[0]?.query).length).toBeLessThanOrEqual(240);
+  });
+
+  test.each([
+    {
+      requirementGoal: 'Where is the Dashboard module location?',
+      capability: 'project navigation',
+      scenario: 'module location lookup',
+    },
+    {
+      requirementGoal: 'What is Alembic?',
+      capability: 'general knowledge',
+      scenario: 'concept overview',
+    },
+    {
+      requirementGoal: 'Plan APQ rollout options without code changes',
+      capability: 'design planning',
+      scenario: 'read-only planning discussion',
+    },
+  ])('skips non-code prime frame before retrieval: $requirementGoal', async (primeArgs) => {
+    const search = vi.fn(async () => deliveredSearchResult());
+    const ctx = makeContext(search);
+
+    const result = publicToolLegacyTestView(
+      await primeHandler(ctx, {
         agentHost: 'codex',
-        hostDeclaredIntent: {
-          action: 'search',
-          confidence: 0.35,
-          query: 'where do I start',
-        },
+        integrationBoundary: 'workspace orientation',
         inputSource: 'host-declared-intent',
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+        taskAction: 'implement',
+        ...primeArgs,
       })
-    ) as { data: { intentRef: string } };
+    ) as {
+      data: { result: { reason: { code: string }; status: string } };
+      success: boolean;
+    };
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({
+      reason: { code: 'not-relevant-to-project-knowledge' },
+      status: 'skipped',
+    });
+  });
+
+  test.each([
+    {
+      expectedReason: 'not-relevant-to-project-knowledge',
+      intentKind: 'read-only-analysis' as const,
+      requirementGoal: 'Find where the prime output projection handler lives before editing',
+    },
+    {
+      expectedReason: 'status-only-turn',
+      intentKind: 'status-only' as const,
+      requirementGoal: 'Report current APQ prime projection status for the runtime handler',
+    },
+  ])('skips explicit non-code prime frame before retrieval even with locator facets: $intentKind', async ({
+    expectedReason,
+    intentKind,
+    requirementGoal,
+  }) => {
+    const search = vi.fn(async () => realResidentDegradedSelectedSearchResult());
+    const ctx = makeContext(search);
+
+    const result = publicToolLegacyTestView(
+      await primeHandler(ctx, {
+        agentHost: 'codex',
+        capability: 'Codex MCP runtime',
+        inputSource: 'host-declared-intent',
+        integrationBoundary: 'MCP prime handler',
+        intentKind,
+        keywords: ['prime', 'handler', 'projection'],
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+        requirementGoal,
+        taskAction: 'fix',
+      })
+    ) as {
+      data: { result: { reason: { code: string }; status: string } };
+      success: boolean;
+    };
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({
+      reason: { code: expectedReason },
+      status: 'skipped',
+    });
+  });
+
+  test('blocks obsolete prime intent inputs before retrieval', async () => {
+    const search = vi.fn(async () => deliveredSearchResult());
+    const ctx = makeContext(search);
+
+    const intentRefOnly = publicToolLegacyTestView(
+      await primeHandler(ctx, {
+        agentHost: 'codex',
+        inputSource: 'host-declared-intent',
+        intentRef: 'intent-obsolete',
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+      })
+    ) as {
+      data: { result: { reason: { code: string; message: string }; status: string } };
+      success: boolean;
+    };
+
+    const recognizedOnly = publicToolLegacyTestView(
+      await primeHandler(ctx, {
+        agentHost: 'codex',
+        inputSource: 'host-declared-intent',
+        projectRoot: '/tmp/alembic-plugin-public-tools',
+        recognizedIntent: { action: 'implement', query: 'Implement public prime active tool' },
+      })
+    ) as {
+      data: { result: { reason: { code: string; message: string }; status: string } };
+      success: boolean;
+    };
+
+    expect(intentRefOnly.success).toBe(false);
+    expect(intentRefOnly.data.result).toMatchObject({
+      reason: {
+        code: 'obsolete-prime-intent-input',
+        message: expect.stringContaining('taskAction'),
+      },
+      status: 'blocked',
+    });
+    expect(recognizedOnly.success).toBe(false);
+    expect(recognizedOnly.data.result).toMatchObject({
+      reason: { code: 'obsolete-prime-intent-input' },
+      status: 'blocked',
+    });
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  test('skips low-information prime input before retrieval', async () => {
+    const search = vi.fn(async () => deliveredSearchResult());
+    const ctx = makeContext(search);
 
     const primeOutput = await primeHandler(ctx, {
       agentHost: 'codex',
       inputSource: 'host-declared-intent',
-      intentRef: intent.data.intentRef,
       projectRoot: '/tmp/alembic-plugin-public-tools',
+      userQuery: 'where do I start',
     });
     const cleanPrime = asRecord(primeOutput);
     const result = publicToolLegacyTestView(primeOutput) as {
@@ -842,19 +1744,19 @@ describe('agent-facing active public tools', () => {
       success: boolean;
     };
 
-    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.data.result).toMatchObject({
       reason: {
-        code: 'knowledge-empty',
-        message: expect.stringContaining('lacked activeFile'),
+        code: 'not-relevant-to-project-knowledge',
+        message: expect.stringContaining('Prime skipped'),
       },
-      status: 'degraded',
+      status: 'skipped',
     });
     expect(result.data.primeKnowledgeMaterial).toMatchObject({
       acceptedGuards: [],
       acceptedKnowledge: [],
-      status: 'empty',
+      status: 'degraded',
     });
     expect(result.data.primePackage).toMatchObject({
       trustPosture: { noTrustedClaimRequired: true },
@@ -908,25 +1810,15 @@ describe('agent-facing active public tools', () => {
     }
     const search = vi.fn(async () => oldResidentResult);
     const ctx = makeContext(search);
-    const intent = publicToolLegacyTestView(
-      await intentHandler(ctx, {
-        agentHost: 'codex',
-        hostDeclaredIntent: {
-          action: 'implement',
-          confidence: 0.9,
-          language: 'typescript',
-          query: 'Implement public prime active tool',
-        },
-        inputSource: 'host-declared-intent',
-      })
-    ) as { data: { intentRef: string } };
-
     const result = publicToolLegacyTestView(
       await primeHandler(ctx, {
         agentHost: 'codex',
+        capability: 'Codex MCP public tools',
+        integrationBoundary: 'MCP tool handler',
         inputSource: 'host-declared-intent',
-        intentRef: intent.data.intentRef,
         projectRoot: '/tmp/alembic-plugin-public-tools',
+        requirementGoal: 'Implement public prime active tool',
+        taskAction: 'implement',
       })
     ) as {
       data: {
@@ -1013,12 +1905,12 @@ describe('agent-facing active public tools', () => {
 
     const blockedPrime = publicToolLegacyTestView(
       await primeHandler(ctx, {
-        hostDeclaredIntent: {
-          action: 'implement',
-          query: 'Implement public prime active tool',
-        },
+        capability: 'Codex MCP public tools',
+        integrationBoundary: 'MCP tool handler',
         inputSource: 'automation-envelope',
         projectRoot: '/tmp/alembic-plugin-public-tools',
+        requirementGoal: 'Implement public prime active tool',
+        taskAction: 'implement',
       })
     ) as {
       data: {
@@ -1066,13 +1958,13 @@ describe('agent-facing active public tools', () => {
     const ctx = makeContext(async () => null);
     const result = publicToolLegacyTestView(
       await primeHandler(ctx, {
-        hostDeclaredIntent: {
-          action: 'review',
-          query: 'Review public prime active tool',
-        },
+        capability: 'Codex MCP public tools',
+        integrationBoundary: 'MCP tool handler',
         inputSource: 'host-declared-intent',
         projectRoot: '/tmp/alembic-plugin-public-tools',
+        requirementGoal: 'Review public prime active tool before applying concrete code changes',
         sourceRefs: ['workspace-ledger/AlembicPlugin/afapi-stage3.md'],
+        taskAction: 'code-review',
       })
     ) as {
       data: {

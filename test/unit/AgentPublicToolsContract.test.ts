@@ -254,7 +254,7 @@ describe('Agent-facing public tools contract foundation', () => {
           producer: 'alembic-resident-service',
           producerBoundary:
             'Resident producer owns PrimeInjectionPackage fields; Plugin does not synthesize them.',
-          producerOnlyFields: ['intent', 'search', 'vector', 'relations', 'selectedKnowledge'],
+          producerOnlyFields: ['intent', 'search', 'vector', 'selectedKnowledge'],
           selectedCount: null,
           status: null,
         },
@@ -263,7 +263,6 @@ describe('Agent-facing public tools contract foundation', () => {
         decisionRefCount: 1,
         feedbackSignalCount: 3,
         observeOnly: true,
-        relationEvidenceCount: 1,
         sourceRefCoverage: 1,
         supportedSignals: ['searchHit', 'view', 'adoption'],
       },

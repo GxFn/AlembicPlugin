@@ -39,6 +39,9 @@ interface PrimeMaterial {
     summary: string;
     score: number;
     evidenceRefs: Array<{ path: string; line: number | null }>;
+    matchedRegionClasses: string[];
+    trustEvidence: Record<string, unknown>;
+    usefulSlices: Array<Record<string, unknown>>;
   }>;
   acceptedGuards: Array<{
     id: string;
@@ -254,106 +257,168 @@ function intentEvidenceSummary() {
 
 function primeInjectionPackageSummary() {
   return {
-    decisionRegister: {
-      acceptedDecisionRefs: ['decision-active-1'],
-      auditExcludedCount: 1,
-      available: true,
-      defaultLifecycle: 'active-effective-only',
-      excludedStatuses: ['revoked', 'deleted'],
-      route: '/api/v1/decision-register/searchable',
-      source: 'alembic-decision-register',
-      vectorAdmission: 'accepted-only',
-    },
-    feedback: {
-      observeOnly: true,
-      recorder: 'HitRecorder',
-      supportedSignals: ['searchHit', 'view', 'adoption'],
-      version: 1,
-    },
-    injection: {
-      degradedReasons: [],
-      omittedCount: 0,
-      selectedCount: 1,
-      status: 'ready',
-    },
-    intent: {
-      applied: true,
-      confidence: 0.86,
-      degraded: false,
-      degradedReasons: [],
-      executableQuery: 'Create episode handoff',
-      requestedMode: 'semantic',
-      sourceRefs: ['host:intent'],
-      whySelected: ['intent-search-plan'],
-    },
+    decisionRegister: primePackageDecisionRegister(),
+    feedback: primePackageFeedback(),
+    injection: primePackageInjection(),
+    intent: primePackageIntent(),
     omitted: [],
-    relations: {
-      evidence: [
-        {
-          direction: 'outgoing',
-          itemId: 'recipe-episode',
-          relatedId: 'recipe-related',
-          relation: 'related',
-          source: 'knowledgeGraphService',
-        },
-      ],
-      omitted: [],
-    },
-    retrievalQuality: {
-      decisionRefCount: 1,
-      feedbackSignalCount: 3,
-      relationEvidenceCount: 1,
-      selectedWithSourceRefs: 1,
-      sourceRefCoverage: 1,
-      version: 1,
-    },
-    search: {
-      actualMode: 'semantic',
-      filteredCount: 1,
-      query: 'Create episode handoff',
-      queries: ['episode handoff'],
-      requestedMode: 'semantic',
-      resultCount: 1,
-    },
-    selectedKnowledge: [
+    relations: primePackageRelations(),
+    retrievalQuality: primePackageRetrievalQuality(),
+    search: primePackageSearch(),
+    selectedKnowledge: [primePackageSelectedKnowledge()],
+    trace: primePackageTrace(),
+    vector: primePackageVector(),
+    version: 1,
+  };
+}
+
+function primePackageDecisionRegister() {
+  return {
+    acceptedDecisionRefs: ['decision-active-1'],
+    auditExcludedCount: 1,
+    available: true,
+    defaultLifecycle: 'active-effective-only',
+    excludedStatuses: ['revoked', 'deleted'],
+    route: '/api/v1/decision-register/searchable',
+    source: 'alembic-decision-register',
+    vectorAdmission: 'accepted-only',
+  };
+}
+
+function primePackageFeedback() {
+  return {
+    observeOnly: true,
+    recorder: 'HitRecorder',
+    supportedSignals: ['searchHit', 'view', 'adoption'],
+    version: 1,
+  };
+}
+
+function primePackageInjection() {
+  return {
+    degradedReasons: [],
+    omittedCount: 0,
+    selectedCount: 1,
+    status: 'ready',
+  };
+}
+
+function primePackageIntent() {
+  return {
+    applied: true,
+    confidence: 0.86,
+    degraded: false,
+    degradedReasons: [],
+    executableQuery: 'Create episode handoff',
+    requestedMode: 'semantic',
+    sourceRefs: ['host:intent'],
+    whySelected: ['intent-search-plan'],
+  };
+}
+
+function primePackageRelations() {
+  return {
+    evidence: [
       {
-        evidenceRefs: ['scoreBreakdown:recipe-episode'],
-        injectionStatus: 'selected',
+        direction: 'outgoing',
         itemId: 'recipe-episode',
-        kind: 'pattern',
-        rank: 1,
-        score: 0.91,
-        sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
-        title: 'Episode handoff',
-        trigger: '@episode-handoff',
-        whySelected: ['semantic-score'],
+        relatedId: 'recipe-related',
+        relation: 'related',
+        source: 'knowledgeGraphService',
       },
     ],
-    trace: {
-      evidenceRefs: ['scoreBreakdown:recipe-episode'],
-      sourcePath: ['searchMeta.primeInjectionPackage'],
-      sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
-      sources: ['intentSearchPlan', 'intentEvidence'],
-    },
-    vector: {
-      omitted: [],
-      scoreBreakdown: [
-        {
-          finalScore: 0.91,
-          itemId: 'recipe-episode',
-          rank: 1,
-          semanticScore: 0.81,
-          signals: ['semantic-score'],
-          vectorScore: null,
-        },
-      ],
-      semanticAnchors: [],
-      semanticUsed: true,
-      topAnchorMatches: [],
-      vectorAvailable: true,
-      vectorUsed: true,
-    },
+    omitted: [],
+  };
+}
+
+function primePackageRetrievalQuality() {
+  return {
+    decisionRefCount: 1,
+    feedbackSignalCount: 3,
+    relationEvidenceCount: 1,
+    selectedWithSourceRefs: 1,
+    sourceRefCoverage: 1,
     version: 1,
+  };
+}
+
+function primePackageSearch() {
+  return {
+    actualMode: 'semantic',
+    filteredCount: 1,
+    query: 'Create episode handoff',
+    queries: ['episode handoff'],
+    requestedMode: 'semantic',
+    resultCount: 1,
+  };
+}
+
+function primePackageSelectedKnowledge() {
+  return {
+    evidenceRefs: ['scoreBreakdown:recipe-episode'],
+    injectionStatus: 'selected',
+    itemId: 'recipe-episode',
+    kind: 'pattern',
+    matchedRegionClasses: ['applicability', 'integrationBoundary'],
+    matchedRegions: primePackageMatchedRegions(),
+    rank: 1,
+    score: 0.91,
+    sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+    title: 'Episode handoff',
+    trigger: '@episode-handoff',
+    whySelected: ['semantic-score'],
+  };
+}
+
+function primePackageMatchedRegions() {
+  return [
+    {
+      regionClass: 'applicability',
+      score: 0.93,
+      snippet: 'Use this Recipe when a prime tool must project compact trusted material.',
+      sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+      sourceRefsBridge: 'active',
+      vectorId: 'recipe_region_recipe-episode_applicability_hash',
+    },
+    {
+      regionClass: 'integrationBoundary',
+      score: 0.88,
+      snippet:
+        'Keep producer-only prime injection metadata resident-owned and expose only compact evidence.',
+      sourceRefs: ['lib/runtime/mcp/handlers/task.ts:43'],
+      sourceRefsBridge: 'active',
+      vectorId: 'recipe_region_recipe-episode_integrationBoundary_hash',
+    },
+  ];
+}
+
+function primePackageTrace() {
+  return {
+    evidenceRefs: ['scoreBreakdown:recipe-episode'],
+    sourcePath: ['searchMeta.primeInjectionPackage'],
+    sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+    sources: ['intentSearchPlan', 'intentEvidence'],
+  };
+}
+
+function primePackageVector() {
+  return {
+    omitted: [],
+    scoreBreakdown: [
+      {
+        finalScore: 0.91,
+        itemId: 'recipe-episode',
+        rank: 1,
+        semanticScore: 0.81,
+        signals: ['semantic-score'],
+        vectorScore: null,
+      },
+    ],
+    semanticAnchors: [],
+    semanticUsed: true,
+    topAnchorMatches: [],
+    vectorAvailable: true,
+    vectorUsed: true,
   };
 }
 
@@ -441,6 +506,34 @@ describe('alembic_task prime knowledge material', () => {
         module: 'mcp',
         resultCount: 2,
         filteredCount: 2,
+        primeInjectionPackage: {
+          ...primeInjectionPackageSummary(),
+          selectedKnowledge: [
+            {
+              evidenceRefs: ['scoreBreakdown:recipe-1'],
+              injectionStatus: 'selected',
+              itemId: 'recipe-1',
+              kind: 'pattern',
+              matchedRegionClasses: ['applicability', 'integrationBoundary'],
+              matchedRegions: [
+                {
+                  regionClass: 'applicability',
+                  score: 0.93,
+                  snippet: 'Use this Recipe when Codex MCP wiring must stay in the plugin layer.',
+                  sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+                  sourceRefsBridge: 'active',
+                  vectorId: 'recipe_region_recipe-1_applicability_hash',
+                },
+              ],
+              rank: 1,
+              score: 0.91,
+              sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+              title: 'Use codex plugin boundaries',
+              trigger: '@codex-plugin-boundary',
+              whySelected: ['resident-region'],
+            },
+          ],
+        },
         residentSearch: {
           attempted: true,
           available: true,
@@ -636,7 +729,7 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.message).toContain('trusted-to-obey=1');
     expect(result.message).toContain('trusted-to-use=1');
     expect(result.message).toContain('context-only=2');
-    expect(result.message).toContain('requires-verification=1');
+    expect(result.message).toContain('requires-verification=2');
     expect(result.message).toContain('not as Alembic prime');
     expect(result.message).toContain('keep evidenceRefs in the payload');
     expect(result.message).not.toContain('📍');
@@ -646,12 +739,193 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.message).toContain('before any further tool call');
   });
 
+  test('accepts trusted selected material from a partially degraded resident package', async () => {
+    const residentPackage = primeInjectionPackageSummary();
+    residentPackage.injection = {
+      degradedReasons: ['selected-material-partial'],
+      omittedCount: 5,
+      selectedCount: 6,
+      status: 'degraded',
+    };
+    residentPackage.omitted = [
+      { itemId: 'recipe-weak-1', reason: 'missing-semantic-region-evidence' },
+      { itemId: 'recipe-weak-2', reason: 'missing-semantic-region-evidence' },
+      { itemId: 'recipe-weak-3', reason: 'missing-semantic-region-evidence' },
+      { itemId: 'recipe-weak-4', reason: 'missing-semantic-region-evidence' },
+      { itemId: 'recipe-weak-5', reason: 'missing-semantic-region-evidence' },
+    ];
+    residentPackage.selectedKnowledge = [primePackageSelectedKnowledge()];
+    residentPackage.search = {
+      actualMode: 'semantic',
+      filteredCount: 6,
+      query: 'Fix prime output selected material projection',
+      queries: ['prime output selected material projection'],
+      requestedMode: 'semantic',
+      resultCount: 6,
+    };
+
+    const searchResult: PrimeSearchResult = {
+      guardRules: [],
+      relatedKnowledge: [],
+      searchMeta: {
+        filteredCount: 6,
+        language: 'typescript',
+        module: 'prime',
+        primeInjectionPackage: residentPackage,
+        queries: ['prime output selected material projection'],
+        residentSearch: {
+          attempted: true,
+          available: true,
+          residentVector: { available: true },
+          route: 'alembic-resident-service',
+          semanticUsed: true,
+          vectorUsed: true,
+        },
+        resultCount: 6,
+        scenario: 'implementation',
+      },
+    };
+
+    const result = (await taskHandler(
+      makeContext(async () => searchResult),
+      {
+        operation: 'prime',
+        userQuery: 'Fix prime output selected material projection',
+        activeFile: 'lib/runtime/mcp/handlers/agent-public-tools.ts',
+        language: 'typescript',
+      }
+    )) as PrimeEnvelope;
+
+    expect(result.success).toBe(true);
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'delivered',
+      acceptedKnowledge: [
+        expect.objectContaining({
+          id: 'recipe-episode',
+          matchedRegionClasses: expect.arrayContaining(['applicability', 'integrationBoundary']),
+          trustEvidence: expect.objectContaining({ kind: 'recipe-semantic-region' }),
+          usefulSlices: expect.arrayContaining([
+            expect.objectContaining({ regionClass: 'applicability' }),
+          ]),
+        }),
+      ],
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use')).toMatchObject({
+      requiredInVisibleReceipt: true,
+      items: [expect.objectContaining({ id: 'knowledge:recipe-episode' })],
+    });
+    expect(
+      trustLayer(result.data.primeKnowledgeMaterial, 'not-available-or-degraded').items
+    ).toHaveLength(0);
+  });
+
+  test('accepts p21-shaped resident vector selectedRecipes when selectedKnowledge is absent', async () => {
+    const residentPackage = primeInjectionPackageSummary();
+    residentPackage.injection = {
+      degradedReasons: ['knowledge:stale', 'document:partial'],
+      omittedCount: 4,
+      selectedCount: 6,
+      status: 'degraded',
+    };
+    residentPackage.selectedKnowledge = [];
+    residentPackage.residentRegionRetrieval = {
+      attempted: true,
+      degradedReasons: ['knowledge:stale', 'document:partial'],
+      metadataOnlyFallback: { attempted: false, used: false },
+      queryCount: 6,
+      regionHitCount: 18,
+      route: 'resident-vector-recipe-semantic-region',
+      selectedRecipes: [
+        {
+          itemId: 'recipe-episode',
+          matchedRegionClasses: ['applicability', 'integrationBoundary'],
+          matchedRegions: primePackageMatchedRegions(),
+          score: 0.91,
+          sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+          title: 'Episode handoff',
+          trigger: '@episode-handoff',
+        },
+      ],
+      used: true,
+      vectorAvailable: true,
+      wholeEntryOnlyRejectedCount: 0,
+    };
+    residentPackage.search = {
+      actualMode: 'semantic',
+      filteredCount: 6,
+      query: 'Fix prime output selected material projection',
+      queries: ['prime output selected material projection'],
+      requestedMode: 'semantic',
+      resultCount: 6,
+    };
+
+    const searchResult: PrimeSearchResult = {
+      guardRules: [],
+      relatedKnowledge: [],
+      searchMeta: {
+        filteredCount: 6,
+        language: 'typescript',
+        module: 'prime',
+        primeInjectionPackage: residentPackage,
+        queries: ['prime output selected material projection'],
+        residentSearch: {
+          attempted: true,
+          available: true,
+          residentVector: { available: true },
+          route: 'alembic-resident-service',
+          semanticUsed: true,
+          vectorUsed: true,
+        },
+        resultCount: 6,
+        scenario: 'implementation',
+      },
+    };
+
+    const result = (await taskHandler(
+      makeContext(async () => searchResult),
+      {
+        activeFile: 'lib/runtime/mcp/handlers/agent-public-tools.ts',
+        language: 'typescript',
+        operation: 'prime',
+        userQuery: 'Fix prime output selected material projection',
+      }
+    )) as PrimeEnvelope;
+
+    expect(result.success).toBe(true);
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'delivered',
+      acceptedKnowledge: [
+        expect.objectContaining({
+          id: 'recipe-episode',
+          matchedRegionClasses: expect.arrayContaining(['applicability', 'integrationBoundary']),
+          trustEvidence: expect.objectContaining({
+            kind: 'recipe-semantic-region',
+            source: 'prime-injection-package',
+          }),
+          usefulSlices: expect.arrayContaining([
+            expect.objectContaining({ regionClass: 'applicability' }),
+            expect.objectContaining({ regionClass: 'integrationBoundary' }),
+          ]),
+        }),
+      ],
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use').items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'knowledge:recipe-episode',
+          source: 'accepted-knowledge',
+        }),
+      ])
+    );
+    expect(result.data.primeKnowledgeMaterial.degradedReason).toBeUndefined();
+  });
+
   test('returns empty material when prime finds no matching recipes or guards', async () => {
     const result = (await taskHandler(
       makeContext(async () => null),
       {
         operation: 'prime',
-        userQuery: 'Quick question',
+        userQuery: 'Implement quick Recipe lookup route',
       }
     )) as PrimeEnvelope;
 
@@ -718,7 +992,7 @@ describe('alembic_task prime knowledge material', () => {
     expect(result.message).toContain('Do not make Alembic prime');
   });
 
-  test('uses host-declared intent instead of raw automation envelope as prime query', async () => {
+  test('skips host-declared non-code automation context before prime retrieval', async () => {
     let searchedIntent: ExtractedIntent | null = null;
     let searchedOptions: { hostIntentFrame?: unknown } | null = null;
     const ctx = makeContext(async (intent, options) => {
@@ -752,24 +1026,22 @@ describe('alembic_task prime knowledge material', () => {
       },
     })) as PrimeEnvelope;
 
-    expect(searchedIntent?.raw.userQuery).toBe('Route host intent into the prime flow');
-    expect(searchedIntent?.raw.userQuery).not.toContain('dispatchGroup');
-    expect(searchedOptions?.hostIntentFrame).toMatchObject({
-      source: 'mixed',
-      confidence: 0.73,
-    });
+    expect(searchedIntent).toBeNull();
+    expect(searchedOptions).toBeNull();
     expect(result.data.lifecyclePolicy).toMatchObject({
       inputSource: 'user-intent',
       intentKind: 'knowledge-query',
       primeDecision: {
-        action: 'run',
+        action: 'skip',
         curatedQuery: 'Route host intent into the prime flow',
+        reasonCode: 'non-code-development-turn',
       },
       taskAnchorDecision: {
         action: 'skip',
         reasonCode: 'readonly-no-anchor',
       },
     });
+    expect(result.data.primeKnowledgeMaterial.status).toBe('empty');
     expect(result.data.primeKnowledgeMaterial.intent.userQuery).toBe(
       'Route host intent into the prime flow'
     );
@@ -1084,7 +1356,7 @@ describe('alembic_task prime knowledge material', () => {
     );
   });
 
-  test('marks candidate prime package knowledge as requiring verification, not trusted use', async () => {
+  test('degrades candidate prime package knowledge as requiring verification, not trusted use', async () => {
     const candidatePackage = primeInjectionPackageSummary();
     candidatePackage.injection.status = 'candidate';
     candidatePackage.injection.degradedReasons = [
@@ -1133,12 +1405,22 @@ describe('alembic_task prime knowledge material', () => {
     const result = (await taskHandler(
       makeContext(async () => searchResult),
       {
+        hostDeclaredIntent: {
+          action: 'implement',
+          goal: 'Implement candidate knowledge validation',
+          keywords: ['candidate', 'verification'],
+          query: 'Implement candidate knowledge validation carefully',
+        },
         operation: 'prime',
-        userQuery: 'Use candidate knowledge carefully',
+        userQuery: 'Implement candidate knowledge validation carefully',
       }
     )) as PrimeEnvelope;
 
-    expect(result.data.primeKnowledgeMaterial.status).toBe('delivered');
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'degraded',
+      degradedReason: { code: 'trusted-material-evidence-missing' },
+      acceptedKnowledge: [],
+    });
     expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use')).toMatchObject({
       requiredInVisibleReceipt: false,
       items: [],
@@ -1159,14 +1441,283 @@ describe('alembic_task prime knowledge material', () => {
       ]),
     });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
-      'requires-verification source refs or candidates'
+      'I did not receive usable project knowledge because prime degraded'
     );
     expect(result.data.primeKnowledgeMaterial.hostResponse.reason).toContain(
-      'requires-verification source refs or candidates'
+      'not-available-or-degraded'
     );
     expect(result.message).toContain('trusted-to-use=0');
-    expect(result.message).toContain('requires-verification=2');
-    expect(result.message).toContain('candidate');
+    expect(result.message).toContain('requires-verification=3');
+  });
+
+  test('degrades ready sourceRefs-only prime package knowledge without region or locator evidence', async () => {
+    const sourceOnlyPackage = primeInjectionPackageSummary();
+    sourceOnlyPackage.selectedKnowledge = [
+      {
+        evidenceRefs: ['scoreBreakdown:recipe-source-only'],
+        injectionStatus: 'selected',
+        itemId: 'recipe-source-only',
+        kind: 'pattern',
+        rank: 1,
+        score: 0.81,
+        sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+        title: 'Source only handoff',
+        trigger: '@source-only',
+        whySelected: ['semantic-score'],
+      },
+    ];
+    const searchResult: PrimeSearchResult = {
+      relatedKnowledge: [
+        {
+          id: 'recipe-source-only',
+          title: 'Source only handoff',
+          trigger: '@source-only',
+          kind: 'pattern',
+          language: 'typescript',
+          score: 0.81,
+          description: 'A sourceRefs-only semantic hit must not become trusted material.',
+          sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+        },
+      ],
+      guardRules: [],
+      searchMeta: {
+        queries: ['source only'],
+        scenario: 'implementation',
+        language: 'typescript',
+        module: 'mcp',
+        resultCount: 1,
+        filteredCount: 1,
+        primeInjectionPackage: sourceOnlyPackage,
+      },
+    };
+
+    const result = (await taskHandler(
+      makeContext(async () => searchResult),
+      {
+        hostDeclaredIntent: {
+          action: 'implement',
+          goal: 'Implement source-only trust gating',
+          keywords: ['source', 'trust'],
+          query: 'Implement source-only trust gating',
+        },
+        operation: 'prime',
+        userQuery: 'Implement source-only trust gating',
+      }
+    )) as PrimeEnvelope;
+
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'degraded',
+      degradedReason: {
+        code: 'trusted-material-evidence-missing',
+        message: expect.stringContaining('selectedKnowledge[].matchedRegionClasses|matchedRegions'),
+      },
+      acceptedKnowledge: [],
+    });
+    expect(result.data.primeKnowledgeMaterial.degradedReason?.message).toContain(
+      'selectedKnowledge[].evidenceRefs|whySelected recipe locator signal'
+    );
+    expect(result.data.primeKnowledgeMaterial.degradedReason?.message).toContain(
+      'SourceRefs alone remain verification anchors'
+    );
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use').items).toHaveLength(0);
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'requires-verification')).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'selected-knowledge-untrusted:recipe-source-only',
+          source: 'prime-injection-package',
+        }),
+      ]),
+    });
+  });
+
+  test('accepts resident selected semantic-region material when relatedKnowledge omits the selected item', async () => {
+    const selectedOnlyPackage = primeInjectionPackageSummary();
+    selectedOnlyPackage.selectedKnowledge = [
+      {
+        evidenceRefs: ['scoreBreakdown:recipe-selected-only'],
+        injectionStatus: 'selected',
+        itemId: 'recipe-selected-only',
+        kind: 'pattern',
+        matchedRegionClasses: ['applicability', 'implementationSteps'],
+        matchedRegions: [
+          {
+            recipeId: 'recipe-selected-only',
+            regionClass: 'applicability',
+            score: 0.94,
+            snippet:
+              'Use this Recipe when resident selectedKnowledge already carries compact semantic-region evidence.',
+            sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+            sourceRefsBridge: 'active',
+          },
+          {
+            recipeId: 'recipe-selected-only',
+            regionClass: 'implementationSteps',
+            score: 0.89,
+            snippet:
+              'Project accepted material directly from the selected resident record when the filtered public pool omitted it.',
+            sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:43'],
+            sourceRefsBridge: 'active',
+          },
+        ],
+        rank: 1,
+        score: 0.94,
+        sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts:42'],
+        title: 'Selected-only resident bridge',
+        trigger: '@selected-only-resident-bridge',
+        whySelected: ['resident-region'],
+      },
+    ];
+    selectedOnlyPackage.injection.selectedCount = 1;
+    const searchResult: PrimeSearchResult = {
+      relatedKnowledge: [],
+      guardRules: [],
+      searchMeta: {
+        queries: ['selected resident bridge'],
+        scenario: 'implementation',
+        language: 'typescript',
+        module: 'prime',
+        resultCount: 1,
+        filteredCount: 0,
+        primeInjectionPackage: selectedOnlyPackage,
+        residentSearch: {
+          attempted: true,
+          available: true,
+          route: 'alembic-resident-service',
+          semanticUsed: true,
+          vectorUsed: true,
+          residentVector: { available: true },
+        },
+      },
+    };
+
+    const result = (await taskHandler(
+      makeContext(async () => searchResult),
+      {
+        hostDeclaredIntent: {
+          action: 'implement',
+          goal: 'Implement selected-only resident trust bridge',
+          keywords: ['resident', 'semantic-region'],
+          query: 'Implement selected-only resident trust bridge',
+        },
+        operation: 'prime',
+        userQuery: 'Implement selected-only resident trust bridge',
+      }
+    )) as PrimeEnvelope;
+
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'delivered',
+      acceptedKnowledge: [
+        expect.objectContaining({
+          id: 'recipe-selected-only',
+          matchedRegionClasses: ['applicability', 'implementationSteps'],
+          score: 0.94,
+          title: 'Selected-only resident bridge',
+          trigger: '@selected-only-resident-bridge',
+          trustEvidence: expect.objectContaining({ kind: 'recipe-semantic-region' }),
+          usefulSlices: [
+            expect.objectContaining({ regionClass: 'applicability' }),
+            expect.objectContaining({ regionClass: 'implementationSteps' }),
+          ],
+        }),
+      ],
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use').items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'knowledge:recipe-selected-only',
+          source: 'accepted-knowledge',
+        }),
+      ])
+    );
+    expect(result.data.primeKnowledgeMaterial.degradedReason).toBeUndefined();
+  });
+
+  test('accepts selected resident semantic-region evidence when selected knowledge uses recipe id alias', async () => {
+    const aliasPackage = primeInjectionPackageSummary();
+    aliasPackage.selectedKnowledge = [
+      {
+        evidenceRefs: ['scoreBreakdown:recipe-alias'],
+        injectionStatus: 'selected',
+        kind: 'pattern',
+        matchedRegionClasses: ['applicability'],
+        matchedRegions: [
+          {
+            recipeId: 'knowledge:recipe-alias',
+            regionClass: 'applicability',
+            score: 0.93,
+            snippet:
+              'Use this Recipe when selected resident evidence is keyed by recipeId instead of itemId.',
+            sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+            sourceRefsBridge: 'active',
+          },
+        ],
+        rank: 1,
+        recipeId: 'knowledge:recipe-alias',
+        score: 0.83,
+        sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+        title: 'Alias keyed handoff',
+        trigger: '@alias-handoff',
+        whySelected: ['resident-region'],
+      },
+    ];
+    const searchResult: PrimeSearchResult = {
+      relatedKnowledge: [
+        {
+          id: 'recipe-alias',
+          title: 'Alias keyed handoff',
+          trigger: '@alias-handoff',
+          kind: 'pattern',
+          language: 'typescript',
+          score: 0.83,
+          description: 'Selected evidence should bridge through recipeId alias keys.',
+          sourceRefs: ['lib/runtime/mcp/handlers/task.ts:42'],
+        },
+      ],
+      guardRules: [],
+      searchMeta: {
+        queries: ['alias keyed handoff'],
+        scenario: 'implementation',
+        language: 'typescript',
+        module: 'mcp',
+        resultCount: 1,
+        filteredCount: 1,
+        primeInjectionPackage: aliasPackage,
+      },
+    };
+
+    const result = (await taskHandler(
+      makeContext(async () => searchResult),
+      {
+        hostDeclaredIntent: {
+          action: 'implement',
+          goal: 'Implement selected knowledge alias bridge',
+          keywords: ['alias', 'resident-region'],
+          query: 'Implement selected knowledge alias bridge',
+        },
+        operation: 'prime',
+        userQuery: 'Implement selected knowledge alias bridge',
+      }
+    )) as PrimeEnvelope;
+
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      status: 'delivered',
+      acceptedKnowledge: [
+        expect.objectContaining({
+          id: 'recipe-alias',
+          matchedRegionClasses: ['applicability'],
+          trustEvidence: expect.objectContaining({ kind: 'recipe-semantic-region' }),
+          usefulSlices: [expect.objectContaining({ regionClass: 'applicability' })],
+        }),
+      ],
+    });
+    expect(trustLayer(result.data.primeKnowledgeMaterial, 'trusted-to-use').items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'knowledge:recipe-alias',
+          source: 'accepted-knowledge',
+        }),
+      ])
+    );
   });
 
   test('returns degraded material when the prime search pipeline is unavailable', async () => {
@@ -1188,13 +1739,13 @@ describe('alembic_task prime knowledge material', () => {
       trustLayer(result.data.primeKnowledgeMaterial, 'not-available-or-degraded')
     ).toMatchObject({
       requiredInVisibleReceipt: true,
-      items: [
+      items: expect.arrayContaining([
         expect.objectContaining({
           id: 'prime-status:degraded',
           source: 'prime-status',
           status: 'degraded',
         }),
-      ],
+      ]),
     });
     expect(result.data.primeKnowledgeMaterial.shoutInstruction).toContain(
       'I did not receive usable project knowledge because prime degraded'
@@ -1224,6 +1775,6 @@ describe('alembic_task prime knowledge material', () => {
       result.data.primeKnowledgeMaterial.nextActions.map((action) => action.tool)
     ).not.toContain('codex_host_response');
     expect(result.message).toContain('Prime knowledge search degraded');
-    expect(result.message).toContain('not-available-or-degraded=1');
+    expect(result.message).toContain('not-available-or-degraded=2');
   });
 });

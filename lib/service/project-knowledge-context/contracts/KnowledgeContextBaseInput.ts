@@ -97,21 +97,36 @@ export const PrimeOperationSchema = z.enum(['auto', 'matrix-first', 'search-firs
 
 export const PrimeModeSchema = z.enum(['summary', 'working-set', 'guard-prep', 'decision-prep']);
 
-export const PrimeRecognizedIntentSchema = z
-  .object({
-    action: z.string().min(1).max(120).optional(),
-    target: z.string().min(1).max(240).optional(),
-    confidence: z.number().min(0).max(1).optional(),
-    query: z.string().min(1).max(2000),
-    sourceRefs: z.array(KnowledgeContextRefIdSchema).max(80).optional(),
-  })
-  .strict();
+export const PrimeTaskActionSchema = z.enum([
+  'implement',
+  'fix',
+  'refactor',
+  'test-writing',
+  'test-repair',
+  'code-edit',
+  'code-review',
+]);
 
-export const PrimeInputSchema = KnowledgeContextBaseInputSchema.extend({
+const PrimeLocatorListSchema = z.array(z.string().min(1).max(240)).max(12);
+
+const PrimeContextBaseInputSchema = KnowledgeContextBaseInputSchema.omit({
+  intentRef: true,
+});
+
+export const PrimeInputSchema = PrimeContextBaseInputSchema.extend({
   tool: z.literal('alembic_prime').optional(),
   operation: PrimeOperationSchema.default('auto'),
-  recognizedIntent: PrimeRecognizedIntentSchema.optional(),
   primeMode: PrimeModeSchema.default('summary'),
+  taskAction: PrimeTaskActionSchema.optional(),
+  requirementGoal: z.string().min(1).max(1200).optional(),
+  scenario: z.string().min(1).max(240).optional(),
+  capability: z.string().min(1).max(240).optional(),
+  domainObjects: PrimeLocatorListSchema.optional(),
+  integrationBoundary: z.string().min(1).max(240).optional(),
+  lifecycleHint: z.string().min(1).max(240).optional(),
+  qualityConcerns: PrimeLocatorListSchema.optional(),
+  keywords: PrimeLocatorListSchema.optional(),
+  labels: PrimeLocatorListSchema.optional(),
 }).strict();
 
 export const KnowledgeSearchOperationSchema = z.enum(['search', 'get', 'expand']);
@@ -135,16 +150,16 @@ export const KnowledgeSearchInputSchema = KnowledgeContextBaseInputSchema.extend
   id: KnowledgeContextRefIdSchema.optional(),
   refId: KnowledgeContextRefIdSchema.optional(),
   detailRefId: KnowledgeContextRefIdSchema.optional(),
-	  kind: KnowledgeSearchKindSchema.default('all'),
-	  category: z.string().min(1).max(160).optional(),
-	  dimensionId: z.string().min(1).max(160).optional(),
-	  knowledgeType: z.string().min(1).max(160).optional(),
-	  keywords: z.array(z.string().min(1).max(120)).max(40).optional(),
-	  limit: z.number().int().min(1).max(100).optional(),
-	  module: z.string().min(1).max(240).optional(),
-	  scope: z.string().min(1).max(160).optional(),
-	  tags: z.array(z.string().min(1).max(120)).max(40).optional(),
-	}).strict();
+  kind: KnowledgeSearchKindSchema.default('all'),
+  category: z.string().min(1).max(160).optional(),
+  dimensionId: z.string().min(1).max(160).optional(),
+  knowledgeType: z.string().min(1).max(160).optional(),
+  keywords: z.array(z.string().min(1).max(120)).max(40).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  module: z.string().min(1).max(240).optional(),
+  scope: z.string().min(1).max(160).optional(),
+  tags: z.array(z.string().min(1).max(120)).max(40).optional(),
+}).strict();
 
 export const ProjectGraphOperationSchema = z.enum([
   'query',

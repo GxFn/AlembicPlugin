@@ -34,6 +34,7 @@ export interface PrimeDecision {
   reasonCode:
     | 'knowledge-ready-code-task'
     | 'knowledge-ready-user-query'
+    | 'non-code-development-turn'
     | 'automation-envelope-needs-context'
     | 'uninitialized-project'
     | 'status-only'
@@ -133,6 +134,33 @@ const AUTOMATION_ENVELOPE_PATTERNS = [
   /继续当前窗口任务/i,
   /继续总控验收/i,
 ];
+
+const CODE_CHANGE_ACTIONS = new Set([
+  'implement',
+  'fix',
+  'refactor',
+  'remove',
+  'test-writing',
+  'test-repair',
+  'code-edit',
+  'code-review',
+]);
+
+const CODE_CHANGE_QUERY_PATTERNS = [
+  /\b(implement|fix|refactor|remove|delete|add|build)\b/i,
+  /\b(write|add|repair|fix)\s+(unit\s+|integration\s+|e2e\s+)?tests?\b/i,
+  /\b(test-writing|test-repair|code-edit|code-review)\b/i,
+  /实现|修复|重构|删除|新增|开发|写测试|补测试|修测试|代码审查/,
+];
+
+const DESIGN_DISCUSSION_PATTERNS = [
+  /\b(design|proposal|plan|dossier|contract)\b/i,
+  /需求|方案|设计/,
+];
+
+const READONLY_QUERY_PATTERNS = [/\b(read|inspect|review|explain|status)\b/i];
+
+const KNOWLEDGE_QUERY_PATTERNS = [/\b(recipe|knowledge|search|guard)\b/i, /知识|配方|搜索|规则/];
 
 export function classifyTaskLifecycleInput(
   input: ClassifyTaskLifecycleInput
@@ -298,7 +326,6 @@ function classifyIntentKind(
   inputSource: TaskLifecycleInputSource,
   query: string
 ): TaskLifecycleIntentKind {
-  const lower = query.toLowerCase();
   const action = input.hostIntentFrame?.recognizedIntentDraft.action.toLowerCase() ?? '';
   if (inputSource === 'automation-envelope') {
     return 'automation-control';
@@ -312,26 +339,27 @@ function classifyIntentKind(
   if (isStatusOnlyQuery(query)) {
     return 'status-report';
   }
-  if (
-    action === 'implement' ||
-    action === 'fix' ||
-    action === 'refactor' ||
-    action === 'remove' ||
-    /\b(implement|fix|refactor|remove|delete|add|build)\b/.test(lower) ||
-    /实现|修复|重构|删除|新增|开发/.test(query)
-  ) {
+  if (isCodeChangeIntent(action, query)) {
     return 'code-change-task';
   }
-  if (/\b(design|proposal|plan|dossier|contract)\b/.test(lower) || /需求|方案|设计/.test(query)) {
+  if (matchesAny(query, DESIGN_DISCUSSION_PATTERNS)) {
     return 'design-discussion';
   }
-  if (action === 'review' || /\b(read|inspect|review|explain|status)\b/.test(lower)) {
+  if (action === 'review' || matchesAny(query, READONLY_QUERY_PATTERNS)) {
     return 'read-only-analysis';
   }
-  if (/\b(recipe|knowledge|search|guard)\b/.test(lower) || /知识|配方|搜索|规则/.test(query)) {
+  if (matchesAny(query, KNOWLEDGE_QUERY_PATTERNS)) {
     return 'knowledge-query';
   }
   return query ? 'knowledge-query' : 'unknown';
+}
+
+function isCodeChangeIntent(action: string, query: string): boolean {
+  return CODE_CHANGE_ACTIONS.has(action) || matchesAny(query, CODE_CHANGE_QUERY_PATTERNS);
+}
+
+function matchesAny(value: string, patterns: readonly RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(value));
 }
 
 function decidePrime(
@@ -365,13 +393,19 @@ function decidePrime(
       ...(sourceRefs.length > 0 ? { sourceRefs } : {}),
     };
   }
+  if (intentKind !== 'code-change-task' && intentKind !== 'explicit-task-anchor') {
+    return {
+      action: 'skip',
+      curatedQuery: query,
+      reasonCode: 'non-code-development-turn',
+      ...(keywords.length > 0 ? { keywords } : {}),
+      ...(sourceRefs.length > 0 ? { sourceRefs } : {}),
+    };
+  }
   return {
     action: 'run',
     curatedQuery: query,
-    reasonCode:
-      intentKind === 'code-change-task'
-        ? 'knowledge-ready-code-task'
-        : 'knowledge-ready-user-query',
+    reasonCode: 'knowledge-ready-code-task',
     ...(keywords.length > 0 ? { keywords } : {}),
     ...(sourceRefs.length > 0 ? { sourceRefs } : {}),
   };

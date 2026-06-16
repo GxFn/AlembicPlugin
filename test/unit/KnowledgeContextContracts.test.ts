@@ -131,17 +131,17 @@ describe('Project knowledge context four-tool contracts', () => {
 
     expect(
       PrimeInputSchema.parse({
+        capability: 'contract boundary',
+        integrationBoundary: 'MCP public tool',
         operation: 'matrix-first',
-        recognizedIntent: {
-          query: 'Implement a focused contract boundary',
-          action: 'implementation',
-          confidence: 0.86,
-        },
         primeMode: 'working-set',
+        requirementGoal: 'Implement a focused contract boundary',
+        taskAction: 'implement',
       })
     ).toMatchObject({
       operation: 'matrix-first',
       primeMode: 'working-set',
+      taskAction: 'implement',
     });
 
     expect(
@@ -163,8 +163,9 @@ describe('Project knowledge context four-tool contracts', () => {
     expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'semantic' }).success).toBe(
       true
     );
-    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'unsupported-mode' }).success)
-      .toBe(false);
+    expect(
+      KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'unsupported-mode' }).success
+    ).toBe(false);
     expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'legacy-mode' }).success).toBe(
       false
     );

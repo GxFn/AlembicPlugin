@@ -77,6 +77,7 @@ interface PrimeSearchPipelineOptions {
 export interface PrimeSearchOptions {
   hostIntentFrame?: HostIntentFrame;
   projectRoot?: string;
+  standalonePrime?: boolean;
 }
 
 // ── Constants ───────────────────────────────────────
@@ -111,13 +112,15 @@ export class PrimeSearchPipeline {
       return null;
     }
 
-    const sessionHistory = this.#buildSessionHistory();
-    const residentIntentHandoff = buildResidentIntentHandoff({
-      hostIntentFrame: options.hostIntentFrame,
-      language: intent.language,
-      sessionHistory,
-      userQuery: intent.raw.userQuery,
-    });
+    const sessionHistory = options.standalonePrime ? [] : this.#buildSessionHistory();
+    const residentIntentHandoff = options.standalonePrime
+      ? null
+      : buildResidentIntentHandoff({
+          hostIntentFrame: options.hostIntentFrame,
+          language: intent.language,
+          sessionHistory,
+          userQuery: intent.raw.userQuery,
+        });
 
     // Build ranking context
     const context = {
@@ -160,7 +163,9 @@ export class PrimeSearchPipeline {
     const rules = filtered.filter((r) => r.kind === 'rule').slice(0, 3);
 
     // Record search to session history
-    this.#sessionQueries.push(intent.raw.userQuery);
+    if (!options.standalonePrime) {
+      this.#sessionQueries.push(intent.raw.userQuery);
+    }
 
     return {
       relatedKnowledge: knowledge,

@@ -21,6 +21,20 @@ export interface PrimeEvidenceRef {
   line: number | null;
 }
 
+export interface PrimeUsefulSlice {
+  evidenceRefs: PrimeEvidenceRef[];
+  regionClass?: string;
+  score?: number;
+  sourceRefsBridge?: string;
+  text: string;
+}
+
+export interface PrimeAcceptedKnowledgeTrustEvidence {
+  kind: 'recipe-locator' | 'recipe-semantic-region';
+  source: 'prime-injection-package';
+  summary: string;
+}
+
 export interface AcceptedPrimeKnowledge {
   id: string;
   kind: string;
@@ -30,6 +44,9 @@ export interface AcceptedPrimeKnowledge {
   summary: string;
   score: number;
   evidenceRefs: PrimeEvidenceRef[];
+  matchedRegionClasses: string[];
+  trustEvidence: PrimeAcceptedKnowledgeTrustEvidence;
+  usefulSlices: PrimeUsefulSlice[];
 }
 
 export interface AcceptedPrimeGuard {
@@ -53,7 +70,7 @@ export interface PrimeHostResponseInstruction {
 }
 
 export interface PrimeKnowledgeMaterialDegradedReason {
-  code: 'low-information-intent' | 'search-degraded';
+  code: 'low-information-intent' | 'search-degraded' | 'trusted-material-evidence-missing';
   message: string;
 }
 
@@ -216,12 +233,29 @@ export function buildPrimeKnowledgeMaterial(
   input: PrimeKnowledgeMaterialInput
 ): PrimeKnowledgeMaterial {
   const searchDegraded = input.searchDegraded || isPrimeSearchResultDegraded(input.searchResult);
-  const trustedMaterialGate = assessPrimeTrustedMaterialGate(input);
+  const rawRelatedKnowledge = input.searchResult?.relatedKnowledge ?? [];
+  const rawGuardRules = input.searchResult?.guardRules ?? [];
+  const selectedKnowledgeByItemId = buildSelectedKnowledgeByItemId(input.searchResult);
+  const trustedKnowledgeCandidates = [
+    ...rawRelatedKnowledge.map((item) => ({
+      item,
+      selectedKnowledge: findSelectedKnowledgeForItem(selectedKnowledgeByItemId, item),
+    })),
+    ...buildSelectedKnowledgeOnlyCandidates(input.searchResult, rawRelatedKnowledge),
+  ];
+  const trustedKnowledge = trustedKnowledgeCandidates.flatMap(({ item, selectedKnowledge }) =>
+    hasTrustedRecipeEvidence(item, selectedKnowledge)
+      ? [projectAcceptedKnowledge(item, selectedKnowledge)]
+      : []
+  );
+  const trustedMaterialGate = assessPrimeTrustedMaterialGate(input, {
+    guardRuleCount: rawGuardRules.length,
+    trustedKnowledgeCount: trustedKnowledge.length,
+  });
   const trustedMaterialBlocked = !searchDegraded && trustedMaterialGate.blockTrustedMaterial;
   const effectiveDegraded = searchDegraded || trustedMaterialBlocked;
-  const relatedKnowledge = effectiveDegraded ? [] : (input.searchResult?.relatedKnowledge ?? []);
-  const guardRules = effectiveDegraded ? [] : (input.searchResult?.guardRules ?? []);
-  const acceptedKnowledge = relatedKnowledge.map(projectAcceptedKnowledge);
+  const guardRules = effectiveDegraded ? [] : rawGuardRules;
+  const acceptedKnowledge = effectiveDegraded ? [] : trustedKnowledge;
   const acceptedGuards = guardRules.map(projectAcceptedGuard);
   const hasDeliveredKnowledge = acceptedKnowledge.length > 0 || acceptedGuards.length > 0;
   const status: PrimeKnowledgeMaterialStatus = effectiveDegraded
@@ -320,21 +354,41 @@ function generatePrimeReceiptId(): string {
   return `prime-${Date.now().toString(36)}-${primeReceiptCounter}`;
 }
 
-function assessPrimeTrustedMaterialGate(input: PrimeKnowledgeMaterialInput): {
+function assessPrimeTrustedMaterialGate(
+  input: PrimeKnowledgeMaterialInput,
+  trustedMaterial: {
+    guardRuleCount: number;
+    trustedKnowledgeCount: number;
+  }
+): {
   blockTrustedMaterial: boolean;
   degradedReason?: PrimeKnowledgeMaterialDegradedReason;
 } {
-  if (!hasLowInformationPrimeIntent(input) || hasPrimeCallerContext(input)) {
-    return { blockTrustedMaterial: false };
+  if (hasLowInformationPrimeIntent(input) && !hasPrimeCallerContext(input)) {
+    return {
+      blockTrustedMaterial: true,
+      degradedReason: {
+        code: 'low-information-intent',
+        message:
+          'Prime withheld retrieved Recipe and Guard candidates because the request lacked a direct code-development requirement frame with task action, requirement goal, and locator facets.',
+      },
+    };
   }
-  return {
-    blockTrustedMaterial: true,
-    degradedReason: {
-      code: 'low-information-intent',
-      message:
-        'Prime withheld retrieved Recipe and Guard candidates because the request lacked activeFile, sourceRefs, keywords, module, or concrete host intent anchors.',
-    },
-  };
+  const hasKnowledgeCandidates =
+    (input.searchResult?.relatedKnowledge.length ?? 0) > 0 ||
+    countPrimeSelectedKnowledge(input.searchResult) > 0;
+  const hasTrustedMaterial =
+    trustedMaterial.trustedKnowledgeCount > 0 || trustedMaterial.guardRuleCount > 0;
+  if (hasKnowledgeCandidates && !hasTrustedMaterial) {
+    return {
+      blockTrustedMaterial: true,
+      degradedReason: {
+        code: 'trusted-material-evidence-missing',
+        message: buildTrustedMaterialEvidenceMissingMessage(input.searchResult),
+      },
+    };
+  }
+  return { blockTrustedMaterial: false };
 }
 
 function hasLowInformationPrimeIntent(input: PrimeKnowledgeMaterialInput): boolean {
@@ -362,24 +416,23 @@ function hasLowInformationPrimeIntent(input: PrimeKnowledgeMaterialInput): boole
 
 function hasPrimeCallerContext(input: PrimeKnowledgeMaterialInput): boolean {
   const declared = input.hostIntentFrame.hostDeclaredIntent;
-  return Boolean(
-    input.hostIntentInput.activeFile ||
-      input.hostIntentFrame.extracted.module ||
-      input.extracted.module ||
-      declared?.module ||
-      (declared?.keywords?.length ?? 0) > 0 ||
-      (declared?.labels?.length ?? 0) > 0 ||
-      (declared?.sourceRefs?.length ?? 0) > 0 ||
-      input.hostIntentFrame.recognizedIntentDraft.sourceRefs.length > 0 ||
-      (input.sourceRefs?.length ?? 0) > 0
+  const hasDirectRequirementFrame = Boolean(
+    declared?.action?.trim() &&
+      (declared?.goal?.trim() || declared?.query?.trim()) &&
+      ((declared?.keywords?.length ?? 0) > 0 ||
+        (declared?.labels?.length ?? 0) > 0 ||
+        declared?.scenario?.trim() ||
+        declared?.module?.trim())
   );
+  return hasDirectRequirementFrame;
 }
 
 function buildPrimeTrustPosture(input: PrimeTrustPostureInput): PrimeTrustPosture {
   const primePackage = input.searchResult?.searchMeta.primeInjectionPackage;
   const packageStatus = primePackage?.injection.status;
   const packageNeedsVerification = isPrimePackageVerificationStatus(packageStatus);
-  const packageUnavailable = isPrimePackageUnavailableStatus(packageStatus);
+  const hasAcceptedMaterial = input.acceptedKnowledge.length > 0 || input.acceptedGuards.length > 0;
+  const packageUnavailable = isPrimePackageUnavailableStatus(packageStatus) && !hasAcceptedMaterial;
 
   return {
     status: input.status,
@@ -434,30 +487,9 @@ function buildTrustedToUse(
     id: `knowledge:${item.id}`,
     title: item.trigger || item.title,
     source: 'accepted-knowledge',
-    reason:
-      'Use this Recipe or pattern as project knowledge while preserving its evidence for later checks.',
+    reason: `Use this Recipe or pattern as project knowledge; accepted through ${item.trustEvidence.summary}.`,
     evidenceRefs: item.evidenceRefs,
   }));
-  const primePackage = input.searchResult?.searchMeta.primeInjectionPackage;
-  if (primePackage?.injection.status !== 'ready') {
-    return trustedToUse;
-  }
-  const acceptedKnowledgeIds = new Set(input.acceptedKnowledge.map((item) => item.id));
-  for (const item of primePackage.selectedKnowledge ?? []) {
-    const itemId = recordString(item, 'itemId');
-    if (!itemId || acceptedKnowledgeIds.has(itemId)) {
-      continue;
-    }
-    trustedToUse.push({
-      id: `prime-package-selected:${itemId}`,
-      title: recordString(item, 'trigger') ?? recordString(item, 'title') ?? itemId,
-      source: 'prime-injection-package',
-      reason:
-        'Use this resident-selected knowledge because the prime injection package marked it ready.',
-      status: recordString(item, 'injectionStatus') ?? primePackage.injection.status,
-      evidenceRefs: extractEvidenceRefs(recordStringArray(item.sourceRefs)),
-    });
-  }
   return trustedToUse;
 }
 
@@ -561,6 +593,10 @@ function primePackageVerificationItems(
     const injectionStatus = recordString(item, 'injectionStatus');
     if (injectionStatus === 'candidate') {
       items.push(candidateKnowledgeVerificationItem(item));
+      continue;
+    }
+    if (!hasSelectedKnowledgeTrustEvidence(item)) {
+      items.push(untrustedSelectedKnowledgeVerificationItem(item));
     }
   }
   return items;
@@ -575,6 +611,21 @@ function candidateKnowledgeVerificationItem(item: Record<string, unknown>): Prim
     reason:
       'This selectedKnowledge item is only a candidate and must be presented as requiring verification.',
     status: 'candidate',
+    evidenceRefs: extractEvidenceRefs(recordStringArray(item.sourceRefs)),
+  };
+}
+
+function untrustedSelectedKnowledgeVerificationItem(
+  item: Record<string, unknown>
+): PrimeTrustPostureItem {
+  const itemId = recordString(item, 'itemId') ?? 'unknown';
+  return {
+    id: `selected-knowledge-untrusted:${itemId}`,
+    title: recordString(item, 'trigger') ?? recordString(item, 'title') ?? itemId,
+    source: 'prime-injection-package',
+    reason:
+      'This selectedKnowledge item lacks Recipe locator or semantic-region evidence, so it must remain a verification hint.',
+    status: recordString(item, 'injectionStatus') ?? 'selected',
     evidenceRefs: extractEvidenceRefs(recordStringArray(item.sourceRefs)),
   };
 }
@@ -698,7 +749,10 @@ function isPrimeSearchResultDegraded(searchResult: PrimeSearchResult | null): bo
     return true;
   }
   const packageStatus = searchResult.searchMeta.primeInjectionPackage?.injection.status;
-  return isPrimePackageUnavailableStatus(packageStatus);
+  if (!isPrimePackageUnavailableStatus(packageStatus)) {
+    return false;
+  }
+  return !selectedKnowledgeRecords(searchResult).some(hasSelectedKnowledgeTrustEvidence);
 }
 
 function recordString(record: Record<string, unknown>, key: string): string | undefined {
@@ -711,6 +765,433 @@ function recordStringArray(value: unknown): string[] {
     return [];
   }
   return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function buildSelectedKnowledgeByItemId(
+  searchResult: PrimeSearchResult | null
+): Map<string, Record<string, unknown>> {
+  const selectedById = new Map<string, Record<string, unknown>>();
+  for (const item of searchResult?.searchMeta.primeInjectionPackage?.selectedKnowledge ?? []) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    for (const itemId of selectedKnowledgeLookupKeys(item)) {
+      const existing = selectedById.get(itemId);
+      if (
+        !existing ||
+        (!hasSelectedKnowledgeTrustEvidence(existing) && hasSelectedKnowledgeTrustEvidence(item))
+      ) {
+        selectedById.set(itemId, item);
+      }
+    }
+  }
+  for (const item of residentRegionSelectedKnowledgeRecords(searchResult)) {
+    for (const itemId of selectedKnowledgeLookupKeys(item)) {
+      const existing = selectedById.get(itemId);
+      if (!existing || !hasSelectedKnowledgeTrustEvidence(existing)) {
+        selectedById.set(itemId, item);
+      }
+    }
+  }
+  return selectedById;
+}
+
+function selectedKnowledgeRecords(
+  searchResult: PrimeSearchResult | null
+): Record<string, unknown>[] {
+  return [
+    ...(searchResult?.searchMeta.primeInjectionPackage?.selectedKnowledge ?? []).filter(isRecord),
+    ...residentRegionSelectedKnowledgeRecords(searchResult),
+  ];
+}
+
+function residentRegionSelectedKnowledgeRecords(
+  searchResult: PrimeSearchResult | null
+): Record<string, unknown>[] {
+  const regionRetrieval = searchResult?.searchMeta.primeInjectionPackage?.residentRegionRetrieval;
+  if (!isRecord(regionRetrieval)) {
+    return [];
+  }
+  if (recordString(regionRetrieval, 'route') !== 'resident-vector-recipe-semantic-region') {
+    return [];
+  }
+  if (recordBoolean(regionRetrieval, 'used') === false) {
+    return [];
+  }
+  return recordArray(regionRetrieval.selectedRecipes).flatMap(projectResidentRegionSelectedRecipe);
+}
+
+function projectResidentRegionSelectedRecipe(
+  recipe: Record<string, unknown>
+): Record<string, unknown>[] {
+  const recipeId =
+    recordString(recipe, 'recipeId') ??
+    recordString(recipe, 'itemId') ??
+    recordString(recipe, 'knowledgeId') ??
+    recordString(recipe, 'id');
+  const matchedRegionClasses = collectMatchedRegionClasses(recipe);
+  if (!recipeId || matchedRegionClasses.length === 0) {
+    return [];
+  }
+  const matchedRegions = recordArray(recipe.matchedRegions);
+  const sourceRefs = uniqueStrings([
+    ...recordStringArray(recipe.sourceRefs),
+    ...matchedRegions.flatMap((region) => recordStringArray(region.sourceRefs)),
+  ]);
+  return [
+    {
+      evidenceRefs: [`residentRegionRetrieval:${recipeId}`],
+      injectionStatus: 'selected',
+      itemId: recipeId,
+      kind: recordString(recipe, 'kind') ?? 'pattern',
+      matchedRegionClasses,
+      matchedRegions,
+      recipeId,
+      ...(recordNumber(recipe, 'score') !== undefined
+        ? { score: recordNumber(recipe, 'score') }
+        : {}),
+      sourceRefs,
+      ...(recordString(recipe, 'title') ? { title: recordString(recipe, 'title') } : {}),
+      ...(recordString(recipe, 'trigger') ? { trigger: recordString(recipe, 'trigger') } : {}),
+      whySelected: uniqueStrings([
+        ...recordStringArray(recipe.whySelected),
+        'resident-region-retrieval',
+      ]),
+    },
+  ];
+}
+
+function buildSelectedKnowledgeOnlyCandidates(
+  searchResult: PrimeSearchResult | null,
+  relatedKnowledge: SlimSearchResult[]
+): Array<{ item: SlimSearchResult; selectedKnowledge: Record<string, unknown> }> {
+  if (!searchResult?.searchMeta.primeInjectionPackage) {
+    return [];
+  }
+  const candidates: Array<{ item: SlimSearchResult; selectedKnowledge: Record<string, unknown> }> =
+    [];
+  const relatedKeys = new Set(relatedKnowledge.flatMap(slimSearchResultLookupKeys));
+  for (const selectedKnowledge of selectedKnowledgeRecords(searchResult)) {
+    if (!hasSelectedKnowledgeTrustEvidence(selectedKnowledge)) {
+      continue;
+    }
+    if (selectedKnowledgeLookupKeys(selectedKnowledge).some((key) => relatedKeys.has(key))) {
+      continue;
+    }
+    const item = projectSelectedKnowledgeSearchResult(selectedKnowledge);
+    if (item) {
+      candidates.push({ item, selectedKnowledge });
+    }
+  }
+  return candidates;
+}
+
+function projectSelectedKnowledgeSearchResult(
+  selectedKnowledge: Record<string, unknown>
+): SlimSearchResult | null {
+  const id = primarySelectedKnowledgeId(selectedKnowledge);
+  if (!id) {
+    return null;
+  }
+  const title =
+    recordString(selectedKnowledge, 'title') ?? recordString(selectedKnowledge, 'trigger') ?? id;
+  const trigger = recordString(selectedKnowledge, 'trigger') ?? title;
+  const description =
+    collectUsefulSlices(selectedKnowledge)[0]?.text ??
+    recordString(selectedKnowledge, 'description') ??
+    recordString(selectedKnowledge, 'summary') ??
+    recordString(selectedKnowledge, 'actionHint') ??
+    trigger;
+  return {
+    id,
+    kind: recordString(selectedKnowledge, 'kind') ?? 'pattern',
+    language: recordString(selectedKnowledge, 'language') ?? '',
+    score: selectedKnowledgeScore(selectedKnowledge),
+    title,
+    trigger,
+    description,
+    ...(recordString(selectedKnowledge, 'actionHint')
+      ? { actionHint: recordString(selectedKnowledge, 'actionHint') }
+      : {}),
+    sourceRefs: collectSelectedKnowledgeSourceRefs(selectedKnowledge),
+  };
+}
+
+function primarySelectedKnowledgeId(selectedKnowledge: Record<string, unknown>): string | null {
+  const regionRecipeIds = recordArray(selectedKnowledge.matchedRegions).flatMap((region) => [
+    recordString(region, 'recipeId'),
+    recordString(region, 'itemId'),
+    recordString(region, 'knowledgeId'),
+  ]);
+  const preferred = [
+    recordString(selectedKnowledge, 'itemId'),
+    recordString(selectedKnowledge, 'id'),
+    recordString(selectedKnowledge, 'recipeId'),
+    recordString(selectedKnowledge, 'knowledgeId'),
+    recordString(selectedKnowledge, 'entryId'),
+    recordString(selectedKnowledge, 'ref'),
+    ...regionRecipeIds,
+  ];
+  const expanded = expandKnowledgeLookupKeys(preferred);
+  return (
+    expanded.find((value) => !/^(knowledge|recipe|recipe-region|source-ref)[:/]/i.test(value)) ??
+    expanded[0] ??
+    null
+  );
+}
+
+function selectedKnowledgeScore(selectedKnowledge: Record<string, unknown>): number {
+  const direct = recordNumber(selectedKnowledge, 'score');
+  if (direct !== undefined) {
+    return direct;
+  }
+  const regionScores = recordArray(selectedKnowledge.matchedRegions)
+    .map((region) => recordNumber(region, 'score'))
+    .filter((score): score is number => score !== undefined);
+  return regionScores.length > 0 ? Math.max(...regionScores) : 0;
+}
+
+function collectSelectedKnowledgeSourceRefs(selectedKnowledge: Record<string, unknown>): string[] {
+  return uniqueStrings([
+    ...recordStringArray(selectedKnowledge.sourceRefs),
+    ...recordArray(selectedKnowledge.matchedRegions).flatMap((region) =>
+      recordStringArray(region.sourceRefs)
+    ),
+  ]);
+}
+
+function findSelectedKnowledgeForItem(
+  selectedById: Map<string, Record<string, unknown>>,
+  item: SlimSearchResult
+): Record<string, unknown> | undefined {
+  for (const itemId of slimSearchResultLookupKeys(item)) {
+    const selected = selectedById.get(itemId);
+    if (selected) {
+      return selected;
+    }
+  }
+  return undefined;
+}
+
+function selectedKnowledgeLookupKeys(item: Record<string, unknown>): string[] {
+  const regionRecipeIds = recordArray(item.matchedRegions).flatMap((region) => [
+    recordString(region, 'recipeId'),
+    recordString(region, 'itemId'),
+    recordString(region, 'knowledgeId'),
+  ]);
+  return expandKnowledgeLookupKeys([
+    recordString(item, 'itemId'),
+    recordString(item, 'id'),
+    recordString(item, 'recipeId'),
+    recordString(item, 'knowledgeId'),
+    recordString(item, 'entryId'),
+    recordString(item, 'ref'),
+    ...regionRecipeIds,
+  ]);
+}
+
+function slimSearchResultLookupKeys(item: SlimSearchResult): string[] {
+  return expandKnowledgeLookupKeys([item.id, ...(item.sourceRefs ?? [])]);
+}
+
+function expandKnowledgeLookupKeys(values: Array<string | undefined>): string[] {
+  const expanded: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized) {
+      continue;
+    }
+    expanded.push(normalized);
+    const prefixedMatch = /^(knowledge|recipe|recipe-region|source-ref)[:/](.+)$/i.exec(normalized);
+    if (prefixedMatch?.[2]) {
+      expanded.push(prefixedMatch[2]);
+    }
+    const evidenceRefMatch = /^knowledge[:/](.+?)(?::\d+)?$/i.exec(normalized);
+    if (evidenceRefMatch?.[1]) {
+      expanded.push(evidenceRefMatch[1]);
+    }
+  }
+  return uniqueStrings(expanded);
+}
+
+function countPrimeSelectedKnowledge(searchResult: PrimeSearchResult | null): number {
+  const injection = searchResult?.searchMeta.primeInjectionPackage?.injection;
+  const declaredSelectedCount = isRecord(injection)
+    ? recordNumber(injection, 'selectedCount')
+    : undefined;
+  return declaredSelectedCount ?? selectedKnowledgeRecords(searchResult).length;
+}
+
+function buildTrustedMaterialEvidenceMissingMessage(
+  searchResult: PrimeSearchResult | null
+): string {
+  const selectedCount = countPrimeSelectedKnowledge(searchResult);
+  const selectedRecords = selectedKnowledgeRecords(searchResult);
+  if (selectedCount > 0 || selectedRecords.length > 0) {
+    const missingFields =
+      selectedRecords.length === 0
+        ? ['selectedKnowledge[]']
+        : selectedRecordsMissingTrustFields(selectedRecords);
+    const missingSuffix =
+      missingFields.length > 0
+        ? ` Missing resident producer fields for Alembic/AlembicCore follow-up: ${missingFields.join(', ')}.`
+        : ' The resident records had trust-looking fields, but Plugin projection could not turn them into accepted public material; check selectedKnowledge ids against relatedKnowledge ids.';
+    return `Prime received resident selectedKnowledge selectedCount=${selectedCount} but withheld trusted material because selected entries lacked direct Recipe locator or semantic-region evidence.${missingSuffix} SourceRefs alone remain verification anchors, not trusted-to-use Recipe evidence.`;
+  }
+  return 'Prime withheld retrieved Recipe candidates because none carried direct Recipe locator or semantic-region evidence from the resident prime injection package.';
+}
+
+function selectedRecordsMissingTrustFields(records: Record<string, unknown>[]): string[] {
+  const missing = new Set<string>();
+  if (records.every((record) => selectedKnowledgeLookupKeys(record).length === 0)) {
+    missing.add('selectedKnowledge[].itemId|recipeId|knowledgeId');
+  }
+  if (records.every((record) => collectMatchedRegionClasses(record).length === 0)) {
+    missing.add('selectedKnowledge[].matchedRegionClasses|matchedRegions');
+  }
+  if (records.every((record) => !hasRecipeLocatorSignal(null, record))) {
+    missing.add('selectedKnowledge[].evidenceRefs|whySelected recipe locator signal');
+  }
+  return [...missing];
+}
+
+function hasTrustedRecipeEvidence(
+  item: SlimSearchResult,
+  selectedKnowledge: Record<string, unknown> | undefined
+): boolean {
+  return Boolean(resolveAcceptedKnowledgeTrustEvidence(item, selectedKnowledge));
+}
+
+function hasSelectedKnowledgeTrustEvidence(item: Record<string, unknown>): boolean {
+  return Boolean(resolveAcceptedKnowledgeTrustEvidence(null, item));
+}
+
+function resolveAcceptedKnowledgeTrustEvidence(
+  item: SlimSearchResult | null,
+  selectedKnowledge: Record<string, unknown> | undefined
+): PrimeAcceptedKnowledgeTrustEvidence | null {
+  const matchedRegionClasses = collectMatchedRegionClasses(selectedKnowledge);
+  if (matchedRegionClasses.length > 0) {
+    return {
+      kind: 'recipe-semantic-region',
+      source: 'prime-injection-package',
+      summary: `resident Recipe semantic-region evidence (${matchedRegionClasses.join(', ')})`,
+    };
+  }
+  if (hasRecipeLocatorSignal(item, selectedKnowledge)) {
+    return {
+      kind: 'recipe-locator',
+      source: 'prime-injection-package',
+      summary: 'resident Recipe locator evidence',
+    };
+  }
+  return null;
+}
+
+function hasRecipeLocatorSignal(
+  item: SlimSearchResult | null,
+  selectedKnowledge: Record<string, unknown> | undefined
+): boolean {
+  const signals = [
+    ...recordStringArray(selectedKnowledge?.evidenceRefs),
+    ...recordStringArray(selectedKnowledge?.whySelected),
+    ...recordStringArray(selectedKnowledge?.sourceRefs),
+    ...(item ? (item.sourceRefs ?? []) : []),
+  ];
+  return signals.some((signal) =>
+    /recipe[-_:]?(locator|trigger|title|id|exact|semantic-region)|trigger[-_:]?match|title[-_:]?match|exact[-_:]?recipe/i.test(
+      signal
+    )
+  );
+}
+
+function collectMatchedRegionClasses(
+  selectedKnowledge: Record<string, unknown> | undefined
+): string[] {
+  if (!selectedKnowledge) {
+    return [];
+  }
+  return uniqueStrings([
+    ...recordStringArray(selectedKnowledge.matchedRegionClasses),
+    ...recordStringArray(selectedKnowledge.regionClasses),
+    ...recordArray(selectedKnowledge.matchedRegions).flatMap((region) =>
+      recordString(region, 'regionClass') ? [recordString(region, 'regionClass') as string] : []
+    ),
+  ]).slice(0, 8);
+}
+
+function collectUsefulSlices(
+  selectedKnowledge: Record<string, unknown> | undefined
+): PrimeUsefulSlice[] {
+  const matchedRegions = recordArray(selectedKnowledge?.matchedRegions);
+  return matchedRegions
+    .flatMap((region): PrimeUsefulSlice[] => {
+      const text = compactSliceText(
+        recordString(region, 'snippet') ?? recordString(region, 'text')
+      );
+      if (!text) {
+        return [];
+      }
+      const score = recordNumber(region, 'score');
+      const evidenceRefs = extractEvidenceRefs(recordStringArray(region.sourceRefs));
+      return [
+        {
+          evidenceRefs,
+          ...(recordString(region, 'regionClass')
+            ? { regionClass: recordString(region, 'regionClass') }
+            : {}),
+          ...(score !== undefined ? { score } : {}),
+          ...(recordString(region, 'sourceRefsBridge')
+            ? { sourceRefsBridge: recordString(region, 'sourceRefsBridge') }
+            : {}),
+          text,
+        },
+      ];
+    })
+    .slice(0, 4);
+}
+
+function compactSliceText(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.length > 420 ? `${normalized.slice(0, 417)}...` : normalized;
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isRecord);
+}
+
+function recordNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function recordBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
+  const value = record[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
 }
 
 function uniquePrimeEvidenceRefs(refs: PrimeEvidenceRef[]): PrimeEvidenceRef[] {
@@ -727,7 +1208,22 @@ function uniquePrimeEvidenceRefs(refs: PrimeEvidenceRef[]): PrimeEvidenceRef[] {
   return unique;
 }
 
-function projectAcceptedKnowledge(item: SlimSearchResult): AcceptedPrimeKnowledge {
+function projectAcceptedKnowledge(
+  item: SlimSearchResult,
+  selectedKnowledge: Record<string, unknown> | undefined
+): AcceptedPrimeKnowledge {
+  const trustEvidence =
+    resolveAcceptedKnowledgeTrustEvidence(item, selectedKnowledge) ??
+    ({
+      kind: 'recipe-locator',
+      source: 'prime-injection-package',
+      summary: 'resident Recipe locator evidence',
+    } satisfies PrimeAcceptedKnowledgeTrustEvidence);
+  const usefulSlices = collectUsefulSlices(selectedKnowledge);
+  const evidenceRefs = uniquePrimeEvidenceRefs([
+    ...extractEvidenceRefs(item.sourceRefs),
+    ...usefulSlices.flatMap((slice) => slice.evidenceRefs),
+  ]);
   return {
     id: item.id,
     kind: item.kind || 'pattern',
@@ -736,7 +1232,10 @@ function projectAcceptedKnowledge(item: SlimSearchResult): AcceptedPrimeKnowledg
     ...(item.actionHint ? { actionHint: item.actionHint } : {}),
     summary: summarizePrimeItem(item),
     score: item.score,
-    evidenceRefs: extractEvidenceRefs(item.sourceRefs),
+    evidenceRefs,
+    matchedRegionClasses: collectMatchedRegionClasses(selectedKnowledge),
+    trustEvidence,
+    usefulSlices,
   };
 }
 

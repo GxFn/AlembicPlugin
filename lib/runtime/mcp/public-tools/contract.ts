@@ -156,6 +156,7 @@ export const AGENT_BLOCKED_REASON_CODES = [
   'project-root-untrusted',
   'missing-required-intent',
   'missing-referenced-docs',
+  'obsolete-prime-intent-input',
   'missing-prime-scope',
   'missing-work-ref',
   'missing-guard-scope',
@@ -376,7 +377,6 @@ export const PrimePublicPackageSchema = z
         decisionRefCount: z.number().int().min(0).max(1000).nullable(),
         feedbackSignalCount: z.number().int().min(0).max(1000).nullable(),
         observeOnly: z.boolean().nullable(),
-        relationEvidenceCount: z.number().int().min(0).max(1000).nullable(),
         sourceRefCoverage: z.number().min(0).max(1).nullable(),
         supportedSignals: z.array(z.string().min(1).max(80)).max(20),
       })
@@ -396,12 +396,30 @@ export const PrimePublicPackageSchema = z
       acceptedKnowledge: z
         .array(
           z.object({
+            actionHint: z.string().min(1).max(500).optional(),
             evidenceRefCount: z.number().int().min(0).max(500),
             id: z.string().min(1).max(240),
             kind: z.string().min(1).max(80),
+            matchedRegionClasses: z.array(z.string().min(1).max(80)).max(8),
             score: z.number(),
             title: z.string().min(1).max(240),
+            trustEvidence: z.object({
+              kind: z.enum(['recipe-locator', 'recipe-semantic-region']),
+              source: z.literal('prime-injection-package'),
+              summary: z.string().min(1).max(300),
+            }),
             trigger: z.string().min(0).max(240),
+            usefulSlices: z
+              .array(
+                z.object({
+                  evidenceRefCount: z.number().int().min(0).max(500),
+                  regionClass: z.string().min(1).max(80).optional(),
+                  score: z.number().optional(),
+                  sourceRefsBridge: z.string().min(1).max(80).optional(),
+                  text: z.string().min(1).max(500),
+                })
+              )
+              .max(4),
           })
         )
         .max(8),
@@ -433,7 +451,7 @@ export const PrimePublicPackageSchema = z
               'feedback',
               'intent',
               'omitted',
-              'relations',
+              'residentRegionRetrieval',
               'retrievalQuality',
               'search',
               'selectedKnowledge',
@@ -529,8 +547,8 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_prime',
     {
-      acceptedRefs: ['intentRef', 'detailRefs'],
-      requiredFields: ['agentHost', 'inputSource', 'intentRef'],
+      acceptedRefs: ['detailRefs'],
+      requiredFields: ['agentHost', 'inputSource', 'taskAction', 'requirementGoal'],
     },
     ['primeRef', 'detailRefs'],
     {

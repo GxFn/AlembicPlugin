@@ -826,6 +826,106 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.residentVector).toMatchObject({ available: true });
   });
 
+  it('preserves resident region selectedRecipes in compact prime injection metadata', async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
+        return jsonResponse(residentHealthPayload());
+      }
+      return jsonResponse({
+        success: true,
+        data: {
+          items: [{ id: 'recipe-region-selected', title: 'Region selected Recipe', score: 0.94 }],
+          searchMeta: {
+            actualMode: 'semantic',
+            primeInjectionPackage: {
+              ...primeInjectionPackageFixture(),
+              injection: {
+                degradedReasons: ['knowledge:stale', 'document:partial'],
+                omittedCount: 4,
+                selectedCount: 6,
+                status: 'degraded',
+              },
+              residentRegionRetrieval: {
+                attempted: true,
+                degradedReasons: ['knowledge:stale', 'document:partial'],
+                metadataOnlyFallback: { attempted: false, used: false },
+                queryCount: 6,
+                regionHitCount: 18,
+                route: 'resident-vector-recipe-semantic-region',
+                selectedRecipes: [
+                  {
+                    itemId: 'recipe-region-selected',
+                    matchedRegionClasses: ['applicability', 'architectureConvention'],
+                    matchedRegions: [
+                      {
+                        recipeId: 'recipe-region-selected',
+                        regionClass: 'applicability',
+                        score: 0.94,
+                        snippet: 'Use this Recipe for resident vector selected material.',
+                        sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+                        sourceRefsBridge: 'active',
+                        vectorId: 'recipe_region_recipe-region-selected_applicability_hash',
+                      },
+                    ],
+                    score: 0.94,
+                    sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+                    title: 'Region selected Recipe',
+                    trigger: '@region-selected',
+                  },
+                ],
+                used: true,
+                vectorAvailable: true,
+                wholeEntryOnlyRejectedCount: 0,
+              },
+              selectedKnowledge: [],
+            },
+            requestedMode: 'semantic',
+            residentVector: { available: true, reason: null },
+            semanticUsed: true,
+            vectorUsed: true,
+          },
+        },
+      });
+    }) as unknown as typeof fetch;
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({
+      query: 'resident vector selected material',
+      mode: 'auto',
+    });
+
+    expect(result.meta.primeInjectionPackage).toMatchObject({
+      injection: {
+        selectedCount: 6,
+        status: 'degraded',
+      },
+      residentRegionRetrieval: {
+        route: 'resident-vector-recipe-semantic-region',
+        selectedRecipes: [
+          expect.objectContaining({
+            matchedRegionClasses: ['applicability', 'architectureConvention'],
+            matchedRegions: [
+              expect.objectContaining({
+                regionClass: 'applicability',
+                sourceRefs: ['[absolute-path]/service.ts:42'],
+              }),
+            ],
+            itemId: 'recipe-region-selected',
+            sourceRefs: ['[absolute-path]/service.ts:42'],
+          }),
+        ],
+        used: true,
+        vectorAvailable: true,
+      },
+      selectedKnowledge: [],
+    });
+    expect(JSON.stringify(result.meta.primeInjectionPackage)).not.toContain('/Users/example');
+  });
+
   it('replays accepted D3 provider fixture ids through Plugin resident client routes', async () => {
     const replayedFixtureIds: string[] = [];
     const replay = (fixtureId: string, payload: unknown, status = 200) => {

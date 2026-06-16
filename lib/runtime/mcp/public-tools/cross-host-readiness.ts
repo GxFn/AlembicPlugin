@@ -101,14 +101,14 @@ export function buildAgentPublicCrossHostPromptSnapshot(
     envelopeInvariant:
       'Return the same contractVersion, actionKind, refs/detailRefs, status, and skip/degraded/blocked/failed reason envelope for every supported host.',
     firstMove:
-      'For semantic project work, call alembic_intent with agentHost plus hostDeclaredIntent or host-turn metadata before loading knowledge.',
+      'For semantic project work, use alembic_intent only when you need intent normalization; do not use it as a required producer for prime.',
     guardAndDecision:
       'Use alembic_code_guard only with explicit files or inline code, and use alembic_decision_record only for confirmed durable decisions.',
     hostLabel: HOST_LABEL_BY_AGENT_HOST[agentHost],
     legacyBoundary:
       'Legacy compatibility hooks are not the primary guide for this host; use the six agent-facing public tools.',
     primeFlow:
-      'Call alembic_prime with the intentRef or the same structured host intent, then keep receipt evidence compact and ref-based.',
+      'Call alembic_prime directly before coding with taskAction, requirementGoal, and locator facets; obsolete intentRef/recognizedIntent inputs are blocked.',
     schemaSignature: SHARED_SCHEMA_SIGNATURE,
     workLifecycle:
       'Use alembic_work_start for concrete evidence-producing work and alembic_work_finish with changed files and evidence refs when scoped work is complete.',

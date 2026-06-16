@@ -2,7 +2,7 @@ import type { AlembicResidentServiceResult } from '@alembic/core/daemon';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
 import {
-  defaultProjectGraphProvider,
+  type defaultProjectGraphProvider,
   defaultProjectKnowledgeContextLayer,
   defaultProjectMatrixProvider,
   type KnowledgeContextDetailRef,
@@ -11,7 +11,6 @@ import {
   type KnowledgeContextProjectionPayload,
   type KnowledgeContextSource,
   type KnowledgeContextToolOutput,
-  ProjectGraphInputSchema,
   type ProjectMatrixKnowledgeEntry,
 } from '#service/project-knowledge-context/index.js';
 import type {
@@ -77,9 +76,34 @@ interface AgentPublicBaseArgs {
 }
 
 interface AgentPrimeArgs extends AgentPublicBaseArgs {
+  capability?: string;
+  domainObjects?: string[];
+  integrationBoundary?: string;
   intentRef?: string;
+  keywords?: string[];
+  labels?: string[];
+  lifecycleHint?: string;
+  qualityConcerns?: string[];
   query?: string;
   recognizedIntent?: Record<string, unknown>;
+  requirementGoal?: string;
+  scenario?: string;
+  taskAction?: string;
+}
+
+interface StandalonePrimeRequirementFrame {
+  capability?: string;
+  domainObjects: string[];
+  integrationBoundary?: string;
+  keywords: string[];
+  labels: string[];
+  lifecycleHint?: string;
+  locatorFacets: string[];
+  qualityConcerns: string[];
+  requirementGoal?: string;
+  scenario?: string;
+  searchQuery?: string;
+  taskAction?: string;
 }
 
 interface AgentWorkStartArgs extends AgentPublicBaseArgs {
@@ -195,7 +219,6 @@ interface PrimeKnowledgeContextProjection {
   output: KnowledgeContextToolOutput;
   projectGraphIncluded: boolean;
   projectMatrixSummary: string;
-  recipeRelationCount: number;
 }
 
 type PrimeProjectGraphResult = Awaited<
@@ -252,7 +275,7 @@ interface AgentIntentPersistence {
 interface PipelineLike {
   search(
     intent: ExtractedIntent,
-    options?: { hostIntentFrame?: HostIntentFrame; projectRoot?: string }
+    options?: { hostIntentFrame?: HostIntentFrame; projectRoot?: string; standalonePrime?: true }
   ): Promise<PrimeSearchResult | null>;
 }
 
@@ -265,6 +288,8 @@ interface ResidentDecisionRegisterClientLike {
 let intentCounter = 0;
 let primeCounter = 0;
 let workCounter = 0;
+
+const PRIME_PUBLIC_STRING_MAX_CHARS = 240;
 let finishCounter = 0;
 let guardCounter = 0;
 const INTENT_RECORDS = new Map<string, IntentRecord>();
@@ -342,12 +367,10 @@ export async function intentHandler(ctx: McpContext, args: AgentPublicBaseArgs) 
 }
 
 export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
-  const record =
-    typeof args.intentRef === 'string' ? (INTENT_RECORDS.get(args.intentRef) ?? null) : null;
-  const intake = record ? intakeFromRecord(record, ctx, args) : buildIntentIntake(ctx, args);
+  const intake = buildPrimeRequirementIntake(ctx, args);
   const detailRefs = buildBaseDetailRefs('alembic_prime', intake.sourceRefs);
   const primeRef = nextPrimeRef();
-  const blockingReason = resolvePrimeBlockingReason(args, record, intake);
+  const blockingReason = resolvePrimeBlockingReason(args, intake);
   if (blockingReason) {
     return buildPrimeBlockingOutput({
       args,
@@ -359,7 +382,7 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
   }
 
   const effectiveProjectRoot = resolveEffectiveProjectRoot(ctx, args);
-  const primeSearch = await runPrimeSearch(ctx, intake, effectiveProjectRoot);
+  const primeSearch = await runPrimeSearch(ctx, args, intake, effectiveProjectRoot);
   return buildPrimeReadyOutput({
     args,
     ctx,
@@ -368,7 +391,7 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
     intake,
     primeRef,
     primeSearch,
-    record,
+    record: null,
   });
 }
 
@@ -485,15 +508,6 @@ function buildPrimeBlockingResult(
 
 function buildPrimeRefs(input: PrimeHandlerSharedInput) {
   return {
-    ...(input.args.intentRef
-      ? {
-          intentRef: {
-            refType: 'intent' as const,
-            id: input.args.intentRef,
-            toolName: 'alembic_intent' as const,
-          },
-        }
-      : {}),
     detailRefs: input.detailRefs,
     primeRef: { refType: 'prime' as const, id: input.primeRef, toolName: 'alembic_prime' as const },
   };
@@ -528,10 +542,10 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   });
   const knowledgeContext = (
     await buildPrimeReadyKnowledgeContext({
-    ...input,
-    material,
-    primePackage,
-    status,
+      ...input,
+      material,
+      primePackage,
+      status,
     })
   ).output;
 
@@ -543,7 +557,40 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
 
 function primeKnowledgeContextPublicFields(output: KnowledgeContextToolOutput) {
   const { meta: _meta, ...publicFields } = output;
-  return publicFields;
+  return sanitizePrimeKnowledgeContextPublicFields(publicFields);
+}
+
+function sanitizePrimeKnowledgeContextPublicFields(value: Record<string, unknown>) {
+  const sanitized = scrubPrimeRelationSurface(value);
+  return isRecord(sanitized) ? sanitized : {};
+}
+
+function scrubPrimeRelationSurface(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => scrubPrimeRelationSurface(item))
+      .filter((item) => item !== 'recipeRelation');
+  }
+  if (!isRecord(value)) {
+    if (typeof value === 'string') {
+      return value.replace(/\brecipeRelation\b/g, 'knowledge');
+    }
+    return value;
+  }
+
+  const output: Record<string, unknown> = {};
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (
+      key === 'recipeRelation' ||
+      key === 'recipeRelationCount' ||
+      key === 'relationChainCount' ||
+      key === 'relationHopLimit'
+    ) {
+      continue;
+    }
+    output[key] = scrubPrimeRelationSurface(fieldValue);
+  }
+  return output;
 }
 
 async function buildPrimeReadyKnowledgeContext(
@@ -564,8 +611,6 @@ async function buildPrimeReadyKnowledgeContext(
     defaultProjectKnowledgeContextLayer.resolveInteractionState(primeContextInput);
   const projectMatrix = await resolvePrimeReadyProjectMatrix(input);
   const projectGraph = await resolvePrimeReadyProjectGraph(input);
-  const relationEvidence = input.material.retrievalConsumer?.relationEvidence;
-  const recipeRelations = relationEvidence?.evidence ?? [];
   const vectorCandidateCount = countPrimeVectorCandidates(input.primeSearch.searchResult);
   const effectiveSearchDegraded =
     input.primeSearch.searchDegraded || input.material.primeKnowledgeMaterial.status === 'degraded';
@@ -577,7 +622,6 @@ async function buildPrimeReadyKnowledgeContext(
     primePackage: input.primePackage,
     projectGraphIncluded: projectGraph !== null,
     projectMatrix,
-    recipeRelations,
     searchDegraded: effectiveSearchDegraded,
     searchResult: input.primeSearch.searchResult,
     status: input.status,
@@ -589,7 +633,6 @@ async function buildPrimeReadyKnowledgeContext(
         material: input.material.primeKnowledgeMaterial,
         projectGraph,
         projectMatrix,
-        recipeRelations,
         searchDegraded: effectiveSearchDegraded,
         vectorCandidateCount,
       }),
@@ -597,7 +640,6 @@ async function buildPrimeReadyKnowledgeContext(
         input.material.primeKnowledgeMaterial.acceptedKnowledge.length +
         input.material.primeKnowledgeMaterial.acceptedGuards.length,
       projectNodes: projectGraph?.projectNodes ?? projectMatrix.projectNodes,
-      recipeRelationCount: recipeRelations.length,
       vectorCandidateCount,
     },
   });
@@ -605,7 +647,6 @@ async function buildPrimeReadyKnowledgeContext(
     output,
     projectGraphIncluded: projectGraph !== null,
     projectMatrixSummary: projectMatrix.summary,
-    recipeRelationCount: recipeRelations.length,
   };
 }
 
@@ -630,30 +671,8 @@ function resolvePrimeReadyProjectMatrix(
 function resolvePrimeReadyProjectGraph(
   input: PrimeHandlerReadyInput
 ): Promise<PrimeProjectGraphResult | null> {
-  if (!shouldIncludePrimeProjectGraph(input)) {
-    return Promise.resolve(null);
-  }
-  return defaultProjectGraphProvider.resolveProjectGraph(
-    ProjectGraphInputSchema.parse({
-      activeFile: input.intake.hostIntentInput.activeFile,
-      agentHost: input.intake.agentHost,
-      budget: {
-        contentCharLimit: 1200,
-        detailLimit: 6,
-        itemLimit: 6,
-        matrixNodeLimit: 8,
-        nextActionLimit: 3,
-        relationHopLimit: 2,
-      },
-      inputSource: input.intake.inputSource,
-      intentKind: input.intake.intentKind,
-      operation: 'neighborhood',
-      projectRoot: input.effectiveProjectRoot,
-      query: input.intake.hostIntentFrame.recognizedIntentDraft.query,
-      sourceEvidenceRefs: input.args.sourceEvidenceRefs,
-      sourceRefs: input.args.sourceRefs,
-    })
-  );
+  void input;
+  return Promise.resolve(null);
 }
 
 function countPrimeVectorCandidates(searchResult: PrimeSearchResult | null): number {
@@ -666,22 +685,14 @@ function buildPrimeReadyDomainFreshness(input: {
   material: PrimeKnowledgeMaterial;
   projectGraph: PrimeProjectGraphResult | null;
   projectMatrix: PrimeProjectMatrixResult;
-  recipeRelations: NonNullable<
-    PrimeSearchResult['searchMeta']['retrievalConsumer']
-  >['relationEvidence']['evidence'];
   searchDegraded: boolean;
   vectorCandidateCount: number;
 }) {
+  const projectDomainFreshness = { ...input.projectMatrix.domainFreshness };
+  delete (projectDomainFreshness as Record<string, unknown>).recipeRelation;
   return {
-    ...input.projectMatrix.domainFreshness,
+    ...projectDomainFreshness,
     knowledge: primeKnowledgeFreshness(input.material, input.searchDegraded),
-    recipeRelation: {
-      state: input.recipeRelations.length > 0 ? ('ready' as const) : ('partial' as const),
-      degradedReason:
-        input.recipeRelations.length > 0
-          ? undefined
-          : 'No Recipe relation-chain evidence was available in the prime retrieval metadata.',
-    },
     vector: {
       state: input.vectorCandidateCount > 0 ? ('ready' as const) : ('partial' as const),
       degradedReason:
@@ -716,13 +727,11 @@ function buildPrimeKnowledgeContextInput(input: {
   primeRef: string;
   record?: IntentRecord | null;
 }) {
-  const intentRef = input.record?.intentRef ?? input.args.intentRef;
+  const frame = buildStandalonePrimeRequirementFrame(input.args);
   const query = resolveString(input.intake.hostIntentFrame.recognizedIntentDraft.query);
   const language = resolveString(input.intake.extracted.language);
-  const hostDeclaredIntent = sanitizePrimeHostDeclaredIntent(input.args.hostDeclaredIntent);
-  const recognizedIntent = sanitizePrimeRecognizedIntent(
-    input.intake.hostIntentFrame.recognizedIntentDraft,
-    input.intake.sourceRefs
+  const hostDeclaredIntent = sanitizePrimeHostDeclaredIntent(
+    input.intake.hostIntentFrame.hostDeclaredIntent
   );
   return {
     activeFile: input.intake.hostIntentInput.activeFile,
@@ -738,36 +747,24 @@ function buildPrimeKnowledgeContextInput(input: {
     ...(hostDeclaredIntent === undefined ? {} : { hostDeclaredIntent }),
     inputSource: input.intake.inputSource,
     intentKind: input.intake.intentKind,
-    ...(intentRef === undefined ? {} : { intentRef }),
     ...(language === undefined ? {} : { language }),
     operation: 'auto',
     primeRef: input.primeRef,
     projectRoot: input.effectiveProjectRoot,
     ...(query === undefined ? {} : { query }),
-    ...(recognizedIntent === undefined ? {} : { recognizedIntent }),
+    ...(frame.taskAction ? { taskAction: frame.taskAction } : {}),
+    ...(frame.requirementGoal ? { requirementGoal: frame.requirementGoal } : {}),
+    ...(frame.scenario ? { scenario: frame.scenario } : {}),
+    ...(frame.capability ? { capability: frame.capability } : {}),
+    ...(frame.domainObjects.length > 0 ? { domainObjects: frame.domainObjects } : {}),
+    ...(frame.integrationBoundary ? { integrationBoundary: frame.integrationBoundary } : {}),
+    ...(frame.lifecycleHint ? { lifecycleHint: frame.lifecycleHint } : {}),
+    ...(frame.qualityConcerns.length > 0 ? { qualityConcerns: frame.qualityConcerns } : {}),
+    ...(frame.keywords.length > 0 ? { keywords: frame.keywords } : {}),
+    ...(frame.labels.length > 0 ? { labels: frame.labels } : {}),
     sourceEvidenceRefs: input.args.sourceEvidenceRefs,
     sourceRefs: input.intake.sourceRefs,
     tool: 'alembic_prime' as const,
-  };
-}
-
-function sanitizePrimeRecognizedIntent(
-  value: object,
-  sourceRefs: string[]
-): Record<string, unknown> | undefined {
-  const record = value as Record<string, unknown>;
-  const query = resolveString(record.query);
-  if (query === undefined) {
-    return undefined;
-  }
-  return {
-    ...(resolveString(record.action) === undefined ? {} : { action: resolveString(record.action) }),
-    ...(resolveString(record.target) === undefined ? {} : { target: resolveString(record.target) }),
-    ...(readFiniteNumber(record.confidence) === undefined
-      ? {}
-      : { confidence: readFiniteNumber(record.confidence) }),
-    query,
-    ...(sourceRefs.length === 0 ? {} : { sourceRefs }),
   };
 }
 
@@ -809,9 +806,6 @@ function buildPrimeKnowledgeContextPayload(input: {
   primePackage: PrimePublicPackage;
   projectGraphIncluded: boolean;
   projectMatrix: PrimeProjectMatrixResult;
-  recipeRelations: NonNullable<
-    PrimeSearchResult['searchMeta']['retrievalConsumer']
-  >['relationEvidence']['evidence'];
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
   status: Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string };
@@ -826,10 +820,6 @@ function buildPrimeKnowledgeContextPayload(input: {
     ...input.projectMatrix.detailRefs.slice(0, 6),
     ...graphDetailRefs.slice(0, 4),
   ];
-  const relationItems = input.recipeRelations.map((relation) => ({
-    ...relation,
-    relationType: relation.relation,
-  }));
   const graphNextActions = input.projectGraphIncluded
     ? (input.graphPayload?.nextActions ?? [])
     : [];
@@ -844,7 +834,6 @@ function buildPrimeKnowledgeContextPayload(input: {
       detailRefCount: detailRefs.length,
       graphDetailRefCount: graphDetailRefs.length,
       projectGraphIncluded: input.projectGraphIncluded,
-      recipeRelationCount: input.recipeRelations.length,
       searchDegraded: input.searchDegraded,
       trustReceiptStatus: input.material.status,
     },
@@ -852,10 +841,16 @@ function buildPrimeKnowledgeContextPayload(input: {
       ...input.material.acceptedKnowledge.map((item) => ({
         id: item.id,
         kind: item.kind,
+        matchedRegionClasses: item.matchedRegionClasses,
         score: item.score,
         summary: item.summary,
         title: item.title,
+        trustEvidence: item.trustEvidence,
         trustLayer: 'trusted-to-use',
+        usefulSlices: item.usefulSlices.map((slice) => ({
+          ...(slice.regionClass ? { regionClass: slice.regionClass } : {}),
+          text: slice.text,
+        })),
       })),
       ...input.material.acceptedGuards.map((item) => ({
         id: item.id,
@@ -872,10 +867,7 @@ function buildPrimeKnowledgeContextPayload(input: {
       ...input.projectMatrix.nextActions.slice(0, 2),
       ...graphNextActions.slice(0, 1),
     ],
-    relations: [
-      ...relationItems,
-      ...(input.projectGraphIncluded ? (input.graphPayload?.relations ?? []).slice(0, 4) : []),
-    ],
+    relations: input.projectGraphIncluded ? (input.graphPayload?.relations ?? []).slice(0, 4) : [],
     result: {
       acceptedGuards: input.primePackage.compactPackage.acceptedGuards,
       acceptedKnowledge: input.primePackage.compactPackage.acceptedKnowledge,
@@ -886,7 +878,6 @@ function buildPrimeKnowledgeContextPayload(input: {
       },
       primePackage: input.primePackage,
       retrieval: {
-        relationChainCount: input.recipeRelations.length,
         residentSearchAttempted: input.searchResult?.searchMeta.residentSearch?.attempted ?? false,
         searchDegraded: input.searchDegraded,
       },
@@ -911,14 +902,6 @@ function primeKnowledgeToMatrixEntry(
     title: item.title,
     description: item.summary,
   };
-}
-
-function shouldIncludePrimeProjectGraph(input: PrimeHandlerReadyInput): boolean {
-  return Boolean(
-    input.intake.hostIntentInput.activeFile ||
-      (input.primeSearch.searchResult?.relatedKnowledge.length ?? 0) > 0 ||
-      (input.primeSearch.searchResult?.guardRules.length ?? 0) > 0
-  );
 }
 
 function acceptedKnowledgeToDetailRef(
@@ -994,9 +977,6 @@ function primeMaterialNextActions(material: PrimeKnowledgeMaterial): KnowledgeCo
 
 function buildPrimeKnowledgeContextDiagnostics(input: {
   material: PrimeKnowledgeMaterial;
-  recipeRelations: NonNullable<
-    PrimeSearchResult['searchMeta']['retrievalConsumer']
-  >['relationEvidence']['evidence'];
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
 }): KnowledgeContextDiagnostic[] {
@@ -1019,15 +999,6 @@ function buildPrimeKnowledgeContextDiagnostics(input: {
       severity: 'info',
     });
   }
-  if (input.recipeRelations.length === 0) {
-    diagnostics.push({
-      code: 'prime-relation-chain-empty',
-      domain: 'recipeRelation',
-      message: 'No Recipe relation-chain evidence was available for this prime retrieval.',
-      retryable: false,
-      severity: 'info',
-    });
-  }
   if (!input.searchResult?.searchMeta.residentSearch?.residentVector?.available) {
     diagnostics.push({
       code: 'prime-vector-evidence-unavailable',
@@ -1043,9 +1014,6 @@ function buildPrimeKnowledgeContextDiagnostics(input: {
 function buildPrimeKnowledgeContextSummary(input: {
   material: PrimeKnowledgeMaterial;
   projectGraphIncluded: boolean;
-  recipeRelations: NonNullable<
-    PrimeSearchResult['searchMeta']['retrievalConsumer']
-  >['relationEvidence']['evidence'];
   searchDegraded: boolean;
 }): string {
   const acceptedKnowledgeCount = input.material.acceptedKnowledge.length;
@@ -1054,7 +1022,7 @@ function buildPrimeKnowledgeContextSummary(input: {
     ? 'project graph detail refs available'
     : 'project graph omitted';
   const degradedPhrase = input.searchDegraded ? ' with degraded search evidence' : '';
-  return `Prime prepared compact task context${degradedPhrase}: ${acceptedKnowledgeCount} accepted knowledge item(s), ${acceptedGuardCount} guard item(s), ${input.recipeRelations.length} relation-chain link(s), ${graphPhrase}.`;
+  return `Prime prepared compact task context${degradedPhrase}: ${acceptedKnowledgeCount} accepted knowledge item(s), ${acceptedGuardCount} guard item(s), ${graphPhrase}.`;
 }
 
 function evidenceRefToUri(
@@ -1096,13 +1064,12 @@ function buildPrimeReadyResult(
   input: PrimeHandlerReadyInput,
   status: Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string }
 ) {
-  const intentRef = input.record?.intentRef ?? input.args.intentRef;
   return createAgentPublicToolResultEnvelope({
     actionKind: 'prime',
     agentHost: input.intake.agentHost,
     inputSource: input.intake.inputSource,
     intentKind: input.intake.intentKind,
-    refs: buildPrimeRefs({ ...input, args: { ...input.args, intentRef } }),
+    refs: buildPrimeRefs(input),
     ...(status.reason ? { reason: status.reason } : {}),
     status: status.status,
     summary: buildResultSummary(status.summary),
@@ -1342,10 +1309,7 @@ export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs
   const intake = buildIntentIntake(ctx, args);
   const detailRefs = buildBaseDetailRefs(
     'alembic_code_guard',
-    uniqueStrings([
-      ...(args.sourceRefs ?? []),
-      ...(args.sourceEvidenceRefs ?? []),
-    ])
+    uniqueStrings([...(args.sourceRefs ?? []), ...(args.sourceEvidenceRefs ?? [])])
   );
   const scope = resolveCodeGuardScope(ctx, args);
   const preflight = buildCodeGuardPreflightOutput({ args, detailRefs, intake, scope });
@@ -1448,7 +1412,7 @@ function buildEmptyWorkRefGuardOutput(
   },
   workRecord: WorkRecord
 ) {
-  const { args, detailRefs, intake, scope } = input;
+  const { detailRefs, intake, scope } = input;
   const result = createAgentPublicToolResultEnvelope({
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
@@ -1574,7 +1538,7 @@ function buildCodeGuardFailureOutput(input: {
   err: unknown;
   intake: ReturnType<typeof buildIntentIntake>;
 }) {
-  const { args, detailRefs, err, intake } = input;
+  const { detailRefs, err, intake } = input;
   const result = createAgentPublicToolResultEnvelope({
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
@@ -1727,7 +1691,7 @@ export async function decisionRecordHandler(ctx: McpContext, args: AgentDecision
 
 function buildIntentIntake(ctx: McpContext, args: AgentPublicBaseArgs) {
   const hostDeclaredIntent = mergeRecognizedIntent(args);
-  const rawUserQuery = firstString(args.userQuery, (args as AgentPrimeArgs).query);
+  const rawUserQuery = firstString(args.userQuery);
   const hostIntentInput = prepareHostIntentInput({
     activeFile: args.activeFile,
     hostDeclaredIntent,
@@ -1769,19 +1733,171 @@ function buildIntentIntake(ctx: McpContext, args: AgentPublicBaseArgs) {
   };
 }
 
-function intakeFromRecord(record: IntentRecord, ctx: McpContext, args: AgentPrimeArgs) {
+function buildPrimeRequirementIntake(
+  ctx: McpContext,
+  args: AgentPrimeArgs
+): ReturnType<typeof buildIntentIntake> {
+  const standaloneFrame = buildStandalonePrimeRequirementFrame(args);
+  const hostDeclaredIntent = hasAnyStandalonePrimeSignal(standaloneFrame)
+    ? primeFrameToHostDeclaredIntent(standaloneFrame)
+    : undefined;
+  const rawUserQuery = firstString(args.userQuery);
+  const effectiveUserQuery = standaloneFrame.searchQuery ?? rawUserQuery;
+  const hostIntentInput = prepareHostIntentInput({
+    activeFile: args.activeFile,
+    hostDeclaredIntent,
+    hostTurnMeta: args.hostTurnMeta,
+    language: args.language,
+    requestHostTurnMeta: ctx.hostTurnMeta,
+    userQuery: effectiveUserQuery,
+  });
+  const extracted = extractIntent(
+    hostIntentInput.userQuery,
+    hostIntentInput.activeFile,
+    hostIntentInput.language
+  );
+  const hostIntentFrame = buildHostIntentFrame(hostIntentInput, extracted);
+  const lifecycle = classifyTaskLifecycleInput({
+    hostIntentFrame,
+    operation: 'prime',
+    rawUserQuery,
+    userQuery: hostIntentInput.userQuery,
+  });
+  const sourceRefs = uniqueStrings([
+    ...(args.sourceRefs ?? []),
+    ...(args.sourceEvidenceRefs ?? []),
+  ]);
+  const inputSource = resolveAgentInputSource(args.inputSource, lifecycle.inputSource);
+  const intentKind = args.intentKind ?? mapLifecycleIntentKind(lifecycle, hostIntentFrame);
   return {
     agentHost: args.agentHost ?? ('codex' as const),
-    extracted: record.extracted,
-    hostIntentFrame: record.hostIntentFrame,
-    hostIntentInput: record.hostIntentInput,
-    inputSource: args.inputSource ?? record.inputSource,
-    intentKind: args.intentKind ?? record.intentKind,
-    lifecycle: record.lifecycle,
-    sourceRefs: uniqueStrings([...(record.sourceRefs ?? []), ...(args.sourceRefs ?? [])]),
-    vectorPlan: record.vectorPlan,
-    projectRoot: resolveEffectiveProjectRoot(ctx, args),
+    extracted,
+    hostIntentFrame,
+    hostIntentInput,
+    inputSource,
+    intentKind,
+    lifecycle,
+    sourceRefs,
+    vectorPlan: buildVectorPlan(extracted),
   };
+}
+
+function buildStandalonePrimeRequirementFrame(
+  args: AgentPrimeArgs
+): StandalonePrimeRequirementFrame {
+  const taskAction = normalizePrimeTaskAction(args.taskAction);
+  const requirementGoal = firstString(args.requirementGoal);
+  const scenario = firstString(args.scenario);
+  const capability = firstString(args.capability);
+  const domainObjects = stringList(args.domainObjects);
+  const integrationBoundary = firstString(args.integrationBoundary);
+  const lifecycleHint = firstString(args.lifecycleHint);
+  const qualityConcerns = stringList(args.qualityConcerns);
+  const labels = stringList(args.labels);
+  const keywords = stringList(args.keywords);
+  const locatorFacets = uniqueStrings([
+    ...(scenario ? [scenario] : []),
+    ...(capability ? [capability] : []),
+    ...domainObjects,
+    ...(integrationBoundary ? [integrationBoundary] : []),
+    ...qualityConcerns,
+  ]);
+  const queryParts = uniqueStrings([
+    ...(requirementGoal ? [requirementGoal] : []),
+    ...(taskAction ? [taskAction] : []),
+    ...locatorFacets,
+    ...(lifecycleHint ? [lifecycleHint] : []),
+    ...keywords,
+    ...labels,
+  ]);
+  return {
+    ...(capability ? { capability } : {}),
+    domainObjects,
+    ...(integrationBoundary ? { integrationBoundary } : {}),
+    keywords,
+    labels,
+    ...(lifecycleHint ? { lifecycleHint } : {}),
+    locatorFacets,
+    qualityConcerns,
+    ...(requirementGoal ? { requirementGoal } : {}),
+    ...(scenario ? { scenario } : {}),
+    ...(queryParts.length > 0 ? { searchQuery: queryParts.join(' ') } : {}),
+    ...(taskAction ? { taskAction } : {}),
+  };
+}
+
+function primeFrameToHostDeclaredIntent(
+  frame: StandalonePrimeRequirementFrame
+): HostDeclaredIntentInput | undefined {
+  if (!hasAnyStandalonePrimeSignal(frame)) {
+    return undefined;
+  }
+  const keywords = uniqueStrings([
+    ...frame.locatorFacets,
+    ...(frame.lifecycleHint ? [frame.lifecycleHint] : []),
+    ...frame.keywords,
+    ...frame.labels,
+  ]).slice(0, 12);
+  return {
+    ...(frame.searchQuery ? { query: frame.searchQuery } : {}),
+    ...(frame.requirementGoal ? { goal: frame.requirementGoal } : {}),
+    ...(frame.taskAction ? { action: frame.taskAction } : {}),
+    ...(frame.scenario ? { scenario: frame.scenario.slice(0, 80) } : {}),
+    ...(frame.capability ? { module: frame.capability.slice(0, 160) } : {}),
+    ...(keywords.length > 0 ? { keywords } : {}),
+  };
+}
+
+function hasAnyStandalonePrimeSignal(frame: StandalonePrimeRequirementFrame): boolean {
+  return Boolean(
+    frame.taskAction ||
+      frame.requirementGoal ||
+      frame.locatorFacets.length > 0 ||
+      frame.lifecycleHint ||
+      frame.keywords.length > 0 ||
+      frame.labels.length > 0
+  );
+}
+
+function hasRequiredStandalonePrimeFrame(frame: StandalonePrimeRequirementFrame): boolean {
+  return Boolean(frame.taskAction && frame.requirementGoal && frame.locatorFacets.length > 0);
+}
+
+function normalizePrimeTaskAction(value: unknown): string | undefined {
+  const action = firstString(value)
+    ?.toLowerCase()
+    .replace(/[_\s]+/g, '-');
+  switch (action) {
+    case 'implement':
+    case 'implementation':
+    case 'build':
+    case 'add':
+      return 'implement';
+    case 'fix':
+    case 'repair':
+      return 'fix';
+    case 'refactor':
+      return 'refactor';
+    case 'test':
+    case 'test-writing':
+    case 'write-tests':
+    case 'add-tests':
+      return 'test-writing';
+    case 'test-repair':
+    case 'fix-tests':
+    case 'repair-tests':
+      return 'test-repair';
+    case 'code-edit':
+    case 'edit-code':
+    case 'remove':
+    case 'delete':
+      return 'code-edit';
+    case 'code-review':
+    case 'review':
+      return 'code-review';
+    default:
+      return undefined;
+  }
 }
 
 function mergeRecognizedIntent(args: AgentPublicBaseArgs): HostDeclaredIntentInput | undefined {
@@ -1867,41 +1983,68 @@ function resolveIntentStatus(
 
 function resolvePrimeBlockingReason(
   args: AgentPrimeArgs,
-  record: IntentRecord | null,
   intake: ReturnType<typeof buildIntentIntake>
 ): {
-  code: 'missing-required-intent' | 'missing-referenced-docs';
+  code: 'missing-required-intent' | 'missing-referenced-docs' | 'obsolete-prime-intent-input';
   message: string;
 } | null {
-  const hasFallbackIntent = Boolean(
-    intake.hostIntentFrame.recognizedIntentDraft.query.trim() ||
-      args.recognizedIntent ||
-      args.hostDeclaredIntent
-  );
-  if (!args.intentRef && !hasFallbackIntent) {
+  const obsoleteFields = obsoletePrimeInputFields(args);
+  if (obsoleteFields.length > 0) {
     return {
-      code: 'missing-required-intent',
-      message: 'alembic_prime requires an intentRef or an explicit recognizedIntent fallback.',
+      code: 'obsolete-prime-intent-input',
+      message: `alembic_prime no longer accepts ${obsoleteFields.join(', ')} as prime input; call it with taskAction, requirementGoal, and at least one locator facet.`,
     };
   }
-  if (args.intentRef && !record && !hasFallbackIntent) {
+
+  const frame = buildStandalonePrimeRequirementFrame(args);
+  if (
+    intake.lifecycle.primeDecision.action === 'skip' &&
+    !isTrustedStandaloneCodePrimeFrame(frame)
+  ) {
+    return null;
+  }
+
+  if (!hasRequiredStandalonePrimeFrame(frame)) {
     return {
       code: 'missing-required-intent',
-      message: `No local intent record exists for intentRef ${args.intentRef}.`,
+      message:
+        'alembic_prime requires standalone code-development input: taskAction, requirementGoal, and at least one locator facet (capability, scenario, domainObjects, integrationBoundary, or qualityConcerns).',
     };
   }
+
   if (intake.inputSource === 'automation-envelope' && intake.sourceRefs.length === 0) {
     return {
       code: 'missing-referenced-docs',
       message:
-        'Automation-envelope prime requires explicit sourceRefs so the host can verify referenced dispatch/plan evidence.',
+        'Automation-envelope prime requires a curated direct code-development frame plus explicit sourceRefs so the host can verify referenced dispatch/plan evidence.',
     };
   }
   return null;
 }
 
+function obsoletePrimeInputFields(args: AgentPrimeArgs): string[] {
+  const fields: string[] = [];
+  if (firstString(args.intentRef)) {
+    fields.push('intentRef');
+  }
+  if (args.recognizedIntent && typeof args.recognizedIntent === 'object') {
+    fields.push('recognizedIntent');
+  }
+  if (firstString(args.query)) {
+    fields.push('query');
+  }
+  if (
+    args.hostDeclaredIntent &&
+    !hasAnyStandalonePrimeSignal(buildStandalonePrimeRequirementFrame(args))
+  ) {
+    fields.push('hostDeclaredIntent');
+  }
+  return fields;
+}
+
 async function runPrimeSearch(
   ctx: McpContext,
+  args: AgentPrimeArgs,
   intake: ReturnType<typeof buildIntentIntake>,
   effectiveProjectRoot: string
 ): Promise<{
@@ -1909,11 +2052,12 @@ async function runPrimeSearch(
   searchResult: PrimeSearchResult | null;
   skippedReason: AgentPrimeSkippedReason | null;
 }> {
-  if (intake.lifecycle.primeDecision.action === 'skip') {
+  const skippedReason = resolvePrimeSkipBeforeRetrieval(args, intake);
+  if (skippedReason) {
     return {
       searchDegraded: false,
       searchResult: null,
-      skippedReason: mapPrimeSkipReason(intake.lifecycle.primeDecision.reasonCode),
+      skippedReason,
     };
   }
   const pipeline = getPipeline(ctx.container);
@@ -1924,6 +2068,7 @@ async function runPrimeSearch(
     const searchResult = await pipeline.search(intake.extracted, {
       hostIntentFrame: intake.hostIntentFrame,
       projectRoot: effectiveProjectRoot,
+      standalonePrime: true,
     });
     return { searchDegraded: false, searchResult, skippedReason: null };
   } catch (err: unknown) {
@@ -1934,8 +2079,95 @@ async function runPrimeSearch(
   }
 }
 
+function resolvePrimeSkipBeforeRetrieval(
+  args: AgentPrimeArgs,
+  intake: ReturnType<typeof buildIntentIntake>
+): AgentPrimeSkippedReason | null {
+  const frame = buildStandalonePrimeRequirementFrame(args);
+  const trustedStandaloneFrame = isTrustedStandaloneCodePrimeFrame(frame);
+  if (args.intentKind && isExplicitNonCodePrimeIntentKind(args.intentKind)) {
+    return args.intentKind === 'status-only'
+      ? 'status-only-turn'
+      : 'not-relevant-to-project-knowledge';
+  }
+  if (intake.lifecycle.primeDecision.action === 'skip' && !trustedStandaloneFrame) {
+    return mapPrimeSkipReason(intake.lifecycle.primeDecision.reasonCode);
+  }
+  if (hasRequiredStandalonePrimeFrame(frame) && isStandalonePrimeNonCodeFrame(frame)) {
+    return 'not-relevant-to-project-knowledge';
+  }
+  return null;
+}
+
+function isTrustedStandaloneCodePrimeFrame(frame: StandalonePrimeRequirementFrame): boolean {
+  return hasRequiredStandalonePrimeFrame(frame) && !isStandalonePrimeNonCodeFrame(frame);
+}
+
+function isExplicitNonCodePrimeIntentKind(intentKind: AgentIntentKind): boolean {
+  return (
+    intentKind === 'read-only-analysis' ||
+    intentKind === 'status-only' ||
+    intentKind === 'design-or-planning' ||
+    intentKind === 'mechanical-envelope' ||
+    intentKind === 'unknown'
+  );
+}
+
+function isStandalonePrimeNonCodeFrame(frame: StandalonePrimeRequirementFrame): boolean {
+  const frameText = [
+    frame.requirementGoal,
+    frame.scenario,
+    frame.capability,
+    ...frame.domainObjects,
+    frame.integrationBoundary,
+    frame.lifecycleHint,
+    ...frame.qualityConcerns,
+    ...frame.keywords,
+    ...frame.labels,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!frameText) {
+    return false;
+  }
+  if (
+    /\b(without|no)\s+code\s+changes?\b|\bread[-\s]?only\s+(plan|planning|discussion)\b/i.test(
+      frameText
+    )
+  ) {
+    return true;
+  }
+  const hasCodeWorkMarker =
+    /\b(implement|fix|repair|refactor|test|tests|code|handler|schema|runtime|api|mcp|plugin|route|service|pipeline|contract|projection|validation|regression|bug)\b|实现|修复|重构|测试|代码|接口|处理器|模式|运行时/u.test(
+      frameText
+    );
+  if (hasCodeWorkMarker) {
+    return false;
+  }
+  return (
+    /\b(where|which)\b.{0,80}\b(file|module|class|handler|route|located|location|live|entrypoint)\b/i.test(
+      frameText
+    ) ||
+    /\b(project\s+navigation|module\s+location|file\s+location|where\s+to\s+find)\b/i.test(
+      frameText
+    ) ||
+    /在哪里|在哪个文件|位置|入口在哪/u.test(frameText) ||
+    /^(what\s+is|explain|tell\s+me\s+about|overview\s+of)\b/i.test(frameText) ||
+    /\b(general\s+knowledge|background\s+knowledge|concept\s+overview)\b/i.test(frameText) ||
+    /是什么|解释一下|介绍一下/u.test(frameText) ||
+    /\b(design|planning|plan|proposal|options?|tradeoffs?|roadmap)\b.{0,80}\b(discussion|options?|proposal|plan|tradeoffs?)\b/i.test(
+      frameText
+    )
+  );
+}
+
 function resolvePrimeStatus(input: {
-  primeKnowledgeMaterial: { degradedReason?: { code: string; message: string }; status: string };
+  primeKnowledgeMaterial: Pick<
+    PrimeKnowledgeMaterial,
+    'acceptedGuards' | 'acceptedKnowledge' | 'degradedReason' | 'status'
+  >;
   retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
@@ -2001,6 +2233,14 @@ function resolvePrimeStatus(input: {
         reason?.code === 'low-information-intent'
           ? 'Prime withheld retrieved knowledge because the request lacked concrete anchors.'
           : 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
+    };
+  }
+  const acceptedKnowledgeCount = input.primeKnowledgeMaterial.acceptedKnowledge.length;
+  const acceptedGuardCount = input.primeKnowledgeMaterial.acceptedGuards.length;
+  if (acceptedKnowledgeCount > 0 || acceptedGuardCount > 0) {
+    return {
+      status: 'ready',
+      summary: `Prime delivered ${acceptedKnowledgeCount} accepted Recipe/pattern item(s) and ${acceptedGuardCount} accepted Guard/rule item(s).`,
     };
   }
   const relatedCount = input.searchResult?.relatedKnowledge.length ?? 0;
@@ -2118,9 +2358,7 @@ function buildGuardRecommendation(
   };
 }
 
-function projectValidationPlanAdvisory(
-  value: unknown
-):
+function projectValidationPlanAdvisory(value: unknown):
   | {
       acceptanceBoundary?: string;
       advisoryOnly: true;
@@ -2864,9 +3102,7 @@ function buildProjectContextPlan(
     intake.intentKind === 'fix-task' ||
     intake.intentKind === 'refactor-task';
   return {
-    action: changedFileLikely
-      ? ('graph-after-work' as const)
-      : ('graph-before-work' as const),
+    action: changedFileLikely ? ('graph-after-work' as const) : ('graph-before-work' as const),
     reasonCode: changedFileLikely
       ? 'project-context-graph-after-changes'
       : 'project-context-graph-before-source-claim',
@@ -2972,12 +3208,22 @@ function buildPrimePublicPackage(input: {
       acceptedKnowledge: (input.primeKnowledgeMaterial?.acceptedKnowledge ?? [])
         .slice(0, 8)
         .map((item) => ({
+          ...(item.actionHint ? { actionHint: item.actionHint } : {}),
           evidenceRefCount: item.evidenceRefs.length,
           id: item.id,
           kind: item.kind,
+          matchedRegionClasses: item.matchedRegionClasses,
           score: item.score,
           title: item.title,
+          trustEvidence: item.trustEvidence,
           trigger: item.trigger,
+          usefulSlices: item.usefulSlices.map((slice) => ({
+            evidenceRefCount: slice.evidenceRefs.length,
+            ...(slice.regionClass ? { regionClass: slice.regionClass } : {}),
+            ...(slice.score !== undefined ? { score: slice.score } : {}),
+            ...(slice.sourceRefsBridge ? { sourceRefsBridge: slice.sourceRefsBridge } : {}),
+            text: slice.text,
+          })),
         })),
       counts: {
         acceptedGuards: input.primeKnowledgeMaterial?.acceptedGuards.length ?? 0,
@@ -3043,20 +3289,23 @@ function buildPrimeProjectContextGuidance(input: {
     .map((ref) => ref.id)
     .slice(0, 40);
   const activeFile = input.intake.hostIntentInput.activeFile;
-  const query = firstString(
-    input.intake.extracted.queries[0],
-    input.intake.hostIntentFrame.recognizedIntentDraft.query
+  const query = compactPrimePublicString(
+    firstString(
+      input.intake.extracted.queries[0],
+      input.intake.hostIntentFrame.recognizedIntentDraft.query
+    )
   );
+  const focus = compactPrimePublicString(activeFile);
   const recommendedQueries = [
     {
       ...(query ? { query } : {}),
-      ...(activeFile ? { focus: activeFile } : {}),
+      ...(focus ? { focus } : {}),
       tool: 'alembic_project_matrix',
     },
-    ...(activeFile
+    ...(focus
       ? [
           {
-            focus: activeFile,
+            focus,
             tool: 'alembic_graph',
           },
         ]
@@ -3073,6 +3322,17 @@ function buildPrimeProjectContextGuidance(input: {
   };
 }
 
+function compactPrimePublicString(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.length <= PRIME_PUBLIC_STRING_MAX_CHARS) {
+    return normalized;
+  }
+  return `${normalized.slice(0, PRIME_PUBLIC_STRING_MAX_CHARS - 3)}...`;
+}
+
 function buildPrimeFeedbackDigest(searchResult: PrimeSearchResult | null) {
   const consumer = searchResult?.searchMeta.retrievalConsumer;
   if (!consumer) {
@@ -3082,7 +3342,6 @@ function buildPrimeFeedbackDigest(searchResult: PrimeSearchResult | null) {
     decisionRefCount: consumer.retrievalQuality?.decisionRefCount ?? null,
     feedbackSignalCount: consumer.retrievalQuality?.feedbackSignalCount ?? null,
     observeOnly: consumer.feedback?.observeOnly ?? null,
-    relationEvidenceCount: consumer.retrievalQuality?.relationEvidenceCount ?? null,
     sourceRefCoverage: consumer.retrievalQuality?.sourceRefCoverage ?? null,
     supportedSignals: consumer.feedback?.supportedSignals ?? [],
   };
@@ -3145,31 +3404,32 @@ function buildPrimeProducerBoundary(searchResult: PrimeSearchResult | null) {
       'intent',
       'search',
       'vector',
-      'relations',
+      'residentRegionRetrieval',
       'selectedKnowledge',
       'omitted',
       'trace',
       'retrievalQuality',
     ];
 
-  // PrimeInjectionPackage 的 lexical/vector/relations/trace 等生产语义属于
+  // PrimeInjectionPackage 的 lexical/vector/trace 等生产语义属于
   // Alembic resident producer；Plugin 只透传 compact metadata，不能在消费侧补造。
   return {
-    availability: residentPackage
-      ? ('resident-provided' as const)
-      : producerContract && !producerContract.available
+    availability:
+      producerContract && !producerContract.available
         ? ('producer-contract-missing' as const)
-        : residentSearch && residentSearch.available === false
-          ? ('resident-unavailable' as const)
-          : searchResult
-            ? ('not-produced' as const)
-            : ('not-run' as const),
+        : residentPackage
+          ? ('resident-provided' as const)
+          : residentSearch && residentSearch.available === false
+            ? ('resident-unavailable' as const)
+            : searchResult
+              ? ('not-produced' as const)
+              : ('not-run' as const),
     missingProducerFields,
     omittedCount: residentPackage?.injection.omittedCount ?? null,
     pluginSynthesized: false as const,
     producer: 'alembic-resident-service' as const,
     producerBoundary:
-      'PrimeInjectionPackage lexical/vector/relations/selectedKnowledge/omitted/trace fields are produced by Alembic resident search metadata; AlembicPlugin only passes through the compact resident projection and never synthesizes producer-only fields.',
+      'PrimeInjectionPackage lexical/vector/residentRegionRetrieval/selectedKnowledge/omitted/trace fields are produced by Alembic resident search metadata; AlembicPlugin only passes through the compact resident projection and never synthesizes producer-only fields.',
     producerOnlyFields,
     selectedCount: residentPackage?.injection.selectedCount ?? null,
     status: residentPackage?.injection.status ?? null,
@@ -3285,6 +3545,8 @@ function mapPrimeSkipReason(
       return 'no-semantic-intent';
     case 'status-only':
       return 'status-only-turn';
+    case 'non-code-development-turn':
+      return 'not-relevant-to-project-knowledge';
     case 'uninitialized-project':
     case 'knowledge-ready-code-task':
     case 'knowledge-ready-user-query':
@@ -3348,6 +3610,13 @@ function firstString(...values: unknown[]): string | undefined {
     }
   }
   return undefined;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniqueStrings(value.filter((item): item is string => typeof item === 'string'));
 }
 
 function uniqueStrings(values: string[]): string[] {

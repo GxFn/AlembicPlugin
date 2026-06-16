@@ -1,5 +1,9 @@
 import type { CoreFieldFailureKind } from '@alembic/core/shared';
 import { z } from 'zod';
+import {
+  KnowledgeContextBudgetSchema,
+  KnowledgeContextDetailRefSchema,
+} from '#service/project-knowledge-context/contracts/KnowledgeContextRefs.js';
 import { KnowledgeContextToolOutputSchema } from '#service/project-knowledge-context/index.js';
 import {
   CleanMcpErrorSchema,
@@ -303,6 +307,14 @@ export const AgentIntentOutputSchema = AgentPublicToolOutputBaseSchema.safeExten
   toolName: z.literal('alembic_intent'),
 });
 
+const PrimePublicBudgetSchema = KnowledgeContextBudgetSchema.omit({ relationHopLimit: true })
+  .partial()
+  .strict();
+
+const PrimePublicDetailRefSchema = KnowledgeContextDetailRefSchema.omit({ budget: true }).extend({
+  budget: PrimePublicBudgetSchema.optional(),
+});
+
 export const AgentPrimeOutputSchema = KnowledgeContextToolOutputSchema.omit({
   meta: true,
   status: true,
@@ -317,6 +329,7 @@ export const AgentPrimeOutputSchema = KnowledgeContextToolOutputSchema.omit({
     reason: AgentPublicToolReasonSchema.optional(),
     refs: AgentPublicToolRefsSchema,
     status: AgentResultStatusSchema,
+    detailRefs: z.array(PrimePublicDetailRefSchema).max(200).default([]),
     primePackage: PrimePublicPackageSchema,
     tool: z.literal('alembic_prime'),
     toolName: z.literal('alembic_prime'),
@@ -398,7 +411,7 @@ export function createAgentPublicToolOutput(
 ): AgentPublicToolOutput {
   const ok = options.ok ?? (result.status !== 'blocked' && result.status !== 'failed');
   const publicPayload = normalizeAgentPublicToolPayload(result.toolName, payload);
-  const response = createCleanMcpResponse(
+  let response = createCleanMcpResponse(
     {
       ...publicPayload,
       actionKind: result.actionKind,
@@ -419,7 +432,42 @@ export function createAgentPublicToolOutput(
     },
     result.toolName
   );
-  return AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[result.toolName].parse(response);
+  if (result.toolName === 'alembic_prime') {
+    response = scrubPrimeOutputRelationSurface(response) as typeof response;
+  }
+  const parsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[result.toolName].parse(response);
+  if (result.toolName === 'alembic_prime') {
+    return scrubPrimeOutputRelationSurface(parsed) as AgentPublicToolOutput;
+  }
+  return parsed;
+}
+
+function scrubPrimeOutputRelationSurface(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => scrubPrimeOutputRelationSurface(item))
+      .filter((item) => item !== 'recipeRelation');
+  }
+  if (!value || typeof value !== 'object') {
+    if (typeof value === 'string') {
+      return value.replace(/\brecipeRelation\b/g, 'knowledge');
+    }
+    return value;
+  }
+
+  const output: Record<string, unknown> = {};
+  for (const [key, fieldValue] of Object.entries(value as Record<string, unknown>)) {
+    if (
+      key === 'recipeRelation' ||
+      key === 'recipeRelationCount' ||
+      key === 'relationChainCount' ||
+      key === 'relationHopLimit'
+    ) {
+      continue;
+    }
+    output[key] = scrubPrimeOutputRelationSurface(fieldValue);
+  }
+  return output;
 }
 
 function createAgentPublicToolCleanError(result: AgentPublicToolResultEnvelope) {

@@ -139,7 +139,7 @@ export const TOOLS = [
     tier: 'agent',
     description:
       `${PRIME_DESCRIPTION.title}. ${PRIME_DESCRIPTION.purpose}\n` +
-      `${PRIME_DESCRIPTION.selectionHint} It orchestrates the public knowledge navigation surface: project matrix, search, and project graph context.\n` +
+      `${PRIME_DESCRIPTION.selectionHint} It is reserved for code-development Recipe priming and skips or blocks non-code, low-information, and obsolete intent-route inputs before retrieval.\n` +
       `Non-goal: ${PRIME_DESCRIPTION.nonGoal}`,
     inputSchema: zodToMcpSchema(PrimeInput),
   },
@@ -205,17 +205,17 @@ export const TOOLS = [
   },
 
   // Unified Search
-	  {
-	    name: 'alembic_search',
-	    tier: 'agent',
-	    description:
-	      'Search, get, or expand compact Recipe / knowledge context.\n' +
-	      '• search — direct lookup by explicit query, keywords, mode, and Recipe metadata filters\n' +
-	      '• get — retrieve one result by refId/id/detailRefId as a bounded clean output\n' +
-	      '• expand — expand one detailRef without broad search fallback\n' +
-	      'Returns summary-only visible text plus structured detailRefs, direct whyMatched evidence, scoreBreakdown, and degraded diagnostics when available. Non-goal: no host-intent relevance, relation-chain traversal, prime context material, usage-confirmation operations, lifecycle mutation, or full Recipe browsing.',
-	    inputSchema: zodToMcpSchema(SearchInput),
-	  },
+  {
+    name: 'alembic_search',
+    tier: 'agent',
+    description:
+      'Search, get, or expand compact Recipe / knowledge context.\n' +
+      '• search — direct lookup by explicit query, keywords, mode, and Recipe metadata filters\n' +
+      '• get — retrieve one result by refId/id/detailRefId as a bounded clean output\n' +
+      '• expand — expand one detailRef without broad search fallback\n' +
+      'Returns summary-only visible text plus structured detailRefs, direct whyMatched evidence, scoreBreakdown, and degraded diagnostics when available. Non-goal: no host-intent relevance, relation-chain traversal, prime context material, usage-confirmation operations, lifecycle mutation, or full Recipe browsing.',
+    inputSchema: zodToMcpSchema(SearchInput),
+  },
 
   // Project Graph
   {
