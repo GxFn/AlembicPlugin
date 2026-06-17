@@ -14,16 +14,21 @@
 import { groupByKind, slimSearchResult } from '@alembic/core/search';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
+  ALEMBIC_SEARCH_OUTPUT_CONTRACT_VERSION,
+  type AlembicSearchOperation,
+  type AlembicSearchStatus,
+  createAlembicSearchMcpResult,
   DefaultContextExpansionProvider,
   DefaultKnowledgeDetailProvider,
   DefaultRecipeCandidateProvider,
-  defaultProjectKnowledgeContextLayer,
   defaultRefRegistry,
   type KnowledgeContextDetailRef,
   type KnowledgeContextNextAction,
   type KnowledgeContextProjectionPayload,
   type KnowledgeContextSource,
   type KnowledgeRetrievalItem,
+  type SearchDiagnostic,
+  type SearchNextAction,
   stableRefSegment,
   type VectorRerankEvidence,
 } from '#service/project-knowledge-context/index.js';
@@ -90,6 +95,56 @@ function filterByKind(items: SearchResultItem[], kind: string) {
   );
 }
 
+// ─── AlembicSearchOutput projection (GMAP-8b: no middle layer) ───────────────
+
+// Project the handler's bounded search/detail payload into alembic_search's own
+// AlembicSearchOutput envelope — replacing the retired KnowledgeContext middle-layer
+// projection. result/inventory/items are loose passthroughs so resident-search
+// evidence and search-quality survive intact.
+function projectAlembicSearchOutput(
+  payload: KnowledgeContextProjectionPayload,
+  opts: {
+    operation: AlembicSearchOperation;
+    status: AlembicSearchStatus;
+    diagnostics: SearchDiagnostic[];
+  }
+) {
+  const ok = opts.status !== 'failed' && opts.status !== 'blocked';
+  return createAlembicSearchMcpResult({
+    ok,
+    status: opts.status,
+    tool: 'alembic_search',
+    toolName: 'alembic_search',
+    operation: opts.operation,
+    summary: payload.summary ?? 'alembic_search returned no summary.',
+    ...(payload.result ? { result: payload.result as Record<string, unknown> } : {}),
+    ...(payload.inventory ? { inventory: payload.inventory as Record<string, unknown> } : {}),
+    items: (payload.items ?? []) as Record<string, unknown>[],
+    detailRefs: (payload.detailRefs ?? []) as unknown as Record<string, unknown>[],
+    sources: (payload.sources ?? []) as unknown as Record<string, unknown>[],
+    diagnostics: opts.diagnostics,
+    nextActions: (payload.nextActions ?? []).map(mapSearchNextAction),
+    meta: {
+      contractVersion: ALEMBIC_SEARCH_OUTPUT_CONTRACT_VERSION,
+      outputSchema: 'AlembicSearchOutput',
+      producer: 'alembic-search-handler',
+    },
+  });
+}
+
+function mapSearchNextAction(action: KnowledgeContextNextAction): SearchNextAction {
+  // alembic_project_matrix is retired; point any legacy navigation hint at recipe_map.
+  const tool = action.tool === 'alembic_project_matrix' ? 'alembic_recipe_map' : action.tool;
+  return {
+    tool,
+    ...(action.operation ? { operation: action.operation } : {}),
+    reason: action.reason,
+    ...(action.refId ? { refId: action.refId } : {}),
+    ...(action.detailRefId ? { detailRefId: action.detailRefId } : {}),
+    required: action.required,
+  };
+}
+
 // ─── 统一搜索入口 ────────────────────────────────────────────
 
 /**
@@ -108,7 +163,6 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   if (operation === 'get' || operation === 'expand') {
     return projectDetailOperation(ctx, args, operation);
   }
-  const projectRoot = resolveSearchProjectRoot(ctx, args);
   const pipeline = await runSearchPipeline(ctx, args);
   const candidateItems = await buildKnowledgeCandidates(ctx, args, pipeline);
   const relevance = assessSearchRelevance(candidateItems, args, pipeline);
@@ -175,32 +229,22 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       : `Knowledge search returned ${relevance.returnedCount} of ${relevance.matchedCount} direct match(es) for ${queryLabel}.`,
   };
 
-  return defaultProjectKnowledgeContextLayer.resolveMcpResult(
-    'alembic_search',
-    toKnowledgeContextSearchInput(args, {
-      operation: 'search',
-      query: pipeline.query.length === 0 ? undefined : pipeline.query,
-      mode: pipeline.requestedMode,
-      projectRoot,
-    }),
-    {
-      payload,
-      snapshot: {
-        domainFreshness: {
-          knowledge: relevance.zeroMatch
-            ? {
-                state: 'stale',
-                degradedReason:
-                  relevance.degradedReason ??
-                  'No candidate met exact id/ref/title/trigger, explicit filter, keyword, or semantic match thresholds.',
-              }
-            : { state: 'ready' },
+  const status: AlembicSearchStatus =
+    pipeline.degraded || relevance.zeroMatch ? 'degraded' : 'ready';
+  const diagnostics: SearchDiagnostic[] = relevance.zeroMatch
+    ? [
+        {
+          code: 'search-zero-match',
+          severity: 'info',
+          message:
+            relevance.degradedReason ??
+            'No candidate met exact id/ref/title/trigger, explicit filter, keyword, or semantic match thresholds.',
+          domain: 'knowledge',
+          retryable: false,
         },
-        knowledgeItemCount: knowledgeItems.length,
-        vectorCandidateCount: vectorUsed(pipeline.searchMeta) ? knowledgeItems.length : 0,
-      },
-    }
-  );
+      ]
+    : [];
+  return projectAlembicSearchOutput(payload, { operation: 'search', status, diagnostics });
 }
 
 async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<SearchPipelineResult> {
@@ -481,7 +525,6 @@ async function projectDetailOperation(
   args: SearchArgs,
   operation: 'get' | 'expand'
 ) {
-  const projectRoot = resolveSearchProjectRoot(ctx, args);
   const refId = resolveDetailRef(args);
   const entries = await listKnowledgeEntries(ctx, args, Math.max(args.limit ?? 10, 20));
   const directEntry = refId ? await getKnowledgeEntry(ctx, refId) : null;
@@ -551,22 +594,20 @@ async function projectDetailOperation(
         : `Knowledge ${operation} resolved ${detail.title ?? detail.id}.`,
   };
 
-  return defaultProjectKnowledgeContextLayer.resolveMcpResult(
-    'alembic_search',
-    toKnowledgeContextSearchInput(args, { operation, projectRoot, refId }),
-    {
-      payload,
-      snapshot: {
-        domainFreshness: {
-          knowledge: {
-            state: detail === null ? 'stale' : 'ready',
-            degradedReason: detail === null ? 'Requested knowledge ref was not found.' : undefined,
+  const status: AlembicSearchStatus = detail === null ? 'degraded' : 'ready';
+  const diagnostics: SearchDiagnostic[] =
+    detail === null
+      ? [
+          {
+            code: 'search-detail-not-found',
+            severity: 'warning',
+            message: `Requested knowledge ref ${refId ?? '(unspecified)'} was not found.`,
+            domain: 'knowledge',
+            retryable: false,
           },
-        },
-        knowledgeItemCount: candidates.length,
-      },
-    }
-  );
+        ]
+      : [];
+  return projectAlembicSearchOutput(payload, { operation, status, diagnostics });
 }
 
 async function buildKnowledgeCandidates(
@@ -1395,65 +1436,6 @@ function ignoredSearchInputs(args: SearchArgs): string[] {
   return ignored.filter((value): value is string => typeof value === 'string');
 }
 
-function toKnowledgeContextSearchInput(
-  args: SearchArgs,
-  override: {
-    mode?: string;
-    operation: 'search' | 'get' | 'expand';
-    projectRoot?: string;
-    query?: string;
-    refId?: string;
-  }
-): Record<string, unknown> {
-  const budget = readRecord(args.budget) ?? {};
-  const projectRoot = override.projectRoot ?? readString(args.projectRoot);
-  return {
-    tool: 'alembic_search',
-    operation: override.operation,
-    mode: normalizeKnowledgeSearchMode(override.mode ?? args.mode),
-    ...(override.query === undefined ? {} : { query: override.query }),
-    ...(override.refId === undefined ? {} : { refId: override.refId }),
-    ...(readString(args.id) === undefined ? {} : { id: readString(args.id) }),
-    ...(readString(args.detailRefId) === undefined
-      ? {}
-      : { detailRefId: readString(args.detailRefId) }),
-    kind: normalizeKnowledgeKind(args.kind ?? args.type),
-    ...(readString(args.category) === undefined ? {} : { category: readString(args.category) }),
-    ...(readString(args.language) === undefined ? {} : { language: readString(args.language) }),
-    ...(readString(args.dimensionId) === undefined
-      ? {}
-      : { dimensionId: readString(args.dimensionId) }),
-    ...(readString(args.knowledgeType) === undefined
-      ? {}
-      : { knowledgeType: readString(args.knowledgeType) }),
-    ...(readString(args.scope) === undefined ? {} : { scope: readString(args.scope) }),
-    ...(readStringArray(args.tags).length === 0 ? {} : { tags: readStringArray(args.tags) }),
-    ...(projectRoot === undefined ? {} : { projectRoot }),
-    ...(Array.isArray(args.keywords) ? { keywords: args.keywords } : {}),
-    budget: {
-      ...budget,
-      itemLimit: numberFromRecord(budget, 'itemLimit') ?? args.limit ?? 10,
-      detailLimit: numberFromRecord(budget, 'detailLimit') ?? Math.max(args.limit ?? 10, 10),
-      relationHopLimit: numberFromRecord(budget, 'relationHopLimit') ?? relationHopLimit(args),
-      contentCharLimit: numberFromRecord(budget, 'contentCharLimit') ?? contentCharLimit(args),
-    },
-    detailLevel: readString(args.detailLevel) ?? 'summary',
-    freshnessPolicy: readRecord(args.freshnessPolicy) ?? { policy: 'preferFresh' },
-  };
-}
-
-function resolveSearchProjectRoot(ctx: McpContext, args: SearchArgs): string | undefined {
-  const explicit = readString(args.projectRoot);
-  if (explicit !== undefined) {
-    return explicit;
-  }
-  try {
-    return resolveProjectRoot(ctx.container);
-  } catch {
-    return undefined;
-  }
-}
-
 function normalizeSearchOperation(value: unknown): 'search' | 'get' | 'expand' {
   return value === 'get' || value === 'expand' ? value : 'search';
 }
@@ -1468,17 +1450,6 @@ function parsePublicSearchMode(value: unknown): 'auto' | 'keyword' | 'semantic' 
   throw new Error(
     `Unsupported alembic_search mode "${String(value)}". Supported modes: auto, keyword, semantic.`
   );
-}
-
-function normalizeKnowledgeSearchMode(value: unknown): 'auto' | 'keyword' | 'semantic' {
-  return value === 'keyword' || value === 'semantic' ? value : 'auto';
-}
-
-function normalizeKnowledgeKind(value: unknown): string {
-  return typeof value === 'string' &&
-    ['all', 'rule', 'pattern', 'fact', 'guide', 'decision', 'standard'].includes(value)
-    ? value
-    : 'all';
 }
 
 function resolveSearchQuery(args: SearchArgs): string {
@@ -1569,10 +1540,6 @@ function canonicalKnowledgeDetailRef(refId: string): string {
 function stripKnowledgeOperationRef(refId: string): string {
   const match = /^(?:knowledge|detail):(search|get|expand):(.+)$/.exec(refId);
   return match?.[2] === undefined ? refId : match[2];
-}
-
-function relationHopLimit(args: SearchArgs): number {
-  return clampNumber(numberFromRecord(readRecord(args.budget), 'relationHopLimit') ?? 2, 1, 10);
 }
 
 function contentCharLimit(args: SearchArgs): number {

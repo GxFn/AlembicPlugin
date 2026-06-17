@@ -47,6 +47,7 @@ import '../../runtime/mcp/core-tools/output.js';
 import '../../runtime/mcp/knowledge-context-tools/graph-output.js';
 import '../../runtime/mcp/knowledge-context-tools/output.js';
 import '../../runtime/mcp/knowledge-context-tools/recipe-map-output.js';
+import '../../runtime/mcp/knowledge-context-tools/search-output.js';
 import { getAgentPublicToolDescriptionBase } from '../../runtime/mcp/public-tools/descriptions.js';
 import '../../runtime/mcp/public-tools/output.js';
 import { zodToMcpSchema } from '../../runtime/mcp/zodToMcpSchema.js';

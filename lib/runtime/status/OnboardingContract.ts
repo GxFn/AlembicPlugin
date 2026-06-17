@@ -485,7 +485,7 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
       {
         name: 'alembic_knowledge',
         reason:
-          'Legacy full-content knowledge browsing is not part of the default public knowledge navigation surface.',
+          'Legacy full-content knowledge browsing is retired. Use alembic_search for Recipe discovery and alembic_search operation=get for a single Recipe detail by id/ref.',
         replacementTools: ['alembic_search'],
         status: byName.has('alembic_knowledge') ? 'visible-legacy-surface' : 'not-visible',
       },

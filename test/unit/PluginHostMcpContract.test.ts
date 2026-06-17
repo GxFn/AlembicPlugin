@@ -4,6 +4,7 @@ import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/o
 import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
 import { RECIPE_MAP_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/recipe-map-output.js';
+import { SEARCH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/search-output.js';
 import {
   getMcpOutputProjector,
   withMcpOutputSchema,
@@ -71,6 +72,7 @@ describe('Plugin host MCP D4 contract', () => {
           ...KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,
           ...GRAPH_CLEAN_OUTPUT_TOOL_NAMES,
           ...RECIPE_MAP_CLEAN_OUTPUT_TOOL_NAMES,
+          ...SEARCH_CLEAN_OUTPUT_TOOL_NAMES,
         ]).includes(toolName)
       )
     ).toBe(true);

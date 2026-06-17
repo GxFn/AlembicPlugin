@@ -1837,48 +1837,17 @@ describe('alembic_search resident search enhancement', () => {
     })) as {
       structuredContent: {
         detailRefs: Array<{ budget?: Record<string, unknown> }>;
-        request?: { budget?: Record<string, unknown> };
-        result?: {
-          budgetUsed?: Record<string, unknown>;
-          retrievalTrace?: {
-            candidatePoolSize?: number;
-            degradedReasons?: string[];
-            domains?: string[];
-            truncatedByBudget?: string[];
-          };
-        };
       };
     };
 
-    expect(result.structuredContent.request?.budget).toMatchObject({
-      contentCharLimit: 240,
-      detailLimit: 2,
-      itemLimit: 2,
-    });
-    expect(result.structuredContent.request?.budget).not.toHaveProperty('relationHopLimit');
-    expect(result.structuredContent.result?.budgetUsed).toMatchObject({
-      contentCharLimit: 240,
-      detailLimit: 2,
-      itemLimit: 2,
-    });
-    expect(result.structuredContent.result?.budgetUsed).not.toHaveProperty('relationHopLimit');
+    // GMAP-8b: AlembicSearchOutput is the search-owned envelope and no longer echoes
+    // the retired middle layer's request.budget / result.budgetUsed / result.retrievalTrace.
+    // The security intent stands: the relation-only budget field (relationHopLimit) and
+    // any recipeRelation material never reach the public search surface.
+    expect(JSON.stringify(result.structuredContent)).not.toContain('relationHopLimit');
     for (const detailRef of result.structuredContent.detailRefs) {
       expect(detailRef.budget ?? {}).not.toHaveProperty('relationHopLimit');
     }
-    expect(result.structuredContent.result?.retrievalTrace?.domains).toEqual(
-      expect.arrayContaining(['knowledge', 'document'])
-    );
-    expect(result.structuredContent.result?.retrievalTrace?.domains).not.toContain(
-      'recipeRelation'
-    );
-    expect(result.structuredContent.result?.retrievalTrace?.domains).not.toContain('vector');
-    expect(result.structuredContent.result?.retrievalTrace?.candidatePoolSize).toBe(1);
-    expect(result.structuredContent.result?.retrievalTrace?.degradedReasons ?? []).not.toContain(
-      'recipeRelation:stale'
-    );
-    expect(result.structuredContent.result?.retrievalTrace?.truncatedByBudget ?? []).not.toContain(
-      'relationHops'
-    );
     expectPublicSearchJsonToOmitRelationAndPrimeMaterial(result.structuredContent);
   });
 

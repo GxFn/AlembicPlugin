@@ -1,85 +1,14 @@
-import { z } from 'zod';
-import {
-  type KnowledgeContextToolName,
-  KnowledgeContextToolOutputSchema,
-} from '#service/project-knowledge-context/index.js';
-import {
-  type CleanMcpResponse,
-  registerMcpOutputProjector,
-} from '../../../runtime/mcp/output-contract.js';
-
-// GMAP-1: alembic_graph left the KnowledgeContextToolOutput envelope (see
-// graph-output.ts). GMAP-4: alembic_project_matrix is retired and alembic_recipe_map
-// projects its own AlembicRecipeMapOutput (see recipe-map-output.ts). alembic_search
-// is the only remaining KnowledgeContextToolOutput clean-output tool.
-export const KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES = ['alembic_search'] as const;
+/**
+ * Knowledge-context clean-output projector registry.
+ *
+ * GMAP-1/4/8/8b: every former knowledge-context tool now owns its public output —
+ * alembic_graph (graph-output.ts), alembic_recipe_map (recipe-map-output.ts), and
+ * alembic_search (search-output.ts) each project their own schema; alembic_prime is
+ * an agent-public tool; alembic_project_matrix is retired. No agent tool uses the
+ * shared KnowledgeContextToolOutput clean-output projector anymore, so this set is
+ * empty. (The KnowledgeContextToolOutput contract module itself is retired in GMAP-8c.)
+ */
+export const KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES = [] as const;
 
 export type KnowledgeContextCleanOutputToolName =
   (typeof KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES)[number];
-
-export const KnowledgeContextCleanOutputToolNameSchema = z.enum(
-  KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES
-);
-
-export const KNOWLEDGE_CONTEXT_TOOL_OUTPUT_SCHEMAS = {
-  alembic_search: KnowledgeContextToolOutputSchema.refine(
-    (output) => output.toolName === 'alembic_search',
-    {
-      message: 'Knowledge context output toolName must be alembic_search.',
-      path: ['toolName'],
-    }
-  ),
-} as unknown as Record<KnowledgeContextCleanOutputToolName, z.ZodType<CleanMcpResponse>>;
-
-export function projectKnowledgeContextToolOutput(
-  input: unknown,
-  toolName: KnowledgeContextCleanOutputToolName
-): CleanMcpResponse {
-  const schema = KNOWLEDGE_CONTEXT_TOOL_OUTPUT_SCHEMAS[toolName];
-  const parsed = schema.safeParse(input);
-  if (parsed.success) {
-    return parsed.data;
-  }
-  return buildKnowledgeContextProjectionFailure(toolName);
-}
-
-function buildKnowledgeContextProjectionFailure(
-  toolName: KnowledgeContextCleanOutputToolName
-): CleanMcpResponse {
-  return KnowledgeContextToolOutputSchema.parse({
-    ok: false,
-    status: 'failed',
-    tool: toolName,
-    toolName,
-    operation: 'unknown',
-    summary: `Knowledge context output for ${toolName} did not match the public output contract.`,
-    detailRefs: [],
-    sources: [],
-    diagnostics: [
-      {
-        code: 'knowledge-context-output-contract-mismatch',
-        message: 'Knowledge context handler returned a payload outside KnowledgeContextToolOutput.',
-        retryable: false,
-        severity: 'error',
-      },
-    ],
-    nextActions: [],
-    meta: {
-      contractVersion: 1,
-      outputSchema: 'KnowledgeContextToolOutput',
-      producer: 'knowledge-context-clean-output-projector',
-    },
-  }) as CleanMcpResponse;
-}
-
-for (const toolName of KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES) {
-  registerMcpOutputProjector({
-    outputSchema: KNOWLEDGE_CONTEXT_TOOL_OUTPUT_SCHEMAS[toolName],
-    outputSchemaName: `${toolName}_clean_output`,
-    project: (input) => projectKnowledgeContextToolOutput(input, toolName),
-    projectorName: 'knowledge-context-clean-output-projector',
-    toolName,
-  });
-}
-
-export type KnowledgeContextOutputToolName = KnowledgeContextToolName;
