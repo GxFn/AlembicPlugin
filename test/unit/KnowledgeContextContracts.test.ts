@@ -255,13 +255,10 @@ describe('Project knowledge context four-tool contracts', () => {
   });
 
   test('detaches alembic_graph from the knowledge context clean-output envelope', () => {
-    // GMAP-1: alembic_graph left KnowledgeContextToolOutput and projects its own
-    // Recipe-free AlembicGraphOutput; only matrix/search remain on the shared
-    // knowledge context envelope.
-    expect(KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES).toEqual([
-      'alembic_project_matrix',
-      'alembic_search',
-    ]);
+    // GMAP-1: alembic_graph left KnowledgeContextToolOutput for AlembicGraphOutput.
+    // GMAP-4: alembic_project_matrix is retired and alembic_recipe_map projects its
+    // own AlembicRecipeMapOutput; only alembic_search remains on the shared envelope.
+    expect(KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES).toEqual(['alembic_search']);
     expect(getMcpOutputProjector('alembic_graph')).toMatchObject({
       outputSchemaName: 'alembic_graph_clean_output',
       projectorName: 'alembic-graph-clean-output-projector',

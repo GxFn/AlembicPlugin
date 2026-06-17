@@ -190,7 +190,7 @@ describe('Codex tool policy', () => {
     expect(names).toEqual(
       expect.arrayContaining([
         'alembic_prime',
-        'alembic_project_matrix',
+        'alembic_recipe_map',
         'alembic_search',
         'alembic_graph',
       ])

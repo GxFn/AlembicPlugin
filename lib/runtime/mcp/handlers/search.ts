@@ -1006,7 +1006,7 @@ function hasMcpToolQualityIntent(query: string, args: SearchArgs): boolean {
       text
     );
   const mentionsPublicToolName =
-    /\balembic_(search|prime|project_matrix|graph)\b/u.test(text) ||
+    /\balembic_(search|prime|recipe_map|graph)\b/u.test(text) ||
     /\b(graph\/search|projectcontext|projectgraphprovider)\b/u.test(text) ||
     /public[-\s]?tools?|agent-public-tools|knowledge-context/u.test(text);
   const mentionsSearchOrGraphQuality =

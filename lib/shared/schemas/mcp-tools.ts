@@ -376,134 +376,6 @@ const KnowledgeContextFreshnessInput = z
   })
   .strict();
 
-export const ProjectMatrixInput = z
-  .object({
-    projectRoot: z.string().min(1).max(2000).optional().describe('Absolute project root override'),
-    operation: z
-      .enum(['overview', 'node', 'relations', 'layers', 'sources', 'catalog'])
-      .default('overview')
-      .describe(
-        'overview=compact project map | node=one matrix node expansion | relations=bounded internal relations | layers=project layers | sources=data source summary | catalog=knowledge category summary'
-      ),
-    nodeId: z.string().min(1).max(240).optional().describe('Matrix node id for node expansion'),
-    nodeType: z
-      .enum([
-        'project',
-        'package',
-        'target',
-        'module',
-        'directory',
-        'file',
-        'symbol',
-        'knowledge-category',
-        'knowledge-cluster',
-        'document',
-      ])
-      .optional()
-      .describe('Optional matrix node type hint. Does not request a full graph traversal.'),
-    query: z.string().min(1).max(4000).optional().describe('Optional user task/query context'),
-    activeFile: z.string().min(1).max(2000).optional().describe('Optional active file context'),
-    language: z.string().min(1).max(80).optional().describe('Optional language hint'),
-    agentHost: z
-      .enum([
-        'codex',
-        'claude-code',
-        'generic-host-agent',
-        'desktop-host-agent',
-        'terminal-host-agent',
-        'automation-host-agent',
-      ])
-      .optional(),
-    inputSource: z
-      .enum([
-        'host-declared-intent',
-        'host-turn-metadata',
-        'user-message',
-        'automation-envelope',
-        'source-ref',
-        'tool-result',
-      ])
-      .optional(),
-    intentKind: z
-      .enum([
-        'implementation-task',
-        'fix-task',
-        'refactor-task',
-        'review-task',
-        'read-only-analysis',
-        'status-only',
-        'decision',
-        'design-or-planning',
-        'mechanical-envelope',
-        'unknown',
-      ])
-      .optional(),
-    detailLevel: z
-      .enum(['summary', 'standard', 'detailed'])
-      .default('summary')
-      .describe('Default summary keeps matrix output compact and ref-based.'),
-    hostDeclaredIntent: HostDeclaredIntentInput.optional(),
-    hostTurnMeta: HostTurnMetaInput.optional(),
-    sourceRefs: z
-      .array(z.string().min(1).max(240))
-      .max(80)
-      .optional()
-      .describe('Optional knowledge/detail refs carried into matrix source accounting.'),
-    sourceEvidenceRefs: z
-      .array(z.string().min(1).max(240))
-      .max(80)
-      .optional()
-      .describe('Optional source, detail, or relation evidence refs carried into the matrix.'),
-    intentRef: z.string().min(1).max(240).optional(),
-    primeRef: z.string().min(1).max(240).optional(),
-    workRef: z.string().min(1).max(240).optional(),
-    scope: z
-      .object({
-        projectRoot: z.string().min(1).max(2000).optional(),
-        workspaceRoot: z.string().min(1).max(2000).optional(),
-        activeFile: z.string().min(1).max(2000).optional(),
-        language: z.string().min(1).max(80).optional(),
-        files: z.array(z.string().min(1).max(2000)).max(200).optional(),
-        directories: z.array(z.string().min(1).max(2000)).max(80).optional(),
-        packages: z.array(z.string().min(1).max(240)).max(80).optional(),
-      })
-      .strict()
-      .optional(),
-    include: z
-      .object({
-        project: z.boolean().default(true),
-        knowledge: z.boolean().default(true),
-        recipeRelations: z.boolean().default(true),
-        vector: z.boolean().default(true),
-        documents: z.boolean().default(true),
-        runtime: z.boolean().default(false),
-      })
-      .strict()
-      .optional(),
-    filters: z
-      .object({
-        domains: z
-          .array(
-            z.enum(['project', 'knowledge', 'recipeRelation', 'vector', 'document', 'runtime'])
-          )
-          .max(8)
-          .optional(),
-        kinds: z.array(z.string().min(1).max(120)).max(40).optional(),
-        languages: z.array(z.string().min(1).max(80)).max(40).optional(),
-        tags: z.array(z.string().min(1).max(120)).max(80).optional(),
-        changedOnly: z.boolean().optional(),
-      })
-      .strict()
-      .optional(),
-    budget: KnowledgeContextBudgetInput.optional(),
-    freshnessPolicy: KnowledgeContextFreshnessInput.optional(),
-  })
-  .strict()
-  .describe(
-    'Compact, read-only ProjectContext matrix. Returns project hierarchy, key nodes, structural hotspots, knowledge category summary, representative detail refs, freshness/partial notes, and nextActions. It never returns full source, full file lists, full Recipe text, full graph edge sets, or knowledge coverage judgments.'
-  );
-export type ProjectMatrixInput = z.infer<typeof ProjectMatrixInput>;
-
 // ══════════════════════════════════════════════════════
 //  3. alembic_search
 // ══════════════════════════════════════════════════════
@@ -759,6 +631,49 @@ export const GraphInput = z
   })
   .strict();
 export type GraphInput = z.infer<typeof GraphInput>;
+
+// ══════════════════════════════════════════════════════
+//  5b. alembic_recipe_map (replaces alembic_project_matrix)
+// ══════════════════════════════════════════════════════
+
+export const RecipeMapInput = z
+  .object({
+    focus: z
+      .object({
+        kind: z.enum(['space', 'repo', 'map', 'module', 'file', 'symbol', 'anchor']),
+        refId: z.string().min(1).max(240).optional(),
+        nodeId: z.string().min(1).max(240).optional(),
+        filePath: z.string().min(1).max(2000).optional(),
+        line: z.number().int().min(1).max(1_000_000).optional(),
+        sourceRef: z.string().min(1).max(400).optional(),
+        moduleName: z.string().min(1).max(240).optional(),
+        repoId: z.string().min(1).max(240).optional(),
+      })
+      .strict()
+      .optional()
+      .describe(
+        'ProjectContext focus; defaults to space (top-level). Shares ref ids with alembic_graph.'
+      ),
+    radius: z
+      .object({
+        upLevels: z.number().int().min(0).max(10).optional(),
+        downLevels: z.number().int().min(0).max(10).optional(),
+        relationHops: z.number().int().min(0).max(10).optional(),
+        beforeLines: z.number().int().min(0).max(400).optional(),
+        afterLines: z.number().int().min(0).max(400).optional(),
+      })
+      .strict()
+      .optional(),
+    projectRoot: z.string().min(1).max(2000).optional(),
+    activeFile: z.string().min(1).max(2000).optional(),
+    includeRecipes: z.boolean().default(true),
+    includeRollups: z.boolean().default(true),
+    recipeMountLimit: z.number().int().min(0).max(200).optional(),
+    nodeLimit: z.number().int().min(1).max(500).optional(),
+    detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
+  })
+  .strict();
+export type RecipeMapInput = z.infer<typeof RecipeMapInput>;
 
 // ══════════════════════════════════════════════════════
 //  6. alembic_call_context
@@ -1202,7 +1117,7 @@ function strictToolInput(schema: z.ZodType): z.ZodType {
 const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_intent: IntentInput,
   alembic_prime: PrimeInput,
-  alembic_project_matrix: ProjectMatrixInput,
+  alembic_recipe_map: RecipeMapInput,
   alembic_work_start: WorkStartInput,
   alembic_work_finish: WorkFinishInput,
   alembic_code_guard: CodeGuardInput,

@@ -42,7 +42,7 @@ import {
   GuardInput,
   HealthInput,
   KnowledgeInput,
-  ProjectMatrixInput,
+  RecipeMapInput,
   RescanInput,
   SearchInput,
   StructureInput,
@@ -202,23 +202,28 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     });
   });
 
-  describe('ProjectMatrixInput', () => {
-    test('should accept host-declared intent and source refs', () => {
-      const result = ProjectMatrixInput.parse({
-        hostDeclaredIntent: {
-          goal: 'Inspect ProjectContext matrix output',
-          keywords: ['ProjectContext', 'matrix'],
-          query: 'matrix diagnostics budget',
-          sourceRefs: ['host:intent'],
-          summary: 'Matrix schema repair',
-        },
-        sourceRefs: ['project-context:matrix'],
-      });
+  describe('RecipeMapInput', () => {
+    test('defaults to a top-level space focus with recipes + rollups', () => {
+      const result = RecipeMapInput.parse({});
+      expect(result.includeRecipes).toBe(true);
+      expect(result.includeRollups).toBe(true);
+      expect(result.detailLevel).toBe('summary');
+      expect(result.focus).toBeUndefined();
+    });
 
-      expect(result.operation).toBe('overview');
-      expect(result.hostDeclaredIntent?.goal).toBe('Inspect ProjectContext matrix output');
-      expect(result.hostDeclaredIntent?.keywords).toEqual(['ProjectContext', 'matrix']);
-      expect(result.sourceRefs).toEqual(['project-context:matrix']);
+    test('accepts a ProjectContext focus and radius', () => {
+      const result = RecipeMapInput.parse({
+        focus: { kind: 'file', filePath: 'lib/index.ts', line: 2 },
+        radius: { upLevels: 1, beforeLines: 4, afterLines: 4 },
+        recipeMountLimit: 25,
+      });
+      expect(result.focus?.kind).toBe('file');
+      expect(result.focus?.filePath).toBe('lib/index.ts');
+      expect(result.recipeMountLimit).toBe(25);
+    });
+
+    test('rejects an unknown focus kind', () => {
+      expect(RecipeMapInput.safeParse({ focus: { kind: 'recipe' } }).success).toBe(false);
     });
   });
 

@@ -7,7 +7,7 @@
  *
  * Agent tools:
  *   Agent-facing public tools: intent/prime/work_start/work_finish/code_guard/decision_record
- *   Query tools: health/project_matrix/search/graph/guard
+ *   Query tools: health/recipe_map/search/graph/guard
  *   Write tool: submit_knowledge
  *   Project Skill delivery: project_skill
  *   Workflow tools: bootstrap/rescan/evolve/consolidate/dimension_complete
@@ -31,8 +31,8 @@ import {
   IntentInput,
   KnowledgeLifecycleInput,
   PrimeInput,
-  ProjectMatrixInput,
   ProjectSkillInput,
+  RecipeMapInput,
   RescanInput,
   SearchInput,
   SubmitKnowledgeInput,
@@ -46,6 +46,7 @@ import {
 import '../../runtime/mcp/core-tools/output.js';
 import '../../runtime/mcp/knowledge-context-tools/graph-output.js';
 import '../../runtime/mcp/knowledge-context-tools/output.js';
+import '../../runtime/mcp/knowledge-context-tools/recipe-map-output.js';
 import { getAgentPublicToolDescriptionBase } from '../../runtime/mcp/public-tools/descriptions.js';
 import '../../runtime/mcp/public-tools/output.js';
 import { zodToMcpSchema } from '../../runtime/mcp/zodToMcpSchema.js';
@@ -146,15 +147,16 @@ export const TOOLS = [
   },
 
   {
-    name: 'alembic_project_matrix',
+    name: 'alembic_recipe_map',
     tier: 'agent',
     description:
-      'Read the compact project matrix for navigation and orientation.\n' +
-      '• overview — ProjectContext hierarchy, key nodes, structural hotspots, knowledge category summary, detailRefs, freshness/partial notes, and nextActions\n' +
-      '• node — expand one matrix node by refId/nodeId only\n' +
-      '• relations/layers/sources/catalog — bounded internal relations, layer/source summaries, or knowledge category catalog\n' +
-      'Non-goal: does not return full source, full file lists, full Recipe text, full graph edge sets, lifecycle/governance actions, or knowledge coverage judgments.',
-    inputSchema: zodToMcpSchema(ProjectMatrixInput),
+      'Map Recipes onto a bounded ProjectContext region (replaces alembic_project_matrix). Pick a focus {kind: space|repo|map|module|file|symbol|anchor, refId/filePath/line}:\n' +
+      '• region — rootNode, breadcrumb, and bounded child nodes (shares ref ids with alembic_graph)\n' +
+      '• recipeMounts — Recipes mounted deterministically onto nodes via recipe_source_refs + explicit metadata only (never semantic/keyword); full mountType enum + reason\n' +
+      '• recipeRollups — direct/descendant Recipe counts + representative ids per node\n' +
+      '• diagnostics — stale/unresolved/cross-repo/unmounted source refs\n' +
+      'Returns bounded output with no full Recipe body. nextActions point to alembic_graph (structure), alembic_search (Recipe detail by id), alembic_prime (task semantics).',
+    inputSchema: zodToMcpSchema(RecipeMapInput),
   },
 
   {

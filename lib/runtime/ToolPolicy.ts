@@ -82,7 +82,7 @@ export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
 export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_mcp_init']);
 
 export const CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
-  'alembic_project_matrix',
+  'alembic_recipe_map',
   'alembic_prime',
   'alembic_search',
   'alembic_graph',

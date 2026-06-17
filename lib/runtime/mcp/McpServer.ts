@@ -112,12 +112,14 @@ function isErrorResult(value: unknown): boolean {
 
 const RETIRED_PUBLIC_TOOL_REPLACEMENTS: Record<string, string> = {
   alembic_knowledge: 'Use alembic_search with operation=search/get/expand.',
+  alembic_project_matrix:
+    'alembic_project_matrix is retired. Use alembic_recipe_map for Recipe-mounted ProjectContext regions and alembic_graph for pure ProjectContext structure.',
   alembic_structure:
-    'Use alembic_project_matrix for navigation and alembic_graph for ProjectContext-backed project relations.',
+    'Use alembic_recipe_map for navigation and alembic_graph for ProjectContext-backed project relations.',
   alembic_call_context:
     'Use alembic_graph with concrete ProjectContext node/detail refs, then validate dynamic behavior with raw source reads or repository tests.',
   alembic_panorama:
-    'Use alembic_project_matrix and alembic_graph. This retired route does not invoke the old panorama service.',
+    'Use alembic_recipe_map and alembic_graph. This retired route does not invoke the old panorama service.',
 };
 
 function createRetiredPublicToolResult(toolName: string): McpToolResponse {
@@ -616,7 +618,7 @@ export class McpServer {
       alembic_decision_record: (ctx, args) =>
         agentPublicToolHandlers.decisionRecordHandler(ctx, args),
       alembic_health: (ctx) => systemHandlers.health(ctx),
-      alembic_project_matrix: (ctx, args) => toolRouter.routeProjectMatrixTool(ctx, args),
+      alembic_recipe_map: (ctx, args) => toolRouter.routeRecipeMapTool(ctx, args),
       alembic_search: (ctx, args) =>
         toolRouter.routeSearchTool(ctx, args as Parameters<typeof toolRouter.routeSearchTool>[1]),
       alembic_knowledge: (ctx, args) => toolRouter.routeKnowledgeTool(ctx, args),

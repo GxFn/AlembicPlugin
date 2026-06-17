@@ -15,7 +15,7 @@ import { zodToMcpSchema } from '../../lib/runtime/mcp/zodToMcpSchema.js';
 import {
   GraphInput,
   HealthInput,
-  ProjectMatrixInput,
+  RecipeMapInput,
   RescanInput,
   SearchInput,
   SubmitKnowledgeInput,
@@ -180,12 +180,12 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.properties.query).toBeDefined();
     });
 
-    test('ProjectMatrixInput should expose host intent and source refs in MCP schema', () => {
-      const result = zodToMcpSchema(ProjectMatrixInput);
+    test('RecipeMapInput should expose focus and radius in MCP schema', () => {
+      const result = zodToMcpSchema(RecipeMapInput);
       expect(result.type).toBe('object');
-      expect(result.properties.hostDeclaredIntent).toBeDefined();
-      expect(result.properties.sourceRefs).toBeDefined();
-      expect(result.properties.query).toBeDefined();
+      expect(result.properties.focus).toBeDefined();
+      expect(result.properties.radius).toBeDefined();
+      expect(result.properties.includeRecipes).toBeDefined();
     });
 
     test('RescanInput should expose controller-authorized produce session fields', () => {

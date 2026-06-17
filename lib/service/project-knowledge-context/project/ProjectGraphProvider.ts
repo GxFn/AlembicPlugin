@@ -4044,6 +4044,7 @@ function projectProjectContextRegion(args: {
   selection: RegionSelection;
 }): ProjectContextRegion {
   const { build, focus, projectRoot, selection } = args;
+  const parentMap = buildRegionParentMap(build);
   const childCounts = buildRegionChildCounts(build);
   const refLimit = 80;
   return ProjectContextRegionSchema.parse({
@@ -4053,9 +4054,11 @@ function projectProjectContextRegion(args: {
       displayName: build.projectName,
     },
     focus,
-    rootNode: regionNodeFromGraphNode(selection.rootNode, childCounts),
-    breadcrumb: selection.breadcrumb.map((node) => regionNodeFromGraphNode(node, childCounts)),
-    nodes: selection.nodes.map((node) => regionNodeFromGraphNode(node, childCounts)),
+    rootNode: regionNodeFromGraphNode(selection.rootNode, childCounts, parentMap),
+    breadcrumb: selection.breadcrumb.map((node) =>
+      regionNodeFromGraphNode(node, childCounts, parentMap)
+    ),
+    nodes: selection.nodes.map((node) => regionNodeFromGraphNode(node, childCounts, parentMap)),
     relations: selection.relations.map(regionRelationFromGraphRelation),
     refs: build.projectContextRefs.slice(0, refLimit).map(projectContextRefSummary),
     diagnostics: dedupeGraphDiagnostics(selection.diagnostics.map(graphDiagnosticFromKnowledge)),
@@ -4079,15 +4082,18 @@ function buildRegionChildCounts(build: GraphBuild): Map<string, number> {
 
 function regionNodeFromGraphNode(
   node: ProjectGraphNode,
-  childCounts: Map<string, number>
+  childCounts: Map<string, number>,
+  parentMap: Map<string, string>
 ): RegionNode {
   const childCount = childCounts.get(node.id);
+  const parentNodeId = parentMap.get(node.id);
   return {
     nodeId: node.id,
     kind: regionKindFromNodeType(node.nodeType),
     label: node.label,
     ...(node.path === undefined ? {} : { path: node.path }),
     ...(node.detailRefId === undefined ? {} : { projectContextRef: node.detailRefId }),
+    ...(parentNodeId === undefined ? {} : { parentNodeId }),
     ...(childCount === undefined ? {} : { childCount }),
   };
 }

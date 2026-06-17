@@ -8,13 +8,10 @@ import {
 
 export const CODEX_ONBOARDING_CONTRACT_VERSION = 1;
 
-const CANONICAL_PROJECT_CONTEXT_TOOLS = [
-  'alembic_project_matrix',
-  'alembic_graph',
-] as const;
+const CANONICAL_PROJECT_CONTEXT_TOOLS = ['alembic_recipe_map', 'alembic_graph'] as const;
 
 const KNOWLEDGE_AND_RECIPE_TOOLS = [
-  'alembic_project_matrix',
+  'alembic_recipe_map',
   'alembic_prime',
   'alembic_search',
   'alembic_graph',
@@ -22,10 +19,7 @@ const KNOWLEDGE_AND_RECIPE_TOOLS = [
   'alembic_dimension_complete',
 ] as const;
 
-const GUARD_AND_VALIDATION_TOOLS = [
-  'alembic_code_guard',
-  'alembic_guard',
-] as const;
+const GUARD_AND_VALIDATION_TOOLS = ['alembic_code_guard', 'alembic_guard'] as const;
 
 const BOOTSTRAP_AND_RECOVERY_TOOLS = [
   'alembic_mcp_status',
@@ -108,11 +102,12 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Runtime And Entrypoints',
     goal: 'Identify real commands, package exports, runtime entrypoints, and host-owned execution paths before describing behavior.',
     keywordHints: ['runtime', 'entry', 'cli', 'daemon', 'mcp', 'bootstrap', 'server'],
-    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_search'],
+    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_search'],
     toolToInformation: [
       {
-        tool: 'alembic_project_matrix',
-        information: 'ProjectContext orientation, key modules, entrypoints, detail refs, and partial notes',
+        tool: 'alembic_recipe_map',
+        information:
+          'ProjectContext orientation, key modules, entrypoints, detail refs, and partial notes',
       },
       {
         tool: 'alembic_graph',
@@ -134,10 +129,10 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Source Structure And Ownership',
     goal: 'Map owned modules, boundaries, and cross-package imports without moving responsibility between repositories.',
     keywordHints: ['architecture', 'module', 'package', 'ownership', 'boundary', 'dependency'],
-    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_search'],
+    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_search'],
     toolToInformation: [
       {
-        tool: 'alembic_project_matrix',
+        tool: 'alembic_recipe_map',
         information: 'directory and module inventory for the requested scope',
       },
       {
@@ -156,11 +151,12 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'State And Persistence',
     goal: 'Trace data roots, persisted files, sessions, job state, and recovery markers before writing lifecycle guidance.',
     keywordHints: ['state', 'persistence', 'session', 'job', 'database', 'storage'],
-    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_search'],
+    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_search'],
     toolToInformation: [
       {
         tool: 'alembic_graph',
-        information: 'ProjectContext file/module/function relation hints for state readers and writers',
+        information:
+          'ProjectContext file/module/function relation hints for state readers and writers',
       },
       {
         tool: 'alembic_search',
@@ -178,10 +174,10 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Tool Contracts And Outputs',
     goal: 'Confirm MCP schemas, clean output fields, and host-facing tool semantics before changing tool guidance.',
     keywordHints: ['tool', 'mcp', 'schema', 'output', 'contract', 'structuredcontent'],
-    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_code_guard'],
+    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_code_guard'],
     toolToInformation: [
       {
-        tool: 'alembic_project_matrix',
+        tool: 'alembic_recipe_map',
         information: 'tool declaration, handler-owner, and output-contract orientation',
       },
       {
@@ -200,7 +196,7 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Validation And Safety',
     goal: 'Choose checks that match the actual behavior changed, then separate ProjectContext orientation from acceptance.',
     keywordHints: ['test', 'validation', 'guard', 'safety', 'lint', 'check'],
-    toolSequence: ['alembic_project_matrix', 'alembic_graph', 'alembic_code_guard'],
+    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_code_guard'],
     toolToInformation: [
       {
         tool: 'alembic_graph',
@@ -222,14 +218,14 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     title: 'Failure And Recovery',
     goal: 'Describe degraded states, repair triggers, and rebuild requirements without hiding transport or ProjectContext partial-state failures.',
     keywordHints: ['failure', 'error', 'recovery', 'diagnostics', 'degraded', 'stale'],
-    toolSequence: ['alembic_mcp_status', 'alembic_project_matrix', 'alembic_graph'],
+    toolSequence: ['alembic_mcp_status', 'alembic_recipe_map', 'alembic_graph'],
     toolToInformation: [
       {
         tool: 'alembic_mcp_status',
         information: 'runtime, initialization, knowledge, and repair state',
       },
       {
-        tool: 'alembic_project_matrix',
+        tool: 'alembic_recipe_map',
         information: 'ProjectContext freshness, partial notes, and current project orientation',
       },
     ],
@@ -315,7 +311,7 @@ function buildCodexOnboardingContract(
       contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
       defaultOrder: [
         'alembic_mcp_status',
-        'alembic_project_matrix',
+        'alembic_recipe_map',
         currentPlaybook?.toolSequence[1] || 'alembic_graph',
         'alembic_submit_knowledge',
         'alembic_dimension_complete',
@@ -404,7 +400,9 @@ function resolveBootstrapStatus(input: BuildCodexOnboardingContractInput): strin
   return knowledge.usable ? 'knowledge_ready' : 'initialized_empty';
 }
 
-function buildProjectContextState(input: BuildCodexOnboardingContractInput): Record<string, unknown> {
+function buildProjectContextState(
+  input: BuildCodexOnboardingContractInput
+): Record<string, unknown> {
   const sourceRefs = input.knowledge?.sourceRefs;
   const snapshots = input.knowledge?.snapshots;
   const freshness = input.knowledge?.freshness;
@@ -417,7 +415,7 @@ function buildProjectContextState(input: BuildCodexOnboardingContractInput): Rec
   return {
     acceptanceRule:
       'ProjectContext matrix/graph output is orientation evidence only; validate current behavior with raw source reads, Guard, and repository tests.',
-    firstTool: 'alembic_project_matrix',
+    firstTool: 'alembic_recipe_map',
     freshnessStatus: freshness?.status || null,
     queryTools: CANONICAL_PROJECT_CONTEXT_TOOLS,
     readiness,
@@ -481,7 +479,7 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
         name: 'alembic_call_context',
         reason:
           'Legacy call-context browsing is not part of the default public project-information surface.',
-        replacementTools: ['alembic_project_matrix', 'alembic_graph'],
+        replacementTools: ['alembic_recipe_map', 'alembic_graph'],
         status: byName.has('alembic_call_context') ? 'visible-legacy-surface' : 'not-visible',
       },
       {
@@ -495,14 +493,14 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
         name: 'alembic_structure',
         reason:
           'Legacy structure browsing is replaced by compact ProjectContext matrix and graph navigation.',
-        replacementTools: ['alembic_project_matrix', 'alembic_graph'],
+        replacementTools: ['alembic_recipe_map', 'alembic_graph'],
         status: byName.has('alembic_structure') ? 'visible-legacy-surface' : 'not-visible',
       },
       {
         name: 'alembic_panorama',
         reason:
           'Legacy panorama guidance is retired from the default public knowledge navigation surface.',
-        replacementTools: ['alembic_project_matrix', 'alembic_search', 'alembic_graph'],
+        replacementTools: ['alembic_recipe_map', 'alembic_search', 'alembic_graph'],
         status: byName.has('alembic_panorama') ? 'visible-legacy-surface' : 'not-visible',
       },
     ],
@@ -637,7 +635,7 @@ function buildCurrentDomainSop(
     nextActions: [
       {
         label: 'Read ProjectContext matrix',
-        tool: 'alembic_project_matrix',
+        tool: 'alembic_recipe_map',
       },
       {
         label: `Collect evidence for ${playbook.title}`,
@@ -984,7 +982,7 @@ function describeToolProvides(toolName: string): string {
   if (
     KNOWLEDGE_AND_RECIPE_TOOLS.includes(toolName as (typeof KNOWLEDGE_AND_RECIPE_TOOLS)[number])
   ) {
-    if (toolName === 'alembic_project_matrix') {
+    if (toolName === 'alembic_recipe_map') {
       return 'compact project navigation matrix with detail refs and next actions';
     }
     if (toolName === 'alembic_graph') {
@@ -1322,7 +1320,7 @@ function buildAgentDecisionChecklist(
     },
     {
       when: 'projectContext readiness is not proven',
-      nextTool: 'alembic_project_matrix',
+      nextTool: 'alembic_recipe_map',
       blockedConclusions: ['do not claim ProjectContext completeness'],
     },
     {
@@ -1341,16 +1339,22 @@ function buildGates(): Record<string, unknown> {
       firstRepairTool: 'alembic_mcp_status',
     },
     projectContext: {
-      rule: 'Use alembic_project_matrix and alembic_graph for compact ProjectContext orientation before broad raw exploration.',
+      rule: 'Use alembic_recipe_map and alembic_graph for compact ProjectContext orientation before broad raw exploration.',
       degradedStates: ['stale', 'pending', 'partial', 'wrong-scope', 'unsupported-language'],
     },
     sourceEvidence: {
       rule: 'Recipe candidates require exact source references, not ProjectContext labels alone.',
-      acceptableRefs: ['file path', 'symbol id', 'ProjectContext detail ref', 'relation hint', 'command output'],
+      acceptableRefs: [
+        'file path',
+        'symbol id',
+        'ProjectContext detail ref',
+        'relation hint',
+        'command output',
+      ],
     },
     relationshipEvidence: {
       rule: 'Caller, callee, and impact claims require ProjectContext relation/detail evidence or raw source fallback.',
-      preferredTools: ['alembic_project_matrix', 'alembic_graph'],
+      preferredTools: ['alembic_recipe_map', 'alembic_graph'],
     },
     validation: {
       rule: 'ProjectContext orientation is advisory; acceptance still requires Guard, repository tests, or targeted host checks.',
@@ -1375,7 +1379,7 @@ function buildProgress(
     pendingDomainIds: domainQueue.map((domain) => domain.domainId),
     dimensionCount: dimensions.length,
     nextRequiredTools: [
-      'alembic_project_matrix',
+      'alembic_recipe_map',
       'alembic_submit_knowledge',
       'alembic_dimension_complete',
     ],
@@ -1413,7 +1417,7 @@ function buildRepairState(
       status === 'wrong_scope' || status === 'degraded'
         ? 'alembic_mcp_status'
         : status === 'project_context_stale'
-          ? 'alembic_project_matrix'
+          ? 'alembic_recipe_map'
           : waiting
             ? 'alembic_mcp_status'
             : null,

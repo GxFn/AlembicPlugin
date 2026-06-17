@@ -44,11 +44,11 @@ function retiredProjectInformationResponse(operation: string, moduleName?: strin
     data: {
       module: moduleName ?? null,
       operation,
-      replacementTools: ['alembic_project_matrix', 'alembic_graph'],
+      replacementTools: ['alembic_recipe_map', 'alembic_graph'],
       retired: true,
     },
     message:
-      'alembic_panorama project-information operations are retired; use alembic_project_matrix for overview or alembic_graph for ProjectContext-backed relation details.',
+      'alembic_panorama project-information operations are retired; use alembic_recipe_map for overview or alembic_graph for ProjectContext-backed relation details.',
     meta: {
       operation,
       retired: true,

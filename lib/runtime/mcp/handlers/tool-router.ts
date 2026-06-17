@@ -28,7 +28,7 @@ import {
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import * as browseHandlers from '../../../runtime/mcp/handlers/browse.js';
 import * as guardHandlers from '../../../runtime/mcp/handlers/guard.js';
-import * as projectMatrixHandlers from '../../../runtime/mcp/handlers/project-matrix.js';
+import * as recipeMapHandlers from '../../../runtime/mcp/handlers/recipe-map.js';
 import * as searchHandlers from '../../../runtime/mcp/handlers/search.js';
 import * as skillHandlers from '../../../runtime/mcp/handlers/skill.js';
 import * as structureHandlers from '../../../runtime/mcp/handlers/structure.js';
@@ -52,8 +52,9 @@ interface PendingSemanticReviewDecision {
 
 // ─── alembic_search (mode router) ────────────────────────
 
-export async function routeProjectMatrixTool(ctx: McpContext, args: Record<string, unknown>) {
-  return projectMatrixHandlers.projectMatrix(ctx, args);
+// alembic_recipe_map replaces alembic_project_matrix. Single handler; focus-driven.
+export async function routeRecipeMapTool(ctx: McpContext, args: Record<string, unknown>) {
+  return recipeMapHandlers.recipeMap(ctx, args);
 }
 
 /**

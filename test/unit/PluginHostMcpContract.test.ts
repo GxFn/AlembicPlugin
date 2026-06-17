@@ -3,6 +3,7 @@ import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/codex
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
 import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
+import { RECIPE_MAP_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/recipe-map-output.js';
 import {
   getMcpOutputProjector,
   withMcpOutputSchema,
@@ -69,6 +70,7 @@ describe('Plugin host MCP D4 contract', () => {
           ...AGENT_PUBLIC_TOOL_NAMES,
           ...KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,
           ...GRAPH_CLEAN_OUTPUT_TOOL_NAMES,
+          ...RECIPE_MAP_CLEAN_OUTPUT_TOOL_NAMES,
         ]).includes(toolName)
       )
     ).toBe(true);
@@ -121,7 +123,7 @@ describe('Plugin host MCP D4 contract', () => {
       ['alembic_mcp_rescan_job', 'resident-or-embedded-jobs'],
       ['alembic_mcp_status', 'status-probe'],
       ['alembic_prime', 'resident-project-scope'],
-      ['alembic_project_matrix', 'resident-project-scope'],
+      ['alembic_recipe_map', 'resident-project-scope'],
       ['alembic_search', 'explicit-resident-search'],
       ['alembic_work_finish', 'resident-project-scope'],
       ['alembic_work_start', 'resident-project-scope'],

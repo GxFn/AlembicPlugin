@@ -221,13 +221,13 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'resident-project-scope',
   }),
-  alembic_project_matrix: catalogEntry({
-    name: 'alembic_project_matrix',
+  alembic_recipe_map: catalogEntry({
+    name: 'alembic_recipe_map',
     owner: 'plugin-embedded-core',
     handlerOwner: 'McpServer.tool-router',
     tier: 'agent',
-    schema: 'ProjectMatrixInput',
-    annotations: readOnlyTool('Read Alembic Project Matrix'),
+    schema: 'RecipeMapInput',
+    annotations: readOnlyTool('Map Alembic Recipes Onto ProjectContext'),
     gateway: null,
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'resident-project-scope',

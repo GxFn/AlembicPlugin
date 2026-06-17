@@ -439,7 +439,7 @@ describe('MCP Tool Definitions (V3)', () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual([
       'alembic_intent',
       'alembic_prime',
-      'alembic_project_matrix',
+      'alembic_recipe_map',
       'alembic_work_start',
       'alembic_work_finish',
       'alembic_code_guard',

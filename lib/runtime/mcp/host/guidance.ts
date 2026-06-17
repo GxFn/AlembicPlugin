@@ -32,10 +32,7 @@ const RECOVERY_TOOL_NAMES = new Set([
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 
-const VALIDATION_TOOL_NAMES = new Set([
-  'alembic_code_guard',
-  'alembic_guard',
-]);
+const VALIDATION_TOOL_NAMES = new Set(['alembic_code_guard', 'alembic_guard']);
 
 export function buildCodexMcpGuidance(tools: readonly GuidanceToolLike[]): CodexMcpGuidance {
   const visibleToolNames = tools.map((tool) => tool.name);
@@ -78,13 +75,13 @@ export function buildCodexMcpInitializeInstructions(tools: readonly GuidanceTool
 }
 
 function buildProjectContextPlaybookLine(knowledgeTools: string[]): string {
-  const hasMatrix = knowledgeTools.includes('alembic_project_matrix');
+  const hasMatrix = knowledgeTools.includes('alembic_recipe_map');
   const hasGraph = knowledgeTools.includes('alembic_graph');
   if (!hasMatrix && !hasGraph) {
     return 'Project orientation: no ProjectContext matrix/graph tools are visible; use raw file reads/search and validate before relying on project-structure facts.';
   }
   const projectContextTools = knowledgeTools.filter((name) =>
-    ['alembic_project_matrix', 'alembic_graph'].includes(name)
+    ['alembic_recipe_map', 'alembic_graph'].includes(name)
   );
   return `Project orientation: use ${formatToolList(
     projectContextTools
@@ -97,7 +94,7 @@ function buildKnowledgePlaybookLine(knowledgeTools: string[]): string {
   }
   return `Project knowledge/context: use visible tools ${formatToolList(
     knowledgeTools
-  )}; use search/prime for standards and prior decisions, project_matrix for navigation, and alembic_graph for ProjectContext-backed structure/source/dependency relations.`;
+  )}; use search/prime for standards and prior decisions, recipe_map for navigation, and alembic_graph for ProjectContext-backed structure/source/dependency relations.`;
 }
 
 function buildGuardPlaybookLine(guardTools: string[]): string {

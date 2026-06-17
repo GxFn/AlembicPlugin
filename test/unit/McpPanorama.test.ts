@@ -30,7 +30,7 @@ describe('alembic_panorama', () => {
     expect(result.message).toContain('retired');
     expect(result.data).toMatchObject({
       operation,
-      replacementTools: ['alembic_project_matrix', 'alembic_graph'],
+      replacementTools: ['alembic_recipe_map', 'alembic_graph'],
       retired: true,
     });
     expect(result.meta).toMatchObject({ tool: 'alembic_panorama' });
