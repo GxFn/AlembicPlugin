@@ -19,16 +19,16 @@ export interface KnowledgeRetrievalItem {
 }
 
 export interface KnowledgeRetrievalProviderSearchInput {
-	category?: string;
-	dimensionId?: string;
-	kind?: string;
-	knowledgeType?: string;
-	keywords?: readonly string[];
-	language?: string;
-	limit?: number;
-	query: string;
-	scope?: string;
-	tags?: readonly string[];
+  category?: string;
+  dimensionId?: string;
+  kind?: string;
+  knowledgeType?: string;
+  keywords?: readonly string[];
+  language?: string;
+  limit?: number;
+  query: string;
+  scope?: string;
+  tags?: readonly string[];
 }
 
 export interface KnowledgeRetrievalProvider {

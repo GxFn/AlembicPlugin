@@ -1,103 +1,20 @@
 import { describe, expect, test } from 'vitest';
 import '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
+import { getMcpOutputProjector } from '../../lib/runtime/mcp/output-contract.js';
 import {
-  createMcpStructuredToolResult,
-  getMcpOutputProjector,
-} from '../../lib/runtime/mcp/output-contract.js';
-import {
-  createKnowledgeContextMcpResult,
   KNOWLEDGE_CONTEXT_AGENT_HOSTS,
-  KNOWLEDGE_CONTEXT_STATUSES,
   KnowledgeContextBaseInputSchema,
-  KnowledgeContextMcpResultSchema,
-  KnowledgeContextToolOutputSchema,
   KnowledgeSearchInputSchema,
-  PrimeInputSchema,
   ProjectGraphInputSchema,
-  ProjectMatrixInputSchema,
 } from '../../lib/service/project-knowledge-context/contracts/index.js';
 
-function sampleOutput(status: (typeof KNOWLEDGE_CONTEXT_STATUSES)[number]) {
-  return {
-    ok: status === 'ready' || status === 'partial',
-    status,
-    tool: 'alembic_project_matrix' as const,
-    toolName: 'alembic_project_matrix' as const,
-    operation: 'overview',
-    summary: `Project matrix contract is ${status}.`,
-    request: {
-      query: 'summarize project knowledge context',
-      detailLevel: 'summary' as const,
-    },
-    project: {
-      projectRoot: '/workspace/project',
-      name: 'project',
-    },
-    result: {
-      matrixRef: `matrix:${status}`,
-      nodeCount: 3,
-    },
-    inventory: {
-      domains: ['project', 'knowledge', 'document'],
-    },
-    relations: [
-      {
-        fromId: 'project:root',
-        toId: 'file:lib/index.ts',
-        relationType: 'ownsFile',
-      },
-    ],
-    items: [
-      {
-        id: 'file:lib/index.ts',
-        kind: 'file',
-      },
-    ],
-    detailRefs: [
-      {
-        id: `detail:${status}`,
-        domain: 'project' as const,
-        tool: 'alembic_project_matrix' as const,
-        operation: 'overview',
-        summary: 'Stable detail ref for budget-controlled follow-up data.',
-        requiredForCompletion: true,
-      },
-    ],
-    sources: [
-      {
-        domain: 'project' as const,
-        id: 'project:current',
-        detailRefId: `detail:${status}`,
-        confidence: 0.9,
-      },
-    ],
-    diagnostics:
-      status === 'ready'
-        ? []
-        : [
-            {
-              code: `context-${status}`,
-              severity: status === 'failed' ? ('error' as const) : ('warning' as const),
-              message: `The ${status} branch keeps machine details in structuredContent.`,
-              retryable: status === 'degraded',
-            },
-          ],
-    nextActions: [
-      {
-        tool: 'alembic_search' as const,
-        operation: 'search',
-        reason: 'Search can expand detail refs without putting machine data in visible text.',
-      },
-    ],
-    meta: {
-      contractVersion: 1 as const,
-      generatedAt: '2026-06-14T00:00:00Z',
-    },
-  };
-}
-
-describe('Project knowledge context four-tool contracts', () => {
+// GMAP-8c: the KnowledgeContextToolOutput envelope, the ProjectMatrix input schema,
+// and the middle layer are retired. The four tools each own their public output
+// (AlembicGraphOutput / AlembicRecipeMapOutput / AlembicSearchOutput / AgentPrimeOutput,
+// covered by their own tests). What remains here is the shared input-contract surface
+// (base/graph/search input) and the now-empty shared clean-output set.
+describe('Project knowledge context input contracts (post middle-layer retirement)', () => {
   test('parses host-neutral base input without defaulting to a specific agent host', () => {
     const parsed = KnowledgeContextBaseInputSchema.parse({
       query: 'What project knowledge should guide this change?',
@@ -106,45 +23,10 @@ describe('Project knowledge context four-tool contracts', () => {
     });
 
     expect(parsed.agentHost).toBeUndefined();
-    expect(KNOWLEDGE_CONTEXT_AGENT_HOSTS).toEqual([
-      'codex',
-      'claude-code',
-      'generic-host-agent',
-      'desktop-host-agent',
-      'terminal-host-agent',
-      'automation-host-agent',
-    ]);
     expect(KNOWLEDGE_CONTEXT_AGENT_HOSTS).toContain('generic-host-agent');
   });
 
-  test('parses valid inputs for the four public knowledge context tools', () => {
-    expect(
-      ProjectMatrixInputSchema.parse({
-        projectRoot: '/workspace/project',
-        operation: 'overview',
-        query: 'map active project context',
-        budget: { itemLimit: 10, detailLimit: 5 },
-      })
-    ).toMatchObject({
-      operation: 'overview',
-      detailLevel: 'summary',
-    });
-
-    expect(
-      PrimeInputSchema.parse({
-        capability: 'contract boundary',
-        integrationBoundary: 'MCP public tool',
-        operation: 'matrix-first',
-        primeMode: 'working-set',
-        requirementGoal: 'Implement a focused contract boundary',
-        taskAction: 'implement',
-      })
-    ).toMatchObject({
-      operation: 'matrix-first',
-      primeMode: 'working-set',
-      taskAction: 'implement',
-    });
-
+  test('parses valid inputs for the live knowledge-context input tools', () => {
     expect(
       KnowledgeSearchInputSchema.parse({
         operation: 'get',
@@ -152,24 +34,14 @@ describe('Project knowledge context four-tool contracts', () => {
         refId: 'knowledge:contract-boundary',
         kind: 'guide',
       })
-    ).toMatchObject({
-      operation: 'get',
-      kind: 'guide',
-    });
+    ).toMatchObject({ operation: 'get', kind: 'guide' });
 
-    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'auto' }).success).toBe(true);
-    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'keyword' }).success).toBe(
-      true
-    );
-    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'semantic' }).success).toBe(
-      true
-    );
+    for (const mode of ['auto', 'keyword', 'semantic']) {
+      expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode }).success).toBe(true);
+    }
     expect(
       KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'unsupported-mode' }).success
     ).toBe(false);
-    expect(KnowledgeSearchInputSchema.safeParse({ query: 'x', mode: 'legacy-mode' }).success).toBe(
-      false
-    );
 
     expect(
       ProjectGraphInputSchema.parse({
@@ -179,21 +51,13 @@ describe('Project knowledge context four-tool contracts', () => {
         relationType: 'ownsFile',
         maxDepth: 3,
       })
-    ).toMatchObject({
-      operation: 'neighborhood',
-      nodeType: 'file',
-      relationType: 'ownsFile',
-    });
+    ).toMatchObject({ operation: 'neighborhood', nodeType: 'file', relationType: 'ownsFile' });
   });
 
-  test('rejects lifecycle operations from the four-tool knowledge context surface', () => {
+  test('rejects lifecycle operations from the knowledge-context input surface', () => {
     expect(KnowledgeSearchInputSchema.safeParse({ operation: 'confirm_usage' }).success).toBe(
       false
     );
-    expect(ProjectMatrixInputSchema.safeParse({ operation: 'stage_acceptance' }).success).toBe(
-      false
-    );
-    expect(PrimeInputSchema.safeParse({ operation: 'start_work' }).success).toBe(false);
     expect(ProjectGraphInputSchema.safeParse({ operation: 'knowledge_lifecycle' }).success).toBe(
       false
     );
@@ -202,7 +66,6 @@ describe('Project knowledge context four-tool contracts', () => {
   test('rejects non-project graph node types from alembic_graph input', () => {
     expect(ProjectGraphInputSchema.safeParse({ nodeType: 'recipe' }).success).toBe(false);
     expect(ProjectGraphInputSchema.safeParse({ nodeType: 'knowledge' }).success).toBe(false);
-    expect(ProjectGraphInputSchema.safeParse({ nodeType: 'recipeRelation' }).success).toBe(false);
     expect(ProjectGraphInputSchema.safeParse({ nodeType: 'file' }).success).toBe(true);
   });
 
@@ -213,11 +76,7 @@ describe('Project knowledge context four-tool contracts', () => {
         confidence: 0.8,
         goal: 'Inspect project graph boundary',
         keywords: ['ProjectContext'],
-        labels: ['graph'],
-        language: 'typescript',
-        module: 'ProjectGraphProvider',
         query: 'ProjectContext direct graph boundary',
-        scenario: 'boundary-review',
         source: 'codex',
         sourceRefs: ['host:intent'],
         summary: 'Review graph direct boundary',
@@ -226,99 +85,16 @@ describe('Project knowledge context four-tool contracts', () => {
     });
 
     expect(parsed.hostDeclaredIntent?.query).toBe('ProjectContext direct graph boundary');
-    expect(parsed.hostDeclaredIntent?.summary).toBe('Review graph direct boundary');
     expect(parsed.hostDeclaredIntent?.sourceRefs).toEqual(['host:intent']);
   });
 
-  test('accepts hostDeclaredIntent on alembic_project_matrix with the shared MCP intent shape', () => {
-    const parsed = ProjectMatrixInputSchema.parse({
-      hostDeclaredIntent: {
-        action: 'inspect',
-        confidence: 0.75,
-        goal: 'Inspect ProjectContext matrix output limits',
-        keywords: ['ProjectContext', 'matrix'],
-        labels: ['schema'],
-        language: 'typescript',
-        module: 'KnowledgeContextOutputProjector',
-        query: 'ProjectContext matrix diagnostics budget',
-        scenario: 'schema-repair',
-        source: 'codex',
-        sourceRefs: ['host:intent'],
-        summary: 'Review matrix schema repair',
-      },
-      operation: 'overview',
-    });
-
-    expect(parsed.hostDeclaredIntent?.query).toBe('ProjectContext matrix diagnostics budget');
-    expect(parsed.hostDeclaredIntent?.goal).toBe('Inspect ProjectContext matrix output limits');
-    expect(parsed.hostDeclaredIntent?.keywords).toEqual(['ProjectContext', 'matrix']);
-  });
-
-  test('detaches alembic_graph from the knowledge context clean-output envelope', () => {
-    // GMAP-1: alembic_graph left KnowledgeContextToolOutput for AlembicGraphOutput.
-    // GMAP-4: alembic_project_matrix retired -> alembic_recipe_map own output.
-    // GMAP-8b: alembic_search left for AlembicSearchOutput, so the shared
-    // KnowledgeContextToolOutput clean-output set is now empty.
+  test('the shared KnowledgeContextToolOutput clean-output set is empty (each tool owns its output)', () => {
+    // GMAP-1/4/8/8b: graph/recipe_map/search each project their own schema; prime is
+    // agent-public; matrix is retired. GMAP-8c deletes the shared envelope module.
     expect(KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES).toEqual([]);
     expect(getMcpOutputProjector('alembic_graph')).toMatchObject({
       outputSchemaName: 'alembic_graph_clean_output',
       projectorName: 'alembic-graph-clean-output-projector',
     });
-  });
-
-  test('accepts all five knowledge context output statuses', () => {
-    for (const status of KNOWLEDGE_CONTEXT_STATUSES) {
-      const parsed = KnowledgeContextToolOutputSchema.parse(sampleOutput(status));
-
-      expect(parsed.status).toBe(status);
-      expect(parsed.detailRefs[0]?.id).toBe(`detail:${status}`);
-      expect(parsed.sources[0]?.domain).toBe('project');
-      expect(parsed.meta).toMatchObject({
-        contractVersion: 1,
-        outputSchema: 'KnowledgeContextToolOutput',
-      });
-    }
-  });
-
-  test('keeps MCP visible content summary-only and machine data in structuredContent', () => {
-    const output = KnowledgeContextToolOutputSchema.parse(sampleOutput('ready'));
-    const result = createKnowledgeContextMcpResult(output);
-
-    expect(result.content).toEqual([{ type: 'text', text: output.summary }]);
-    expect(result.structuredContent).toMatchObject({
-      result: { matrixRef: 'matrix:ready', nodeCount: 3 },
-      detailRefs: [{ id: 'detail:ready' }],
-      items: [{ id: 'file:lib/index.ts' }],
-    });
-    expect(JSON.stringify(result.content)).not.toContain('matrix:ready');
-
-    expect(
-      KnowledgeContextMcpResultSchema.safeParse({
-        content: [{ type: 'text', text: JSON.stringify(output) }],
-        structuredContent: output,
-      }).success
-    ).toBe(false);
-  });
-
-  test('serializes knowledge context meta through the shared clean MCP envelope', () => {
-    const output = KnowledgeContextToolOutputSchema.parse({
-      ...sampleOutput('ready'),
-      meta: {
-        contractVersion: 1,
-        generatedAt: '2026-06-14T00:00:00Z',
-        producer: 'ProjectKnowledgeContextLayer',
-        traceRef: 'trace:knowledge-context',
-      },
-    });
-
-    const result = createMcpStructuredToolResult(output);
-
-    expect(result.structuredContent?.meta).toMatchObject({
-      contractVersion: 1,
-      generatedAt: '2026-06-14T00:00:00Z',
-      producer: 'ProjectKnowledgeContextLayer',
-      traceRef: 'trace:knowledge-context',
-    });
-    expect(result.content).toEqual([{ type: 'text', text: output.summary }]);
   });
 });

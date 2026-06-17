@@ -1,6 +1,12 @@
 import { resolveSearchWorkspaceIdentity } from '@alembic/core/search';
-import type { NormalizedKnowledgeContextInput } from '../layer/KnowledgeContextInputNormalizer.js';
 import { stableRefSegment } from '../support/index.js';
+
+// GMAP-8c: the KnowledgeContext middle-layer input normalizer is retired; identity
+// resolution only needs the project root + optional language.
+export interface ProjectIdentityInput {
+  projectRoot?: string;
+  language?: string;
+}
 
 export interface KnowledgeContextProjectIdentity {
   dataRoot?: string;
@@ -11,11 +17,11 @@ export interface KnowledgeContextProjectIdentity {
 }
 
 export interface ProjectIdentityProvider {
-  resolveProjectIdentity(input: NormalizedKnowledgeContextInput): KnowledgeContextProjectIdentity;
+  resolveProjectIdentity(input: ProjectIdentityInput): KnowledgeContextProjectIdentity;
 }
 
 export class DefaultProjectIdentityProvider implements ProjectIdentityProvider {
-  resolveProjectIdentity(input: NormalizedKnowledgeContextInput): KnowledgeContextProjectIdentity {
+  resolveProjectIdentity(input: ProjectIdentityInput): KnowledgeContextProjectIdentity {
     const workspace = resolveSearchWorkspaceIdentity({ projectRoot: input.projectRoot });
     const projectRoot = workspace?.projectRoot ?? input.projectRoot;
     const projectId =

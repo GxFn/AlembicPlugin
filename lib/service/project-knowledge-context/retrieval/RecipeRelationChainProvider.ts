@@ -53,7 +53,9 @@ export class DefaultRecipeRelationChainProvider implements RecipeRelationChainPr
         continue;
       }
       const last = current.hops[current.hops.length - 1];
-      for (const edge of edges.filter((candidate) => sameKnowledgeRef(candidate.from, last)).slice(0, fanout)) {
+      for (const edge of edges
+        .filter((candidate) => sameKnowledgeRef(candidate.from, last))
+        .slice(0, fanout)) {
         if (current.hops.some((hop) => sameKnowledgeRef(hop, edge.to))) {
           continue;
         }
@@ -157,7 +159,9 @@ function collectRelationArrayEntry(
   const entryRelationType =
     readString(record?.relationType) ?? readString(record?.relation) ?? readString(record?.type);
   const entrySource = readString(record?.source);
-  return [{ from, relationType: entryRelationType ?? relationType, source: entrySource ?? source, to }];
+  return [
+    { from, relationType: entryRelationType ?? relationType, source: entrySource ?? source, to },
+  ];
 }
 
 function scoreImpactForRelation(relationType: string): 'positive' | 'neutral-or-caution' {

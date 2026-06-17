@@ -65,34 +65,8 @@ export const KnowledgeContextBaseInputSchema = z
   })
   .strict();
 
-export const ProjectMatrixOperationSchema = z.enum([
-  'overview',
-  'node',
-  'relations',
-  'layers',
-  'sources',
-  'catalog',
-]);
-
-export const ProjectMatrixNodeTypeSchema = z.enum([
-  'project',
-  'package',
-  'target',
-  'module',
-  'directory',
-  'file',
-  'symbol',
-  'knowledge-category',
-  'knowledge-cluster',
-  'document',
-]);
-
-export const ProjectMatrixInputSchema = KnowledgeContextBaseInputSchema.extend({
-  tool: z.literal('alembic_project_matrix').optional(),
-  operation: ProjectMatrixOperationSchema.default('overview'),
-  nodeId: KnowledgeContextRefIdSchema.optional(),
-  nodeType: ProjectMatrixNodeTypeSchema.optional(),
-}).strict();
+// GMAP-8c: alembic_project_matrix and its input schema are retired (replaced by
+// alembic_recipe_map's own contract).
 
 export const PrimeOperationSchema = z.enum(['auto', 'matrix-first', 'search-first']);
 
@@ -208,20 +182,11 @@ export const ProjectGraphInputSchema = KnowledgeContextBaseInputSchema.extend({
   maxDepth: z.number().int().min(1).max(10).default(2),
 }).strict();
 
-export const KnowledgeContextToolInputSchema = z.discriminatedUnion('tool', [
-  ProjectMatrixInputSchema.extend({ tool: z.literal('alembic_project_matrix') }).strict(),
-  PrimeInputSchema.extend({ tool: z.literal('alembic_prime') }).strict(),
-  KnowledgeSearchInputSchema.extend({ tool: z.literal('alembic_search') }).strict(),
-  ProjectGraphInputSchema.extend({ tool: z.literal('alembic_graph') }).strict(),
-]);
-
 export type KnowledgeContextProjectNodeType = z.infer<typeof KnowledgeContextProjectNodeTypeSchema>;
 export type KnowledgeContextProjectRelationType = z.infer<
   typeof KnowledgeContextProjectRelationTypeSchema
 >;
 export type KnowledgeContextBaseInput = z.infer<typeof KnowledgeContextBaseInputSchema>;
-export type ProjectMatrixInput = z.infer<typeof ProjectMatrixInputSchema>;
 export type PrimeInput = z.infer<typeof PrimeInputSchema>;
 export type KnowledgeSearchInput = z.infer<typeof KnowledgeSearchInputSchema>;
 export type ProjectGraphInput = z.infer<typeof ProjectGraphInputSchema>;
-export type KnowledgeContextToolInput = z.infer<typeof KnowledgeContextToolInputSchema>;

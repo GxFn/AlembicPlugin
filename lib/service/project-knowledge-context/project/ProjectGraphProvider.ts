@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import {
   type AnchorRangeContext,
@@ -27,8 +26,6 @@ import type {
   GraphRelationSummary,
   GraphSourceSliceSummary,
   KnowledgeContextDetailRef,
-  KnowledgeContextDiagnostic,
-  KnowledgeContextNextAction,
   KnowledgeContextProjectNodeType,
   KnowledgeContextProjectRelationType,
   KnowledgeContextSource,
@@ -41,6 +38,8 @@ import type {
   RegionNode,
   RegionNodeKind,
   RegionRelation,
+  ToolDiagnostic,
+  ToolNextAction,
 } from '../contracts/index.js';
 import {
   ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
@@ -49,8 +48,6 @@ import {
   ProjectGraphInputSchema,
   REGION_CONTEXT_CONTRACT_VERSION,
 } from '../contracts/index.js';
-import type { ContextIndexNode, ContextIndexSnapshotOptions } from '../layer/index.js';
-import type { KnowledgeContextProjectionPayload } from '../layer/KnowledgeContextOutputProjector.js';
 import { defaultRefRegistry, stableRefSegment } from '../support/index.js';
 
 export interface ProjectGraphNode {
@@ -70,21 +67,14 @@ export interface ProjectGraphRelation {
   toType?: KnowledgeContextProjectNodeType;
 }
 
-export interface ProjectGraphResult {
-  payload: KnowledgeContextProjectionPayload;
-  projectNodes: ContextIndexNode[];
-  snapshot: ContextIndexSnapshotOptions;
-}
-
 export interface ProjectGraphProvider {
-  resolveProjectGraph(input: ProjectGraphInput): Promise<ProjectGraphResult>;
   resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput>;
   resolveProjectContextRegion(request: ProjectContextRegionRequest): Promise<ProjectContextRegion>;
 }
 
 interface GraphBuild {
   detailRefs: KnowledgeContextDetailRef[];
-  diagnostics: KnowledgeContextDiagnostic[];
+  diagnostics: ToolDiagnostic[];
   nodes: ProjectGraphNode[];
   projectContext: ProjectGraphProjectContextTrace;
   projectContextRefs: ProjectContextRef[];
@@ -174,7 +164,7 @@ interface GraphModuleSeed {
 interface ProjectContextGraphFacts {
   anchorRanges: AnchorRangeContext[];
   detailRefs: KnowledgeContextDetailRef[];
-  diagnostics: KnowledgeContextDiagnostic[];
+  diagnostics: ToolDiagnostic[];
   fileFlows: FileFlowContext[];
   fileSymbols: FileSymbolContext[];
   maps: ProjectMap[];
@@ -190,55 +180,6 @@ interface ProjectContextGraphFacts {
 }
 
 export class ProjectContextProjectGraphProvider implements ProjectGraphProvider {
-  async resolveProjectGraph(input: ProjectGraphInput): Promise<ProjectGraphResult> {
-    const projectRoot = input.projectRoot ?? process.cwd();
-    const build = await this.buildGraph(projectRoot, input);
-    const operation = input.operation ?? 'query';
-    const selection = selectGraph(build, input);
-    const summary = summarizeSelection(operation, selection, build.projectContext);
-    const projectNodes = build.nodes.map(toContextIndexNode);
-    const snapshot: ContextIndexSnapshotOptions = {
-      domainFreshness: {
-        project: fs.existsSync(projectRoot)
-          ? { state: 'ready', sourceRef: build.projectRef.id }
-          : {
-              state: 'missing',
-              degradedReason: `Project root does not exist: ${projectRoot}`,
-              sourceRef: build.projectRef.id,
-            },
-      },
-      projectNodes,
-    };
-
-    return {
-      payload: {
-        detailRefs: build.detailRefs,
-        inventory: {
-          allowedNodeTypes: [...ALLOWED_NODE_TYPES],
-          allowedRelationTypes: [...ALLOWED_RELATION_TYPES],
-          nodeCount: build.nodes.length,
-          nodeTypes: countBy(build.nodes, (node) => node.nodeType),
-          projectContext: build.projectContext,
-          relationCount: build.relations.length,
-          relationTypes: countBy(build.relations, (relation) => relation.relationType),
-        },
-        diagnostics: dedupeDiagnostics([...build.diagnostics, ...(selection.diagnostics ?? [])]),
-        items: selection.items,
-        matrixNodes: selection.matrixNodes,
-        nextActions: dedupeNextActions([
-          ...nextActionsFor(operation, input),
-          ...(selection.nextActions ?? []),
-        ]).slice(0, input.budget?.nextActionLimit ?? 5),
-        relations: selection.relations,
-        result: selection.result,
-        sources: build.sources,
-        summary,
-      },
-      projectNodes,
-      snapshot,
-    };
-  }
-
   // GMAP-1: public alembic_graph path. Projects ProjectContext.execute facts into
   // the Recipe-free AlembicGraphOutput, selected by queryKind. Shares buildGraph
   // with resolveProjectGraph; never routes through the KnowledgeContext middle
@@ -2053,9 +1994,7 @@ function sourceFromProjectContextRef(
   };
 }
 
-function projectContextErrorToDiagnostic(
-  error: ProjectContextQueryError
-): KnowledgeContextDiagnostic {
+function projectContextErrorToDiagnostic(error: ProjectContextQueryError): ToolDiagnostic {
   return {
     code: `project-context-${error.code}`,
     domain: 'project',
@@ -2171,10 +2110,10 @@ class RelationStore {
 }
 
 interface GraphSelection {
-  diagnostics?: KnowledgeContextDiagnostic[];
+  diagnostics?: ToolDiagnostic[];
   items: Record<string, unknown>[];
   matrixNodes: Record<string, unknown>[];
-  nextActions?: KnowledgeContextNextAction[];
+  nextActions?: ToolNextAction[];
   relations: Record<string, unknown>[];
   result: Record<string, unknown>;
 }
@@ -2184,23 +2123,6 @@ interface GraphQueryNodeMatch {
   node: ProjectGraphNode;
   queryMatchedTerms: string[];
   rankingSignals: string[];
-}
-
-function selectGraph(build: GraphBuild, input: ProjectGraphInput): GraphSelection {
-  const resolvedInput = resolveGraphInputIds(build, input);
-  const operation = input.operation ?? 'query';
-  switch (operation) {
-    case 'stats':
-      return selectStats(build, resolvedInput);
-    case 'path':
-      return selectPath(build, resolvedInput);
-    case 'impact':
-      return selectNeighborhood(build, resolvedInput, 'impact');
-    case 'neighborhood':
-      return selectNeighborhood(build, resolvedInput, 'neighborhood');
-    default:
-      return selectQuery(build, resolvedInput);
-  }
 }
 
 function resolveGraphInputIds(build: GraphBuild, input: ProjectGraphInput): ProjectGraphInput {
@@ -2700,7 +2622,7 @@ function relationUnavailableDiagnostic(
   operation: 'impact' | 'neighborhood',
   nodeId: string,
   relationType?: KnowledgeContextProjectRelationType
-): KnowledgeContextDiagnostic {
+): ToolDiagnostic {
   return {
     code: 'project-graph-relation-unavailable',
     domain: 'project',
@@ -2801,50 +2723,6 @@ function findPath(
   return { depth: -1, found: false, path: [] as ProjectGraphRelation[] };
 }
 
-function summarizeSelection(
-  operation: string,
-  selection: GraphSelection,
-  projectContext: ProjectGraphProjectContextTrace
-): string {
-  const projectContextText =
-    projectContext.partial || projectContext.errorCount > 0
-      ? 'ProjectContext partial'
-      : 'ProjectContext ready';
-  return `alembic_graph ${operation} returned ${selection.items.length} project graph items and ${selection.relations.length} project graph relations (${projectContextText}).`;
-}
-
-function nextActionsFor(operation: string, input: ProjectGraphInput): KnowledgeContextNextAction[] {
-  const actions: KnowledgeContextNextAction[] = [];
-  if ((operation === 'impact' || operation === 'neighborhood') && !input.nodeId) {
-    actions.push({
-      tool: 'alembic_graph',
-      operation: 'query',
-      reason:
-        'First query or inspect a concrete ProjectContext nodeId/detailRef; impact and neighborhood output is withheld without that anchor.',
-      required: true,
-    });
-  }
-  if (isLowInformationGraphQuery(input) && !hasFocusedGraphQuery(input)) {
-    actions.push({
-      tool: 'alembic_project_matrix',
-      operation: 'overview',
-      reason:
-        'Use the project matrix overview to choose a module, entrypoint, file, symbol, or detailRef before asking for graph impact.',
-      required: false,
-    });
-  }
-  if (operation !== 'stats') {
-    actions.push({
-      tool: 'alembic_graph',
-      operation: 'stats',
-      reason:
-        'Use stats to inspect available project node and relation types before a broader traversal.',
-      required: false,
-    });
-  }
-  return actions.slice(0, input.budget?.nextActionLimit ?? 5);
-}
-
 function projectNodeToOutput(node: ProjectGraphNode): Record<string, unknown> {
   return {
     detailRefId: node.detailRefId,
@@ -2863,15 +2741,6 @@ function projectRelationToOutput(relation: ProjectGraphRelation): Record<string,
     relationType: relation.relationType,
     toId: relation.toId,
     toType: relation.toType,
-  };
-}
-
-function toContextIndexNode(node: ProjectGraphNode): ContextIndexNode {
-  return {
-    detailRefId: node.detailRefId,
-    id: node.id,
-    label: node.label,
-    type: node.nodeType,
   };
 }
 
@@ -3037,23 +2906,10 @@ function dedupeSources(sources: KnowledgeContextSource[]): KnowledgeContextSourc
   return [...new Map(sources.map((source) => [source.id, source])).values()];
 }
 
-function dedupeDiagnostics(
-  diagnostics: KnowledgeContextDiagnostic[]
-): KnowledgeContextDiagnostic[] {
+function dedupeDiagnostics(diagnostics: ToolDiagnostic[]): ToolDiagnostic[] {
   return [
     ...new Map(
       diagnostics.map((diagnostic) => [`${diagnostic.code}\u0000${diagnostic.message}`, diagnostic])
-    ).values(),
-  ];
-}
-
-function dedupeNextActions(actions: KnowledgeContextNextAction[]): KnowledgeContextNextAction[] {
-  return [
-    ...new Map(
-      actions.map((action) => [
-        `${action.tool}\u0000${action.operation ?? ''}\u0000${action.reason}`,
-        action,
-      ])
     ).values(),
   ];
 }
@@ -3436,7 +3292,7 @@ function projectContextRefSummary(ref: ProjectContextRef): ProjectContextRefSumm
   };
 }
 
-function graphDiagnosticFromKnowledge(diagnostic: KnowledgeContextDiagnostic): GraphDiagnostic {
+function graphDiagnosticFromKnowledge(diagnostic: ToolDiagnostic): GraphDiagnostic {
   return {
     code: diagnostic.code,
     severity: diagnostic.severity,
@@ -3685,7 +3541,7 @@ interface RegionSelection {
   breadcrumb: ProjectGraphNode[];
   nodes: ProjectGraphNode[];
   relations: ProjectGraphRelation[];
-  diagnostics: KnowledgeContextDiagnostic[];
+  diagnostics: ToolDiagnostic[];
   truncated: boolean;
 }
 

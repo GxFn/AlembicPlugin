@@ -12,7 +12,6 @@
  */
 
 import { groupByKind, slimSearchResult } from '@alembic/core/search';
-import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
   ALEMBIC_SEARCH_OUTPUT_CONTRACT_VERSION,
   type AlembicSearchOperation,
@@ -23,13 +22,12 @@ import {
   DefaultRecipeCandidateProvider,
   defaultRefRegistry,
   type KnowledgeContextDetailRef,
-  type KnowledgeContextNextAction,
-  type KnowledgeContextProjectionPayload,
   type KnowledgeContextSource,
   type KnowledgeRetrievalItem,
   type SearchDiagnostic,
   type SearchNextAction,
   stableRefSegment,
+  type ToolNextAction,
   type VectorRerankEvidence,
 } from '#service/project-knowledge-context/index.js';
 import type { ResidentSearchClient } from '#service/resident/AlembicResidentCapabilityClients.js';
@@ -97,12 +95,26 @@ function filterByKind(items: SearchResultItem[], kind: string) {
 
 // ─── AlembicSearchOutput projection (GMAP-8b: no middle layer) ───────────────
 
+// GMAP-8c: the handler-local intermediate payload (was KnowledgeContextProjectionPayload
+// from the retired middle layer). projectAlembicSearchOutput maps it into the
+// search-owned AlembicSearchOutput envelope.
+interface SearchProjectionPayload {
+  detailRefs: KnowledgeContextDetailRef[];
+  inventory: Record<string, unknown>;
+  items: Record<string, unknown>[];
+  nextActions: ToolNextAction[];
+  relations: unknown[];
+  result: Record<string, unknown>;
+  sources: KnowledgeContextSource[];
+  summary: string;
+}
+
 // Project the handler's bounded search/detail payload into alembic_search's own
 // AlembicSearchOutput envelope — replacing the retired KnowledgeContext middle-layer
 // projection. result/inventory/items are loose passthroughs so resident-search
 // evidence and search-quality survive intact.
 function projectAlembicSearchOutput(
-  payload: KnowledgeContextProjectionPayload,
+  payload: SearchProjectionPayload,
   opts: {
     operation: AlembicSearchOperation;
     status: AlembicSearchStatus;
@@ -132,7 +144,7 @@ function projectAlembicSearchOutput(
   });
 }
 
-function mapSearchNextAction(action: KnowledgeContextNextAction): SearchNextAction {
+function mapSearchNextAction(action: ToolNextAction): SearchNextAction {
   // alembic_project_matrix is retired; point any legacy navigation hint at recipe_map.
   const tool = action.tool === 'alembic_project_matrix' ? 'alembic_recipe_map' : action.tool;
   return {
@@ -174,7 +186,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
     createKnowledgeSource(item, detailRefs[index]?.id)
   );
   const queryLabel = searchQueryLabel(pipeline.query, relevance.normalizedFilters);
-  const payload: KnowledgeContextProjectionPayload = {
+  const payload: SearchProjectionPayload = {
     detailRefs,
     inventory: {
       candidateCount: candidateItems.length,
@@ -555,7 +567,7 @@ async function projectDetailOperation(
     : [];
   const sources =
     selectedItem && detailRefs[0] ? [createKnowledgeSource(selectedItem, detailRefs[0].id)] : [];
-  const payload: KnowledgeContextProjectionPayload = {
+  const payload: SearchProjectionPayload = {
     detailRefs,
     inventory: {
       candidateCount: candidates.length,
@@ -1382,7 +1394,7 @@ function nextActionsForSearch(
   detailRefs: readonly KnowledgeContextDetailRef[],
   queryLabel: string,
   relevance: SearchRelevanceAssessment
-): KnowledgeContextNextAction[] {
+): ToolNextAction[] {
   if (relevance.zeroMatch) {
     return [
       {
@@ -1407,7 +1419,7 @@ function nextActionsForDetail(
   operation: 'get' | 'expand',
   refId: string | undefined,
   detailRef?: KnowledgeContextDetailRef
-): KnowledgeContextNextAction[] {
+): ToolNextAction[] {
   if (!refId || operation === 'expand') {
     return [];
   }
