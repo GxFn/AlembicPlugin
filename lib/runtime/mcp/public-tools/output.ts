@@ -1,11 +1,6 @@
 import type { CoreFieldFailureKind } from '@alembic/core/shared';
 import { z } from 'zod';
 import {
-  KnowledgeContextBudgetSchema,
-  KnowledgeContextDetailRefSchema,
-} from '#service/project-knowledge-context/contracts/KnowledgeContextRefs.js';
-import { KnowledgeContextToolOutputSchema } from '#service/project-knowledge-context/index.js';
-import {
   CleanMcpErrorSchema,
   CleanMcpMetaSchema,
   CleanMcpResponseBaseSchema,
@@ -307,52 +302,54 @@ export const AgentIntentOutputSchema = AgentPublicToolOutputBaseSchema.safeExten
   toolName: z.literal('alembic_intent'),
 });
 
-const PrimePublicBudgetSchema = KnowledgeContextBudgetSchema.omit({ relationHopLimit: true })
-  .partial()
+// GMAP-8: alembic_prime is a standalone agent tool with its own output (like the
+// other agent-public tools) — no longer projected through KnowledgeContextToolOutput
+// or the middle layer. The valuable payload is the prime-native primePackage plus
+// bounded detailRefs/diagnostics/nextActions; matrix/graph/relation/interaction
+// fields are gone.
+const PrimeDiagnosticSchema = z
+  .object({
+    code: z.string().min(1).max(160),
+    severity: z.enum(['info', 'warning', 'error']),
+    message: z.string().min(1).max(800),
+    retryable: z.boolean().default(false),
+  })
   .strict();
 
-const PrimePublicDetailRefSchema = KnowledgeContextDetailRefSchema.omit({ budget: true }).extend({
-  budget: PrimePublicBudgetSchema.optional(),
-});
-
-export const AgentPrimeOutputSchema = KnowledgeContextToolOutputSchema.omit({
-  meta: true,
-  status: true,
-})
-  .safeExtend({
-    actionKind: z.literal('prime'),
-    agentHost: AgentHostSchema,
-    error: CleanMcpErrorSchema.optional(),
-    inputSource: AgentInputSourceSchema,
-    intentKind: AgentIntentKindSchema.optional(),
-    meta: CleanMcpMetaSchema.optional(),
-    reason: AgentPublicToolReasonSchema.optional(),
-    refs: AgentPublicToolRefsSchema,
-    status: AgentResultStatusSchema,
-    detailRefs: z.array(PrimePublicDetailRefSchema).max(200).default([]),
-    primePackage: PrimePublicPackageSchema,
-    tool: z.literal('alembic_prime'),
-    toolName: z.literal('alembic_prime'),
+const PrimeNextActionSchema = z
+  .object({
+    tool: z.string().min(1).max(120),
+    reason: z.string().min(1).max(600),
+    required: z.boolean().default(false),
   })
-  .superRefine((output, ctx) => {
-    const expectedReasonKind =
-      output.status === 'blocked'
-        ? 'blocked'
-        : output.status === 'degraded'
-          ? 'degraded'
-          : output.status === 'failed'
-            ? 'failure'
-            : output.status === 'skipped'
-              ? 'skip'
-              : null;
-    if (expectedReasonKind && output.reason?.kind !== expectedReasonKind) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['reason'],
-        message: `${output.status} prime outputs require a ${expectedReasonKind} reason`,
-      });
-    }
-  });
+  .strict();
+
+export const AgentPrimeOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
+  actionKind: z.literal('prime'),
+  detailRefs: z.array(AgentDetailRefSchema).max(200).default([]),
+  diagnostics: z.array(PrimeDiagnosticSchema).max(200).default([]),
+  nextActions: z.array(PrimeNextActionSchema).max(20).default([]),
+  primePackage: PrimePublicPackageSchema,
+  toolName: z.literal('alembic_prime'),
+}).superRefine((output, ctx) => {
+  const expectedReasonKind =
+    output.status === 'blocked'
+      ? 'blocked'
+      : output.status === 'degraded'
+        ? 'degraded'
+        : output.status === 'failed'
+          ? 'failure'
+          : output.status === 'skipped'
+            ? 'skip'
+            : null;
+  if (expectedReasonKind && output.reason?.kind !== expectedReasonKind) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reason'],
+      message: `${output.status} prime outputs require a ${expectedReasonKind} reason`,
+    });
+  }
+});
 
 export const AgentWorkStartOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
   detailRefs: z.array(AgentDetailRefSchema).max(40).optional(),

@@ -416,10 +416,26 @@ function buildPrimeBlockingOutput(
     searchDegraded: false,
     searchResult: null,
   });
-  const knowledgeContext = buildPrimeBlockingKnowledgeContext(input, result, primePackage);
+  // GMAP-8: prime is decoupled from the KnowledgeContext middle layer — return its
+  // own prime-native output (primePackage + bounded detailRefs/diagnostics/nextActions).
   return createAgentPublicToolOutput(result, {
-    ...primeKnowledgeContextPublicFields(knowledgeContext),
     primePackage,
+    detailRefs: input.detailRefs,
+    diagnostics: [
+      {
+        code: result.reason?.code ?? 'prime-blocked',
+        message: result.reason?.message ?? result.summary,
+        retryable: result.reason?.retryable ?? false,
+        severity: 'warning' as const,
+      },
+    ],
+    nextActions: [
+      {
+        tool: 'alembic_prime',
+        reason: result.reason?.message ?? 'Repair the prime input and call alembic_prime again.',
+        required: true,
+      },
+    ],
   });
 }
 
@@ -546,19 +562,72 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     searchDegraded: effectiveSearchDegraded,
     searchResult: input.primeSearch.searchResult,
   });
-  const knowledgeContext = (
-    await buildPrimeReadyKnowledgeContext({
-      ...input,
-      material,
-      primePackage,
-      status,
-    })
-  ).output;
-
+  // GMAP-8: prime returns its own prime-native output (primePackage + bounded
+  // detailRefs/diagnostics), assembled from the resident search material — never
+  // the KnowledgeContext middle layer, ProjectMatrix, or graph provider.
   return createAgentPublicToolOutput(result, {
-    ...primeKnowledgeContextPublicFields(knowledgeContext),
     primePackage,
+    detailRefs: [...input.detailRefs, ...primeMaterialDetailRefs(material.primeKnowledgeMaterial)],
+    diagnostics: buildPrimeReadyDiagnostics(input.primeSearch, effectiveSearchDegraded),
+    nextActions: [],
   });
+}
+
+// Surface the accepted Recipe/Guard material as agent-facing detail refs so callers
+// get direct pointers to primed knowledge without a follow-up tool call.
+function primeMaterialDetailRefs(material: PrimeKnowledgeMaterial | null): AgentDetailRef[] {
+  if (!material) {
+    return [];
+  }
+  const refs: AgentDetailRef[] = [];
+  for (const item of material.acceptedKnowledge) {
+    refs.push({
+      id: `prime-knowledge:${item.id}`,
+      kind: 'source-ref',
+      summary: item.summary || item.title || item.id,
+      ...(item.evidenceRefs[0] ? { uri: evidenceRefToUri(item.evidenceRefs[0]) } : {}),
+      requiredForCompletion: false,
+    });
+  }
+  for (const item of material.acceptedGuards) {
+    refs.push({
+      id: `prime-guard:${item.id}`,
+      kind: 'source-ref',
+      summary: item.actionHint || item.title || item.id,
+      ...(item.evidenceRefs[0] ? { uri: evidenceRefToUri(item.evidenceRefs[0]) } : {}),
+      requiredForCompletion: false,
+    });
+  }
+  return refs;
+}
+
+function buildPrimeReadyDiagnostics(
+  primeSearch: PrimeHandlerReadyInput['primeSearch'],
+  searchDegraded: boolean
+): Array<{ code: string; severity: 'info' | 'warning'; message: string; retryable: boolean }> {
+  const diagnostics: Array<{
+    code: string;
+    severity: 'info' | 'warning';
+    message: string;
+    retryable: boolean;
+  }> = [];
+  if (searchDegraded) {
+    diagnostics.push({
+      code: 'prime-search-degraded',
+      severity: 'warning',
+      message: 'Recipe retrieval was degraded; prime results may be incomplete.',
+      retryable: true,
+    });
+  }
+  if (!primeSearch.searchResult?.searchMeta.residentSearch?.residentVector?.available) {
+    diagnostics.push({
+      code: 'prime-vector-evidence-unavailable',
+      severity: 'info',
+      message: 'Resident vector/rerank evidence was unavailable or unused.',
+      retryable: false,
+    });
+  }
+  return diagnostics;
 }
 
 function primeKnowledgeContextPublicFields(output: KnowledgeContextToolOutput) {

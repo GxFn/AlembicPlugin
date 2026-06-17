@@ -1078,16 +1078,16 @@ describe('agent-facing active public tools', () => {
       success: boolean;
     };
 
+    // GMAP-8: prime is decoupled from KnowledgeContext — the prime-native output
+    // carries the positioning in primePackage (no tool/operation/result/matrix fields).
     expect(cleanPrime).toMatchObject({
-      tool: 'alembic_prime',
-      operation: 'auto',
-      result: {
-        acceptedKnowledge: [expect.objectContaining({ id: 'recipe-public-prime' })],
-        contextOnlyEvidence: {
-          projectGraphIncluded: false,
-          projectMatrixSummary: expect.stringContaining('Project matrix overview'),
+      toolName: 'alembic_prime',
+      status: 'ready',
+      primePackage: {
+        kind: 'PrimePublicPackage',
+        compactPackage: {
+          acceptedKnowledge: [expect.objectContaining({ id: 'recipe-public-prime' })],
         },
-        primePackage: { kind: 'PrimePublicPackage' },
       },
     });
     expect(arrayValue(cleanPrime.detailRefs)).toEqual(
