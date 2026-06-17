@@ -63,7 +63,14 @@ async function main() {
 
   Bootstrap.configurePathGuard(projectRoot);
 
-  const bootstrap = new Bootstrap({ env: process.env.NODE_ENV || 'development' });
+  // RIC-8: the embedded daemon runs decoupled from real audit + governance (no-op
+  // components). Its HTTP routes call services directly and never enforce the gateway, and
+  // KnowledgeService writes audit non-blockingly — so the daemon needs neither at runtime.
+  // The MCP host path constructs Bootstrap without this flag and keeps real audit/governance.
+  const bootstrap = new Bootstrap({
+    env: process.env.NODE_ENV || 'development',
+    slimAuditGovernance: true,
+  });
   const components = await bootstrap.initialize();
   const container = getServiceContainer();
   await container.initialize({
