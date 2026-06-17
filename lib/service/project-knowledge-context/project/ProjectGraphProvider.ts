@@ -33,11 +33,21 @@ import type {
   KnowledgeContextProjectRelationType,
   KnowledgeContextSource,
   ProjectContextRefSummary,
+  ProjectContextRegion,
+  ProjectContextRegionRequest,
   ProjectGraphInput,
+  RegionFocus,
+  RegionFocusKind,
+  RegionNode,
+  RegionNodeKind,
+  RegionRelation,
 } from '../contracts/index.js';
 import {
   ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
   AlembicGraphOutputSchema,
+  ProjectContextRegionSchema,
+  ProjectGraphInputSchema,
+  REGION_CONTEXT_CONTRACT_VERSION,
 } from '../contracts/index.js';
 import type { ContextIndexNode, ContextIndexSnapshotOptions } from '../layer/index.js';
 import type { KnowledgeContextProjectionPayload } from '../layer/KnowledgeContextOutputProjector.js';
@@ -69,6 +79,7 @@ export interface ProjectGraphResult {
 export interface ProjectGraphProvider {
   resolveProjectGraph(input: ProjectGraphInput): Promise<ProjectGraphResult>;
   resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput>;
+  resolveProjectContextRegion(request: ProjectContextRegionRequest): Promise<ProjectContextRegion>;
 }
 
 interface GraphBuild {
@@ -243,6 +254,23 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     }
     const selection = selectAlembicGraph(build, input, queryKind);
     return projectAlembicGraphOutput({ build, input, projectRoot, queryKind, selection });
+  }
+
+  // GMAP-3: shared ProjectContext region projection consumed by both alembic_graph
+  // and alembic_recipe_map (GMAP-4-7). Built directly from the shared ProjectContext
+  // graph build — never by invoking the public alembic_graph MCP tool. The region's
+  // nodeIds/refs are identical to alembic_graph's, so a ref round-trips between
+  // graph (refId) and recipe_map (focus) for free.
+  async resolveProjectContextRegion(
+    request: ProjectContextRegionRequest
+  ): Promise<ProjectContextRegion> {
+    const focus = request.focus;
+    const projectRoot = request.projectRoot ?? process.cwd();
+    // Anchor the shared ProjectContext build on the focus so file/anchor focuses
+    // collect the right facts — this never invokes the public alembic_graph tool.
+    const build = await this.buildGraph(projectRoot, regionBuildInput(focus, projectRoot));
+    const selection = selectRegionFromBuild(build, focus);
+    return projectProjectContextRegion({ build, focus, projectRoot, selection });
   }
 
   private async buildGraph(projectRoot: string, input: ProjectGraphInput): Promise<GraphBuild> {
@@ -3127,54 +3155,10 @@ function selectProjectOverview(
   if (input.query && !isLowInformationGraphQuery(input)) {
     return selectQuery(build, input);
   }
-  const preferredTypes = overviewPreferredTypes(queryKind);
-  const itemLimit = input.budget?.itemLimit ?? 12;
-  const relationLimit = input.budget?.relationHopLimit ?? 2;
-  const preferredNodes = build.nodes
-    .filter((node) => preferredTypes.has(node.nodeType))
-    .sort((a, b) => orientationNodeWeight(a) - orientationNodeWeight(b) || a.id.localeCompare(b.id))
-    .slice(0, itemLimit);
-  const nodeIds = new Set(preferredNodes.map((node) => node.id));
-  const relations = build.relations
-    .filter(
-      (relation) =>
-        (nodeIds.has(relation.fromId) || nodeIds.has(relation.toId)) &&
-        ['dependsOn', 'entrypointFor', 'ownsFile', 'partOf'].includes(relation.relationType)
-    )
-    .slice(0, Math.max(relationLimit * 12, 12));
-  const items = preferredNodes.map(projectNodeToOutput);
-  return {
-    items,
-    matrixNodes: items,
-    relations: relations.map(projectRelationToOutput),
-    result: {
-      graphKind: 'project-internal',
-      orientation: true,
-      projectContextPartial: build.projectContext.partial,
-      queryKind,
-      queryMatchedNodeCount: preferredNodes.length,
-      sourceOfTruth: false,
-    },
-  };
-}
-
-function overviewPreferredTypes(
-  queryKind: AlembicGraphQueryKind
-): Set<KnowledgeContextProjectNodeType> {
-  switch (queryKind) {
-    case 'space':
-      return new Set<KnowledgeContextProjectNodeType>(['project', 'package']);
-    case 'repo':
-      return new Set<KnowledgeContextProjectNodeType>(['project', 'package', 'target', 'file']);
-    default:
-      return new Set<KnowledgeContextProjectNodeType>([
-        'project',
-        'package',
-        'target',
-        'module',
-        'directory',
-      ]);
-  }
+  // GMAP-3: structural overview is sourced from the shared ProjectContext region
+  // projection (the same projection alembic_recipe_map consumes).
+  const region = selectRegionFromBuild(build, regionFocusForQueryKind(queryKind, input));
+  return regionSelectionToGraphSelection(region, queryKind, build, { orientation: true });
 }
 
 function selectModuleView(
@@ -3182,10 +3166,15 @@ function selectModuleView(
   input: ProjectGraphInput,
   queryKind: AlembicGraphQueryKind
 ): GraphSelection {
+  const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
+  if (queryTerms.length === 0) {
+    // GMAP-3: non-query module structure is sourced from the shared region.
+    const region = selectRegionFromBuild(build, regionFocusForQueryKind(queryKind, input));
+    return regionSelectionToGraphSelection(region, queryKind, build);
+  }
   const focusTypes = new Set<KnowledgeContextProjectNodeType>(['module', 'directory', 'file']);
   const anchorPath = explicitProjectGraphPath(input);
   const itemLimit = input.budget?.itemLimit ?? 20;
-  const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
   let candidateNodes = build.nodes.filter((node) => focusTypes.has(node.nodeType));
   if (anchorPath) {
     candidateNodes = candidateNodes.filter(
@@ -3232,11 +3221,18 @@ function selectFileView(
   if (!anchorPath) {
     return fileAnchorRequiredSelection(queryKind);
   }
-  const anchorId = resolveGraphNodeId(build, fileNodeId(anchorPath)) ?? fileNodeId(anchorPath);
-  const anchorNode = build.nodes.find((node) => node.id === anchorId);
+  // GMAP-3: share the region anchor resolver so graph and recipe_map land on the
+  // same file node / ref for the same anchor.
+  const refId = input.refId ?? input.nodeId;
+  const anchorNode = resolveRegionFileAnchor(build, {
+    kind: 'file',
+    filePath: anchorPath,
+    ...(refId ? { refId } : {}),
+  });
   if (!anchorNode) {
     return fileAnchorUnavailableSelection(queryKind, anchorPath);
   }
+  const anchorId = anchorNode.id;
   const relationTypes = fileViewRelationTypes(queryKind);
   const itemLimit = input.budget?.itemLimit ?? 20;
   const relations = build.relations
@@ -3678,6 +3674,490 @@ function boundedSliceText(text: string): string {
 
 function dedupeProjectContextRefs(refs: ProjectContextRef[]): ProjectContextRef[] {
   return [...new Map(refs.map((ref) => [ref.id, ref])).values()];
+}
+
+// ═══════════════════════════════════════════════════════════
+// GMAP-3 — shared ProjectContext region projection
+// ═══════════════════════════════════════════════════════════
+
+interface RegionSelection {
+  rootNode: ProjectGraphNode;
+  breadcrumb: ProjectGraphNode[];
+  nodes: ProjectGraphNode[];
+  relations: ProjectGraphRelation[];
+  diagnostics: KnowledgeContextDiagnostic[];
+  truncated: boolean;
+}
+
+const REGION_NODE_LIMIT = 40;
+const REGION_RELATION_LIMIT = 60;
+
+function regionFocusFromInput(input: ProjectGraphInput): RegionFocus {
+  const focus: RegionFocus = { kind: regionFocusKindFromInput(input) };
+  const refId = input.refId ?? input.nodeId;
+  if (refId) {
+    focus.refId = refId;
+  }
+  const filePath =
+    input.filePath ?? input.activeFile ?? filePathFromGraphNodeId(input.nodeId) ?? undefined;
+  if (filePath) {
+    focus.filePath = normalizeRelativePath(filePath);
+  }
+  if (input.line !== undefined) {
+    focus.line = input.line;
+  }
+  return focus;
+}
+
+function regionFocusKindFromInput(input: ProjectGraphInput): RegionFocusKind {
+  if (input.queryKind) {
+    return regionFocusKindFromQueryKind(input.queryKind);
+  }
+  if (input.operation) {
+    return regionFocusKindFromQueryKind(resolveGraphQueryKind(input));
+  }
+  if (input.filePath || input.activeFile || filePathFromGraphNodeId(input.nodeId)) {
+    return 'file';
+  }
+  if (input.refId || input.nodeId) {
+    return 'module';
+  }
+  return 'space';
+}
+
+function regionFocusKindFromQueryKind(queryKind: AlembicGraphQueryKind): RegionFocusKind {
+  switch (queryKind) {
+    case 'space':
+      return 'space';
+    case 'repo':
+      return 'repo';
+    case 'module':
+    case 'module-layers':
+      return 'module';
+    case 'file-flow':
+    case 'file-symbols':
+    case 'source-slice':
+      return 'file';
+    case 'anchor-range':
+      return 'anchor';
+    default:
+      // map + derived traversals fall back to the broad map focus.
+      return 'map';
+  }
+}
+
+// Map a focus-shaped region request onto a ProjectGraph build input so the shared
+// ProjectContext build anchors on the focus file/ref and collects the right facts.
+function regionBuildInput(focus: RegionFocus, projectRoot: string): ProjectGraphInput {
+  return ProjectGraphInputSchema.parse({
+    projectRoot,
+    queryKind: queryKindForRegionFocus(focus.kind),
+    ...(focus.filePath ? { activeFile: focus.filePath, filePath: focus.filePath } : {}),
+    ...(focus.refId ? { refId: focus.refId, nodeId: focus.refId } : {}),
+    ...(focus.line === undefined ? {} : { line: focus.line }),
+  });
+}
+
+function queryKindForRegionFocus(kind: RegionFocusKind): AlembicGraphQueryKind {
+  switch (kind) {
+    case 'space':
+      return 'space';
+    case 'repo':
+      return 'repo';
+    case 'module':
+      return 'module';
+    case 'file':
+    case 'symbol':
+      return 'file-symbols';
+    case 'anchor':
+      return 'anchor-range';
+    default:
+      return 'map';
+  }
+}
+
+function selectRegionFromBuild(build: GraphBuild, focus: RegionFocus): RegionSelection {
+  const parentMap = buildRegionParentMap(build);
+  switch (focus.kind) {
+    case 'module':
+      return moduleRegion(build, focus, parentMap);
+    case 'file':
+    case 'anchor':
+    case 'symbol':
+      return fileRegion(build, focus, parentMap);
+    default:
+      return overviewRegion(build, focus, parentMap);
+  }
+}
+
+function overviewRegion(
+  build: GraphBuild,
+  focus: RegionFocus,
+  parentMap: Map<string, string>
+): RegionSelection {
+  const rootNode = regionProjectRootNode(build);
+  const preferred = overviewRegionPreferredTypes(focus.kind);
+  const candidates = build.nodes
+    .filter((node) => preferred.has(node.nodeType))
+    .sort(
+      (a, b) => orientationNodeWeight(a) - orientationNodeWeight(b) || a.id.localeCompare(b.id)
+    );
+  const nodes = candidates.slice(0, REGION_NODE_LIMIT);
+  return {
+    rootNode,
+    breadcrumb: regionBreadcrumb(build, rootNode, parentMap),
+    nodes,
+    relations: regionRelationsForNodes(build, nodes, [
+      'dependsOn',
+      'entrypointFor',
+      'ownsFile',
+      'partOf',
+    ]),
+    diagnostics: [],
+    truncated: candidates.length > nodes.length,
+  };
+}
+
+function overviewRegionPreferredTypes(kind: RegionFocusKind): Set<KnowledgeContextProjectNodeType> {
+  switch (kind) {
+    case 'space':
+      return new Set<KnowledgeContextProjectNodeType>(['project', 'package']);
+    case 'repo':
+      return new Set<KnowledgeContextProjectNodeType>(['project', 'package', 'target', 'file']);
+    default:
+      return new Set<KnowledgeContextProjectNodeType>([
+        'project',
+        'package',
+        'target',
+        'module',
+        'directory',
+      ]);
+  }
+}
+
+function moduleRegion(
+  build: GraphBuild,
+  focus: RegionFocus,
+  parentMap: Map<string, string>
+): RegionSelection {
+  const focusTypes = new Set<KnowledgeContextProjectNodeType>(['module', 'directory', 'file']);
+  const anchorPath = focus.filePath;
+  let candidates = build.nodes.filter((node) => focusTypes.has(node.nodeType));
+  let rootNode = regionProjectRootNode(build);
+  if (anchorPath) {
+    candidates = candidates.filter(
+      (node) =>
+        node.path && (ownsPathByKey(node.path, anchorPath) || ownsPathByKey(anchorPath, node.path))
+    );
+    const owningModule = candidates
+      .filter(
+        (node) => node.nodeType === 'module' && node.path && ownsPathByKey(node.path, anchorPath)
+      )
+      .sort((a, b) => (b.path?.length ?? 0) - (a.path?.length ?? 0))[0];
+    if (owningModule) {
+      rootNode = owningModule;
+    }
+  }
+  const nodes = candidates.slice(0, REGION_NODE_LIMIT);
+  return {
+    rootNode,
+    breadcrumb: regionBreadcrumb(build, rootNode, parentMap),
+    nodes,
+    relations: regionRelationsForNodes(build, nodes, [
+      'partOf',
+      'ownsFile',
+      'dependsOn',
+      'imports',
+    ]),
+    diagnostics: [],
+    truncated: candidates.length > nodes.length,
+  };
+}
+
+function fileRegion(
+  build: GraphBuild,
+  focus: RegionFocus,
+  parentMap: Map<string, string>
+): RegionSelection {
+  const anchorNode = resolveRegionFileAnchor(build, focus);
+  const projectRoot = regionProjectRootNode(build);
+  if (!focus.filePath && !focus.refId) {
+    return {
+      rootNode: projectRoot,
+      breadcrumb: [projectRoot],
+      nodes: [],
+      relations: [],
+      diagnostics: [
+        {
+          code: 'project-context-region-anchor-required',
+          domain: 'project',
+          message: `ProjectContext region focus '${focus.kind}' requires a filePath or refId anchor.`,
+          retryable: false,
+          severity: 'info',
+        },
+      ],
+      truncated: false,
+    };
+  }
+  if (!anchorNode) {
+    return {
+      rootNode: projectRoot,
+      breadcrumb: [projectRoot],
+      nodes: [],
+      relations: [],
+      diagnostics: [
+        {
+          code: 'project-context-region-anchor-unavailable',
+          domain: 'project',
+          message: `No ProjectContext node matched region focus '${focus.kind}' anchor ${
+            focus.filePath ?? focus.refId
+          }.`,
+          retryable: false,
+          severity: 'warning',
+        },
+      ],
+      truncated: true,
+    };
+  }
+  const relations = build.relations
+    .filter((relation) => relation.fromId === anchorNode.id || relation.toId === anchorNode.id)
+    .slice(0, REGION_RELATION_LIMIT);
+  const neighborIds = new Set<string>([anchorNode.id]);
+  for (const relation of relations) {
+    neighborIds.add(relation.fromId);
+    neighborIds.add(relation.toId);
+  }
+  const nodes = build.nodes.filter((node) => neighborIds.has(node.id)).slice(0, REGION_NODE_LIMIT);
+  return {
+    rootNode: anchorNode,
+    breadcrumb: regionBreadcrumb(build, anchorNode, parentMap),
+    nodes,
+    relations,
+    diagnostics: [],
+    truncated: neighborIds.size > nodes.length,
+  };
+}
+
+function resolveRegionFileAnchor(build: GraphBuild, focus: RegionFocus): ProjectGraphNode | null {
+  if (focus.refId) {
+    const byNode = resolveGraphNodeId(build, focus.refId);
+    if (byNode) {
+      return build.nodes.find((node) => node.id === byNode) ?? null;
+    }
+    const ref = build.projectContextRefs.find((candidate) => candidate.id === focus.refId);
+    const refPath = ref?.scope.filePath;
+    if (refPath) {
+      const fileId = resolveGraphNodeId(build, fileNodeId(normalizeRelativePath(refPath)));
+      if (fileId) {
+        return build.nodes.find((node) => node.id === fileId) ?? null;
+      }
+    }
+  }
+  if (focus.filePath) {
+    const fileId =
+      resolveGraphNodeId(build, fileNodeId(focus.filePath)) ?? fileNodeId(focus.filePath);
+    return build.nodes.find((node) => node.id === fileId) ?? null;
+  }
+  return null;
+}
+
+function regionProjectRootNode(build: GraphBuild): ProjectGraphNode {
+  return (
+    build.nodes.find((node) => node.nodeType === 'project') ?? {
+      id: `project:${stableRefSegment(build.projectName) || 'project'}`,
+      label: build.projectName,
+      nodeType: 'project',
+      path: '.',
+    }
+  );
+}
+
+function regionRelationsForNodes(
+  build: GraphBuild,
+  nodes: readonly ProjectGraphNode[],
+  relationTypes: readonly KnowledgeContextProjectRelationType[]
+): ProjectGraphRelation[] {
+  const allowed = new Set<string>(relationTypes);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  return build.relations
+    .filter(
+      (relation) =>
+        allowed.has(relation.relationType) &&
+        (nodeIds.has(relation.fromId) || nodeIds.has(relation.toId))
+    )
+    .slice(0, REGION_RELATION_LIMIT);
+}
+
+// Breadcrumb is the ancestry chain from the project root down to (and including)
+// the focus root, derived from `partOf` ownership relations.
+function buildRegionParentMap(build: GraphBuild): Map<string, string> {
+  const nodeById = new Map(build.nodes.map((node) => [node.id, node]));
+  const parents = new Map<string, string>();
+  for (const relation of build.relations) {
+    if (relation.relationType !== 'partOf') {
+      continue;
+    }
+    const child = relation.fromId;
+    const parent = relation.toId;
+    if (child === parent) {
+      continue;
+    }
+    const existing = parents.get(child);
+    if (!existing) {
+      parents.set(child, parent);
+      continue;
+    }
+    // Prefer the most specific (longest-path) parent.
+    const existingLen = nodeById.get(existing)?.path?.length ?? 0;
+    const candidateLen = nodeById.get(parent)?.path?.length ?? 0;
+    if (candidateLen > existingLen) {
+      parents.set(child, parent);
+    }
+  }
+  return parents;
+}
+
+function regionBreadcrumb(
+  build: GraphBuild,
+  rootNode: ProjectGraphNode,
+  parentMap: Map<string, string>
+): ProjectGraphNode[] {
+  const nodeById = new Map(build.nodes.map((node) => [node.id, node]));
+  const ancestors: ProjectGraphNode[] = [];
+  const seen = new Set<string>([rootNode.id]);
+  let current = parentMap.get(rootNode.id);
+  while (current && !seen.has(current) && ancestors.length < 39) {
+    seen.add(current);
+    const node = nodeById.get(current);
+    if (node) {
+      ancestors.push(node);
+    }
+    current = parentMap.get(current);
+  }
+  return [...ancestors.reverse(), rootNode];
+}
+
+function projectProjectContextRegion(args: {
+  build: GraphBuild;
+  focus: RegionFocus;
+  projectRoot: string;
+  selection: RegionSelection;
+}): ProjectContextRegion {
+  const { build, focus, projectRoot, selection } = args;
+  const childCounts = buildRegionChildCounts(build);
+  const refLimit = 80;
+  return ProjectContextRegionSchema.parse({
+    project: {
+      projectRoot,
+      projectId: `project:${stableRefSegment(build.projectName) || 'project'}`,
+      displayName: build.projectName,
+    },
+    focus,
+    rootNode: regionNodeFromGraphNode(selection.rootNode, childCounts),
+    breadcrumb: selection.breadcrumb.map((node) => regionNodeFromGraphNode(node, childCounts)),
+    nodes: selection.nodes.map((node) => regionNodeFromGraphNode(node, childCounts)),
+    relations: selection.relations.map(regionRelationFromGraphRelation),
+    refs: build.projectContextRefs.slice(0, refLimit).map(projectContextRefSummary),
+    diagnostics: dedupeGraphDiagnostics(selection.diagnostics.map(graphDiagnosticFromKnowledge)),
+    truncated: selection.truncated,
+    meta: {
+      contractVersion: REGION_CONTEXT_CONTRACT_VERSION,
+      outputSchema: 'ProjectContextRegion',
+      producer: 'ProjectContextProjectGraphProvider',
+    },
+  });
+}
+
+function buildRegionChildCounts(build: GraphBuild): Map<string, number> {
+  const parentMap = buildRegionParentMap(build);
+  const counts = new Map<string, number>();
+  for (const parent of parentMap.values()) {
+    counts.set(parent, (counts.get(parent) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function regionNodeFromGraphNode(
+  node: ProjectGraphNode,
+  childCounts: Map<string, number>
+): RegionNode {
+  const childCount = childCounts.get(node.id);
+  return {
+    nodeId: node.id,
+    kind: regionKindFromNodeType(node.nodeType),
+    label: node.label,
+    ...(node.path === undefined ? {} : { path: node.path }),
+    ...(node.detailRefId === undefined ? {} : { projectContextRef: node.detailRefId }),
+    ...(childCount === undefined ? {} : { childCount }),
+  };
+}
+
+function regionRelationFromGraphRelation(relation: ProjectGraphRelation): RegionRelation {
+  return {
+    fromId: relation.fromId,
+    toId: relation.toId,
+    relationType: relation.relationType,
+    ...(relation.fromType === undefined
+      ? {}
+      : { fromKind: regionKindFromNodeType(relation.fromType) }),
+    ...(relation.toType === undefined ? {} : { toKind: regionKindFromNodeType(relation.toType) }),
+    ...(relation.detailRefId === undefined ? {} : { refId: relation.detailRefId }),
+  };
+}
+
+function regionKindFromNodeType(nodeType: KnowledgeContextProjectNodeType): RegionNodeKind {
+  switch (nodeType) {
+    case 'project':
+      return 'space';
+    case 'package':
+    case 'target':
+      return 'repo';
+    case 'module':
+      return 'module';
+    case 'directory':
+      return 'module-layer';
+    case 'file':
+      return 'file';
+    case 'symbol':
+      return 'symbol';
+    default:
+      return 'file';
+  }
+}
+
+// Bridge the shared (typed) region selection into the loose GraphSelection that
+// alembic_graph projects from. This is how graph "consumes" the shared region
+// projection for structural queryKinds without diverging from recipe_map.
+function regionFocusForQueryKind(
+  queryKind: AlembicGraphQueryKind,
+  input: ProjectGraphInput
+): RegionFocus {
+  const focus = regionFocusFromInput(input);
+  focus.kind = regionFocusKindFromQueryKind(queryKind);
+  return focus;
+}
+
+function regionSelectionToGraphSelection(
+  region: RegionSelection,
+  queryKind: AlembicGraphQueryKind,
+  build: GraphBuild,
+  extraResult: Record<string, unknown> = {}
+): GraphSelection {
+  const items = region.nodes.map(projectNodeToOutput);
+  return {
+    ...(region.diagnostics.length > 0 ? { diagnostics: region.diagnostics } : {}),
+    items,
+    matrixNodes: items,
+    relations: region.relations.map(projectRelationToOutput),
+    result: {
+      graphKind: 'project-internal',
+      projectContextPartial: build.projectContext.partial || region.truncated,
+      queryKind,
+      queryMatchedNodeCount: region.nodes.length,
+      sourceOfTruth: false,
+      ...extraResult,
+    },
+  };
 }
 
 export const defaultProjectGraphProvider = new ProjectContextProjectGraphProvider();
