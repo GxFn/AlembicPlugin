@@ -16,7 +16,9 @@ import {
   SignalBus,
   SignalTraceWriter,
 } from '@alembic/core/events';
-import type { ReportStore } from '@alembic/core/infrastructure/report';
+// RIC-2b: type-import ReportStore from the high-level @alembic/core/report facade
+// (not the low-level infrastructure/report). The instance still flows via DI.
+import type { ReportStore } from '@alembic/core/report';
 import { resolveDataRoot } from '@alembic/core/workspace';
 import { HitRecorder } from '../../service/signal/HitRecorder.js';
 import { shutdown } from '../../shared/shutdown.js';
