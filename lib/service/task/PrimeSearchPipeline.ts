@@ -13,6 +13,7 @@ import {
   type ResidentIntentEvidenceSummary,
   type ResidentPrimeInjectionPackageSummary,
   type ResidentPrimeRetrievalConsumerSummary,
+  type ResidentPrimeRequest,
   type ResidentSearchAttemptMeta,
   type ResidentSearchRequest,
   type ResidentSearchResult,
@@ -68,6 +69,7 @@ interface SearchEngineLike {
 
 interface ResidentServiceClientLike {
   search(request: ResidentSearchRequest): Promise<ResidentSearchResult>;
+  prime?(request: ResidentPrimeRequest): Promise<ResidentSearchResult>;
 }
 
 interface PrimeSearchPipelineOptions {
@@ -77,7 +79,9 @@ interface PrimeSearchPipelineOptions {
 export interface PrimeSearchOptions {
   hostIntentFrame?: HostIntentFrame;
   projectRoot?: string;
+  sourceRefs?: string[];
   standalonePrime?: boolean;
+  standalonePrimeRequirement?: Record<string, unknown>;
 }
 
 // ── Constants ───────────────────────────────────────
@@ -113,14 +117,13 @@ export class PrimeSearchPipeline {
     }
 
     const sessionHistory = options.standalonePrime ? [] : this.#buildSessionHistory();
-    const residentIntentHandoff = options.standalonePrime
-      ? null
-      : buildResidentIntentHandoff({
-          hostIntentFrame: options.hostIntentFrame,
-          language: intent.language,
-          sessionHistory,
-          userQuery: intent.raw.userQuery,
-        });
+    const residentIntentHandoff = buildResidentIntentHandoff({
+      hostIntentFrame: options.hostIntentFrame,
+      language: intent.language,
+      sessionHistory,
+      sourceRefs: options.sourceRefs,
+      userQuery: intent.raw.userQuery,
+    });
 
     // Build ranking context
     const context = {
@@ -135,7 +138,15 @@ export class PrimeSearchPipeline {
       intent.keywordQueries ?? [],
       context,
       residentIntentHandoff,
-      options.projectRoot
+      options.projectRoot,
+      {
+        activeFile:
+          typeof options.hostIntentFrame?.hostTurnMeta?.activeFile === 'string'
+            ? options.hostIntentFrame.hostTurnMeta.activeFile
+            : undefined,
+        standalonePrime: options.standalonePrime === true,
+        standalonePrimeRequirement: options.standalonePrimeRequirement,
+      }
     );
     const allResults = searchBundle.items;
 
@@ -228,7 +239,12 @@ export class PrimeSearchPipeline {
     keywordQueries: string[],
     context: { language?: string; intent?: string; sessionHistory?: Array<{ content: string }> },
     residentIntentHandoff: ResidentIntentHandoff | null,
-    projectRoot?: string
+    projectRoot?: string,
+    residentOptions: {
+      activeFile?: string;
+      standalonePrime: boolean;
+      standalonePrimeRequirement?: Record<string, unknown>;
+    } = { standalonePrime: false }
   ): Promise<{ items: SlimSearchResult[]; residentSearch?: ResidentSearchAttemptMeta }> {
     // Auto-mode searches (lexical without CoarseRanker ranking)
     // Using rank: false preserves raw lexical/FWS score magnitude,
@@ -252,7 +268,12 @@ export class PrimeSearchPipeline {
     // AlembicPlugin 不再持有 embedding executor。语义增强由本地 Alembic resident service
     // 提供；不可用时保留 baseline embedded search，并把原因写入 searchMeta。
     const residentPromise = autoQueries[0]
-      ? this.#residentSemanticSearch(autoQueries[0], residentIntentHandoff, projectRoot)
+      ? this.#residentSemanticSearch(
+          autoQueries[0],
+          residentIntentHandoff,
+          projectRoot,
+          residentOptions
+        )
       : Promise.resolve(null);
 
     // Keyword-mode searches (raw FWS scores — for cross-language synonym matching)
@@ -335,38 +356,54 @@ export class PrimeSearchPipeline {
   async #residentSemanticSearch(
     query: string,
     residentIntentHandoff: ResidentIntentHandoff | null,
-    projectRoot?: string
+    projectRoot?: string,
+    options: {
+      activeFile?: string;
+      standalonePrime?: boolean;
+      standalonePrimeRequirement?: Record<string, unknown>;
+    } = {}
   ): Promise<ResidentSearchResult | null> {
     if (!this.#residentServiceClient) {
       return null;
     }
+    const request: ResidentPrimeRequest = {
+      query,
+      mode: 'semantic',
+      limit: 6,
+      rank: false,
+      ...(projectRoot ? { projectRoot } : {}),
+      ...(options.activeFile ? { activeFile: options.activeFile } : {}),
+      ...(residentIntentHandoff
+        ? {
+            confidence: residentIntentHandoff.confidence,
+            degraded: residentIntentHandoff.degraded,
+            degradedReason: residentIntentHandoff.degradedReason,
+            hostDeclaredIntent: residentIntentHandoff.hostDeclaredIntent,
+            hostTurnMeta: residentIntentHandoff.hostTurnMeta,
+            intentContext: {
+              ...residentIntentHandoff.intentContext,
+              ...(options.standalonePrimeRequirement ?? {}),
+              standalonePrime: options.standalonePrime === true,
+            },
+            language: residentIntentHandoff.language,
+            scenario: residentIntentHandoff.scenario,
+            searchIntent: residentIntentHandoff.searchIntent,
+            sessionHistory: residentIntentHandoff.sessionHistory,
+            sourceRefs: residentIntentHandoff.sourceRefs,
+          }
+        : {}),
+    };
     try {
-      return await this.#residentServiceClient.search({
-        query,
-        mode: 'semantic',
-        limit: 6,
-        rank: false,
-        ...(projectRoot ? { projectRoot } : {}),
-        ...(residentIntentHandoff
-          ? {
-              confidence: residentIntentHandoff.confidence,
-              degraded: residentIntentHandoff.degraded,
-              degradedReason: residentIntentHandoff.degradedReason,
-              hostDeclaredIntent: residentIntentHandoff.hostDeclaredIntent,
-              hostTurnMeta: residentIntentHandoff.hostTurnMeta,
-              intentContext: residentIntentHandoff.intentContext,
-              language: residentIntentHandoff.language,
-              scenario: residentIntentHandoff.scenario,
-              searchIntent: residentIntentHandoff.searchIntent,
-              sessionHistory: residentIntentHandoff.sessionHistory,
-              sourceRefs: residentIntentHandoff.sourceRefs,
-            }
-          : {}),
-      });
+      if (options.standalonePrime === true && this.#residentServiceClient.prime) {
+        return await this.#residentServiceClient.prime(request);
+      }
+      return await this.#residentServiceClient.search(request);
     } catch (err: unknown) {
       const reason = err instanceof Error ? err.message : String(err);
       process.stderr.write(
-        `[PrimeSearchPipeline] resident semantic search unavailable: ${reason}\n`
+        `[PrimeSearchPipeline] resident ${
+          options.standalonePrime === true ? 'prime' : 'semantic search'
+        } unavailable: ${reason}\n`
       );
       return {
         items: [],

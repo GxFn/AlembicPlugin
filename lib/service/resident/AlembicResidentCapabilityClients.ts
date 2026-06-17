@@ -18,6 +18,7 @@ import {
   type ResidentIntentEpisodeReadOptions,
   type ResidentIntentEpisodeResult,
   type ResidentIntentEpisodeStartRequest,
+  type ResidentPrimeRequest,
   type ResidentSearchRequest,
   type ResidentSearchResult,
 } from './AlembicResidentServiceClient.js';
@@ -42,6 +43,16 @@ export class ResidentProjectScopeClient {
 
 export class ResidentSearchClient {
   constructor(private readonly client: AlembicResidentServiceClient) {}
+
+  prime(request: ResidentPrimeRequest): Promise<ResidentSearchResult> {
+    return this.client.prime(request);
+  }
+
+  primeWithResult(
+    request: ResidentPrimeRequest
+  ): Promise<AlembicResidentServiceResult<ResidentSearchResult>> {
+    return this.client.primeWithResult(request);
+  }
 
   search(request: ResidentSearchRequest): Promise<ResidentSearchResult> {
     return this.client.search(request);

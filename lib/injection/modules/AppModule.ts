@@ -96,6 +96,8 @@ export function register(c: ServiceContainer) {
       recentIntentEpisodes: clients.intentEpisodes.recentIntentEpisodes.bind(
         clients.intentEpisodes
       ),
+      prime: clients.search.prime.bind(clients.search),
+      primeWithResult: clients.search.primeWithResult.bind(clients.search),
       resolveProjectScopeIdentity: clients.projectScope.resolveProjectScopeIdentity.bind(
         clients.projectScope
       ),

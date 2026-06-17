@@ -9,6 +9,7 @@ import {
 import { getProjectRegistryDir } from '@alembic/core/workspace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY } from '../../lib/runtime/mcp/plugin-host-contracts.js';
+import { ResidentSearchClient } from '../../lib/service/resident/AlembicResidentCapabilityClients.js';
 import { AlembicResidentServiceClient } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -824,6 +825,236 @@ describe('AlembicResidentServiceClient', () => {
       source: 'resident-service-scope',
     });
     expect(result.meta.residentVector).toMatchObject({ available: true });
+  });
+
+  it('uses the resident task prime route for standalone prime material', async () => {
+    const requests: Array<{ body: Record<string, unknown> | null; method: string; url: URL }> = [];
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        const method = init?.method ?? 'GET';
+        const body = parseRequestBody(init);
+        requests.push({ body, method, url });
+
+        if (url.pathname === '/api/v1/daemon/health') {
+          return jsonResponse(residentHealthPayload());
+        }
+        if (url.pathname === '/api/v1/task') {
+          return jsonResponse({
+            success: true,
+            data: {
+              knowledge: {
+                guardRules: [],
+                relatedKnowledge: [
+                  {
+                    id: 'resident-prime-route',
+                    kind: 'pattern',
+                    score: 0.96,
+                    title: 'Resident task prime route',
+                  },
+                ],
+              },
+              searchMeta: {
+                actualMode: 'prime',
+                primeInjectionPackage: {
+                  ...primeInjectionPackageFixture(),
+                  residentRegionRetrieval: {
+                    attempted: true,
+                    degradedReasons: [],
+                    queryCount: 4,
+                    regionHitCount: 12,
+                    route: 'resident-vector-recipe-semantic-region',
+                    selectedRecipes: [
+                      {
+                        itemId: 'resident-prime-route',
+                        matchedRegionClasses: ['applicability', 'architectureConvention'],
+                        matchedRegions: [
+                          {
+                            recipeId: 'resident-prime-route',
+                            regionClass: 'applicability',
+                            score: 0.96,
+                            snippet: 'Use task prime route for accepted resident material.',
+                            sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+                          },
+                        ],
+                        score: 0.96,
+                        sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
+                        title: 'Resident task prime route',
+                      },
+                    ],
+                    used: true,
+                    vectorAvailable: true,
+                    wholeEntryOnlyRejectedCount: 0,
+                  },
+                },
+                requestedMode: 'prime',
+                residentVector: { available: true, endpoint: '/api/v1/task', reason: null },
+                semanticUsed: true,
+                vectorUsed: true,
+              },
+            },
+          });
+        }
+        return jsonResponse(
+          { success: false, message: `${method} ${url.pathname} unexpected` },
+          404
+        );
+      }
+    ) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+
+    const result = await client.prime({
+      activeFile: '/tmp/project/src/service.ts',
+      hostDeclaredIntent: {
+        action: 'implement',
+        goal: 'Implement the public prime route contract',
+        query: 'Implement resident task prime route contract',
+        sourceRefs: ['src/service.ts'],
+      },
+      intentContext: {
+        capability: 'Codex MCP prime',
+        requirementGoal: 'Implement the public prime route contract',
+        taskAction: 'implement',
+      },
+      language: 'typescript',
+      projectRoot: '/tmp/project',
+      query: 'Implement resident task prime route contract',
+      sourceRefs: ['src/service.ts'],
+    });
+
+    const taskRequest = requests.find((request) => request.url.pathname === '/api/v1/task');
+    expect(taskRequest?.method).toBe('POST');
+    expect(taskRequest?.url.search).toBe('');
+    expect(taskRequest?.body).toMatchObject({
+      activeFile: '/tmp/project/src/service.ts',
+      description: 'Implement resident task prime route contract',
+      intentContext: {
+        capability: 'Codex MCP prime',
+        query: 'Implement resident task prime route contract',
+        requirementGoal: 'Implement the public prime route contract',
+        sourceRefs: ['src/service.ts'],
+        standalonePrime: true,
+        taskAction: 'implement',
+      },
+      operation: 'prime',
+      projectRoot: '/tmp/project',
+      sourceRefs: ['src/service.ts'],
+      userQuery: 'Implement resident task prime route contract',
+    });
+    expect(requests.find((request) => request.url.pathname === '/api/v1/search')).toBeUndefined();
+    expect(timeoutSpy.mock.calls.map(([timeoutMs]) => timeoutMs)).toContain(15000);
+    expect(result.items.map((entry) => entry.id)).toEqual(['resident-prime-route']);
+    expect(result.meta).toMatchObject({
+      actualMode: 'prime',
+      residentRequestMode: 'prime',
+      requestedMode: 'prime',
+      residentVector: { available: true, endpoint: '/api/v1/task' },
+      semanticUsed: true,
+      vectorUsed: true,
+    });
+    expect(result.meta.primeInjectionPackage).toMatchObject({
+      residentRegionRetrieval: {
+        route: 'resident-vector-recipe-semantic-region',
+        selectedRecipes: [
+          expect.objectContaining({
+            itemId: 'resident-prime-route',
+            matchedRegionClasses: ['applicability', 'architectureConvention'],
+            matchedRegions: [
+              expect.objectContaining({
+                sourceRefs: ['[absolute-path]/service.ts:42'],
+              }),
+            ],
+            sourceRefs: ['[absolute-path]/service.ts:42'],
+          }),
+        ],
+        used: true,
+        vectorAvailable: true,
+      },
+    });
+    expect(result.meta.retrievalConsumer).toMatchObject({
+      producerContract: {
+        available: true,
+        missingFields: [],
+        reasonCode: 'resident-search-stage1a-contract-present',
+      },
+    });
+    expect(JSON.stringify(result.meta.primeInjectionPackage)).not.toContain('/Users/example');
+  });
+
+  it('exposes resident task prime through the search capability wrapper used by production DI', async () => {
+    const requests: Array<{ body: Record<string, unknown> | null; method: string; url: URL }> = [];
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = fetchInputUrl(input);
+        const method = init?.method ?? 'GET';
+        const body = parseRequestBody(init);
+        requests.push({ body, method, url });
+        if (url.pathname === '/api/v1/daemon/health') {
+          return jsonResponse(residentHealthPayload());
+        }
+        if (url.pathname === '/api/v1/task') {
+          return jsonResponse({
+            success: true,
+            data: {
+              knowledge: {
+                guardRules: [],
+                relatedKnowledge: [
+                  { id: 'wrapped-prime', score: 0.91, title: 'Wrapped resident prime' },
+                ],
+              },
+              searchMeta: {
+                actualMode: 'prime',
+                requestedMode: 'prime',
+                residentVector: { available: true, endpoint: '/api/v1/task', reason: null },
+                semanticUsed: true,
+                vectorUsed: true,
+              },
+            },
+          });
+        }
+        return jsonResponse(
+          { success: false, message: `${method} ${url.pathname} unexpected` },
+          404
+        );
+      }
+    ) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+    const wrappedClient = new ResidentSearchClient(client);
+
+    const result = await wrappedClient.prime({
+      projectRoot: '/tmp/project',
+      query: 'wrapped prime route',
+      sourceRefs: ['src/service.ts'],
+    });
+
+    const taskRequest = requests.find((request) => request.url.pathname === '/api/v1/task');
+    expect(taskRequest?.method).toBe('POST');
+    expect(taskRequest?.body).toMatchObject({
+      intentContext: {
+        sourceRefs: ['src/service.ts'],
+        standalonePrime: true,
+      },
+      operation: 'prime',
+      sourceRefs: ['src/service.ts'],
+      userQuery: 'wrapped prime route',
+    });
+    expect(result.items.map((entry) => entry.id)).toEqual(['wrapped-prime']);
+    expect(result.meta).toMatchObject({
+      residentRequestMode: 'prime',
+      requestedMode: 'prime',
+      residentVector: { available: true, endpoint: '/api/v1/task' },
+    });
   });
 
   it('preserves resident region selectedRecipes in compact prime injection metadata', async () => {

@@ -275,7 +275,13 @@ interface AgentIntentPersistence {
 interface PipelineLike {
   search(
     intent: ExtractedIntent,
-    options?: { hostIntentFrame?: HostIntentFrame; projectRoot?: string; standalonePrime?: true }
+    options?: {
+      hostIntentFrame?: HostIntentFrame;
+      projectRoot?: string;
+      sourceRefs?: string[];
+      standalonePrime?: true;
+      standalonePrimeRequirement?: Record<string, unknown>;
+    }
   ): Promise<PrimeSearchResult | null>;
 }
 
@@ -2068,7 +2074,12 @@ async function runPrimeSearch(
     const searchResult = await pipeline.search(intake.extracted, {
       hostIntentFrame: intake.hostIntentFrame,
       projectRoot: effectiveProjectRoot,
+      sourceRefs: intake.sourceRefs,
       standalonePrime: true,
+      standalonePrimeRequirement: buildStandalonePrimeRequirementFrame(args) as unknown as Record<
+        string,
+        unknown
+      >,
     });
     return { searchDegraded: false, searchResult, skippedReason: null };
   } catch (err: unknown) {
@@ -2089,6 +2100,12 @@ function resolvePrimeSkipBeforeRetrieval(
     return args.intentKind === 'status-only'
       ? 'status-only-turn'
       : 'not-relevant-to-project-knowledge';
+  }
+  if (isStandalonePrimeMechanicalEnvelopeFrame(frame)) {
+    return 'mechanical-envelope-only';
+  }
+  if (isLowInformationStandalonePrimeFrame(frame)) {
+    return 'not-relevant-to-project-knowledge';
   }
   if (intake.lifecycle.primeDecision.action === 'skip' && !trustedStandaloneFrame) {
     return mapPrimeSkipReason(intake.lifecycle.primeDecision.reasonCode);
@@ -2114,21 +2131,7 @@ function isExplicitNonCodePrimeIntentKind(intentKind: AgentIntentKind): boolean 
 }
 
 function isStandalonePrimeNonCodeFrame(frame: StandalonePrimeRequirementFrame): boolean {
-  const frameText = [
-    frame.requirementGoal,
-    frame.scenario,
-    frame.capability,
-    ...frame.domainObjects,
-    frame.integrationBoundary,
-    frame.lifecycleHint,
-    ...frame.qualityConcerns,
-    ...frame.keywords,
-    ...frame.labels,
-  ]
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const frameText = standalonePrimeSemanticText(frame);
   if (!frameText) {
     return false;
   }
@@ -2162,6 +2165,82 @@ function isStandalonePrimeNonCodeFrame(frame: StandalonePrimeRequirementFrame): 
     )
   );
 }
+
+function isStandalonePrimeMechanicalEnvelopeFrame(frame: StandalonePrimeRequirementFrame): boolean {
+  const frameText = standalonePrimeSemanticText(frame);
+  return /<\s*codex_delegation\b|<\s*input\b|<\/\s*codex_delegation\s*>|currentWindow\s*:|taskId\s*:|stateRoot\s*:|dispatchGroup\s*:/iu.test(
+    frameText
+  );
+}
+
+function isLowInformationStandalonePrimeFrame(frame: StandalonePrimeRequirementFrame): boolean {
+  const frameText = standalonePrimeSemanticText(frame);
+  if (!frameText) {
+    return true;
+  }
+  if (
+    /^(help|what\s+now|next\s+steps?|where\s+do\s+i\s+start|how\s+do\s+i\s+start|continue|继续|帮我|下一步|从哪里开始|哪里开始|怎么开始)[?？。!！\s]*$/iu.test(
+      frameText
+    )
+  ) {
+    return true;
+  }
+  const tokens =
+    frameText
+      .toLowerCase()
+      .match(/[a-z0-9_]+|[\p{Script=Han}]+/gu)
+      ?.filter((token) => {
+        if (LOW_INFORMATION_STANDALONE_PRIME_TOKENS.has(token)) {
+          return false;
+        }
+        return token.length > 1 || /[\p{Script=Han}]/u.test(token);
+      }) ?? [];
+  const hasConcreteCodeLocator =
+    /\b(api|route|handler|schema|zod|runtime|mcp|plugin|service|pipeline|contract|projection|validation|regression|test|tests|file|module|class|function|method)\b|接口|路由|处理器|模式|运行时|服务|管线|契约|投影|验证|测试|文件|模块|函数/u.test(
+      frameText
+    );
+  return tokens.length < 3 && !hasConcreteCodeLocator;
+}
+
+function standalonePrimeSemanticText(frame: StandalonePrimeRequirementFrame): string {
+  return [
+    frame.requirementGoal,
+    frame.scenario,
+    frame.capability,
+    ...frame.domainObjects,
+    frame.integrationBoundary,
+    frame.lifecycleHint,
+    ...frame.qualityConcerns,
+    ...frame.keywords,
+    ...frame.labels,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const LOW_INFORMATION_STANDALONE_PRIME_TOKENS = new Set([
+  'begin',
+  'continue',
+  'do',
+  'help',
+  'how',
+  'me',
+  'next',
+  'now',
+  'please',
+  'start',
+  'steps',
+  'what',
+  'where',
+  '帮我',
+  '从哪里开始',
+  '继续',
+  '哪里开始',
+  '下一步',
+  '怎么开始',
+]);
 
 function resolvePrimeStatus(input: {
   primeKnowledgeMaterial: Pick<

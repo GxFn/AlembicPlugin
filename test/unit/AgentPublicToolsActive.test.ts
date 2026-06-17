@@ -1766,6 +1766,96 @@ describe('agent-facing active public tools', () => {
     expect(JSON.stringify(cleanPrime)).not.toContain('"trustLayer":"trusted-to-use"');
   });
 
+  test('skips low-information standalone prime frames before retrieval', async () => {
+    const search = vi.fn(async () => deliveredSearchResult());
+    const ctx = makeContext(search);
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      inputSource: 'host-declared-intent',
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      requirementGoal: 'Help',
+      scenario: 'What now?',
+      sourceRefs: ['lib/service/task/PrimeKnowledgeMaterial.ts'],
+      taskAction: 'fix',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const result = publicToolLegacyTestView(primeOutput) as {
+      data: {
+        items: unknown[];
+        primeKnowledgeMaterial: {
+          acceptedGuards: unknown[];
+          acceptedKnowledge: unknown[];
+          status: string;
+        };
+        result: { reason: { code: string; message: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({
+      reason: {
+        code: 'not-relevant-to-project-knowledge',
+        message: expect.stringContaining('Prime skipped'),
+      },
+      status: 'skipped',
+    });
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      acceptedGuards: [],
+      acceptedKnowledge: [],
+      status: 'empty',
+    });
+    expect(arrayValue(cleanPrime.items)).toEqual([]);
+    expect(JSON.stringify(cleanPrime)).not.toContain('"trustLayer":"trusted-to-use"');
+  });
+
+  test('skips raw delegation standalone prime frames before retrieval', async () => {
+    const search = vi.fn(async () => deliveredSearchResult());
+    const ctx = makeContext(search);
+
+    const primeOutput = await primeHandler(ctx, {
+      agentHost: 'codex',
+      capability: 'dispatch envelope',
+      inputSource: 'host-declared-intent',
+      projectRoot: '/tmp/alembic-plugin-public-tools',
+      requirementGoal: '<codex_delegation><input>continue task</input></codex_delegation>',
+      scenario: '<codex_delegation><input>continue task</input></codex_delegation>',
+      taskAction: 'implement',
+    });
+    const cleanPrime = asRecord(primeOutput);
+    const result = publicToolLegacyTestView(primeOutput) as {
+      data: {
+        items: unknown[];
+        primeKnowledgeMaterial: {
+          acceptedGuards: unknown[];
+          acceptedKnowledge: unknown[];
+          status: string;
+        };
+        result: { reason: { code: string; message: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data.result).toMatchObject({
+      reason: {
+        code: 'mechanical-envelope-only',
+        message: expect.stringContaining('Prime skipped'),
+      },
+      status: 'skipped',
+    });
+    expect(result.data.primeKnowledgeMaterial).toMatchObject({
+      acceptedGuards: [],
+      acceptedKnowledge: [],
+      status: 'empty',
+    });
+    expect(arrayValue(cleanPrime.items)).toEqual([]);
+    expect(JSON.stringify(cleanPrime)).not.toContain('"trustLayer":"trusted-to-use"');
+  });
+
   test('degrades prime when resident search lacks Stage 1A retrieval metadata', async () => {
     const oldResidentResult = deliveredSearchResult();
     oldResidentResult.searchMeta.retrievalConsumer = {

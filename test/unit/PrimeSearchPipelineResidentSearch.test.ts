@@ -4,6 +4,7 @@ import type {
   ResidentSearchAttemptMeta,
   ResidentSearchResult,
 } from '../../lib/service/resident/AlembicResidentServiceClient.js';
+import type { HostIntentFrame } from '../../lib/service/task/HostIntentFrame.js';
 import type { ExtractedIntent } from '../../lib/service/task/IntentExtractor.js';
 import { PrimeSearchPipeline } from '../../lib/service/task/PrimeSearchPipeline.js';
 
@@ -559,6 +560,201 @@ describe('PrimeSearchPipeline resident search enhancement', () => {
       },
       searchMeta: {
         hostIntentApplied: true,
+      },
+    });
+  });
+
+  it('uses the resident prime route for standalone public prime searches', async () => {
+    const engine = {
+      search: vi.fn(async (_query: string, options?: { mode?: string }) => {
+        if (options?.mode === 'auto') {
+          return { items: [item('embedded-1', 'Embedded baseline', 0.72)] };
+        }
+        return { items: [] };
+      }),
+    };
+    const residentServiceClient = {
+      prime: vi.fn(
+        async (): Promise<ResidentSearchResult> => ({
+          items: [item('resident-prime-route', 'Resident task prime route', 0.96)],
+          meta: residentMeta({
+            actualMode: 'prime',
+            primeInjectionPackage: {
+              ...primeInjectionPackageSummary(),
+              residentRegionRetrieval: {
+                attempted: true,
+                degradedReasons: [],
+                queryCount: 3,
+                regionHitCount: 9,
+                route: 'resident-vector-recipe-semantic-region',
+                selectedRecipes: [
+                  {
+                    itemId: 'resident-prime-route',
+                    matchedRegionClasses: ['applicability', 'architectureConvention'],
+                    matchedRegions: [
+                      {
+                        recipeId: 'resident-prime-route',
+                        regionClass: 'applicability',
+                        score: 0.96,
+                        snippet: 'Use resident task prime route for public prime material.',
+                        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+                      },
+                    ],
+                    score: 0.96,
+                    sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+                    title: 'Resident task prime route',
+                  },
+                ],
+                used: true,
+                vectorAvailable: true,
+              },
+            },
+            requestedMode: 'prime',
+            residentRequestMode: 'prime',
+            residentVector: { available: true, endpoint: '/api/v1/task', reason: null },
+            searchMeta: {
+              actualMode: 'prime',
+              primeInjectionPackage: {
+                ...primeInjectionPackageSummary(),
+                residentRegionRetrieval: {
+                  attempted: true,
+                  route: 'resident-vector-recipe-semantic-region',
+                  used: true,
+                  vectorAvailable: true,
+                },
+              },
+              requestedMode: 'prime',
+              residentVector: { available: true, endpoint: '/api/v1/task', reason: null },
+              retrievalConsumer: retrievalConsumerSummary(),
+              semanticUsed: true,
+              vectorUsed: true,
+            },
+            semanticUsed: true,
+            vectorUsed: true,
+          }),
+        })
+      ),
+      search: vi.fn(
+        async (): Promise<ResidentSearchResult> => ({
+          items: [],
+          meta: residentMeta({ available: false, resultCount: 0, used: false }),
+        })
+      ),
+    };
+    const hostIntentFrame: HostIntentFrame = {
+      confidence: 0.88,
+      degraded: false,
+      degradedReasons: [],
+      extracted: {
+        language: 'typescript',
+        module: 'HTTP API',
+        queries: ['Implement HTTP route with Zod validation'],
+        scenario: 'implementation',
+      },
+      hostDeclaredIntent: {
+        action: 'implement',
+        goal: 'Implement HTTP route with Zod request validation',
+        keywords: ['HTTP route', 'Zod', 'request schema'],
+        language: 'typescript',
+        query: 'Implement HTTP route with Zod validation',
+        scenario: 'implementation',
+        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+      },
+      hostTurnMeta: {
+        activeFile: 'lib/runtime/mcp/handlers/agent-public-tools.ts',
+        redactions: ['threadId'],
+        threadIdHash: 'thread-hash',
+      },
+      recognizedIntentDraft: {
+        action: 'implement',
+        confidence: 0.88,
+        constraints: ['Zod request validation'],
+        degraded: false,
+        degradedReasons: [],
+        evidenceSpans: [
+          {
+            end: 36,
+            field: 'query',
+            source: 'hostDeclaredIntent',
+            start: 0,
+            text: 'Implement HTTP route with Zod validation',
+          },
+        ],
+        language: 'typescript',
+        query: 'Implement HTTP route with Zod validation',
+        source: 'host-declared',
+        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+        status: 'recognized',
+        target: 'HTTP route',
+      },
+      source: 'host-declared',
+    };
+
+    const pipeline = new PrimeSearchPipeline(engine, { residentServiceClient });
+    const result = await pipeline.search(intent(), {
+      hostIntentFrame,
+      projectRoot: '/workspace/AlembicPlugin',
+      sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+      standalonePrime: true,
+      standalonePrimeRequirement: {
+        capability: 'HTTP API request validation',
+        requirementGoal: 'Implement HTTP route with Zod request validation',
+        taskAction: 'implement',
+      },
+    });
+
+    expect(residentServiceClient.prime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeFile: 'lib/runtime/mcp/handlers/agent-public-tools.ts',
+        hostDeclaredIntent: expect.objectContaining({
+          query: 'Implement HTTP route with Zod validation',
+        }),
+        intentContext: expect.objectContaining({
+          capability: 'HTTP API request validation',
+          query: 'Implement HTTP route with Zod validation',
+          recognizedIntentDraft: expect.objectContaining({
+            action: 'implement',
+          }),
+          requirementGoal: 'Implement HTTP route with Zod request validation',
+          sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+          standalonePrime: true,
+          taskAction: 'implement',
+        }),
+        language: 'typescript',
+        mode: 'semantic',
+        projectRoot: '/workspace/AlembicPlugin',
+        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+      })
+    );
+    expect(residentServiceClient.search).not.toHaveBeenCalled();
+    expect(result?.relatedKnowledge.map((entry) => entry.id)).toContain('resident-prime-route');
+    expect(result?.searchMeta.residentSearch).toMatchObject({
+      actualMode: 'prime',
+      residentRequestMode: 'prime',
+      requestedMode: 'prime',
+      residentVector: { available: true, endpoint: '/api/v1/task' },
+      searchMeta: {
+        primeInjectionPackage: {
+          residentRegionRetrieval: {
+            route: 'resident-vector-recipe-semantic-region',
+            used: true,
+          },
+        },
+        retrievalConsumer: {
+          producerContract: {
+            available: true,
+            missingFields: [],
+          },
+        },
+      },
+      semanticUsed: true,
+      vectorUsed: true,
+    });
+    expect(result?.searchMeta.primeInjectionPackage).toMatchObject({
+      residentRegionRetrieval: {
+        route: 'resident-vector-recipe-semantic-region',
+        used: true,
+        vectorAvailable: true,
       },
     });
   });
