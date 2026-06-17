@@ -44,6 +44,7 @@ import {
   withPluginToolAnnotations,
 } from '../../runtime/mcp/PluginToolSurfaceCatalog.js';
 import '../../runtime/mcp/core-tools/output.js';
+import '../../runtime/mcp/knowledge-context-tools/graph-output.js';
 import '../../runtime/mcp/knowledge-context-tools/output.js';
 import { getAgentPublicToolDescriptionBase } from '../../runtime/mcp/public-tools/descriptions.js';
 import '../../runtime/mcp/public-tools/output.js';
@@ -222,13 +223,13 @@ export const TOOLS = [
     name: 'alembic_graph',
     tier: 'agent',
     description:
-      'ProjectContext-backed graph queries over project structure, package dependencies, source files, symbols, and detail refs.\n' +
-      '• query — list bounded project graph nodes/relations\n' +
-      '• impact — analyze project impact radius from a project/source node\n' +
-      '• path — find a directed project relation path between two project nodes\n' +
-      '• stats — summarize project graph node/relation counts\n' +
-      '• neighborhood — inspect a bounded node neighborhood\n' +
-      'Non-goal: does not model Recipes, knowledge coverage, or Recipe-to-source coverage edges.',
+      'Pure ProjectContext graph queries over project structure, packages, modules, source files, symbols, and stable refs. Select a queryKind:\n' +
+      '• space / repo / map — project, repo, and architecture-map overviews\n' +
+      '• module / module-layers — module detail and layered file groups\n' +
+      '• file-flow / file-symbols / source-slice — file imports/exports, file symbols, and bounded source slices (filePath)\n' +
+      '• anchor-range — bounded ref/symbol/slice radius around a file line\n' +
+      '• path / impact / neighborhood / stats — relation path, impact radius, node neighborhood, and graph counts derived from ProjectContext refs/relations\n' +
+      'Returns a Recipe-free AlembicGraphOutput (nodes, relations, ProjectContext refs, optional slices, diagnostics). Non-goal: no Recipe ids/summaries/mounts/relation-chains, no search scores, no semantic prime, no knowledge categories.',
     inputSchema: zodToMcpSchema(GraphInput),
   },
 

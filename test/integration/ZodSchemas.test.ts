@@ -330,18 +330,23 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
   });
 
   describe('GraphInput', () => {
-    test('should default to project graph query operation', () => {
+    test('uses queryKind as the public selector with no legacy operation default', () => {
       const result = GraphInput.parse({});
 
-      expect(result.operation).toBe('query');
+      // queryKind is the public selector; the handler defaults it to map. The
+      // legacy operation alias no longer defaults inside the public schema.
+      expect(result.operation).toBeUndefined();
+      expect(result.queryKind).toBeUndefined();
       expect(result.direction).toBe('both');
       expect(result.detailLevel).toBe('summary');
     });
 
-    test('should accept valid operation', () => {
-      const result = GraphInput.parse({ operation: 'stats' });
-      expect(result.direction).toBe('both');
-      expect(result.maxDepth).toBe(2);
+    test('should accept queryKind and the legacy operation alias', () => {
+      expect(GraphInput.parse({ queryKind: 'file-symbols' }).queryKind).toBe('file-symbols');
+      const legacy = GraphInput.parse({ operation: 'stats' });
+      expect(legacy.operation).toBe('stats');
+      expect(legacy.direction).toBe('both');
+      expect(legacy.maxDepth).toBe(2);
     });
 
     test('should accept host-declared intent and source refs', () => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AlembicGraphQueryKindSchema } from './AlembicGraphOutput.js';
 import {
   KnowledgeContextBudgetSchema,
   KnowledgeContextFiltersSchema,
@@ -171,9 +172,31 @@ export const ProjectGraphOperationSchema = z.enum([
 
 export const ProjectGraphDirectionSchema = z.enum(['out', 'in', 'both']);
 
+export const ProjectGraphRadiusSchema = z
+  .object({
+    maxDepth: z.number().int().min(1).max(10).optional(),
+    beforeLines: z.number().int().min(0).max(400).optional(),
+    afterLines: z.number().int().min(0).max(400).optional(),
+    relationHops: z.number().int().min(0).max(10).optional(),
+  })
+  .strict();
+
+// GMAP-1: `queryKind` is the public selector (9 ProjectContext request classes +
+// 4 derived traversal views). Legacy `operation`/`nodeId`/`fromId`/`toId`/
+// `direction`/`relationType`/`maxDepth` remain only so the handler can normalize
+// stale host arguments at the boundary; they do not define a second behavior
+// branch and are not advertised as the public contract.
 export const ProjectGraphInputSchema = KnowledgeContextBaseInputSchema.extend({
   tool: z.literal('alembic_graph').optional(),
-  operation: ProjectGraphOperationSchema.default('query'),
+  queryKind: AlembicGraphQueryKindSchema.optional(),
+  refId: KnowledgeContextRefIdSchema.optional(),
+  fromRefId: KnowledgeContextRefIdSchema.optional(),
+  toRefId: KnowledgeContextRefIdSchema.optional(),
+  filePath: z.string().min(1).max(2000).optional(),
+  symbolName: z.string().min(1).max(240).optional(),
+  line: z.number().int().min(1).max(1_000_000).optional(),
+  radius: ProjectGraphRadiusSchema.optional(),
+  operation: ProjectGraphOperationSchema.optional(),
   nodeId: KnowledgeContextRefIdSchema.optional(),
   nodeType: KnowledgeContextProjectNodeTypeSchema.optional(),
   fromId: KnowledgeContextRefIdSchema.optional(),

@@ -632,33 +632,86 @@ export type StructureInput = z.infer<typeof StructureInput>;
 //  5. alembic_graph
 // ══════════════════════════════════════════════════════
 
+// GMAP-1: `queryKind` is the public alembic_graph selector. The 9 leading values
+// map 1:1 onto ProjectContext request classes; path/impact/neighborhood/stats are
+// derived from ProjectContext refs/relations. Keep this list in lockstep with
+// `AlembicGraphQueryKindSchema` in the service contracts (asserted in tests).
+export const GRAPH_QUERY_KINDS = [
+  'space',
+  'repo',
+  'map',
+  'module',
+  'module-layers',
+  'file-flow',
+  'file-symbols',
+  'source-slice',
+  'anchor-range',
+  'path',
+  'impact',
+  'neighborhood',
+  'stats',
+] as const;
+
+const GraphNodeTypeEnum = z.enum([
+  'project',
+  'package',
+  'target',
+  'module',
+  'directory',
+  'file',
+  'symbol',
+]);
+
 export const GraphInput = z
   .object({
-    operation: z
-      .enum(['query', 'impact', 'path', 'stats', 'neighborhood'])
-      .default('query')
+    queryKind: z
+      .enum(GRAPH_QUERY_KINDS)
+      .optional()
       .describe(
-        'query=项目图查询 | impact=项目影响半径 | path=项目关系路径 | stats=项目图统计 | neighborhood=节点邻域'
+        'ProjectContext graph query class (defaults to map). ProjectContext kinds: space|repo|map|module|module-layers|file-flow|file-symbols|source-slice|anchor-range. Derived traversals over ProjectContext refs/relations: path|impact|neighborhood|stats.'
       ),
-    nodeId: z
+    refId: z
       .string()
       .min(1)
       .max(240)
       .optional()
-      .describe('query/impact/neighborhood 时指定项目图节点 ID'),
-    nodeType: z
-      .enum(['project', 'package', 'target', 'module', 'directory', 'file', 'symbol'])
-      .optional(),
-    fromId: z.string().optional(),
-    toId: z.string().optional(),
-    fromType: z
-      .enum(['project', 'package', 'target', 'module', 'directory', 'file', 'symbol'])
-      .optional(),
-    toType: z
-      .enum(['project', 'package', 'target', 'module', 'directory', 'file', 'symbol'])
-      .optional(),
-    direction: z.enum(['out', 'in', 'both']).default('both'),
-    maxDepth: z.number().int().min(1).max(10).default(2),
+      .describe('ProjectContext ref/node id anchor for module/file/anchor/impact/neighborhood.'),
+    fromRefId: z
+      .string()
+      .min(1)
+      .max(240)
+      .optional()
+      .describe('path queryKind source ProjectContext ref/node id.'),
+    toRefId: z
+      .string()
+      .min(1)
+      .max(240)
+      .optional()
+      .describe('path queryKind target ProjectContext ref/node id.'),
+    filePath: z
+      .string()
+      .min(1)
+      .max(2000)
+      .optional()
+      .describe('Target file for file-flow/file-symbols/source-slice/anchor-range.'),
+    symbolName: z.string().min(1).max(240).optional(),
+    line: z
+      .number()
+      .int()
+      .min(1)
+      .max(1_000_000)
+      .optional()
+      .describe('Anchor line for source-slice/anchor-range.'),
+    radius: z
+      .object({
+        maxDepth: z.number().int().min(1).max(10).optional(),
+        beforeLines: z.number().int().min(0).max(400).optional(),
+        afterLines: z.number().int().min(0).max(400).optional(),
+        relationHops: z.number().int().min(0).max(10).optional(),
+      })
+      .strict()
+      .optional()
+      .describe('Bounded traversal/source radius for derived and anchor queryKinds.'),
     relationType: z
       .enum([
         'partOf',
@@ -688,6 +741,21 @@ export const GraphInput = z
     detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
     budget: KnowledgeContextBudgetInput.optional(),
     freshnessPolicy: KnowledgeContextFreshnessInput.optional(),
+    // ── Deprecated stale-input aliases (handler-boundary normalization only) ──
+    // Not the public contract; retained so cached host arguments still parse and
+    // normalize onto queryKind without a second behavior branch.
+    operation: z
+      .enum(['query', 'impact', 'path', 'stats', 'neighborhood'])
+      .optional()
+      .describe('Deprecated: legacy operation; normalized onto queryKind.'),
+    nodeId: z.string().min(1).max(240).optional(),
+    nodeType: GraphNodeTypeEnum.optional(),
+    fromId: z.string().optional(),
+    toId: z.string().optional(),
+    fromType: GraphNodeTypeEnum.optional(),
+    toType: GraphNodeTypeEnum.optional(),
+    direction: z.enum(['out', 'in', 'both']).default('both'),
+    maxDepth: z.number().int().min(1).max(10).default(2),
   })
   .strict();
 export type GraphInput = z.infer<typeof GraphInput>;

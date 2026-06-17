@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
 import {
   createMcpStructuredToolResult,
@@ -253,15 +254,17 @@ describe('Project knowledge context four-tool contracts', () => {
     expect(parsed.hostDeclaredIntent?.keywords).toEqual(['ProjectContext', 'matrix']);
   });
 
-  test('registers alembic_graph as a knowledge context clean-output tool', () => {
+  test('detaches alembic_graph from the knowledge context clean-output envelope', () => {
+    // GMAP-1: alembic_graph left KnowledgeContextToolOutput and projects its own
+    // Recipe-free AlembicGraphOutput; only matrix/search remain on the shared
+    // knowledge context envelope.
     expect(KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES).toEqual([
       'alembic_project_matrix',
       'alembic_search',
-      'alembic_graph',
     ]);
     expect(getMcpOutputProjector('alembic_graph')).toMatchObject({
       outputSchemaName: 'alembic_graph_clean_output',
-      projectorName: 'knowledge-context-clean-output-projector',
+      projectorName: 'alembic-graph-clean-output-projector',
     });
   });
 

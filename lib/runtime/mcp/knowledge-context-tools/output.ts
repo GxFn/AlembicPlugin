@@ -8,10 +8,12 @@ import {
   registerMcpOutputProjector,
 } from '../../../runtime/mcp/output-contract.js';
 
+// GMAP-1: alembic_graph left the KnowledgeContextToolOutput envelope and now
+// projects its own Recipe-free AlembicGraphOutput (see knowledge-context-tools/
+// graph-output.ts).
 export const KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_project_matrix',
   'alembic_search',
-  'alembic_graph',
 ] as const;
 
 export type KnowledgeContextCleanOutputToolName =
@@ -33,13 +35,6 @@ export const KNOWLEDGE_CONTEXT_TOOL_OUTPUT_SCHEMAS = {
     (output) => output.toolName === 'alembic_search',
     {
       message: 'Knowledge context output toolName must be alembic_search.',
-      path: ['toolName'],
-    }
-  ),
-  alembic_graph: KnowledgeContextToolOutputSchema.refine(
-    (output) => output.toolName === 'alembic_graph',
-    {
-      message: 'Knowledge context output toolName must be alembic_graph.',
       path: ['toolName'],
     }
   ),

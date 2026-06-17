@@ -4,352 +4,304 @@ import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import { routeGraphTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
-import { GraphInput } from '../../lib/shared/schemas/mcp-tools.js';
+import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
+import { GRAPH_QUERY_KINDS, GraphInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 const tempRoots: string[] = [];
 
-describe('alembic_graph project graph tool', () => {
+// The 9 queryKinds that map 1:1 onto ProjectContext request classes.
+const PROJECT_CONTEXT_QUERY_KINDS = [
+  'space',
+  'repo',
+  'map',
+  'module',
+  'module-layers',
+  'file-flow',
+  'file-symbols',
+  'source-slice',
+  'anchor-range',
+] as const;
+
+const FILE_SCOPED_QUERY_KINDS = new Set([
+  'file-flow',
+  'file-symbols',
+  'source-slice',
+  'anchor-range',
+]);
+
+const ALLOWED_NODE_TYPES = new Set([
+  'project',
+  'package',
+  'target',
+  'module',
+  'directory',
+  'file',
+  'symbol',
+]);
+
+type GraphResult = {
+  content: Array<{ type: string; text: string }>;
+  structuredContent: GraphOutput;
+};
+interface GraphOutput {
+  ok: boolean;
+  status: string;
+  tool: string;
+  queryKind: string;
+  summary: string;
+  project: Record<string, unknown>;
+  nodes: Array<Record<string, unknown>>;
+  relations: Array<Record<string, unknown>>;
+  refs: Array<Record<string, unknown>>;
+  slices?: Array<Record<string, unknown>>;
+  diagnostics: Array<Record<string, unknown>>;
+  nextActions: Array<Record<string, unknown>>;
+  limits: { truncated: boolean; itemLimit: number; refLimit: number; relationLimit: number };
+  meta: Record<string, unknown>;
+}
+
+async function runGraph(projectRoot: string, args: Record<string, unknown>): Promise<GraphOutput> {
+  const result = (await routeGraphTool(createContext(projectRoot), {
+    projectRoot,
+    ...args,
+  })) as GraphResult;
+  // Visible MCP text must be the summary only.
+  expect(result.content).toEqual([{ type: 'text', text: result.structuredContent.summary }]);
+  return result.structuredContent;
+}
+
+describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', () => {
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
       fs.rmSync(root, { force: true, recursive: true });
     }
   });
 
-  test('returns KnowledgeContextToolOutput for project-internal graph stats', async () => {
-    const projectRoot = createFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      operation: 'stats',
-      projectRoot,
-      budget: { itemLimit: 100, matrixNodeLimit: 100, relationHopLimit: 10 },
-    });
-    const structured = result.structuredContent as Record<string, unknown>;
-
-    expect(result.content).toEqual([{ type: 'text', text: structured.summary }]);
-    expect(structured).toMatchObject({
-      ok: true,
-      status: 'ready',
-      toolName: 'alembic_graph',
-      operation: 'stats',
-      meta: { outputSchema: 'KnowledgeContextToolOutput' },
-    });
-    expect(structured.inventory).toMatchObject({
-      allowedNodeTypes: expect.arrayContaining(['project', 'package', 'file', 'symbol']),
-      allowedRelationTypes: expect.arrayContaining(['partOf', 'imports', 'definesSymbol']),
-    });
-    expect(JSON.stringify(structured.items)).not.toContain('recipe');
-    expect(JSON.stringify(structured.relations)).not.toContain('coveredByKnowledge');
+  test('public queryKind enum matches the service AlembicGraphOutput enum', () => {
+    expect([...GRAPH_QUERY_KINDS]).toEqual([...ALEMBIC_GRAPH_QUERY_KINDS]);
+    // 9 ProjectContext kinds + 4 derived traversals.
+    expect(GRAPH_QUERY_KINDS).toHaveLength(13);
   });
 
-  test('supports query and neighborhood without Recipe knowledge fallbacks', async () => {
+  test('answers every ProjectContext queryKind with bounded, Recipe-free output', async () => {
     const projectRoot = createFixtureProject();
-    const query = await routeGraphTool(createContext(projectRoot), {
-      operation: 'query',
-      projectRoot,
-      nodeType: 'file',
-      query: 'index',
-    });
-    const queryStructured = query.structuredContent as Record<string, unknown>;
-    const queryItems = queryStructured.items as Array<Record<string, unknown>>;
+    for (const queryKind of PROJECT_CONTEXT_QUERY_KINDS) {
+      const args: Record<string, unknown> = {
+        queryKind,
+        budget: { itemLimit: 50, relationHopLimit: 4 },
+      };
+      if (FILE_SCOPED_QUERY_KINDS.has(queryKind)) {
+        args.filePath = 'lib/index.ts';
+      }
+      const output = await runGraph(projectRoot, args);
 
-    expect(queryStructured.status).toBe('partial');
-    expect(queryItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'file:lib/index.ts', nodeType: 'file' }),
-      ])
-    );
+      expect(output).toMatchObject({
+        ok: true,
+        tool: 'alembic_graph',
+        toolName: 'alembic_graph',
+        queryKind,
+        meta: { outputSchema: 'AlembicGraphOutput', contractVersion: 1 },
+      });
+      expect(['ready', 'partial', 'degraded']).toContain(output.status);
 
-    const neighborhood = await routeGraphTool(createContext(projectRoot), {
-      operation: 'neighborhood',
-      projectRoot,
-      nodeId: 'file:lib/index.ts',
-      relationType: 'imports',
-    });
-    const neighborhoodStructured = neighborhood.structuredContent as Record<string, unknown>;
-    const relations = neighborhoodStructured.relations as Array<Record<string, unknown>>;
+      // Bounded.
+      expect(output.nodes.length).toBeLessThanOrEqual(output.limits.itemLimit);
+      expect(output.refs.length).toBeLessThanOrEqual(output.limits.refLimit);
+      expect(output.relations.length).toBeLessThanOrEqual(output.limits.relationLimit);
 
-    expect(neighborhoodStructured.toolName).toBe('alembic_graph');
-    expect(relations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          fromId: 'file:lib/index.ts',
-          relationType: 'imports',
-          toId: 'file:lib/helper.ts',
-        }),
-      ])
-    );
-    expect(neighborhoodStructured.result).toMatchObject({ graphKind: 'project-internal' });
+      // Detached from the KnowledgeContext middle-layer envelope: graph has its
+      // own AlembicGraphOutput schema, with no KnowledgeContextToolOutput
+      // `result`/`inventory` bag.
+      expect(output).not.toHaveProperty('result');
+      expect(output).not.toHaveProperty('inventory');
+      expect(output.meta.outputSchema).not.toBe('KnowledgeContextToolOutput');
+
+      // Recipe-free.
+      const serialized = JSON.stringify(output).toLowerCase();
+      expect(serialized).not.toContain('recipe');
+      expect(serialized).not.toContain('coveredbyknowledge');
+      expect(serialized).not.toContain('relationchain');
+      expect(serialized).not.toContain('mount');
+      expect(serialized).not.toContain('scorebreakdown');
+
+      for (const node of output.nodes) {
+        expect(ALLOWED_NODE_TYPES).toContain(node.nodeType);
+        expect(node).not.toHaveProperty('recipeId');
+      }
+    }
   });
 
-  test('uses hostDeclaredIntent query for runtime graph selection', async () => {
+  test('stats summarizes bounded project graph counts', async () => {
     const projectRoot = createFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 5, matrixNodeLimit: 5, relationHopLimit: 2 },
-      hostDeclaredIntent: {
-        query: 'index',
-        sourceRefs: ['host:intent'],
-        summary: 'Find the index entrypoint',
-      },
-      nodeType: 'file',
-      operation: 'query',
-      projectRoot,
+    const output = await runGraph(projectRoot, {
+      queryKind: 'stats',
+      budget: { itemLimit: 100, relationHopLimit: 10 },
     });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const request = structured.request as Record<string, unknown>;
-    const queryItems = structured.items as Array<Record<string, unknown>>;
-
-    expect(request.query).toBe('index');
-    expect(queryItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'file:lib/index.ts', nodeType: 'file' }),
-      ])
-    );
+    expect(output.status).toBe('ready');
+    expect(output.queryKind).toBe('stats');
+    expect(output.nodes.length).toBeGreaterThan(0);
+    expect(output.project).toMatchObject({ displayName: 'fixture-project' });
+    expect(JSON.stringify(output.nodes)).not.toContain('recipe');
   });
 
-  test('keeps zero-match focused queries compact instead of returning broad matrix nodes', async () => {
+  test('map and space return ProjectContext orientation nodes', async () => {
     const projectRoot = createFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 5, matrixNodeLimit: 20, relationHopLimit: 1 },
-      operation: 'query',
-      projectRoot,
-      query: 'nonexistent catalog router handler',
-    });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const graphResult = structured.result as Record<string, unknown>;
-
-    expect(structured.items).toEqual([]);
-    expect(graphResult).toMatchObject({
-      projectContextPartial: true,
-      matrixNodes: [],
-      noMatchReason: 'No bounded project graph nodes matched the focused query terms.',
-      queryMatchedNodeCount: 0,
-    });
+    const map = await runGraph(projectRoot, { queryKind: 'map' });
+    expect(map.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(['project:fixture-project'])
+    );
+    const space = await runGraph(projectRoot, { queryKind: 'space' });
+    expect(
+      space.nodes.every((node) => ['project', 'package'].includes(String(node.nodeType)))
+    ).toBe(true);
   });
 
-  test('returns compact project orientation for low-information graph queries', async () => {
+  test('file-symbols exposes ProjectContext file + symbol nodes', async () => {
     const projectRoot = createFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 8, matrixNodeLimit: 8, nextActionLimit: 4, relationHopLimit: 1 },
-      operation: 'query',
-      projectRoot,
-      query: 'where do I start',
+    const output = await runGraph(projectRoot, {
+      queryKind: 'file-symbols',
+      filePath: 'lib/index.ts',
     });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const graphResult = structured.result as Record<string, unknown>;
-    const itemIds = (structured.items as Array<Record<string, unknown>>).map((item) => item.id);
-
-    expect(graphResult).toMatchObject({
-      lowInformationIntent: true,
-      operation: 'query',
-      orientation: true,
-      queryMatchMode: 'project-orientation',
-      projectContextRefRequiredForImpact: true,
-    });
-    expect(itemIds).toEqual(
-      expect.arrayContaining(['project:fixture-project', 'package:fixture-project'])
-    );
-    expect(JSON.stringify(structured.items)).not.toContain('Knowledge');
-    expect(structured.nextActions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ tool: 'alembic_project_matrix', operation: 'overview' }),
-      ])
-    );
+    const nodeTypes = new Set(output.nodes.map((node) => node.nodeType));
+    expect(nodeTypes.has('file')).toBe(true);
+    expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
+    expect(JSON.stringify(output)).not.toContain('recipe');
   });
 
-  test('withholds impact traversal until a concrete ProjectContext anchor is supplied', async () => {
+  test('source-slice returns bounded ProjectContext source slices', async () => {
     const projectRoot = createFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      operation: 'impact',
-      projectRoot,
+    const output = await runGraph(projectRoot, {
+      queryKind: 'source-slice',
+      filePath: 'lib/index.ts',
+    });
+    expect(Array.isArray(output.slices)).toBe(true);
+    expect((output.slices ?? []).length).toBeGreaterThan(0);
+    for (const slice of output.slices ?? []) {
+      expect(slice).toHaveProperty('filePath', 'lib/index.ts');
+      expect(slice).toHaveProperty('range');
+    }
+  });
+
+  test('derived impact traversal withholds output until a concrete ProjectContext anchor is supplied', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'impact',
       query: 'what changes if I touch this',
     });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const graphResult = structured.result as Record<string, unknown>;
-
-    expect(structured.items).toEqual([]);
-    expect(structured.relations).toEqual([]);
-    expect(graphResult).toMatchObject({
-      impactUnavailableReason: expect.stringContaining('concrete ProjectContext nodeId'),
-      missing: 'nodeId',
-      operation: 'impact',
-      projectContextRefRequiredForImpact: true,
-    });
-    expect(structured.nextActions).toEqual(
+    expect(output.nodes).toEqual([]);
+    expect(output.relations).toEqual([]);
+    expect(output.status).toBe('partial');
+    expect(output.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      'project-graph-anchor-required'
+    );
+    expect(output.nextActions).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          operation: 'query',
-          required: true,
-          tool: 'alembic_graph',
-        }),
+        expect.objectContaining({ tool: 'alembic_graph', queryKind: 'map', required: true }),
       ])
     );
+  });
+
+  test('derived impact traversal runs from a resolved ProjectContext ref', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'impact',
+      refId: 'file:lib/index.ts',
+      budget: { itemLimit: 20, relationHopLimit: 4 },
+    });
+    expect(output.nodes.some((node) => node.id === 'file:lib/index.ts')).toBe(true);
+    expect(output.relations.length).toBeGreaterThan(0);
+    expect(JSON.stringify(output)).not.toContain('recipe');
+  });
+
+  test('file-scoped queryKind without an anchor returns a graph diagnostic, not a fallback', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runGraph(projectRoot, { queryKind: 'file-symbols' });
+    expect(output.nodes).toEqual([]);
+    expect(output.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      'project-graph-file-anchor-required'
+    );
+    expect(output.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'alembic_graph', queryKind: 'map', required: true }),
+      ])
+    );
+  });
+
+  test('legacy operation is normalized onto queryKind without a second behavior branch', async () => {
+    const projectRoot = createFixtureProject();
+    // Stale operation, no queryKind → normalized.
+    expect((await runGraph(projectRoot, { operation: 'stats' })).queryKind).toBe('stats');
+    expect(
+      (await runGraph(projectRoot, { operation: 'impact', refId: 'file:lib/index.ts' })).queryKind
+    ).toBe('impact');
+    expect((await runGraph(projectRoot, { operation: 'query' })).queryKind).toBe('map');
+    // Explicit queryKind always wins over a stale operation alias.
+    expect(
+      (await runGraph(projectRoot, { queryKind: 'space', operation: 'stats' })).queryKind
+    ).toBe('space');
+  });
+
+  test('rejects legacy Recipe graph input at the public schema boundary', () => {
+    expect(GraphInput.safeParse({ nodeType: 'recipe' }).success).toBe(false);
+    expect(GraphInput.safeParse({ nodeType: 'knowledge' }).success).toBe(false);
+    expect(GraphInput.safeParse({ relation: 'hasGap' }).success).toBe(false);
+    expect(GraphInput.safeParse({ queryKind: 'recipe' }).success).toBe(false);
+    expect(GraphInput.safeParse({ queryKind: 'coverage' }).success).toBe(false);
+    // Valid new contract parses.
+    expect(
+      GraphInput.safeParse({ queryKind: 'source-slice', filePath: 'lib/index.ts' }).success
+    ).toBe(true);
+  });
+
+  test('keeps alembic_graph on the ProjectContext direct boundary and off the middle layer', () => {
+    const providerSource = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        'lib/service/project-knowledge-context/project/ProjectGraphProvider.ts'
+      ),
+      'utf8'
+    );
+    expect(providerSource).toContain('ProjectContext.execute');
+    expect(providerSource).toContain('ProjectContextProjectGraphProvider');
+    expect(providerSource).toContain('resolveAlembicGraph');
+    expect(providerSource).not.toContain('walkProject');
+    expect(providerSource).not.toContain('fs.readFileSync');
+
+    const handlerSource = fs.readFileSync(
+      path.join(process.cwd(), 'lib/runtime/mcp/handlers/structure.ts'),
+      'utf8'
+    );
+    // graph output no longer routes through the KnowledgeContext middle layer.
+    expect(handlerSource).not.toContain('resolveMcpResult');
+    expect(handlerSource).toContain('resolveAlembicGraph');
+    expect(handlerSource).toContain('createAlembicGraphMcpResult');
   });
 
   test('uses workspace.config repoNames as the default graph boundary', async () => {
     const projectRoot = createWorkspaceFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      operation: 'stats',
-      projectRoot,
-      budget: { itemLimit: 100, matrixNodeLimit: 200, relationHopLimit: 10 },
+    const output = await runGraph(projectRoot, {
+      queryKind: 'stats',
+      budget: { itemLimit: 200, relationHopLimit: 10 },
     });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const serialized = JSON.stringify(structured);
-
+    const serialized = JSON.stringify(output);
     expect(serialized).toContain('AlembicPlugin/lib/index.ts');
     expect(serialized).toContain('AlembicCore/src/index.ts');
     expect(serialized).not.toContain('Test');
     expect(serialized).not.toContain('wakeflow-ledger');
-    expect(serialized).not.toContain('workspace-ledger');
     expect(serialized).not.toContain('legacy-docs-do-not-use');
-  });
-
-  test('ranks ProjectContext request-kind nodes ahead of weak repository path matches', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 12, matrixNodeLimit: 20, relationHopLimit: 4 },
-      operation: 'query',
-      projectRoot,
-      query:
-        'ProjectContext execute request kinds source-slice file-symbols file-flow module map repo space repository',
-    });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const graphResult = structured.result as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
-    const itemPaths = items.map((item) => String(item.path ?? item.id ?? '').toLowerCase());
-    const firstProjectContextIndex = itemPaths.findIndex(
-      (value) => value.includes('project-context') || value.includes('projectcontext')
-    );
-    const firstRepositoryIndex = itemPaths.findIndex(
-      (value) => value.includes('/repository/') || value.includes('/vendor/')
-    );
-
-    expect(graphResult).toMatchObject({
-      operation: 'query',
-      queryMatchMode: 'project-context-weighted',
-    });
-    expect(firstProjectContextIndex).toBeGreaterThanOrEqual(0);
-    expect(firstProjectContextIndex).toBeLessThan(5);
-    if (firstRepositoryIndex !== -1) {
-      expect(firstProjectContextIndex).toBeLessThan(firstRepositoryIndex);
-    }
-    expect(items.slice(0, 5)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          rankingSignals: expect.arrayContaining(['project-context-semantic-node']),
-        }),
-      ])
-    );
-    expect(JSON.stringify(items.slice(0, 5))).not.toContain('vendor/AlembicCore/src/repository');
-  });
-
-  test('suppresses generated artifact paths in default ProjectContext graph probes', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 80, matrixNodeLimit: 80, relationHopLimit: 8 },
-      operation: 'query',
-      projectRoot,
-      query: 'ProjectContext generated artifact dist build declaration vendor file-flow',
-    });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const inventory = structured.inventory as Record<string, unknown>;
-    const projectContext = inventory.projectContext as Record<string, unknown>;
-    const visibleOutput = JSON.stringify({
-      detailRefs: structured.detailRefs,
-      items: structured.items,
-      matrixNodes: structured.matrixNodes,
-      relations: structured.relations,
-      sources: structured.sources,
-    }).toLowerCase();
-
-    expect(Number(projectContext.generatedArtifactSkipCount ?? 0)).toBeGreaterThan(0);
-    expect(visibleOutput).not.toContain('/dist/');
-    expect(visibleOutput).not.toContain('/build/');
-    expect(visibleOutput).not.toContain('/vendor/');
-    expect(visibleOutput).not.toContain('.d.ts');
-  });
-
-  test('keeps broad repo-root and config file-flow noise out of default graph probes', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 12, matrixNodeLimit: 20, relationHopLimit: 4 },
-      operation: 'query',
-      projectRoot,
-      query:
-        'ProjectContext execute request kinds source-slice file-symbols file-flow module map repo space repository',
-    });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const diagnosticsText = JSON.stringify(structured.diagnostics ?? []).toLowerCase();
-
-    expect(diagnosticsText).not.toContain('file-flow parser is unavailable for language json');
-    expect(diagnosticsText).not.toContain('file-flow import target was not found: ./vitest.config');
-    expect(diagnosticsText).not.toContain('alembicplugin/lib/service/project-knowledge-context');
-  });
-
-  test('keeps default ProjectContext graph queries on a bounded file-flow workset', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      operation: 'query',
-      projectRoot,
-      query:
-        'ProjectContext execute request kinds source-slice file-symbols file-flow module map repo space repository',
-    });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const inventory = structured.inventory as Record<string, unknown>;
-    const projectContext = inventory.projectContext as Record<string, unknown>;
-
-    expect(projectContext).toMatchObject({
-      fileFlowTargetLimit: 12,
-      explicitFileTraversalFocused: false,
-      mapRequestCount: 1,
-      moduleRequestCount: 4,
-    });
-    expect(Number(projectContext.fileFlowTargetCount ?? 0)).toBeLessThanOrEqual(12);
-  });
-
-  test('keeps explicit ProjectContext file traversal from fanning out into module parser diagnostics', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
-    const neighborhood = await routeGraphTool(createContext(projectRoot), {
-      maxDepth: 1,
-      nodeId: 'file:alembiccore/src/project-context.ts',
-      operation: 'neighborhood',
-      projectRoot,
-      relationType: 'partOf',
-    });
-    const structured = neighborhood.structuredContent as Record<string, unknown>;
-    const inventory = structured.inventory as Record<string, unknown>;
-    const projectContext = inventory.projectContext as Record<string, unknown>;
-    const diagnosticsText = JSON.stringify(structured.diagnostics ?? []).toLowerCase();
-
-    expect(projectContext).toMatchObject({
-      explicitFileTraversalFocused: true,
-      mapRequestCount: 0,
-      moduleRequestCount: 0,
-    });
-    expect(diagnosticsText).not.toContain('callgraphanalyzer');
-    expect(diagnosticsText).not.toContain('missing-call-edge');
-    expect(diagnosticsText).not.toContain('alembiccore/src/core/analysis');
   });
 
   test('enriches real workspace file neighborhoods with ProjectContext ownership relations', async () => {
     const projectRoot = createWorkspaceFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 20, matrixNodeLimit: 20, relationHopLimit: 10 },
-      maxDepth: 1,
-      nodeId: 'file:AlembicCore/src/index.ts',
-      operation: 'neighborhood',
-      projectRoot,
+    const output = await runGraph(projectRoot, {
+      queryKind: 'neighborhood',
+      refId: 'file:AlembicCore/src/index.ts',
       relationType: 'partOf',
+      radius: { maxDepth: 1 },
+      budget: { itemLimit: 20, relationHopLimit: 10 },
     });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const graphResult = structured.result as Record<string, unknown>;
-    const relations = structured.relations as Array<Record<string, unknown>>;
-    const diagnostics = structured.diagnostics as Array<Record<string, unknown>>;
-
-    expect(graphResult).toMatchObject({
-      graphKind: 'project-internal',
-      nodeId: 'file:alembiccore/src/index.ts',
-      operation: 'neighborhood',
-    });
-    expect(relations).toEqual(
+    expect(output.queryKind).toBe('neighborhood');
+    expect(output.relations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           fromId: 'file:alembiccore/src/index.ts',
@@ -363,67 +315,25 @@ describe('alembic_graph project graph tool', () => {
         }),
       ])
     );
-    expect(JSON.stringify(diagnostics)).not.toContain('project-graph-relation-unavailable');
+    expect(JSON.stringify(output.diagnostics)).not.toContain('project-graph-relation-unavailable');
   });
 
-  test('reports unavailable relation classes for anchored graph traversal', async () => {
+  test('suppresses generated artifact paths in default ProjectContext graph probes', async () => {
     const projectRoot = createWorkspaceFixtureProject();
-    const result = await routeGraphTool(createContext(projectRoot), {
-      budget: { itemLimit: 20, matrixNodeLimit: 20, nextActionLimit: 5, relationHopLimit: 10 },
-      maxDepth: 1,
-      nodeId: 'file:AlembicCore/src/index.ts',
-      operation: 'impact',
-      projectRoot,
-      relationType: 'calls',
+    const output = await runGraph(projectRoot, {
+      queryKind: 'map',
+      query: 'ProjectContext generated artifact dist build declaration vendor file-flow',
+      budget: { itemLimit: 80, relationHopLimit: 8 },
     });
-    const structured = result.structuredContent as Record<string, unknown>;
-    const graphResult = structured.result as Record<string, unknown>;
-    const diagnostics = structured.diagnostics as Array<Record<string, unknown>>;
-    const nextActions = structured.nextActions as Array<Record<string, unknown>>;
-
-    expect(graphResult).toMatchObject({
-      graphKind: 'project-internal',
-      nodeId: 'file:alembiccore/src/index.ts',
-      operation: 'impact',
-      projectContextPartial: true,
-      relationUnavailableReason: expect.stringContaining('calls'),
-    });
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'project-graph-relation-unavailable' }),
-      ])
-    );
-    expect(nextActions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ tool: 'alembic_graph', operation: 'query' }),
-      ])
-    );
-  });
-
-  test('rejects legacy Recipe graph input at the public schema boundary', () => {
-    expect(GraphInput.safeParse({ nodeType: 'recipe' }).success).toBe(false);
-    expect(GraphInput.safeParse({ nodeType: 'knowledge' }).success).toBe(false);
-    expect(GraphInput.safeParse({ relation: 'hasGap' }).success).toBe(false);
-    expect(
-      GraphInput.safeParse({ operation: 'neighborhood', nodeType: 'source-graph-node' }).success
-    ).toBe(false);
-  });
-
-  test('keeps alembic_graph provider on the ProjectContext direct boundary', () => {
-    const providerSource = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        'lib/service/project-knowledge-context/project/ProjectGraphProvider.ts'
-      ),
-      'utf8'
-    );
-
-    expect(providerSource).toContain('ProjectContext.execute');
-    expect(providerSource).toContain('ProjectContextProjectGraphProvider');
-    expect(providerSource).not.toContain('walkProject');
-    expect(providerSource).not.toContain('addImportAndSymbolEdges');
-    expect(providerSource).not.toContain('extractImportSpecifiers');
-    expect(providerSource).not.toContain('fs.readFileSync');
+    const visibleOutput = JSON.stringify({
+      nodes: output.nodes,
+      relations: output.relations,
+      refs: output.refs,
+    }).toLowerCase();
+    expect(visibleOutput).not.toContain('/dist/');
+    expect(visibleOutput).not.toContain('/build/');
+    expect(visibleOutput).not.toContain('/vendor/');
+    expect(visibleOutput).not.toContain('.d.ts');
   });
 });
 
@@ -516,38 +426,8 @@ function writeWorkspaceCoreFixture(root: string) {
   );
   writeFile(
     root,
-    'AlembicCore/src/domain/project-context/source-slice.ts',
-    'export const sourceSliceRequest = "source-slice";\n'
-  );
-  writeFile(
-    root,
-    'AlembicCore/src/domain/project-context/file-symbols.ts',
-    'export const fileSymbolsRequest = "file-symbols";\n'
-  );
-  writeFile(
-    root,
-    'AlembicCore/src/domain/project-context/file-flow.ts',
-    'export const fileFlowRequest = "file-flow";\n'
-  );
-  writeFile(
-    root,
-    'AlembicCore/src/domain/project-context/module-map-repo-space.ts',
-    'export const projectContextOrientation = ["module", "map", "repo", "space"];\n'
-  );
-  writeFile(
-    root,
     'AlembicCore/src/repository/RecipeRepository.ts',
     'export class RecipeRepository {}\n'
-  );
-  writeFile(
-    root,
-    'AlembicCore/src/core/analysis/CallGraphAnalyzer.ts',
-    'import missingCallEdge from "./MissingCallEdge";\nexport const analyzer = missingCallEdge;\n'
-  );
-  writeFile(
-    root,
-    'AlembicCore/src/core/analysis/CallSiteExtractor.ts',
-    'export const callSiteExtractor = true;\n'
   );
   writeFile(
     root,
@@ -569,11 +449,6 @@ function writeWorkspaceCoreFixture(root: string) {
     'AlembicCore/vendor/AlembicCore/src/repository/LegacyRepository.ts',
     'export class LegacyRepository {}\n'
   );
-  writeFile(
-    root,
-    'AlembicCore/vendor/AlembicCore/src/project-context/GeneratedVendorProjectContext.ts',
-    'export const generatedVendorProjectContext = true;\n'
-  );
 }
 
 function writeWorkspacePluginFixture(root: string) {
@@ -587,17 +462,11 @@ function writeWorkspacePluginFixture(root: string) {
     'AlembicPlugin/lib/runtime/mcp/handlers/structure.ts',
     'export const projectContextGraphHandler = true;\n'
   );
-  writeFile(
-    root,
-    'AlembicPlugin/lib/service/project-knowledge-context/project/NoisyProjectContextAdapter.ts',
-    'import missingProjectContext from "./missing-project-context";\nexport const adapter = missingProjectContext;\n'
-  );
 }
 
 function writeWorkspaceNoiseBoundaryFixture(root: string) {
   writeFile(root, 'Test/lib/index.ts', 'export const testSurface = true;\n');
   writeFile(root, 'wakeflow-ledger/AlembicWorkspace/index.md', '# ledger\n');
-  writeFile(root, 'workspace-ledger/index.md', '# workspace ledger\n');
   writeFile(root, 'legacy-docs-do-not-use/index.md', '# legacy\n');
 }
 
@@ -613,5 +482,5 @@ function createContext(projectRoot: string): McpContext {
       get: () => undefined,
       singletons: { _projectRoot: projectRoot },
     },
-  };
+  } as unknown as McpContext;
 }

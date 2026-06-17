@@ -11,8 +11,8 @@ import { LanguageService } from '@alembic/core/shared';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { ModuleService } from '#service/module/ModuleService.js';
 import {
+  createAlembicGraphMcpResult,
   defaultProjectGraphProvider,
-  defaultProjectKnowledgeContextLayer,
   type ProjectGraphInput,
   ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
@@ -75,6 +75,19 @@ interface StructureArgs {
 }
 
 interface GraphArgs {
+  queryKind?: string;
+  refId?: string;
+  fromRefId?: string;
+  toRefId?: string;
+  filePath?: string;
+  symbolName?: string;
+  line?: number;
+  radius?: {
+    maxDepth?: number;
+    beforeLines?: number;
+    afterLines?: number;
+    relationHops?: number;
+  };
   operation?: string;
   nodeId?: string;
   nodeType?: string;
@@ -403,56 +416,77 @@ export async function getTargetMetadata(ctx: McpContext, args: StructureArgs) {
   return envelope({ success: true, data: meta, meta: { tool: 'alembic_structure' } });
 }
 
+/**
+ * alembic_graph — pure ProjectContext graph queries selected by queryKind.
+ * Returns a Recipe-free AlembicGraphOutput, never the KnowledgeContext middle
+ * layer envelope.
+ */
+export async function graph(ctx: McpContext, args: GraphArgs = {}) {
+  const input = normalizeProjectGraphInput(ctx, args);
+  const output = await defaultProjectGraphProvider.resolveAlembicGraph(input);
+  return createAlembicGraphMcpResult(output);
+}
+
+// Deprecated operation-named entrypoints. Retained only as stale-input
+// compatibility wrappers that normalize onto queryKind; they do not define a
+// second behavior branch. New callers should pass queryKind to `graph`.
 export async function graphQuery(ctx: McpContext, args: GraphArgs) {
-  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'query' });
+  return graph(ctx, { ...args, operation: 'query' });
 }
 
 export async function graphImpact(ctx: McpContext, args: GraphArgs) {
-  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'impact' });
+  return graph(ctx, { ...args, operation: 'impact' });
 }
 
 export async function graphPath(ctx: McpContext, args: GraphArgs) {
-  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'path' });
+  return graph(ctx, { ...args, operation: 'path' });
 }
 
 export async function graphNeighborhood(ctx: McpContext, args: GraphArgs) {
-  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'neighborhood' });
-}
-
-async function resolveProjectGraphMcpResult(ctx: McpContext, args: GraphArgs) {
-  const input = normalizeProjectGraphInput(ctx, args);
-  const graph = await defaultProjectGraphProvider.resolveProjectGraph(input);
-  return defaultProjectKnowledgeContextLayer.resolveMcpResult('alembic_graph', input, {
-    payload: graph.payload,
-    snapshot: graph.snapshot,
-  });
+  return graph(ctx, { ...args, operation: 'neighborhood' });
 }
 
 function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGraphInput {
   const containerProjectRoot = resolveProjectRoot(ctx?.container);
   const hostDeclaredIntent = readRecord(args.hostDeclaredIntent);
   const query = readString(args.query) ?? readString(hostDeclaredIntent?.query);
+  // ProjectContext-shaped public anchors are normalized onto the provider's
+  // existing anchor fields: filePath→activeFile, refId→nodeId, fromRefId/toRefId
+  // →fromId/toId, radius.maxDepth→maxDepth.
+  const activeFile = args.filePath ?? args.activeFile;
+  const nodeId = args.refId ?? args.nodeId;
+  const fromId = args.fromRefId ?? args.fromId;
+  const toId = args.toRefId ?? args.toId;
+  const maxDepth = args.radius?.maxDepth ?? args.maxDepth;
   return ProjectGraphInputSchema.parse({
-    ...(args.activeFile ? { activeFile: args.activeFile } : {}),
+    ...(args.queryKind ? { queryKind: args.queryKind } : {}),
+    ...(activeFile ? { activeFile } : {}),
     ...(args.budget ? { budget: args.budget } : {}),
     ...(args.detailLevel ? { detailLevel: args.detailLevel } : {}),
     ...(args.direction ? { direction: args.direction } : {}),
+    ...(args.filePath ? { filePath: args.filePath } : {}),
     ...(args.freshnessPolicy ? { freshnessPolicy: args.freshnessPolicy } : {}),
-    ...(args.fromId ? { fromId: args.fromId } : {}),
+    ...(fromId ? { fromId } : {}),
+    ...(args.fromRefId ? { fromRefId: args.fromRefId } : {}),
     ...(args.fromType ? { fromType: args.fromType } : {}),
     ...(args.inputSource ? { inputSource: args.inputSource } : {}),
     ...(args.intentKind ? { intentKind: args.intentKind } : {}),
-    ...(args.maxDepth ? { maxDepth: args.maxDepth } : {}),
-    ...(args.nodeId ? { nodeId: args.nodeId } : {}),
+    ...(args.line ? { line: args.line } : {}),
+    ...(maxDepth ? { maxDepth } : {}),
+    ...(nodeId ? { nodeId } : {}),
     ...(args.nodeType ? { nodeType: args.nodeType } : {}),
     ...(args.operation ? { operation: args.operation } : {}),
     projectRoot: args.projectRoot ?? containerProjectRoot,
+    ...(args.radius ? { radius: args.radius } : {}),
+    ...(args.refId ? { refId: args.refId } : {}),
     ...(hostDeclaredIntent === undefined ? {} : { hostDeclaredIntent }),
     ...(query === undefined ? {} : { query }),
     ...(args.relationType ? { relationType: args.relationType } : {}),
     ...(args.sourceEvidenceRefs ? { sourceEvidenceRefs: args.sourceEvidenceRefs } : {}),
     ...(args.sourceRefs ? { sourceRefs: args.sourceRefs } : {}),
-    ...(args.toId ? { toId: args.toId } : {}),
+    ...(args.symbolName ? { symbolName: args.symbolName } : {}),
+    ...(toId ? { toId } : {}),
+    ...(args.toRefId ? { toRefId: args.toRefId } : {}),
     ...(args.toType ? { toType: args.toType } : {}),
   });
 }
@@ -532,5 +566,5 @@ export async function callContext(ctx: McpContext, args: GraphArgs) {
 // ─── graph_stats — 图谱统计 ────────────────────────────────
 
 export async function graphStats(ctx: McpContext, args: GraphArgs = {}) {
-  return resolveProjectGraphMcpResult(ctx, { ...args, operation: 'stats' });
+  return graph(ctx, { ...args, operation: 'stats' });
 }

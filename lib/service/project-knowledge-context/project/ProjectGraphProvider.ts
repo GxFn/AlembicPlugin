@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   type AnchorRangeContext,
   type FileFlowContext,
+  type FileSymbolContext,
   type ModuleContext,
   type ModuleLayerContext,
   ProjectContext,
@@ -13,16 +14,30 @@ import {
   type ProjectContextResult,
   type ProjectMap,
   type RepoContext,
+  type SourceSliceContext,
   type SpaceContext,
 } from '@alembic/core/project-context';
 import type {
+  AlembicGraphOutput,
+  AlembicGraphQueryKind,
+  AlembicGraphStatus,
+  GraphDiagnostic,
+  GraphNextAction,
+  GraphNodeSummary,
+  GraphRelationSummary,
+  GraphSourceSliceSummary,
   KnowledgeContextDetailRef,
   KnowledgeContextDiagnostic,
   KnowledgeContextNextAction,
   KnowledgeContextProjectNodeType,
   KnowledgeContextProjectRelationType,
   KnowledgeContextSource,
+  ProjectContextRefSummary,
   ProjectGraphInput,
+} from '../contracts/index.js';
+import {
+  ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
+  AlembicGraphOutputSchema,
 } from '../contracts/index.js';
 import type { ContextIndexNode, ContextIndexSnapshotOptions } from '../layer/index.js';
 import type { KnowledgeContextProjectionPayload } from '../layer/KnowledgeContextOutputProjector.js';
@@ -53,6 +68,7 @@ export interface ProjectGraphResult {
 
 export interface ProjectGraphProvider {
   resolveProjectGraph(input: ProjectGraphInput): Promise<ProjectGraphResult>;
+  resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput>;
 }
 
 interface GraphBuild {
@@ -60,8 +76,11 @@ interface GraphBuild {
   diagnostics: KnowledgeContextDiagnostic[];
   nodes: ProjectGraphNode[];
   projectContext: ProjectGraphProjectContextTrace;
+  projectContextRefs: ProjectContextRef[];
+  projectName: string;
   projectRef: KnowledgeContextDetailRef;
   relations: ProjectGraphRelation[];
+  sourceSlices: GraphSourceSliceSummary[];
   sources: KnowledgeContextSource[];
 }
 
@@ -146,10 +165,15 @@ interface ProjectContextGraphFacts {
   detailRefs: KnowledgeContextDetailRef[];
   diagnostics: KnowledgeContextDiagnostic[];
   fileFlows: FileFlowContext[];
+  fileSymbols: FileSymbolContext[];
   maps: ProjectMap[];
   moduleLayers: ModuleLayerContext[];
   modules: ModuleContext[];
+  // Raw ProjectContext refs accumulated across every executed request; projected
+  // into the Recipe-free AlembicGraphOutput `refs` list.
+  projectContextRefs: ProjectContextRef[];
   repos: RepoContext[];
+  sourceSliceContexts: SourceSliceContext[];
   sources: KnowledgeContextSource[];
   trace: ProjectGraphProjectContextTrace;
 }
@@ -204,6 +228,23 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     };
   }
 
+  // GMAP-1: public alembic_graph path. Projects ProjectContext.execute facts into
+  // the Recipe-free AlembicGraphOutput, selected by queryKind. Shares buildGraph
+  // with resolveProjectGraph; never routes through the KnowledgeContext middle
+  // layer or KnowledgeContextToolOutput envelope.
+  async resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput> {
+    const projectRoot = input.projectRoot ?? process.cwd();
+    const queryKind = resolveGraphQueryKind(input);
+    let build: GraphBuild;
+    try {
+      build = await this.buildGraph(projectRoot, input);
+    } catch (error) {
+      return failedAlembicGraphOutput(projectRoot, queryKind, error);
+    }
+    const selection = selectAlembicGraph(build, input, queryKind);
+    return projectAlembicGraphOutput({ build, input, projectRoot, queryKind, selection });
+  }
+
   private async buildGraph(projectRoot: string, input: ProjectGraphInput): Promise<GraphBuild> {
     const projectContextFacts = await buildProjectContextGraphFacts(projectRoot, input);
     const projectName = projectNameFromProjectContextFacts(projectContextFacts, projectRoot);
@@ -238,6 +279,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     }
 
     addProjectContextFileFlowEdges(projectContextFacts.fileFlows, nodes, relations);
+    addFileSymbolContextNodes(projectContextFacts.fileSymbols, nodes, relations);
     addAnchorRangeContextNodes(projectContextFacts.anchorRanges, nodes, relations, projectId);
     addProjectContextPathOwnershipRelations(projectContextFacts, nodes, relations, projectId);
 
@@ -249,8 +291,11 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
       diagnostics: projectContextFacts.diagnostics,
       nodes: nodes.values(),
       projectContext: projectContextFacts.trace,
+      projectContextRefs: projectContextFacts.projectContextRefs,
+      projectName,
       projectRef,
       relations: relations.values(),
+      sourceSlices: buildGraphSourceSlices(projectContextFacts),
       sources: [
         {
           domain: 'project',
@@ -274,10 +319,13 @@ async function buildProjectContextGraphFacts(
     detailRefs: [],
     diagnostics: [],
     fileFlows: [],
+    fileSymbols: [],
     maps: [],
     moduleLayers: [],
     modules: [],
+    projectContextRefs: [],
     repos: [],
+    sourceSliceContexts: [],
     sources: [],
     trace: {
       errorCount: 0,
@@ -300,6 +348,8 @@ async function buildProjectContextGraphFacts(
     await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input);
     await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input);
     await collectGraphFileFlowContexts(facts, projectRoot, input);
+    await collectGraphFileSymbolsContexts(facts, projectRoot, input);
+    await collectGraphSourceSliceContexts(facts, projectRoot, input);
     await collectGraphAnchorRangeContexts(facts, projectRoot, input);
   } catch (error) {
     facts.diagnostics.push({
@@ -318,6 +368,7 @@ async function buildProjectContextGraphFacts(
   facts.detailRefs = dedupeDetailRefs(facts.detailRefs);
   facts.diagnostics = dedupeDiagnostics(facts.diagnostics);
   facts.sources = dedupeSources(facts.sources);
+  facts.projectContextRefs = dedupeProjectContextRefs(facts.projectContextRefs);
   facts.trace.requestKinds = uniqueProjectContextKinds(facts.trace.requestKinds);
   return facts;
 }
@@ -519,20 +570,70 @@ async function collectGraphAnchorRangeContexts(
   }
 
   const anchorEnvelope = await executeGraphProjectContextRequest('anchor-range', projectRoot, {
-    afterLines: 8,
-    beforeLines: 8,
+    afterLines: input.radius?.afterLines ?? 8,
+    beforeLines: input.radius?.beforeLines ?? 8,
     filePath: anchorFilePath,
     includeContainingRefs: true,
     includeRelatedRefs: true,
     includeRelations: true,
     includeSourceSlices: true,
     includeSymbols: true,
-    line: 1,
-    relationHops: 1,
+    line: input.line ?? 1,
+    relationHops: input.radius?.relationHops ?? 1,
   });
   collectGraphEnvelope(facts, anchorEnvelope, 'project-context-anchor-range', input);
   if (isAnchorRangeContext(anchorEnvelope.data)) {
     facts.anchorRanges.push(anchorEnvelope.data);
+  }
+}
+
+// GMAP-1 coverage: file-symbols / source-slice are first-class ProjectContext
+// requests, not only reachable through anchor-range. They are anchor-driven and
+// bounded to the explicitly requested file so overview queryKinds stay cheap.
+async function collectGraphFileSymbolsContexts(
+  facts: ProjectContextGraphFacts,
+  projectRoot: string,
+  input: ProjectGraphInput
+) {
+  const filePath = selectAnchorRangeFilePath(facts, input);
+  if (!filePath) {
+    return;
+  }
+  const symbolsEnvelope = await executeGraphProjectContextRequest('file-symbols', projectRoot, {
+    filePath,
+  });
+  collectGraphEnvelope(facts, symbolsEnvelope, 'project-context-file-symbols', input);
+  if (isFileSymbolContext(symbolsEnvelope.data)) {
+    facts.fileSymbols.push(symbolsEnvelope.data);
+  }
+}
+
+async function collectGraphSourceSliceContexts(
+  facts: ProjectContextGraphFacts,
+  projectRoot: string,
+  input: ProjectGraphInput
+) {
+  const filePath = selectAnchorRangeFilePath(facts, input);
+  if (!filePath) {
+    return;
+  }
+  // ProjectContext source-slice requires an explicit range and validates it
+  // strictly against the file length (unlike anchor-range, which clamps). Default
+  // to a zero-width window at the requested line (or the file head) so the slice
+  // is always valid; an explicit radius opts into a wider window.
+  const line = input.line ?? 1;
+  const startLine = Math.max(1, line - (input.radius?.beforeLines ?? 0));
+  const endLine = line + (input.radius?.afterLines ?? 0);
+  const sliceEnvelope = await executeGraphProjectContextRequest('source-slice', projectRoot, {
+    endLine,
+    filePath,
+    includeText: true,
+    range: { endLine, startLine },
+    startLine,
+  });
+  collectGraphEnvelope(facts, sliceEnvelope, 'project-context-source-slice', input);
+  if (isSourceSliceContext(sliceEnvelope.data)) {
+    facts.sourceSliceContexts.push(sliceEnvelope.data);
   }
 }
 
@@ -568,6 +669,7 @@ function collectGraphEnvelope(
   facts.trace.errorCount += errors.length;
   facts.trace.partial = facts.trace.partial || errors.length > 0;
   facts.trace.refCount += refs.length;
+  facts.projectContextRefs.push(...refs);
   facts.detailRefs.push(
     ...refs.map((ref) => detailRefFromProjectContextRef(ref, 'alembic_graph', operation))
   );
@@ -1963,6 +2065,21 @@ function isAnchorRangeContext(value: ProjectContextResult): value is AnchorRange
   return isRecord(value) && isRecord(value.file) && isRecord(value.anchor);
 }
 
+function isFileSymbolContext(value: ProjectContextResult): value is FileSymbolContext {
+  return (
+    isRecord(value) &&
+    isRecord(value.file) &&
+    Array.isArray(value.symbols) &&
+    isRecord(value.naming)
+  );
+}
+
+function isSourceSliceContext(value: ProjectContextResult): value is SourceSliceContext {
+  return (
+    isRecord(value) && isRecord(value.file) && isRecord(value.range) && !isRecord(value.anchor)
+  );
+}
+
 class NodeStore {
   private readonly nodes = new Map<string, ProjectGraphNode>();
 
@@ -2941,6 +3058,626 @@ function isAllowedNodeType(value: string): value is KnowledgeContextProjectNodeT
 
 function isAllowedRelationType(value: string): value is KnowledgeContextProjectRelationType {
   return (ALLOWED_RELATION_TYPES as readonly string[]).includes(value);
+}
+
+// ═══════════════════════════════════════════════════════════
+// GMAP-1 — queryKind selection + AlembicGraphOutput projection
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Normalize the public queryKind. Legacy `operation` is only honored here as a
+ * stale-input fallback; it never reaches a second behavior branch. Default is the
+ * project architecture map.
+ */
+function resolveGraphQueryKind(input: ProjectGraphInput): AlembicGraphQueryKind {
+  if (input.queryKind) {
+    return input.queryKind;
+  }
+  switch (input.operation) {
+    case 'impact':
+      return 'impact';
+    case 'path':
+      return 'path';
+    case 'neighborhood':
+      return 'neighborhood';
+    case 'stats':
+      return 'stats';
+    default:
+      return 'map';
+  }
+}
+
+function selectAlembicGraph(
+  build: GraphBuild,
+  input: ProjectGraphInput,
+  queryKind: AlembicGraphQueryKind
+): GraphSelection {
+  const resolvedInput = resolveGraphInputIds(build, input);
+  switch (queryKind) {
+    case 'stats':
+      return selectStats(build, resolvedInput);
+    case 'path':
+      return selectPath(build, resolvedInput);
+    case 'impact':
+      return selectNeighborhood(build, resolvedInput, 'impact');
+    case 'neighborhood':
+      return selectNeighborhood(build, resolvedInput, 'neighborhood');
+    case 'space':
+    case 'repo':
+    case 'map':
+      return selectProjectOverview(build, resolvedInput, queryKind);
+    case 'module':
+    case 'module-layers':
+      return selectModuleView(build, resolvedInput, queryKind);
+    case 'file-flow':
+    case 'file-symbols':
+    case 'source-slice':
+    case 'anchor-range':
+      return selectFileView(build, resolvedInput, queryKind);
+    default:
+      return selectQuery(build, resolvedInput);
+  }
+}
+
+function selectProjectOverview(
+  build: GraphBuild,
+  input: ProjectGraphInput,
+  queryKind: AlembicGraphQueryKind
+): GraphSelection {
+  if (input.query && !isLowInformationGraphQuery(input)) {
+    return selectQuery(build, input);
+  }
+  const preferredTypes = overviewPreferredTypes(queryKind);
+  const itemLimit = input.budget?.itemLimit ?? 12;
+  const relationLimit = input.budget?.relationHopLimit ?? 2;
+  const preferredNodes = build.nodes
+    .filter((node) => preferredTypes.has(node.nodeType))
+    .sort((a, b) => orientationNodeWeight(a) - orientationNodeWeight(b) || a.id.localeCompare(b.id))
+    .slice(0, itemLimit);
+  const nodeIds = new Set(preferredNodes.map((node) => node.id));
+  const relations = build.relations
+    .filter(
+      (relation) =>
+        (nodeIds.has(relation.fromId) || nodeIds.has(relation.toId)) &&
+        ['dependsOn', 'entrypointFor', 'ownsFile', 'partOf'].includes(relation.relationType)
+    )
+    .slice(0, Math.max(relationLimit * 12, 12));
+  const items = preferredNodes.map(projectNodeToOutput);
+  return {
+    items,
+    matrixNodes: items,
+    relations: relations.map(projectRelationToOutput),
+    result: {
+      graphKind: 'project-internal',
+      orientation: true,
+      projectContextPartial: build.projectContext.partial,
+      queryKind,
+      queryMatchedNodeCount: preferredNodes.length,
+      sourceOfTruth: false,
+    },
+  };
+}
+
+function overviewPreferredTypes(
+  queryKind: AlembicGraphQueryKind
+): Set<KnowledgeContextProjectNodeType> {
+  switch (queryKind) {
+    case 'space':
+      return new Set<KnowledgeContextProjectNodeType>(['project', 'package']);
+    case 'repo':
+      return new Set<KnowledgeContextProjectNodeType>(['project', 'package', 'target', 'file']);
+    default:
+      return new Set<KnowledgeContextProjectNodeType>([
+        'project',
+        'package',
+        'target',
+        'module',
+        'directory',
+      ]);
+  }
+}
+
+function selectModuleView(
+  build: GraphBuild,
+  input: ProjectGraphInput,
+  queryKind: AlembicGraphQueryKind
+): GraphSelection {
+  const focusTypes = new Set<KnowledgeContextProjectNodeType>(['module', 'directory', 'file']);
+  const anchorPath = explicitProjectGraphPath(input);
+  const itemLimit = input.budget?.itemLimit ?? 20;
+  const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
+  let candidateNodes = build.nodes.filter((node) => focusTypes.has(node.nodeType));
+  if (anchorPath) {
+    candidateNodes = candidateNodes.filter(
+      (node) =>
+        node.path && (ownsPathByKey(node.path, anchorPath) || ownsPathByKey(anchorPath, node.path))
+    );
+  }
+  if (queryTerms.length > 0) {
+    candidateNodes = candidateNodes
+      .map((node) => scoreGraphQueryNode(node, queryTerms, false))
+      .filter((match): match is GraphQueryNodeMatch => match !== null)
+      .sort((a, b) => b.matchScore - a.matchScore || a.node.id.localeCompare(b.node.id))
+      .map((match) => match.node);
+  }
+  const nodes = candidateNodes.slice(0, itemLimit);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const relations = build.relations
+    .filter((relation) => nodeIds.has(relation.fromId) || nodeIds.has(relation.toId))
+    .filter((relation) =>
+      ['partOf', 'ownsFile', 'dependsOn', 'imports'].includes(relation.relationType)
+    )
+    .slice(0, Math.max((input.budget?.relationHopLimit ?? 2) * 16, 16));
+  const items = nodes.map(projectNodeToOutput);
+  return {
+    items,
+    matrixNodes: items,
+    relations: relations.map(projectRelationToOutput),
+    result: {
+      graphKind: 'project-internal',
+      projectContextPartial: build.projectContext.partial,
+      queryKind,
+      queryMatchedNodeCount: nodes.length,
+      sourceOfTruth: false,
+    },
+  };
+}
+
+function selectFileView(
+  build: GraphBuild,
+  input: ProjectGraphInput,
+  queryKind: AlembicGraphQueryKind
+): GraphSelection {
+  const anchorPath = explicitProjectGraphPath(input);
+  if (!anchorPath) {
+    return fileAnchorRequiredSelection(queryKind);
+  }
+  const anchorId = resolveGraphNodeId(build, fileNodeId(anchorPath)) ?? fileNodeId(anchorPath);
+  const anchorNode = build.nodes.find((node) => node.id === anchorId);
+  if (!anchorNode) {
+    return fileAnchorUnavailableSelection(queryKind, anchorPath);
+  }
+  const relationTypes = fileViewRelationTypes(queryKind);
+  const itemLimit = input.budget?.itemLimit ?? 20;
+  const relations = build.relations
+    .filter(
+      (relation) =>
+        (relation.fromId === anchorId || relation.toId === anchorId) &&
+        (relationTypes === null || relationTypes.has(relation.relationType))
+    )
+    .slice(0, Math.max((input.budget?.relationHopLimit ?? 2) * 16, 16));
+  const neighborIds = new Set<string>([anchorId]);
+  for (const relation of relations) {
+    neighborIds.add(relation.fromId);
+    neighborIds.add(relation.toId);
+  }
+  const nodes = build.nodes
+    .filter((node) => neighborIds.has(node.id))
+    .slice(0, itemLimit)
+    .map(projectNodeToOutput);
+  return {
+    items: nodes,
+    matrixNodes: nodes,
+    relations: relations.map(projectRelationToOutput),
+    result: {
+      anchorPath,
+      graphKind: 'project-internal',
+      projectContextPartial: build.projectContext.partial,
+      queryKind,
+      sourceOfTruth: false,
+    },
+  };
+}
+
+function fileViewRelationTypes(
+  queryKind: AlembicGraphQueryKind
+): Set<KnowledgeContextProjectRelationType> | null {
+  switch (queryKind) {
+    case 'file-flow':
+      return new Set<KnowledgeContextProjectRelationType>([
+        'imports',
+        'exports',
+        'calls',
+        'calledBy',
+        'referencesSymbol',
+      ]);
+    case 'file-symbols':
+      return new Set<KnowledgeContextProjectRelationType>(['definesSymbol', 'exports']);
+    case 'source-slice':
+      return new Set<KnowledgeContextProjectRelationType>(['partOf', 'ownsFile']);
+    default:
+      return null;
+  }
+}
+
+function fileAnchorRequiredSelection(queryKind: AlembicGraphQueryKind): GraphSelection {
+  return {
+    diagnostics: [
+      {
+        code: 'project-graph-file-anchor-required',
+        domain: 'project',
+        message: `alembic_graph ${queryKind} requires a filePath, refId, or activeFile ProjectContext anchor.`,
+        retryable: false,
+        severity: 'info',
+      },
+    ],
+    items: [],
+    matrixNodes: [],
+    relations: [],
+    result: {
+      graphKind: 'project-internal',
+      missing: 'filePath',
+      queryKind,
+      sourceOfTruth: false,
+    },
+  };
+}
+
+function fileAnchorUnavailableSelection(
+  queryKind: AlembicGraphQueryKind,
+  anchorPath: string
+): GraphSelection {
+  return {
+    diagnostics: [
+      {
+        code: 'project-graph-file-anchor-unavailable',
+        domain: 'project',
+        message: `No ProjectContext file node matched ${anchorPath}; run queryKind=map or repo to locate a real file before a file-scoped query.`,
+        retryable: false,
+        severity: 'warning',
+      },
+    ],
+    items: [],
+    matrixNodes: [],
+    relations: [],
+    result: {
+      anchorPath,
+      graphKind: 'project-internal',
+      missing: 'filePath',
+      projectContextPartial: true,
+      queryKind,
+      sourceOfTruth: false,
+    },
+  };
+}
+
+function projectAlembicGraphOutput(args: {
+  build: GraphBuild;
+  input: ProjectGraphInput;
+  projectRoot: string;
+  queryKind: AlembicGraphQueryKind;
+  selection: GraphSelection;
+}): AlembicGraphOutput {
+  const { build, input, projectRoot, queryKind, selection } = args;
+  const itemLimit = input.budget?.itemLimit ?? 20;
+  const refLimit = input.budget?.detailLimit ?? 20;
+  const relationLimit = Math.max((input.budget?.relationHopLimit ?? 2) * 20, 20);
+
+  const nodes = selection.items.slice(0, itemLimit).map(graphNodeSummaryFromItem);
+  const relations = selection.relations.slice(0, relationLimit).map(graphRelationSummaryFromItem);
+  const refs = build.projectContextRefs.slice(0, refLimit).map(projectContextRefSummary);
+  const slices = sliceOutputForQueryKind(queryKind, build, input);
+  const diagnostics = dedupeGraphDiagnostics([
+    ...build.diagnostics.map(graphDiagnosticFromKnowledge),
+    ...(selection.diagnostics ?? []).map(graphDiagnosticFromKnowledge),
+    ...resultSignalGraphDiagnostics(selection),
+  ]).slice(0, 200);
+  const status = deriveGraphStatus(build, selection);
+  const nextActions = deriveGraphNextActions(queryKind, selection, input);
+  const truncated =
+    build.nodes.length > nodes.length ||
+    build.projectContextRefs.length > refs.length ||
+    selection.relations.length > relations.length;
+  const summary = summarizeAlembicGraph(queryKind, nodes.length, relations.length, status);
+
+  return AlembicGraphOutputSchema.parse({
+    ok: status !== 'failed',
+    status,
+    tool: 'alembic_graph',
+    toolName: 'alembic_graph',
+    queryKind,
+    summary,
+    project: {
+      projectRoot,
+      displayName: build.projectName,
+      projectId: `project:${stableRefSegment(build.projectName) || 'project'}`,
+    },
+    nodes,
+    relations,
+    refs,
+    ...(slices.length > 0 ? { slices } : {}),
+    diagnostics,
+    nextActions,
+    limits: { truncated, itemLimit, refLimit, relationLimit },
+    meta: {
+      contractVersion: ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
+      outputSchema: 'AlembicGraphOutput',
+      producer: 'ProjectContextProjectGraphProvider',
+    },
+  });
+}
+
+function graphNodeSummaryFromItem(item: Record<string, unknown>): GraphNodeSummary {
+  return {
+    id: String(item.id),
+    nodeType: item.nodeType as GraphNodeSummary['nodeType'],
+    label: String(item.label),
+    ...(typeof item.path === 'string' ? { path: item.path } : {}),
+    ...(typeof item.detailRefId === 'string' ? { refId: item.detailRefId } : {}),
+    ...(typeof item.queryMatchScore === 'number' ? { queryMatchScore: item.queryMatchScore } : {}),
+    ...(Array.isArray(item.queryMatchedTerms)
+      ? { queryMatchedTerms: item.queryMatchedTerms as string[] }
+      : {}),
+    ...(Array.isArray(item.rankingSignals)
+      ? { rankingSignals: item.rankingSignals as string[] }
+      : {}),
+  };
+}
+
+function graphRelationSummaryFromItem(item: Record<string, unknown>): GraphRelationSummary {
+  return {
+    fromId: String(item.fromId),
+    toId: String(item.toId),
+    relationType: item.relationType as GraphRelationSummary['relationType'],
+    ...(typeof item.fromType === 'string'
+      ? { fromType: item.fromType as GraphRelationSummary['fromType'] }
+      : {}),
+    ...(typeof item.toType === 'string'
+      ? { toType: item.toType as GraphRelationSummary['toType'] }
+      : {}),
+    ...(typeof item.detailRefId === 'string' ? { refId: item.detailRefId } : {}),
+  };
+}
+
+function projectContextRefSummary(ref: ProjectContextRef): ProjectContextRefSummary {
+  return {
+    id: ref.id,
+    kind: ref.kind,
+    ...(ref.label === undefined ? {} : { label: ref.label }),
+    ...(ref.scope.filePath === undefined ? {} : { filePath: ref.scope.filePath }),
+    ...(ref.scope.range === undefined ? {} : { range: toGraphSourceRange(ref.scope.range) }),
+    ...(ref.parentRef === undefined ? {} : { parentRef: ref.parentRef }),
+  };
+}
+
+function graphDiagnosticFromKnowledge(diagnostic: KnowledgeContextDiagnostic): GraphDiagnostic {
+  return {
+    code: diagnostic.code,
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+    retryable: diagnostic.retryable ?? false,
+    ...(diagnostic.detailRefId === undefined ? {} : { refId: diagnostic.detailRefId }),
+  };
+}
+
+function resultSignalGraphDiagnostics(selection: GraphSelection): GraphDiagnostic[] {
+  const result = selection.result;
+  const noMatchReason = typeof result.noMatchReason === 'string' ? result.noMatchReason : undefined;
+  if (noMatchReason && selection.items.length === 0) {
+    return [
+      {
+        code: 'project-graph-no-match',
+        message: noMatchReason,
+        retryable: false,
+        severity: 'info',
+      },
+    ];
+  }
+  return [];
+}
+
+function deriveGraphStatus(build: GraphBuild, selection: GraphSelection): AlembicGraphStatus {
+  const result = selection.result;
+  const partial =
+    build.projectContext.partial ||
+    result.projectContextPartial === true ||
+    result.projectContextRefRequiredForImpact === true ||
+    typeof result.missing === 'string' ||
+    typeof result.noMatchReason === 'string' ||
+    typeof result.impactUnavailableReason === 'string' ||
+    typeof result.relationUnavailableReason === 'string';
+  if (partial) {
+    return 'partial';
+  }
+  if (build.projectContext.errorCount > 0) {
+    return 'degraded';
+  }
+  return 'ready';
+}
+
+function deriveGraphNextActions(
+  queryKind: AlembicGraphQueryKind,
+  selection: GraphSelection,
+  input: ProjectGraphInput
+): GraphNextAction[] {
+  const actions: GraphNextAction[] = [];
+  const result = selection.result;
+  const missing = typeof result.missing === 'string' ? result.missing : undefined;
+  if (missing === 'nodeId' || result.projectContextRefRequiredForImpact === true) {
+    actions.push({
+      tool: 'alembic_graph',
+      queryKind: 'map',
+      reason:
+        'Locate a concrete ProjectContext node/ref via queryKind=map or repo before impact or neighborhood.',
+      required: true,
+    });
+  }
+  if (missing === 'filePath') {
+    actions.push({
+      tool: 'alembic_graph',
+      queryKind: 'map',
+      reason:
+        'Locate a file via queryKind=map or repo, then re-run the file-scoped query with filePath.',
+      required: true,
+    });
+  }
+  if (missing === 'fromId' || missing === 'toId') {
+    actions.push({
+      tool: 'alembic_graph',
+      queryKind: 'map',
+      reason: 'Resolve both endpoint refs (fromRefId/toRefId) via queryKind=map before path.',
+      required: true,
+    });
+  }
+  if (queryKind !== 'stats') {
+    actions.push({
+      tool: 'alembic_graph',
+      queryKind: 'stats',
+      reason:
+        'Inspect available project node and relation types with queryKind=stats before a broader traversal.',
+      required: false,
+    });
+  }
+  return dedupeGraphNextActions(actions).slice(0, input.budget?.nextActionLimit ?? 5);
+}
+
+function summarizeAlembicGraph(
+  queryKind: AlembicGraphQueryKind,
+  nodeCount: number,
+  relationCount: number,
+  status: AlembicGraphStatus
+): string {
+  return `alembic_graph ${queryKind} returned ${nodeCount} project graph nodes and ${relationCount} relations (ProjectContext ${status}).`;
+}
+
+function sliceOutputForQueryKind(
+  queryKind: AlembicGraphQueryKind,
+  build: GraphBuild,
+  input: ProjectGraphInput
+): GraphSourceSliceSummary[] {
+  if (queryKind !== 'source-slice' && queryKind !== 'anchor-range') {
+    return [];
+  }
+  return build.sourceSlices.slice(0, input.budget?.itemLimit ?? 40);
+}
+
+function failedAlembicGraphOutput(
+  projectRoot: string,
+  queryKind: AlembicGraphQueryKind,
+  error: unknown
+): AlembicGraphOutput {
+  return AlembicGraphOutputSchema.parse({
+    ok: false,
+    status: 'failed',
+    tool: 'alembic_graph',
+    toolName: 'alembic_graph',
+    queryKind,
+    summary: `alembic_graph ${queryKind} failed before ProjectContext facts could be projected.`,
+    project: { projectRoot },
+    nodes: [],
+    relations: [],
+    refs: [],
+    diagnostics: [
+      {
+        code: 'project-graph-execution-failed',
+        message: `ProjectContext graph projection failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        retryable: true,
+        severity: 'error',
+      },
+    ],
+    nextActions: [],
+    limits: { truncated: false, itemLimit: 0, refLimit: 0, relationLimit: 0 },
+    meta: {
+      contractVersion: ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
+      outputSchema: 'AlembicGraphOutput',
+      producer: 'ProjectContextProjectGraphProvider',
+    },
+  });
+}
+
+function dedupeGraphDiagnostics(diagnostics: GraphDiagnostic[]): GraphDiagnostic[] {
+  return [
+    ...new Map(
+      diagnostics.map((diagnostic) => [`${diagnostic.code}\u0000${diagnostic.message}`, diagnostic])
+    ).values(),
+  ];
+}
+
+function dedupeGraphNextActions(actions: GraphNextAction[]): GraphNextAction[] {
+  return [
+    ...new Map(
+      actions.map((action) => [`${action.queryKind ?? ''}\u0000${action.reason}`, action])
+    ).values(),
+  ];
+}
+
+function toGraphSourceRange(range: {
+  startLine: number;
+  endLine: number;
+  startColumn?: number;
+  endColumn?: number;
+}): GraphSourceSliceSummary['range'] {
+  return {
+    startLine: range.startLine,
+    endLine: range.endLine,
+    ...(range.startColumn === undefined ? {} : { startColumn: range.startColumn }),
+    ...(range.endColumn === undefined ? {} : { endColumn: range.endColumn }),
+  };
+}
+
+function addFileSymbolContextNodes(
+  fileSymbols: readonly FileSymbolContext[],
+  nodes: NodeStore,
+  relations: RelationStore
+) {
+  for (const context of fileSymbols) {
+    const fileId = fileNodeId(context.file.filePath);
+    nodes.add({
+      id: fileId,
+      label: path.posix.basename(context.file.filePath),
+      nodeType: 'file',
+      path: context.file.filePath,
+    });
+    for (const symbol of context.symbols) {
+      addSymbolNode(nodes, relations, symbol.filePath, symbol.name);
+    }
+  }
+}
+
+function buildGraphSourceSlices(facts: ProjectContextGraphFacts): GraphSourceSliceSummary[] {
+  const slices = new Map<string, GraphSourceSliceSummary>();
+  const addSlice = (slice: GraphSourceSliceSummary) => {
+    const key = `${slice.filePath}\u0000${slice.range.startLine}\u0000${slice.range.endLine}`;
+    if (!slices.has(key)) {
+      slices.set(key, slice);
+    }
+  };
+  for (const context of facts.sourceSliceContexts) {
+    const filePath = normalizeRelativePath(context.file.filePath);
+    if (!filePath) {
+      continue;
+    }
+    addSlice({
+      filePath,
+      range: toGraphSourceRange(context.range),
+      ...(context.text === undefined ? {} : { text: boundedSliceText(context.text) }),
+    });
+  }
+  for (const anchor of facts.anchorRanges) {
+    for (const ref of anchor.sourceSlices) {
+      const filePath = normalizeRelativePath(ref.scope.filePath ?? '');
+      if (!filePath || !ref.scope.range) {
+        continue;
+      }
+      addSlice({
+        refId: ref.id,
+        filePath,
+        range: toGraphSourceRange(ref.scope.range),
+      });
+    }
+  }
+  return [...slices.values()];
+}
+
+function boundedSliceText(text: string): string {
+  const MAX_SLICE_CHARS = 2000;
+  return text.length > MAX_SLICE_CHARS ? `${text.slice(0, MAX_SLICE_CHARS)}…` : text;
+}
+
+function dedupeProjectContextRefs(refs: ProjectContextRef[]): ProjectContextRef[] {
+  return [...new Map(refs.map((ref) => [ref.id, ref])).values()];
 }
 
 export const defaultProjectGraphProvider = new ProjectContextProjectGraphProvider();

@@ -140,34 +140,14 @@ export async function routeCallContextTool(ctx: McpContext, args: ToolRouterStru
   return structureHandlers.callContext(ctx, args);
 }
 
-// ─── alembic_graph (operation router) ─────────────────────────
+// ─── alembic_graph (queryKind) ────────────────────────────────
 
 /**
- * 项目图谱：根据 operation 参数路由
- *   query        → graphQuery()
- *   impact       → graphImpact()
- *   path         → graphPath()
- *   stats        → graphStats()
- *   neighborhood → graphNeighborhood()
+ * 项目图谱:单一 graph handler,按 queryKind 选取 ProjectContext 视图。
+ * 旧 operation 参数在 handler 边界归一为 queryKind,不再二次分支路由。
  */
 export async function routeGraphTool(ctx: McpContext, args: ToolRouterGraphArgs) {
-  const op = args.operation || 'query';
-  switch (op) {
-    case 'query':
-      return structureHandlers.graphQuery(ctx, args);
-    case 'impact':
-      return structureHandlers.graphImpact(ctx, args);
-    case 'path':
-      return structureHandlers.graphPath(ctx, args);
-    case 'stats':
-      return structureHandlers.graphStats(ctx, args);
-    case 'neighborhood':
-      return structureHandlers.graphNeighborhood(ctx, args);
-    default:
-      throw new Error(
-        `Unknown graph operation: ${op}. Expected: query, impact, path, stats, neighborhood`
-      );
-  }
+  return structureHandlers.graph(ctx, args);
 }
 
 // ─── alembic_guard (input router) ─────────────────────────

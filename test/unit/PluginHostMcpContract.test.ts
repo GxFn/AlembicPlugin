@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/codex-local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
+import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
 import {
   getMcpOutputProjector,
@@ -67,6 +68,7 @@ describe('Plugin host MCP D4 contract', () => {
           ...CORE_CLEAN_OUTPUT_TOOL_NAMES,
           ...AGENT_PUBLIC_TOOL_NAMES,
           ...KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,
+          ...GRAPH_CLEAN_OUTPUT_TOOL_NAMES,
         ]).includes(toolName)
       )
     ).toBe(true);
