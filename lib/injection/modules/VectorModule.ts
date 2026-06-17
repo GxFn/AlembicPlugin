@@ -9,9 +9,26 @@
  * 依赖 InfraModule 先注册: eventBus, database
  */
 
+import type { EmbedLaneSelection } from '@alembic/core/vector';
 import { VectorService } from '@alembic/core/vector';
 import type { ContextualEnricher } from '../../service/vector/ContextualEnricher.js';
+import {
+  resolveLocalEmbeddingConfig,
+  selectLocalEmbedLane,
+} from '../../service/vector/LocalEmbedding.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
+
+// GMAP-L3: the singleton key holding the local-first embed-lane selection. It is
+// populated by prepareLocalEmbedProvider() (async probe) before the vectorService
+// factory first runs, so the sync factory can read the selected provider.
+const LOCAL_EMBED_SELECTION_KEY = '_localEmbedSelection';
+
+function selectedEmbedProvider(c: ServiceContainer): EmbedLaneSelection['provider'] {
+  const selection = (c.singletons as Record<string, unknown>)[LOCAL_EMBED_SELECTION_KEY] as
+    | EmbedLaneSelection
+    | undefined;
+  return selection?.provider ?? null;
+}
 
 export function register(c: ServiceContainer) {
   // ═══ ContextualEnricher（增强由 Codex host agent / Alembic resident service 托管）═══
@@ -33,9 +50,10 @@ export function register(c: ServiceContainer) {
           >[0]['hybridRetriever'])
         : null,
       eventBus: ct.services.eventBus ? ct.get('eventBus') : null,
-      // Plugin 不维护可执行 embedding provider。Resident vector search 由 Alembic daemon
-      // HTTP API 增强；embedded runtime 只保留可降级的 baseline/vector store 管线。
-      embedProvider: null,
+      // GMAP-L3: local-first embed provider selected by prepareLocalEmbedProvider()
+      // (local Ollama → keyword baseline). null = keyword baseline (vectors disabled),
+      // the clean degrade when Ollama is absent or localEmbedding is disabled.
+      embedProvider: selectedEmbedProvider(ct),
       contextualEnricher: ct.services.contextualEnricher
         ? (ct.get('contextualEnricher') as InstanceType<typeof ContextualEnricher> | null)
         : null,
@@ -75,6 +93,9 @@ export async function initializeVectorService(c: ServiceContainer): Promise<void
   }
 
   if (c.services.vectorService) {
+    // GMAP-L3: select the local-first embed provider BEFORE the vectorService factory
+    // first runs, so the (sync) factory injects the chosen provider.
+    await prepareLocalEmbedProvider(c);
     try {
       const vectorService = c.get('vectorService') as InstanceType<typeof VectorService>;
       await vectorService.initialize();
@@ -85,5 +106,49 @@ export async function initializeVectorService(c: ServiceContainer): Promise<void
         { error: (err as Error).message }
       );
     }
+  }
+}
+
+/**
+ * GMAP-L3: resolve localEmbedding config (config.json + host env) and select the
+ * local-first embed lane (local Ollama → keyword baseline) via the Core selector.
+ * Stores the selection so the vectorService factory injects it. Never throws — an
+ * absent/disabled Ollama cleanly degrades to the keyword baseline with honest logs.
+ * The actual index rebuild with the selected provider is GMAP-L4/L5 (controller).
+ */
+export async function prepareLocalEmbedProvider(c: ServiceContainer): Promise<void> {
+  const vectorConfig = (c.singletons._config as Record<string, unknown> | undefined)?.vector;
+  const localConfig = resolveLocalEmbeddingConfig(vectorConfig);
+  const logger =
+    (c.singletons.logger as
+      | { info?: (...a: unknown[]) => void; warn?: (...a: unknown[]) => void }
+      | undefined) ?? console;
+  const singletons = c.singletons as Record<string, unknown>;
+
+  if (!localConfig.enabled) {
+    singletons[LOCAL_EMBED_SELECTION_KEY] = undefined;
+    logger.info?.('[VectorModule] local embedding disabled; using keyword baseline search.');
+    return;
+  }
+
+  try {
+    const selection = await selectLocalEmbedLane(localConfig);
+    singletons[LOCAL_EMBED_SELECTION_KEY] = selection;
+    if (selection.provider) {
+      logger.info?.(
+        `[VectorModule] local embedding lane=${selection.lane} (Ollama ${localConfig.model} @ ${localConfig.endpoint}).`
+      );
+    } else {
+      const ollamaReason = selection.diagnostics.find((d) => d.name === 'ollama')?.reason;
+      logger.warn?.(
+        `[VectorModule] local embedding enabled but Ollama unavailable (${ollamaReason ?? 'unknown'}); falling back to keyword baseline.`
+      );
+    }
+  } catch (err: unknown) {
+    singletons[LOCAL_EMBED_SELECTION_KEY] = undefined;
+    logger.warn?.(
+      '[VectorModule] local embedding selection failed (non-blocking); using keyword baseline.',
+      { error: (err as Error).message }
+    );
   }
 }

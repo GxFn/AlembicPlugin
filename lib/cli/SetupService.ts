@@ -60,6 +60,12 @@ import {
   ProjectRegistry,
   WorkspaceResolver,
 } from '@alembic/core/workspace';
+import {
+  DEFAULT_OLLAMA_EMBED_MODEL,
+  DEFAULT_OLLAMA_ENDPOINT,
+  localEmbeddingSetupGuidance,
+  resolveLocalEmbeddingConfig,
+} from '../service/vector/LocalEmbedding.js';
 import { PACKAGE_ROOT } from '../shared/package-assets.js';
 
 /** Alembic 源码仓库根目录（定位 templates/ 等资源） */
@@ -298,11 +304,25 @@ export class SetupService {
           paths: ['Sources', 'src'],
           extensions: ['.swift', '.m', '.h'],
         },
+        // GMAP-L3: optional local semantic embeddings via a user-run Ollama daemon
+        // (Claude Code). Disabled by default; clean keyword fallback when off/absent.
+        vector: {
+          localEmbedding: {
+            enabled: false,
+            endpoint: DEFAULT_OLLAMA_ENDPOINT,
+            model: DEFAULT_OLLAMA_EMBED_MODEL,
+            laneOrder: 'local-first',
+          },
+        },
       };
       writeFileSync(configPath, JSON.stringify(config, null, 2));
     }
 
-    return { created: 'runtime' };
+    return {
+      created: 'runtime',
+      // GMAP-L2: surface install/setup guidance (the plugin never downloads a model).
+      localEmbeddingGuidance: localEmbeddingSetupGuidance(resolveLocalEmbeddingConfig({})),
+    };
   }
 
   /* ═══ Step 2: 知识库目录 + recipes 子仓库 ═════════════ */
