@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "phase": "IC5 P3 plugin-train fold on Core ef83a41 (true-count recalibration)",
+  "phase": "RIC-2d: guard.ts:820 migrated to @alembic/core/guard frameworkAgnostic; core/enhancement demoted to a count-capped infra+test exception (zero business consumers)",
   "generatedAt": "2026-06-12",
   "sourcePlan": "wakeflow-ledger/requirement-designs/alembic-portfolio-execution-plan/portfolio-execution-plan-2026-06-12.md",
   "scanRoots": ["lib", "bin", "scripts", "test"],
@@ -8,6 +8,7 @@
   "referenceCount": 544,
   "uniqueSpecifierCount": 37,
   "referenceLimits": {
+    "@alembic/core/core/enhancement": 5,
     "@alembic/core/core/ast/lang-dart": 2,
     "@alembic/core/core/ast/lang-go": 2,
     "@alembic/core/core/ast/lang-java": 2,
@@ -59,6 +60,18 @@
       "consumers": ["dynamic import() lazy loading of optional language grammars"],
       "reason": "Deliberate lazy loading of optional grammar parsers; no stable lazy-grammar facade exists. Mirrors the Alembic kept rows with identical true counts.",
       "removalTrigger": "Core ships a stable lazy language-parser facade."
+    },
+    "@alembic/core/core/enhancement": {
+      "owner": "AlembicPlugin",
+      "consumers": [
+        "lib/injection/ServiceContainer.ts (initEnhancementRegistry — bootstrap/DI infra wiring, RIC-2a/R3)",
+        "lib/injection/modules/KnowledgeModule.ts (getEnhancementRegistry — DI registration, R3)",
+        "test/integration/RealProjectEnhancement.test.ts (real enhancement-pack integration test)",
+        "test/integration/RealProjectBootstrap.test.ts (real enhancement-pack integration test)",
+        "test/integration/GoSupport.test.ts (real enhancement-pack integration test)"
+      ],
+      "reason": "RIC-2d: zero BUSINESS consumers remain — guard.ts:820 and http/routes/guard.ts now read Guard rules via the high-level @alembic/core/guard facade (resolveEnhancementGuardRules). The only direct core/enhancement imports left are bootstrap/DI infra wiring (R3) and real-pack integration tests (§B/R4). Count-capped at 5 (shrink-only) so no new direct business consumer can be added silently.",
+      "removalTrigger": "Core ships a high-level initCoreEnhancements()/registry facade for the infra init (R3 optional follow-up) + a Core enhancement test fixture for the integration tests (§B)."
     }
   },
   "allowedSpecifiers": [
@@ -69,7 +82,6 @@
     "@alembic/core/core/ast/lang-rust",
     "@alembic/core/core/ast/lang-swift",
     "@alembic/core/core/capability",
-    "@alembic/core/core/enhancement",
     "@alembic/core/daemon",
     "@alembic/core/database",
     "@alembic/core/dimensions",

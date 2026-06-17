@@ -817,32 +817,24 @@ async function _injectEnhancementGuardRules(
     return;
   }
   try {
-    const { initEnhancementRegistry } = await import('@alembic/core/core/enhancement');
-    const enhReg = await initEnhancementRegistry();
-    // 仅注入无框架条件的通用 Pack 规则（如 go-web 无 frameworks 条件）
-    // 有框架条件的 Pack（如 go-grpc 需要 frameworks: ['grpc']）由 Bootstrap Phase 4
-    // 通过 resolve(lang, detectedFrameworks) 精确注入，避免非 gRPC 项目出现误报
-    const allPacks = enhReg.all().filter((pack) => {
-      const cond = pack.conditions;
-      return !cond?.frameworks?.length;
-    });
-    const allGuardRules: unknown[] = [];
-    for (const pack of allPacks) {
-      try {
-        const rules = pack.getGuardRules();
-        if (rules.length > 0) {
-          allGuardRules.push(...rules);
-        }
-      } catch {
-        /* graceful degradation per pack */
-      }
-    }
-    if (allGuardRules.length > 0) {
-      engine.injectExternalRules(allGuardRules);
+    // RIC-2d: consume the generic (framework-agnostic) enhancement Guard rules through the
+    // high-level @alembic/core/guard facade instead of the low-level core/enhancement registry.
+    // resolveEnhancementGuardRules({ frameworkAgnostic: true }) returns rules ONLY from packs
+    // with no framework conditions — verbatim-equivalent to the former
+    // registry.all().filter(p => !p.conditions?.frameworks?.length).flatMap(getGuardRules).
+    // Framework-conditioned packs (e.g. go-grpc) are still injected by Bootstrap Phase 4 via the
+    // precise language/framework resolve, so non-matching projects get no false-positive findings.
+    // (RIC-2a-2 verified every currently-registered enhancement pack carries framework conditions,
+    // so this generic-only set is presently empty — identical to the prior path. If a generic
+    // pack like go-web should ship rules, that is a separate product decision.)
+    const { resolveEnhancementGuardRules } = await import('@alembic/core/guard');
+    const guardRules = resolveEnhancementGuardRules({ frameworkAgnostic: true });
+    if (guardRules.length > 0) {
+      engine.injectExternalRules(guardRules);
     }
     engine.markEpInjected?.();
   } catch {
-    /* Enhancement registry not available — non-critical */
+    /* Enhancement rules unavailable — non-critical */
   }
 }
 
