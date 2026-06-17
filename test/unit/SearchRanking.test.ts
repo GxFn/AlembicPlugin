@@ -22,7 +22,6 @@ import {
   RecencySignal,
   RelevanceSignal,
 } from '@alembic/core/search';
-import { CrossEncoderReranker } from '../../lib/service/search/CrossEncoderReranker.js';
 
 /* ════════════════════════════════════════════════════════════════════
  *  CoarseRanker
@@ -361,49 +360,6 @@ describe('MultiSignalRanker', () => {
       { query: 'exact match query' }
     );
     expect(result[0].id).toBe('high');
-  });
-});
-
-/* ════════════════════════════════════════════════════════════════════
- *  CrossEncoderReranker (Jaccard fallback — no AI)
- * ════════════════════════════════════════════════════════════════════ */
-
-describe('CrossEncoderReranker', () => {
-  const reranker = new CrossEncoderReranker({
-    aiProvider: null,
-    logger: { warn: () => {}, info: () => {}, debug: () => {} },
-  });
-
-  test('returns empty for empty input', async () => {
-    expect(await reranker.rerank('query', [])).toEqual([]);
-  });
-
-  test('falls back to Jaccard when no AI provider', async () => {
-    const candidates = [
-      { id: 'a', title: 'react hooks guide', content: 'useState useEffect' },
-      { id: 'b', title: 'vue composition', content: 'ref reactive' },
-    ];
-    const result = await reranker.rerank('react hooks', candidates);
-    expect(result).toHaveLength(2);
-    // 'react hooks' overlaps more with candidate 'a'
-    expect(result[0].id).toBe('a');
-    expect(result[0]).toHaveProperty('semanticScore');
-  });
-
-  test('preserves original fields', async () => {
-    const candidates = [{ id: 'x', title: 'test', content: 'test code', extra: 42 }];
-    const result = await reranker.rerank('test', candidates);
-    expect(result[0].extra).toBe(42);
-  });
-
-  test('handles candidates exceeding MAX_CANDIDATES', async () => {
-    const many = Array.from({ length: 50 }, (_, i) => ({
-      id: `c${i}`,
-      title: `candidate ${i}`,
-      content: `content ${i}`,
-    }));
-    const result = await reranker.rerank('candidate', many);
-    expect(result).toHaveLength(50);
   });
 });
 

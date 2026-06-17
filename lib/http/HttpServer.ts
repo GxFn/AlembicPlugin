@@ -5,17 +5,14 @@
  */
 
 import { createServer, type Server } from 'node:http';
-import { join } from 'node:path';
 import Logger from '@alembic/core/logging';
-import { resolveDataRoot } from '@alembic/core/workspace';
 import cors from 'cors';
 import express, { type Application, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import { registerGatewayActions } from '../governance/gateway/GatewayActionRegistry.js';
 import { initCacheAdapter } from '../infrastructure/cache/UnifiedCacheAdapter.js';
-import { type ErrorTracker, initErrorTracker } from '../infrastructure/monitoring/ErrorTracker.js';
-import { initPerformanceMonitor } from '../infrastructure/monitoring/PerformanceMonitor.js';
-import { initRealtimeService } from '../infrastructure/realtime/RealtimeService.js';
+// RIC-7: monitoring (PerformanceMonitor/ErrorTracker) + realtime (WebSocket) are cut
+// from the slimmed embedded daemon HTTP server.
 import { getServiceContainer } from '../injection/ServiceContainer.js';
 import apiSpec from './api-spec.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -35,7 +32,6 @@ import skillsRouter from './routes/skills.js';
 interface HttpServerConfig {
   port: number;
   host: string;
-  enableMonitoring: boolean;
   cacheMode: string;
   corsOrigin?: string;
   [key: string]: unknown;
@@ -48,16 +44,12 @@ export class HttpServer {
   app: Application;
   cacheAdapter: unknown;
   config: HttpServerConfig;
-  errorTracker: ErrorTracker | null;
   logger: AppLogger;
-  performanceMonitor: { middleware(): express.RequestHandler; shutdown(): void } | null;
-  realtimeService: Record<string, unknown> | null;
   server: Server | null;
   constructor(config: Partial<HttpServerConfig> = {}) {
     this.config = {
       port: config.port ?? 3000,
       host: config.host || 'localhost',
-      enableMonitoring: config.enableMonitoring !== false,
       cacheMode: 'memory',
       ...config,
     } as HttpServerConfig;
@@ -65,10 +57,7 @@ export class HttpServer {
     this.logger = Logger.getInstance();
     this.app = express();
     this.server = null;
-    this.performanceMonitor = null;
-    this.errorTracker = null;
     this.cacheAdapter = null;
-    this.realtimeService = null;
   }
 
   /** 初始化服务器 */
@@ -92,12 +81,11 @@ export class HttpServer {
       port: this.config.port,
       host: this.config.host,
       cacheMode: this.config.cacheMode,
-      monitoringEnabled: this.config.enableMonitoring,
       timestamp: new Date().toISOString(),
     });
   }
 
-  /** 初始化服务（监控、缓存等） */
+  /** 初始化服务（缓存等；RIC-7: 监控已下线） */
   async initializeServices() {
     try {
       // 初始化缓存适配器（纯内存模式）
@@ -105,22 +93,6 @@ export class HttpServer {
         mode: 'memory',
       });
       this.logger.info('Cache adapter initialized');
-
-      // 初始化性能监控
-      if (this.config.enableMonitoring) {
-        this.performanceMonitor = initPerformanceMonitor();
-        this.logger.info('Performance monitor initialized');
-
-        // 初始化错误追踪（Ghost-aware）
-        const container = getServiceContainer();
-        const dataRoot = resolveDataRoot(container);
-        const wz = container.get('writeZone') as import('@alembic/core/io').WriteZone;
-        this.errorTracker = initErrorTracker({
-          logDirectory: join(dataRoot, '.asd', 'logs', 'errors'),
-          writeZone: wz,
-        });
-        this.logger.info('Error tracker initialized');
-      }
     } catch (error: unknown) {
       this.logger.error('Failed to initialize services', {
         error: (error as Error).message,
@@ -132,11 +104,6 @@ export class HttpServer {
 
   /** 设置中间件 */
   setupMiddleware() {
-    // 性能监控中间件（优先级最高）
-    if (this.performanceMonitor) {
-      this.app.use(this.performanceMonitor.middleware());
-    }
-
     // 安全头（插件 HTTP API 不再打包或服务 Dashboard 前端；这里只保留 API 兼容所需的基础 CSP）
     this.app.use(
       helmet({
@@ -292,13 +259,8 @@ export class HttpServer {
 
   /** 设置错误处理 */
   setupErrorHandling() {
-    // 使用错误追踪器的错误处理中间件（如果启用）
-    if (this.errorTracker) {
-      this.app.use(this.errorTracker.errorHandler() as express.ErrorRequestHandler);
-    } else {
-      // 全局错误处理中间件（备用）
-      this.app.use(errorHandler(this.logger));
-    }
+    // RIC-7: ErrorTracker is cut from the slimmed daemon; use the global error handler.
+    this.app.use(errorHandler(this.logger));
   }
 
   /** 启动服务器 */
@@ -370,7 +332,6 @@ export class HttpServer {
       url: `http://${this.config.host}:${this.config.port}`,
       timestamp: new Date().toISOString(),
     });
-    this.initializeRealtimeServiceBridge();
 
     const activeServer = this.server;
     if (!activeServer) {
@@ -380,84 +341,11 @@ export class HttpServer {
     return activeServer;
   }
 
-  private initializeRealtimeServiceBridge() {
-    try {
-      const server = this.server;
-      if (!server) {
-        throw new Error('HTTP server was not created before realtime initialization');
-      }
-      this.realtimeService = initRealtimeService(server) as unknown as Record<string, unknown>;
-      this.logger.info('Realtime service initialized');
-      this.bindRealtimeEvents();
-    } catch (error: unknown) {
-      this.logger.warn('Failed to initialize realtime service', {
-        error: (error as Error).message,
-      });
-    }
-  }
-
-  private bindRealtimeEvents() {
-    try {
-      const container = getServiceContainer();
-      const rs = this.realtimeService as {
-        broadcastEvent?: (name: string, data: unknown) => void;
-      };
-      if (typeof rs?.broadcastEvent !== 'function') {
-        throw new Error('broadcastEvent not available');
-      }
-
-      const eventBus = container.services.eventBus ? container.get('eventBus') : null;
-      if (!eventBus) {
-        return;
-      }
-      eventBus.on('lifecycle:transition', (data: unknown) => {
-        rs.broadcastEvent?.('lifecycle:transition', data);
-      });
-      eventBus.on('signal:event', (signal: unknown) => {
-        rs.broadcastEvent?.('signal:event', signal);
-      });
-      eventBus.on('guard:updated', (signal: unknown) => {
-        rs.broadcastEvent?.('guard:updated', signal);
-      });
-      eventBus.on('audit:entry', (data: unknown) => {
-        rs.broadcastEvent?.('audit:entry', data);
-      });
-      try {
-        container.get('signalBridge');
-      } catch {
-        // SignalBridge 未注册时静默跳过
-      }
-    } catch {
-      // EventBus/SignalBus 不可用时静默跳过
-    }
-  }
-
   /** 停止服务器 */
   async stop() {
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     if (!this.server) {
       return resolve(undefined);
-    }
-
-    // 停止性能监控
-    if (this.performanceMonitor) {
-      this.performanceMonitor.shutdown();
-    }
-
-    // 停止错误追踪
-    if (this.errorTracker) {
-      this.errorTracker.shutdown();
-    }
-
-    // 关闭 WebSocket 连接
-    if (this.realtimeService && typeof this.realtimeService.shutdown === 'function') {
-      try {
-        this.realtimeService.shutdown();
-      } catch (err: unknown) {
-        this.logger.warn('Error shutting down realtime service', {
-          error: (err as Error).message,
-        });
-      }
     }
 
     this.server.close((error) => {

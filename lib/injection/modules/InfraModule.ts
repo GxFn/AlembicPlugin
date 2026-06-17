@@ -23,7 +23,6 @@ import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import Gateway from '../../governance/gateway/Gateway.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
-import { getRealtimeService as _getRealtimeService } from '../../infrastructure/realtime/RealtimeService.js';
 import { BootstrapTaskManager } from '../../service/bootstrap/BootstrapTaskManager.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -61,16 +60,10 @@ export function register(c: ServiceContainer) {
 
   c.singleton('bootstrapTaskManager', (ct: ServiceContainer) => {
     const eventBus = ct.get('eventBus');
-    const getRS = () => {
-      try {
-        return _getRealtimeService();
-      } catch {
-        return null;
-      }
-    };
+    // RIC-7: RealtimeService (WebSocket) is cut from the slimmed daemon; progress
+    // still flows via EventBus. BootstrapTaskManager's realtime getter is left unset.
     return new BootstrapTaskManager({
       eventBus,
-      getRealtimeService: getRS,
     } as ConstructorParameters<typeof BootstrapTaskManager>[0]);
   });
 

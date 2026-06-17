@@ -122,16 +122,9 @@ async function main() {
     statePath,
   });
 
-  import('../lib/service/bootstrap/UiStartupTasks.js')
-    .then(({ runUiStartupTasks }) => runUiStartupTasks({ projectRoot, container }))
-    .then((report) => {
-      if (report.errors.length > 0) {
-        logger.warn(`UiStartupTasks completed with ${report.errors.length} error(s)`);
-      }
-    })
-    .catch((error: unknown) => {
-      logger.debug(`UiStartupTasks failed: ${(error as Error).message}`);
-    });
+  // RIC-7: UiStartupTasks (daemon-boot staging-sync/index-rebuild/proposal-exec/signal-flush)
+  // is cut per the daemon-slim ruling. Index build remains at setup time (SetupService);
+  // the daemon serves search/job/knowledge HTTP against the setup-built store.
 
   shutdown.register(async () => {
     rmSync(statePath, { force: true });
