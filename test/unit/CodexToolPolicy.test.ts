@@ -20,12 +20,8 @@ const hostWorkflowToolNames = [
 ];
 const sourceGraphToolNames: string[] = [];
 const publicKnowledgeNavigationToolNames = [...CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES];
-const legacyPublicKnowledgeToolNames = [
-  'alembic_knowledge',
-  'alembic_structure',
-  'alembic_call_context',
-  'alembic_panorama',
-];
+// MTC-1: alembic_knowledge/structure/call_context/panorama/task are retired and deleted;
+// the ToolPolicy retirement filter is gone, so they are no longer test fixtures here.
 const coreTools = [
   ...hostWorkflowToolNames.map((name) => ({
     name,
@@ -46,12 +42,6 @@ const coreTools = [
     inputSchema: { type: 'object' },
   },
   {
-    name: 'alembic_task',
-    tier: 'agent',
-    description: 'task lifecycle',
-    inputSchema: { type: 'object' },
-  },
-  {
     name: 'alembic_knowledge_lifecycle',
     tier: 'admin',
     description: 'lifecycle',
@@ -65,12 +55,6 @@ const residentCoreTools = [
     name,
     tier: 'agent',
     description: `resident ${name}`,
-    inputSchema: { type: 'object' },
-  })),
-  ...legacyPublicKnowledgeToolNames.map((name) => ({
-    name,
-    tier: 'agent',
-    description: `legacy ${name}`,
     inputSchema: { type: 'object' },
   })),
 ];
@@ -198,26 +182,6 @@ describe('Codex tool policy', () => {
     expect(names).toContain('alembic_health');
     expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_skill');
-    for (const toolName of legacyPublicKnowledgeToolNames) {
-      expect(names).not.toContain(toolName);
-    }
-  });
-
-  test('filters legacy public knowledge tools even if a host passes them as core tools', () => {
-    const result = resolveCodexToolPolicy({
-      coreTools: residentCoreTools,
-      knowledge: knowledgeReady,
-      tierName: 'agent',
-      tierOrder,
-    });
-    const names = result.visibleTools.map((tool) => tool.name);
-
-    for (const toolName of legacyPublicKnowledgeToolNames) {
-      expect(names).not.toContain(toolName);
-    }
-    for (const toolName of publicKnowledgeNavigationToolNames) {
-      expect(names).toContain(toolName);
-    }
   });
 
   test('exposes all Codex local tools and agent core tools when knowledge is usable', () => {

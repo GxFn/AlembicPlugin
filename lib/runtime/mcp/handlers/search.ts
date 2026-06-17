@@ -145,8 +145,9 @@ function projectAlembicSearchOutput(
 }
 
 function mapSearchNextAction(action: ToolNextAction): SearchNextAction {
-  // alembic_project_matrix is retired; point any legacy navigation hint at recipe_map.
-  const tool = action.tool === 'alembic_project_matrix' ? 'alembic_recipe_map' : action.tool;
+  // MTC-1: dropped the dead alembic_project_matrix→recipe_map redirect (project_matrix is
+  // fully retired and never emitted as a next-action hint).
+  const tool = action.tool;
   return {
     tool,
     ...(action.operation ? { operation: action.operation } : {}),

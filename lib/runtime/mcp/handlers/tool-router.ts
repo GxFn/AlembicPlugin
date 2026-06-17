@@ -26,7 +26,6 @@ import {
   normalizeCodexHostAgentWriteSource,
 } from '#codex/SourceBoundary.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
-import * as browseHandlers from '../../../runtime/mcp/handlers/browse.js';
 import * as guardHandlers from '../../../runtime/mcp/handlers/guard.js';
 import * as recipeMapHandlers from '../../../runtime/mcp/handlers/recipe-map.js';
 import * as searchHandlers from '../../../runtime/mcp/handlers/search.js';
@@ -36,10 +35,8 @@ import type {
   McpContext,
   ToolRouterGraphArgs,
   ToolRouterGuardArgs,
-  ToolRouterKnowledgeArgs,
   ToolRouterSearchArgs,
   ToolRouterSkillArgs,
-  ToolRouterStructureArgs,
 } from '../../../runtime/mcp/handlers/types.js';
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
@@ -77,69 +74,9 @@ export async function routeSearchTool(ctx: McpContext, args: ToolRouterSearchArg
 
 // ─── alembic_knowledge (operation router) ─────────────────────
 
-/**
- * 知识浏览：根据 operation 参数路由
- *   list (默认) → listByKind() 或 listRecipes()
- *   get          → getRecipe()
- *   insights     → recipeInsights()
- *   confirm_usage → confirmUsage()
- */
-export async function routeKnowledgeTool(ctx: McpContext, args: ToolRouterKnowledgeArgs) {
-  const op = args.operation || 'list';
-  switch (op) {
-    case 'list': {
-      const kind = args.kind;
-      if (kind && kind !== 'all') {
-        return browseHandlers.listByKind(ctx, kind, args);
-      }
-      return browseHandlers.listRecipes(ctx, args);
-    }
-    case 'get':
-      return browseHandlers.getRecipe(ctx, args);
-    case 'insights':
-      return browseHandlers.recipeInsights(ctx, args);
-    case 'confirm_usage':
-      // confirmUsage expects { recipeId, usageType, feedback }
-      // 适配：如果传了 id 但没传 recipeId，自动映射
-      if (args.id && !args.recipeId) {
-        args.recipeId = args.id;
-      }
-      return browseHandlers.confirmUsage(ctx, args);
-    default:
-      throw new Error(
-        `Unknown knowledge operation: ${op}. Expected: list, get, insights, confirm_usage`
-      );
-  }
-}
-
-// ─── alembic_structure (operation router) ─────────────────────
-
-/**
- * 项目结构：根据 operation 参数路由
- *   targets (默认) → getTargets()
- *   files          → getTargetFiles()
- *   metadata       → getTargetMetadata()
- */
-export async function routeStructureTool(ctx: McpContext, args: ToolRouterStructureArgs) {
-  const op = args.operation || 'targets';
-  switch (op) {
-    case 'targets':
-      return structureHandlers.getTargets(ctx, args);
-    case 'files':
-      return structureHandlers.getTargetFiles(ctx, args);
-    case 'metadata':
-      return structureHandlers.getTargetMetadata(ctx, args);
-    default:
-      throw new Error(`Unknown structure operation: ${op}. Expected: targets, files, metadata`);
-  }
-}
-
-// ─── alembic_call_context (Phase 5) ─────────────────────
-
-/** 调用链上下文查询：直接转发到 structure.callContext */
-export async function routeCallContextTool(ctx: McpContext, args: ToolRouterStructureArgs) {
-  return structureHandlers.callContext(ctx, args);
-}
+// MTC-1: routeKnowledgeTool / routeStructureTool / routeCallContextTool removed —
+// alembic_knowledge / alembic_structure / alembic_call_context are retired tools.
+// routeGraphTool (alembic_graph) below stays LIVE.
 
 // ─── alembic_graph (queryKind) ────────────────────────────────
 

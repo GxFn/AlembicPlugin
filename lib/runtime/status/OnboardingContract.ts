@@ -474,36 +474,6 @@ function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string
     knowledgeAndRecipes: summarizeToolGroup(KNOWLEDGE_AND_RECIPE_TOOLS, byName),
     guardAndValidation: summarizeToolGroup(GUARD_AND_VALIDATION_TOOLS, byName),
     bootstrapAndRecovery: summarizeToolGroup(BOOTSTRAP_AND_RECOVERY_TOOLS, byName),
-    removedOrBlocked: [
-      {
-        name: 'alembic_call_context',
-        reason:
-          'Legacy call-context browsing is not part of the default public project-information surface.',
-        replacementTools: ['alembic_recipe_map', 'alembic_graph'],
-        status: byName.has('alembic_call_context') ? 'visible-legacy-surface' : 'not-visible',
-      },
-      {
-        name: 'alembic_knowledge',
-        reason:
-          'Legacy full-content knowledge browsing is retired. Use alembic_search for Recipe discovery and alembic_search operation=get for a single Recipe detail by id/ref.',
-        replacementTools: ['alembic_search'],
-        status: byName.has('alembic_knowledge') ? 'visible-legacy-surface' : 'not-visible',
-      },
-      {
-        name: 'alembic_structure',
-        reason:
-          'Legacy structure browsing is replaced by compact ProjectContext matrix and graph navigation.',
-        replacementTools: ['alembic_recipe_map', 'alembic_graph'],
-        status: byName.has('alembic_structure') ? 'visible-legacy-surface' : 'not-visible',
-      },
-      {
-        name: 'alembic_panorama',
-        reason:
-          'Legacy panorama guidance is retired from the default public knowledge navigation surface.',
-        replacementTools: ['alembic_recipe_map', 'alembic_search', 'alembic_graph'],
-        status: byName.has('alembic_panorama') ? 'visible-legacy-surface' : 'not-visible',
-      },
-    ],
   };
 }
 

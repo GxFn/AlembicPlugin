@@ -621,9 +621,7 @@ export class McpServer {
       alembic_recipe_map: (ctx, args) => toolRouter.routeRecipeMapTool(ctx, args),
       alembic_search: (ctx, args) =>
         toolRouter.routeSearchTool(ctx, args as Parameters<typeof toolRouter.routeSearchTool>[1]),
-      alembic_knowledge: (ctx, args) => toolRouter.routeKnowledgeTool(ctx, args),
-      alembic_structure: (ctx, args) => toolRouter.routeStructureTool(ctx, args),
-      alembic_call_context: (ctx, args) => toolRouter.routeCallContextTool(ctx, args),
+      // MTC-1: alembic_knowledge/structure/call_context retired (routes deleted).
       alembic_graph: (ctx, args) => toolRouter.routeGraphTool(ctx, args),
       alembic_guard: (ctx, args) => toolRouter.routeGuardTool(ctx, args),
       alembic_submit_knowledge: (ctx, args) => toolRouter.routeSubmitKnowledgeTool(ctx, args),

@@ -72,8 +72,6 @@ function codexInputSchema(properties: Record<string, unknown> = {}): Record<stri
   };
 }
 
-export const CODEX_SOURCE_GRAPH_TOOL_NAMES = new Set<string>();
-
 export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
   'alembic_mcp_status',
   'alembic_codex_diagnostics',
@@ -88,17 +86,9 @@ export const CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
   'alembic_graph',
 ]);
 
-export const CODEX_LEGACY_PUBLIC_KNOWLEDGE_TOOL_NAMES = new Set([
-  'alembic_knowledge',
-  'alembic_structure',
-  'alembic_call_context',
-  'alembic_panorama',
-]);
-
-const CODEX_RETIRED_TOOL_NAMES = new Set([
-  'alembic_task',
-  ...CODEX_LEGACY_PUBLIC_KNOWLEDGE_TOOL_NAMES,
-]);
+// MTC-1: CODEX_LEGACY_PUBLIC_KNOWLEDGE_TOOL_NAMES + CODEX_RETIRED_TOOL_NAMES removed.
+// alembic_knowledge/structure/call_context/panorama/task are retired and their handlers
+// deleted, so the retirement filter is obsolete — they are simply not registered tools.
 
 export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_bootstrap',
@@ -273,7 +263,6 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
   const localTools = CODEX_LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
   const coreTools = input.coreTools.filter(
     (tool) =>
-      !CODEX_RETIRED_TOOL_NAMES.has(tool.name) &&
       (input.knowledge.usable ||
         CODEX_AGENT_PUBLIC_TOOL_NAMES.has(tool.name) ||
         (input.residentProjectScopeAvailable === true &&
@@ -325,9 +314,6 @@ export function isToolAllowedForCodexKnowledge(
   name: string,
   knowledge: CodexKnowledgeState
 ): boolean {
-  if (CODEX_RETIRED_TOOL_NAMES.has(name)) {
-    return false;
-  }
   if (knowledge.usable) {
     return true;
   }
