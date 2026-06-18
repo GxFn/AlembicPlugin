@@ -71,8 +71,8 @@ try {
     runtimeSpecifier,
   });
   assert(
-    existsSync(join(root, 'dist', 'bin', 'codex-mcp.js')),
-    'dist/bin/codex-mcp.js missing; run npm run build first'
+    existsSync(join(root, 'dist', 'bin', 'host-mcp.js')),
+    'dist/bin/host-mcp.js missing; run npm run build first'
   );
 
   const pack = run('npm', ['pack', '--json', '--pack-destination', packDir, '--ignore-scripts'], {
@@ -244,7 +244,7 @@ try {
 function requiredPackageFiles() {
   return [
     'package/.agents/plugins/marketplace.json',
-    'package/dist/bin/codex-mcp.js',
+    'package/dist/bin/host-mcp.js',
     'package/dist/bin/daemon-server.js',
     'package/dist/lib/runtime/mcp/HostMcpServer.js',
     'package/packages/alembic-runtime/package.json',
@@ -269,7 +269,7 @@ function requiredPackageFiles() {
 
 function requiredRuntimePackageFiles() {
   return [
-    'dist/bin/codex-mcp.js',
+    'dist/bin/host-mcp.js',
     'dist/bin/daemon-server.js',
     'dist/lib/runtime/mcp/HostMcpServer.js',
     '.alembic-runtime-boundary.json',
@@ -292,7 +292,7 @@ function verifyPreparedRuntimePackageBoundary({ outputRoot, runtimePackage, runt
     'prepared runtime package specifier mismatch'
   );
   assert(
-    manifest.bin?.['alembic-codex-mcp'] === 'dist/bin/codex-mcp.js',
+    manifest.bin?.['alembic-codex-mcp'] === 'dist/bin/host-mcp.js',
     'prepared runtime package MCP bin mismatch'
   );
   for (const required of requiredRuntimePackageFiles()) {
@@ -426,7 +426,7 @@ function runStartupDryRun(installedRoot, runtimeSpecifier) {
   );
   assert(dryRun.command === process.execPath, 'startup dry-run command must launch Node runtime');
   assert(
-    String(dryRun.args?.[0] || '').endsWith('dist/bin/codex-mcp.js'),
+    String(dryRun.args?.[0] || '').endsWith('dist/bin/host-mcp.js'),
     'startup dry-run must target the cached runtime MCP entrypoint'
   );
   assert(dryRun.npm?.command === 'npm', 'startup dry-run npm command mismatch');
@@ -473,7 +473,7 @@ async function runStdioSmoke({
   const stderr = [];
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [join(packageRoot, 'dist', 'bin', 'codex-mcp.js')],
+    args: [join(packageRoot, 'dist', 'bin', 'host-mcp.js')],
     cwd: pluginRoot,
     env: {
       ALEMBIC_CODEX_ENABLE_ADMIN: '0',

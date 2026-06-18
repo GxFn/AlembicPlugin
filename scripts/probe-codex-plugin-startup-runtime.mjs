@@ -329,13 +329,13 @@ function writeCachedRuntime({ cacheDir, version }) {
       {
         name: runtimePackageName,
         version,
-        bin: { 'alembic-codex-mcp': 'dist/bin/codex-mcp.js' },
+        bin: { 'alembic-codex-mcp': 'dist/bin/host-mcp.js' },
       },
       null,
       2
     )}\n`
   );
-  writeRuntimeEntrypoint(join(packageRoot, 'dist', 'bin', 'codex-mcp.js'), version);
+  writeRuntimeEntrypoint(join(packageRoot, 'dist', 'bin', 'host-mcp.js'), version);
 }
 
 function writeFakeNpm(targetDir) {
@@ -370,10 +370,10 @@ mkdirSync(join(packageRoot, 'dist', 'bin'), { recursive: true });
 writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
   name: '@gxfn/alembic-runtime',
   version,
-  bin: { 'alembic-codex-mcp': 'dist/bin/codex-mcp.js' }
+  bin: { 'alembic-codex-mcp': 'dist/bin/host-mcp.js' }
 }, null, 2) + '\\n');
 if (process.env.FAKE_RUNTIME_ENTRYPOINT_MISSING !== '1') {
-  writeFileSync(join(packageRoot, 'dist', 'bin', 'codex-mcp.js'), '#!/usr/bin/env node\\nprocess.stdout.write(JSON.stringify({ ok: true, source: "fake-runtime", version: ' + JSON.stringify(version) + ', args: process.argv.slice(2), cache: process.env.ALEMBIC_CODEX_RUNTIME_CACHE_DIR || null }) + "\\\\n");\\n');
+  writeFileSync(join(packageRoot, 'dist', 'bin', 'host-mcp.js'), '#!/usr/bin/env node\\nprocess.stdout.write(JSON.stringify({ ok: true, source: "fake-runtime", version: ' + JSON.stringify(version) + ', args: process.argv.slice(2), cache: process.env.ALEMBIC_CODEX_RUNTIME_CACHE_DIR || null }) + "\\\\n");\\n');
 }
 process.stdout.write('fake npm installed ' + specifier + '\\n');
 `,

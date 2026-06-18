@@ -41,7 +41,7 @@ if (!pluginVersion) {
   throw new Error('Codex plugin cache sync requires a plugin manifest version.');
 }
 const localMcpEntry = resolve(
-  options.localMcpEntry || join(projectRoot, 'dist', 'bin', 'codex-mcp.js')
+  options.localMcpEntry || join(projectRoot, 'dist', 'bin', 'host-mcp.js')
 );
 const targetRoots = resolveTargetRoots();
 
@@ -339,7 +339,7 @@ Options:
   --dry-run             Print target paths without writing.
   --clean               Remove the cached plugin version before copying.
   --all-installed       Also refresh installed alembic-codex cache roots with the same version.
-  --local-mcp           Rewrite cached .mcp.json to run local dist/bin/codex-mcp.js.
+  --local-mcp           Rewrite cached .mcp.json to run local dist/bin/host-mcp.js.
   --local-mcp-entry <path>
                         Override the local MCP entry used with --local-mcp.
   --codex-home <path>   Override CODEX_HOME, defaults to ~/.codex.

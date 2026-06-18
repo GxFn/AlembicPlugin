@@ -54,8 +54,8 @@ expect(
   'runtime package version must match the root package version'
 );
 expect(
-  runtimePackageJson.bin?.['alembic-codex-mcp'] === 'dist/bin/codex-mcp.js',
-  'runtime package must expose bin.alembic-codex-mcp -> dist/bin/codex-mcp.js'
+  runtimePackageJson.bin?.['alembic-codex-mcp'] === 'dist/bin/host-mcp.js',
+  'runtime package must expose bin.alembic-codex-mcp -> dist/bin/host-mcp.js'
 );
 expect(
   runtimePackageJson.dependencies?.['@alembic/core'] === packageVersion,

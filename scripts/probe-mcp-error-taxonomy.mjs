@@ -22,7 +22,7 @@ const scenarios = [
     business: { query: 'taxonomy', totalResults: 0 },
   },
   {
-    toolName: 'alembic_codex_dashboard',
+    toolName: 'alembic_dashboard',
     source: 'codex-local-problem',
     business: { needsUserInput: true, nextActions: [{ tool: 'alembic_status' }] },
   },

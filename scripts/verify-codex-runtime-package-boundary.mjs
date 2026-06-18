@@ -36,8 +36,8 @@ try {
   expect(generatedManifest.name === sourceManifest.name, 'runtime package name mismatch');
   expect(generatedManifest.private !== true, 'runtime package must be publishable, not private');
   expect(
-    generatedManifest.bin?.['alembic-codex-mcp'] === 'dist/bin/codex-mcp.js',
-    'runtime package must expose bin.alembic-codex-mcp -> dist/bin/codex-mcp.js'
+    generatedManifest.bin?.['alembic-codex-mcp'] === 'dist/bin/host-mcp.js',
+    'runtime package must expose bin.alembic-codex-mcp -> dist/bin/host-mcp.js'
   );
   expect(
     generatedManifest.dependencies?.['@alembic/core'] === '0.2.0',
@@ -82,7 +82,7 @@ try {
     .filter(Boolean);
   for (const required of [
     'package/package.json',
-    'package/dist/bin/codex-mcp.js',
+    'package/dist/bin/host-mcp.js',
     'package/dist/bin/daemon-server.js',
     'package/dist/lib/runtime/mcp/HostMcpServer.js',
     'package/resources/grammars/tree-sitter-typescript.wasm',
@@ -128,7 +128,7 @@ try {
   const installedManifest = readJson(join(installedRoot, 'package.json'));
   expect(installedManifest.name === sourceManifest.name, 'installed package name mismatch');
   expect(
-    existsSync(join(installedRoot, 'dist', 'bin', 'codex-mcp.js')),
+    existsSync(join(installedRoot, 'dist', 'bin', 'host-mcp.js')),
     'installed runtime MCP entrypoint missing'
   );
   expect(

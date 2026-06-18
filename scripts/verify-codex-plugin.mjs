@@ -47,8 +47,8 @@ expect(
 );
 expect(packageJson.private === true, 'root package.json must stay private');
 expect(
-  packageJson.bin?.['alembic-codex-mcp'] === 'dist/bin/codex-mcp.js',
-  'package.json must expose bin.alembic-codex-mcp -> dist/bin/codex-mcp.js'
+  packageJson.bin?.['alembic-codex-mcp'] === 'dist/bin/host-mcp.js',
+  'package.json must expose bin.alembic-codex-mcp -> dist/bin/host-mcp.js'
 );
 expect(
   !Object.hasOwn(rootConfigJson, 'ai'),
@@ -95,8 +95,8 @@ expect(
   `runtime package version must be ${packageVersion}`
 );
 expect(
-  runtimePackageJson.bin?.['alembic-codex-mcp'] === 'dist/bin/codex-mcp.js',
-  'runtime package must expose bin.alembic-codex-mcp -> dist/bin/codex-mcp.js'
+  runtimePackageJson.bin?.['alembic-codex-mcp'] === 'dist/bin/host-mcp.js',
+  'runtime package must expose bin.alembic-codex-mcp -> dist/bin/host-mcp.js'
 );
 expect(
   runtimePackageJson.dependencies?.['@alembic/core'] === packageVersion,
@@ -341,7 +341,7 @@ function verifyStartupDryRun() {
   expect(dryRun.cwd === pluginRoot, 'startup dry-run cwd must resolve to plugin root');
   expect(dryRun.command === process.execPath, 'startup dry-run command must launch Node runtime');
   expect(
-    String(dryRun.args?.[0] || '').endsWith('dist/bin/codex-mcp.js'),
+    String(dryRun.args?.[0] || '').endsWith('dist/bin/host-mcp.js'),
     'startup dry-run args must point at the cached runtime MCP entrypoint'
   );
   expect(

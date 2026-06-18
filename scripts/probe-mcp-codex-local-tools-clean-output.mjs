@@ -144,9 +144,9 @@ function parseArgs(args) {
 
 function sampleLegacyEnvelope(toolName) {
   return {
-    success: toolName !== 'alembic_codex_dashboard',
-    errorCode: toolName === 'alembic_codex_dashboard' ? 'CODEX_DASHBOARD_UNAVAILABLE' : null,
-    message: toolName === 'alembic_codex_dashboard' ? 'Dashboard handoff unavailable.' : '',
+    success: toolName !== 'alembic_dashboard',
+    errorCode: toolName === 'alembic_dashboard' ? 'CODEX_DASHBOARD_UNAVAILABLE' : null,
+    message: toolName === 'alembic_dashboard' ? 'Dashboard handoff unavailable.' : '',
     data: {
       ...sampleBusinessData(toolName),
       diagnostics: { traceId: 'diag-1' },
@@ -166,23 +166,17 @@ function sampleLegacyEnvelope(toolName) {
 }
 
 function sampleBusinessData(toolName) {
+  // MTC-4/7 merged surface: status (health+mcp_status+diagnostics), init, dashboard,
+  // job (bootstrap/rescan/codex_job), runtime (stop+cleanup).
   switch (toolName) {
-    case 'alembic_mcp_status':
+    case 'alembic_status':
       return {
         initialized: true,
         projectRoot: '/tmp/project',
         projectRootResolution: { source: 'explicit-option', trust: 'trusted' },
         workspace: { ghost: true },
       };
-    case 'alembic_codex_diagnostics':
-      return {
-        checks: { node: true },
-        ok: true,
-        package: { pinnedSpecifier: 'alembic-ai@0.0.0' },
-        primaryAction: { tool: 'alembic_mcp_status' },
-        summary: 'runtime checks passed',
-      };
-    case 'alembic_mcp_init':
+    case 'alembic_init':
       return {
         mode: 'ghost',
         nextActions: [{ tool: 'alembic_bootstrap' }],
@@ -190,27 +184,18 @@ function sampleBusinessData(toolName) {
         results: [],
         status: { initialized: true },
       };
-    case 'alembic_codex_dashboard':
+    case 'alembic_dashboard':
       return {
         errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
         needsUserInput: true,
-        nextActions: [{ tool: 'alembic_mcp_status' }],
+        nextActions: [{ tool: 'alembic_status' }],
       };
-    case 'alembic_mcp_bootstrap_job':
-      return { job: { id: 'bootstrap-1' }, jobId: 'bootstrap-1' };
-    case 'alembic_mcp_rescan_job':
-      return { job: { id: 'rescan-1' }, jobId: 'rescan-1' };
-    case 'alembic_codex_job':
+    case 'alembic_job':
       return {
         jobRoute: { selected: 'embedded-host-agent-recoverable' },
         jobs: [{ id: 'job-1' }],
       };
-    case 'alembic_codex_stop':
+    case 'alembic_runtime':
       return { daemon: { pidAlive: false, ready: false, status: 'stopped' } };
-    case 'alembic_codex_cleanup':
-      return {
-        dryRun: true,
-        targets: { statePath: '/tmp/project/.asd/runtime/daemon.json' },
-      };
   }
 }

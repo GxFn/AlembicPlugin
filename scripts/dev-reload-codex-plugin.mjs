@@ -162,7 +162,7 @@ function buildRuntimeModeSeparation() {
     localDev: {
       command: 'npm run dev:codex-plugin:reload',
       entryMode: 'local-dev-direct-dist',
-      cacheRewrite: 'installed caches point at local dist/bin/codex-mcp.js',
+      cacheRewrite: 'installed caches point at local dist/bin/host-mcp.js',
       currentHostMcpProcessLifecycle: 'not-managed-by-plugin',
     },
     packaged: {
@@ -282,7 +282,7 @@ Usage:
 
 Behavior:
   Builds the local Codex MCP runtime, verifies the marketplace shell, rewrites installed
-  plugin cache roots to local dist/bin/codex-mcp.js and starts a fresh MCP probe
+  plugin cache roots to local dist/bin/host-mcp.js and starts a fresh MCP probe
   against the rewritten cache. The probe calls alembic_status and validates
   projectRuntime identity, sourcePolicy, fallback isolation, entryMode, and
   failureEnvelopes. It never inspects, stops, or restarts the current Codex host
