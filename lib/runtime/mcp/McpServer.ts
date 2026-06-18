@@ -249,7 +249,6 @@ export class McpServer {
       ).initialize({
         db: components.db,
         auditLogger: components.auditLogger,
-        gateway: components.gateway,
         config: components.config,
         skillHooks: components.skillHooks,
         projectRoot,

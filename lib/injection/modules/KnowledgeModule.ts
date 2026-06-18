@@ -102,7 +102,9 @@ function registerKnowledgeServices(c: ServiceContainer) {
       new KnowledgeService(
         ct.get('knowledgeRepository') as ConstructorParameters<typeof KnowledgeService>[0],
         ct.get('auditLogger') as ConstructorParameters<typeof KnowledgeService>[1],
-        ct.get('gateway') as ConstructorParameters<typeof KnowledgeService>[2],
+        // PDR-3: governance Gateway deleted (dead daemon path). KnowledgeService stores but
+        // never reads this ctor arg, so pass null instead of a removed 'gateway' singleton.
+        null,
         ct.get('knowledgeGraphService') as ConstructorParameters<typeof KnowledgeService>[3],
         {
           fileWriter: ct.get('knowledgeFileWriter'),

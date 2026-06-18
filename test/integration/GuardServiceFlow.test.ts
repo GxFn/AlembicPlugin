@@ -37,7 +37,6 @@ describe('Integration: Guard Service Full Flow', () => {
       await container.initialize({
         db: components.db,
         auditLogger: components.auditLogger,
-        gateway: components.gateway,
         config: components.config,
         skillHooks: components.skillHooks,
       });

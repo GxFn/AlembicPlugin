@@ -54,7 +54,7 @@ export class ServiceContainer {
 
   /**
    * 初始化所有服务和仓储
-   * @param bootstrapComponents Bootstrap 初始化的组件（db, auditLogger, gateway 等）
+   * @param bootstrapComponents Bootstrap 初始化的组件（db, auditLogger 等）
    */
   async initialize(bootstrapComponents: Record<string, unknown> = {}) {
     try {
@@ -75,9 +75,6 @@ export class ServiceContainer {
       }
       if (bootstrapComponents.auditLogger) {
         this.singletons.auditLogger = bootstrapComponents.auditLogger;
-      }
-      if (bootstrapComponents.gateway) {
-        this.singletons.gateway = bootstrapComponents.gateway;
       }
 
       if (bootstrapComponents.projectRoot) {

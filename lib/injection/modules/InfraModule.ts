@@ -3,7 +3,7 @@
  *
  * 负责注册:
  *   - database, logger, auditStore, auditLogger
- *   - gateway, eventBus, bootstrapTaskManager
+ *   - eventBus, bootstrapTaskManager
  *   - knowledgeRepository, knowledgeFileWriter, knowledgeSyncService
  */
 
@@ -20,7 +20,6 @@ import {
   createAlembicRepositories,
 } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import Gateway from '../../governance/gateway/Gateway.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
 import { BootstrapTaskManager } from '../../service/bootstrap/BootstrapTaskManager.js';
@@ -55,7 +54,6 @@ export function register(c: ServiceContainer) {
           : null
       )
   );
-  c.singleton('gateway', () => new Gateway());
   c.singleton('eventBus', () => new EventBus({ maxListeners: 30 }));
 
   c.singleton('bootstrapTaskManager', (ct: ServiceContainer) => {

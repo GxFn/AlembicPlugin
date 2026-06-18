@@ -4,11 +4,8 @@ import Logger from '@alembic/core/logging';
 import { unwrapRawDb } from '@alembic/core/search';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import Gateway, { type GatewayConfig } from './governance/gateway/Gateway.js';
-import { NoOpGateway } from './governance/gateway/NoOpGateway.js';
 import AuditLogger from './infrastructure/audit/AuditLogger.js';
 import AuditStore from './infrastructure/audit/AuditStore.js';
-import { NoOpAuditLogger } from './infrastructure/audit/NoOpAuditLogger.js';
 import ConfigLoader from './infrastructure/config/AppConfigLoader.js';
 import { SkillHooks } from './service/skills/SkillHooks.js';
 import { PACKAGE_ROOT } from './shared/package-assets.js';
@@ -20,13 +17,6 @@ interface BootstrapOptions {
   configPath?: string;
   dbPath?: string;
   logLevel?: string;
-  /**
-   * RIC-8: slim the embedded daemon by decoupling it from real audit + governance.
-   * When true, Bootstrap injects no-op audit/gateway components instead of the DB-backed
-   * AuditLogger + real Gateway. The MCP host path leaves this unset (real audit/governance),
-   * so MCP dual-shell behavior is unchanged. Only bin/daemon-server sets it.
-   */
-  slimAuditGovernance?: boolean;
   [key: string]: unknown;
 }
 
@@ -37,7 +27,6 @@ interface BootstrapComponents {
   db?: DatabaseConnection;
   auditStore?: InstanceType<typeof AuditStore>;
   auditLogger?: InstanceType<typeof AuditLogger>;
-  gateway?: InstanceType<typeof Gateway>;
   skillHooks?: InstanceType<typeof SkillHooks>;
   workspaceResolver?: WorkspaceResolver;
   [key: string]: unknown;
@@ -114,10 +103,7 @@ export class Bootstrap {
       // 4. 初始化 Plugin 本地核心组件
       await this.initializeCoreComponents();
 
-      // 5. 初始化网关
-      await this.initializeGateway();
-
-      // 6. 注册路由（稍后由各服务注册）
+      // 5. 注册路由（稍后由各服务注册）
       // await this.registerRoutes();
 
       const duration = Date.now() - startTime;
@@ -178,57 +164,19 @@ export class Bootstrap {
     const db = requireBootstrapComponent(this.components.db, 'database');
     const logger = requireBootstrapComponent(this.components.logger, 'logger');
 
-    // Audit System
-    // RIC-8: the slimmed embedded daemon is decoupled from real audit — inject a no-op
-    // (no audit DB / no log entries). KnowledgeService/GuardService only call .log()
-    // (non-blocking), so the no-op satisfies their AuditLoggerLike dependency.
-    if (this.options.slimAuditGovernance) {
-      this.components.auditLogger = new NoOpAuditLogger() as unknown as InstanceType<
-        typeof AuditLogger
-      >;
-      logger.info('Audit system slimmed (no-op) for embedded daemon');
-    } else {
-      const auditStore = new AuditStore(db);
-      const auditLogger = new AuditLogger(auditStore);
-      this.components.auditStore = auditStore;
-      this.components.auditLogger = auditLogger;
-      logger.info('Audit system initialized');
-    }
+    // Audit System (real DB-backed audit; the slim no-op path was removed with the
+    // deleted embedded daemon — PDR-3).
+    const auditStore = new AuditStore(db);
+    const auditLogger = new AuditLogger(auditStore);
+    this.components.auditStore = auditStore;
+    this.components.auditLogger = auditLogger;
+    logger.info('Audit system initialized');
 
     // Skill Hooks (扫描 skills/*/hooks.js + Alembic/skills/*/hooks.js)
     const skillHooks = new SkillHooks();
     await skillHooks.load();
     this.components.skillHooks = skillHooks;
     logger.info('Skill hooks loaded');
-  }
-
-  /** 初始化网关 */
-  async initializeGateway() {
-    const config = requireBootstrapComponent(this.components.config, 'config');
-    const logger = requireBootstrapComponent(this.components.logger, 'logger');
-
-    // RIC-8: the slimmed embedded daemon is decoupled from governance — inject a no-op
-    // gateway. Daemon HTTP routes call services directly (never req.gw()/execute), and
-    // KnowledgeService/GuardService store but never call the gateway, so this changes no
-    // daemon behavior. The MCP host path keeps the real Gateway below.
-    if (this.options.slimAuditGovernance) {
-      this.components.gateway = new NoOpGateway() as unknown as InstanceType<typeof Gateway>;
-      logger.info('Gateway slimmed (no-op) for embedded daemon');
-      return;
-    }
-
-    const gatewayConfig = config.has('gateway')
-      ? (config.get('gateway') as GatewayConfig)
-      : undefined;
-    const gateway = new Gateway(gatewayConfig);
-
-    // 注入依赖
-    gateway.setDependencies({
-      auditLogger: this.components.auditLogger,
-    });
-
-    this.components.gateway = gateway;
-    logger.info('Gateway initialized');
   }
 
   /**

@@ -40,7 +40,7 @@ describe('Integration: KnowledgeService CRUD + Lifecycle', () => {
     service = new KnowledgeService(
       repo,
       components.auditLogger,
-      components.gateway,
+      null, // gateway — governance Gateway deleted (PDR-3); Core stores but never reads it
       null, // knowledgeGraphService — 不需要
       {
         fileWriter: null, // 禁用 .md 落盘

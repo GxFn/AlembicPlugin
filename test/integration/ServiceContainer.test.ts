@@ -76,7 +76,6 @@ describe('Integration: ServiceContainer', () => {
       await container.initialize({
         db: components.db,
         auditLogger: components.auditLogger,
-        gateway: components.gateway,
         config: components.config,
         skillHooks: components.skillHooks,
       });
@@ -98,10 +97,6 @@ describe('Integration: ServiceContainer', () => {
 
     test('should not expose stale auditRepository contract', () => {
       expect(() => container.get('auditRepository')).toThrow("Service 'auditRepository' not found");
-    });
-
-    test('should resolve gateway', () => {
-      expect(container.get('gateway')).toBeDefined();
     });
 
     test('should resolve eventBus', () => {

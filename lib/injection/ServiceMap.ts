@@ -55,7 +55,6 @@ import type { LanguageService } from '@alembic/core/shared';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
 // ── Domain Types ──
 // ── Core Types ──
-import type Gateway from '../governance/gateway/Gateway.js';
 // ── InfraModule Types ──
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
@@ -85,7 +84,6 @@ export interface ServiceMap {
   writeZone: WriteZone | null;
   auditStore: AuditStore;
   auditLogger: AuditLogger;
-  gateway: Gateway;
   eventBus: EventBus;
   bootstrapTaskManager: BootstrapTaskManager;
   jobStore: JobStore;

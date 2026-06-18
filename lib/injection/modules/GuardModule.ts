@@ -34,7 +34,9 @@ export function register(c: ServiceContainer) {
     return new GuardService(
       ct.get('knowledgeRepository') as unknown as ConstructorParameters<typeof GuardService>[0],
       ct.get('auditLogger') as ConstructorParameters<typeof GuardService>[1],
-      ct.get('gateway') as ConstructorParameters<typeof GuardService>[2],
+      // PDR-3: governance Gateway deleted (dead daemon path). GuardService stores but never
+      // reads this ctor arg, so pass null instead of resolving a removed 'gateway' singleton.
+      null,
       {
         guardCheckEngine,
       } as ConstructorParameters<typeof GuardService>[3]

@@ -2,7 +2,7 @@
  * 集成测试：Bootstrap 生命周期 — 初始化/关闭 + 组件一致性
  *
  * 覆盖范围:
- *   - Bootstrap 完整初始化链路 (config → logger → db → audit → gateway)
+ *   - Bootstrap 完整初始化链路 (config → logger → db → audit)
  *   - 组件依赖注入完整性
  *   - 多次 initialize/shutdown 稳定性
  *   - PathGuard 配置
@@ -30,21 +30,7 @@ describe('Integration: Bootstrap Lifecycle', () => {
       expect(components.db).toBeDefined();
       expect(components.auditStore).toBeDefined();
       expect(components.auditLogger).toBeDefined();
-      expect(components.gateway).toBeDefined();
       expect(components.skillHooks).toBeDefined();
-    });
-
-    test('should have functional gateway', async () => {
-      const { gateway } = components;
-      gateway.register('lifecycle_test', async () => ({ alive: true }));
-
-      const result = await gateway.execute({
-        actor: 'http-request',
-        action: 'lifecycle_test',
-        resource: '/test',
-      });
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({ alive: true });
     });
 
     test('should have functional database', () => {
@@ -67,12 +53,12 @@ describe('Integration: Bootstrap Lifecycle', () => {
 
       const b1 = new Bootstrap({ env: 'test' });
       const c1 = await b1.initialize();
-      expect(c1.gateway).toBeDefined();
+      expect(c1.auditLogger).toBeDefined();
       await b1.shutdown();
 
       const b2 = new Bootstrap({ env: 'test' });
       const c2 = await b2.initialize();
-      expect(c2.gateway).toBeDefined();
+      expect(c2.auditLogger).toBeDefined();
       await b2.shutdown();
     });
   });
