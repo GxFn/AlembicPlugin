@@ -1,9 +1,7 @@
 import type {
-  AlembicResidentDashboardHandoff,
   AlembicResidentServiceProbe,
   AlembicResidentServiceResult,
 } from '@alembic/core/daemon';
-import type { DaemonStatus } from '../../runtime/daemon-status.js';
 import {
   type AlembicResidentJobRequestOptions,
   type AlembicResidentProbeOptions,
@@ -11,13 +9,6 @@ import {
   type AlembicResidentProjectScopeOptions,
   AlembicResidentServiceClient,
   type AlembicResidentServiceClientOptions,
-  type ResidentDecisionRegisterCapabilityResult,
-  type ResidentDecisionRegisterRequest,
-  type ResidentDecisionRegisterResult,
-  type ResidentIntentEpisodeOutcomeRequest,
-  type ResidentIntentEpisodeReadOptions,
-  type ResidentIntentEpisodeResult,
-  type ResidentIntentEpisodeStartRequest,
   type ResidentPrimeRequest,
   type ResidentSearchRequest,
   type ResidentSearchResult,
@@ -65,51 +56,6 @@ export class ResidentSearchClient {
   }
 }
 
-export class ResidentIntentEpisodeClient {
-  constructor(private readonly client: AlembicResidentServiceClient) {}
-
-  latestIntentEpisode(
-    options: ResidentIntentEpisodeReadOptions = {}
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    return this.client.latestIntentEpisode(options);
-  }
-
-  recentIntentEpisodes(
-    options: ResidentIntentEpisodeReadOptions = {}
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    return this.client.recentIntentEpisodes(options);
-  }
-
-  startIntentEpisode(
-    request: ResidentIntentEpisodeStartRequest
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    return this.client.startIntentEpisode(request);
-  }
-
-  updateIntentEpisodeOutcome(
-    episodeId: string,
-    request: ResidentIntentEpisodeOutcomeRequest
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    return this.client.updateIntentEpisodeOutcome(episodeId, request);
-  }
-}
-
-export class ResidentDecisionRegisterClient {
-  constructor(private readonly client: AlembicResidentServiceClient) {}
-
-  decisionRegister(
-    request: ResidentDecisionRegisterRequest
-  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterResult>> {
-    return this.client.decisionRegister(request);
-  }
-
-  decisionRegisterCapability(
-    options: AlembicResidentProbeOptions = {}
-  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterCapabilityResult>> {
-    return this.client.decisionRegisterCapability(options);
-  }
-}
-
 export class ResidentJobClient {
   constructor(private readonly client: AlembicResidentServiceClient) {}
 
@@ -128,21 +74,8 @@ export class ResidentJobClient {
   }
 }
 
-export class ResidentDashboardClient {
-  constructor(private readonly client: AlembicResidentServiceClient) {}
-
-  dashboard(
-    options: AlembicResidentProbeOptions = {}
-  ): Promise<AlembicResidentServiceResult<AlembicResidentDashboardHandoff>> {
-    return this.client.dashboard(options);
-  }
-}
-
 export interface AlembicResidentCapabilityClients {
-  dashboard: ResidentDashboardClient;
-  decisionRegister: ResidentDecisionRegisterClient;
   jobs: ResidentJobClient;
-  intentEpisodes: ResidentIntentEpisodeClient;
   probe: ResidentProbeClient;
   projectScope: ResidentProjectScopeClient;
   search: ResidentSearchClient;
@@ -153,10 +86,7 @@ export function createAlembicResidentCapabilityClients(
 ): AlembicResidentCapabilityClients {
   const client = new AlembicResidentServiceClient(options);
   return {
-    dashboard: new ResidentDashboardClient(client),
-    decisionRegister: new ResidentDecisionRegisterClient(client),
     jobs: new ResidentJobClient(client),
-    intentEpisodes: new ResidentIntentEpisodeClient(client),
     probe: new ResidentProbeClient(client),
     projectScope: new ResidentProjectScopeClient(client),
     search: new ResidentSearchClient(client),
@@ -173,5 +103,3 @@ export function isResidentProjectScopeReady(
     identity.resident.route === 'local-alembic-daemon'
   );
 }
-
-export type ResidentDashboardStatusInput = { daemonStatus?: DaemonStatus | null };

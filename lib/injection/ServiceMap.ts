@@ -62,7 +62,6 @@ import type { BootstrapTaskManager } from '../service/bootstrap/BootstrapTaskMan
 import type { ModuleService } from '../service/module/ModuleService.js';
 import type {
   AlembicResidentCapabilityClients,
-  ResidentIntentEpisodeClient,
   ResidentSearchClient,
 } from '../service/resident/AlembicResidentCapabilityClients.js';
 import type { AlembicResidentServiceClient } from '../service/resident/AlembicResidentServiceClient.js';
@@ -110,7 +109,6 @@ export interface ServiceMap {
   tokenUsageStore: TokenUsageStore;
   moduleService: ModuleService;
   residentCapabilityClients: AlembicResidentCapabilityClients;
-  residentIntentEpisodeClient: ResidentIntentEpisodeClient;
   residentSearchClient: ResidentSearchClient;
   residentServiceClient: AlembicResidentServiceClient;
   primeSearchPipeline: PrimeSearchPipeline;

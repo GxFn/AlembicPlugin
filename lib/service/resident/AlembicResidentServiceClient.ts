@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   ALEMBIC_RESIDENT_FEATURES,
-  type AlembicResidentDashboardHandoff,
   type AlembicResidentFeature,
   type AlembicResidentJobFeature,
   type AlembicResidentServiceProbe,
@@ -78,7 +77,6 @@ export interface ResidentSearchAttemptMeta {
   error?: string;
   fallbackReason?: string | null;
   hostIntentHandoff?: ResidentSearchHandoffMeta;
-  intentEvidence?: ResidentIntentEvidenceSummary;
   primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
   reason?: string;
   residentRequestMode?: string;
@@ -105,19 +103,6 @@ export interface ResidentSearchAttemptMeta {
 export interface ResidentSearchResult {
   items: SearchResultItem[];
   meta: ResidentSearchAttemptMeta;
-}
-
-export interface ResidentIntentEvidenceSummary {
-  decisionRegister: ResidentDecisionRegisterRetrievalSummary;
-  degraded: boolean;
-  degradedReasons: string[];
-  feedback: ResidentRetrievalFeedbackSummary;
-  relationEvidence: Array<Record<string, unknown>>;
-  retrievalQuality: ResidentRetrievalQualitySummary;
-  scoreBreakdown: Array<Record<string, unknown>>;
-  semanticAnchors: Array<Record<string, unknown>>;
-  topAnchorMatches: Array<Record<string, unknown>>;
-  version: number;
 }
 
 export interface ResidentPrimeInjectionPackageSummary {
@@ -229,101 +214,6 @@ export interface ResidentPrimeRetrievalConsumerSummary {
   version: number;
 }
 
-export type ResidentIntentEpisodeStatus = 'abandoned' | 'active' | 'completed' | 'failed';
-
-export interface ResidentIntentEpisodeRecord {
-  activeFileRef?: string;
-  createdAt?: string;
-  dataRootSource?: string | null;
-  endedAt?: string;
-  episodeId: string;
-  hostIntent?: Record<string, unknown> | null;
-  language?: string | null;
-  module?: string | null;
-  outcomeReason?: string;
-  projectId?: string | null;
-  projectScopeId?: string | null;
-  query?: string;
-  scenario?: string | null;
-  searchMeta?: Record<string, unknown> | null;
-  sessionKey: string;
-  sourceRefs?: string[];
-  startedAt?: string;
-  status: ResidentIntentEpisodeStatus;
-  taskId?: string;
-  turnKey?: string;
-  updatedAt?: string;
-  version?: number;
-  workspaceMode?: string | null;
-  [key: string]: unknown;
-}
-
-export interface ResidentIntentEpisodeStartRequest {
-  activeFile?: string;
-  hostIntent?: Record<string, unknown>;
-  language?: string;
-  module?: string;
-  query?: string;
-  scenario?: string;
-  searchMeta?: Record<string, unknown>;
-  sessionId?: string;
-  sourceRefs?: string[];
-  taskId?: string;
-  turnId?: string;
-}
-
-export interface ResidentIntentEpisodeOutcomeRequest {
-  reason?: string;
-  searchMeta?: Record<string, unknown>;
-  status: Exclude<ResidentIntentEpisodeStatus, 'active'>;
-  taskId?: string;
-}
-
-export interface ResidentIntentEpisodeReadOptions {
-  limit?: number;
-  sessionId?: string;
-}
-
-export interface ResidentIntentEpisodeResult {
-  capability: Record<string, unknown> | null;
-  count?: number;
-  episode: ResidentIntentEpisodeRecord | null;
-  episodes?: ResidentIntentEpisodeRecord[];
-}
-
-export type ResidentDecisionRegisterAction =
-  | 'create'
-  | 'delete'
-  | 'list'
-  | 'read'
-  | 'revoke'
-  | 'update';
-
-export type ResidentDecisionRegisterStatus = 'active' | 'all' | 'deleted' | 'revoked';
-
-export interface ResidentDecisionRegisterCapabilityResult {
-  capability: Record<string, unknown> | null;
-}
-
-export interface ResidentDecisionRegisterRequest {
-  action: ResidentDecisionRegisterAction;
-  body?: Record<string, unknown>;
-  decisionId?: string;
-  includeDeleted?: boolean;
-  limit?: number;
-  projectRoot?: string;
-  sessionId?: string;
-  status?: ResidentDecisionRegisterStatus;
-}
-
-export interface ResidentDecisionRegisterResult {
-  action: ResidentDecisionRegisterAction;
-  capability: Record<string, unknown> | null;
-  count?: number;
-  decision: Record<string, unknown> | null;
-  decisions?: Array<Record<string, unknown>>;
-}
-
 export interface AlembicResidentServiceClientOptions {
   fetchImpl?: FetchLike;
   projectRoot: string;
@@ -396,19 +286,11 @@ const RESIDENT_PROJECT_SCOPE_RESOLVE_PATH = '/api/v1/project-scope/resolve-folde
 const RESIDENT_SEARCH_PATH = '/api/v1/search';
 const RESIDENT_TASK_PATH = '/api/v1/task';
 const RESIDENT_JOBS_PATH = '/api/v1/jobs';
-const RESIDENT_INTENT_EPISODES_PATH = '/api/v1/intent-episodes';
-const RESIDENT_INTENT_EPISODE_FEATURE = 'intent-episodes';
-const RESIDENT_DECISION_REGISTER_PATH = '/api/v1/decision-register';
-const RESIDENT_DECISION_REGISTER_FEATURE = 'decision-register';
 const PROJECT_SCOPE_UNAVAILABLE_REASON = 'resident project scope unavailable';
 const RESIDENT_DEFAULT_TIMEOUT_MS = 2500;
 const RESIDENT_PRIME_TIMEOUT_MS = 15000;
 
-type ResidentServiceFeatureName =
-  | AlembicResidentFeature
-  | AlembicResidentJobFeature
-  | typeof RESIDENT_DECISION_REGISTER_FEATURE
-  | typeof RESIDENT_INTENT_EPISODE_FEATURE;
+type ResidentServiceFeatureName = AlembicResidentFeature | AlembicResidentJobFeature;
 
 export class AlembicResidentServiceClient {
   #fetch: FetchLike;
@@ -681,142 +563,13 @@ export class AlembicResidentServiceClient {
     }
   }
 
-  async startIntentEpisode(
-    request: ResidentIntentEpisodeStartRequest
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    const resolved = await this.#resolveProbe();
-    const unavailable =
-      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
-    if (unavailable) {
-      return unavailable;
-    }
-    return this.#requestIntentEpisodeJson(resolved, RESIDENT_INTENT_EPISODES_PATH, {
-      body: stripUndefined(request as unknown as Record<string, unknown>),
-      method: 'POST',
-    });
-  }
-
-  async latestIntentEpisode(
-    options: ResidentIntentEpisodeReadOptions = {}
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    const resolved = await this.#resolveProbe();
-    const unavailable =
-      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
-    if (unavailable) {
-      return unavailable;
-    }
-    return this.#requestIntentEpisodeJson(
-      resolved,
-      `${RESIDENT_INTENT_EPISODES_PATH}/latest${buildIntentEpisodeQuery(options)}`,
-      { method: 'GET' }
-    );
-  }
-
-  async recentIntentEpisodes(
-    options: ResidentIntentEpisodeReadOptions = {}
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    const resolved = await this.#resolveProbe();
-    const unavailable =
-      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
-    if (unavailable) {
-      return unavailable;
-    }
-    return this.#requestIntentEpisodeJson(
-      resolved,
-      `${RESIDENT_INTENT_EPISODES_PATH}/recent${buildIntentEpisodeQuery(options)}`,
-      { method: 'GET' }
-    );
-  }
-
-  async updateIntentEpisodeOutcome(
-    episodeId: string,
-    request: ResidentIntentEpisodeOutcomeRequest
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    const resolved = await this.#resolveProbe();
-    const unavailable =
-      this.#ensureIntentEpisodeRouteAvailable<ResidentIntentEpisodeResult>(resolved);
-    if (unavailable) {
-      return unavailable;
-    }
-    return this.#requestIntentEpisodeJson(
-      resolved,
-      `${RESIDENT_INTENT_EPISODES_PATH}/${encodeURIComponent(episodeId)}`,
-      {
-        body: stripUndefined(request as unknown as Record<string, unknown>),
-        method: 'PATCH',
-      }
-    );
-  }
-
-  async decisionRegisterCapability(
-    options: AlembicResidentProbeOptions = {}
-  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterCapabilityResult>> {
-    const resolved = await this.#resolveProbe(options);
-    const unavailable =
-      this.#ensureDecisionRegisterRouteAvailable<ResidentDecisionRegisterCapabilityResult>(
-        resolved
-      );
-    if (unavailable) {
-      return unavailable;
-    }
-    return this.#requestDecisionRegisterCapabilityJson(resolved);
-  }
-
-  async decisionRegister(
-    request: ResidentDecisionRegisterRequest
-  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterResult>> {
-    const targetProjectRoot = normalizeFolderPath(request.projectRoot) ?? this.#projectRoot;
-    const resolved = await this.#resolveProbe({ projectRoot: targetProjectRoot });
-    const unavailable =
-      this.#ensureDecisionRegisterRouteAvailable<ResidentDecisionRegisterResult>(resolved);
-    if (unavailable) {
-      return unavailable;
-    }
-
-    const capabilityResult = await this.#requestDecisionRegisterCapabilityJson(resolved);
-    if (!capabilityResult.ok) {
-      return capabilityResult as AlembicResidentServiceResult<ResidentDecisionRegisterResult>;
-    }
-    const capability = capabilityResult.value.capability;
-    if (!isDecisionRegisterCapabilityCompatible(capability, request.action)) {
-      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
-        resolved.status,
-        'capability-unavailable',
-        `Decision Register capability is missing or does not expose action=${request.action}.`,
-        {
-          retryable: false,
-          telemetry: {
-            action: request.action,
-            capability,
-            feature: RESIDENT_DECISION_REGISTER_FEATURE,
-          },
-        }
-      );
-    }
-
-    const projectScopeIdentity = await this.#resolveProjectScopeIdentity(
-      resolved,
-      targetProjectRoot
-    );
-    const scope = buildDecisionRegisterScope(projectScopeIdentity);
-    const body = buildDecisionRegisterBody(request, scope);
-    const path = buildDecisionRegisterPath(request);
-    return this.#requestDecisionRegisterJson(resolved, path, {
-      action: request.action,
-      body,
-      method: decisionRegisterMethodForAction(request.action),
-    });
-  }
-
   async enqueueJob(
     kind: 'bootstrap' | 'rescan',
     options: AlembicResidentJobRequestOptions = {}
   ): Promise<AlembicResidentServiceResult<unknown>> {
     const resolved = await this.#resolveProbe(options);
-    const feature = resolveJobFeature(resolved.status, kind);
-    const unavailable = this.#ensureFeatureAvailable<unknown>(resolved.status, feature, {
-      allowEmbeddedPlugin: true,
-    });
+    const feature = resolveJobFeature(kind);
+    const unavailable = this.#ensureFeatureAvailable<unknown>(resolved.status, feature);
     if (unavailable) {
       return unavailable;
     }
@@ -832,10 +585,7 @@ export class AlembicResidentServiceClient {
     options: AlembicResidentProbeOptions = {}
   ): Promise<AlembicResidentServiceResult<unknown>> {
     const resolved = await this.#resolveProbe(options);
-    const feature = resolveJobFeature(
-      resolved.status,
-      args.kind === 'rescan' ? 'rescan' : 'bootstrap'
-    );
+    const feature = resolveJobFeature(args.kind === 'rescan' ? 'rescan' : 'bootstrap');
     const unavailable = this.#ensureAnyJobFeatureAvailable<unknown>(resolved.status);
     if (unavailable) {
       return unavailable;
@@ -845,41 +595,6 @@ export class AlembicResidentServiceClient {
       ? `${RESIDENT_JOBS_PATH}/${encodeURIComponent(jobId)}`
       : `${RESIDENT_JOBS_PATH}${buildJobQuery(args)}`;
     return this.#requestJson(resolved, path, { feature, method: 'GET' });
-  }
-
-  async dashboard(
-    options: AlembicResidentProbeOptions = {}
-  ): Promise<AlembicResidentServiceResult<AlembicResidentDashboardHandoff>> {
-    const resolved = await this.#resolveProbe(options);
-    const unavailable = this.#ensureFeatureAvailable<AlembicResidentDashboardHandoff>(
-      resolved.status,
-      'dashboard.handoff',
-      { requireLocalAlembic: true }
-    );
-    if (unavailable) {
-      return unavailable;
-    }
-    const url = resolved.state?.dashboardUrl ?? null;
-    if (!url) {
-      return createAlembicResidentServiceUnavailable<AlembicResidentDashboardHandoff>(
-        resolved.status,
-        'capability-unavailable',
-        'Alembic resident service did not provide a Dashboard handoff URL.',
-        { telemetry: { feature: 'dashboard.handoff' } }
-      );
-    }
-    return createAlembicResidentServiceSuccess(
-      {
-        available: true,
-        message: null,
-        owner: resolved.status.owner,
-        route: resolved.status.route,
-        unavailableReason: null,
-        url,
-      },
-      resolved.status,
-      { feature: 'dashboard.handoff' }
-    );
   }
 
   async #requestJson(
@@ -933,283 +648,6 @@ export class AlembicResidentServiceClient {
         {
           retryable: true,
           telemetry: { endpoint: endpoint.toString(), feature: input.feature },
-        }
-      );
-    }
-  }
-
-  #ensureIntentEpisodeRouteAvailable<TValue>(
-    resolved: ResolvedResidentProbe
-  ): AlembicResidentServiceResult<TValue> | null {
-    if (!isLocalAlembicResident(resolved.status)) {
-      return createAlembicResidentServiceUnavailable<TValue>(
-        resolved.status,
-        resolved.status.route === 'unavailable' ? 'route-unavailable' : 'unsupported-route',
-        'IntentEpisode handoff requires a local Alembic resident daemon.',
-        { telemetry: { feature: RESIDENT_INTENT_EPISODE_FEATURE } }
-      );
-    }
-    if (!resolved.state?.token) {
-      return createAlembicResidentServiceUnavailable<TValue>(
-        resolved.status,
-        'token-missing',
-        'Alembic resident service token is missing.',
-        { retryable: true, telemetry: { feature: RESIDENT_INTENT_EPISODE_FEATURE } }
-      );
-    }
-    return null;
-  }
-
-  async #requestIntentEpisodeJson(
-    resolved: ResolvedResidentProbe,
-    path: string,
-    input: { body?: Record<string, unknown>; method: 'GET' | 'PATCH' | 'POST' }
-  ): Promise<AlembicResidentServiceResult<ResidentIntentEpisodeResult>> {
-    if (!resolved.state?.token) {
-      return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
-        resolved.status,
-        'token-missing',
-        'Alembic resident service token is missing.',
-        { retryable: true, telemetry: { feature: RESIDENT_INTENT_EPISODE_FEATURE, path } }
-      );
-    }
-    const endpoint = new URL(path, resolved.status.apiBaseUrl || resolved.state.url);
-    try {
-      const response = await this.#fetchJson(endpoint, {
-        body: input.body,
-        method: input.method,
-        token: resolved.state.token,
-      });
-      if (!response.ok || response.payload?.success === false) {
-        return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
-          resolved.status,
-          response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
-          extractResponseError(response.payload) || `intent_episode_http_${response.status}`,
-          {
-            retryable: true,
-            telemetry: {
-              endpoint: endpoint.toString(),
-              feature: RESIDENT_INTENT_EPISODE_FEATURE,
-              status: response.status,
-            },
-          }
-        );
-      }
-      const data = isRecord(response.payload?.data) ? response.payload.data : null;
-      if (!data) {
-        return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
-          resolved.status,
-          'request-failed',
-          'IntentEpisode resident response did not include a data object.',
-          {
-            retryable: true,
-            telemetry: {
-              endpoint: endpoint.toString(),
-              feature: RESIDENT_INTENT_EPISODE_FEATURE,
-              status: response.status,
-            },
-          }
-        );
-      }
-      return createAlembicResidentServiceSuccess(projectIntentEpisodeData(data), resolved.status, {
-        endpoint: endpoint.toString(),
-        feature: RESIDENT_INTENT_EPISODE_FEATURE,
-      });
-    } catch (err: unknown) {
-      return createAlembicResidentServiceUnavailable<ResidentIntentEpisodeResult>(
-        resolved.status,
-        isTimeoutError(err) ? 'request-timeout' : 'request-failed',
-        err instanceof Error ? err.message : String(err),
-        {
-          retryable: true,
-          telemetry: {
-            endpoint: endpoint.toString(),
-            feature: RESIDENT_INTENT_EPISODE_FEATURE,
-          },
-        }
-      );
-    }
-  }
-
-  #ensureDecisionRegisterRouteAvailable<TValue>(
-    resolved: ResolvedResidentProbe
-  ): AlembicResidentServiceResult<TValue> | null {
-    if (!isLocalAlembicResident(resolved.status)) {
-      return createAlembicResidentServiceUnavailable<TValue>(
-        resolved.status,
-        resolved.status.route === 'unavailable' ? 'route-unavailable' : 'unsupported-route',
-        'Decision Register requires a local Alembic resident daemon.',
-        { telemetry: { feature: RESIDENT_DECISION_REGISTER_FEATURE } }
-      );
-    }
-    if (!resolved.state?.token) {
-      return createAlembicResidentServiceUnavailable<TValue>(
-        resolved.status,
-        'token-missing',
-        'Alembic resident service token is missing.',
-        { retryable: true, telemetry: { feature: RESIDENT_DECISION_REGISTER_FEATURE } }
-      );
-    }
-    return null;
-  }
-
-  async #requestDecisionRegisterCapabilityJson(
-    resolved: ResolvedResidentProbe
-  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterCapabilityResult>> {
-    if (!resolved.state?.token) {
-      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
-        resolved.status,
-        'token-missing',
-        'Alembic resident service token is missing.',
-        { retryable: true, telemetry: { feature: RESIDENT_DECISION_REGISTER_FEATURE } }
-      );
-    }
-    const endpoint = new URL(
-      `${RESIDENT_DECISION_REGISTER_PATH}/capability`,
-      resolved.status.apiBaseUrl || resolved.state.url
-    );
-    try {
-      const response = await this.#fetchJson(endpoint, {
-        method: 'GET',
-        token: resolved.state.token,
-      });
-      if (!response.ok || response.payload?.success === false) {
-        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
-          resolved.status,
-          response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
-          extractResponseError(response.payload) ||
-            `decision_register_capability_http_${response.status}`,
-          {
-            retryable: true,
-            telemetry: {
-              endpoint: endpoint.toString(),
-              feature: RESIDENT_DECISION_REGISTER_FEATURE,
-              status: response.status,
-            },
-          }
-        );
-      }
-      const data = isRecord(response.payload?.data) ? response.payload.data : null;
-      if (!data) {
-        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
-          resolved.status,
-          'request-failed',
-          'Decision Register capability response did not include a data object.',
-          {
-            retryable: true,
-            telemetry: {
-              endpoint: endpoint.toString(),
-              feature: RESIDENT_DECISION_REGISTER_FEATURE,
-              status: response.status,
-            },
-          }
-        );
-      }
-      return createAlembicResidentServiceSuccess(
-        { capability: isRecord(data.capability) ? data.capability : null },
-        resolved.status,
-        {
-          endpoint: endpoint.toString(),
-          feature: RESIDENT_DECISION_REGISTER_FEATURE,
-        }
-      );
-    } catch (err: unknown) {
-      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterCapabilityResult>(
-        resolved.status,
-        isTimeoutError(err) ? 'request-timeout' : 'request-failed',
-        err instanceof Error ? err.message : String(err),
-        {
-          retryable: true,
-          telemetry: {
-            endpoint: endpoint.toString(),
-            feature: RESIDENT_DECISION_REGISTER_FEATURE,
-          },
-        }
-      );
-    }
-  }
-
-  async #requestDecisionRegisterJson(
-    resolved: ResolvedResidentProbe,
-    path: string,
-    input: {
-      action: ResidentDecisionRegisterAction;
-      body?: Record<string, unknown>;
-      method: 'DELETE' | 'GET' | 'PATCH' | 'POST';
-    }
-  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterResult>> {
-    if (!resolved.state?.token) {
-      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
-        resolved.status,
-        'token-missing',
-        'Alembic resident service token is missing.',
-        {
-          retryable: true,
-          telemetry: { action: input.action, feature: RESIDENT_DECISION_REGISTER_FEATURE, path },
-        }
-      );
-    }
-    const endpoint = new URL(path, resolved.status.apiBaseUrl || resolved.state.url);
-    try {
-      const response = await this.#fetchJson(endpoint, {
-        body: input.body,
-        method: input.method,
-        token: resolved.state.token,
-      });
-      if (!response.ok || response.payload?.success === false) {
-        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
-          resolved.status,
-          response.ok ? 'request-failed' : reasonForHttpStatus(response.status),
-          extractResponseError(response.payload) || `decision_register_http_${response.status}`,
-          {
-            retryable: true,
-            telemetry: {
-              action: input.action,
-              endpoint: endpoint.toString(),
-              feature: RESIDENT_DECISION_REGISTER_FEATURE,
-              status: response.status,
-            },
-          }
-        );
-      }
-      const data = isRecord(response.payload?.data) ? response.payload.data : null;
-      if (!data) {
-        return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
-          resolved.status,
-          'request-failed',
-          'Decision Register resident response did not include a data object.',
-          {
-            retryable: true,
-            telemetry: {
-              action: input.action,
-              endpoint: endpoint.toString(),
-              feature: RESIDENT_DECISION_REGISTER_FEATURE,
-              status: response.status,
-            },
-          }
-        );
-      }
-      return createAlembicResidentServiceSuccess(
-        projectDecisionRegisterData(input.action, data),
-        resolved.status,
-        {
-          action: input.action,
-          endpoint: endpoint.toString(),
-          feature: RESIDENT_DECISION_REGISTER_FEATURE,
-        }
-      );
-    } catch (err: unknown) {
-      return createAlembicResidentServiceUnavailable<ResidentDecisionRegisterResult>(
-        resolved.status,
-        isTimeoutError(err) ? 'request-timeout' : 'request-failed',
-        err instanceof Error ? err.message : String(err),
-        {
-          retryable: true,
-          telemetry: {
-            action: input.action,
-            endpoint: endpoint.toString(),
-            feature: RESIDENT_DECISION_REGISTER_FEATURE,
-          },
         }
       );
     }
@@ -1453,21 +891,13 @@ export class AlembicResidentServiceClient {
   #ensureFeatureAvailable<TValue>(
     status: AlembicResidentServiceStatus,
     feature: AlembicResidentFeature,
-    options: { allowEmbeddedPlugin?: boolean; requireLocalAlembic?: boolean } = {}
+    options: { requireLocalAlembic?: boolean } = {}
   ): AlembicResidentServiceResult<TValue> | null {
     if (options.requireLocalAlembic && !isLocalAlembicResident(status)) {
       return createAlembicResidentServiceUnavailable<TValue>(
         status,
         status.route === 'unavailable' ? 'route-unavailable' : 'unsupported-route',
         'Alembic resident enhancement requires route=local-alembic-daemon and owner=alembic.',
-        { telemetry: { feature } }
-      );
-    }
-    if (!options.allowEmbeddedPlugin && status.route === 'embedded-plugin-runtime') {
-      return createAlembicResidentServiceUnavailable<TValue>(
-        status,
-        'unsupported-route',
-        'Embedded Plugin runtime is a recoverable Codex host-agent route, not Alembic resident enhancement.',
         { telemetry: { feature } }
       );
     }
@@ -1486,10 +916,7 @@ export class AlembicResidentServiceClient {
   #ensureAnyJobFeatureAvailable<TValue>(
     status: AlembicResidentServiceStatus
   ): AlembicResidentServiceResult<TValue> | null {
-    const features: AlembicResidentJobFeature[] =
-      status.route === 'embedded-plugin-runtime'
-        ? ['jobs.host-agent-recoverable.bootstrap', 'jobs.host-agent-recoverable.rescan']
-        : ['jobs.api-ai.bootstrap', 'jobs.api-ai.rescan'];
+    const features: AlembicResidentJobFeature[] = ['jobs.api-ai.bootstrap', 'jobs.api-ai.rescan'];
     if (features.some((feature) => status.capabilities[feature]?.available)) {
       return null;
     }
@@ -1537,9 +964,8 @@ function statusFromDaemonStatus(status: DaemonStatus): AlembicResidentServiceSta
   if (status.health) {
     return statusFromHealth(status.health, status.state);
   }
-  if (status.ready && status.state) {
-    return embeddedPluginStatus(status.state);
-  }
+  // No embedded Plugin runtime synthesis post-PDR-3: a daemon without resident
+  // health exposes no resident enhancement, so it stays unavailable.
   return unavailableStatus(
     status.status === 'stopped' ? 'not-running' : 'request-failed',
     status.message || 'Alembic daemon is not ready.',
@@ -1556,80 +982,13 @@ function statusFromHealth(
   if (data?.residentService) {
     return withStateFallbacks(normalizeAlembicResidentServiceStatus(data.residentService), state);
   }
-  if (state) {
-    return embeddedPluginStatus(state);
-  }
+  // Daemon health without a residentService block is not Alembic resident
+  // enhancement; there is no embedded Plugin runtime fallback to synthesize.
   return unavailableStatus(
     'route-unavailable',
     'Daemon health did not expose residentService.',
     state
   );
-}
-
-function embeddedPluginStatus(state: DaemonState): AlembicResidentServiceStatus {
-  return createAlembicResidentServiceStatus({
-    apiBaseUrl: state.url,
-    capabilityOverrides: {
-      'dashboard.handoff': unavailableCapability('dashboard.handoff', 'unsupported-route'),
-      'file-monitor.git-worktree': unavailableCapability(
-        'file-monitor.git-worktree',
-        'unsupported-route'
-      ),
-      'jobs.host-agent-recoverable.bootstrap': {
-        available: true,
-        message: 'Embedded Plugin runtime can recover Codex host-agent bootstrap jobs.',
-        owner: 'alembic-plugin',
-        route: 'embedded-plugin-runtime',
-      },
-      'jobs.host-agent-recoverable.rescan': {
-        available: true,
-        message: 'Embedded Plugin runtime can recover Codex host-agent rescan jobs.',
-        owner: 'alembic-plugin',
-        route: 'embedded-plugin-runtime',
-      },
-      'jobs.api-ai.bootstrap': unavailableCapability(
-        'jobs.api-ai.bootstrap',
-        'unsupported-route',
-        'Provider-backed Alembic daemon jobs require a local Alembic resident daemon.'
-      ),
-      'jobs.api-ai.rescan': unavailableCapability(
-        'jobs.api-ai.rescan',
-        'unsupported-route',
-        'Provider-backed Alembic daemon jobs require a local Alembic resident daemon.'
-      ),
-      'search.keyword': unavailableCapability('search.keyword', 'unsupported-route'),
-      'search.semantic': unavailableCapability('search.semantic', 'unsupported-route'),
-      'status.health': {
-        available: true,
-        message: 'Embedded Plugin runtime health is available.',
-        owner: 'alembic-plugin',
-        route: 'embedded-plugin-runtime',
-      },
-    },
-    message:
-      'Embedded Plugin runtime is available for Codex host-agent recovery; it is not Alembic resident enhancement.',
-    owner: 'alembic-plugin',
-    route: 'embedded-plugin-runtime',
-    serviceScope: {
-      diagnosticPaths: {
-        databasePath: state.databasePath,
-        dataRoot: state.dataRoot,
-        projectRoot: state.projectRoot,
-        runtimeDir: resolveDaemonPaths(state.projectRoot).runtimeDir,
-        statePath: resolveDaemonPaths(state.projectRoot).statePath,
-      },
-      kind: 'current-project',
-      projectIdentity: {
-        dataRootSource: null,
-        projectId: state.projectId,
-        projectScope: null,
-        projectScopeId: null,
-        schemaMigrationVersion: state.schemaMigrationVersion,
-        workspaceMode: null,
-      },
-      scopeId: state.projectId ? `plugin:${state.projectId}` : null,
-    },
-  });
 }
 
 function unavailableStatus(
@@ -1700,13 +1059,9 @@ function isLocalAlembicResident(status: AlembicResidentServiceStatus): boolean {
   return status.route === 'local-alembic-daemon' && status.owner === 'alembic';
 }
 
-function resolveJobFeature(
-  status: AlembicResidentServiceStatus,
-  kind: 'bootstrap' | 'rescan'
-): AlembicResidentJobFeature {
-  if (status.route === 'embedded-plugin-runtime') {
-    return `jobs.host-agent-recoverable.${kind}` as AlembicResidentJobFeature;
-  }
+function resolveJobFeature(kind: 'bootstrap' | 'rescan'): AlembicResidentJobFeature {
+  // Post-PDR-3 there is no embedded Plugin runtime route; resident jobs are
+  // always provider-backed (api-ai) on the local Alembic daemon.
   return `jobs.api-ai.${kind}` as AlembicResidentJobFeature;
 }
 
@@ -1723,10 +1078,8 @@ function buildResidentMeta(input: {
   status: AlembicResidentServiceStatus;
 }): ResidentSearchAttemptMeta {
   const meta = input.searchMeta;
-  const intentEvidence = compactResidentIntentEvidence(meta.intentEvidence);
   const primeInjectionPackage = compactResidentPrimeInjectionPackage(meta.primeInjectionPackage);
   const retrievalConsumer = compactResidentPrimeRetrievalConsumer(meta, {
-    intentEvidence,
     primeInjectionPackage,
   });
   const residentVector = normalizeResidentSearchVector(
@@ -1761,7 +1114,6 @@ function buildResidentMeta(input: {
     endpoint: input.endpoint,
     fallbackReason: stringFrom(meta.fallbackReason),
     ...(input.hostIntentHandoff ? { hostIntentHandoff: input.hostIntentHandoff } : {}),
-    ...(intentEvidence ? { intentEvidence } : {}),
     ...(primeInjectionPackage ? { primeInjectionPackage } : {}),
     residentRequestMode: input.residentRequestMode,
     requestedMode: input.requestedMode,
@@ -1774,7 +1126,6 @@ function buildResidentMeta(input: {
     searchMeta: {
       ...meta,
       codexRequestedMode: input.requestedMode,
-      ...(intentEvidence ? { intentEvidence } : {}),
       ...(primeInjectionPackage ? { primeInjectionPackage } : {}),
       projectScopeIdentity: input.projectScopeIdentity,
       residentRequestMode: input.residentRequestMode,
@@ -2385,51 +1736,6 @@ function stripUndefined(input: Record<string, unknown>): Record<string, unknown>
   return output;
 }
 
-export function compactResidentIntentEvidence(
-  value: unknown
-): ResidentIntentEvidenceSummary | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  return {
-    decisionRegister: compactResidentDecisionRegister(value.decisionRegister),
-    degraded: booleanFrom(value.degraded) ?? false,
-    degradedReasons: compactEvidenceStringArray(value.degradedReasons, 8),
-    feedback: compactResidentRetrievalFeedback(value.feedback),
-    relationEvidence: compactEvidenceRecords(
-      value.relationEvidence,
-      ['direction', 'itemId', 'relatedId', 'relatedType', 'relation', 'source'],
-      12
-    ),
-    retrievalQuality: compactResidentRetrievalQuality(value.retrievalQuality),
-    scoreBreakdown: compactEvidenceRecords(
-      value.scoreBreakdown,
-      [
-        'itemId',
-        'rank',
-        'finalScore',
-        'lexicalScore',
-        'relationScore',
-        'semanticScore',
-        'signals',
-        'vectorScore',
-      ],
-      8
-    ),
-    semanticAnchors: compactEvidenceRecords(
-      value.semanticAnchors,
-      ['kind', 'source', 'value', 'weight'],
-      12
-    ),
-    topAnchorMatches: compactEvidenceRecords(
-      value.topAnchorMatches,
-      ['anchor', 'itemId', 'matchType', 'rank', 'score', 'sourceRefs', 'title'],
-      10
-    ),
-    version: numberFrom(value.version) ?? 1,
-  };
-}
-
 export function compactResidentPrimeInjectionPackage(
   value: unknown
 ): ResidentPrimeInjectionPackageSummary | undefined {
@@ -2682,7 +1988,6 @@ export function unavailablePrimeRetrievalConsumerSummary(
 function compactResidentPrimeRetrievalConsumer(
   meta: Record<string, unknown>,
   compacted: {
-    intentEvidence?: ResidentIntentEvidenceSummary;
     primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
   }
 ): ResidentPrimeRetrievalConsumerSummary {
@@ -2690,25 +1995,16 @@ function compactResidentPrimeRetrievalConsumer(
     (isRecord(meta.decisionRegister) ? meta.decisionRegister : null) ??
     (isRecord(meta.primeInjectionPackage) && isRecord(meta.primeInjectionPackage.decisionRegister)
       ? meta.primeInjectionPackage.decisionRegister
-      : null) ??
-    (isRecord(meta.intentEvidence) && isRecord(meta.intentEvidence.decisionRegister)
-      ? meta.intentEvidence.decisionRegister
       : null);
   const feedbackSource =
     (isRecord(meta.feedback) ? meta.feedback : null) ??
     (isRecord(meta.primeInjectionPackage) && isRecord(meta.primeInjectionPackage.feedback)
       ? meta.primeInjectionPackage.feedback
-      : null) ??
-    (isRecord(meta.intentEvidence) && isRecord(meta.intentEvidence.feedback)
-      ? meta.intentEvidence.feedback
       : null);
   const retrievalQualitySource =
     (isRecord(meta.retrievalQuality) ? meta.retrievalQuality : null) ??
     (isRecord(meta.primeInjectionPackage) && isRecord(meta.primeInjectionPackage.retrievalQuality)
       ? meta.primeInjectionPackage.retrievalQuality
-      : null) ??
-    (isRecord(meta.intentEvidence) && isRecord(meta.intentEvidence.retrievalQuality)
-      ? meta.intentEvidence.retrievalQuality
       : null);
 
   const decisionRegister = compactResidentDecisionRegister(
@@ -2722,7 +2018,6 @@ function compactResidentPrimeRetrievalConsumer(
   );
   const relationEvidence = uniqueEvidenceRecords([
     ...(compacted.primeInjectionPackage?.relations.evidence ?? []),
-    ...(compacted.intentEvidence?.relationEvidence ?? []),
   ]).slice(0, 12);
   const relationOmissions = compacted.primeInjectionPackage?.relations.omitted ?? [];
   const missingFields = [
@@ -2950,55 +2245,6 @@ function compactResidentRegionRetrieval(value: Record<string, unknown>): Record<
   return projected;
 }
 
-function compactEvidenceRecords(
-  value: unknown,
-  keys: string[],
-  limit: number
-): Array<Record<string, unknown>> {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const records: Array<Record<string, unknown>> = [];
-  for (const item of value) {
-    if (!isRecord(item)) {
-      continue;
-    }
-    const projected: Record<string, unknown> = {};
-    for (const key of keys) {
-      const compactValue = compactEvidenceValue(key, item[key]);
-      if (compactValue !== undefined) {
-        projected[key] = compactValue;
-      }
-    }
-    if (Object.keys(projected).length > 0) {
-      records.push(projected);
-    }
-    if (records.length >= limit) {
-      break;
-    }
-  }
-  return records;
-}
-
-function compactEvidenceValue(key: string, value: unknown): unknown {
-  if (key === 'sourceRefs') {
-    return compactEvidenceStringArray(value, 12);
-  }
-  if (key === 'signals') {
-    return compactEvidenceStringArray(value, 12);
-  }
-  if (typeof value === 'string') {
-    return redactEvidenceString(value);
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'boolean' || value === null) {
-    return value;
-  }
-  return undefined;
-}
-
 function compactEvidenceStringArray(value: unknown, limit: number): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -3040,151 +2286,6 @@ function redactEvidenceString(value: string): string {
   return redacted.length > 240 ? `${redacted.slice(0, 237)}...` : redacted;
 }
 
-function projectDecisionRegisterData(
-  action: ResidentDecisionRegisterAction,
-  data: Record<string, unknown>
-): ResidentDecisionRegisterResult {
-  const decisions = Array.isArray(data.decisions) ? data.decisions.filter(isRecord) : undefined;
-  const count = numberFrom(data.count) ?? decisions?.length;
-  return {
-    action,
-    capability: isRecord(data.capability) ? data.capability : null,
-    decision: isRecord(data.decision) ? data.decision : null,
-    ...(decisions ? { decisions } : {}),
-    ...(count !== undefined ? { count } : {}),
-  };
-}
-
-function isDecisionRegisterCapabilityCompatible(
-  capability: Record<string, unknown> | null,
-  action: ResidentDecisionRegisterAction
-): boolean {
-  if (!capability || capability.available !== true) {
-    return false;
-  }
-  if (stringFrom(capability.owner) !== 'alembic') {
-    return false;
-  }
-  if (stringFrom(capability.route) !== 'decision-register') {
-    return false;
-  }
-  const lifecycle = Array.isArray(capability.lifecycle) ? capability.lifecycle : [];
-  return lifecycle.includes(action);
-}
-
-function decisionRegisterMethodForAction(
-  action: ResidentDecisionRegisterAction
-): 'DELETE' | 'GET' | 'PATCH' | 'POST' {
-  switch (action) {
-    case 'create':
-      return 'POST';
-    case 'delete':
-      return 'DELETE';
-    case 'list':
-    case 'read':
-      return 'GET';
-    case 'revoke':
-      return 'POST';
-    case 'update':
-      return 'PATCH';
-  }
-}
-
-function buildDecisionRegisterPath(request: ResidentDecisionRegisterRequest): string {
-  if (request.action === 'create') {
-    return RESIDENT_DECISION_REGISTER_PATH;
-  }
-  if (request.action === 'list') {
-    return `${RESIDENT_DECISION_REGISTER_PATH}${buildDecisionRegisterQuery(request)}`;
-  }
-  const decisionId = encodeURIComponent(request.decisionId ?? '');
-  if (request.action === 'revoke') {
-    return `${RESIDENT_DECISION_REGISTER_PATH}/${decisionId}/revoke`;
-  }
-  return `${RESIDENT_DECISION_REGISTER_PATH}/${decisionId}`;
-}
-
-function buildDecisionRegisterQuery(request: ResidentDecisionRegisterRequest): string {
-  const params = new URLSearchParams();
-  if (typeof request.includeDeleted === 'boolean') {
-    params.set('includeDeleted', String(request.includeDeleted));
-  }
-  if (typeof request.limit === 'number' && Number.isFinite(request.limit)) {
-    params.set('limit', String(Math.max(1, Math.min(100, Math.floor(request.limit)))));
-  }
-  if (typeof request.sessionId === 'string' && request.sessionId.trim()) {
-    params.set('sessionId', request.sessionId.trim());
-  }
-  if (request.status) {
-    params.set('status', request.status);
-  }
-  const query = params.toString();
-  return query ? `?${query}` : '';
-}
-
-function buildDecisionRegisterScope(
-  identity: AlembicResidentProjectScopeIdentity
-): Record<string, unknown> | undefined {
-  const scope = stripUndefined({
-    dataRootSource: identity.dataRootSource ?? undefined,
-    projectId: identity.projectId ?? undefined,
-    projectScopeId: identity.projectScopeId ?? undefined,
-    workspaceMode: identity.workspaceMode ?? undefined,
-  });
-  return Object.keys(scope).length > 0 ? scope : undefined;
-}
-
-function buildDecisionRegisterBody(
-  request: ResidentDecisionRegisterRequest,
-  scope: Record<string, unknown> | undefined
-): Record<string, unknown> | undefined {
-  if (request.action === 'list' || request.action === 'read') {
-    return undefined;
-  }
-  const body = stripUndefined({
-    ...(request.body || {}),
-    ...(request.sessionId ? { sessionId: request.sessionId } : {}),
-    ...(scope ? { scope } : {}),
-  });
-  return Object.keys(body).length > 0 ? body : undefined;
-}
-
-function projectIntentEpisodeData(data: Record<string, unknown>): ResidentIntentEpisodeResult {
-  const episodes = Array.isArray(data.episodes)
-    ? data.episodes.map(toResidentIntentEpisodeRecord).filter(isResidentIntentEpisodeRecord)
-    : undefined;
-  const count = numberFrom(data.count) ?? episodes?.length;
-  return {
-    capability: isRecord(data.capability) ? data.capability : null,
-    episode: toResidentIntentEpisodeRecord(data.episode),
-    ...(episodes ? { episodes } : {}),
-    ...(count !== undefined ? { count } : {}),
-  };
-}
-
-function toResidentIntentEpisodeRecord(value: unknown): ResidentIntentEpisodeRecord | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const episodeId = stringFrom(value.episodeId);
-  const sessionKey = stringFrom(value.sessionKey);
-  const status = stringFrom(value.status);
-  if (
-    !episodeId ||
-    !sessionKey ||
-    (status !== 'active' && status !== 'completed' && status !== 'failed' && status !== 'abandoned')
-  ) {
-    return null;
-  }
-  return value as ResidentIntentEpisodeRecord;
-}
-
-function isResidentIntentEpisodeRecord(
-  value: ResidentIntentEpisodeRecord | null
-): value is ResidentIntentEpisodeRecord {
-  return value !== null;
-}
-
 function normalizeRequestedMode(mode: unknown): string {
   if (typeof mode !== 'string') {
     return 'auto';
@@ -3221,18 +2322,6 @@ function buildJobQuery(args: Record<string, unknown>): string {
   }
   if (typeof args.limit === 'number' && Number.isFinite(args.limit)) {
     params.set('limit', String(args.limit));
-  }
-  const query = params.toString();
-  return query ? `?${query}` : '';
-}
-
-function buildIntentEpisodeQuery(options: ResidentIntentEpisodeReadOptions): string {
-  const params = new URLSearchParams();
-  if (typeof options.sessionId === 'string' && options.sessionId.trim()) {
-    params.set('sessionId', options.sessionId.trim());
-  }
-  if (typeof options.limit === 'number' && Number.isFinite(options.limit)) {
-    params.set('limit', String(Math.max(1, Math.min(100, Math.floor(options.limit)))));
   }
   const query = params.toString();
   return query ? `?${query}` : '';

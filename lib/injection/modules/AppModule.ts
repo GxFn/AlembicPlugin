@@ -71,29 +71,16 @@ export function register(c: ServiceContainer) {
   c.singleton('residentSearchClient', (ct: ServiceContainer) => {
     return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients).search;
   });
-  c.singleton('residentIntentEpisodeClient', (ct: ServiceContainer) => {
-    return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients).intentEpisodes;
-  });
-  // W2 (MTC-2/C2b): residentDecisionRegisterClient DI removed with the alembic_decision_record
-  // Plugin MCP entry. The capability-client decisionRegister method + the durable Alembic
-  // Decision Register store stay (DRR-3/W3).
   // Deprecated internal DI key retained only for HTTP compatibility callers until every
   // route switches to capability-specific clients; Codex MCP paths use the split clients.
+  // PDR-4: dashboard / decisionRegister / intentEpisode bindings dropped with their dead
+  // client lanes; only the live search and job lanes remain on this aggregate.
   c.singleton('residentServiceClient', (ct: ServiceContainer) => {
     const clients = ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients;
     return {
-      dashboard: clients.dashboard.dashboard.bind(clients.dashboard),
-      decisionRegister: clients.decisionRegister.decisionRegister.bind(clients.decisionRegister),
-      decisionRegisterCapability: clients.decisionRegister.decisionRegisterCapability.bind(
-        clients.decisionRegister
-      ),
       enqueueJob: clients.jobs.enqueueJob.bind(clients.jobs),
-      latestIntentEpisode: clients.intentEpisodes.latestIntentEpisode.bind(clients.intentEpisodes),
       probe: clients.probe.probe.bind(clients.probe),
       readJob: clients.jobs.readJob.bind(clients.jobs),
-      recentIntentEpisodes: clients.intentEpisodes.recentIntentEpisodes.bind(
-        clients.intentEpisodes
-      ),
       prime: clients.search.prime.bind(clients.search),
       primeWithResult: clients.search.primeWithResult.bind(clients.search),
       resolveProjectScopeIdentity: clients.projectScope.resolveProjectScopeIdentity.bind(
@@ -101,10 +88,6 @@ export function register(c: ServiceContainer) {
       ),
       search: clients.search.search.bind(clients.search),
       searchWithResult: clients.search.searchWithResult.bind(clients.search),
-      startIntentEpisode: clients.intentEpisodes.startIntentEpisode.bind(clients.intentEpisodes),
-      updateIntentEpisodeOutcome: clients.intentEpisodes.updateIntentEpisodeOutcome.bind(
-        clients.intentEpisodes
-      ),
     };
   });
 

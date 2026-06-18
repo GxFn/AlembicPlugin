@@ -194,82 +194,6 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function durableDecisionCapability() {
-  return {
-    available: true,
-    contractVersion: 1,
-    lifecycle: ['create', 'update', 'revoke', 'delete', 'read', 'list', 'searchable'],
-    owner: 'alembic',
-    route: 'decision-register',
-  };
-}
-
-function intentEvidenceFixture() {
-  return {
-    decisionRegister: {
-      acceptedDecisionRefs: ['decision-active-1'],
-      auditExcludedCount: 2,
-      available: true,
-      defaultLifecycle: 'active-effective-only',
-      excludedStatuses: ['revoked', 'deleted'],
-      route: '/api/v1/decision-register/searchable',
-    },
-    degraded: false,
-    degradedReasons: ['vector:evidence-observe-only'],
-    feedback: {
-      observeOnly: true,
-      supportedSignals: ['searchHit', 'view', 'adoption'],
-      version: 1,
-    },
-    relationEvidence: [
-      {
-        direction: 'outgoing',
-        itemId: 'resident-1',
-        relatedId: 'recipe-related',
-        relation: 'related',
-        source: 'knowledgeGraphService',
-      },
-    ],
-    retrievalQuality: {
-      decisionRefCount: 1,
-      feedbackSignalCount: 3,
-      relationEvidenceCount: 1,
-      sourceRefCoverage: 1,
-      version: 1,
-    },
-    scoreBreakdown: [
-      {
-        finalScore: 0.92,
-        itemId: 'resident-1',
-        rank: 1,
-        semanticScore: 0.82,
-        signals: ['final-score', 'semantic-score'],
-        vectorScore: null,
-      },
-    ],
-    semanticAnchors: [
-      {
-        kind: 'source-ref',
-        source: 'intentSearchPlan.sourceRefs',
-        value: '/Users/example/private-project/src/service.ts:42',
-        weight: 0.55,
-      },
-    ],
-    topAnchorMatches: [
-      {
-        anchor: 'service factory',
-        itemId: 'resident-1',
-        matchType: 'text',
-        rank: 1,
-        score: 0.92,
-        sourceRefs: ['/Users/example/private-project/src/service.ts:42'],
-        title: 'Resident vector recipe',
-      },
-    ],
-    version: 1,
-  };
-}
-
 function primeInjectionPackageFixture() {
   return {
     decisionRegister: primeDecisionRegisterFixture(),
@@ -443,212 +367,6 @@ describe('AlembicResidentServiceClient', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls Decision Register capability and lifecycle routes against a compatible resident route', async () => {
-    const requests: Array<{
-      body: Record<string, unknown> | null;
-      method: string;
-      url: URL;
-    }> = [];
-    const decisionId = 'decision-public-1';
-    const fetchImpl = vi.fn(
-      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-        const url = fetchInputUrl(input);
-        const method = init?.method ?? 'GET';
-        const body = parseRequestBody(init);
-        requests.push({ body, method, url });
-
-        if (url.pathname === '/api/v1/daemon/health') {
-          return jsonResponse(residentHealthPayload());
-        }
-        if (url.pathname === '/api/v1/decision-register/capability') {
-          return jsonResponse({
-            success: true,
-            data: { capability: durableDecisionCapability() },
-          });
-        }
-        if (url.pathname === '/api/v1/decision-register' && method === 'POST') {
-          return jsonResponse(
-            {
-              success: true,
-              data: {
-                capability: durableDecisionCapability(),
-                decision: { decisionId, status: 'active', title: body?.title },
-              },
-            },
-            201
-          );
-        }
-        if (url.pathname === `/api/v1/decision-register/${decisionId}` && method === 'PATCH') {
-          return jsonResponse({
-            success: true,
-            data: {
-              capability: durableDecisionCapability(),
-              decision: { decisionId, status: 'active', title: body?.title },
-            },
-          });
-        }
-        if (
-          url.pathname === `/api/v1/decision-register/${decisionId}/revoke` &&
-          method === 'POST'
-        ) {
-          return jsonResponse({
-            success: true,
-            data: {
-              capability: durableDecisionCapability(),
-              decision: { decisionId, status: 'revoked' },
-            },
-          });
-        }
-        if (url.pathname === `/api/v1/decision-register/${decisionId}` && method === 'DELETE') {
-          return jsonResponse({
-            success: true,
-            data: {
-              capability: durableDecisionCapability(),
-              decision: { decisionId, status: 'deleted' },
-            },
-          });
-        }
-        if (url.pathname === `/api/v1/decision-register/${decisionId}` && method === 'GET') {
-          return jsonResponse({
-            success: true,
-            data: {
-              capability: durableDecisionCapability(),
-              decision: { decisionId, status: 'active' },
-            },
-          });
-        }
-        if (url.pathname === '/api/v1/decision-register' && method === 'GET') {
-          return jsonResponse({
-            success: true,
-            data: {
-              capability: durableDecisionCapability(),
-              count: 1,
-              decision: null,
-              decisions: [{ decisionId, status: 'deleted' }],
-            },
-          });
-        }
-        return jsonResponse(
-          { success: false, message: `${method} ${url.pathname} unexpected` },
-          404
-        );
-      }
-    ) as unknown as typeof fetch;
-
-    const client = new AlembicResidentServiceClient({
-      fetchImpl,
-      projectRoot: '/tmp/project',
-      readState: () => daemonState(),
-    });
-
-    const created = await client.decisionRegister({
-      action: 'create',
-      body: { title: 'Use durable Decision Register' },
-      sessionId: 'session-public-1',
-    });
-    const updated = await client.decisionRegister({
-      action: 'update',
-      body: { title: 'Use updated Decision Register' },
-      decisionId,
-      sessionId: 'session-public-1',
-    });
-    const revoked = await client.decisionRegister({
-      action: 'revoke',
-      body: { reason: 'Superseded' },
-      decisionId,
-      sessionId: 'session-public-1',
-    });
-    const deleted = await client.decisionRegister({
-      action: 'delete',
-      body: { reason: 'Cleanup' },
-      decisionId,
-      sessionId: 'session-public-1',
-    });
-    const read = await client.decisionRegister({ action: 'read', decisionId });
-    const listed = await client.decisionRegister({
-      action: 'list',
-      includeDeleted: true,
-      limit: 5,
-      sessionId: 'session-public-1',
-      status: 'all',
-    });
-
-    for (const result of [created, updated, revoked, deleted, read, listed]) {
-      expect(result.ok).toBe(true);
-    }
-    if (!created.ok || !updated.ok || !revoked.ok || !deleted.ok || !read.ok || !listed.ok) {
-      throw new Error('Decision Register lifecycle unexpectedly failed');
-    }
-    expect(created.value.decision).toMatchObject({ decisionId, status: 'active' });
-    expect(updated.value.decision).toMatchObject({ decisionId, status: 'active' });
-    expect(revoked.value.decision).toMatchObject({ decisionId, status: 'revoked' });
-    expect(deleted.value.decision).toMatchObject({ decisionId, status: 'deleted' });
-    expect(read.value.decision).toMatchObject({ decisionId, status: 'active' });
-    expect(listed.value.decisions).toEqual([{ decisionId, status: 'deleted' }]);
-    expect(listed.value.count).toBe(1);
-
-    const capabilityRequests = requests.filter(
-      (request) => request.url.pathname === '/api/v1/decision-register/capability'
-    );
-    expect(capabilityRequests).toHaveLength(6);
-
-    const lifecycleRequests = requests.filter(
-      (request) =>
-        request.url.pathname.startsWith('/api/v1/decision-register') &&
-        request.url.pathname !== '/api/v1/decision-register/capability'
-    );
-    expect(lifecycleRequests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual(
-      [
-        'POST /api/v1/decision-register',
-        `PATCH /api/v1/decision-register/${decisionId}`,
-        `POST /api/v1/decision-register/${decisionId}/revoke`,
-        `DELETE /api/v1/decision-register/${decisionId}`,
-        `GET /api/v1/decision-register/${decisionId}`,
-        'GET /api/v1/decision-register',
-      ]
-    );
-    expect(lifecycleRequests[0]?.body).toMatchObject({
-      scope: {
-        dataRootSource: 'ghost-registry',
-        projectId: 'project-workspace',
-        projectScopeId: 'project-scope-workspace',
-        workspaceMode: 'ghost',
-      },
-      sessionId: 'session-public-1',
-      title: 'Use durable Decision Register',
-    });
-    expect(lifecycleRequests[1]?.body).toMatchObject({
-      scope: {
-        projectId: 'project-workspace',
-        projectScopeId: 'project-scope-workspace',
-      },
-      sessionId: 'session-public-1',
-      title: 'Use updated Decision Register',
-    });
-    expect(lifecycleRequests[2]?.body).toMatchObject({
-      reason: 'Superseded',
-      scope: {
-        projectId: 'project-workspace',
-        projectScopeId: 'project-scope-workspace',
-      },
-      sessionId: 'session-public-1',
-    });
-    expect(lifecycleRequests[3]?.body).toMatchObject({
-      reason: 'Cleanup',
-      scope: {
-        projectId: 'project-workspace',
-        projectScopeId: 'project-scope-workspace',
-      },
-      sessionId: 'session-public-1',
-    });
-    expect(lifecycleRequests[4]?.body).toBeNull();
-    expect(lifecycleRequests[5]?.body).toBeNull();
-    expect(lifecycleRequests[5]?.url.searchParams.get('includeDeleted')).toBe('true');
-    expect(lifecycleRequests[5]?.url.searchParams.get('limit')).toBe('5');
-    expect(lifecycleRequests[5]?.url.searchParams.get('sessionId')).toBe('session-public-1');
-    expect(lifecycleRequests[5]?.url.searchParams.get('status')).toBe('all');
-  });
-
   it('normalizes Codex auto mode to daemon semantic mode while preserving requested mode metadata', async () => {
     const requestedUrls: URL[] = [];
     const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
@@ -666,7 +384,6 @@ describe('AlembicResidentServiceClient', () => {
             items: [{ id: 'resident-1', title: 'Resident vector recipe', score: 0.92 }],
             searchMeta: {
               actualMode: 'semantic',
-              intentEvidence: intentEvidenceFixture(),
               primeInjectionPackage: primeInjectionPackageFixture(),
               requestedMode: 'semantic',
               semanticUsed: true,
@@ -694,30 +411,6 @@ describe('AlembicResidentServiceClient', () => {
     expect(result.meta.residentRequestMode).toBe('semantic');
     expect(result.meta.searchMeta).toMatchObject({
       codexRequestedMode: 'auto',
-      intentEvidence: {
-        decisionRegister: {
-          acceptedDecisionRefs: ['decision-active-1'],
-          auditExcludedCount: 2,
-          excludedStatuses: ['revoked', 'deleted'],
-        },
-        feedback: {
-          observeOnly: true,
-        },
-        retrievalQuality: {
-          decisionRefCount: 1,
-          feedbackSignalCount: 3,
-        },
-        semanticAnchors: [
-          expect.objectContaining({
-            value: '[absolute-path]/service.ts:42',
-          }),
-        ],
-        topAnchorMatches: [
-          expect.objectContaining({
-            sourceRefs: ['[absolute-path]/service.ts:42'],
-          }),
-        ],
-      },
       primeInjectionPackage: {
         decisionRegister: {
           acceptedDecisionRefs: ['decision-active-1'],
@@ -769,19 +462,6 @@ describe('AlembicResidentServiceClient', () => {
       residentRequestMode: 'semantic',
       requestedMode: 'semantic',
     });
-    expect(result.meta.intentEvidence).toMatchObject({
-      scoreBreakdown: [
-        expect.objectContaining({
-          itemId: 'resident-1',
-          semanticScore: 0.82,
-        }),
-      ],
-      relationEvidence: [
-        expect.objectContaining({
-          relatedId: 'recipe-related',
-        }),
-      ],
-    });
     expect(result.meta.primeInjectionPackage).toMatchObject({
       decisionRegister: {
         acceptedDecisionRefs: ['decision-active-1'],
@@ -817,7 +497,6 @@ describe('AlembicResidentServiceClient', () => {
       },
     });
     expect(JSON.stringify(result.meta.primeInjectionPackage)).not.toContain('/Users/example');
-    expect(JSON.stringify(result.meta.intentEvidence)).not.toContain('/Users/example');
     expect(result.meta.projectScopeIdentity).toMatchObject({
       available: true,
       mode: 'project-scope',
@@ -1199,41 +878,6 @@ describe('AlembicResidentServiceClient', () => {
             data: { jobs: [{ id: 'job-bootstrap-1', kind: 'bootstrap', status: 'queued' }] },
           });
         }
-        if (url.pathname === '/api/v1/decision-register/capability') {
-          return jsonResponse({
-            success: true,
-            data: { capability: durableDecisionCapability() },
-          });
-        }
-        if (url.pathname === '/api/v1/decision-register' && method === 'POST') {
-          return replay(
-            'decision-register.success',
-            {
-              success: true,
-              data: {
-                decision: { decisionId: 'decision-alpha', status: 'active' },
-              },
-            },
-            201
-          );
-        }
-        if (url.pathname === '/api/v1/intent-episodes' && method === 'POST') {
-          return replay(
-            'intent-episode.success',
-            {
-              success: true,
-              data: {
-                episode: {
-                  episodeId: 'intent-alpha',
-                  query: 'D4 replay',
-                  sessionKey: 'sha256:intent-alpha',
-                  status: 'active',
-                },
-              },
-            },
-            201
-          );
-        }
         return jsonResponse(
           { success: false, message: `${method} ${url.pathname} unexpected` },
           404
@@ -1249,15 +893,6 @@ describe('AlembicResidentServiceClient', () => {
     const scope = await client.resolveProjectScopeIdentity();
     const search = await client.search({ query: 'Boundary rule', mode: 'auto' });
     const job = await client.readJob({ kind: 'bootstrap' });
-    const decision = await client.decisionRegister({
-      action: 'create',
-      body: { title: 'D4 replay durable decision' },
-      sessionId: 'session-d4',
-    });
-    const intent = await client.startIntentEpisode({
-      query: 'D4 replay',
-      sessionId: 'session-d4',
-    });
 
     expect(scope).toMatchObject({
       available: true,
@@ -1266,20 +901,6 @@ describe('AlembicResidentServiceClient', () => {
     });
     expect(search.items).toEqual([{ id: 'knowledge-alpha', title: 'Boundary rule' }]);
     expect(job.ok).toBe(true);
-    expect(decision.ok).toBe(true);
-    expect(intent.ok).toBe(true);
-    if (!decision.ok || !intent.ok) {
-      throw new Error('Accepted D3 provider fixture replay unexpectedly failed');
-    }
-    expect(decision.value.decision).toMatchObject({
-      decisionId: 'decision-alpha',
-      status: 'active',
-    });
-    expect(intent.value.episode).toMatchObject({
-      episodeId: 'intent-alpha',
-      sessionKey: 'sha256:intent-alpha',
-      status: 'active',
-    });
 
     const acceptedFixtureIds = new Set(
       PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY.flatMap((entry) => entry.fixtureIds)
@@ -1290,8 +911,6 @@ describe('AlembicResidentServiceClient', () => {
         'project-scope.success',
         'knowledge.success',
         'jobs.queued',
-        'decision-register.success',
-        'intent-episode.success',
       ])
     );
     for (const fixtureId of replayedFixtureIds) {
@@ -1461,220 +1080,6 @@ describe('AlembicResidentServiceClient', () => {
       hostIntentApplied: true,
       hostIntentConfidence: 0.82,
     });
-  });
-
-  it('uses resident IntentEpisode API for start, read, and outcome handoff', async () => {
-    const requests: Array<{ body?: Record<string, unknown>; method?: string; url: URL }> = [];
-    const fetchImpl = vi.fn(
-      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-        const url = fetchInputUrl(input);
-        requests.push({
-          body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
-          method: init?.method,
-          url,
-        });
-        if (url.pathname === '/api/v1/daemon/health') {
-          return new Response(JSON.stringify(residentHealthPayload()), {
-            headers: { 'content-type': 'application/json' },
-            status: 200,
-          });
-        }
-        if (url.pathname === '/api/v1/intent-episodes/latest') {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              data: {
-                capability: { owner: 'alembic' },
-                episode: {
-                  episodeId: 'episode-prev',
-                  query: 'previous',
-                  sessionKey: 'sha256:previous',
-                  sourceRefs: ['host:previous'],
-                  status: 'completed',
-                },
-              },
-            }),
-            { headers: { 'content-type': 'application/json' }, status: 200 }
-          );
-        }
-        if (url.pathname === '/api/v1/intent-episodes/recent') {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              data: {
-                capability: { owner: 'alembic' },
-                count: 1,
-                episodes: [
-                  {
-                    episodeId: 'episode-prev',
-                    query: 'previous',
-                    sessionKey: 'sha256:previous',
-                    sourceRefs: ['host:previous'],
-                    status: 'completed',
-                  },
-                ],
-              },
-            }),
-            { headers: { 'content-type': 'application/json' }, status: 200 }
-          );
-        }
-        if (url.pathname === '/api/v1/intent-episodes' && init?.method === 'POST') {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              data: {
-                capability: { owner: 'alembic' },
-                episode: {
-                  episodeId: 'episode-current',
-                  query: 'resident episode',
-                  sessionKey: 'sha256:current',
-                  sourceRefs: ['host:intent'],
-                  status: 'active',
-                },
-              },
-            }),
-            { headers: { 'content-type': 'application/json' }, status: 201 }
-          );
-        }
-        if (url.pathname === '/api/v1/intent-episodes/episode-current') {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              data: {
-                capability: { owner: 'alembic' },
-                episode: {
-                  episodeId: 'episode-current',
-                  sessionKey: 'sha256:current',
-                  status: 'completed',
-                },
-              },
-            }),
-            { headers: { 'content-type': 'application/json' }, status: 200 }
-          );
-        }
-        throw new Error(`Unexpected URL: ${url.pathname}`);
-      }
-    ) as unknown as typeof fetch;
-
-    const client = new AlembicResidentServiceClient({
-      fetchImpl,
-      projectRoot: '/tmp/project',
-      readState: () => daemonState(),
-    });
-
-    const latest = await client.latestIntentEpisode({ sessionId: 'thread:hash' });
-    const recent = await client.recentIntentEpisodes({ limit: 3, sessionId: 'thread:hash' });
-    const start = await client.startIntentEpisode({
-      activeFile: '/Users/example/private-project/lib/file.ts',
-      hostIntent: {
-        applied: true,
-        confidence: 0.8,
-        hostTurnMeta: { threadIdHash: 'hash' },
-        sourceRefs: ['host:intent'],
-      },
-      query: 'resident episode',
-      scenario: 'implementation',
-      searchMeta: {
-        hostIntentApplied: true,
-        hostIntentConfidence: 0.8,
-        queries: ['resident episode'],
-        resultCount: 1,
-      },
-      sessionId: 'thread:hash',
-      sourceRefs: ['host:intent'],
-      turnId: 'turn-1',
-    });
-    const updated = await client.updateIntentEpisodeOutcome('episode-current', {
-      reason: 'done',
-      status: 'completed',
-      taskId: 'task-1',
-    });
-
-    expect(latest.ok).toBe(true);
-    expect(recent.ok).toBe(true);
-    expect(start.ok).toBe(true);
-    expect(updated.ok).toBe(true);
-    if (start.ok) {
-      expect(start.value.episode).toMatchObject({
-        episodeId: 'episode-current',
-        sessionKey: 'sha256:current',
-        status: 'active',
-      });
-    }
-    const latestRequest = requests.find((request) => request.url.pathname.endsWith('/latest'));
-    const recentRequest = requests.find((request) => request.url.pathname.endsWith('/recent'));
-    const startRequest = requests.find(
-      (request) => request.url.pathname === '/api/v1/intent-episodes' && request.method === 'POST'
-    );
-    const updateRequest = requests.find((request) =>
-      request.url.pathname.endsWith('/episode-current')
-    );
-    expect(latestRequest?.url.searchParams.get('sessionId')).toBe('thread:hash');
-    expect(recentRequest?.url.searchParams.get('limit')).toBe('3');
-    expect(startRequest?.body).toMatchObject({
-      activeFile: '/Users/example/private-project/lib/file.ts',
-      hostIntent: {
-        applied: true,
-        hostTurnMeta: { threadIdHash: 'hash' },
-      },
-      query: 'resident episode',
-      sessionId: 'thread:hash',
-      sourceRefs: ['host:intent'],
-      turnId: 'turn-1',
-    });
-    expect(JSON.stringify(startRequest?.body?.hostIntent)).not.toContain('raw-thread-id');
-    expect(updateRequest?.method).toBe('PATCH');
-    expect(updateRequest?.body).toMatchObject({
-      reason: 'done',
-      status: 'completed',
-      taskId: 'task-1',
-    });
-  });
-
-  it('degrades resident IntentEpisode handoff when an older daemon lacks the route', async () => {
-    const requestedUrls: URL[] = [];
-    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
-      const url = fetchInputUrl(input);
-      requestedUrls.push(url);
-      if (url.pathname === '/api/v1/daemon/health') {
-        return new Response(JSON.stringify(residentHealthPayload()), {
-          headers: { 'content-type': 'application/json' },
-          status: 200,
-        });
-      }
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: { message: 'IntentEpisode route unavailable' },
-        }),
-        { headers: { 'content-type': 'application/json' }, status: 404 }
-      );
-    }) as unknown as typeof fetch;
-
-    const client = new AlembicResidentServiceClient({
-      fetchImpl,
-      projectRoot: '/tmp/project',
-      readState: () => daemonState(),
-    });
-
-    const result = await client.startIntentEpisode({
-      query: 'resident episode',
-      sessionId: 'thread:hash',
-    });
-
-    expect(result.ok).toBe(false);
-    expect(requestedUrls.map((url) => url.pathname)).toEqual([
-      '/api/v1/daemon/health',
-      '/api/v1/intent-episodes',
-    ]);
-    if (!result.ok) {
-      expect(result.reason).toBe('request-failed');
-      expect(result.message).toBe('IntentEpisode route unavailable');
-      expect(result.telemetry).toMatchObject({
-        feature: 'intent-episodes',
-        status: 404,
-      });
-    }
   });
 
   it('does not claim resident vector availability when semantic telemetry is missing', async () => {

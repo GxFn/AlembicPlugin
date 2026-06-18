@@ -3,10 +3,7 @@ import {
   buildPrimeRegionQuery,
   mapRegionHitsToPrimeEvidence,
 } from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
-import {
-  buildPrimeKnowledgeMaterial,
-  createUnavailablePrimeIntentEpisodeMaterial,
-} from '../../lib/service/task/PrimeKnowledgeMaterial.js';
+import { buildPrimeKnowledgeMaterial } from '../../lib/service/task/PrimeKnowledgeMaterial.js';
 
 // PDR-2b: prove the local Recipe semantic-region lane is wired end to end —
 // searchRegions hits → regionEvidence records → prime trust gate credits them as
@@ -87,7 +84,6 @@ describe('regionEvidence → prime trust gate (PDR-1d interim un-defer)', () => 
   // supplies evidence. searchDegraded:false so region evidence is not blanket-dropped.
   const baseInput = {
     requirement,
-    intentEpisode: createUnavailablePrimeIntentEpisodeMaterial('test'),
     searchDegraded: false,
     searchResult: null,
     taskAnchorDecision: {

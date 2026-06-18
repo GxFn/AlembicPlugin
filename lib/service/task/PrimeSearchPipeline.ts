@@ -15,7 +15,6 @@
 import type { SearchResultItem, SlimSearchResult } from '@alembic/core/search';
 import { slimSearchResult } from '@alembic/core/search';
 import type {
-  ResidentIntentEvidenceSummary,
   ResidentPrimeInjectionPackageSummary,
   ResidentPrimeRetrievalConsumerSummary,
   ResidentSearchAttemptMeta,
@@ -36,7 +35,6 @@ export interface PrimeSearchMeta {
   // Optional resident-derived evidence. The local adapter does not populate
   // these; they stay so downstream trust/diagnostics keep their null-guarded
   // reads and a later resident path can repopulate them without a contract change.
-  intentEvidence?: ResidentIntentEvidenceSummary;
   primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
   retrievalConsumer?: ResidentPrimeRetrievalConsumerSummary;
   residentSearch?: ResidentSearchAttemptMeta;

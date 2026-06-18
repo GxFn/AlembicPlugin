@@ -48,51 +48,6 @@ function projectScopeIdentity(): AlembicResidentProjectScopeIdentity {
   };
 }
 
-function intentEvidenceSummary() {
-  return {
-    degraded: false,
-    degradedReasons: ['vector:evidence-observe-only'],
-    relationEvidence: [
-      {
-        direction: 'outgoing',
-        itemId: 'resident-1',
-        relatedId: 'recipe-related',
-        relation: 'related',
-        source: 'knowledgeGraphService',
-      },
-    ],
-    scoreBreakdown: [
-      {
-        finalScore: 0.93,
-        itemId: 'resident-1',
-        rank: 1,
-        semanticScore: 0.72,
-        signals: ['final-score', 'semantic-score'],
-        vectorScore: null,
-      },
-    ],
-    semanticAnchors: [
-      {
-        kind: 'query',
-        source: 'intentSearchPlan.executableQuery',
-        value: 'resident search',
-        weight: 1,
-      },
-    ],
-    topAnchorMatches: [
-      {
-        anchor: 'resident search',
-        itemId: 'resident-1',
-        matchType: 'text',
-        rank: 1,
-        score: 0.93,
-        sourceRefs: ['knowledge:resident-1'],
-      },
-    ],
-    version: 1,
-  };
-}
-
 function primeInjectionPackageSummary() {
   return {
     injection: {
@@ -384,7 +339,6 @@ describe('alembic_search resident search enhancement', () => {
           residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
           resultCount: 1,
           route: 'alembic-resident-service',
-          intentEvidence: intentEvidenceSummary(),
           primeInjectionPackage: primeInjectionPackageSummary(),
           searchMeta: {
             route: 'resident-search',
@@ -406,7 +360,6 @@ describe('alembic_search resident search enhancement', () => {
             ],
             projectScopeIdentity: projectScopeIdentity(),
             residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
-            intentEvidence: intentEvidenceSummary(),
             primeInjectionPackage: primeInjectionPackageSummary(),
           },
           semanticUsed: true,
@@ -1619,10 +1572,8 @@ describe('alembic_search resident search enhancement', () => {
           },
           resultCount: 1,
           route: 'alembic-resident-service',
-          intentEvidence: intentEvidenceSummary(),
           searchMeta: {
             actualMode: 'semantic',
-            intentEvidence: intentEvidenceSummary(),
             requestedMode: 'semantic',
             residentVector: {
               available: true,

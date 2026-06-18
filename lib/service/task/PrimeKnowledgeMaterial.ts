@@ -1,5 +1,4 @@
 import type {
-  ResidentIntentEvidenceSummary,
   ResidentPrimeInjectionPackageSummary,
   ResidentPrimeRetrievalConsumerSummary,
 } from '#service/resident/AlembicResidentServiceClient.js';
@@ -108,42 +107,6 @@ export interface PrimeTrustPosture {
   };
 }
 
-export interface PrimeIntentEpisodeRecordSummary {
-  episodeId: string;
-  query?: string;
-  sessionKey: string | null;
-  sourceRefs: string[];
-  status: string;
-}
-
-export interface ResidentCallSummary {
-  ok: boolean;
-  owner?: string;
-  reason?: string;
-  retryable?: boolean;
-  route?: string;
-}
-
-export interface PrimeIntentEpisodeMaterial {
-  available: boolean;
-  current: PrimeIntentEpisodeRecordSummary | null;
-  degraded: boolean;
-  latest: PrimeIntentEpisodeRecordSummary | null;
-  recent: PrimeIntentEpisodeRecordSummary[];
-  read: {
-    latest: ResidentCallSummary;
-    recent: ResidentCallSummary;
-  };
-  reason: string | null;
-  requestFields: string[];
-  sessionSource:
-    | 'host-conversation-hash'
-    | 'host-session-hash'
-    | 'host-thread-hash'
-    | 'mcp-session';
-  start: ResidentCallSummary;
-}
-
 export interface PrimeKnowledgeMaterial {
   status: PrimeKnowledgeMaterialStatus;
   degradedReason?: PrimeKnowledgeMaterialDegradedReason;
@@ -169,8 +132,6 @@ export interface PrimeKnowledgeMaterial {
     skipped?: boolean;
     taskAnchorDecision?: TaskAnchorDecision;
   }>;
-  intentEpisode?: PrimeIntentEpisodeMaterial;
-  intentEvidence?: ResidentIntentEvidenceSummary;
   primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
   retrievalConsumer?: ResidentPrimeRetrievalConsumerSummary;
 }
@@ -195,7 +156,6 @@ interface PrimeRequirementContext {
 
 interface PrimeKnowledgeMaterialInput {
   requirement: PrimeRequirementContext;
-  intentEpisode: PrimeIntentEpisodeMaterial;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
   sourceRefs?: string[];
@@ -329,10 +289,6 @@ export function buildPrimeKnowledgeMaterial(
     shoutInstruction: buildPrimeShoutInstruction(status, trustPosture),
     hostResponse: buildPrimeHostResponseInstruction(status, receiptId, trustPosture),
     nextActions: buildPrimeKnowledgeNextActions(input.taskAnchorDecision),
-    intentEpisode: input.intentEpisode,
-    ...(input.searchResult?.searchMeta.intentEvidence
-      ? { intentEvidence: input.searchResult.searchMeta.intentEvidence }
-      : {}),
     ...(input.searchResult?.searchMeta.primeInjectionPackage
       ? { primeInjectionPackage: input.searchResult.searchMeta.primeInjectionPackage }
       : {}),
@@ -347,27 +303,6 @@ export function formatPrimeTrustPostureMessage(posture: PrimeTrustPosture): stri
     .map((entry) => `${entry.layer}=${entry.items.length}`)
     .join(', ');
   return `Trust posture checklist: ${counts}. A visible receipt must name the obey/use/context/verify/degraded boundaries and cannot be a generic received-knowledge slogan.`;
-}
-
-export function createUnavailablePrimeIntentEpisodeMaterial(
-  reason: string,
-  sessionSource: PrimeIntentEpisodeMaterial['sessionSource'] = 'mcp-session'
-): PrimeIntentEpisodeMaterial {
-  return {
-    available: false,
-    current: null,
-    degraded: true,
-    latest: null,
-    recent: [],
-    read: {
-      latest: { ok: false, reason },
-      recent: { ok: false, reason },
-    },
-    reason,
-    requestFields: [],
-    sessionSource,
-    start: { ok: false, reason },
-  };
 }
 
 function generatePrimeReceiptId(): string {
@@ -513,8 +448,8 @@ function buildTrustedToUse(
   return trustedToUse;
 }
 
-function buildPrimeContextOnlyItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
-  const contextOnly: PrimeTrustPostureItem[] = [
+function buildPrimeContextOnlyItems(_input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
+  return [
     {
       id: 'prime-query-context',
       title: 'Prime query, scenario, and generated search queries',
@@ -523,18 +458,6 @@ function buildPrimeContextOnlyItems(input: PrimeTrustPostureInput): PrimeTrustPo
         'Use the query and scenario to steer search and receipt wording; do not present them as verified project facts.',
     },
   ];
-  const intentEvidence = input.searchResult?.searchMeta.intentEvidence;
-  if (intentEvidence) {
-    contextOnly.push({
-      id: 'resident-intent-evidence',
-      title: 'Resident intent evidence summary',
-      source: 'intent-evidence',
-      reason:
-        'Use ranking, relation, and anchor evidence as context for why material was selected, not as a rule to obey.',
-      status: intentEvidence.degraded ? 'degraded' : 'available',
-    });
-  }
-  return contextOnly;
 }
 
 function buildRequiresVerificationItems(

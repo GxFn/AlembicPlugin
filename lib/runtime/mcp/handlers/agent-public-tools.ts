@@ -8,7 +8,6 @@ import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeCont
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import {
   buildPrimeKnowledgeMaterial,
-  createUnavailablePrimeIntentEpisodeMaterial,
   type PrimeKnowledgeMaterial,
 } from '#service/task/PrimeKnowledgeMaterial.js';
 import type { PrimeSearchRequest, PrimeSearchResult } from '#service/task/PrimeSearchPipeline.js';
@@ -407,9 +406,6 @@ function buildPrimeMaterialProjection(
         keywords: frame.keywords,
         labels: frame.labels,
       },
-      intentEpisode: createUnavailablePrimeIntentEpisodeMaterial(
-        'agent-public-prime keeps IntentEpisode handoff out of Stage 3 active surface'
-      ),
       searchDegraded: primeSearch.searchDegraded,
       searchResult: primeSearch.searchResult,
       sourceRefs: intake.sourceRefs,
@@ -1770,9 +1766,6 @@ function bindPrimeSessionIntent(
       projectRuntime,
       queries: searchResult.searchMeta.queries,
       resultCount: searchResult.searchMeta.resultCount,
-      ...(searchResult.searchMeta.intentEvidence
-        ? { intentEvidence: searchResult.searchMeta.intentEvidence }
-        : {}),
       ...(searchResult.searchMeta.primeInjectionPackage
         ? { primeInjectionPackage: searchResult.searchMeta.primeInjectionPackage }
         : {}),
