@@ -16,7 +16,6 @@ import {
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/host-turn-meta.js';
 import { SetupService } from '../../cli/SetupService.js';
-import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import {
   buildCodexHostProjectAlignment,
   buildCodexPostInitActions,
@@ -42,7 +41,6 @@ import {
   resolveCodexProjectRoot,
   resolveCodexServiceRequestBoundary,
   resolveHostRuntimeContext,
-  summarizeCodexDaemonStatus,
   summarizeCodexProjectRootResolution,
   writeCodexInitMarker,
 } from '../../runtime/index.js';
@@ -84,14 +82,7 @@ import { TIER_ORDER, TOOLS } from '../../runtime/mcp/tools.js';
 
 interface HostMcpServerOptions {
   projectRoot?: string;
-  supervisor?: DaemonSupervisorLike;
   waitUntilReadyMs?: number;
-}
-
-interface DaemonSupervisorLike {
-  ensure(options: { projectRoot: string; waitUntilReadyMs?: number }): Promise<DaemonStatus>;
-  status(projectRoot: string): Promise<DaemonStatus>;
-  stop(options: { projectRoot: string; waitMs?: number }): Promise<DaemonStatus>;
 }
 
 interface CodexInitRuntimeState {
@@ -205,7 +196,6 @@ function resolveWorkspaceModeConflict(
 export class HostMcpServer {
   readonly projectRoot: string;
   readonly projectRootResolution: CodexProjectRootResolution;
-  readonly supervisor: DaemonSupervisorLike;
   readonly waitUntilReadyMs: number;
   readonly sessionId: string;
   sdkServer: SdkMcpServer | null = null;
@@ -224,7 +214,6 @@ export class HostMcpServer {
   constructor(options: HostMcpServerOptions = {}) {
     this.projectRootResolution = resolveCodexProjectRoot({ projectRoot: options.projectRoot });
     this.projectRoot = this.projectRootResolution.path || safeProjectRootFallback();
-    this.supervisor = options.supervisor || new DaemonSupervisor();
     this.waitUntilReadyMs = options.waitUntilReadyMs ?? 3000;
     this.sessionId = `codex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -308,7 +297,6 @@ export class HostMcpServer {
     if (scope.kind === 'scoped-project') {
       const scopedServer = new HostMcpServer({
         projectRoot: scope.override.projectRoot,
-        supervisor: this.supervisor,
         waitUntilReadyMs: this.waitUntilReadyMs,
       });
       persistTrustedCodexProjectRootScope({
@@ -371,11 +359,6 @@ export class HostMcpServer {
       buildStatus: () => this.buildStatus(),
       cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
       initializeWorkspace: (nextArgs) => this.initializeWorkspace(nextArgs),
-      openDashboard: async () =>
-        attachCodexServiceBoundary(
-          await this.openDashboard(),
-          resolveCodexServiceRequestBoundary(name, args)
-        ) as Record<string, unknown>,
       enqueueJob: async (kind, nextArgs) =>
         attachCodexServiceBoundary(
           await this.enqueueJob(kind, nextArgs),
@@ -386,7 +369,6 @@ export class HostMcpServer {
           await this.readJob(nextArgs),
           resolveCodexServiceRequestBoundary(name, args)
         ) as Record<string, unknown>,
-      stopDaemon: (nextArgs) => this.stopDaemon(nextArgs),
     });
     if (localDispatch.handled) {
       return localDispatch.result;
@@ -402,7 +384,6 @@ export class HostMcpServer {
       data: await buildCodexStatus(this.projectRoot, {
         autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
         projectRootResolution: this.projectRootResolution,
-        supervisor: this.supervisor,
       }),
     };
   }
@@ -425,8 +406,31 @@ export class HostMcpServer {
     };
   }
 
+  // PDR-3: the embedded daemon is removed. The runtime-diagnostics route still
+  // feeds consumers (enhancement-route, host-project-alignment, runtime
+  // diagnostics) that are typed for a non-null DaemonStatus, so report a
+  // synthetic daemon-less "stopped" status instead of a live daemon probe.
+  private buildStoppedDaemonStatus(): DaemonStatus {
+    const paths = resolveDaemonPaths(this.projectRoot);
+    return {
+      status: 'stopped',
+      ready: false,
+      projectRoot: this.projectRoot,
+      dataRoot: paths.dataRoot,
+      projectId: paths.projectId,
+      statePath: paths.statePath,
+      pidPath: paths.pidPath,
+      lockDir: paths.lockDir,
+      logPath: paths.logPath,
+      state: null,
+      pidAlive: false,
+      health: null,
+      message: 'daemon removed (PDR-3)',
+    };
+  }
+
   async buildDiagnostics(): Promise<Record<string, unknown>> {
-    const daemonStatus = await this.supervisor.status(this.projectRoot);
+    const daemonStatus: DaemonStatus = this.buildStoppedDaemonStatus();
     const residentClients = this.residentClients();
     const residentService = await residentClients.probe.probe({ daemonStatus });
     const projectScopeIdentity = await residentClients.projectScope.resolveProjectScopeIdentity({
@@ -715,159 +719,18 @@ export class HostMcpServer {
     }
   }
 
-  async openDashboard(): Promise<Record<string, unknown>> {
-    const daemon = await this.supervisor.status(this.projectRoot);
-    const projectScopeIdentity =
-      await this.residentClients().projectScope.resolveProjectScopeIdentity({
-        daemonStatus: daemon,
-      });
-    const enhancementRoute = buildHostEnhancementRouteChoice({
-      daemonStatus: daemon,
-      runtime: resolveHostRuntimeContext(),
-      requirement: 'dashboard',
-    });
-    const hostProjectAlignment = buildCodexHostProjectAlignment({
-      daemonStatus: daemon,
-      enhancementRoute,
-      projectScopeIdentity,
-      projectRoot: this.projectRoot,
-    });
-    const projectRuntime = buildCodexProjectRuntimeContext({
-      daemonStatus: daemon,
-      enhancementRoute,
-      hostProjectAlignment,
-      projectRoot: this.projectRoot,
-      projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity,
-      requiredServices: ['project-identity', 'dashboard'],
-      runtime: resolveHostRuntimeContext(),
-    });
-    const blocked = buildCodexHostProjectHandoffBlock({
-      daemon,
-      enhancementRoute,
-      hostProjectAlignment,
-      projectRoot: this.projectRoot,
-      requirement: 'dashboard',
-      tool: 'alembic_dashboard',
-    });
-    if (blocked) {
-      return attachProjectRuntimeContext(blocked, projectRuntime) as Record<string, unknown>;
-    }
-    const dashboardResult = await this.residentClients().dashboard.dashboard({
-      daemonStatus: daemon,
-    });
-    if (
-      enhancementRoute.selected !== 'local-alembic-daemon' ||
-      !daemon.ready ||
-      !daemon.state ||
-      !dashboardResult.ok ||
-      !dashboardResult.value.url ||
-      enhancementRoute.missingCapabilities.includes('dashboard')
-    ) {
-      return failureResult(
-        'alembic_dashboard',
-        'Dashboard handoff requires a local Alembic daemon that serves the Dashboard. The embedded Codex plugin runtime does not bundle or serve Dashboard frontend assets.',
-        {
-          daemon: summarizeCodexDaemonStatus(daemon),
-          enhancementRoute,
-          errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
-          hostProjectAlignment,
-          needsUserInput: true,
-          projectRuntime,
-          residentService: summarizeResidentServiceResult(dashboardResult),
-          nextActions: [
-            buildCodexRecommendedAction({
-              label: 'Check workspace status',
-              reason: 'Inspect host project alignment and local Alembic daemon readiness.',
-              startsDaemon: false,
-              tool: 'alembic_status',
-            }),
-            buildCodexRecommendedAction({
-              label: 'Run diagnostics',
-              reason: 'Check plugin runtime wiring and local Alembic handoff capabilities.',
-              startsDaemon: false,
-              tool: 'alembic_status',
-            }),
-          ],
-        }
-      );
-    }
-    const dashboardUrl = dashboardResult.value.url;
-    const knowledge = inspectCodexKnowledge(this.projectRoot);
-    const hostAgentAction = knowledge.usable
-      ? buildCodexRecommendedAction({
-          label: 'Run Codex host-agent rescan',
-          reason: 'Refresh Alembic project knowledge through the Codex host-agent workflow.',
-          startsDaemon: true,
-          tool: 'alembic_rescan',
-        })
-      : buildCodexRecommendedAction({
-          label: 'Start Codex host-agent bootstrap',
-          reason:
-            'Have Codex read the Mission Briefing, analyze the project, submit knowledge, and complete dimensions without requiring an Alembic AI Provider.',
-          startsDaemon: true,
-          tool: 'alembic_bootstrap',
-        });
-    return {
-      success: true,
-      data: {
-        dashboardUrl,
-        daemon: summarizeCodexDaemonStatus(daemon),
-        enhancementRoute,
-        hostProjectAlignment,
-        projectRuntime,
-        residentService: summarizeResidentServiceResult(dashboardResult),
-        nextActions: [
-          hostAgentAction,
-          buildCodexRecommendedAction({
-            arguments: { limit: 10 },
-            label: 'List recoverable jobs',
-            reason:
-              'Recover status for explicit Alembic resident or embedded host-agent jobs after Codex reconnects or the Dashboard refreshes.',
-            startsDaemon: false,
-            tool: 'alembic_job',
-          }),
-        ],
-      },
-    };
-  }
-
-  async stopDaemon(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const daemon = await this.supervisor.stop({
-      projectRoot: this.projectRoot,
-      waitMs: typeof args.waitMs === 'number' ? args.waitMs : 5000,
-    });
-    return {
-      success: true,
-      data: { daemon: summarizeCodexDaemonStatus(daemon) },
-      message: daemon.message || 'Alembic daemon stopped.',
-    };
-  }
-
   async cleanupRuntime(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const daemon = await this.supervisor.status(this.projectRoot);
-    const projectScopeIdentity =
-      await this.residentClients().projectScope.resolveProjectScopeIdentity({
-        daemonStatus: daemon,
-      });
-    const enhancementRoute = buildHostEnhancementRouteChoice({
-      daemonStatus: daemon,
-      runtime: resolveHostRuntimeContext(),
-      requirement: 'mcp',
-    });
-    const hostProjectAlignment = buildCodexHostProjectAlignment({
-      daemonStatus: daemon,
-      enhancementRoute,
-      projectScopeIdentity,
-      projectRoot: this.projectRoot,
-    });
+    // PDR-3: the embedded daemon is removed, so there is no daemon process to
+    // stop or status-probe here. cleanupRuntime keeps only the LOCAL filesystem
+    // cleanup of the runtimeDir daemon files; daemon status resolves to null and
+    // the project runtime context is built daemon-less (mirrors enqueueJob).
     const projectRuntime = buildCodexProjectRuntimeContext({
-      daemonStatus: daemon,
-      enhancementRoute,
-      hostProjectAlignment,
+      daemonStatus: null,
+      enhancementRoute: null,
+      hostProjectAlignment: null,
       projectRoot: this.projectRoot,
       projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity,
+      projectScopeIdentity: null,
       requiredServices: ['project-identity', 'daemon'],
     });
     const paths = resolveDaemonPaths(this.projectRoot);
@@ -896,7 +759,6 @@ export class HostMcpServer {
       };
     }
 
-    await this.supervisor.stop({ projectRoot: this.projectRoot, waitMs: 5000 });
     rmSync(targets.statePath, { force: true });
     rmSync(targets.pidPath, { force: true });
     rmSync(targets.logPath, { force: true });
@@ -983,12 +845,9 @@ export class HostMcpServer {
   }
 
   async readJob(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    let daemon: DaemonStatus | null = null;
-    try {
-      daemon = await this.supervisor.status(this.projectRoot);
-    } catch {
-      daemon = null;
-    }
+    // PDR-3: daemon removed → daemon status always null; readJob serves the
+    // local JobStore fallback path below.
+    const daemon: DaemonStatus | null = null;
     const projectScopeIdentity = daemon
       ? await this.residentClients().projectScope.resolveProjectScopeIdentity({
           daemonStatus: daemon,
@@ -1064,32 +923,13 @@ export class HostMcpServer {
   }
 
   async tryReadJobFromDaemon(
-    args: Record<string, unknown>,
-    daemonInput?: DaemonStatus | null
+    _args: Record<string, unknown>,
+    _daemonInput?: DaemonStatus | null
   ): Promise<Record<string, unknown> | null> {
-    let daemon: DaemonStatus;
-    if (daemonInput) {
-      daemon = daemonInput;
-    } else {
-      try {
-        daemon = await this.supervisor.status(this.projectRoot);
-      } catch {
-        return null;
-      }
-    }
-    if (!daemon.ready || !daemon.state?.token) {
-      return null;
-    }
-
-    try {
-      const result = await this.residentClients().jobs.readJob(args, { daemonStatus: daemon });
-      if (!result.ok || isErrorResult(result.value)) {
-        return null;
-      }
-      return attachResidentServiceResult(result.value, result) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+    // PDR-3: the embedded daemon (and its resident job-read path) is removed.
+    // There is no daemon to read jobs from; readJob always falls back to the
+    // local JobStore. Signature is preserved for the existing caller.
+    return null;
   }
 
   async callPluginOwnedTool(
@@ -1186,12 +1026,9 @@ export class HostMcpServer {
   private async buildPluginOwnedProjectRuntimeContext(
     executionContext: CodexToolExecutionContext
   ): Promise<ReturnType<typeof buildCodexProjectRuntimeContext>> {
-    let daemonStatus: DaemonStatus | null = null;
-    try {
-      daemonStatus = await this.supervisor.status(this.projectRoot);
-    } catch {
-      daemonStatus = null;
-    }
+    // PDR-3: daemon removed → daemon status always null. Downstream is guarded
+    // by `daemonStatus ? ... : null`, so the four-tool live path stays valid.
+    const daemonStatus: DaemonStatus | null = null;
     const runtime = resolveHostRuntimeContext();
     const enhancementRoute = daemonStatus
       ? buildHostEnhancementRouteChoice({

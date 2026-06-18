@@ -4,10 +4,8 @@ export interface CodexLocalToolHandlers {
   buildStatus(): Promise<Record<string, unknown>>;
   cleanupRuntime(args: Record<string, unknown>): Promise<Record<string, unknown>>;
   initializeWorkspace(args: Record<string, unknown>): Promise<Record<string, unknown>>;
-  openDashboard(): Promise<Record<string, unknown>>;
   enqueueJob(kind: 'bootstrap' | 'rescan', args: Record<string, unknown>): Promise<unknown>;
   readJob(args: Record<string, unknown>): Promise<Record<string, unknown>>;
-  stopDaemon(args: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 export type CodexLocalToolDispatchResult =
@@ -41,8 +39,6 @@ export function dispatchCodexLocalTool(
     }
     case 'alembic_init':
       return { handled: true, result: handlers.initializeWorkspace(args) };
-    case 'alembic_dashboard':
-      return { handled: true, result: handlers.openDashboard() };
     // MTC-7: alembic_job op routes to the shared job runner. bootstrap/rescan
     // enqueue an explicit resident job; status (default) reads recoverable job
     // status without starting a new job.
@@ -56,24 +52,22 @@ export function dispatchCodexLocalTool(
       }
       return { handled: true, result: handlers.readJob(args) };
     }
-    // MTC-7: alembic_runtime action routes daemon control. cleanup previews or
-    // deletes runtime state (gated by confirm); stop stops the daemon. MTC-5:
-    // action is required (no default) — a bare/invalid call returns a blocker
-    // instead of accidentally stopping the daemon.
+    // MTC-7: alembic_runtime action routes runtime control. cleanup previews or
+    // deletes LOCAL runtime state files (gated by confirm). PDR-3: the embedded
+    // daemon is removed, so the daemon-stop action is gone; cleanup is the only
+    // action. MTC-5: action is required (no default) — a bare/invalid call
+    // returns a blocker instead of accidentally running cleanup.
     case 'alembic_runtime': {
       const action = typeof args.action === 'string' ? args.action : undefined;
       if (action === 'cleanup') {
         return { handled: true, result: handlers.cleanupRuntime(args) };
-      }
-      if (action === 'stop') {
-        return { handled: true, result: handlers.stopDaemon(args) };
       }
       return {
         handled: true,
         result: Promise.resolve({
           success: false,
           errorCode: 'CODEX_RUNTIME_ACTION_REQUIRED',
-          message: "alembic_runtime requires action='stop' or action='cleanup'.",
+          message: "alembic_runtime requires action='cleanup'.",
         }),
       };
     }

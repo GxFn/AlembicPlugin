@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import { buildCodexRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
 import {
   buildHostEnhancementRouteChoice,
@@ -134,8 +133,29 @@ export async function buildCodexStatus(
   const resolver = WorkspaceResolver.fromProject(projectRoot);
   const settingsStore = new WorkspaceSettingsStore(resolver);
   const facts = resolver.toFacts();
-  const supervisor = options.supervisor || new DaemonSupervisor();
-  const daemonStatus = await supervisor.status(projectRoot);
+  // PDR-3: the embedded daemon carrier is removed. Status no longer probes a
+  // daemon process; it reports a synthetic daemon-less "stopped" status so the
+  // downstream consumers (enhancement-route, host-project-alignment, resident
+  // probe, project-runtime-context, diagnostics, onboarding) keep their existing
+  // non-null DaemonStatus typing while reflecting the absent daemon. A caller may
+  // still inject a CodexDaemonStatusProvider via options.supervisor.
+  const daemonStatus: DaemonStatus = options.supervisor
+    ? await options.supervisor.status(projectRoot)
+    : {
+        status: 'stopped',
+        ready: false,
+        projectRoot,
+        dataRoot: facts.dataRoot,
+        projectId: facts.projectId ?? null,
+        statePath: join(resolver.runtimeDir, 'daemon.json'),
+        pidPath: join(resolver.runtimeDir, 'daemon.pid'),
+        lockDir: join(resolver.runtimeDir, 'daemon.lock'),
+        logPath: join(resolver.runtimeDir, 'daemon.log'),
+        state: null,
+        pidAlive: false,
+        health: null,
+        message: 'daemon removed (PDR-3)',
+      };
   const knowledge = inspectCodexKnowledge(projectRoot);
   const runtime = options.runtime || resolveHostRuntimeContext();
   const residentClient = new AlembicResidentServiceClient({ projectRoot });
