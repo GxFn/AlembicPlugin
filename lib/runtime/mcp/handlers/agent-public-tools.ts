@@ -14,7 +14,7 @@ import {
   createUnavailablePrimeIntentEpisodeMaterial,
   type PrimeKnowledgeMaterial,
 } from '#service/task/PrimeKnowledgeMaterial.js';
-import type { PrimeSearchResult } from '#service/task/PrimeSearchPipeline.js';
+import type { PrimeSearchRequest, PrimeSearchResult } from '#service/task/PrimeSearchPipeline.js';
 import {
   classifyTaskLifecycleInput,
   decideGuardTrigger,
@@ -200,16 +200,7 @@ type AgentPrimeSkippedReason =
 type AgentVectorUseKind = 'none' | 'semantic-expand' | 'hybrid-rerank';
 
 interface PipelineLike {
-  search(
-    intent: ExtractedIntent,
-    options?: {
-      hostIntentFrame?: HostIntentFrame;
-      projectRoot?: string;
-      sourceRefs?: string[];
-      standalonePrime?: true;
-      standalonePrimeRequirement?: Record<string, unknown>;
-    }
-  ): Promise<PrimeSearchResult | null>;
+  search(request: PrimeSearchRequest): Promise<PrimeSearchResult | null>;
 }
 
 let primeCounter = 0;
@@ -236,7 +227,7 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
   }
 
   const effectiveProjectRoot = resolveEffectiveProjectRoot(ctx, args);
-  const primeSearch = await runPrimeSearch(ctx, args, intake, effectiveProjectRoot);
+  const primeSearch = await runPrimeSearch(ctx, args, intake);
   return buildPrimeReadyOutput({
     args,
     ctx,
@@ -322,7 +313,11 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     projectRoot: input.effectiveProjectRoot,
     residentSearch: input.primeSearch.searchResult?.searchMeta.residentSearch ?? null,
   });
-  const material = buildPrimeMaterialProjection(input.intake, input.primeSearch);
+  const material = buildPrimeMaterialProjection(
+    input.intake,
+    input.primeSearch,
+    buildStandalonePrimeRequirementFrame(input.args)
+  );
   const effectiveSearchDegraded =
     input.primeSearch.searchDegraded || material.primeKnowledgeMaterial.status === 'degraded';
   const status = resolvePrimeStatus({
@@ -428,13 +423,25 @@ function _readFiniteNumber(value: unknown): number | undefined {
 
 function buildPrimeMaterialProjection(
   intake: ReturnType<typeof buildIntentIntake>,
-  primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>
+  primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>,
+  frame: StandalonePrimeRequirementFrame
 ): PrimeMaterialProjection {
   return {
     primeKnowledgeMaterial: buildPrimeKnowledgeMaterial({
-      extracted: intake.extracted,
-      hostIntentFrame: intake.hostIntentFrame,
-      hostIntentInput: intake.hostIntentInput,
+      requirement: {
+        userQuery: intake.hostIntentInput.userQuery,
+        ...(intake.hostIntentInput.activeFile
+          ? { activeFile: intake.hostIntentInput.activeFile }
+          : {}),
+        ...(frame.scenario ? { scenario: frame.scenario } : {}),
+        queries: frame.searchQuery ? [frame.searchQuery] : [],
+        language: intake.extracted.language,
+        module: intake.extracted.module,
+        ...(frame.taskAction ? { taskAction: frame.taskAction } : {}),
+        ...(frame.requirementGoal ? { requirementGoal: frame.requirementGoal } : {}),
+        keywords: frame.keywords,
+        labels: frame.labels,
+      },
       intentEpisode: createUnavailablePrimeIntentEpisodeMaterial(
         'agent-public-prime keeps IntentEpisode handoff out of Stage 3 active surface'
       ),
@@ -1224,8 +1231,7 @@ function obsoletePrimeInputFields(args: AgentPrimeArgs): string[] {
 async function runPrimeSearch(
   ctx: McpContext,
   args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildIntentIntake>,
-  effectiveProjectRoot: string
+  intake: ReturnType<typeof buildIntentIntake>
 ): Promise<{
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
@@ -1244,15 +1250,14 @@ async function runPrimeSearch(
     return { searchDegraded: true, searchResult: null, skippedReason: null };
   }
   try {
-    const searchResult = await pipeline.search(intake.extracted, {
-      hostIntentFrame: intake.hostIntentFrame,
-      projectRoot: effectiveProjectRoot,
-      sourceRefs: intake.sourceRefs,
-      standalonePrime: true,
-      standalonePrimeRequirement: buildStandalonePrimeRequirementFrame(args) as unknown as Record<
-        string,
-        unknown
-      >,
+    // PDR-1d: prime retrieval = structured query → unified vector search (route-agnostic,
+    // same engine as alembic_search). Local Recipe semantic-region evidence is wired in PDR-2.
+    const frame = buildStandalonePrimeRequirementFrame(args);
+    const searchResult = await pipeline.search({
+      query: frame.searchQuery ?? '',
+      ...(frame.searchQuery ? { queries: [frame.searchQuery] } : {}),
+      ...(frame.scenario ? { scenario: frame.scenario } : {}),
+      language: args.language ?? null,
     });
     return { searchDegraded: false, searchResult, skippedReason: null };
   } catch (err: unknown) {

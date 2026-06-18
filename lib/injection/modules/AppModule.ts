@@ -18,7 +18,6 @@ import { ModuleService } from '../../service/module/ModuleService.js';
 import {
   type AlembicResidentCapabilityClients,
   createAlembicResidentCapabilityClients,
-  type ResidentSearchClient,
 } from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { PrimeSearchPipeline } from '../../service/task/PrimeSearchPipeline.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
@@ -113,8 +112,7 @@ export function register(c: ServiceContainer) {
     'primeSearchPipeline',
     (ct: ServiceContainer) =>
       new PrimeSearchPipeline(
-        ct.get('searchEngine') as unknown as ConstructorParameters<typeof PrimeSearchPipeline>[0],
-        { residentServiceClient: ct.get('residentSearchClient') as ResidentSearchClient }
+        ct.get('searchEngine') as unknown as ConstructorParameters<typeof PrimeSearchPipeline>[0]
       )
   );
 }

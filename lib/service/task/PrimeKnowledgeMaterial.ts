@@ -3,8 +3,6 @@ import type {
   ResidentPrimeInjectionPackageSummary,
   ResidentPrimeRetrievalConsumerSummary,
 } from '#service/resident/AlembicResidentServiceClient.js';
-import type { HostIntentFrame, NormalizedHostIntentInput } from '#service/task/HostIntentFrame.js';
-import type { ExtractedIntent } from '#service/task/IntentExtractor.js';
 import type { PrimeSearchResult, SlimSearchResult } from '#service/task/PrimeSearchPipeline.js';
 import type { TaskAnchorDecision } from '#service/task/TaskLifecyclePolicy.js';
 
@@ -157,7 +155,6 @@ export interface PrimeKnowledgeMaterial {
     module?: string;
     scenario: string;
     queries: string[];
-    hostIntentFrame?: HostIntentFrame;
   };
   acceptedKnowledge: AcceptedPrimeKnowledge[];
   acceptedGuards: AcceptedPrimeGuard[];
@@ -178,15 +175,33 @@ export interface PrimeKnowledgeMaterial {
   retrievalConsumer?: ResidentPrimeRetrievalConsumerSummary;
 }
 
+/**
+ * Structured prime requirement context — replaces the removed ExtractedIntent /
+ * HostIntentFrame intake objects (PDR-1d). Carries only the query/scenario and
+ * the requirement-frame gate fields the trust gate needs.
+ */
+interface PrimeRequirementContext {
+  userQuery: string;
+  activeFile?: string;
+  scenario?: string;
+  queries: string[];
+  language?: string | null;
+  module?: string | null;
+  taskAction?: string;
+  requirementGoal?: string;
+  keywords: string[];
+  labels: string[];
+}
+
 interface PrimeKnowledgeMaterialInput {
-  extracted: ExtractedIntent;
-  hostIntentFrame: HostIntentFrame;
-  hostIntentInput: NormalizedHostIntentInput;
+  requirement: PrimeRequirementContext;
   intentEpisode: PrimeIntentEpisodeMaterial;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
   sourceRefs?: string[];
   taskAnchorDecision: TaskAnchorDecision;
+  /** PDR-2 seam: locally-built Recipe semantic-region evidence records (resident-shaped). */
+  regionEvidence?: Record<string, unknown>[];
 }
 
 interface PrimeTrustPostureInput {
@@ -235,13 +250,20 @@ export function buildPrimeKnowledgeMaterial(
   const searchDegraded = input.searchDegraded || isPrimeSearchResultDegraded(input.searchResult);
   const rawRelatedKnowledge = input.searchResult?.relatedKnowledge ?? [];
   const rawGuardRules = input.searchResult?.guardRules ?? [];
-  const selectedKnowledgeByItemId = buildSelectedKnowledgeByItemId(input.searchResult);
+  const selectedKnowledgeByItemId = buildSelectedKnowledgeByItemId(
+    input.searchResult,
+    input.regionEvidence
+  );
   const trustedKnowledgeCandidates = [
     ...rawRelatedKnowledge.map((item) => ({
       item,
       selectedKnowledge: findSelectedKnowledgeForItem(selectedKnowledgeByItemId, item),
     })),
-    ...buildSelectedKnowledgeOnlyCandidates(input.searchResult, rawRelatedKnowledge),
+    ...buildSelectedKnowledgeOnlyCandidates(
+      input.searchResult,
+      rawRelatedKnowledge,
+      input.regionEvidence
+    ),
   ];
   const trustedKnowledge = trustedKnowledgeCandidates.flatMap(({ item, selectedKnowledge }) =>
     hasTrustedRecipeEvidence(item, selectedKnowledge)
@@ -272,19 +294,18 @@ export function buildPrimeKnowledgeMaterial(
     : trustedMaterialGate.degradedReason;
   const receiptId = generatePrimeReceiptId();
   const intent: PrimeKnowledgeMaterial['intent'] = {
-    userQuery: input.hostIntentInput.userQuery,
-    scenario: input.searchResult?.searchMeta.scenario ?? input.extracted.scenario,
-    queries: input.searchResult?.searchMeta.queries ?? input.extracted.queries,
-    hostIntentFrame: input.hostIntentFrame,
+    userQuery: input.requirement.userQuery,
+    scenario: input.searchResult?.searchMeta.scenario || input.requirement.scenario || '',
+    queries: input.searchResult?.searchMeta.queries ?? input.requirement.queries,
   };
-  if (input.hostIntentInput.activeFile) {
-    intent.activeFile = redactVisiblePath(input.hostIntentInput.activeFile);
+  if (input.requirement.activeFile) {
+    intent.activeFile = redactVisiblePath(input.requirement.activeFile);
   }
-  const language = input.searchResult?.searchMeta.language ?? input.extracted.language;
+  const language = input.searchResult?.searchMeta.language ?? input.requirement.language;
   if (language) {
     intent.language = language;
   }
-  const moduleName = input.searchResult?.searchMeta.module ?? input.extracted.module;
+  const moduleName = input.searchResult?.searchMeta.module ?? input.requirement.module;
   if (moduleName) {
     intent.module = moduleName;
   }
@@ -393,10 +414,9 @@ function assessPrimeTrustedMaterialGate(
 
 function hasLowInformationPrimeIntent(input: PrimeKnowledgeMaterialInput): boolean {
   const queryText = [
-    input.hostIntentInput.userQuery,
-    input.hostIntentFrame.recognizedIntentDraft.query,
-    input.extracted.raw.userQuery,
-    ...input.extracted.queries,
+    input.requirement.userQuery,
+    input.requirement.requirementGoal ?? '',
+    ...input.requirement.queries,
   ]
     .join(' ')
     .toLowerCase()
@@ -415,14 +435,14 @@ function hasLowInformationPrimeIntent(input: PrimeKnowledgeMaterialInput): boole
 }
 
 function hasPrimeCallerContext(input: PrimeKnowledgeMaterialInput): boolean {
-  const declared = input.hostIntentFrame.hostDeclaredIntent;
+  const req = input.requirement;
   const hasDirectRequirementFrame = Boolean(
-    declared?.action?.trim() &&
-      (declared?.goal?.trim() || declared?.query?.trim()) &&
-      ((declared?.keywords?.length ?? 0) > 0 ||
-        (declared?.labels?.length ?? 0) > 0 ||
-        declared?.scenario?.trim() ||
-        declared?.module?.trim())
+    req.taskAction?.trim() &&
+      req.requirementGoal?.trim() &&
+      (req.keywords.length > 0 ||
+        req.labels.length > 0 ||
+        req.scenario?.trim() ||
+        req.module?.trim())
   );
   return hasDirectRequirementFrame;
 }
@@ -503,18 +523,6 @@ function buildPrimeContextOnlyItems(input: PrimeTrustPostureInput): PrimeTrustPo
         'Use the query and scenario to steer search and receipt wording; do not present them as verified project facts.',
     },
   ];
-  if (input.intent.hostIntentFrame) {
-    contextOnly.push({
-      id: 'host-intent-frame',
-      title: 'Codex host intent frame',
-      source: 'host-intent',
-      reason:
-        'Treat host-declared intent and host turn metadata as navigation hints, not trusted project knowledge.',
-      status: input.intent.hostIntentFrame.degraded
-        ? 'degraded'
-        : input.intent.hostIntentFrame.source,
-    });
-  }
   const intentEvidence = input.searchResult?.searchMeta.intentEvidence;
   if (intentEvidence) {
     contextOnly.push({
@@ -768,7 +776,8 @@ function recordStringArray(value: unknown): string[] {
 }
 
 function buildSelectedKnowledgeByItemId(
-  searchResult: PrimeSearchResult | null
+  searchResult: PrimeSearchResult | null,
+  regionEvidence: Record<string, unknown>[] = []
 ): Map<string, Record<string, unknown>> {
   const selectedById = new Map<string, Record<string, unknown>>();
   for (const item of searchResult?.searchMeta.primeInjectionPackage?.selectedKnowledge ?? []) {
@@ -785,7 +794,10 @@ function buildSelectedKnowledgeByItemId(
       }
     }
   }
-  for (const item of residentRegionSelectedKnowledgeRecords(searchResult)) {
+  for (const item of [...residentRegionSelectedKnowledgeRecords(searchResult), ...regionEvidence]) {
+    if (!isRecord(item)) {
+      continue;
+    }
     for (const itemId of selectedKnowledgeLookupKeys(item)) {
       const existing = selectedById.get(itemId);
       if (!existing || !hasSelectedKnowledgeTrustEvidence(existing)) {
@@ -797,11 +809,13 @@ function buildSelectedKnowledgeByItemId(
 }
 
 function selectedKnowledgeRecords(
-  searchResult: PrimeSearchResult | null
+  searchResult: PrimeSearchResult | null,
+  regionEvidence: Record<string, unknown>[] = []
 ): Record<string, unknown>[] {
   return [
     ...(searchResult?.searchMeta.primeInjectionPackage?.selectedKnowledge ?? []).filter(isRecord),
     ...residentRegionSelectedKnowledgeRecords(searchResult),
+    ...regionEvidence.filter(isRecord),
   ];
 }
 
@@ -863,15 +877,16 @@ function projectResidentRegionSelectedRecipe(
 
 function buildSelectedKnowledgeOnlyCandidates(
   searchResult: PrimeSearchResult | null,
-  relatedKnowledge: SlimSearchResult[]
+  relatedKnowledge: SlimSearchResult[],
+  regionEvidence: Record<string, unknown>[] = []
 ): Array<{ item: SlimSearchResult; selectedKnowledge: Record<string, unknown> }> {
-  if (!searchResult?.searchMeta.primeInjectionPackage) {
+  if (!searchResult?.searchMeta.primeInjectionPackage && regionEvidence.length === 0) {
     return [];
   }
   const candidates: Array<{ item: SlimSearchResult; selectedKnowledge: Record<string, unknown> }> =
     [];
   const relatedKeys = new Set(relatedKnowledge.flatMap(slimSearchResultLookupKeys));
-  for (const selectedKnowledge of selectedKnowledgeRecords(searchResult)) {
+  for (const selectedKnowledge of selectedKnowledgeRecords(searchResult, regionEvidence)) {
     if (!hasSelectedKnowledgeTrustEvidence(selectedKnowledge)) {
       continue;
     }
