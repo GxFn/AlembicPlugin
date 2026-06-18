@@ -231,28 +231,33 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
   },
   {
     // MTC-7: alembic_codex_stop + alembic_codex_cleanup merged into one
-    // runtime-control route discriminated by action.
+    // runtime-control route discriminated by action. MTC-5: action is required
+    // (no default) so a bare call never accidentally stops the daemon — faithful
+    // to the old explicit alembic_codex_stop / alembic_codex_cleanup tools.
     name: 'alembic_runtime',
     tier: 'agent',
     description:
-      'Control the current project Alembic daemon runtime. action=stop (default) stops the daemon. action=cleanup previews or explicitly cleans Alembic Codex runtime files; Plugin uninstall never removes user data automatically, so cleanup requires confirm=true before deleting runtime state.',
-    inputSchema: codexInputSchema({
-      action: {
-        type: 'string',
-        enum: ['stop', 'cleanup'],
-        description:
-          'Runtime action: stop = stop the daemon (default when omitted), cleanup = preview/clean runtime files.',
-      },
-      waitMs: {
-        type: 'number',
-        description: 'action=stop: milliseconds to wait for graceful daemon stop.',
-      },
-      confirm: {
-        type: 'boolean',
-        description:
-          'action=cleanup: when true, stop the daemon and delete runtime state/log/job files.',
-      },
-    }),
+      'Control the current project Alembic daemon runtime. action is required: action=stop stops the daemon; action=cleanup previews or explicitly cleans Alembic Codex runtime files; Plugin uninstall never removes user data automatically, so cleanup requires confirm=true before deleting runtime state.',
+    inputSchema: {
+      ...codexInputSchema({
+        action: {
+          type: 'string',
+          enum: ['stop', 'cleanup'],
+          description:
+            'Required runtime action: stop = stop the daemon, cleanup = preview/clean runtime files.',
+        },
+        waitMs: {
+          type: 'number',
+          description: 'action=stop: milliseconds to wait for graceful daemon stop.',
+        },
+        confirm: {
+          type: 'boolean',
+          description:
+            'action=cleanup: when true, stop the daemon and delete runtime state/log/job files.',
+        },
+      }),
+      required: ['action'],
+    },
   },
 ];
 
