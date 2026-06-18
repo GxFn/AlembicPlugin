@@ -13,10 +13,7 @@ const sourceManifest = readJson(sourceManifestPath);
 const coreSource = resolveCoreSource({ requireDist: true });
 const corePackage = readJson(join(coreSource.path, 'package.json'));
 
-const requiredBuildArtifacts = [
-  'dist/bin/host-mcp.js',
-  'dist/lib/runtime/mcp/HostMcpServer.js',
-];
+const requiredBuildArtifacts = ['dist/bin/host-mcp.js', 'dist/lib/runtime/mcp/HostMcpServer.js'];
 
 for (const artifact of requiredBuildArtifacts) {
   assert(existsSync(join(root, artifact)), `${artifact} is missing. Run npm run build first.`);

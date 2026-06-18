@@ -292,7 +292,10 @@ expect(
 );
 expect(readme.includes('alembic_status'), 'README.md must document alembic_status');
 expect(readmeCn.includes('alembic_status'), 'README.zh-CN.md must document alembic_status');
-expect(readme.includes('alembic_runtime'), 'README.md must document alembic_runtime cleanup policy');
+expect(
+  readme.includes('alembic_runtime'),
+  'README.md must document alembic_runtime cleanup policy'
+);
 expect(
   readmeCn.includes('alembic_runtime'),
   'README.zh-CN.md must document alembic_runtime cleanup policy'

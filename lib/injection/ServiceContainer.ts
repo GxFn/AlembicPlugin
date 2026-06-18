@@ -207,7 +207,6 @@ export class ServiceContainer {
   getServiceNames() {
     return Object.keys(this.services);
   }
-
 }
 
 let containerInstance: ServiceContainer | null = null;

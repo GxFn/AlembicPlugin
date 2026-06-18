@@ -617,7 +617,7 @@ function nullIdentity(): ProjectRuntimeIdentityContract {
   return createProjectRuntimeIdentityContract();
 }
 
-function readJsonFile(path: string): Record<string, unknown> | null {
+function _readJsonFile(path: string): Record<string, unknown> | null {
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
   } catch {

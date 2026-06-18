@@ -1,11 +1,6 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  type AlembicResidentServiceResult,
-  JobStore,
-  resolveDaemonPaths,
-  summarizeAlembicResidentServiceStatus,
-} from '@alembic/core/daemon';
+import { JobStore, resolveDaemonPaths } from '@alembic/core/daemon';
 import Logger from '@alembic/core/logging';
 import { ProjectRegistry } from '@alembic/core/workspace';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -51,7 +46,6 @@ import {
   resetPluginOwnedMcpServer,
 } from '../../runtime/mcp/host/embedded-executor.js';
 import { buildCodexMcpInitializeInstructions } from '../../runtime/mcp/host/guidance.js';
-import { buildCodexHostProjectHandoffBlock } from '../../runtime/mcp/host/host-project-handoff.js';
 import { dispatchCodexLocalTool } from '../../runtime/mcp/host/local-tool-dispatcher.js';
 import { attachPluginOpportunisticEvolutionSurface } from '../../runtime/mcp/host/opportunistic-evolution-presenter.js';
 import { safeProjectRootFallback } from '../../runtime/mcp/host/project-root.js';
@@ -105,49 +99,6 @@ interface WorkspaceInitializationInput {
   requestedTool?: string;
   route: 'explicit' | 'tool-call';
   seed: boolean;
-}
-
-function summarizeResidentServiceResult(
-  result: AlembicResidentServiceResult<unknown>
-): Record<string, unknown> {
-  const base = {
-    ok: result.ok,
-    owner: result.owner,
-    route: result.route,
-    status: result.status ? summarizeAlembicResidentServiceStatus(result.status) : null,
-    telemetry: result.telemetry || null,
-  };
-  return result.ok
-    ? base
-    : {
-        ...base,
-        errorCode: result.errorCode || null,
-        message: result.message,
-        reason: result.reason,
-        retryable: result.retryable,
-      };
-}
-
-function attachResidentServiceResult(
-  result: unknown,
-  residentService: AlembicResidentServiceResult<unknown>
-): unknown {
-  const summary = summarizeResidentServiceResult(residentService);
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return { success: true, data: { residentService: summary, value: result } };
-  }
-  const record = result as Record<string, unknown>;
-  const data =
-    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : {};
-  return {
-    ...record,
-    data: {
-      ...data,
-      residentService: summary,
-    },
-  };
 }
 
 function attachProjectRuntimeContext(
