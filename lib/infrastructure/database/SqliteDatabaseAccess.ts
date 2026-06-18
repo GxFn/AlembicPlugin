@@ -68,12 +68,6 @@ export interface RecipeSnapshotRow {
   sourceRefsJson: string | null;
 }
 
-export interface HitRecorderFlushEntry {
-  recipeId: string;
-  statsField: string;
-  count: number;
-}
-
 export function resolveSqliteDb(db: unknown): SqliteDb | null {
   if (!db) {
     return null;
@@ -300,34 +294,6 @@ export function deleteKnowledgeEntriesByLifecycle(
     const msg = err instanceof Error ? err.message : String(err);
     return { cleared: false, error: `Failed to clean old entries: ${msg}` };
   }
-}
-
-export function flushHitRecorderStats(
-  db: SqliteDb,
-  entries: readonly HitRecorderFlushEntry[],
-  updatedAt: number
-): number {
-  const stmt = db.prepare(
-    `UPDATE knowledge_entries
-     SET stats = json_set(
-           COALESCE(stats, '{}'),
-           '$.' || ?,
-           COALESCE(json_extract(stats, '$.' || ?), 0) + ?
-         ),
-         updatedAt = ?
-     WHERE id = ?`
-  );
-
-  let flushed = 0;
-  for (const entry of entries) {
-    try {
-      stmt.run(entry.statsField, entry.statsField, entry.count, updatedAt, entry.recipeId);
-      flushed += entry.count;
-    } catch {
-      // Recipe 可能已被删除，保持原有静默忽略行为。
-    }
-  }
-  return flushed;
 }
 
 function withReadonlyDatabase<T>(databasePath: string, reader: (db: SqliteDb) => T): T {

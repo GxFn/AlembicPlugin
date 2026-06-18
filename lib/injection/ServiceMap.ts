@@ -68,7 +68,6 @@ import type {
   ResidentSearchClient,
 } from '../service/resident/AlembicResidentCapabilityClients.js';
 import type { AlembicResidentServiceClient } from '../service/resident/AlembicResidentServiceClient.js';
-import type { HitRecorder } from '../service/signal/HitRecorder.js';
 import type { SkillHooks } from '../service/skills/SkillHooks.js';
 import type { PrimeSearchPipeline } from '../service/task/PrimeSearchPipeline.js';
 // ── Vector Service Types ──
@@ -151,7 +150,6 @@ export interface ServiceMap {
 
   // ═══ SignalModule ═══
   signalBus: SignalBus;
-  hitRecorder: HitRecorder;
 
   // ═══ Cross-Process Cache ═══
   cacheCoordinator: CacheCoordinator;
