@@ -144,9 +144,9 @@ function parseArgs(args) {
 
 function sampleLegacyEnvelope(toolName) {
   return {
-    success: toolName !== 'alembic_dashboard',
-    errorCode: toolName === 'alembic_dashboard' ? 'CODEX_DASHBOARD_UNAVAILABLE' : null,
-    message: toolName === 'alembic_dashboard' ? 'Dashboard handoff unavailable.' : '',
+    success: true,
+    errorCode: null,
+    message: '',
     data: {
       ...sampleBusinessData(toolName),
       diagnostics: { traceId: 'diag-1' },
@@ -166,8 +166,8 @@ function sampleLegacyEnvelope(toolName) {
 }
 
 function sampleBusinessData(toolName) {
-  // MTC-4/7 merged surface: status (health+mcp_status+diagnostics), init, dashboard,
-  // job (bootstrap/rescan/codex_job), runtime (stop+cleanup).
+  // MTC-4/7 merged surface: status (health+mcp_status+diagnostics), init,
+  // job (bootstrap/rescan/codex_job), runtime (cleanup).
   switch (toolName) {
     case 'alembic_status':
       return {
@@ -183,12 +183,6 @@ function sampleBusinessData(toolName) {
         profile: 'codex',
         results: [],
         status: { initialized: true },
-      };
-    case 'alembic_dashboard':
-      return {
-        errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
-        needsUserInput: true,
-        nextActions: [{ tool: 'alembic_status' }],
       };
     case 'alembic_job':
       return {

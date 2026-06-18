@@ -21,11 +21,6 @@ const scenarios = [
     source: 'provider-problem',
     business: { query: 'taxonomy', totalResults: 0 },
   },
-  {
-    toolName: 'alembic_dashboard',
-    source: 'codex-local-problem',
-    business: { needsUserInput: true, nextActions: [{ tool: 'alembic_status' }] },
-  },
 ];
 const calls = [];
 const issues = [];

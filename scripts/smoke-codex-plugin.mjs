@@ -19,7 +19,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const root = resolve(import.meta.dirname, '..');
-const shouldRunDaemon = process.argv.includes('--daemon');
 const shouldRunStdio = !process.argv.includes('--no-stdio');
 const keepTmp = process.argv.includes('--keep') || process.env.KEEP_SMOKE_TMP === '1';
 const tmpRoot = mkdtempSync(join(tmpdir(), 'alembic-codex-smoke-'));
@@ -168,42 +167,6 @@ try {
     stdio = 'passed';
   }
 
-  let daemon = null;
-  let dashboardHandoff = 'skipped';
-  let recovery = 'skipped';
-  if (shouldRunDaemon) {
-    const dashboard = await server.handleToolCall('alembic_dashboard', {});
-    assert(
-      dashboard?.success === false && !dashboard?.data?.dashboardUrl,
-      'dashboard handoff should fail closed when no local Alembic Dashboard daemon is available'
-    );
-    dashboardHandoff = 'failed-closed';
-
-    const interruptedJob = store.create({
-      kind: 'bootstrap',
-      request: { reason: 'daemon-recovery-smoke' },
-      source: 'codex',
-    });
-    store.markRunning(interruptedJob.id);
-
-    daemon = await server.supervisor.ensure({ projectRoot, waitUntilReadyMs: 10000 });
-    assert(daemon.ready === true, 'daemon recovery smoke did not start runtime');
-    const recoveredJob = await server.handleToolCall('alembic_job', {
-      jobId: interruptedJob.id,
-    });
-    assertResult(recoveredJob, 'daemon recovery job lookup');
-    assert(
-      recoveredJob.data?.job?.status === 'failed',
-      'daemon recovery smoke did not fail interrupted job'
-    );
-    assert(
-      recoveredJob.data?.job?.error?.code === 'DAEMON_RESTARTED',
-      'daemon recovery smoke did not record DAEMON_RESTARTED'
-    );
-    recovery = 'passed';
-    await server.handleToolCall('alembic_runtime', { action: 'stop' });
-  }
-
   process.stdout.write(
     `${JSON.stringify(
       {
@@ -217,22 +180,12 @@ try {
         shellBootstrap:
           shellDryRun.runtimePackage?.specifier === runtimeSpecifier ? 'passed' : 'failed',
         stdio,
-        recovery,
-        daemon: shouldRunDaemon ? summarizeSmokeDaemon(daemon) : 'skipped',
-        dashboardHandoff,
       },
       null,
       2
     )}\n`
   );
 } finally {
-  if (server && shouldRunDaemon) {
-    try {
-      await server.handleToolCall('alembic_runtime', { action: 'stop' });
-    } catch {
-      /* best effort */
-    }
-  }
   restoreEnv(previousEnv);
   if (!keepTmp) {
     rmSync(tmpRoot, { recursive: true, force: true });
@@ -505,7 +458,6 @@ async function runStdioSmoke({
     for (const required of [
       'alembic_status',
       'alembic_init',
-      'alembic_dashboard',
       'alembic_job',
       'alembic_submit_knowledge',
       'alembic_bootstrap',
@@ -615,17 +567,6 @@ function assertResult(result, label) {
     result.success === true || result.ok === true,
     `${label} failed: ${result.message || result.summary || JSON.stringify(result)}`
   );
-}
-
-function summarizeSmokeDaemon(status) {
-  if (!status || typeof status !== 'object') {
-    return null;
-  }
-  return {
-    ready: status.ready === true,
-    url: status.state?.url || null,
-    dashboardUrl: status.state?.dashboardUrl || null,
-  };
 }
 
 async function closeMcpClient(client, stderr, label) {
