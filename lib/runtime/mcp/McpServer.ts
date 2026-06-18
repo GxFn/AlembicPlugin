@@ -44,12 +44,7 @@ import {
   serializeMcpToolResult,
   withMcpOutputSchema,
 } from '../../runtime/mcp/output-contract.js';
-import {
-  TIER_ORDER,
-  TOOL_GATEWAY_MAP,
-  TOOLS,
-  withMcpToolAnnotations,
-} from '../../runtime/mcp/tools.js';
+import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../../runtime/mcp/tools.js';
 import {
   isCodexProjectScopeSummaryForFolder,
   readCodexProjectScopeRuntimeFromEnv,
@@ -142,19 +137,6 @@ interface BootstrapLike {
 
 /** Tool handler function (sync or async, compatible with wrapHandler) */
 type ToolHandlerFn = (ctx: McpContext, args: Record<string, unknown>) => Promise<unknown> | unknown;
-
-/** Gateway static mapping */
-interface GatewayStaticMapping {
-  action: string;
-  resource: string;
-}
-
-/** Gateway mapping entry — static or with dynamic resolver */
-interface GatewayMappingEntry {
-  action?: string;
-  resource?: string;
-  resolver?: (args: Record<string, unknown>) => GatewayStaticMapping | null;
-}
 
 // ─── Handler 模块 ─────────────────────────────────────────────
 
@@ -273,15 +255,6 @@ export class McpServer {
         projectRoot,
         workspaceResolver: components.workspaceResolver,
       });
-
-      // 注册 Gateway action handlers
-      const { registerGatewayActions } = await import(
-        '#governance/gateway/GatewayActionRegistry.js'
-      );
-      const gateway = this.container.get('gateway');
-      if (gateway) {
-        registerGatewayActions(gateway, this.container);
-      }
     }
 
     // Bootstrap 完成后获取 Logger 单例（此时已带 ghost 路径配置）
@@ -393,7 +366,6 @@ export class McpServer {
       source: runtime.source,
       surface: runtime.surface,
       hostTurnMeta: runtime.hostTurnMeta,
-      gateway: this._resolveMcpGatewayMapping(name, args),
     });
 
     // 查找 handler 并通过 wrapHandler 统一错误处理
@@ -648,31 +620,6 @@ export class McpServer {
       alembic_knowledge_lifecycle: (ctx, args) => knowledgeHandlers.knowledgeLifecycle(ctx, args),
     };
     return HANDLER_MAP[name] ?? null;
-  }
-
-  _resolveMcpGatewayMapping(toolName: string, args: Record<string, unknown>) {
-    let mapping = (TOOL_GATEWAY_MAP as Record<string, GatewayMappingEntry | undefined>)[toolName] as
-      | GatewayMappingEntry
-      | null
-      | undefined;
-    if (!mapping) {
-      return null;
-    }
-
-    if (typeof mapping.resolver === 'function') {
-      mapping = mapping.resolver(args);
-      if (!mapping) {
-        return null;
-      }
-    }
-
-    if (!mapping.action) {
-      return null;
-    }
-    return {
-      action: mapping.action,
-      resource: mapping.resource,
-    };
   }
 
   _resolveMcpActorRole() {

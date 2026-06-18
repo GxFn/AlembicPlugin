@@ -15,7 +15,7 @@ import type { KnowledgeBaseStats, McpContext } from '../../../runtime/mcp/handle
 
 export async function status(ctx: McpContext, args: Record<string, unknown> = {}) {
   const aspect = typeof args.aspect === 'string' ? args.aspect : undefined;
-  const checks = { database: false, gateway: false, vectorStore: false };
+  const checks = { database: false, vectorStore: false };
   const issues: string[] = [];
   let knowledgeBase: KnowledgeBaseStats | null = null;
 
@@ -52,15 +52,7 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
     issues.push(`database: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // 3) Gateway 可用性
-  try {
-    const gw = ctx.container.get('gateway');
-    checks.gateway = !!gw;
-  } catch (e: unknown) {
-    issues.push(`gateway: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  // 4) VectorStore 可用性
+  // 3) VectorStore 可用性
   try {
     const vs = ctx.container.get('vectorStore');
     if (vs) {
