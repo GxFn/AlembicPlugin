@@ -3,12 +3,8 @@
  * getTargets, getTargetFiles, getTargetMetadata, graphQuery, graphImpact, graphPath, graphStats
  */
 
-import fs from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { ConfigPaths as Paths } from '@alembic/core/config';
 import { LanguageService } from '@alembic/core/shared';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import { ModuleService } from '#service/module/ModuleService.js';
 import {
   createAlembicGraphMcpResult,
@@ -16,7 +12,6 @@ import {
   type ProjectGraphInput,
   ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
-import { envelope } from '../../../runtime/mcp/envelope.js';
 import type { McpContext } from '../../../runtime/mcp/handlers/types.js';
 
 // ─── Local Types ──────────────────────────────────────────
@@ -54,24 +49,6 @@ interface ModuleServiceCache {
   projectRoot: string;
   service: ModuleServiceLike;
   targets: TargetInfo[];
-}
-
-interface GraphEdge {
-  fromId?: string;
-  toId?: string;
-  fromType?: string;
-  toType?: string;
-  relation?: string;
-  [key: string]: unknown;
-}
-
-interface StructureArgs {
-  targetName?: string;
-  includeSummary?: boolean;
-  includeContent?: boolean;
-  contentMaxLines?: number;
-  maxFiles?: number;
-  [key: string]: unknown;
 }
 
 interface GraphArgs {
@@ -205,222 +182,6 @@ function _inferTargetRole(targetName: string): string {
 // Handler: getTargets
 // ═══════════════════════════════════════════════════════════
 
-export async function getTargets(ctx: McpContext, args: StructureArgs = {}) {
-  const { service, targets } = await _getLoadedModuleService(ctx);
-  const includeSummary = args.includeSummary !== false; // 默认 true
-
-  if (!includeSummary) {
-    return envelope({ success: true, data: { targets }, meta: { tool: 'alembic_structure' } });
-  }
-
-  // 带摘要：每个 target 附加文件数、语言统计、推断职责
-  const enriched: Array<{
-    name: string;
-    packageName: string | null;
-    type: string;
-    inferredRole: string;
-    fileCount: number;
-    languageStats: Record<string, number>;
-  }> = [];
-  const globalLangStats: Record<string, number> = {};
-  let totalFiles = 0;
-
-  for (const t of targets) {
-    let fileCount = 0;
-    const langStats: Record<string, number> = {};
-    try {
-      const fileList = await service.getTargetFiles(t);
-      fileCount = fileList.length;
-      for (const f of fileList) {
-        const lang = _inferLang(f.name);
-        langStats[lang] = (langStats[lang] || 0) + 1;
-        globalLangStats[lang] = (globalLangStats[lang] || 0) + 1;
-      }
-    } catch {
-      /* skip */
-    }
-    totalFiles += fileCount;
-    enriched.push({
-      name: t.name,
-      packageName: t.packageName || null,
-      type: t.type || 'target',
-      inferredRole: _inferTargetRole(t.name),
-      fileCount,
-      languageStats: langStats,
-    });
-  }
-
-  return envelope({
-    success: true,
-    data: {
-      targets: enriched,
-      summary: { targetCount: targets.length, totalFiles, languageStats: globalLangStats },
-    },
-    meta: { tool: 'alembic_structure' },
-  });
-}
-
-// ═══════════════════════════════════════════════════════════
-// Handler: getTargetFiles
-// ═══════════════════════════════════════════════════════════
-
-export async function getTargetFiles(ctx: McpContext, args: StructureArgs) {
-  if (!args.targetName) {
-    throw new Error('targetName is required');
-  }
-  const { service, targets } = await _getLoadedModuleService(ctx);
-  const target = _findTarget(targets, args.targetName);
-
-  // 使用 ProjectContext-backed ModuleService 定位源文件
-  const rawFiles = await service.getTargetFiles(target);
-
-  const includeContent = args.includeContent || false;
-  const contentMaxLines = args.contentMaxLines || 100;
-  const maxFiles = args.maxFiles || 500;
-
-  const files: Array<{
-    name: string;
-    path: string;
-    relativePath: string;
-    language: string;
-    size: number;
-    content?: string | null;
-    totalLines?: number;
-    truncated?: boolean;
-  }> = [];
-  for (const f of rawFiles) {
-    if (files.length >= maxFiles) {
-      break;
-    }
-    const entry: {
-      name: string;
-      path: string;
-      relativePath: string;
-      language: string;
-      size: number;
-      content?: string | null;
-      totalLines?: number;
-      truncated?: boolean;
-    } = {
-      name: f.name,
-      path: f.path,
-      relativePath: f.relativePath,
-      language: _inferLang(f.name),
-      size: f.size || 0,
-    };
-    if (includeContent) {
-      try {
-        const raw = await readFile(f.path, 'utf8');
-        const lines = raw.split('\n');
-        entry.content = lines.slice(0, contentMaxLines).join('\n');
-        entry.totalLines = lines.length;
-        entry.truncated = lines.length > contentMaxLines;
-      } catch {
-        entry.content = null;
-        entry.totalLines = 0;
-        entry.truncated = false;
-      }
-    }
-    files.push(entry);
-  }
-
-  // 文件语言统计
-  const langStats: Record<string, number> = {};
-  for (const f of files) {
-    langStats[f.language] = (langStats[f.language] || 0) + 1;
-  }
-
-  return envelope({
-    success: true,
-    data: {
-      targetName: args.targetName,
-      files,
-      fileCount: files.length,
-      totalAvailable: rawFiles.length,
-      languageStats: langStats,
-    },
-    meta: { tool: 'alembic_structure' },
-  });
-}
-
-// ═══════════════════════════════════════════════════════════
-// Handler: getTargetMetadata
-// ═══════════════════════════════════════════════════════════
-
-export async function getTargetMetadata(ctx: McpContext, args: StructureArgs) {
-  if (!args.targetName) {
-    throw new Error('targetName is required');
-  }
-  const loadedService = await _getLoadedModuleService(ctx);
-  const { targets } = loadedService;
-  const target = _findTarget(targets, args.targetName);
-  const { projectRoot } = loadedService;
-
-  // ── 基础元数据 ──
-  const meta: Record<string, unknown> = {
-    name: target.name,
-    path: target.path || null,
-    packageName: target.packageName || null,
-    packagePath: target.packagePath || null,
-    type: target.type || 'target',
-    language: target.language || null,
-    framework: target.framework || null,
-    inferredRole: _inferTargetRole(target.name),
-    targetDir: target.targetDir || null,
-    sourcesPath: target.info?.path || null,
-    sources: target.info?.sources || null,
-    dependencies: target.info?.dependencies || target.metadata?.dependencies || [],
-  };
-
-  // ── SPM 图谱 (spmmap.json) ──
-  try {
-    const dataRoot = resolveDataRoot(ctx?.container as never) || projectRoot;
-    const knowledgeDir = Paths.getProjectKnowledgePath(dataRoot);
-    const mapPath = path.join(knowledgeDir, 'Alembic.spmmap.json');
-    if (fs.existsSync(mapPath)) {
-      const raw = await readFile(mapPath, 'utf8');
-      const graph = JSON.parse(raw)?.graph || null;
-      if (target.packageName && graph?.packages?.[target.packageName]) {
-        const pkg = graph.packages[target.packageName];
-        meta.packageDir = pkg.packageDir;
-        meta.packageSwift = pkg.packageSwift;
-        meta.packageTargets = pkg.targets || [];
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  // ── 知识图谱关系 (knowledge_edges) ──
-  try {
-    const graphService = ctx.container?.get('knowledgeGraphService');
-    if (graphService) {
-      const edges = await graphService.getEdges(target.name, 'module', 'both');
-      meta.graphEdges = {
-        outgoing: (edges.outgoing || []).map((e: GraphEdge) => ({
-          toId: e.toId,
-          toType: e.toType,
-          relation: e.relation,
-        })),
-        incoming: (edges.incoming || []).map((e: GraphEdge) => ({
-          fromId: e.fromId,
-          fromType: e.fromType,
-          relation: e.relation,
-        })),
-      };
-    }
-  } catch {
-    /* knowledge_edges may not exist */
-  }
-
-  return envelope({ success: true, data: meta, meta: { tool: 'alembic_structure' } });
-}
-
-/**
- * alembic_graph — pure ProjectContext graph queries selected by queryKind.
- * Returns a Recipe-free AlembicGraphOutput, never the KnowledgeContext middle
- * layer envelope.
- */
 export async function graph(ctx: McpContext, args: GraphArgs = {}) {
   const input = normalizeProjectGraphInput(ctx, args);
   const output = await defaultProjectGraphProvider.resolveAlembicGraph(input);
@@ -507,64 +268,6 @@ function readString(value: unknown): string | undefined {
  * alembic_call_context handler
  * 查询方法的调用者、被调用者、影响半径
  */
-export async function callContext(ctx: McpContext, args: GraphArgs) {
-  if (!args.methodName) {
-    throw new Error('Missing required parameter: methodName');
-  }
-
-  const ceg = ctx.container.get('codeEntityGraph');
-  if (!ceg) {
-    return envelope({
-      success: false,
-      message: 'CodeEntityGraph not available — 请先运行 bootstrap',
-      meta: { tool: 'alembic_call_context' },
-    });
-  }
-
-  const direction = args.direction || 'both';
-  const maxDepth = Math.min(Math.max(args.maxDepth ?? 2, 1), 5);
-  const result: Record<string, unknown> = {};
-
-  try {
-    if (direction === 'callers' || direction === 'both') {
-      result.callers = ceg.getCallers(args.methodName, maxDepth);
-    }
-    if (direction === 'callees' || direction === 'both') {
-      result.callees = ceg.getCallees(args.methodName, maxDepth);
-    }
-    if (direction === 'impact') {
-      result.impact = ceg.getCallImpactRadius(args.methodName);
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message?.includes('no such table')) {
-      return envelope({
-        success: true,
-        data: {
-          methodName: args.methodName,
-          callers: [],
-          callees: [],
-          note: 'knowledge_edges 表不存在，请运行 bootstrap 后再查询',
-        },
-        meta: { tool: 'alembic_call_context' },
-      });
-    }
-    throw err;
-  }
-
-  return envelope({
-    success: true,
-    data: {
-      methodName: args.methodName,
-      direction,
-      maxDepth,
-      ...result,
-    },
-    meta: { tool: 'alembic_call_context' },
-  });
-}
-
-// ─── graph_stats — 图谱统计 ────────────────────────────────
-
 export async function graphStats(ctx: McpContext, args: GraphArgs = {}) {
   return graph(ctx, { ...args, operation: 'stats' });
 }

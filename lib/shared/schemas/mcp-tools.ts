@@ -13,7 +13,6 @@ import {
   ComplexityEnum,
   ContentSchema,
   IdField,
-  KindEnum,
   LanguageField,
   ReasoningSchema,
   ScopeEnum,
@@ -409,52 +408,9 @@ export type SearchInput = z.infer<typeof SearchInput>;
 //  3. alembic_knowledge
 // ══════════════════════════════════════════════════════
 
-export const KnowledgeInput = z
-  .object({
-    operation: z
-      .enum(['list', 'get', 'insights', 'confirm_usage'])
-      .default('list')
-      .describe(
-        'list=列表 | get=单条详情(id) | insights=质量分析(id) | confirm_usage=记录采纳(id)'
-      ),
-    id: z.string().optional().describe('get/insights/confirm_usage 时必填'),
-    kind: KindEnum.optional(),
-    language: z.string().optional(),
-    category: z.string().optional(),
-    knowledgeType: z.string().optional(),
-    status: z.string().optional(),
-    complexity: z.string().optional(),
-    limit: z.number().int().min(1).max(200).default(20),
-    usageType: z.enum(['adoption', 'application']).optional(),
-    feedback: z.string().optional(),
-  })
-  .refine(
-    (d) => {
-      if (['get', 'insights', 'confirm_usage'].includes(d.operation) && !d.id) {
-        return false;
-      }
-      return true;
-    },
-    { message: 'id is required for get/insights/confirm_usage operations' }
-  );
-export type KnowledgeInput = z.infer<typeof KnowledgeInput>;
-
 // ══════════════════════════════════════════════════════
 //  4. alembic_structure
 // ══════════════════════════════════════════════════════
-
-export const StructureInput = z.object({
-  operation: z
-    .enum(['targets', 'files', 'metadata'])
-    .default('targets')
-    .describe('targets=构建目标列表 | files=Target文件列表 | metadata=项目元数据'),
-  targetName: z.string().optional().describe('files 操作时指定目标名'),
-  includeSummary: z.boolean().default(true),
-  includeContent: z.boolean().default(false),
-  contentMaxLines: z.number().int().min(1).default(100),
-  maxFiles: z.number().int().min(1).max(5000).default(500),
-});
-export type StructureInput = z.infer<typeof StructureInput>;
 
 // ══════════════════════════════════════════════════════
 //  5. alembic_graph
@@ -634,16 +590,6 @@ export type RecipeMapInput = z.infer<typeof RecipeMapInput>;
 // ══════════════════════════════════════════════════════
 //  6. alembic_call_context
 // ══════════════════════════════════════════════════════
-
-export const CallContextInput = z.object({
-  methodName: z.string().min(1, 'methodName is required').describe('函数/方法名称，支持部分匹配'),
-  direction: z
-    .enum(['callers', 'callees', 'both', 'impact'])
-    .default('both')
-    .describe('callers=上游调用者 | callees=下游依赖 | both=双向 | impact=影响半径'),
-  maxDepth: z.number().int().min(1).max(5).default(2),
-});
-export type CallContextInput = z.infer<typeof CallContextInput>;
 
 // ══════════════════════════════════════════════════════
 //  7. alembic_guard
@@ -1077,10 +1023,7 @@ const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_code_guard: CodeGuardInput,
   alembic_health: HealthInput,
   alembic_search: SearchInput,
-  alembic_knowledge: KnowledgeInput,
-  alembic_structure: StructureInput,
   alembic_graph: GraphInput,
-  alembic_call_context: CallContextInput,
   alembic_guard: GuardInput,
   alembic_submit_knowledge: SubmitKnowledgeInput,
   alembic_project_skill: ProjectSkillInput,

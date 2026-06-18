@@ -41,11 +41,9 @@ import {
   GraphInput,
   GuardInput,
   HealthInput,
-  KnowledgeInput,
   RecipeMapInput,
   RescanInput,
   SearchInput,
-  StructureInput,
   SubmitKnowledgeInput,
   TaskInput,
   TOOL_SCHEMAS,
@@ -309,31 +307,6 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     });
   });
 
-  describe('KnowledgeInput', () => {
-    test('should default to list operation', () => {
-      const result = KnowledgeInput.parse({});
-      expect(result.operation).toBe('list');
-    });
-
-    test('should require id for get operation', () => {
-      expect(() => KnowledgeInput.parse({ operation: 'get' })).toThrow();
-    });
-
-    test('should accept get with id', () => {
-      const result = KnowledgeInput.parse({ operation: 'get', id: 'k-1' });
-      expect(result.id).toBe('k-1');
-    });
-  });
-
-  describe('StructureInput', () => {
-    test('should apply defaults', () => {
-      const result = StructureInput.parse({});
-      expect(result.operation).toBe('targets');
-      expect(result.includeSummary).toBe(true);
-      expect(result.includeContent).toBe(false);
-    });
-  });
-
   describe('GraphInput', () => {
     test('uses queryKind as the public selector with no legacy operation default', () => {
       const result = GraphInput.parse({});
@@ -521,10 +494,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       const expectedTools = [
         'alembic_health',
         'alembic_search',
-        'alembic_knowledge',
-        'alembic_structure',
         'alembic_graph',
-        'alembic_call_context',
         'alembic_guard',
         'alembic_submit_knowledge',
         'alembic_project_skill',

@@ -381,11 +381,6 @@ export interface ToolRouterKnowledgeArgs extends BrowseListArgs, BrowseGetArgs {
   feedback?: string | null;
 }
 
-export interface ToolRouterStructureArgs {
-  operation?: string;
-  [key: string]: unknown;
-}
-
 export interface ToolRouterGraphArgs {
   operation?: string;
   [key: string]: unknown;
