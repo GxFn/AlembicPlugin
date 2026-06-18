@@ -138,7 +138,7 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   const supersedes = args.supersedes as string | undefined;
 
   // ── Step 1: 限流 ──
-  const { checkRecipeSave } = await import('#http/middleware/RateLimiter.js');
+  const { checkRecipeSave } = await import('../RateLimiter.js');
   const { resolveProjectRoot } = await import('@alembic/core/workspace');
   const projectRoot = resolveProjectRoot(ctx.container);
   const limitCheck = checkRecipeSave(projectRoot, clientId || process.env.USER || 'mcp-client');

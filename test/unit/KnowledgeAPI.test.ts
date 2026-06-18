@@ -84,10 +84,10 @@ function mockKnowledgeService() {
 
 // Mock RateLimiter — 默认放行
 // 必须同时 mock 相对路径 + #imports 别名，确保动态 import 和静态 import 都被拦截
-vi.mock('../../lib/http/middleware/RateLimiter.js', () => ({
+vi.mock('../../lib/runtime/mcp/RateLimiter.js', () => ({
   checkRecipeSave: vi.fn(() => ({ allowed: true })),
 }));
-vi.mock('#http/middleware/RateLimiter.js', () => ({
+vi.mock('../../lib/runtime/mcp/RateLimiter.js', () => ({
   checkRecipeSave: vi.fn(() => ({ allowed: true })),
 }));
 
@@ -112,7 +112,7 @@ const { submitKnowledge, knowledgeLifecycle } = await import(
   '../../lib/runtime/mcp/handlers/knowledge.js'
 );
 // 从 #imports 别名导入 mock — 与 handler 内部的 dynamic import 一致
-const { checkRecipeSave } = await import('#http/middleware/RateLimiter.js');
+const { checkRecipeSave } = await import('../../lib/runtime/mcp/RateLimiter.js');
 
 describe('MCP Knowledge Handlers', () => {
   let svc;

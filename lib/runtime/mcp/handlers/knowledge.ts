@@ -18,7 +18,7 @@ async function _checkRateLimit(
   clientId: string | undefined,
   container?: Parameters<typeof resolveProjectRoot>[0]
 ) {
-  const { checkRecipeSave } = await import('#http/middleware/RateLimiter.js');
+  const { checkRecipeSave } = await import('../RateLimiter.js');
   const projectRoot = resolveProjectRoot(container);
   const limitCheck = checkRecipeSave(projectRoot, clientId || process.env.USER || 'mcp-client');
   if (!limitCheck.allowed) {

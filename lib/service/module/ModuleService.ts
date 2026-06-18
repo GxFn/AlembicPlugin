@@ -28,8 +28,8 @@ import {
   type ProjectMap,
   type RepoContext,
 } from '@alembic/core/project-context';
-import { attachHostAgentManagedBoundary } from '../../http/utils/host-managed-boundary.js';
 import { inferLang } from '../../runtime/mcp/handlers/LanguageExtensions.js';
+import { attachHostAgentManagedBoundary } from './host-managed-boundary.js';
 
 /** 全局排除目录 */
 const SCAN_EXCLUDE_DIRS = new Set([

@@ -67,7 +67,7 @@ vi.mock('@alembic/core/workspace', async (importOriginal) => {
   };
 });
 
-vi.mock('#http/middleware/RateLimiter.js', () => ({
+vi.mock('../../lib/runtime/mcp/RateLimiter.js', () => ({
   checkRecipeSave: () => ({ allowed: true }),
 }));
 

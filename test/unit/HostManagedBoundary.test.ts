@@ -4,7 +4,7 @@ import {
   HOST_AGENT_MANAGED_CODE,
   makeHostAgentManagedError,
   PLUGIN_DETERMINISTIC_EXTRACT_CODE,
-} from '../../lib/http/utils/host-managed-boundary.js';
+} from '../../lib/service/module/host-managed-boundary.js';
 
 const removedLegacyManagedField = ['host', 'Managed'].join('');
 const legacyBoundaryField = ['legacy', 'Boundary', 'Code'].join('');
