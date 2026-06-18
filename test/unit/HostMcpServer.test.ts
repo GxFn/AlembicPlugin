@@ -19,7 +19,6 @@ import {
 } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
-import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import {
   getVisibleCodexTools,
   HostMcpServer,
@@ -153,29 +152,6 @@ function makeDaemonState(projectRoot: string, overrides: Partial<DaemonState> = 
   };
 }
 
-function makeDaemonStatus(
-  projectRoot: string,
-  overrides: Partial<DaemonStatus> = {}
-): DaemonStatus {
-  const paths = resolveDaemonPaths(projectRoot);
-  const state = makeDaemonState(projectRoot);
-  return {
-    status: 'ready',
-    ready: true,
-    projectRoot: paths.projectRoot,
-    dataRoot: paths.dataRoot,
-    projectId: paths.projectId,
-    statePath: paths.statePath,
-    pidPath: paths.pidPath,
-    lockDir: paths.lockDir,
-    logPath: paths.logPath,
-    state,
-    pidAlive: true,
-    health: null,
-    ...overrides,
-  };
-}
-
 function writeDaemonState(projectRoot: string, state: DaemonState = makeDaemonState(projectRoot)) {
   const paths = resolveDaemonPaths(projectRoot);
   fs.mkdirSync(path.dirname(paths.statePath), { recursive: true });
@@ -258,113 +234,6 @@ function makeProjectScopeHealthPayload(projectScope: ProjectScopeSummary) {
   };
 }
 
-function makeRuntimeControlSourceOfTruth(projectRoot: string): Record<string, unknown> {
-  const staleRoot = path.join(projectRoot, 'stale-active');
-  return {
-    contractVersion: 1,
-    diagnostics: [
-      {
-        action: 'cleared-active-state',
-        code: 'active-runtime-state-stale',
-        message: 'Alembic cleared stale active runtime state.',
-        projectId: 'project-stale',
-        projectRoot: staleRoot,
-        reasonCode: 'runtime-control-active-stale',
-        severity: 'error',
-        source: 'runtime-control-state',
-      },
-    ],
-    failure: {
-      blockedFallbacks: ['plugin-selected-root-fallback', 'implicit-runtime-control-write'],
-      blockingCondition: 'Alembic cleared stale active runtime state.',
-      diagnostics: [
-        {
-          code: 'active-runtime-state-stale',
-          reasonCode: 'runtime-control-active-stale',
-        },
-      ],
-      observedSource: 'alembic-source-of-truth',
-      reasonCode: 'runtime-control-active-stale',
-      retryable: true,
-    },
-    operation: {
-      explicitRuntimeActionRequired: true,
-      implicitRuntimeActionAllowed: false,
-      mode: 'diagnostics-read',
-      readOnly: true,
-    },
-    owner: 'alembic',
-    readiness: {
-      ready: false,
-      reasonCode: 'runtime-control-active-stale',
-      stale: true,
-      status: 'stale',
-    },
-    requiredService: {
-      kind: 'project-runtime-control',
-      owner: 'alembic',
-      route: 'project-runtime-control',
-    },
-    route: 'project-runtime-control',
-    runtimeControl: {
-      activeMatchesCurrentProject: false,
-      activeProject: null,
-      activeReadyProject: null,
-      activeStateTrusted: false,
-      diagnostics: [
-        {
-          code: 'active-runtime-state-stale',
-          reasonCode: 'runtime-control-active-stale',
-          severity: 'error',
-        },
-      ],
-      projects: { missing: 0, ready: 0, stale: 1, total: 1, unavailable: 0 },
-      readOnly: true,
-      selectedMatchesCurrentProject: true,
-      selectedProject: {
-        projectId: 'project-current',
-        projectRoot,
-        ready: false,
-        status: 'stale',
-      },
-      state: {
-        activeProjectId: null,
-        activeProjectRoot: null,
-        schemaVersion: 1,
-        selectedAt: '2026-06-05T09:00:00.000Z',
-        selectedProjectId: 'project-current',
-        selectedProjectRoot: projectRoot,
-        updatedAt: '2026-06-05T09:01:00.000Z',
-      },
-      stateCleanup: {
-        activeState: {
-          cleaned: true,
-          cleanedAt: '2026-06-05T09:01:00.000Z',
-          message: 'Cleared stale active runtime state.',
-          previousProjectId: 'project-stale',
-          previousProjectRoot: staleRoot,
-          reasonCode: 'runtime-control-active-stale',
-        },
-      },
-      statePath: path.join(projectRoot, '.asd', 'runtime-control.json'),
-    },
-    targetProject: {
-      projectId: 'project-current',
-      projectRoot,
-      ready: false,
-      status: 'stale',
-    },
-    writePolicy: {
-      activeStateWriteAllowed: false,
-      daemonLifecycleWriteAllowed: false,
-      jobStoreWriteAllowed: false,
-      projectScopeRegistryWriteAllowed: false,
-      selectedStateWriteAllowed: false,
-      writeOwner: 'alembic',
-    },
-  };
-}
-
 function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
   if (typeof input === 'string') {
     return new URL(input);
@@ -373,14 +242,6 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
     return input;
   }
   return new URL(input.url);
-}
-
-function makeSupervisor(status: DaemonStatus) {
-  return {
-    status: vi.fn(async () => status),
-    ensure: vi.fn(async () => status),
-    stop: vi.fn(async () => ({ ...status, status: 'stopped' as const, ready: false, state: null })),
-  };
 }
 
 afterEach(async () => {
@@ -445,7 +306,6 @@ describe('HostMcpServer', () => {
     const names = tools.map((tool) => tool.name);
 
     expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
-    expect(names).toContain('alembic_dashboard');
     expect(names).toContain('alembic_job');
     expect(names).toContain('alembic_runtime');
     expect(names).toContain('alembic_bootstrap');
@@ -540,7 +400,6 @@ describe('HostMcpServer', () => {
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_init',
-      'alembic_dashboard',
       'alembic_job',
       ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
       ...CODEX_HOST_AGENT_TOOL_NAMES,
@@ -556,7 +415,6 @@ describe('HostMcpServer', () => {
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_init',
-      'alembic_dashboard',
       'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
@@ -654,15 +512,7 @@ describe('HostMcpServer', () => {
       }
       throw new Error(`Unexpected resident request: ${url.toString()}`);
     });
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(sourceRoot, {
-        message: 'source folder has no direct daemon state',
-        ready: false,
-        state: null,
-        status: 'stopped',
-      })
-    );
-    const server = new HostMcpServer({ projectRoot: sourceRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot: sourceRoot });
 
     // MTC-4: alembic_status (default) is the cold-start local status; it reports the
     // resolved project read-only and never runs the old alembic_health resident-backed
@@ -711,22 +561,12 @@ describe('HostMcpServer', () => {
     expect(fs.existsSync(path.join(sourceRoot, '.asd'))).toBe(false);
     expect(fs.existsSync(path.join(sourceRoot, 'Alembic'))).toBe(false);
     expect(fetchSpy).toHaveBeenCalled();
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('alembic_status (aspect=runtime) exposes runtime-control diagnostics and state cleanup read-only', async () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const sourceOfTruth = makeRuntimeControlSourceOfTruth(projectRoot);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        health: { data: { projectRuntimeSourceOfTruth: sourceOfTruth } },
-        message: 'Alembic cleared stale active runtime state.',
-        ready: false,
-        status: 'stale',
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       data: {
@@ -797,8 +637,6 @@ describe('HostMcpServer', () => {
         }),
       ])
     );
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('keeps project skill delivery visible while initialized knowledge is not usable and bootstrap is running', async () => {
@@ -841,7 +679,6 @@ describe('HostMcpServer', () => {
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_init',
-      'alembic_dashboard',
       'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
@@ -858,7 +695,6 @@ describe('HostMcpServer', () => {
 
     expect(names).not.toContain('alembic_task');
     expect(names).toContain('alembic_status');
-    expect(names).toContain('alembic_dashboard');
   });
 
   test('requires a second Codex admin opt-in before exposing admin-tier tools', () => {
@@ -881,16 +717,7 @@ describe('HostMcpServer', () => {
   test('status inspects workspace and daemon state without ensuring daemon startup', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-        message: 'daemon is not started',
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_status', {})) as {
       success: boolean;
@@ -913,8 +740,6 @@ describe('HostMcpServer', () => {
       primaryAction: { startsDaemon: false, tool: 'alembic_init' },
     });
     expect(result.data.nextActions).toContain('Initialize Ghost workspace: call alembic_init');
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('tool-call projectRoot override scopes status to the requested project', async () => {
@@ -935,15 +760,7 @@ describe('HostMcpServer', () => {
     process.env.PWD = pluginRoot;
 
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ supervisor });
+    const server = new HostMcpServer();
 
     const result = (await server.handleToolCall('alembic_status', { projectRoot })) as {
       data: {
@@ -958,7 +775,6 @@ describe('HostMcpServer', () => {
       trust: 'trusted',
       trusted: true,
     });
-    expect(supervisor.status).toHaveBeenCalledWith(projectRoot);
   });
 
   test('tool-call projectRoot override scopes search project identity to the requested project', async () => {
@@ -980,15 +796,7 @@ describe('HostMcpServer', () => {
 
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ supervisor });
+    const server = new HostMcpServer();
 
     const result = (await server.handleToolCall('alembic_search', {
       projectRoot,
@@ -1026,18 +834,10 @@ describe('HostMcpServer', () => {
     process.env.PWD = pluginRoot;
 
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const firstServer = new HostMcpServer({ supervisor });
+    const firstServer = new HostMcpServer();
     await firstServer.handleToolCall('alembic_status', { projectRoot });
 
-    const secondServer = new HostMcpServer({ supervisor });
+    const secondServer = new HostMcpServer();
     const result = (await secondServer.handleToolCall('alembic_status', {})) as {
       data: {
         errorCode?: string;
@@ -1059,15 +859,7 @@ describe('HostMcpServer', () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_status', {})) as {
       success: boolean;
@@ -1085,21 +877,12 @@ describe('HostMcpServer', () => {
       state: 'needs_bootstrap',
       primaryAction: { tool: 'alembic_bootstrap' },
     });
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('explicit Codex init creates a Ghost workspace marker without starting daemon', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_init', {})) as {
       success: boolean;
@@ -1126,22 +909,13 @@ describe('HostMcpServer', () => {
       projectRoot,
     });
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('explicit Codex init inherits an existing Standard registry mode', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     const entry = ProjectRegistry.register(projectRoot, false);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_init', {})) as {
       data: {
@@ -1169,22 +943,13 @@ describe('HostMcpServer', () => {
     expect(fs.existsSync(path.join(getGhostWorkspaceDir(entry.id), '.asd', 'config.json'))).toBe(
       false
     );
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('explicit Standard init fails closed on an existing Ghost registry mode', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     const entry = ProjectRegistry.register(projectRoot, true);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_init', {
       standard: true,
@@ -1209,21 +974,12 @@ describe('HostMcpServer', () => {
     });
     expect(ProjectRegistry.get(projectRoot)).toMatchObject({ id: entry.id, ghost: true });
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('removed AI config tool is not exposed as a Plugin configuration surface', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const removedToolName = ['alembic', 'codex', 'ai', 'config'].join('_');
     const result = (await server.handleToolCall(removedToolName, {
@@ -1236,21 +992,12 @@ describe('HostMcpServer', () => {
     expect(result.success).toBe(false);
     expect(result.data.errorCode).toBe('CODEX_UNKNOWN_TOOL');
     expect(readCodexInitMarker(projectRoot)).toBeNull();
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('init-on-demand initializes before reading Codex job status', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_job', { limit: 5 })) as {
       success: boolean;
@@ -1266,7 +1013,6 @@ describe('HostMcpServer', () => {
       route: 'tool-call',
     });
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('tool-call projectRoot override sends init to the requested project', async () => {
@@ -1287,15 +1033,7 @@ describe('HostMcpServer', () => {
     process.env.PWD = pluginRoot;
 
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ supervisor });
+    const server = new HostMcpServer();
 
     const result = (await server.handleToolCall('alembic_init', { projectRoot })) as {
       data: { status: { initialized: boolean; workspace: { ghost: boolean } } };
@@ -1311,28 +1049,18 @@ describe('HostMcpServer', () => {
       route: 'explicit',
     });
     expect(fs.existsSync(path.join(pluginRoot, '.asd'))).toBe(false);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('status and diagnostics do not initialize a fresh workspace', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     await server.handleToolCall('alembic_status', {});
     await server.handleToolCall('alembic_status', { aspect: 'runtime' });
 
     expect(readCodexInitMarker(projectRoot)).toBeNull();
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('manual init fails closed when only a plugin-cache fallback root is available', async () => {
@@ -1352,15 +1080,7 @@ describe('HostMcpServer', () => {
     );
     fs.mkdirSync(pluginRoot, { recursive: true });
     process.env.PWD = pluginRoot;
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(pluginRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ supervisor });
+    const server = new HostMcpServer();
 
     const result = (await server.handleToolCall('alembic_init', {})) as {
       data: {
@@ -1387,7 +1107,6 @@ describe('HostMcpServer', () => {
       'project workflows cannot be used yet'
     );
     expect(fs.existsSync(path.join(pluginRoot, '.asd'))).toBe(false);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('unresolved Desktop project root exposes tools that require explicit projectRoot', async () => {
@@ -1410,15 +1129,7 @@ describe('HostMcpServer', () => {
 
     const tools = getVisibleCodexTools('agent');
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(pluginRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ supervisor });
+    const server = new HostMcpServer();
 
     // MTC-4: alembic_status is now a cold-start discovery tool (exempt from the
     // project-root requirement), so it no longer rejects an unresolved root. Use a
@@ -1440,21 +1151,12 @@ describe('HostMcpServer', () => {
       needsUserInput: true,
       required: { projectRoot: 'absolute path' },
     });
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('diagnostics reports runtime version and artifact guidance without starting daemon', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       success: boolean;
@@ -1548,8 +1250,6 @@ describe('HostMcpServer', () => {
         expect.objectContaining({ service: 'project-identity', source: 'codex-current-project' }),
       ])
     );
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('diagnostics reports explicit admin opt-in guidance when admin tier is requested', async () => {
@@ -1557,8 +1257,7 @@ describe('HostMcpServer', () => {
     const projectRoot = makeProjectRoot();
     process.env.ALEMBIC_MCP_TIER = 'admin';
     delete process.env.ALEMBIC_CODEX_ENABLE_ADMIN;
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       success: boolean;
@@ -1581,92 +1280,6 @@ describe('HostMcpServer', () => {
     expect(result.data.nextActions).toContain(
       'Set ALEMBIC_CODEX_ENABLE_ADMIN=1 only for explicit admin workflows.'
     );
-    expect(supervisor.ensure).not.toHaveBeenCalled();
-  });
-
-  test('dashboard handoff fails closed on host project mismatch without starting runtime', async () => {
-    useTempAlembicHome();
-    const hostProjectRoot = makeProjectRoot();
-    const selectedProjectRoot = makeProjectRoot();
-    makeUsableKnowledgeBase(hostProjectRoot);
-    ProjectRegistry.register(hostProjectRoot, false);
-    const selectedEntry = ProjectRegistry.register(selectedProjectRoot, false);
-    writeRuntimeControlState({
-      activeProjectId: selectedEntry.id,
-      activeProjectRoot: selectedProjectRoot,
-      selectedAt: '2026-05-19T00:00:00.000Z',
-      selectedProjectId: selectedEntry.id,
-      selectedProjectRoot,
-      updatedAt: '2026-05-19T00:00:00.000Z',
-    });
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(hostProjectRoot, {
-        message: 'daemon is not started',
-        pidAlive: false,
-        ready: false,
-        state: null,
-        status: 'stopped',
-      })
-    );
-    const server = new HostMcpServer({ projectRoot: hostProjectRoot, supervisor });
-
-    const result = (await server.handleToolCall('alembic_dashboard', {})) as {
-      data: {
-        errorCode: string;
-        hostProjectAlignment: { connectionState: string; handoffAllowed: boolean };
-        needsUserInput: boolean;
-        projectRuntime: {
-          failureEnvelopes: Array<{ service: string | null }>;
-          requiredServices: Array<{ required: boolean; service: string }>;
-          sourcePolicy: { selectedOrActiveCanOverrideEffectiveIdentity: boolean };
-        };
-      };
-      success: boolean;
-    };
-
-    expect(result.success).toBe(false);
-    expect(result.data).toMatchObject({
-      errorCode: 'CODEX_HOST_PROJECT_MISMATCH',
-      hostProjectAlignment: {
-        connectionState: 'mismatch',
-        handoffAllowed: false,
-      },
-      needsUserInput: true,
-      projectRuntime: {
-        sourcePolicy: {
-          selectedOrActiveCanOverrideEffectiveIdentity: false,
-        },
-      },
-    });
-    expect(result.data.projectRuntime.requiredServices).toEqual(
-      expect.arrayContaining([expect.objectContaining({ required: true, service: 'dashboard' })])
-    );
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
-  });
-
-  test('dashboard handoff fails closed without local Dashboard daemon or API URL fallback', async () => {
-    useTempAlembicHome();
-    const projectRoot = makeProjectRoot();
-    makeUsableKnowledgeBase(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new HostMcpServer({ projectRoot, supervisor });
-
-    const result = (await server.handleToolCall('alembic_dashboard', {})) as {
-      data: {
-        dashboardUrl?: string;
-        errorCode: string;
-        enhancementRoute: { selected: string };
-      };
-      success: boolean;
-    };
-
-    expect(result.success).toBe(false);
-    expect(result.data.errorCode).toBe('CODEX_DASHBOARD_HANDOFF_UNAVAILABLE');
-    expect(result.data.enhancementRoute.selected).not.toBe('local-alembic-daemon');
-    expect(result.data.dashboardUrl).toBeUndefined();
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   // MTC-4: removed 'core Alembic tools stay Plugin-owned and do not call the removed
@@ -1680,11 +1293,10 @@ describe('HostMcpServer', () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       throw new Error('alembic_task prime must not call the daemon MCP bridge');
     });
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_task', {
       operation: 'prime',
@@ -1700,15 +1312,13 @@ describe('HostMcpServer', () => {
     expect(result.status).toBe('retired');
     expect(result.error.code).toBe('CODEX_TOOL_RETIRED');
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('blocks project-knowledge tools when no usable knowledge base exists', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     // MTC-4: alembic_status is the always-available cold-start tool (not knowledge-
     // gated). Use a resident-project-scope knowledge tool to exercise the gate.
@@ -1719,7 +1329,6 @@ describe('HostMcpServer', () => {
 
     expect(result.success).toBe(false);
     expect(result.data.errorCode).toBe('CODEX_ALEMBIC_KNOWLEDGE_REQUIRED');
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('blocks retired task close before Plugin evidence/evolution execution', async () => {
@@ -1727,17 +1336,10 @@ describe('HostMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     makeDirtyGitRepo(projectRoot);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        ready: false,
-        status: 'stopped',
-        state: null,
-      })
-    );
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(`alembic_task close must stay Plugin-owned: ${String(input)}`);
     });
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_task', {
       operation: 'close',
@@ -1756,7 +1358,6 @@ describe('HostMcpServer', () => {
     expect(JSON.stringify(result)).not.toContain('guardDecision');
     expect(JSON.stringify(result)).not.toContain('opportunisticEvolution');
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('blocks retired task close with unrelated dirty diff before Guard/evolution checks', async () => {
@@ -1764,17 +1365,10 @@ describe('HostMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     makeDirtyGitRepo(projectRoot);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        ready: false,
-        status: 'stopped',
-        state: null,
-      })
-    );
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(`alembic_task close must stay Plugin-owned: ${String(input)}`);
     });
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_task', {
       operation: 'close',
@@ -1792,7 +1386,6 @@ describe('HostMcpServer', () => {
     expect(JSON.stringify(result)).not.toContain('guardDecision');
     expect(JSON.stringify(result)).not.toContain('opportunisticEvolution');
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('Codex bootstrap job runs in-process via local JobStore without the daemon', async () => {
@@ -1801,11 +1394,10 @@ describe('HostMcpServer', () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(`alembic_job bootstrap must not call the daemon HTTP API: ${String(input)}`);
     });
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_job', {
       op: 'bootstrap',
@@ -1815,7 +1407,6 @@ describe('HostMcpServer', () => {
     // PDR-2a routing invariant: the job ran in-process — the daemon was neither
     // spawned nor contacted over HTTP. (The bootstrap workflow's full outcome needs a
     // complete runtime and is validated at Test/PDR-6; in this unit env it may degrade.)
-    expect(supervisor.ensure).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(typeof result.success).toBe('boolean');
     // The job was created + persisted to the local JobStore by the in-process path.
@@ -1828,13 +1419,12 @@ describe('HostMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const answer = 42;\n');
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(
         `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
       );
     });
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_bootstrap', {})) as {
       data?: {
@@ -1986,7 +1576,6 @@ describe('HostMcpServer', () => {
     );
     expect(result.data?.gates).toHaveProperty('runtimeTransport');
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('projectRoot override can switch Plugin-owned bootstrap between projects', async () => {
@@ -1997,13 +1586,12 @@ describe('HostMcpServer', () => {
     makeInitializedWorkspace(secondProjectRoot);
     fs.writeFileSync(path.join(firstProjectRoot, 'index.ts'), 'export const first = 1;\n');
     fs.writeFileSync(path.join(secondProjectRoot, 'index.ts'), 'export const second = 2;\n');
-    const supervisor = makeSupervisor(makeDaemonStatus(firstProjectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(
         `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
       );
     });
-    const server = new HostMcpServer({ supervisor });
+    const server = new HostMcpServer();
 
     const first = (await server.handleToolCall('alembic_bootstrap', {
       projectRoot: firstProjectRoot,
@@ -2016,7 +1604,6 @@ describe('HostMcpServer', () => {
     expect(second.success).toBe(true);
     expect(second.message || '').not.toContain('不允许在同一进程中切换项目');
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('blocks direct admin tool calls without Codex admin opt-in', async () => {
@@ -2025,8 +1612,7 @@ describe('HostMcpServer', () => {
     makeUsableKnowledgeBase(projectRoot);
     process.env.ALEMBIC_MCP_TIER = 'admin';
     delete process.env.ALEMBIC_CODEX_ENABLE_ADMIN;
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_knowledge_lifecycle', {
       operation: 'approve',
@@ -2040,24 +1626,15 @@ describe('HostMcpServer', () => {
       errorCode: 'CODEX_ADMIN_OPT_IN_REQUIRED',
       needsUserInput: true,
     });
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('Codex job status reads local JobStore without starting daemon', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        status: 'stopped',
-        ready: false,
-        state: null,
-        pidAlive: false,
-      })
-    );
     const store = new JobStore({ projectRoot });
     const job = store.create({ kind: 'rescan', request: { reason: 'codex' }, source: 'codex' });
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_job', { jobId: job.id })) as {
       success: boolean;
@@ -2085,15 +1662,12 @@ describe('HostMcpServer', () => {
     expect(result.data.projectRuntime.blockedFallbacks).toContain(
       'local-jobstore-default-effective-identity'
     );
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
   test('Codex job status uses resident service client when runtime is already running', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
       async () =>
         new Response(
@@ -2104,7 +1678,7 @@ describe('HostMcpServer', () => {
           { status: 200, headers: { 'content-type': 'application/json' } }
         )
     );
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_job', {
       jobId: 'bootstrap_live',
@@ -2125,19 +1699,16 @@ describe('HostMcpServer', () => {
     );
     expect(String(url)).toBe('http://127.0.0.1:39127/api/v1/jobs/bootstrap_live');
     expect(headers['x-alembic-daemon-token']).toBe('test-token');
-    expect(supervisor.ensure).not.toHaveBeenCalled();
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
 
   test('Codex job status falls back to local JobStore when daemon job API is unavailable', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const store = new JobStore({ projectRoot });
     const job = store.create({ kind: 'bootstrap', request: { maxFiles: 25 }, source: 'codex' });
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('connection closed'));
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_job', { jobId: job.id })) as {
       success: boolean;
@@ -2168,16 +1739,13 @@ describe('HostMcpServer', () => {
     expect(result.data.projectRuntime.blockedFallbacks).toContain(
       'local-jobstore-default-effective-identity'
     );
-    expect(supervisor.ensure).not.toHaveBeenCalled();
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
 
   test('cleanup defaults to dry-run and does not stop daemon', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new HostMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot });
 
     const result = (await server.handleToolCall('alembic_runtime', { action: 'cleanup' })) as {
       success: boolean;
@@ -2201,7 +1769,6 @@ describe('HostMcpServer', () => {
     expect(result.data.projectRuntime.requiredServices).toEqual(
       expect.arrayContaining([expect.objectContaining({ required: true, service: 'daemon' })])
     );
-    expect(supervisor.stop).not.toHaveBeenCalled();
   });
 
   test('package and plugin config point Codex to the packaged MCP runtime tarball', () => {

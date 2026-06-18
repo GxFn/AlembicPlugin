@@ -780,11 +780,11 @@ export class HostMcpServer {
     // MTC-7: public surface is the merged alembic_job route; kind stays the
     // bootstrap/rescan job discriminator for the shared resident job runner.
     const toolName = 'alembic_job';
-    // PDR-2a: bootstrap/rescan run IN-PROCESS synchronously and persist to a local
-    // JobStore (pure file I/O, no daemon). The daemon is no longer triggered by
-    // jobs; the daemon carrier (DaemonJobRunner / lib/http / bin/daemon-server) is
-    // removed in PDR-3. Tool interaction is unchanged: alembic_job returns a job
-    // record (now already completed) and readJob keeps reading it from the JobStore.
+    // PDR-2a/PDR-3: bootstrap/rescan run IN-PROCESS synchronously and persist to a
+    // local JobStore (pure file I/O, no resident process). The embedded runtime
+    // carrier has been removed, so jobs never spawn anything. Tool interaction is
+    // unchanged: alembic_job returns a job record (now already completed) and readJob
+    // keeps reading it from the JobStore.
     const { getServiceContainer } = await import('#inject/ServiceContainer.js');
     const container = getServiceContainer();
     const logger = Logger.getInstance();

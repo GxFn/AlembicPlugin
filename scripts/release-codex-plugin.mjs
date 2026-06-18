@@ -17,7 +17,7 @@ const steps = [
           name: 'Build runtime',
           command: 'npm',
           args: ['run', 'build'],
-          verifies: ['dist/bin/host-mcp.js', 'dist/bin/daemon-server.js'],
+          verifies: ['dist/bin/host-mcp.js'],
         },
       ]),
   {

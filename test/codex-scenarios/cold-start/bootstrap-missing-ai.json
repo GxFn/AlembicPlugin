@@ -37,7 +37,6 @@
       }
     ],
     "sideEffects": {
-      "daemonEnsureCalled": false,
       "initMarkerWritten": false,
       "jobCreated": false,
       "savedProjectRootWritten": true,

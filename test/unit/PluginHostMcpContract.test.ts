@@ -106,8 +106,9 @@ describe('Plugin host MCP D4 contract', () => {
     expect(PLUGIN_HOST_MCP_RESIDENT_ROUTE_TOOL_NAMES).toEqual(
       residentCatalogEntries.map((entry) => entry.name)
     );
+    // PDR-3: alembic_dashboard tool + its dashboard-handoff resident-route policy
+    // were removed from the surface.
     expect(PLUGIN_HOST_MCP_RESIDENT_ROUTE_POLICIES).toEqual([
-      'dashboard-handoff',
       'explicit-resident-search',
       'resident-or-embedded-jobs',
       'resident-project-scope',
@@ -115,7 +116,6 @@ describe('Plugin host MCP D4 contract', () => {
     ]);
     expect(residentCatalogEntries.map((entry) => [entry.name, entry.residentRoutePolicy])).toEqual([
       ['alembic_code_guard', 'resident-project-scope'],
-      ['alembic_dashboard', 'dashboard-handoff'],
       ['alembic_job', 'resident-or-embedded-jobs'],
       ['alembic_prime', 'resident-project-scope'],
       ['alembic_recipe_map', 'resident-project-scope'],
@@ -153,12 +153,14 @@ describe('Plugin host MCP D4 contract', () => {
       'runtime-health.unavailable',
       'workflow.unavailable',
     ]);
+    // PDR-3: removing alembic_dashboard drops active/clean-output tool counts by one
+    // (19 -> 18) and the resident-route tool count by one (8 -> 7).
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 19,
-      cleanOutputToolCount: 19,
+      activeToolCount: 18,
+      cleanOutputToolCount: 18,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
-      residentRouteToolCount: 8,
+      residentRouteToolCount: 7,
       version: 1,
     });
   });

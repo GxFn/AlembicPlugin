@@ -12,8 +12,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveDaemonPaths } from '@alembic/core/daemon';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { getCodexProjectRuntimeControlStatePath } from '#codex/HostProjectAlignment.js';
 import HostMcpServer, {
   resetCodexPluginOwnedMcpServerForTests,
@@ -39,28 +38,6 @@ function listFiles(root: string): string[] {
   return out.sort();
 }
 
-function makeStoppedSupervisor(projectRoot: string) {
-  const paths = resolveDaemonPaths(projectRoot);
-  const status = {
-    status: 'stopped',
-    ready: false,
-    projectRoot: paths.projectRoot,
-    dataRoot: paths.dataRoot,
-    projectId: paths.projectId,
-    statePath: paths.statePath,
-    pidPath: paths.pidPath,
-    lockDir: paths.lockDir,
-    pidAlive: false,
-    state: null,
-    message: 'daemon is not started',
-  } as never;
-  return {
-    status: vi.fn(async () => status),
-    ensure: vi.fn(async () => status),
-    stop: vi.fn(async () => status),
-  };
-}
-
 afterEach(async () => {
   await resetCodexPluginOwnedMcpServerForTests();
   resetServiceContainer();
@@ -74,10 +51,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-project-'));
     fs.writeFileSync(path.join(projectRoot, 'index.js'), 'export const x = 1;\n');
 
-    const server = new HostMcpServer({
-      projectRoot,
-      supervisor: makeStoppedSupervisor(projectRoot) as never,
-    });
+    const server = new HostMcpServer({ projectRoot });
     const result = (await server.handleToolCall('alembic_status', {})) as {
       success?: boolean;
     };
@@ -95,10 +69,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     // 空项目：fast-path 仍先执行 fullReset（破坏类代表，t6 门禁冷态放行）。
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-project-'));
 
-    const server = new HostMcpServer({
-      projectRoot,
-      supervisor: makeStoppedSupervisor(projectRoot) as never,
-    });
+    const server = new HostMcpServer({ projectRoot });
     const result = (await server.handleToolCall('alembic_bootstrap', {})) as Record<
       string,
       unknown

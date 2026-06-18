@@ -753,12 +753,6 @@ export function buildCodexStatusOnboarding(
         reason: 'Refresh project knowledge through the Codex host-agent workflow.',
         startsDaemon: !daemonReady,
       }),
-      buildCodexRecommendedAction({
-        label: 'Open Dashboard',
-        reason: 'Inspect jobs, candidates, and project knowledge in the local UI.',
-        startsDaemon: !daemonReady,
-        tool: 'alembic_dashboard',
-      }),
     ],
     notes: daemonReady
       ? ['Dashboard and job APIs are available now.', ...alignmentNotes, ...boundaryNotes]

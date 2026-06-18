@@ -1,7 +1,4 @@
-import { DaemonSupervisor } from '../../../lib/daemon/DaemonSupervisor.js';
-import type { DaemonStatus } from '../../../lib/runtime/daemon-status.js';
 import { getVisibleCodexTools, HostMcpServer } from '../../../lib/runtime/mcp/HostMcpServer.js';
-import { FakeDaemonSupervisor } from './FakeDaemonSupervisor.js';
 import type {
   CodexScenarioToolCallFact,
   CodexSessionHarnessMode,
@@ -9,12 +6,6 @@ import type {
   CodexSessionTranscriptEvent,
 } from './ScenarioTypes.js';
 import type { TranscriptWriter } from './TranscriptWriter.js';
-
-export interface CodexHarnessSupervisorRecorder {
-  readonly ensureCalls: Array<{ projectRoot: string; waitUntilReadyMs?: number }>;
-  readonly statusCalls: string[];
-  readonly stopCalls: Array<{ projectRoot: string; waitMs?: number }>;
-}
 
 export interface CodexMcpHarnessContext {
   mode: CodexSessionHarnessMode;
@@ -24,9 +15,12 @@ export interface CodexMcpHarnessContext {
   waitUntilReadyMs?: number;
 }
 
+// PDR-3: the embedded daemon and its supervisor were removed. HostMcpServer no
+// longer accepts a supervisor; the harness drives the daemon-less MCP surface
+// directly. The old FakeDaemonSupervisor/RecordingDaemonSupervisor recorders and
+// the supervisor field are gone with the daemon carrier.
 export interface AlembicMcpHarness {
   readonly fetchCalls: Array<{ body: unknown; url: string }>;
-  readonly supervisor: CodexHarnessSupervisorRecorder;
   readonly toolCalls: CodexScenarioToolCallFact[];
   readonly transcript: TranscriptWriter;
   callTool(turn: number, name: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -36,7 +30,6 @@ export interface AlembicMcpHarness {
 
 export class AlembicInProcessMcpHarness implements AlembicMcpHarness {
   readonly fetchCalls: Array<{ body: unknown; url: string }> = [];
-  readonly supervisor: FakeDaemonSupervisor;
   readonly toolCalls: CodexScenarioToolCallFact[] = [];
   readonly transcript: TranscriptWriter;
   #originalFetch: typeof globalThis.fetch;
@@ -44,8 +37,7 @@ export class AlembicInProcessMcpHarness implements AlembicMcpHarness {
 
   constructor(context: CodexMcpHarnessContext) {
     this.transcript = context.transcript;
-    this.supervisor = new FakeDaemonSupervisor(context.scenario.fixture.daemon || 'stopped');
-    this.#server = new HostMcpServer({ supervisor: this.supervisor });
+    this.#server = new HostMcpServer();
     this.#originalFetch = globalThis.fetch;
     this.#installFetchMock();
   }
@@ -114,7 +106,6 @@ export class AlembicInProcessMcpHarness implements AlembicMcpHarness {
 
 export class AlembicLiveLocalMcpHarness implements AlembicMcpHarness {
   readonly fetchCalls: Array<{ body: unknown; url: string }> = [];
-  readonly supervisor = new RecordingDaemonSupervisor();
   readonly toolCalls: CodexScenarioToolCallFact[] = [];
   readonly transcript: TranscriptWriter;
   #originalFetch: typeof globalThis.fetch;
@@ -123,7 +114,6 @@ export class AlembicLiveLocalMcpHarness implements AlembicMcpHarness {
   constructor(context: CodexMcpHarnessContext) {
     this.transcript = context.transcript;
     this.#server = new HostMcpServer({
-      supervisor: this.supervisor,
       waitUntilReadyMs: context.waitUntilReadyMs,
     });
     this.#originalFetch = globalThis.fetch;
@@ -176,28 +166,6 @@ export function createCodexMcpHarness(context: CodexMcpHarnessContext): AlembicM
     return new AlembicLiveLocalMcpHarness(context);
   }
   return new AlembicInProcessMcpHarness(context);
-}
-
-class RecordingDaemonSupervisor implements CodexHarnessSupervisorRecorder {
-  readonly ensureCalls: Array<{ projectRoot: string; waitUntilReadyMs?: number }> = [];
-  readonly statusCalls: string[] = [];
-  readonly stopCalls: Array<{ projectRoot: string; waitMs?: number }> = [];
-  readonly #inner = new DaemonSupervisor();
-
-  async ensure(options: { projectRoot: string; waitUntilReadyMs?: number }): Promise<DaemonStatus> {
-    this.ensureCalls.push(options);
-    return this.#inner.ensure(options);
-  }
-
-  async status(projectRoot: string): Promise<DaemonStatus> {
-    this.statusCalls.push(projectRoot);
-    return this.#inner.status(projectRoot);
-  }
-
-  async stop(options: { projectRoot: string; waitMs?: number }): Promise<DaemonStatus> {
-    this.stopCalls.push(options);
-    return this.#inner.stop(options);
-  }
 }
 
 function extractErrorCode(result: unknown): string | undefined {

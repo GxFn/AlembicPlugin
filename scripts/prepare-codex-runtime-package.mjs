@@ -15,7 +15,6 @@ const corePackage = readJson(join(coreSource.path, 'package.json'));
 
 const requiredBuildArtifacts = [
   'dist/bin/host-mcp.js',
-  'dist/bin/daemon-server.js',
   'dist/lib/runtime/mcp/HostMcpServer.js',
 ];
 

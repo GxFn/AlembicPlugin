@@ -8,12 +8,15 @@ describe('Codex module boundary status', () => {
     const pluginOwned = status.pluginOwns.map((entry) => entry.id);
     const externalOwned = status.pluginDoesNotOwn.map((entry) => entry.id);
 
+    // PDR-3: the alembic_dashboard tool was removed, so the Plugin-owned
+    // 'dashboard-url-handoff' boundary entry (which named the alembic_dashboard tool
+    // handoff) is gone. The shared CODEX_DASHBOARD_ARTIFACT_BOUNDARY descriptor
+    // (status.dashboard, asserted below) is retained.
     expect(pluginOwned).toEqual([
       'codex-entry',
       'host-agent-tool-route',
       'marketplace-artifact',
       'portable-runtime-packaging',
-      'dashboard-url-handoff',
       'host-project-mismatch-presentation',
     ]);
     expect(status.phase).toBe('unified-resident-service-phase-4-behavior-cleanup');

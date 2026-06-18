@@ -128,7 +128,6 @@ export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
 ]);
 
 export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
-  'alembic_dashboard',
   'alembic_job',
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
@@ -170,13 +169,6 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
         description: 'Write Alembic data into the project instead of the Ghost data root.',
       },
     }),
-  },
-  {
-    name: 'alembic_dashboard',
-    tier: 'agent',
-    description:
-      'Return the local Alembic Dashboard URL only when the selected project already has a local Alembic daemon with Dashboard capability. If unavailable, fail closed with status and diagnostics next actions.',
-    inputSchema: codexInputSchema(),
   },
   {
     // MTC-7: alembic_mcp_bootstrap_job + alembic_mcp_rescan_job + alembic_codex_job

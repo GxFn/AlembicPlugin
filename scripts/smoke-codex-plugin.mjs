@@ -245,7 +245,6 @@ function requiredPackageFiles() {
   return [
     'package/.agents/plugins/marketplace.json',
     'package/dist/bin/host-mcp.js',
-    'package/dist/bin/daemon-server.js',
     'package/dist/lib/runtime/mcp/HostMcpServer.js',
     'package/packages/alembic-runtime/package.json',
     'package/plugins/alembic-codex/.codex-plugin/plugin.json',
@@ -270,7 +269,6 @@ function requiredPackageFiles() {
 function requiredRuntimePackageFiles() {
   return [
     'dist/bin/host-mcp.js',
-    'dist/bin/daemon-server.js',
     'dist/lib/runtime/mcp/HostMcpServer.js',
     '.alembic-runtime-boundary.json',
   ];

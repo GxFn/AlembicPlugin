@@ -73,7 +73,6 @@ export interface CodexExpectedToolCall {
 }
 
 export interface CodexScenarioSideEffects {
-  daemonEnsureCalled: boolean;
   initMarkerWritten: boolean;
   jobCreated: boolean;
   savedProjectRootWritten: boolean;

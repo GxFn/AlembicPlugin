@@ -16,7 +16,6 @@ import {
 const expectedCodexLocalToolNames = [
   'alembic_status',
   'alembic_init',
-  'alembic_dashboard',
   'alembic_job',
   'alembic_runtime',
 ] as const;
@@ -92,7 +91,9 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('strips implicit runtime diagnostics from non-diagnostic tools', () => {
-    for (const toolName of ['alembic_init', 'alembic_dashboard'] as const) {
+    // PDR-3: alembic_dashboard removed; alembic_init is the remaining non-diagnostic
+    // Codex local tool (status/job/runtime are runtime-diagnostic tools).
+    for (const toolName of ['alembic_init'] as const) {
       const result = serializeMcpToolResult(toolName, sampleLegacyEnvelope(toolName), {
         isErrorResult: () => false,
       });
@@ -107,10 +108,12 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('projects D25 local/provider failure taxonomy into clean ok=false errors', () => {
+    // PDR-3: alembic_dashboard removed; alembic_job carries the same needsUserInput/
+    // nextActions business fields and exercises the tool-agnostic failure projection.
     for (const failureKind of CORE_D25_REQUIRED_FAILURE_KINDS) {
       const taxonomy = getCoreFailureTaxonomyEntry(failureKind);
       const result = serializeMcpToolResult(
-        'alembic_dashboard',
+        'alembic_job',
         {
           success: false,
           error: {
@@ -155,7 +158,7 @@ describe('MCP Codex local tools clean output contract', () => {
       expect(JSON.stringify(structured)).not.toContain('privateDaemonUrl');
       expect(JSON.stringify(structured)).not.toContain('providerPrivateTrace');
       expect(JSON.stringify(structured)).not.toContain('secretToken');
-      expect(findForbiddenCodexLocalOutputField(structured, 'alembic_dashboard')).toBeNull();
+      expect(findForbiddenCodexLocalOutputField(structured, 'alembic_job')).toBeNull();
     }
   });
 
@@ -187,9 +190,9 @@ function topLevelFieldsAreWhitelisted(
 
 function sampleLegacyEnvelope(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
   return {
-    success: toolName !== 'alembic_dashboard',
-    errorCode: toolName === 'alembic_dashboard' ? 'CODEX_DASHBOARD_UNAVAILABLE' : null,
-    message: toolName === 'alembic_dashboard' ? 'Dashboard handoff unavailable.' : '',
+    success: true,
+    errorCode: null,
+    message: '',
     data: {
       ...sampleBusinessData(toolName),
       diagnostics: { traceId: 'diag-1' },
@@ -229,12 +232,6 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         profile: 'codex',
         results: [],
         status: { initialized: true },
-      };
-    case 'alembic_dashboard':
-      return {
-        errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
-        needsUserInput: true,
-        nextActions: [{ tool: 'alembic_status' }],
       };
     case 'alembic_job':
       return {

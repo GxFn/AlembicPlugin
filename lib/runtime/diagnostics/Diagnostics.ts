@@ -376,11 +376,16 @@ function buildCodexRuntimeReportSections(input: {
     moduleBoundary: input.moduleBoundary,
     gitDiffCheckpoint: readHealthGitDiffCheckpoint(input.daemonStatus.health),
     plugin: input.plugin,
+    // PDR-3: the embedded daemon carrier was removed, so this runtime aspect no
+    // longer reports live daemon readiness. daemonStatus always resolves to a
+    // daemon-less synthetic 'stopped' value; surface that graceful-degraded shape
+    // so existing status consumers keep a stable daemon key without claiming a
+    // running daemon. PDR-4/PDR-5 own removing these daemon consumers entirely.
     daemon: {
-      ready: input.daemonStatus.ready,
+      ready: false,
       status: input.daemonStatus.status,
-      stateVersion: input.daemonStatus.state?.version || null,
-      healthVersion: readHealthVersion(input.daemonStatus.health),
+      removed: true,
+      note: 'Embedded Alembic daemon runtime was removed (PDR-3); no in-plugin daemon readiness is reported.',
     },
     codex: {
       pluginHost: input.context.pluginHost,
@@ -1158,15 +1163,6 @@ function readJsonIfExists(path: string): Record<string, unknown> | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function readHealthVersion(health: Record<string, unknown> | null): string | null {
-  const data = health?.data;
-  if (!data || typeof data !== 'object') {
-    return null;
-  }
-  const version = (data as { version?: unknown }).version;
-  return typeof version === 'string' ? version : null;
 }
 
 function readHealthGitDiffCheckpoint(

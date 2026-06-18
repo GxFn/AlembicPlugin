@@ -17,7 +17,7 @@ const distBin = join(repoRoot, 'dist', 'bin');
 
 const shebang = '#!/usr/bin/env node\n';
 
-const binFiles = ['daemon-server.js', 'host-mcp.js'];
+const binFiles = ['host-mcp.js'];
 
 for (const file of binFiles) {
   const filePath = join(distBin, file);

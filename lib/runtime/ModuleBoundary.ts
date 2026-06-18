@@ -3,7 +3,6 @@ import type { CodexHostProjectAlignment } from '../runtime/HostProjectAlignment.
 import {
   CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES,
   CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES,
-  CODEX_EMBEDDED_RUNTIME_RETAINED_DAEMON_ENTRY,
 } from '../runtime/runtime/EmbeddedRuntimeContract.js';
 import {
   CODEX_EMBEDDED_RUNTIME_SPECIFIER,
@@ -76,7 +75,6 @@ export interface CodexModuleBoundaryStatus {
       residentServiceOwner: string | null;
       residentServiceRoute: string | null;
       residentServiceScopeKind: string | null;
-      retainedDaemonEntryPoint: typeof CODEX_EMBEDDED_RUNTIME_RETAINED_DAEMON_ENTRY;
       runtimeBoundarySource: string | null;
       runtimeBoundaryAvailable: boolean;
     };
@@ -96,7 +94,7 @@ export const CODEX_DASHBOARD_ARTIFACT_BOUNDARY: CodexDashboardArtifactBoundary =
   buildCommand: null,
   deletionCompletedThisWave: true,
   localDaemonRequirement:
-    'alembic_dashboard returns a URL only from a local Alembic daemon that advertises Dashboard capability.',
+    'A Dashboard URL is available only from a local Alembic daemon that advertises Dashboard capability; the Plugin no longer ships a Dashboard tool.',
   pluginDoesNotBuildOrServe: [
     'Plugin-owned Dashboard frontend distribution directory',
     'AlembicDashboard source checkout',
@@ -137,14 +135,6 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
       'Maintains the lightweight Codex marketplace shell that starts the pinned runtime package without public embedded artifacts.',
     retainedInPlugin: true,
     sourceOfTruth: 'plugins/alembic-codex/bin/alembic-start.mjs and packages/alembic-runtime',
-  },
-  {
-    id: 'dashboard-url-handoff',
-    owner: 'AlembicPlugin',
-    pluginRole:
-      'Presents Codex host project alignment and returns a Dashboard URL only when Alembic selected/active runtime already matches the host project.',
-    retainedInPlugin: true,
-    sourceOfTruth: 'alembic_dashboard and status/onboarding adapters',
   },
   {
     id: 'host-project-mismatch-presentation',
@@ -264,7 +254,6 @@ export function buildCodexModuleBoundaryStatus(
         residentServiceOwner: residentService?.owner ?? null,
         residentServiceRoute: residentService?.route ?? null,
         residentServiceScopeKind: residentService?.serviceScope.kind ?? null,
-        retainedDaemonEntryPoint: CODEX_EMBEDDED_RUNTIME_RETAINED_DAEMON_ENTRY,
         runtimeBoundaryAvailable: route?.localAlembic.daemon.runtimeBoundary.available ?? false,
         runtimeBoundarySource: route?.localAlembic.daemon.runtimeBoundary.source ?? null,
       },

@@ -50,7 +50,6 @@ export function buildScenarioFacts(options: {
     projectRootSource: options.projectRootSource,
     unexpectedProjectRootToolCalls: projectRootFacts.unexpected,
     sideEffects: {
-      daemonEnsureCalled: options.harness.supervisor.ensureCalls.length > 0,
       initMarkerWritten: Boolean(readCodexInitMarker(options.projectRoot)),
       jobCreated: options.harness.fetchCalls.some((call) =>
         /\/api\/v1\/jobs\/(?:bootstrap|rescan)/.test(call.url)

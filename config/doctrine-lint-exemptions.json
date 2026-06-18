@@ -75,22 +75,16 @@
       "reason": "Monotonic receipt counter (legacy prime path)."
     },
     {
-      "file": "lib/http/middleware/RateLimiter.ts",
+      "file": "lib/runtime/mcp/RateLimiter.ts",
       "binding": "_lastPrune",
       "owner": "AlembicPlugin",
       "reason": "Rate-limiter prune clock; paired with _buckets."
     },
     {
-      "file": "lib/http/middleware/RateLimiter.ts",
+      "file": "lib/runtime/mcp/RateLimiter.ts",
       "binding": "_buckets",
       "owner": "AlembicPlugin",
       "reason": "Rate-limiter token buckets, pruned on interval; process-scoped middleware state."
-    },
-    {
-      "file": "lib/http/utils/sse-sessions.ts",
-      "binding": "_sessions",
-      "owner": "AlembicPlugin",
-      "reason": "Live SSE session map; entries removed on connection close; bounded by open connections."
     },
     {
       "file": "lib/service/task/PrimeKnowledgeMaterial.ts",

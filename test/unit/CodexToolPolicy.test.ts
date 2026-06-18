@@ -108,10 +108,9 @@ describe('Codex tool policy', () => {
     expect(getPluginToolSurfaceEntry('alembic_search')).toMatchObject({
       residentRoutePolicy: 'explicit-resident-search',
     });
-    expect(getPluginToolSurfaceEntry('alembic_dashboard')).toMatchObject({
-      handlerOwner: 'HostMcpServer.resident-dashboard',
-      residentRoutePolicy: 'dashboard-handoff',
-    });
+    // PDR-3: alembic_dashboard tool removed from the surface; the catalog no longer
+    // carries an entry for it.
+    expect(getPluginToolSurfaceEntry('alembic_dashboard')).toBeNull();
     expect(getPluginToolSurfaceEntry('alembic_source_graph_status')).toBeNull();
   });
 
@@ -129,7 +128,6 @@ describe('Codex tool policy', () => {
       'alembic_status',
       ...sourceGraphToolNames,
       'alembic_init',
-      'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
     ]);
@@ -148,7 +146,6 @@ describe('Codex tool policy', () => {
       'alembic_status',
       ...sourceGraphToolNames,
       'alembic_init',
-      'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
@@ -271,7 +268,6 @@ describe('Codex tool policy', () => {
       'alembic_status',
       ...sourceGraphToolNames,
       'alembic_init',
-      'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',

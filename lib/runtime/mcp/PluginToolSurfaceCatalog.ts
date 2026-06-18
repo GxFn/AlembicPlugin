@@ -4,7 +4,6 @@ export type PluginToolSurfaceOwner = 'codex-local' | 'plugin-embedded-core';
 
 export type PluginToolHandlerOwner =
   | 'HostMcpServer.local'
-  | 'HostMcpServer.resident-dashboard'
   | 'HostMcpServer.resident-jobs'
   | 'McpServer.host-agent-bootstrap'
   | 'McpServer.host-agent-dimension-completion'
@@ -24,7 +23,6 @@ export type PluginToolKnowledgeGate =
   | 'resident-project-scope';
 
 export type PluginToolResidentRoutePolicy =
-  | 'dashboard-handoff'
   | 'explicit-resident-search'
   | 'none'
   | 'resident-or-embedded-jobs'
@@ -135,17 +133,6 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     gateway: null,
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'none',
-  }),
-  alembic_dashboard: catalogEntry({
-    name: 'alembic_dashboard',
-    owner: 'codex-local',
-    handlerOwner: 'HostMcpServer.resident-dashboard',
-    tier: 'agent',
-    schema: 'CodexDashboardInput',
-    annotations: localWriteTool('Start Alembic Dashboard', true),
-    gateway: null,
-    knowledgeGate: 'cold-start',
-    residentRoutePolicy: 'dashboard-handoff',
   }),
   // MTC-7: alembic_mcp_bootstrap_job + alembic_mcp_rescan_job + alembic_codex_job
   // merged into the single alembic_job route (op=bootstrap/rescan/status). It can
