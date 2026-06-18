@@ -6,6 +6,7 @@ import {
   resolveDaemonPaths,
   summarizeAlembicResidentServiceStatus,
 } from '@alembic/core/daemon';
+import Logger from '@alembic/core/logging';
 import { ProjectRegistry } from '@alembic/core/workspace';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -29,14 +30,10 @@ import {
   buildHostEnhancementRouteChoice,
   CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES,
   CODEX_SETUP_PROFILE,
-  type CodexEnhancementRequirement,
-  type CodexHostProjectAlignment,
   type CodexProjectRootResolution,
   type CodexServiceBoundaryDecision,
-  createCodexJobContext,
   EMPTY_CODEX_KNOWLEDGE_STATE,
   getCodexRuntimeFallbackIsolation,
-  type HostEnhancementRouteChoice,
   type HostKnowledgeState,
   inspectCodexKnowledge,
   isCodexInitOnDemandTool,
@@ -66,7 +63,6 @@ import {
 } from '../../runtime/mcp/host/project-root-scope.js';
 import {
   attachCodexServiceBoundary,
-  attachEnhancementRoute,
   failureResult,
   isErrorResult,
 } from '../../runtime/mcp/host/results.js';
@@ -117,13 +113,6 @@ interface WorkspaceInitializationInput {
   requestedTool?: string;
   route: 'explicit' | 'tool-call';
   seed: boolean;
-}
-
-interface CodexEnhancementDaemonResult {
-  blocked: Record<string, unknown> | null;
-  daemon: DaemonStatus;
-  enhancementRoute: HostEnhancementRouteChoice;
-  hostProjectAlignment: CodexHostProjectAlignment;
 }
 
 function summarizeResidentServiceResult(
@@ -928,73 +917,68 @@ export class HostMcpServer {
     // MTC-7: public surface is the merged alembic_job route; kind stays the
     // bootstrap/rescan job discriminator for the shared resident job runner.
     const toolName = 'alembic_job';
-    const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
-      await this.ensureEnhancementDaemon('jobs', toolName);
-    const projectScopeIdentity =
-      await this.residentClients().projectScope.resolveProjectScopeIdentity({
-        daemonStatus: daemon,
-      });
+    // PDR-2a: bootstrap/rescan run IN-PROCESS synchronously and persist to a local
+    // JobStore (pure file I/O, no daemon). The daemon is no longer triggered by
+    // jobs; the daemon carrier (DaemonJobRunner / lib/http / bin/daemon-server) is
+    // removed in PDR-3. Tool interaction is unchanged: alembic_job returns a job
+    // record (now already completed) and readJob keeps reading it from the JobStore.
+    const { getServiceContainer } = await import('#inject/ServiceContainer.js');
+    const container = getServiceContainer();
+    const logger = Logger.getInstance();
+    // No daemon → daemon-less project runtime context (mirrors readJob's null path).
     const projectRuntime = buildCodexProjectRuntimeContext({
-      daemonStatus: daemon,
-      enhancementRoute,
-      hostProjectAlignment,
+      daemonStatus: null,
+      enhancementRoute: null,
+      hostProjectAlignment: null,
       projectRoot: this.projectRoot,
       projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity,
+      projectScopeIdentity: null,
       requiredServices: ['project-identity', 'jobs'],
     });
-    if (blocked) {
-      return attachProjectRuntimeContext(blocked, projectRuntime);
-    }
-    if (!daemon.ready || !daemon.state) {
-      return failureResult(toolName, daemon.message || 'Alembic daemon is not ready yet.', {
-        daemon: summarizeCodexDaemonStatus(daemon),
-        enhancementRoute,
-        hostProjectAlignment,
+
+    const store = new JobStore({ projectRoot: this.projectRoot });
+    const job = store.create({
+      kind,
+      request: args,
+      createdByTool: toolName,
+      sessionId: this.sessionId,
+    });
+    store.markRunning(job.id);
+    try {
+      let raw: unknown;
+      if (kind === 'bootstrap') {
+        const { bootstrapForHostAgent } = await import('./handlers/host-agent/bootstrap.js');
+        raw = await bootstrapForHostAgent({ container, logger });
+      } else {
+        const { rescanForHostAgent } = await import('./handlers/host-agent/rescan.js');
+        raw = await rescanForHostAgent(
+          { container, logger },
+          {
+            reason: typeof args.reason === 'string' ? args.reason : 'host-rescan',
+            dimensions: Array.isArray(args.dimensions)
+              ? args.dimensions.filter(
+                  (dimension): dimension is string => typeof dimension === 'string'
+                )
+              : undefined,
+          }
+        );
+      }
+      // Match the daemon job runner: store the unwrapped envelope data as the job result.
+      const result =
+        raw && typeof raw === 'object' && 'data' in raw
+          ? ((raw as { data?: unknown }).data ?? raw)
+          : raw;
+      const completedJob = store.complete(job.id, result);
+      return attachProjectRuntimeContext(
+        { success: true, data: { job: completedJob } },
+        projectRuntime
+      );
+    } catch (err: unknown) {
+      store.fail(job.id, err);
+      return failureResult(toolName, err instanceof Error ? err.message : String(err), {
         projectRuntime,
-        nextActions: [
-          buildCodexRecommendedAction({
-            label: 'Run diagnostics',
-            reason: 'Check daemon startup state before retrying the job.',
-            startsDaemon: false,
-            tool: 'alembic_status',
-          }),
-        ],
       });
     }
-    const residentResult = await this.residentClients().jobs.enqueueJob(kind, {
-      daemonStatus: daemon,
-      body: {
-        ...args,
-        jobContext: createCodexJobContext({
-          createdByTool: toolName,
-          sessionId: this.sessionId,
-          user: process.env.USER || undefined,
-        }),
-      },
-    });
-    if (!residentResult.ok) {
-      return failureResult(
-        toolName,
-        residentResult.message || 'Alembic resident job API is unavailable.',
-        {
-          daemon: summarizeCodexDaemonStatus(daemon),
-          enhancementRoute,
-          errorCode: residentResult.errorCode || 'CODEX_RESIDENT_JOB_UNAVAILABLE',
-          hostProjectAlignment,
-          projectRuntime,
-          residentService: summarizeResidentServiceResult(residentResult),
-        }
-      );
-    }
-
-    return attachEnhancementRoute(
-      attachProjectRuntimeContext(
-        attachResidentServiceResult(residentResult.value, residentResult),
-        projectRuntime
-      ),
-      enhancementRoute
-    );
   }
 
   async readJob(args: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -1234,76 +1218,6 @@ export class HostMcpServer {
       requiredServices: ['project-identity'],
       runtime,
     });
-  }
-
-  private async ensureEnhancementDaemon(
-    requirement: CodexEnhancementRequirement,
-    tool: string
-  ): Promise<CodexEnhancementDaemonResult> {
-    const currentDaemon = await this.supervisor.status(this.projectRoot);
-    const currentProjectScopeIdentity =
-      await this.residentClients().projectScope.resolveProjectScopeIdentity({
-        daemonStatus: currentDaemon,
-      });
-    const currentEnhancementRoute = buildHostEnhancementRouteChoice({
-      daemonStatus: currentDaemon,
-      runtime: resolveHostRuntimeContext(),
-      requirement,
-    });
-    const currentHostProjectAlignment = buildCodexHostProjectAlignment({
-      daemonStatus: currentDaemon,
-      enhancementRoute: currentEnhancementRoute,
-      projectScopeIdentity: currentProjectScopeIdentity,
-      projectRoot: this.projectRoot,
-    });
-    const currentBlock = buildCodexHostProjectHandoffBlock({
-      daemon: currentDaemon,
-      enhancementRoute: currentEnhancementRoute,
-      hostProjectAlignment: currentHostProjectAlignment,
-      projectRoot: this.projectRoot,
-      requirement,
-      tool,
-    });
-    if (currentBlock) {
-      return {
-        blocked: currentBlock,
-        daemon: currentDaemon,
-        enhancementRoute: currentEnhancementRoute,
-        hostProjectAlignment: currentHostProjectAlignment,
-      };
-    }
-    if (isResidentProjectScopeReady(currentProjectScopeIdentity)) {
-      return {
-        blocked: null,
-        daemon: currentDaemon,
-        enhancementRoute: currentEnhancementRoute,
-        hostProjectAlignment: currentHostProjectAlignment,
-      };
-    }
-
-    const daemon = await this.supervisor.ensure({
-      projectRoot: this.projectRoot,
-      waitUntilReadyMs: this.waitUntilReadyMs,
-    });
-    const enhancementRoute = buildHostEnhancementRouteChoice({
-      daemonStatus: daemon,
-      runtime: resolveHostRuntimeContext(),
-      requirement,
-    });
-    const hostProjectAlignment = buildCodexHostProjectAlignment({
-      daemonStatus: daemon,
-      enhancementRoute,
-      projectRoot: this.projectRoot,
-    });
-    const block = buildCodexHostProjectHandoffBlock({
-      daemon,
-      enhancementRoute,
-      hostProjectAlignment,
-      projectRoot: this.projectRoot,
-      requirement,
-      tool,
-    });
-    return { blocked: block, daemon, enhancementRoute, hostProjectAlignment };
   }
 }
 

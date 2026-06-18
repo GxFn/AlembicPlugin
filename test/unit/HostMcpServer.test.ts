@@ -1795,28 +1795,32 @@ describe('HostMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('Codex bootstrap job follows the resident or embedded job boundary', async () => {
+  test('Codex bootstrap job runs in-process via local JobStore without the daemon', async () => {
+    // PDR-2a: alembic_job bootstrap runs synchronously in-process and persists to a
+    // local JobStore; the daemon is never spawned or contacted over HTTP.
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
-      async () =>
-        new Response(
-          JSON.stringify({
-            success: true,
-            data: { jobId: 'bootstrap_test', job: { id: 'bootstrap_test' } },
-          }),
-          { status: 202, headers: { 'content-type': 'application/json' } }
-        )
-    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      throw new Error(`alembic_job bootstrap must not call the daemon HTTP API: ${String(input)}`);
+    });
     const server = new HostMcpServer({ projectRoot, supervisor });
 
-    const result = await server.handleToolCall('alembic_job', { op: 'bootstrap', maxFiles: 25 });
+    const result = (await server.handleToolCall('alembic_job', {
+      op: 'bootstrap',
+      maxFiles: 25,
+    })) as { success: boolean; data?: { job?: { id?: string; status?: string } } };
 
-    expect(result).toMatchObject({ success: true, data: { jobId: 'bootstrap_test' } });
-    expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // PDR-2a routing invariant: the job ran in-process — the daemon was neither
+    // spawned nor contacted over HTTP. (The bootstrap workflow's full outcome needs a
+    // complete runtime and is validated at Test/PDR-6; in this unit env it may degrade.)
+    expect(supervisor.ensure).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(typeof result.success).toBe('boolean');
+    // The job was created + persisted to the local JobStore by the in-process path.
+    const persisted = new JobStore({ projectRoot }).list({ kind: 'bootstrap' });
+    expect(persisted.length).toBeGreaterThan(0);
   });
 
   test('Codex host-agent bootstrap runs in the Plugin without the daemon MCP bridge', async () => {
@@ -2016,43 +2020,6 @@ describe('HostMcpServer', () => {
     expect(second.message || '').not.toContain('不允许在同一进程中切换项目');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(supervisor.ensure).not.toHaveBeenCalled();
-  });
-
-  test('Codex bootstrap job ensures runtime and posts through the resident service client', async () => {
-    useTempAlembicHome();
-    const projectRoot = makeProjectRoot();
-    makeInitializedWorkspace(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
-      async () =>
-        new Response(
-          JSON.stringify({
-            success: true,
-            data: { jobId: 'bootstrap_test', job: { id: 'bootstrap_test' } },
-          }),
-          { status: 202, headers: { 'content-type': 'application/json' } }
-        )
-    );
-    const server = new HostMcpServer({ projectRoot, supervisor });
-
-    const result = await server.handleToolCall('alembic_job', { op: 'bootstrap', maxFiles: 25 });
-    const [url, init] = fetchSpy.mock.calls[0];
-    const headers = init?.headers as Record<string, string>;
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ success: true, data: { jobId: 'bootstrap_test' } });
-    expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
-    expect(String(url)).toBe('http://127.0.0.1:39127/api/v1/jobs/bootstrap');
-    expect(headers['x-alembic-daemon-token']).toBe('test-token');
-    expect(body).toMatchObject({
-      jobContext: {
-        actor: { role: 'host-mcp' },
-        client: 'codex-plugin',
-        createdByTool: 'alembic_job',
-      },
-      maxFiles: 25,
-    });
-    expect(typeof (body.jobContext as { sessionId?: unknown }).sessionId).toBe('string');
   });
 
   test('blocks direct admin tool calls without Codex admin opt-in', async () => {
