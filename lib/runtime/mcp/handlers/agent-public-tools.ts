@@ -1,14 +1,6 @@
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
-import {
-  buildHostIntentFrame,
-  type HostDeclaredIntentInput,
-  type HostIntentFrame,
-  type HostTurnMetaInput,
-  type NormalizedHostIntentInput,
-  prepareHostIntentInput,
-} from '#service/task/HostIntentFrame.js';
-import { type ExtractedIntent, extract as extractIntent } from '#service/task/IntentExtractor.js';
+import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/HostIntentFrame.js';
 import {
   buildPrimeKnowledgeMaterial,
   createUnavailablePrimeIntentEpisodeMaterial,
@@ -121,29 +113,13 @@ interface AgentCodeGuardArgs extends AgentPublicBaseArgs {
   workRef?: string;
 }
 
-interface IntentRecord {
-  createdAt: string;
-  detailRefs: AgentDetailRef[];
-  extracted: ExtractedIntent;
-  hostIntentFrame: HostIntentFrame;
-  hostIntentInput: NormalizedHostIntentInput;
-  inputSource: AgentInputSource;
-  intentKind: AgentIntentKind;
-  intentRef: string;
-  lifecycle: TaskLifecycleClassification;
-  sourceRefs: string[];
-  vectorPlan: AgentVectorPlan;
-}
-
 interface WorkRecord {
   agentHost: AgentHost;
   createdAt: string;
   detailRefs: AgentDetailRef[];
   finishRef?: string;
   finishedAt?: string;
-  hostIntentFrame: HostIntentFrame;
   inputSource: AgentInputSource;
-  intentKind: AgentIntentKind;
   intentRef?: string;
   primeRef?: string;
   sourceEvidenceRefs: string[];
@@ -165,7 +141,7 @@ interface CodeGuardScopeResolution {
 interface PrimeHandlerSharedInput {
   args: AgentPrimeArgs;
   detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildIntentIntake>;
+  intake: ReturnType<typeof buildAgentToolContext>;
   primeRef: string;
 }
 
@@ -173,7 +149,6 @@ interface PrimeHandlerReadyInput extends PrimeHandlerSharedInput {
   ctx: McpContext;
   effectiveProjectRoot: string;
   primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>;
-  record: IntentRecord | null;
 }
 
 interface PrimeMaterialProjection {
@@ -181,23 +156,11 @@ interface PrimeMaterialProjection {
   retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
 }
 
-interface AgentVectorPlan {
-  keywordQueries: string[];
-  language: string | null;
-  module: string | null;
-  queries: string[];
-  retrievalOrder: string[];
-  route: 'structure-first-recipe-retrieval';
-  scenario: string;
-  vectorUseKind: AgentVectorUseKind;
-}
-
 type AgentPrimeSkippedReason =
   | 'mechanical-envelope-only'
   | 'no-semantic-intent'
   | 'status-only-turn'
   | 'not-relevant-to-project-knowledge';
-type AgentVectorUseKind = 'none' | 'semantic-expand' | 'hybrid-rerank';
 
 interface PipelineLike {
   search(request: PrimeSearchRequest): Promise<PrimeSearchResult | null>;
@@ -212,7 +175,7 @@ let guardCounter = 0;
 const WORK_RECORDS = new Map<string, WorkRecord>();
 
 export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
-  const intake = buildPrimeRequirementIntake(ctx, args);
+  const intake = buildPrimeToolContext(args);
   const detailRefs = buildBaseDetailRefs('alembic_prime', intake.sourceRefs);
   const primeRef = nextPrimeRef();
   const blockingReason = resolvePrimeBlockingReason(args, intake);
@@ -236,7 +199,6 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
     intake,
     primeRef,
     primeSearch,
-    record: null,
   });
 }
 
@@ -316,7 +278,8 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   const material = buildPrimeMaterialProjection(
     input.intake,
     input.primeSearch,
-    buildStandalonePrimeRequirementFrame(input.args)
+    buildStandalonePrimeRequirementFrame(input.args),
+    input.args
   );
   const effectiveSearchDegraded =
     input.primeSearch.searchDegraded || material.primeKnowledgeMaterial.status === 'degraded';
@@ -329,7 +292,7 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   });
   const result = buildPrimeReadyResult(input, status);
 
-  bindPrimeSessionIntent(input.ctx, input.intake, input.primeSearch.searchResult, projectRuntime);
+  bindPrimeSessionIntent(input.ctx, input.primeSearch.searchResult, projectRuntime);
   const primePackage = buildPrimePublicPackage({
     detailRefs: input.detailRefs,
     intake: input.intake,
@@ -422,21 +385,19 @@ function _readFiniteNumber(value: unknown): number | undefined {
 }
 
 function buildPrimeMaterialProjection(
-  intake: ReturnType<typeof buildIntentIntake>,
+  intake: ReturnType<typeof buildAgentToolContext>,
   primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>,
-  frame: StandalonePrimeRequirementFrame
+  frame: StandalonePrimeRequirementFrame,
+  args: AgentPrimeArgs
 ): PrimeMaterialProjection {
   return {
     primeKnowledgeMaterial: buildPrimeKnowledgeMaterial({
       requirement: {
-        userQuery: intake.hostIntentInput.userQuery,
-        ...(intake.hostIntentInput.activeFile
-          ? { activeFile: intake.hostIntentInput.activeFile }
-          : {}),
+        userQuery: firstString(args.userQuery, frame.searchQuery) ?? '',
+        ...(args.activeFile ? { activeFile: args.activeFile } : {}),
         ...(frame.scenario ? { scenario: frame.scenario } : {}),
         queries: frame.searchQuery ? [frame.searchQuery] : [],
-        language: intake.extracted.language,
-        module: intake.extracted.module,
+        language: args.language ?? null,
         ...(frame.taskAction ? { taskAction: frame.taskAction } : {}),
         ...(frame.requirementGoal ? { requirementGoal: frame.requirementGoal } : {}),
         keywords: frame.keywords,
@@ -472,7 +433,7 @@ function buildPrimeReadyResult(
 }
 
 export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs) {
-  const intake = buildIntentIntake(ctx, args);
+  const intake = buildAgentToolContext(args);
   const detailRefs = buildBaseDetailRefs(
     'alembic_work',
     uniqueStrings([
@@ -501,11 +462,8 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
 
   const workRef = nextWorkRef();
   const title =
-    firstString(
-      args.title,
-      args.workScope?.goal,
-      intake.hostIntentFrame.recognizedIntentDraft.query
-    ) ?? workRef;
+    firstString(args.title, args.workScope?.goal, args.userQuery, args.hostDeclaredIntent?.query) ??
+    workRef;
   const effectiveProjectRoot = resolveEffectiveProjectRoot(ctx, args);
   const scopeFiles = normalizeTaskLifecycleFileRefs(
     [
@@ -519,9 +477,7 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     agentHost: intake.agentHost,
     createdAt: new Date().toISOString(),
     detailRefs,
-    hostIntentFrame: intake.hostIntentFrame,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     ...(args.primeRef ? { primeRef: args.primeRef } : {}),
     sourceEvidenceRefs: uniqueStrings(args.sourceEvidenceRefs ?? []),
     scopeFiles,
@@ -530,7 +486,7 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     workRef,
   };
   rememberWorkRecord(record);
-  bindWorkSession(ctx, record, intake);
+  bindWorkSession(ctx, record);
 
   const result = createAgentPublicToolResultEnvelope({
     actionKind: 'work',
@@ -568,7 +524,7 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
 }
 
 export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishArgs) {
-  const intake = buildIntentIntake(ctx, args);
+  const intake = buildAgentToolContext(args);
   const detailRefs = buildBaseDetailRefs(
     'alembic_work',
     uniqueStrings([
@@ -672,7 +628,7 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
 }
 
 export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs) {
-  const intake = buildIntentIntake(ctx, args);
+  const intake = buildAgentToolContext(args);
   const detailRefs = buildBaseDetailRefs(
     'alembic_code_guard',
     uniqueStrings([...(args.sourceRefs ?? []), ...(args.sourceEvidenceRefs ?? [])])
@@ -718,7 +674,7 @@ function resolveCodeGuardScope(
 function buildCodeGuardPreflightOutput(input: {
   args: AgentCodeGuardArgs;
   detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildIntentIntake>;
+  intake: ReturnType<typeof buildAgentToolContext>;
   scope: CodeGuardScopeResolution;
 }) {
   const { args, scope } = input;
@@ -742,7 +698,7 @@ function buildCodeGuardPreflightOutput(input: {
 function buildMissingWorkRefGuardOutput(input: {
   args: AgentCodeGuardArgs;
   detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildIntentIntake>;
+  intake: ReturnType<typeof buildAgentToolContext>;
   scope: CodeGuardScopeResolution;
 }) {
   const { args, detailRefs, intake, scope } = input;
@@ -773,7 +729,7 @@ function buildEmptyWorkRefGuardOutput(
   input: {
     args: AgentCodeGuardArgs;
     detailRefs: AgentDetailRef[];
-    intake: ReturnType<typeof buildIntentIntake>;
+    intake: ReturnType<typeof buildAgentToolContext>;
     scope: CodeGuardScopeResolution;
   },
   workRecord: WorkRecord
@@ -814,7 +770,7 @@ function buildEmptyWorkRefGuardOutput(
 function buildMissingScopeGuardOutput(input: {
   args: AgentCodeGuardArgs;
   detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildIntentIntake>;
+  intake: ReturnType<typeof buildAgentToolContext>;
   scope: CodeGuardScopeResolution;
 }) {
   const { args, detailRefs, intake, scope } = input;
@@ -861,7 +817,7 @@ function buildCodeGuardReadyOutput(input: {
   args: AgentCodeGuardArgs;
   detailRefs: AgentDetailRef[];
   guardEnvelope: unknown;
-  intake: ReturnType<typeof buildIntentIntake>;
+  intake: ReturnType<typeof buildAgentToolContext>;
   scope: CodeGuardScopeResolution;
 }) {
   const { args, detailRefs, guardEnvelope, intake, scope } = input;
@@ -901,7 +857,7 @@ function buildCodeGuardFailureOutput(input: {
   args: AgentCodeGuardArgs;
   detailRefs: AgentDetailRef[];
   err: unknown;
-  intake: ReturnType<typeof buildIntentIntake>;
+  intake: ReturnType<typeof buildAgentToolContext>;
 }) {
   const { detailRefs, err, intake } = input;
   const result = createAgentPublicToolResultEnvelope({
@@ -936,96 +892,51 @@ function buildCodeGuardExplicitScope(args: AgentCodeGuardArgs, scope: CodeGuardS
   };
 }
 
-function buildIntentIntake(ctx: McpContext, args: AgentPublicBaseArgs) {
-  const hostDeclaredIntent = mergeRecognizedIntent(args);
+/**
+ * Build the slim agent-tool context (PDR-1d). The intent-paradigm intake
+ * (the legacy intent-frame extraction / vector-plan layer) is removed; tools now derive
+ * agentHost/inputSource/sourceRefs from their structured args and reuse the Core
+ * lifecycle classifier directly.
+ */
+function buildAgentToolContext(args: AgentPublicBaseArgs) {
   const rawUserQuery = firstString(args.userQuery);
-  const hostIntentInput = prepareHostIntentInput({
-    activeFile: args.activeFile,
-    hostDeclaredIntent,
-    hostTurnMeta: args.hostTurnMeta,
-    language: args.language,
-    requestHostTurnMeta: ctx.hostTurnMeta,
-    userQuery: rawUserQuery,
-  });
-  const extracted = extractIntent(
-    hostIntentInput.userQuery,
-    hostIntentInput.activeFile,
-    hostIntentInput.language
-  );
-  const hostIntentFrame = buildHostIntentFrame(hostIntentInput, extracted);
   const lifecycle = classifyTaskLifecycleInput({
-    hostIntentFrame,
     operation: 'prime',
     rawUserQuery,
-    userQuery: hostIntentInput.userQuery,
+    userQuery: rawUserQuery,
   });
   const sourceRefs = uniqueStrings([
     ...(args.sourceRefs ?? []),
     ...(args.sourceEvidenceRefs ?? []),
-    ...(hostIntentFrame.recognizedIntentDraft.sourceRefs ?? []),
-    ...(hostIntentFrame.hostDeclaredIntent?.sourceRefs ?? []),
+    ...(args.hostDeclaredIntent?.sourceRefs ?? []),
   ]);
-  const inputSource = resolveAgentInputSource(args.inputSource, lifecycle.inputSource);
-  const intentKind = args.intentKind ?? mapLifecycleIntentKind(lifecycle, hostIntentFrame);
   return {
     agentHost: args.agentHost ?? ('codex' as const),
-    extracted,
-    hostIntentFrame,
-    hostIntentInput,
-    inputSource,
-    intentKind,
+    inputSource: resolveAgentInputSource(args.inputSource, lifecycle.inputSource),
+    intentKind: args.intentKind,
     lifecycle,
     sourceRefs,
-    vectorPlan: buildVectorPlan(extracted),
   };
 }
 
-function buildPrimeRequirementIntake(
-  ctx: McpContext,
-  args: AgentPrimeArgs
-): ReturnType<typeof buildIntentIntake> {
-  const standaloneFrame = buildStandalonePrimeRequirementFrame(args);
-  const hostDeclaredIntent = hasAnyStandalonePrimeSignal(standaloneFrame)
-    ? primeFrameToHostDeclaredIntent(standaloneFrame)
-    : undefined;
+function buildPrimeToolContext(args: AgentPrimeArgs): ReturnType<typeof buildAgentToolContext> {
+  const frame = buildStandalonePrimeRequirementFrame(args);
   const rawUserQuery = firstString(args.userQuery);
-  const effectiveUserQuery = standaloneFrame.searchQuery ?? rawUserQuery;
-  const hostIntentInput = prepareHostIntentInput({
-    activeFile: args.activeFile,
-    hostDeclaredIntent,
-    hostTurnMeta: args.hostTurnMeta,
-    language: args.language,
-    requestHostTurnMeta: ctx.hostTurnMeta,
-    userQuery: effectiveUserQuery,
-  });
-  const extracted = extractIntent(
-    hostIntentInput.userQuery,
-    hostIntentInput.activeFile,
-    hostIntentInput.language
-  );
-  const hostIntentFrame = buildHostIntentFrame(hostIntentInput, extracted);
   const lifecycle = classifyTaskLifecycleInput({
-    hostIntentFrame,
     operation: 'prime',
     rawUserQuery,
-    userQuery: hostIntentInput.userQuery,
+    userQuery: frame.searchQuery ?? rawUserQuery,
   });
   const sourceRefs = uniqueStrings([
     ...(args.sourceRefs ?? []),
     ...(args.sourceEvidenceRefs ?? []),
   ]);
-  const inputSource = resolveAgentInputSource(args.inputSource, lifecycle.inputSource);
-  const intentKind = args.intentKind ?? mapLifecycleIntentKind(lifecycle, hostIntentFrame);
   return {
     agentHost: args.agentHost ?? ('codex' as const),
-    extracted,
-    hostIntentFrame,
-    hostIntentInput,
-    inputSource,
-    intentKind,
+    inputSource: resolveAgentInputSource(args.inputSource, lifecycle.inputSource),
+    intentKind: args.intentKind,
     lifecycle,
     sourceRefs,
-    vectorPlan: buildVectorPlan(extracted),
   };
 }
 
@@ -1070,28 +981,6 @@ function buildStandalonePrimeRequirementFrame(
     ...(scenario ? { scenario } : {}),
     ...(queryParts.length > 0 ? { searchQuery: queryParts.join(' ') } : {}),
     ...(taskAction ? { taskAction } : {}),
-  };
-}
-
-function primeFrameToHostDeclaredIntent(
-  frame: StandalonePrimeRequirementFrame
-): HostDeclaredIntentInput | undefined {
-  if (!hasAnyStandalonePrimeSignal(frame)) {
-    return undefined;
-  }
-  const keywords = uniqueStrings([
-    ...frame.locatorFacets,
-    ...(frame.lifecycleHint ? [frame.lifecycleHint] : []),
-    ...frame.keywords,
-    ...frame.labels,
-  ]).slice(0, 12);
-  return {
-    ...(frame.searchQuery ? { query: frame.searchQuery } : {}),
-    ...(frame.requirementGoal ? { goal: frame.requirementGoal } : {}),
-    ...(frame.taskAction ? { action: frame.taskAction } : {}),
-    ...(frame.scenario ? { scenario: frame.scenario.slice(0, 80) } : {}),
-    ...(frame.capability ? { module: frame.capability.slice(0, 160) } : {}),
-    ...(keywords.length > 0 ? { keywords } : {}),
   };
 }
 
@@ -1147,29 +1036,9 @@ function normalizePrimeTaskAction(value: unknown): string | undefined {
   }
 }
 
-function mergeRecognizedIntent(args: AgentPublicBaseArgs): HostDeclaredIntentInput | undefined {
-  const recognized = (args as AgentPrimeArgs).recognizedIntent;
-  const base = args.hostDeclaredIntent;
-  if (!recognized || typeof recognized !== 'object' || Array.isArray(recognized)) {
-    return base;
-  }
-  const record = recognized as Record<string, unknown>;
-  const merged: HostDeclaredIntentInput = {
-    ...(base ?? {}),
-    ...(typeof record.query === 'string' ? { query: record.query } : {}),
-    ...(typeof record.action === 'string' ? { action: record.action } : {}),
-    ...(typeof record.language === 'string' ? { language: record.language } : {}),
-    ...(typeof record.target === 'string' ? { module: record.target } : {}),
-  };
-  if (Object.keys(merged).length === 0) {
-    return base;
-  }
-  return merged;
-}
-
 function resolvePrimeBlockingReason(
   args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildIntentIntake>
+  intake: ReturnType<typeof buildAgentToolContext>
 ): {
   code: 'missing-required-intent' | 'missing-referenced-docs' | 'obsolete-prime-intent-input';
   message: string;
@@ -1231,7 +1100,7 @@ function obsoletePrimeInputFields(args: AgentPrimeArgs): string[] {
 async function runPrimeSearch(
   ctx: McpContext,
   args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildIntentIntake>
+  intake: ReturnType<typeof buildAgentToolContext>
 ): Promise<{
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
@@ -1270,7 +1139,7 @@ async function runPrimeSearch(
 
 function resolvePrimeSkipBeforeRetrieval(
   args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildIntentIntake>
+  intake: ReturnType<typeof buildAgentToolContext>
 ): AgentPrimeSkippedReason | null {
   const frame = buildStandalonePrimeRequirementFrame(args);
   const trustedStandaloneFrame = isTrustedStandaloneCodePrimeFrame(frame);
@@ -1522,7 +1391,7 @@ function resolvePrimeStatus(input: {
 }
 
 function resolveWorkStartStatus(
-  intake: ReturnType<typeof buildIntentIntake>,
+  intake: ReturnType<typeof buildAgentToolContext>,
   args: AgentWorkStartArgs
 ): Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string } {
   if (intake.inputSource === 'automation-envelope' && intake.sourceRefs.length === 0) {
@@ -1560,7 +1429,7 @@ function resolveWorkStartStatus(
   );
   const hasPolicyWorkScope = Boolean(
     intake.lifecycle.taskAnchorDecision.action === 'create' &&
-      intake.hostIntentFrame.recognizedIntentDraft.query.trim().length > 0
+      (firstString(args.userQuery, args.hostDeclaredIntent?.query)?.trim().length ?? 0) > 0
   );
   const hasWorkScope = hasExplicitWorkScope || hasPolicyWorkScope;
   if (!hasWorkScope) {
@@ -1775,7 +1644,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function bindPrimeSessionIntent(
   ctx: McpContext,
-  intake: ReturnType<typeof buildIntentIntake>,
   searchResult: PrimeSearchResult | null,
   projectRuntime: Record<string, unknown>
 ): void {
@@ -1784,12 +1652,6 @@ function bindPrimeSessionIntent(
   }
   const freshIntent = createIdleIntent();
   freshIntent.phase = 'active';
-  freshIntent.primeQuery = intake.hostIntentInput.userQuery;
-  freshIntent.primeActiveFile = intake.hostIntentInput.activeFile;
-  freshIntent.primeLanguage = intake.extracted.language;
-  freshIntent.primeModule = intake.extracted.module;
-  freshIntent.primeScenario = intake.extracted.scenario;
-  freshIntent.hostIntentFrame = intake.hostIntentFrame;
   freshIntent.primeAt = Date.now();
   if (searchResult) {
     freshIntent.primeRecipeIds = [...searchResult.relatedKnowledge, ...searchResult.guardRules]
@@ -1819,11 +1681,7 @@ function bindPrimeSessionIntent(
   ctx.session.intent = freshIntent;
 }
 
-function bindWorkSession(
-  ctx: McpContext,
-  record: WorkRecord,
-  intake: ReturnType<typeof buildIntentIntake>
-): void {
+function bindWorkSession(ctx: McpContext, record: WorkRecord): void {
   if (!ctx.session) {
     return;
   }
@@ -1831,12 +1689,6 @@ function bindWorkSession(
   intent.phase = 'active';
   intent.taskId = record.workRef;
   intent.taskTitle = record.title;
-  intent.primeQuery = intake.hostIntentInput.userQuery;
-  intent.primeActiveFile = intake.hostIntentInput.activeFile;
-  intent.primeLanguage = intake.extracted.language;
-  intent.primeModule = intake.extracted.module;
-  intent.primeScenario = intake.extracted.scenario;
-  intent.hostIntentFrame = intake.hostIntentFrame;
   intent.primeAt = Date.now();
   for (const file of record.scopeFiles) {
     intent.mentionedFiles.push(file);
@@ -1860,28 +1712,6 @@ function rememberWorkRecord(record: WorkRecord): void {
   if (oldest) {
     WORK_RECORDS.delete(oldest);
   }
-}
-
-function buildVectorPlan(
-  extracted: ExtractedIntent,
-  options: { vectorUseKind?: AgentVectorUseKind } = {}
-): AgentVectorPlan {
-  return {
-    keywordQueries: extracted.keywordQueries.slice(0, 4),
-    language: extracted.language,
-    module: extracted.module,
-    queries: extracted.queries.slice(0, 5),
-    retrievalOrder: [
-      'structure hints from activeFile/module',
-      'auto lexical/FWS queries',
-      'semantic resident search when available',
-      'keyword synonym expansion',
-      'quality-filtered Recipe/Guard split',
-    ],
-    route: 'structure-first-recipe-retrieval',
-    scenario: extracted.scenario,
-    vectorUseKind: options.vectorUseKind ?? 'semantic-expand',
-  };
 }
 
 function buildBaseDetailRefs(toolName: AgentPublicToolName, sourceRefs: string[]) {
@@ -1924,7 +1754,7 @@ function buildBaseDetailRefs(toolName: AgentPublicToolName, sourceRefs: string[]
 
 function buildPrimePublicPackage(input: {
   detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildIntentIntake>;
+  intake: ReturnType<typeof buildAgentToolContext>;
   primeKnowledgeMaterial: PrimeKnowledgeMaterial | null;
   primeRef: string;
   result: AgentPublicToolResultEnvelope;
@@ -2018,7 +1848,7 @@ function hostNeutralPrimeText(text: string): string {
 }
 
 function buildPrimeProjectContextGuidance(input: {
-  intake: ReturnType<typeof buildIntentIntake>;
+  primeKnowledgeMaterial: PrimeKnowledgeMaterial | null;
   result: AgentPublicToolResultEnvelope;
 }) {
   const projectContextRefs = input.result.refs.detailRefs
@@ -2029,11 +1859,11 @@ function buildPrimeProjectContextGuidance(input: {
     .filter((ref) => ref.kind === 'source-ref')
     .map((ref) => ref.id)
     .slice(0, 40);
-  const activeFile = input.intake.hostIntentInput.activeFile;
+  const activeFile = input.primeKnowledgeMaterial?.intent.activeFile;
   const query = compactPrimePublicString(
     firstString(
-      input.intake.extracted.queries[0],
-      input.intake.hostIntentFrame.recognizedIntentDraft.query
+      input.primeKnowledgeMaterial?.intent.queries[0],
+      input.primeKnowledgeMaterial?.intent.userQuery
     )
   );
   const focus = compactPrimePublicString(activeFile);
@@ -2240,35 +2070,6 @@ function resolveAgentInputSource(
       return 'user-message';
     case 'unknown':
       return 'user-message';
-  }
-}
-
-function mapLifecycleIntentKind(
-  lifecycle: TaskLifecycleClassification,
-  hostIntentFrame: HostIntentFrame
-): AgentIntentKind {
-  const action = hostIntentFrame.recognizedIntentDraft.action.toLowerCase();
-  if (action === 'fix') {
-    return 'fix-task';
-  }
-  if (action === 'refactor') {
-    return 'refactor-task';
-  }
-  switch (lifecycle.intentKind) {
-    case 'automation-control':
-      return 'mechanical-envelope';
-    case 'code-change-task':
-    case 'explicit-task-anchor':
-      return 'implementation-task';
-    case 'design-discussion':
-      return 'design-or-planning';
-    case 'knowledge-query':
-    case 'read-only-analysis':
-      return 'read-only-analysis';
-    case 'status-report':
-      return 'status-only';
-    case 'unknown':
-      return 'unknown';
   }
 }
 
