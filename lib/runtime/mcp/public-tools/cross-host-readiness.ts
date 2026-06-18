@@ -101,9 +101,8 @@ export function buildAgentPublicCrossHostPromptSnapshot(
     envelopeInvariant:
       'Return the same contractVersion, actionKind, refs/detailRefs, status, and skip/degraded/blocked/failed reason envelope for every supported host.',
     firstMove:
-      'For semantic project work, use alembic_intent only when you need intent normalization; do not use it as a required producer for prime.',
-    guardAndDecision:
-      'Use alembic_code_guard only with explicit files or inline code, and use alembic_decision_record only for confirmed durable decisions.',
+      'For semantic project work, call alembic_prime directly with taskAction, requirementGoal, and locator facets.',
+    guardAndDecision: 'Use alembic_code_guard only with explicit files or inline code.',
     hostLabel: HOST_LABEL_BY_AGENT_HOST[agentHost],
     legacyBoundary:
       'Legacy compatibility hooks are not the primary guide for this host; use the six agent-facing public tools.',

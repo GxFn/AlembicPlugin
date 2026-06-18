@@ -11,8 +11,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { SignalBus } from '@alembic/core/events';
 import {
-  ComplianceReporter,
-  CoverageAnalyzer,
   ExclusionManager,
   GuardCheckEngine,
   GuardFeedbackLoop,
@@ -20,7 +18,7 @@ import {
   RuleLearner,
   ViolationsStore,
 } from '@alembic/core/guard';
-import type { GuardViolationRepository, KnowledgeRepository } from '@alembic/core/repositories';
+import type { KnowledgeRepository } from '@alembic/core/repositories';
 import { unwrapRawDb } from '@alembic/core/search';
 import { resolveDataRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '../ServiceContainer.js';
@@ -107,17 +105,9 @@ export function register(c: ServiceContainer) {
     );
   });
 
-  c.singleton('complianceReporter', (ct: ServiceContainer) => {
-    const config = (ct.singletons._config as Record<string, unknown> | undefined) || {};
-    return new ComplianceReporter(
-      ct.get('guardCheckEngine') as ConstructorParameters<typeof ComplianceReporter>[0],
-      ct.get('violationsStore') as ConstructorParameters<typeof ComplianceReporter>[1],
-      ct.get('ruleLearner') as ConstructorParameters<typeof ComplianceReporter>[2],
-      ct.get('exclusionManager') as ConstructorParameters<typeof ComplianceReporter>[3],
-      (config.qualityGate as Record<string, unknown>) || {}
-    );
-  });
-
+  // W2 (MTC-7C8): complianceReporter / coverageAnalyzer DI removed with the retired
+  // alembic_guard coverage_matrix/compliance_report routes. Core ComplianceReporter/
+  // CoverageAnalyzer stay (CCR-3/W3).
   c.singleton(
     'guardFeedbackLoop',
     (ct: ServiceContainer) =>
@@ -130,26 +120,4 @@ export function register(c: ServiceContainer) {
         } as ConstructorParameters<typeof GuardFeedbackLoop>[2]
       )
   );
-
-  c.singleton('coverageAnalyzer', (ct: ServiceContainer) => {
-    let ruleLearner:
-      | {
-          ruleLearner?: ConstructorParameters<typeof CoverageAnalyzer>[2] extends {
-            ruleLearner?: infer R;
-          }
-            ? R
-            : never;
-        }
-      | undefined;
-    try {
-      ruleLearner = { ruleLearner: ct.get('ruleLearner') as never };
-    } catch {
-      /* ruleLearner not yet available */
-    }
-    return new CoverageAnalyzer(
-      ct.get('knowledgeRepository') as KnowledgeRepository,
-      ct.get('guardViolationRepository') as GuardViolationRepository,
-      ruleLearner as ConstructorParameters<typeof CoverageAnalyzer>[2]
-    );
-  });
 }

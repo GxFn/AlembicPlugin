@@ -6,7 +6,6 @@ import {
 import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
 import {
   AGENT_ACTION_KINDS,
-  AGENT_INTENT_DESIGN_FIELD_MAPPINGS,
   AGENT_PUBLIC_TOOL_NAMES,
   AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS,
   AGENT_RESULT_STATUSES,
@@ -24,23 +23,14 @@ import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Agent-facing public tools contract foundation', () => {
-  test('declares the six public tools and marks them as active public tools', () => {
+  test('declares the four public tools and marks them as active public tools', () => {
     expect(AGENT_PUBLIC_TOOL_NAMES).toEqual([
-      'alembic_intent',
       'alembic_prime',
       'alembic_work_start',
       'alembic_work_finish',
       'alembic_code_guard',
-      'alembic_decision_record',
     ]);
-    expect(AGENT_ACTION_KINDS).toEqual([
-      'intent',
-      'prime',
-      'work-start',
-      'work-finish',
-      'code-guard',
-      'decision-record',
-    ]);
+    expect(AGENT_ACTION_KINDS).toEqual(['prime', 'work-start', 'work-finish', 'code-guard']);
 
     const catalog = listAgentPublicToolContractCatalog();
     expect(catalog.map((entry) => entry.name)).toEqual(AGENT_PUBLIC_TOOL_NAMES);
@@ -87,82 +77,6 @@ describe('Agent-facing public tools contract foundation', () => {
     }
   });
 
-  test('keeps public output schemas tool-specific and rejects cross-tool private fields', () => {
-    const base = {
-      actionKind: 'intent' as const,
-      agentHost: 'codex' as const,
-      inputSource: 'host-declared-intent' as const,
-      ok: true,
-      refs: { detailRefs: [] },
-      status: 'ready' as const,
-      summary: 'Intent output stays tool-specific.',
-      toolName: 'alembic_intent' as const,
-    };
-    const validIntent = createAgentPublicToolOutput(createAgentPublicToolResultEnvelope(base), {
-      detailRefs: [],
-      intentClassification: {
-        actionKind: 'implement',
-        confidenceBand: 'high',
-        objectKind: 'code',
-        scopeKind: 'project',
-      },
-      intentPersistence: { consumable: true, created: true, kind: 'session-local' },
-      localRecord: {
-        createdAt: '2026-06-10T04:00:00.000Z',
-        intentRef: 'intent-d22',
-        status: 'ready',
-      },
-      recognizedIntent: {
-        query: 'Tighten MCP output schema',
-        action: 'implement',
-        confidence: 0.9,
-        evidenceSpans: [{ text: 'private span must stay summarized' }],
-        source: 'host-declared',
-        status: 'recognized',
-      },
-      retrievalPlan: { route: 'structure-first', vectorUseKind: 'none' },
-      toolPlan: {
-        decisionNeed: 'record-if-confirmed',
-        guardNeed: 'recommend-if-code-changed',
-        knowledgeNeed: 'optional',
-        primeNeed: 'optional',
-        projectContextNeed: 'recommended',
-        projectContextPlan: {
-          action: 'graph-after-work',
-          reasonCode: 'project-context-after-changes',
-          tools: ['alembic_project_matrix', 'alembic_graph'],
-        },
-        workNeed: 'maybe-start',
-      },
-    });
-
-    expect(validIntent.recognizedIntent).toMatchObject({
-      evidenceSpanCount: 1,
-      query: 'Tighten MCP output schema',
-    });
-    expect(JSON.stringify(validIntent)).not.toContain('private span must stay summarized');
-
-    expect(() =>
-      createAgentPublicToolOutput(createAgentPublicToolResultEnvelope(base), {
-        ...validIntent,
-        primePackage: { primeRef: 'prime-owned-by-another-tool' },
-      })
-    ).toThrow();
-
-    expect(
-      AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.safeParse({
-        ...base,
-        actionKind: 'code-guard',
-        toolName: 'alembic_code_guard',
-        guard: {
-          ok: true,
-          resultSummary: { payloadType: 'object', violationCount: 0 },
-          searchMeta: { leaked: true },
-        },
-      }).success
-    ).toBe(false);
-  });
-
   test('provides tool description base text without legacy operation wording', () => {
     for (const name of AGENT_PUBLIC_TOOL_NAMES) {
       const description = getAgentPublicToolDescriptionBase(name);
@@ -197,7 +111,6 @@ describe('Agent-facing public tools contract foundation', () => {
       inputSource: 'host-declared-intent',
       intentKind: 'implementation-task',
       refs: {
-        intentRef: { refType: 'intent', id: 'intent-1', toolName: 'alembic_intent' },
         workRef: { refType: 'work', id: 'work-1', toolName: 'alembic_work_start' },
         detailRefs: [detailRef],
       },
@@ -334,8 +247,8 @@ describe('Agent-facing public tools contract foundation', () => {
       inputSource: 'user-message' as const,
       refs: { detailRefs: [] },
       summary: 'Contract result',
-      toolName: 'alembic_intent' as const,
-      actionKind: 'intent' as const,
+      toolName: 'alembic_work_finish' as const,
+      actionKind: 'work-finish' as const,
     };
 
     expect(
@@ -397,35 +310,6 @@ describe('Agent-facing public tools contract foundation', () => {
       const definition = getAgentPublicToolContractDefinition(name);
       expect(definition.handlerDependency).toBe('McpServer.agent-public-tools');
       expect(definition.activeMcpSurface).toBe(true);
-    }
-  });
-
-  test('maps every Design intent enum requirement to a public or derived contract field', () => {
-    expect(AGENT_INTENT_DESIGN_FIELD_MAPPINGS.map((entry) => entry.field)).toEqual([
-      'agentHost',
-      'hostSurface',
-      'inputSource',
-      'intentKind',
-      'actionKind',
-      'objectKind',
-      'scopeKind',
-      'persistenceKind',
-      'primeNeed',
-      'workNeed',
-      'guardNeed',
-      'projectContextNeed',
-      'projectContextPlan',
-      'knowledgeNeed',
-      'decisionNeed',
-      'vectorUseKind',
-      'confidenceBand',
-    ]);
-
-    for (const entry of AGENT_INTENT_DESIGN_FIELD_MAPPINGS) {
-      expect(['public-field', 'public-result-field', 'internal-derived-field']).toContain(
-        entry.disposition
-      );
-      expect(entry.evidence.length).toBeGreaterThan(0);
     }
   });
 });

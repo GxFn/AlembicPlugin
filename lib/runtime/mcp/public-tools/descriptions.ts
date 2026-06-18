@@ -13,16 +13,6 @@ export const AgentPublicToolDescriptionBaseSchema = z.object({
 export type AgentPublicToolDescriptionBase = z.infer<typeof AgentPublicToolDescriptionBaseSchema>;
 
 export const AGENT_PUBLIC_TOOL_DESCRIPTION_BASE = {
-  alembic_intent: {
-    name: 'alembic_intent',
-    title: 'Normalize agent intent',
-    purpose:
-      'Normalize host-declared intent, turn metadata, source references, and user text into a compact intentRef for later agent-facing tools.',
-    selectionHint:
-      'Use when the host agent needs Alembic to understand the current user task before loading knowledge or starting work.',
-    nonGoal:
-      'Does not create a work session, run knowledge search, perform code checks, or record a decision.',
-  },
   alembic_prime: {
     name: 'alembic_prime',
     title: 'Prime code-development Recipe context',
@@ -31,7 +21,7 @@ export const AGENT_PUBLIC_TOOL_DESCRIPTION_BASE = {
     selectionHint:
       'Use before implementation, fixes, refactors, tests, or code-review edits when the host can provide taskAction, requirementGoal, and locator facets.',
     nonGoal:
-      'Does not consume alembic_intent intentRef/recognizedIntent, answer general knowledge lookup, provide project maps, create work sessions, modify code, mark work complete, or run guard checks.',
+      'Does not answer general knowledge lookup, provide project maps, create work sessions, modify code, mark work complete, or run guard checks.',
   },
   alembic_work_start: {
     name: 'alembic_work_start',
@@ -62,16 +52,6 @@ export const AGENT_PUBLIC_TOOL_DESCRIPTION_BASE = {
       'Use when files, inline code, or a current workRef with scoped files is explicit and project rules should be checked before finalizing work.',
     nonGoal:
       'Does not accept diffRef/primeRef/acceptedGuards/applicableRecipe as public guard scope, infer unbounded repository scope, run no-args whole-diff review, create work sessions, or record user preferences.',
-  },
-  alembic_decision_record: {
-    name: 'alembic_decision_record',
-    title: 'Record agent decision',
-    purpose:
-      'Create, update, read, list, revoke, or delete a durable Alembic Decision Register record with decisionRef and supporting detailRefs.',
-    selectionHint:
-      'Use when the user or implementation has produced a confirmed decision that should be persisted through Alembic resident Decision Register.',
-    nonGoal:
-      'Does not write Plugin-local fake decisions, start or finish work, perform code checks, or treat tentative suggestions as confirmed decisions.',
   },
 } as const satisfies Record<string, AgentPublicToolDescriptionBase>;
 

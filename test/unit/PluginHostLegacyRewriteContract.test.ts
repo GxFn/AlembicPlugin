@@ -30,12 +30,8 @@ describe('Plugin host legacy rewrite D12 contract', () => {
       toolName: 'alembic_intent',
     } as const;
 
-    expect(
-      TOOL_SCHEMAS.alembic_intent.safeParse({
-        inputSource: removedLegacyInput.inputSource,
-        userQuery: 'legacy public input is removed',
-      }).success
-    ).toBe(false);
+    // W2 (MTC-2): alembic_intent is fully removed — its routed schema no longer exists.
+    expect(TOOL_SCHEMAS.alembic_intent).toBeUndefined();
     expect(AgentPublicToolResultEnvelopeSchema.safeParse(removedLegacyInput).success).toBe(false);
     expect(() =>
       createAgentPublicToolResultEnvelope(

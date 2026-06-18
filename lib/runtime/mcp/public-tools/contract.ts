@@ -3,12 +3,10 @@ import { z } from 'zod';
 export const AGENT_PUBLIC_TOOL_CONTRACT_VERSION = 1 as const;
 
 export const AGENT_PUBLIC_TOOL_NAMES = [
-  'alembic_intent',
   'alembic_prime',
   'alembic_work_start',
   'alembic_work_finish',
   'alembic_code_guard',
-  'alembic_decision_record',
 ] as const;
 
 export const AGENT_HOSTS = ['codex', 'claude-code', 'generic-host-agent'] as const;
@@ -35,104 +33,9 @@ export const AGENT_INTENT_KINDS = [
   'unknown',
 ] as const;
 
-export const AGENT_ACTION_KINDS = [
-  'intent',
-  'prime',
-  'work-start',
-  'work-finish',
-  'code-guard',
-  'decision-record',
-] as const;
+export const AGENT_ACTION_KINDS = ['prime', 'work-start', 'work-finish', 'code-guard'] as const;
 
 export const AGENT_RESULT_STATUSES = ['ready', 'skipped', 'degraded', 'blocked', 'failed'] as const;
-
-export const AGENT_INTENT_DESIGN_FIELD_MAPPINGS = [
-  {
-    field: 'agentHost',
-    disposition: 'public-field',
-    evidence: ['AgentPublicToolBaseInput.agentHost', 'AgentPublicToolResultEnvelope.agentHost'],
-  },
-  {
-    field: 'hostSurface',
-    disposition: 'internal-derived-field',
-    evidence: ['HostTurnMetaInput.surface'],
-  },
-  {
-    field: 'inputSource',
-    disposition: 'public-field',
-    evidence: ['AgentPublicToolBaseInput.inputSource', 'AgentPublicToolResultEnvelope.inputSource'],
-  },
-  {
-    field: 'intentKind',
-    disposition: 'public-field',
-    evidence: ['AgentPublicToolBaseInput.intentKind', 'AgentPublicToolResultEnvelope.intentKind'],
-  },
-  {
-    field: 'actionKind',
-    disposition: 'internal-derived-field',
-    evidence: ['HostDeclaredIntentInput.action', 'RecognizedIntentDraft.action'],
-  },
-  {
-    field: 'objectKind',
-    disposition: 'internal-derived-field',
-    evidence: ['RecognizedIntentDraft.target', 'activeFile', 'sourceRefs'],
-  },
-  {
-    field: 'scopeKind',
-    disposition: 'internal-derived-field',
-    evidence: ['projectRoot', 'activeFile', 'sourceRefs'],
-  },
-  {
-    field: 'persistenceKind',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.intentPersistence.kind'],
-  },
-  {
-    field: 'primeNeed',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.primeNeed'],
-  },
-  {
-    field: 'workNeed',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.workNeed'],
-  },
-  {
-    field: 'guardNeed',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.guardNeed'],
-  },
-  {
-    field: 'projectContextNeed',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.projectContextNeed'],
-  },
-  {
-    field: 'projectContextPlan',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.projectContextPlan'],
-  },
-  {
-    field: 'knowledgeNeed',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.knowledgeNeed'],
-  },
-  {
-    field: 'decisionNeed',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.toolPlan.decisionNeed'],
-  },
-  {
-    field: 'vectorUseKind',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.retrievalPlan.vectorUseKind'],
-  },
-  {
-    field: 'confidenceBand',
-    disposition: 'public-result-field',
-    evidence: ['alembic_intent.intentClassification.confidenceBand'],
-  },
-] as const;
 
 export const AGENT_SKIP_REASON_CODES = [
   'no-semantic-intent',
@@ -191,12 +94,10 @@ export type AgentActionKind = z.infer<typeof AgentActionKindSchema>;
 export type AgentResultStatus = z.infer<typeof AgentResultStatusSchema>;
 
 export const AGENT_PUBLIC_TOOL_ACTION_BY_NAME = {
-  alembic_intent: 'intent',
   alembic_prime: 'prime',
   alembic_work_start: 'work-start',
   alembic_work_finish: 'work-finish',
   alembic_code_guard: 'code-guard',
-  alembic_decision_record: 'decision-record',
 } as const satisfies Record<AgentPublicToolName, AgentActionKind>;
 
 export const AgentPublicToolRefSchema = z.object({
@@ -532,19 +433,6 @@ function definition(
 
 export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
-    'alembic_intent',
-    {
-      acceptedRefs: ['detailRefs'],
-      requiredFields: ['agentHost', 'inputSource'],
-    },
-    ['intentRef', 'detailRefs'],
-    {
-      activeMcpSurface: true,
-      handlerDependency: 'McpServer.agent-public-tools',
-      implementationStatus: 'active-tool',
-    }
-  ),
-  definition(
     'alembic_prime',
     {
       acceptedRefs: ['detailRefs'],
@@ -560,8 +448,8 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_work_start',
     {
-      acceptedRefs: ['intentRef', 'primeRef', 'detailRefs'],
-      requiredFields: ['agentHost', 'inputSource', 'intentRef'],
+      acceptedRefs: ['primeRef', 'detailRefs'],
+      requiredFields: ['agentHost', 'inputSource'],
     },
     ['workRef', 'detailRefs'],
     {
@@ -573,7 +461,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_work_finish',
     {
-      acceptedRefs: ['intentRef', 'primeRef', 'workRef', 'detailRefs'],
+      acceptedRefs: ['primeRef', 'workRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource', 'workRef'],
     },
     ['workRef', 'finishRef', 'detailRefs'],
@@ -586,23 +474,10 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
   definition(
     'alembic_code_guard',
     {
-      acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
+      acceptedRefs: ['workRef', 'detailRefs'],
       requiredFields: ['agentHost', 'inputSource'],
     },
     ['guardResultRef', 'detailRefs'],
-    {
-      activeMcpSurface: true,
-      handlerDependency: 'McpServer.agent-public-tools',
-      implementationStatus: 'active-tool',
-    }
-  ),
-  definition(
-    'alembic_decision_record',
-    {
-      acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
-      requiredFields: ['agentHost', 'inputSource'],
-    },
-    ['decisionRef', 'detailRefs'],
     {
       activeMcpSurface: true,
       handlerDependency: 'McpServer.agent-public-tools',

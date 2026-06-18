@@ -22,13 +22,11 @@ import {
   BootstrapInput,
   CodeGuardInput,
   ConsolidateInput,
-  DecisionRecordInput,
   DimensionCompleteInput,
   EvolveInput,
   GraphInput,
   GuardInput,
   HealthInput,
-  IntentInput,
   KnowledgeLifecycleInput,
   PrimeInput,
   ProjectSkillInput,
@@ -112,12 +110,10 @@ export const TIER_ORDER = { agent: 0, admin: 1 };
 export const withMcpToolAnnotations = withPluginToolAnnotations;
 export { TOOL_GATEWAY_MAP };
 
-const INTENT_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_intent');
 const PRIME_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_prime');
 const WORK_START_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_start');
 const WORK_FINISH_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_finish');
 const CODE_GUARD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_code_guard');
-const DECISION_RECORD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_decision_record');
 
 // ─── Tool Declarations ───────────────────────────────────────
 
@@ -127,16 +123,6 @@ export const TOOLS = [
   // ══════════════════════════════════════════════════════
 
   // Agent-facing public workflow tools
-  {
-    name: 'alembic_intent',
-    tier: 'agent',
-    description:
-      `${INTENT_DESCRIPTION.title}. ${INTENT_DESCRIPTION.purpose}\n` +
-      `${INTENT_DESCRIPTION.selectionHint}\n` +
-      `Non-goal: ${INTENT_DESCRIPTION.nonGoal}`,
-    inputSchema: zodToMcpSchema(IntentInput),
-  },
-
   {
     name: 'alembic_prime',
     tier: 'agent',
@@ -191,16 +177,6 @@ export const TOOLS = [
   },
 
   {
-    name: 'alembic_decision_record',
-    tier: 'agent',
-    description:
-      `${DECISION_RECORD_DESCRIPTION.title}. ${DECISION_RECORD_DESCRIPTION.purpose}\n` +
-      `${DECISION_RECORD_DESCRIPTION.selectionHint}\n` +
-      `Non-goal: ${DECISION_RECORD_DESCRIPTION.nonGoal}`,
-    inputSchema: zodToMcpSchema(DecisionRecordInput),
-  },
-
-  {
     name: 'alembic_health',
     tier: 'agent',
     description:
@@ -241,11 +217,10 @@ export const TOOLS = [
     name: 'alembic_guard',
     tier: 'agent',
     description:
-      'Legacy Guard route for compatibility and report operations.\n' +
+      'Legacy Guard route for compatibility.\n' +
       '• files → check specified file list; prefer alembic_code_guard for agent-facing scoped checks\n' +
       '• no params → blocked; whole-diff fallback is disabled to avoid silently consuming unrelated repository changes\n' +
       '• code → inline check code snippet; prefer alembic_code_guard for new host-agent calls\n' +
-      '• operation: "coverage_matrix" → module-level Guard rule coverage matrix\n' +
       'Each violation includes a fix guide (doClause + coreCode). Fix accordingly and re-check.',
     inputSchema: zodToMcpSchema(GuardInput),
   },

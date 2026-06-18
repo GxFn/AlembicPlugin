@@ -433,22 +433,6 @@ function buildCodexHostAgentRescanAction(input: {
   });
 }
 
-function buildCodexAgentIntentAction(input: {
-  label?: string;
-  reason?: string;
-  startsDaemon: boolean;
-}): CodexRecommendedAction {
-  return buildCodexRecommendedAction({
-    arguments: { inputSource: 'host-declared-intent' },
-    label: input.label || 'Normalize agent intent',
-    reason:
-      input.reason ||
-      'Capture host-declared intent and turn metadata before loading project knowledge.',
-    startsDaemon: input.startsDaemon,
-    tool: 'alembic_intent',
-  });
-}
-
 function buildCodexAgentPrimeAction(input: {
   label?: string;
   reason?: string;
@@ -744,11 +728,6 @@ export function buildCodexStatusOnboarding(
       startsDaemon: !daemonReady,
     }),
     nextActions: [
-      buildCodexAgentIntentAction({
-        reason:
-          'Normalize host-declared intent first when Codex has a concrete user task and wants an intentRef.',
-        startsDaemon: false,
-      }),
       buildCodexAgentPrimeAction({
         reason:
           'Load project conventions and trusted context from an intentRef or host-declared intent.',

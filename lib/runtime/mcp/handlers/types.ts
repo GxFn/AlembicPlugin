@@ -392,7 +392,7 @@ export interface ToolRouterGraphArgs {
 }
 
 export interface ToolRouterGuardArgs {
-  operation?: 'check' | 'review' | 'coverage_matrix' | 'compliance_report';
+  operation?: 'check' | 'review';
   code?: string;
   files?: Array<string | { path?: string; [key: string]: unknown }>;
   [key: string]: unknown;

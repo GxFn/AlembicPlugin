@@ -88,13 +88,13 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     const byName = new Map(TOOLS.map((tool) => [tool.name, tool.description]));
 
     expect(byName.has('alembic_task')).toBe(false);
+    expect(byName.has('alembic_intent')).toBe(false);
+    expect(byName.has('alembic_decision_record')).toBe(false);
     for (const toolName of [
-      'alembic_intent',
       'alembic_prime',
       'alembic_work_start',
       'alembic_work_finish',
       'alembic_code_guard',
-      'alembic_decision_record',
     ]) {
       expect(byName.has(toolName)).toBe(true);
     }

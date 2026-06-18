@@ -306,7 +306,7 @@ export class CodexMcpServer {
       return createCleanMcpErrorResponse({
         code: 'CODEX_TOOL_RETIRED',
         message:
-          'alembic_task has been retired. Use alembic_intent, alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, or alembic_decision_record.',
+          'alembic_task has been retired. Use alembic_prime, alembic_work_start, alembic_work_finish, or alembic_code_guard.',
         status: 'retired',
         toolName: name,
       });

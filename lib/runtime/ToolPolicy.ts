@@ -103,12 +103,10 @@ export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
 // degraded, or blocked envelopes instead of disappearing behind the knowledge
 // gate.
 export const CODEX_AGENT_PUBLIC_TOOL_NAMES = new Set([
-  'alembic_intent',
   'alembic_prime',
   'alembic_work_start',
   'alembic_work_finish',
   'alembic_code_guard',
-  'alembic_decision_record',
 ]);
 
 // Agent lifecycle tools are the active public route. Legacy alembic_task is no

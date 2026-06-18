@@ -75,10 +75,9 @@ export function register(c: ServiceContainer) {
   c.singleton('residentIntentEpisodeClient', (ct: ServiceContainer) => {
     return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients).intentEpisodes;
   });
-  c.singleton('residentDecisionRegisterClient', (ct: ServiceContainer) => {
-    return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients)
-      .decisionRegister;
-  });
+  // W2 (MTC-2/C2b): residentDecisionRegisterClient DI removed with the alembic_decision_record
+  // Plugin MCP entry. The capability-client decisionRegister method + the durable Alembic
+  // Decision Register store stay (DRR-3/W3).
   // Deprecated internal DI key retained only for HTTP compatibility callers until every
   // route switches to capability-specific clients; Codex MCP paths use the split clients.
   c.singleton('residentServiceClient', (ct: ServiceContainer) => {

@@ -27,30 +27,6 @@ const PublicStringSchema = z.string().min(1).max(1200);
 const OptionalPublicStringSchema = z.string().max(1200).optional();
 const PublicStringArraySchema = z.array(PublicStringSchema).max(80);
 
-const RecognizedIntentPublicSchema = z
-  .object({
-    action: OptionalPublicStringSchema,
-    confidence: z.number().min(0).max(1).optional(),
-    degraded: z.boolean().optional(),
-    degradedReasons: z.array(z.string().max(240)).max(40).optional(),
-    evidenceSpanCount: z.number().int().min(0).max(1000).optional(),
-    language: OptionalPublicStringSchema,
-    query: z.string().max(2000),
-    source: z.enum(['deterministic', 'host-declared', 'mixed']).optional(),
-    sourceRefs: PublicStringArraySchema.optional(),
-    status: z.enum(['recognized', 'needs-confirmation', 'degraded']).optional(),
-    target: OptionalPublicStringSchema,
-  })
-  .strict();
-
-const IntentLocalRecordSchema = z
-  .object({
-    createdAt: PublicStringSchema,
-    intentRef: PublicStringSchema,
-    status: AgentResultStatusSchema,
-  })
-  .strict();
-
 const WorkStartLocalRecordSchema = z
   .object({
     createdAt: PublicStringSchema,
@@ -170,89 +146,6 @@ const GuardPublicResultSchema = z
   })
   .strict();
 
-const DecisionSummarySchema = z
-  .object({
-    action: OptionalPublicStringSchema,
-    decisionId: OptionalPublicStringSchema,
-    id: OptionalPublicStringSchema,
-    status: OptionalPublicStringSchema,
-    title: OptionalPublicStringSchema,
-  })
-  .strict();
-
-const DecisionCapabilitySummarySchema = z
-  .object({
-    available: z.boolean().optional(),
-    lifecycle: z.array(PublicStringSchema).max(20).optional(),
-    owner: OptionalPublicStringSchema,
-    route: OptionalPublicStringSchema,
-  })
-  .strict();
-
-const DurableDecisionPersistenceSchema = z
-  .object({
-    action: z.enum(['create', 'delete', 'list', 'read', 'revoke', 'update']),
-    available: z.boolean(),
-    capability: DecisionCapabilitySummarySchema.nullable().optional(),
-    reason: OptionalPublicStringSchema,
-    requiredRoute: OptionalPublicStringSchema,
-  })
-  .strict();
-
-const RequestedDecisionSchema = z
-  .object({
-    action: z.enum(['create', 'delete', 'list', 'read', 'revoke', 'update']),
-    decisionRef: z.string().max(240).nullable(),
-    description: z.string().max(2000).nullable(),
-    evidenceRefs: PublicStringArraySchema,
-    rationale: z.string().max(2000).nullable(),
-    tags: z.array(PublicStringSchema).max(40),
-    title: z.string().max(240).nullable(),
-  })
-  .strict();
-
-const IntentClassificationSchema = z
-  .object({
-    actionKind: z.string().min(1).max(120),
-    confidenceBand: z.enum(['high', 'medium', 'low', 'degraded']),
-    objectKind: z.string().min(1).max(120),
-    scopeKind: z.string().min(1).max(120),
-  })
-  .strict();
-
-const IntentPersistenceSchema = z
-  .object({
-    consumable: z.boolean(),
-    created: z.boolean(),
-    kind: z.enum(['ephemeral', 'session-local']),
-  })
-  .strict();
-
-const IntentRetrievalPlanSchema = z
-  .object({
-    route: z.literal('structure-first'),
-    vectorUseKind: z.enum(['none', 'semantic-expand', 'hybrid-rerank']),
-  })
-  .strict();
-
-const IntentToolPlanSchema = z
-  .object({
-    decisionNeed: z.enum(['none', 'record-if-confirmed', 'required-before-work']),
-    guardNeed: z.enum(['none', 'recommend-if-code-changed', 'explicit-scope-required']),
-    knowledgeNeed: z.enum(['none', 'optional', 'recommended', 'required']),
-    primeNeed: z.enum(['none', 'optional', 'recommended', 'required']),
-    projectContextNeed: z.enum(['none', 'optional', 'recommended', 'required']),
-    projectContextPlan: z
-      .object({
-        action: z.enum(['skip', 'matrix-first', 'graph-before-work', 'graph-after-work']),
-        reasonCode: PublicStringSchema,
-        tools: z.array(PublicStringSchema).max(8),
-      })
-      .strict(),
-    workNeed: z.enum(['none', 'maybe-start', 'start-required']),
-  })
-  .strict();
-
 export const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
   actionKind: AgentActionKindSchema,
   agentHost: AgentHostSchema,
@@ -286,18 +179,6 @@ export const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend
       message: `${output.status} outputs require a ${expectedReasonKind} reason`,
     });
   }
-});
-
-export const AgentIntentOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
-  detailRefs: z.array(AgentDetailRefSchema).max(40),
-  intentClassification: IntentClassificationSchema,
-  intentPersistence: IntentPersistenceSchema,
-  intentRef: z.string().min(1).max(240).optional(),
-  localRecord: IntentLocalRecordSchema.optional(),
-  retrievalPlan: IntentRetrievalPlanSchema,
-  recognizedIntent: RecognizedIntentPublicSchema,
-  toolPlan: IntentToolPlanSchema,
-  toolName: z.literal('alembic_intent'),
 });
 
 // GMAP-8: alembic_prime is a standalone agent tool with its own output (like the
@@ -378,20 +259,8 @@ export const AgentCodeGuardOutputSchema = AgentPublicToolOutputBaseSchema.safeEx
   unsupportedScopeFields: z.array(z.string()).max(20).optional(),
 });
 
-export const AgentDecisionRecordOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
-  count: z.number().nullable().optional(),
-  decision: DecisionSummarySchema.nullable().optional(),
-  decisionRef: z.string().min(1).max(240).nullable().optional(),
-  decisions: z.array(DecisionSummarySchema).max(100).optional(),
-  durablePersistence: DurableDecisionPersistenceSchema.optional(),
-  requestedDecision: RequestedDecisionSchema.optional(),
-  toolName: z.literal('alembic_decision_record'),
-});
-
 export const AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS = {
   alembic_code_guard: AgentCodeGuardOutputSchema,
-  alembic_decision_record: AgentDecisionRecordOutputSchema,
-  alembic_intent: AgentIntentOutputSchema,
   alembic_prime: AgentPrimeOutputSchema,
   alembic_work_finish: AgentWorkFinishOutputSchema,
   alembic_work_start: AgentWorkStartOutputSchema,
@@ -519,56 +388,10 @@ function normalizeAgentPublicToolPayload(
   payload: Record<string, unknown>
 ): Record<string, unknown> {
   const normalized = { ...payload };
-  if (toolName === 'alembic_intent' && 'recognizedIntent' in normalized) {
-    normalized.recognizedIntent = projectRecognizedIntentPublic(normalized.recognizedIntent);
-  }
   if (toolName === 'alembic_code_guard' && 'guard' in normalized) {
     normalized.guard = projectGuardPublicResult(normalized.guard);
   }
-  if (toolName === 'alembic_decision_record') {
-    if ('decision' in normalized) {
-      normalized.decision = projectDecisionSummary(normalized.decision);
-    }
-    if (Array.isArray(normalized.decisions)) {
-      normalized.decisions = normalized.decisions
-        .map(projectDecisionSummary)
-        .filter((decision) => decision !== null);
-    }
-    if ('durablePersistence' in normalized) {
-      normalized.durablePersistence = projectDurablePersistence(normalized.durablePersistence);
-    }
-    if ('requestedDecision' in normalized) {
-      normalized.requestedDecision = projectRequestedDecision(normalized.requestedDecision);
-    }
-  }
   return normalized;
-}
-
-function projectRecognizedIntentPublic(
-  value: unknown
-): z.infer<typeof RecognizedIntentPublicSchema> {
-  const record = asRecord(value);
-  return {
-    ...(stringFrom(record.action) ? { action: stringFrom(record.action) } : {}),
-    ...(typeof record.confidence === 'number' && Number.isFinite(record.confidence)
-      ? { confidence: Math.max(0, Math.min(1, record.confidence)) }
-      : {}),
-    ...(typeof record.degraded === 'boolean' ? { degraded: record.degraded } : {}),
-    ...(stringArray(record.degradedReasons).length
-      ? { degradedReasons: stringArray(record.degradedReasons, 40, 240) }
-      : {}),
-    ...(Array.isArray(record.evidenceSpans)
-      ? { evidenceSpanCount: Math.min(record.evidenceSpans.length, 1000) }
-      : {}),
-    ...(stringFrom(record.language) ? { language: stringFrom(record.language) } : {}),
-    query: stringFrom(record.query, 2000) ?? '',
-    ...(isIntentSource(record.source) ? { source: record.source } : {}),
-    ...(stringArray(record.sourceRefs).length
-      ? { sourceRefs: stringArray(record.sourceRefs, 80, 1200) }
-      : {}),
-    ...(isIntentStatus(record.status) ? { status: record.status } : {}),
-    ...(stringFrom(record.target) ? { target: stringFrom(record.target) } : {}),
-  };
 }
 
 function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicResultSchema> {
@@ -603,63 +426,6 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
   };
 }
 
-function projectDecisionSummary(value: unknown): z.infer<typeof DecisionSummarySchema> | null {
-  const record = asRecord(value);
-  const decision = {
-    ...(stringFrom(record.action) ? { action: stringFrom(record.action) } : {}),
-    ...(stringFrom(record.decisionId) ? { decisionId: stringFrom(record.decisionId) } : {}),
-    ...(stringFrom(record.id) ? { id: stringFrom(record.id) } : {}),
-    ...(stringFrom(record.status) ? { status: stringFrom(record.status) } : {}),
-    ...(stringFrom(record.title) ? { title: stringFrom(record.title, 240) } : {}),
-  };
-  return Object.keys(decision).length > 0 ? decision : null;
-}
-
-function projectDurablePersistence(
-  value: unknown
-): z.infer<typeof DurableDecisionPersistenceSchema> {
-  const record = asRecord(value);
-  return {
-    action: isDecisionAction(record.action) ? record.action : 'create',
-    available: record.available === true,
-    ...('capability' in record ? { capability: projectDecisionCapability(record.capability) } : {}),
-    ...(stringFrom(record.reason) ? { reason: stringFrom(record.reason) } : {}),
-    ...(stringFrom(record.requiredRoute)
-      ? { requiredRoute: stringFrom(record.requiredRoute) }
-      : {}),
-  };
-}
-
-function projectDecisionCapability(
-  value: unknown
-): z.infer<typeof DecisionCapabilitySummarySchema> | null {
-  const record = asRecord(value);
-  if (Object.keys(record).length === 0) {
-    return null;
-  }
-  return {
-    ...(typeof record.available === 'boolean' ? { available: record.available } : {}),
-    ...(stringArray(record.lifecycle).length
-      ? { lifecycle: stringArray(record.lifecycle, 20, 1200) }
-      : {}),
-    ...(stringFrom(record.owner) ? { owner: stringFrom(record.owner) } : {}),
-    ...(stringFrom(record.route) ? { route: stringFrom(record.route) } : {}),
-  };
-}
-
-function projectRequestedDecision(value: unknown): z.infer<typeof RequestedDecisionSchema> {
-  const record = asRecord(value);
-  return {
-    action: isDecisionAction(record.action) ? record.action : 'create',
-    decisionRef: stringFrom(record.decisionRef, 240) ?? null,
-    description: stringFrom(record.description, 2000) ?? null,
-    evidenceRefs: stringArray(record.evidenceRefs, 80, 1200),
-    rationale: stringFrom(record.rationale, 2000) ?? null,
-    tags: stringArray(record.tags, 40, 1200),
-    title: stringFrom(record.title, 240) ?? null,
-  };
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -673,41 +439,10 @@ function stringFrom(value: unknown, max = 1200): string | undefined {
   return value.slice(0, max);
 }
 
-function stringArray(value: unknown, maxItems = 80, maxLength = 1200): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .filter((item): item is string => typeof item === 'string' && item.length > 0)
-    .slice(0, maxItems)
-    .map((item) => item.slice(0, maxLength));
-}
-
 function numberFrom(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.min(Math.trunc(value), 10000)
     : null;
-}
-
-function isIntentSource(value: unknown): value is 'deterministic' | 'host-declared' | 'mixed' {
-  return value === 'deterministic' || value === 'host-declared' || value === 'mixed';
-}
-
-function isIntentStatus(value: unknown): value is 'recognized' | 'needs-confirmation' | 'degraded' {
-  return value === 'recognized' || value === 'needs-confirmation' || value === 'degraded';
-}
-
-function isDecisionAction(
-  value: unknown
-): value is 'create' | 'delete' | 'list' | 'read' | 'revoke' | 'update' {
-  return (
-    value === 'create' ||
-    value === 'delete' ||
-    value === 'list' ||
-    value === 'read' ||
-    value === 'revoke' ||
-    value === 'update'
-  );
 }
 
 function describePayloadType(

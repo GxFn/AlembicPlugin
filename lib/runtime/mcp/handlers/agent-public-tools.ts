@@ -1,11 +1,5 @@
-import type { AlembicResidentServiceResult } from '@alembic/core/daemon';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
-import type {
-  ResidentDecisionRegisterRequest,
-  ResidentDecisionRegisterResult,
-  ResidentDecisionRegisterStatus,
-} from '#service/resident/AlembicResidentServiceClient.js';
 import {
   buildHostIntentFrame,
   type HostDeclaredIntentInput,
@@ -127,22 +121,6 @@ interface AgentCodeGuardArgs extends AgentPublicBaseArgs {
   workRef?: string;
 }
 
-interface AgentDecisionRecordArgs extends AgentPublicBaseArgs {
-  action?: 'create' | 'update' | 'revoke' | 'delete' | 'read' | 'list';
-  decisionRef?: string;
-  description?: string;
-  evidenceRefs?: string[];
-  includeDeleted?: boolean;
-  intentRef?: string;
-  limit?: number;
-  rationale?: string;
-  sessionId?: string;
-  status?: ResidentDecisionRegisterStatus;
-  tags?: string[];
-  title?: string;
-  workRef?: string;
-}
-
 interface IntentRecord {
   createdAt: string;
   detailRefs: AgentDetailRef[];
@@ -214,38 +192,12 @@ interface AgentVectorPlan {
   vectorUseKind: AgentVectorUseKind;
 }
 
-type AgentConfidenceBand = 'high' | 'medium' | 'low' | 'degraded';
-type AgentDecisionNeed = 'none' | 'record-if-confirmed' | 'required-before-work';
-type AgentGuardNeed = 'none' | 'recommend-if-code-changed' | 'explicit-scope-required';
-type AgentKnowledgeNeed = 'none' | 'optional' | 'recommended' | 'required';
-type AgentObjectKind =
-  | 'automation-card'
-  | 'code'
-  | 'docs'
-  | 'mcp-tool'
-  | 'project-identity'
-  | 'runtime-service'
-  | 'source-ref'
-  | 'unknown'
-  | 'workspace-plan';
-type AgentPersistenceKind = 'ephemeral' | 'session-local';
-type AgentPrimeNeed = 'none' | 'optional' | 'recommended' | 'required';
 type AgentPrimeSkippedReason =
   | 'mechanical-envelope-only'
   | 'no-semantic-intent'
   | 'status-only-turn'
   | 'not-relevant-to-project-knowledge';
-type AgentScopeKind = 'file' | 'module' | 'none' | 'project' | 'source-ref';
-type AgentProjectContextNeed = 'none' | 'optional' | 'recommended' | 'required';
 type AgentVectorUseKind = 'none' | 'semantic-expand' | 'hybrid-rerank';
-type AgentWorkNeed = 'none' | 'maybe-start' | 'start-required';
-
-interface AgentIntentPersistence {
-  consumable: boolean;
-  kind: AgentPersistenceKind;
-  localRecordCreated: boolean;
-  reason: string;
-}
 
 interface PipelineLike {
   search(
@@ -260,92 +212,13 @@ interface PipelineLike {
   ): Promise<PrimeSearchResult | null>;
 }
 
-interface ResidentDecisionRegisterClientLike {
-  decisionRegister(
-    request: ResidentDecisionRegisterRequest
-  ): Promise<AlembicResidentServiceResult<ResidentDecisionRegisterResult>>;
-}
-
-let intentCounter = 0;
 let primeCounter = 0;
 let workCounter = 0;
 
 const PRIME_PUBLIC_STRING_MAX_CHARS = 240;
 let finishCounter = 0;
 let guardCounter = 0;
-const INTENT_RECORDS = new Map<string, IntentRecord>();
 const WORK_RECORDS = new Map<string, WorkRecord>();
-
-export async function intentHandler(ctx: McpContext, args: AgentPublicBaseArgs) {
-  const intake = buildIntentIntake(ctx, args);
-  const status = resolveIntentStatus(intake.lifecycle, intake.hostIntentFrame, intake.intentKind);
-  const detailRefs = buildBaseDetailRefs('alembic_intent', intake.sourceRefs);
-  const persistence = resolveIntentPersistence(intake, status);
-  const vectorPlan = buildVectorPlan(intake.extracted, {
-    vectorUseKind: resolveVectorUseKind(intake, persistence),
-  });
-  const intentRef = persistence.consumable ? nextIntentRef() : null;
-  const result = createAgentPublicToolResultEnvelope({
-    actionKind: 'intent',
-    agentHost: intake.agentHost,
-    inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
-    refs: {
-      detailRefs,
-      ...(intentRef
-        ? {
-            intentRef: {
-              refType: 'intent' as const,
-              id: intentRef,
-              toolName: 'alembic_intent' as const,
-            },
-          }
-        : {}),
-    },
-    ...(status.reason ? { reason: status.reason } : {}),
-    status: status.status,
-    summary: buildResultSummary(status.summary),
-    toolName: 'alembic_intent',
-  });
-
-  const record = intentRef
-    ? {
-        createdAt: new Date().toISOString(),
-        detailRefs,
-        extracted: intake.extracted,
-        hostIntentFrame: intake.hostIntentFrame,
-        hostIntentInput: intake.hostIntentInput,
-        inputSource: intake.inputSource,
-        intentKind: intake.intentKind,
-        intentRef,
-        lifecycle: intake.lifecycle,
-        sourceRefs: intake.sourceRefs,
-        vectorPlan,
-      }
-    : null;
-  if (record) {
-    rememberIntentRecord(record);
-  }
-
-  return createAgentPublicToolOutput(result, {
-    detailRefs,
-    ...(intentRef ? { intentRef } : {}),
-    ...(record
-      ? {
-          localRecord: {
-            createdAt: record.createdAt,
-            intentRef,
-            status: result.status,
-          },
-        }
-      : {}),
-    intentClassification: buildIntentClassification(intake, persistence, vectorPlan),
-    intentPersistence: buildIntentPersistenceReceipt(persistence),
-    retrievalPlan: buildIntentRetrievalPlan(vectorPlan),
-    recognizedIntent: intake.hostIntentFrame.recognizedIntentDraft,
-    toolPlan: buildIntentToolPlan(intake, persistence),
-  });
-}
 
 export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
   const intake = buildPrimeRequirementIntake(ctx, args);
@@ -610,15 +483,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
       intentKind: intake.intentKind,
       reason: status.reason,
       refs: {
-        ...(args.intentRef
-          ? {
-              intentRef: {
-                refType: 'intent' as const,
-                id: args.intentRef,
-                toolName: 'alembic_intent' as const,
-              },
-            }
-          : {}),
         detailRefs,
       },
       status: status.status,
@@ -651,7 +515,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     hostIntentFrame: intake.hostIntentFrame,
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
-    ...(args.intentRef ? { intentRef: args.intentRef } : {}),
     ...(args.primeRef ? { primeRef: args.primeRef } : {}),
     sourceEvidenceRefs: uniqueStrings(args.sourceEvidenceRefs ?? []),
     scopeFiles,
@@ -668,15 +531,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
     refs: {
-      ...(args.intentRef
-        ? {
-            intentRef: {
-              refType: 'intent' as const,
-              id: args.intentRef,
-              toolName: 'alembic_intent' as const,
-            },
-          }
-        : {}),
       ...(args.primeRef
         ? {
             primeRef: {
@@ -772,15 +626,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
     refs: {
-      ...(record.intentRef
-        ? {
-            intentRef: {
-              refType: 'intent' as const,
-              id: record.intentRef,
-              toolName: 'alembic_intent' as const,
-            },
-          }
-        : {}),
       ...(record.primeRef
         ? {
             primeRef: {
@@ -1020,7 +865,6 @@ function buildCodeGuardReadyOutput(input: {
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
     refs: {
-      ...buildIntentRefEntry(args.intentRef),
       ...buildWorkRefEntry(args.workRef),
       detailRefs,
       guardResultRef: {
@@ -1083,124 +927,6 @@ function buildCodeGuardExplicitScope(args: AgentCodeGuardArgs, scope: CodeGuardS
       ? { workRef: scope.workRecord.workRef }
       : {}),
   };
-}
-
-export async function decisionRecordHandler(ctx: McpContext, args: AgentDecisionRecordArgs) {
-  const intake = buildIntentIntake(ctx, args);
-  const sourceRefs = uniqueStrings([
-    ...(args.sourceRefs ?? []),
-    ...(args.sourceEvidenceRefs ?? []),
-    ...(args.evidenceRefs ?? []),
-  ]);
-  const detailRefs = buildBaseDetailRefs('alembic_decision_record', sourceRefs);
-  const action = args.action ?? 'create';
-  const scopeBlocker = resolveDecisionScopeBlocker(action, args);
-  if (scopeBlocker) {
-    const result = createAgentPublicToolResultEnvelope({
-      actionKind: 'decision-record',
-      agentHost: intake.agentHost,
-      inputSource: intake.inputSource,
-      intentKind: intake.intentKind,
-      reason: {
-        kind: 'blocked',
-        code: 'decision-scope-unconfirmed',
-        message: scopeBlocker,
-        retryable: false,
-      },
-      refs: {
-        detailRefs,
-      },
-      status: 'blocked',
-      summary: buildResultSummary('Decision record blocked because decision scope is incomplete.'),
-      toolName: 'alembic_decision_record',
-    });
-    return createAgentPublicToolOutput(result);
-  }
-
-  const client = resolveResidentDecisionRegisterClient(ctx.container);
-  if (!client) {
-    const result = buildDecisionRecordBlockedResult({
-      args,
-      detailRefs,
-      intake,
-      message:
-        'Decision Register durable persistence is not available in AlembicPlugin; residentDecisionRegisterClient is not registered.',
-      reasonCode: 'decision-register-unavailable',
-      retryable: false,
-      summary: 'Decision durable route unavailable; no local fake record was written.',
-    });
-    return createAgentPublicToolOutput(result, {
-      durablePersistence: {
-        action,
-        available: false,
-        requiredRoute: 'Alembic durable Decision Register route',
-      },
-      requestedDecision: buildRequestedDecision(action, args),
-    });
-  }
-
-  const residentRequest = buildDecisionRegisterRequest({
-    action,
-    args,
-    detailRefs,
-    sessionId: ctx.session?.id,
-    sourceRefs,
-  });
-  const residentResult = await client.decisionRegister(residentRequest);
-  if (!residentResult.ok) {
-    const reasonCode = decisionRegisterBlockedCode(residentResult);
-    const result = buildDecisionRecordBlockedResult({
-      args,
-      detailRefs,
-      intake,
-      message:
-        residentResult.message ||
-        (reasonCode === 'decision-register-capability-mismatch'
-          ? 'Decision Register route is available but its capability contract is missing or mismatched.'
-          : 'Decision Register durable route is unavailable.'),
-      reasonCode,
-      retryable: residentResult.retryable ?? true,
-      summary:
-        reasonCode === 'decision-register-capability-mismatch'
-          ? 'Decision Register capability mismatch; no local fake record was written.'
-          : 'Decision durable route unavailable; no local fake record was written.',
-    });
-    return createAgentPublicToolOutput(result, {
-      durablePersistence: {
-        action,
-        available: false,
-        reason: residentResult.reason,
-        requiredRoute: 'Alembic durable Decision Register route',
-      },
-      requestedDecision: buildRequestedDecision(action, args),
-    });
-  }
-
-  const decisionId = resolveDecisionId(residentResult.value, args);
-  const result = createAgentPublicToolResultEnvelope({
-    actionKind: 'decision-record',
-    agentHost: intake.agentHost,
-    inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
-    refs: buildDecisionRecordRefs(args, detailRefs, decisionId),
-    status: 'ready',
-    summary: buildResultSummary(
-      formatDecisionRecordSuccessSummary(action, residentResult.value, decisionId)
-    ),
-    toolName: 'alembic_decision_record',
-  });
-
-  return createAgentPublicToolOutput(result, {
-    count: residentResult.value.count ?? null,
-    decision: residentResult.value.decision,
-    decisionRef: decisionId,
-    decisions: residentResult.value.decisions ?? [],
-    durablePersistence: {
-      action,
-      available: true,
-      capability: residentResult.value.capability,
-    },
-  });
 }
 
 function buildIntentIntake(ctx: McpContext, args: AgentPublicBaseArgs) {
@@ -1432,67 +1158,6 @@ function mergeRecognizedIntent(args: AgentPublicBaseArgs): HostDeclaredIntentInp
     return base;
   }
   return merged;
-}
-
-function resolveIntentStatus(
-  lifecycle: TaskLifecycleClassification,
-  hostIntentFrame: HostIntentFrame,
-  intentKind: AgentIntentKind
-): Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string } {
-  const draft = hostIntentFrame.recognizedIntentDraft;
-  if (lifecycle.inputSource === 'automation-envelope' || intentKind === 'mechanical-envelope') {
-    return {
-      reason: {
-        kind: 'skip',
-        code: 'mechanical-envelope-only',
-        message:
-          'Raw automation envelope detected without enough curated host intent for public intent intake.',
-        retryable: false,
-      },
-      status: 'skipped',
-      summary: 'Skipped raw automation envelope; provide hostDeclaredIntent and sourceRefs.',
-    };
-  }
-  if (!draft.query.trim()) {
-    return {
-      reason: {
-        kind: 'skip',
-        code: 'no-semantic-intent',
-        message: 'No semantic intent query was available after host intake normalization.',
-        retryable: false,
-      },
-      status: 'skipped',
-      summary: 'Skipped intent intake because no semantic query was available.',
-    };
-  }
-  if (intentKind === 'status-only' || lifecycle.intentKind === 'status-report') {
-    return {
-      reason: {
-        kind: 'skip',
-        code: 'status-only-turn',
-        message: 'Status-only turns do not create a consumable intent record.',
-        retryable: false,
-      },
-      status: 'skipped',
-      summary: 'Skipped status-only turn; no local intent record was created.',
-    };
-  }
-  if (draft.status !== 'recognized') {
-    return {
-      reason: {
-        kind: 'degraded',
-        code: 'low-confidence-intent',
-        message: `Intent recognized with degraded confidence: ${draft.degradedReasons.join('; ') || draft.status}.`,
-        retryable: true,
-      },
-      status: 'degraded',
-      summary: `Intent captured with degraded confidence for "${draft.query}".`,
-    };
-  }
-  return {
-    status: 'ready',
-    summary: `Intent captured for "${draft.query}".`,
-  };
 }
 
 function resolvePrimeBlockingReason(
@@ -2075,100 +1740,6 @@ function buildMissingGuardScopeMessage(unsupportedScopeFields: string[]): string
   return `${base} Unsupported scope fields were ignored by the public contract: ${unsupportedScopeFields.join(', ')}.`;
 }
 
-function resolveDecisionScopeBlocker(
-  action: NonNullable<AgentDecisionRecordArgs['action']>,
-  args: AgentDecisionRecordArgs
-): string | null {
-  if (action !== 'create' && action !== 'list' && !args.decisionRef?.trim()) {
-    return `${action} requires an existing decisionRef.`;
-  }
-  if (action === 'create' && !firstString(args.title, args.description)) {
-    return 'create requires a decision title or description.';
-  }
-  if (action === 'update' && !hasDecisionUpdatePayload(args)) {
-    return 'update requires at least one decision field, tag, evidenceRef, intentRef, or workRef.';
-  }
-  return null;
-}
-
-function buildDecisionRecordBlockedResult(input: {
-  args: AgentDecisionRecordArgs;
-  detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildIntentIntake>;
-  message: string;
-  reasonCode: 'decision-register-capability-mismatch' | 'decision-register-unavailable';
-  retryable: boolean;
-  summary: string;
-}) {
-  return createAgentPublicToolResultEnvelope({
-    actionKind: 'decision-record',
-    agentHost: input.intake.agentHost,
-    inputSource: input.intake.inputSource,
-    intentKind: input.intake.intentKind,
-    reason: {
-      kind: 'blocked',
-      code: input.reasonCode,
-      message: input.message,
-      retryable: input.retryable,
-    },
-    refs: buildDecisionRecordRefs(input.args, input.detailRefs, null),
-    status: 'blocked',
-    summary: buildResultSummary(input.summary),
-    toolName: 'alembic_decision_record',
-  });
-}
-
-function buildDecisionRecordRefs(
-  args: AgentDecisionRecordArgs,
-  detailRefs: AgentDetailRef[],
-  decisionId: string | null
-) {
-  return {
-    ...(args.intentRef
-      ? {
-          intentRef: {
-            refType: 'intent' as const,
-            id: args.intentRef,
-            toolName: 'alembic_intent' as const,
-          },
-        }
-      : {}),
-    ...(args.workRef
-      ? {
-          workRef: {
-            refType: 'work' as const,
-            id: args.workRef,
-            toolName: 'alembic_work_start' as const,
-          },
-        }
-      : {}),
-    ...(decisionId
-      ? {
-          decisionRef: {
-            refType: 'decision' as const,
-            id: decisionId,
-            toolName: 'alembic_decision_record' as const,
-          },
-        }
-      : {}),
-    detailRefs,
-  };
-}
-
-function buildIntentRefEntry(intentRef: unknown) {
-  const id = firstString(intentRef);
-  if (!id) {
-    return {};
-  }
-  return {
-    intentRef: {
-      refType: 'intent' as const,
-      id,
-      toolName: 'alembic_intent' as const,
-    },
-  };
-}
-
 function buildWorkRefEntry(workRef: unknown) {
   const id = firstString(workRef);
   if (!id) {
@@ -2181,176 +1752,6 @@ function buildWorkRefEntry(workRef: unknown) {
       toolName: 'alembic_work_start' as const,
     },
   };
-}
-
-function resolveResidentDecisionRegisterClient(
-  container: McpServiceContainer
-): ResidentDecisionRegisterClientLike | null {
-  const splitClient = tryGetContainerService(container, 'residentDecisionRegisterClient');
-  if (isResidentDecisionRegisterClientLike(splitClient)) {
-    return splitClient;
-  }
-  const facadeClient = tryGetContainerService(container, 'residentServiceClient');
-  if (isResidentDecisionRegisterClientLike(facadeClient)) {
-    return facadeClient;
-  }
-  return null;
-}
-
-function tryGetContainerService(container: McpServiceContainer, name: string): unknown {
-  try {
-    return container.get(name);
-  } catch {
-    return null;
-  }
-}
-
-function isResidentDecisionRegisterClientLike(
-  value: unknown
-): value is ResidentDecisionRegisterClientLike {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      typeof (value as ResidentDecisionRegisterClientLike).decisionRegister === 'function'
-  );
-}
-
-function buildDecisionRegisterRequest(input: {
-  action: NonNullable<AgentDecisionRecordArgs['action']>;
-  args: AgentDecisionRecordArgs;
-  detailRefs: AgentDetailRef[];
-  sessionId?: string;
-  sourceRefs: string[];
-}): ResidentDecisionRegisterRequest {
-  const body = buildDecisionRegisterRequestBody(input);
-  return {
-    action: input.action,
-    ...(input.action !== 'create' && input.action !== 'list'
-      ? { decisionId: firstString(input.args.decisionRef) }
-      : {}),
-    ...(body ? { body } : {}),
-    ...(typeof input.args.includeDeleted === 'boolean'
-      ? { includeDeleted: input.args.includeDeleted }
-      : {}),
-    ...(typeof input.args.limit === 'number' && Number.isFinite(input.args.limit)
-      ? { limit: input.args.limit }
-      : {}),
-    ...(typeof input.args.projectRoot === 'string' && input.args.projectRoot.trim()
-      ? { projectRoot: input.args.projectRoot.trim() }
-      : {}),
-    ...(firstString(input.args.sessionId, input.sessionId)
-      ? { sessionId: firstString(input.args.sessionId, input.sessionId) }
-      : {}),
-    ...(input.args.status ? { status: input.args.status } : {}),
-  };
-}
-
-function buildDecisionRegisterRequestBody(input: {
-  action: NonNullable<AgentDecisionRecordArgs['action']>;
-  args: AgentDecisionRecordArgs;
-  detailRefs: AgentDetailRef[];
-  sessionId?: string;
-  sourceRefs: string[];
-}): Record<string, unknown> | undefined {
-  if (input.action === 'list' || input.action === 'read') {
-    return undefined;
-  }
-  const detailRefUris = input.detailRefs.map((ref) => ref.uri ?? ref.id);
-  const description = firstString(input.args.description, input.args.title);
-  const title = truncateDecisionTitle(firstString(input.args.title, description));
-  const base = compactRecord({
-    ...(input.action === 'create' ? { createdBy: 'codex-host-agent' } : {}),
-    ...(input.action !== 'create' ? { updatedBy: 'codex-host-agent' } : {}),
-    decision: input.args.description ?? (input.action === 'create' ? title : undefined),
-    description,
-    detailRefs: detailRefUris.length > 0 ? detailRefUris : undefined,
-    intentRef: firstString(input.args.intentRef),
-    metadata: {
-      agentHost: input.args.agentHost ?? 'codex',
-      inputSource: input.args.inputSource ?? 'user-message',
-      intentKind: input.args.intentKind ?? null,
-      sourceRefsCount: input.sourceRefs.length,
-    },
-    rationale: firstString(input.args.rationale),
-    sourceRefs: input.sourceRefs.length > 0 ? input.sourceRefs : undefined,
-    sourceEvidenceRefs: input.args.sourceEvidenceRefs?.length
-      ? uniqueStrings(input.args.sourceEvidenceRefs)
-      : undefined,
-    tags: input.args.tags?.length ? uniqueStrings(input.args.tags) : undefined,
-    title,
-    turnId: firstString(input.args.hostTurnMeta?.turnId, input.args.hostTurnMeta?.messageId),
-    workRef: firstString(input.args.workRef),
-  });
-  if (input.action === 'revoke' || input.action === 'delete') {
-    return compactRecord({
-      reason: firstString(input.args.rationale, input.args.description),
-      updatedBy: 'codex-host-agent',
-    });
-  }
-  return Object.keys(base).length > 0 ? base : undefined;
-}
-
-function buildRequestedDecision(
-  action: NonNullable<AgentDecisionRecordArgs['action']>,
-  args: AgentDecisionRecordArgs
-) {
-  return {
-    action,
-    decisionRef: args.decisionRef ?? null,
-    description: args.description ?? null,
-    evidenceRefs: args.evidenceRefs ?? [],
-    rationale: args.rationale ?? null,
-    tags: args.tags ?? [],
-    title: args.title ?? null,
-  };
-}
-
-function decisionRegisterBlockedCode(
-  result: Extract<AlembicResidentServiceResult<ResidentDecisionRegisterResult>, { ok: false }>
-): 'decision-register-capability-mismatch' | 'decision-register-unavailable' {
-  return result.reason === 'capability-unavailable'
-    ? 'decision-register-capability-mismatch'
-    : 'decision-register-unavailable';
-}
-
-function resolveDecisionId(
-  result: ResidentDecisionRegisterResult,
-  args: AgentDecisionRecordArgs
-): string | null {
-  const decisionId = isRecord(result.decision)
-    ? firstString(result.decision.decisionId, result.decision.id)
-    : null;
-  return decisionId ?? firstString(args.decisionRef) ?? null;
-}
-
-function formatDecisionRecordSuccessSummary(
-  action: NonNullable<AgentDecisionRecordArgs['action']>,
-  result: ResidentDecisionRegisterResult,
-  decisionId: string | null
-): string {
-  if (action === 'list') {
-    return `Decision Register listed ${result.count ?? result.decisions?.length ?? 0} decision(s).`;
-  }
-  if (action === 'read') {
-    return `Decision Register read decision ${decisionId ?? 'unknown'}.`;
-  }
-  return `Decision Register ${action} completed for decision ${decisionId ?? 'unknown'}.`;
-}
-
-function hasDecisionUpdatePayload(args: AgentDecisionRecordArgs): boolean {
-  return Boolean(
-    firstString(args.title, args.description, args.rationale, args.intentRef, args.workRef) ||
-      (args.tags?.length ?? 0) > 0 ||
-      (args.evidenceRefs?.length ?? 0) > 0 ||
-      (args.sourceRefs?.length ?? 0) > 0
-  );
-}
-
-function truncateDecisionTitle(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-  return value.length > 240 ? value.slice(0, 240) : value;
 }
 
 function compactRecord(input: Record<string, unknown>): Record<string, unknown> {
@@ -2456,50 +1857,6 @@ function rememberWorkRecord(record: WorkRecord): void {
   }
 }
 
-function resolveIntentPersistence(
-  intake: ReturnType<typeof buildIntentIntake>,
-  status: Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'>
-): AgentIntentPersistence {
-  const draft = intake.hostIntentFrame.recognizedIntentDraft;
-  if (!isConsumableIntentKind(intake.intentKind)) {
-    return {
-      consumable: false,
-      kind: 'ephemeral',
-      localRecordCreated: false,
-      reason: `intentKind.${intake.intentKind}.notConsumable`,
-    };
-  }
-  if (!draft.query.trim()) {
-    return {
-      consumable: false,
-      kind: 'ephemeral',
-      localRecordCreated: false,
-      reason: 'recognizedIntent.queryMissing',
-    };
-  }
-  if (status.status === 'skipped' || status.status === 'blocked' || status.status === 'failed') {
-    return {
-      consumable: false,
-      kind: 'ephemeral',
-      localRecordCreated: false,
-      reason: status.reason?.code ?? status.status,
-    };
-  }
-  return {
-    consumable: true,
-    kind: 'session-local',
-    localRecordCreated: true,
-    reason:
-      status.status === 'degraded'
-        ? 'semanticIntent.degradedButConsumable'
-        : 'semanticIntent.ready',
-  };
-}
-
-function isConsumableIntentKind(intentKind: AgentIntentKind): boolean {
-  return !['mechanical-envelope', 'status-only', 'unknown'].includes(intentKind);
-}
-
 function buildVectorPlan(
   extracted: ExtractedIntent,
   options: { vectorUseKind?: AgentVectorUseKind } = {}
@@ -2520,214 +1877,6 @@ function buildVectorPlan(
     scenario: extracted.scenario,
     vectorUseKind: options.vectorUseKind ?? 'semantic-expand',
   };
-}
-
-function buildIntentClassification(
-  intake: ReturnType<typeof buildIntentIntake>,
-  persistence: AgentIntentPersistence,
-  vectorPlan: AgentVectorPlan
-) {
-  return {
-    actionKind: intake.hostIntentFrame.recognizedIntentDraft.action || 'unknown',
-    confidenceBand: resolveConfidenceBand(intake.hostIntentFrame.recognizedIntentDraft.confidence),
-    objectKind: resolveObjectKind(intake),
-    scopeKind: resolveScopeKind(intake),
-  };
-}
-
-function buildIntentPersistenceReceipt(persistence: AgentIntentPersistence) {
-  return {
-    consumable: persistence.consumable,
-    created: persistence.localRecordCreated,
-    kind: persistence.kind,
-  };
-}
-
-function buildIntentRetrievalPlan(vectorPlan: AgentVectorPlan) {
-  return {
-    route: 'structure-first' as const,
-    vectorUseKind: vectorPlan.vectorUseKind,
-  };
-}
-
-function buildIntentToolPlan(
-  intake: ReturnType<typeof buildIntentIntake>,
-  persistence: AgentIntentPersistence
-) {
-  const primeNeed = resolvePrimeNeed(intake, persistence);
-  return {
-    decisionNeed: resolveDecisionNeed(intake),
-    guardNeed: resolveGuardNeed(intake),
-    knowledgeNeed: resolveKnowledgeNeed(primeNeed),
-    primeNeed,
-    projectContextNeed: resolveProjectContextNeed(intake, persistence),
-    projectContextPlan: buildProjectContextPlan(intake, persistence),
-    workNeed: resolveWorkNeed(intake),
-  };
-}
-
-function resolveVectorUseKind(
-  intake: ReturnType<typeof buildIntentIntake>,
-  persistence: AgentIntentPersistence
-): AgentVectorUseKind {
-  if (!persistence.consumable) {
-    return 'none';
-  }
-  if (intake.lifecycle.primeDecision.action === 'run') {
-    return 'hybrid-rerank';
-  }
-  return 'semantic-expand';
-}
-
-function resolveConfidenceBand(confidence: number): AgentConfidenceBand {
-  if (confidence >= 0.8) {
-    return 'high';
-  }
-  if (confidence >= 0.55) {
-    return 'medium';
-  }
-  if (confidence >= 0.3) {
-    return 'low';
-  }
-  return 'degraded';
-}
-
-function resolveObjectKind(intake: ReturnType<typeof buildIntentIntake>): AgentObjectKind {
-  if (intake.inputSource === 'automation-envelope') {
-    return 'automation-card';
-  }
-  const target = intake.hostIntentFrame.recognizedIntentDraft.target?.toLowerCase() ?? '';
-  if (target.includes('mcp')) {
-    return 'mcp-tool';
-  }
-  if (target.includes('runtime')) {
-    return 'runtime-service';
-  }
-  if (intake.hostIntentInput.activeFile) {
-    return 'code';
-  }
-  if (intake.sourceRefs.length > 0) {
-    return 'source-ref';
-  }
-  if (target.includes('doc') || target.includes('plan')) {
-    return 'docs';
-  }
-  return 'unknown';
-}
-
-function resolveScopeKind(intake: ReturnType<typeof buildIntentIntake>): AgentScopeKind {
-  if (intake.sourceRefs.length > 0) {
-    return 'source-ref';
-  }
-  if (intake.hostIntentInput.activeFile) {
-    return 'file';
-  }
-  if (intake.extracted.module) {
-    return 'module';
-  }
-  return 'none';
-}
-
-function resolvePrimeNeed(
-  intake: ReturnType<typeof buildIntentIntake>,
-  persistence: AgentIntentPersistence
-): AgentPrimeNeed {
-  if (!persistence.consumable) {
-    return 'none';
-  }
-  if (intake.lifecycle.primeDecision.action === 'run') {
-    return 'recommended';
-  }
-  if (intake.intentKind === 'read-only-analysis' || intake.intentKind === 'review-task') {
-    return 'optional';
-  }
-  return 'none';
-}
-
-function resolveKnowledgeNeed(primeNeed: AgentPrimeNeed): AgentKnowledgeNeed {
-  return primeNeed;
-}
-
-function resolveProjectContextNeed(
-  intake: ReturnType<typeof buildIntentIntake>,
-  persistence: AgentIntentPersistence
-): AgentProjectContextNeed {
-  if (!persistence.consumable) {
-    return 'none';
-  }
-  if (
-    intake.intentKind === 'implementation-task' ||
-    intake.intentKind === 'fix-task' ||
-    intake.intentKind === 'refactor-task' ||
-    intake.intentKind === 'review-task'
-  ) {
-    return 'recommended';
-  }
-  if (
-    intake.intentKind === 'read-only-analysis' &&
-    (intake.hostIntentInput.activeFile || intake.extracted.module)
-  ) {
-    return 'optional';
-  }
-  return 'none';
-}
-
-function buildProjectContextPlan(
-  intake: ReturnType<typeof buildIntentIntake>,
-  persistence: AgentIntentPersistence
-) {
-  const need = resolveProjectContextNeed(intake, persistence);
-  if (need === 'none') {
-    return {
-      action: 'skip' as const,
-      reasonCode: 'no-project-context-needed',
-      tools: [],
-    };
-  }
-  const changedFileLikely =
-    intake.intentKind === 'implementation-task' ||
-    intake.intentKind === 'fix-task' ||
-    intake.intentKind === 'refactor-task';
-  return {
-    action: changedFileLikely ? ('graph-after-work' as const) : ('graph-before-work' as const),
-    reasonCode: changedFileLikely
-      ? 'project-context-graph-after-changes'
-      : 'project-context-graph-before-source-claim',
-    tools: changedFileLikely
-      ? ['alembic_project_matrix', 'alembic_graph', 'alembic_code_guard']
-      : ['alembic_project_matrix', 'alembic_graph'],
-  };
-}
-
-function resolveDecisionNeed(intake: ReturnType<typeof buildIntentIntake>): AgentDecisionNeed {
-  if (intake.intentKind === 'decision') {
-    return 'required-before-work';
-  }
-  if (
-    intake.intentKind === 'implementation-task' ||
-    intake.intentKind === 'fix-task' ||
-    intake.intentKind === 'refactor-task'
-  ) {
-    return 'record-if-confirmed';
-  }
-  return 'none';
-}
-
-function resolveWorkNeed(intake: ReturnType<typeof buildIntentIntake>): AgentWorkNeed {
-  if (intake.lifecycle.taskAnchorDecision.action === 'create') {
-    return intake.intentKind === 'implementation-task' ? 'start-required' : 'maybe-start';
-  }
-  return 'none';
-}
-
-function resolveGuardNeed(intake: ReturnType<typeof buildIntentIntake>): AgentGuardNeed {
-  if (intake.intentKind === 'fix-task' || intake.intentKind === 'refactor-task') {
-    return 'recommend-if-code-changed';
-  }
-  if (intake.intentKind === 'implementation-task') {
-    return 'explicit-scope-required';
-  }
-  return 'none';
 }
 
 function buildBaseDetailRefs(toolName: AgentPublicToolName, sourceRefs: string[]) {
@@ -3152,11 +2301,6 @@ function getPipeline(container: McpServiceContainer): PipelineLike | null {
   }
 }
 
-function nextIntentRef(): string {
-  intentCounter++;
-  return `intent-${Date.now().toString(36)}-${intentCounter}`;
-}
-
 function nextPrimeRef(): string {
   primeCounter++;
   return `prime-public-${Date.now().toString(36)}-${primeCounter}`;
@@ -3175,19 +2319,6 @@ function nextFinishRef(): string {
 function nextGuardResultRef(): string {
   guardCounter++;
   return `guard-public-${Date.now().toString(36)}-${guardCounter}`;
-}
-
-function rememberIntentRecord(record: IntentRecord): void {
-  INTENT_RECORDS.set(record.intentRef, record);
-  if (INTENT_RECORDS.size <= 100) {
-    return;
-  }
-  const oldest = [...INTENT_RECORDS.entries()].sort(
-    (left, right) => new Date(left[1].createdAt).getTime() - new Date(right[1].createdAt).getTime()
-  )[0]?.[0];
-  if (oldest) {
-    INTENT_RECORDS.delete(oldest);
-  }
 }
 
 function firstString(...values: unknown[]): string | undefined {

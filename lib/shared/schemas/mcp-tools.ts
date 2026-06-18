@@ -159,11 +159,6 @@ const AgentPublicToolBaseInput = z.object({
     .describe('Absolute target project root supplied by Codex host runtime'),
 });
 
-export const IntentInput = AgentPublicToolBaseInput.describe(
-  'Agent-facing intent intake. Returns recognizedIntent, intentRef, detailRefs, and structure-first vectorPlan.'
-);
-export type IntentInput = z.infer<typeof IntentInput>;
-
 const PrimeTaskActionInput = z.enum([
   'implement',
   'fix',
@@ -238,7 +233,6 @@ const AgentRefIdInput = z.string().min(1).max(240);
 const AgentSourceFileRefsInput = z.array(z.string().min(1).max(1200)).max(80).optional();
 
 export const WorkStartInput = AgentPublicToolBaseInput.extend({
-  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
   primeRef: AgentRefIdInput.optional().describe('primeRef returned by alembic_prime'),
   title: z.string().min(1).max(240).optional().describe('Short work title'),
   workScope: z
@@ -256,7 +250,6 @@ export type WorkStartInput = z.infer<typeof WorkStartInput>;
 
 export const WorkFinishInput = AgentPublicToolBaseInput.extend({
   workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
-  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
   primeRef: AgentRefIdInput.optional().describe('primeRef returned by alembic_prime'),
   outcome: z
     .enum(['completed', 'blocked', 'abandoned'])
@@ -281,7 +274,6 @@ export const WorkFinishInput = AgentPublicToolBaseInput.extend({
 export type WorkFinishInput = z.infer<typeof WorkFinishInput>;
 
 export const CodeGuardInput = AgentPublicToolBaseInput.extend({
-  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
   workRef: AgentRefIdInput.optional().describe(
     'workRef returned by alembic_work_start. When files/code are omitted, the current session work record supplies scoped files; missing or unscoped work returns a structured blocker/skip.'
   ),
@@ -304,42 +296,6 @@ export const CodeGuardInput = AgentPublicToolBaseInput.extend({
   'Agent-facing scoped code guard. Supported public scopes are explicit files, inline code, or workRef-derived scoped files. diffRef, primeRef, acceptedGuards, and applicableRecipe are intentionally not public until schema, handler, tests, and runtime evidence exist. No-args whole-diff behavior is intentionally blocked.'
 );
 export type CodeGuardInput = z.infer<typeof CodeGuardInput>;
-
-export const DecisionRecordInput = AgentPublicToolBaseInput.extend({
-  action: z
-    .enum(['create', 'update', 'revoke', 'delete', 'read', 'list'])
-    .default('create')
-    .optional()
-    .describe('Decision register action'),
-  decisionRef: AgentRefIdInput.optional().describe(
-    'Existing decisionRef for update/revoke/delete/read'
-  ),
-  intentRef: AgentRefIdInput.optional().describe('intentRef returned by alembic_intent'),
-  workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
-  title: z.string().min(1).max(240).optional().describe('Decision title'),
-  description: z.string().min(1).max(1600).optional().describe('Decision description'),
-  rationale: z.string().min(1).max(1600).optional().describe('Decision rationale'),
-  tags: z.array(z.string().min(1).max(80)).max(20).optional().describe('Decision tags'),
-  evidenceRefs: AgentSourceFileRefsInput.describe('Non-private evidence refs for the decision'),
-  includeDeleted: z
-    .boolean()
-    .optional()
-    .describe('List decisions including deleted records when supported by Alembic'),
-  limit: z.number().int().min(1).max(100).optional().describe('Maximum decisions to list'),
-  sessionId: z
-    .string()
-    .min(1)
-    .max(240)
-    .optional()
-    .describe('Optional decision list session filter'),
-  status: z
-    .enum(['active', 'revoked', 'deleted', 'all'])
-    .optional()
-    .describe('Optional decision list status filter'),
-}).describe(
-  'Agent-facing decision record. Uses a durable Decision Register route when available; otherwise returns a structured blocker rather than local fake persistence.'
-);
-export type DecisionRecordInput = z.infer<typeof DecisionRecordInput>;
 
 // ══════════════════════════════════════════════════════
 //  2. alembic_project_matrix
@@ -695,16 +651,15 @@ export type CallContextInput = z.infer<typeof CallContextInput>;
 
 export const GuardInput = z.object({
   operation: z
-    .enum(['check', 'review', 'coverage_matrix', 'compliance_report'])
+    .enum(['check', 'review'])
     .optional()
     .describe(
-      'Guard 操作类型。coverage_matrix: 模块覆盖率矩阵；compliance_report: 3D 合规报告（含 uncertain）。省略且缺少 files/code 时返回 missing-guard-scope blocker，不再自动扫描整个 git diff。'
+      'Guard 操作类型。省略且缺少 files/code 时返回 missing-guard-scope blocker，不再自动扫描整个 git diff。'
     ),
   files: z.array(z.string()).optional(),
   code: z.string().optional(),
   language: z.string().optional(),
   filePath: z.string().optional(),
-  maxFiles: z.number().optional().describe('coverage_matrix 时扫描的最大文件数'),
 });
 export type GuardInput = z.infer<typeof GuardInput>;
 
@@ -1115,13 +1070,11 @@ function strictToolInput(schema: z.ZodType): z.ZodType {
 }
 
 const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
-  alembic_intent: IntentInput,
   alembic_prime: PrimeInput,
   alembic_recipe_map: RecipeMapInput,
   alembic_work_start: WorkStartInput,
   alembic_work_finish: WorkFinishInput,
   alembic_code_guard: CodeGuardInput,
-  alembic_decision_record: DecisionRecordInput,
   alembic_health: HealthInput,
   alembic_search: SearchInput,
   alembic_knowledge: KnowledgeInput,

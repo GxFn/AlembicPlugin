@@ -299,13 +299,11 @@ describe('MCP Tool Definitions (V3)', () => {
 
   test('TOOLS 数组应暴露 canonical V3 工具面', () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual([
-      'alembic_intent',
       'alembic_prime',
       'alembic_recipe_map',
       'alembic_work_start',
       'alembic_work_finish',
       'alembic_code_guard',
-      'alembic_decision_record',
       'alembic_health',
       'alembic_search',
       'alembic_graph',

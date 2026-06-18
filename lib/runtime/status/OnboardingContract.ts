@@ -241,7 +241,6 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     goal: 'Turn repeated, source-backed project rules into Recipes only after evidence and boundary checks are present.',
     keywordHints: ['convention', 'standard', 'style', 'recipe', 'rule', 'pattern'],
     toolSequence: [
-      'alembic_intent',
       'alembic_prime',
       'alembic_search',
       'alembic_submit_knowledge',

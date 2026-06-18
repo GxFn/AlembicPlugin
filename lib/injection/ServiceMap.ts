@@ -12,7 +12,6 @@ import type { DatabaseConnection } from '@alembic/core/database';
 import type { DimensionCopy } from '@alembic/core/dimensions';
 import type { EventBus, SignalBus } from '@alembic/core/events';
 import type {
-  ComplianceReporter,
   ExclusionManager,
   GuardCheckEngine,
   GuardFeedbackLoop,
@@ -33,8 +32,6 @@ import type {
 } from '@alembic/core/knowledge';
 import type Logger from '@alembic/core/logging';
 import type { MemoryRepositoryImpl } from '@alembic/core/memory';
-// ── Shared Types ──
-import type { LanguageService } from '@alembic/core/shared';
 // ── Repository Types ──
 import type {
   BootstrapRepository,
@@ -53,6 +50,8 @@ import type { HybridRetriever, SearchEngine } from '@alembic/core/search';
 // ── Context Types ──
 import type { FeedbackCollector, QualityScorer } from '@alembic/core/service/quality';
 import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/service/recipe';
+// ── Shared Types ──
+import type { LanguageService } from '@alembic/core/shared';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
 // ── Domain Types ──
 // ── Core Types ──
@@ -65,7 +64,6 @@ import type { BootstrapTaskManager } from '../service/bootstrap/BootstrapTaskMan
 import type { ModuleService } from '../service/module/ModuleService.js';
 import type {
   AlembicResidentCapabilityClients,
-  ResidentDecisionRegisterClient,
   ResidentIntentEpisodeClient,
   ResidentSearchClient,
 } from '../service/resident/AlembicResidentCapabilityClients.js';
@@ -116,7 +114,6 @@ export interface ServiceMap {
   tokenUsageStore: TokenUsageStore;
   moduleService: ModuleService;
   residentCapabilityClients: AlembicResidentCapabilityClients;
-  residentDecisionRegisterClient: ResidentDecisionRegisterClient;
   residentIntentEpisodeClient: ResidentIntentEpisodeClient;
   residentSearchClient: ResidentSearchClient;
   residentServiceClient: AlembicResidentServiceClient;
@@ -147,7 +144,6 @@ export interface ServiceMap {
   exclusionManager: ExclusionManager;
   ruleLearner: RuleLearner;
   violationsStore: ViolationsStore;
-  complianceReporter: ComplianceReporter;
   guardFeedbackLoop: GuardFeedbackLoop;
 
   // ═══ Plugin Skill Hooks ═══

@@ -99,13 +99,7 @@ export async function routeGraphTool(ctx: McpContext, args: ToolRouterGraphArgs)
  *   有 code      → guardCheck()     (单文件内联检查)
  */
 export async function routeGuardTool(ctx: McpContext, args: ToolRouterGuardArgs) {
-  // operation 显式路由
-  if (args.operation === 'coverage_matrix') {
-    return guardHandlers.guardCoverageMatrix(ctx, args);
-  }
-  if (args.operation === 'compliance_report') {
-    return guardHandlers.guardComplianceReport(ctx, args);
-  }
+  // W2 (MTC-7C8): coverage_matrix / compliance_report retired from the Plugin guard surface.
   // 有 code → 单文件检查（旧模式）
   if (args.code) {
     return guardHandlers.guardCheck(ctx, args);
