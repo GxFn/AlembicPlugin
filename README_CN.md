@@ -18,7 +18,7 @@ Codex 仍是宿主 Agent，本插件提供本地项目记忆、bootstrap、Guard
 
 ## 运行结构
 
-- **MCP 服务器入口**：`bin/codex-mcp.ts`，构建为 `dist/bin/codex-mcp.js`，
+- **MCP 服务器入口**：`bin/host-mcp.ts`，构建为 `dist/bin/host-mcp.js`，
   以 `alembic-codex-mcp` 命令暴露。工具调用返回干净的 `structuredContent`
   （`ok`、`status`、`summary`、可选 `error` / `meta` 及工具特定字段）；可见
   文本只有 summary，宿主不应从文本中解析 JSON。

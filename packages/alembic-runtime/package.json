@@ -39,7 +39,7 @@
     }
   },
   "bin": {
-    "alembic-codex-mcp": "dist/bin/codex-mcp.js"
+    "alembic-codex-mcp": "dist/bin/host-mcp.js"
   },
   "engines": {
     "node": ">=22.0.0"

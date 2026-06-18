@@ -23,7 +23,7 @@ memory, bootstrap, Guard, and status tools.
 
 ## What runs where
 
-- **MCP server entry**: `bin/codex-mcp.ts`, built to `dist/bin/codex-mcp.js`
+- **MCP server entry**: `bin/host-mcp.ts`, built to `dist/bin/host-mcp.js`
   and exposed as the `alembic-codex-mcp` binary. Codex talks to this process
   over MCP; tool calls return clean `structuredContent` (`ok`, `status`,
   `summary`, optional `error` / `meta`, and tool-specific fields). Visible

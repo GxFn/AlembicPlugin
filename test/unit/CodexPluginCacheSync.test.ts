@@ -39,7 +39,7 @@ describe('Codex plugin cache sync script', () => {
 
   test('copies the plugin and rewrites only the cached MCP config for local dist', () => {
     const codexHome = tempDir();
-    const localEntry = join(tempDir(), 'codex-mcp.js');
+    const localEntry = join(tempDir(), 'host-mcp.js');
     writeFileSync(localEntry, '#!/usr/bin/env node\n');
 
     const output = runSyncScript(
