@@ -47,14 +47,7 @@ const CODEX_HOST_AGENT_TOOL_NAMES = [
   'alembic_rescan',
   'alembic_dimension_complete',
 ];
-const CODEX_AGENT_PUBLIC_TOOL_NAMES = [
-  'alembic_intent',
-  'alembic_prime',
-  'alembic_work_start',
-  'alembic_work_finish',
-  'alembic_code_guard',
-  'alembic_decision_record',
-];
+const CODEX_AGENT_PUBLIC_TOOL_NAMES = ['alembic_prime', 'alembic_work', 'alembic_code_guard'];
 const CODEX_SOURCE_GRAPH_TOOL_NAMES: string[] = [];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
   ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
@@ -468,7 +461,7 @@ describe('HostMcpServer', () => {
     const server = new HostMcpServer({ projectRoot });
     const instructions = server.getInitializeInstructions();
 
-    expect(instructions).toContain('`alembic_project_matrix`');
+    expect(instructions).toContain('`alembic_recipe_map`');
     expect(instructions).toContain('`alembic_graph`');
     expect(instructions).toContain('`alembic_search`');
     expect(instructions).toContain('`alembic_code_guard`');
@@ -483,15 +476,15 @@ describe('HostMcpServer', () => {
     const guidance = buildCodexMcpGuidance([
       { name: 'alembic_source_graph_status' },
       { name: 'alembic_code_explore' },
-      { name: 'alembic_project_matrix' },
+      { name: 'alembic_recipe_map' },
       { name: 'alembic_graph' },
       { name: 'alembic_prime' },
     ]);
 
     expect(guidance.knowledgeTools).toEqual(
-      expect.arrayContaining(['alembic_project_matrix', 'alembic_graph'])
+      expect.arrayContaining(['alembic_recipe_map', 'alembic_graph'])
     );
-    expect(guidance.instructions).toContain('`alembic_project_matrix`');
+    expect(guidance.instructions).toContain('`alembic_recipe_map`');
     expect(guidance.instructions).toContain('`alembic_graph`');
     expect(guidance.instructions).not.toContain('alembic_source_graph_status');
     expect(guidance.instructions).not.toContain('alembic_code_explore');
@@ -508,7 +501,7 @@ describe('HostMcpServer', () => {
       getVisibleCodexTools('agent', projectRoot).map((tool) => [tool.name, tool])
     );
 
-    expect(byName.get('alembic_project_matrix')?.description).toContain('ProjectContext');
+    expect(byName.get('alembic_recipe_map')?.description).toContain('ProjectContext');
     expect(byName.get('alembic_graph')?.description).toContain('ProjectContext');
     expect(byName.has('alembic_source_graph_status')).toBe(false);
     expect(byName.has('alembic_code_explore')).toBe(false);
@@ -1904,7 +1897,7 @@ describe('HostMcpServer', () => {
         owner: 'alembic-plugin',
       },
       projectContext: {
-        firstTool: 'alembic_project_matrix',
+        firstTool: 'alembic_recipe_map',
       },
       singleWriterLease: {
         publicStatus: 'no_active_bootstrap',
@@ -1917,7 +1910,7 @@ describe('HostMcpServer', () => {
     });
     expect(result.data?.currentDomainSop).toMatchObject({
       domainId: 'D1-runtime-entrypoints',
-      toolSequence: expect.arrayContaining(['alembic_project_matrix', 'alembic_graph']),
+      toolSequence: expect.arrayContaining(['alembic_recipe_map', 'alembic_graph']),
       recipeGuidanceFloor: expect.objectContaining({
         candidateCounts: expect.objectContaining({
           minimumPerDimension: 3,
@@ -1927,7 +1920,7 @@ describe('HostMcpServer', () => {
     });
     expect(result.data?.toolCapabilities?.canonicalProjectContext?.map((entry) => entry.name)).toEqual(
       expect.arrayContaining([
-        'alembic_project_matrix',
+        'alembic_recipe_map',
         'alembic_graph',
       ])
     );
@@ -1986,7 +1979,7 @@ describe('HostMcpServer', () => {
     expect(result.data?.sopPack?.toolCapabilityMatrix).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: 'alembic_project_matrix',
+          name: 'alembic_recipe_map',
         }),
       ])
     );
