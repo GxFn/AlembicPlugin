@@ -1,7 +1,7 @@
 /**
  * MCP Handlers — Guard 审计 & 项目扫描
  *
- * 统一入口：alembic_guard
+ * 内部入口：alembic_code_guard 的 check/review（legacy alembic_guard 工具已删，MTC-7）
  *   无参数         → 结构化阻塞（旧 whole-diff fallback 已禁用）
  *   files: string[] → 指定文件检查（+ inline recipe）
  *   code: string    → 单文件内联检查
@@ -175,7 +175,7 @@ export async function guardCheck(ctx: McpContext, args: GuardCheckArgs) {
         violations: [],
         summary: { total: 0, errors: 0, warnings: 0 },
       },
-      meta: { tool: 'alembic_guard', note: 'Empty code — skipped' },
+      meta: { tool: 'alembic_code_guard', note: 'Empty code — skipped' },
     });
   }
 
@@ -220,7 +220,7 @@ export async function guardCheck(ctx: McpContext, args: GuardCheckArgs) {
       },
       ...(warnings.length ? { warnings } : {}),
     },
-    meta: { tool: 'alembic_guard' },
+    meta: { tool: 'alembic_code_guard' },
   });
 }
 
@@ -308,7 +308,7 @@ export async function guardAuditFiles(ctx: McpContext, args: GuardAuditArgs) {
           }
         : {}),
     },
-    meta: { tool: 'alembic_guard' },
+    meta: { tool: 'alembic_code_guard' },
   });
 }
 
@@ -340,7 +340,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
         legacyBoundary: {
           noArgsWholeDiffDisabled: true,
           replacementTool: 'alembic_code_guard',
-          tool: 'alembic_guard',
+          tool: 'alembic_code_guard',
         },
         reasonCode: 'missing-guard-scope',
         required: {
@@ -349,9 +349,9 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
         },
       },
       message:
-        'Legacy alembic_guard no-args whole-diff review is disabled. Call alembic_code_guard with explicit files or inline code.',
+        'No-args whole-diff review is disabled. Call alembic_code_guard with explicit files or inline code.',
       errorCode: 'GUARD_SCOPE_REQUIRED',
-      meta: { tool: 'alembic_guard', mode: 'review', legacyCompatibility: true },
+      meta: { tool: 'alembic_code_guard', mode: 'review', legacyCompatibility: true },
     });
   }
 
@@ -372,7 +372,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
         maxRoundsReached: true,
       },
       message: `⚠️ Guard review round ${round} exceeds max ${MAX_REVIEW_ROUNDS}. Force-passing. Remaining issues should be tracked as follow-up.`,
-      meta: { tool: 'alembic_guard', mode: 'review' },
+      meta: { tool: 'alembic_code_guard', mode: 'review' },
     });
   }
 
@@ -393,7 +393,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       success: true,
       data: { passed: true, files: [], totalViolations: 0, reviewRound: round, fileSource },
       message: '✅ No changed source files detected. Guard review passed.',
-      meta: { tool: 'alembic_guard', mode: 'review' },
+      meta: { tool: 'alembic_code_guard', mode: 'review' },
     });
   }
 
@@ -516,7 +516,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       'Each violation includes inline `recipe` with doClause + coreCode — apply fixes directly.',
       round >= MAX_REVIEW_ROUNDS - 1
         ? `⚠️ Next round is the last (max ${MAX_REVIEW_ROUNDS}). Unresolved issues will be force-passed.`
-        : `Fix and call alembic_guard again (round ${round + 1}).`,
+        : `Fix and call alembic_code_guard again (round ${round + 1}).`,
     ].join('\n');
   }
 
@@ -547,7 +547,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
         : {}),
     },
     message,
-    meta: { tool: 'alembic_guard', mode: 'review' },
+    meta: { tool: 'alembic_code_guard', mode: 'review' },
   });
 }
 
