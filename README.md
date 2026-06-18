@@ -35,10 +35,10 @@ memory, bootstrap, Guard, and status tools.
   or rescan actually need it. The embedded HTTP surface is pinned by
   `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`
   (`lib/runtime/runtime/EmbeddedRuntimeContract.ts`).
-- **Recommended first run inside Codex**: `alembic_codex_diagnostics` →
-  `alembic_mcp_status` → `alembic_mcp_init` (if not initialized) →
-  `alembic_mcp_bootstrap_job` for first project knowledge, or `alembic_intent` +
-  `alembic_prime` before coding once knowledge exists.
+- **Recommended first run inside Codex**: `alembic_status` (add `aspect: runtime`
+  for runtime diagnostics) → `alembic_init` (if not initialized) → `alembic_job`
+  with `op: bootstrap` for first project knowledge, or `alembic_prime` before
+  coding once knowledge exists.
 
 ## Delivery chain (marketplace shell → pinned runtime)
 

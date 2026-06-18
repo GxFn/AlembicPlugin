@@ -290,16 +290,13 @@ expect(
   readmeCn.includes('codex plugin marketplace add GxFn/AlembicCodex --ref main'),
   'plugin Chinese README must document install command'
 );
+expect(readme.includes('alembic_status'), 'README.md must document alembic_status');
+expect(readmeCn.includes('alembic_status'), 'README.zh-CN.md must document alembic_status');
+expect(readme.includes('alembic_runtime'), 'README.md must document alembic_runtime cleanup policy');
 expect(
-  readme.includes('alembic_codex_diagnostics'),
-  'README.md must document alembic_codex_diagnostics'
+  readmeCn.includes('alembic_runtime'),
+  'README.zh-CN.md must document alembic_runtime cleanup policy'
 );
-expect(
-  readmeCn.includes('alembic_codex_diagnostics'),
-  'README.zh-CN.md must document alembic_codex_diagnostics'
-);
-expect(readme.includes('alembic_codex_cleanup'), 'README.md must document cleanup policy');
-expect(readmeCn.includes('alembic_codex_cleanup'), 'README.zh-CN.md must document cleanup policy');
 expect(existsSync(releasePlaybookPath), 'plugin release playbook must exist');
 const releasePlaybook = readText(releasePlaybookPath);
 for (const phrase of [

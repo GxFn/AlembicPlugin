@@ -22,8 +22,8 @@ const report = {
     ],
     failureEnvelopePath: 'projectRuntime.failureEnvelopes',
     sourcePolicyPath: 'projectRuntime.sourcePolicy',
-    diagnosticsTool: 'alembic_codex_diagnostics',
-    statusTool: 'alembic_mcp_status',
+    diagnosticsTool: 'alembic_status',
+    statusTool: 'alembic_status',
   },
   steps: [],
   synced: null,
@@ -127,7 +127,7 @@ async function probeInstalledTarget(targetRoot) {
   });
   assertDiagnosticsProjectRootReadback(diagnostics, targetRoot);
   const runtimeReadback = assertRuntimeReadback(diagnostics, marker, targetRoot);
-  const savedData = await callMcpTool(targetRoot, savedHome, 'alembic_mcp_status', {});
+  const savedData = await callMcpTool(targetRoot, savedHome, 'alembic_status', {});
   const savedResolution = summarizeStatus(savedData);
   assertProbe(
     savedResolution.source !== 'saved-project-root' &&
@@ -136,7 +136,7 @@ async function probeInstalledTarget(targetRoot) {
       statusReadback: savedResolution,
     })}`
   );
-  const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_mcp_init', {});
+  const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_init', {});
   assertProbe(
     failClosed.ok === false &&
       ['CODEX_PROJECT_ROOT_REJECTED', 'CODEX_PROJECT_ROOT_UNRESOLVED'].includes(
@@ -160,14 +160,20 @@ async function probeInstalledTarget(targetRoot) {
 }
 
 async function callMcpStatus(targetRoot, alembicHome, args) {
-  const result = await callMcpTool(targetRoot, alembicHome, 'alembic_mcp_status', args);
-  assertProbe(result.ok === true, `alembic_mcp_status failed: ${JSON.stringify(result)}`);
+  const result = await callMcpTool(targetRoot, alembicHome, 'alembic_status', args);
+  assertProbe(result.ok === true, `alembic_status failed: ${JSON.stringify(result)}`);
   return result;
 }
 
 async function callMcpDiagnostics(targetRoot, alembicHome, args) {
-  const result = await callMcpTool(targetRoot, alembicHome, 'alembic_codex_diagnostics', args);
-  assertProbe(result.ok === true, `alembic_codex_diagnostics failed: ${JSON.stringify(result)}`);
+  const result = await callMcpTool(targetRoot, alembicHome, 'alembic_status', {
+    ...args,
+    aspect: 'runtime',
+  });
+  assertProbe(
+    result.ok === true,
+    `alembic_status (aspect=runtime) failed: ${JSON.stringify(result)}`
+  );
   return result;
 }
 

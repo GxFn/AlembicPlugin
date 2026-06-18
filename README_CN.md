@@ -27,10 +27,9 @@ Codex 仍是宿主 Agent，本插件提供本地项目记忆、bootstrap、Guard
   rescan 真正需要时才启动/连接每工作区守护进程（`bin/daemon-server.ts`）。
   嵌入式 HTTP 路由面由 `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`
   （`lib/runtime/runtime/EmbeddedRuntimeContract.ts`）钉死。
-- **Codex 内推荐首跑**：`alembic_codex_diagnostics` → `alembic_mcp_status`
-  → 未初始化时 `alembic_mcp_init` → 首次建知识用
-  `alembic_mcp_bootstrap_job`；已有知识则编码前用 `alembic_intent` +
-  `alembic_prime`。
+- **Codex 内推荐首跑**：`alembic_status`（加 `aspect: runtime` 看运行时诊断）
+  → 未初始化时 `alembic_init` → 首次建知识用 `alembic_job`（`op: bootstrap`）；
+  已有知识则编码前用 `alembic_prime`。
 
 ## 分发链（marketplace 壳 → 固定版本运行时）
 

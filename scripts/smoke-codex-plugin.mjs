@@ -113,7 +113,7 @@ try {
   );
   server = new HostMcpServer({ projectRoot, waitUntilReadyMs: 10000 });
 
-  const diagnostics = await server.handleToolCall('alembic_codex_diagnostics', {});
+  const diagnostics = await server.handleToolCall('alembic_status', { aspect: 'runtime' });
   assertResult(diagnostics, 'diagnostics');
   assert(
     diagnostics.data?.package?.pinnedSpecifier === runtimeSpecifier,
@@ -126,11 +126,11 @@ try {
   assert(diagnostics.data?.plugin?.ok === true, 'diagnostics plugin checks did not pass');
   assert(diagnostics.data?.runtimeIdentity?.mode === 'plugin', 'diagnostics runtime mode mismatch');
   assert(
-    diagnostics.data?.primaryAction?.tool === 'alembic_mcp_status',
+    diagnostics.data?.primaryAction?.tool === 'alembic_status',
     'diagnostics should point healthy installs to status'
   );
 
-  const beforeStatus = await server.handleToolCall('alembic_mcp_status', {});
+  const beforeStatus = await server.handleToolCall('alembic_status', {});
   assertResult(beforeStatus, 'status before init');
   assert(
     beforeStatus.data?.initialized === false,
@@ -141,18 +141,18 @@ try {
     'fresh smoke workspace should recommend initialization'
   );
 
-  const init = await server.handleToolCall('alembic_mcp_init', {});
+  const init = await server.handleToolCall('alembic_init', {});
   assertResult(init, 'codex init');
   assert(init.data?.status?.initialized === true, 'codex init did not produce initialized status');
 
-  const afterStatus = await server.handleToolCall('alembic_mcp_status', {});
+  const afterStatus = await server.handleToolCall('alembic_status', {});
   assertResult(afterStatus, 'status after init');
   assert(afterStatus.data?.initialized === true, 'status after init should be initialized');
   assert(afterStatus.data?.workspace?.ghost === true, 'codex init should default to Ghost mode');
 
   const store = new JobStore({ projectRoot });
   const localJob = store.create({ kind: 'rescan', request: { reason: 'smoke' }, source: 'codex' });
-  const job = await server.handleToolCall('alembic_codex_job', { jobId: localJob.id });
+  const job = await server.handleToolCall('alembic_job', { jobId: localJob.id });
   assertResult(job, 'local job lookup');
   assert(job.data?.job?.id === localJob.id, 'local job lookup returned the wrong job');
 
@@ -172,7 +172,7 @@ try {
   let dashboardHandoff = 'skipped';
   let recovery = 'skipped';
   if (shouldRunDaemon) {
-    const dashboard = await server.handleToolCall('alembic_codex_dashboard', {});
+    const dashboard = await server.handleToolCall('alembic_dashboard', {});
     assert(
       dashboard?.success === false && !dashboard?.data?.dashboardUrl,
       'dashboard handoff should fail closed when no local Alembic Dashboard daemon is available'
@@ -188,7 +188,7 @@ try {
 
     daemon = await server.supervisor.ensure({ projectRoot, waitUntilReadyMs: 10000 });
     assert(daemon.ready === true, 'daemon recovery smoke did not start runtime');
-    const recoveredJob = await server.handleToolCall('alembic_codex_job', {
+    const recoveredJob = await server.handleToolCall('alembic_job', {
       jobId: interruptedJob.id,
     });
     assertResult(recoveredJob, 'daemon recovery job lookup');
@@ -201,7 +201,7 @@ try {
       'daemon recovery smoke did not record DAEMON_RESTARTED'
     );
     recovery = 'passed';
-    await server.handleToolCall('alembic_codex_stop', {});
+    await server.handleToolCall('alembic_runtime', { action: 'stop' });
   }
 
   process.stdout.write(
@@ -228,7 +228,7 @@ try {
 } finally {
   if (server && shouldRunDaemon) {
     try {
-      await server.handleToolCall('alembic_codex_stop', {});
+      await server.handleToolCall('alembic_runtime', { action: 'stop' });
     } catch {
       /* best effort */
     }
@@ -505,13 +505,10 @@ async function runStdioSmoke({
     );
     const toolNames = new Set(toolsResult.tools.map((tool) => tool.name));
     for (const required of [
-      'alembic_mcp_status',
-      'alembic_codex_diagnostics',
-      'alembic_mcp_init',
-      'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
-      'alembic_codex_job',
+      'alembic_status',
+      'alembic_init',
+      'alembic_dashboard',
+      'alembic_job',
       'alembic_submit_knowledge',
       'alembic_bootstrap',
       'alembic_rescan',
@@ -519,8 +516,31 @@ async function runStdioSmoke({
     ]) {
       assert(toolNames.has(required), `MCP stdio tools/list missing ${required}`);
     }
+    // MTC: retired/merged tool names must be ABSENT from the live cold-start surface.
+    for (const retired of [
+      'alembic_mcp_status',
+      'alembic_codex_diagnostics',
+      'alembic_health',
+      'alembic_mcp_init',
+      'alembic_codex_dashboard',
+      'alembic_mcp_bootstrap_job',
+      'alembic_mcp_rescan_job',
+      'alembic_codex_job',
+      'alembic_codex_stop',
+      'alembic_codex_cleanup',
+      'alembic_work_start',
+      'alembic_work_finish',
+      'alembic_guard',
+    ]) {
+      assert(!toolNames.has(retired), `MCP stdio tools/list still exposes retired ${retired}`);
+    }
 
-    const diagnostics = await callStdioJsonTool(client, 'alembic_codex_diagnostics', {}, stderr);
+    const diagnostics = await callStdioJsonTool(
+      client,
+      'alembic_status',
+      { aspect: 'runtime' },
+      stderr
+    );
     assertResult(diagnostics, 'MCP stdio diagnostics');
     assert(
       diagnostics.package?.pinnedSpecifier === runtimeSpecifier,
@@ -532,14 +552,14 @@ async function runStdioSmoke({
     );
     assert(diagnostics.plugin?.ok === true, 'MCP stdio diagnostics plugin checks did not pass');
 
-    const beforeStatus = await callStdioJsonTool(client, 'alembic_mcp_status', {}, stderr);
+    const beforeStatus = await callStdioJsonTool(client, 'alembic_status', {}, stderr);
     assertResult(beforeStatus, 'MCP stdio status before init');
     assert(
       beforeStatus.initialized === false,
       'MCP stdio fresh workspace should start uninitialized'
     );
 
-    const init = await callStdioJsonTool(client, 'alembic_mcp_init', {}, stderr);
+    const init = await callStdioJsonTool(client, 'alembic_init', {}, stderr);
     assertResult(init, 'MCP stdio codex init');
     assert(
       init.statusSnapshot?.initialized === true,

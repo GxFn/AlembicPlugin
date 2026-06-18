@@ -29,7 +29,7 @@
         }
       },
       {
-        "name": "alembic_mcp_init",
+        "name": "alembic_init",
         "arguments": {
           "projectRoot": "$projectRoot"
         },
