@@ -125,8 +125,8 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'status-probe',
   }),
-  alembic_mcp_init: catalogEntry({
-    name: 'alembic_mcp_init',
+  alembic_init: catalogEntry({
+    name: 'alembic_init',
     owner: 'codex-local',
     handlerOwner: 'HostMcpServer.local',
     tier: 'agent',

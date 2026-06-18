@@ -539,7 +539,7 @@ describe('HostMcpServer', () => {
     expect(names).toEqual([
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
-      'alembic_mcp_init',
+      'alembic_init',
       'alembic_dashboard',
       'alembic_job',
       ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
@@ -555,7 +555,7 @@ describe('HostMcpServer', () => {
     expect(names).toEqual([
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
-      'alembic_mcp_init',
+      'alembic_init',
       'alembic_dashboard',
       'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
@@ -840,7 +840,7 @@ describe('HostMcpServer', () => {
     expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).toEqual([
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
-      'alembic_mcp_init',
+      'alembic_init',
       'alembic_dashboard',
       'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
@@ -910,9 +910,9 @@ describe('HostMcpServer', () => {
     expect(result.data.daemon.ready).toBe(false);
     expect(result.data.onboarding).toMatchObject({
       state: 'needs_init',
-      primaryAction: { startsDaemon: false, tool: 'alembic_mcp_init' },
+      primaryAction: { startsDaemon: false, tool: 'alembic_init' },
     });
-    expect(result.data.nextActions).toContain('Initialize Ghost workspace: call alembic_mcp_init');
+    expect(result.data.nextActions).toContain('Initialize Ghost workspace: call alembic_init');
     expect(supervisor.status).toHaveBeenCalledTimes(1);
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
@@ -1101,7 +1101,7 @@ describe('HostMcpServer', () => {
     );
     const server = new HostMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
+    const result = (await server.handleToolCall('alembic_init', {})) as {
       success: boolean;
       data: {
         status: {
@@ -1121,7 +1121,7 @@ describe('HostMcpServer', () => {
       route: 'explicit',
     });
     expect(marker).toMatchObject({
-      initializedBy: 'alembic_mcp_init',
+      initializedBy: 'alembic_init',
       route: 'explicit',
       projectRoot,
     });
@@ -1143,7 +1143,7 @@ describe('HostMcpServer', () => {
     );
     const server = new HostMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
+    const result = (await server.handleToolCall('alembic_init', {})) as {
       data: {
         mode: string;
         status: {
@@ -1186,7 +1186,7 @@ describe('HostMcpServer', () => {
     );
     const server = new HostMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_init', {
+    const result = (await server.handleToolCall('alembic_init', {
       standard: true,
     })) as {
       data: {
@@ -1297,7 +1297,7 @@ describe('HostMcpServer', () => {
     );
     const server = new HostMcpServer({ supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_init', { projectRoot })) as {
+    const result = (await server.handleToolCall('alembic_init', { projectRoot })) as {
       data: { status: { initialized: boolean; workspace: { ghost: boolean } } };
       success: boolean;
     };
@@ -1306,7 +1306,7 @@ describe('HostMcpServer', () => {
     expect(result.success).toBe(true);
     expect(result.data.status.workspace.ghost).toBe(true);
     expect(marker).toMatchObject({
-      initializedBy: 'alembic_mcp_init',
+      initializedBy: 'alembic_init',
       projectRoot,
       route: 'explicit',
     });
@@ -1362,7 +1362,7 @@ describe('HostMcpServer', () => {
     );
     const server = new HostMcpServer({ supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
+    const result = (await server.handleToolCall('alembic_init', {})) as {
       data: {
         errorCode: string;
         needsUserInput: boolean;
@@ -1422,8 +1422,8 @@ describe('HostMcpServer', () => {
 
     // MTC-4: alembic_status is now a cold-start discovery tool (exempt from the
     // project-root requirement), so it no longer rejects an unresolved root. Use a
-    // non-discovery cold-start tool (alembic_mcp_init) to exercise the root gate.
-    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
+    // non-discovery cold-start tool (alembic_init) to exercise the root gate.
+    const result = (await server.handleToolCall('alembic_init', {})) as {
       data: { errorCode: string; needsUserInput: boolean; required: { projectRoot: string } };
       success: boolean;
     };

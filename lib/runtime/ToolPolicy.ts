@@ -74,7 +74,7 @@ function codexInputSchema(properties: Record<string, unknown> = {}): Record<stri
 
 export const CODEX_DISCOVERY_TOOL_NAMES = new Set(['alembic_status']);
 
-export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_mcp_init']);
+export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_init']);
 
 export const CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
   'alembic_recipe_map',
@@ -155,7 +155,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     }),
   },
   {
-    name: 'alembic_mcp_init',
+    name: 'alembic_init',
     tier: 'agent',
     description:
       'Initialize Alembic for Codex plugin use. Unregistered projects default to Ghost mode; registered projects inherit their existing Alembic workspace mode.',

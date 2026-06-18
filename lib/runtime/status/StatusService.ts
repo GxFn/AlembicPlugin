@@ -494,7 +494,7 @@ export function buildCodexKnowledgeGateActions(
         reason:
           'Create or attach Alembic Codex data roots according to the ProjectRegistry workspace mode.',
         startsDaemon: false,
-        tool: 'alembic_mcp_init',
+        tool: 'alembic_init',
       })
     );
   } else {
@@ -591,7 +591,7 @@ export function buildCodexStatusOnboarding(
         label: initLabel,
         reason: initReason,
         startsDaemon: false,
-        tool: 'alembic_mcp_init',
+        tool: 'alembic_init',
       }),
       nextActions: [
         buildCodexRecommendedAction({
@@ -600,7 +600,7 @@ export function buildCodexStatusOnboarding(
             ? 'Set up Codex runtime files in the registered Standard data root.'
             : 'Set up local Alembic config, database, knowledge, and Recipe directories.',
           startsDaemon: false,
-          tool: 'alembic_mcp_init',
+          tool: 'alembic_init',
         }),
       ],
       notes: [

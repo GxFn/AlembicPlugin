@@ -128,7 +128,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_status',
       ...sourceGraphToolNames,
-      'alembic_mcp_init',
+      'alembic_init',
       'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
@@ -147,7 +147,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_status',
       ...sourceGraphToolNames,
-      'alembic_mcp_init',
+      'alembic_init',
       'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
@@ -270,7 +270,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
       'alembic_status',
       ...sourceGraphToolNames,
-      'alembic_mcp_init',
+      'alembic_init',
       'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,

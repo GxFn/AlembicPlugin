@@ -307,9 +307,9 @@ describe('Codex status service', () => {
     });
     expect(onboarding).toMatchObject({
       state: 'needs_init',
-      primaryAction: { tool: 'alembic_mcp_init' },
+      primaryAction: { tool: 'alembic_init' },
     });
-    expect(status.nextActions).toContain('Initialize Ghost workspace: call alembic_mcp_init');
+    expect(status.nextActions).toContain('Initialize Ghost workspace: call alembic_init');
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });
 
@@ -335,10 +335,10 @@ describe('Codex status service', () => {
     });
     expect(onboarding).toMatchObject({
       state: 'needs_init',
-      primaryAction: { label: 'Attach Standard workspace', tool: 'alembic_mcp_init' },
+      primaryAction: { label: 'Attach Standard workspace', tool: 'alembic_init' },
     });
-    expect(status.nextActions).toContain('Attach Standard workspace: call alembic_mcp_init');
-    expect(status.nextActions).not.toContain('Initialize Ghost workspace: call alembic_mcp_init');
+    expect(status.nextActions).toContain('Attach Standard workspace: call alembic_init');
+    expect(status.nextActions).not.toContain('Initialize Ghost workspace: call alembic_init');
     expect(onboarding.notes).toContain(
       'This project is already registered as Standard; Codex init inherits that mode unless the user explicitly migrates it.'
     );

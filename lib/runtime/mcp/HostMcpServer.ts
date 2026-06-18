@@ -112,7 +112,7 @@ interface CodexToolCallOptions {
 
 interface WorkspaceInitializationInput {
   force: boolean;
-  initializedBy: 'alembic_mcp_init' | 'codex-plugin-init-on-demand';
+  initializedBy: 'alembic_init' | 'codex-plugin-init-on-demand';
   requestedMode: 'ghost' | 'standard' | null;
   requestedTool?: string;
   route: 'explicit' | 'tool-call';
@@ -483,7 +483,7 @@ export class HostMcpServer {
     const requestedMode = standardExplicit ? (args.standard === true ? 'standard' : 'ghost') : null;
     const initResult = await this.runWorkspaceInitialization({
       force: Boolean(args.force),
-      initializedBy: 'alembic_mcp_init',
+      initializedBy: 'alembic_init',
       requestedMode,
       route: 'explicit',
       seed: Boolean(args.seed),
@@ -569,7 +569,7 @@ export class HostMcpServer {
         route: input.route,
       };
       return failureResult(
-        input.requestedTool || 'alembic_mcp_init',
+        input.requestedTool || 'alembic_init',
         buildCodexProjectRootRequiredMessage(this.projectRootResolution),
         {
           errorCode,
@@ -614,7 +614,7 @@ export class HostMcpServer {
         ok: false,
       };
       return failureResult(
-        input.requestedTool || 'alembic_mcp_init',
+        input.requestedTool || 'alembic_init',
         `${message} Ordinary Codex init will not switch workspace mode automatically.`,
         {
           errorCode: 'CODEX_WORKSPACE_MODE_CONFLICT',
@@ -672,7 +672,7 @@ export class HostMcpServer {
           ok: false,
         };
         return failureResult(
-          input.requestedTool || 'alembic_mcp_init',
+          input.requestedTool || 'alembic_init',
           'Alembic Codex initialization failed. Run diagnostics before retrying.',
           {
             errorCode: 'CODEX_AUTO_INIT_FAILED',
@@ -714,7 +714,7 @@ export class HostMcpServer {
         ok: false,
       };
       return failureResult(
-        input.requestedTool || 'alembic_mcp_init',
+        input.requestedTool || 'alembic_init',
         'Alembic Codex initialization failed. Run diagnostics before retrying.',
         {
           errorCode: 'CODEX_AUTO_INIT_FAILED',

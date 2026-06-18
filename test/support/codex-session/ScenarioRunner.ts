@@ -166,7 +166,7 @@ function buildMechanicalAssistantText(input: {
   if (input.toolName === 'alembic_status' && input.fixtureProjectRootMode === 'missing') {
     return 'Alembic 需要目标项目的绝对 projectRoot。当前 Codex 插件没有拿到可信项目目录，请提供项目根目录后再继续。';
   }
-  if (input.toolName === 'alembic_mcp_init') {
+  if (input.toolName === 'alembic_init') {
     return isSuccess(input.result)
       ? 'Alembic Codex 初始化已完成。这里只完成工作区初始化，还没有开始知识挖掘。'
       : 'Alembic Codex 初始化没有完成，请查看工具返回的诊断信息后重试。';

@@ -23,7 +23,7 @@ const GUARD_AND_VALIDATION_TOOLS = ['alembic_code_guard'] as const;
 
 const BOOTSTRAP_AND_RECOVERY_TOOLS = [
   'alembic_status',
-  'alembic_mcp_init',
+  'alembic_init',
   'alembic_bootstrap',
   'alembic_rescan',
   'alembic_job',

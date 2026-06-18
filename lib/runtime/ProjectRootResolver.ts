@@ -51,7 +51,7 @@ export interface CodexInitMarker {
   dataRoot: string;
   ghost: boolean;
   initializedAt: string;
-  initializedBy: 'alembic_mcp_init' | 'codex-plugin-init-on-demand';
+  initializedBy: 'alembic_init' | 'codex-plugin-init-on-demand';
   pluginVersion: string;
   profile: typeof CODEX_SETUP_PROFILE;
   projectRoot: string;
@@ -412,7 +412,7 @@ function isCodexInitMarker(value: Partial<CodexInitMarker>): value is CodexInitM
   return (
     value.schemaVersion === 1 &&
     typeof value.initializedAt === 'string' &&
-    (value.initializedBy === 'alembic_mcp_init' ||
+    (value.initializedBy === 'alembic_init' ||
       value.initializedBy === 'codex-plugin-init-on-demand') &&
     (value.route === 'explicit' || value.route === 'tool-call') &&
     typeof value.projectRoot === 'string' &&

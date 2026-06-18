@@ -39,7 +39,7 @@ export function dispatchCodexLocalTool(
       }
       return { handled: true, result: handlers.buildStatus() };
     }
-    case 'alembic_mcp_init':
+    case 'alembic_init':
       return { handled: true, result: handlers.initializeWorkspace(args) };
     case 'alembic_dashboard':
       return { handled: true, result: handlers.openDashboard() };

@@ -15,7 +15,7 @@ import {
 
 const expectedCodexLocalToolNames = [
   'alembic_status',
-  'alembic_mcp_init',
+  'alembic_init',
   'alembic_dashboard',
   'alembic_job',
   'alembic_runtime',
@@ -92,7 +92,7 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('strips implicit runtime diagnostics from non-diagnostic tools', () => {
-    for (const toolName of ['alembic_mcp_init', 'alembic_dashboard'] as const) {
+    for (const toolName of ['alembic_init', 'alembic_dashboard'] as const) {
       const result = serializeMcpToolResult(toolName, sampleLegacyEnvelope(toolName), {
         isErrorResult: () => false,
       });
@@ -222,7 +222,7 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         primaryAction: { tool: 'alembic_status' },
         summary: 'runtime checks passed',
       };
-    case 'alembic_mcp_init':
+    case 'alembic_init':
       return {
         mode: 'ghost',
         nextActions: [{ tool: 'alembic_bootstrap' }],

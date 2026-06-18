@@ -8,7 +8,7 @@ import {
 
 export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_status',
-  'alembic_mcp_init',
+  'alembic_init',
   'alembic_dashboard',
   'alembic_job',
   'alembic_runtime',
@@ -159,7 +159,7 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'version',
     'workspace',
   ],
-  alembic_mcp_init: [
+  alembic_init: [
     'alreadyInitialized',
     'initialized',
     'marker',
@@ -192,7 +192,7 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
     typeof input.business.businessSummary === 'string'
       ? input.business.businessSummary
       : 'Alembic status checked.',
-  alembic_mcp_init: () => 'Alembic Codex workspace initialized.',
+  alembic_init: () => 'Alembic Codex workspace initialized.',
   alembic_dashboard: (input) =>
     input.business.dashboardUrl
       ? 'Alembic Dashboard handoff ready.'
@@ -373,7 +373,7 @@ function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputT
     return value;
   }
   const out: Record<string, unknown> = { ...value };
-  if (toolName === 'alembic_mcp_init' && 'status' in out) {
+  if (toolName === 'alembic_init' && 'status' in out) {
     out.statusSnapshot = out.status;
     delete out.status;
   }

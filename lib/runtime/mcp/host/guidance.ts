@@ -26,7 +26,7 @@ const KNOWLEDGE_TOOL_NAMES = CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES;
 const GUARD_TOOL_NAMES = new Set(['alembic_code_guard']);
 
 const RECOVERY_TOOL_NAMES = new Set([
-  'alembic_mcp_init',
+  'alembic_init',
   'alembic_job',
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
