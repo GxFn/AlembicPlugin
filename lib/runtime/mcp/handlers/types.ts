@@ -386,13 +386,6 @@ export interface ToolRouterGraphArgs {
   [key: string]: unknown;
 }
 
-export interface ToolRouterGuardArgs {
-  operation?: 'check' | 'review';
-  code?: string;
-  files?: Array<string | { path?: string; [key: string]: unknown }>;
-  [key: string]: unknown;
-}
-
 export interface ToolRouterSkillArgs {
   operation?: string;
   name?: string;

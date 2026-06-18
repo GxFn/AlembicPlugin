@@ -11,7 +11,6 @@ export const CORE_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_knowledge',
   'alembic_structure',
   'alembic_call_context',
-  'alembic_guard',
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -161,35 +160,6 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'quotaChange',
     'refreshed',
     'skipped',
-  ],
-  alembic_guard: [
-    'blocked',
-    'boundaries',
-    'businessSummary',
-    'capabilityReport',
-    'crossFileViolations',
-    'fileSource',
-    'files',
-    'language',
-    'lowModules',
-    'maxRoundsReached',
-    'modules',
-    'overallCoverage',
-    'passed',
-    'qualityGate',
-    'reasonCode',
-    'required',
-    'reviewRound',
-    'scores',
-    'summary',
-    'topViolations',
-    'totalViolations',
-    'trend',
-    'uncertainResults',
-    'uncertainSummary',
-    'violations',
-    'warnings',
-    'zeroModules',
   ],
   alembic_health: [
     'actionHints',
@@ -621,8 +591,6 @@ function buildCoreToolSummary(
       return 'Structure request completed.';
     case 'alembic_call_context':
       return 'Call context request completed.';
-    case 'alembic_guard':
-      return 'Guard request completed.';
     case 'alembic_submit_knowledge':
       return `Knowledge submission processed ${numberField(input.business.count)} item(s).`;
     case 'alembic_project_skill':

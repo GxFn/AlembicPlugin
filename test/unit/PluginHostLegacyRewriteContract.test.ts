@@ -2,7 +2,6 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { projectCoreToolOutput } from '../../lib/runtime/mcp/core-tools/output.js';
 import {
   PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES,
   summarizePluginHostMcpContracts,
@@ -42,7 +41,6 @@ describe('Plugin host legacy rewrite D12 contract', () => {
 
   test('records D12 legacy surfaces with owners, cleanup triggers, and validation refs', () => {
     expect(PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES.map((entry) => entry.candidateId)).toEqual([
-      'D12-P02',
       'D12-P03',
       'D12-P04',
     ]);
@@ -53,43 +51,8 @@ describe('Plugin host legacy rewrite D12 contract', () => {
       expect(candidate.validationRefs.length).toBeGreaterThan(0);
     }
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      legacyRewriteCandidateCount: 3,
+      legacyRewriteCandidateCount: 2,
     });
-  });
-
-  test('projects no-scope guard legacy blocker into clean diagnostic-only output', () => {
-    const projected = projectCoreToolOutput(
-      {
-        data: {
-          blocked: true,
-          legacyBoundary: {
-            noArgsWholeDiffDisabled: true,
-          },
-          reasonCode: 'missing-guard-scope',
-          required: {
-            files: 'explicit task-scoped file list',
-          },
-        },
-        errorCode: 'GUARD_SCOPE_REQUIRED',
-        message:
-          'Legacy alembic_guard no-args whole-diff review is disabled. Call alembic_code_guard with explicit files or inline code.',
-        meta: { legacyCompatibility: true, mode: 'review', tool: 'alembic_guard' },
-        success: false,
-      },
-      'alembic_guard'
-    );
-
-    expect(projected).toMatchObject({
-      ok: false,
-      reasonCode: 'missing-guard-scope',
-      required: {
-        files: 'explicit task-scoped file list',
-      },
-      status: 'blocked',
-      toolName: 'alembic_guard',
-    });
-    expect(JSON.stringify(projected)).not.toContain('legacyBoundary');
-    expect(JSON.stringify(projected)).not.toContain('legacyCompatibility');
   });
 
   test('keeps fallback project roots diagnostic-only and untrusted', () => {

@@ -266,21 +266,6 @@ export const PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS = [
 
 export const PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES = [
   {
-    candidateId: 'D12-P02',
-    cleanupTrigger:
-      'Remove no-scope guard compatibility metadata only after host callers stop making unscoped alembic_guard calls.',
-    currentCompatibilityOwner: 'AlembicPlugin MCP guard router',
-    diagnosticOnlyFields: ['reasonCode', 'required'],
-    ordinaryOutputAllowed: false,
-    replacementContract:
-      'alembic_code_guard and alembic_guard require explicit files, inline code, or an active workRef with scoped files.',
-    status: 'preserved-with-owner',
-    validationRefs: [
-      'test/unit/CodexMcpServer.test.ts',
-      'test/unit/PluginHostLegacyRewriteContract.test.ts',
-    ],
-  },
-  {
     candidateId: 'D12-P03',
     cleanupTrigger:
       'Remove fallback project-root diagnostics only after Codex always provides a trusted explicit workspace root.',

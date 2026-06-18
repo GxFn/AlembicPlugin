@@ -19,7 +19,6 @@ const expectedCoreToolNames = [
   'alembic_knowledge',
   'alembic_structure',
   'alembic_call_context',
-  'alembic_guard',
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -110,43 +109,6 @@ describe('MCP core tools clean output contract', () => {
       expect(findForbiddenCoreOutputField(structured)).toBeNull();
       expect(CORE_TOOL_OUTPUT_SCHEMAS[toolName].parse(structured)).toEqual(structured);
     }
-  });
-
-  test('keeps guard scope blockers clean while removing legacy compatibility metadata', () => {
-    const result = serializeMcpToolResult(
-      'alembic_guard',
-      {
-        success: false,
-        errorCode: 'GUARD_SCOPE_REQUIRED',
-        message:
-          'Legacy alembic_guard no-args whole-diff review is disabled. Call alembic_code_guard with explicit files or inline code.',
-        data: {
-          blocked: true,
-          legacyBoundary: {
-            noArgsWholeDiffDisabled: true,
-            replacementTool: 'alembic_code_guard',
-          },
-          reasonCode: 'missing-guard-scope',
-          required: { files: 'explicit task-scoped file list' },
-        },
-        meta: { legacyCompatibility: true, mode: 'review', tool: 'alembic_guard' },
-      },
-      {
-        isErrorResult: () => true,
-      }
-    );
-    const structured = result.structuredContent as Record<string, unknown>;
-
-    expect(result.isError).toBe(true);
-    expect(structured).toMatchObject({
-      ok: false,
-      status: 'blocked',
-      reasonCode: 'missing-guard-scope',
-      error: { code: 'GUARD_SCOPE_REQUIRED' },
-    });
-    expect(JSON.stringify(structured)).not.toContain('legacyBoundary');
-    expect(JSON.stringify(structured)).not.toContain('legacyCompatibility');
-    expect(findForbiddenCoreOutputField(structured)).toBeNull();
   });
 
   test('projects D25 provider problem taxonomy into clean ok=false errors', () => {
@@ -241,9 +203,9 @@ function topLevelFieldsAreWhitelisted(
 
 function sampleLegacyEnvelope(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
   return {
-    success: toolName !== 'alembic_guard',
-    errorCode: toolName === 'alembic_guard' ? 'GUARD_SCOPE_REQUIRED' : null,
-    message: toolName === 'alembic_guard' ? 'Guard scope is required.' : '',
+    success: true,
+    errorCode: null,
+    message: '',
     data: {
       ...sampleBusinessData(toolName),
       diagnostics: { traceId: 'diag-1' },
@@ -274,8 +236,6 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
       return { summary: { targetCount: 1 }, targets: [{ name: 'App' }] };
     case 'alembic_call_context':
       return { callers: [], callees: [], methodName: 'run' };
-    case 'alembic_guard':
-      return { blocked: true, reasonCode: 'missing-guard-scope' };
     case 'alembic_submit_knowledge':
       return { count: 1, ids: ['recipe-1'], total: 1 };
     case 'alembic_project_skill':

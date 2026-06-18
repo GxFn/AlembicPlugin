@@ -101,8 +101,6 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     expect(JSON.stringify([...byName])).not.toContain(
       'Task and decision management (5 operations)'
     );
-    expect(byName.get('alembic_guard') ?? '').not.toContain('alembic_task');
-    expect(byName.get('alembic_guard') ?? '').toContain('no params → blocked');
     expect(byName.get('alembic_code_guard') ?? '').toContain('workRef');
     expect(byName.get('alembic_code_guard') ?? '').toContain('Does not accept diffRef');
   });

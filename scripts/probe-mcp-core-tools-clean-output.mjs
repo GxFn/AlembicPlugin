@@ -127,9 +127,9 @@ function parseArgs(args) {
 
 function sampleLegacyEnvelope(toolName) {
   return {
-    success: toolName !== 'alembic_guard',
-    errorCode: toolName === 'alembic_guard' ? 'GUARD_SCOPE_REQUIRED' : null,
-    message: toolName === 'alembic_guard' ? 'Guard scope is required.' : '',
+    success: true,
+    errorCode: null,
+    message: '',
     data: {
       ...sampleBusinessData(toolName),
       diagnostics: { traceId: 'diag-1' },
@@ -162,8 +162,6 @@ function sampleBusinessData(toolName) {
       return { impacted: [], impactedCount: 0, nodeId: 'recipe-1' };
     case 'alembic_call_context':
       return { callees: [], callers: [], methodName: 'run' };
-    case 'alembic_guard':
-      return { blocked: true, legacyBoundary: { replacementTool: 'alembic_code_guard' } };
     case 'alembic_submit_knowledge':
       return { count: 1, ids: ['recipe-1'], total: 1 };
     case 'alembic_project_skill':

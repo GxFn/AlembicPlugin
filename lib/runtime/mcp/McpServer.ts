@@ -620,7 +620,6 @@ export class McpServer {
         toolRouter.routeSearchTool(ctx, args as Parameters<typeof toolRouter.routeSearchTool>[1]),
       // MTC-1: alembic_knowledge/structure/call_context retired (routes deleted).
       alembic_graph: (ctx, args) => toolRouter.routeGraphTool(ctx, args),
-      alembic_guard: (ctx, args) => toolRouter.routeGuardTool(ctx, args),
       alembic_submit_knowledge: (ctx, args) => toolRouter.routeSubmitKnowledgeTool(ctx, args),
       alembic_project_skill: (ctx, args) => toolRouter.routeProjectSkillTool(ctx, args),
       // ── Host Agent Bootstrap (v3.1) ──

@@ -23,7 +23,7 @@ export interface CodexMcpGuidance {
 
 const KNOWLEDGE_TOOL_NAMES = CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES;
 
-const GUARD_TOOL_NAMES = new Set(['alembic_code_guard', 'alembic_guard']);
+const GUARD_TOOL_NAMES = new Set(['alembic_code_guard']);
 
 const RECOVERY_TOOL_NAMES = new Set([
   'alembic_mcp_init',
@@ -32,7 +32,7 @@ const RECOVERY_TOOL_NAMES = new Set([
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 
-const VALIDATION_TOOL_NAMES = new Set(['alembic_code_guard', 'alembic_guard']);
+const VALIDATION_TOOL_NAMES = new Set(['alembic_code_guard']);
 
 export function buildCodexMcpGuidance(tools: readonly GuidanceToolLike[]): CodexMcpGuidance {
   const visibleToolNames = tools.map((tool) => tool.name);

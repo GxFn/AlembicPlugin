@@ -19,7 +19,7 @@ const KNOWLEDGE_AND_RECIPE_TOOLS = [
   'alembic_dimension_complete',
 ] as const;
 
-const GUARD_AND_VALIDATION_TOOLS = ['alembic_code_guard', 'alembic_guard'] as const;
+const GUARD_AND_VALIDATION_TOOLS = ['alembic_code_guard'] as const;
 
 const BOOTSTRAP_AND_RECOVERY_TOOLS = [
   'alembic_mcp_status',
@@ -989,7 +989,7 @@ function describeToolTrust(entry: PluginToolSurfaceEntry): string {
   if (entry.name === 'alembic_graph') {
     return 'read-only project graph evidence, not source freshness or Recipe coverage proof';
   }
-  if (entry.name === 'alembic_code_guard' || entry.name === 'alembic_guard') {
+  if (entry.name === 'alembic_code_guard') {
     return 'Guard evidence for scoped files or code, not whole-goal acceptance';
   }
   return entry.annotations.readOnlyHint
@@ -1011,7 +1011,7 @@ function describeToolEvidenceRefs(toolName: string): string[] {
   if (toolName === 'alembic_dimension_complete') {
     return ['dimension id', 'verified candidate ids', 'progress checkpoint'];
   }
-  if (toolName === 'alembic_code_guard' || toolName === 'alembic_guard') {
+  if (toolName === 'alembic_code_guard') {
     return ['guard result ref', 'scoped files'];
   }
   return ['tool structured output'];

@@ -1,7 +1,7 @@
 /**
  * MCP Tool Router — 参数路由层
  *
- * 将多模式工具（alembic_search / knowledge / structure / graph / guard / skill）
+ * 将多模式工具（alembic_search / graph / skill）
  * 按 operation / mode 参数路由到已有 handler 实现。
  *
  * 不包含业务逻辑，仅做参数解构 → 路由 → 转发。
@@ -26,7 +26,6 @@ import {
   normalizeCodexHostAgentWriteSource,
 } from '#codex/SourceBoundary.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
-import * as guardHandlers from '../../../runtime/mcp/handlers/guard.js';
 import * as recipeMapHandlers from '../../../runtime/mcp/handlers/recipe-map.js';
 import * as searchHandlers from '../../../runtime/mcp/handlers/search.js';
 import * as skillHandlers from '../../../runtime/mcp/handlers/skill.js';
@@ -34,7 +33,6 @@ import * as structureHandlers from '../../../runtime/mcp/handlers/structure.js';
 import type {
   McpContext,
   ToolRouterGraphArgs,
-  ToolRouterGuardArgs,
   ToolRouterSearchArgs,
   ToolRouterSkillArgs,
 } from '../../../runtime/mcp/handlers/types.js';
@@ -86,26 +84,6 @@ export async function routeSearchTool(ctx: McpContext, args: ToolRouterSearchArg
  */
 export async function routeGraphTool(ctx: McpContext, args: ToolRouterGraphArgs) {
   return structureHandlers.graph(ctx, args);
-}
-
-// ─── alembic_guard (input router) ─────────────────────────
-
-/**
- * Guard 检查：按参数自动路由
- *   operation: 'coverage_matrix'    → guardCoverageMatrix()    (模块覆盖率矩阵)
- *   operation: 'compliance_report'  → guardComplianceReport()  (3D 合规报告)
- *   无参数       → blocked          (旧 whole-diff fallback 已禁用)
- *   有 files     → guardReview()    (指定文件 + inline recipe) — files 为 string[] 或 {path}[]
- *   有 code      → guardCheck()     (单文件内联检查)
- */
-export async function routeGuardTool(ctx: McpContext, args: ToolRouterGuardArgs) {
-  // W2 (MTC-7C8): coverage_matrix / compliance_report retired from the Plugin guard surface.
-  // 有 code → 单文件检查（旧模式）
-  if (args.code) {
-    return guardHandlers.guardCheck(ctx, args);
-  }
-  // 有 files（string[] 或 {path}[]）→ review 模式；无参数由 handler 返回结构化 blocker。
-  return guardHandlers.guardReview(ctx, args);
 }
 
 export async function routeProjectSkillTool(ctx: McpContext, args: ToolRouterSkillArgs) {

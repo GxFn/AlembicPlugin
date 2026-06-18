@@ -39,7 +39,6 @@ import {
 // ── MCP tools schemas ───────────────────────────────
 import {
   GraphInput,
-  GuardInput,
   HealthInput,
   RecipeMapInput,
   RescanInput,
@@ -349,18 +348,6 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
     });
   });
 
-  describe('GuardInput', () => {
-    test('should accept empty input', () => {
-      const result = GuardInput.parse({});
-      expect(result).toBeDefined();
-    });
-
-    test('should accept code + language', () => {
-      const result = GuardInput.parse({ code: 'console.log("x")', language: 'js' });
-      expect(result.code).toBe('console.log("x")');
-    });
-  });
-
   describe('SubmitKnowledgeInput', () => {
     test('should accept bootstrap session fields used by the evidence gate route', () => {
       const result = SubmitKnowledgeInput.parse({
@@ -495,7 +482,6 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         'alembic_health',
         'alembic_search',
         'alembic_graph',
-        'alembic_guard',
         'alembic_submit_knowledge',
         'alembic_project_skill',
         'alembic_bootstrap',

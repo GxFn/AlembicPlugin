@@ -592,24 +592,6 @@ export type RecipeMapInput = z.infer<typeof RecipeMapInput>;
 // ══════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════
-//  7. alembic_guard
-// ══════════════════════════════════════════════════════
-
-export const GuardInput = z.object({
-  operation: z
-    .enum(['check', 'review'])
-    .optional()
-    .describe(
-      'Guard 操作类型。省略且缺少 files/code 时返回 missing-guard-scope blocker，不再自动扫描整个 git diff。'
-    ),
-  files: z.array(z.string()).optional(),
-  code: z.string().optional(),
-  language: z.string().optional(),
-  filePath: z.string().optional(),
-});
-export type GuardInput = z.infer<typeof GuardInput>;
-
-// ══════════════════════════════════════════════════════
 //  7b. alembic_submit_knowledge (unified pipeline)
 // ══════════════════════════════════════════════════════
 
@@ -1024,7 +1006,6 @@ const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_health: HealthInput,
   alembic_search: SearchInput,
   alembic_graph: GraphInput,
-  alembic_guard: GuardInput,
   alembic_submit_knowledge: SubmitKnowledgeInput,
   alembic_project_skill: ProjectSkillInput,
   alembic_bootstrap: BootstrapInput,

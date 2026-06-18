@@ -531,10 +531,6 @@ describe('CodexMcpServer', () => {
       idempotentHint: true,
       openWorldHint: false,
     });
-    expect(byName.get('alembic_guard')?.annotations).toMatchObject({
-      readOnlyHint: true,
-      destructiveHint: false,
-    });
     expect(byName.get('alembic_mcp_bootstrap_job')?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: false,
@@ -1838,38 +1834,6 @@ describe('CodexMcpServer', () => {
     expect(result.success).toBe(false);
     expect(result.data.errorCode).toBe('CODEX_ALEMBIC_KNOWLEDGE_REQUIRED');
     expect(supervisor.ensure).not.toHaveBeenCalled();
-  });
-
-  test('blocks legacy guard no-scope review and allows explicit file scope', async () => {
-    useTempAlembicHome();
-    const projectRoot = makeProjectRoot();
-    makeUsableKnowledgeBase(projectRoot);
-    makeDirtyGitRepo(projectRoot);
-    const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new CodexMcpServer({ projectRoot, supervisor });
-
-    const noScope = (await server.handleToolCall('alembic_guard', {})) as {
-      data: { reasonCode?: string };
-      errorCode?: string;
-      success: boolean;
-    };
-    const explicitScope = (await server.handleToolCall('alembic_guard', {
-      files: ['index.ts'],
-    })) as {
-      data: { fileSource?: string; summary?: { filesChecked?: number } };
-      success: boolean;
-    };
-
-    expect(noScope.success).toBe(false);
-    expect(noScope).toMatchObject({
-      errorCode: 'GUARD_SCOPE_REQUIRED',
-      data: { reasonCode: 'missing-guard-scope' },
-    });
-    expect(explicitScope.success).toBe(true);
-    expect(explicitScope.data).toMatchObject({
-      fileSource: 'explicit',
-      summary: { filesChecked: 1 },
-    });
   });
 
   test('blocks retired task close before Plugin evidence/evolution execution', async () => {

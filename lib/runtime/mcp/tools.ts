@@ -25,7 +25,6 @@ import {
   DimensionCompleteInput,
   EvolveInput,
   GraphInput,
-  GuardInput,
   HealthInput,
   KnowledgeLifecycleInput,
   PrimeInput,
@@ -210,19 +209,6 @@ export const TOOLS = [
       '• path / impact / neighborhood / stats — relation path, impact radius, node neighborhood, and graph counts derived from ProjectContext refs/relations\n' +
       'Returns a Recipe-free AlembicGraphOutput (nodes, relations, ProjectContext refs, optional slices, diagnostics). Non-goal: no Recipe ids/summaries/mounts/relation-chains, no search scores, no semantic prime, no knowledge categories.',
     inputSchema: zodToMcpSchema(GraphInput),
-  },
-
-  // Guard Code Check
-  {
-    name: 'alembic_guard',
-    tier: 'agent',
-    description:
-      'Legacy Guard route for compatibility.\n' +
-      '• files → check specified file list; prefer alembic_code_guard for agent-facing scoped checks\n' +
-      '• no params → blocked; whole-diff fallback is disabled to avoid silently consuming unrelated repository changes\n' +
-      '• code → inline check code snippet; prefer alembic_code_guard for new host-agent calls\n' +
-      'Each violation includes a fix guide (doClause + coreCode). Fix accordingly and re-check.',
-    inputSchema: zodToMcpSchema(GuardInput),
   },
 
   // Submit Knowledge (Unified Pipeline)

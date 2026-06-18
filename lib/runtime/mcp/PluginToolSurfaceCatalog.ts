@@ -254,22 +254,6 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'none',
   }),
-  alembic_guard: catalogEntry({
-    name: 'alembic_guard',
-    owner: 'plugin-embedded-core',
-    handlerOwner: 'McpServer.tool-router',
-    tier: 'agent',
-    schema: 'GuardInput',
-    annotations: readOnlyTool('Run Alembic Guard Check'),
-    gateway: {
-      resolver: (args: Record<string, unknown>) =>
-        args?.files && Array.isArray(args.files)
-          ? { action: 'guard_rule:check_code', resource: 'guard_rules' }
-          : null,
-    },
-    knowledgeGate: 'knowledge-ready',
-    residentRoutePolicy: 'none',
-  }),
   alembic_submit_knowledge: catalogEntry({
     name: 'alembic_submit_knowledge',
     owner: 'plugin-embedded-core',

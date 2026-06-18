@@ -113,7 +113,7 @@ describe('Plugin opportunistic evolution surface', () => {
     ).toBe(true);
     expect(
       shouldAttachPluginOpportunisticEvolution({
-        toolName: 'alembic_guard',
+        toolName: 'alembic_code_guard',
         args: {},
       })
     ).toBe(false);

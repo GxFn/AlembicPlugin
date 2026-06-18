@@ -307,7 +307,6 @@ describe('MCP Tool Definitions (V3)', () => {
       'alembic_health',
       'alembic_search',
       'alembic_graph',
-      'alembic_guard',
       'alembic_submit_knowledge',
       'alembic_project_skill',
       'alembic_bootstrap',
