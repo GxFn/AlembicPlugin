@@ -161,24 +161,16 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'resident-or-embedded-jobs',
   }),
-  alembic_codex_stop: catalogEntry({
-    name: 'alembic_codex_stop',
+  // MTC-7: alembic_codex_stop + alembic_codex_cleanup merged into the single
+  // alembic_runtime route (action=stop/cleanup). cleanup can delete runtime
+  // state, so the merged tool keeps the destructive annotation.
+  alembic_runtime: catalogEntry({
+    name: 'alembic_runtime',
     owner: 'codex-local',
     handlerOwner: 'CodexMcpServer.local',
     tier: 'agent',
-    schema: 'CodexStopInput',
-    annotations: localWriteTool('Stop Alembic Daemon', true),
-    gateway: null,
-    knowledgeGate: 'cold-start',
-    residentRoutePolicy: 'none',
-  }),
-  alembic_codex_cleanup: catalogEntry({
-    name: 'alembic_codex_cleanup',
-    owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.local',
-    tier: 'agent',
-    schema: 'CodexCleanupInput',
-    annotations: destructiveTool('Clean Alembic Runtime State'),
+    schema: 'CodexRuntimeInput',
+    annotations: destructiveTool('Control Alembic Daemon Runtime'),
     gateway: null,
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'none',

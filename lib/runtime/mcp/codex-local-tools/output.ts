@@ -11,8 +11,7 @@ export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_mcp_init',
   'alembic_codex_dashboard',
   'alembic_job',
-  'alembic_codex_stop',
-  'alembic_codex_cleanup',
+  'alembic_runtime',
 ] as const;
 
 export type CodexLocalCleanOutputToolName = (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number];
@@ -31,7 +30,7 @@ export const CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES = [
 export const CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES = [
   'alembic_status',
   'alembic_job',
-  'alembic_codex_cleanup',
+  'alembic_runtime',
 ] as const satisfies readonly CodexLocalCleanOutputToolName[];
 
 export const CODEX_LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS = new Set([
@@ -103,7 +102,18 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'reasonCode',
     'residentService',
   ],
-  alembic_codex_cleanup: ['cleaned', 'dryRun', 'projectRuntime', 'targets'],
+  // MTC-7: union of the merged alembic_codex_stop (daemon flags) +
+  // alembic_codex_cleanup (cleanup targets/projectRuntime) business fields.
+  alembic_runtime: [
+    'cleaned',
+    'daemonReady',
+    'daemonStatus',
+    'dryRun',
+    'pidAlive',
+    'projectRuntime',
+    'stopped',
+    'targets',
+  ],
   alembic_codex_dashboard: ['dashboardUrl', 'needsUserInput', 'nextActions', 'reasonCode'],
   // MTC-4: union of the merged alembic_health (resident) + alembic_mcp_status +
   // alembic_codex_diagnostics business fields, projected for both shells.
@@ -161,7 +171,6 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'route',
     'statusSnapshot',
   ],
-  alembic_codex_stop: ['daemonReady', 'daemonStatus', 'pidAlive', 'stopped'],
 } as const satisfies Record<CodexLocalCleanOutputToolName, readonly string[]>;
 
 export type CodexLocalToolCleanOutput = z.infer<typeof CleanMcpResponseBaseSchema> & {
@@ -192,7 +201,17 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
     Array.isArray(input.business.jobs)
       ? `Alembic Codex job list returned ${input.business.jobs.length} item(s).`
       : 'Alembic Codex job checked.',
-  alembic_codex_stop: () => 'Alembic Codex daemon stop requested.',
+  // MTC-7: alembic_runtime covers both stop and cleanup; discriminate by the
+  // business fields each action produces (cleanup carries dryRun/cleaned/targets).
+  alembic_runtime: (input) => {
+    if (input.business.dryRun === true) {
+      return 'Alembic Codex cleanup preview completed.';
+    }
+    if ('cleaned' in input.business || 'targets' in input.business) {
+      return 'Alembic Codex runtime cleanup completed.';
+    }
+    return 'Alembic Codex daemon stop requested.';
+  },
 };
 
 export const CodexLocalToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
@@ -358,7 +377,7 @@ function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputT
     out.statusSnapshot = out.status;
     delete out.status;
   }
-  if (toolName === 'alembic_codex_stop' && isRecord(out.daemon)) {
+  if (toolName === 'alembic_runtime' && isRecord(out.daemon)) {
     out.daemonReady = out.daemon.ready === true;
     out.daemonStatus = typeof out.daemon.status === 'string' ? out.daemon.status : null;
     out.pidAlive = out.daemon.pidAlive === true;
@@ -498,7 +517,7 @@ function deriveCodexLocalToolStatus(input: {
   if (!input.ok) {
     return 'blocked';
   }
-  if (input.toolName === 'alembic_codex_cleanup' && input.business.dryRun === true) {
+  if (input.toolName === 'alembic_runtime' && input.business.dryRun === true) {
     return 'preview';
   }
   if (input.reasonCode) {
@@ -527,9 +546,8 @@ function buildCodexLocalToolSummary(
   if (buildSummary) {
     return buildSummary(input);
   }
-  return input.business.dryRun === true
-    ? 'Alembic Codex cleanup preview completed.'
-    : 'Alembic Codex runtime cleanup completed.';
+  // Generic fallback for any codex-local tool without a dedicated summary builder.
+  return `${toolName} completed.`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -18,8 +18,7 @@ const expectedCodexLocalToolNames = [
   'alembic_mcp_init',
   'alembic_codex_dashboard',
   'alembic_job',
-  'alembic_codex_stop',
-  'alembic_codex_cleanup',
+  'alembic_runtime',
 ] as const;
 
 describe('MCP Codex local tools clean output contract', () => {
@@ -93,11 +92,7 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('strips implicit runtime diagnostics from non-diagnostic tools', () => {
-    for (const toolName of [
-      'alembic_mcp_init',
-      'alembic_codex_dashboard',
-      'alembic_codex_stop',
-    ] as const) {
+    for (const toolName of ['alembic_mcp_init', 'alembic_codex_dashboard'] as const) {
       const result = serializeMcpToolResult(toolName, sampleLegacyEnvelope(toolName), {
         isErrorResult: () => false,
       });
@@ -246,12 +241,7 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         jobRoute: { selected: 'embedded-host-agent-recoverable' },
         jobs: [{ id: 'job-1' }],
       };
-    case 'alembic_codex_stop':
+    case 'alembic_runtime':
       return { daemon: { pidAlive: false, ready: false, status: 'stopped' } };
-    case 'alembic_codex_cleanup':
-      return {
-        dryRun: true,
-        targets: { statePath: '/tmp/project/.asd/runtime/daemon.json' },
-      };
   }
 }

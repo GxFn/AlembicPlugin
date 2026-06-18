@@ -454,7 +454,7 @@ describe('CodexMcpServer', () => {
     expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
     expect(names).toContain('alembic_codex_dashboard');
     expect(names).toContain('alembic_job');
-    expect(names).toContain('alembic_codex_cleanup');
+    expect(names).toContain('alembic_runtime');
     expect(names).toContain('alembic_bootstrap');
     expect(names).toContain('alembic_rescan');
     expect(names).toContain('alembic_project_skill');
@@ -533,7 +533,7 @@ describe('CodexMcpServer', () => {
       destructiveHint: false,
       openWorldHint: true,
     });
-    expect(byName.get('alembic_codex_cleanup')?.annotations).toMatchObject({
+    expect(byName.get('alembic_runtime')?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: true,
     });
@@ -1534,7 +1534,7 @@ describe('CodexMcpServer', () => {
     });
     expect(result.data.cleanup).toMatchObject({
       automaticOnUninstall: false,
-      command: 'alembic_codex_cleanup',
+      command: 'alembic_runtime',
     });
     expect(result.data.projectRuntime).toMatchObject({
       entryMode: { mode: 'marketplace-shell' },
@@ -2222,7 +2222,7 @@ describe('CodexMcpServer', () => {
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_cleanup', {})) as {
+    const result = (await server.handleToolCall('alembic_runtime', { action: 'cleanup' })) as {
       success: boolean;
       data: {
         dryRun: boolean;

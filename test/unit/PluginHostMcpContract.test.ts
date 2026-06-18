@@ -155,8 +155,8 @@ describe('Plugin host MCP D4 contract', () => {
       'workflow.unavailable',
     ]);
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 21,
-      cleanOutputToolCount: 21,
+      activeToolCount: 20,
+      cleanOutputToolCount: 20,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
       residentRouteToolCount: 9,

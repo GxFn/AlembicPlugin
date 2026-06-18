@@ -231,22 +231,27 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     }),
   },
   {
-    name: 'alembic_codex_stop',
-    tier: 'agent',
-    description: 'Stop the current project Alembic daemon.',
-    inputSchema: codexInputSchema({
-      waitMs: { type: 'number', description: 'Milliseconds to wait for graceful daemon stop.' },
-    }),
-  },
-  {
-    name: 'alembic_codex_cleanup',
+    // MTC-7: alembic_codex_stop + alembic_codex_cleanup merged into one
+    // runtime-control route discriminated by action.
+    name: 'alembic_runtime',
     tier: 'agent',
     description:
-      'Preview or explicitly clean Alembic Codex runtime files. Plugin uninstall never removes user data automatically; this tool requires confirm=true before deleting runtime state.',
+      'Control the current project Alembic daemon runtime. action=stop (default) stops the daemon. action=cleanup previews or explicitly cleans Alembic Codex runtime files; Plugin uninstall never removes user data automatically, so cleanup requires confirm=true before deleting runtime state.',
     inputSchema: codexInputSchema({
+      action: {
+        type: 'string',
+        enum: ['stop', 'cleanup'],
+        description:
+          'Runtime action: stop = stop the daemon (default when omitted), cleanup = preview/clean runtime files.',
+      },
+      waitMs: {
+        type: 'number',
+        description: 'action=stop: milliseconds to wait for graceful daemon stop.',
+      },
       confirm: {
         type: 'boolean',
-        description: 'When true, stop the daemon and delete runtime state/log/job files.',
+        description:
+          'action=cleanup: when true, stop the daemon and delete runtime state/log/job files.',
       },
     }),
   },

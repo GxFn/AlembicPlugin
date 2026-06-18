@@ -411,7 +411,7 @@ function buildCodexRuntimeReportSections(input: {
     },
     cleanup: {
       automaticOnUninstall: false,
-      command: 'alembic_codex_cleanup',
+      command: 'alembic_runtime',
       defaultMode: 'dry-run',
     },
   };

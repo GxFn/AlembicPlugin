@@ -56,10 +56,15 @@ export function dispatchCodexLocalTool(
       }
       return { handled: true, result: handlers.readJob(args) };
     }
-    case 'alembic_codex_stop':
+    // MTC-7: alembic_runtime action routes daemon control. cleanup previews or
+    // deletes runtime state (gated by confirm); stop (default) stops the daemon.
+    case 'alembic_runtime': {
+      const action = typeof args.action === 'string' ? args.action : undefined;
+      if (action === 'cleanup') {
+        return { handled: true, result: handlers.cleanupRuntime(args) };
+      }
       return { handled: true, result: handlers.stopDaemon(args) };
-    case 'alembic_codex_cleanup':
-      return { handled: true, result: handlers.cleanupRuntime(args) };
+    }
     default:
       return { handled: false };
   }
