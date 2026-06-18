@@ -237,9 +237,16 @@ export type PrimeInput = z.infer<typeof PrimeInput>;
 const AgentRefIdInput = z.string().min(1).max(240);
 const AgentSourceFileRefsInput = z.array(z.string().min(1).max(1200)).max(80).optional();
 
-export const WorkStartInput = AgentPublicToolBaseInput.extend({
+// MTC-7: merged alembic_work_start + alembic_work_finish. phase discriminates;
+// start fields (title/workScope) and finish fields (workRef/outcome/summary/
+// changedFiles/evidenceRefs/validationPlan/reason) are all optional on the union,
+// with per-phase requirements enforced by the handler.
+export const WorkInput = AgentPublicToolBaseInput.extend({
+  phase: z
+    .enum(['start', 'finish'])
+    .describe('Work lifecycle phase: start creates a workRef; finish closes an existing workRef.'),
   primeRef: AgentRefIdInput.optional().describe('primeRef returned by alembic_prime'),
-  title: z.string().min(1).max(240).optional().describe('Short work title'),
+  title: z.string().min(1).max(240).optional().describe('phase=start: short work title'),
   workScope: z
     .object({
       goal: z.string().min(1).max(800).optional(),
@@ -247,40 +254,49 @@ export const WorkStartInput = AgentPublicToolBaseInput.extend({
       summary: z.string().min(1).max(1200).optional(),
     })
     .optional()
-    .describe('Host-declared concrete work scope; used only as evidence, not as hidden policy.'),
-}).describe(
-  'Agent-facing work start. Creates a workRef for concrete implementation/fix/refactor/review work without loading knowledge, running Guard, or calling legacy task operations.'
-);
-export type WorkStartInput = z.infer<typeof WorkStartInput>;
-
-export const WorkFinishInput = AgentPublicToolBaseInput.extend({
-  workRef: AgentRefIdInput.optional().describe('workRef returned by alembic_work_start'),
-  primeRef: AgentRefIdInput.optional().describe('primeRef returned by alembic_prime'),
+    .describe(
+      'phase=start: host-declared concrete work scope; used only as evidence, not as hidden policy.'
+    ),
+  workRef: AgentRefIdInput.optional().describe(
+    'phase=finish: workRef returned by an earlier alembic_work phase=start'
+  ),
   outcome: z
     .enum(['completed', 'blocked', 'abandoned'])
     .default('completed')
     .optional()
-    .describe('Host-declared work outcome'),
-  summary: z.string().min(1).max(1600).optional().describe('Concise work completion summary'),
+    .describe('phase=finish: host-declared work outcome'),
+  summary: z
+    .string()
+    .min(1)
+    .max(1600)
+    .optional()
+    .describe('phase=finish: concise completion summary'),
   changedFiles: AgentSourceFileRefsInput.describe(
-    'Task-scoped files changed by this work; used to recommend alembic_code_guard with explicit files.'
+    'phase=finish: task-scoped files changed by this work; used to recommend alembic_code_guard with explicit files.'
   ),
-  evidenceRefs: AgentSourceFileRefsInput.describe('Non-private evidence refs from build/test/logs'),
+  evidenceRefs: AgentSourceFileRefsInput.describe(
+    'phase=finish: non-private evidence refs from build/test/logs'
+  ),
   validationPlan: z
     .record(z.string(), z.unknown())
     .optional()
     .describe(
-      'Optional compact validation advisory supplied by the host. Buckets are advisory and do not replace Guard, repository tests, controller acceptance, or Test-window validation.'
+      'phase=finish: optional compact validation advisory supplied by the host. Buckets are advisory and do not replace Guard, repository tests, controller acceptance, or Test-window validation.'
     ),
-  reason: z.string().min(1).max(1200).optional().describe('Blocked or abandoned reason'),
+  reason: z
+    .string()
+    .min(1)
+    .max(1200)
+    .optional()
+    .describe('phase=finish: blocked or abandoned reason'),
 }).describe(
-  'Agent-facing work finish. Returns finishRef, detailRefs, and scoped Guard recommendation metadata; it does not run Guard.'
+  'Agent-facing work lifecycle. phase=start creates a workRef for concrete implementation/fix/refactor/review work; phase=finish returns finishRef, detailRefs, and scoped Guard recommendation metadata. Does not load knowledge, run Guard, or call legacy task operations.'
 );
-export type WorkFinishInput = z.infer<typeof WorkFinishInput>;
+export type WorkInput = z.infer<typeof WorkInput>;
 
 export const CodeGuardInput = AgentPublicToolBaseInput.extend({
   workRef: AgentRefIdInput.optional().describe(
-    'workRef returned by alembic_work_start. When files/code are omitted, the current session work record supplies scoped files; missing or unscoped work returns a structured blocker/skip.'
+    'workRef returned by alembic_work phase=start. When files/code are omitted, the current session work record supplies scoped files; missing or unscoped work returns a structured blocker/skip.'
   ),
   files: AgentSourceFileRefsInput.describe(
     'Explicit files to check. This is the preferred scope. Empty or omitted scope returns a structured blocker/skip instead of falling back to whole-diff review.'
@@ -860,7 +876,7 @@ export const TaskInput = z.object({
   operation: z
     .enum(['prime', 'create', 'close', 'fail', 'record_decision'])
     .describe(
-      'Legacy compatibility operation. Prefer public tools: alembic_intent/alembic_prime, alembic_work_start, alembic_work_finish, alembic_code_guard, and alembic_decision_record.'
+      'Legacy compatibility operation. Prefer public tools: alembic_prime, alembic_work, and alembic_code_guard.'
     ),
   title: z.string().optional().describe('Task title; legacy record_decision title is blocked'),
   description: z
@@ -1006,8 +1022,7 @@ function strictToolInput(schema: z.ZodType): z.ZodType {
 const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_prime: PrimeInput,
   alembic_recipe_map: RecipeMapInput,
-  alembic_work_start: WorkStartInput,
-  alembic_work_finish: WorkFinishInput,
+  alembic_work: WorkInput,
   alembic_code_guard: CodeGuardInput,
   alembic_status: StatusInput,
   alembic_search: SearchInput,

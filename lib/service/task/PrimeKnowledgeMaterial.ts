@@ -1352,8 +1352,9 @@ function buildPrimeKnowledgeNextActions(
   if (taskAnchorDecision.action === 'skip') {
     return [
       {
-        tool: 'alembic_work_start',
+        tool: 'alembic_work',
         args: {
+          phase: 'start',
           inputSource: 'host-declared-intent',
           title: '<short task title>',
         },
@@ -1366,8 +1367,9 @@ function buildPrimeKnowledgeNextActions(
   }
   return [
     {
-      tool: 'alembic_work_start',
+      tool: 'alembic_work',
       args: {
+        phase: 'start',
         inputSource: 'host-declared-intent',
         title: '<short task title>',
       },

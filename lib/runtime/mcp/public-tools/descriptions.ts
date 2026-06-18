@@ -23,25 +23,15 @@ export const AGENT_PUBLIC_TOOL_DESCRIPTION_BASE = {
     nonGoal:
       'Does not answer general knowledge lookup, provide project maps, create work sessions, modify code, mark work complete, or run guard checks.',
   },
-  alembic_work_start: {
-    name: 'alembic_work_start',
-    title: 'Start tracked work',
+  alembic_work: {
+    name: 'alembic_work',
+    title: 'Track work lifecycle (start/finish)',
     purpose:
-      'Create a workRef that anchors an implementation, fix, refactor, review, or other multi-step evidence-producing task.',
+      'phase=start creates a workRef anchoring an implementation, fix, refactor, review, or other multi-step evidence-producing task; phase=finish closes that workRef with changed files, outcome summary, detailRefs, and guard recommendation metadata.',
     selectionHint:
-      'Use when the user has asked for concrete work that should later be finished with evidence and optional guard guidance.',
+      'Use phase=start when the user asks for concrete work to finish later with evidence; use phase=finish (with the returned workRef) once scoped work is complete and the host agent needs a compact result envelope for evidence and next checks.',
     nonGoal:
-      'Does not load project knowledge by itself, finish work, run guard checks, or record durable decisions.',
-  },
-  alembic_work_finish: {
-    name: 'alembic_work_finish',
-    title: 'Finish tracked work',
-    purpose:
-      'Close a workRef with changed files, outcome summary, detailRefs, and guard recommendation metadata.',
-    selectionHint:
-      'Use after scoped work is complete and the host agent needs a compact result envelope for evidence and next checks.',
-    nonGoal:
-      'Does not perform the code check itself, create new work, or silently widen the changed-file scope.',
+      'Does not load project knowledge by itself, run guard checks, record durable decisions, or silently widen the changed-file scope on finish.',
   },
   alembic_code_guard: {
     name: 'alembic_code_guard',

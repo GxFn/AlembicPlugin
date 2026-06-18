@@ -110,6 +110,6 @@ export function buildAgentPublicCrossHostPromptSnapshot(
       'Call alembic_prime directly before coding with taskAction, requirementGoal, and locator facets; obsolete intentRef/recognizedIntent inputs are blocked.',
     schemaSignature: SHARED_SCHEMA_SIGNATURE,
     workLifecycle:
-      'Use alembic_work_start for concrete evidence-producing work and alembic_work_finish with changed files and evidence refs when scoped work is complete.',
+      'Use alembic_work phase=start for concrete evidence-producing work and alembic_work phase=finish with changed files and evidence refs when scoped work is complete.',
   };
 }

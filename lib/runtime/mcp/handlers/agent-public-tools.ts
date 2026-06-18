@@ -467,7 +467,7 @@ function buildPrimeReadyResult(
 export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs) {
   const intake = buildIntentIntake(ctx, args);
   const detailRefs = buildBaseDetailRefs(
-    'alembic_work_start',
+    'alembic_work',
     uniqueStrings([
       ...(args.sourceRefs ?? []),
       ...(args.sourceEvidenceRefs ?? []),
@@ -477,7 +477,7 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
   const status = resolveWorkStartStatus(intake, args);
   if (status.status !== 'ready') {
     const result = createAgentPublicToolResultEnvelope({
-      actionKind: 'work-start',
+      actionKind: 'work',
       agentHost: intake.agentHost,
       inputSource: intake.inputSource,
       intentKind: intake.intentKind,
@@ -487,7 +487,7 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
       },
       status: status.status,
       summary: buildResultSummary(status.summary),
-      toolName: 'alembic_work_start',
+      toolName: 'alembic_work',
     });
     return createAgentPublicToolOutput(result);
   }
@@ -526,7 +526,7 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
   bindWorkSession(ctx, record, intake);
 
   const result = createAgentPublicToolResultEnvelope({
-    actionKind: 'work-start',
+    actionKind: 'work',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
@@ -541,11 +541,11 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
           }
         : {}),
       detailRefs,
-      workRef: { refType: 'work', id: workRef, toolName: 'alembic_work_start' },
+      workRef: { refType: 'work', id: workRef, toolName: 'alembic_work' },
     },
     status: 'ready',
     summary: buildResultSummary(`Work started for "${title}".`),
-    toolName: 'alembic_work_start',
+    toolName: 'alembic_work',
   });
 
   return createAgentPublicToolOutput(result, {
@@ -563,7 +563,7 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
 export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishArgs) {
   const intake = buildIntentIntake(ctx, args);
   const detailRefs = buildBaseDetailRefs(
-    'alembic_work_finish',
+    'alembic_work',
     uniqueStrings([
       ...(args.sourceRefs ?? []),
       ...(args.sourceEvidenceRefs ?? []),
@@ -573,7 +573,7 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
   const record = typeof args.workRef === 'string' ? WORK_RECORDS.get(args.workRef) : undefined;
   if (!args.workRef || !record) {
     const result = createAgentPublicToolResultEnvelope({
-      actionKind: 'work-finish',
+      actionKind: 'work',
       agentHost: intake.agentHost,
       inputSource: intake.inputSource,
       intentKind: intake.intentKind,
@@ -582,7 +582,7 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
         code: 'missing-work-ref',
         message: args.workRef
           ? `No active work record exists for workRef ${args.workRef}.`
-          : 'alembic_work_finish requires a workRef returned by alembic_work_start.',
+          : 'alembic_work phase=finish requires a workRef returned by alembic_work phase=start.',
         retryable: false,
       },
       refs: {
@@ -590,7 +590,7 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
       },
       status: 'blocked',
       summary: buildResultSummary('Work finish blocked because workRef is missing.'),
-      toolName: 'alembic_work_finish',
+      toolName: 'alembic_work',
     });
     return createAgentPublicToolOutput(result);
   }
@@ -621,7 +621,7 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
       : `Work ${record.workRef} ${outcome}.`);
 
   const result = createAgentPublicToolResultEnvelope({
-    actionKind: 'work-finish',
+    actionKind: 'work',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
     intentKind: intake.intentKind,
@@ -636,12 +636,12 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
           }
         : {}),
       detailRefs,
-      finishRef: { refType: 'finish', id: finishRef, toolName: 'alembic_work_finish' },
-      workRef: { refType: 'work', id: record.workRef, toolName: 'alembic_work_start' },
+      finishRef: { refType: 'finish', id: finishRef, toolName: 'alembic_work' },
+      workRef: { refType: 'work', id: record.workRef, toolName: 'alembic_work' },
     },
     status: 'ready',
     summary: buildResultSummary(summary),
-    toolName: 'alembic_work_finish',
+    toolName: 'alembic_work',
   });
 
   return createAgentPublicToolOutput(result, {
@@ -788,7 +788,7 @@ function buildEmptyWorkRefGuardOutput(
       workRef: {
         refType: 'work' as const,
         id: workRecord.workRef,
-        toolName: 'alembic_work_start' as const,
+        toolName: 'alembic_work' as const,
       },
       detailRefs,
     },
@@ -1563,7 +1563,7 @@ function resolveWorkStartStatus(
       reason: {
         kind: 'skip',
         code: 'no-work-scope',
-        message: 'No concrete work scope was available for alembic_work_start.',
+        message: 'No concrete work scope was available for alembic_work phase=start.',
         retryable: false,
       },
       status: 'skipped',
@@ -1749,7 +1749,7 @@ function buildWorkRefEntry(workRef: unknown) {
     workRef: {
       refType: 'work' as const,
       id,
-      toolName: 'alembic_work_start' as const,
+      toolName: 'alembic_work' as const,
     },
   };
 }
@@ -1839,7 +1839,7 @@ function bindWorkSession(
   intent.toolCalls.push({
     args_summary: record.title,
     timestamp: Date.now(),
-    tool: 'alembic_work_start',
+    tool: 'alembic_work',
   });
   ctx.session.intent = intent;
 }

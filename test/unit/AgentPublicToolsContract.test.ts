@@ -23,14 +23,13 @@ import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Agent-facing public tools contract foundation', () => {
-  test('declares the four public tools and marks them as active public tools', () => {
+  test('declares the three public tools and marks them as active public tools', () => {
     expect(AGENT_PUBLIC_TOOL_NAMES).toEqual([
       'alembic_prime',
-      'alembic_work_start',
-      'alembic_work_finish',
+      'alembic_work',
       'alembic_code_guard',
     ]);
-    expect(AGENT_ACTION_KINDS).toEqual(['prime', 'work-start', 'work-finish', 'code-guard']);
+    expect(AGENT_ACTION_KINDS).toEqual(['prime', 'work', 'code-guard']);
 
     const catalog = listAgentPublicToolContractCatalog();
     expect(catalog.map((entry) => entry.name)).toEqual(AGENT_PUBLIC_TOOL_NAMES);
@@ -107,11 +106,11 @@ describe('Agent-facing public tools contract foundation', () => {
 
     const envelope = createAgentPublicToolResultEnvelope({
       agentHost: 'codex',
-      actionKind: 'work-finish',
+      actionKind: 'work',
       inputSource: 'host-declared-intent',
       intentKind: 'implementation-task',
       refs: {
-        workRef: { refType: 'work', id: 'work-1', toolName: 'alembic_work_start' },
+        workRef: { refType: 'work', id: 'work-1', toolName: 'alembic_work' },
         detailRefs: [detailRef],
       },
       reason: {
@@ -121,7 +120,7 @@ describe('Agent-facing public tools contract foundation', () => {
       },
       status: 'degraded',
       summary: 'Work finished with compact evidence and a resident degradation reason.',
-      toolName: 'alembic_work_finish',
+      toolName: 'alembic_work',
     });
 
     expect(envelope.refs.detailRefs).toHaveLength(1);
@@ -247,8 +246,8 @@ describe('Agent-facing public tools contract foundation', () => {
       inputSource: 'user-message' as const,
       refs: { detailRefs: [] },
       summary: 'Contract result',
-      toolName: 'alembic_work_finish' as const,
-      actionKind: 'work-finish' as const,
+      toolName: 'alembic_work' as const,
+      actionKind: 'work' as const,
     };
 
     expect(

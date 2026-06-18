@@ -686,12 +686,7 @@ describe('agent-facing active public tools', () => {
   test('registers all agent public tools with active schemas', () => {
     const names = TOOLS.map((tool) => tool.name);
     expect(names).toEqual(
-      expect.arrayContaining([
-        'alembic_prime',
-        'alembic_work_start',
-        'alembic_work_finish',
-        'alembic_code_guard',
-      ])
+      expect.arrayContaining(['alembic_prime', 'alembic_work', 'alembic_code_guard'])
     );
 
     expect(
@@ -755,12 +750,14 @@ describe('agent-facing active public tools', () => {
       }).success
     ).toBe(false);
     expect(
-      TOOL_SCHEMAS.alembic_work_start.safeParse({
+      TOOL_SCHEMAS.alembic_work.safeParse({
+        phase: 'start',
         title: 'Implement active work public tool',
       }).success
     ).toBe(true);
     expect(
-      TOOL_SCHEMAS.alembic_work_finish.safeParse({
+      TOOL_SCHEMAS.alembic_work.safeParse({
+        phase: 'finish',
         changedFiles: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
         workRef: 'work-public-1',
       }).success

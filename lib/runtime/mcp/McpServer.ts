@@ -352,7 +352,7 @@ export class McpServer {
         createCleanMcpErrorResponse({
           code: 'CODEX_TOOL_RETIRED',
           message:
-            'alembic_task has been retired. Use alembic_prime, alembic_work_start, alembic_work_finish, or alembic_code_guard.',
+            'alembic_task has been retired. Use alembic_prime, alembic_work, or alembic_code_guard.',
           status: 'retired',
           toolName: name,
         })
@@ -611,8 +611,11 @@ export class McpServer {
     const HANDLER_MAP: Record<string, ToolHandlerFn> = {
       // ── Agent 层 ──
       alembic_prime: (ctx, args) => agentPublicToolHandlers.primeHandler(ctx, args),
-      alembic_work_start: (ctx, args) => agentPublicToolHandlers.workStartHandler(ctx, args),
-      alembic_work_finish: (ctx, args) => agentPublicToolHandlers.workFinishHandler(ctx, args),
+      // MTC-7: alembic_work routes by phase to the start/finish handlers.
+      alembic_work: (ctx, args) =>
+        (args as { phase?: unknown }).phase === 'finish'
+          ? agentPublicToolHandlers.workFinishHandler(ctx, args)
+          : agentPublicToolHandlers.workStartHandler(ctx, args),
       alembic_code_guard: (ctx, args) => agentPublicToolHandlers.codeGuardHandler(ctx, args),
       alembic_status: (ctx, args) => systemHandlers.status(ctx, args),
       alembic_recipe_map: (ctx, args) => toolRouter.routeRecipeMapTool(ctx, args),

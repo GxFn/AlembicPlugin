@@ -306,24 +306,15 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'resident-project-scope',
   }),
-  alembic_work_start: catalogEntry({
-    name: 'alembic_work_start',
+  // MTC-7: merged alembic_work_start + alembic_work_finish into the phase-routed
+  // alembic_work tool (still a local write surface).
+  alembic_work: catalogEntry({
+    name: 'alembic_work',
     owner: 'plugin-embedded-core',
     handlerOwner: 'McpServer.agent-public-tools',
     tier: 'agent',
-    schema: 'WorkStartInput',
-    annotations: localWriteTool('Start Agent Work'),
-    gateway: null,
-    knowledgeGate: 'resident-project-scope',
-    residentRoutePolicy: 'resident-project-scope',
-  }),
-  alembic_work_finish: catalogEntry({
-    name: 'alembic_work_finish',
-    owner: 'plugin-embedded-core',
-    handlerOwner: 'McpServer.agent-public-tools',
-    tier: 'agent',
-    schema: 'WorkFinishInput',
-    annotations: localWriteTool('Finish Agent Work'),
+    schema: 'WorkInput',
+    annotations: localWriteTool('Track Agent Work (start/finish)'),
     gateway: null,
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'resident-project-scope',

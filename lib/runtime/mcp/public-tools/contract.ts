@@ -4,8 +4,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_VERSION = 1 as const;
 
 export const AGENT_PUBLIC_TOOL_NAMES = [
   'alembic_prime',
-  'alembic_work_start',
-  'alembic_work_finish',
+  'alembic_work',
   'alembic_code_guard',
 ] as const;
 
@@ -33,7 +32,9 @@ export const AGENT_INTENT_KINDS = [
   'unknown',
 ] as const;
 
-export const AGENT_ACTION_KINDS = ['prime', 'work-start', 'work-finish', 'code-guard'] as const;
+// MTC-7: work-start + work-finish collapsed into one 'work' action; the merged
+// alembic_work tool discriminates start vs finish by its phase input.
+export const AGENT_ACTION_KINDS = ['prime', 'work', 'code-guard'] as const;
 
 export const AGENT_RESULT_STATUSES = ['ready', 'skipped', 'degraded', 'blocked', 'failed'] as const;
 
@@ -95,8 +96,7 @@ export type AgentResultStatus = z.infer<typeof AgentResultStatusSchema>;
 
 export const AGENT_PUBLIC_TOOL_ACTION_BY_NAME = {
   alembic_prime: 'prime',
-  alembic_work_start: 'work-start',
-  alembic_work_finish: 'work-finish',
+  alembic_work: 'work',
   alembic_code_guard: 'code-guard',
 } as const satisfies Record<AgentPublicToolName, AgentActionKind>;
 
@@ -445,24 +445,14 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
       implementationStatus: 'active-tool',
     }
   ),
+  // MTC-7: merged alembic_work_start + alembic_work_finish. phase=start creates a
+  // workRef; phase=finish closes it (workRef required for finish, enforced by the
+  // handler). acceptedRefs/producesRefs are the union across both phases.
   definition(
-    'alembic_work_start',
-    {
-      acceptedRefs: ['primeRef', 'detailRefs'],
-      requiredFields: ['agentHost', 'inputSource'],
-    },
-    ['workRef', 'detailRefs'],
-    {
-      activeMcpSurface: true,
-      handlerDependency: 'McpServer.agent-public-tools',
-      implementationStatus: 'active-tool',
-    }
-  ),
-  definition(
-    'alembic_work_finish',
+    'alembic_work',
     {
       acceptedRefs: ['primeRef', 'workRef', 'detailRefs'],
-      requiredFields: ['agentHost', 'inputSource', 'workRef'],
+      requiredFields: ['agentHost', 'inputSource', 'phase'],
     },
     ['workRef', 'finishRef', 'detailRefs'],
     {

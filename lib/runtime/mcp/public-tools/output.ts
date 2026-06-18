@@ -230,23 +230,19 @@ export const AgentPrimeOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend
   }
 });
 
-export const AgentWorkStartOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
-  detailRefs: z.array(AgentDetailRefSchema).max(40).optional(),
-  localRecord: WorkStartLocalRecordSchema.optional(),
-  toolName: z.literal('alembic_work_start'),
-  workRef: z.string().min(1).max(240).optional(),
-});
-
-export const AgentWorkFinishOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
+// MTC-7: merged alembic_work_start + alembic_work_finish output. Fields are the
+// union across phases (start sets workRef/localRecord; finish adds changedFiles/
+// finishRef/guardRecommendation/outcome/etc.); localRecord is the per-phase union.
+export const AgentWorkOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
   changedFiles: z.array(z.string()).max(80).optional(),
   detailRefs: z.array(AgentDetailRefSchema).max(40).optional(),
   evidenceRefs: z.array(z.string()).max(80).optional(),
   finishRef: z.string().min(1).max(240).optional(),
   guardRecommendation: GuardRecommendationSchema.optional(),
-  localRecord: WorkFinishLocalRecordSchema.optional(),
+  localRecord: z.union([WorkStartLocalRecordSchema, WorkFinishLocalRecordSchema]).optional(),
   outcome: z.enum(['completed', 'blocked', 'abandoned']).optional(),
   sourceEvidenceRefs: z.array(z.string()).max(80).optional(),
-  toolName: z.literal('alembic_work_finish'),
+  toolName: z.literal('alembic_work'),
   workRef: z.string().min(1).max(240).optional(),
 });
 
@@ -262,8 +258,7 @@ export const AgentCodeGuardOutputSchema = AgentPublicToolOutputBaseSchema.safeEx
 export const AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS = {
   alembic_code_guard: AgentCodeGuardOutputSchema,
   alembic_prime: AgentPrimeOutputSchema,
-  alembic_work_finish: AgentWorkFinishOutputSchema,
-  alembic_work_start: AgentWorkStartOutputSchema,
+  alembic_work: AgentWorkOutputSchema,
 } as const;
 
 export type AgentPublicToolOutput = z.infer<typeof AgentPublicToolOutputBaseSchema>;

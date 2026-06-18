@@ -121,8 +121,7 @@ describe('Plugin host MCP D4 contract', () => {
       ['alembic_recipe_map', 'resident-project-scope'],
       ['alembic_search', 'explicit-resident-search'],
       ['alembic_status', 'status-probe'],
-      ['alembic_work_finish', 'resident-project-scope'],
-      ['alembic_work_start', 'resident-project-scope'],
+      ['alembic_work', 'resident-project-scope'],
     ]);
   });
 
@@ -155,11 +154,11 @@ describe('Plugin host MCP D4 contract', () => {
       'workflow.unavailable',
     ]);
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 20,
-      cleanOutputToolCount: 20,
+      activeToolCount: 19,
+      cleanOutputToolCount: 19,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
-      residentRouteToolCount: 9,
+      residentRouteToolCount: 8,
       version: 1,
     });
   });

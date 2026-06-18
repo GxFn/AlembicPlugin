@@ -33,8 +33,7 @@ import {
   SearchInput,
   StatusInput,
   SubmitKnowledgeInput,
-  WorkFinishInput,
-  WorkStartInput,
+  WorkInput,
 } from '#shared/schemas/mcp-tools.js';
 import {
   TOOL_GATEWAY_MAP,
@@ -115,8 +114,7 @@ export const withMcpToolAnnotations = withPluginToolAnnotations;
 export { TOOL_GATEWAY_MAP };
 
 const PRIME_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_prime');
-const WORK_START_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_start');
-const WORK_FINISH_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work_finish');
+const WORK_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_work');
 const CODE_GUARD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_code_guard');
 
 // ─── Tool Declarations ───────────────────────────────────────
@@ -150,24 +148,15 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(RecipeMapInput),
   },
 
+  // MTC-7: merged alembic_work_start + alembic_work_finish into one phase-routed tool.
   {
-    name: 'alembic_work_start',
+    name: 'alembic_work',
     tier: 'agent',
     description:
-      `${WORK_START_DESCRIPTION.title}. ${WORK_START_DESCRIPTION.purpose}\n` +
-      `${WORK_START_DESCRIPTION.selectionHint}\n` +
-      `Non-goal: ${WORK_START_DESCRIPTION.nonGoal}`,
-    inputSchema: zodToMcpSchema(WorkStartInput),
-  },
-
-  {
-    name: 'alembic_work_finish',
-    tier: 'agent',
-    description:
-      `${WORK_FINISH_DESCRIPTION.title}. ${WORK_FINISH_DESCRIPTION.purpose}\n` +
-      `${WORK_FINISH_DESCRIPTION.selectionHint}\n` +
-      `Non-goal: ${WORK_FINISH_DESCRIPTION.nonGoal}`,
-    inputSchema: zodToMcpSchema(WorkFinishInput),
+      `${WORK_DESCRIPTION.title}. ${WORK_DESCRIPTION.purpose}\n` +
+      `${WORK_DESCRIPTION.selectionHint}\n` +
+      `Non-goal: ${WORK_DESCRIPTION.nonGoal}`,
+    inputSchema: zodToMcpSchema(WorkInput),
   },
 
   {
