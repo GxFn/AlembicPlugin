@@ -1,6 +1,6 @@
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
-import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/HostIntentFrame.js';
+import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import {
   buildPrimeKnowledgeMaterial,
   createUnavailablePrimeIntentEpisodeMaterial,

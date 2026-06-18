@@ -29,7 +29,7 @@ import {
 import {
   type HostTurnMetaInput,
   readHostTurnMetaFromMcpRequest,
-} from '#service/task/HostIntentFrame.js';
+} from '#service/task/host-turn-meta.js';
 import { wrapHandler } from '../../runtime/mcp/errorHandler.js';
 import type {
   IntentState,

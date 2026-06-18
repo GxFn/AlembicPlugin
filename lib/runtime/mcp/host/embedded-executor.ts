@@ -1,4 +1,4 @@
-import type { HostTurnMetaInput } from '#service/task/HostIntentFrame.js';
+import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
 import type { CodexServiceBoundaryDecision } from '../../../runtime/index.js';
 import { safeProjectRootFallback } from '../../../runtime/mcp/host/project-root.js';

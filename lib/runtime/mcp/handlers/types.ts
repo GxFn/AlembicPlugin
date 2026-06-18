@@ -14,7 +14,7 @@ import type {
   ResidentIntentEvidenceSummary,
   ResidentPrimeInjectionPackageSummary,
 } from '#service/resident/AlembicResidentServiceClient.js';
-import type { HostIntentFrame, HostTurnMetaInput } from '#service/task/HostIntentFrame.js';
+import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 
 // ─── DI Container (minimal shape) ────────────────────────
 
@@ -64,11 +64,10 @@ export interface IntentState {
   primeRecipeIds: string[];
   primeAt: number;
 
-  // ─── Prime baseline (enriched by IntentExtractor) ───
+  // ─── Prime baseline ───
   primeLanguage: string | null;
   primeModule: string | null;
   primeScenario: string;
-  hostIntentFrame?: HostIntentFrame;
 
   // ─── Search metadata (set by PrimeSearchPipeline) ───
   searchMeta?: {

@@ -4,7 +4,7 @@
  * Route-agnostic thin adapter over the unified in-process SearchEngine (the same
  * engine alembic_search uses). Takes a structured prime query, runs one
  * vector/lexical search, applies the quality filter, and splits knowledge vs
- * Guard rules. The ExtractedIntent multi-query/RRF orchestration and the
+ * Guard rules. The legacy intent-frame multi-query/RRF orchestration and the
  * resident-handoff lane were removed in PDR-1d; local Recipe semantic-region
  * evidence is wired separately (PDR-2) via PrimeKnowledgeMaterial's
  * `regionEvidence` seam.

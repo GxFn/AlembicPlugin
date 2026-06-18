@@ -7,7 +7,6 @@
  */
 
 import path from 'node:path';
-import type { HostIntentFrame } from './HostIntentFrame.js';
 
 export type TaskLifecycleInputSource =
   | 'user-intent'
@@ -84,7 +83,6 @@ export interface TaskLifecycleClassification {
 }
 
 export interface ClassifyTaskLifecycleInput {
-  hostIntentFrame?: HostIntentFrame;
   operation?: string;
   rawUserQuery?: string;
   taskId?: string;
@@ -166,12 +164,11 @@ export function classifyTaskLifecycleInput(
   input: ClassifyTaskLifecycleInput
 ): TaskLifecycleClassification {
   const rawUserQuery = normalizeText(input.rawUserQuery);
-  const userQuery =
-    normalizeText(input.userQuery) ?? input.hostIntentFrame?.recognizedIntentDraft.query;
+  const userQuery = normalizeText(input.userQuery);
   const query = userQuery ?? '';
-  const inputSource = classifyInputSource(input, rawUserQuery, query);
+  const inputSource = classifyInputSource(rawUserQuery, query);
   const intentKind = classifyIntentKind(input, inputSource, query);
-  const primeDecision = decidePrime(inputSource, intentKind, input.hostIntentFrame, query);
+  const primeDecision = decidePrime(inputSource, intentKind, query);
   const taskAnchorDecision = decideTaskAnchor(input, inputSource, intentKind, query);
   const closeDecision = decideClose(input.taskId);
 
@@ -282,43 +279,19 @@ export function looksLikeAutomationEnvelopeText(value: string | undefined): bool
 }
 
 function classifyInputSource(
-  input: ClassifyTaskLifecycleInput,
   rawUserQuery: string | undefined,
   query: string
 ): TaskLifecycleInputSource {
-  const turnMeta = input.hostIntentFrame?.hostTurnMeta;
-  const source = String(turnMeta?.source ?? '').toLowerCase();
-  const surface = String(turnMeta?.surface ?? '').toLowerCase();
-  const hasCuratedIntent = hasCuratedHostDeclaredIntent(input.hostIntentFrame);
-  if (
-    !hasCuratedIntent &&
-    (looksLikeAutomationEnvelopeText(rawUserQuery) || looksLikeAutomationEnvelopeText(query))
-  ) {
+  if (looksLikeAutomationEnvelopeText(rawUserQuery) || looksLikeAutomationEnvelopeText(query)) {
     return 'automation-envelope';
-  }
-  if (source.includes('direct-thread') || surface.includes('direct-thread')) {
-    return 'direct-thread-follow-up';
-  }
-  if (source.includes('system') || source.includes('tool')) {
-    return 'system-or-tool-continuation';
   }
   if (isStatusOnlyQuery(query)) {
     return 'status-or-readonly';
   }
-  if (input.hostIntentFrame || query) {
+  if (query) {
     return 'user-intent';
   }
   return 'unknown';
-}
-
-function hasCuratedHostDeclaredIntent(frame: HostIntentFrame | undefined): boolean {
-  const declared = frame?.hostDeclaredIntent;
-  return Boolean(
-    declared?.query?.trim() ||
-      declared?.summary?.trim() ||
-      declared?.goal?.trim() ||
-      declared?.action?.trim()
-  );
 }
 
 function classifyIntentKind(
@@ -326,7 +299,9 @@ function classifyIntentKind(
   inputSource: TaskLifecycleInputSource,
   query: string
 ): TaskLifecycleIntentKind {
-  const action = input.hostIntentFrame?.recognizedIntentDraft.action.toLowerCase() ?? '';
+  // Action-keyword detection came from the retired intent frame; intent kind now
+  // derives from query/operation/inputSource only.
+  const action: string = '';
   if (inputSource === 'automation-envelope') {
     return 'automation-control';
   }
@@ -365,14 +340,10 @@ function matchesAny(value: string, patterns: readonly RegExp[]): boolean {
 function decidePrime(
   inputSource: TaskLifecycleInputSource,
   intentKind: TaskLifecycleIntentKind,
-  hostIntentFrame: HostIntentFrame | undefined,
   query: string
 ): PrimeDecision {
-  const sourceRefs = hostIntentFrame?.recognizedIntentDraft.sourceRefs ?? [];
-  const keywords = uniqueStrings([
-    ...(hostIntentFrame?.hostDeclaredIntent?.keywords ?? []),
-    ...(hostIntentFrame?.hostDeclaredIntent?.labels ?? []),
-  ]);
+  const sourceRefs: string[] = [];
+  const keywords: string[] = [];
   if (!query.trim()) {
     return { action: 'skip', reasonCode: 'no-semantic-query' };
   }

@@ -176,8 +176,8 @@ export interface PrimeKnowledgeMaterial {
 }
 
 /**
- * Structured prime requirement context — replaces the removed ExtractedIntent /
- * HostIntentFrame intake objects (PDR-1d). Carries only the query/scenario and
+ * Structured prime requirement context — replaces the removed intent-frame
+ * intake objects (PDR-1d). Carries only the query/scenario and
  * the requirement-frame gate fields the trust gate needs.
  */
 interface PrimeRequirementContext {

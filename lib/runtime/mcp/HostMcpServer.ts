@@ -13,7 +13,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import {
   type HostTurnMetaInput,
   readHostTurnMetaFromMcpRequest,
-} from '#service/task/HostIntentFrame.js';
+} from '#service/task/host-turn-meta.js';
 import { SetupService } from '../../cli/SetupService.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import {
