@@ -20,7 +20,6 @@ import { markInterruptedDaemonJobs } from '../lib/daemon/DaemonJobRunner.js';
 import HttpServer from '../lib/http/HttpServer.js';
 import { getLatestSchemaMigrationVersion } from '../lib/infrastructure/database/SqliteDatabaseAccess.js';
 import { getServiceContainer } from '../lib/injection/ServiceContainer.js';
-import { GitDiffCheckpointService } from '../lib/service/evolution/git-diff-checkpoint/index.js';
 import { getPackageVersion } from '../lib/shared/package-assets.js';
 import { shutdown } from '../lib/shared/shutdown.js';
 
@@ -100,11 +99,6 @@ async function main() {
   }
 
   const httpServer = await startHttpServer(requestedPort, host);
-  registerDaemonGitDiffCheckpoint({
-    container,
-    logger,
-    projectRoot,
-  });
   const actualPort = resolveBoundDaemonPort(httpServer, requestedPort);
   const daemonUrl = buildDaemonUrl(host, actualPort);
   await verifyHttpServerReady(daemonUrl);
@@ -155,23 +149,6 @@ async function main() {
         'Resident or embedded runtime shut down before this job completed. Start a new job to retry.',
     });
   }, 'recoverable-job-cleanup');
-}
-
-function registerDaemonGitDiffCheckpoint(options: {
-  container: ReturnType<typeof getServiceContainer>;
-  logger: ReturnType<typeof Logger.getInstance>;
-  projectRoot: string;
-}): GitDiffCheckpointService {
-  const dispatcher = options.container.get(
-    'fileChangeDispatcher'
-  ) as import('../lib/service/FileChangeDispatcher.js').FileChangeDispatcher;
-  const checkpoint = new GitDiffCheckpointService({
-    projectRoot: options.projectRoot,
-    dispatcher,
-    logger: options.logger,
-  });
-  options.container.singletons.gitDiffCheckpoint = checkpoint;
-  return checkpoint;
 }
 
 function resolveBoundDaemonPort(httpServer: HttpServer, requestedPort: number): number {

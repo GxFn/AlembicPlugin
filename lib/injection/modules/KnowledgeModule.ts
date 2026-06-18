@@ -49,8 +49,6 @@ import {
   resolveKnowledgeScanDirs,
   resolveProjectRoot,
 } from '@alembic/core/workspace';
-import { FileChangeHandler } from '../../service/evolution/FileChangeHandler.js';
-import { FileChangeDispatcher } from '../../service/FileChangeDispatcher.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 interface VectorRuntimeRoot {
@@ -242,7 +240,6 @@ function registerEvolutionServices(c: ServiceContainer) {
   registerEvolutionAnalysisServices(c);
   registerEvolutionWorkflowServices(c);
   registerRecipeProductionServices(c);
-  registerFileChangeServices(c);
 }
 
 function registerEvolutionAnalysisServices(c: ServiceContainer) {
@@ -377,32 +374,6 @@ function registerRecipeProductionServices(c: ServiceContainer) {
       >[0]['evolutionGateway'],
       findSimilarRecipes,
     });
-  });
-}
-
-function registerFileChangeServices(c: ServiceContainer) {
-  c.singleton('fileChangeHandler', (ct: ServiceContainer) => {
-    const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    const contentPatcher = ct.get('contentPatcher') as ContentPatcher;
-    const gateway = ct.get('evolutionGateway') as EvolutionGateway;
-    const dataRoot = resolveDataRoot(ct) as string;
-    const projectRoot = resolveProjectRoot(ct);
-    return new FileChangeHandler(sourceRefRepo, knowledgeRepo, contentPatcher, {
-      signalBus:
-        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
-        undefined,
-      evolutionGateway: gateway,
-      dataRoot,
-      projectRoot,
-    });
-  });
-
-  c.singleton('fileChangeDispatcher', (ct: ServiceContainer) => {
-    const dispatcher = new FileChangeDispatcher();
-    const handler = ct.get('fileChangeHandler') as FileChangeHandler;
-    dispatcher.register(handler);
-    return dispatcher;
   });
 }
 
