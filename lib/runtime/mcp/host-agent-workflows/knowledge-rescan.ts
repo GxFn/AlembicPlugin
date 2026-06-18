@@ -38,6 +38,7 @@ import {
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
+import { buildRecipeSemanticRegionVectors } from './recipe-region-vector.js';
 
 /** MCP handler context */
 interface McpContext {
@@ -129,7 +130,18 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
   // NOTE: 不在 rescan 中调用 VectorService.fullBuild()
   // 理由：fullBuild 依赖外部 embedding API（LLM），在 MCP handler 同步路径中
   // 引入 LLM 调用不合理（无超时、可能阻塞、需要 API key）。
-  // 向量索引会在后续 Agent 提交新知识时由 SyncCoordinator 增量更新。
+  // 主知识向量索引会在后续 Agent 提交新知识时由 SyncCoordinator 增量更新。
+
+  // 2.5b (PDR-2b): Recipe 语义区向量构建。region 向量是独立 chunk 类型
+  // (type=recipe-semantic-region)，不由 SyncCoordinator 增量维护，需在此显式重建，
+  // 使无主体 prime 能检索到 recipe-semantic-region 证据（全质量、不降级 lexical）。
+  // 与 fullBuild 不同：本调用 embed-gated（仅本地 Ollama embed 可用时执行）且非阻塞，
+  // embed 不可用即跳过、不触碰已有索引、不阻断 rescan。
+  await buildRecipeSemanticRegionVectors({
+    container: ctx.container,
+    logger: ctx.logger,
+    logPrefix: 'Rescan',
+  });
 
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
     maxFiles: plan.projectAnalysis.scan.maxFiles,
