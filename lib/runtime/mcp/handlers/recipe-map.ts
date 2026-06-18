@@ -186,12 +186,18 @@ function buildRecipeContextService(
   if (!knowledge || !sourceRefRepository) {
     return null;
   }
+  // PDR-2b: wire VectorService so the region lane (searchRegions, Core-fixed) is
+  // active; absent it the RecipeContextService degrades to no region retrieval.
+  const vectorService = safeGet(ctx, 'vectorService');
   try {
     return createRecipeContextServiceFromCore({
       knowledge: knowledge as Parameters<typeof createRecipeContextServiceFromCore>[0]['knowledge'],
       sourceRefRepository: sourceRefRepository as Parameters<
         typeof createRecipeContextServiceFromCore
       >[0]['sourceRefRepository'],
+      vectorService: (vectorService ?? null) as Parameters<
+        typeof createRecipeContextServiceFromCore
+      >[0]['vectorService'],
     });
   } catch {
     return null;
