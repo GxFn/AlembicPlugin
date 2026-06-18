@@ -1,6 +1,6 @@
-import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/codex-local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/core-tools/output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/knowledge-context-tools/output.js';
+import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/local-tools/output.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolResidentRoutePolicy,
@@ -277,7 +277,7 @@ export const PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES = [
     status: 'preserved-with-owner',
     validationRefs: [
       'test/unit/CodexProjectRootResolver.test.ts',
-      'test/unit/CodexMcpServer.test.ts',
+      'test/unit/HostMcpServer.test.ts',
       'test/unit/PluginHostLegacyRewriteContract.test.ts',
     ],
   },

@@ -1,5 +1,5 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import type { CodexKnowledgeState } from '../runtime/KnowledgeState.js';
+import type { HostKnowledgeState } from '../runtime/KnowledgeState.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
   CODEX_DEFAULT_MCP_TIER,
@@ -24,7 +24,7 @@ export interface CodexToolPolicyInput<T extends CodexToolDefinition = CodexToolD
     ready?: boolean;
     status?: string;
   };
-  knowledge: CodexKnowledgeState;
+  knowledge: HostKnowledgeState;
   residentProjectScopeAvailable?: boolean;
   tierName?: string;
   tierOrder: Record<string, number>;
@@ -128,7 +128,7 @@ export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
 ]);
 
 export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
-  'alembic_codex_dashboard',
+  'alembic_dashboard',
   'alembic_job',
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
@@ -172,7 +172,7 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     }),
   },
   {
-    name: 'alembic_codex_dashboard',
+    name: 'alembic_dashboard',
     tier: 'agent',
     description:
       'Return the local Alembic Dashboard URL only when the selected project already has a local Alembic daemon with Dashboard capability. If unavailable, fail closed with status and diagnostics next actions.',
@@ -295,7 +295,7 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
   };
 }
 
-export function allowedCodexToolNames(knowledge: CodexKnowledgeState): Set<string> {
+export function allowedCodexToolNames(knowledge: HostKnowledgeState): Set<string> {
   if (knowledge.usable) {
     return new Set([
       ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
@@ -314,14 +314,14 @@ export function allowedCodexToolNames(knowledge: CodexKnowledgeState): Set<strin
 
 export function isCodexProjectSkillDeliveryToolVisible(
   name: string,
-  knowledge: CodexKnowledgeState
+  knowledge: HostKnowledgeState
 ): boolean {
   return knowledge.initialized && CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES.has(name);
 }
 
 export function isToolAllowedForCodexKnowledge(
   name: string,
-  knowledge: CodexKnowledgeState
+  knowledge: HostKnowledgeState
 ): boolean {
   if (knowledge.usable) {
     return true;

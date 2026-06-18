@@ -14,9 +14,9 @@ const coreSource = resolveCoreSource({ requireDist: true });
 const corePackage = readJson(join(coreSource.path, 'package.json'));
 
 const requiredBuildArtifacts = [
-  'dist/bin/codex-mcp.js',
+  'dist/bin/host-mcp.js',
   'dist/bin/daemon-server.js',
-  'dist/lib/runtime/mcp/CodexMcpServer.js',
+  'dist/lib/runtime/mcp/HostMcpServer.js',
 ];
 
 for (const artifact of requiredBuildArtifacts) {
@@ -64,7 +64,7 @@ process.stdout.write(
       packageName: sourceManifest.name,
       packageVersion: rootPackage.version,
       corePackage: `${corePackage.name}@${corePackage.version}`,
-      entrypoint: 'dist/bin/codex-mcp.js',
+      entrypoint: 'dist/bin/host-mcp.js',
       sourceManifest: sourceManifestPath,
     },
     null,

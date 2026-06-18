@@ -14,12 +14,12 @@ import {
 } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
-import type { CodexEnhancementRouteChoice } from '../../runtime/EnhancementRoute.js';
+import type { HostEnhancementRouteChoice } from '../../runtime/EnhancementRoute.js';
 import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import { readCodexPluginMcpDeclaration } from '../../runtime/PluginRegistry.js';
 import type { CodexProjectRootResolution } from '../../runtime/ProjectRootResolver.js';
-import type { CodexRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
-import { resolveCodexRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
+import type { HostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
+import { resolveHostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
 import type {
   AlembicResidentProjectScopeIdentity,
   ResidentSearchAttemptMeta,
@@ -161,21 +161,21 @@ export interface CodexAlembicRuntimeSourceOfTruth {
 
 export interface BuildCodexProjectRuntimeContextOptions {
   daemonStatus?: DaemonStatus | null;
-  enhancementRoute?: CodexEnhancementRouteChoice | null;
+  enhancementRoute?: HostEnhancementRouteChoice | null;
   hostProjectAlignment?: CodexHostProjectAlignment | null;
   includeOptionalServices?: boolean;
   projectRoot: string;
   projectRootResolution?: CodexProjectRootResolution | null;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity | null;
   requiredServices?: readonly ProjectRuntimeRequiredService[];
-  runtime?: CodexRuntimeContext;
+  runtime?: HostRuntimeContext;
 }
 
 export function buildCodexProjectRuntimeContext(
   options: BuildCodexProjectRuntimeContextOptions
 ): CodexProjectRuntimeContext {
   const projectRoot = resolve(options.projectRoot);
-  const runtime = options.runtime ?? resolveCodexRuntimeContext();
+  const runtime = options.runtime ?? resolveHostRuntimeContext();
   const resolver = WorkspaceResolver.fromProject(projectRoot, {
     currentFolderId: options.projectScopeIdentity?.currentFolderId ?? undefined,
   });
@@ -321,7 +321,7 @@ function buildProjectRuntimeIdentity(input: {
 
 function buildRequiredServiceReadiness(input: {
   daemonStatus: DaemonStatus | null;
-  enhancementRoute: CodexEnhancementRouteChoice | null;
+  enhancementRoute: HostEnhancementRouteChoice | null;
   hostProjectAlignment: CodexHostProjectAlignment | null;
   identity: ProjectRuntimeIdentityContract;
   includeOptionalServices: boolean;
@@ -350,7 +350,7 @@ function isServiceAvailable(
   service: ProjectRuntimeRequiredService,
   input: {
     daemonStatus: DaemonStatus | null;
-    enhancementRoute: CodexEnhancementRouteChoice | null;
+    enhancementRoute: HostEnhancementRouteChoice | null;
     hostProjectAlignment: CodexHostProjectAlignment | null;
     identity: ProjectRuntimeIdentityContract;
     projectRootResolution: CodexProjectRootResolution | null;
@@ -529,7 +529,7 @@ function summarizeReadiness(
   return 'ready';
 }
 
-function detectCodexMcpEntryMode(runtime: CodexRuntimeContext): CodexProjectRuntimeEntryMode {
+function detectCodexMcpEntryMode(runtime: HostRuntimeContext): CodexProjectRuntimeEntryMode {
   // Shared per-host declaration reader: .mcp.json (Codex shell, historical
   // byte-identical behavior) or the inline .claude-plugin manifest mcpServers
   // (Claude Code shell). Fixes the mode=unknown meta riding F-V2-2.
@@ -542,7 +542,7 @@ function detectCodexMcpEntryMode(runtime: CodexRuntimeContext): CodexProjectRunt
   const mode = args.some((arg) => arg.endsWith('alembic-start.mjs'))
     ? 'marketplace-shell'
     : args.some(
-          (arg) => arg.endsWith('/dist/bin/codex-mcp.js') || arg.endsWith('dist/bin/codex-mcp.js')
+          (arg) => arg.endsWith('/dist/bin/host-mcp.js') || arg.endsWith('dist/bin/host-mcp.js')
         )
       ? 'local-dev-direct-dist'
       : 'unknown';

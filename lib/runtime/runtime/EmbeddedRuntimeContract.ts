@@ -1,7 +1,7 @@
 export const CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES = [
-  'dist/bin/codex-mcp.js',
+  'dist/bin/host-mcp.js',
   'dist/bin/daemon-server.js',
-  'dist/lib/runtime/mcp/CodexMcpServer.js',
+  'dist/lib/runtime/mcp/HostMcpServer.js',
   '.alembic-runtime-boundary.json',
 ] as const;
 

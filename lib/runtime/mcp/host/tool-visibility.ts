@@ -3,14 +3,14 @@ import {
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_TIER_ENV,
   CODEX_PROJECT_ROOT_PROPERTY,
-  type CodexKnowledgeState,
   EMPTY_CODEX_KNOWLEDGE_STATE,
+  type HostKnowledgeState,
   inspectCodexKnowledge,
   isTrustedCodexProjectRoot,
   resolveCodexProjectRoot,
   resolveCodexToolPolicy,
 } from '../../../runtime/index.js';
-import '../../../runtime/mcp/codex-local-tools/output.js';
+import '../../../runtime/mcp/local-tools/output.js';
 import { safeProjectRootFallback } from '../../../runtime/mcp/host/project-root.js';
 import { withMcpOutputSchema } from '../../../runtime/mcp/output-contract.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../../../runtime/mcp/tools.js';
@@ -38,7 +38,7 @@ export function getVisibleCodexTools(
     .map(withCodexProjectRootInput);
 }
 
-function buildExplicitProjectRootRequiredKnowledgeState(): CodexKnowledgeState {
+function buildExplicitProjectRootRequiredKnowledgeState(): HostKnowledgeState {
   return {
     ...EMPTY_CODEX_KNOWLEDGE_STATE,
     initialized: true,

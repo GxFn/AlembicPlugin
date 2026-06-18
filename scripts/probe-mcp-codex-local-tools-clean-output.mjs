@@ -8,7 +8,7 @@ import {
   CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES,
   CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   findForbiddenCodexLocalOutputField,
-} from '../dist/lib/runtime/mcp/codex-local-tools/output.js';
+} from '../dist/lib/runtime/mcp/local-tools/output.js';
 import {
   serializeMcpToolResult,
   withMcpOutputSchema,

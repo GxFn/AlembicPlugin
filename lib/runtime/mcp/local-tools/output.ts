@@ -9,7 +9,7 @@ import {
 export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_status',
   'alembic_mcp_init',
-  'alembic_codex_dashboard',
+  'alembic_dashboard',
   'alembic_job',
   'alembic_runtime',
 ] as const;
@@ -114,7 +114,7 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'stopped',
     'targets',
   ],
-  alembic_codex_dashboard: ['dashboardUrl', 'needsUserInput', 'nextActions', 'reasonCode'],
+  alembic_dashboard: ['dashboardUrl', 'needsUserInput', 'nextActions', 'reasonCode'],
   // MTC-4: union of the merged alembic_health (resident) + alembic_mcp_status +
   // alembic_codex_diagnostics business fields, projected for both shells.
   alembic_status: [
@@ -193,7 +193,7 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
       ? input.business.businessSummary
       : 'Alembic status checked.',
   alembic_mcp_init: () => 'Alembic Codex workspace initialized.',
-  alembic_codex_dashboard: (input) =>
+  alembic_dashboard: (input) =>
     input.business.dashboardUrl
       ? 'Alembic Dashboard handoff ready.'
       : 'Alembic Dashboard handoff checked.',
@@ -387,7 +387,7 @@ function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputT
   if (toolName === 'alembic_job' && out.errorCode) {
     out.reasonCode = out.errorCode;
   }
-  if (toolName === 'alembic_codex_dashboard' && out.errorCode) {
+  if (toolName === 'alembic_dashboard' && out.errorCode) {
     out.reasonCode = out.errorCode;
   }
   return out;

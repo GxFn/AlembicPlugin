@@ -2,7 +2,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import '../dist/lib/runtime/mcp/codex-local-tools/output.js';
+import '../dist/lib/runtime/mcp/local-tools/output.js';
 import '../dist/lib/runtime/mcp/core-tools/output.js';
 import {
   serializeMcpToolResult,

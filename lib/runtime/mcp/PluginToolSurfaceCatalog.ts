@@ -3,9 +3,9 @@ import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 export type PluginToolSurfaceOwner = 'codex-local' | 'plugin-embedded-core';
 
 export type PluginToolHandlerOwner =
-  | 'CodexMcpServer.local'
-  | 'CodexMcpServer.resident-dashboard'
-  | 'CodexMcpServer.resident-jobs'
+  | 'HostMcpServer.local'
+  | 'HostMcpServer.resident-dashboard'
+  | 'HostMcpServer.resident-jobs'
   | 'McpServer.host-agent-bootstrap'
   | 'McpServer.host-agent-dimension-completion'
   | 'McpServer.host-agent-evolution'
@@ -117,7 +117,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
   alembic_status: catalogEntry({
     name: 'alembic_status',
     owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.local',
+    handlerOwner: 'HostMcpServer.local',
     tier: 'agent',
     schema: 'StatusInput',
     annotations: readOnlyTool('Check Alembic Status'),
@@ -128,7 +128,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
   alembic_mcp_init: catalogEntry({
     name: 'alembic_mcp_init',
     owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.local',
+    handlerOwner: 'HostMcpServer.local',
     tier: 'agent',
     schema: 'CodexInitInput',
     annotations: localWriteTool('Initialize Alembic Codex Workspace', true),
@@ -136,10 +136,10 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'none',
   }),
-  alembic_codex_dashboard: catalogEntry({
-    name: 'alembic_codex_dashboard',
+  alembic_dashboard: catalogEntry({
+    name: 'alembic_dashboard',
     owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.resident-dashboard',
+    handlerOwner: 'HostMcpServer.resident-dashboard',
     tier: 'agent',
     schema: 'CodexDashboardInput',
     annotations: localWriteTool('Start Alembic Dashboard', true),
@@ -153,7 +153,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
   alembic_job: catalogEntry({
     name: 'alembic_job',
     owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.resident-jobs',
+    handlerOwner: 'HostMcpServer.resident-jobs',
     tier: 'agent',
     schema: 'CodexJobInput',
     annotations: aiBackedWriteTool('Run Or Read Recoverable Alembic Job'),
@@ -167,7 +167,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
   alembic_runtime: catalogEntry({
     name: 'alembic_runtime',
     owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.local',
+    handlerOwner: 'HostMcpServer.local',
     tier: 'agent',
     schema: 'CodexRuntimeInput',
     annotations: destructiveTool('Control Alembic Daemon Runtime'),

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
-import type { CodexKnowledgeState } from '../../runtime/KnowledgeState.js';
+import type { HostKnowledgeState } from '../../runtime/KnowledgeState.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolSurfaceEntry,
@@ -83,7 +83,7 @@ export interface BuildCodexOnboardingContractInput {
   dimensions?: unknown;
   fileCount?: number | null;
   hostProjectAlignment?: CodexHostProjectAlignment;
-  knowledge?: CodexKnowledgeState;
+  knowledge?: HostKnowledgeState;
   moduleCount?: number | null;
   primaryLanguage?: string | null;
   projectRoot: string;

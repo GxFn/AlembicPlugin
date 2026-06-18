@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { CodexMcpServer } from '../dist/lib/runtime/mcp/CodexMcpServer.js';
+import { HostMcpServer } from '../dist/lib/runtime/mcp/HostMcpServer.js';
 import { serializeMcpToolResult } from '../dist/lib/runtime/mcp/output-contract.js';
 import * as toolsModule from '../dist/lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../dist/lib/shared/schemas/mcp-tools.js';
@@ -31,7 +31,7 @@ if (Object.hasOwn(TOOL_SCHEMAS, 'alembic_task')) {
   issues.push('TOOL_SCHEMAS still exposes alembic_task');
 }
 
-const server = new CodexMcpServer({ projectRoot: process.cwd() });
+const server = new HostMcpServer({ projectRoot: process.cwd() });
 const retiredDirectCall = await server.handleToolCall('alembic_task', {
   operation: 'prime',
   userQuery: 'T6 retired direct-call probe',

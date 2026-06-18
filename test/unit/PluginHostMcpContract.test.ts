@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/codex-local-tools/output.js';
+import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
 import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
@@ -115,7 +115,7 @@ describe('Plugin host MCP D4 contract', () => {
     ]);
     expect(residentCatalogEntries.map((entry) => [entry.name, entry.residentRoutePolicy])).toEqual([
       ['alembic_code_guard', 'resident-project-scope'],
-      ['alembic_codex_dashboard', 'dashboard-handoff'],
+      ['alembic_dashboard', 'dashboard-handoff'],
       ['alembic_job', 'resident-or-embedded-jobs'],
       ['alembic_prime', 'resident-project-scope'],
       ['alembic_recipe_map', 'resident-project-scope'],

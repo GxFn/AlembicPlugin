@@ -84,7 +84,7 @@ try {
     'package/package.json',
     'package/dist/bin/codex-mcp.js',
     'package/dist/bin/daemon-server.js',
-    'package/dist/lib/runtime/mcp/CodexMcpServer.js',
+    'package/dist/lib/runtime/mcp/HostMcpServer.js',
     'package/resources/grammars/tree-sitter-typescript.wasm',
     'package/.alembic-runtime-boundary.json',
   ]) {
@@ -141,8 +141,8 @@ try {
       '--input-type=module',
       '--eval',
       `const mod = await import(${JSON.stringify(
-        join(installedRoot, 'dist', 'lib', 'runtime', 'mcp', 'CodexMcpServer.js')
-      )}); if (typeof mod.startCodexMcpServer !== 'function') throw new Error('missing startCodexMcpServer');`,
+        join(installedRoot, 'dist', 'lib', 'runtime', 'mcp', 'HostMcpServer.js')
+      )}); if (typeof mod.startHostMcpServer !== 'function') throw new Error('missing startHostMcpServer');`,
     ],
     { cwd: installRoot, timeout: 15000 }
   );

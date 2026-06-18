@@ -12,7 +12,7 @@ import {
   type ProjectRegistryInspection,
 } from '@alembic/core/workspace';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
-import type { CodexEnhancementRouteChoice } from '../runtime/EnhancementRoute.js';
+import type { HostEnhancementRouteChoice } from '../runtime/EnhancementRoute.js';
 import type { AlembicResidentProjectScopeIdentity } from '../service/resident/AlembicResidentServiceClient.js';
 
 export type CodexHostProjectConnectionState =
@@ -87,7 +87,7 @@ interface RuntimeControlReadResult {
 
 export function buildCodexHostProjectAlignment(input: {
   daemonStatus: DaemonStatus;
-  enhancementRoute?: CodexEnhancementRouteChoice | null;
+  enhancementRoute?: HostEnhancementRouteChoice | null;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity | null;
   projectRoot: string;
 }): CodexHostProjectAlignment {
@@ -332,7 +332,7 @@ function buildAlignmentNextActions(state: CodexHostProjectConnectionState): stri
 }
 
 function projectFromResidentServiceScope(
-  enhancementRoute?: CodexEnhancementRouteChoice | null
+  enhancementRoute?: HostEnhancementRouteChoice | null
 ): CodexAlignedProjectSummary | null {
   const status = enhancementRoute?.localAlembic.daemon.residentService?.status;
   if (!status || status.route !== 'local-alembic-daemon' || status.owner !== 'alembic') {

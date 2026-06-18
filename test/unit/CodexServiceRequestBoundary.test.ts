@@ -36,7 +36,7 @@ describe('Codex service request boundary', () => {
   });
 
   it('marks dashboard and recoverable job tools as explicit resident service requests', () => {
-    for (const tool of ['alembic_codex_dashboard', 'alembic_job']) {
+    for (const tool of ['alembic_dashboard', 'alembic_job']) {
       expect(resolveCodexServiceRequestBoundary(tool, {})).toMatchObject({
         executionPath: 'plugin-owned-codex-facing',
         owner: 'alembic-plugin',

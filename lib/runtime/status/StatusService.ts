@@ -6,14 +6,14 @@ import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import { buildCodexRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
 import {
-  buildCodexEnhancementRouteChoice,
-  type CodexEnhancementRouteChoice,
+  buildHostEnhancementRouteChoice,
+  type HostEnhancementRouteChoice,
 } from '../../runtime/EnhancementRoute.js';
 import {
   buildCodexHostProjectAlignment,
   type CodexHostProjectAlignment,
 } from '../../runtime/HostProjectAlignment.js';
-import { type CodexKnowledgeState, inspectCodexKnowledge } from '../../runtime/KnowledgeState.js';
+import { type HostKnowledgeState, inspectCodexKnowledge } from '../../runtime/KnowledgeState.js';
 import { buildCodexModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
 import {
   buildCodexProjectRootRequiredActions,
@@ -25,8 +25,8 @@ import {
 } from '../../runtime/ProjectRootResolver.js';
 import { buildCodexProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
 import {
-  type CodexRuntimeContext,
-  resolveCodexRuntimeContext,
+  type HostRuntimeContext,
+  resolveHostRuntimeContext,
 } from '../../runtime/runtime/RuntimeContext.js';
 import { buildCodexStatusOnboardingContract } from '../../runtime/status/OnboardingContract.js';
 import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
@@ -46,7 +46,7 @@ export interface CodexRecommendedAction {
 export interface CodexStatusServiceOptions {
   autoInit?: Record<string, unknown>;
   projectRootResolution?: CodexProjectRootResolution;
-  runtime?: CodexRuntimeContext;
+  runtime?: HostRuntimeContext;
   supervisor?: CodexDaemonStatusProvider;
 }
 
@@ -115,9 +115,9 @@ export interface CodexStatusData {
 interface CodexStatusOnboardingInput {
   daemonStatus: DaemonStatus;
   diagnostics: Record<string, unknown>;
-  enhancementRoute?: CodexEnhancementRouteChoice;
+  enhancementRoute?: HostEnhancementRouteChoice;
   hostProjectAlignment?: CodexHostProjectAlignment;
-  knowledge: CodexKnowledgeState;
+  knowledge: HostKnowledgeState;
   projectRootResolution?: CodexProjectRootResolution;
   workspace?: {
     ghost: boolean;
@@ -137,11 +137,11 @@ export async function buildCodexStatus(
   const supervisor = options.supervisor || new DaemonSupervisor();
   const daemonStatus = await supervisor.status(projectRoot);
   const knowledge = inspectCodexKnowledge(projectRoot);
-  const runtime = options.runtime || resolveCodexRuntimeContext();
+  const runtime = options.runtime || resolveHostRuntimeContext();
   const residentClient = new AlembicResidentServiceClient({ projectRoot });
   const residentService = await residentClient.probe({ daemonStatus });
   const projectScopeIdentity = await residentClient.resolveProjectScopeIdentity({ daemonStatus });
-  const enhancementRoute = buildCodexEnhancementRouteChoice({
+  const enhancementRoute = buildHostEnhancementRouteChoice({
     daemonStatus,
     runtime,
     requirement: 'status',
@@ -233,7 +233,7 @@ export async function buildCodexStatus(
       stateExists: existsSync(daemonStatePath),
       pidExists: existsSync(daemonPidPath),
     },
-    knowledge: summarizeCodexKnowledgeState(knowledge),
+    knowledge: summarizeHostKnowledgeState(knowledge),
     autoInit: summarizeCodexAutoInitStatus(autoInit),
     onboarding: summarizeCodexOnboarding(onboarding),
     nextActions: buildCodexActionLabels(onboarding.nextActions),
@@ -242,7 +242,7 @@ export async function buildCodexStatus(
 
 function buildCodexAutoInitStatus(
   projectRoot: string,
-  knowledge: CodexKnowledgeState,
+  knowledge: HostKnowledgeState,
   projectRootResolution: CodexProjectRootResolution,
   options: { runtimeState?: Record<string, unknown> } = {}
 ): Record<string, unknown> {
@@ -320,9 +320,7 @@ function summarizeCompactCodexDaemonStatus(
   };
 }
 
-function summarizeCodexKnowledgeState(
-  knowledge: CodexKnowledgeState
-): CodexStatusData['knowledge'] {
+function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): CodexStatusData['knowledge'] {
   const jobs = asPlainRecord(knowledge.jobs) || {};
   return {
     initialized: knowledge.initialized,
@@ -449,9 +447,7 @@ function buildCodexAgentPrimeAction(input: {
   });
 }
 
-export function buildCodexPostInitActions(
-  knowledge: CodexKnowledgeState
-): CodexRecommendedAction[] {
+export function buildCodexPostInitActions(knowledge: HostKnowledgeState): CodexRecommendedAction[] {
   if (knowledge.usable) {
     return [
       buildCodexAgentPrimeAction({
@@ -474,14 +470,14 @@ export function buildCodexPostInitActions(
   ];
 }
 
-export function buildCodexPostInitMessage(knowledge: CodexKnowledgeState): string {
+export function buildCodexPostInitMessage(knowledge: HostKnowledgeState): string {
   return knowledge.usable
     ? 'Alembic Codex workspace initialized with usable project knowledge. Next: prime agent context or run host-agent rescan.'
     : 'Alembic Codex workspace initialized. Next: run Codex host-agent bootstrap to build the first usable project knowledge.';
 }
 
 export function buildCodexKnowledgeGateActions(
-  knowledge: CodexKnowledgeState
+  knowledge: HostKnowledgeState
 ): CodexRecommendedAction[] {
   const actions = [
     buildCodexRecommendedAction({
@@ -741,7 +737,7 @@ export function buildCodexStatusOnboarding(
         label: 'Open Dashboard',
         reason: 'Inspect jobs, candidates, and project knowledge in the local UI.',
         startsDaemon: !daemonReady,
-        tool: 'alembic_codex_dashboard',
+        tool: 'alembic_dashboard',
       }),
     ],
     notes: daemonReady
@@ -801,7 +797,7 @@ function buildCodexHostProjectAlignmentNotes(alignment?: CodexHostProjectAlignme
   ];
 }
 
-function buildCodexRouteBoundaryNotes(enhancementRoute?: CodexEnhancementRouteChoice): string[] {
+function buildCodexRouteBoundaryNotes(enhancementRoute?: HostEnhancementRouteChoice): string[] {
   if (!enhancementRoute) {
     return [
       'Codex host-agent workflows write source=host-agent and remain separate from Alembic resident daemon job provider configuration.',

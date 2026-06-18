@@ -108,10 +108,10 @@ try {
   process.env.CODEX_WORKSPACE_DIR = projectRoot;
   process.env.ALEMBIC_QUIET = '1';
 
-  const { CodexMcpServer } = await import(
-    pathToFileURL(join(packageRoot, 'dist', 'lib', 'runtime', 'mcp', 'CodexMcpServer.js')).href
+  const { HostMcpServer } = await import(
+    pathToFileURL(join(packageRoot, 'dist', 'lib', 'runtime', 'mcp', 'HostMcpServer.js')).href
   );
-  server = new CodexMcpServer({ projectRoot, waitUntilReadyMs: 10000 });
+  server = new HostMcpServer({ projectRoot, waitUntilReadyMs: 10000 });
 
   const diagnostics = await server.handleToolCall('alembic_codex_diagnostics', {});
   assertResult(diagnostics, 'diagnostics');
@@ -246,7 +246,7 @@ function requiredPackageFiles() {
     'package/.agents/plugins/marketplace.json',
     'package/dist/bin/codex-mcp.js',
     'package/dist/bin/daemon-server.js',
-    'package/dist/lib/runtime/mcp/CodexMcpServer.js',
+    'package/dist/lib/runtime/mcp/HostMcpServer.js',
     'package/packages/alembic-runtime/package.json',
     'package/plugins/alembic-codex/.codex-plugin/plugin.json',
     'package/plugins/alembic-codex/.agents/plugins/marketplace.json',
@@ -271,7 +271,7 @@ function requiredRuntimePackageFiles() {
   return [
     'dist/bin/codex-mcp.js',
     'dist/bin/daemon-server.js',
-    'dist/lib/runtime/mcp/CodexMcpServer.js',
+    'dist/lib/runtime/mcp/HostMcpServer.js',
     '.alembic-runtime-boundary.json',
   ];
 }

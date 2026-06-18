@@ -14,8 +14,8 @@ import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import {
   CODEX_RUNTIME_PACKAGE,
-  type CodexRuntimeContext,
-  resolveCodexRuntimeContext,
+  type HostRuntimeContext,
+  resolveHostRuntimeContext,
 } from '../runtime/runtime/RuntimeContext.js';
 
 export type CodexEnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
@@ -121,7 +121,7 @@ export interface CodexLocalAlembicInstallProbe {
   version: string | null;
 }
 
-export interface CodexEnhancementRouteChoice {
+export interface HostEnhancementRouteChoice {
   embeddedRuntime: {
     artifact: string;
     available: boolean;
@@ -150,13 +150,13 @@ export interface CodexEnhancementRouteChoice {
   selected: CodexEnhancementRouteKind;
 }
 
-export function buildCodexEnhancementRouteChoice(input: {
+export function buildHostEnhancementRouteChoice(input: {
   daemonStatus: DaemonStatus;
   localInstall?: CodexLocalAlembicInstallProbe;
   requirement?: CodexEnhancementRequirement;
-  runtime?: CodexRuntimeContext;
-}): CodexEnhancementRouteChoice {
-  const runtime = input.runtime || resolveCodexRuntimeContext();
+  runtime?: HostRuntimeContext;
+}): HostEnhancementRouteChoice {
+  const runtime = input.runtime || resolveHostRuntimeContext();
   const requirement = input.requirement || 'status';
   const daemon = summarizeEnhancementDaemon(input.daemonStatus);
   const localInstall = input.localInstall || probeLocalAlembicInstall();
@@ -554,7 +554,7 @@ function findMissingCapabilities(
 
 function summarizeResidentDaemonJobProvider(
   health: Record<string, unknown> | null
-): CodexEnhancementRouteChoice['residentDaemonJobProvider'] {
+): HostEnhancementRouteChoice['residentDaemonJobProvider'] {
   const data = asRecord(health?.data);
   const capabilities = asRecord(data?.capabilities);
   const contractApiAi = asRecord(capabilities?.apiAi);
@@ -576,7 +576,7 @@ function summarizeResidentDaemonJobProvider(
 
 function readConfigSource(
   value: unknown
-): CodexEnhancementRouteChoice['residentDaemonJobProvider']['configSource'] {
+): HostEnhancementRouteChoice['residentDaemonJobProvider']['configSource'] {
   return value === 'empty' ||
     value === 'process-env' ||
     value === 'runtime-overrides' ||

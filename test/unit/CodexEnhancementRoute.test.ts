@@ -2,7 +2,7 @@ import { createAlembicResidentServiceStatus } from '@alembic/core/daemon';
 import { describe, expect, it } from 'vitest';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import {
-  buildCodexEnhancementRouteChoice,
+  buildHostEnhancementRouteChoice,
   summarizeEnhancementDaemon,
 } from '../../lib/runtime/EnhancementRoute.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
@@ -121,7 +121,7 @@ describe('Codex enhancement route resolver', () => {
       }
     );
 
-    const route = buildCodexEnhancementRouteChoice({
+    const route = buildHostEnhancementRouteChoice({
       daemonStatus,
       localInstall: LOCAL_INSTALL_UNAVAILABLE,
       requirement: 'jobs',
@@ -221,7 +221,7 @@ describe('Codex enhancement route resolver', () => {
       }
     );
 
-    const route = buildCodexEnhancementRouteChoice({
+    const route = buildHostEnhancementRouteChoice({
       daemonStatus,
       localInstall: LOCAL_INSTALL_UNAVAILABLE,
       requirement: 'dashboard',
@@ -285,7 +285,7 @@ describe('Codex enhancement route resolver', () => {
       }
     );
 
-    const route = buildCodexEnhancementRouteChoice({
+    const route = buildHostEnhancementRouteChoice({
       daemonStatus,
       localInstall: LOCAL_INSTALL_UNAVAILABLE,
       requirement: 'dashboard',
@@ -331,7 +331,7 @@ describe('Codex enhancement route resolver', () => {
       }
     );
 
-    const route = buildCodexEnhancementRouteChoice({
+    const route = buildHostEnhancementRouteChoice({
       daemonStatus,
       localInstall: LOCAL_INSTALL_UNAVAILABLE,
       requirement: 'dashboard',
@@ -366,14 +366,14 @@ describe('Codex enhancement route resolver', () => {
     };
 
     expect(
-      buildCodexEnhancementRouteChoice({
+      buildHostEnhancementRouteChoice({
         daemonStatus,
         localInstall,
         requirement: 'status',
       }).selected
     ).toBe('local-alembic-install');
     expect(
-      buildCodexEnhancementRouteChoice({
+      buildHostEnhancementRouteChoice({
         daemonStatus,
         localInstall,
         requirement: 'jobs',

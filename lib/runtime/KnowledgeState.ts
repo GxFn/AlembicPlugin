@@ -112,7 +112,7 @@ export interface CodexSnapshotState {
   totalCount: number;
 }
 
-export interface CodexKnowledgeState {
+export interface HostKnowledgeState {
   databaseEntryCount?: number;
   freshness?: CodexKnowledgeFreshness;
   hasKnowledge: boolean;
@@ -127,7 +127,7 @@ export interface CodexKnowledgeState {
   vector?: CodexVectorState;
 }
 
-export const EMPTY_CODEX_KNOWLEDGE_STATE: CodexKnowledgeState = {
+export const EMPTY_CODEX_KNOWLEDGE_STATE: HostKnowledgeState = {
   freshness: {
     checkedAt: new Date(0).toISOString(),
     latestJobAt: null,
@@ -187,7 +187,7 @@ export const EMPTY_CODEX_KNOWLEDGE_STATE: CodexKnowledgeState = {
   },
 };
 
-export function inspectCodexKnowledge(projectRoot: string): CodexKnowledgeState {
+export function inspectCodexKnowledge(projectRoot: string): HostKnowledgeState {
   let resolver: WorkspaceResolver;
   try {
     resolver = WorkspaceResolver.fromProject(projectRoot);

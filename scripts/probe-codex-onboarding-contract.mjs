@@ -16,8 +16,8 @@ fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
 fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
 fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const onboardingProbe = 42;\n');
 
-const [{ CodexMcpServer }, { resolveDaemonPaths }] = await Promise.all([
-  import('../dist/lib/runtime/mcp/CodexMcpServer.js'),
+const [{ HostMcpServer }, { resolveDaemonPaths }] = await Promise.all([
+  import('../dist/lib/runtime/mcp/HostMcpServer.js'),
   import('@alembic/core/daemon'),
 ]);
 
@@ -41,7 +41,7 @@ const supervisor = {
   },
 };
 
-const server = new CodexMcpServer({ projectRoot, supervisor });
+const server = new HostMcpServer({ projectRoot, supervisor });
 const bootstrap = await server.handleToolCall('alembic_bootstrap', {});
 const status = await server.handleToolCall('alembic_status', {});
 

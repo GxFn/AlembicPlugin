@@ -41,7 +41,7 @@ export function dispatchCodexLocalTool(
     }
     case 'alembic_mcp_init':
       return { handled: true, result: handlers.initializeWorkspace(args) };
-    case 'alembic_codex_dashboard':
+    case 'alembic_dashboard':
       return { handled: true, result: handlers.openDashboard() };
     // MTC-7: alembic_job op routes to the shared job runner. bootstrap/rescan
     // enqueue an explicit resident job; status (default) reads recoverable job

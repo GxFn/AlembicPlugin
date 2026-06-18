@@ -19,7 +19,7 @@ import {
   ensureCodexRuntimeEnvironment,
   loadCodexPluginRegistry,
   probeCodexRuntimeCommand,
-  resolveCodexRuntimeContext,
+  resolveHostRuntimeContext,
 } from '../../lib/runtime/index.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 
@@ -76,7 +76,7 @@ describe('Codex runtime context', () => {
   });
 
   test('resolves plugin host and tier from the supplied runtime environment', () => {
-    const context = resolveCodexRuntimeContext({
+    const context = resolveHostRuntimeContext({
       [ALEMBIC_PLUGIN_HOST_ENV]: 'Codex',
       [ALEMBIC_RUNTIME_MODE_ENV]: 'Plugin',
       [CODEX_MCP_TIER_ENV]: 'admin',
@@ -91,7 +91,7 @@ describe('Codex runtime context', () => {
   });
 
   test('resolves the Codex plugin registry from the marketplace manifest', () => {
-    const context = resolveCodexRuntimeContext();
+    const context = resolveHostRuntimeContext();
     const registry = loadCodexPluginRegistry(context);
 
     expect(context.runtimeBin).toBe('alembic-codex-mcp');
@@ -104,7 +104,7 @@ describe('Codex runtime context', () => {
   });
 
   test('builds plugin diagnostics from shared Codex registry facts', () => {
-    const context = resolveCodexRuntimeContext();
+    const context = resolveHostRuntimeContext();
     const diagnostics = buildCodexPluginDiagnostics(context);
 
     expect(diagnostics.manifest.ok).toBe(true);
@@ -126,7 +126,7 @@ describe('Codex runtime context', () => {
   });
 
   test('probes npm and npx from a stable plugin cwd instead of inherited process cwd', () => {
-    const context = resolveCodexRuntimeContext();
+    const context = resolveHostRuntimeContext();
     let observedCwd: string | undefined;
 
     const probe = probeCodexRuntimeCommand('npm', context, (_command, _args, options) => {
@@ -146,7 +146,7 @@ describe('Codex runtime context', () => {
   test('classifies uv_cwd failures as stale MCP cwd instead of missing npm', () => {
     const diagnostics = buildCodexRuntimeDiagnostics(
       makeDaemonStatus(),
-      resolveCodexRuntimeContext(),
+      resolveHostRuntimeContext(),
       {
         commandProbeRunner() {
           return {

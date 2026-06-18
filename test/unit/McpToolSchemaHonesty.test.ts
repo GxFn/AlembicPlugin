@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import type { z } from 'zod';
-import { CodexMcpServer } from '../../lib/runtime/mcp/CodexMcpServer.js';
+import { HostMcpServer } from '../../lib/runtime/mcp/HostMcpServer.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 let projectRoots: string[] = [];
@@ -72,7 +72,7 @@ describe('QD2 / PCI-2 retired source-graph public-surface honesty', () => {
 
   test('alembic_symbol_search fails as an unknown public tool over the server', async () => {
     const projectRoot = createProject();
-    const server = new CodexMcpServer({ projectRoot });
+    const server = new HostMcpServer({ projectRoot });
     const result = (await server.handleToolCall('alembic_symbol_search', {
       query: 'greet',
       limit: 'ten',

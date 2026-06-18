@@ -44,7 +44,7 @@ import '../../runtime/mcp/core-tools/output.js';
 // local surface). Its single output projector is homed in codex-local/output, so it
 // must be co-registered wherever TOOLS loads (both the resident and cold-start shells
 // import tools.ts), otherwise the resident alembic_status output has no projector.
-import '../../runtime/mcp/codex-local-tools/output.js';
+import '../../runtime/mcp/local-tools/output.js';
 import '../../runtime/mcp/knowledge-context-tools/graph-output.js';
 import '../../runtime/mcp/knowledge-context-tools/output.js';
 import '../../runtime/mcp/knowledge-context-tools/recipe-map-output.js';

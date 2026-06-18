@@ -2,8 +2,8 @@ import type { DaemonStatus } from '../../../daemon/DaemonSupervisor.js';
 import {
   buildCodexRecommendedAction,
   type CodexEnhancementRequirement,
-  type CodexEnhancementRouteChoice,
   type CodexHostProjectAlignment,
+  type HostEnhancementRouteChoice,
   summarizeCodexDaemonStatus,
 } from '../../../runtime/index.js';
 import { inspectCodexKnowledge } from '../../../runtime/KnowledgeState.js';
@@ -18,7 +18,7 @@ import { failureResult } from '../../../runtime/mcp/host/results.js';
 // 仅靠 "Switch from Alembic or Dashboard" 对 plugin-only 用户是环形死路。
 export function buildCodexHostProjectHandoffBlock(input: {
   daemon: DaemonStatus;
-  enhancementRoute: CodexEnhancementRouteChoice;
+  enhancementRoute: HostEnhancementRouteChoice;
   hostProjectAlignment: CodexHostProjectAlignment;
   projectRoot: string;
   requirement: CodexEnhancementRequirement;

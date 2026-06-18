@@ -29,11 +29,11 @@ shutdown.register(async () => {
   await timerRegistry.dispose();
 }, 'timer-registry');
 
-const { startCodexMcpServer } = await import('../lib/runtime/mcp/CodexMcpServer.js');
+const { startHostMcpServer } = await import('../lib/runtime/mcp/HostMcpServer.js');
 
-startCodexMcpServer()
+startHostMcpServer()
   .then((server) => {
-    shutdown.register(() => server.shutdown(), 'codex-mcp-server');
+    shutdown.register(() => server.shutdown(), 'host-mcp-server');
   })
   .catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);

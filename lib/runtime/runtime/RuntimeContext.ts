@@ -21,7 +21,7 @@ export const CODEX_ADMIN_ENABLE_ENV = 'ALEMBIC_CODEX_ENABLE_ADMIN';
 export const CODEX_PLUGIN_ROOT_ENV = 'ALEMBIC_CODEX_PLUGIN_ROOT';
 export const CODEX_EMBEDDED_RUNTIME_SPECIFIER = `${CODEX_RUNTIME_PACKAGE}@0.2.0`;
 
-export interface CodexRuntimeContext {
+export interface HostRuntimeContext {
   adminEnabled: boolean;
   defaultTier: string;
   effectiveTier: string;
@@ -48,9 +48,9 @@ export function ensureCodexRuntimeEnvironment(env: NodeJS.ProcessEnv = process.e
   env[CODEX_MCP_TIER_ENV] = env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
 }
 
-export function resolveCodexRuntimeContext(
+export function resolveHostRuntimeContext(
   env: NodeJS.ProcessEnv = process.env
-): CodexRuntimeContext {
+): HostRuntimeContext {
   const packageVersion = getPackageVersion();
   const requestedTier = env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
   const adminEnabled = env[CODEX_ADMIN_ENABLE_ENV] === '1';

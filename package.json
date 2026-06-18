@@ -98,7 +98,7 @@
   "author": "gaoxuefeng",
   "license": "MIT",
   "bin": {
-    "alembic-codex-mcp": "dist/bin/codex-mcp.js"
+    "alembic-codex-mcp": "dist/bin/host-mcp.js"
   },
   "keywords": [
     "knowledge-base",

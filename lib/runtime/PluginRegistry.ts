@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  type CodexRuntimeContext,
-  resolveCodexRuntimeContext,
+  type HostRuntimeContext,
+  resolveHostRuntimeContext,
 } from '../runtime/runtime/RuntimeContext.js';
 
 export const CODEX_REQUIRED_SKILLS = [
@@ -29,7 +29,7 @@ export interface CodexPluginMcpDeclaration {
 }
 
 export interface CodexPluginRegistry {
-  context: CodexRuntimeContext;
+  context: HostRuntimeContext;
   marketplace: JsonReadResult;
   mcp: {
     args: string[];
@@ -78,7 +78,7 @@ export function readCodexPluginMcpDeclaration(pluginRoot: string): CodexPluginMc
 }
 
 export function loadCodexPluginRegistry(
-  context: CodexRuntimeContext = resolveCodexRuntimeContext()
+  context: HostRuntimeContext = resolveHostRuntimeContext()
 ): CodexPluginRegistry {
   const mcpDeclaration = readCodexPluginMcpDeclaration(context.pluginRoot);
   const manifestPath =

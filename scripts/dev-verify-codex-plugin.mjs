@@ -40,7 +40,7 @@ try {
         'vitest',
         'run',
         'test/unit/CodexProjectRootResolver.test.ts',
-        'test/unit/CodexMcpServer.test.ts',
+        'test/unit/HostMcpServer.test.ts',
         'test/unit/CodexToolPolicy.test.ts',
       ]);
     }

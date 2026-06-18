@@ -17,7 +17,6 @@ import {
 import { SetupService } from '../../cli/SetupService.js';
 import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import {
-  buildCodexEnhancementRouteChoice,
   buildCodexHostProjectAlignment,
   buildCodexPostInitActions,
   buildCodexPostInitMessage,
@@ -27,24 +26,25 @@ import {
   buildCodexRecommendedAction,
   buildCodexRuntimeDiagnostics,
   buildCodexStatus,
+  buildHostEnhancementRouteChoice,
   CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES,
   CODEX_SETUP_PROFILE,
   type CodexEnhancementRequirement,
-  type CodexEnhancementRouteChoice,
   type CodexHostProjectAlignment,
-  type CodexKnowledgeState,
   type CodexProjectRootResolution,
   type CodexServiceBoundaryDecision,
   createCodexJobContext,
   EMPTY_CODEX_KNOWLEDGE_STATE,
   getCodexRuntimeFallbackIsolation,
+  type HostEnhancementRouteChoice,
+  type HostKnowledgeState,
   inspectCodexKnowledge,
   isCodexInitOnDemandTool,
   isTrustedCodexProjectRoot,
   preflightCodexTool,
   resolveCodexProjectRoot,
-  resolveCodexRuntimeContext,
   resolveCodexServiceRequestBoundary,
+  resolveHostRuntimeContext,
   summarizeCodexDaemonStatus,
   summarizeCodexProjectRootResolution,
   writeCodexInitMarker,
@@ -82,10 +82,10 @@ import {
   isResidentProjectScopeReady,
 } from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
-import '../../runtime/mcp/codex-local-tools/output.js';
+import '../../runtime/mcp/local-tools/output.js';
 import { TIER_ORDER, TOOLS } from '../../runtime/mcp/tools.js';
 
-interface CodexMcpServerOptions {
+interface HostMcpServerOptions {
   projectRoot?: string;
   supervisor?: DaemonSupervisorLike;
   waitUntilReadyMs?: number;
@@ -122,7 +122,7 @@ interface WorkspaceInitializationInput {
 interface CodexEnhancementDaemonResult {
   blocked: Record<string, unknown> | null;
   daemon: DaemonStatus;
-  enhancementRoute: CodexEnhancementRouteChoice;
+  enhancementRoute: HostEnhancementRouteChoice;
   hostProjectAlignment: CodexHostProjectAlignment;
 }
 
@@ -212,7 +212,7 @@ function resolveWorkspaceModeConflict(
   return { existingMode, projectId: entry.id, requestedMode };
 }
 
-export class CodexMcpServer {
+export class HostMcpServer {
   readonly projectRoot: string;
   readonly projectRootResolution: CodexProjectRootResolution;
   readonly supervisor: DaemonSupervisorLike;
@@ -231,7 +231,7 @@ export class CodexMcpServer {
     route: null,
   };
 
-  constructor(options: CodexMcpServerOptions = {}) {
+  constructor(options: HostMcpServerOptions = {}) {
     this.projectRootResolution = resolveCodexProjectRoot({ projectRoot: options.projectRoot });
     this.projectRoot = this.projectRootResolution.path || safeProjectRootFallback();
     this.supervisor = options.supervisor || new DaemonSupervisor();
@@ -316,7 +316,7 @@ export class CodexMcpServer {
       return scope.result;
     }
     if (scope.kind === 'scoped-project') {
-      const scopedServer = new CodexMcpServer({
+      const scopedServer = new HostMcpServer({
         projectRoot: scope.override.projectRoot,
         supervisor: this.supervisor,
         waitUntilReadyMs: this.waitUntilReadyMs,
@@ -442,8 +442,8 @@ export class CodexMcpServer {
     const projectScopeIdentity = await residentClients.projectScope.resolveProjectScopeIdentity({
       daemonStatus,
     });
-    const runtime = resolveCodexRuntimeContext();
-    const enhancementRoute = buildCodexEnhancementRouteChoice({
+    const runtime = resolveHostRuntimeContext();
+    const enhancementRoute = buildHostEnhancementRouteChoice({
       daemonStatus,
       runtime,
       requirement: 'status',
@@ -497,7 +497,7 @@ export class CodexMcpServer {
     const status = await this.buildStatus();
     const ok = initResult.success !== false && results.every((result) => result.ok !== false);
     const knowledgeAfterInit =
-      (status as { data?: { knowledge?: CodexKnowledgeState } }).data?.knowledge ??
+      (status as { data?: { knowledge?: HostKnowledgeState } }).data?.knowledge ??
       EMPTY_CODEX_KNOWLEDGE_STATE;
     return {
       success: ok,
@@ -731,9 +731,9 @@ export class CodexMcpServer {
       await this.residentClients().projectScope.resolveProjectScopeIdentity({
         daemonStatus: daemon,
       });
-    const enhancementRoute = buildCodexEnhancementRouteChoice({
+    const enhancementRoute = buildHostEnhancementRouteChoice({
       daemonStatus: daemon,
-      runtime: resolveCodexRuntimeContext(),
+      runtime: resolveHostRuntimeContext(),
       requirement: 'dashboard',
     });
     const hostProjectAlignment = buildCodexHostProjectAlignment({
@@ -750,7 +750,7 @@ export class CodexMcpServer {
       projectRootResolution: this.projectRootResolution,
       projectScopeIdentity,
       requiredServices: ['project-identity', 'dashboard'],
-      runtime: resolveCodexRuntimeContext(),
+      runtime: resolveHostRuntimeContext(),
     });
     const blocked = buildCodexHostProjectHandoffBlock({
       daemon,
@@ -758,7 +758,7 @@ export class CodexMcpServer {
       hostProjectAlignment,
       projectRoot: this.projectRoot,
       requirement: 'dashboard',
-      tool: 'alembic_codex_dashboard',
+      tool: 'alembic_dashboard',
     });
     if (blocked) {
       return attachProjectRuntimeContext(blocked, projectRuntime) as Record<string, unknown>;
@@ -775,7 +775,7 @@ export class CodexMcpServer {
       enhancementRoute.missingCapabilities.includes('dashboard')
     ) {
       return failureResult(
-        'alembic_codex_dashboard',
+        'alembic_dashboard',
         'Dashboard handoff requires a local Alembic daemon that serves the Dashboard. The embedded Codex plugin runtime does not bundle or serve Dashboard frontend assets.',
         {
           daemon: summarizeCodexDaemonStatus(daemon),
@@ -860,9 +860,9 @@ export class CodexMcpServer {
       await this.residentClients().projectScope.resolveProjectScopeIdentity({
         daemonStatus: daemon,
       });
-    const enhancementRoute = buildCodexEnhancementRouteChoice({
+    const enhancementRoute = buildHostEnhancementRouteChoice({
       daemonStatus: daemon,
-      runtime: resolveCodexRuntimeContext(),
+      runtime: resolveHostRuntimeContext(),
       requirement: 'mcp',
     });
     const hostProjectAlignment = buildCodexHostProjectAlignment({
@@ -1010,9 +1010,9 @@ export class CodexMcpServer {
         })
       : null;
     const enhancementRoute = daemon
-      ? buildCodexEnhancementRouteChoice({
+      ? buildHostEnhancementRouteChoice({
           daemonStatus: daemon,
-          runtime: resolveCodexRuntimeContext(),
+          runtime: resolveHostRuntimeContext(),
           requirement: 'jobs',
         })
       : null;
@@ -1207,9 +1207,9 @@ export class CodexMcpServer {
     } catch {
       daemonStatus = null;
     }
-    const runtime = resolveCodexRuntimeContext();
+    const runtime = resolveHostRuntimeContext();
     const enhancementRoute = daemonStatus
-      ? buildCodexEnhancementRouteChoice({
+      ? buildHostEnhancementRouteChoice({
           daemonStatus,
           runtime,
           requirement: 'mcp',
@@ -1245,9 +1245,9 @@ export class CodexMcpServer {
       await this.residentClients().projectScope.resolveProjectScopeIdentity({
         daemonStatus: currentDaemon,
       });
-    const currentEnhancementRoute = buildCodexEnhancementRouteChoice({
+    const currentEnhancementRoute = buildHostEnhancementRouteChoice({
       daemonStatus: currentDaemon,
-      runtime: resolveCodexRuntimeContext(),
+      runtime: resolveHostRuntimeContext(),
       requirement,
     });
     const currentHostProjectAlignment = buildCodexHostProjectAlignment({
@@ -1285,9 +1285,9 @@ export class CodexMcpServer {
       projectRoot: this.projectRoot,
       waitUntilReadyMs: this.waitUntilReadyMs,
     });
-    const enhancementRoute = buildCodexEnhancementRouteChoice({
+    const enhancementRoute = buildHostEnhancementRouteChoice({
       daemonStatus: daemon,
-      runtime: resolveCodexRuntimeContext(),
+      runtime: resolveHostRuntimeContext(),
       requirement,
     });
     const hostProjectAlignment = buildCodexHostProjectAlignment({
@@ -1309,10 +1309,10 @@ export class CodexMcpServer {
 
 export { getVisibleCodexTools, resetCodexPluginOwnedMcpServerForTests };
 
-export async function startCodexMcpServer(): Promise<CodexMcpServer> {
-  const server = new CodexMcpServer();
+export async function startHostMcpServer(): Promise<HostMcpServer> {
+  const server = new HostMcpServer();
   await server.start();
   return server;
 }
 
-export default CodexMcpServer;
+export default HostMcpServer;

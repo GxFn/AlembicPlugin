@@ -21,10 +21,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
-  CodexMcpServer,
+  HostMcpServer,
   getVisibleCodexTools,
   resetCodexPluginOwnedMcpServerForTests,
-} from '../../lib/runtime/mcp/CodexMcpServer.js';
+} from '../../lib/runtime/mcp/HostMcpServer.js';
 import { buildCodexMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
 import {
   getCodexSavedProjectRootPath,
@@ -444,7 +444,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('CodexMcpServer', () => {
+describe('HostMcpServer', () => {
   test('lists Codex local tools alongside agent-tier Alembic tools', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
@@ -452,7 +452,7 @@ describe('CodexMcpServer', () => {
     const names = tools.map((tool) => tool.name);
 
     expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
-    expect(names).toContain('alembic_codex_dashboard');
+    expect(names).toContain('alembic_dashboard');
     expect(names).toContain('alembic_job');
     expect(names).toContain('alembic_runtime');
     expect(names).toContain('alembic_bootstrap');
@@ -465,7 +465,7 @@ describe('CodexMcpServer', () => {
   test('builds initialize guidance from the visible Codex tool catalog', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const server = new CodexMcpServer({ projectRoot });
+    const server = new HostMcpServer({ projectRoot });
     const instructions = server.getInitializeInstructions();
 
     expect(instructions).toContain('`alembic_project_matrix`');
@@ -547,7 +547,7 @@ describe('CodexMcpServer', () => {
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
-      'alembic_codex_dashboard',
+      'alembic_dashboard',
       'alembic_job',
       ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
       ...CODEX_HOST_AGENT_TOOL_NAMES,
@@ -563,7 +563,7 @@ describe('CodexMcpServer', () => {
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
-      'alembic_codex_dashboard',
+      'alembic_dashboard',
       'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
@@ -669,7 +669,7 @@ describe('CodexMcpServer', () => {
         status: 'stopped',
       })
     );
-    const server = new CodexMcpServer({ projectRoot: sourceRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot: sourceRoot, supervisor });
 
     // MTC-4: alembic_status (default) is the cold-start local status; it reports the
     // resolved project read-only and never runs the old alembic_health resident-backed
@@ -733,7 +733,7 @@ describe('CodexMcpServer', () => {
         status: 'stale',
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       data: {
@@ -819,7 +819,7 @@ describe('CodexMcpServer', () => {
     expect(names).not.toContain('alembic_skill');
     expect(names).not.toContain('alembic_health');
 
-    const server = new CodexMcpServer({ projectRoot });
+    const server = new HostMcpServer({ projectRoot });
     const result = (await server.handleToolCall('alembic_project_skill', {
       operation: 'list',
     })) as {
@@ -848,7 +848,7 @@ describe('CodexMcpServer', () => {
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
-      'alembic_codex_dashboard',
+      'alembic_dashboard',
       'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
@@ -865,7 +865,7 @@ describe('CodexMcpServer', () => {
 
     expect(names).not.toContain('alembic_task');
     expect(names).toContain('alembic_status');
-    expect(names).toContain('alembic_codex_dashboard');
+    expect(names).toContain('alembic_dashboard');
   });
 
   test('requires a second Codex admin opt-in before exposing admin-tier tools', () => {
@@ -897,7 +897,7 @@ describe('CodexMcpServer', () => {
         message: 'daemon is not started',
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_status', {})) as {
       success: boolean;
@@ -950,7 +950,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ supervisor });
+    const server = new HostMcpServer({ supervisor });
 
     const result = (await server.handleToolCall('alembic_status', { projectRoot })) as {
       data: {
@@ -995,7 +995,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ supervisor });
+    const server = new HostMcpServer({ supervisor });
 
     const result = (await server.handleToolCall('alembic_search', {
       projectRoot,
@@ -1041,10 +1041,10 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const firstServer = new CodexMcpServer({ supervisor });
+    const firstServer = new HostMcpServer({ supervisor });
     await firstServer.handleToolCall('alembic_status', { projectRoot });
 
-    const secondServer = new CodexMcpServer({ supervisor });
+    const secondServer = new HostMcpServer({ supervisor });
     const result = (await secondServer.handleToolCall('alembic_status', {})) as {
       data: {
         errorCode?: string;
@@ -1074,7 +1074,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_status', {})) as {
       success: boolean;
@@ -1106,7 +1106,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
       success: boolean;
@@ -1148,7 +1148,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
       data: {
@@ -1191,7 +1191,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_mcp_init', {
       standard: true,
@@ -1230,7 +1230,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const removedToolName = ['alembic', 'codex', 'ai', 'config'].join('_');
     const result = (await server.handleToolCall(removedToolName, {
@@ -1257,7 +1257,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_job', { limit: 5 })) as {
       success: boolean;
@@ -1302,7 +1302,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ supervisor });
+    const server = new HostMcpServer({ supervisor });
 
     const result = (await server.handleToolCall('alembic_mcp_init', { projectRoot })) as {
       data: { status: { initialized: boolean; workspace: { ghost: boolean } } };
@@ -1332,7 +1332,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     await server.handleToolCall('alembic_status', {});
     await server.handleToolCall('alembic_status', { aspect: 'runtime' });
@@ -1367,7 +1367,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ supervisor });
+    const server = new HostMcpServer({ supervisor });
 
     const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
       data: {
@@ -1425,7 +1425,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ supervisor });
+    const server = new HostMcpServer({ supervisor });
 
     // MTC-4: alembic_status is now a cold-start discovery tool (exempt from the
     // project-root requirement), so it no longer rejects an unresolved root. Use a
@@ -1461,7 +1461,7 @@ describe('CodexMcpServer', () => {
         pidAlive: false,
       })
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       success: boolean;
@@ -1565,7 +1565,7 @@ describe('CodexMcpServer', () => {
     process.env.ALEMBIC_MCP_TIER = 'admin';
     delete process.env.ALEMBIC_CODEX_ENABLE_ADMIN;
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       success: boolean;
@@ -1615,9 +1615,9 @@ describe('CodexMcpServer', () => {
         status: 'stopped',
       })
     );
-    const server = new CodexMcpServer({ projectRoot: hostProjectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot: hostProjectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_dashboard', {})) as {
+    const result = (await server.handleToolCall('alembic_dashboard', {})) as {
       data: {
         errorCode: string;
         hostProjectAlignment: { connectionState: string; handoffAllowed: boolean };
@@ -1657,9 +1657,9 @@ describe('CodexMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_dashboard', {})) as {
+    const result = (await server.handleToolCall('alembic_dashboard', {})) as {
       data: {
         dashboardUrl?: string;
         errorCode: string;
@@ -1691,7 +1691,7 @@ describe('CodexMcpServer', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       throw new Error('alembic_task prime must not call the daemon MCP bridge');
     });
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_task', {
       operation: 'prime',
@@ -1715,7 +1715,7 @@ describe('CodexMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     // MTC-4: alembic_status is the always-available cold-start tool (not knowledge-
     // gated). Use a resident-project-scope knowledge tool to exercise the gate.
@@ -1744,7 +1744,7 @@ describe('CodexMcpServer', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(`alembic_task close must stay Plugin-owned: ${String(input)}`);
     });
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_task', {
       operation: 'close',
@@ -1781,7 +1781,7 @@ describe('CodexMcpServer', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(`alembic_task close must stay Plugin-owned: ${String(input)}`);
     });
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_task', {
       operation: 'close',
@@ -1817,7 +1817,7 @@ describe('CodexMcpServer', () => {
           { status: 202, headers: { 'content-type': 'application/json' } }
         )
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = await server.handleToolCall('alembic_job', { op: 'bootstrap', maxFiles: 25 });
 
@@ -1837,7 +1837,7 @@ describe('CodexMcpServer', () => {
         `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
       );
     });
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_bootstrap', {})) as {
       data?: {
@@ -2009,7 +2009,7 @@ describe('CodexMcpServer', () => {
         `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
       );
     });
-    const server = new CodexMcpServer({ supervisor });
+    const server = new HostMcpServer({ supervisor });
 
     const first = (await server.handleToolCall('alembic_bootstrap', {
       projectRoot: firstProjectRoot,
@@ -2040,7 +2040,7 @@ describe('CodexMcpServer', () => {
           { status: 202, headers: { 'content-type': 'application/json' } }
         )
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = await server.handleToolCall('alembic_job', { op: 'bootstrap', maxFiles: 25 });
     const [url, init] = fetchSpy.mock.calls[0];
@@ -2069,7 +2069,7 @@ describe('CodexMcpServer', () => {
     process.env.ALEMBIC_MCP_TIER = 'admin';
     delete process.env.ALEMBIC_CODEX_ENABLE_ADMIN;
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_knowledge_lifecycle', {
       operation: 'approve',
@@ -2100,7 +2100,7 @@ describe('CodexMcpServer', () => {
     );
     const store = new JobStore({ projectRoot });
     const job = store.create({ kind: 'rescan', request: { reason: 'codex' }, source: 'codex' });
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_job', { jobId: job.id })) as {
       success: boolean;
@@ -2147,7 +2147,7 @@ describe('CodexMcpServer', () => {
           { status: 200, headers: { 'content-type': 'application/json' } }
         )
     );
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_job', {
       jobId: 'bootstrap_live',
@@ -2180,7 +2180,7 @@ describe('CodexMcpServer', () => {
     const store = new JobStore({ projectRoot });
     const job = store.create({ kind: 'bootstrap', request: { maxFiles: 25 }, source: 'codex' });
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('connection closed'));
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_job', { jobId: job.id })) as {
       success: boolean;
@@ -2220,7 +2220,7 @@ describe('CodexMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
-    const server = new CodexMcpServer({ projectRoot, supervisor });
+    const server = new HostMcpServer({ projectRoot, supervisor });
 
     const result = (await server.handleToolCall('alembic_runtime', { action: 'cleanup' })) as {
       success: boolean;
@@ -2264,7 +2264,7 @@ describe('CodexMcpServer', () => {
       fs.readFileSync(path.resolve('plugins/alembic-codex/.codex-plugin/plugin.json'), 'utf8')
     ) as { interface: { defaultPrompt: string[]; screenshots: string[] } };
 
-    expect(packageJson.bin['alembic-codex-mcp']).toBe('dist/bin/codex-mcp.js');
+    expect(packageJson.bin['alembic-codex-mcp']).toBe('dist/bin/host-mcp.js');
     expect(packageJson.scripts['dev:codex-plugin:reload']).toBe(
       'node scripts/dev-reload-codex-plugin.mjs'
     );

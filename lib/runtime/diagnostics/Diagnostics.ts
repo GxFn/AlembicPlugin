@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
 import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import {
-  buildCodexEnhancementRouteChoice,
-  type CodexEnhancementRouteChoice,
+  buildHostEnhancementRouteChoice,
+  type HostEnhancementRouteChoice,
 } from '../../runtime/EnhancementRoute.js';
 import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import {
@@ -35,8 +35,8 @@ import {
   CODEX_MCP_SHIM_ENV,
   CODEX_PLUGIN_HOST,
   CODEX_PLUGIN_NAME,
-  type CodexRuntimeContext,
-  resolveCodexRuntimeContext,
+  type HostRuntimeContext,
+  resolveHostRuntimeContext,
 } from '../../runtime/runtime/RuntimeContext.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../service/resident/AlembicResidentServiceClient.js';
@@ -129,7 +129,7 @@ export interface CodexWrapperStartupLockDiagnostics {
 export interface CodexRuntimeDiagnosticsOptions {
   autoInit?: Record<string, unknown>;
   commandProbeRunner?: CodexCommandProbeRunner;
-  enhancementRoute?: CodexEnhancementRouteChoice;
+  enhancementRoute?: HostEnhancementRouteChoice;
   hostProjectAlignment?: CodexHostProjectAlignment;
   moduleBoundary?: CodexModuleBoundaryStatus;
   projectRuntime?: CodexProjectRuntimeContext;
@@ -194,7 +194,7 @@ interface CodexMcpEntryDiagnosticsInput {
 
 export function buildCodexRuntimeDiagnostics(
   daemonStatus: DaemonStatus,
-  context: CodexRuntimeContext = resolveCodexRuntimeContext(),
+  context: HostRuntimeContext = resolveHostRuntimeContext(),
   options: CodexRuntimeDiagnosticsOptions = {}
 ): Record<string, unknown> {
   const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] || '0', 10);
@@ -205,7 +205,7 @@ export function buildCodexRuntimeDiagnostics(
   const plugin = buildCodexPluginDiagnostics(context);
   const enhancementRoute =
     options.enhancementRoute ||
-    buildCodexEnhancementRouteChoice({
+    buildHostEnhancementRouteChoice({
       daemonStatus,
       runtime: context,
       requirement: 'status',
@@ -278,7 +278,7 @@ export function buildCodexRuntimeDiagnostics(
 }
 
 function buildCodexRuntimeChecks(input: {
-  context: CodexRuntimeContext;
+  context: HostRuntimeContext;
   nodeMajor: number;
   npmAvailable: boolean;
   npxAvailable: boolean;
@@ -333,9 +333,9 @@ function areKnowledgeWorkflowDiagnosticsOk(checks: CodexRuntimeChecks): boolean 
 
 function buildCodexRuntimeReportSections(input: {
   checks: CodexRuntimeChecks;
-  context: CodexRuntimeContext;
+  context: HostRuntimeContext;
   daemonStatus: DaemonStatus;
-  enhancementRoute: CodexEnhancementRouteChoice;
+  enhancementRoute: HostEnhancementRouteChoice;
   moduleBoundary: CodexModuleBoundaryStatus;
   npm: CodexCommandProbeResult;
   npx: CodexCommandProbeResult;
@@ -418,7 +418,7 @@ function buildCodexRuntimeReportSections(input: {
 }
 
 export function buildCodexPluginDiagnostics(
-  context: CodexRuntimeContext = resolveCodexRuntimeContext()
+  context: HostRuntimeContext = resolveHostRuntimeContext()
 ): CodexPluginDiagnostics {
   const registry = loadCodexPluginRegistry(context);
   const assets = buildCodexPluginAssetDiagnostics(registry);
@@ -439,7 +439,7 @@ export function buildCodexPluginDiagnostics(
 }
 
 function buildCodexPluginMcpDiagnostics(
-  context: CodexRuntimeContext,
+  context: HostRuntimeContext,
   registry: CodexPluginRegistry
 ): CodexPluginDiagnostics['mcp'] {
   const args = registry.mcp.args;
@@ -544,7 +544,7 @@ function buildCodexPluginMcpEnvDiagnostics(
 
 function startupSourceUsesPinnedRuntime(
   startupSource: string,
-  context: CodexRuntimeContext
+  context: HostRuntimeContext
 ): boolean {
   const requiredMarkers = [
     "'npm'",
@@ -610,7 +610,7 @@ function buildCodexPluginSkillDiagnostics(
 }
 
 function buildCodexPluginReadmeDiagnostics(
-  context: CodexRuntimeContext,
+  context: HostRuntimeContext,
   registry: CodexPluginRegistry
 ): CodexPluginDiagnostics['readme'] {
   const mentionsEmbeddedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
@@ -671,7 +671,7 @@ function buildCodexMcpEntryDiagnostics(
 function findLocalDistArg(args: string[]): string | null {
   return (
     args.find(
-      (arg) => arg.endsWith('/dist/bin/codex-mcp.js') || arg.endsWith('dist/bin/codex-mcp.js')
+      (arg) => arg.endsWith('/dist/bin/host-mcp.js') || arg.endsWith('dist/bin/host-mcp.js')
     ) || null
   );
 }
@@ -862,7 +862,7 @@ function entryModeNextAction(mode: CodexMcpEntryDiagnostics['mode']): string {
     case 'stale-installed-cache':
       return 'Run npm run dev:codex-plugin:reload to rebuild, rewrite installed cache, and probe a fresh MCP startup. Restart Codex itself if the current host MCP transport is closed.';
     case 'unknown':
-      return 'Inspect the installed .mcp.json; expected either local dist/bin/codex-mcp.js or ./bin/alembic-start.mjs.';
+      return 'Inspect the installed .mcp.json; expected either local dist/bin/host-mcp.js or ./bin/alembic-start.mjs.';
   }
 }
 
@@ -1099,7 +1099,7 @@ function buildRecommendedAction(input: {
 
 export function probeCodexRuntimeCommand(
   command: string,
-  context: CodexRuntimeContext = resolveCodexRuntimeContext(),
+  context: HostRuntimeContext = resolveHostRuntimeContext(),
   runner: CodexCommandProbeRunner = spawnSync
 ): CodexCommandProbeResult {
   const cwd = resolveDiagnosticsCommandCwd(context);
@@ -1119,7 +1119,7 @@ export function probeCodexRuntimeCommand(
   };
 }
 
-function resolveDiagnosticsCommandCwd(context: CodexRuntimeContext): string | null {
+function resolveDiagnosticsCommandCwd(context: HostRuntimeContext): string | null {
   const candidates = [context.pluginRoot, context.packageRoot, tmpdir()];
   for (const candidate of candidates) {
     if (isExistingDirectory(candidate)) {

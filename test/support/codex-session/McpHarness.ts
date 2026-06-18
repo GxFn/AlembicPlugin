@@ -1,5 +1,5 @@
 import { type DaemonStatus, DaemonSupervisor } from '../../../lib/daemon/DaemonSupervisor.js';
-import { CodexMcpServer, getVisibleCodexTools } from '../../../lib/runtime/mcp/CodexMcpServer.js';
+import { HostMcpServer, getVisibleCodexTools } from '../../../lib/runtime/mcp/HostMcpServer.js';
 import { FakeDaemonSupervisor } from './FakeDaemonSupervisor.js';
 import type {
   CodexScenarioToolCallFact,
@@ -39,12 +39,12 @@ export class AlembicInProcessMcpHarness implements AlembicMcpHarness {
   readonly toolCalls: CodexScenarioToolCallFact[] = [];
   readonly transcript: TranscriptWriter;
   #originalFetch: typeof globalThis.fetch;
-  #server: CodexMcpServer;
+  #server: HostMcpServer;
 
   constructor(context: CodexMcpHarnessContext) {
     this.transcript = context.transcript;
     this.supervisor = new FakeDaemonSupervisor(context.scenario.fixture.daemon || 'stopped');
-    this.#server = new CodexMcpServer({ supervisor: this.supervisor });
+    this.#server = new HostMcpServer({ supervisor: this.supervisor });
     this.#originalFetch = globalThis.fetch;
     this.#installFetchMock();
   }
@@ -117,11 +117,11 @@ export class AlembicLiveLocalMcpHarness implements AlembicMcpHarness {
   readonly toolCalls: CodexScenarioToolCallFact[] = [];
   readonly transcript: TranscriptWriter;
   #originalFetch: typeof globalThis.fetch;
-  #server: CodexMcpServer;
+  #server: HostMcpServer;
 
   constructor(context: CodexMcpHarnessContext) {
     this.transcript = context.transcript;
-    this.#server = new CodexMcpServer({
+    this.#server = new HostMcpServer({
       supervisor: this.supervisor,
       waitUntilReadyMs: context.waitUntilReadyMs,
     });

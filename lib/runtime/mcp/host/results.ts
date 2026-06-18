@@ -1,6 +1,6 @@
 import type {
-  CodexEnhancementRouteChoice,
   CodexServiceBoundaryDecision,
+  HostEnhancementRouteChoice,
 } from '../../../runtime/index.js';
 import { isCleanMcpResponse } from '../../../runtime/mcp/output-contract.js';
 
@@ -41,7 +41,7 @@ export function extractResponseError(payload: unknown): string | null {
 
 export function attachEnhancementRoute(
   result: unknown,
-  enhancementRoute: CodexEnhancementRouteChoice
+  enhancementRoute: HostEnhancementRouteChoice
 ): unknown {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return result;

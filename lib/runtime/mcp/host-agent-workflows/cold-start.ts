@@ -23,7 +23,7 @@ import {
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
-import { type CodexKnowledgeState, inspectCodexKnowledge } from '#codex/KnowledgeState.js';
+import { type HostKnowledgeState, inspectCodexKnowledge } from '#codex/KnowledgeState.js';
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
@@ -198,7 +198,7 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: Boot
  * 可用知识库 + 未确认 rebuild → 拒绝销毁（导出供单测直接验证门禁矩阵）。
  */
 export function buildBootstrapRebuildConfirmationBlock(
-  knowledge: CodexKnowledgeState,
+  knowledge: HostKnowledgeState,
   args?: BootstrapInput
 ): Record<string, unknown> | null {
   if (!knowledge.usable || args?.rebuild === true) {

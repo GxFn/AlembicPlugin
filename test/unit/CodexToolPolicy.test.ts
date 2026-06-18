@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   CODEX_LOCAL_TOOLS,
   CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
-  type CodexKnowledgeState,
+  type HostKnowledgeState,
   resolveCodexToolPolicy,
 } from '../../lib/runtime/index.js';
 import {
@@ -59,7 +59,7 @@ const residentCoreTools = [
   })),
 ];
 
-const notInitialized: CodexKnowledgeState = {
+const notInitialized: HostKnowledgeState = {
   hasKnowledge: false,
   initialized: false,
   recipeCount: 0,
@@ -68,13 +68,13 @@ const notInitialized: CodexKnowledgeState = {
   usable: false,
 };
 
-const initializedEmpty: CodexKnowledgeState = {
+const initializedEmpty: HostKnowledgeState = {
   ...notInitialized,
   initialized: true,
   status: 'initialized_empty',
 };
 
-const knowledgeReady: CodexKnowledgeState = {
+const knowledgeReady: HostKnowledgeState = {
   hasKnowledge: true,
   initialized: true,
   recipeCount: 1,
@@ -108,8 +108,8 @@ describe('Codex tool policy', () => {
     expect(getPluginToolSurfaceEntry('alembic_search')).toMatchObject({
       residentRoutePolicy: 'explicit-resident-search',
     });
-    expect(getPluginToolSurfaceEntry('alembic_codex_dashboard')).toMatchObject({
-      handlerOwner: 'CodexMcpServer.resident-dashboard',
+    expect(getPluginToolSurfaceEntry('alembic_dashboard')).toMatchObject({
+      handlerOwner: 'HostMcpServer.resident-dashboard',
       residentRoutePolicy: 'dashboard-handoff',
     });
     expect(getPluginToolSurfaceEntry('alembic_source_graph_status')).toBeNull();
@@ -129,7 +129,7 @@ describe('Codex tool policy', () => {
       'alembic_status',
       ...sourceGraphToolNames,
       'alembic_mcp_init',
-      'alembic_codex_dashboard',
+      'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
     ]);
@@ -148,7 +148,7 @@ describe('Codex tool policy', () => {
       'alembic_status',
       ...sourceGraphToolNames,
       'alembic_mcp_init',
-      'alembic_codex_dashboard',
+      'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
@@ -271,7 +271,7 @@ describe('Codex tool policy', () => {
       'alembic_status',
       ...sourceGraphToolNames,
       'alembic_mcp_init',
-      'alembic_codex_dashboard',
+      'alembic_dashboard',
       'alembic_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',

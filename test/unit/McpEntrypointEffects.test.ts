@@ -15,9 +15,9 @@ import path from 'node:path';
 import { resolveDaemonPaths } from '@alembic/core/daemon';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getCodexProjectRuntimeControlStatePath } from '#codex/HostProjectAlignment.js';
-import CodexMcpServer, {
+import HostMcpServer, {
   resetCodexPluginOwnedMcpServerForTests,
-} from '#codex/mcp/CodexMcpServer.js';
+} from '#codex/mcp/HostMcpServer.js';
 import { resetServiceContainer } from '#inject/ServiceContainer.js';
 
 function listFiles(root: string): string[] {
@@ -74,7 +74,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-project-'));
     fs.writeFileSync(path.join(projectRoot, 'index.js'), 'export const x = 1;\n');
 
-    const server = new CodexMcpServer({
+    const server = new HostMcpServer({
       projectRoot,
       supervisor: makeStoppedSupervisor(projectRoot) as never,
     });
@@ -95,7 +95,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     // 空项目：fast-path 仍先执行 fullReset（破坏类代表，t6 门禁冷态放行）。
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-project-'));
 
-    const server = new CodexMcpServer({
+    const server = new HostMcpServer({
       projectRoot,
       supervisor: makeStoppedSupervisor(projectRoot) as never,
     });

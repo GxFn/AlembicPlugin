@@ -1,4 +1,4 @@
-import type { CodexKnowledgeState } from '../../runtime/KnowledgeState.js';
+import type { HostKnowledgeState } from '../../runtime/KnowledgeState.js';
 import {
   buildCodexProjectRootRequiredActions,
   buildCodexProjectRootRequiredMessage,
@@ -26,7 +26,7 @@ export interface CodexPreflightInput<T extends CodexToolDefinition = CodexToolDe
   adminEnabled?: boolean;
   args?: Record<string, unknown>;
   coreTools: T[];
-  knowledge: CodexKnowledgeState;
+  knowledge: HostKnowledgeState;
   projectRootResolution: CodexProjectRootResolution;
   residentProjectScopeAvailable?: boolean;
   stage: CodexPreflightStage;
@@ -140,7 +140,7 @@ function buildToolHiddenFailure(input: {
   allowedTools: string[];
   coreTools: CodexToolDefinition[];
   effectiveTier: string;
-  knowledge: CodexKnowledgeState;
+  knowledge: HostKnowledgeState;
   residentProjectScopeAvailable: boolean;
   toolName: string;
 }): Record<string, unknown> {
