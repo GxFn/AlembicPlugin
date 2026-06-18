@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { buildCodexModuleBoundaryStatus } from '../../lib/runtime/ModuleBoundary.js';
-import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 describe('Codex module boundary status', () => {
   it('keeps Codex plugin ownership separate from Alembic runtime ownership', () => {
@@ -46,13 +45,6 @@ describe('Codex module boundary status', () => {
   it('marks embedded runtime as a Plugin adapter rather than daemon source of truth', () => {
     const status = buildCodexModuleBoundaryStatus({
       enhancementRoute: {
-        embeddedRuntime: {
-          artifact: '@gxfn/alembic-runtime@0.2.0',
-          available: true,
-          packageName: '@gxfn/alembic-runtime',
-          route: 'embedded-plugin-runtime',
-          version: getPackageVersion(),
-        },
         hostAgentRoute: {
           requiresAiProvider: false,
           source: 'host-agent',
@@ -152,9 +144,9 @@ describe('Codex module boundary status', () => {
           },
         },
         missingCapabilities: ['daemon-api'],
-        reason: 'No local Alembic daemon API is ready.',
+        reason: 'No resident Alembic service reachable; running pure-local.',
         requirement: 'jobs',
-        selected: 'embedded-plugin-runtime',
+        selected: 'pure-local',
       },
     });
 
@@ -163,7 +155,7 @@ describe('Codex module boundary status', () => {
       hostAgentSource: 'host-agent',
       residentDaemonJobProviderIsProviderStateOnly: true,
       missingCapabilities: ['daemon-api'],
-      selected: 'embedded-plugin-runtime',
+      selected: 'pure-local',
     });
     expect(status.adapters.embeddedRuntime.role).toContain('not the long-term Alembic daemon');
     expect(status.adapters.hostProjectAlignment).toMatchObject({

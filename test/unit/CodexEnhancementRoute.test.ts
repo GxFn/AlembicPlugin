@@ -53,7 +53,7 @@ function makeDaemonStatus(
 }
 
 describe('Codex enhancement route resolver', () => {
-  it('selects a local Alembic daemon when the daemon advertises enhancement capabilities', () => {
+  it('selects pure-local when the daemon advertises capabilities but no resident service object is present', () => {
     const daemonStatus = makeDaemonStatus(
       {},
       {
@@ -127,7 +127,10 @@ describe('Codex enhancement route resolver', () => {
       requirement: 'jobs',
     });
 
-    expect(route.selected).toBe('local-alembic-daemon');
+    // PDR-5: selection now keys on a present resident service object. This fixture
+    // advertises capabilities via enhancement/capabilities but exposes no
+    // residentService object, so the first-class pure-local route is selected.
+    expect(route.selected).toBe('pure-local');
     expect(route.hostAgentRoute).toMatchObject({
       requiresAiProvider: false,
       source: 'host-agent',
@@ -163,7 +166,7 @@ describe('Codex enhancement route resolver', () => {
       retained: false,
       source: 'capabilities.runtimeBoundary',
     });
-    expect(route.reason).toContain('canonical residentService capabilities');
+    expect(route.reason).toContain('pure-local');
     expect(route.missingCapabilities).toEqual([]);
   });
 
@@ -227,7 +230,8 @@ describe('Codex enhancement route resolver', () => {
       requirement: 'dashboard',
     });
 
-    expect(route.selected).toBe('local-alembic-daemon');
+    // PDR-5: a present resident service object selects the first-class resident route.
+    expect(route.selected).toBe('resident');
     expect(route.localAlembic.daemon.capabilities).toMatchObject({
       dashboardAvailable: false,
       fileMonitorAvailable: false,
@@ -291,7 +295,8 @@ describe('Codex enhancement route resolver', () => {
       requirement: 'dashboard',
     });
 
-    expect(route.selected).toBe('local-alembic-daemon');
+    // PDR-5: no resident service object present → first-class pure-local route.
+    expect(route.selected).toBe('pure-local');
     expect(route.localAlembic.daemon.capabilities).toMatchObject({
       dashboardAvailable: null,
       dashboardUrl: null,
@@ -337,7 +342,8 @@ describe('Codex enhancement route resolver', () => {
       requirement: 'dashboard',
     });
 
-    expect(route.selected).toBe('local-alembic-daemon');
+    // PDR-5: no resident service object present → first-class pure-local route.
+    expect(route.selected).toBe('pure-local');
     expect(route.missingCapabilities).toEqual(['dashboard']);
     expect(route.hostAgentRoute.source).toBe('host-agent');
     expect(route.residentDaemonJobProvider).toMatchObject({
@@ -347,7 +353,7 @@ describe('Codex enhancement route resolver', () => {
     });
   });
 
-  it('reports a local install for status while plugin actions can still fall back to embedded runtime', () => {
+  it('selects pure-local when no daemon and no resident service are reachable, regardless of a local install', () => {
     const daemonStatus = makeDaemonStatus(
       {
         status: 'stopped',
@@ -365,26 +371,30 @@ describe('Codex enhancement route resolver', () => {
       version: 'alembic-codex-plugin-runtime 0.9.0',
     };
 
+    // PDR-5: selection no longer keys on a local CLI install or daemon readiness;
+    // with no resident service object, pure-local is the first-class route.
     expect(
       buildHostEnhancementRouteChoice({
         daemonStatus,
         localInstall,
         requirement: 'status',
       }).selected
-    ).toBe('local-alembic-install');
+    ).toBe('pure-local');
     expect(
       buildHostEnhancementRouteChoice({
         daemonStatus,
         localInstall,
         requirement: 'jobs',
       }).selected
-    ).toBe('embedded-plugin-runtime');
+    ).toBe('pure-local');
   });
 
-  it('summarizes older embedded plugin health as an embedded runtime route', () => {
+  it('no longer infers a daemon self-route now that the embedded plugin daemon is removed', () => {
     const daemon = summarizeEnhancementDaemon(makeDaemonStatus());
 
-    expect(daemon.route).toBe('embedded-plugin-runtime');
+    // PDR-3/PDR-5: the embedded plugin daemon was removed; with no advertised
+    // resident-service/enhancement route, the daemon self-route is null.
+    expect(daemon.route).toBe(null);
     expect(daemon.available).toBe(true);
   });
 });

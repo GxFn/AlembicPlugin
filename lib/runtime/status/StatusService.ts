@@ -163,7 +163,6 @@ export async function buildCodexStatus(
   const projectScopeIdentity = await residentClient.resolveProjectScopeIdentity({ daemonStatus });
   const enhancementRoute = buildHostEnhancementRouteChoice({
     daemonStatus,
-    runtime,
     requirement: 'status',
   });
   const hostProjectAlignment = buildCodexHostProjectAlignment({
@@ -823,11 +822,9 @@ function buildCodexRouteBoundaryNotes(enhancementRoute?: HostEnhancementRouteCho
       }`
     : `not configured (${enhancementRoute.residentDaemonJobProvider.configSource || 'empty'})`;
   const routeNote =
-    enhancementRoute.selected === 'local-alembic-daemon'
-      ? `Local Alembic resident service route: ${enhancementRoute.selected}. ${enhancementRoute.reason}`
-      : enhancementRoute.selected === 'embedded-plugin-runtime'
-        ? `Embedded Plugin runtime route: ${enhancementRoute.selected}. It recovers Codex host-agent jobs and is not Alembic resident enhancement. ${enhancementRoute.reason}`
-        : `Alembic route candidate: ${enhancementRoute.selected}. ${enhancementRoute.reason}`;
+    enhancementRoute.selected === 'resident'
+      ? `Resident Alembic service route: ${enhancementRoute.selected}. ${enhancementRoute.reason}`
+      : `Pure-local route (in-process Services + local vector): ${enhancementRoute.selected}. ${enhancementRoute.reason}`;
   return [
     `Host-agent route uses source=${enhancementRoute.hostAgentRoute.source} for Codex-submitted knowledge, proposals, and dimension completion.`,
     routeNote,

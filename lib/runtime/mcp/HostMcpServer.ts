@@ -390,7 +390,6 @@ export class HostMcpServer {
     const runtime = resolveHostRuntimeContext();
     const enhancementRoute = buildHostEnhancementRouteChoice({
       daemonStatus,
-      runtime,
       requirement: 'status',
     });
     const hostProjectAlignment = buildCodexHostProjectAlignment({
@@ -807,7 +806,6 @@ export class HostMcpServer {
     const enhancementRoute = daemon
       ? buildHostEnhancementRouteChoice({
           daemonStatus: daemon,
-          runtime: resolveHostRuntimeContext(),
           requirement: 'jobs',
         })
       : null;
@@ -984,7 +982,6 @@ export class HostMcpServer {
     const enhancementRoute = daemonStatus
       ? buildHostEnhancementRouteChoice({
           daemonStatus,
-          runtime,
           requirement: 'mcp',
         })
       : null;

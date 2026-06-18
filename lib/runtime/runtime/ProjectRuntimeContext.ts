@@ -385,7 +385,7 @@ function isServiceAvailable(
       );
     case 'dashboard':
       return (
-        input.enhancementRoute?.selected === 'local-alembic-daemon' &&
+        input.enhancementRoute?.selected === 'resident' &&
         input.enhancementRoute.localAlembic.daemon.capabilities.dashboardAvailable === true &&
         Boolean(input.enhancementRoute.localAlembic.daemon.dashboardUrl)
       );

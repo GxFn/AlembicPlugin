@@ -4,23 +4,23 @@ import {
   type AlembicResidentServiceStatus,
   type AlembicResidentServiceStatusSummary,
   type AlembicRuntimeCapabilitySummary,
-  type AlembicRuntimeRouteKind,
   normalizeAlembicFileMonitorMode,
   normalizeAlembicResidentServiceStatus,
   summarizeAlembicResidentServiceStatus,
   summarizeAlembicRuntimeCapabilities,
 } from '@alembic/core/daemon';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import {
-  CODEX_RUNTIME_PACKAGE,
-  type HostRuntimeContext,
-  resolveHostRuntimeContext,
-} from '../runtime/runtime/RuntimeContext.js';
 import type { DaemonStatus } from './daemon-status.js';
 
 export type CodexEnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
 
-export type CodexEnhancementRouteKind = AlembicRuntimeRouteKind;
+// PDR-5: the Plugin's enhancement-route choice is a plugin-local concept with two
+// first-class routes. It is intentionally NOT Core's AlembicRuntimeRouteKind (the
+// daemon's self-reported route), which is a separate concept.
+//   - 'resident': 有主体 — a resident Alembic service is reachable, consumed via Core contracts.
+//   - 'pure-local': 无主体 — in-process MCP Services + local stage cache + local vector.
+//     Fully functional; a first-class route, NOT a degrade fallback.
+export type CodexEnhancementRouteKind = 'resident' | 'pure-local';
 
 export const CODEX_HOST_AGENT_ROUTE_TOOLS = [
   'alembic_bootstrap',
@@ -122,13 +122,6 @@ export interface CodexLocalAlembicInstallProbe {
 }
 
 export interface HostEnhancementRouteChoice {
-  embeddedRuntime: {
-    artifact: string;
-    available: boolean;
-    packageName: string;
-    route: 'embedded-plugin-runtime';
-    version: string;
-  };
   hostAgentRoute: {
     requiresAiProvider: false;
     source: typeof HOST_AGENT_SOURCE;
@@ -154,31 +147,16 @@ export function buildHostEnhancementRouteChoice(input: {
   daemonStatus: DaemonStatus;
   localInstall?: CodexLocalAlembicInstallProbe;
   requirement?: CodexEnhancementRequirement;
-  runtime?: HostRuntimeContext;
 }): HostEnhancementRouteChoice {
-  const runtime = input.runtime || resolveHostRuntimeContext();
   const requirement = input.requirement || 'status';
   const daemon = summarizeEnhancementDaemon(input.daemonStatus);
   const localInstall = input.localInstall || probeLocalAlembicInstall();
   const missingCapabilities = findMissingCapabilities(requirement, daemon);
   const residentDaemonJobProvider = summarizeResidentDaemonJobProvider(input.daemonStatus.health);
-  const embeddedRuntime = {
-    artifact: runtime.embeddedRuntimeSpecifier,
-    available: true,
-    packageName: runtime.runtimePackage || CODEX_RUNTIME_PACKAGE,
-    route: 'embedded-plugin-runtime' as const,
-    version: runtime.packageVersion,
-  };
 
-  const selected = selectEnhancementRoute({
-    daemon,
-    localInstall,
-    missingCapabilities,
-    requirement,
-  });
+  const selected = selectEnhancementRoute({ daemon });
 
   return {
-    embeddedRuntime,
     hostAgentRoute: {
       requiresAiProvider: false,
       source: HOST_AGENT_SOURCE,
@@ -192,9 +170,7 @@ export function buildHostEnhancementRouteChoice(input: {
     missingCapabilities,
     reason: buildEnhancementRouteReason({
       daemon,
-      localInstall,
       missingCapabilities,
-      requirement,
       selected,
     }),
     requirement,
@@ -288,36 +264,22 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
 
 function selectEnhancementRoute(input: {
   daemon: CodexEnhancementDaemonProbe;
-  localInstall: CodexLocalAlembicInstallProbe;
-  missingCapabilities: string[];
-  requirement: CodexEnhancementRequirement;
 }): CodexEnhancementRouteKind {
-  if (input.daemon.ready && isLocalAlembicDaemonRoute(input.daemon.route)) {
-    return 'local-alembic-daemon';
+  // 有主体: a resident Alembic service is reachable (Core resident state present) → consume it.
+  if (input.daemon.residentService !== null) {
+    return 'resident';
   }
-  if (input.requirement === 'dashboard' && input.localInstall.available) {
-    return 'local-alembic-install';
-  }
-  if (input.daemon.ready && input.daemon.route === 'embedded-plugin-runtime') {
-    return 'embedded-plugin-runtime';
-  }
-  if (input.daemon.ready) {
-    return 'embedded-plugin-runtime';
-  }
-  if (input.localInstall.available && input.requirement === 'status') {
-    return 'local-alembic-install';
-  }
-  return 'embedded-plugin-runtime';
+  // 无主体: pure-local first-class — in-process MCP Services + local stage cache + local vector.
+  // Fully functional; a first-class route, not a degrade fallback.
+  return 'pure-local';
 }
 
 function buildEnhancementRouteReason(input: {
   daemon: CodexEnhancementDaemonProbe;
-  localInstall: CodexLocalAlembicInstallProbe;
   missingCapabilities: string[];
-  requirement: CodexEnhancementRequirement;
   selected: CodexEnhancementRouteKind;
 }): string {
-  if (input.selected === 'local-alembic-daemon') {
+  if (input.selected === 'resident') {
     const suffix =
       input.missingCapabilities.length > 0
         ? ` Missing capabilities: ${input.missingCapabilities.join(', ')}.`
@@ -327,29 +289,12 @@ function buildEnhancementRouteReason(input: {
       const scope = residentService.status.serviceScope.kind
         ? ` Service scope: ${residentService.status.serviceScope.kind}.`
         : '';
-      return `Local Alembic daemon is ready and owns resident service route (${residentService.status.owner}/${residentService.status.route}).${scope}${suffix}`;
+      return `Resident Alembic service is reachable and owns resident service route (${residentService.status.owner}/${residentService.status.route}); consuming it via Core contracts.${scope}${suffix}`;
     }
-    const diagnostic = input.daemon.runtimeBoundary.available
-      ? ` Runtime boundary diagnostics are still reported from ${input.daemon.runtimeBoundary.source}.`
-      : '';
-    return `Local Alembic daemon is ready, but its health payload did not expose canonical residentService capabilities.${diagnostic}${suffix}`;
+    return `Resident Alembic service is reachable; consuming it via Core contracts.${suffix}`;
   }
-  if (input.selected === 'embedded-plugin-runtime') {
-    if (input.requirement === 'dashboard') {
-      return 'Dashboard handoff requires a local Alembic daemon that serves the Dashboard; the embedded Codex plugin runtime only exposes MCP/API compatibility.';
-    }
-    if (input.daemon.ready) {
-      return 'Embedded Codex plugin runtime daemon is ready for this project.';
-    }
-    if (input.localInstall.available) {
-      return 'Local Alembic install was detected, but no local daemon API is ready; plugin actions will start the embedded runtime on demand.';
-    }
-    return 'No local Alembic daemon API is ready; plugin actions will use the pinned Codex runtime package on demand.';
-  }
-  if (input.selected === 'local-alembic-install') {
-    return 'Local Alembic CLI install was detected, but no daemon API is ready yet.';
-  }
-  return 'No usable Alembic enhancement route is available.';
+  // pure-local: first-class, fully functional — not a degrade fallback.
+  return 'No resident Alembic service reachable; running pure-local — in-process MCP Services + local stage cache + local vector. First-class, fully functional (not a degrade).';
 }
 
 function summarizeRuntimeBoundaryCompatibility(
@@ -585,11 +530,12 @@ function readConfigSource(
     : null;
 }
 
-function inferRouteFromReadyDaemon(status: DaemonStatus): string | null {
-  if (!status.ready) {
-    return null;
-  }
-  return 'embedded-plugin-runtime';
+function inferRouteFromReadyDaemon(_status: DaemonStatus): string | null {
+  // PDR-3/PDR-5: the embedded plugin daemon was removed, so there is no daemon
+  // self-reported route to infer here. The daemon's self-route (probe.route) is a
+  // separate concept from the Plugin's enhancement-route choice and is now always
+  // null when not advertised by a reachable resident service.
+  return null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

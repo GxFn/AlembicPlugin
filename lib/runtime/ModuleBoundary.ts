@@ -219,9 +219,7 @@ export function buildCodexModuleBoundaryStatus(
       },
       enhancementRoute: {
         selected: route?.selected ?? null,
-        consumesLocalAlembicCapabilities: route
-          ? route.selected === 'local-alembic-daemon' || route.selected === 'local-alembic-install'
-          : false,
+        consumesLocalAlembicCapabilities: route ? route.selected === 'resident' : false,
         hostAgentSource: route?.hostAgentRoute.source ?? null,
         residentDaemonJobProviderIsProviderStateOnly: true,
         missingCapabilities: route ? [...route.missingCapabilities] : [],

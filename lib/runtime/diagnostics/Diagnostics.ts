@@ -207,7 +207,6 @@ export function buildCodexRuntimeDiagnostics(
     options.enhancementRoute ||
     buildHostEnhancementRouteChoice({
       daemonStatus,
-      runtime: context,
       requirement: 'status',
     });
   const moduleBoundary =
@@ -1044,19 +1043,18 @@ function buildResidentServiceBoundary(
   const status = residentService.status;
   const localAlembicResident =
     status.route === 'local-alembic-daemon' && status.owner === 'alembic';
-  const embeddedHostAgentRecovery =
-    status.route === 'embedded-plugin-runtime' && status.owner === 'alembic-plugin';
+  // PDR-3/PDR-5: the embedded plugin daemon was removed, so its self-reported daemon
+  // route no longer exists; host-agent job recovery is no longer a resident route.
+  const embeddedHostAgentRecovery = false;
   return {
     embeddedHostAgentRecovery,
     localAlembicResident,
     owner: status.owner,
     route: status.route,
     serviceScope: status.serviceScope,
-    note: embeddedHostAgentRecovery
-      ? 'embedded-plugin-runtime recovers Codex host-agent jobs and is not Alembic resident enhancement.'
-      : localAlembicResident
-        ? 'local-alembic-daemon is the canonical Alembic resident service route.'
-        : 'resident service is unavailable or not owned by local Alembic.',
+    note: localAlembicResident
+      ? 'local-alembic-daemon is the canonical Alembic resident service route.'
+      : 'resident service is unavailable or not owned by local Alembic.',
   };
 }
 
