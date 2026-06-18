@@ -43,12 +43,19 @@ export function dispatchCodexLocalTool(
       return { handled: true, result: handlers.initializeWorkspace(args) };
     case 'alembic_codex_dashboard':
       return { handled: true, result: handlers.openDashboard() };
-    case 'alembic_mcp_bootstrap_job':
-      return { handled: true, result: handlers.enqueueJob('bootstrap', args) };
-    case 'alembic_mcp_rescan_job':
-      return { handled: true, result: handlers.enqueueJob('rescan', args) };
-    case 'alembic_codex_job':
+    // MTC-7: alembic_job op routes to the shared job runner. bootstrap/rescan
+    // enqueue an explicit resident job; status (default) reads recoverable job
+    // status without starting a new job.
+    case 'alembic_job': {
+      const op = typeof args.op === 'string' ? args.op : undefined;
+      if (op === 'bootstrap') {
+        return { handled: true, result: handlers.enqueueJob('bootstrap', args) };
+      }
+      if (op === 'rescan') {
+        return { handled: true, result: handlers.enqueueJob('rescan', args) };
+      }
       return { handled: true, result: handlers.readJob(args) };
+    }
     case 'alembic_codex_stop':
       return { handled: true, result: handlers.stopDaemon(args) };
     case 'alembic_codex_cleanup':

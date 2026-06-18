@@ -147,35 +147,16 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'dashboard-handoff',
   }),
-  alembic_mcp_bootstrap_job: catalogEntry({
-    name: 'alembic_mcp_bootstrap_job',
-    owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.resident-jobs',
-    tier: 'agent',
-    schema: 'CodexBootstrapJobInput',
-    annotations: aiBackedWriteTool('Start Recoverable Bootstrap Job'),
-    gateway: null,
-    knowledgeGate: 'cold-start',
-    residentRoutePolicy: 'resident-or-embedded-jobs',
-  }),
-  alembic_mcp_rescan_job: catalogEntry({
-    name: 'alembic_mcp_rescan_job',
-    owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.resident-jobs',
-    tier: 'agent',
-    schema: 'CodexRescanJobInput',
-    annotations: aiBackedWriteTool('Start Recoverable Rescan Job'),
-    gateway: null,
-    knowledgeGate: 'cold-start',
-    residentRoutePolicy: 'resident-or-embedded-jobs',
-  }),
-  alembic_codex_job: catalogEntry({
-    name: 'alembic_codex_job',
+  // MTC-7: alembic_mcp_bootstrap_job + alembic_mcp_rescan_job + alembic_codex_job
+  // merged into the single alembic_job route (op=bootstrap/rescan/status). It can
+  // start jobs (op=bootstrap/rescan), so it keeps the AI-backed write annotation.
+  alembic_job: catalogEntry({
+    name: 'alembic_job',
     owner: 'codex-local',
     handlerOwner: 'CodexMcpServer.resident-jobs',
     tier: 'agent',
     schema: 'CodexJobInput',
-    annotations: readOnlyTool('Read Recoverable Job Status'),
+    annotations: aiBackedWriteTool('Run Or Read Recoverable Alembic Job'),
     gateway: null,
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'resident-or-embedded-jobs',

@@ -258,7 +258,13 @@ async function waitForLiveJobs(options: {
 function extractCreatedJobIds(toolCalls: AlembicMcpHarness['toolCalls']): string[] {
   const ids: string[] = [];
   for (const call of toolCalls) {
-    if (call.name !== 'alembic_mcp_bootstrap_job' && call.name !== 'alembic_mcp_rescan_job') {
+    // MTC-7: bootstrap/rescan enqueue is now alembic_job op=bootstrap|rescan.
+    // Only enqueue ops create jobs; op=status reads and must be ignored here.
+    if (call.name !== 'alembic_job') {
+      continue;
+    }
+    const op = typeof call.arguments.op === 'string' ? call.arguments.op : undefined;
+    if (op !== 'bootstrap' && op !== 'rescan') {
       continue;
     }
     const data =

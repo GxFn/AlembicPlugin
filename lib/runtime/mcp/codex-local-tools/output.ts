@@ -10,9 +10,7 @@ export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_status',
   'alembic_mcp_init',
   'alembic_codex_dashboard',
-  'alembic_mcp_bootstrap_job',
-  'alembic_mcp_rescan_job',
-  'alembic_codex_job',
+  'alembic_job',
   'alembic_codex_stop',
   'alembic_codex_cleanup',
 ] as const;
@@ -32,7 +30,7 @@ export const CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES = [
 
 export const CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES = [
   'alembic_status',
-  'alembic_codex_job',
+  'alembic_job',
   'alembic_codex_cleanup',
 ] as const satisfies readonly CodexLocalCleanOutputToolName[];
 
@@ -92,13 +90,18 @@ const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
 const ALLOWED_CLEAN_META_KEYS = new Set(['responseTimeMs', 'source']);
 
 export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
-  alembic_mcp_bootstrap_job: [
+  // MTC-7: union of the merged bootstrap/rescan enqueue fields + the job-read
+  // (codex_job) fields, projected for the single alembic_job route.
+  alembic_job: [
     'job',
     'jobId',
     'jobRoute',
-    'nextActions',
+    'jobs',
     'needsUserInput',
+    'nextActions',
+    'projectRuntime',
     'reasonCode',
+    'residentService',
   ],
   alembic_codex_cleanup: ['cleaned', 'dryRun', 'projectRuntime', 'targets'],
   alembic_codex_dashboard: ['dashboardUrl', 'needsUserInput', 'nextActions', 'reasonCode'],
@@ -158,15 +161,6 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'route',
     'statusSnapshot',
   ],
-  alembic_codex_job: ['job', 'jobs', 'jobRoute', 'projectRuntime', 'residentService'],
-  alembic_mcp_rescan_job: [
-    'job',
-    'jobId',
-    'jobRoute',
-    'nextActions',
-    'needsUserInput',
-    'reasonCode',
-  ],
   alembic_codex_stop: ['daemonReady', 'daemonStatus', 'pidAlive', 'stopped'],
 } as const satisfies Record<CodexLocalCleanOutputToolName, readonly string[]>;
 
@@ -194,12 +188,10 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
     input.business.dashboardUrl
       ? 'Alembic Dashboard handoff ready.'
       : 'Alembic Dashboard handoff checked.',
-  alembic_mcp_bootstrap_job: () => 'Alembic Codex bootstrap job checked.',
-  alembic_mcp_rescan_job: () => 'Alembic Codex rescan job checked.',
-  alembic_codex_job: (input) =>
+  alembic_job: (input) =>
     Array.isArray(input.business.jobs)
       ? `Alembic Codex job list returned ${input.business.jobs.length} item(s).`
-      : 'Alembic Codex job status checked.',
+      : 'Alembic Codex job checked.',
   alembic_codex_stop: () => 'Alembic Codex daemon stop requested.',
 };
 
@@ -373,10 +365,7 @@ function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputT
     out.stopped = out.daemon.ready !== true && out.daemon.pidAlive !== true;
     delete out.daemon;
   }
-  if (
-    (toolName === 'alembic_mcp_bootstrap_job' || toolName === 'alembic_mcp_rescan_job') &&
-    out.errorCode
-  ) {
+  if (toolName === 'alembic_job' && out.errorCode) {
     out.reasonCode = out.errorCode;
   }
   if (toolName === 'alembic_codex_dashboard' && out.errorCode) {

@@ -260,7 +260,7 @@ export const PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS = [
     producerContract: '/api/v1/jobs',
     providerFixtureId: 'jobs.queued',
     registryRowId: 'I06',
-    toolName: 'alembic_codex_job',
+    toolName: 'alembic_job',
   },
 ] as const satisfies readonly PluginHostD24ConsumerReplayScenario[];
 

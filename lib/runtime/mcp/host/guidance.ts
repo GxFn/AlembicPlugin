@@ -27,8 +27,7 @@ const GUARD_TOOL_NAMES = new Set(['alembic_code_guard']);
 
 const RECOVERY_TOOL_NAMES = new Set([
   'alembic_mcp_init',
-  'alembic_mcp_bootstrap_job',
-  'alembic_mcp_rescan_job',
+  'alembic_job',
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 

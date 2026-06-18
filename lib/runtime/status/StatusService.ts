@@ -645,7 +645,7 @@ export function buildCodexStatusOnboarding(
           label: 'Inspect bootstrap job',
           reason: 'Inspect Codex bootstrap job state when job tools are available.',
           startsDaemon: false,
-          tool: 'alembic_codex_job',
+          tool: 'alembic_job',
         }),
       ],
       notes: [

@@ -28,7 +28,7 @@ describe('Codex knowledge state', () => {
       status: 'running',
       source: 'codex',
       channelId: 'codex',
-      createdByTool: 'alembic_mcp_bootstrap_job',
+      createdByTool: 'alembic_job',
       createdAt: '2026-05-12T00:00:00Z',
       updatedAt: '2026-05-12T00:01:00Z',
     });
@@ -87,7 +87,7 @@ describe('Codex knowledge state', () => {
       status: 'failed',
       source: 'codex',
       channelId: 'codex',
-      createdByTool: 'alembic_mcp_rescan_job',
+      createdByTool: 'alembic_job',
       createdAt: '2026-05-12T00:00:00Z',
       updatedAt: '2026-05-12T00:01:00Z',
       completedAt: '2026-05-12T00:01:00Z',
@@ -116,7 +116,7 @@ describe('Codex knowledge state', () => {
       status: 'queued',
       source: 'codex',
       channelId: 'codex',
-      createdByTool: 'alembic_mcp_rescan_job',
+      createdByTool: 'alembic_job',
       createdAt: '2026-05-12T00:00:00Z',
       updatedAt: '2026-05-12T00:01:00Z',
     });

@@ -835,7 +835,7 @@ export class CodexMcpServer {
             reason:
               'Recover status for explicit Alembic resident or embedded host-agent jobs after Codex reconnects or the Dashboard refreshes.',
             startsDaemon: false,
-            tool: 'alembic_codex_job',
+            tool: 'alembic_job',
           }),
         ],
       },
@@ -925,7 +925,9 @@ export class CodexMcpServer {
   }
 
   async enqueueJob(kind: 'bootstrap' | 'rescan', args: Record<string, unknown>): Promise<unknown> {
-    const toolName = kind === 'bootstrap' ? 'alembic_mcp_bootstrap_job' : 'alembic_mcp_rescan_job';
+    // MTC-7: public surface is the merged alembic_job route; kind stays the
+    // bootstrap/rescan job discriminator for the shared resident job runner.
+    const toolName = 'alembic_job';
     const { blocked, daemon, enhancementRoute, hostProjectAlignment } =
       await this.ensureEnhancementDaemon('jobs', toolName);
     const projectScopeIdentity =
@@ -1050,7 +1052,7 @@ export class CodexMcpServer {
       const job = store.get(jobId);
       return job
         ? { success: true, data: { job, jobRoute, projectRuntime } }
-        : failureResult('alembic_codex_job', `Alembic job not found: ${jobId}`, {
+        : failureResult('alembic_job', `Alembic job not found: ${jobId}`, {
             jobRoute,
             projectRuntime,
           });

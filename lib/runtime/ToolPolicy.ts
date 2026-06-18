@@ -130,9 +130,7 @@ export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
 
 export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
   'alembic_codex_dashboard',
-  'alembic_mcp_bootstrap_job',
-  'alembic_mcp_rescan_job',
-  'alembic_codex_job',
+  'alembic_job',
   ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 
@@ -182,49 +180,54 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
     inputSchema: codexInputSchema(),
   },
   {
-    name: 'alembic_mcp_bootstrap_job',
+    // MTC-7: alembic_mcp_bootstrap_job + alembic_mcp_rescan_job + alembic_codex_job
+    // merged into one job route discriminated by op. A local Alembic daemon owns
+    // provider-backed job execution when available; embedded Plugin runtime only
+    // recovers Codex host-agent workflow state.
+    name: 'alembic_job',
     tier: 'agent',
     description:
-      'Explicit resident bootstrap job path. A local Alembic daemon owns provider-backed job execution when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
+      'Resident-or-embedded Alembic job route. op=bootstrap starts an explicit resident bootstrap job; op=rescan starts an explicit resident rescan job; op=status (default) reads recoverable resident or embedded host-agent job status without starting a new job. When the workspace is not initialized yet, op=status first performs safe Ghost initialization. For op=status pass jobId for one job, or omit it to list recent jobs.',
     inputSchema: codexInputSchema({
-      maxFiles: { type: 'number', description: 'Maximum files to include in project analysis.' },
-      skipGuard: { type: 'boolean', description: 'Skip Guard audit during bootstrap analysis.' },
+      op: {
+        type: 'string',
+        enum: ['bootstrap', 'rescan', 'status'],
+        description:
+          'Job operation: bootstrap = start a resident bootstrap job, rescan = start a resident rescan job, status = read/list recoverable job status (default when omitted).',
+      },
+      maxFiles: {
+        type: 'number',
+        description: 'op=bootstrap: maximum files to include in project analysis.',
+      },
+      skipGuard: {
+        type: 'boolean',
+        description: 'op=bootstrap: skip Guard audit during bootstrap analysis.',
+      },
       contentMaxLines: {
         type: 'number',
-        description: 'Maximum lines of content sampled per file.',
+        description: 'op=bootstrap: maximum lines of content sampled per file.',
       },
-    }),
-  },
-  {
-    name: 'alembic_mcp_rescan_job',
-    tier: 'agent',
-    description:
-      'Explicit resident rescan job path. A local Alembic daemon owns provider-backed job execution when available; embedded Plugin runtime only recovers Codex host-agent workflow state.',
-    inputSchema: codexInputSchema({
-      reason: { type: 'string', description: 'Short reason for the rescan.' },
+      reason: { type: 'string', description: 'op=rescan: short reason for the rescan.' },
       dimensions: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Optional dimension ids to rescan.',
+        description: 'op=rescan: optional dimension ids to rescan.',
       },
-    }),
-  },
-  {
-    name: 'alembic_codex_job',
-    tier: 'agent',
-    description:
-      'Read recoverable resident or embedded host-agent job status without starting a new job. If the workspace is not initialized yet, this first performs safe Ghost initialization. Pass jobId for one job, or omit it to list recent jobs.',
-    inputSchema: codexInputSchema({
       jobId: {
         type: 'string',
-        description: 'Job id returned by alembic_mcp_bootstrap_job or alembic_mcp_rescan_job.',
+        description: 'op=status: job id returned by an earlier op=bootstrap or op=rescan call.',
       },
-      kind: { type: 'string', enum: ['bootstrap', 'rescan'] },
+      kind: {
+        type: 'string',
+        enum: ['bootstrap', 'rescan'],
+        description: 'op=status: filter listed jobs by kind.',
+      },
       status: {
         type: 'string',
         enum: ['queued', 'running', 'completed', 'failed', 'cancelled'],
+        description: 'op=status: filter listed jobs by status.',
       },
-      limit: { type: 'number', description: 'Maximum jobs to return when listing.' },
+      limit: { type: 'number', description: 'op=status: maximum jobs to return when listing.' },
     }),
   },
   {
@@ -353,7 +356,7 @@ export function buildCodexToolPolicySignals(
   if (state === 'bootstrap_running') {
     signals.push({
       code: 'CODEX_BOOTSTRAP_RUNNING',
-      message: 'A bootstrap job is already running; use alembic_codex_job to recover progress.',
+      message: 'A bootstrap job is already running; use alembic_job to recover progress.',
       severity: 'info',
     });
   }

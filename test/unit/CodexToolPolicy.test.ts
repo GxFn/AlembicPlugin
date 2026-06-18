@@ -130,9 +130,7 @@ describe('Codex tool policy', () => {
       ...sourceGraphToolNames,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
-      'alembic_codex_job',
+      'alembic_job',
       ...hostWorkflowToolNames,
     ]);
   });
@@ -151,9 +149,7 @@ describe('Codex tool policy', () => {
       ...sourceGraphToolNames,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
-      'alembic_codex_job',
+      'alembic_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
     ]);
@@ -276,9 +272,7 @@ describe('Codex tool policy', () => {
       ...sourceGraphToolNames,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
-      'alembic_codex_job',
+      'alembic_job',
       ...hostWorkflowToolNames,
       'alembic_project_skill',
     ]);

@@ -17,9 +17,7 @@ const expectedCodexLocalToolNames = [
   'alembic_status',
   'alembic_mcp_init',
   'alembic_codex_dashboard',
-  'alembic_mcp_bootstrap_job',
-  'alembic_mcp_rescan_job',
-  'alembic_codex_job',
+  'alembic_job',
   'alembic_codex_stop',
   'alembic_codex_cleanup',
 ] as const;
@@ -98,8 +96,6 @@ describe('MCP Codex local tools clean output contract', () => {
     for (const toolName of [
       'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
       'alembic_codex_stop',
     ] as const) {
       const result = serializeMcpToolResult(toolName, sampleLegacyEnvelope(toolName), {
@@ -245,11 +241,7 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
         needsUserInput: true,
         nextActions: [{ tool: 'alembic_status' }],
       };
-    case 'alembic_mcp_bootstrap_job':
-      return { job: { id: 'bootstrap-1' }, jobId: 'bootstrap-1' };
-    case 'alembic_mcp_rescan_job':
-      return { job: { id: 'rescan-1' }, jobId: 'rescan-1' };
-    case 'alembic_codex_job':
+    case 'alembic_job':
       return {
         jobRoute: { selected: 'embedded-host-agent-recoverable' },
         jobs: [{ id: 'job-1' }],

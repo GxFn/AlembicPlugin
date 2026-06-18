@@ -131,7 +131,7 @@ describe('P3-3: selection-mismatch block carries an executable local recovery', 
       hostProjectAlignment: { connectionState: 'mismatch' } as never,
       projectRoot,
       requirement: 'jobs' as const,
-      tool: 'alembic_mcp_bootstrap_job',
+      tool: 'alembic_job',
     };
   }
 

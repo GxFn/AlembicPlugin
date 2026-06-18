@@ -26,9 +26,7 @@ const BOOTSTRAP_AND_RECOVERY_TOOLS = [
   'alembic_mcp_init',
   'alembic_bootstrap',
   'alembic_rescan',
-  'alembic_mcp_bootstrap_job',
-  'alembic_mcp_rescan_job',
-  'alembic_codex_job',
+  'alembic_job',
 ] as const;
 
 interface DimensionSummary {
@@ -455,7 +453,7 @@ function buildSingleWriterLeaseVisibility(
       : 'No active bootstrap writer is visible; alembic_bootstrap may start or resume the Codex-owned bootstrap route.',
     sharedEntrypoints: [
       'Codex host-agent alembic_bootstrap',
-      'Plugin job route alembic_mcp_bootstrap_job',
+      'Plugin job route alembic_job',
       'Alembic daemon job provider',
     ],
     enforcementBoundary:

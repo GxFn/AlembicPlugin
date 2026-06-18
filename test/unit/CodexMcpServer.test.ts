@@ -117,7 +117,7 @@ function writeRunningBootstrapJob(projectRoot: string): void {
         status: 'running',
         source: 'codex',
         channelId: 'codex',
-        createdByTool: 'alembic_mcp_bootstrap_job',
+        createdByTool: 'alembic_job',
         createdAt: '2026-05-24T08:00:00.000Z',
         updatedAt: '2026-05-24T08:01:00.000Z',
       },
@@ -453,8 +453,7 @@ describe('CodexMcpServer', () => {
 
     expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
     expect(names).toContain('alembic_codex_dashboard');
-    expect(names).toContain('alembic_mcp_bootstrap_job');
-    expect(names).toContain('alembic_codex_job');
+    expect(names).toContain('alembic_job');
     expect(names).toContain('alembic_codex_cleanup');
     expect(names).toContain('alembic_bootstrap');
     expect(names).toContain('alembic_rescan');
@@ -529,7 +528,7 @@ describe('CodexMcpServer', () => {
       idempotentHint: true,
       openWorldHint: false,
     });
-    expect(byName.get('alembic_mcp_bootstrap_job')?.annotations).toMatchObject({
+    expect(byName.get('alembic_job')?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: false,
       openWorldHint: true,
@@ -549,9 +548,7 @@ describe('CodexMcpServer', () => {
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
-      'alembic_codex_job',
+      'alembic_job',
       ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
       ...CODEX_HOST_AGENT_TOOL_NAMES,
     ]);
@@ -567,9 +564,7 @@ describe('CodexMcpServer', () => {
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
-      'alembic_codex_job',
+      'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
     expect(names).not.toContain('alembic_health');
@@ -854,9 +849,7 @@ describe('CodexMcpServer', () => {
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
-      'alembic_mcp_bootstrap_job',
-      'alembic_mcp_rescan_job',
-      'alembic_codex_job',
+      'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
     expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).not.toContain(
@@ -1266,7 +1259,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_job', { limit: 5 })) as {
+    const result = (await server.handleToolCall('alembic_job', { limit: 5 })) as {
       success: boolean;
       data: { jobs: unknown[] };
     };
@@ -1276,7 +1269,7 @@ describe('CodexMcpServer', () => {
     expect(result.data.jobs).toEqual([]);
     expect(marker).toMatchObject({
       initializedBy: 'codex-plugin-init-on-demand',
-      requestedTool: 'alembic_codex_job',
+      requestedTool: 'alembic_job',
       route: 'tool-call',
     });
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
@@ -1826,7 +1819,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = await server.handleToolCall('alembic_mcp_bootstrap_job', { maxFiles: 25 });
+    const result = await server.handleToolCall('alembic_job', { op: 'bootstrap', maxFiles: 25 });
 
     expect(result).toMatchObject({ success: true, data: { jobId: 'bootstrap_test' } });
     expect(supervisor.ensure).toHaveBeenCalledWith({ projectRoot, waitUntilReadyMs: 3000 });
@@ -2049,7 +2042,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = await server.handleToolCall('alembic_mcp_bootstrap_job', { maxFiles: 25 });
+    const result = await server.handleToolCall('alembic_job', { op: 'bootstrap', maxFiles: 25 });
     const [url, init] = fetchSpy.mock.calls[0];
     const headers = init?.headers as Record<string, string>;
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -2062,7 +2055,7 @@ describe('CodexMcpServer', () => {
       jobContext: {
         actor: { role: 'host-mcp' },
         client: 'codex-plugin',
-        createdByTool: 'alembic_mcp_bootstrap_job',
+        createdByTool: 'alembic_job',
       },
       maxFiles: 25,
     });
@@ -2109,7 +2102,7 @@ describe('CodexMcpServer', () => {
     const job = store.create({ kind: 'rescan', request: { reason: 'codex' }, source: 'codex' });
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_job', { jobId: job.id })) as {
+    const result = (await server.handleToolCall('alembic_job', { jobId: job.id })) as {
       success: boolean;
       data: {
         job: { id: string };
@@ -2156,7 +2149,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_job', {
+    const result = (await server.handleToolCall('alembic_job', {
       jobId: 'bootstrap_live',
     })) as {
       success: boolean;
@@ -2189,7 +2182,7 @@ describe('CodexMcpServer', () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('connection closed'));
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_job', { jobId: job.id })) as {
+    const result = (await server.handleToolCall('alembic_job', { jobId: job.id })) as {
       success: boolean;
       data: {
         job: { id: string };
