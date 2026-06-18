@@ -111,24 +111,16 @@ function catalogEntry(entry: Omit<PluginToolSurfaceEntry, 'admin'>): PluginToolS
 // owner, and resident-service policy cannot drift across tools.ts, ToolPolicy,
 // and the Codex router.
 export const PLUGIN_TOOL_SURFACE_CATALOG = {
-  alembic_mcp_status: catalogEntry({
-    name: 'alembic_mcp_status',
+  // MTC-4: merged alembic_health + alembic_mcp_status + alembic_codex_diagnostics.
+  // Cross-server tool — listed once; primary identity is the cold-start local
+  // surface (the resident shell also serves it via McpServer.tool-router).
+  alembic_status: catalogEntry({
+    name: 'alembic_status',
     owner: 'codex-local',
     handlerOwner: 'CodexMcpServer.local',
     tier: 'agent',
-    schema: 'CodexStatusInput',
-    annotations: readOnlyTool('Check Alembic Codex Status'),
-    gateway: null,
-    knowledgeGate: 'cold-start',
-    residentRoutePolicy: 'status-probe',
-  }),
-  alembic_codex_diagnostics: catalogEntry({
-    name: 'alembic_codex_diagnostics',
-    owner: 'codex-local',
-    handlerOwner: 'CodexMcpServer.local',
-    tier: 'agent',
-    schema: 'CodexDiagnosticsInput',
-    annotations: readOnlyTool('Run Alembic Codex Diagnostics'),
+    schema: 'StatusInput',
+    annotations: readOnlyTool('Check Alembic Status'),
     gateway: null,
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'status-probe',
@@ -209,17 +201,6 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     gateway: null,
     knowledgeGate: 'cold-start',
     residentRoutePolicy: 'none',
-  }),
-  alembic_health: catalogEntry({
-    name: 'alembic_health',
-    owner: 'plugin-embedded-core',
-    handlerOwner: 'McpServer.tool-router',
-    tier: 'agent',
-    schema: 'HealthInput',
-    annotations: readOnlyTool('Check Alembic Health'),
-    gateway: null,
-    knowledgeGate: 'resident-project-scope',
-    residentRoutePolicy: 'resident-project-scope',
   }),
   alembic_recipe_map: catalogEntry({
     name: 'alembic_recipe_map',

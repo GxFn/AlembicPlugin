@@ -22,11 +22,17 @@ import {
 import { z } from 'zod';
 
 // ══════════════════════════════════════════════════════
-//  1. alembic_health — 无参数
+//  1. alembic_status — 可选 aspect(runtime/knowledge)
+//     MTC-4: merges alembic_health + alembic_mcp_status +
+//     alembic_codex_diagnostics into one cross-server status tool.
+//     Omitting aspect returns the full status; aspect narrows the
+//     view (runtime = runtime/diagnostics, knowledge = knowledge stats).
 // ══════════════════════════════════════════════════════
 
-export const HealthInput = z.object({});
-export type HealthInput = z.infer<typeof HealthInput>;
+export const StatusInput = z.object({
+  aspect: z.enum(['runtime', 'knowledge']).optional(),
+});
+export type StatusInput = z.infer<typeof StatusInput>;
 
 // ══════════════════════════════════════════════════════
 //  Host intent / turn metadata — Plugin-owned Codex intake
@@ -1003,7 +1009,7 @@ const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_work_start: WorkStartInput,
   alembic_work_finish: WorkFinishInput,
   alembic_code_guard: CodeGuardInput,
-  alembic_health: HealthInput,
+  alembic_status: StatusInput,
   alembic_search: SearchInput,
   alembic_graph: GraphInput,
   alembic_submit_knowledge: SubmitKnowledgeInput,

@@ -376,6 +376,7 @@ export class CodexMcpServer {
     }
 
     const localDispatch = dispatchCodexLocalTool(name, args, {
+      buildColdStartKnowledgeStatus: () => this.buildColdStartKnowledgeStatus(),
       buildDiagnostics: () => this.buildDiagnostics(),
       buildStatus: () => this.buildStatus(),
       cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
@@ -413,6 +414,24 @@ export class CodexMcpServer {
         projectRootResolution: this.projectRootResolution,
         supervisor: this.supervisor,
       }),
+    };
+  }
+
+  // MTC-4: alembic_status aspect='knowledge' in the cold-start shell. Reports
+  // only local knowledge presence derived from the cold-start status summary;
+  // it never reaches resident-only recipe/candidate/vector-index stats.
+  async buildColdStartKnowledgeStatus(): Promise<Record<string, unknown>> {
+    const status = await this.buildStatus();
+    const statusData = status.data as { knowledge?: Record<string, unknown> } | undefined;
+    return {
+      success: true,
+      data: {
+        knowledge: {
+          resident: false,
+          ...(statusData?.knowledge ?? {}),
+          note: 'Cold-start reports local knowledge presence only; resident recipe/candidate/vector-index stats require an active project runtime.',
+        },
+      },
     };
   }
 
@@ -496,7 +515,7 @@ export class CodexMcpServer {
                 label: 'Run diagnostics',
                 reason: 'Inspect runtime, package, and plugin metadata before retrying setup.',
                 startsDaemon: false,
-                tool: 'alembic_codex_diagnostics',
+                tool: 'alembic_status',
               }),
             ],
         profile: CODEX_SETUP_PROFILE,
@@ -608,7 +627,7 @@ export class CodexMcpServer {
               label: 'Check workspace status',
               reason: 'Inspect the registered Alembic workspace mode before retrying init.',
               startsDaemon: false,
-              tool: 'alembic_mcp_status',
+              tool: 'alembic_status',
             }),
           ],
         }
@@ -771,13 +790,13 @@ export class CodexMcpServer {
               label: 'Check workspace status',
               reason: 'Inspect host project alignment and local Alembic daemon readiness.',
               startsDaemon: false,
-              tool: 'alembic_mcp_status',
+              tool: 'alembic_status',
             }),
             buildCodexRecommendedAction({
               label: 'Run diagnostics',
               reason: 'Check plugin runtime wiring and local Alembic handoff capabilities.',
               startsDaemon: false,
-              tool: 'alembic_codex_diagnostics',
+              tool: 'alembic_status',
             }),
           ],
         }
@@ -936,7 +955,7 @@ export class CodexMcpServer {
             label: 'Run diagnostics',
             reason: 'Check daemon startup state before retrying the job.',
             startsDaemon: false,
-            tool: 'alembic_codex_diagnostics',
+            tool: 'alembic_status',
           }),
         ],
       });

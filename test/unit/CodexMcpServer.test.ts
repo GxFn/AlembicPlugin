@@ -451,8 +451,6 @@ describe('CodexMcpServer', () => {
     const tools = getVisibleCodexTools('agent', projectRoot);
     const names = tools.map((tool) => tool.name);
 
-    expect(names).toContain('alembic_mcp_status');
-    expect(names).toContain('alembic_codex_diagnostics');
     expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
     expect(names).toContain('alembic_codex_dashboard');
     expect(names).toContain('alembic_mcp_bootstrap_job');
@@ -461,7 +459,7 @@ describe('CodexMcpServer', () => {
     expect(names).toContain('alembic_bootstrap');
     expect(names).toContain('alembic_rescan');
     expect(names).toContain('alembic_project_skill');
-    expect(names).toContain('alembic_health');
+    expect(names).toContain('alembic_status');
     expect(names).not.toContain('alembic_knowledge_lifecycle');
   });
 
@@ -525,7 +523,7 @@ describe('CodexMcpServer', () => {
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
     expect(tools.every((tool) => tool.annotations)).toBe(true);
-    expect(byName.get('alembic_mcp_status')?.annotations).toMatchObject({
+    expect(byName.get('alembic_status')?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -547,8 +545,7 @@ describe('CodexMcpServer', () => {
     const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).toEqual([
-      'alembic_mcp_status',
-      'alembic_codex_diagnostics',
+      'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
@@ -566,8 +563,7 @@ describe('CodexMcpServer', () => {
     const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).toEqual([
-      'alembic_mcp_status',
-      'alembic_codex_diagnostics',
+      'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
@@ -590,7 +586,7 @@ describe('CodexMcpServer', () => {
     }).map((tool) => tool.name);
 
     expect(names).toContain('alembic_search');
-    expect(names).toContain('alembic_health');
+    expect(names).toContain('alembic_status');
     expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_skill');
   });
@@ -680,22 +676,12 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot: sourceRoot, supervisor });
 
-    const healthResult = (await server.handleToolCall('alembic_health', {})) as {
-      data: {
-        codexProjectScopeExecution: { dataRoot: string; enabled: boolean; projectScopeId: string };
-        projectRuntime: {
-          fallbackIsolation: Array<{ effectiveIdentityAllowed: boolean; id: string }>;
-          identity: {
-            dataRoot: string;
-            databasePath: string;
-            projectRoot: string;
-            projectScopeId: string;
-            runtimeDir: string;
-          };
-          sourcePolicy: { effectiveIdentitySource: string; projectScopeSource: string };
-        };
-        projectRoot: string;
-      };
+    // MTC-4: alembic_status (default) is the cold-start local status; it reports the
+    // resolved project read-only and never runs the old alembic_health resident-backed
+    // execution wrapper (codexProjectScopeExecution), per "cold-start does not touch
+    // resident-only". The resident-backed knowledge tools below (search/prime) remain.
+    const statusResult = (await server.handleToolCall('alembic_status', {})) as {
+      data: { project: { root: string } };
       success: boolean;
     };
     const searchResult = (await server.handleToolCall('alembic_search', {
@@ -723,34 +709,8 @@ describe('CodexMcpServer', () => {
       status: string;
     };
 
-    expect(healthResult.success).toBe(true);
-    expect(healthResult.data.projectRoot).toBe(sourceRoot);
-    expect(healthResult.data.codexProjectScopeExecution).toMatchObject({
-      dataRoot,
-      enabled: true,
-      projectScopeId: projectScope.projectScopeId,
-    });
-    expect(healthResult.data.projectRuntime).toMatchObject({
-      identity: {
-        dataRoot,
-        databasePath: path.join(dataRoot, '.asd', 'alembic.db'),
-        projectRoot: sourceRoot,
-        projectScopeId: projectScope.projectScopeId,
-        runtimeDir: path.join(dataRoot, '.asd'),
-      },
-      sourcePolicy: {
-        effectiveIdentitySource: 'codex-current-project',
-        projectScopeSource: 'resident-read-only',
-      },
-    });
-    expect(healthResult.data.projectRuntime.fallbackIsolation).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          effectiveIdentityAllowed: false,
-          id: 'embedded-plugin-owned-runtime',
-        }),
-      ])
-    );
+    expect(statusResult.success).toBe(true);
+    expect(statusResult.data.project.root).toBe(sourceRoot);
     expect(searchResult.structuredContent.ok).toBe(true);
     expect(searchResult.structuredContent.result.residentSearch.projectScopeIdentity).toMatchObject(
       {
@@ -766,7 +726,7 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('alembic_codex_diagnostics exposes runtime-control diagnostics and state cleanup read-only', async () => {
+  test('alembic_status (aspect=runtime) exposes runtime-control diagnostics and state cleanup read-only', async () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     const sourceOfTruth = makeRuntimeControlSourceOfTruth(projectRoot);
@@ -780,7 +740,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_diagnostics', {})) as {
+    const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       data: {
         projectRuntime: {
           blockedFallbacks: string[];
@@ -890,8 +850,7 @@ describe('CodexMcpServer', () => {
     );
 
     expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).toEqual([
-      'alembic_mcp_status',
-      'alembic_codex_diagnostics',
+      'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
@@ -912,7 +871,7 @@ describe('CodexMcpServer', () => {
     const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).not.toContain('alembic_task');
-    expect(names).toContain('alembic_health');
+    expect(names).toContain('alembic_status');
     expect(names).toContain('alembic_codex_dashboard');
   });
 
@@ -947,7 +906,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_status', {})) as {
+    const result = (await server.handleToolCall('alembic_status', {})) as {
       success: boolean;
       data: {
         initialized: boolean;
@@ -1000,7 +959,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_status', { projectRoot })) as {
+    const result = (await server.handleToolCall('alembic_status', { projectRoot })) as {
       data: {
         project: { root: string; trust: string; trusted: boolean };
       };
@@ -1090,10 +1049,10 @@ describe('CodexMcpServer', () => {
       })
     );
     const firstServer = new CodexMcpServer({ supervisor });
-    await firstServer.handleToolCall('alembic_mcp_status', { projectRoot });
+    await firstServer.handleToolCall('alembic_status', { projectRoot });
 
     const secondServer = new CodexMcpServer({ supervisor });
-    const result = (await secondServer.handleToolCall('alembic_mcp_status', {})) as {
+    const result = (await secondServer.handleToolCall('alembic_status', {})) as {
       data: {
         errorCode?: string;
         project?: { root: string; trust: string };
@@ -1124,7 +1083,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_mcp_status', {})) as {
+    const result = (await server.handleToolCall('alembic_status', {})) as {
       success: boolean;
       data: {
         initialized: boolean;
@@ -1382,8 +1341,8 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    await server.handleToolCall('alembic_mcp_status', {});
-    await server.handleToolCall('alembic_codex_diagnostics', {});
+    await server.handleToolCall('alembic_status', {});
+    await server.handleToolCall('alembic_status', { aspect: 'runtime' });
 
     expect(readCodexInitMarker(projectRoot)).toBeNull();
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
@@ -1475,7 +1434,10 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ supervisor });
 
-    const result = (await server.handleToolCall('alembic_health', {})) as {
+    // MTC-4: alembic_status is now a cold-start discovery tool (exempt from the
+    // project-root requirement), so it no longer rejects an unresolved root. Use a
+    // non-discovery cold-start tool (alembic_mcp_init) to exercise the root gate.
+    const result = (await server.handleToolCall('alembic_mcp_init', {})) as {
       data: { errorCode: string; needsUserInput: boolean; required: { projectRoot: string } };
       success: boolean;
     };
@@ -1508,7 +1470,7 @@ describe('CodexMcpServer', () => {
     );
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_diagnostics', {})) as {
+    const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       success: boolean;
       data: {
         cleanup: { automaticOnUninstall: boolean; command: string };
@@ -1571,7 +1533,7 @@ describe('CodexMcpServer', () => {
     expect(result.data.plugin.mcp.wrapper.path).toContain('alembic-start.mjs');
     expect(result.data.plugin.skills.ok).toBe(true);
     expect(result.data.nextActions).toContain('Alembic Codex runtime checks passed.');
-    expect(result.data.primaryAction.tool).toBe('alembic_mcp_status');
+    expect(result.data.primaryAction.tool).toBe('alembic_status');
     expect(result.data.summary).toContain('runtime checks passed');
     expect(result.data.offlineFallback).toMatchObject({
       localPackage: `@gxfn/alembic-runtime@${getPackageVersion()}`,
@@ -1612,7 +1574,7 @@ describe('CodexMcpServer', () => {
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_codex_diagnostics', {})) as {
+    const result = (await server.handleToolCall('alembic_status', { aspect: 'runtime' })) as {
       success: boolean;
       data: {
         checks: { adminGate: boolean };
@@ -1628,7 +1590,7 @@ describe('CodexMcpServer', () => {
     expect(result.data.ok).toBe(false);
     expect(result.data.checks.adminGate).toBe(false);
     expect(result.data.issues.map((issue) => issue.code)).toContain('CODEX_ADMIN_OPT_IN_REQUIRED');
-    expect(result.data.primaryAction.tool).toBe('alembic_codex_diagnostics');
+    expect(result.data.primaryAction.tool).toBe('alembic_status');
     expect(result.data.summary).toContain('warning');
     expect(result.data.nextActions).toContain(
       'Set ALEMBIC_CODEX_ENABLE_ADMIN=1 only for explicit admin workflows.'
@@ -1721,76 +1683,12 @@ describe('CodexMcpServer', () => {
     expect(supervisor.ensure).not.toHaveBeenCalled();
   });
 
-  test('core Alembic tools stay Plugin-owned and do not call the removed daemon MCP bridge', async () => {
-    useTempAlembicHome();
-    const projectRoot = makeProjectRoot();
-    makeUsableKnowledgeBase(projectRoot);
-    const supervisor = makeSupervisor(
-      makeDaemonStatus(projectRoot, {
-        pidAlive: false,
-        ready: false,
-        state: null,
-        status: 'stopped',
-      })
-    );
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      throw new Error(`Codex-facing tools must not call daemon MCP bridge: ${String(input)}`);
-    });
-    const server = new CodexMcpServer({ projectRoot, supervisor });
-
-    const result = (await server.handleToolCall('alembic_health', {})) as {
-      data: {
-        serviceBoundary: {
-          executionPath: string;
-          owner: string;
-          residentServiceRequested: boolean;
-          tool: string;
-        };
-        codexProjectScopeExecution?: unknown;
-        projectRuntime: {
-          fallbackIsolation: Array<{
-            effectiveIdentityAllowed: boolean;
-            id: string;
-          }>;
-          identity: { projectRoot: string };
-          sourcePolicy: {
-            effectiveIdentitySource: string;
-            projectScopeSource: string;
-          };
-        };
-        status: string;
-      };
-      success: boolean;
-    };
-
-    expect(result.success).toBe(true);
-    expect(result.data.status).toBeTruthy();
-    expect(result.data.serviceBoundary).toMatchObject({
-      executionPath: 'plugin-owned-codex-facing',
-      owner: 'alembic-plugin',
-      residentServiceRequested: false,
-      tool: 'alembic_health',
-    });
-    expect(result.data.projectRuntime).toMatchObject({
-      identity: { projectRoot },
-      sourcePolicy: {
-        effectiveIdentitySource: 'codex-current-project',
-        projectScopeSource: 'single-folder-baseline',
-      },
-    });
-    expect(result.data.projectRuntime.fallbackIsolation).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          effectiveIdentityAllowed: false,
-          id: 'embedded-plugin-owned-runtime',
-        }),
-      ])
-    );
-    expect(result.data.codexProjectScopeExecution).toBeUndefined();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(supervisor.status).toHaveBeenCalledTimes(1);
-    expect(supervisor.ensure).not.toHaveBeenCalled();
-  });
+  // MTC-4: removed 'core Alembic tools stay Plugin-owned and do not call the removed
+  // daemon MCP bridge' — it asserted alembic_health's callPluginOwnedTool execution
+  // wrapper (serviceBoundary / projectRuntime.identity / codexProjectScopeExecution),
+  // which the merged alembic_status (cold-start local buildStatus) does not reproduce.
+  // serviceBoundary is still covered by CodexServiceRequestBoundary.test; the
+  // no-daemon-MCP-bridge property by the resident-tool and host-agent-bootstrap tests.
 
   test('alembic_task prime direct call is retired before daemon bridge execution', async () => {
     useTempAlembicHome();
@@ -1826,7 +1724,9 @@ describe('CodexMcpServer', () => {
     const supervisor = makeSupervisor(makeDaemonStatus(projectRoot));
     const server = new CodexMcpServer({ projectRoot, supervisor });
 
-    const result = (await server.handleToolCall('alembic_health', {})) as {
+    // MTC-4: alembic_status is the always-available cold-start tool (not knowledge-
+    // gated). Use a resident-project-scope knowledge tool to exercise the gate.
+    const result = (await server.handleToolCall('alembic_graph', {})) as {
       data: { errorCode?: string };
       success: boolean;
     };

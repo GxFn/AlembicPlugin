@@ -24,7 +24,7 @@ const scenarios = [
   {
     toolName: 'alembic_codex_dashboard',
     source: 'codex-local-problem',
-    business: { needsUserInput: true, nextActions: [{ tool: 'alembic_mcp_status' }] },
+    business: { needsUserInput: true, nextActions: [{ tool: 'alembic_status' }] },
   },
 ];
 const calls = [];

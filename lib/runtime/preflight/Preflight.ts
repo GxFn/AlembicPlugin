@@ -51,10 +51,7 @@ export interface CodexPreflightBlocked {
 
 export type CodexPreflightResult = CodexPreflightOk | CodexPreflightBlocked;
 
-const PROJECT_ROOT_DISCOVERY_TOOL_NAMES = new Set([
-  'alembic_mcp_status',
-  'alembic_codex_diagnostics',
-]);
+const PROJECT_ROOT_DISCOVERY_TOOL_NAMES = new Set(['alembic_status']);
 
 export function preflightCodexTool<T extends CodexToolDefinition>(
   input: CodexPreflightInput<T>

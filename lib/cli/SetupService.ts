@@ -256,7 +256,7 @@ export class SetupService {
     this.writeLine('');
     this.writeLine('  下一步：');
     if (this.profile === 'codex-plugin') {
-      this.writeLine('    1. 在 Codex 插件中调用 alembic_health 检查 MCP 可用性');
+      this.writeLine('    1. 在 Codex 插件中调用 alembic_status 检查 MCP 可用性');
       this.writeLine('    2. 编码任务前直接用 standalone alembic_prime 加载 Recipe 指导');
       this.writeLine('    3. 写完后使用 alembic_work_finish + alembic_code_guard 检查当前变更');
     } else {

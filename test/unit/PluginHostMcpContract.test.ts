@@ -116,15 +116,13 @@ describe('Plugin host MCP D4 contract', () => {
     expect(residentCatalogEntries.map((entry) => [entry.name, entry.residentRoutePolicy])).toEqual([
       ['alembic_code_guard', 'resident-project-scope'],
       ['alembic_codex_dashboard', 'dashboard-handoff'],
-      ['alembic_codex_diagnostics', 'status-probe'],
       ['alembic_codex_job', 'resident-or-embedded-jobs'],
-      ['alembic_health', 'resident-project-scope'],
       ['alembic_mcp_bootstrap_job', 'resident-or-embedded-jobs'],
       ['alembic_mcp_rescan_job', 'resident-or-embedded-jobs'],
-      ['alembic_mcp_status', 'status-probe'],
       ['alembic_prime', 'resident-project-scope'],
       ['alembic_recipe_map', 'resident-project-scope'],
       ['alembic_search', 'explicit-resident-search'],
+      ['alembic_status', 'status-probe'],
       ['alembic_work_finish', 'resident-project-scope'],
       ['alembic_work_start', 'resident-project-scope'],
     ]);
@@ -159,11 +157,11 @@ describe('Plugin host MCP D4 contract', () => {
       'workflow.unavailable',
     ]);
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 26,
-      cleanOutputToolCount: 26,
+      activeToolCount: 23,
+      cleanOutputToolCount: 23,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
-      residentRouteToolCount: 13,
+      residentRouteToolCount: 11,
       version: 1,
     });
   });
@@ -174,9 +172,9 @@ describe('Plugin host MCP D4 contract', () => {
     );
 
     expect(PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS.map((scenario) => scenario.toolName)).toEqual([
-      'alembic_health',
+      'alembic_status',
       'alembic_search',
-      'alembic_mcp_status',
+      'alembic_status',
       'alembic_codex_job',
     ]);
 

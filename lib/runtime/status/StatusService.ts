@@ -488,7 +488,7 @@ export function buildCodexKnowledgeGateActions(
       label: 'Check workspace status',
       reason: 'Inspect whether this project is initialized and whether Alembic knowledge exists.',
       startsDaemon: false,
-      tool: 'alembic_mcp_status',
+      tool: 'alembic_status',
     }),
   ];
   if (!knowledge.initialized) {
@@ -530,14 +530,14 @@ export function buildCodexStatusOnboarding(
         reason:
           'Show why the project root is unavailable and which absolute path must be provided.',
         startsDaemon: false,
-        tool: 'alembic_codex_diagnostics',
+        tool: 'alembic_status',
       }),
       nextActions: [
         buildCodexRecommendedAction({
           label: 'Run diagnostics',
           reason: 'Show the rejected or fallback project root and required environment variables.',
           startsDaemon: false,
-          tool: 'alembic_codex_diagnostics',
+          tool: 'alembic_status',
         }),
       ],
       notes: [
@@ -560,14 +560,14 @@ export function buildCodexStatusOnboarding(
         label: 'Run diagnostics',
         reason: 'Resolve Node, npm, embedded runtime, or plugin metadata issues first.',
         startsDaemon: false,
-        tool: 'alembic_codex_diagnostics',
+        tool: 'alembic_status',
       }),
       nextActions: [
         buildCodexRecommendedAction({
           label: 'Run diagnostics',
           reason: 'Inspect structured issues and repair guidance.',
           startsDaemon: false,
-          tool: 'alembic_codex_diagnostics',
+          tool: 'alembic_status',
         }),
       ],
       notes: ['Status checks do not start the daemon.', ...alignmentNotes, ...boundaryNotes],
@@ -631,7 +631,7 @@ export function buildCodexStatusOnboarding(
         reason:
           'Read the single-writer bootstrap lease and wait for the existing Codex-owned bootstrap route to finish.',
         startsDaemon: false,
-        tool: 'alembic_mcp_status',
+        tool: 'alembic_status',
       }),
       nextActions: [
         buildCodexRecommendedAction({
@@ -639,7 +639,7 @@ export function buildCodexStatusOnboarding(
           reason:
             'Read bootstrapState.singleWriterLease and current progress without starting work.',
           startsDaemon: false,
-          tool: 'alembic_mcp_status',
+          tool: 'alembic_status',
         }),
         buildCodexRecommendedAction({
           label: 'Inspect bootstrap job',
@@ -697,14 +697,14 @@ export function buildCodexStatusOnboarding(
         reason:
           'Inspect the Codex host project, Alembic selected project, and active runtime project before Dashboard handoff.',
         startsDaemon: false,
-        tool: 'alembic_mcp_status',
+        tool: 'alembic_status',
       }),
       nextActions: [
         buildCodexRecommendedAction({
           label: 'Run diagnostics',
           reason: 'Review plugin runtime status and project handoff mismatch details.',
           startsDaemon: false,
-          tool: 'alembic_codex_diagnostics',
+          tool: 'alembic_status',
         }),
       ],
       notes: [

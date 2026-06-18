@@ -72,10 +72,7 @@ function codexInputSchema(properties: Record<string, unknown> = {}): Record<stri
   };
 }
 
-export const CODEX_DISCOVERY_TOOL_NAMES = new Set([
-  'alembic_mcp_status',
-  'alembic_codex_diagnostics',
-]);
+export const CODEX_DISCOVERY_TOOL_NAMES = new Set(['alembic_status']);
 
 export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_mcp_init']);
 
@@ -123,8 +120,10 @@ export const CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES = new Set(['alembic_project
 // ProjectScope resident 已连通但 Project 级知识库仍为空时，Codex 仍需要看见这些
 // resident-backed 工具：prime/search 可以返回空结果和 telemetry，而不是被本地
 // single-folder knowledge gate 误判为 CODEX_ALEMBIC_KNOWLEDGE_REQUIRED。
+// MTC-4: alembic_health is gone; the merged alembic_status is a cold-start local
+// tool (always visible via CODEX_DISCOVERY_TOOL_NAMES), so it does not need a
+// resident-project-scope entry here.
 export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
-  'alembic_health',
   ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
   ...CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
 ]);
@@ -145,18 +144,18 @@ export const CODEX_COLD_START_TOOL_NAMES = new Set([
 
 export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
   {
-    name: 'alembic_mcp_status',
+    name: 'alembic_status',
     tier: 'agent',
     description:
-      'Check Alembic Codex plugin status without starting the daemon. Reports workspace, Ghost data root, initialization, daemon state, and the recommended next tool call.',
-    inputSchema: codexInputSchema(),
-  },
-  {
-    name: 'alembic_codex_diagnostics',
-    tier: 'agent',
-    description:
-      'Run Alembic Codex runtime diagnostics without starting the daemon. Checks Node, npm, marketplace shell runtime cache wiring, daemon version, portable runtime artifact guidance, admin mode gate, and first-run next actions.',
-    inputSchema: codexInputSchema(),
+      'Check Alembic Codex status, runtime diagnostics, and local knowledge presence without starting the daemon. Optional aspect: runtime = runtime diagnostics (Node, npm, marketplace shell runtime cache wiring, daemon version, portable runtime artifact guidance, admin mode gate, first-run next actions), knowledge = local knowledge presence; omit for the workspace, Ghost data root, initialization, daemon state, and recommended next tool call.',
+    inputSchema: codexInputSchema({
+      aspect: {
+        type: 'string',
+        enum: ['runtime', 'knowledge'],
+        description:
+          'Narrow the status view: runtime = runtime diagnostics, knowledge = local knowledge presence. Omit for the full status overview.',
+      },
+    }),
   },
   {
     name: 'alembic_mcp_init',
@@ -259,8 +258,13 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
   const effectiveTier = resolveEffectiveCodexTier(tierName, adminEnabled);
   const maxTier = input.tierOrder[effectiveTier] ?? input.tierOrder[CODEX_DEFAULT_MCP_TIER] ?? 0;
   const localTools = CODEX_LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
+  // MTC-4: alembic_status is both a resident core tool (TOOLS) and a cold-start
+  // local tool (CODEX_LOCAL_TOOLS). Exclude any core tool already shown via the
+  // local surface so the merged status tool is not listed twice.
+  const localToolNameSet = new Set(localTools.map((tool) => tool.name));
   const coreTools = input.coreTools.filter(
     (tool) =>
+      !localToolNameSet.has(tool.name) &&
       (input.knowledge.usable ||
         CODEX_AGENT_PUBLIC_TOOL_NAMES.has(tool.name) ||
         (input.residentProjectScopeAvailable === true &&

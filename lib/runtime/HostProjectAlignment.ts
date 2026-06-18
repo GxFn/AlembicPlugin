@@ -319,18 +319,16 @@ function buildAlignmentNextActions(state: CodexHostProjectConnectionState): stri
   if (state === 'mismatch') {
     return [
       'Switch Alembic selected/active project to this Codex host project from Alembic or Dashboard before opening Dashboard through Codex.',
-      'Run alembic_mcp_status again after the Alembic project selection changes.',
+      'Run alembic_status again after the Alembic project selection changes.',
     ];
   }
   if (state === 'disconnected') {
     return [
       'Start or reconnect the Alembic runtime for this selected project from Alembic or Dashboard before Dashboard handoff through Codex.',
-      'Run alembic_mcp_status again after the active runtime is ready.',
+      'Run alembic_status again after the active runtime is ready.',
     ];
   }
-  return [
-    'Select and start this project from Alembic or Dashboard, then rerun alembic_mcp_status.',
-  ];
+  return ['Select and start this project from Alembic or Dashboard, then rerun alembic_status.'];
 }
 
 function projectFromResidentServiceScope(

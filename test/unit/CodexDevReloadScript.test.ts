@@ -68,9 +68,9 @@ describe('Codex plugin local-dev reload script', () => {
     expect(report.plan.currentHostMcpProcessLifecycle).toBe('not-managed-by-plugin');
     expect(report.readbackProof).toMatchObject({
       expectedEntryMode: 'local-dev-direct-dist',
-      expectedDiagnosticsTool: 'alembic_codex_diagnostics',
-      expectedToolCall: 'alembic_mcp_status',
-      expectedToolCalls: ['alembic_mcp_status', 'alembic_codex_diagnostics'],
+      expectedDiagnosticsTool: 'alembic_status',
+      expectedToolCall: 'alembic_status',
+      expectedToolCalls: ['alembic_status'],
       requiresFreshProcess: true,
     });
     expect(report.runtimeModeSeparation).toMatchObject({
@@ -84,9 +84,9 @@ describe('Codex plugin local-dev reload script', () => {
     expect(report.runtimeModeSeparation.packaged.cacheIsolation).toContain('shell bootstrap');
     expect(report.plan.freshMcpReadback).toMatchObject({
       expectedEntryMode: 'local-dev-direct-dist',
-      expectedDiagnosticsTool: 'alembic_codex_diagnostics',
-      expectedToolCall: 'alembic_mcp_status',
-      expectedToolCalls: ['alembic_mcp_status', 'alembic_codex_diagnostics'],
+      expectedDiagnosticsTool: 'alembic_status',
+      expectedToolCall: 'alembic_status',
+      expectedToolCalls: ['alembic_status'],
       requiresFreshProcess: true,
     });
     expect(report.plan.syncCommand).toEqual(

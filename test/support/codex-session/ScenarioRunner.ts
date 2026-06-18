@@ -163,7 +163,7 @@ function buildMechanicalAssistantText(input: {
   result: unknown;
   toolName: string;
 }): string {
-  if (input.toolName === 'alembic_mcp_status' && input.fixtureProjectRootMode === 'missing') {
+  if (input.toolName === 'alembic_status' && input.fixtureProjectRootMode === 'missing') {
     return 'Alembic 需要目标项目的绝对 projectRoot。当前 Codex 插件没有拿到可信项目目录，请提供项目根目录后再继续。';
   }
   if (input.toolName === 'alembic_mcp_init') {

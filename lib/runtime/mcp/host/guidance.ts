@@ -114,8 +114,8 @@ function buildLifecyclePlaybookLine(lifecycleTools: string[]): string {
 }
 
 function buildOnboardingPlaybookLine(visibleToolNameSet: Set<string>): string {
-  const statusTool = visibleToolNameSet.has('alembic_mcp_status')
-    ? '`alembic_mcp_status`'
+  const statusTool = visibleToolNameSet.has('alembic_status')
+    ? '`alembic_status`'
     : 'status output when available';
   const bootstrapTool = visibleToolNameSet.has('alembic_bootstrap')
     ? '`alembic_bootstrap`'

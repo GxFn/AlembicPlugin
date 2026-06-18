@@ -436,7 +436,7 @@ describe('Codex status service', () => {
     expect(status.knowledge.status).toBe('bootstrap_running');
     expect(onboarding).toMatchObject({
       state: 'bootstrap_in_progress',
-      primaryAction: { tool: 'alembic_mcp_status' },
+      primaryAction: { tool: 'alembic_status' },
     });
   });
 
@@ -557,7 +557,7 @@ describe('Codex status service', () => {
     });
     expect(status.onboarding).toMatchObject({
       state: 'project_handoff_mismatch',
-      primaryAction: { startsDaemon: false, tool: 'alembic_mcp_status' },
+      primaryAction: { startsDaemon: false, tool: 'alembic_status' },
     });
     expect(supervisor.status).toHaveBeenCalledTimes(1);
   });

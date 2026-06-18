@@ -6,8 +6,9 @@ import {
   registerMcpOutputProjector,
 } from '../../../runtime/mcp/output-contract.js';
 
+// MTC-4: alembic_health merged into alembic_status, whose single output projector
+// is homed in codex-local/output (cross-server runtime-diagnostic tool).
 export const CORE_CLEAN_OUTPUT_TOOL_NAMES = [
-  'alembic_health',
   'alembic_knowledge',
   'alembic_structure',
   'alembic_call_context',
@@ -160,19 +161,6 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'quotaChange',
     'refreshed',
     'skipped',
-  ],
-  alembic_health: [
-    'actionHints',
-    'ai',
-    'businessStatus',
-    'checks',
-    'issues',
-    'knowledgeBase',
-    'projectRoot',
-    'services',
-    'session',
-    'uptime',
-    'version',
   ],
   alembic_knowledge: [
     'businessMessage',
@@ -583,8 +571,6 @@ function buildCoreToolSummary(
     return `${toolName} blocked.`;
   }
   switch (toolName) {
-    case 'alembic_health':
-      return 'Health check completed.';
     case 'alembic_knowledge':
       return 'Knowledge request completed.';
     case 'alembic_structure':

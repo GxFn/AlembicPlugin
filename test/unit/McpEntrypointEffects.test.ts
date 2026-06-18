@@ -3,7 +3,7 @@
  * no-undeclared-effects 快照测试（docs/declared-effects.md 的配套证明）。
  *
  * 代表性调用按声明效应类别各取一个：
- *  - 只读类（alembic_mcp_status）：不得在数据根之外产生任何写入；
+ *  - 只读类（alembic_status）：不得在数据根之外产生任何写入；
  *  - 破坏/初始化类（alembic_bootstrap，空项目 fast-path 仍执行 fullReset）：
  *    写入只允许落在项目数据根与 ALEMBIC_HOME 注册表内。
  * 两类共同的硬断言：外部探针目录保持空；Alembic 所有的
@@ -67,7 +67,7 @@ afterEach(async () => {
 });
 
 describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
-  it('read-only class: alembic_mcp_status writes nothing outside the data root', async () => {
+  it('read-only class: alembic_status writes nothing outside the data root', async () => {
     const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-probe-'));
     process.env.ALEMBIC_HOME = sandboxHome;
@@ -78,7 +78,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
       projectRoot,
       supervisor: makeStoppedSupervisor(projectRoot) as never,
     });
-    const result = (await server.handleToolCall('alembic_mcp_status', {})) as {
+    const result = (await server.handleToolCall('alembic_status', {})) as {
       success?: boolean;
     };
     expect(result).toBeTruthy();

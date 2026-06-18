@@ -1,6 +1,9 @@
 /**
  * MCP Handlers — 系统类
- * health
+ * status (MTC-4: renamed from health; the resident half of the merged
+ * alembic_status tool. Optional aspect narrows the view: 'runtime' returns
+ * runtime checks/services/session, 'knowledge' returns the knowledge base
+ * stats block, omitted returns the full status.)
  */
 
 import fs from 'node:fs';
@@ -10,7 +13,8 @@ import { PACKAGE_ROOT } from '#shared/package-assets.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import type { KnowledgeBaseStats, McpContext } from '../../../runtime/mcp/handlers/types.js';
 
-export async function health(ctx: McpContext) {
+export async function status(ctx: McpContext, args: Record<string, unknown> = {}) {
+  const aspect = typeof args.aspect === 'string' ? args.aspect : undefined;
   const checks = { database: false, gateway: false, vectorStore: false };
   const issues: string[] = [];
   let knowledgeBase: KnowledgeBaseStats | null = null;
@@ -90,7 +94,7 @@ export async function health(ctx: McpContext) {
 
   // 6) 综合状态
   const allCritical = checks.database; // DB 是唯一硬性依赖
-  const status = allCritical ? 'ok' : 'degraded';
+  const overallStatus = allCritical ? 'ok' : 'degraded';
 
   // 如果 DB 不可用但冷启动仍可执行，附加提示避免 Agent 浪费时间修复 DB
   const actionHints: string[] = [];
@@ -108,33 +112,47 @@ export async function health(ctx: McpContext) {
     );
   }
 
+  const runtimeView = {
+    status: overallStatus,
+    version: _pkgVersion,
+    uptime: Math.floor((Date.now() - (ctx.startedAt ?? Date.now())) / 1000),
+    projectRoot: resolveProjectRoot(ctx.container),
+    ai: aiInfo,
+    checks,
+    services: ctx.container.getServiceNames?.() ?? [],
+    // P3: Session 信息
+    ...(ctx.session
+      ? {
+          session: {
+            id: ctx.session.id,
+            intentPhase: ctx.session.intent?.phase ?? 'idle',
+            toolCallCount: ctx.session.toolCallCount,
+            toolsUsed: Array.from(ctx.session.toolsUsed),
+            durationMs: Date.now() - ctx.session.startedAt,
+          },
+        }
+      : {}),
+    ...(issues.length ? { issues } : {}),
+    ...(actionHints.length ? { actionHints } : {}),
+  };
+  // aspect narrows the merged status view; omitting it returns the full status
+  // (runtime + knowledge), preserving the legacy alembic_health output shape.
+  const data =
+    aspect === 'knowledge'
+      ? {
+          status: overallStatus,
+          version: _pkgVersion,
+          knowledgeBase,
+          ...(actionHints.length ? { actionHints } : {}),
+        }
+      : aspect === 'runtime'
+        ? runtimeView
+        : { ...runtimeView, knowledgeBase };
+
   return envelope({
     success: true,
-    data: {
-      status,
-      version: _pkgVersion,
-      uptime: Math.floor((Date.now() - (ctx.startedAt ?? Date.now())) / 1000),
-      projectRoot: resolveProjectRoot(ctx.container),
-      ai: aiInfo,
-      checks,
-      services: ctx.container.getServiceNames?.() ?? [],
-      knowledgeBase,
-      // P3: Session 信息
-      ...(ctx.session
-        ? {
-            session: {
-              id: ctx.session.id,
-              intentPhase: ctx.session.intent?.phase ?? 'idle',
-              toolCallCount: ctx.session.toolCallCount,
-              toolsUsed: Array.from(ctx.session.toolsUsed),
-              durationMs: Date.now() - ctx.session.startedAt,
-            },
-          }
-        : {}),
-      ...(issues.length ? { issues } : {}),
-      ...(actionHints.length ? { actionHints } : {}),
-    },
-    meta: { tool: 'alembic_health' },
+    data,
+    meta: { tool: 'alembic_status' },
   });
 }
 

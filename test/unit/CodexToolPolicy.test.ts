@@ -36,9 +36,9 @@ const coreTools = [
     inputSchema: { type: 'object' },
   },
   {
-    name: 'alembic_health',
+    name: 'alembic_status',
     tier: 'agent',
-    description: 'health',
+    description: 'status',
     inputSchema: { type: 'object' },
   },
   {
@@ -87,9 +87,13 @@ describe('Codex tool policy', () => {
   test('keeps Codex-visible tool surface metadata in the Plugin catalog', () => {
     const catalog = listPluginToolSurfaceCatalog();
     const catalogNames = catalog.map((entry) => entry.name).sort();
+    // MTC-4: alembic_status is a cross-server tool present in both CODEX_LOCAL_TOOLS
+    // and TOOLS, so the catalog lists it once — dedup the union before comparing.
     const visibleSurfaceNames = [
-      ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
-      ...TOOLS.map((tool) => tool.name),
+      ...new Set([
+        ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
+        ...TOOLS.map((tool) => tool.name),
+      ]),
     ].sort();
 
     expect(catalogNames).toEqual(visibleSurfaceNames);
@@ -122,8 +126,7 @@ describe('Codex tool policy', () => {
     expect(result.hiddenReason).toBe('CODEX_ALEMBIC_KNOWLEDGE_REQUIRED');
     expect(result.state).toBe('needs_init');
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
-      'alembic_mcp_status',
-      'alembic_codex_diagnostics',
+      'alembic_status',
       ...sourceGraphToolNames,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
@@ -144,8 +147,7 @@ describe('Codex tool policy', () => {
 
     expect(result.state).toBe('needs_bootstrap');
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
-      'alembic_mcp_status',
-      'alembic_codex_diagnostics',
+      'alembic_status',
       ...sourceGraphToolNames,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
@@ -157,7 +159,11 @@ describe('Codex tool policy', () => {
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_task');
-    expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_health');
+    // MTC-4: alembic_status is the merged cross-server tool; it must appear exactly
+    // once (served via the cold-start local surface, deduped from the core surface).
+    expect(
+      result.visibleTools.filter((tool) => tool.name === 'alembic_status')
+    ).toHaveLength(1);
   });
 
   test('exposes resident-backed ProjectScope tools when resident is connected but knowledge is empty', () => {
@@ -179,7 +185,7 @@ describe('Codex tool policy', () => {
         'alembic_graph',
       ])
     );
-    expect(names).toContain('alembic_health');
+    expect(names).toContain('alembic_status');
     expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_skill');
   });
@@ -198,7 +204,6 @@ describe('Codex tool policy', () => {
       ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
       ...hostWorkflowToolNames,
       'alembic_project_skill',
-      'alembic_health',
     ]);
     expect(names).not.toContain('alembic_task');
     expect(names).not.toContain('alembic_knowledge_lifecycle');
@@ -267,8 +272,7 @@ describe('Codex tool policy', () => {
     expect(result.state).toBe('bootstrap_running');
     expect(result.signals.map((signal) => signal.code)).toContain('CODEX_BOOTSTRAP_RUNNING');
     expect(result.visibleTools.map((tool) => tool.name)).toEqual([
-      'alembic_mcp_status',
-      'alembic_codex_diagnostics',
+      'alembic_status',
       ...sourceGraphToolNames,
       'alembic_mcp_init',
       'alembic_codex_dashboard',
@@ -315,7 +319,7 @@ describe('Codex tool policy', () => {
     });
 
     expect(result.state).toBe('ready_stale');
-    expect(result.visibleTools.map((tool) => tool.name)).toContain('alembic_health');
+    expect(result.visibleTools.map((tool) => tool.name)).toContain('alembic_status');
     expect(result.signals.map((signal) => signal.code)).toEqual([
       'CODEX_KNOWLEDGE_REFRESH_FAILED',
       'CODEX_VECTOR_SKIPPED_NON_BLOCKING',
@@ -336,7 +340,7 @@ describe('Codex tool policy', () => {
     });
 
     expect(result.state).toBe('daemon_stale');
-    expect(result.visibleTools.map((tool) => tool.name)).toContain('alembic_health');
+    expect(result.visibleTools.map((tool) => tool.name)).toContain('alembic_status');
     expect(result.signals.map((signal) => signal.code)).toContain('CODEX_DAEMON_STALE');
   });
 
@@ -360,7 +364,7 @@ describe('Codex tool policy', () => {
     });
 
     expect(result.state).toBe('ready_stale');
-    expect(result.visibleTools.map((tool) => tool.name)).toContain('alembic_health');
+    expect(result.visibleTools.map((tool) => tool.name)).toContain('alembic_status');
     expect(result.signals.map((signal) => signal.code)).toContain('CODEX_SOURCE_REFS_STALE');
   });
 });

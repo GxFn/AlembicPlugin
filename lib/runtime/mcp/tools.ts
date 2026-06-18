@@ -25,13 +25,13 @@ import {
   DimensionCompleteInput,
   EvolveInput,
   GraphInput,
-  HealthInput,
   KnowledgeLifecycleInput,
   PrimeInput,
   ProjectSkillInput,
   RecipeMapInput,
   RescanInput,
   SearchInput,
+  StatusInput,
   SubmitKnowledgeInput,
   WorkFinishInput,
   WorkStartInput,
@@ -41,6 +41,11 @@ import {
   withPluginToolAnnotations,
 } from '../../runtime/mcp/PluginToolSurfaceCatalog.js';
 import '../../runtime/mcp/core-tools/output.js';
+// MTC-4: alembic_status is a cross-server tool (resident core surface + cold-start
+// local surface). Its single output projector is homed in codex-local/output, so it
+// must be co-registered wherever TOOLS loads (both the resident and cold-start shells
+// import tools.ts), otherwise the resident alembic_status output has no projector.
+import '../../runtime/mcp/codex-local-tools/output.js';
 import '../../runtime/mcp/knowledge-context-tools/graph-output.js';
 import '../../runtime/mcp/knowledge-context-tools/output.js';
 import '../../runtime/mcp/knowledge-context-tools/recipe-map-output.js';
@@ -176,11 +181,11 @@ export const TOOLS = [
   },
 
   {
-    name: 'alembic_health',
+    name: 'alembic_status',
     tier: 'agent',
     description:
-      'Check service status and knowledge base stats. Returns total (entry count) and kind/lifecycle distribution. When total=0, cold-start is needed (call alembic_bootstrap).',
-    inputSchema: zodToMcpSchema(HealthInput),
+      'Check Alembic runtime status, diagnostics, and knowledge base stats. Optional aspect narrows the view: runtime = runtime/diagnostics, knowledge = knowledge base stats (recipes/candidates/index). Omit aspect for the full status. When knowledge is empty, cold-start is needed (call alembic_bootstrap).',
+    inputSchema: zodToMcpSchema(StatusInput),
   },
 
   // Unified Search

@@ -14,8 +14,7 @@ import {
 } from '../../lib/runtime/mcp/output-contract.js';
 
 const expectedCodexLocalToolNames = [
-  'alembic_mcp_status',
-  'alembic_codex_diagnostics',
+  'alembic_status',
   'alembic_mcp_init',
   'alembic_codex_dashboard',
   'alembic_mcp_bootstrap_job',
@@ -135,7 +134,7 @@ describe('MCP Codex local tools clean output contract', () => {
           },
           data: {
             needsUserInput: failureKind === 'needs-confirmation',
-            nextActions: [{ tool: 'alembic_mcp_status' }],
+            nextActions: [{ tool: 'alembic_status' }],
           },
         },
         {
@@ -170,14 +169,14 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('rejects already-clean Codex local outputs with non-whitelisted fields', () => {
-    const parsed = CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS.alembic_mcp_status.safeParse({
+    const parsed = CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS.alembic_status.safeParse({
       ok: true,
       status: 'ready',
       summary: 'Status checked.',
-      toolName: 'alembic_mcp_status',
+      toolName: 'alembic_status',
       initialized: true,
       unexpectedContractLeak: true,
-      meta: { contractVersion: 1, toolName: 'alembic_mcp_status' },
+      meta: { contractVersion: 1, toolName: 'alembic_status' },
     });
 
     expect(parsed.success).toBe(false);
@@ -220,19 +219,16 @@ function sampleLegacyEnvelope(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NA
 
 function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
   switch (toolName) {
-    case 'alembic_mcp_status':
+    case 'alembic_status':
       return {
         initialized: true,
         projectRoot: '/tmp/project',
         projectRootResolution: { source: 'explicit-option', trust: 'trusted' },
         workspace: { ghost: true },
-      };
-    case 'alembic_codex_diagnostics':
-      return {
         checks: { node: true },
         ok: true,
         package: { pinnedSpecifier: 'alembic-ai@0.0.0' },
-        primaryAction: { tool: 'alembic_mcp_status' },
+        primaryAction: { tool: 'alembic_status' },
         summary: 'runtime checks passed',
       };
     case 'alembic_mcp_init':
@@ -247,7 +243,7 @@ function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAME
       return {
         errorCode: 'CODEX_DASHBOARD_HANDOFF_UNAVAILABLE',
         needsUserInput: true,
-        nextActions: [{ tool: 'alembic_mcp_status' }],
+        nextActions: [{ tool: 'alembic_status' }],
       };
     case 'alembic_mcp_bootstrap_job':
       return { job: { id: 'bootstrap-1' }, jobId: 'bootstrap-1' };

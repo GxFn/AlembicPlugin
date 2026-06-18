@@ -194,7 +194,7 @@ export const PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS = [
     producerContract: '/api/v1/daemon/health',
     providerFixtureId: 'runtime-health.ready',
     registryRowId: 'I03',
-    toolName: 'alembic_health',
+    toolName: 'alembic_status',
   },
   {
     consumerScenario:
@@ -243,7 +243,7 @@ export const PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS = [
     producerContract: '/api/v1/daemon/health',
     providerFixtureId: 'runtime-health.partial',
     registryRowId: 'I03',
-    toolName: 'alembic_mcp_status',
+    toolName: 'alembic_status',
   },
   {
     consumerScenario: 'Plugin Codex job projection consumes resident job queue fixture',

@@ -15,7 +15,6 @@ import {
 import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 
 const expectedCoreToolNames = [
-  'alembic_health',
   'alembic_knowledge',
   'alembic_structure',
   'alembic_call_context',
@@ -228,8 +227,6 @@ function sampleLegacyEnvelope(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[nu
 
 function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
   switch (toolName) {
-    case 'alembic_health':
-      return { checks: { database: true }, status: 'ok', version: '0.0.0' };
     case 'alembic_knowledge':
       return { count: 0, items: [], total: 0 };
     case 'alembic_structure':

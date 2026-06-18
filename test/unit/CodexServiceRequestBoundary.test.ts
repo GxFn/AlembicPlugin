@@ -52,11 +52,11 @@ describe('Codex service request boundary', () => {
   });
 
   it('keeps other Codex-facing tools in AlembicPlugin after removing the MCP bridge', () => {
-    expect(resolveCodexServiceRequestBoundary('alembic_health', {})).toMatchObject({
+    expect(resolveCodexServiceRequestBoundary('alembic_status', {})).toMatchObject({
       executionPath: 'plugin-owned-codex-facing',
       owner: 'alembic-plugin',
       residentServiceRequested: false,
-      tool: 'alembic_health',
+      tool: 'alembic_status',
     });
   });
 });

@@ -67,13 +67,13 @@ export function buildCodexHostProjectHandoffBlock(input: {
         label: 'Check workspace status',
         reason: 'Inspect host, selected, and active runtime project alignment.',
         startsDaemon: false,
-        tool: 'alembic_mcp_status',
+        tool: 'alembic_status',
       }),
       buildCodexRecommendedAction({
         label: 'Run diagnostics',
         reason: 'Show plugin runtime diagnostics and host project handoff mismatch details.',
         startsDaemon: false,
-        tool: 'alembic_codex_diagnostics',
+        tool: 'alembic_status',
       }),
     ],
   });

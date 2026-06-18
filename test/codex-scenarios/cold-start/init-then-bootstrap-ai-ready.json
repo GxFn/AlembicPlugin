@@ -19,7 +19,7 @@
   "expect": {
     "toolCalls": [
       {
-        "name": "alembic_mcp_status",
+        "name": "alembic_status",
         "arguments": {
           "projectRoot": "$projectRoot"
         },

@@ -16,7 +16,7 @@
   "expect": {
     "toolCalls": [
       {
-        "name": "alembic_mcp_status",
+        "name": "alembic_status",
         "result": {
           "success": true,
           "data.projectRootResolution.trust": "fallback"

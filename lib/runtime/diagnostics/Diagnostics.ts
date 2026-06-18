@@ -255,13 +255,13 @@ export function buildCodexRuntimeDiagnostics(
               ? 'Runtime checks passed; inspect project initialization and daemon state next.'
               : 'Only non-blocking plugin packaging warnings remain; project knowledge workflows can continue.',
           startsDaemon: false,
-          tool: 'alembic_mcp_status',
+          tool: 'alembic_status',
         })
       : buildRecommendedAction({
           label: 'Fix diagnostics',
           reason: 'Resolve the reported runtime or plugin metadata issue before using Alembic.',
           startsDaemon: false,
-          tool: 'alembic_codex_diagnostics',
+          tool: 'alembic_status',
         }),
     ...buildCodexRuntimeReportSections({
       checks,

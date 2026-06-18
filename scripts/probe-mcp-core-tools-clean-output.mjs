@@ -152,7 +152,7 @@ function sampleLegacyEnvelope(toolName) {
 
 function sampleBusinessData(toolName) {
   switch (toolName) {
-    case 'alembic_health':
+    case 'alembic_status':
       return { checks: { database: true }, status: 'ok', version: '0.0.0' };
     case 'alembic_knowledge':
       return { count: 0, items: [], total: 0 };

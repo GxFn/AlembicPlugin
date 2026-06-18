@@ -58,7 +58,7 @@ describe('QD2 routed tool schemas reject unknown top-level keys', () => {
     expect(valid.success).toBe(true);
 
     // health takes no args; {} stays valid.
-    expect((TOOL_SCHEMAS.alembic_health as z.ZodType).safeParse({}).success).toBe(true);
+    expect((TOOL_SCHEMAS.alembic_status as z.ZodType).safeParse({}).success).toBe(true);
   });
 });
 

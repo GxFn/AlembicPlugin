@@ -39,10 +39,10 @@ import {
 // ── MCP tools schemas ───────────────────────────────
 import {
   GraphInput,
-  HealthInput,
   RecipeMapInput,
   RescanInput,
   SearchInput,
+  StatusInput,
   SubmitKnowledgeInput,
   TaskInput,
   TOOL_SCHEMAS,
@@ -193,9 +193,9 @@ describe('Integration: Zod Schemas — common.ts', () => {
 });
 
 describe('Integration: Zod Schemas — mcp-tools.ts', () => {
-  describe('HealthInput', () => {
+  describe('StatusInput', () => {
     test('should accept empty object', () => {
-      expect(HealthInput.parse({})).toEqual({});
+      expect(StatusInput.parse({})).toEqual({});
     });
   });
 
@@ -479,7 +479,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
   describe('TOOL_SCHEMAS mapping', () => {
     test('should have schema for every MCP tool', () => {
       const expectedTools = [
-        'alembic_health',
+        'alembic_status',
         'alembic_search',
         'alembic_graph',
         'alembic_submit_knowledge',

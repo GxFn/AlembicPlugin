@@ -7,8 +7,7 @@ import {
 } from '../../../runtime/mcp/output-contract.js';
 
 export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
-  'alembic_mcp_status',
-  'alembic_codex_diagnostics',
+  'alembic_status',
   'alembic_mcp_init',
   'alembic_codex_dashboard',
   'alembic_mcp_bootstrap_job',
@@ -32,8 +31,7 @@ export const CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES = [
 ] as const;
 
 export const CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES = [
-  'alembic_mcp_status',
-  'alembic_codex_diagnostics',
+  'alembic_status',
   'alembic_codex_job',
   'alembic_codex_cleanup',
 ] as const satisfies readonly CodexLocalCleanOutputToolName[];
@@ -55,20 +53,10 @@ export const CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set([
   'serviceBoundary',
 ]);
 
-const MCP_STATUS_FORBIDDEN_OUTPUT_KEYS = new Set([
-  'capabilities',
-  'channel',
-  'channelId',
-  'diagnostics',
-  'expectedChannelId',
-  'health',
-  'moduleBoundary',
-  'projectRuntime',
-  'projectScopeIdentity',
-  'residentService',
-  'sourceOfTruth',
-  'statusDiagnostics',
-]);
+// MTC-4: the old alembic_mcp_status forbade diagnostics/runtime keys to stay a
+// light status. The merged alembic_status is a runtime-diagnostic tool that
+// legitimately carries those fields under aspect=runtime, so that per-tool
+// forbidden-key special-case is removed.
 
 const CODEX_LOCAL_SENSITIVE_OUTPUT_KEYS = new Set([
   'accesstoken',
@@ -114,10 +102,15 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   ],
   alembic_codex_cleanup: ['cleaned', 'dryRun', 'projectRuntime', 'targets'],
   alembic_codex_dashboard: ['dashboardUrl', 'needsUserInput', 'nextActions', 'reasonCode'],
-  alembic_codex_diagnostics: [
+  // MTC-4: union of the merged alembic_health (resident) + alembic_mcp_status +
+  // alembic_codex_diagnostics business fields, projected for both shells.
+  alembic_status: [
+    'actionHints',
+    'ai',
     'autoInit',
-    'businessSummary',
     'businessOk',
+    'businessStatus',
+    'businessSummary',
     'checks',
     'cleanup',
     'codex',
@@ -126,21 +119,32 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'enhancementRoute',
     'gitDiffCheckpoint',
     'hostProjectAlignment',
+    'initialized',
     'issues',
+    'knowledge',
+    'knowledgeBase',
     'moduleBoundary',
     'nextActions',
     'node',
     'offlineFallback',
+    'onboarding',
     'package',
     'plugin',
     'primaryAction',
+    'project',
+    'projectRoot',
     'projectRootResolution',
     'projectRuntime',
     'projectScopeIdentity',
     'residentService',
     'residentServiceBoundary',
     'runtimeIdentity',
+    'services',
+    'session',
     'summary',
+    'uptime',
+    'version',
+    'workspace',
   ],
   alembic_mcp_init: [
     'alreadyInitialized',
@@ -163,16 +167,6 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'needsUserInput',
     'reasonCode',
   ],
-  alembic_mcp_status: [
-    'autoInit',
-    'daemon',
-    'initialized',
-    'knowledge',
-    'nextActions',
-    'onboarding',
-    'project',
-    'workspace',
-  ],
   alembic_codex_stop: ['daemonReady', 'daemonStatus', 'pidAlive', 'stopped'],
 } as const satisfies Record<CodexLocalCleanOutputToolName, readonly string[]>;
 
@@ -191,11 +185,10 @@ type CodexLocalToolSummaryInput = {
 const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
   Record<CodexLocalCleanOutputToolName, (input: CodexLocalToolSummaryInput) => string>
 > = {
-  alembic_mcp_status: () => 'Alembic MCP host status checked.',
-  alembic_codex_diagnostics: (input) =>
+  alembic_status: (input) =>
     typeof input.business.businessSummary === 'string'
       ? input.business.businessSummary
-      : 'Alembic Codex diagnostics completed.',
+      : 'Alembic status checked.',
   alembic_mcp_init: () => 'Alembic Codex workspace initialized.',
   alembic_codex_dashboard: (input) =>
     input.business.dashboardUrl
@@ -296,9 +289,6 @@ export function findForbiddenCodexLocalOutputField(
       return { path: [key] };
     }
     if (path[0] !== 'meta' && isSensitiveCodexLocalOutputKey(key)) {
-      return { path: [...path, key] };
-    }
-    if (toolName === 'alembic_mcp_status' && shouldForbidMcpStatusField(key, path)) {
       return { path: [...path, key] };
     }
     if (path[0] !== 'meta' && shouldForbidRuntimeField(key, toolName)) {
@@ -453,13 +443,6 @@ function shouldForbidRuntimeField(key: string, toolName?: CodexLocalCleanOutputT
     return false;
   }
   return CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key);
-}
-
-function shouldForbidMcpStatusField(key: string, path: string[]): boolean {
-  if (path[0] === 'meta') {
-    return false;
-  }
-  return MCP_STATUS_FORBIDDEN_OUTPUT_KEYS.has(key);
 }
 
 function isRuntimeDiagnosticTool(toolName: CodexLocalCleanOutputToolName): boolean {
