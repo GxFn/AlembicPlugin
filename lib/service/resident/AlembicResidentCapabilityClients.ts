@@ -3,7 +3,7 @@ import type {
   AlembicResidentServiceProbe,
   AlembicResidentServiceResult,
 } from '@alembic/core/daemon';
-import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
+import type { DaemonStatus } from '../../runtime/daemon-status.js';
 import {
   type AlembicResidentJobRequestOptions,
   type AlembicResidentProbeOptions,

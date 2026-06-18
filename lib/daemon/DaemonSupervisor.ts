@@ -18,25 +18,8 @@ import {
   removeDaemonState,
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
+import type { DaemonStatus, DaemonStatusKind } from '../runtime/daemon-status.js';
 import { getPackageVersion, PACKAGE_ROOT } from '../shared/package-assets.js';
-
-export type DaemonStatusKind = 'ready' | 'starting' | 'stopped' | 'stale' | 'failed';
-
-export interface DaemonStatus {
-  status: DaemonStatusKind;
-  ready: boolean;
-  projectRoot: string;
-  dataRoot: string;
-  projectId: string | null;
-  statePath: string;
-  pidPath: string;
-  lockDir: string;
-  logPath: string;
-  state: DaemonState | null;
-  pidAlive: boolean;
-  health: Record<string, unknown> | null;
-  message?: string;
-}
 
 export interface StartDaemonOptions {
   projectRoot: string;

@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import { buildCodexRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
 import {
@@ -30,6 +29,7 @@ import {
 } from '../../runtime/runtime/RuntimeContext.js';
 import { buildCodexStatusOnboardingContract } from '../../runtime/status/OnboardingContract.js';
 import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
+import type { DaemonStatus } from '../daemon-status.js';
 
 export interface CodexDaemonStatusProvider {
   status(projectRoot: string): Promise<DaemonStatus>;

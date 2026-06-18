@@ -1,6 +1,6 @@
 import { createAlembicResidentServiceStatus } from '@alembic/core/daemon';
 import { describe, expect, it } from 'vitest';
-import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import {
   buildHostEnhancementRouteChoice,
   summarizeEnhancementDaemon,

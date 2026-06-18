@@ -11,9 +11,9 @@ import {
   ProjectRegistry,
   type ProjectRegistryInspection,
 } from '@alembic/core/workspace';
-import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import type { HostEnhancementRouteChoice } from '../runtime/EnhancementRoute.js';
 import type { AlembicResidentProjectScopeIdentity } from '../service/resident/AlembicResidentServiceClient.js';
+import type { DaemonStatus } from './daemon-status.js';
 
 export type CodexHostProjectConnectionState =
   | 'connected'

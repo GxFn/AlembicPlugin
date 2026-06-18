@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PROJECT_SCOPE_CONTRACT_VERSION, type ProjectScopeSummary } from '@alembic/core/shared';
 import { afterEach, describe, expect, test } from 'vitest';
-import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
+import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,

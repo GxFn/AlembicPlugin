@@ -11,12 +11,12 @@ import {
   summarizeAlembicRuntimeCapabilities,
 } from '@alembic/core/daemon';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import type { DaemonStatus } from '../daemon/DaemonSupervisor.js';
 import {
   CODEX_RUNTIME_PACKAGE,
   type HostRuntimeContext,
   resolveHostRuntimeContext,
 } from '../runtime/runtime/RuntimeContext.js';
+import type { DaemonStatus } from './daemon-status.js';
 
 export type CodexEnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
 

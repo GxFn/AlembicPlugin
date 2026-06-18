@@ -16,7 +16,7 @@ import {
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/host-turn-meta.js';
 import { SetupService } from '../../cli/SetupService.js';
-import { type DaemonStatus, DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
+import { DaemonSupervisor } from '../../daemon/DaemonSupervisor.js';
 import {
   buildCodexHostProjectAlignment,
   buildCodexPostInitActions,
@@ -78,6 +78,7 @@ import {
   isResidentProjectScopeReady,
 } from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
+import type { DaemonStatus } from '../daemon-status.js';
 import '../../runtime/mcp/local-tools/output.js';
 import { TIER_ORDER, TOOLS } from '../../runtime/mcp/tools.js';
 

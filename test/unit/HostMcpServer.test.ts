@@ -18,11 +18,11 @@ import {
   ProjectRegistry,
 } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import type { DaemonStatus } from '../../lib/daemon/DaemonSupervisor.js';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
+import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import {
-  HostMcpServer,
   getVisibleCodexTools,
+  HostMcpServer,
   resetCodexPluginOwnedMcpServerForTests,
 } from '../../lib/runtime/mcp/HostMcpServer.js';
 import { buildCodexMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
@@ -1922,12 +1922,9 @@ describe('HostMcpServer', () => {
         }),
       }),
     });
-    expect(result.data?.toolCapabilities?.canonicalProjectContext?.map((entry) => entry.name)).toEqual(
-      expect.arrayContaining([
-        'alembic_recipe_map',
-        'alembic_graph',
-      ])
-    );
+    expect(
+      result.data?.toolCapabilities?.canonicalProjectContext?.map((entry) => entry.name)
+    ).toEqual(expect.arrayContaining(['alembic_recipe_map', 'alembic_graph']));
     expect(result.data?.toolCapabilities?.removedOrBlocked?.map((entry) => entry.name)).toEqual(
       expect.arrayContaining(['alembic_call_context', 'alembic_panorama'])
     );

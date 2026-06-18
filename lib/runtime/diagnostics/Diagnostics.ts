@@ -3,7 +3,6 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
-import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import {
   buildHostEnhancementRouteChoice,
   type HostEnhancementRouteChoice,
@@ -40,6 +39,7 @@ import {
 } from '../../runtime/runtime/RuntimeContext.js';
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../service/resident/AlembicResidentServiceClient.js';
+import type { DaemonStatus } from '../daemon-status.js';
 
 export interface CodexPluginDiagnostics {
   assets: { missing: string[]; ok: boolean; required: string[] };

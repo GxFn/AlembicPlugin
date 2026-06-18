@@ -13,7 +13,6 @@ import {
   type ProjectRuntimeServiceReadiness,
 } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
 import type { HostEnhancementRouteChoice } from '../../runtime/EnhancementRoute.js';
 import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import { readCodexPluginMcpDeclaration } from '../../runtime/PluginRegistry.js';
@@ -24,6 +23,7 @@ import type {
   AlembicResidentProjectScopeIdentity,
   ResidentSearchAttemptMeta,
 } from '../../service/resident/AlembicResidentServiceClient.js';
+import type { DaemonStatus } from '../daemon-status.js';
 
 const PROJECT_RUNTIME_CONTEXT_VERSION = 1;
 

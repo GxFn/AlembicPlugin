@@ -24,7 +24,7 @@ import {
 import type { SearchResponseMeta, SearchResultItem } from '@alembic/core/search';
 import { normalizeProjectScopeSummary, type ProjectScopeSummary } from '@alembic/core/shared';
 import { getProjectRegistryDir, WorkspaceResolver } from '@alembic/core/workspace';
-import type { DaemonStatus } from '../../daemon/DaemonSupervisor.js';
+import type { DaemonStatus } from '../../runtime/daemon-status.js';
 
 type FetchLike = typeof fetch;
 

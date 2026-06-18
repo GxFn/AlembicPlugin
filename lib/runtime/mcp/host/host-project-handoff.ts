@@ -1,4 +1,3 @@
-import type { DaemonStatus } from '../../../daemon/DaemonSupervisor.js';
 import {
   buildCodexRecommendedAction,
   type CodexEnhancementRequirement,
@@ -8,6 +7,7 @@ import {
 } from '../../../runtime/index.js';
 import { inspectCodexKnowledge } from '../../../runtime/KnowledgeState.js';
 import { failureResult } from '../../../runtime/mcp/host/results.js';
+import type { DaemonStatus } from '../../daemon-status.js';
 
 // Dashboard / job handoff 前先校验 Codex host project 与 Alembic runtime 项目关系。
 //
