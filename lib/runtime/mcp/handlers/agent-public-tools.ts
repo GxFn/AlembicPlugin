@@ -1,3 +1,8 @@
+import {
+  type RecipeRegionPortHit,
+  type VectorServiceFacade,
+  vectorPortFromService,
+} from '@alembic/core/recipe-context';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
@@ -409,6 +414,7 @@ function buildPrimeMaterialProjection(
       searchResult: primeSearch.searchResult,
       sourceRefs: intake.sourceRefs,
       taskAnchorDecision: intake.lifecycle.taskAnchorDecision,
+      regionEvidence: primeSearch.regionEvidence,
     }),
     retrievalConsumer: primeSearch.searchResult?.searchMeta.retrievalConsumer ?? null,
   };
@@ -1092,6 +1098,7 @@ async function runPrimeSearch(
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
   skippedReason: AgentPrimeSkippedReason | null;
+  regionEvidence: Record<string, unknown>[];
 }> {
   const skippedReason = resolvePrimeSkipBeforeRetrieval(args, intake);
   if (skippedReason) {
@@ -1099,15 +1106,17 @@ async function runPrimeSearch(
       searchDegraded: false,
       searchResult: null,
       skippedReason,
+      regionEvidence: [],
     };
   }
   const pipeline = getPipeline(ctx.container);
   if (!pipeline) {
-    return { searchDegraded: true, searchResult: null, skippedReason: null };
+    return { searchDegraded: true, searchResult: null, skippedReason: null, regionEvidence: [] };
   }
   try {
-    // PDR-1d: prime retrieval = structured query → unified vector search (route-agnostic,
-    // same engine as alembic_search). Local Recipe semantic-region evidence is wired in PDR-2.
+    // PDR-1d/PDR-2b: prime retrieval = structured query → unified vector search
+    // (route-agnostic, same engine as alembic_search), PLUS local Recipe
+    // semantic-region evidence from the Core-fixed searchRegions lane.
     const frame = buildStandalonePrimeRequirementFrame(args);
     const searchResult = await pipeline.search({
       query: frame.searchQuery ?? '',
@@ -1115,13 +1124,125 @@ async function runPrimeSearch(
       ...(frame.scenario ? { scenario: frame.scenario } : {}),
       language: args.language ?? null,
     });
-    return { searchDegraded: false, searchResult, skippedReason: null };
+    const regionEvidence = await queryPrimeRegionEvidence(ctx, frame);
+    return { searchDegraded: false, searchResult, skippedReason: null, regionEvidence };
   } catch (err: unknown) {
     process.stderr.write(
       `[MCP/AgentPublicTools] alembic_prime search degraded: ${err instanceof Error ? err.message : String(err)}\n`
     );
-    return { searchDegraded: true, searchResult: null, skippedReason: null };
+    return { searchDegraded: true, searchResult: null, skippedReason: null, regionEvidence: [] };
   }
+}
+
+// PDR-2b: query local Recipe semantic-region vectors via the Core-fixed
+// searchRegions lane and project hits into the prime regionEvidence seam, so
+// subject-less prime earns recipe-semantic-region trust evidence (full quality,
+// no lexical downgrade). Degrades to [] (lexical-only) when there is no vector
+// service, no embed lane, or no usable query signal.
+async function queryPrimeRegionEvidence(
+  ctx: McpContext,
+  frame: StandalonePrimeRequirementFrame
+): Promise<Record<string, unknown>[]> {
+  const regionQuery = buildPrimeRegionQuery(frame);
+  if (!regionQuery) {
+    return [];
+  }
+  let vectorService: VectorServiceFacade | null;
+  try {
+    vectorService = (ctx.container.get('vectorService') as VectorServiceFacade | null) ?? null;
+  } catch {
+    return [];
+  }
+  if (!vectorService) {
+    return [];
+  }
+  try {
+    const result = await vectorPortFromService(vectorService).searchRegions(regionQuery, {
+      limit: 10,
+    });
+    if (!result.vectorUsed) {
+      return []; // embed lane unavailable → no region evidence (documented degrade)
+    }
+    return mapRegionHitsToPrimeEvidence(result.hits);
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[MCP/AgentPublicTools] alembic_prime region retrieval degraded: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return [];
+  }
+}
+
+// Build the region-search query from the richest available frame signal so a
+// subject-less prime (no explicit searchQuery) still drives region retrieval.
+export function buildPrimeRegionQuery(frame: StandalonePrimeRequirementFrame): string {
+  const direct = frame.searchQuery?.trim();
+  if (direct) {
+    return direct;
+  }
+  return [frame.requirementGoal, frame.scenario, ...frame.keywords, ...frame.labels]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join(' ')
+    .trim();
+}
+
+// Project searchRegions hits into resident-region selectedKnowledge records that
+// mirror PrimeKnowledgeMaterial.projectResidentRegionSelectedRecipe output, so the
+// prime trust gate credits them as recipe-semantic-region evidence. Hits are
+// grouped by recipeId; hits without recipeId/regionClass are dropped.
+export function mapRegionHitsToPrimeEvidence(
+  hits: RecipeRegionPortHit[]
+): Record<string, unknown>[] {
+  const byRecipe = new Map<
+    string,
+    {
+      recipeId: string;
+      regionClasses: string[];
+      matchedRegions: Record<string, unknown>[];
+      score: number;
+      descriptions: string[];
+    }
+  >();
+  for (const hit of hits) {
+    const recipeId = hit.recipeId.trim();
+    const regionClass = hit.regionClass.trim();
+    if (!recipeId || !regionClass) {
+      continue;
+    }
+    const group = byRecipe.get(recipeId) ?? {
+      recipeId,
+      regionClasses: [],
+      matchedRegions: [],
+      score: 0,
+      descriptions: [],
+    };
+    if (!group.regionClasses.includes(regionClass)) {
+      group.regionClasses.push(regionClass);
+    }
+    group.matchedRegions.push({
+      recipeId,
+      regionClass,
+      score: hit.score,
+      ...(hit.content ? { snippet: hit.content } : {}),
+    });
+    group.score = Math.max(group.score, hit.score);
+    if (hit.content?.trim()) {
+      group.descriptions.push(hit.content.trim());
+    }
+    byRecipe.set(recipeId, group);
+  }
+  return [...byRecipe.values()].map((group) => ({
+    evidenceRefs: [`residentRegionRetrieval:${group.recipeId}`],
+    injectionStatus: 'selected',
+    itemId: group.recipeId,
+    kind: 'pattern',
+    matchedRegionClasses: group.regionClasses.slice(0, 8),
+    matchedRegions: group.matchedRegions,
+    recipeId: group.recipeId,
+    score: group.score,
+    sourceRefs: [],
+    ...(group.descriptions.length > 0 ? { description: group.descriptions[0] } : {}),
+    whySelected: ['resident-region-retrieval', 'local-region-vector'],
+  }));
 }
 
 function resolvePrimeSkipBeforeRetrieval(
