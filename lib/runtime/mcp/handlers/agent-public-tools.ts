@@ -249,7 +249,6 @@ function buildPrimeBlockingResult(
     actionKind: 'prime',
     agentHost: input.intake.agentHost,
     inputSource: input.intake.inputSource,
-    intentKind: input.intake.intentKind,
     reason: {
       kind: 'blocked',
       code: input.blockingReason.code,
@@ -423,7 +422,6 @@ function buildPrimeReadyResult(
     actionKind: 'prime',
     agentHost: input.intake.agentHost,
     inputSource: input.intake.inputSource,
-    intentKind: input.intake.intentKind,
     refs: buildPrimeRefs(input),
     ...(status.reason ? { reason: status.reason } : {}),
     status: status.status,
@@ -448,7 +446,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
       actionKind: 'work',
       agentHost: intake.agentHost,
       inputSource: intake.inputSource,
-      intentKind: intake.intentKind,
       reason: status.reason,
       refs: {
         detailRefs,
@@ -492,7 +489,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     actionKind: 'work',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     refs: {
       ...(args.primeRef
         ? {
@@ -539,7 +535,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
       actionKind: 'work',
       agentHost: intake.agentHost,
       inputSource: intake.inputSource,
-      intentKind: intake.intentKind,
       reason: {
         kind: 'blocked',
         code: 'missing-work-ref',
@@ -587,7 +582,6 @@ export async function workFinishHandler(ctx: McpContext, args: AgentWorkFinishAr
     actionKind: 'work',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     refs: {
       ...(record.primeRef
         ? {
@@ -706,7 +700,6 @@ function buildMissingWorkRefGuardOutput(input: {
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     reason: {
       kind: 'blocked',
       code: 'missing-work-ref',
@@ -739,7 +732,6 @@ function buildEmptyWorkRefGuardOutput(
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     reason: {
       kind: 'skip',
       code: 'no-code-scope',
@@ -778,7 +770,6 @@ function buildMissingScopeGuardOutput(input: {
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     reason: {
       kind: 'blocked',
       code: 'missing-guard-scope',
@@ -826,7 +817,6 @@ function buildCodeGuardReadyOutput(input: {
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     refs: {
       ...buildWorkRefEntry(args.workRef),
       detailRefs,
@@ -864,7 +854,6 @@ function buildCodeGuardFailureOutput(input: {
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
     inputSource: intake.inputSource,
-    intentKind: intake.intentKind,
     reason: {
       kind: 'failure',
       code: 'handler-error',
@@ -913,7 +902,6 @@ function buildAgentToolContext(args: AgentPublicBaseArgs) {
   return {
     agentHost: args.agentHost ?? ('codex' as const),
     inputSource: resolveAgentInputSource(args.inputSource, lifecycle.inputSource),
-    intentKind: args.intentKind,
     lifecycle,
     sourceRefs,
   };
@@ -934,7 +922,6 @@ function buildPrimeToolContext(args: AgentPrimeArgs): ReturnType<typeof buildAge
   return {
     agentHost: args.agentHost ?? ('codex' as const),
     inputSource: resolveAgentInputSource(args.inputSource, lifecycle.inputSource),
-    intentKind: args.intentKind,
     lifecycle,
     sourceRefs,
   };

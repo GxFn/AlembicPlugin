@@ -1,79 +1,42 @@
 import { describe, expect, test } from 'vitest';
 import {
-  buildHostIntentFrame,
-  prepareHostIntentInput,
-} from '../../lib/service/task/HostIntentFrame.js';
-import { extract as extractIntent } from '../../lib/service/task/IntentExtractor.js';
-import {
   classifyTaskLifecycleInput,
   decideGuardTrigger,
 } from '../../lib/service/task/TaskLifecyclePolicy.js';
 
+// PDR-1d: classifyTaskLifecycleInput is decoupled from the retired HostIntentFrame
+// intake; it now classifies from operation + raw/normalized userQuery only.
 const RAW_DELEGATION = `<codex_delegation>
   <input>继续当前窗口任务：AlembicPlugin / PCTL-STAGE1-PLUGIN-P1。
   dispatchGroup: PCTL-STAGE1-PLUGIN-IMPLEMENTATION-20260603
   taskId: PCTL-STAGE1-PLUGIN-P1</input>
 </codex_delegation>`;
 
-function hostFrame(input: Parameters<typeof prepareHostIntentInput>[0]) {
-  const prepared = prepareHostIntentInput(input);
-  const extracted = extractIntent(prepared.userQuery, prepared.activeFile, prepared.language);
-  return {
-    frame: buildHostIntentFrame(prepared, extracted),
-    prepared,
-  };
-}
-
 describe('TaskLifecyclePolicy', () => {
-  test('skips prime and task anchor for raw automation envelopes without curated intent', () => {
-    const { frame, prepared } = hostFrame({ userQuery: RAW_DELEGATION });
-
+  test('classifies raw automation envelopes and skips prime', () => {
     const result = classifyTaskLifecycleInput({
-      hostIntentFrame: frame,
       operation: 'prime',
       rawUserQuery: RAW_DELEGATION,
-      userQuery: prepared.userQuery,
+      userQuery: RAW_DELEGATION,
     });
 
     expect(result.inputSource).toBe('automation-envelope');
     expect(result.intentKind).toBe('automation-control');
-    expect(result.primeDecision).toMatchObject({
-      action: 'skip',
-      reasonCode: 'no-semantic-query',
-    });
-    expect(result.taskAnchorDecision).toMatchObject({
-      action: 'skip',
-      reasonCode: 'automation-envelope-no-anchor',
-    });
+    expect(result.primeDecision.action).toBe('skip');
   });
 
-  test('uses hostDeclaredIntent to recover semantic intent from raw automation envelopes', () => {
-    const { frame, prepared } = hostFrame({
-      userQuery: RAW_DELEGATION,
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.82,
-        keywords: ['task lifecycle', 'guard'],
-        query: 'Implement Codex-aware task lifecycle policy',
-        sourceRefs: ['lib/runtime/mcp/handlers/task.ts'],
-      },
-    });
-
+  test('runs prime for an explicit code-change requirement query', () => {
     const result = classifyTaskLifecycleInput({
-      hostIntentFrame: frame,
       operation: 'prime',
-      rawUserQuery: RAW_DELEGATION,
-      userQuery: prepared.userQuery,
+      userQuery: 'Implement Codex-aware task lifecycle policy',
     });
 
-    expect(prepared.userQuery).toBe('Implement Codex-aware task lifecycle policy');
     expect(result.inputSource).toBe('user-intent');
     expect(result.intentKind).toBe('code-change-task');
     expect(result.primeDecision).toMatchObject({
       action: 'run',
       curatedQuery: 'Implement Codex-aware task lifecycle policy',
       reasonCode: 'knowledge-ready-code-task',
-      sourceRefs: ['lib/runtime/mcp/handlers/task.ts'],
     });
     expect(result.taskAnchorDecision).toMatchObject({
       action: 'create',

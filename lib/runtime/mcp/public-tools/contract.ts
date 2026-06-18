@@ -181,7 +181,6 @@ export const AgentPublicToolResultEnvelopeSchema = z
     status: AgentResultStatusSchema,
     agentHost: AgentHostSchema,
     inputSource: AgentInputSourceSchema,
-    intentKind: AgentIntentKindSchema.optional(),
     summary: AgentPublicToolResultSummarySchema,
     refs: AgentPublicToolRefsSchema,
     reason: AgentPublicToolReasonSchema.optional(),

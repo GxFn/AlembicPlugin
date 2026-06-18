@@ -13,7 +13,6 @@ import {
   AgentDetailRefSchema,
   AgentHostSchema,
   AgentInputSourceSchema,
-  AgentIntentKindSchema,
   type AgentPublicToolName,
   AgentPublicToolNameSchema,
   AgentPublicToolReasonSchema,
@@ -150,7 +149,6 @@ export const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend
   actionKind: AgentActionKindSchema,
   agentHost: AgentHostSchema,
   inputSource: AgentInputSourceSchema,
-  intentKind: AgentIntentKindSchema.optional(),
   reason: AgentPublicToolReasonSchema.optional(),
   refs: AgentPublicToolRefsSchema,
   status: AgentResultStatusSchema,
@@ -281,7 +279,6 @@ export function createAgentPublicToolOutput(
       status: result.status,
       summary: result.summary,
       toolName: result.toolName,
-      ...(result.intentKind ? { intentKind: result.intentKind } : {}),
       ...(result.reason ? { reason: result.reason } : {}),
       ...(!ok && result.reason
         ? {

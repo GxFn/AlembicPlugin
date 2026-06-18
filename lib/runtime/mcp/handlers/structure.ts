@@ -231,7 +231,6 @@ function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGr
     ...(args.fromRefId ? { fromRefId: args.fromRefId } : {}),
     ...(args.fromType ? { fromType: args.fromType } : {}),
     ...(args.inputSource ? { inputSource: args.inputSource } : {}),
-    ...(args.intentKind ? { intentKind: args.intentKind } : {}),
     ...(args.line ? { line: args.line } : {}),
     ...(maxDepth ? { maxDepth } : {}),
     ...(nodeId ? { nodeId } : {}),
