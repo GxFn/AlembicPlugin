@@ -2,9 +2,7 @@
 import { initEnhancementRegistry } from '@alembic/core/core/enhancement';
 // ─── P3: Infrastructure ──────────────────────────────
 import Logger from '@alembic/core/logging';
-import { unwrapRawDb } from '@alembic/core/search';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { CacheCoordinator } from '../infrastructure/cache/CacheCoordinator.js';
 import * as AppModule from './modules/AppModule.js';
 import * as GuardModule from './modules/GuardModule.js';
 // ─── DI Modules ──────────────────────────────────────
@@ -132,74 +130,12 @@ export class ServiceContainer {
       // v3.4: 初始化 Knowledge 服务（绑定 EventBus → SearchEngine.refreshIndex + sourceRefs）
       KnowledgeModule.initializeKnowledgeServices(this);
 
-      // v3.5: 跨进程缓存协调器（利用 SQLite PRAGMA data_version 检测其他进程写入）
-      this.#initCacheCoordinator();
-
       this.logger.info('Service container initialized successfully');
     } catch (error: unknown) {
       this.logger.error('Error initializing service container', {
         error: (error as Error).message,
       });
       throw error;
-    }
-  }
-
-  // ─── 跨进程缓存协调 ─────
-
-  /**
-   * 初始化 CacheCoordinator：当其他进程写入 DB 后，自动清除本进程的内存缓存。
-   *
-   * 订阅的服务：
-   *   - guardCheckEngine: clearCache() — 规则缓存
-   *   - searchEngine: buildIndex() — 搜索索引
-   *
-   * 仅在长驻进程（HTTP server / MCP server）中自动启动轮询。
-   * 其他短生命周期调用无需启动（进程生命周期短，缓存不会过时）。
-   */
-  #initCacheCoordinator(): void {
-    try {
-      const db = this.singletons.database as
-        | {
-            getDb?: () => import('@alembic/core/database').SqliteDatabase;
-          }
-        | undefined;
-      const rawDb = db
-        ? (unwrapRawDb(db as unknown) as import('@alembic/core/database').SqliteDatabase | null)
-        : null;
-      if (!rawDb) {
-        return;
-      }
-
-      const coordinator = new CacheCoordinator(rawDb);
-      this.singletons.cacheCoordinator = coordinator;
-      this.register('cacheCoordinator', () => coordinator);
-
-      // 懒订阅：仅在对应服务已初始化时绑定
-      coordinator.subscribe('guardCheckEngine', () => {
-        const svc = this.singletons.guardCheckEngine as { clearCache?: () => void } | undefined;
-        svc?.clearCache?.();
-      });
-
-      coordinator.subscribe('searchEngine', () => {
-        const svc = this.singletons.searchEngine as { buildIndex?: () => void } | undefined;
-        svc?.buildIndex?.();
-      });
-
-      // 长驻进程自动启动轮询
-      const isMcp = process.env.ALEMBIC_MCP_MODE === '1';
-      const isApiServer = process.env.ALEMBIC_API_SERVER === '1';
-      if (isMcp || isApiServer) {
-        coordinator.start();
-      }
-
-      this.logger.info('CacheCoordinator initialized', {
-        subscribers: coordinator.subscriberCount,
-        polling: isMcp || isApiServer,
-      });
-    } catch (err: unknown) {
-      this.logger.warn('CacheCoordinator init failed (non-blocking)', {
-        error: (err as Error).message,
-      });
     }
   }
 

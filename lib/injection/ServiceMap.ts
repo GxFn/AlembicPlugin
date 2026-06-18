@@ -59,7 +59,6 @@ import type Gateway from '../governance/gateway/Gateway.js';
 // ── InfraModule Types ──
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
-import type { CacheCoordinator } from '../infrastructure/cache/CacheCoordinator.js';
 import type { BootstrapTaskManager } from '../service/bootstrap/BootstrapTaskManager.js';
 import type { ModuleService } from '../service/module/ModuleService.js';
 import type {
@@ -150,9 +149,6 @@ export interface ServiceMap {
 
   // ═══ SignalModule ═══
   signalBus: SignalBus;
-
-  // ═══ Cross-Process Cache ═══
-  cacheCoordinator: CacheCoordinator;
 
   // ═══ Singleton-injected values (bypassing get() factories) ═══
   _projectRoot: string;
