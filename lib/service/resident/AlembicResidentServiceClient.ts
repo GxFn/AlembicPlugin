@@ -54,8 +54,6 @@ export interface ResidentSearchRequest {
   type?: string;
 }
 
-export type ResidentPrimeRequest = ResidentSearchRequest;
-
 export interface ResidentSearchHandoffMeta {
   degraded: boolean;
   degradedReasons: string[];
@@ -284,11 +282,9 @@ interface ResolvedResidentProbe {
 const RESIDENT_HEALTH_PATH = '/api/v1/daemon/health';
 const RESIDENT_PROJECT_SCOPE_RESOLVE_PATH = '/api/v1/project-scope/resolve-folder';
 const RESIDENT_SEARCH_PATH = '/api/v1/search';
-const RESIDENT_TASK_PATH = '/api/v1/task';
 const RESIDENT_JOBS_PATH = '/api/v1/jobs';
 const PROJECT_SCOPE_UNAVAILABLE_REASON = 'resident project scope unavailable';
 const RESIDENT_DEFAULT_TIMEOUT_MS = 2500;
-const RESIDENT_PRIME_TIMEOUT_MS = 15000;
 
 type ResidentServiceFeatureName = AlembicResidentFeature | AlembicResidentJobFeature;
 
@@ -328,125 +324,6 @@ export class AlembicResidentServiceClient {
       return result.value;
     }
     return buildUnavailableSearchResult(result, request);
-  }
-
-  async prime(request: ResidentPrimeRequest): Promise<ResidentSearchResult> {
-    const result = await this.primeWithResult(request);
-    if (result.ok) {
-      return result.value;
-    }
-    return buildUnavailableSearchResult(result, request);
-  }
-
-  async primeWithResult(
-    request: ResidentPrimeRequest
-  ): Promise<AlembicResidentServiceResult<ResidentSearchResult>> {
-    const startedAt = Date.now();
-    const targetProjectRoot = normalizeFolderPath(request.projectRoot) ?? this.#projectRoot;
-    const resolved = await this.#resolveProbe({ projectRoot: targetProjectRoot });
-    const status = resolved.status;
-    const projectScopeIdentity = await this.#resolveProjectScopeIdentity(
-      resolved,
-      targetProjectRoot
-    );
-    const feature: AlembicResidentFeature = 'search.semantic';
-    const hostIntentHandoff = summarizeResidentHostIntentHandoff(request);
-    const unavailable = this.#ensureFeatureAvailable<ResidentSearchResult>(status, feature, {
-      requireLocalAlembic: true,
-    });
-    if (unavailable) {
-      return withProjectScopeTelemetry(unavailable, projectScopeIdentity, hostIntentHandoff);
-    }
-
-    if (!resolved.state?.token) {
-      return createAlembicResidentServiceUnavailable<ResidentSearchResult>(
-        status,
-        'token-missing',
-        'Alembic resident service token is missing.',
-        { retryable: true, telemetry: { feature, hostIntentHandoff, projectScopeIdentity } }
-      );
-    }
-
-    const endpoint = new URL(RESIDENT_TASK_PATH, status.apiBaseUrl || resolved.state.url);
-    const requestBody = buildResidentPrimeBody(request);
-    try {
-      const response = await this.#fetchJson(endpoint, {
-        body: requestBody,
-        method: 'POST',
-        timeoutMs: residentPrimeTimeoutMs(this.#timeoutMs),
-        token: resolved.state.token,
-      });
-      if (
-        !response.ok ||
-        response.payload?.success === false ||
-        !isRecord(response.payload?.data)
-      ) {
-        return createResidentSearchHttpFailure({
-          endpoint,
-          feature,
-          hostIntentHandoff,
-          projectScopeIdentity,
-          response,
-          status,
-        });
-      }
-
-      const data = response.payload.data;
-      const items = taskPrimeItems(data);
-      const searchMeta = buildResidentPrimeSearchMeta(data);
-      const meta = buildResidentMeta({
-        data,
-        durationMs: Date.now() - startedAt,
-        endpoint: endpoint.toString(),
-        hostIntentHandoff,
-        items,
-        projectScopeIdentity,
-        residentRequestMode: 'prime',
-        requestedMode: 'prime',
-        searchMeta,
-        status,
-      });
-      const workspaceMismatch = findResidentSearchWorkspaceMismatch({
-        meta,
-        projectScopeIdentity,
-        targetProjectRoot,
-      });
-      if (workspaceMismatch) {
-        return createResidentSearchWorkspaceMismatch({
-          endpoint,
-          feature,
-          hostIntentHandoff,
-          meta,
-          projectScopeIdentity,
-          status,
-          workspaceMismatch,
-        });
-      }
-      return createAlembicResidentServiceSuccess(
-        {
-          items,
-          meta,
-        },
-        status,
-        { endpoint: endpoint.toString(), feature, hostIntentHandoff }
-      );
-    } catch (err: unknown) {
-      const reason = isTimeoutError(err) ? 'request-timeout' : 'request-failed';
-      return createAlembicResidentServiceUnavailable<ResidentSearchResult>(
-        status,
-        reason,
-        err instanceof Error ? err.message : String(err),
-        {
-          retryable: true,
-          telemetry: {
-            endpoint: endpoint.toString(),
-            feature,
-            hostIntentHandoff,
-            projectScopeIdentity,
-          },
-        }
-      );
-    }
   }
 
   async searchWithResult(
@@ -954,10 +831,6 @@ export class AlembicResidentServiceClient {
       status: response.status,
     };
   }
-}
-
-function residentPrimeTimeoutMs(timeoutMs: number): number {
-  return timeoutMs > 0 ? Math.max(timeoutMs, RESIDENT_PRIME_TIMEOUT_MS) : timeoutMs;
 }
 
 function statusFromDaemonStatus(status: DaemonStatus): AlembicResidentServiceStatus {
@@ -1613,79 +1486,6 @@ function buildResidentSearchBody(
     tags: Array.isArray(request.tags) && request.tags.length > 0 ? request.tags : undefined,
     type: normalizeResidentType(request.type ?? request.kind) ?? undefined,
   });
-}
-
-function buildResidentPrimeBody(request: ResidentPrimeRequest): Record<string, unknown> {
-  const intentContext = stripUndefined({
-    ...(isRecord(request.intentContext) ? request.intentContext : {}),
-    query: stringFrom(request.intentContext?.query) ?? request.query,
-    sourceRefs:
-      Array.isArray(request.sourceRefs) && request.sourceRefs.length > 0
-        ? request.sourceRefs
-        : undefined,
-    standalonePrime: true,
-  });
-  return stripUndefined({
-    activeFile: request.activeFile,
-    description: request.query,
-    hostDeclaredIntent: request.hostDeclaredIntent,
-    hostTurnMeta: request.hostTurnMeta,
-    intentContext,
-    language: request.language,
-    operation: 'prime',
-    projectRoot: request.projectRoot,
-    sessionHistory: request.sessionHistory,
-    sourceRefs: request.sourceRefs,
-    tags: Array.isArray(request.tags) && request.tags.length > 0 ? request.tags : undefined,
-    userQuery: request.query,
-  });
-}
-
-function taskPrimeItems(data: Record<string, unknown>): SearchResultItem[] {
-  const knowledge = isRecord(data.knowledge) ? data.knowledge : {};
-  return [
-    ...recordArray(knowledge.relatedKnowledge),
-    ...recordArray(knowledge.guardRules),
-  ] as SearchResultItem[];
-}
-
-function buildResidentPrimeSearchMeta(data: Record<string, unknown>): Record<string, unknown> {
-  const sourceMeta = isRecord(data.searchMeta) ? data.searchMeta : {};
-  const dataPrimePackage = isRecord(data.primeInjectionPackage) ? data.primeInjectionPackage : null;
-  const primePackage = isRecord(sourceMeta.primeInjectionPackage)
-    ? sourceMeta.primeInjectionPackage
-    : dataPrimePackage;
-  const packageRegion =
-    isRecord(primePackage) && isRecord(primePackage.residentRegionRetrieval)
-      ? primePackage.residentRegionRetrieval
-      : null;
-  const residentRegionRetrieval = isRecord(sourceMeta.residentRegionRetrieval)
-    ? sourceMeta.residentRegionRetrieval
-    : packageRegion;
-  const regionUsed = booleanFrom(residentRegionRetrieval?.used) === true;
-  const vectorAvailable = booleanFrom(residentRegionRetrieval?.vectorAvailable) ?? regionUsed;
-  const residentVector = isRecord(sourceMeta.residentVector)
-    ? sourceMeta.residentVector
-    : {
-        available: vectorAvailable,
-        endpoint: RESIDENT_TASK_PATH,
-        reason: vectorAvailable ? null : 'resident_prime_region_vector_unavailable',
-      };
-
-  return stripUndefined({
-    ...sourceMeta,
-    actualMode: stringFrom(sourceMeta.actualMode) ?? 'prime',
-    ...(primePackage ? { primeInjectionPackage: primePackage } : {}),
-    requestedMode: stringFrom(sourceMeta.requestedMode) ?? 'prime',
-    ...(residentRegionRetrieval ? { residentRegionRetrieval } : {}),
-    residentVector,
-    semanticUsed: booleanFrom(sourceMeta.semanticUsed) ?? regionUsed,
-    vectorUsed: booleanFrom(sourceMeta.vectorUsed) ?? regionUsed,
-  });
-}
-
-function recordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
 function shouldUseResidentSearchBody(request: ResidentSearchRequest): boolean {

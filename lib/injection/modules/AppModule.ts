@@ -81,8 +81,6 @@ export function register(c: ServiceContainer) {
       enqueueJob: clients.jobs.enqueueJob.bind(clients.jobs),
       probe: clients.probe.probe.bind(clients.probe),
       readJob: clients.jobs.readJob.bind(clients.jobs),
-      prime: clients.search.prime.bind(clients.search),
-      primeWithResult: clients.search.primeWithResult.bind(clients.search),
       resolveProjectScopeIdentity: clients.projectScope.resolveProjectScopeIdentity.bind(
         clients.projectScope
       ),
