@@ -55,7 +55,6 @@ export interface AgentPublicCrossHostReadinessReport {
 const HOST_LABEL_BY_AGENT_HOST = {
   codex: 'Codex host agent',
   'claude-code': 'Claude Code host agent',
-  'generic-host-agent': 'Generic host agent',
 } as const satisfies Record<AgentHost, string>;
 
 const SHARED_SCHEMA_SIGNATURE = [

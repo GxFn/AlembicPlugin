@@ -11,11 +11,13 @@ import {
   buildCodexPluginDiagnostics,
   buildCodexProjectRuntimeContext,
   buildCodexRuntimeDiagnostics,
+  CLAUDE_CODE_PLUGIN_HOST,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_MODE_ENV,
   CODEX_MCP_SHIM_ENV,
   CODEX_MCP_TIER_ENV,
   CODEX_PLUGIN_HOST,
+  CODEX_PLUGIN_ROOT_ENV,
   ensureCodexRuntimeEnvironment,
   loadCodexPluginRegistry,
   probeCodexRuntimeCommand,
@@ -88,6 +90,21 @@ describe('Codex runtime context', () => {
     expect(context.expectedPluginHost).toBe(CODEX_PLUGIN_HOST);
     expect(context.requestedTier).toBe('admin');
     expect(context.effectiveTier).toBe(CODEX_DEFAULT_MCP_TIER);
+  });
+
+  test('derives claude-code host identity from the Claude Code shell shape (RC-1)', () => {
+    // RC-1 双宿主: cc shell（.claude-plugin/plugin.json 且无 .mcp.json）派生
+    // expectedPluginHost=claude-code，不再恒为 codex；env 未声明 host 时 pluginHost
+    // 也回退到 shell 派生值，使 cc 运行时自认 claude-code（codex shell 仍为 codex，
+    // 见上一用例的 expectedPluginHost=CODEX_PLUGIN_HOST）。
+    const codexShellRoot = resolveHostRuntimeContext().pluginRoot;
+    const claudeShellRoot = join(codexShellRoot, '..', 'alembic-claude-code');
+    const context = resolveHostRuntimeContext({
+      [CODEX_PLUGIN_ROOT_ENV]: claudeShellRoot,
+    });
+
+    expect(context.expectedPluginHost).toBe(CLAUDE_CODE_PLUGIN_HOST);
+    expect(context.pluginHost).toBe(CLAUDE_CODE_PLUGIN_HOST);
   });
 
   test('resolves the Codex plugin registry from the marketplace manifest', () => {

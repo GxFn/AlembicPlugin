@@ -23,7 +23,7 @@ describe('Project knowledge context input contracts (post middle-layer retiremen
     });
 
     expect(parsed.agentHost).toBeUndefined();
-    expect(KNOWLEDGE_CONTEXT_AGENT_HOSTS).toContain('generic-host-agent');
+    expect(KNOWLEDGE_CONTEXT_AGENT_HOSTS).toEqual(['codex', 'claude-code']);
   });
 
   test('parses valid inputs for the live knowledge-context input tools', () => {

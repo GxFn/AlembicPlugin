@@ -26,14 +26,9 @@ export const KNOWLEDGE_CONTEXT_SOURCE_DOMAINS = [
   'runtime',
 ] as const;
 
-export const KNOWLEDGE_CONTEXT_AGENT_HOSTS = [
-  'codex',
-  'claude-code',
-  'generic-host-agent',
-  'desktop-host-agent',
-  'terminal-host-agent',
-  'automation-host-agent',
-] as const;
+// RC-5: 收敛为真实双宿主，删除 generic-host-agent 及未实现的 desktop/terminal/
+// automation future-host stub（无任何消费者；agentHost 仍为可选字段）。
+export const KNOWLEDGE_CONTEXT_AGENT_HOSTS = ['codex', 'claude-code'] as const;
 
 export const KNOWLEDGE_CONTEXT_INPUT_SOURCES = [
   'host-declared-intent',

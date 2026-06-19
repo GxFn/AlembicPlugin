@@ -100,7 +100,9 @@ export type HostTurnMetaInput = z.infer<typeof HostTurnMetaInput>;
 //  Agent-facing public tools — active public surface
 // ══════════════════════════════════════════════════════
 
-const AgentHostSchema = z.enum(['codex', 'claude-code', 'generic-host-agent']);
+// RC-5: 与 contract.ts AGENT_HOSTS 对齐为真实双宿主，删除 generic-host-agent。
+// 本地内联保留（不 import runtime/contract）以守住 shared 不依赖 runtime 的层级边界。
+const AgentHostSchema = z.enum(['codex', 'claude-code']);
 const AgentInputSourceSchema = z.enum([
   'host-declared-intent',
   'host-turn-metadata',

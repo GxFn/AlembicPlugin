@@ -13,7 +13,7 @@ import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const sharedSchemaSignature =
-  'contract:v1;hosts:codex|claude-code|generic-host-agent;tools:alembic_intent|alembic_prime|alembic_work_start|alembic_work_finish|alembic_code_guard|alembic_decision_record;statuses:ready|skipped|degraded|blocked|failed';
+  'contract:v1;hosts:codex|claude-code;tools:alembic_intent|alembic_prime|alembic_work_start|alembic_work_finish|alembic_code_guard|alembic_decision_record;statuses:ready|skipped|degraded|blocked|failed';
 
 describe('AFAPI Stage 1D cross-host readiness', () => {
   test('locks Codex, Claude Code, and generic host prompt snapshots without schema fork', () => {
@@ -32,7 +32,6 @@ describe('AFAPI Stage 1D cross-host readiness', () => {
     expect(report.hostSnapshots).toEqual([
       hostSnapshot('codex', 'Codex host agent'),
       hostSnapshot('claude-code', 'Claude Code host agent'),
-      hostSnapshot('generic-host-agent', 'Generic host agent'),
     ]);
 
     const serializedGuide = JSON.stringify(report.hostSnapshots);

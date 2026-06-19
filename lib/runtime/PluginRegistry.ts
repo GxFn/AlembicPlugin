@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  detectPluginHostShape,
   type HostRuntimeContext,
   resolveHostRuntimeContext,
 } from '../runtime/runtime/RuntimeContext.js';
@@ -57,9 +58,11 @@ export interface CodexPluginRegistry {
  * behavior — host-shape awareness must not move Codex wire bytes (F-V2-2).
  */
 export function readCodexPluginMcpDeclaration(pluginRoot: string): CodexPluginMcpDeclaration {
-  const mcpPath = join(pluginRoot, '.mcp.json');
-  const claudeManifestPath = join(pluginRoot, '.claude-plugin', 'plugin.json');
-  if (!existsSync(mcpPath) && existsSync(claudeManifestPath)) {
+  // RC-1: shell 形态判定下沉到 RuntimeContext.detectPluginHostShape（单一来源），
+  // 本函数只按形态读取对应 manifest 并归一化 args；两侧 wire bytes 行为保持不变。
+  const hostShape = detectPluginHostShape(pluginRoot);
+  if (hostShape === 'claude-code') {
+    const claudeManifestPath = join(pluginRoot, '.claude-plugin', 'plugin.json');
     const json = readJsonObject(claudeManifestPath);
     const server = asPlainRecord(asPlainRecord(json.value?.mcpServers)?.alembic);
     const args = Array.isArray(server?.args)
@@ -67,14 +70,15 @@ export function readCodexPluginMcpDeclaration(pluginRoot: string): CodexPluginMc
           .filter((arg): arg is string => typeof arg === 'string')
           .map((arg) => arg.replaceAll('${CLAUDE_PLUGIN_ROOT}', '.'))
       : [];
-    return { args, hostShape: 'claude-code', json, server };
+    return { args, hostShape, json, server };
   }
+  const mcpPath = join(pluginRoot, '.mcp.json');
   const json = readJsonObject(mcpPath);
   const server = asPlainRecord(asPlainRecord(json.value?.mcpServers)?.alembic);
   const args = Array.isArray(server?.args)
     ? server.args.filter((arg): arg is string => typeof arg === 'string')
     : [];
-  return { args, hostShape: 'codex', json, server };
+  return { args, hostShape, json, server };
 }
 
 export function loadCodexPluginRegistry(

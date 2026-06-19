@@ -8,7 +8,8 @@ export const AGENT_PUBLIC_TOOL_NAMES = [
   'alembic_code_guard',
 ] as const;
 
-export const AGENT_HOSTS = ['codex', 'claude-code', 'generic-host-agent'] as const;
+// RC-5: 收敛为真实双宿主（codex + claude-code），删除从未实现的 generic-host-agent。
+export const AGENT_HOSTS = ['codex', 'claude-code'] as const;
 
 export const AGENT_INPUT_SOURCES = [
   'host-declared-intent',

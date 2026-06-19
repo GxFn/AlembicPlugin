@@ -32,7 +32,6 @@ import {
   CODEX_MARKETPLACE_SHELL_ENTRY,
   CODEX_MCP_MODE_ENV,
   CODEX_MCP_SHIM_ENV,
-  CODEX_PLUGIN_HOST,
   CODEX_PLUGIN_NAME,
   type HostRuntimeContext,
   resolveHostRuntimeContext,
@@ -539,7 +538,9 @@ function buildCodexPluginMcpEnvDiagnostics(
     agentTierByDefault: registry.mcp.env?.ALEMBIC_MCP_TIER === CODEX_DEFAULT_MCP_TIER,
     codexShimMode: registry.mcp.env?.[CODEX_MCP_SHIM_ENV] === '1',
     mcpMode: registry.mcp.env?.[CODEX_MCP_MODE_ENV] === '1',
-    pluginHost: pluginHostValue === CODEX_PLUGIN_HOST,
+    // RC-1: 用 expectedPluginHost（按物理 shell 形态派生）替代恒 codex 比较，使
+    // cc shell 的 manifest 声明 host 与本 shell 期望一致才判为绿（cc 不再自认 codex）。
+    pluginHost: pluginHostValue === registry.context.expectedPluginHost,
     pluginHostValue,
     runtimeMode: runtimeModeValue === ALEMBIC_RUNTIME_MODE_PLUGIN,
     runtimeModeValue,
