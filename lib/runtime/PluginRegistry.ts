@@ -7,7 +7,7 @@ import {
 } from '../runtime/runtime/RuntimeContext.js';
 import { hostAdapterForShape } from './host-adapter/resolveHostAdapter.js';
 
-export const CODEX_REQUIRED_SKILLS = [
+export const REQUIRED_SKILLS = [
   'alembic',
   'alembic-create',
   'alembic-guard',
@@ -21,16 +21,16 @@ export interface JsonReadResult {
   value: Record<string, unknown> | null;
 }
 
-export type CodexPluginHostShape = 'codex' | 'claude-code';
+export type PluginHostShape = 'codex' | 'claude-code';
 
-export interface CodexPluginMcpDeclaration {
+export interface PluginMcpDeclaration {
   args: string[];
-  hostShape: CodexPluginHostShape;
+  hostShape: PluginHostShape;
   json: JsonReadResult;
   server: Record<string, unknown> | null;
 }
 
-export interface CodexPluginRegistry {
+export interface PluginRegistry {
   context: HostRuntimeContext;
   marketplace: JsonReadResult;
   mcp: {
@@ -41,7 +41,7 @@ export interface CodexPluginRegistry {
   };
   plugin: {
     assets: string[];
-    hostShape: CodexPluginHostShape;
+    hostShape: PluginHostShape;
     manifest: JsonReadResult;
     readme: string;
     readmePath: string;
@@ -60,7 +60,7 @@ export interface CodexPluginRegistry {
  * normalization is identity, so the read stays byte-for-byte the historical Codex
  * behavior — host-shape awareness must not move Codex wire bytes (F-V2-2).
  */
-export function readCodexPluginMcpDeclaration(pluginRoot: string): CodexPluginMcpDeclaration {
+export function readPluginMcpDeclaration(pluginRoot: string): PluginMcpDeclaration {
   // DH-3b: hostShape 分支收口到 L3——形态检测（detectPluginHostShape）后经 adapter 取 per-host
   // 清单路径 + arg 归一化，本函数不再判 hostShape。codex .mcp.json 仍在此 byte-for-byte 读取，
   // 且 codex 的 normalizePluginMcpArg 为恒等，故 codex wire bytes 不变（F-V2-2）。
@@ -76,10 +76,10 @@ export function readCodexPluginMcpDeclaration(pluginRoot: string): CodexPluginMc
   return { args, hostShape, json, server };
 }
 
-export function loadCodexPluginRegistry(
+export function loadPluginRegistry(
   context: HostRuntimeContext = resolveHostRuntimeContext()
-): CodexPluginRegistry {
-  const mcpDeclaration = readCodexPluginMcpDeclaration(context.pluginRoot);
+): PluginRegistry {
+  const mcpDeclaration = readPluginMcpDeclaration(context.pluginRoot);
   // DH-3b: manifest 路径选择收口到 L3 adapter（不再判 hostShape）。
   const manifestPath = hostAdapterForShape(mcpDeclaration.hostShape).pluginManifestPath(
     context.pluginRoot

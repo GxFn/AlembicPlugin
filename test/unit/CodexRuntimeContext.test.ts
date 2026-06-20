@@ -19,7 +19,7 @@ import {
   CODEX_PLUGIN_HOST,
   CODEX_PLUGIN_ROOT_ENV,
   ensureRuntimeEnvironment,
-  loadCodexPluginRegistry,
+  loadPluginRegistry,
   probeRuntimeCommand,
   resolveHostRuntimeContext,
 } from '../../lib/runtime/index.js';
@@ -109,7 +109,7 @@ describe('Codex runtime context', () => {
 
   test('resolves the Codex plugin registry from the marketplace manifest', () => {
     const context = resolveHostRuntimeContext();
-    const registry = loadCodexPluginRegistry(context);
+    const registry = loadPluginRegistry(context);
 
     expect(context.runtimeBin).toBe('alembic-codex-mcp');
     expect(context.runtimePackage).toBe('@gxfn/alembic-runtime');

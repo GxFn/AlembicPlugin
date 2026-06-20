@@ -15,7 +15,7 @@ import {
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import type { HostEnhancementRouteChoice } from '../../runtime/EnhancementRoute.js';
 import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
-import { readCodexPluginMcpDeclaration } from '../../runtime/PluginRegistry.js';
+import { readPluginMcpDeclaration } from '../../runtime/PluginRegistry.js';
 import type { ProjectRootResolution } from '../../runtime/ProjectRootResolver.js';
 import type { HostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
 import { resolveHostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
@@ -533,7 +533,7 @@ function detectMcpEntryMode(runtime: HostRuntimeContext): ProjectRuntimeEntryMod
   // Shared per-host declaration reader: .mcp.json (Codex shell, historical
   // byte-identical behavior) or the inline .claude-plugin manifest mcpServers
   // (Claude Code shell). Fixes the mode=unknown meta riding F-V2-2.
-  const declaration = readCodexPluginMcpDeclaration(runtime.pluginRoot);
+  const declaration = readPluginMcpDeclaration(runtime.pluginRoot);
   const command = stringFrom(declaration.server?.command);
   const args = declaration.args;
   const runtimeSpecifier = args.includes('--package')

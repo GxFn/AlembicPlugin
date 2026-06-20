@@ -12,11 +12,7 @@ import {
   buildModuleBoundaryStatus,
   type ModuleBoundaryStatus,
 } from '../../runtime/ModuleBoundary.js';
-import {
-  asString,
-  CODEX_REQUIRED_SKILLS,
-  loadCodexPluginRegistry,
-} from '../../runtime/PluginRegistry.js';
+import { asString, loadPluginRegistry, REQUIRED_SKILLS } from '../../runtime/PluginRegistry.js';
 import {
   buildProjectRootRequiredMessage,
   type ProjectRootResolution,
@@ -165,7 +161,7 @@ export type CommandProbeRunner = (
 };
 
 type McpConfigMode = 'local-dev-direct-dist' | 'marketplace-shell' | 'unknown';
-type CodexPluginRegistry = ReturnType<typeof loadCodexPluginRegistry>;
+type PluginRegistry = ReturnType<typeof loadPluginRegistry>;
 type RuntimeChecks = Record<string, boolean>;
 
 interface BuildDiagnosticIssuesInput {
@@ -424,7 +420,7 @@ function buildRuntimeReportSections(input: {
 export function buildPluginDiagnostics(
   context: HostRuntimeContext = resolveHostRuntimeContext()
 ): PluginDiagnostics {
-  const registry = loadCodexPluginRegistry(context);
+  const registry = loadPluginRegistry(context);
   const assets = buildPluginAssetDiagnostics(registry);
   const manifest = buildPluginManifestDiagnostics(registry);
   const mcp = buildPluginMcpDiagnostics(context, registry);
@@ -444,7 +440,7 @@ export function buildPluginDiagnostics(
 
 function buildPluginMcpDiagnostics(
   context: HostRuntimeContext,
-  registry: CodexPluginRegistry
+  registry: PluginRegistry
 ): PluginDiagnostics['mcp'] {
   const args = registry.mcp.args;
   const command =
@@ -520,7 +516,7 @@ function buildPluginMcpDiagnostics(
 }
 
 function buildPluginMcpEnvDiagnostics(
-  registry: CodexPluginRegistry
+  registry: PluginRegistry
 ): Pick<
   PluginDiagnostics['mcp'],
   | 'adminDisabledByDefault'
@@ -572,7 +568,7 @@ function startupSourceUsesPinnedRuntime(
   );
 }
 
-function buildPluginAssetDiagnostics(registry: CodexPluginRegistry): PluginDiagnostics['assets'] {
+function buildPluginAssetDiagnostics(registry: PluginRegistry): PluginDiagnostics['assets'] {
   const missingAssets = registry.plugin.assets.filter(
     (asset) => !existsSync(join(registry.plugin.root, asset))
   );
@@ -589,9 +585,7 @@ function buildPluginAssetDiagnostics(registry: CodexPluginRegistry): PluginDiagn
   };
 }
 
-function buildPluginManifestDiagnostics(
-  registry: CodexPluginRegistry
-): PluginDiagnostics['manifest'] {
+function buildPluginManifestDiagnostics(registry: PluginRegistry): PluginDiagnostics['manifest'] {
   return {
     ok:
       registry.plugin.manifest.ok &&
@@ -601,8 +595,8 @@ function buildPluginManifestDiagnostics(
   };
 }
 
-function buildPluginSkillDiagnostics(registry: CodexPluginRegistry): PluginDiagnostics['skills'] {
-  const requiredSkills = [...CODEX_REQUIRED_SKILLS];
+function buildPluginSkillDiagnostics(registry: PluginRegistry): PluginDiagnostics['skills'] {
+  const requiredSkills = [...REQUIRED_SKILLS];
   const missingSkills = requiredSkills.filter(
     (skill) => !existsSync(join(registry.plugin.root, 'skills', skill, 'SKILL.md'))
   );
@@ -615,7 +609,7 @@ function buildPluginSkillDiagnostics(registry: CodexPluginRegistry): PluginDiagn
 
 function buildPluginReadmeDiagnostics(
   context: HostRuntimeContext,
-  registry: CodexPluginRegistry
+  registry: PluginRegistry
 ): PluginDiagnostics['readme'] {
   const mentionsEmbeddedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
   const mentionsPinnedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
