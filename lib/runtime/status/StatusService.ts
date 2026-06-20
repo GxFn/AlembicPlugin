@@ -11,15 +11,13 @@ import {
   buildHostProjectAlignment,
   type HostProjectAlignment,
 } from '../../runtime/HostProjectAlignment.js';
+import { resolveHostAdapter } from '../../runtime/host-adapter/resolveHostAdapter.js';
 import { type HostKnowledgeState, inspectKnowledge } from '../../runtime/KnowledgeState.js';
 import { buildModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
 import {
   buildProjectRootRequiredActions,
   buildProjectRootRequiredMessage,
-  getCodexInitMarkerPath,
   type ProjectRootResolution,
-  readCodexInitMarker,
-  resolveCodexProjectRoot,
 } from '../../runtime/ProjectRootResolver.js';
 import { buildProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
 import {
@@ -172,7 +170,8 @@ export async function buildStatus(
     projectRoot,
   });
   const projectRootResolution =
-    options.projectRootResolution || resolveCodexProjectRoot({ projectRoot: projectRootInput });
+    options.projectRootResolution ||
+    resolveHostAdapter().resolveProjectRoot({ projectRoot: projectRootInput });
   const projectRuntime = buildProjectRuntimeContext({
     daemonStatus,
     enhancementRoute,
@@ -269,8 +268,9 @@ function buildAutoInitStatus(
   let markerExists = false;
   let marker = null;
   try {
-    markerPath = getCodexInitMarkerPath(projectRoot);
-    marker = readCodexInitMarker(projectRoot);
+    const adapter = resolveHostAdapter();
+    markerPath = adapter.initMarkerPath(projectRoot);
+    marker = adapter.readInitMarker(projectRoot);
     markerExists = Boolean(marker);
   } catch {
     markerPath = null;

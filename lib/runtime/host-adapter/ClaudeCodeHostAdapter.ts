@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import {
   type CodexInitMarker,
   type CodexSavedProjectRoot,
+  getCodexInitMarkerPath,
   type ProjectRootResolution,
   type ResolveCodexProjectRootOptions,
   readCodexInitMarker,
@@ -67,6 +68,10 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
 
   writeInitMarker(projectRoot: string, input: HostInitMarkerInput): CodexInitMarker {
     return writeCodexInitMarker(projectRoot, input);
+  }
+
+  initMarkerPath(projectRoot: string): string {
+    return getCodexInitMarkerPath(projectRoot);
   }
 
   pluginMcpManifestPath(pluginRoot: string): string {

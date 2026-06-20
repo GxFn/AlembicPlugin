@@ -72,6 +72,8 @@ export interface HostAdapter {
   readInitMarker(projectRoot: string): CodexInitMarker | null;
   /** 工作区初始化成功后写入 init marker（系统字段由实现填充）。 */
   writeInitMarker(projectRoot: string, input: HostInitMarkerInput): CodexInitMarker;
+  /** per-project init marker 文件路径（status 报告 markerPath）。 */
+  initMarkerPath(projectRoot: string): string;
 
   // —— per-host 插件 shell 清单布局（L4 产物路径 / arg 归一化；host-name 分支收口于本契约，
   //    上层经 adapter 取路径/归一化、不再自带 hostShape 分支）——
