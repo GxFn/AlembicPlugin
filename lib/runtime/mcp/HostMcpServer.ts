@@ -28,16 +28,14 @@ import {
   type CodexServiceBoundaryDecision,
   EMPTY_CODEX_KNOWLEDGE_STATE,
   getCodexRuntimeFallbackIsolation,
+  type HostAdapter,
   type HostKnowledgeState,
   inspectCodexKnowledge,
   isCodexInitOnDemandTool,
-  isTrustedCodexProjectRoot,
   preflightCodexTool,
-  resolveCodexProjectRoot,
   resolveCodexServiceRequestBoundary,
-  resolveHostRuntimeContext,
+  resolveHostAdapter,
   summarizeCodexProjectRootResolution,
-  writeCodexInitMarker,
 } from '../../runtime/index.js';
 import {
   CodexEmbeddedToolExecutor,
@@ -161,9 +159,14 @@ export class HostMcpServer {
     requestedTool: null,
     route: null,
   };
+  // DH-2（RC-2）：L3 host adapter（codex 单实现）。HostMcpServer 经它消费宿主特定的
+  // 项目根解析 / 运行时上下文 / init-marker 操作，不再直依赖 Codex* host 函数实现。
+  readonly #hostAdapter: HostAdapter = resolveHostAdapter();
 
   constructor(options: HostMcpServerOptions = {}) {
-    this.projectRootResolution = resolveCodexProjectRoot({ projectRoot: options.projectRoot });
+    this.projectRootResolution = this.#hostAdapter.resolveProjectRoot({
+      projectRoot: options.projectRoot,
+    });
     this.projectRoot = this.projectRootResolution.path || safeProjectRootFallback();
     this.waitUntilReadyMs = options.waitUntilReadyMs ?? 3000;
     this.sessionId = `codex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -387,7 +390,7 @@ export class HostMcpServer {
     const projectScopeIdentity = await residentClients.projectScope.resolveProjectScopeIdentity({
       daemonStatus,
     });
-    const runtime = resolveHostRuntimeContext();
+    const runtime = this.#hostAdapter.resolveRuntimeContext();
     const enhancementRoute = buildHostEnhancementRouteChoice({
       daemonStatus,
       requirement: 'status',
@@ -499,7 +502,7 @@ export class HostMcpServer {
   async runWorkspaceInitialization(
     input: WorkspaceInitializationInput
   ): Promise<Record<string, unknown>> {
-    if (!isTrustedCodexProjectRoot(this.projectRootResolution)) {
+    if (!this.#hostAdapter.isTrustedProjectRoot(this.projectRootResolution)) {
       const errorCode =
         this.projectRootResolution.trust === 'rejected'
           ? 'CODEX_PROJECT_ROOT_REJECTED'
@@ -625,7 +628,7 @@ export class HostMcpServer {
           }
         );
       }
-      const marker = writeCodexInitMarker(this.projectRoot, {
+      const marker = this.#hostAdapter.writeInitMarker(this.projectRoot, {
         initializedBy: input.initializedBy,
         requestedTool: input.requestedTool,
         results,
@@ -978,7 +981,7 @@ export class HostMcpServer {
     // PDR-3: daemon removed → daemon status always null. Downstream is guarded
     // by `daemonStatus ? ... : null`, so the four-tool live path stays valid.
     const daemonStatus: DaemonStatus | null = null;
-    const runtime = resolveHostRuntimeContext();
+    const runtime = this.#hostAdapter.resolveRuntimeContext();
     const enhancementRoute = daemonStatus
       ? buildHostEnhancementRouteChoice({
           daemonStatus,
