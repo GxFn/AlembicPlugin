@@ -186,15 +186,32 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
   // layer or KnowledgeContextToolOutput envelope.
   async resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput> {
     const projectRoot = input.projectRoot ?? process.cwd();
-    const queryKind = resolveGraphQueryKind(input);
+    const normalizedInput = normalizeGraphProviderInput(input);
+    const queryKind = resolveGraphQueryKind(normalizedInput);
+    const preflightSelection = preflightAlembicGraphSelection(normalizedInput, queryKind);
+    if (preflightSelection) {
+      return projectAlembicGraphOutput({
+        build: emptyGraphBuild(projectRoot),
+        input: normalizedInput,
+        projectRoot,
+        queryKind,
+        selection: preflightSelection,
+      });
+    }
     let build: GraphBuild;
     try {
-      build = await this.buildGraph(projectRoot, input);
+      build = await this.buildGraph(projectRoot, normalizedInput);
     } catch (error) {
       return failedAlembicGraphOutput(projectRoot, queryKind, error);
     }
-    const selection = selectAlembicGraph(build, input, queryKind);
-    return projectAlembicGraphOutput({ build, input, projectRoot, queryKind, selection });
+    const selection = selectAlembicGraph(build, normalizedInput, queryKind);
+    return projectAlembicGraphOutput({
+      build,
+      input: normalizedInput,
+      projectRoot,
+      queryKind,
+      selection,
+    });
   }
 
   // GMAP-3: shared ProjectContext region projection consumed by both alembic_graph
@@ -279,6 +296,112 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
   }
 }
 
+function normalizeGraphProviderInput(input: ProjectGraphInput): ProjectGraphInput {
+  return ProjectGraphInputSchema.parse({
+    ...input,
+    ...(input.activeFile || !input.filePath ? {} : { activeFile: input.filePath }),
+    ...(input.nodeId || !input.refId ? {} : { nodeId: input.refId }),
+    ...(input.fromId || !input.fromRefId ? {} : { fromId: input.fromRefId }),
+    ...(input.toId || !input.toRefId ? {} : { toId: input.toRefId }),
+  });
+}
+
+function preflightAlembicGraphSelection(
+  input: ProjectGraphInput,
+  queryKind: AlembicGraphQueryKind
+): GraphSelection | null {
+  if ((queryKind === 'impact' || queryKind === 'neighborhood') && !input.nodeId) {
+    return missingNodeSelection(queryKind);
+  }
+  if (queryKind === 'path' && (!input.fromId || !input.toId)) {
+    return missingPathEndpointSelection(input);
+  }
+  if (
+    (queryKind === 'file-flow' ||
+      queryKind === 'file-symbols' ||
+      queryKind === 'source-slice' ||
+      queryKind === 'anchor-range') &&
+    !explicitProjectGraphPath(input)
+  ) {
+    return fileAnchorRequiredSelection(queryKind);
+  }
+  return null;
+}
+
+function missingPathEndpointSelection(input: ProjectGraphInput): GraphSelection {
+  const missing = input.fromId ? 'toId' : 'fromId';
+  return {
+    diagnostics: [
+      {
+        code: 'project-graph-path-anchor-required',
+        domain: 'project',
+        message:
+          'alembic_graph path requires both fromRefId/fromId and toRefId/toId before ProjectContext path traversal.',
+        retryable: false,
+        severity: 'info',
+      },
+    ],
+    items: [],
+    matrixNodes: [],
+    relations: [],
+    result: {
+      found: false,
+      graphKind: 'project-internal',
+      missing,
+      operation: 'path',
+      projectContextPartial: true,
+      sourceOfTruth: false,
+    },
+  };
+}
+
+function emptyGraphBuild(projectRoot: string): GraphBuild {
+  const projectName = projectNameFromRoot(projectRoot);
+  const projectId = `project:${stableRefSegment(projectName) || 'project'}`;
+  const projectRef = defaultRefRegistry.createDetailRef({
+    domain: 'project',
+    id: projectId,
+    operation: 'project-graph-preflight',
+    requiredForCompletion: false,
+    summary: 'Project graph preflight result returned before ProjectContext execution.',
+    title: `Project graph preflight: ${projectName}`,
+    tool: 'alembic_graph',
+    uri: projectRoot,
+  });
+  return {
+    detailRefs: [projectRef],
+    diagnostics: [],
+    nodes: [],
+    projectContext: {
+      errorCount: 0,
+      explicitFileTraversalFocused: false,
+      fileFlowTargetCount: 0,
+      fileFlowTargetLimit: 0,
+      generatedArtifactSkipCount: 0,
+      generatedArtifactSkipSamples: [],
+      mapRequestCount: 0,
+      moduleRequestCount: 0,
+      partial: false,
+      refCount: 0,
+      requestKinds: [],
+    },
+    projectContextRefs: [],
+    projectName,
+    projectRef,
+    relations: [],
+    sourceSlices: [],
+    sources: [
+      {
+        domain: 'project',
+        id: projectRef.id,
+        detailRefId: projectRef.id,
+        summary:
+          'Preflight graph diagnostics were returned without running ProjectContext.execute.',
+      },
+    ],
+  };
+}
+
 async function buildProjectContextGraphFacts(
   projectRoot: string,
   input: ProjectGraphInput
@@ -316,10 +439,18 @@ async function buildProjectContextGraphFacts(
     const moduleSeeds = createGraphModuleSeedsFromRepoContexts(facts.repos, input, facts.trace);
     await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input);
     await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input);
-    await collectGraphFileFlowContexts(facts, projectRoot, input);
-    await collectGraphFileSymbolsContexts(facts, projectRoot, input);
-    await collectGraphSourceSliceContexts(facts, projectRoot, input);
-    await collectGraphAnchorRangeContexts(facts, projectRoot, input);
+    if (shouldCollectGraphFileFlowContexts(input)) {
+      await collectGraphFileFlowContexts(facts, projectRoot, input);
+    }
+    if (shouldCollectGraphFileSymbolsContexts(input)) {
+      await collectGraphFileSymbolsContexts(facts, projectRoot, input);
+    }
+    if (shouldCollectGraphSourceSliceContexts(input)) {
+      await collectGraphSourceSliceContexts(facts, projectRoot, input);
+    }
+    if (shouldCollectGraphAnchorRangeContexts(input)) {
+      await collectGraphAnchorRangeContexts(facts, projectRoot, input);
+    }
   } catch (error) {
     facts.diagnostics.push({
       code: 'project-context-execution-failed',
@@ -467,6 +598,39 @@ function shouldCollectGraphMapContexts(input: ProjectGraphInput): boolean {
 
 function shouldCollectGraphModuleContexts(input: ProjectGraphInput): boolean {
   return !isExplicitFileGraphTraversal(input);
+}
+
+function shouldCollectGraphFileFlowContexts(input: ProjectGraphInput): boolean {
+  const queryKind = resolveGraphQueryKind(input);
+  const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
+  return (
+    queryKind === 'file-flow' ||
+    queryKind === 'map' ||
+    queryKind === 'module' ||
+    queryKind === 'module-layers' ||
+    queryKind === 'path' ||
+    queryKind === 'impact' ||
+    queryKind === 'neighborhood' ||
+    isProjectContextWeightedGraphQuery(input.query, queryTerms)
+  );
+}
+
+function shouldCollectGraphFileSymbolsContexts(input: ProjectGraphInput): boolean {
+  const queryKind = resolveGraphQueryKind(input);
+  return (
+    queryKind === 'file-symbols' ||
+    queryKind === 'path' ||
+    queryKind === 'impact' ||
+    queryKind === 'neighborhood'
+  );
+}
+
+function shouldCollectGraphSourceSliceContexts(input: ProjectGraphInput): boolean {
+  return resolveGraphQueryKind(input) === 'source-slice';
+}
+
+function shouldCollectGraphAnchorRangeContexts(input: ProjectGraphInput): boolean {
+  return resolveGraphQueryKind(input) === 'anchor-range';
 }
 
 function graphMapContextGroupLimit(input: ProjectGraphInput): number {
@@ -1061,6 +1225,8 @@ function collectProjectContextFilePaths(facts: ProjectContextGraphFacts): string
   collectModuleFilePaths(facts.modules, collector);
   collectModuleLayerFilePaths(facts.moduleLayers, collector);
   collectFileFlowFilePaths(facts.fileFlows, collector);
+  collectFileSymbolFilePaths(facts.fileSymbols, collector);
+  collectSourceSliceFilePaths(facts.sourceSliceContexts, collector);
   collectAnchorRangeFilePaths(facts.anchorRanges, collector);
   return collector.values();
 }
@@ -1209,6 +1375,30 @@ function collectFileFlowFilePaths(
       collector.add(symbol.filePath);
       collector.addRef(symbol.ref);
     }
+  }
+}
+
+function collectFileSymbolFilePaths(
+  fileSymbols: readonly FileSymbolContext[],
+  collector: ProjectContextFilePathCollector
+) {
+  for (const context of fileSymbols) {
+    collector.add(context.file.filePath);
+    collector.addRef(context.file.ref);
+    for (const symbol of context.symbols) {
+      collector.add(symbol.filePath);
+      collector.addRef(symbol.ref);
+    }
+  }
+}
+
+function collectSourceSliceFilePaths(
+  sourceSlices: readonly SourceSliceContext[],
+  collector: ProjectContextFilePathCollector
+) {
+  for (const context of sourceSlices) {
+    collector.add(context.file.filePath);
+    collector.addRef(context.file.ref);
   }
 }
 
@@ -1672,10 +1862,17 @@ function explicitProjectGraphPath(input: ProjectGraphInput): string | undefined 
 }
 
 function isExplicitFileGraphTraversal(input: ProjectGraphInput): boolean {
-  const operation = input.operation ?? 'query';
+  const queryKind = resolveGraphQueryKind(input);
+  if (explicitProjectGraphPath(input) === undefined) {
+    return false;
+  }
   return (
-    (operation === 'impact' || operation === 'neighborhood') &&
-    explicitProjectGraphPath(input) !== undefined
+    queryKind === 'file-flow' ||
+    queryKind === 'file-symbols' ||
+    queryKind === 'source-slice' ||
+    queryKind === 'anchor-range' ||
+    queryKind === 'impact' ||
+    queryKind === 'neighborhood'
   );
 }
 
@@ -1787,20 +1984,33 @@ function shouldSuppressDefaultProjectContextError(
   error: ProjectContextQueryError,
   input: ProjectGraphInput
 ): boolean {
+  const message = error.message.toLowerCase();
+  if (isExplicitFileGraphTraversal(input) && isBroadRepoScanLimitDiagnostic(message)) {
+    return true;
+  }
   const errorPath = normalizeRelativePath(error.path ?? '');
   if (!errorPath || isExplicitProjectGraphPathRequest(errorPath, input)) {
     return false;
+  }
+  if (
+    isExplicitFileGraphTraversal(input) &&
+    (message.includes('file-flow') || message.includes('file-symbols'))
+  ) {
+    return true;
   }
   const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
   if (!isProjectContextWeightedGraphQuery(input.query, queryTerms)) {
     return false;
   }
-  const message = error.message.toLowerCase();
   // Broad ProjectContext semantic graph queries use map/module/file-flow as
   // orientation probes. Parser warnings for files the caller did not explicitly
   // anchor are not useful graph failures; focused file requests still surface
   // the underlying ProjectContext error unchanged.
   return message.includes('file-flow') || message.includes('file-symbols');
+}
+
+function isBroadRepoScanLimitDiagnostic(message: string): boolean {
+  return message.includes('repo source file collection was truncated');
 }
 
 function isProjectContextRuntimeCorePath(filePath: string): boolean {

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test } from 'vitest';
+import { ProjectContext } from '@alembic/core/project-context';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { routeGraphTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
@@ -168,12 +169,55 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(JSON.stringify(output)).not.toContain('recipe');
   });
 
+  test('file-scoped queryKinds keep ProjectContext collection focused on the anchor', async () => {
+    const projectRoot = createFixtureProject();
+    const executeSpy = vi.spyOn(ProjectContext, 'execute');
+    try {
+      const output = await runGraph(projectRoot, {
+        queryKind: 'file-symbols',
+        filePath: 'lib/index.ts',
+        budget: { itemLimit: 40, relationHopLimit: 4 },
+      });
+      expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
+
+      const requestKinds = executeSpy.mock.calls.map(([request]) => request.kind);
+      expect(requestKinds).toEqual(expect.arrayContaining(['space', 'repo', 'file-symbols']));
+      expect(requestKinds).not.toContain('map');
+      expect(requestKinds).not.toContain('module');
+      expect(requestKinds).not.toContain('module-layers');
+      expect(requestKinds).not.toContain('file-flow');
+      expect(requestKinds).not.toContain('source-slice');
+      expect(requestKinds).not.toContain('anchor-range');
+    } finally {
+      executeSpy.mockRestore();
+    }
+  });
+
+  test('file-scoped queryKinds suppress unrelated broad repo scan limit diagnostics', async () => {
+    const projectRoot = createLargeFixtureProject();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'file-symbols',
+      filePath: 'lib/index.ts',
+      budget: { itemLimit: 40, relationHopLimit: 4 },
+    });
+    expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
+    expect(output.status).toBe('ready');
+    expect(JSON.stringify(output.diagnostics)).not.toContain('repo source file collection');
+  });
+
   test('source-slice returns bounded ProjectContext source slices', async () => {
     const projectRoot = createFixtureProject();
     const output = await runGraph(projectRoot, {
       queryKind: 'source-slice',
       filePath: 'lib/index.ts',
     });
+    expect(output.status).toBe('ready');
+    expect(output.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeType: 'file', path: 'lib/index.ts' }),
+      ])
+    );
+    expect(output.diagnostics).toEqual([]);
     expect(Array.isArray(output.slices)).toBe(true);
     expect((output.slices ?? []).length).toBeGreaterThan(0);
     for (const slice of output.slices ?? []) {
@@ -199,6 +243,36 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
         expect.objectContaining({ tool: 'alembic_graph', queryKind: 'map', required: true }),
       ])
     );
+  });
+
+  test('missing-anchor graph requests fast-fail before ProjectContext execution', async () => {
+    const projectRoot = createFixtureProject();
+    const executeSpy = vi.spyOn(ProjectContext, 'execute').mockImplementation(async () => {
+      throw new Error('ProjectContext.execute should not run for graph preflight failures');
+    });
+    try {
+      const impact = await runGraph(projectRoot, { queryKind: 'impact' });
+      expect(impact.status).toBe('partial');
+      expect(impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        'project-graph-anchor-required'
+      );
+
+      const pathOutput = await runGraph(projectRoot, { queryKind: 'path', fromRefId: 'module:lib' });
+      expect(pathOutput.status).toBe('partial');
+      expect(pathOutput.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        'project-graph-path-anchor-required'
+      );
+
+      const fileSymbols = await runGraph(projectRoot, { queryKind: 'file-symbols' });
+      expect(fileSymbols.status).toBe('partial');
+      expect(fileSymbols.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        'project-graph-file-anchor-required'
+      );
+
+      expect(executeSpy).not.toHaveBeenCalled();
+    } finally {
+      executeSpy.mockRestore();
+    }
   });
 
   test('derived impact traversal runs from a resolved ProjectContext ref', async () => {
@@ -362,6 +436,14 @@ function createFixtureProject(): string {
     path.join(root, 'lib', 'index.ts'),
     'import { helper } from "./helper";\nexport function run() { return helper(); }\n'
   );
+  return root;
+}
+
+function createLargeFixtureProject(): string {
+  const root = createFixtureProject();
+  for (let index = 0; index < 260; index += 1) {
+    writeFile(root, `lib/generated/noise-${String(index).padStart(3, '0')}.ts`, 'export const noise = true;\n');
+  }
   return root;
 }
 
