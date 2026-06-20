@@ -29,6 +29,7 @@ import {
   type HostKnowledgeState,
   inspectKnowledge,
   isInitOnDemandTool,
+  isTrustedProjectRoot,
   type ProjectRootResolution,
   preflightTool,
   RESIDENT_PROJECT_SCOPE_TOOL_NAMES,
@@ -502,7 +503,7 @@ export class HostMcpServer {
   async runWorkspaceInitialization(
     input: WorkspaceInitializationInput
   ): Promise<Record<string, unknown>> {
-    if (!this.#hostAdapter.isTrustedProjectRoot(this.projectRootResolution)) {
+    if (!isTrustedProjectRoot(this.projectRootResolution)) {
       const errorCode =
         this.projectRootResolution.trust === 'rejected'
           ? 'CODEX_PROJECT_ROOT_REJECTED'

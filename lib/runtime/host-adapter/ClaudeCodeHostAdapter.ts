@@ -2,7 +2,6 @@ import { join } from 'node:path';
 import {
   type CodexInitMarker,
   type CodexSavedProjectRoot,
-  isTrustedProjectRoot,
   type ProjectRootResolution,
   type ResolveCodexProjectRootOptions,
   readCodexInitMarker,
@@ -16,7 +15,6 @@ import {
   CODEX_SETUP_PROFILE,
   ensureCodexRuntimeEnvironment,
   type HostRuntimeContext,
-  resolveEffectiveCodexTier,
   resolveHostRuntimeContext,
 } from '../runtime/RuntimeContext.js';
 import type { HostAdapter, HostInitMarkerInput } from './HostAdapter.js';
@@ -51,16 +49,8 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
     return resolveHostRuntimeContext(env);
   }
 
-  resolveEffectiveTier(tierName: string, adminEnabled: boolean): string {
-    return resolveEffectiveCodexTier(tierName, adminEnabled);
-  }
-
   resolveProjectRoot(options?: ResolveCodexProjectRootOptions): ProjectRootResolution {
     return resolveCodexProjectRoot(options);
-  }
-
-  isTrustedProjectRoot(resolution: ProjectRootResolution): boolean {
-    return isTrustedProjectRoot(resolution);
   }
 
   readSavedProjectRoot(env?: NodeJS.ProcessEnv): CodexSavedProjectRoot | null {

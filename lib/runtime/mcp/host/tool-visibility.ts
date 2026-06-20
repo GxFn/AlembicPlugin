@@ -5,6 +5,7 @@ import {
   EMPTY_KNOWLEDGE_STATE,
   type HostKnowledgeState,
   inspectKnowledge,
+  isTrustedProjectRoot,
   PROJECT_ROOT_PROPERTY,
   resolveHostAdapter,
   resolveToolPolicy,
@@ -23,7 +24,7 @@ export function getVisibleTools(
   // DH-3c: host-operation 经 L3 HostAdapter 走（L2 不再直依赖 host-specific 函数）。
   const adapter = resolveHostAdapter();
   const resolution = adapter.resolveProjectRoot({ projectRoot });
-  const knowledge = adapter.isTrustedProjectRoot(resolution)
+  const knowledge = isTrustedProjectRoot(resolution)
     ? inspectKnowledge(projectRoot)
     : buildExplicitProjectRootRequiredKnowledgeState();
   return resolveToolPolicy({

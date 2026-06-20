@@ -58,14 +58,10 @@ export interface HostAdapter {
   ensureRuntimeEnvironment(env?: NodeJS.ProcessEnv): void;
   /** 由 env + 物理 shell 形态解析 HostRuntimeContext（pluginHost / expectedPluginHost 等）。 */
   resolveRuntimeContext(env?: NodeJS.ProcessEnv): HostRuntimeContext;
-  /** 解析有效 MCP tier（admin 未启用时回退默认 tier）。 */
-  resolveEffectiveTier(tierName: string, adminEnabled: boolean): string;
 
   // —— 项目根解析 / 信任 ——
   /** 从宿主 env 源（ALEMBIC_PROJECT_DIR / 工作区 env / cwd 回退）解析并校验项目根。 */
   resolveProjectRoot(options?: ResolveCodexProjectRootOptions): ProjectRootResolution;
-  /** 项目根是否可信（存在 + trusted + 未拒绝），用于门控工具执行。 */
-  isTrustedProjectRoot(resolution: ProjectRootResolution): boolean;
 
   // —— saved-root / init-marker 持久化 ——
   /** 读取 saved project root 标记（诊断 / 恢复用，非有效身份来源）。 */

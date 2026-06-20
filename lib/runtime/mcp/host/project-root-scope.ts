@@ -1,5 +1,9 @@
 import { isAbsolute } from 'node:path';
-import { type ProjectRootResolution, resolveHostAdapter } from '../../../runtime/index.js';
+import {
+  isTrustedProjectRoot,
+  type ProjectRootResolution,
+  resolveHostAdapter,
+} from '../../../runtime/index.js';
 import { failureResult } from '../../../runtime/mcp/host/results.js';
 
 export interface ProjectRootScopeOverride {
@@ -62,7 +66,7 @@ export function resolveProjectRootScope(
       args: scopedArgs,
       projectRoot: projectRootArg,
       resolution,
-      trusted: adapter.isTrustedProjectRoot(resolution),
+      trusted: isTrustedProjectRoot(resolution),
     },
   };
 }

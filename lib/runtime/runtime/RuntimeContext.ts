@@ -62,7 +62,7 @@ export function resolveHostRuntimeContext(
   const packageVersion = getPackageVersion();
   const requestedTier = env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
   const adminEnabled = env[CODEX_ADMIN_ENABLE_ENV] === '1';
-  const effectiveTier = resolveEffectiveCodexTier(requestedTier, adminEnabled);
+  const effectiveTier = resolveEffectiveTier(requestedTier, adminEnabled);
   const pluginRoot = resolveCodexPluginRoot(env);
   // RC-1: expectedPluginHost 与 pluginHost 回退均由物理 shell 形态派生
   // （codex shell→codex、claude-code shell→claude-code），取代恒为 codex 的硬编码，
@@ -116,7 +116,7 @@ export function derivePluginHostFromShape(hostShape: 'codex' | 'claude-code'): s
   return hostShape === 'claude-code' ? CLAUDE_CODE_PLUGIN_HOST : CODEX_PLUGIN_HOST;
 }
 
-export function resolveEffectiveCodexTier(tierName: string, adminEnabled: boolean): string {
+export function resolveEffectiveTier(tierName: string, adminEnabled: boolean): string {
   if (tierName === 'admin' && !adminEnabled) {
     return CODEX_DEFAULT_MCP_TIER;
   }

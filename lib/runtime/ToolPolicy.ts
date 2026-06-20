@@ -4,7 +4,7 @@ import {
   CODEX_ADMIN_ENABLE_ENV,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_TIER_ENV,
-  resolveEffectiveCodexTier,
+  resolveEffectiveTier,
 } from '../runtime/runtime/RuntimeContext.js';
 
 export interface ToolDefinition {
@@ -259,7 +259,7 @@ export function resolveToolPolicy<T extends ToolDefinition>(
   const allowedLocalToolNames = allowedToolNames(input.knowledge);
   const tierName = input.tierName || process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
   const adminEnabled = input.adminEnabled ?? process.env[CODEX_ADMIN_ENABLE_ENV] === '1';
-  const effectiveTier = resolveEffectiveCodexTier(tierName, adminEnabled);
+  const effectiveTier = resolveEffectiveTier(tierName, adminEnabled);
   const maxTier = input.tierOrder[effectiveTier] ?? input.tierOrder[CODEX_DEFAULT_MCP_TIER] ?? 0;
   const localTools = LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
   // MTC-4: alembic_status is both a resident core tool (TOOLS) and a cold-start
