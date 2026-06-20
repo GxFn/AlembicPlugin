@@ -191,7 +191,7 @@ describe('Agent-facing public tools contract foundation', () => {
             tool: 'alembic_graph',
           },
         ],
-        recommendedTools: ['alembic_project_matrix', 'alembic_graph'],
+        recommendedTools: ['alembic_recipe_map', 'alembic_graph'],
         projectContextRefs: [],
         sourceEvidenceRefs: [],
         status: 'recommended',

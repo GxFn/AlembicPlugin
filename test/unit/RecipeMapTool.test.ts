@@ -109,6 +109,46 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(['source-line', 'source-file', 'source-range']).toContain(fileMount?.mountType);
   });
 
+  test('file focus does not attach unrelated metadata-only Recipes to the file root', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await defaultRecipeMapProvider.resolveRecipeMap(
+      request(projectRoot, 'file', 'lib/index.ts'),
+      {
+        ...fakeDeps(),
+        listRecipes: async () => [
+          ...RECIPES,
+          {
+            id: 'r-unresolved-meta',
+            moduleName: 'MissingModule',
+            sources: [],
+            tags: [],
+            title: 'Missing module metadata',
+          },
+          {
+            id: 'r-unspecified-meta',
+            sources: [],
+            tags: [],
+            title: 'Unscoped metadata',
+          },
+        ],
+      }
+    );
+
+    const mountIds = output.recipeMounts.map((mount) => mount.recipeId);
+    expect(mountIds).toContain('r-file');
+    expect(mountIds).not.toContain('r-global');
+    expect(mountIds).not.toContain('r-unresolved-meta');
+    expect(mountIds).not.toContain('r-unspecified-meta');
+    expect(
+      output.recipeMounts.filter(
+        (mount) =>
+          mount.mountNodeId === output.region.rootNode.nodeId &&
+          mount.sourceRefs.length === 0 &&
+          (mount.mountType === 'metadata-scope' || mount.mountType === 'global-no-code')
+      )
+    ).toEqual([]);
+  });
+
   test('stale source refs degrade to a diagnostic and a degraded mount, never dropped', async () => {
     const projectRoot = createFixtureProject();
     const output = await recipeMap(projectRoot, 'module');

@@ -8,7 +8,7 @@ description: This project has a local Alembic knowledge base. Submit Alembic can
 <!-- wakeflow-shared:end -->
 
 <!-- wakeflow-host:plugin — MCP response contract differs per host (plugin: clean structuredContent; main: unified JSON Envelope) -->
-> Prerequisite: MCP tools return clean `structuredContent` with `ok`, `status`, `summary`, optional `error`, optional `meta`, and tool-specific fields. Visible tool text is summary-only. Call `alembic_health` before operations to confirm service availability.
+> Prerequisite: MCP tools return clean `structuredContent` with `ok`, `status`, `summary`, optional `error`, optional `meta`, and tool-specific fields. Visible tool text is summary-only. Call `alembic_status` only when runtime or knowledge availability is unclear; ordinary candidate submission does not require a separate health gate.
 
 This project has a local Alembic knowledge base. Submit Alembic candidates when the user asks or when project work reveals reusable patterns, rules, or facts worth preserving.
 

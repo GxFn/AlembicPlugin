@@ -85,10 +85,29 @@ npm run dev:codex-plugin:reload     # reload the plugin in a running Codex
 npm run dev:codex-plugin:verify     # verify the synced cache
 ```
 
+For fast plugin-tool validation, you do not need a real MCP stdio transport or
+a Codex restart:
+
+```bash
+npm run probe:codex-plugin:tools-local        # reuse existing dist, call tools in-process
+npm run verify:codex-plugin:tools-local       # build first, then run the same local tool checks
+```
+
+The validator uses `HostMcpServer.handleToolCall()` as the main entrypoint, so
+it still exercises tool visibility, preflight, auto-init, Plugin-owned handlers,
+clean `structuredContent` projection, and summary-only visible text. It is a
+multi-tool case runner covering `alembic_status`, `alembic_prime`,
+`alembic_work`, `alembic_code_guard`, `alembic_search`, `alembic_recipe_map`,
+and `alembic_graph`; future MCP tools should add cases in
+`scripts/verify-codex-plugin-tools-local.mjs` and reuse the same timeout,
+serialization, old-envelope leak checks, and JSON report flow. Handler fixture
+cases are only a supplemental path for isolating one handler's internals.
+
 ## Verification
 
 ```bash
 npm run build:check                 # core + plugin type-check
+npm run verify:codex-plugin:tools-local # in-process MCP tool contract checks, no Codex restart
 npm run smoke:codex-plugin          # end-to-end plugin smoke (required files, routes, MCP)
 npm run verify:codex-plugin         # plugin artifact verification
 npm run verify:plugin-distribution  # marketplace/runtime distribution alignment

@@ -484,7 +484,7 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
       'projectContextGuidance',
     ]);
     expect(projectContextGuidance).toMatchObject({
-      recommendedTools: ['alembic_project_matrix', 'alembic_graph'],
+      recommendedTools: ['alembic_recipe_map', 'alembic_graph'],
       status: 'ready-evidence',
     });
     expect(projectContextGuidance.sourceEvidenceRefs).toEqual(

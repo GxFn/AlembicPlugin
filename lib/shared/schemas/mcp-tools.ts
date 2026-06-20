@@ -390,6 +390,18 @@ export const SearchInput = z
     detailRefId: z.string().min(1).max(240).optional().describe('get/expand 的 detailRefId'),
     limit: z.number().int().min(1).max(100).default(10),
     language: z.string().optional().describe('按编程语言过滤，如 swift/typescript'),
+    activeFile: z
+      .string()
+      .min(1)
+      .max(2000)
+      .optional()
+      .describe('Optional active file hint for ProjectContext follow-up guidance.'),
+    module: z
+      .string()
+      .min(1)
+      .max(240)
+      .optional()
+      .describe('Optional module hint for ProjectContext follow-up guidance.'),
     projectRoot: z.string().min(1).max(2000).optional(),
     detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
     budget: SearchBudgetInput.optional(),

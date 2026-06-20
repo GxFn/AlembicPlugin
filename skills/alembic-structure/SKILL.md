@@ -1,6 +1,6 @@
 ---
 name: alembic-structure
-description: This project has a local Alembic knowledge base. Use Alembic project matrix and ProjectContext graph orientation for structure and dependency questions.
+description: This project has a local Alembic knowledge base. Use Alembic recipe_map and ProjectContext graph orientation for structure and dependency questions.
 ---
 
 <!-- wakeflow-shared:begin section="title-intro" -->
@@ -10,9 +10,9 @@ Use this skill when the user asks about **project structure**, **module targets*
 <!-- wakeflow-shared:end -->
 
 <!-- wakeflow-host:plugin — host-context trigger line + plugin-only ProjectContext guidance -->
-This project has a local Alembic knowledge base. Use compact project matrix and ProjectContext graph orientation proactively for this project.
+This project has a local Alembic knowledge base. Use compact recipe_map and ProjectContext graph orientation proactively for this project.
 
-For current project orientation, use `alembic_project_matrix` for compact navigation and `alembic_graph` for bounded ProjectContext-backed structure, source, and dependency relations before broad raw Read/Grep exploration. Treat graph output as orientation evidence; use raw reads/search, Guard, and repository tests for current code behavior claims.
+For current project orientation, use `alembic_recipe_map` for Recipe-mounted navigation and `alembic_graph` for bounded ProjectContext-backed structure, source, and dependency relations before broad raw Read/Grep exploration. Treat graph output as orientation evidence; use raw reads/search, Guard, and repository tests for current code behavior claims.
 
 <!-- wakeflow-shared:begin section="tools-and-graph" -->
 ---
@@ -21,13 +21,13 @@ For current project orientation, use `alembic_project_matrix` for compact naviga
 
 | Tool | Purpose | Key Input |
 |------|---------|-----------|
-| `alembic_project_matrix(operation=overview)` | Compact hierarchy, key nodes, hotspots, project status, category summary, detail refs, and next actions | optional `query`, `activeFile`, `budget` |
-| `alembic_project_matrix(operation=node)` | Expand one matrix node only | `nodeId` or `refId` |
-| `alembic_project_matrix(operation=relations/layers/sources/catalog)` | Bounded relations, layer/source summaries, or category catalog | optional node/query filters |
+| `alembic_recipe_map(focus={kind:"space"})` | Compact Recipe-mounted region overview with rollups and next actions | optional `radius`, `budget`, `includeRecipes` |
+| `alembic_recipe_map(focus={kind:"file", filePath})` | Map direct Recipe mounts and rollups for one file region | `filePath` |
+| `alembic_recipe_map(focus={kind:"module"})` | Map module-level Recipe mounts without dumping unrelated file Recipes | optional module focus fields |
 
 ### Workflow
-1. Start with matrix `overview` for the smallest useful map.
-2. Use matrix `node` or `relations` to drill into one visible ref.
+1. Start with `alembic_recipe_map` for the smallest useful focus.
+2. Use file/module focus or graph `neighborhood` to drill into one visible ref.
 3. Use raw reads/search, Guard, or repository tests for current source proof before citing code behavior.
 
 ---
@@ -38,16 +38,19 @@ Use project graph queries for bounded internal relationships between project, pa
 
 | Tool | Purpose | Key Input |
 |------|---------|-----------|
-| `alembic_graph(operation=query)` | List bounded project graph nodes/relations | `nodeType`, `query`, `relationType` |
-| `alembic_graph(operation=impact)` | Project impact radius from a project, file, or symbol node | `nodeId`, `maxDepth` |
-| `alembic_graph(operation=path)` | Directed project relation path between two nodes | `fromId`, `toId` |
-| `alembic_graph(operation=stats)` | Project graph node/relation counts | - |
-| `alembic_graph(operation=neighborhood)` | Bounded node neighborhood | `nodeId`, optional `relationType` |
+| `alembic_graph(queryKind="map")` | Bounded project map and top-level relations | optional `query`, `budget` |
+| `alembic_graph(queryKind="file-symbols")` | File node plus defined symbols and relations | `filePath` |
+| `alembic_graph(queryKind="source-slice")` | Bounded source text around an anchor line | `filePath`, `line`, optional `radius.beforeLines/afterLines` |
+| `alembic_graph(queryKind="anchor-range")` | Source slice plus nearby ProjectContext relations | `filePath`, `line`, optional `radius.relationHops` |
+| `alembic_graph(queryKind="impact")` | Project impact radius from a ProjectContext ref/node | `refId`, optional `radius.maxDepth` |
+| `alembic_graph(queryKind="path")` | Directed relation path between two ProjectContext refs | `fromRefId`, `toRefId` |
+| `alembic_graph(queryKind="neighborhood")` | Bounded node neighborhood | `refId`, optional `relationType` |
+| `alembic_graph(queryKind="stats")` | Project graph node/relation counts | - |
 
 ### When to use
-- "what depends on this file or symbol?" -> `impact`
-- "how are these modules connected?" -> `path`
-- "show neighboring project relations" -> `neighborhood`
+- "what depends on this file or symbol?" -> `queryKind="impact"` with a `refId`
+- "how are these modules connected?" -> `queryKind="path"` with `fromRefId` / `toRefId`
+- "show neighboring project relations" -> `queryKind="neighborhood"` with `refId`
 
 ---
 

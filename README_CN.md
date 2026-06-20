@@ -72,10 +72,27 @@ npm run dev:codex-plugin:reload     # 在运行中的 Codex 里重载插件
 npm run dev:codex-plugin:verify     # 校验已同步缓存
 ```
 
+快速验证插件工具时，不需要走真实 MCP stdio，也不需要重启 Codex：
+
+```bash
+npm run probe:codex-plugin:tools-local        # 复用已有 dist，直接本进程调用工具
+npm run verify:codex-plugin:tools-local       # 先 build，再运行同一套本地工具验证
+```
+
+这套验证器以 `HostMcpServer.handleToolCall()` 为主入口，覆盖 tool 可见性、
+preflight、auto-init、Plugin-owned handler、clean `structuredContent` 投影和
+summary-only 可见文本。它是多工具 case runner：当前覆盖 `alembic_status`、
+`alembic_prime`、`alembic_work`、`alembic_code_guard`、`alembic_search`、
+`alembic_recipe_map`、`alembic_graph`；后续新增 MCP 工具时，在
+`scripts/verify-codex-plugin-tools-local.mjs` 增加 case 即可复用相同的超时、
+序列化、旧 envelope 泄漏检查和 JSON 报告逻辑。只有定位单个 handler 内部逻辑时，
+才使用脚本里的 handler fixture 场景作为补充。
+
 ## 验证
 
 ```bash
 npm run build:check                 # core + 插件类型检查
+npm run verify:codex-plugin:tools-local # 本进程验证插件 MCP 工具契约，无需重启 Codex
 npm run smoke:codex-plugin          # 端到端插件冒烟（必需文件、路由、MCP）
 npm run verify:codex-plugin         # 插件制品校验
 npm run verify:plugin-distribution  # marketplace/runtime 分发对齐校验

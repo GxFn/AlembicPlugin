@@ -144,7 +144,7 @@ async function collectRecipeMounts(
   // metadata-scope no-code recipes that apply to the focus region.
   const candidateIds = new Set<string>(rows.map((row) => row.recipeId));
   for (const record of records) {
-    if (!rowsByRecipe.has(record.id) && noCodeRecipeAppliesToRegion(record, index)) {
+    if (!rowsByRecipe.has(record.id) && noCodeRecipeAppliesToRegion(record, index, region)) {
       candidateIds.add(record.id);
     }
   }
@@ -212,22 +212,36 @@ function normalizeRecipeRefs(
 
 function noCodeRecipeAppliesToRegion(
   record: RecipeRecordLite,
-  index: ReturnType<typeof buildRegionIndex>
+  index: ReturnType<typeof buildRegionIndex>,
+  region: ProjectContextRegion
 ): boolean {
   const scope = (record.scope ?? '').toLowerCase();
+  const broadFocus = metadataOnlyRecipeCanMountAtRoot(region.rootNode.kind);
   if (scope === 'global' || scope === 'space' || scope === 'project' || scope === 'architecture') {
-    return true;
+    return broadFocus;
   }
   if ((record.category ?? '').toLowerCase().includes('architecture')) {
-    return true;
+    return broadFocus;
   }
   if (record.moduleName) {
     return [...index.byId.values()].some(
       (node) => (node.kind === 'module' || node.kind === 'repo') && node.label === record.moduleName
     );
   }
-  // No code refs and no usable scope: treat as global no-code.
-  return record.sources.length === 0 && !record.sourceFile;
+  // No code refs and no usable scope are project-wide guidance only. Do not
+  // attach them to a focused file/symbol as if they were local evidence.
+  return broadFocus && record.sources.length === 0 && !record.sourceFile && !record.scope;
+}
+
+function metadataOnlyRecipeCanMountAtRoot(kind: RegionNode['kind']): boolean {
+  return (
+    kind === 'space' ||
+    kind === 'repo' ||
+    kind === 'map' ||
+    kind === 'module' ||
+    kind === 'module-layer' ||
+    kind === 'directory'
+  );
 }
 
 function buildRollups(

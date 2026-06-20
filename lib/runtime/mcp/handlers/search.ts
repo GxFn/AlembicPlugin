@@ -207,7 +207,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
     items: knowledgeItems.map((item) =>
       projectKnowledgeItem(item, { includeContentPreview: false })
     ),
-    nextActions: nextActionsForSearch(knowledgeItems, detailRefs, queryLabel, relevance),
+    nextActions: nextActionsForSearch(knowledgeItems, detailRefs, queryLabel, relevance, args),
     relations: [],
     result: {
       actualMode: pipeline.actualMode,
@@ -737,6 +737,13 @@ function assessSearchRelevance(
 
 type SearchMatchRoute = 'exact' | 'filter' | 'keyword' | 'semantic';
 
+interface DirectSearchRouteProjection {
+  evidence: string[];
+  matched: boolean;
+  rate: number;
+  route: SearchMatchRoute;
+}
+
 function annotateDirectSearchPrecision(
   item: KnowledgeRetrievalItem,
   args: SearchArgs,
@@ -761,47 +768,61 @@ function annotateDirectSearchPrecision(
   const keywordRouteMatched = keywordRouteAllowed && keywordMatchRate >= KEYWORD_MATCH_THRESHOLD;
   const semanticRouteMatched =
     semanticMatchRate !== undefined && semanticMatchRate >= SEMANTIC_MATCH_THRESHOLD;
-  const matchRoutes: SearchMatchRoute[] = [];
-  if (exactMatch) {
-    matchRoutes.push('exact');
-  }
-  if (filterRouteMatched) {
-    matchRoutes.push('filter');
-  }
-  if (keywordRouteMatched) {
-    matchRoutes.push('keyword');
-  }
-  if (semanticRouteMatched) {
-    matchRoutes.push('semantic');
-  }
-  const matchRate = Math.max(
-    exactMatch ? 1 : 0,
-    filterRouteMatched ? 1 : 0,
-    keywordRouteMatched ? keywordMatchRate : 0,
-    semanticRouteMatched ? (semanticMatchRate ?? 0) : 0
-  );
-  const routeEvidence = [
-    ...(exactMatch ? ['exact:id-ref-title-trigger'] : []),
-    ...(filterRouteMatched ? matchedFilters : []),
-    ...(keywordRouteMatched ? [`keyword:${keywordMatchRate.toFixed(2)}`] : []),
-    ...(semanticRouteMatched ? [`semantic:${semanticMatchRate.toFixed(2)}`] : []),
-  ];
+  const routeProjection = projectDirectSearchRoutes([
+    {
+      evidence: ['exact:id-ref-title-trigger'],
+      matched: exactMatch,
+      rate: 1,
+      route: 'exact',
+    },
+    {
+      evidence: matchedFilters,
+      matched: filterRouteMatched,
+      rate: 1,
+      route: 'filter',
+    },
+    {
+      evidence: [`keyword:${keywordMatchRate.toFixed(2)}`],
+      matched: keywordRouteMatched,
+      rate: keywordMatchRate,
+      route: 'keyword',
+    },
+    {
+      evidence: [`semantic:${semanticMatchRate?.toFixed(2) ?? '0.00'}`],
+      matched: semanticRouteMatched,
+      rate: semanticMatchRate ?? 0,
+      route: 'semantic',
+    },
+  ]);
   return {
     ...item,
     scoreBreakdown: {
       ...scoreBreakdown,
-      belowThreshold: matchRoutes.length === 0,
+      belowThreshold: routeProjection.matchRoutes.length === 0,
       keywordMatchRate: Number(keywordMatchRate.toFixed(6)),
       keywordThreshold: KEYWORD_MATCH_THRESHOLD,
-      matchRate: Number(matchRate.toFixed(6)),
-      matchRoutes,
+      matchRate: Number(routeProjection.matchRate.toFixed(6)),
+      matchRoutes: routeProjection.matchRoutes,
       matchedFilters,
-      routeEvidence,
+      routeEvidence: routeProjection.routeEvidence,
       semanticMatchRate:
         semanticMatchRate === undefined ? undefined : Number(semanticMatchRate.toFixed(6)),
       semanticThreshold: SEMANTIC_MATCH_THRESHOLD,
     },
-    whyMatched: uniqueStrings([...(item.whyMatched ?? []), ...routeEvidence]),
+    whyMatched: uniqueStrings([...(item.whyMatched ?? []), ...routeProjection.routeEvidence]),
+  };
+}
+
+function projectDirectSearchRoutes(routes: readonly DirectSearchRouteProjection[]): {
+  matchRate: number;
+  matchRoutes: SearchMatchRoute[];
+  routeEvidence: string[];
+} {
+  const matched = routes.filter((route) => route.matched);
+  return {
+    matchRate: Math.max(0, ...matched.map((route) => route.rate)),
+    matchRoutes: matched.map((route) => route.route),
+    routeEvidence: matched.flatMap((route) => route.evidence),
   };
 }
 
@@ -1394,17 +1415,42 @@ function nextActionsForSearch(
   items: readonly KnowledgeRetrievalItem[],
   detailRefs: readonly KnowledgeContextDetailRef[],
   queryLabel: string,
-  relevance: SearchRelevanceAssessment
+  relevance: SearchRelevanceAssessment,
+  args: SearchArgs
 ): ToolNextAction[] {
   if (relevance.zeroMatch) {
+    const activeFile = readString(args.activeFile);
+    const projectContextActions: ToolNextAction[] = searchLooksLikeProjectContextQuery(args)
+      ? [
+          {
+            operation: activeFile ? 'focus:file' : 'focus:space',
+            reason: activeFile
+              ? `Use alembic_recipe_map on ${activeFile} to inspect deterministic Recipe mounts and rollups for the focused code region.`
+              : 'Use alembic_recipe_map with a focused file/module/space to inspect deterministic Recipe mounts when knowledge search has no direct Recipe match.',
+            ...(activeFile ? { refId: activeFile } : {}),
+            required: false,
+            tool: 'alembic_recipe_map',
+          },
+          {
+            operation: activeFile ? 'file-symbols' : 'map',
+            reason: activeFile
+              ? `Use alembic_graph file-symbols/source-slice around ${activeFile} for ProjectContext structure and source evidence.`
+              : 'Use alembic_graph map/neighborhood queries for ProjectContext structure before turning code-location terms into Recipe search.',
+            ...(activeFile ? { refId: activeFile } : {}),
+            required: false,
+            tool: 'alembic_graph',
+          },
+        ]
+      : [];
     return [
+      ...projectContextActions,
       {
         operation: 'search',
         reason: `Retry ${queryLabel} with an exact Recipe id/ref/title/trigger, explicit keywords, or metadata filters that satisfy direct admission thresholds.`,
         required: false,
         tool: 'alembic_search',
       },
-    ];
+    ].slice(0, 4);
   }
   return items.slice(0, 3).map((item, index) => ({
     detailRefId: detailRefs[index]?.id,
@@ -1414,6 +1460,28 @@ function nextActionsForSearch(
     required: false,
     tool: 'alembic_search',
   }));
+}
+
+function searchLooksLikeProjectContextQuery(args: SearchArgs): boolean {
+  if (readString(args.activeFile) || readString(args.module)) {
+    return true;
+  }
+  const haystack = uniqueStrings([
+    readString(args.query),
+    ...(args.keywords ?? []),
+    readString(args.category),
+    readString(args.kind ?? args.type),
+  ])
+    .join(' ')
+    .toLowerCase();
+  if (!haystack) {
+    return false;
+  }
+  return (
+    /\b(?:alembic_search|alembic_prime|alembic_graph|alembic_recipe_map|projectcontext|graph|recipe_map|handler|provider|file-symbols|source-slice|anchor-range|symbol|module|repo|repository|call-chain|source-ref|source-ref[s]?|\.ts|\.tsx|\.js|\.mjs|\.swift)\b/u.test(
+      haystack
+    ) || /[/\\][\w.-]+/u.test(haystack)
+  );
 }
 
 function nextActionsForDetail(
@@ -1438,8 +1506,6 @@ function nextActionsForDetail(
 
 function ignoredSearchInputs(args: SearchArgs): string[] {
   const ignored = [
-    readString(args.activeFile) === undefined ? undefined : 'activeFile',
-    readString(args.module) === undefined ? undefined : 'module',
     Array.isArray(args.sessionHistory) ? 'sessionHistory' : undefined,
     readRecord(args.hostDeclaredIntent) === undefined ? undefined : 'hostDeclaredIntent',
     readRecord(args.hostTurnMeta) === undefined ? undefined : 'hostTurnMeta',

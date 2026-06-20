@@ -52,8 +52,8 @@ This skill provides the agent with this project's context from Alembic Recipes. 
 **Recipe over code search**: When both find matches, prefer Recipe as source of truth. Cite Recipe title.
 <!-- wakeflow-shared:end -->
 
-<!-- wakeflow-host:plugin — structuredContent contract and plugin-only diagnostics tools (alembic_prime / alembic_codex_diagnostics / alembic_mcp_status) -->
-Use the clean `structuredContent` fields returned by `alembic_prime` and `alembic_search` as the Recipe context contract. Runtime diagnostics such as resident route or vector availability belong in `alembic_codex_diagnostics` / `alembic_mcp_status`, not in ordinary Recipe guidance.
+<!-- wakeflow-host:plugin — structuredContent contract and plugin-only diagnostics tools (alembic_prime / alembic_status) -->
+Use the clean `structuredContent` fields returned by `alembic_prime` and `alembic_search` as the Recipe context contract. Runtime diagnostics such as resident route, pure-local route, or vector availability belong in `alembic_status` (use `aspect: "runtime"` or `aspect: "knowledge"` when needed), not in ordinary Recipe guidance.
 
 <!-- wakeflow-shared:begin section="use-context-head" -->
 ---
@@ -83,5 +83,5 @@ Use the clean `structuredContent` fields returned by `alembic_prime` and `alembi
 
 - **alembic-create**: Submit knowledge candidates (V3 fields, validation, lifecycle)
 - **alembic-guard**: Code compliance checking against Recipe standards
-- **alembic-structure**: Project structure, matrix navigation, and project graph
+- **alembic-structure**: Project structure, recipe_map navigation, and ProjectContext graph
 <!-- wakeflow-shared:end -->
