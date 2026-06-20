@@ -39,6 +39,7 @@ import {
 import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../service/resident/AlembicResidentServiceClient.js';
 import type { DaemonStatus } from '../daemon-status.js';
+import { hostAdapterForShape } from '../host-adapter/resolveHostAdapter.js';
 
 export interface CodexPluginDiagnostics {
   assets: { missing: string[]; ok: boolean; required: string[] };
@@ -580,7 +581,9 @@ function buildCodexPluginAssetDiagnostics(
   // Marketplace interface assets are a Codex-shell manifest requirement; the
   // Claude Code spec-form manifest has no interface block, so an empty asset
   // list is the correct healthy state for that host shape (F-V2-2).
-  const emptyIsHealthy = registry.plugin.hostShape === 'claude-code';
+  // DH-3b: host-name 分支收口到 L3——「空资产是否健康」由 adapter 能力裁定，诊断层不再
+  // 直接判 hostShape（host 选择分支只在 L3 resolveHostAdapter / hostAdapterForShape）。
+  const emptyIsHealthy = hostAdapterForShape(registry.plugin.hostShape).allowsEmptyPluginAssets;
   return {
     missing: missingAssets,
     ok: (registry.plugin.assets.length > 0 || emptyIsHealthy) && missingAssets.length === 0,

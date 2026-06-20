@@ -17,3 +17,12 @@ export function resolveHostAdapter(env: NodeJS.ProcessEnv = process.env): HostAd
   const expectedHost = resolveHostRuntimeContext(env).expectedPluginHost;
   return expectedHost === CLAUDE_CODE_PLUGIN_HOST ? CLAUDE_CODE_HOST_ADAPTER : CODEX_HOST_ADAPTER;
 }
+
+/**
+ * hostAdapterForShape（DH-3b / RC-3）—— 当调用方已持有物理 shell 形态（如诊断里的
+ * registry.plugin.hostShape）时按形态直接选 adapter。与 resolveHostAdapter 同属 L3 唯一
+ * host-name 分支：让上层经此取 adapter 能力、不再在 L2/诊断层自带 hostShape 分支。
+ */
+export function hostAdapterForShape(hostShape: 'codex' | 'claude-code'): HostAdapter {
+  return hostShape === 'claude-code' ? CLAUDE_CODE_HOST_ADAPTER : CODEX_HOST_ADAPTER;
+}

@@ -5,6 +5,7 @@ import {
   type HostRuntimeContext,
   resolveHostRuntimeContext,
 } from '../runtime/runtime/RuntimeContext.js';
+import { hostAdapterForShape } from './host-adapter/resolveHostAdapter.js';
 
 export const CODEX_REQUIRED_SKILLS = [
   'alembic',
@@ -52,31 +53,25 @@ export interface CodexPluginRegistry {
  * Single source for the per-host MCP declaration shape. The Codex shell ships
  * `.mcp.json` next to `.codex-plugin/plugin.json`; the Claude Code shell
  * declares `mcpServers` inline in `.claude-plugin/plugin.json` (spec form
- * with `${CLAUDE_PLUGIN_ROOT}` paths, normalized here to plugin-root-relative
- * form so downstream entry/pin checks evaluate identically on both shells).
- * When `.mcp.json` exists the read is byte-for-byte the historical Codex
+ * with `${CLAUDE_PLUGIN_ROOT}` paths). DH-3b: the per-host manifest path and the
+ * `${CLAUDE_PLUGIN_ROOT}` normalization live on the L3 HostAdapter
+ * (`pluginMcpManifestPath` / `normalizePluginMcpArg`), so this function carries no
+ * host-name branch. The Codex adapter's path is `.mcp.json` and its arg
+ * normalization is identity, so the read stays byte-for-byte the historical Codex
  * behavior — host-shape awareness must not move Codex wire bytes (F-V2-2).
  */
 export function readCodexPluginMcpDeclaration(pluginRoot: string): CodexPluginMcpDeclaration {
-  // RC-1: shell 形态判定下沉到 RuntimeContext.detectPluginHostShape（单一来源），
-  // 本函数只按形态读取对应 manifest 并归一化 args；两侧 wire bytes 行为保持不变。
+  // DH-3b: hostShape 分支收口到 L3——形态检测（detectPluginHostShape）后经 adapter 取 per-host
+  // 清单路径 + arg 归一化，本函数不再判 hostShape。codex .mcp.json 仍在此 byte-for-byte 读取，
+  // 且 codex 的 normalizePluginMcpArg 为恒等，故 codex wire bytes 不变（F-V2-2）。
   const hostShape = detectPluginHostShape(pluginRoot);
-  if (hostShape === 'claude-code') {
-    const claudeManifestPath = join(pluginRoot, '.claude-plugin', 'plugin.json');
-    const json = readJsonObject(claudeManifestPath);
-    const server = asPlainRecord(asPlainRecord(json.value?.mcpServers)?.alembic);
-    const args = Array.isArray(server?.args)
-      ? server.args
-          .filter((arg): arg is string => typeof arg === 'string')
-          .map((arg) => arg.replaceAll('${CLAUDE_PLUGIN_ROOT}', '.'))
-      : [];
-    return { args, hostShape, json, server };
-  }
-  const mcpPath = join(pluginRoot, '.mcp.json');
-  const json = readJsonObject(mcpPath);
+  const adapter = hostAdapterForShape(hostShape);
+  const json = readJsonObject(adapter.pluginMcpManifestPath(pluginRoot));
   const server = asPlainRecord(asPlainRecord(json.value?.mcpServers)?.alembic);
   const args = Array.isArray(server?.args)
-    ? server.args.filter((arg): arg is string => typeof arg === 'string')
+    ? server.args
+        .filter((arg): arg is string => typeof arg === 'string')
+        .map((arg) => adapter.normalizePluginMcpArg(arg))
     : [];
   return { args, hostShape, json, server };
 }
@@ -85,10 +80,10 @@ export function loadCodexPluginRegistry(
   context: HostRuntimeContext = resolveHostRuntimeContext()
 ): CodexPluginRegistry {
   const mcpDeclaration = readCodexPluginMcpDeclaration(context.pluginRoot);
-  const manifestPath =
-    mcpDeclaration.hostShape === 'claude-code'
-      ? join(context.pluginRoot, '.claude-plugin', 'plugin.json')
-      : join(context.pluginRoot, '.codex-plugin', 'plugin.json');
+  // DH-3b: manifest 路径选择收口到 L3 adapter（不再判 hostShape）。
+  const manifestPath = hostAdapterForShape(mcpDeclaration.hostShape).pluginManifestPath(
+    context.pluginRoot
+  );
   const readmePath = join(context.pluginRoot, 'README.md');
   const manifest = readJsonObject(manifestPath);
   const manifestInterface = asPlainRecord(manifest.value?.interface);

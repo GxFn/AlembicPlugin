@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
   type CodexInitMarker,
   type CodexProjectRootResolution,
@@ -29,6 +30,8 @@ import type { HostAdapter, HostInitMarkerInput } from './HostAdapter.js';
 export class CodexHostAdapter implements HostAdapter {
   readonly hostId = CODEX_PLUGIN_HOST;
   readonly setupProfile = CODEX_SETUP_PROFILE;
+  // codex shell 的 manifest 要求 marketplace interface 资产，空资产非健康。
+  readonly allowsEmptyPluginAssets = false;
 
   ensureRuntimeEnvironment(env?: NodeJS.ProcessEnv): void {
     ensureCodexRuntimeEnvironment(env);
@@ -64,6 +67,18 @@ export class CodexHostAdapter implements HostAdapter {
 
   writeInitMarker(projectRoot: string, input: HostInitMarkerInput): CodexInitMarker {
     return writeCodexInitMarker(projectRoot, input);
+  }
+
+  pluginMcpManifestPath(pluginRoot: string): string {
+    return join(pluginRoot, '.mcp.json');
+  }
+
+  pluginManifestPath(pluginRoot: string): string {
+    return join(pluginRoot, '.codex-plugin', 'plugin.json');
+  }
+
+  normalizePluginMcpArg(arg: string): string {
+    return arg;
   }
 }
 

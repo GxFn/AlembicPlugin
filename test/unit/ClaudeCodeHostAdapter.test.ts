@@ -68,4 +68,21 @@ describe('DH-3① host-aware HostAdapter selection', () => {
     expect(resolution.rejected).toBe(false);
     expect(resolution.path).toBe(projectDir);
   });
+
+  test('exposes per-host manifest layout + empty-asset capability per adapter (DH-3b 收口)', () => {
+    // DH-3b: 原散在 PluginRegistry / Diagnostics 的 hostShape 分支收口为 adapter 能力。
+    const { codexShellRoot, claudeShellRoot } = shellRoots();
+    const codex = resolveHostAdapter({ [CODEX_PLUGIN_ROOT_ENV]: codexShellRoot });
+    const cc = resolveHostAdapter({ [CODEX_PLUGIN_ROOT_ENV]: claudeShellRoot });
+
+    expect(codex.allowsEmptyPluginAssets).toBe(false);
+    expect(cc.allowsEmptyPluginAssets).toBe(true);
+    expect(codex.pluginMcpManifestPath('/p')).toBe(join('/p', '.mcp.json'));
+    expect(cc.pluginMcpManifestPath('/p')).toBe(join('/p', '.claude-plugin', 'plugin.json'));
+    // codex 的 arg 归一化为恒等（保 wire bytes）；cc 把 ${CLAUDE_PLUGIN_ROOT} 归一为 '.'。
+    expect(codex.normalizePluginMcpArg('${CLAUDE_PLUGIN_ROOT}/bin')).toBe(
+      '${CLAUDE_PLUGIN_ROOT}/bin'
+    );
+    expect(cc.normalizePluginMcpArg('${CLAUDE_PLUGIN_ROOT}/bin')).toBe('./bin');
+  });
 });

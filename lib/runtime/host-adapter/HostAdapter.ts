@@ -46,6 +46,12 @@ export interface HostAdapter {
   readonly hostId: string;
   /** init-marker 等元数据写入的 setup profile 标识。 */
   readonly setupProfile: string;
+  /**
+   * 该宿主下「插件资产为空」是否算健康。codex shell 的 manifest 要求 marketplace
+   * interface 资产（空=缺失）；claude-code spec-form manifest 无 interface 块，空资产即
+   * 正确健康态（F-V2-2）。供诊断 asset 检查，替代散在诊断层的 hostShape 分支。
+   */
+  readonly allowsEmptyPluginAssets: boolean;
 
   // —— 运行时 env / 身份 ——
   /** 设置插件运行时 env 默认（runtime mode、host 标识按物理 shell 形态派生、MCP 模式/tier）。 */
@@ -70,4 +76,13 @@ export interface HostAdapter {
   readInitMarker(projectRoot: string): CodexInitMarker | null;
   /** 工作区初始化成功后写入 init marker（系统字段由实现填充）。 */
   writeInitMarker(projectRoot: string, input: HostInitMarkerInput): CodexInitMarker;
+
+  // —— per-host 插件 shell 清单布局（L4 产物路径 / arg 归一化；host-name 分支收口于本契约，
+  //    上层经 adapter 取路径/归一化、不再自带 hostShape 分支）——
+  /** MCP 声明清单路径（codex shell：.mcp.json；claude-code shell：内联于 .claude-plugin/plugin.json）。 */
+  pluginMcpManifestPath(pluginRoot: string): string;
+  /** 插件清单路径（codex：.codex-plugin/plugin.json；claude-code：.claude-plugin/plugin.json）。 */
+  pluginManifestPath(pluginRoot: string): string;
+  /** 归一化 MCP arg（claude-code 把 ${CLAUDE_PLUGIN_ROOT} 归一为插件根相对 '.'；codex 原样）。 */
+  normalizePluginMcpArg(arg: string): string;
 }

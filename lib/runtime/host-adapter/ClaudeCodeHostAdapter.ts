@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
   type CodexInitMarker,
   type CodexProjectRootResolution,
@@ -39,6 +40,8 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
   // cc 专属 setupProfile 属 per-host 产物（DH-4）；① 暂复用 codex-plugin（init-marker 的
   // profile 字段类型锁定 typeof CODEX_SETUP_PROFILE，独立 cc profile 需同步 SetupService）。
   readonly setupProfile = CODEX_SETUP_PROFILE;
+  // claude-code spec-form manifest 无 interface 块，空资产即正确健康态（F-V2-2）。
+  readonly allowsEmptyPluginAssets = true;
 
   ensureRuntimeEnvironment(env?: NodeJS.ProcessEnv): void {
     ensureCodexRuntimeEnvironment(env);
@@ -74,6 +77,18 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
 
   writeInitMarker(projectRoot: string, input: HostInitMarkerInput): CodexInitMarker {
     return writeCodexInitMarker(projectRoot, input);
+  }
+
+  pluginMcpManifestPath(pluginRoot: string): string {
+    return join(pluginRoot, '.claude-plugin', 'plugin.json');
+  }
+
+  pluginManifestPath(pluginRoot: string): string {
+    return join(pluginRoot, '.claude-plugin', 'plugin.json');
+  }
+
+  normalizePluginMcpArg(arg: string): string {
+    return arg.replaceAll('${CLAUDE_PLUGIN_ROOT}', '.');
   }
 }
 
