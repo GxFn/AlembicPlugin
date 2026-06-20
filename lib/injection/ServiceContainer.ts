@@ -1,5 +1,5 @@
 // ─── v3.1: Multi-Language Discovery + Enhancement ────────
-import { initEnhancementRegistry } from '@alembic/core/core/enhancement';
+import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
 // ─── P3: Infrastructure ──────────────────────────────
 import Logger from '@alembic/core/logging';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';

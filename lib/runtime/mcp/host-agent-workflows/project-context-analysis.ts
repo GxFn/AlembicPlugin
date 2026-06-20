@@ -9,7 +9,6 @@ import {
 import {
   buildProjectContextPresenterInput,
   type ModuleContext,
-  ProjectContext,
   type ProjectContextEnvelope,
   type ProjectContextPresenterInput,
   type ProjectContextRef,
@@ -19,6 +18,7 @@ import {
   type RepoContext,
   type SpaceContext,
 } from '@alembic/core/project-context';
+import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 
 interface BuildHostAgentProjectContextAnalysisInput {
   projectRoot: string;
@@ -214,7 +214,7 @@ async function executeProjectContextRequest(
   source: BuildHostAgentProjectContextAnalysisInput['source'],
   payload?: Record<string, unknown>
 ): Promise<ProjectContextEnvelope<ProjectContextResult>> {
-  return ProjectContext.execute({
+  return ProjectContextCapabilities.execute({
     kind,
     payload,
     project: {

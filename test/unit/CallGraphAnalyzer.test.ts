@@ -9,11 +9,15 @@ import {
   CallEdgeResolver,
   CallGraphAnalyzer,
   DataFlowInferrer,
-  extractCallSitesTS,
   ImportPathResolver,
   ImportRecord,
   SymbolTableBuilder,
-} from '@alembic/core/project-intelligence';
+} from '@alembic/core/core/analysis';
+import { plugin as typeScriptAstPlugin } from '@alembic/core/core/ast/lang-typescript';
+import { analyzeSourceFile } from '@alembic/core/test-fixtures';
+
+const analyzeFile = analyzeSourceFile;
+const extractCallSitesTS = typeScriptAstPlugin.extractCallSites;
 
 // ─── ImportRecord ─────────────────────────────────────────
 
@@ -3300,14 +3304,6 @@ describe('CallEdgeResolver — RTA with top-level functions', () => {
 // ─── Super call resolution (Priority 0) ──────────────────
 
 describe('CallEdgeResolver — super call resolution', () => {
-  let CallEdgeResolver, SymbolTableBuilder, ImportPathResolver;
-
-  beforeAll(async () => {
-    ({ CallEdgeResolver } = await import('@alembic/core/project-intelligence'));
-    ({ SymbolTableBuilder } = await import('@alembic/core/project-intelligence'));
-    ({ ImportPathResolver } = await import('@alembic/core/project-intelligence'));
-  });
-
   test('super.xxx() resolves to parent class method via CHA (not self-edge)', () => {
     // Parent: BaseController has method render()
     // Child: HomeController overrides render(), calls super.render()
@@ -3428,14 +3424,6 @@ describe('CallEdgeResolver — super call resolution', () => {
 // ─── Duplicate edge deduplication ─────────────────────────
 
 describe('CallEdgeResolver — duplicate edge deduplication', () => {
-  let CallEdgeResolver, SymbolTableBuilder, ImportPathResolver;
-
-  beforeAll(async () => {
-    ({ CallEdgeResolver } = await import('@alembic/core/project-intelligence'));
-    ({ SymbolTableBuilder } = await import('@alembic/core/project-intelligence'));
-    ({ ImportPathResolver } = await import('@alembic/core/project-intelligence'));
-  });
-
   test('same caller→callee at same line deduplicates to 1 edge', () => {
     const table = SymbolTableBuilder.build({
       fileSummaries: [
@@ -3500,13 +3488,6 @@ describe('CallEdgeResolver — duplicate edge deduplication', () => {
 // ─── Swift super call extraction ──────────────────────────
 
 describe('Swift walker — super call extraction', () => {
-  let analyzeFile;
-
-  beforeAll(async () => {
-    await import('@alembic/core/project-intelligence');
-    ({ analyzeFile } = await import('@alembic/core/project-intelligence'));
-  });
-
   test('super.xxx() sets callType=super in Swift', () => {
     const code = `
 class BaseVC {
@@ -3529,13 +3510,6 @@ class HomeVC: BaseVC {
 // ─── Java super call extraction ───────────────────────────
 
 describe('Java walker — super call extraction', () => {
-  let analyzeFile;
-
-  beforeAll(async () => {
-    await import('@alembic/core/project-intelligence');
-    ({ analyzeFile } = await import('@alembic/core/project-intelligence'));
-  });
-
   test('super.xxx() sets callType=super in Java', () => {
     const code = `
 public class BaseEntity {
@@ -3559,13 +3533,6 @@ public class Pet extends BaseEntity {
 // ─── Kotlin super/this call extraction ────────────────────
 
 describe('Kotlin walker — super and this call extraction', () => {
-  let analyzeFile;
-
-  beforeAll(async () => {
-    await import('@alembic/core/project-intelligence');
-    ({ analyzeFile } = await import('@alembic/core/project-intelligence'));
-  });
-
   test('super.xxx() sets callType=super in Kotlin', () => {
     const code = `
 open class Base {

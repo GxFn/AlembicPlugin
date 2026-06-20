@@ -2,7 +2,7 @@
  * AlembicGraphOutput — alembic_graph 自有的、Recipe-free 的 ProjectContext 图谱输出契约。
  *
  * GMAP-1: alembic_graph 不再以 KnowledgeContextToolOutput 统一信封作为公共输出。
- * 该工具直接把 ProjectContext.execute 的有界事实投影为本契约,绝不携带任何 Recipe
+ * 该工具直接把 ProjectContextCapabilities.execute 的有界事实投影为本契约,绝不携带任何 Recipe
  * 内容(recipe id / summary / mount / score / relation-chain)、检索分数、prime 语义
  * 结果或知识目录类别。公共输入为 queryKind(9 个 ProjectContext 类 + 4 个由 refs/
  * relations 派生的遍历视图)。
@@ -155,6 +155,15 @@ export const AlembicGraphLimitsSchema = z
   })
   .strict();
 
+export const AlembicGraphProjectContextMetaSchema = z
+  .object({
+    requestKinds: z.array(AlembicGraphQueryKindSchema).max(20),
+    refCount: z.number().int().nonnegative(),
+    errorCount: z.number().int().nonnegative(),
+    partial: z.boolean(),
+  })
+  .strict();
+
 export const AlembicGraphProjectSchema = z
   .object({
     projectRoot: z.string().min(1).max(2000),
@@ -188,6 +197,7 @@ export const AlembicGraphOutputSchema = z
         outputSchema: z.literal('AlembicGraphOutput').default('AlembicGraphOutput'),
         generatedAt: z.string().datetime({ offset: true }).optional(),
         producer: z.string().min(1).max(160).optional(),
+        projectContext: AlembicGraphProjectContextMetaSchema.optional(),
       })
       .strict(),
   })

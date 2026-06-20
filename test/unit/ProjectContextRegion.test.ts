@@ -170,7 +170,7 @@ describe('ProjectContextRegion shared region builder (GMAP-3)', () => {
       'utf8'
     );
     expect(providerSource).toContain('resolveProjectContextRegion');
-    expect(providerSource).toContain('ProjectContext.execute');
+    expect(providerSource).toContain('ProjectContextCapabilities.execute');
     // No subprocess / public-tool invocation as a project-information source.
     expect(providerSource).not.toContain('child_process');
     expect(providerSource).not.toContain('routeGraphTool');

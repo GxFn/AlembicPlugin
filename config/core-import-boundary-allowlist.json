@@ -1,26 +1,30 @@
 {
   "version": 2,
-  "phase": "RIC-2d: guard.ts:820 migrated to @alembic/core/guard frameworkAgnostic; core/enhancement demoted to a count-capped infra+test exception (zero business consumers)",
-  "generatedAt": "2026-06-12",
+  "phase": "CO-3B: plugin consumer imports migrated to Core capability facades; only per-language AST dynamic-import tests remain as old core route exceptions",
+  "generatedAt": "2026-06-21",
   "sourcePlan": "wakeflow-ledger/requirement-designs/alembic-portfolio-execution-plan/portfolio-execution-plan-2026-06-12.md",
   "scanRoots": ["lib", "bin", "scripts", "test"],
   "allowedRootSpecifiers": ["@alembic/core"],
-  "referenceCount": 544,
-  "uniqueSpecifierCount": 37,
+  "referenceCount": 421,
+  "uniqueSpecifierCount": 45,
   "referenceLimits": {
-    "@alembic/core/core/enhancement": 5,
+    "@alembic/core/core": 2,
+    "@alembic/core/core/analysis": 1,
     "@alembic/core/core/ast/lang-dart": 2,
     "@alembic/core/core/ast/lang-go": 2,
     "@alembic/core/core/ast/lang-java": 2,
     "@alembic/core/core/ast/lang-kotlin": 3,
     "@alembic/core/core/ast/lang-rust": 2,
     "@alembic/core/core/ast/lang-swift": 2,
+    "@alembic/core/core/ast/lang-typescript": 1,
+    "@alembic/core/core/discovery": 3,
     "@alembic/core/infrastructure/database/drizzle": 4,
     "@alembic/core/infrastructure/database/drizzle/schema": 1,
     "@alembic/core/infrastructure/database/migrations/001_initial_schema": 1,
-    "@alembic/core/infrastructure/database/migrations/004_evolution_proposals": 3
+    "@alembic/core/infrastructure/database/migrations/004_evolution_proposals": 3,
+    "@alembic/core/project-intelligence": 27
   },
-  "referenceLimitsNote": "Limits are TRUE from-line/grep counts (multi-line import forms included), recalibrated 2026-06-12 so the Core scanner multi-line regex fix (CO1-SCANNER-MULTILINE-BLIND-SPOT) can land without turning this gate red. Shrink-only.",
+  "referenceLimitsNote": "Limits are TRUE scanner counts (multi-line imports included), recalibrated 2026-06-21 after CO-3B migrated Plugin consumers to Core capability facades. Remaining limits are shrink-only for focused AST/project integration tests, infra DB fixture exceptions, and out-of-scope project-intelligence test residuals.",
   "keepWithOwner": {
     "@alembic/core/infrastructure/database/drizzle": {
       "owner": "AlembicPlugin",
@@ -55,33 +59,58 @@
       "reason": "Same isolated-fixture constraint as migration 001.",
       "removalTrigger": "Same stable test/fixture facade as the drizzle row."
     },
-    "@alembic/core/core/ast/lang-*": {
+    "@alembic/core/core/analysis": {
       "owner": "AlembicPlugin",
-      "consumers": ["dynamic import() lazy loading of optional language grammars"],
-      "reason": "Deliberate lazy loading of optional grammar parsers; no stable lazy-grammar facade exists. Mirrors the Alembic kept rows with identical true counts.",
-      "removalTrigger": "Core ships a stable lazy language-parser facade."
+      "consumers": ["test/unit/CallGraphAnalyzer.test.ts low-level call graph analyzer tests"],
+      "reason": "CallGraphAnalyzer verifies ImportRecord, SymbolTableBuilder, ImportPathResolver, CallEdgeResolver, DataFlowInferrer, and CallGraphAnalyzer behavior directly. Stable @alembic/core/test-fixtures exposes high-level analyzeSourceFile/resources, but not these analysis classes.",
+      "removalTrigger": "Core ships a stable test fixture facade for low-level call graph analysis classes, or these tests move into AlembicCore."
     },
-    "@alembic/core/core/enhancement": {
+    "@alembic/core/core": {
       "owner": "AlembicPlugin",
       "consumers": [
-        "lib/injection/ServiceContainer.ts (initEnhancementRegistry — bootstrap/DI infra wiring, RIC-2a/R3)",
-        "lib/injection/modules/KnowledgeModule.ts (getEnhancementRegistry — DI registration, R3)",
-        "test/integration/RealProjectEnhancement.test.ts (real enhancement-pack integration test)",
-        "test/integration/RealProjectBootstrap.test.ts (real enhancement-pack integration test)",
-        "test/integration/GoSupport.test.ts (real enhancement-pack integration test)"
+        "test/integration/RealProjectBootstrap.test.ts analyzeProject/isAvailable",
+        "test/integration/GoSupport.test.ts analyzeProject"
       ],
-      "reason": "RIC-2d: zero BUSINESS consumers remain — guard.ts:820 and http/routes/guard.ts now read Guard rules via the high-level @alembic/core/guard facade (resolveEnhancementGuardRules). The only direct core/enhancement imports left are bootstrap/DI infra wiring (R3) and real-pack integration tests (§B/R4). Count-capped at 5 (shrink-only) so no new direct business consumer can be added silently.",
-      "removalTrigger": "Core ships a high-level initCoreEnhancements()/registry facade for the infra init (R3 optional follow-up) + a Core enhancement test fixture for the integration tests (§B)."
+      "reason": "The focused real-project integration tests still need project-level AST summaries. @alembic/core/test-fixtures exposes analyzeSourceFile but not analyzeProject/isAvailable, and @alembic/core/project-intelligence is no longer resolvable through the package export map.",
+      "removalTrigger": "Core ships stable test-fixtures project-analysis helpers, or these integration tests move into AlembicCore."
+    },
+    "@alembic/core/core/discovery": {
+      "owner": "AlembicPlugin",
+      "consumers": [
+        "test/integration/RealProjectEnhancement.test.ts discoverer registry",
+        "test/integration/RealProjectBootstrap.test.ts discoverer registry",
+        "test/integration/GoSupport.test.ts discoverer registry"
+      ],
+      "reason": "The focused real-project integration tests need direct discoverer registry setup. No stable test-fixtures facade currently exposes getDiscovererRegistry/resetDiscovererRegistry, and @alembic/core/project-intelligence is no longer resolvable through the package export map.",
+      "removalTrigger": "Core ships a stable discovery test fixture facade, or these integration tests move into AlembicCore."
+    },
+    "@alembic/core/core/ast/lang-*": {
+      "owner": "AlembicPlugin",
+      "consumers": [
+        "test/unit/CallGraphAnalyzer.test.ts dynamic import() lazy loading of optional language grammars",
+        "test/unit/CallGraphAnalyzer.test.ts TypeScript plugin.extractCallSites behavior"
+      ],
+      "reason": "CallGraphAnalyzer keeps language-specific plugin behavior tests against plugin.extractCallSites()/walk(). The stable @alembic/core/test-fixtures facade exposes high-level analyzeSourceFile/resources, but not the per-language plugin objects those tests assert.",
+      "removalTrigger": "Core ships a stable test fixture or lazy language-parser facade exposing the per-language plugin behavior needed by these tests."
+    },
+    "@alembic/core/project-intelligence": {
+      "owner": "AlembicPlugin",
+      "consumers": ["legacy panorama/discovery/project-intelligence tests outside CO-3B"],
+      "reason": "Existing tests outside CO-3B still import the retired project-intelligence aggregate. CO-3B migrated its focused CallGraphAnalyzer and enhancement/Go/bootstrap tests, but a full panorama/discovery test migration is separate follow-up scope.",
+      "removalTrigger": "CO-4 or a dedicated project-intelligence test migration moves the remaining tests to stable facades or owned Core tests."
     }
   },
   "allowedSpecifiers": [
+    "@alembic/core/core",
+    "@alembic/core/core/analysis",
     "@alembic/core/core/ast/lang-dart",
     "@alembic/core/core/ast/lang-go",
     "@alembic/core/core/ast/lang-java",
     "@alembic/core/core/ast/lang-kotlin",
     "@alembic/core/core/ast/lang-rust",
     "@alembic/core/core/ast/lang-swift",
-    "@alembic/core/core/capability",
+    "@alembic/core/core/ast/lang-typescript",
+    "@alembic/core/core/discovery",
     "@alembic/core/daemon",
     "@alembic/core/database",
     "@alembic/core/dimensions",

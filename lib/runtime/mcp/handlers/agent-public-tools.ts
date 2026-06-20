@@ -1,12 +1,9 @@
 import {
   createRecipeContextServiceFromCore,
   type RecipeContextRequest,
-  type RecipeListContext,
-  type RecipeRecord,
-  type RecipeRegionPortHit,
-  type VectorServiceFacade,
-  vectorPortFromService,
-} from '@alembic/core/recipe-context';
+  type RecipeContextVectorService,
+} from '@alembic/core/recipe-context-capabilities';
+import { RECIPE_SEMANTIC_REGION_METADATA_TYPE } from '@alembic/core/vector';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { resolveHostRuntimeContext } from '#codex/runtime/RuntimeContext.js';
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
@@ -178,6 +175,28 @@ const PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT = 10;
 let finishCounter = 0;
 let guardCounter = 0;
 const WORK_RECORDS = new Map<string, WorkRecord>();
+
+interface PrimeRecipeRecord {
+  id: string;
+  kind?: string;
+  sourceFile?: string | null;
+  sources?: string[];
+  summary?: string;
+  title?: string;
+  trigger?: string;
+}
+
+interface PrimeRecipeListData {
+  recipes?: PrimeRecipeRecord[];
+}
+
+interface PrimeRecipeRegionHit {
+  content?: string;
+  id: string;
+  recipeId: string;
+  regionClass: string;
+  score: number;
+}
 
 export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
   const intake = buildPrimeToolContext(args);
@@ -1189,7 +1208,7 @@ async function queryPrimeSourceRefLocatorEvidence(
       kind: 'list',
       payload: { filter: {}, pageSize: 200 },
     } as RecipeContextRequest);
-    const data = envelope.data as RecipeListContext;
+    const data = envelope.data as PrimeRecipeListData;
     const anchorSet = new Set(anchors);
     return (data.recipes ?? [])
       .flatMap((recipe) => projectRecipeSourceRefLocatorEvidence(recipe, anchorSet, projectRoot))
@@ -1235,7 +1254,7 @@ function safeContainerGet(ctx: McpContext, name: string): unknown {
 }
 
 export function projectRecipeSourceRefLocatorEvidence(
-  recipe: RecipeRecord,
+  recipe: PrimeRecipeRecord,
   anchorSet: Set<string>,
   projectRoot: string
 ): Record<string, unknown>[] {
@@ -1280,9 +1299,10 @@ async function queryPrimeRegionEvidence(
   if (!regionQuery) {
     return [];
   }
-  let vectorService: VectorServiceFacade | null;
+  let vectorService: RecipeContextVectorService | null;
   try {
-    vectorService = (ctx.container.get('vectorService') as VectorServiceFacade | null) ?? null;
+    vectorService =
+      (ctx.container.get('vectorService') as RecipeContextVectorService | null) ?? null;
   } catch {
     return [];
   }
@@ -1290,13 +1310,14 @@ async function queryPrimeRegionEvidence(
     return [];
   }
   try {
-    const result = await vectorPortFromService(vectorService).searchRegions(regionQuery, {
-      limit: 10,
+    const hits = await vectorService.hybridSearch(regionQuery, {
+      filter: { type: RECIPE_SEMANTIC_REGION_METADATA_TYPE },
+      topK: 10,
     });
-    if (!result.vectorUsed) {
+    if (!hits.some((hit) => hit.vectorUsed === true)) {
       return []; // embed lane unavailable → no region evidence (documented degrade)
     }
-    return mapRegionHitsToPrimeEvidence(result.hits);
+    return mapRegionHitsToPrimeEvidence(hits.map(regionHitFromVectorHit));
   } catch (err: unknown) {
     process.stderr.write(
       `[MCP/AgentPublicTools] alembic_prime region retrieval degraded: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1318,12 +1339,48 @@ export function buildPrimeRegionQuery(frame: StandalonePrimeRequirementFrame): s
     .trim();
 }
 
+function regionHitFromVectorHit(
+  hit: Awaited<ReturnType<RecipeContextVectorService['hybridSearch']>>[number]
+): PrimeRecipeRegionHit {
+  return {
+    content: readVectorHitString(hit, 'content') ?? readVectorHitString(hit, 'text'),
+    id: hit.id,
+    recipeId: readVectorHitString(hit, 'recipeId') ?? '',
+    regionClass: readVectorHitString(hit, 'regionClass') ?? '',
+    score: typeof hit.score === 'number' ? hit.score : 0,
+  };
+}
+
+function readVectorHitString(hit: Record<string, unknown>, key: string): string | undefined {
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  const item = asRecord(hit.item);
+  const dataItem = asRecord(asRecord(hit.data)?.item);
+  const containers: Array<Record<string, unknown> | undefined> = [
+    hit,
+    asRecord(hit.metadata),
+    item,
+    asRecord(item?.metadata),
+    dataItem,
+    asRecord(dataItem?.metadata),
+  ];
+  for (const container of containers) {
+    const value = container?.[key];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 // Project searchRegions hits into resident-region selectedKnowledge records that
 // mirror PrimeKnowledgeMaterial.projectResidentRegionSelectedRecipe output, so the
 // prime trust gate credits them as recipe-semantic-region evidence. Hits are
 // grouped by recipeId; hits without recipeId/regionClass are dropped.
 export function mapRegionHitsToPrimeEvidence(
-  hits: RecipeRegionPortHit[]
+  hits: PrimeRecipeRegionHit[]
 ): Record<string, unknown>[] {
   const byRecipe = new Map<
     string,

@@ -11,10 +11,7 @@ import {
   type RecipeContextEnvelope,
   type RecipeContextRequest,
   type RecipeContextResult,
-  type RecipeListContext,
-  type RecipeRecord,
-  type RecipeSourceRefContext,
-} from '@alembic/core/recipe-context';
+} from '@alembic/core/recipe-context-capabilities';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
   createAlembicRecipeMapMcpResult,
@@ -54,6 +51,34 @@ interface RecipeMapArgs {
   nodeLimit?: number;
   detailLevel?: 'summary' | 'standard' | 'detailed';
   [key: string]: unknown;
+}
+
+interface RecipeContextRecipeRecord {
+  category?: string;
+  dimensionId?: string;
+  id: string;
+  kind?: string;
+  lifecycle?: string;
+  moduleName?: string;
+  scope?: string;
+  sourceFile?: string | null;
+  sources?: string[];
+  summary?: string;
+  tags?: string[];
+  title: string;
+}
+
+interface RecipeContextListData {
+  recipes?: RecipeContextRecipeRecord[];
+}
+
+interface RecipeContextSourceRefData {
+  refs?: Array<{
+    newPath?: string | null;
+    recipeId: string;
+    sourcePath: string;
+    status?: string;
+  }>;
 }
 
 const RECIPE_MAP_FOCUS_KINDS = new Set<RegionFocusKind>([
@@ -152,7 +177,7 @@ function buildRecipeMapDeps(ctx: McpContext): RecipeMapDeps {
         kind: 'source-refs',
         payload: query.pathPrefix ? { pathPrefix: query.pathPrefix } : {},
       } as RecipeContextRequest);
-      const data = envelope.data as RecipeSourceRefContext;
+      const data = envelope.data as RecipeContextSourceRefData;
       return {
         rows: (data.refs ?? []).map(
           (view): RecipeSourceRefRow => ({
@@ -172,7 +197,7 @@ function buildRecipeMapDeps(ctx: McpContext): RecipeMapDeps {
         kind: 'list',
         payload: { filter: {}, pageSize: 200 },
       } as RecipeContextRequest);
-      const data = envelope.data as RecipeListContext;
+      const data = envelope.data as RecipeContextListData;
       return (data.recipes ?? []).map(toRecipeRecordLite);
     },
   };
@@ -225,7 +250,7 @@ function envelopeDiagnostics(
   }));
 }
 
-function toRecipeRecordLite(record: RecipeRecord): RecipeRecordLite {
+function toRecipeRecordLite(record: RecipeContextRecipeRecord): RecipeRecordLite {
   return {
     id: record.id,
     title: record.title,

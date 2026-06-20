@@ -1,4 +1,3 @@
-import type { RecipeRecord } from '@alembic/core/recipe-context';
 import { describe, expect, test } from 'vitest';
 import {
   buildPrimeRegionQuery,
@@ -6,6 +5,8 @@ import {
   projectRecipeSourceRefLocatorEvidence,
 } from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
 import { buildPrimeKnowledgeMaterial } from '../../lib/service/task/PrimeKnowledgeMaterial.js';
+
+type RecipeRecord = Parameters<typeof projectRecipeSourceRefLocatorEvidence>[0];
 
 // PDR-2b: prove the local Recipe semantic-region lane is wired end to end —
 // searchRegions hits → regionEvidence records → prime trust gate credits them as

@@ -282,8 +282,9 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
       expect(source).not.toContain('routeRecipeMapTool');
       expect(source).not.toContain('McpServer');
     }
-    // Recipe data comes from Core RecipeContext, structure from the shared region.
-    expect(handlerSource).toContain('@alembic/core/recipe-context');
+    // Recipe data comes from the Core recipe context capability facade, structure
+    // from the shared ProjectContext region.
+    expect(handlerSource).toContain('@alembic/core/recipe-context-capabilities');
     expect(handlerSource).toContain('resolveProjectContextRegion');
   });
 });

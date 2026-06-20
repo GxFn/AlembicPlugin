@@ -4,7 +4,7 @@
  * The Plugin keeps the historical ModuleService API because HTTP/MCP callers
  * still use it, but PCI cleanup removes the old Core discoverer registry as a
  * project-information source. Project, target, module, dependency, and file
- * facts now come from `ProjectContext.execute(...)`.
+ * facts now come from `ProjectContextCapabilities.execute(...)`.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -19,16 +19,16 @@ import {
 } from 'node:path';
 import { inferLang } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
-import {
-  type ModuleContext,
-  ProjectContext,
-  type ProjectContextEnvelope,
-  type ProjectContextRef,
-  type ProjectContextRequestKind,
-  type ProjectContextResult,
-  type ProjectMap,
-  type RepoContext,
+import type {
+  ModuleContext,
+  ProjectContextEnvelope,
+  ProjectContextRef,
+  ProjectContextRequestKind,
+  ProjectContextResult,
+  ProjectMap,
+  RepoContext,
 } from '@alembic/core/project-context';
+import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import { attachHostAgentManagedBoundary } from './host-managed-boundary.js';
 
 /** 全局排除目录 */
@@ -603,7 +603,7 @@ export class ModuleService {
     kind: ProjectContextRequestKind,
     payload?: Record<string, unknown>
   ): Promise<ProjectContextEnvelope<ProjectContextResult>> {
-    return ProjectContext.execute({
+    return ProjectContextCapabilities.execute({
       kind,
       payload,
       project: {

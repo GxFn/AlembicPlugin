@@ -11,8 +11,8 @@
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { getEnhancementRegistry } from '@alembic/core/core/enhancement';
 import { DimensionCopy } from '@alembic/core/dimensions';
+import { getFrameworkEnhancements as getEnhancementRegistry } from '@alembic/core/enhancement';
 import {
   ConsolidationAdvisor,
   ContentPatcher,

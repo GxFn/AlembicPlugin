@@ -11,25 +11,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { getDiscovererRegistry, resetDiscovererRegistry } from '@alembic/core/core/discovery';
+import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
+import { LanguageService } from '@alembic/core/shared';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');
-
-let initEnhancementRegistry;
-let getDiscovererRegistry, resetDiscovererRegistry;
-let LanguageService;
-
-beforeAll(async () => {
-  const enhMod = await import('@alembic/core/core/enhancement');
-  initEnhancementRegistry = enhMod.initEnhancementRegistry;
-
-  const dMod = await import('@alembic/core/project-intelligence');
-  getDiscovererRegistry = dMod.getDiscovererRegistry;
-  resetDiscovererRegistry = dMod.resetDiscovererRegistry;
-
-  const lsMod = await import('@alembic/core/project-intelligence');
-  LanguageService = lsMod.LanguageService;
-});
 
 // ── 期望值 ────────────────────────────────────────────────────────
 const ENHANCEMENT_CASES = {

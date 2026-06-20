@@ -18,35 +18,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { analyzeProject, isAvailable as astIsAvailable } from '@alembic/core/core';
+import { getDiscovererRegistry, resetDiscovererRegistry } from '@alembic/core/core/discovery';
+import { DimensionCopy } from '@alembic/core/dimensions';
+import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
+import { LanguageService } from '@alembic/core/shared';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');
-
-// ── 模拟 Bootstrap 核心流程（不调用完整 handler，避免 DB / AI 依赖）───
-let getDiscovererRegistry, resetDiscovererRegistry;
-let LanguageService, DimensionCopy;
-let analyzeProject, astIsAvailable;
-let initEnhancementRegistry;
-
-beforeAll(async () => {
-  const dMod = await import('@alembic/core/project-intelligence');
-  getDiscovererRegistry = dMod.getDiscovererRegistry;
-  resetDiscovererRegistry = dMod.resetDiscovererRegistry;
-
-  const lsMod = await import('@alembic/core/project-intelligence');
-  LanguageService = lsMod.LanguageService;
-
-  const dcMod = await import('@alembic/core/dimensions');
-  DimensionCopy = dcMod.DimensionCopy;
-
-  await import('@alembic/core/project-intelligence');
-  const astMod = await import('@alembic/core/project-intelligence');
-  analyzeProject = astMod.analyzeProject;
-  astIsAvailable = astMod.isAvailable;
-
-  const enhMod = await import('@alembic/core/core/enhancement');
-  initEnhancementRegistry = enhMod.initEnhancementRegistry;
-});
 
 // ── 完整 Bootstrap Phase 1-4 流程模拟 ────────────────────────────
 async function runBootstrapPhases(projectRoot, maxFiles = 500) {

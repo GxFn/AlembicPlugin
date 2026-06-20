@@ -17,38 +17,17 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { analyzeProject } from '@alembic/core/core';
+import { getDiscovererRegistry, resetDiscovererRegistry } from '@alembic/core/core/discovery';
+import { DimensionCopy } from '@alembic/core/dimensions';
+import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
+import { LanguageService } from '@alembic/core/shared';
+import { analyzeSourceFile as analyzeFile } from '@alembic/core/test-fixtures';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');
 const GIN_ROOT = path.join(GITHUB_DIR, 'gin');
 const GIN_EXISTS = fs.existsSync(GIN_ROOT);
-
-// ── 动态 import ──────────────────────────────────────────────────
-let getDiscovererRegistry, resetDiscovererRegistry;
-let LanguageService;
-let DimensionCopy;
-let analyzeFile, analyzeProject;
-let initEnhancementRegistry;
-
-beforeAll(async () => {
-  const dMod = await import('@alembic/core/project-intelligence');
-  getDiscovererRegistry = dMod.getDiscovererRegistry;
-  resetDiscovererRegistry = dMod.resetDiscovererRegistry;
-
-  const lsMod = await import('@alembic/core/project-intelligence');
-  LanguageService = lsMod.LanguageService;
-
-  const dcMod = await import('@alembic/core/dimensions');
-  DimensionCopy = dcMod.DimensionCopy;
-
-  await import('@alembic/core/project-intelligence');
-  const astMod = await import('@alembic/core/project-intelligence');
-  analyzeFile = astMod.analyzeFile;
-  analyzeProject = astMod.analyzeProject;
-
-  const enhMod = await import('@alembic/core/core/enhancement');
-  initEnhancementRegistry = enhMod.initEnhancementRegistry;
-});
 
 // ── 辅助 ──────────────────────────────────────────────────────────
 function skipIfNoGin() {

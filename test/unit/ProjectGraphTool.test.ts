@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ProjectContext } from '@alembic/core/project-context';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 import { routeGraphTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
@@ -59,6 +58,13 @@ interface GraphOutput {
   nextActions: Array<Record<string, unknown>>;
   limits: { truncated: boolean; itemLimit: number; refLimit: number; relationLimit: number };
   meta: Record<string, unknown>;
+}
+
+function projectContextRequestKinds(output: GraphOutput): string[] {
+  const projectContext = output.meta.projectContext as { requestKinds?: unknown } | undefined;
+  return Array.isArray(projectContext?.requestKinds)
+    ? projectContext.requestKinds.map((kind) => String(kind))
+    : [];
 }
 
 async function runGraph(projectRoot: string, args: Record<string, unknown>): Promise<GraphOutput> {
@@ -171,26 +177,21 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
 
   test('file-scoped queryKinds keep ProjectContext collection focused on the anchor', async () => {
     const projectRoot = createFixtureProject();
-    const executeSpy = vi.spyOn(ProjectContext, 'execute');
-    try {
-      const output = await runGraph(projectRoot, {
-        queryKind: 'file-symbols',
-        filePath: 'lib/index.ts',
-        budget: { itemLimit: 40, relationHopLimit: 4 },
-      });
-      expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
+    const output = await runGraph(projectRoot, {
+      queryKind: 'file-symbols',
+      filePath: 'lib/index.ts',
+      budget: { itemLimit: 40, relationHopLimit: 4 },
+    });
+    expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
 
-      const requestKinds = executeSpy.mock.calls.map(([request]) => request.kind);
-      expect(requestKinds).toEqual(expect.arrayContaining(['space', 'repo', 'file-symbols']));
-      expect(requestKinds).not.toContain('map');
-      expect(requestKinds).not.toContain('module');
-      expect(requestKinds).not.toContain('module-layers');
-      expect(requestKinds).not.toContain('file-flow');
-      expect(requestKinds).not.toContain('source-slice');
-      expect(requestKinds).not.toContain('anchor-range');
-    } finally {
-      executeSpy.mockRestore();
-    }
+    const requestKinds = projectContextRequestKinds(output);
+    expect(requestKinds).toEqual(expect.arrayContaining(['space', 'repo', 'file-symbols']));
+    expect(requestKinds).not.toContain('map');
+    expect(requestKinds).not.toContain('module');
+    expect(requestKinds).not.toContain('module-layers');
+    expect(requestKinds).not.toContain('file-flow');
+    expect(requestKinds).not.toContain('source-slice');
+    expect(requestKinds).not.toContain('anchor-range');
   });
 
   test('file-scoped queryKinds suppress unrelated broad repo scan limit diagnostics', async () => {
@@ -247,32 +248,27 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
 
   test('missing-anchor graph requests fast-fail before ProjectContext execution', async () => {
     const projectRoot = createFixtureProject();
-    const executeSpy = vi.spyOn(ProjectContext, 'execute').mockImplementation(async () => {
-      throw new Error('ProjectContext.execute should not run for graph preflight failures');
-    });
-    try {
-      const impact = await runGraph(projectRoot, { queryKind: 'impact' });
-      expect(impact.status).toBe('partial');
-      expect(impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
-        'project-graph-anchor-required'
-      );
+    const impact = await runGraph(projectRoot, { queryKind: 'impact' });
+    expect(impact.status).toBe('partial');
+    expect(impact.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      'project-graph-anchor-required'
+    );
 
-      const pathOutput = await runGraph(projectRoot, { queryKind: 'path', fromRefId: 'module:lib' });
-      expect(pathOutput.status).toBe('partial');
-      expect(pathOutput.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
-        'project-graph-path-anchor-required'
-      );
+    const pathOutput = await runGraph(projectRoot, { queryKind: 'path', fromRefId: 'module:lib' });
+    expect(pathOutput.status).toBe('partial');
+    expect(pathOutput.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      'project-graph-path-anchor-required'
+    );
 
-      const fileSymbols = await runGraph(projectRoot, { queryKind: 'file-symbols' });
-      expect(fileSymbols.status).toBe('partial');
-      expect(fileSymbols.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
-        'project-graph-file-anchor-required'
-      );
+    const fileSymbols = await runGraph(projectRoot, { queryKind: 'file-symbols' });
+    expect(fileSymbols.status).toBe('partial');
+    expect(fileSymbols.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      'project-graph-file-anchor-required'
+    );
 
-      expect(executeSpy).not.toHaveBeenCalled();
-    } finally {
-      executeSpy.mockRestore();
-    }
+    expect(projectContextRequestKinds(impact)).toEqual([]);
+    expect(projectContextRequestKinds(pathOutput)).toEqual([]);
+    expect(projectContextRequestKinds(fileSymbols)).toEqual([]);
   });
 
   test('derived impact traversal runs from a resolved ProjectContext ref', async () => {
@@ -335,7 +331,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       ),
       'utf8'
     );
-    expect(providerSource).toContain('ProjectContext.execute');
+    expect(providerSource).toContain('ProjectContextCapabilities.execute');
     expect(providerSource).toContain('ProjectContextProjectGraphProvider');
     expect(providerSource).toContain('resolveAlembicGraph');
     expect(providerSource).not.toContain('walkProject');

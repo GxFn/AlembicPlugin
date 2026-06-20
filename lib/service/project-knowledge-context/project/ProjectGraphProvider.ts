@@ -1,21 +1,21 @@
 import path from 'node:path';
-import {
-  type AnchorRangeContext,
-  type FileFlowContext,
-  type FileSymbolContext,
-  type ModuleContext,
-  type ModuleLayerContext,
-  ProjectContext,
-  type ProjectContextEnvelope,
-  type ProjectContextQueryError,
-  type ProjectContextRef,
-  type ProjectContextRequestKind,
-  type ProjectContextResult,
-  type ProjectMap,
-  type RepoContext,
-  type SourceSliceContext,
-  type SpaceContext,
+import type {
+  AnchorRangeContext,
+  FileFlowContext,
+  FileSymbolContext,
+  ModuleContext,
+  ModuleLayerContext,
+  ProjectContextEnvelope,
+  ProjectContextQueryError,
+  ProjectContextRef,
+  ProjectContextRequestKind,
+  ProjectContextResult,
+  ProjectMap,
+  RepoContext,
+  SourceSliceContext,
+  SpaceContext,
 } from '@alembic/core/project-context';
+import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import type {
   AlembicGraphOutput,
   AlembicGraphQueryKind,
@@ -180,10 +180,10 @@ interface ProjectContextGraphFacts {
 }
 
 export class ProjectContextProjectGraphProvider implements ProjectGraphProvider {
-  // GMAP-1: public alembic_graph path. Projects ProjectContext.execute facts into
-  // the Recipe-free AlembicGraphOutput, selected by queryKind. Shares buildGraph
-  // with resolveProjectGraph; never routes through the KnowledgeContext middle
-  // layer or KnowledgeContextToolOutput envelope.
+  // GMAP-1: public alembic_graph path. Projects ProjectContextCapabilities.execute
+  // facts into the Recipe-free AlembicGraphOutput, selected by queryKind. Shares
+  // buildGraph with resolveProjectGraph; never routes through the KnowledgeContext
+  // middle layer or KnowledgeContextToolOutput envelope.
   async resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput> {
     const projectRoot = input.projectRoot ?? process.cwd();
     const normalizedInput = normalizeGraphProviderInput(input);
@@ -240,7 +240,8 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
       id: projectId,
       operation: 'project-graph',
       requiredForCompletion: true,
-      summary: 'Bounded project graph projected from ProjectContext.execute public envelopes.',
+      summary:
+        'Bounded project graph projected from ProjectContextCapabilities.execute public envelopes.',
       title: `Project graph: ${projectName}`,
       tool: 'alembic_graph',
       uri: projectRoot,
@@ -288,7 +289,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
           id: projectRef.id,
           detailRefId: projectRef.id,
           summary:
-            'Project graph facts were projected from ProjectContext.execute outputs; local paths are only request anchors.',
+            'Project graph facts were projected from ProjectContextCapabilities.execute outputs; local paths are only request anchors.',
         },
         ...projectContextFacts.sources,
       ],
@@ -396,7 +397,7 @@ function emptyGraphBuild(projectRoot: string): GraphBuild {
         id: projectRef.id,
         detailRefId: projectRef.id,
         summary:
-          'Preflight graph diagnostics were returned without running ProjectContext.execute.',
+          'Preflight graph diagnostics were returned without running ProjectContextCapabilities.execute.',
       },
     ],
   };
@@ -776,7 +777,7 @@ async function executeGraphProjectContextRequest(
   payload: Record<string, unknown>,
   scope: { repoId?: string; sourceFolder?: string } = {}
 ): Promise<ProjectContextEnvelope<ProjectContextResult>> {
-  return ProjectContext.execute({
+  return ProjectContextCapabilities.execute({
     kind,
     payload,
     project: { projectRoot, source: 'alembic-plugin-mcp' },
@@ -3455,8 +3456,18 @@ function projectAlembicGraphOutput(args: {
       contractVersion: ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
       outputSchema: 'AlembicGraphOutput',
       producer: 'ProjectContextProjectGraphProvider',
+      projectContext: graphProjectContextMeta(build.projectContext),
     },
   });
+}
+
+function graphProjectContextMeta(trace: ProjectGraphProjectContextTrace) {
+  return {
+    requestKinds: trace.requestKinds,
+    refCount: trace.refCount,
+    errorCount: trace.errorCount,
+    partial: trace.partial,
+  };
 }
 
 function graphNodeSummaryFromItem(item: Record<string, unknown>): GraphNodeSummary {
@@ -3645,6 +3656,12 @@ function failedAlembicGraphOutput(
       contractVersion: ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
       outputSchema: 'AlembicGraphOutput',
       producer: 'ProjectContextProjectGraphProvider',
+      projectContext: {
+        requestKinds: [],
+        refCount: 0,
+        errorCount: 1,
+        partial: true,
+      },
     },
   });
 }
