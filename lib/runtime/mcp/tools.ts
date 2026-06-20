@@ -6,7 +6,7 @@
  * inputSchema is auto-generated from Zod Schema (zodToMcpSchema); parameter .describe() translates to JSON Schema description.
  *
  * Agent tools:
- *   Agent-facing public tools: intent/prime/work_start/work_finish/code_guard/decision_record
+ *   Agent-facing public tools: prime/work/code_guard
  *   Query tools: health/recipe_map/search/graph/guard
  *   Write tool: submit_knowledge
  *   Project Skill delivery: project_skill
@@ -148,7 +148,7 @@ export const TOOLS = [
     inputSchema: zodToMcpSchema(RecipeMapInput),
   },
 
-  // MTC-7: merged alembic_work_start + alembic_work_finish into one phase-routed tool.
+  // MTC-7: merged the former split work lifecycle tools into one phase-routed tool.
   {
     name: 'alembic_work',
     tier: 'agent',

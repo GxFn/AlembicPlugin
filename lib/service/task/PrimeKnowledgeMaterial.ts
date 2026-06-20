@@ -28,7 +28,7 @@ export interface PrimeUsefulSlice {
 
 export interface PrimeAcceptedKnowledgeTrustEvidence {
   kind: 'recipe-locator' | 'recipe-semantic-region';
-  source: 'prime-injection-package';
+  source: 'prime-injection-package' | 'source-ref-locator-fallback';
   summary: string;
 }
 
@@ -1009,18 +1009,25 @@ function resolveAcceptedKnowledgeTrustEvidence(
   selectedKnowledge: Record<string, unknown> | undefined
 ): PrimeAcceptedKnowledgeTrustEvidence | null {
   const matchedRegionClasses = collectMatchedRegionClasses(selectedKnowledge);
+  const trustSource =
+    recordString(selectedKnowledge ?? {}, 'trustEvidenceSource') === 'source-ref-locator-fallback'
+      ? 'source-ref-locator-fallback'
+      : 'prime-injection-package';
   if (matchedRegionClasses.length > 0) {
     return {
       kind: 'recipe-semantic-region',
-      source: 'prime-injection-package',
+      source: trustSource,
       summary: `resident Recipe semantic-region evidence (${matchedRegionClasses.join(', ')})`,
     };
   }
   if (hasRecipeLocatorSignal(item, selectedKnowledge)) {
     return {
       kind: 'recipe-locator',
-      source: 'prime-injection-package',
-      summary: 'resident Recipe locator evidence',
+      source: trustSource,
+      summary:
+        trustSource === 'source-ref-locator-fallback'
+          ? 'source-ref exact Recipe locator evidence'
+          : 'resident Recipe locator evidence',
     };
   }
   return null;

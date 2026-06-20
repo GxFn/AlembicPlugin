@@ -239,7 +239,7 @@ export type PrimeInput = z.infer<typeof PrimeInput>;
 const AgentRefIdInput = z.string().min(1).max(240);
 const AgentSourceFileRefsInput = z.array(z.string().min(1).max(1200)).max(80).optional();
 
-// MTC-7: merged alembic_work_start + alembic_work_finish. phase discriminates;
+// MTC-7: merged the former split work lifecycle. phase discriminates;
 // start fields (title/workScope) and finish fields (workRef/outcome/summary/
 // changedFiles/evidenceRefs/validationPlan/reason) are all optional on the union,
 // with per-phase requirements enforced by the handler.
@@ -896,7 +896,9 @@ export const TaskInput = z.object({
   description: z
     .string()
     .optional()
-    .describe('Legacy record_decision description; blocked in favor of alembic_decision_record'),
+    .describe(
+      'Legacy record_decision description; blocked because public decision recording was removed'
+    ),
   id: z
     .string()
     .optional()
@@ -906,11 +908,13 @@ export const TaskInput = z.object({
   rationale: z
     .string()
     .optional()
-    .describe('Legacy record_decision rationale; blocked in favor of alembic_decision_record'),
+    .describe(
+      'Legacy record_decision rationale; blocked because public decision recording was removed'
+    ),
   tags: z
     .array(z.string())
     .optional()
-    .describe('Legacy record_decision tags; blocked in favor of alembic_decision_record'),
+    .describe('Legacy record_decision tags; blocked because public decision recording was removed'),
   userQuery: z
     .string()
     .optional()

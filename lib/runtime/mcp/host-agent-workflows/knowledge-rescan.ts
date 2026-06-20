@@ -25,7 +25,6 @@ import {
   projectHostAgentRescanEvidencePlan,
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
-  syncKnowledgeStoreForRescan,
 } from '@alembic/core/host-agent-workflows';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
@@ -38,7 +37,7 @@ import {
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
-import { buildRecipeSemanticRegionVectors } from './recipe-region-vector.js';
+import { rebuildLocalKnowledgeIndexes } from './knowledge-index-rebuild.js';
 
 /** MCP handler context */
 interface McpContext {
@@ -59,89 +58,36 @@ interface ProjectContextAuditFile {
 
 export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args: RescanInput) {
   const t0 = Date.now();
+  const state = await prepareRescanState(ctx, args);
+
+  // 空项目 fast-path
+  if (state.projectContextAnalysis.isEmpty) {
+    return presentHostAgentKnowledgeRescanEmptyProject({ responseTimeMs: Date.now() - t0 });
+  }
+
+  return buildRescanResponse(ctx, state, Date.now() - t0);
+}
+
+async function prepareRescanState(ctx: McpContext, args: RescanInput) {
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveDataRoot(ctx.container);
   const db = ctx.container.get('database');
   const intent = createHostAgentKnowledgeRescanIntent(args);
   const plan = buildKnowledgeRescanWorkflowPlan({ intent, projectRoot, dataRoot });
-
-  // ═══════════════════════════════════════════════════════════
-  // Step 0: 清理策略（根据 intent 决定）
-  // ═══════════════════════════════════════════════════════════
-
-  let recipeSnapshot: Awaited<ReturnType<CleanupService['snapshotRecipes']>>;
-  let cleanResult: Awaited<ReturnType<CleanupService['rescanClean']>>;
-
-  if (intent.cleanupPolicy === 'force-rescan') {
-    const result = await runForceRescanCleanPolicy({
-      projectRoot: plan.cleanup.projectRoot,
-      dataRoot,
-      db,
-      logger: ctx.logger,
-      createCleanupService: createWorkflowCleanupService,
-    });
-    recipeSnapshot = result.recipeSnapshot;
-    cleanResult = result.cleanResult;
-  } else if (intent.cleanupPolicy === 'rescan-clean') {
-    const result = await runRescanCleanPolicy({
-      projectRoot: plan.cleanup.projectRoot,
-      dataRoot,
-      db,
-      logger: ctx.logger,
-      createCleanupService: createWorkflowCleanupService,
-    });
-    recipeSnapshot = result.recipeSnapshot;
-    cleanResult = result.cleanResult;
-  } else {
-    const cleanupService = createWorkflowCleanupService({
-      projectRoot: plan.cleanup.projectRoot,
-      dataRoot,
-      db,
-      logger: ctx.logger,
-    });
-    recipeSnapshot = await cleanupService.snapshotRecipes();
-    cleanResult = {
-      deletedFiles: 0,
-      clearedTables: [],
-      preservedRecipes: recipeSnapshot.count,
-      errors: [],
-    };
-  }
+  const { cleanResult, recipeSnapshot } = await runRescanCleanup({
+    dataRoot,
+    db,
+    intent,
+    logger: ctx.logger,
+    plan,
+  });
 
   ctx.logger.info(`[Rescan] Preserved ${recipeSnapshot.count} recipes`, {
     cleanupPolicy: intent.cleanupPolicy,
     coverageByDimension: recipeSnapshot.coverageByDimension,
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Step 2.5: Recipe 文件 ↔ DB 一致性恢复 + 向量索引重建
-  // ═══════════════════════════════════════════════════════════
-
-  // 2.5a: KnowledgeSyncService — 恢复 Recipe 文件 ↔ DB 一致性
-  //   rescanClean 保留了 recipes/ 文件和 active/published/staging/evolving DB 记录，
-  //   但清除了 recipe_source_refs 等桥接表，需重新同步。
-  syncKnowledgeStoreForRescan({
-    container: ctx.container,
-    db,
-    logger: ctx.logger,
-    logPrefix: 'Rescan',
-  });
-
-  // NOTE: 不在 rescan 中调用 VectorService.fullBuild()
-  // 理由：fullBuild 依赖外部 embedding API（LLM），在 MCP handler 同步路径中
-  // 引入 LLM 调用不合理（无超时、可能阻塞、需要 API key）。
-  // 主知识向量索引会在后续 Agent 提交新知识时由 SyncCoordinator 增量更新。
-
-  // 2.5b (PDR-2b): Recipe 语义区向量构建。region 向量是独立 chunk 类型
-  // (type=recipe-semantic-region)，不由 SyncCoordinator 增量维护，需在此显式重建，
-  // 使无主体 prime 能检索到 recipe-semantic-region 证据（全质量、不降级 lexical）。
-  // 与 fullBuild 不同：本调用 embed-gated（仅本地 Ollama embed 可用时执行）且非阻塞，
-  // embed 不可用即跳过、不触碰已有索引、不阻断 rescan。
-  await buildRecipeSemanticRegionVectors({
-    container: ctx.container,
-    logger: ctx.logger,
-    logPrefix: 'Rescan',
-  });
+  await rebuildRescanIndexes(ctx, db);
 
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
     maxFiles: plan.projectAnalysis.scan.maxFiles,
@@ -149,74 +95,170 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
     source: 'codex-host-rescan',
   });
 
-  // 空项目 fast-path
-  if (projectContextAnalysis.isEmpty) {
-    return presentHostAgentKnowledgeRescanEmptyProject({ responseTimeMs: Date.now() - t0 });
+  return {
+    cleanResult,
+    dataRoot,
+    db,
+    intent,
+    plan,
+    projectContextAnalysis,
+    projectRoot,
+    recipeSnapshot,
+  };
+}
+
+async function runRescanCleanup(input: {
+  dataRoot: string;
+  db: unknown;
+  intent: ReturnType<typeof createHostAgentKnowledgeRescanIntent>;
+  logger: McpContext['logger'];
+  plan: ReturnType<typeof buildKnowledgeRescanWorkflowPlan>;
+}) {
+  if (input.intent.cleanupPolicy === 'force-rescan') {
+    return runForceRescanCleanPolicy({
+      projectRoot: input.plan.cleanup.projectRoot,
+      dataRoot: input.dataRoot,
+      db: input.db,
+      logger: input.logger,
+      createCleanupService: createWorkflowCleanupService,
+    });
+  }
+  if (input.intent.cleanupPolicy === 'rescan-clean') {
+    return runRescanCleanPolicy({
+      projectRoot: input.plan.cleanup.projectRoot,
+      dataRoot: input.dataRoot,
+      db: input.db,
+      logger: input.logger,
+      createCleanupService: createWorkflowCleanupService,
+    });
   }
 
-  const activeDimensions = projectContextAnalysis.dimensions;
+  const cleanupService = createWorkflowCleanupService({
+    projectRoot: input.plan.cleanup.projectRoot,
+    dataRoot: input.dataRoot,
+    db: input.db,
+    logger: input.logger,
+  });
+  const recipeSnapshot = await cleanupService.snapshotRecipes();
+  return {
+    cleanResult: {
+      deletedFiles: 0,
+      clearedTables: [],
+      preservedRecipes: recipeSnapshot.count,
+      errors: [],
+    },
+    recipeSnapshot,
+  };
+}
 
-  // ═══════════════════════════════════════════════════════════
-  // Step 4: Recipe 证据验证 + 快速衰退
-  // ═══════════════════════════════════════════════════════════
+async function rebuildRescanIndexes(ctx: McpContext, db: unknown) {
+  // 恢复 Recipe 文件 ↔ DB ↔ source-ref 桥接 ↔ semantic-region vectors。
+  // rescanClean 保留 recipes/ 和 active/published/staging/evolving DB 记录，
+  // 但可能清除派生桥接表；这里显式 reconcile source refs，再重建 region vectors。
+  await rebuildLocalKnowledgeIndexes({
+    container: ctx.container,
+    db,
+    logger: ctx.logger,
+    logPrefix: 'Rescan',
+  });
+}
 
+async function buildRescanResponse(
+  ctx: McpContext,
+  state: Awaited<ReturnType<typeof prepareRescanState>>,
+  responseTimeMs: number
+) {
+  const planning = await buildRescanPlanning(ctx, state);
+  const briefing = buildRescanBriefing(ctx, state, planning);
+  const response = presentHostAgentKnowledgeRescanResponse({
+    recipeSnapshot: state.recipeSnapshot,
+    cleanResult: state.cleanResult,
+    auditSummary: planning.auditSummary,
+    briefing,
+    evidencePlan: planning.evidencePlan,
+    dimensions: planning.requestedDimensions,
+    reason: state.intent.reason,
+    responseTimeMs,
+  }) as Record<string, unknown> & { message?: string; meta?: Record<string, unknown> };
+
+  attachTrashArchiveMessage(response, state.cleanResult);
+  attachHostProjectSelectionMismatch(response, state.projectRoot);
+  return response;
+}
+
+async function buildRescanPlanning(
+  ctx: McpContext,
+  state: Awaited<ReturnType<typeof prepareRescanState>>
+) {
   const auditSummary = await auditRecipesForRescan({
     container: ctx.container,
     logger: ctx.logger,
-    recipeEntries: recipeSnapshot.entries,
-    allFiles: projectContextFilesForRescanAudit(projectContextAnalysis.presenterInput.files),
-    projectRoot,
+    recipeEntries: state.recipeSnapshot.entries,
+    allFiles: projectContextFilesForRescanAudit(state.projectContextAnalysis.presenterInput.files),
+    projectRoot: state.projectRoot,
   });
 
   const knowledgeRescanPlan = buildKnowledgeRescanPlan({
-    recipeEntries: recipeSnapshot.entries,
+    recipeEntries: state.recipeSnapshot.entries,
     auditSummary,
-    dimensions: activeDimensions as DimensionDef[],
-    requestedDimensionIds: intent.dimensionIds,
+    dimensions: state.projectContextAnalysis.dimensions as DimensionDef[],
+    requestedDimensionIds: state.intent.dimensionIds,
   });
   const dimensions = selectProjectContextDimensions(
     knowledgeRescanPlan.executionDimensions,
-    intent.dimensionIds
+    state.intent.dimensionIds
   );
   const requestedDimensions = knowledgeRescanPlan.requestedDimensions;
-
-  // ═══════════════════════════════════════════════════════════
-  // Step 4.5: 构建进化前置过滤（Phase A）
-  // ═══════════════════════════════════════════════════════════
-
-  const prescreen = buildRescanPrescreen(auditSummary, recipeSnapshot.entries, dimensions);
+  const prescreen = buildRescanPrescreen(auditSummary, state.recipeSnapshot.entries, dimensions);
   const evidencePlan = projectHostAgentRescanEvidencePlan(knowledgeRescanPlan);
 
   ctx.logger.info('[Rescan] Evolution prescreen built', {
     needsVerification: prescreen.needsVerification.length,
     autoResolved: prescreen.autoResolved.length,
   });
+  ctx.logger.info('[Rescan] Execution reasons', {
+    executionDimensions: knowledgeRescanPlan.executionDimensions.length,
+    produceDimensions: knowledgeRescanPlan.produceDimensions.length,
+    reasons: knowledgeRescanPlan.executionReasons,
+  });
 
-  // ═══════════════════════════════════════════════════════════
-  // Step 5: 构建 Mission Briefing + 过滤维度
-  // ═══════════════════════════════════════════════════════════
+  return {
+    auditSummary,
+    dimensions,
+    evidencePlan,
+    prescreen,
+    requestedDimensions,
+  };
+}
 
+function buildRescanBriefing(
+  ctx: McpContext,
+  state: Awaited<ReturnType<typeof prepareRescanState>>,
+  planning: Awaited<ReturnType<typeof buildRescanPlanning>>
+) {
+  const dimensions = planning.dimensions;
+  const projectContextAnalysis = state.projectContextAnalysis;
   const session = createProjectContextHostAgentSession({
     container: ctx.container,
     dimensions: Array.isArray(dimensions) ? dimensions : [],
     fileCount: projectContextAnalysis.fileCount,
     moduleCount: projectContextAnalysis.moduleCount,
     primaryLang: projectContextAnalysis.primaryLang,
-    projectRoot,
+    projectRoot: state.projectRoot,
   });
 
   const briefing = buildProjectContextMissionBriefing({
     activeDimensions: Array.isArray(dimensions) ? dimensions : [],
     projectContext: projectContextAnalysis.presenterInput,
     profile: 'rescan-host-agent',
-    rescan: { evidencePlan, prescreen },
+    rescan: { evidencePlan: planning.evidencePlan, prescreen: planning.prescreen },
     session,
   });
   const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
     dimensions: Array.isArray(dimensions) ? dimensions : [],
     options: {
       profile: 'rescan',
-      projectRoot,
+      projectRoot: state.projectRoot,
     },
     projectContext: projectContextAnalysis.presenterInput,
   });
@@ -229,52 +271,52 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
     moduleSeedCount: projectContextAnalysis.moduleSeeds.length,
     requestKinds: projectContextAnalysis.requestKinds,
   };
+  logRescanBriefingReady(ctx, state, planning, session.id, ideAgentAnalysis.progress.totalUnits);
+  return briefingWithIdeAgentSurface;
+}
 
-  const dimGapLog = evidencePlan.dimensionGaps
+function logRescanBriefingReady(
+  ctx: McpContext,
+  state: Awaited<ReturnType<typeof prepareRescanState>>,
+  planning: Awaited<ReturnType<typeof buildRescanPlanning>>,
+  sessionId: string,
+  ideUnitCount: number
+) {
+  const dimGapLog = planning.evidencePlan.dimensionGaps
     .map(
       (dimensionGap) =>
         `${dimensionGap.dimensionId}(${dimensionGap.existingCount}→gap ${dimensionGap.gap}, mode ${dimensionGap.executionMode}, budget ${dimensionGap.createBudget})`
     )
     .join(', ');
   ctx.logger.info(
-    `[Rescan] ProjectContext Mission Briefing ready: ${projectContextAnalysis.fileCount} files, ${
-      Array.isArray(dimensions) ? dimensions.length : 0
+    `[Rescan] ProjectContext Mission Briefing ready: ${state.projectContextAnalysis.fileCount} files, ${
+      Array.isArray(planning.dimensions) ? planning.dimensions.length : 0
     } dims, ` +
-      `preserved: ${recipeSnapshot.count}, decayed: ${evidencePlan.decayCount}, totalGap: ${evidencePlan.totalGap}, ` +
-      `ideUnits: ${ideAgentAnalysis.progress.totalUnits} — session ${session.id}`
+      `preserved: ${state.recipeSnapshot.count}, decayed: ${planning.evidencePlan.decayCount}, totalGap: ${planning.evidencePlan.totalGap}, ` +
+      `ideUnits: ${ideUnitCount} — session ${sessionId}`
   );
   ctx.logger.info(`[Rescan] Dimension gaps: ${dimGapLog}`);
-  ctx.logger.info('[Rescan] Execution reasons', {
-    executionDimensions: knowledgeRescanPlan.executionDimensions.length,
-    produceDimensions: knowledgeRescanPlan.produceDimensions.length,
-    reasons: knowledgeRescanPlan.executionReasons,
-  });
+}
 
-  const response = presentHostAgentKnowledgeRescanResponse({
-    recipeSnapshot,
-    cleanResult,
-    auditSummary,
-    briefing: briefingWithIdeAgentSurface,
-    evidencePlan,
-    dimensions: requestedDimensions,
-    reason: intent.reason,
-    responseTimeMs: Date.now() - t0,
-  }) as Record<string, unknown> & { message?: string; meta?: Record<string, unknown> };
-
-  // MT1 P1 归档诚实性：候选/wiki 投影被移动时，摘要必须说明归档去向
-  // （结构化的 rescan.archive 字段由 Core presenter 携带）。
+function attachTrashArchiveMessage(
+  response: Record<string, unknown> & { message?: string },
+  cleanResult: Awaited<ReturnType<CleanupService['rescanClean']>>
+) {
   if (cleanResult.trash && cleanResult.trash.movedItems > 0) {
     response.message =
       `📦 已清理的 candidates/wiki 投影归档到 .asd/.trash/${cleanResult.trash.folder.split(/[\\/]/).filter(Boolean).pop()}/` +
       `（${cleanResult.trash.movedItems} 项，可恢复）。${response.message ?? ''}`;
   }
+}
 
-  // MT1 P3-3 一致性：与 alembic_bootstrap 相同的选择不一致事实回带。
+function attachHostProjectSelectionMismatch(
+  response: Record<string, unknown> & { meta?: Record<string, unknown> },
+  projectRoot: string
+) {
   const mismatch = buildLocalSelectionMismatch(projectRoot);
   if (mismatch) {
     response.meta = { ...(response.meta ?? {}), hostProjectSelectionMismatch: mismatch };
   }
-  return response;
 }
 
 function attachIDEAgentAnalysisSurface(

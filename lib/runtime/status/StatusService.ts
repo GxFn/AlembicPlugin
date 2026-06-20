@@ -741,7 +741,7 @@ export function buildStatusOnboarding(input: StatusOnboardingInput): Record<stri
     nextActions: [
       buildAgentPrimeAction({
         reason:
-          'Load project conventions and trusted context from an intentRef or host-declared intent.',
+          'Load project conventions and trusted context from taskAction, requirementGoal, and locator facets.',
         startsDaemon: !daemonReady,
       }),
       buildHostAgentRescanAction({

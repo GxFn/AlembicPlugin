@@ -8,14 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const root = resolve(import.meta.dirname, '..');
-const requiredTools = [
-  'alembic_intent',
-  'alembic_prime',
-  'alembic_work_start',
-  'alembic_work_finish',
-  'alembic_code_guard',
-  'alembic_decision_record',
-];
+const requiredTools = ['alembic_prime', 'alembic_code_guard', 'alembic_work'];
 const sourceGraphTools = [
   'alembic_source_graph_status',
   'alembic_code_explore',
@@ -23,13 +16,11 @@ const sourceGraphTools = [
   'alembic_validation_plan',
 ];
 const fusedWorkflowRefNames = [
-  'intentRef',
   'primeRef',
   'sourceGraphRef',
   'workRef',
   'finishRef',
   'guardResultRef',
-  'decisionRef',
 ];
 const fusedWorkflowTasks = [
   {
@@ -622,7 +613,6 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
 async function runFusedWorkflowEvaluation(client, stderr, targetRoot) {
   const issues = [];
   const tasks = [];
-  const defectMap = [];
 
   for (const task of fusedWorkflowTasks) {
     const fixture = await createFusedFixtureProject(task);
@@ -640,16 +630,6 @@ async function runFusedWorkflowEvaluation(client, stderr, targetRoot) {
       comparison,
     });
     issues.push(...comparison.issues.map((issue) => `${task.id}: ${issue}`));
-    if (enabled.optionalDecisionRecord.status !== 'ready') {
-      defectMap.push({
-        code: 'decision-record-route-unavailable',
-        owner: 'AlembicPlugin',
-        status: enabled.optionalDecisionRecord.status,
-        reasonCode: enabled.optionalDecisionRecord.reasonCode,
-        followUp:
-          'Decision recording remains optional in this probe; controller should use CGK-6/18 to decide when a durable Decision Register route is required for transcript evaluation.',
-      });
-    }
   }
 
   const aggregate = {
@@ -672,7 +652,6 @@ async function runFusedWorkflowEvaluation(client, stderr, targetRoot) {
     ok: issues.length === 0,
     targetRoot,
     aggregate,
-    defectMap,
     issues,
     tasks,
   };
@@ -725,38 +704,20 @@ async function runFusedWorkflowTask(client, stderr, task, fixture) {
     ...sourceEvidenceRefsFrom(validationPlan.payload),
   ]);
 
-  const intent = await captureToolCall(
-    transcript,
-    client,
-    'alembic_intent',
-    {
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.91,
-        language: 'typescript',
-        query: task.query,
-        sourceRefs: task.changedFiles,
-      },
-      inputSource: 'host-declared-intent',
-      language: 'typescript',
-      projectRoot: fixture.projectRoot,
-      sourceRefs: task.changedFiles,
-    },
-    stderr
-  );
-  const intentRef = stringPath(intent.payload, ['intentRef'], null);
-
   const prime = await captureToolCall(
     transcript,
     client,
     'alembic_prime',
     {
+      capability: 'source-aware implementation planning',
       inputSource: 'host-declared-intent',
-      intentRef,
       projectRoot: fixture.projectRoot,
+      requirementGoal: task.query,
+      scenario: task.title,
       sourceEvidenceRefs,
       sourceGraphRef,
       sourceRefs: task.changedFiles,
+      taskAction: 'implement',
     },
     stderr
   );
@@ -765,10 +726,10 @@ async function runFusedWorkflowTask(client, stderr, task, fixture) {
   const workStart = await captureToolCall(
     transcript,
     client,
-    'alembic_work_start',
+    'alembic_work',
     {
       inputSource: 'host-declared-intent',
-      intentRef,
+      phase: 'start',
       primeRef,
       projectRoot: fixture.projectRoot,
       sourceEvidenceRefs,
@@ -787,11 +748,12 @@ async function runFusedWorkflowTask(client, stderr, task, fixture) {
   const workFinish = await captureToolCall(
     transcript,
     client,
-    'alembic_work_finish',
+    'alembic_work',
     {
       changedFiles: task.changedFiles,
       evidenceRefs: ['scratch/cgk10-14-fused-workflow-probe.json'],
       inputSource: 'host-declared-intent',
+      phase: 'finish',
       projectRoot: fixture.projectRoot,
       sourceEvidenceRefs,
       sourceGraphRef,
@@ -813,25 +775,6 @@ async function runFusedWorkflowTask(client, stderr, task, fixture) {
       language: 'typescript',
       projectRoot: fixture.projectRoot,
       sourceGraphRef,
-      workRef,
-    },
-    stderr
-  );
-
-  const decisionRecord = await captureToolCall(
-    transcript,
-    client,
-    'alembic_decision_record',
-    {
-      description:
-        'Optional CGK-14 decision probe should not create a local fake decision when the durable route is absent.',
-      evidenceRefs: ['scratch/cgk10-14-fused-workflow-probe.json'],
-      inputSource: 'host-declared-intent',
-      intentRef,
-      projectRoot: fixture.projectRoot,
-      sourceEvidenceRefs,
-      sourceGraphRef,
-      title: `${task.owner} fused workflow evaluation decision probe`,
       workRef,
     },
     stderr
@@ -859,9 +802,7 @@ async function runFusedWorkflowTask(client, stderr, task, fixture) {
 
   return summarizeFusedWorkflow({
     codeGuard,
-    decisionRecord,
     explore,
-    intent,
     prime,
     sourceEvidenceRefs,
     sourceGraphRef,
@@ -877,34 +818,18 @@ async function runFusedWorkflowTask(client, stderr, task, fixture) {
 
 async function runFusedWorkflowBaseline(client, stderr, task, fixture) {
   const transcript = [];
-  const intent = await captureToolCall(
-    transcript,
-    client,
-    'alembic_intent',
-    {
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.72,
-        language: 'typescript',
-        query: `${task.query} Baseline: source graph unavailable.`,
-        sourceRefs: task.changedFiles,
-      },
-      inputSource: 'host-declared-intent',
-      projectRoot: fixture.projectRoot,
-      sourceRefs: task.changedFiles,
-    },
-    stderr
-  );
-  const intentRef = stringPath(intent.payload, ['intentRef'], null);
   const prime = await captureToolCall(
     transcript,
     client,
     'alembic_prime',
     {
+      capability: 'baseline implementation planning',
       inputSource: 'host-declared-intent',
-      intentRef,
       projectRoot: fixture.projectRoot,
+      requirementGoal: `${task.query} Baseline: source graph unavailable.`,
+      scenario: `${task.title} baseline`,
       sourceRefs: task.changedFiles,
+      taskAction: 'implement',
     },
     stderr
   );
@@ -912,10 +837,10 @@ async function runFusedWorkflowBaseline(client, stderr, task, fixture) {
   const workStart = await captureToolCall(
     transcript,
     client,
-    'alembic_work_start',
+    'alembic_work',
     {
       inputSource: 'host-declared-intent',
-      intentRef,
+      phase: 'start',
       primeRef,
       projectRoot: fixture.projectRoot,
       title: `${task.title} baseline`,
@@ -931,11 +856,12 @@ async function runFusedWorkflowBaseline(client, stderr, task, fixture) {
   const workFinish = await captureToolCall(
     transcript,
     client,
-    'alembic_work_finish',
+    'alembic_work',
     {
       changedFiles: task.changedFiles,
       evidenceRefs: ['scratch/cgk10-14-fused-workflow-probe.json'],
       inputSource: 'host-declared-intent',
+      phase: 'finish',
       projectRoot: fixture.projectRoot,
       summary: `${task.owner} baseline run required manual raw exploration before edit planning.`,
       workRef,
@@ -951,8 +877,8 @@ async function runFusedWorkflowBaseline(client, stderr, task, fixture) {
       sourceGraphCalls: 0,
     },
     plannedRawExploration: baselineRawExplorationPlan,
-    refs: refsFromCalls({ intent, prime, workFinish, workStart }),
-    statuses: statusMap({ intent, prime, workFinish, workStart }),
+    refs: refsFromCalls({ prime, workFinish, workStart }),
+    statuses: statusMap({ prime, workFinish, workStart }),
     transcript: transcript.map(summarizeTranscriptEntry),
   };
 }
@@ -964,12 +890,10 @@ function summarizeFusedWorkflow(input) {
     input.validationPlan.payload,
   ];
   const lifecyclePayloads = [
-    input.intent.payload,
     input.prime.payload,
     input.workStart.payload,
     input.workFinish.payload,
     input.codeGuard.payload,
-    input.decisionRecord.payload,
   ];
   const sourceGraphReady =
     input.status.payload?.ready === true &&
@@ -979,14 +903,6 @@ function summarizeFusedWorkflow(input) {
     input.staleExplore.payload?.ready === false &&
     graphFreshness(input.staleExplore.payload) === 'stale' &&
     sourceSectionCount(input.staleExplore.payload) === 0;
-  const optionalDecisionRecord = {
-    attempted: true,
-    automatic: false,
-    producedDecisionRef: Boolean(refsFromPayload(input.decisionRecord.payload).decisionRef),
-    reasonCode: reasonCode(input.decisionRecord.payload),
-    status: statusValue(input.decisionRecord.payload),
-  };
-
   return {
     firstCodeUnderstandingTool: 'alembic_source_graph_status',
     cleanOutput: {
@@ -1003,12 +919,9 @@ function summarizeFusedWorkflow(input) {
       sourceSectionCount: sourceSectionCount(input.explore.payload),
       validationPlanBucketCounts: validationPlanBucketCounts(input.validationPlan.payload),
     },
-    optionalDecisionRecord,
     rawMcpJson: {
       codeGuard: input.codeGuard.payload,
-      decisionRecord: input.decisionRecord.payload,
       explore: input.explore.payload,
-      intent: input.intent.payload,
       prime: input.prime.payload,
       staleExplore: input.staleExplore.payload,
       status: input.status.payload,
@@ -1019,8 +932,6 @@ function summarizeFusedWorkflow(input) {
     refs: {
       ...refsFromCalls({
         codeGuard: input.codeGuard,
-        decisionRecord: input.decisionRecord,
-        intent: input.intent,
         prime: input.prime,
         workFinish: input.workFinish,
         workStart: input.workStart,
@@ -1033,9 +944,7 @@ function summarizeFusedWorkflow(input) {
     staleFailClosed,
     statuses: statusMap({
       codeGuard: input.codeGuard,
-      decisionRecord: input.decisionRecord,
       explore: input.explore,
-      intent: input.intent,
       prime: input.prime,
       staleExplore: input.staleExplore,
       status: input.status,
@@ -1078,7 +987,6 @@ function compareFusedWorkflow(task, enabled, baseline) {
     avoidedRawExplorationCalls > 0,
     'source graph flow should avoid at least one raw exploration step'
   );
-  expectIssue(issues, Boolean(enabled.refs.intentRef), 'intentRef missing');
   expectIssue(issues, Boolean(enabled.refs.primeRef), 'primeRef missing');
   expectIssue(issues, Boolean(enabled.refs.sourceGraphRef), 'sourceGraphRef missing');
   expectIssue(issues, enabled.refs.sourceEvidenceRefs.length > 0, 'sourceEvidenceRefs missing');
@@ -1105,12 +1013,6 @@ function compareFusedWorkflow(task, enabled, baseline) {
     enabled.cleanOutput.sourceGraphLegacyFieldsAbsent,
     'source graph output returned legacy fields'
   );
-  expectIssue(
-    issues,
-    enabled.optionalDecisionRecord.automatic === false,
-    'decision recording should not be automatic'
-  );
-
   return {
     avoidedRawExplorationCalls,
     guidanceChangedToolChoice:
@@ -1312,12 +1214,6 @@ function statusValue(payload) {
         : null;
 }
 
-function reasonCode(payload) {
-  return payload?.reason && typeof payload.reason === 'object'
-    ? (payload.reason.code ?? null)
-    : null;
-}
-
 function graphFreshness(payload) {
   return payload?.graph && typeof payload.graph === 'object'
     ? (payload.graph.freshness ?? null)
@@ -1496,33 +1392,17 @@ async function probeRetiredLegacyTask(client, stderr) {
 }
 
 async function runPublicToolCalls(client, stderr) {
-  const intent = await callJsonTool(
-    client,
-    'alembic_intent',
-    {
-      hostDeclaredIntent: {
-        action: 'implement',
-        confidence: 0.92,
-        language: 'typescript',
-        query: 'Evaluate AFAPI Stage 6 public tools',
-        sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-      },
-      inputSource: 'host-declared-intent',
-      projectRoot,
-      sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-    },
-    stderr
-  );
-  const intentRef = stringPath(intent.payload, ['intentRef']);
-
   const prime = await callJsonTool(
     client,
     'alembic_prime',
     {
+      capability: 'agent-facing public tool contract',
       inputSource: 'host-declared-intent',
-      intentRef,
       projectRoot,
+      requirementGoal: 'Evaluate AFAPI Stage 6 public tools',
+      scenario: 'installed-cache public tool readback',
       sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
+      taskAction: 'code-review',
     },
     stderr
   );
@@ -1530,7 +1410,7 @@ async function runPublicToolCalls(client, stderr) {
 
   const workStartArgs = {
     inputSource: 'host-declared-intent',
-    intentRef,
+    phase: 'start',
     projectRoot,
     title: 'Evaluate public tools closure',
     workScope: {
@@ -1541,16 +1421,17 @@ async function runPublicToolCalls(client, stderr) {
   if (primeRef) {
     workStartArgs.primeRef = primeRef;
   }
-  const workStart = await callJsonTool(client, 'alembic_work_start', workStartArgs, stderr);
+  const workStart = await callJsonTool(client, 'alembic_work', workStartArgs, stderr);
   const workRef = stringPath(workStart.payload, ['workRef']);
 
   const workFinish = await callJsonTool(
     client,
-    'alembic_work_finish',
+    'alembic_work',
     {
       changedFiles: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
       evidenceRefs: ['scratch/afapi-stage6-agent-public-tools-readback.json'],
       inputSource: 'host-declared-intent',
+      phase: 'finish',
       projectRoot,
       summary: 'Stage 6 installed-cache readback evidence is ready.',
       workRef,
@@ -1579,41 +1460,27 @@ async function runPublicToolCalls(client, stderr) {
     stderr
   );
 
-  const decisionRecord = await callJsonTool(
-    client,
-    'alembic_decision_record',
-    {
-      description: 'Stage 6 installed-cache readback asks for durable decision route.',
-      evidenceRefs: ['scratch/afapi-stage6-agent-public-tools-readback.json'],
-      inputSource: 'host-declared-intent',
-      intentRef,
-      projectRoot,
-      title: 'Close public tools evaluation',
-      workRef,
-    },
-    stderr
-  );
-
   return {
-    alembic_intent: summarizeCall(intent),
     alembic_prime: summarizeCall(prime),
-    alembic_work_start: summarizeCall(workStart),
-    alembic_work_finish: summarizeCall(workFinish),
+    workStartPhase: summarizeCall(workStart),
+    workFinishPhase: summarizeCall(workFinish),
     alembic_code_guard: summarizeCall(codeGuard),
     alembic_code_guard_scoped_work_ref: summarizeCall(codeGuardScopedWorkRef),
-    alembic_decision_record: summarizeCall(decisionRecord),
   };
 }
 
 function evaluateCalls(issues, calls) {
-  expectIssue(issues, calls.alembic_intent.status === 'ready', 'intent should be ready');
   expectIssue(
     issues,
     ['ready', 'degraded', 'skipped'].includes(calls.alembic_prime.status),
     'prime should return a structured ready/degraded/skipped envelope'
   );
-  expectIssue(issues, calls.alembic_work_start.status === 'ready', 'work_start should be ready');
-  expectIssue(issues, calls.alembic_work_finish.status === 'ready', 'work_finish should be ready');
+  expectIssue(issues, calls.workStartPhase.status === 'ready', 'work start phase should be ready');
+  expectIssue(
+    issues,
+    calls.workFinishPhase.status === 'ready',
+    'work finish phase should be ready'
+  );
   expectIssue(
     issues,
     calls.alembic_code_guard.status === 'blocked' &&
@@ -1624,14 +1491,6 @@ function evaluateCalls(issues, calls) {
     issues,
     calls.alembic_code_guard_scoped_work_ref.status === 'ready',
     'code_guard scoped workRef readback should be ready'
-  );
-  expectIssue(
-    issues,
-    calls.alembic_decision_record.status === 'blocked' &&
-      ['decision-register-unavailable', 'decision-register-capability-mismatch'].includes(
-        calls.alembic_decision_record.reasonCode
-      ),
-    'decision_record should block without a durable resident route'
   );
   for (const [toolName, call] of Object.entries(calls)) {
     expectIssue(
@@ -1673,12 +1532,10 @@ function summarizeCall(call) {
     forbiddenPublicField,
     refs: {
       detailRefs: Array.isArray(result?.refs?.detailRefs) ? result.refs.detailRefs.length : 0,
-      intentRef: Boolean(result?.refs?.intentRef),
       primeRef: Boolean(result?.refs?.primeRef),
       workRef: Boolean(result?.refs?.workRef),
       finishRef: Boolean(result?.refs?.finishRef),
       guardResultRef: Boolean(result?.refs?.guardResultRef),
-      decisionRef: Boolean(result?.refs?.decisionRef),
     },
   };
 }

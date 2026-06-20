@@ -246,7 +246,7 @@ function registerEvolutionServices(c: ServiceContainer) {
 
 function registerEvolutionAnalysisServices(c: ServiceContainer) {
   c.singleton('sourceRefReconciler', (ct: ServiceContainer) => {
-    const projectRoot = resolveProjectRoot();
+    const projectRoot = resolveProjectRoot(ct);
     const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new SourceRefReconciler(projectRoot, sourceRefRepo, knowledgeRepo, {

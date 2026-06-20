@@ -109,6 +109,45 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(['source-line', 'source-file', 'source-range']).toContain(fileMount?.mountType);
   });
 
+  test('falls back to Recipe record sources when recipe_source_refs has no rows', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await defaultRecipeMapProvider.resolveRecipeMap(
+      request(projectRoot, 'file', 'lib/index.ts'),
+      {
+        ...fakeDeps(),
+        querySourceRefs: async () => ({ rows: [], diagnostics: [] }),
+        listRecipes: async () => [
+          {
+            id: 'r-global',
+            title: 'Architecture overview',
+            scope: 'global',
+            tags: [],
+            sources: [],
+          },
+          {
+            id: 'r-file',
+            title: 'Index file rule',
+            tags: [],
+            sources: ['lib/index.ts:2'],
+          },
+          {
+            id: 'r-helper',
+            title: 'Helper file rule',
+            tags: [],
+            sources: ['lib/helper.ts:1'],
+          },
+        ],
+      }
+    );
+
+    const byId = new Map(output.recipeMounts.map((mount) => [mount.recipeId, mount]));
+    expect(byId.get('r-file')?.mountNodeId).toBe('file:lib/index.ts');
+    expect(byId.get('r-file')?.sourceRefs).toEqual(['lib/index.ts:2']);
+    expect(byId.get('r-helper')?.mountNodeId).toBe('directory:lib');
+    expect(byId.get('r-helper')?.sourceRefs).toEqual(['lib/helper.ts:1']);
+    expect(byId.has('r-global')).toBe(false);
+  });
+
   test('file focus does not attach unrelated metadata-only Recipes to the file root', async () => {
     const projectRoot = createFixtureProject();
     const output = await defaultRecipeMapProvider.resolveRecipeMap(

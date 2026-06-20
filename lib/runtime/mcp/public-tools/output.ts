@@ -228,7 +228,7 @@ export const AgentPrimeOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend
   }
 });
 
-// MTC-7: merged alembic_work_start + alembic_work_finish output. Fields are the
+// MTC-7: merged the former split work lifecycle output. Fields are the
 // union across phases (start sets workRef/localRecord; finish adds changedFiles/
 // finishRef/guardRecommendation/outcome/etc.); localRecord is the per-phase union.
 export const AgentWorkOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({

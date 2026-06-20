@@ -68,19 +68,20 @@ describe('AFAPI Stage 5 skill and legacy cleanup', () => {
     }
 
     const mainSkill = readFixture('../../plugins/alembic-codex/skills/alembic/SKILL.md');
-    for (const toolName of [
+    for (const toolName of ['alembic_prime', 'alembic_work', 'alembic_code_guard']) {
+      expect(mainSkill).toContain(toolName);
+    }
+    for (const retiredToolName of [
       'alembic_intent',
-      'alembic_prime',
       'alembic_work_start',
       'alembic_work_finish',
-      'alembic_code_guard',
       'alembic_decision_record',
     ]) {
-      expect(mainSkill).toContain(toolName);
+      expect(mainSkill).not.toContain(retiredToolName);
     }
     expect(mainSkill).toContain('`alembic_task` is retired');
     expect(mainSkill).toContain('CODEX_TOOL_RETIRED');
-    expect(mainSkill).toContain('six agent-facing public tools');
+    expect(mainSkill).toContain('three agent-facing public tools');
     expect(mainSkill).toContain('clean `structuredContent`');
   });
 

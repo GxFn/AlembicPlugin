@@ -1,7 +1,9 @@
+import type { RecipeRecord } from '@alembic/core/recipe-context';
 import { describe, expect, test } from 'vitest';
 import {
   buildPrimeRegionQuery,
   mapRegionHitsToPrimeEvidence,
+  projectRecipeSourceRefLocatorEvidence,
 } from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
 import { buildPrimeKnowledgeMaterial } from '../../lib/service/task/PrimeKnowledgeMaterial.js';
 
@@ -115,4 +117,39 @@ describe('regionEvidence → prime trust gate (PDR-1d interim un-defer)', () => 
     const material = buildPrimeKnowledgeMaterial({ ...baseInput, regionEvidence: [] });
     expect(material.acceptedKnowledge).toHaveLength(0);
   });
+
+  test('source-ref locator evidence promotes exact Recipe source matches without vector evidence', () => {
+    const recipe = makeRecipeRecord({
+      id: 'r-source',
+      sources: ['Alembic/lib/http/HttpServer.ts'],
+      title: 'HTTP server request policy',
+    });
+    const regionEvidence = projectRecipeSourceRefLocatorEvidence(
+      recipe,
+      new Set(['Alembic/lib/http/HttpServer.ts']),
+      '/Users/example/AlembicWorkspace'
+    );
+    const material = buildPrimeKnowledgeMaterial({ ...baseInput, regionEvidence });
+
+    const accepted = material.acceptedKnowledge.find((item) => item.id === 'r-source');
+    expect(accepted).toBeDefined();
+    expect(accepted?.trustEvidence.kind).toBe('recipe-locator');
+    expect(accepted?.trustEvidence.source).toBe('source-ref-locator-fallback');
+    expect(accepted?.evidenceRefs.map((ref) => ref.path)).toContain(
+      'Alembic/lib/http/HttpServer.ts'
+    );
+  });
 });
+
+function makeRecipeRecord(overrides: Partial<RecipeRecord>): RecipeRecord {
+  return {
+    id: 'recipe-id',
+    lifecycle: 'active',
+    ref: { id: 'recipe-id', kind: 'recipe', label: 'Recipe' },
+    relations: [],
+    sources: [],
+    tags: [],
+    title: 'Recipe',
+    ...overrides,
+  };
+}

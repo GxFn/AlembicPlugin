@@ -365,6 +365,48 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(serialized).not.toContain('legacy-docs-do-not-use');
   });
 
+  test('answers workspace-root file queries for deep sub-repository files', async () => {
+    const projectRoot = createWorkspaceFixtureProject();
+    const filePath = 'AlembicPlugin/lib/runtime/mcp/handlers/agent-public-tools.ts';
+
+    const symbols = await runGraph(projectRoot, {
+      queryKind: 'file-symbols',
+      filePath,
+      budget: { itemLimit: 80, relationHopLimit: 10 },
+    });
+    expect(symbols.status).toBe('ready');
+    expect(symbols.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeType: 'file', path: filePath }),
+        expect.objectContaining({ nodeType: 'symbol', label: 'AgentPrimeArgs', path: filePath }),
+        expect.objectContaining({ nodeType: 'symbol', label: 'primeHandler', path: filePath }),
+      ])
+    );
+    expect(symbols.refs).toEqual(
+      expect.arrayContaining([expect.objectContaining({ filePath })])
+    );
+    expect(JSON.stringify(symbols.diagnostics)).not.toContain('parser failed');
+
+    const slice = await runGraph(projectRoot, {
+      queryKind: 'source-slice',
+      filePath,
+      line: 5,
+      radius: { beforeLines: 1, afterLines: 1 },
+      budget: { itemLimit: 20, relationHopLimit: 4 },
+    });
+    expect(slice.status).toBe('ready');
+    expect(slice.slices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          filePath,
+          range: expect.objectContaining({ startLine: 4, endLine: 6 }),
+        }),
+      ])
+    );
+    expect(JSON.stringify(slice.slices)).toContain('AgentPrimeArgs');
+    expect(JSON.stringify(slice.diagnostics)).not.toContain('file was not found');
+  });
+
   test('enriches real workspace file neighborhoods with ProjectContext ownership relations', async () => {
     const projectRoot = createWorkspaceFixtureProject();
     const output = await runGraph(projectRoot, {
@@ -536,8 +578,31 @@ function writeWorkspaceCoreFixture(root: string) {
 function writeWorkspacePluginFixture(root: string) {
   writeFile(
     root,
+    'AlembicPlugin/package.json',
+    JSON.stringify({ name: '@fixture/plugin', main: 'lib/index.ts' }, null, 2)
+  );
+  writeFile(
+    root,
     'AlembicPlugin/lib/index.ts',
     'import { core } from "../../AlembicCore/src/index";\nexport const plugin = core;\n'
+  );
+  writeFile(
+    root,
+    'AlembicPlugin/lib/runtime/mcp/handlers/agent-public-tools.ts',
+    [
+      'interface AgentPublicBaseArgs {',
+      '  projectRoot?: string;',
+      '}',
+      '',
+      'interface AgentPrimeArgs extends AgentPublicBaseArgs {',
+      '  taskAction: string;',
+      '}',
+      '',
+      'export async function primeHandler(args: AgentPrimeArgs) {',
+      '  return args.taskAction;',
+      '}',
+      '',
+    ].join('\n')
   );
   writeFile(
     root,

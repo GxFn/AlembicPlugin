@@ -13,7 +13,7 @@ import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const sharedSchemaSignature =
-  'contract:v1;hosts:codex|claude-code;tools:alembic_intent|alembic_prime|alembic_work_start|alembic_work_finish|alembic_code_guard|alembic_decision_record;statuses:ready|skipped|degraded|blocked|failed';
+  'contract:v1;hosts:codex|claude-code;tools:alembic_prime|alembic_work|alembic_code_guard;statuses:ready|skipped|degraded|blocked|failed';
 
 describe('AFAPI Stage 1D cross-host readiness', () => {
   test('locks Codex, Claude Code, and generic host prompt snapshots without schema fork', () => {
@@ -50,16 +50,13 @@ describe('AFAPI Stage 1D cross-host readiness', () => {
       }
     }
 
-    expect(
-      TOOL_SCHEMAS.alembic_intent.safeParse({
-        agentHost: 'internal-ai',
-        inputSource: 'host-declared-intent',
-        userQuery: 'wrong host must not create a hidden schema fork',
-      }).success
-    ).toBe(false);
+    expect(TOOL_SCHEMAS.alembic_intent).toBeUndefined();
+    expect(TOOL_SCHEMAS.alembic_work_start).toBeUndefined();
+    expect(TOOL_SCHEMAS.alembic_work_finish).toBeUndefined();
+    expect(TOOL_SCHEMAS.alembic_decision_record).toBeUndefined();
     expect(
       AgentPublicToolResultEnvelopeSchema.safeParse({
-        ...envelopeSample('alembic_intent', 'codex'),
+        ...envelopeSample('alembic_prime', 'codex'),
         agentHost: 'internal-ai',
       }).success
     ).toBe(false);
@@ -103,17 +100,16 @@ function hostSnapshot(agentHost: AgentHost, hostLabel: string) {
     envelopeInvariant:
       'Return the same contractVersion, actionKind, refs/detailRefs, status, and skip/degraded/blocked/failed reason envelope for every supported host.',
     firstMove:
-      'For semantic project work, call alembic_intent with agentHost plus hostDeclaredIntent or host-turn metadata before loading knowledge.',
-    guardAndDecision:
-      'Use alembic_code_guard only with explicit files or inline code, and use alembic_decision_record only for confirmed durable decisions.',
+      'For semantic project work, call alembic_prime directly with taskAction, requirementGoal, and locator facets.',
+    guardAndDecision: 'Use alembic_code_guard only with explicit files or inline code.',
     hostLabel,
     legacyBoundary:
-      'Legacy compatibility hooks are not the primary guide for this host; use the six agent-facing public tools.',
+      'Legacy compatibility hooks are not the primary guide for this host; use the three agent-facing public tools.',
     primeFlow:
-      'Call alembic_prime with the intentRef or the same structured host intent, then keep receipt evidence compact and ref-based.',
+      'Call alembic_prime directly before coding with taskAction, requirementGoal, and locator facets; obsolete intentRef/recognizedIntent inputs are blocked.',
     schemaSignature: sharedSchemaSignature,
     workLifecycle:
-      'Use alembic_work_start for concrete evidence-producing work and alembic_work_finish with changed files and evidence refs when scoped work is complete.',
+      'Use alembic_work phase=start for concrete evidence-producing work and alembic_work phase=finish with changed files and evidence refs when scoped work is complete.',
   };
 }
 
@@ -126,30 +122,21 @@ function schemaSample(
     inputSource: 'host-declared-intent',
   };
   switch (toolName) {
-    case 'alembic_intent':
-      return {
-        ...base,
-        hostDeclaredIntent: { query: 'Prepare cross-host public tool guidance' },
-      };
     case 'alembic_prime':
       return {
         ...base,
-        intentRef: 'intent-cross-host',
+        capability: 'public-tool-contracts',
+        requirementGoal: 'Prepare cross-host public tool guidance',
+        scenario: 'cross-host readiness',
+        taskAction: 'code-review',
         projectRoot: '/tmp/alembic-cross-host',
       };
-    case 'alembic_work_start':
+    case 'alembic_work':
       return {
         ...base,
-        intentRef: 'intent-cross-host',
+        phase: 'start',
         title: 'Cross-host readiness',
         workScope: { goal: 'Prove no schema fork across host agents' },
-      };
-    case 'alembic_work_finish':
-      return {
-        ...base,
-        evidenceRefs: ['test/unit/AgentPublicToolsCrossHostReadiness.test.ts'],
-        summary: 'Cross-host readiness evidence is complete.',
-        workRef: 'work-cross-host',
       };
     case 'alembic_code_guard':
       return {
@@ -157,12 +144,6 @@ function schemaSample(
         code: 'export const crossHost = true;',
         filePath: 'test/unit/AgentPublicToolsCrossHostReadiness.test.ts',
         language: 'typescript',
-      };
-    case 'alembic_decision_record':
-      return {
-        ...base,
-        description: 'Cross-host guidance uses one result envelope.',
-        title: 'No schema fork for host agents',
       };
   }
 }

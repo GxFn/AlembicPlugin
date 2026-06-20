@@ -12,7 +12,11 @@ import { JobStore } from '@alembic/core/daemon';
 import { EventBus } from '@alembic/core/events';
 import { ReportStore } from '@alembic/core/infrastructure/report';
 import { WriteZone } from '@alembic/core/io';
-import { KnowledgeFileWriter, KnowledgeSyncService } from '@alembic/core/knowledge';
+import {
+  KnowledgeFileWriter,
+  KnowledgeSyncService,
+  type SourceRefReconciler,
+} from '@alembic/core/knowledge';
 import Logger from '@alembic/core/logging';
 import { MemoryRepositoryImpl } from '@alembic/core/memory';
 import {
@@ -26,6 +30,14 @@ import { BootstrapTaskManager } from '../../service/bootstrap/BootstrapTaskManag
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {
+  registerInfrastructure(c);
+  registerWriteZone(c);
+  registerRepositories(c);
+  registerKnowledgeSync(c);
+  registerReportStore(c);
+}
+
+function registerInfrastructure(c: ServiceContainer) {
   // ═══ Infrastructure ═══
 
   c.register('database', () => {
@@ -68,7 +80,9 @@ export function register(c: ServiceContainer) {
   c.singleton('jobStore', (ct: ServiceContainer) => {
     return new JobStore({ projectRoot: resolveProjectRoot(ct) });
   });
+}
 
+function registerWriteZone(c: ServiceContainer) {
   // ═══ WriteZone ═══
 
   c.singleton('writeZone', (ct: ServiceContainer) => {
@@ -80,7 +94,9 @@ export function register(c: ServiceContainer) {
     }
     return new WriteZone(resolver);
   });
+}
 
+function registerRepositories(c: ServiceContainer) {
   // ═══ Repositories ═══
 
   c.singleton('knowledgeRepository', (ct: ServiceContainer) => {
@@ -130,6 +146,10 @@ export function register(c: ServiceContainer) {
   c.singleton('recipeSourceRefRepository', (ct: ServiceContainer) => {
     return getCoreRepositories(ct).recipeSourceRefRepository;
   });
+}
+
+function registerKnowledgeSync(c: ServiceContainer) {
+  // ═══ Knowledge Sync ═══
 
   c.singleton('knowledgeFileWriter', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
@@ -139,14 +159,20 @@ export function register(c: ServiceContainer) {
 
   c.singleton('knowledgeSyncService', (ct: ServiceContainer) => {
     const dataRoot = resolveDataRoot(ct);
-    const sourceRefReconciler = ct.singletons.sourceRefReconciler as
-      | import('@alembic/core/knowledge').SourceRefReconciler
-      | undefined;
+    const sourceRefReconciler = getSourceRefReconciler(ct);
     return new KnowledgeSyncService(dataRoot, {
       sourceRefReconciler: sourceRefReconciler || undefined,
     });
   });
+}
 
+function getSourceRefReconciler(ct: ServiceContainer): SourceRefReconciler | undefined {
+  return ct.services.sourceRefReconciler
+    ? (ct.get('sourceRefReconciler') as SourceRefReconciler)
+    : undefined;
+}
+
+function registerReportStore(c: ServiceContainer) {
   // ═══ ReportStore ═══
 
   c.singleton('reportStore', (ct: ServiceContainer) => {

@@ -1,10 +1,13 @@
 import {
+  createRecipeContextServiceFromCore,
+  type RecipeContextRequest,
+  type RecipeListContext,
+  type RecipeRecord,
   type RecipeRegionPortHit,
   type VectorServiceFacade,
   vectorPortFromService,
 } from '@alembic/core/recipe-context';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { buildPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
 import { resolveHostRuntimeContext } from '#codex/runtime/RuntimeContext.js';
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import {
@@ -19,11 +22,7 @@ import {
   type TaskLifecycleClassification,
 } from '#service/task/TaskLifecyclePolicy.js';
 import * as guardHandlers from '../../../runtime/mcp/handlers/guard.js';
-import {
-  createIdleIntent,
-  type McpContext,
-  type McpServiceContainer,
-} from '../../../runtime/mcp/handlers/types.js';
+import type { McpContext, McpServiceContainer } from '../../../runtime/mcp/handlers/types.js';
 import {
   type AgentDetailRef,
   type AgentHost,
@@ -175,6 +174,7 @@ let primeCounter = 0;
 let workCounter = 0;
 
 const PRIME_PUBLIC_STRING_MAX_CHARS = 240;
+const PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT = 10;
 let finishCounter = 0;
 let guardCounter = 0;
 const WORK_RECORDS = new Map<string, WorkRecord>();
@@ -275,10 +275,6 @@ function buildPrimeRefs(input: PrimeHandlerSharedInput) {
 }
 
 async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
-  const projectRuntime = buildPrimeRuntimeContext({
-    projectRoot: input.effectiveProjectRoot,
-    residentSearch: input.primeSearch.searchResult?.searchMeta.residentSearch ?? null,
-  });
   const material = buildPrimeMaterialProjection(
     input.intake,
     input.primeSearch,
@@ -296,7 +292,6 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   });
   const result = buildPrimeReadyResult(input, status);
 
-  bindPrimeSessionIntent(input.ctx, input.primeSearch.searchResult, projectRuntime);
   const primePackage = buildPrimePublicPackage({
     detailRefs: input.detailRefs,
     intake: input.intake,
@@ -312,7 +307,11 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   return createAgentPublicToolOutput(result, {
     primePackage,
     detailRefs: [...input.detailRefs, ...primeMaterialDetailRefs(material.primeKnowledgeMaterial)],
-    diagnostics: buildPrimeReadyDiagnostics(input.primeSearch, effectiveSearchDegraded),
+    diagnostics: buildPrimeReadyDiagnostics(
+      input.primeSearch,
+      effectiveSearchDegraded,
+      input.primeSearch.regionEvidence
+    ),
     nextActions: [],
   });
 }
@@ -347,7 +346,8 @@ function primeMaterialDetailRefs(material: PrimeKnowledgeMaterial | null): Agent
 
 function buildPrimeReadyDiagnostics(
   primeSearch: PrimeHandlerReadyInput['primeSearch'],
-  searchDegraded: boolean
+  searchDegraded: boolean,
+  regionEvidence: Record<string, unknown>[]
 ): Array<{ code: string; severity: 'info' | 'warning'; message: string; retryable: boolean }> {
   const diagnostics: Array<{
     code: string;
@@ -363,7 +363,10 @@ function buildPrimeReadyDiagnostics(
       retryable: true,
     });
   }
-  if (!primeSearch.searchResult?.searchMeta.residentSearch?.residentVector?.available) {
+  if (
+    !hasSemanticRegionVectorEvidence(regionEvidence) &&
+    !primeSearch.searchResult?.searchMeta.residentSearch?.residentVector?.available
+  ) {
     diagnostics.push({
       code: 'prime-vector-evidence-unavailable',
       severity: 'info',
@@ -372,6 +375,18 @@ function buildPrimeReadyDiagnostics(
     });
   }
   return diagnostics;
+}
+
+function hasSemanticRegionVectorEvidence(regionEvidence: Record<string, unknown>[]): boolean {
+  return regionEvidence.some((evidence) => {
+    if (Array.isArray(evidence.matchedRegionClasses) && evidence.matchedRegionClasses.length > 0) {
+      return true;
+    }
+    return (
+      Array.isArray(evidence.whySelected) &&
+      evidence.whySelected.some((reason) => reason === 'local-region-vector')
+    );
+  });
 }
 
 function evidenceRefToUri(
@@ -486,7 +501,6 @@ export async function workStartHandler(ctx: McpContext, args: AgentWorkStartArgs
     workRef,
   };
   rememberWorkRecord(record);
-  bindWorkSession(ctx, record);
 
   const result = createAgentPublicToolResultEnvelope({
     actionKind: 'work',
@@ -1130,13 +1144,127 @@ async function runPrimeSearch(
       language: args.language ?? null,
     });
     const regionEvidence = await queryPrimeRegionEvidence(ctx, frame);
-    return { searchDegraded: false, searchResult, skippedReason: null, regionEvidence };
+    const sourceRefEvidence =
+      regionEvidence.length > 0 ? [] : await queryPrimeSourceRefLocatorEvidence(ctx, args, intake);
+    return {
+      searchDegraded: false,
+      searchResult,
+      skippedReason: null,
+      regionEvidence: [...regionEvidence, ...sourceRefEvidence],
+    };
   } catch (err: unknown) {
     process.stderr.write(
       `[MCP/AgentPublicTools] alembic_prime search degraded: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return { searchDegraded: true, searchResult: null, skippedReason: null, regionEvidence: [] };
   }
+}
+
+// Pure-local prime cannot rely on resident vector Recipe-region evidence when the
+// vector index is empty. If the host supplied explicit source refs, promote only
+// exact Recipe source matches into locator evidence so prime can still deliver
+// source-backed guidance without trusting broad keyword search.
+async function queryPrimeSourceRefLocatorEvidence(
+  ctx: McpContext,
+  args: AgentPrimeArgs,
+  intake: ReturnType<typeof buildAgentToolContext>
+): Promise<Record<string, unknown>[]> {
+  const projectRoot = resolveEffectiveProjectRoot(ctx, args);
+  const anchors = normalizeTaskLifecycleFileRefs(
+    uniqueStrings([
+      ...intake.sourceRefs,
+      ...(typeof args.activeFile === 'string' ? [args.activeFile] : []),
+    ]),
+    { projectRoot }
+  );
+  if (anchors.length === 0) {
+    return [];
+  }
+  const recipeContext = buildPrimeRecipeContextService(ctx);
+  if (!recipeContext) {
+    return [];
+  }
+  try {
+    const envelope = await recipeContext.execute({
+      kind: 'list',
+      payload: { filter: {}, pageSize: 200 },
+    } as RecipeContextRequest);
+    const data = envelope.data as RecipeListContext;
+    const anchorSet = new Set(anchors);
+    return (data.recipes ?? [])
+      .flatMap((recipe) => projectRecipeSourceRefLocatorEvidence(recipe, anchorSet, projectRoot))
+      .slice(0, PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT);
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[MCP/AgentPublicTools] alembic_prime source-ref locator fallback degraded: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return [];
+  }
+}
+
+function buildPrimeRecipeContextService(
+  ctx: McpContext
+): ReturnType<typeof createRecipeContextServiceFromCore> | null {
+  const knowledge = safeContainerGet(ctx, 'knowledgeService');
+  const sourceRefRepository = safeContainerGet(ctx, 'recipeSourceRefRepository');
+  if (!knowledge || !sourceRefRepository) {
+    return null;
+  }
+  const vectorService = safeContainerGet(ctx, 'vectorService');
+  try {
+    return createRecipeContextServiceFromCore({
+      knowledge: knowledge as Parameters<typeof createRecipeContextServiceFromCore>[0]['knowledge'],
+      sourceRefRepository: sourceRefRepository as Parameters<
+        typeof createRecipeContextServiceFromCore
+      >[0]['sourceRefRepository'],
+      vectorService: (vectorService ?? null) as Parameters<
+        typeof createRecipeContextServiceFromCore
+      >[0]['vectorService'],
+    });
+  } catch {
+    return null;
+  }
+}
+
+function safeContainerGet(ctx: McpContext, name: string): unknown {
+  try {
+    return ctx.container.get(name);
+  } catch {
+    return null;
+  }
+}
+
+export function projectRecipeSourceRefLocatorEvidence(
+  recipe: RecipeRecord,
+  anchorSet: Set<string>,
+  projectRoot: string
+): Record<string, unknown>[] {
+  const rawRefs = uniqueStrings([
+    ...(recipe.sources ?? []),
+    ...(recipe.sourceFile ? [recipe.sourceFile] : []),
+  ]);
+  const matchedRefs = rawRefs.filter((ref) =>
+    normalizeTaskLifecycleFileRefs([ref], { projectRoot }).some((path) => anchorSet.has(path))
+  );
+  if (matchedRefs.length === 0) {
+    return [];
+  }
+  return [
+    {
+      evidenceRefs: [`recipe-locator:${recipe.id}`],
+      injectionStatus: 'selected',
+      itemId: recipe.id,
+      kind: recipe.kind ?? 'pattern',
+      recipeId: recipe.id,
+      score: 1,
+      sourceRefs: matchedRefs,
+      trustEvidenceSource: 'source-ref-locator-fallback',
+      ...(recipe.title ? { title: recipe.title } : {}),
+      ...(recipe.trigger ? { trigger: recipe.trigger } : {}),
+      ...(recipe.summary ? { summary: recipe.summary } : {}),
+      whySelected: ['recipe-locator:source-ref-exact-match'],
+    },
+  ];
 }
 
 // PDR-2b: query local Recipe semantic-region vectors via the Core-fixed
@@ -1753,62 +1881,6 @@ function compactRecord(input: Record<string, unknown>): Record<string, unknown> 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function bindPrimeSessionIntent(
-  ctx: McpContext,
-  searchResult: PrimeSearchResult | null,
-  projectRuntime: Record<string, unknown>
-): void {
-  if (!ctx.session) {
-    return;
-  }
-  const freshIntent = createIdleIntent();
-  freshIntent.phase = 'active';
-  freshIntent.primeAt = Date.now();
-  if (searchResult) {
-    freshIntent.primeRecipeIds = [...searchResult.relatedKnowledge, ...searchResult.guardRules]
-      .map((item) => item.id)
-      .filter(Boolean);
-    freshIntent.searchMeta = {
-      filteredCount: searchResult.searchMeta.filteredCount,
-      projectRuntime,
-      queries: searchResult.searchMeta.queries,
-      resultCount: searchResult.searchMeta.resultCount,
-      ...(searchResult.searchMeta.primeInjectionPackage
-        ? { primeInjectionPackage: searchResult.searchMeta.primeInjectionPackage }
-        : {}),
-      ...(searchResult.searchMeta.residentSearch
-        ? {
-            residentSearch: searchResult.searchMeta.residentSearch as unknown as Record<
-              string,
-              unknown
-            >,
-          }
-        : {}),
-    };
-  }
-  ctx.session.intent = freshIntent;
-}
-
-function bindWorkSession(ctx: McpContext, record: WorkRecord): void {
-  if (!ctx.session) {
-    return;
-  }
-  const intent = ctx.session.intent.phase === 'idle' ? createIdleIntent() : ctx.session.intent;
-  intent.phase = 'active';
-  intent.taskId = record.workRef;
-  intent.taskTitle = record.title;
-  intent.primeAt = Date.now();
-  for (const file of record.scopeFiles) {
-    intent.mentionedFiles.push(file);
-  }
-  intent.toolCalls.push({
-    args_summary: record.title,
-    timestamp: Date.now(),
-    tool: 'alembic_work',
-  });
-  ctx.session.intent = intent;
 }
 
 function rememberWorkRecord(record: WorkRecord): void {

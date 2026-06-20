@@ -31,12 +31,7 @@ import {
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/host-turn-meta.js';
 import { wrapHandler } from '../../runtime/mcp/errorHandler.js';
-import type {
-  IntentState,
-  McpContext,
-  McpServiceContainer,
-} from '../../runtime/mcp/handlers/types.js';
-import { createIdleIntent } from '../../runtime/mcp/handlers/types.js';
+import type { McpContext, McpServiceContainer } from '../../runtime/mcp/handlers/types.js';
 import {
   createCleanMcpErrorResponse,
   createMcpStructuredToolResult,
@@ -52,14 +47,13 @@ import {
 
 // ─── TypeScript Interfaces ──────────────────────────────────
 
-/** MCP session tracking (with intent lifecycle) */
+/** MCP session tracking */
 interface McpSession {
   id: string;
   startedAt: number;
   toolCallCount: number;
   toolsUsed: Set<string>;
   lastActivityAt: number;
-  intent: IntentState;
 }
 
 /** McpServer constructor options */
@@ -176,14 +170,13 @@ export class McpServer {
     this._defaultSource = options.source || { kind: 'mcp', name: 'tools/call' };
     this._defaultSurface = options.surface || 'mcp';
 
-    // ── Session 管理 (with intent lifecycle) ──
+    // ── Session 管理 ──
     this._session = {
       id: `ses-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       startedAt: Date.now(),
       toolCallCount: 0,
       toolsUsed: new Set(),
       lastActivityAt: Date.now(),
-      intent: createIdleIntent(),
     };
   }
 
@@ -380,199 +373,21 @@ export class McpServer {
     // ── Session 追踪 + 行为采集 ──
     this._trackSession(name, result);
 
-    // ── [DEFERRED] Decision 注入（待 JSONL 数据验证后启用） ──
-    // await this._injectDecisions(name, result);
-
     return result;
   }
 
   // ─── Session tracking + behavior collection ─────────────
 
   /**
-   * Post-tool-call hook: update session stats + intent behavior tracking.
-   * Always called (non-blocking, synchronous).
-   *
-   * - Session stats: toolCallCount, toolsUsed, lastActivityAt
-   * - Intent tracking (when active): toolCalls, searchQueries, mentionedFiles, drift detection
+   * Post-tool-call hook: update lightweight session stats only.
+   * The retired intent lifecycle no longer records tool calls, drift, or active
+   * decisions at the MCP server layer.
    */
-  _trackSession(toolName: string, result: unknown): void {
+  _trackSession(toolName: string, _result: unknown): void {
     // ── Session stats (always) ──
     this._session.toolCallCount++;
     this._session.toolsUsed.add(toolName);
     this._session.lastActivityAt = Date.now();
-
-    // ── Intent behavior tracking (active intent only) ──
-    const intent = this._session.intent;
-    if (intent.phase !== 'active') {
-      return;
-    }
-
-    // Track tool call
-    intent.toolCalls.push({
-      tool: toolName,
-      timestamp: Date.now(),
-      args_summary: toolName,
-    });
-
-    // Auto-collect search queries
-    if (toolName === 'alembic_search') {
-      const query = this._extractSearchQuery(result);
-      if (query) {
-        intent.searchQueries.push(query);
-      }
-    }
-
-    // Auto-collect mentioned files
-    const files = this._extractMentionedFiles(toolName, result);
-    for (const f of files) {
-      if (!intent.mentionedFiles.includes(f)) {
-        intent.mentionedFiles.push(f);
-        const mod = this._inferModule(f);
-        if (mod) {
-          intent.mentionedModules.add(mod);
-        }
-      }
-    }
-
-    // Drift detection
-    this._detectDrift(toolName, intent);
-  }
-
-  // ─── [DEFERRED] Decision injection ───────────────────────
-
-  /**
-   * Inject active decisions + intent context into tool results.
-   * Currently deferred — enable by uncommenting the call in _handleToolCall.
-   */
-  async _injectDecisions(toolName: string, result: unknown) {
-    const intent = this._session.intent;
-    if (intent.phase !== 'active') {
-      return result;
-    }
-
-    if (intent.decisions.length > 0 && typeof result === 'object' && result !== null) {
-      const resultObj = result as Record<string, unknown>;
-      resultObj._activeDecisions = intent.decisions.map((d) => ({
-        id: d.id,
-        title: d.title,
-      }));
-      resultObj._intentContext =
-        `Active intent: "${intent.primeQuery || '(no query)'}"` +
-        (intent.taskId ? ` | Task: ${intent.taskId}` : '') +
-        ` | ${intent.toolCalls.length} tool calls | ${intent.decisions.length} decision(s)`;
-    }
-
-    return result;
-  }
-
-  // ─── Drift detection helpers ───────────────────
-
-  private _detectDrift(toolName: string, intent: IntentState): void {
-    for (const mod of intent.mentionedModules) {
-      if (intent.primeModule && mod !== intent.primeModule) {
-        const alreadyDrifted = intent.driftEvents.some(
-          (d) => d.type === 'new_module' && d.detail.includes(mod)
-        );
-        if (!alreadyDrifted) {
-          intent.driftEvents.push({
-            timestamp: Date.now(),
-            trigger: toolName,
-            type: 'new_module',
-            detail: `New module: ${mod} (prime: ${intent.primeModule})`,
-            primeOverlap: this._computeOverlap(mod, intent.primeQuery),
-          });
-        }
-      }
-    }
-    if (toolName === 'alembic_search' && intent.searchQueries.length > 0) {
-      const latestQuery = intent.searchQueries.at(-1);
-      if (!latestQuery) {
-        return;
-      }
-      const overlap = this._computeKeywordOverlap(latestQuery, intent.primeQuery);
-      if (overlap < 0.3) {
-        intent.driftEvents.push({
-          timestamp: Date.now(),
-          trigger: toolName,
-          type: 'search_shift',
-          detail: `Search drift: "${latestQuery.slice(0, 40)}" (overlap: ${Math.round(overlap * 100)}%)`,
-          primeOverlap: overlap,
-        });
-      }
-    }
-  }
-
-  private _computeKeywordOverlap(a: string, b: string): number {
-    if (!a || !b) {
-      return 0;
-    }
-    const tokensA = new Set(
-      a
-        .toLowerCase()
-        .split(/[\s,./\\|]+/)
-        .filter((t) => t.length > 1)
-    );
-    const tokensB = new Set(
-      b
-        .toLowerCase()
-        .split(/[\s,./\\|]+/)
-        .filter((t) => t.length > 1)
-    );
-    if (tokensA.size === 0 || tokensB.size === 0) {
-      return 0;
-    }
-    let shared = 0;
-    for (const t of tokensA) {
-      if (tokensB.has(t)) {
-        shared++;
-      }
-    }
-    return shared / Math.max(tokensA.size, tokensB.size);
-  }
-
-  private _computeOverlap(term: string, query: string): number {
-    if (!term || !query) {
-      return 0;
-    }
-    return query.toLowerCase().includes(term.toLowerCase()) ? 1 : 0;
-  }
-
-  private _extractSearchQuery(result: unknown): string | null {
-    if (typeof result === 'object' && result !== null) {
-      const obj = result as Record<string, unknown>;
-      if (typeof obj.query === 'string') {
-        return obj.query;
-      }
-      const structuredContent =
-        obj.structuredContent && typeof obj.structuredContent === 'object'
-          ? (obj.structuredContent as Record<string, unknown>)
-          : null;
-      const request =
-        structuredContent?.request && typeof structuredContent.request === 'object'
-          ? (structuredContent.request as Record<string, unknown>)
-          : null;
-      if (typeof request?.query === 'string') {
-        return request.query;
-      }
-    }
-    return null;
-  }
-
-  private _extractMentionedFiles(_toolName: string, result: unknown): string[] {
-    if (typeof result === 'object' && result !== null) {
-      const obj = result as Record<string, unknown>;
-      const files = obj.files || obj.mentionedFiles;
-      if (Array.isArray(files)) {
-        return files.filter((f) => typeof f === 'string');
-      }
-    }
-    return [];
-  }
-
-  private _inferModule(filePath: string): string | null {
-    const parts = filePath.replace(/\\/g, '/').split('/');
-    const meaningful = parts.slice(1, -1).filter((p) => !['src', 'lib', 'Sources'].includes(p));
-    return meaningful.slice(0, 2).join('/') || null;
   }
 
   /**

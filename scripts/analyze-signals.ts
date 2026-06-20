@@ -2,8 +2,8 @@
 /**
  * analyze-signals.ts — JSONL Signal Analyzer
  *
- * Reads intent chain records from .asd/logs/signals/*.jsonl and produces
- * summary analytics for evaluating the Intent Pipeline effectiveness.
+ * Reads agent signal records from .asd/logs/signals/*.jsonl and produces
+ * summary analytics for evaluating Recipe priming and Guard effectiveness.
  *
  * Usage: npx tsx scripts/analyze-signals.ts [project-root]
  *
@@ -14,7 +14,7 @@
  *   4. Language distribution
  *   5. Drift → violation correlation
  *   6. Task completion rate
- *   7. Average intent duration
+ *   7. Average prime/work duration
  *   8. Search → drift correlation
  */
 
@@ -23,7 +23,7 @@ import path from 'node:path';
 
 // ── Types ───────────────────────────────────────────
 
-interface IntentChainRecord {
+interface AgentSignalRecord {
   sessionId: string;
   taskId?: string;
   outcome: 'completed' | 'failed' | 'abandoned';
@@ -53,8 +53,8 @@ interface IntentChainRecord {
   duration: number;
 }
 
-interface IntentChainRecordWithSearchMeta extends IntentChainRecord {
-  searchMeta: NonNullable<IntentChainRecord['searchMeta']>;
+interface AgentSignalRecordWithSearchMeta extends AgentSignalRecord {
+  searchMeta: NonNullable<AgentSignalRecord['searchMeta']>;
 }
 
 function writeLine(message = '') {
@@ -67,7 +67,7 @@ function writeError(message: string) {
 
 // ── Load Records ────────────────────────────────────
 
-function loadRecords(signalDir: string): IntentChainRecord[] {
+function loadRecords(signalDir: string): AgentSignalRecord[] {
   if (!fs.existsSync(signalDir)) {
     writeError(`Signal directory not found: ${signalDir}`);
     return [];
@@ -78,7 +78,7 @@ function loadRecords(signalDir: string): IntentChainRecord[] {
     .filter((f) => f.endsWith('.jsonl'))
     .sort();
 
-  const records: IntentChainRecord[] = [];
+  const records: AgentSignalRecord[] = [];
   for (const file of files) {
     const content = fs.readFileSync(path.join(signalDir, file), 'utf8');
     for (const line of content.split('\n')) {
@@ -86,7 +86,7 @@ function loadRecords(signalDir: string): IntentChainRecord[] {
         continue;
       }
       try {
-        records.push(JSON.parse(line) as IntentChainRecord);
+        records.push(JSON.parse(line) as AgentSignalRecord);
       } catch {
         // skip malformed lines
       }
@@ -97,13 +97,13 @@ function loadRecords(signalDir: string): IntentChainRecord[] {
 
 // ── Analyze ─────────────────────────────────────────
 
-function analyze(records: IntentChainRecord[]) {
+function analyze(records: AgentSignalRecord[]) {
   if (records.length === 0) {
     writeLine('No records found.');
     return;
   }
 
-  writeLine(`\n📊 Intent Signal Analysis — ${records.length} records\n`);
+  writeLine(`\n📊 Agent Signal Analysis — ${records.length} records\n`);
 
   // 1. Recipe coverage rate
   const withRecipes = records.filter((r) => r.primeRecipeIds.length > 0).length;
@@ -119,7 +119,7 @@ function analyze(records: IntentChainRecord[]) {
   }
 
   // 3. Multi-query benefit
-  const withMeta = records.filter((r): r is IntentChainRecordWithSearchMeta =>
+  const withMeta = records.filter((r): r is AgentSignalRecordWithSearchMeta =>
     Boolean(r.searchMeta)
   );
   if (withMeta.length > 0) {
@@ -165,7 +165,7 @@ function analyze(records: IntentChainRecord[]) {
     );
   }
 
-  // 7. Average intent duration
+  // 7. Average prime/work duration
   const durations = records.filter((r) => r.duration > 0).map((r) => r.duration);
   if (durations.length > 0) {
     const avgDur = avg(durations);
@@ -173,7 +173,7 @@ function analyze(records: IntentChainRecord[]) {
     writeLine(`7. Duration: avg ${formatMs(avgDur)}, median ${formatMs(medDur)}`);
   }
 
-  // 8. High-drift intents
+  // 8. High-drift signal records
   const highDrift = records.filter((r) => r.driftScore > 0.5);
   const highDriftWithManySearches = highDrift.filter((r) => r.searchQueries.length > 2);
   writeLine(

@@ -33,7 +33,7 @@ export const AGENT_INTENT_KINDS = [
   'unknown',
 ] as const;
 
-// MTC-7: work-start + work-finish collapsed into one 'work' action; the merged
+// MTC-7: the former split work lifecycle collapsed into one 'work' action; the merged
 // alembic_work tool discriminates start vs finish by its phase input.
 export const AGENT_ACTION_KINDS = ['prime', 'work', 'code-guard'] as const;
 
@@ -306,7 +306,7 @@ export const PrimePublicPackageSchema = z
             title: z.string().min(1).max(240),
             trustEvidence: z.object({
               kind: z.enum(['recipe-locator', 'recipe-semantic-region']),
-              source: z.literal('prime-injection-package'),
+              source: z.enum(['prime-injection-package', 'source-ref-locator-fallback']),
               summary: z.string().min(1).max(300),
             }),
             trigger: z.string().min(0).max(240),
@@ -445,7 +445,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
       implementationStatus: 'active-tool',
     }
   ),
-  // MTC-7: merged alembic_work_start + alembic_work_finish. phase=start creates a
+  // MTC-7: merged the former split work lifecycle. phase=start creates a
   // workRef; phase=finish closes it (workRef required for finish, enforced by the
   // handler). acceptedRefs/producesRefs are the union across both phases.
   definition(

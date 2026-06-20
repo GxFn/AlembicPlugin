@@ -117,7 +117,6 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
       ? {
           session: {
             id: ctx.session.id,
-            intentPhase: ctx.session.intent?.phase ?? 'idle',
             toolCallCount: ctx.session.toolCallCount,
             toolsUsed: Array.from(ctx.session.toolsUsed),
             durationMs: Date.now() - ctx.session.startedAt,

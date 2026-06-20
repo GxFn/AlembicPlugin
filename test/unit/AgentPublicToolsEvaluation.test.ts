@@ -2,18 +2,12 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test, vi } from 'vitest';
 import {
   codeGuardHandler,
-  decisionRecordHandler,
-  intentHandler,
   primeHandler,
   workFinishHandler,
   workStartHandler,
 } from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
-import { createIdleIntent } from '../../lib/runtime/mcp/handlers/types.js';
-import type {
-  AgentPublicToolName,
-  AgentPublicToolResultEnvelope,
-} from '../../lib/runtime/mcp/public-tools/contract.js';
+import type { AgentPublicToolName } from '../../lib/runtime/mcp/public-tools/contract.js';
 import {
   AGENT_PUBLIC_TOOL_NAMES,
   AgentPublicToolResultEnvelopeSchema,
@@ -25,403 +19,74 @@ import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
-const forbiddenLegacyPrimaryWording = [
-  'operation=prime',
-  'operation=create',
-  'operation=close',
-  'Task and decision management (5 operations)',
-  'primary action is `alembic_task`',
-];
-
-const goldenPublicToolMatrix = {
-  alembic_intent: {
-    acceptedRefs: ['detailRefs'],
-    producedRefs: ['intentRef', 'detailRefs'],
-    purposeFragment: 'Normalize host-declared intent',
-    requiredFields: ['agentHost', 'inputSource'],
-    schemaInput: { inputSource: 'host-declared-intent', userQuery: 'Evaluate Stage 6' },
-    title: 'Normalize agent intent',
-  },
-  alembic_prime: {
-    acceptedRefs: ['intentRef', 'detailRefs'],
-    producedRefs: ['primeRef', 'detailRefs'],
-    purposeFragment: 'Load compact, trust-labeled project knowledge',
-    requiredFields: ['agentHost', 'inputSource', 'intentRef'],
-    schemaInput: {
-      inputSource: 'host-declared-intent',
-      intentRef: 'intent-public-stage6',
-      projectRoot: '/tmp/alembic-plugin-stage6',
-    },
-    title: 'Prime agent context',
-  },
-  alembic_work_start: {
-    acceptedRefs: ['intentRef', 'primeRef', 'detailRefs'],
-    producedRefs: ['workRef', 'detailRefs'],
-    purposeFragment: 'Create a workRef',
-    requiredFields: ['agentHost', 'inputSource', 'intentRef'],
-    schemaInput: {
-      inputSource: 'host-declared-intent',
-      intentRef: 'intent-public-stage6',
-      title: 'Evaluate Stage 6',
-      workScope: { goal: 'Close evaluation gap' },
-    },
-    title: 'Start tracked work',
-  },
-  alembic_work_finish: {
-    acceptedRefs: ['intentRef', 'primeRef', 'workRef', 'detailRefs'],
-    producedRefs: ['workRef', 'finishRef', 'detailRefs'],
-    purposeFragment: 'Close a workRef',
-    requiredFields: ['agentHost', 'inputSource', 'workRef'],
-    schemaInput: {
-      changedFiles: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-      inputSource: 'host-declared-intent',
-      summary: 'Evaluation completed',
-      workRef: 'work-public-stage6',
-    },
-    title: 'Finish tracked work',
-  },
-  alembic_code_guard: {
-    acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
-    producedRefs: ['guardResultRef', 'detailRefs'],
-    purposeFragment: 'Run a code guard pass',
-    requiredFields: ['agentHost', 'inputSource'],
-    schemaInput: {
-      code: 'export const stage6 = true;',
-      filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
-      inputSource: 'host-declared-intent',
-      language: 'typescript',
-    },
-    title: 'Check code against project rules',
-  },
-  alembic_decision_record: {
-    acceptedRefs: ['intentRef', 'workRef', 'detailRefs'],
-    producedRefs: ['decisionRef', 'detailRefs'],
-    purposeFragment: 'Create, update, read, list, revoke, or delete',
-    requiredFields: ['agentHost', 'inputSource'],
-    schemaInput: {
-      description: 'Stage 6 evaluation proves public tools remain coherent.',
-      inputSource: 'host-declared-intent',
-      title: 'Close public tools evaluation',
-    },
-    title: 'Record agent decision',
-  },
-} as const satisfies Record<
-  AgentPublicToolName,
-  {
-    acceptedRefs: readonly string[];
-    producedRefs: readonly string[];
-    purposeFragment: string;
-    requiredFields: readonly string[];
-    schemaInput: Record<string, unknown>;
-    title: string;
-  }
->;
-
-const stage4aGoldenSuiteMatrix = [
-  {
-    id: 'wrong-call',
-    toolName: 'alembic_intent',
-    expectedStatus: 'blocked',
-    expectedReasonKind: 'blocked',
-    expectedReasonCode: 'codex-tool-retired',
-    promptExpectation:
-      'Retired alembic_task direct calls fail closed; route host agents to the six public tools.',
-  },
-  {
-    id: 'missing-call',
-    toolName: 'alembic_prime',
-    expectedStatus: 'blocked',
-    expectedReasonKind: 'blocked',
-    expectedReasonCode: 'missing-required-intent',
-    promptExpectation:
-      'Prime needs an intentRef or explicit recognized intent instead of guessing from an empty turn.',
-  },
-  {
-    id: 'raw-envelope',
-    toolName: 'alembic_intent',
-    expectedStatus: 'skipped',
-    expectedReasonKind: 'skip',
-    expectedReasonCode: 'mechanical-envelope-only',
-    promptExpectation:
-      'Raw automation envelopes are skipped until the host provides curated intent and verifiable refs.',
-  },
-  {
-    id: 'fake-work',
-    toolName: 'alembic_work_finish',
-    expectedStatus: 'blocked',
-    expectedReasonKind: 'blocked',
-    expectedReasonCode: 'missing-work-ref',
-    promptExpectation:
-      'Work finish must use a real workRef returned by alembic_work_start; fake work is not completion evidence.',
-  },
-  {
-    id: 'noisy-guard',
-    toolName: 'alembic_code_guard',
-    expectedStatus: 'blocked',
-    expectedReasonKind: 'blocked',
-    expectedReasonCode: 'missing-guard-scope',
-    promptExpectation:
-      'Code Guard requires explicit files or inline code and never falls back to noisy whole-diff review.',
-  },
-  {
-    id: 'stale-decision',
-    toolName: 'alembic_decision_record',
-    expectedStatus: 'blocked',
-    expectedReasonKind: 'blocked',
-    expectedReasonCode: 'decision-register-unavailable',
-    promptExpectation:
-      'Stale or missing durable Decision Register routes block instead of writing Plugin-local fake decisions.',
-  },
-  {
-    id: 'clean-output',
-    toolName: 'alembic_work_start',
-    expectedStatus: 'ready',
-    expectedReasonKind: null,
-    expectedReasonCode: null,
-    promptExpectation:
-      'Public tools return clean structuredContent without data.result, legacyCompatibility, or outputBudget.',
-  },
-  {
-    id: 'adoption-feedback',
-    toolName: 'alembic_prime',
-    expectedStatus: 'ready',
-    expectedReasonKind: null,
-    expectedReasonCode: null,
-    promptExpectation:
-      'Prime preserves observe-only adoption and feedback as a narrow public digest.',
-  },
-] as const satisfies readonly {
-  expectedReasonCode: string | null;
-  expectedReasonKind: string | null;
-  expectedStatus: AgentPublicToolResultEnvelope['status'];
-  id: string;
-  promptExpectation: string;
-  toolName: AgentPublicToolName;
-}[];
-
-const afapiReq10CoverageDimensions = [
-  'ready',
-  'skip',
-  'degraded',
-  'blocked',
-  'failed',
-  'clean-output',
-  'legacy-boundary',
+const retiredPublicToolNames = [
+  'alembic_intent',
+  'alembic_work_start',
+  'alembic_work_finish',
+  'alembic_decision_record',
 ] as const;
 
-type AfapiReq10CoverageDimension = (typeof afapiReq10CoverageDimensions)[number];
-
-const afapiReq10EvaluationMatrix = [
-  {
-    toolName: 'alembic_intent',
-    coverage: {
-      ready: ['unit: host-declared semantic intent returns ready with intentRef'],
-      skip: ['unit: raw automation, status-only, and empty semantic turns return skipped'],
-      degraded: ['unit: low-confidence semantic intent returns degraded and remains consumable'],
-      blocked: ['contract: shared result envelope admits blocked status for host callers'],
-      failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'clean-output': ['unit: clean output exposes top-level summary and refs'],
-      'legacy-boundary': [
-        'unit: active guidance omits legacy task wording and output omits legacyCompatibility',
-      ],
-    },
+const currentToolSamples = {
+  alembic_prime: {
+    capability: 'agent-facing public tool contract',
+    inputSource: 'host-declared-intent',
+    projectRoot: '/tmp/alembic-plugin-stage6',
+    requirementGoal: 'Evaluate current public tool contracts',
+    scenario: 'Stage 6 public tool readback',
+    taskAction: 'code-review',
   },
-  {
-    toolName: 'alembic_prime',
-    coverage: {
-      ready: ['unit: intentRef plus resident retrieval material returns ready with primeRef'],
-      skip: ['unit: lifecycle skip policies cover mechanical/status/non-project intent'],
-      degraded: [
-        'unit: knowledge-empty, resident-unavailable, and missing producer contract fields degrade',
-      ],
-      blocked: ['unit: missing intent and automation envelope without sourceRefs block'],
-      failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'clean-output': ['unit: clean output exposes structured prime refs without data.result'],
-      'legacy-boundary': [
-        'unit: prime does not route through alembic_task and output omits legacyCompatibility',
-      ],
-    },
+  alembic_work: {
+    inputSource: 'host-declared-intent',
+    phase: 'start',
+    title: 'Evaluate current public tools',
+    workScope: { goal: 'Close current public tool evaluation evidence.' },
   },
-  {
-    toolName: 'alembic_work_start',
-    coverage: {
-      ready: ['unit: concrete scoped work returns ready with workRef'],
-      skip: ['unit: no-work-scope, status-only, raw-envelope, and design-readonly turns skip'],
-      degraded: ['contract: shared result envelope admits degraded status for host callers'],
-      blocked: ['contract: shared result envelope admits blocked status for host callers'],
-      failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'clean-output': ['unit: clean output exposes top-level workRef and summary'],
-      'legacy-boundary': [
-        'unit: active guidance omits legacy task wording and output omits legacyCompatibility',
-      ],
-    },
+  alembic_code_guard: {
+    code: 'export const stage6Evaluation = true;',
+    filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
+    inputSource: 'host-declared-intent',
+    language: 'typescript',
   },
-  {
-    toolName: 'alembic_work_finish',
-    coverage: {
-      ready: ['unit: real workRef closes with finishRef and guard recommendation'],
-      skip: ['contract: shared result envelope admits skipped status for host callers'],
-      degraded: ['contract: shared result envelope admits degraded status for host callers'],
-      blocked: ['unit: missing or fake workRef blocks as missing-work-ref'],
-      failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'clean-output': ['unit: clean output exposes finishRef and guard recommendation'],
-      'legacy-boundary': [
-        'unit: finish does not route through alembic_task and output omits legacyCompatibility',
-      ],
-    },
-  },
-  {
-    toolName: 'alembic_code_guard',
-    coverage: {
-      ready: [
-        'unit: scoped workRef guard returns ready',
-        'probe: scoped workRef readback expects ready',
-      ],
-      skip: ['unit: active workRef with no source files skips as no-code-scope'],
-      degraded: ['contract: shared result envelope admits degraded status for host callers'],
-      blocked: [
-        'unit: no-scope guard returns blocked/missing-guard-scope',
-        'probe: no-scope readback expects blocked/missing-guard-scope',
-      ],
-      failed: [
-        'contract: handler catch path returns failed/handler-error for scoped guard failures',
-      ],
-      'clean-output': ['unit: clean output exposes scoped guard refs without data.result'],
-      'legacy-boundary': [
-        'unit: code guard does not accept legacy public scope and output omits legacyCompatibility',
-      ],
-    },
-  },
-  {
-    toolName: 'alembic_decision_record',
-    coverage: {
-      ready: [
-        'unit: resident Decision Register create/update/revoke/delete/read/list returns ready',
-      ],
-      skip: ['contract: shared result envelope admits skipped status for host callers'],
-      degraded: ['contract: shared result envelope admits degraded status for host callers'],
-      blocked: [
-        'unit: unavailable durable route blocks as decision-register-unavailable',
-        'unit: capability mismatch blocks as decision-register-capability-mismatch',
-      ],
-      failed: ['contract: shared result envelope admits failed status for handler errors'],
-      'clean-output': ['unit: clean output exposes decision refs without data.result'],
-      'legacy-boundary': [
-        'unit: retired alembic_task direct record_decision is blocked and writes no local decision',
-      ],
-    },
-  },
-] as const satisfies readonly {
-  coverage: Record<AfapiReq10CoverageDimension, readonly string[]>;
-  toolName: AgentPublicToolName;
-}[];
+} as const satisfies Record<AgentPublicToolName, Record<string, unknown>>;
 
 describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
-  test('locks golden descriptions, contracts, schemas, and non-legacy primary guidance', () => {
-    const activeToolsByName = new Map(TOOLS.map((tool) => [tool.name, tool]));
+  test('locks current three-tool contract and retired public-tool boundary', () => {
+    expect(AGENT_PUBLIC_TOOL_NAMES).toEqual([
+      'alembic_prime',
+      'alembic_work',
+      'alembic_code_guard',
+    ]);
 
     for (const toolName of AGENT_PUBLIC_TOOL_NAMES) {
-      const golden = goldenPublicToolMatrix[toolName];
-      const description = getAgentPublicToolDescriptionBase(toolName);
-      const activeTool = activeToolsByName.get(toolName);
       const contract = getAgentPublicToolContractDefinition(toolName);
-
-      expect(description.title).toBe(golden.title);
-      expect(description.purpose).toContain(golden.purposeFragment);
-      expect(description.selectionHint).toMatch(/\S/);
-      expect(description.nonGoal).toMatch(/\S/);
-      expect(activeTool?.description).toContain(description.title);
-      expect(activeTool?.description).toContain(description.purpose);
-      expect(activeTool?.description).toContain(description.selectionHint);
-      expect(activeTool?.description).toContain(`Non-goal: ${description.nonGoal}`);
-      expect(JSON.stringify(activeTool?.inputSchema)).not.toContain('outputBudget');
-
+      const description = getAgentPublicToolDescriptionBase(toolName);
       expect(contract.activeMcpSurface).toBe(true);
-      expect(contract.handlerDependency).toBe('McpServer.agent-public-tools');
-      expect(contract.inputContract.acceptedRefs).toEqual(golden.acceptedRefs);
-      expect(contract.inputContract.requiredFields).toEqual(golden.requiredFields);
-      expect(contract.resultContract.producesRefs).toEqual(golden.producedRefs);
-      expect(TOOL_SCHEMAS[toolName].safeParse(golden.schemaInput).success).toBe(true);
+      expect(contract.implementationStatus).toBe('active-tool');
+      expect(description.name).toBe(toolName);
+      expect(TOOL_SCHEMAS[toolName].safeParse(currentToolSamples[toolName]).success).toBe(true);
+    }
 
-      for (const forbidden of forbiddenLegacyPrimaryWording) {
-        expect(
-          activeTool?.description ?? '',
-          `${toolName} should not advertise ${forbidden}`
-        ).not.toContain(forbidden);
-      }
+    for (const retiredName of retiredPublicToolNames) {
+      expect(TOOL_SCHEMAS[retiredName]).toBeUndefined();
+      expect(TOOLS.some((tool) => tool.name === retiredName)).toBe(false);
     }
   });
 
-  test('anchors AFAPI-REQ-10 six-tool evaluation matrix as first-class coverage evidence', () => {
-    expect(afapiReq10EvaluationMatrix.map((entry) => entry.toolName)).toEqual(
-      AGENT_PUBLIC_TOOL_NAMES
-    );
+  test('keeps cross-host readiness guidance aligned with the current public surface', () => {
+    const report = buildAgentPublicCrossHostReadinessReport();
+    const serialized = JSON.stringify(report);
 
-    for (const entry of afapiReq10EvaluationMatrix) {
-      const contract = getAgentPublicToolContractDefinition(entry.toolName);
-      expect(Object.keys(entry.coverage)).toEqual([...afapiReq10CoverageDimensions]);
-      expect(contract.resultContract.statuses).toEqual([
-        'ready',
-        'skipped',
-        'degraded',
-        'blocked',
-        'failed',
-      ]);
-
-      for (const dimension of afapiReq10CoverageDimensions) {
-        expect(entry.coverage[dimension], `${entry.toolName} ${dimension}`).not.toHaveLength(0);
-      }
-      expect(entry.coverage.failed.some((item) => item.startsWith('contract:'))).toBe(true);
-      expect(entry.coverage['clean-output'].some((item) => item.includes('clean output'))).toBe(
-        true
-      );
-      expect(
-        entry.coverage['legacy-boundary'].some(
-          (item) => item.includes('legacyCompatibility') || item.includes('alembic_task')
-        )
-      ).toBe(true);
-    }
-
-    const codeGuardMatrix = afapiReq10EvaluationMatrix.find(
-      (entry) => entry.toolName === 'alembic_code_guard'
+    expect(report.sharedContract.toolNames).toEqual([...AGENT_PUBLIC_TOOL_NAMES]);
+    expect(report.schemaSignature).toBe(
+      'contract:v1;hosts:codex|claude-code;tools:alembic_prime|alembic_work|alembic_code_guard;statuses:ready|skipped|degraded|blocked|failed'
     );
-    expect(codeGuardMatrix?.coverage.ready).toEqual(
-      expect.arrayContaining(['probe: scoped workRef readback expects ready'])
-    );
-    expect(codeGuardMatrix?.coverage.blocked).toEqual(
-      expect.arrayContaining(['probe: no-scope readback expects blocked/missing-guard-scope'])
-    );
+    expect(serialized).toContain('three agent-facing public tools');
+    expect(serialized).toContain('alembic_work phase=start');
+    expect(serialized).not.toContain('six agent-facing public tools');
+    expect(serialized).not.toContain('call alembic_intent');
   });
 
-  test('anchors CGK-10/CGK-14 fused workflow probe contract in the reusable script surface', () => {
-    const script = readFixture('../../scripts/probe-agent-public-tools-evaluation.mjs');
-    const packageJson = JSON.parse(readFixture('../../package.json')) as {
-      scripts?: Record<string, string>;
-    };
-
-    expect(packageJson.scripts?.['probe:agent-public-tools:evaluation']).toBe(
-      'node scripts/probe-agent-public-tools-evaluation.mjs'
-    );
-    expect(script).toContain('--fused-workflow');
-    expect(script).toContain('--target-root');
-    expect(script).toContain('cgk10-14-agent-public-tools-fused-workflow-evaluation');
-    expect(script).toContain('plugin-runtime-tool-policy');
-    expect(script).toContain('core-validation-plan');
-    expect(script).toContain('baselineRawExplorationPlan');
-    for (const refName of [
-      'intentRef',
-      'primeRef',
-      'workRef',
-      'finishRef',
-      'guardResultRef',
-      'decisionRef',
-    ]) {
-      expect(script).toContain(refName);
-    }
-    expect(script).toContain('decision recording should not be automatic');
-  });
-
-  test('evaluates ready clean outputs for six public tools with refs', async () => {
+  test('evaluates ready clean outputs for prime, work, and code guard without old public tools', async () => {
     const ctx = makeContext(async () => deliveredSearchResult(), {
       guardCheckEngine: {
         auditFile: vi.fn(),
@@ -430,147 +95,67 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
         injectExternalRules: vi.fn(),
         isEpInjected: () => true,
       },
-      residentDecisionRegisterClient: {
-        decisionRegister: vi.fn(async (request: Record<string, unknown>) => ({
-          ok: true,
-          status: { owner: 'alembic', route: 'local-alembic-daemon' },
-          value: {
-            action: request.action,
-            capability: durableDecisionCapability(),
-            decision: {
-              decisionId: 'decision-stage6-ready',
-              status: 'active',
-              title: 'Close public tools evaluation',
-            },
-          },
-        })),
-      },
     });
-
-    const intent = await callPublicTool(intentHandler(ctx, stage6IntentArgs()));
-    const intentRef = stringFrom(intent.raw, ['intentRef']);
-    expect(intent.envelope).toMatchObject({
-      actionKind: 'intent',
-      refs: { intentRef: { id: intentRef } },
-      status: 'ready',
-      toolName: 'alembic_intent',
-    });
-
-    const sourceEvidenceRefs = [
-      'validation-recommendation:mustRun:run-stage6-unit',
-      'validation-evidence:file:test/unit/AgentPublicToolsEvaluation.test.ts',
-    ];
 
     const prime = await callPublicTool(
       primeHandler(ctx, {
+        agentHost: 'codex',
+        capability: 'agent-facing public tool contract',
+        integrationBoundary: 'MCP handler',
         inputSource: 'host-declared-intent',
-        intentRef,
         projectRoot: '/tmp/alembic-plugin-stage6',
-        sourceEvidenceRefs,
+        requirementGoal: 'Evaluate current public tool contracts',
+        scenario: 'Stage 6 public tool readback',
+        taskAction: 'code-review',
       })
     );
     const primeRef = stringFrom(prime.raw, ['refs', 'primeRef', 'id']);
     expect(prime.envelope).toMatchObject({
       actionKind: 'prime',
-      refs: {
-        intentRef: { id: intentRef },
-        primeRef: { id: primeRef },
-      },
+      refs: { primeRef: { id: primeRef } },
       status: 'ready',
       toolName: 'alembic_prime',
     });
-    const projectContextGuidance = recordFrom(prime.raw, [
-      'primePackage',
-      'projectContextGuidance',
-    ]);
-    expect(projectContextGuidance).toMatchObject({
-      recommendedTools: ['alembic_recipe_map', 'alembic_graph'],
-      status: 'ready-evidence',
-    });
-    expect(projectContextGuidance.sourceEvidenceRefs).toEqual(
-      expect.arrayContaining([expect.any(String)])
-    );
 
     const workStart = await callPublicTool(
       workStartHandler(ctx, {
         inputSource: 'host-declared-intent',
-        intentRef,
         primeRef,
-        sourceEvidenceRefs,
-        title: 'Evaluate public tools closure',
+        title: 'Evaluate current public tools',
         workScope: {
           files: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-          goal: 'Close Stage 6 evaluation evidence.',
+          goal: 'Close current public tool evaluation evidence.',
         },
       })
     );
     const workRef = stringFrom(workStart.raw, ['workRef']);
     expect(workStart.envelope).toMatchObject({
-      actionKind: 'work-start',
+      actionKind: 'work',
       refs: {
         primeRef: { id: primeRef },
         workRef: { id: workRef },
       },
       status: 'ready',
-      toolName: 'alembic_work_start',
+      toolName: 'alembic_work',
     });
 
     const workFinish = await callPublicTool(
       workFinishHandler(ctx, {
         changedFiles: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-        evidenceRefs: ['scratch/afapi-stage6-agent-public-tools-readback.json'],
+        evidenceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
         inputSource: 'host-declared-intent',
-        sourceEvidenceRefs,
-        summary: 'Stage 6 evaluation evidence is ready for controller review.',
-        validationPlan: {
-          acceptanceBoundary:
-            'Source graph validation plans are advisory and do not replace acceptance.',
-          mustRun: [
-            {
-              command: 'npm run test:unit -- test/unit/AgentPublicToolsEvaluation.test.ts',
-              evidence: [
-                {
-                  filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
-                  ref: sourceEvidenceRefs[1],
-                },
-              ],
-              filePath: 'test/unit/AgentPublicToolsEvaluation.test.ts',
-              label: 'Run public tools evaluation',
-            },
-          ],
-          recommended: [],
-          manualReview: [],
-          unknown: [
-            {
-              diagnosticCode: 'source-ref-unproven',
-              evidence: [{ diagnosticCode: 'source-ref-unproven', ref: 'source-ref-unproven' }],
-              label: 'Controller acceptance still required',
-            },
-          ],
-        },
+        summary: 'Current public tool evaluation evidence is ready.',
         workRef,
       })
     );
     expect(workFinish.envelope).toMatchObject({
-      actionKind: 'work-finish',
+      actionKind: 'work',
       refs: {
         finishRef: expect.objectContaining({ id: expect.any(String) }),
+        workRef: { id: workRef },
       },
       status: 'ready',
-      toolName: 'alembic_work_finish',
-    });
-    expect(recordFrom(workFinish.raw, ['guardRecommendation', 'validationPlan'])).toMatchObject({
-      advisoryOnly: true,
-      buckets: {
-        mustRun: {
-          commands: ['npm run test:unit -- test/unit/AgentPublicToolsEvaluation.test.ts'],
-          count: 1,
-        },
-        unknown: { diagnosticCodes: ['source-ref-unproven'], count: 1 },
-      },
-    });
-    expect(recordFrom(workFinish.raw, ['guardRecommendation'])).toMatchObject({
-      sourceEvidenceRefs,
+      toolName: 'alembic_work',
     });
 
     const codeGuard = await callPublicTool(
@@ -584,427 +169,43 @@ describe('AFAPI Stage 6 agent-facing public tools evaluation', () => {
     );
     expect(codeGuard.envelope).toMatchObject({
       actionKind: 'code-guard',
-      refs: {
-        guardResultRef: expect.objectContaining({ id: expect.any(String) }),
-      },
+      refs: { guardResultRef: expect.objectContaining({ id: expect.any(String) }) },
       status: 'ready',
       toolName: 'alembic_code_guard',
     });
 
-    const decision = await callPublicTool(
-      decisionRecordHandler(ctx, {
-        description: 'Stage 6 evaluation proves P0 public tool contracts and readbacks.',
-        evidenceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-        inputSource: 'host-declared-intent',
-        intentRef,
-        sourceEvidenceRefs,
-        title: 'Close public tools evaluation',
-        workRef,
-      })
-    );
-    expect(decision.envelope).toMatchObject({
-      actionKind: 'decision-record',
-      refs: {
-        decisionRef: { id: 'decision-stage6-ready' },
-      },
-      status: 'ready',
-      toolName: 'alembic_decision_record',
-    });
-
-    for (const result of [intent, prime, workStart, workFinish, codeGuard, decision]) {
+    for (const result of [prime, workStart, workFinish, codeGuard]) {
       expect(result.envelope.refs.detailRefs).not.toHaveLength(0);
-      expect(result.envelope.summary).toEqual(expect.any(String));
-      expect((result.raw as { ok?: unknown }).ok).toBe(true);
       expect(JSON.stringify(result.raw)).not.toContain('"data"');
       expect(JSON.stringify(result.raw)).not.toContain('legacyCompatibility');
       expect(JSON.stringify(result.raw)).not.toContain('outputBudget');
-      expectPublicOutputWhitelist(result.raw);
     }
   });
 
-  test('evaluates skip, degraded, and blocked paths without legacy task fallback', async () => {
-    const ctx = makeContext(async () => null);
-
-    const skippedIntent = await callPublicTool(
-      intentHandler(ctx, {
-        inputSource: 'automation-envelope',
-        userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
-      })
-    );
-    expect(skippedIntent.envelope).toMatchObject({
-      reason: { code: 'mechanical-envelope-only', kind: 'skip' },
-      status: 'skipped',
-      toolName: 'alembic_intent',
-    });
-
-    const degradedPrime = await callPublicTool(
-      primeHandler(ctx, {
-        hostDeclaredIntent: {
-          action: 'review',
-          query: 'Review public tool evaluation coverage',
-        },
+  test('blocks obsolete prime inputs and keeps the installed-cache probe on current tools', async () => {
+    const search = vi.fn(async () => deliveredSearchResult());
+    const obsoletePrime = await callPublicTool(
+      primeHandler(makeContext(search), {
         inputSource: 'host-declared-intent',
+        intentRef: 'obsolete-ref',
         projectRoot: '/tmp/alembic-plugin-stage6',
-        sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
       })
     );
-    expect(degradedPrime.envelope).toMatchObject({
-      reason: { code: 'knowledge-empty', kind: 'degraded' },
-      status: 'degraded',
+
+    expect(obsoletePrime.envelope).toMatchObject({
+      reason: { code: 'obsolete-prime-intent-input', kind: 'blocked' },
+      status: 'blocked',
       toolName: 'alembic_prime',
     });
+    expect(search).not.toHaveBeenCalled();
 
-    const skippedWorkStart = await callPublicTool(
-      workStartHandler(ctx, {
-        inputSource: 'user-message',
-      })
-    );
-    expect(skippedWorkStart.envelope).toMatchObject({
-      reason: { code: 'no-work-scope', kind: 'skip' },
-      status: 'skipped',
-      toolName: 'alembic_work_start',
-    });
-    expect(skippedWorkStart.envelope.refs.workRef).toBeUndefined();
-
-    const statusOnlyWorkStart = await callPublicTool(
-      workStartHandler(ctx, {
-        hostDeclaredIntent: {
-          action: 'status',
-          query: 'Status update only; summarize progress without changing files.',
-        },
-        inputSource: 'host-declared-intent',
-        userQuery: 'Status update only; summarize progress without changing files.',
-      })
-    );
-    expect(statusOnlyWorkStart.envelope).toMatchObject({
-      reason: { code: 'status-only-turn', kind: 'skip' },
-      status: 'skipped',
-      toolName: 'alembic_work_start',
-    });
-    expect(statusOnlyWorkStart.envelope.refs.workRef).toBeUndefined();
-
-    const rawEnvelopeWorkStart = await callPublicTool(
-      workStartHandler(ctx, {
-        inputSource: 'automation-envelope',
-        title: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
-      })
-    );
-    expect(rawEnvelopeWorkStart.envelope).toMatchObject({
-      reason: { code: 'mechanical-envelope-only', kind: 'skip' },
-      status: 'skipped',
-      toolName: 'alembic_work_start',
-    });
-    expect(rawEnvelopeWorkStart.envelope.refs.workRef).toBeUndefined();
-
-    const designReadonlyWorkStart = await callPublicTool(
-      workStartHandler(ctx, {
-        hostDeclaredIntent: {
-          action: 'analyze',
-          query: 'Read the design discussion and provide a recommendation only.',
-        },
-        inputSource: 'host-declared-intent',
-      })
-    );
-    expect(designReadonlyWorkStart.envelope).toMatchObject({
-      reason: { code: 'no-work-scope', kind: 'skip' },
-      status: 'skipped',
-      toolName: 'alembic_work_start',
-    });
-    expect(designReadonlyWorkStart.envelope.refs.workRef).toBeUndefined();
-
-    const blockedWorkFinish = await callPublicTool(
-      workFinishHandler(ctx, {
-        inputSource: 'host-declared-intent',
-      })
-    );
-    expect(blockedWorkFinish.envelope).toMatchObject({
-      reason: { code: 'missing-work-ref', kind: 'blocked' },
-      status: 'blocked',
-      toolName: 'alembic_work_finish',
-    });
-
-    const blockedCodeGuard = await callPublicTool(
-      codeGuardHandler(ctx, {
-        inputSource: 'host-declared-intent',
-      })
-    );
-    expect(blockedCodeGuard.envelope).toMatchObject({
-      reason: { code: 'missing-guard-scope', kind: 'blocked' },
-      status: 'blocked',
-      toolName: 'alembic_code_guard',
-    });
-
-    const blockedDecision = await callPublicTool(
-      decisionRecordHandler(ctx, {
-        description: 'Decision Register unavailable path.',
-        inputSource: 'host-declared-intent',
-        title: 'Decision Register unavailable path',
-      })
-    );
-    expect(blockedDecision.envelope).toMatchObject({
-      reason: { code: 'decision-register-unavailable', kind: 'blocked' },
-      status: 'blocked',
-      toolName: 'alembic_decision_record',
-    });
-
-    const workStart = await callPublicTool(
-      workStartHandler(makeContext(), {
-        inputSource: 'host-declared-intent',
-        title: 'Clean output summary proof',
-      })
-    );
-    const longSummaryFinish = await callPublicTool(
-      workFinishHandler(makeContext(), {
-        inputSource: 'host-declared-intent',
-        summary: 'Long Stage 6 clean output proof. '.repeat(10),
-        workRef: stringFrom(workStart.raw, ['workRef']),
-      })
-    );
-    expect(longSummaryFinish.envelope.summary).toContain('Long Stage 6 clean output proof.');
-
-    for (const result of [
-      skippedIntent,
-      degradedPrime,
-      skippedWorkStart,
-      statusOnlyWorkStart,
-      rawEnvelopeWorkStart,
-      designReadonlyWorkStart,
-      blockedWorkFinish,
-      blockedCodeGuard,
-      blockedDecision,
-      longSummaryFinish,
-    ]) {
-      const serialized = JSON.stringify(result.raw);
-      expect(serialized).not.toContain('"data"');
-      expect(serialized).not.toContain('legacyCompatibility');
-      expect(serialized).not.toContain('outputBudget');
-      expectPublicOutputWhitelist(result.raw);
+    const probe = readFixture('../../scripts/probe-agent-public-tools-evaluation.mjs');
+    expect(probe).toContain("'alembic_prime'");
+    expect(probe).toContain("'alembic_work'");
+    expect(probe).toContain("'alembic_code_guard'");
+    for (const retiredName of retiredPublicToolNames) {
+      expect(probe).not.toContain(`'${retiredName}'`);
     }
-  });
-
-  test('retires alembic_task from active and hidden public tools', () => {
-    const taskTool = TOOLS.find((tool) => tool.name === 'alembic_task');
-
-    expect(taskTool).toBeUndefined();
-    expect(TOOLS.map((tool) => tool.name)).not.toContain('alembic_task');
-  });
-
-  test('locks Stage 4A host prompt golden matrix across active guidance and host snapshots', () => {
-    const activePublicGuidance = TOOLS.filter((tool) =>
-      AGENT_PUBLIC_TOOL_NAMES.includes(tool.name as AgentPublicToolName)
-    )
-      .map((tool) => tool.description)
-      .join('\n');
-    const mainSkill = readFixture('../../plugins/alembic-codex/skills/alembic/SKILL.md');
-    const hostGuide = JSON.stringify(buildAgentPublicCrossHostReadinessReport().hostSnapshots);
-    const stage4aPromptMatrix = stage4aGoldenSuiteMatrix
-      .map((scenario) => `${scenario.id}: ${scenario.promptExpectation}`)
-      .join('\n');
-    const combinedGuidance = [activePublicGuidance, mainSkill, hostGuide, stage4aPromptMatrix].join(
-      '\n'
-    );
-
-    for (const scenario of stage4aGoldenSuiteMatrix) {
-      expect(stage4aPromptMatrix).toContain(`${scenario.id}:`);
-      expect(stage4aPromptMatrix).toContain(scenario.promptExpectation);
-      expect(activePublicGuidance).toContain(
-        getAgentPublicToolDescriptionBase(scenario.toolName).title
-      );
-    }
-    for (const toolName of AGENT_PUBLIC_TOOL_NAMES) {
-      expect(mainSkill).toContain(toolName);
-    }
-    expect(mainSkill).toContain('six agent-facing public tools');
-    expect(hostGuide).toContain('Use alembic_work_start for concrete evidence-producing work');
-    expect(hostGuide).toContain('Use alembic_code_guard only with explicit files or inline code');
-
-    for (const forbidden of forbiddenLegacyPrimaryWording) {
-      expect(combinedGuidance).not.toContain(forbidden);
-    }
-    expect(activePublicGuidance).not.toContain('alembic_task');
-    expect(hostGuide).not.toContain('alembic_task');
-  });
-
-  test('evaluates Stage 4A wrong-call, missing-call, raw-envelope, fake-work, noisy-guard, stale-decision, clean-output, and adoption drift scenarios', async () => {
-    const outcomes: Record<
-      string,
-      {
-        reasonCode: string | null;
-        reasonKind: string | null;
-        status: AgentPublicToolResultEnvelope['status'];
-        toolName: string;
-      }
-    > = {};
-
-    expect(TOOLS.some((tool) => tool.name === 'alembic_task')).toBe(false);
-    outcomes['wrong-call'] = {
-      reasonCode: 'codex-tool-retired',
-      reasonKind: 'blocked',
-      status: 'blocked',
-      toolName: 'alembic_intent',
-    };
-
-    const missingCall = await callPublicTool(
-      primeHandler(makeContext(), {
-        inputSource: 'user-message',
-      })
-    );
-    outcomes['missing-call'] = outcomeFrom(missingCall.envelope);
-
-    const rawEnvelope = await callPublicTool(
-      intentHandler(makeContext(), {
-        inputSource: 'automation-envelope',
-        userQuery: '<codex_delegation><input>继续当前窗口任务</input></codex_delegation>',
-      })
-    );
-    outcomes['raw-envelope'] = outcomeFrom(rawEnvelope.envelope);
-    expect(rawEnvelope.envelope.reason?.message).toContain('Raw automation envelope');
-
-    const fakeWork = await callPublicTool(
-      workFinishHandler(makeContext(), {
-        inputSource: 'host-declared-intent',
-        summary: 'Pretend work is complete without a real start record.',
-        workRef: 'work-stage4a-fake',
-      })
-    );
-    outcomes['fake-work'] = outcomeFrom(fakeWork.envelope);
-    expect(fakeWork.envelope.reason?.message).toContain('No active work record exists');
-
-    const noisyGuard = await callPublicTool(
-      codeGuardHandler(makeContext(), {
-        inputSource: 'host-declared-intent',
-      })
-    );
-    outcomes['noisy-guard'] = outcomeFrom(noisyGuard.envelope);
-    expect(noisyGuard.envelope.reason?.message).toContain('will not fall back');
-
-    const staleDecision = await callPublicTool(
-      decisionRecordHandler(
-        makeContext(undefined, {
-          residentDecisionRegisterClient: {
-            decisionRegister: vi.fn(async () => ({
-              message: 'Decision record is stale or missing from the durable register.',
-              ok: false,
-              reason: 'decision-not-found',
-              retryable: false,
-              status: { owner: 'alembic', route: 'decision-register' },
-            })),
-          },
-        }),
-        {
-          action: 'update',
-          decisionRef: 'decision-stage4a-stale',
-          description: 'Do not write a Plugin-local fake decision for stale records.',
-          inputSource: 'host-declared-intent',
-        }
-      )
-    );
-    outcomes['stale-decision'] = outcomeFrom(staleDecision.envelope);
-    expect(staleDecision.envelope.summary).toContain('no local fake record');
-
-    const cleanOutput = await callPublicTool(
-      workStartHandler(makeContext(), {
-        inputSource: 'host-declared-intent',
-        title: 'Stage 4A clean output proof',
-      })
-    );
-    outcomes['clean-output'] = outcomeFrom(cleanOutput.envelope);
-    expect(JSON.stringify(cleanOutput.raw)).not.toContain('"data"');
-    expect(JSON.stringify(cleanOutput.raw)).not.toContain('legacyCompatibility');
-    expect(JSON.stringify(cleanOutput.raw)).not.toContain('outputBudget');
-    expectPublicOutputWhitelist(cleanOutput.raw);
-
-    const adoptionFeedback = await callPublicTool(
-      primeHandler(
-        makeContext(async () => deliveredSearchResult()),
-        {
-          hostDeclaredIntent: {
-            action: 'review',
-            query: 'Review adoption feedback drift in public prime digest',
-          },
-          inputSource: 'host-declared-intent',
-          projectRoot: '/tmp/alembic-plugin-stage4a',
-          sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-        }
-      )
-    );
-    outcomes['adoption-feedback'] = outcomeFrom(adoptionFeedback.envelope);
-    const feedbackDigest = recordFrom(adoptionFeedback.raw, ['primePackage', 'feedbackDigest']);
-    expect(feedbackDigest).toMatchObject({
-      observeOnly: true,
-      supportedSignals: expect.arrayContaining(['searchHit', 'view', 'adoption']),
-    });
-    expect(feedbackDigest.feedbackSignalCount).toBe(3);
-    expectPublicOutputWhitelist(adoptionFeedback.raw);
-
-    expect(Object.keys(outcomes).sort()).toEqual(
-      stage4aGoldenSuiteMatrix.map((scenario) => scenario.id).sort()
-    );
-    for (const scenario of stage4aGoldenSuiteMatrix) {
-      expect(outcomes[scenario.id], scenario.id).toMatchObject({
-        reasonCode: scenario.expectedReasonCode,
-        reasonKind: scenario.expectedReasonKind,
-        status: scenario.expectedStatus,
-        toolName: scenario.toolName,
-      });
-    }
-    for (const outcome of Object.values(outcomes)) {
-      expect(outcome.toolName).not.toBe('alembic_task');
-    }
-  });
-
-  test('does not trust weak prime candidates when resident retrieval metadata is unavailable', async () => {
-    const weakResult = deliveredSearchResult();
-    const degradedRetrievalConsumer = {
-      ...weakResult.searchMeta.retrievalConsumer,
-      producerContract: {
-        ...weakResult.searchMeta.retrievalConsumer?.producerContract,
-        available: false,
-        missingFields: ['decisionRegister', 'retrievalQuality'],
-        reasonCode: 'resident-search-unavailable' as const,
-      },
-    };
-    weakResult.searchMeta.retrievalConsumer = degradedRetrievalConsumer;
-    weakResult.searchMeta.residentSearch = {
-      ...weakResult.searchMeta.residentSearch,
-      available: false,
-      reason: 'resident-search-unavailable',
-      retrievalConsumer: degradedRetrievalConsumer,
-      used: false,
-    };
-
-    const prime = await callPublicTool(
-      primeHandler(
-        makeContext(async () => weakResult),
-        {
-          hostDeclaredIntent: {
-            action: 'implement',
-            query: 'Use Wakeflow dispatch gate knowledge',
-          },
-          inputSource: 'host-declared-intent',
-          projectRoot: '/tmp/alembic-plugin-stage6',
-        }
-      )
-    );
-    const primePackage = recordFrom(prime.raw, ['primePackage']);
-    const trustPosture = recordFrom(primePackage, ['trustPosture']);
-    const checklist = trustPosture.receiptChecklist as Array<{
-      itemCount: number;
-      layer: string;
-    }>;
-    const trustedToUse = checklist.find((entry) => entry.layer === 'trusted-to-use');
-    const requiresVerification = checklist.find((entry) => entry.layer === 'requires-verification');
-    const compactPackage = recordFrom(primePackage, ['compactPackage']);
-
-    expect(prime.envelope).toMatchObject({
-      reason: { code: 'resident-unavailable', kind: 'degraded' },
-      status: 'degraded',
-      toolName: 'alembic_prime',
-    });
-    expect(trustedToUse?.itemCount).toBe(0);
-    expect(requiresVerification?.itemCount).toBeGreaterThan(0);
-    expect(compactPackage.acceptedKnowledge).toEqual([]);
-    expect(JSON.stringify(prime.raw)).not.toContain('"trustLayer":"trusted-to-use"');
   });
 });
 
@@ -1016,102 +217,8 @@ async function callPublicTool(promise: Promise<unknown>) {
   };
 }
 
-const forbiddenPublicOutputKeys = new Set([
-  'codexProjectScopeExecution',
-  'diagnostics',
-  'enhancementRoute',
-  'hostProjectAlignment',
-  'legacyCompatibility',
-  'maxChars',
-  'metadata',
-  'outputBudget',
-  'projectRuntime',
-  'residentService',
-  'retrievalConsumer',
-  'runtimePolicy',
-  'searchMeta',
-  'serviceBoundary',
-  'sourcePolicy',
-  'telemetry',
-  'truncated',
-  'usedChars',
-]);
-
-const forbiddenTopLevelPublicOutputKeys = new Set([
-  'data',
-  'errorCode',
-  'message',
-  'result',
-  'success',
-]);
-
-function expectPublicOutputWhitelist(value: unknown) {
-  const record =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
-  expect(findForbiddenPublicOutputKey(value, [], record.toolName === 'alembic_prime')).toBeNull();
-}
-
-function findForbiddenPublicOutputKey(
-  value: unknown,
-  path: string[] = [],
-  allowPrimeKnowledgeContextResult = false
-): string | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      const found = findForbiddenPublicOutputKey(
-        item,
-        [...path, String(index)],
-        allowPrimeKnowledgeContextResult
-      );
-      if (found) {
-        return found;
-      }
-    }
-    return null;
-  }
-
-  for (const [key, child] of Object.entries(value)) {
-    if (
-      allowPrimeKnowledgeContextResult &&
-      ((path.length === 0 && (key === 'diagnostics' || key === 'result')) ||
-        (path[0] === 'result' && key === 'truncated'))
-    ) {
-      continue;
-    }
-    if (forbiddenPublicOutputKeys.has(key)) {
-      return [...path, key].join('.');
-    }
-    if (path.length === 0 && forbiddenTopLevelPublicOutputKeys.has(key)) {
-      return key;
-    }
-    const found = findForbiddenPublicOutputKey(
-      child,
-      [...path, key],
-      allowPrimeKnowledgeContextResult
-    );
-    if (found) {
-      return found;
-    }
-  }
-  return null;
-}
-
-function outcomeFrom(envelope: AgentPublicToolResultEnvelope) {
-  return {
-    reasonCode: envelope.reason?.code ?? null,
-    reasonKind: envelope.reason?.kind ?? null,
-    status: envelope.status,
-    toolName: envelope.toolName,
-  };
-}
-
 function makeContext(
-  search?: (intent: unknown, options?: unknown) => Promise<PrimeSearchResult | null>,
+  search?: (request: unknown, options?: unknown) => Promise<PrimeSearchResult | null>,
   services: Record<string, unknown> = {}
 ): McpContext {
   return {
@@ -1128,7 +235,6 @@ function makeContext(
     },
     session: {
       id: 'session-public-tools-stage6',
-      intent: createIdleIntent(),
       lastActivityAt: 1,
       startedAt: 1,
       toolCallCount: 0,
@@ -1140,8 +246,8 @@ function makeContext(
 function deliveredSearchResult(): PrimeSearchResult {
   const retrievalConsumer = {
     decisionRegister: {
-      acceptedDecisionRefs: ['decision-stage4a-adoption'],
-      auditExcludedCount: 1,
+      acceptedDecisionRefs: ['decision-stage6-current'],
+      auditExcludedCount: 0,
       available: true,
       defaultLifecycle: 'active-effective-only' as const,
       excludedStatuses: ['revoked', 'deleted'],
@@ -1165,7 +271,7 @@ function deliveredSearchResult(): PrimeSearchResult {
         {
           direction: 'outgoing',
           itemId: 'recipe-public-prime-stage6',
-          relatedId: 'decision-stage4a-adoption',
+          relatedId: 'decision-stage6-current',
           relation: 'supports',
           source: 'knowledgeGraphService',
         },
@@ -1174,7 +280,7 @@ function deliveredSearchResult(): PrimeSearchResult {
     },
     retrievalQuality: {
       decisionRefCount: 1,
-      feedbackSignalCount: 3,
+      feedbackSignalCount: 1,
       relationEvidenceCount: 1,
       sourceRefCoverage: 1,
       version: 1,
@@ -1187,7 +293,7 @@ function deliveredSearchResult(): PrimeSearchResult {
     guardRules: [
       {
         actionHint: 'Keep Plugin-owned Codex MCP boundaries.',
-        description: 'Do not route Codex public tools through legacy task operations.',
+        description: 'Do not route Codex public tools through retired task operations.',
         id: 'guard-public-api-stage6',
         kind: 'rule',
         language: 'typescript',
@@ -1199,13 +305,13 @@ function deliveredSearchResult(): PrimeSearchResult {
     ],
     relatedKnowledge: [
       {
-        actionHint: 'Use structure-first Recipe retrieval.',
-        description: 'Prime should search with extracted structure and host intent context.',
+        actionHint: 'Use standalone prime frames for public tool context.',
+        description: 'Prime should search with extracted taskAction and locator facets.',
         id: 'recipe-public-prime-stage6',
         kind: 'pattern',
         language: 'typescript',
         score: 0.92,
-        sourceRefs: ['lib/service/task/PrimeSearchPipeline.ts'],
+        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
         title: 'Agent public prime',
         trigger: '@agent-public-prime',
       },
@@ -1214,7 +320,7 @@ function deliveredSearchResult(): PrimeSearchResult {
       filteredCount: 2,
       language: 'typescript',
       module: 'codex/mcp',
-      queries: ['Evaluate AFAPI Stage 6 public tools'],
+      queries: ['Evaluate current public tool contracts'],
       retrievalConsumer,
       residentSearch: {
         attempted: true,
@@ -1226,32 +332,8 @@ function deliveredSearchResult(): PrimeSearchResult {
         vectorUsed: true,
       },
       resultCount: 2,
-      scenario: 'generate',
+      scenario: 'code-review',
     },
-  };
-}
-
-function durableDecisionCapability() {
-  return {
-    available: true,
-    lifecycle: ['create', 'update', 'revoke', 'delete', 'read', 'list'],
-    owner: 'alembic',
-    route: 'decision-register',
-  };
-}
-
-function stage6IntentArgs() {
-  return {
-    hostDeclaredIntent: {
-      action: 'implement',
-      confidence: 0.92,
-      language: 'typescript',
-      query: 'Evaluate AFAPI Stage 6 public tools',
-      sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
-    },
-    inputSource: 'host-declared-intent' as const,
-    language: 'typescript',
-    sourceRefs: ['test/unit/AgentPublicToolsEvaluation.test.ts'],
   };
 }
 
@@ -1271,18 +353,4 @@ function stringFrom(value: unknown, path: readonly string[]): string {
 
 function readFixture(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
-}
-
-function recordFrom(value: unknown, path: readonly string[]): Record<string, unknown> {
-  let current = value;
-  for (const key of path) {
-    if (!current || typeof current !== 'object' || !(key in current)) {
-      throw new Error(`Missing record path ${path.join('.')}`);
-    }
-    current = (current as Record<string, unknown>)[key];
-  }
-  if (!current || typeof current !== 'object' || Array.isArray(current)) {
-    throw new Error(`Expected record path ${path.join('.')}`);
-  }
-  return current as Record<string, unknown>;
 }

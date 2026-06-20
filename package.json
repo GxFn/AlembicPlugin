@@ -61,6 +61,7 @@
     "probe:codex-plugin:tools-local": "node scripts/verify-codex-plugin-tools-local.mjs",
     "probe:agent-public-tools:evaluation": "node scripts/probe-agent-public-tools-evaluation.mjs",
     "probe:codex-plugin-startup-runtime": "node scripts/probe-codex-plugin-startup-runtime.mjs",
+    "rebuild:local-knowledge-indexes": "node scripts/rebuild-local-knowledge-indexes.mjs",
     "prepare:codex-runtime-package": "node scripts/prepare-codex-runtime-package.mjs",
     "check:runtime-pack-freshness": "node scripts/check-runtime-pack-freshness.mjs",
     "verify:codex-runtime-package": "node scripts/verify-codex-runtime-package-boundary.mjs",

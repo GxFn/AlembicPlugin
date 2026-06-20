@@ -66,17 +66,22 @@ export class RecipeMapProvider {
       return failedRecipeMapOutput(request, error);
     }
 
-    const diagnostics: MapDiagnostic[] = region.diagnostics.map(regionDiagnosticToMap);
+    let diagnostics: MapDiagnostic[] = region.diagnostics.map(regionDiagnosticToMap);
     const index = buildRegionIndex(region);
 
     let mounts: RecipeMountSummary[] = [];
     let deferred: string[] = [];
+    let usedRecordSourceFallback = false;
     if (request.includeRecipes) {
       const collected = await collectRecipeMounts(region, index, deps, diagnostics);
       mounts = collected.mounts;
       deferred = collected.deferredRecipeIds;
+      usedRecordSourceFallback = collected.usedRecordSourceFallback;
     }
     mounts = mounts.sort(compareMounts).slice(0, request.recipeMountLimit);
+    if (usedRecordSourceFallback && mounts.length + deferred.length > 0) {
+      diagnostics = suppressResolvedSourceRefMissDiagnostics(diagnostics);
+    }
 
     const rollups = request.includeRollups ? buildRollups(region, index, mounts, deferred) : [];
     const nodes = projectRegionNodes(region, index, mounts, deferred).slice(0, request.nodeLimit);
@@ -128,7 +133,11 @@ async function collectRecipeMounts(
   index: ReturnType<typeof buildRegionIndex>,
   deps: RecipeMapDeps,
   diagnostics: MapDiagnostic[]
-): Promise<{ mounts: RecipeMountSummary[]; deferredRecipeIds: string[] }> {
+): Promise<{
+  deferredRecipeIds: string[];
+  mounts: RecipeMountSummary[];
+  usedRecordSourceFallback: boolean;
+}> {
   const scopePrefix = regionScopePrefix(region);
   const { rows, diagnostics: refDiagnostics } = await deps.querySourceRefs(
     scopePrefix ? { pathPrefix: scopePrefix } : {}
@@ -143,7 +152,13 @@ async function collectRecipeMounts(
   // Candidate recipes = code recipes with refs in the region scope + global/
   // metadata-scope no-code recipes that apply to the focus region.
   const candidateIds = new Set<string>(rows.map((row) => row.recipeId));
+  let usedRecordSourceFallback = false;
   for (const record of records) {
+    if (!rowsByRecipe.has(record.id) && recordFallbackRefsApplyToScope(record, scopePrefix)) {
+      candidateIds.add(record.id);
+      usedRecordSourceFallback = true;
+      continue;
+    }
     if (!rowsByRecipe.has(record.id) && noCodeRecipeAppliesToRegion(record, index, region)) {
       candidateIds.add(record.id);
     }
@@ -192,7 +207,7 @@ async function collectRecipeMounts(
       detailRef: `recipe:${record.id}`,
     });
   }
-  return { mounts, deferredRecipeIds };
+  return { mounts, deferredRecipeIds, usedRecordSourceFallback };
 }
 
 function normalizeRecipeRefs(
@@ -208,6 +223,24 @@ function normalizeRecipeRefs(
   const rawRefs =
     record.sources.length > 0 ? record.sources : record.sourceFile ? [record.sourceFile] : [];
   return rawRefs.map((raw) => normalizeRecipeRef(record.id, raw, 'active'));
+}
+
+function recordFallbackRefsApplyToScope(record: RecipeRecordLite, scopePrefix?: string): boolean {
+  const refs = normalizeRecipeRefs(record, []);
+  const codeRefs = refs.filter((ref) => ref.filePath);
+  if (codeRefs.length === 0) {
+    return false;
+  }
+  if (!scopePrefix) {
+    return true;
+  }
+  const normalizedScope = normalizeRecipeRef(record.id, scopePrefix, 'active').filePath;
+  if (!normalizedScope) {
+    return true;
+  }
+  return codeRefs.some(
+    (ref) => ref.filePath === normalizedScope || ref.filePath?.startsWith(`${normalizedScope}/`)
+  );
 }
 
 function noCodeRecipeAppliesToRegion(
@@ -413,6 +446,16 @@ function dedupeMapDiagnostics(diagnostics: MapDiagnostic[]): MapDiagnostic[] {
       ])
     ).values(),
   ];
+}
+
+function suppressResolvedSourceRefMissDiagnostics(diagnostics: MapDiagnostic[]): MapDiagnostic[] {
+  return diagnostics.filter(
+    (diagnostic) =>
+      !(
+        diagnostic.code === 'recipe-context-unresolved' &&
+        /No source refs matched the query/i.test(diagnostic.message)
+      )
+  );
 }
 
 function failedRecipeMapOutput(request: RecipeMapRequest, error: unknown): AlembicRecipeMapOutput {

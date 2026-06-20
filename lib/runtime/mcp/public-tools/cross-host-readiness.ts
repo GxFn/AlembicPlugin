@@ -104,7 +104,7 @@ export function buildAgentPublicCrossHostPromptSnapshot(
     guardAndDecision: 'Use alembic_code_guard only with explicit files or inline code.',
     hostLabel: HOST_LABEL_BY_AGENT_HOST[agentHost],
     legacyBoundary:
-      'Legacy compatibility hooks are not the primary guide for this host; use the six agent-facing public tools.',
+      'Legacy compatibility hooks are not the primary guide for this host; use the three agent-facing public tools.',
     primeFlow:
       'Call alembic_prime directly before coding with taskAction, requirementGoal, and locator facets; obsolete intentRef/recognizedIntent inputs are blocked.',
     schemaSignature: SHARED_SCHEMA_SIGNATURE,

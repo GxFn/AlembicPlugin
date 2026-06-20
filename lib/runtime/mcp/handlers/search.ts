@@ -1506,9 +1506,11 @@ function nextActionsForDetail(
 
 function ignoredSearchInputs(args: SearchArgs): string[] {
   const ignored = [
+    readString(args.activeFile) === undefined ? undefined : 'activeFile',
     Array.isArray(args.sessionHistory) ? 'sessionHistory' : undefined,
     readRecord(args.hostDeclaredIntent) === undefined ? undefined : 'hostDeclaredIntent',
     readRecord(args.hostTurnMeta) === undefined ? undefined : 'hostTurnMeta',
+    readString(args.module) === undefined ? undefined : 'module',
     readStringArray(args.sourceRefs).length === 0 ? undefined : 'sourceRefs',
     readStringArray(args.sourceEvidenceRefs).length === 0 ? undefined : 'sourceEvidenceRefs',
   ];

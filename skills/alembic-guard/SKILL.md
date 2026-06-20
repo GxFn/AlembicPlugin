@@ -49,7 +49,7 @@ The public contract does not accept `diffRef`, `primeRef`, `acceptedGuards`, or 
 { "workRef": "work-public-1" }
 ```
 
-The workRef form only uses source files already recorded by `alembic_work_start` / `alembic_work_finish`. If no scoped files exist, Guard returns `no-code-scope` instead of scanning unrelated repository state.
+The workRef form only uses source files already recorded by `alembic_work` start/finish phases. If no scoped files exist, Guard returns `no-code-scope` instead of scanning unrelated repository state.
 
 ## Workflow
 
