@@ -40,6 +40,15 @@ describe('Codex skill ProjectContext guidance', () => {
     expect(content).not.toContain('additionalProperties');
   });
 
+  test('keeps host-agnostic workflow skill byte-identical across shell packages', () => {
+    const codexSkill = readRepoFile('plugins/alembic-codex/skills/alembic/SKILL.md');
+    const claudeCodeSkill = readRepoFile(
+      'plugins/alembic-claude-code/skills/alembic/SKILL.md'
+    );
+
+    expect(claudeCodeSkill).toBe(codexSkill);
+  });
+
   test('keeps structure skills short and routes structure through recipe_map and project graph', () => {
     const pluginSkill = readRepoFile('plugins/alembic-codex/skills/alembic-structure/SKILL.md');
     const claudeCodeSkill = readRepoFile(
@@ -79,7 +88,7 @@ describe('Codex skill ProjectContext guidance', () => {
     }
   });
 
-  test('keeps Claude Code skills host-specific', () => {
+  test('keeps Claude Code skills free of Codex-facing wording', () => {
     for (const relativePath of HOST_SKILL_FILES.filter((file) =>
       file.startsWith('plugins/alembic-claude-code/')
     )) {
