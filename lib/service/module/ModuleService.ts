@@ -17,6 +17,7 @@ import {
   resolve as _pathResolve,
   relative,
 } from 'node:path';
+import { inferLang } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
 import {
   type ModuleContext,
@@ -28,7 +29,6 @@ import {
   type ProjectMap,
   type RepoContext,
 } from '@alembic/core/project-context';
-import { inferLang } from '../../runtime/mcp/handlers/LanguageExtensions.js';
 import { attachHostAgentManagedBoundary } from './host-managed-boundary.js';
 
 /** 全局排除目录 */
