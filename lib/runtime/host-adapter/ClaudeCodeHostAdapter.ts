@@ -11,7 +11,7 @@ import {
   writeCodexSavedProjectRoot,
 } from '../ProjectRootResolver.js';
 import {
-  CODEX_PLUGIN_HOST,
+  CLAUDE_CODE_PLUGIN_HOST,
   CODEX_SETUP_PROFILE,
   ensureCodexRuntimeEnvironment,
   type HostRuntimeContext,
@@ -21,13 +21,23 @@ import {
 import type { HostAdapter, HostInitMarkerInput } from './HostAdapter.js';
 
 /**
- * CodexHostAdapter（DH-2 / RC-2）—— HostAdapter 的 codex 实现。每个方法【逐行委托】现有
- * host-specific 函数，行为与改动前完全一致（先对齐现状、不改行为）。被委托的函数暂留原处
- * 作为 codex 实现；物理迁入 / 去 Codex 前缀留 DH-3③；host-aware 选择（codex / claude-code）
- * 见 resolveHostAdapter.ts（DH-3①）。本类不引入常驻进程（守纯 MCP 非强进程不变量）。
+ * ClaudeCodeHostAdapter（DH-3① / RC-2/3）—— HostAdapter 的 claude-code 实现。
+ *
+ * 现态（DH-0 ② 8 簇矩阵）：cc 与 codex 的「工作区身份簇」绝大部分共享 host-agnostic 实现
+ * （文件 I/O / 持久化），且 identity 已由物理 shell 形态派生（DH-1：cc shell→claude-code）。
+ * 故本 adapter 的身份簇方法委托同一组 shape/env-aware 函数——在 cc shell 上即产出 cc 行为；
+ * 真正的 cc 专属差异在 ①：hostId=claude-code + 项目根信任 CLAUDE_PROJECT_DIR（cc 工作区不再
+ * fail-closed，见 ProjectRootResolver）+ 由 resolveHostAdapter 按 shell 形态选中本实现。
+ *
+ * 留待 DH-3b / DH-4（已 flag）：cluster 5（静态 tool list）/6（无 host introspection→自生成）/8
+ * （无 turn-meta）的 cc 优雅降级细化；cc 专属 setupProfile（现复用 codex-plugin，因 init-marker
+ * profile 字段类型与 SetupService profile 锁定，属 per-host 产物）；物理迁入函数体 + de-Codex
+ * 改名。本类不引入常驻进程（守纯 MCP 非强进程不变量）。
  */
-export class CodexHostAdapter implements HostAdapter {
-  readonly hostId = CODEX_PLUGIN_HOST;
+export class ClaudeCodeHostAdapter implements HostAdapter {
+  readonly hostId = CLAUDE_CODE_PLUGIN_HOST;
+  // cc 专属 setupProfile 属 per-host 产物（DH-4）；① 暂复用 codex-plugin（init-marker 的
+  // profile 字段类型锁定 typeof CODEX_SETUP_PROFILE，独立 cc profile 需同步 SetupService）。
   readonly setupProfile = CODEX_SETUP_PROFILE;
 
   ensureRuntimeEnvironment(env?: NodeJS.ProcessEnv): void {
@@ -67,5 +77,5 @@ export class CodexHostAdapter implements HostAdapter {
   }
 }
 
-// 进程内复用一个 codex 实例。host-aware 选择见 resolveHostAdapter.ts（L3 唯一 host-name 分支）。
-export const CODEX_HOST_ADAPTER: HostAdapter = new CodexHostAdapter();
+// 进程内复用一个 cc 实例。host-aware 选择见 resolveHostAdapter.ts（L3 唯一 host-name 分支）。
+export const CLAUDE_CODE_HOST_ADAPTER: HostAdapter = new ClaudeCodeHostAdapter();

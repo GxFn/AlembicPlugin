@@ -17,6 +17,7 @@ export type CodexProjectRootSource =
   | 'ALEMBIC_PROJECT_DIR'
   | 'CODEX_WORKSPACE_DIR'
   | 'CODEX_WORKSPACE_ROOT'
+  | 'CLAUDE_PROJECT_DIR'
   | 'saved-project-root'
   | 'INIT_CWD'
   | 'PWD'
@@ -280,6 +281,10 @@ function buildProjectRootCandidates(
   pushCandidate(candidates, env.ALEMBIC_PROJECT_DIR, 'ALEMBIC_PROJECT_DIR', 'trusted', env);
   pushCandidate(candidates, env.CODEX_WORKSPACE_DIR, 'CODEX_WORKSPACE_DIR', 'trusted', env);
   pushCandidate(candidates, env.CODEX_WORKSPACE_ROOT, 'CODEX_WORKSPACE_ROOT', 'trusted', env);
+  // DH-3①: claude-code 工作区根（Claude Code 设置 CLAUDE_PROJECT_DIR）纳入可信候选，使 cc
+  // 工作区不再 fail-closed（codex 不设此 env，故 codex 行为不变）。仅多一个 host-agnostic 的
+  // 可信 env 源，按现有 trust/拒绝校验同等处理；host 选择分支只在 L3 resolveHostAdapter。
+  pushCandidate(candidates, env.CLAUDE_PROJECT_DIR, 'CLAUDE_PROJECT_DIR', 'trusted', env);
   // saved-project-root is retained as a diagnostics/readback marker only.
   // Multi-project Codex MCP identity must come from the current host folder or
   // an explicit per-call projectRoot, never from a previous window's saved root.
