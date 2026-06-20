@@ -1,7 +1,7 @@
-# ──────────────────────────────────────────────────────
-# Alembic V2 CI Pipeline
-# 构建 → API 验证 → 单元测试 → 集成测试
-# ──────────────────────────────────────────────────────
+# AlembicPlugin CI
+# 当前仓库已经是纯 MCP 插件 runtime，不再启动旧 daemon API 服务。
+# Required gates follow the accepted DH-5 verification surface: build/static
+# checks, Claude Code runtime parity, and Codex plugin packaging smoke.
 name: CI
 
 on:
@@ -11,17 +11,13 @@ on:
     branches: [main, master]
 
 env:
-  API_BASE: http://127.0.0.1:3100/api/v1
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_ENV: test
 
 jobs:
   build:
-    name: Build & Lint
+    name: Build & Static Gates
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: ['22']
     defaults:
       run:
         working-directory: AlembicPlugin
@@ -31,26 +27,36 @@ jobs:
         with:
           path: AlembicPlugin
           submodules: true
+
       - name: Checkout AlembicCore sibling
         uses: actions/checkout@v5
         with:
           repository: GxFn/AlembicCore
           path: AlembicCore
-      - uses: actions/setup-node@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          node-version: '22'
+          cache: npm
           cache-dependency-path: |
             AlembicPlugin/package-lock.json
             AlembicCore/package-lock.json
-      - run: npm ci
-      - run: npm ci --prefix ../AlembicCore
-      - run: npm run build
-      - run: npm run lint -- --diagnostic-level=error
-      - run: npm run lint:core-import-boundary
 
-  api-smoke:
-    name: API Smoke Test
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Core dependencies
+        run: npm ci --prefix ../AlembicCore
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Run static gates
+        run: npm run check
+
+  runtime-parity:
+    name: Runtime Parity Tests
     needs: build
     runs-on: ubuntu-latest
     defaults:
@@ -62,76 +68,36 @@ jobs:
         with:
           path: AlembicPlugin
           submodules: true
+
       - name: Checkout AlembicCore sibling
         uses: actions/checkout@v5
         with:
           repository: GxFn/AlembicCore
           path: AlembicCore
-      - uses: actions/setup-node@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: |
             AlembicPlugin/package-lock.json
             AlembicCore/package-lock.json
-      - run: npm ci
-      - run: npm ci --prefix ../AlembicCore
-      - run: npm run build
 
-      - name: Start API Server
-        run: |
-          ALEMBIC_PROJECT_DIR="$GITHUB_WORKSPACE/AlembicPlugin" \
-            ALEMBIC_DAEMON_HOST=127.0.0.1 \
-            ALEMBIC_DAEMON_PORT=3100 \
-            ASD_SKIP_ENTRY_CHECK=1 \
-            ASD_DISABLE_WRITE_GUARD=1 \
-            ASD_DISABLE_RATE_LIMIT=1 \
-            node dist/bin/daemon-server.js > /tmp/api-server.log 2>&1 &
-          echo "PID=$!" >> $GITHUB_ENV
-          sleep 2
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Wait for readiness
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf $API_BASE/health > /dev/null 2>&1; then
-              echo "✓ API ready (${i}s)"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "✗ API not ready after 30s"
-          cat /tmp/api-server.log
-          exit 1
+      - name: Install Core dependencies
+        run: npm ci --prefix ../AlembicCore
 
-      - name: Health check
-        run: |
-          HEALTH=$(curl -sf $API_BASE/health)
-          echo "$HEALTH" | jq .
-          echo "$HEALTH" | jq -e '.status == "healthy"'
+      - name: Build TypeScript
+        run: npm run build
 
-      - name: Readiness check
-        run: |
-          curl -sf $API_BASE/health/ready | jq -e '.ready == true'
+      - name: Run Claude Code runtime parity tests
+        run: npx vitest run test/unit/ClaudeCodeHostRuntime.test.ts
 
-      - name: API spec endpoint
-        run: |
-          SPEC=$(curl -sf http://127.0.0.1:3100/api-spec)
-          echo "$SPEC" | jq .
-          echo "$SPEC" | jq -e '.info.title == "Alembic API"'
-
-      - name: Knowledge listing
-        run: |
-          curl -sf $API_BASE/knowledge | jq -e '.success == true'
-
-      - name: Upload server log
-        if: failure()
-        uses: actions/upload-artifact@v5
-        with:
-          name: api-server-log
-          path: /tmp/api-server.log
-
-  unit-tests:
-    name: Unit Tests
+  plugin-smoke:
+    name: Plugin Package Smoke
     needs: build
     runs-on: ubuntu-latest
     defaults:
@@ -143,66 +109,36 @@ jobs:
         with:
           path: AlembicPlugin
           submodules: true
+
       - name: Checkout AlembicCore sibling
         uses: actions/checkout@v5
         with:
           repository: GxFn/AlembicCore
           path: AlembicCore
-      - uses: actions/setup-node@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: |
             AlembicPlugin/package-lock.json
             AlembicCore/package-lock.json
-      - run: npm ci
-      - run: npm ci --prefix ../AlembicCore
-      - run: npm run build
-      - run: npm run test:unit
 
-  integration-tests:
-    name: Integration Tests
-    needs: build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: AlembicPlugin
-    steps:
-      - name: Checkout AlembicPlugin
-        uses: actions/checkout@v5
-        with:
-          path: AlembicPlugin
-          submodules: true
-      - name: Checkout AlembicCore sibling
-        uses: actions/checkout@v5
-        with:
-          repository: GxFn/AlembicCore
-          path: AlembicCore
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: |
-            AlembicPlugin/package-lock.json
-            AlembicCore/package-lock.json
-      - run: npm ci
-      - run: npm ci --prefix ../AlembicCore
-      - run: npm run build
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Show Node/npm version
-        run: node -v && npm -v
+      - name: Install Core dependencies
+        run: npm ci --prefix ../AlembicCore
 
-      - name: Run integration tests
-        run: |
-          set -o pipefail
-          npm run test:integration 2>&1 | tee /tmp/integration-test.log
-        env:
-          ASD_DISABLE_WRITE_GUARD: '1'
-          ASD_DISABLE_RATE_LIMIT: '1'
+      - name: Build TypeScript
+        run: npm run build
 
-      - name: Upload test log
-        if: failure()
-        uses: actions/upload-artifact@v5
-        with:
-          name: integration-test-log
-          path: /tmp/integration-test.log
+      - name: Verify Codex plugin metadata
+        run: npm run verify:codex-plugin
+
+      - name: Verify plugin distribution
+        run: npm run verify:plugin-distribution
+
+      - name: Smoke Codex plugin package
+        run: npm run smoke:codex-plugin

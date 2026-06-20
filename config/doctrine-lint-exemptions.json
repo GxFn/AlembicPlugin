@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "P2 AD6 side-effect doctrine lint exemptions (census 2026-06-12, 17 rows). Every row needs file+binding+owner+reason; scripts/lint-doctrine.mjs validates integrity and fails on unknown rows. Null-initialized lazy slots are idiom-allowed and not listed.",
+  "description": "P2 AD6 side-effect doctrine lint exemptions (census 2026-06-12, 11 rows). Every row needs file+binding+owner+reason; scripts/lint-doctrine.mjs validates integrity and fails on unknown rows. Null-initialized lazy slots are idiom-allowed and not listed.",
   "exemptions": [
     {
       "file": "lib/runtime/mcp/output-contract.ts",
@@ -19,12 +19,6 @@
       "binding": "_lastReviewPassed",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime guard verdict cache paired with _reviewRounds."
-    },
-    {
-      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
-      "binding": "intentCounter",
-      "owner": "AlembicPlugin",
-      "reason": "Monotonic receipt counter for session-scoped agent-public-tool envelopes."
     },
     {
       "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
@@ -52,27 +46,9 @@
     },
     {
       "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
-      "binding": "INTENT_RECORDS",
-      "owner": "AlembicPlugin",
-      "reason": "Session-lifetime intent record store consumed by work/finish chaining; bounded by session activity."
-    },
-    {
-      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "WORK_RECORDS",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime work record store paired with INTENT_RECORDS."
-    },
-    {
-      "file": "lib/runtime/mcp/handlers/task.ts",
-      "binding": "_taskCounter",
-      "owner": "AlembicPlugin",
-      "reason": "Monotonic id counter for the retired-task compatibility envelope."
-    },
-    {
-      "file": "lib/runtime/mcp/handlers/task.ts",
-      "binding": "_primeReceiptCounter",
-      "owner": "AlembicPlugin",
-      "reason": "Monotonic receipt counter (legacy prime path)."
     },
     {
       "file": "lib/runtime/mcp/RateLimiter.ts",
@@ -91,12 +67,6 @@
       "binding": "primeReceiptCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter for prime material envelopes."
-    },
-    {
-      "file": "lib/service/task/IntentExtractor.ts",
-      "binding": "SYNONYM_LOOKUP",
-      "owner": "AlembicPlugin",
-      "reason": "Constant-class synonym lookup built once at module init from a literal table; never mutated afterwards."
     }
   ]
 }
