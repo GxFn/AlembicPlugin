@@ -1,8 +1,8 @@
 import type { HostEnhancementRouteChoice } from '../runtime/EnhancementRoute.js';
 import type { CodexHostProjectAlignment } from '../runtime/HostProjectAlignment.js';
 import {
-  CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES,
-  CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES,
+  EMBEDDED_RUNTIME_REQUIRED_FILES,
+  EMBEDDED_RUNTIME_REQUIRED_ROUTES,
 } from '../runtime/runtime/EmbeddedRuntimeContract.js';
 import {
   CODEX_EMBEDDED_RUNTIME_SPECIFIER,
@@ -235,7 +235,7 @@ export function buildCodexModuleBoundaryStatus(
       embeddedRuntime: {
         artifact: CODEX_EMBEDDED_RUNTIME_SPECIFIER,
         packageName: CODEX_RUNTIME_PACKAGE,
-        requiredFiles: [...CODEX_EMBEDDED_RUNTIME_REQUIRED_FILES],
+        requiredFiles: [...EMBEDDED_RUNTIME_REQUIRED_FILES],
         role: 'Plugin-owned marketplace shell boundary that launches the pinned runtime package for Codex delivery, not the long-term Alembic daemon source of truth.',
         startCommand: CODEX_RUNTIME_BIN,
       },
@@ -248,7 +248,7 @@ export function buildCodexModuleBoundaryStatus(
         compatibilityRuntimeBoundarySource: runtimeBoundaryCompatibility?.source ?? null,
         fileMonitorMode: route?.localAlembic.daemon.capabilities.fileMonitorMode ?? null,
         healthPath: '/api/v1/daemon/health',
-        requiredRoutes: [...CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES],
+        requiredRoutes: [...EMBEDDED_RUNTIME_REQUIRED_ROUTES],
         residentServiceOwner: residentService?.owner ?? null,
         residentServiceRoute: residentService?.route ?? null,
         residentServiceScopeKind: residentService?.serviceScope.kind ?? null,
