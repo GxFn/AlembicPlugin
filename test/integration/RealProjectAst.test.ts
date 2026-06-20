@@ -21,18 +21,13 @@ let _LanguageService;
 
 beforeAll(async () => {
   // 加载 AST 插件
-  await import('@alembic/core/project-intelligence');
-  const astMod = await import('@alembic/core/project-intelligence');
-  analyzeFile = astMod.analyzeFile;
-  analyzeProject = astMod.analyzeProject;
-  _astIsAvailable = astMod.isAvailable;
-
-  const dMod = await import('@alembic/core/project-intelligence');
-  getDiscovererRegistry = dMod.getDiscovererRegistry;
-  resetDiscovererRegistry = dMod.resetDiscovererRegistry;
-
-  const lsMod = await import('@alembic/core/project-intelligence');
-  _LanguageService = lsMod.LanguageService;
+  const fixtures = await import('@alembic/core/test-fixtures');
+  analyzeFile = fixtures.analyzeFile;
+  analyzeProject = fixtures.analyzeProject;
+  _astIsAvailable = fixtures.isAvailable;
+  getDiscovererRegistry = fixtures.getDiscovererRegistry;
+  resetDiscovererRegistry = fixtures.resetDiscovererRegistry;
+  _LanguageService = fixtures.LanguageService;
 });
 
 // ── 期望值 ────────────────────────────────────────────────────────

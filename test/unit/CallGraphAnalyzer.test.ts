@@ -6,15 +6,16 @@
  */
 
 import {
+  analyzeSourceFile,
   CallEdgeResolver,
   CallGraphAnalyzer,
   DataFlowInferrer,
+  getAstLanguageTestPlugin,
   ImportPathResolver,
   ImportRecord,
   SymbolTableBuilder,
-} from '@alembic/core/core/analysis';
-import { plugin as typeScriptAstPlugin } from '@alembic/core/core/ast/lang-typescript';
-import { analyzeSourceFile } from '@alembic/core/test-fixtures';
+  typeScriptAstPlugin,
+} from '@alembic/core/test-fixtures';
 
 const analyzeFile = analyzeSourceFile;
 const extractCallSitesTS = typeScriptAstPlugin.extractCallSites;
@@ -1167,8 +1168,7 @@ describe('Go extractCallSites', () => {
   let extractCallSitesGo;
 
   beforeAll(async () => {
-    const mod = await import('@alembic/core/core/ast/lang-go');
-    extractCallSitesGo = mod.plugin.extractCallSites;
+    extractCallSitesGo = getAstLanguageTestPlugin('go').extractCallSites;
   });
 
   /** Helper to build a minimal Go-like fake AST node */
@@ -1288,9 +1288,9 @@ describe('Go extractCallSites', () => {
 
 describe('Go ImportRecord', () => {
   test('plugin exports extractCallSites', async () => {
-    const mod = await import('@alembic/core/core/ast/lang-go');
-    expect(mod.plugin.extractCallSites).toBeDefined();
-    expect(typeof mod.plugin.extractCallSites).toBe('function');
+    const plugin = getAstLanguageTestPlugin('go');
+    expect(plugin.extractCallSites).toBeDefined();
+    expect(typeof plugin.extractCallSites).toBe('function');
   });
 });
 
@@ -1300,8 +1300,7 @@ describe('Java extractCallSites', () => {
   let extractCallSitesJava;
 
   beforeAll(async () => {
-    const mod = await import('@alembic/core/core/ast/lang-java');
-    extractCallSitesJava = mod.plugin.extractCallSites;
+    extractCallSitesJava = getAstLanguageTestPlugin('java').extractCallSites;
   });
 
   function mkNode(type, children, extra = {}) {
@@ -1385,10 +1384,10 @@ describe('Java extractCallSites', () => {
   });
 
   test('Java ImportRecord with scoped import', async () => {
-    const mod = await import('@alembic/core/core/ast/lang-java');
+    const plugin = getAstLanguageTestPlugin('java');
     // Verify plugin exports extractCallSites
-    expect(mod.plugin.extractCallSites).toBeDefined();
-    expect(mod.plugin.extensions).toEqual(['.java']);
+    expect(plugin.extractCallSites).toBeDefined();
+    expect(plugin.extensions).toEqual(['.java']);
   });
 });
 
@@ -1398,8 +1397,7 @@ describe('Kotlin extractCallSites', () => {
   let extractCallSitesKotlin;
 
   beforeAll(async () => {
-    const mod = await import('@alembic/core/core/ast/lang-kotlin');
-    extractCallSitesKotlin = mod.plugin.extractCallSites;
+    extractCallSitesKotlin = getAstLanguageTestPlugin('kotlin').extractCallSites;
   });
 
   function mkNode(type, children, extra = {}) {
@@ -1483,9 +1481,9 @@ describe('Kotlin extractCallSites', () => {
   });
 
   test('Kotlin plugin exports extractCallSites', async () => {
-    const mod = await import('@alembic/core/core/ast/lang-kotlin');
-    expect(mod.plugin.extractCallSites).toBeDefined();
-    expect(mod.plugin.extensions).toEqual(['.kt', '.kts']);
+    const plugin = getAstLanguageTestPlugin('kotlin');
+    expect(plugin.extractCallSites).toBeDefined();
+    expect(plugin.extensions).toEqual(['.kt', '.kts']);
   });
 });
 
@@ -1553,8 +1551,7 @@ describe('Rust extractCallSites', () => {
   let extractCallSitesRust;
 
   beforeAll(async () => {
-    const mod = await import('@alembic/core/core/ast/lang-rust');
-    extractCallSitesRust = mod.plugin.extractCallSites;
+    extractCallSitesRust = getAstLanguageTestPlugin('rust').extractCallSites;
   });
 
   function mkNode(type, children, extra = {}) {
@@ -1673,10 +1670,10 @@ describe('Rust extractCallSites', () => {
   });
 
   test('Rust plugin exports extractCallSites', async () => {
-    const mod = await import('@alembic/core/core/ast/lang-rust');
-    expect(mod.plugin.extractCallSites).toBeDefined();
-    expect(typeof mod.plugin.extractCallSites).toBe('function');
-    expect(mod.plugin.extensions).toEqual(['.rs']);
+    const plugin = getAstLanguageTestPlugin('rust');
+    expect(plugin.extractCallSites).toBeDefined();
+    expect(typeof plugin.extractCallSites).toBe('function');
+    expect(plugin.extensions).toEqual(['.rs']);
   });
 });
 
@@ -1686,8 +1683,7 @@ describe('Swift extractCallSites', () => {
   let extractCallSitesSwift;
 
   beforeAll(async () => {
-    const mod = await import('@alembic/core/core/ast/lang-swift');
-    extractCallSitesSwift = mod.plugin.extractCallSites;
+    extractCallSitesSwift = getAstLanguageTestPlugin('swift').extractCallSites;
   });
 
   function mkNode(type, children, extra = {}) {
@@ -1785,10 +1781,10 @@ describe('Swift extractCallSites', () => {
   });
 
   test('Swift plugin exports extractCallSites', async () => {
-    const mod = await import('@alembic/core/core/ast/lang-swift');
-    expect(mod.plugin.extractCallSites).toBeDefined();
-    expect(typeof mod.plugin.extractCallSites).toBe('function');
-    expect(mod.plugin.extensions).toEqual(['.swift']);
+    const plugin = getAstLanguageTestPlugin('swift');
+    expect(plugin.extractCallSites).toBeDefined();
+    expect(typeof plugin.extractCallSites).toBe('function');
+    expect(plugin.extensions).toEqual(['.swift']);
   });
 });
 
@@ -1798,8 +1794,7 @@ describe('Dart extractCallSites', () => {
   let extractCallSitesDart;
 
   beforeAll(async () => {
-    const mod = await import('@alembic/core/core/ast/lang-dart');
-    extractCallSitesDart = mod.plugin.extractCallSites;
+    extractCallSitesDart = getAstLanguageTestPlugin('dart').extractCallSites;
   });
 
   function mkNode(type, children, extra = {}) {
@@ -1895,10 +1890,10 @@ describe('Dart extractCallSites', () => {
   });
 
   test('Dart plugin exports extractCallSites', async () => {
-    const mod = await import('@alembic/core/core/ast/lang-dart');
-    expect(mod.plugin.extractCallSites).toBeDefined();
-    expect(typeof mod.plugin.extractCallSites).toBe('function');
-    expect(mod.plugin.extensions).toEqual(['.dart']);
+    const plugin = getAstLanguageTestPlugin('dart');
+    expect(plugin.extractCallSites).toBeDefined();
+    expect(typeof plugin.extractCallSites).toBe('function');
+    expect(plugin.extensions).toEqual(['.dart']);
   });
 
   // ── sibling-based call pattern tests (tree-sitter-dart specific) ──
@@ -3026,8 +3021,7 @@ describe('Kotlin walker — constructor property extraction', () => {
   let walkKotlin;
 
   beforeAll(async () => {
-    const mod = await import('@alembic/core/core/ast/lang-kotlin');
-    walkKotlin = mod.plugin.walk;
+    walkKotlin = getAstLanguageTestPlugin('kotlin').walk;
   });
 
   function mkNode(type, children, extra = {}) {

@@ -2,13 +2,13 @@
  * PanoramaAggregator 单元测试
  */
 
-import type { ModuleCandidate } from '@alembic/core/project-intelligence';
+import type { ModuleCandidate } from '@alembic/core/test-fixtures';
 import {
   CouplingAnalyzer,
   LayerInferrer,
   PanoramaAggregator,
   RoleRefiner,
-} from '@alembic/core/project-intelligence';
+} from '@alembic/core/test-fixtures';
 import { describe, expect, it } from 'vitest';
 import { createMockRepos, type MockEdge, type MockRepoOptions } from '../helpers/panorama-mocks.js';
 

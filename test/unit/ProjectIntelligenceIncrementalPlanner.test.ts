@@ -1,4 +1,4 @@
-import { evaluateProjectAnalysisIncrementalPlan } from '@alembic/core/project-intelligence';
+import { evaluateProjectAnalysisIncrementalPlan } from '@alembic/core/test-fixtures';
 import { describe, expect, test, vi } from 'vitest';
 
 function createDb(marker: string) {

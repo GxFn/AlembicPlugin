@@ -11,9 +11,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDiscovererRegistry, resetDiscovererRegistry } from '@alembic/core/core/discovery';
 import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
 import { LanguageService } from '@alembic/core/shared';
+import { getDiscovererRegistry, resetDiscovererRegistry } from '@alembic/core/test-fixtures';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');

@@ -2,8 +2,8 @@
  * LayerInferrer 单元测试
  */
 
-import type { CyclicDependency, Edge } from '@alembic/core/project-intelligence';
-import { LayerInferrer } from '@alembic/core/project-intelligence';
+import type { CyclicDependency, Edge } from '@alembic/core/test-fixtures';
+import { LayerInferrer } from '@alembic/core/test-fixtures';
 import { describe, expect, it } from 'vitest';
 
 describe('LayerInferrer', () => {

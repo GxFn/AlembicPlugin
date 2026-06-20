@@ -21,11 +21,11 @@ let getDiscovererRegistry;
 let resetDiscovererRegistry;
 
 beforeAll(async () => {
-  const lsMod = await import('@alembic/core/project-intelligence');
+  const lsMod = await import('@alembic/core/test-fixtures');
   LanguageService = lsMod.LanguageService;
   const dcMod = await import('@alembic/core/dimensions');
   DimensionCopy = dcMod.DimensionCopy;
-  const dMod = await import('@alembic/core/project-intelligence');
+  const dMod = await import('@alembic/core/test-fixtures');
   getDiscovererRegistry = dMod.getDiscovererRegistry;
   resetDiscovererRegistry = dMod.resetDiscovererRegistry;
 });

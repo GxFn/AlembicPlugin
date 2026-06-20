@@ -2,7 +2,7 @@
  * PanoramaScanner 单元测试
  */
 
-import { PanoramaScanner } from '@alembic/core/project-intelligence';
+import { PanoramaScanner } from '@alembic/core/test-fixtures';
 import { describe, expect, it, vi } from 'vitest';
 import { createMockRepos } from '../helpers/panorama-mocks.js';
 

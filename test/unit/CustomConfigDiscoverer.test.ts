@@ -8,7 +8,7 @@ import {
   CustomConfigDiscoverer,
   parseBoxfile,
   parseModuleSpec,
-} from '@alembic/core/project-intelligence';
+} from '@alembic/core/test-fixtures';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // ═══ RubyDslParser: parseBoxfile ═══════════════════════════

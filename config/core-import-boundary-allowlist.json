@@ -1,30 +1,21 @@
 {
   "version": 2,
-  "phase": "CO-3B: plugin consumer imports migrated to Core capability facades; only per-language AST dynamic-import tests remain as old core route exceptions",
+  "phase": "CO-5C: plugin test/config consumers migrated to Core test-fixtures; only fixture-uncovered discovery preference and project-intelligence materialization helpers remain as shrink-only exceptions",
   "generatedAt": "2026-06-21",
   "sourcePlan": "wakeflow-ledger/requirement-designs/alembic-portfolio-execution-plan/portfolio-execution-plan-2026-06-12.md",
   "scanRoots": ["lib", "bin", "scripts", "test"],
   "allowedRootSpecifiers": ["@alembic/core"],
-  "referenceCount": 421,
-  "uniqueSpecifierCount": 45,
+  "referenceCount": 401,
+  "uniqueSpecifierCount": 36,
   "referenceLimits": {
-    "@alembic/core/core": 2,
-    "@alembic/core/core/analysis": 1,
-    "@alembic/core/core/ast/lang-dart": 2,
-    "@alembic/core/core/ast/lang-go": 2,
-    "@alembic/core/core/ast/lang-java": 2,
-    "@alembic/core/core/ast/lang-kotlin": 3,
-    "@alembic/core/core/ast/lang-rust": 2,
-    "@alembic/core/core/ast/lang-swift": 2,
-    "@alembic/core/core/ast/lang-typescript": 1,
-    "@alembic/core/core/discovery": 3,
+    "@alembic/core/core/discovery": 1,
     "@alembic/core/infrastructure/database/drizzle": 4,
     "@alembic/core/infrastructure/database/drizzle/schema": 1,
     "@alembic/core/infrastructure/database/migrations/001_initial_schema": 1,
     "@alembic/core/infrastructure/database/migrations/004_evolution_proposals": 3,
-    "@alembic/core/project-intelligence": 27
+    "@alembic/core/project-intelligence": 1
   },
-  "referenceLimitsNote": "Limits are TRUE scanner counts (multi-line imports included), recalibrated 2026-06-21 after CO-3B migrated Plugin consumers to Core capability facades. Remaining limits are shrink-only for focused AST/project integration tests, infra DB fixture exceptions, and out-of-scope project-intelligence test residuals.",
+  "referenceLimitsNote": "Limits are TRUE scanner counts (multi-line imports included), recalibrated 2026-06-21 after CO-5C migrated AST/discovery/analysis/project-intelligence test consumers to @alembic/core/test-fixtures where CO-5B exposed equivalent helpers. Remaining limits are shrink-only for infra DB fixture exceptions, one core/discovery preference-helper test residual, and one project-intelligence materialization-helper test residual not yet covered by test-fixtures.",
   "keepWithOwner": {
     "@alembic/core/infrastructure/database/drizzle": {
       "owner": "AlembicPlugin",
@@ -59,57 +50,24 @@
       "reason": "Same isolated-fixture constraint as migration 001.",
       "removalTrigger": "Same stable test/fixture facade as the drizzle row."
     },
-    "@alembic/core/core/analysis": {
-      "owner": "AlembicPlugin",
-      "consumers": ["test/unit/CallGraphAnalyzer.test.ts low-level call graph analyzer tests"],
-      "reason": "CallGraphAnalyzer verifies ImportRecord, SymbolTableBuilder, ImportPathResolver, CallEdgeResolver, DataFlowInferrer, and CallGraphAnalyzer behavior directly. Stable @alembic/core/test-fixtures exposes high-level analyzeSourceFile/resources, but not these analysis classes.",
-      "removalTrigger": "Core ships a stable test fixture facade for low-level call graph analysis classes, or these tests move into AlembicCore."
-    },
-    "@alembic/core/core": {
-      "owner": "AlembicPlugin",
-      "consumers": [
-        "test/integration/RealProjectBootstrap.test.ts analyzeProject/isAvailable",
-        "test/integration/GoSupport.test.ts analyzeProject"
-      ],
-      "reason": "The focused real-project integration tests still need project-level AST summaries. @alembic/core/test-fixtures exposes analyzeSourceFile but not analyzeProject/isAvailable, and @alembic/core/project-intelligence is no longer resolvable through the package export map.",
-      "removalTrigger": "Core ships stable test-fixtures project-analysis helpers, or these integration tests move into AlembicCore."
-    },
     "@alembic/core/core/discovery": {
       "owner": "AlembicPlugin",
       "consumers": [
-        "test/integration/RealProjectEnhancement.test.ts discoverer registry",
-        "test/integration/RealProjectBootstrap.test.ts discoverer registry",
-        "test/integration/GoSupport.test.ts discoverer registry"
+        "test/unit/Phase2-PanoramaIntegration.test.ts discoverer preference helpers: detectConflict, loadPreference, savePreference"
       ],
-      "reason": "The focused real-project integration tests need direct discoverer registry setup. No stable test-fixtures facade currently exposes getDiscovererRegistry/resetDiscovererRegistry, and @alembic/core/project-intelligence is no longer resolvable through the package export map.",
-      "removalTrigger": "Core ships a stable discovery test fixture facade, or these integration tests move into AlembicCore."
-    },
-    "@alembic/core/core/ast/lang-*": {
-      "owner": "AlembicPlugin",
-      "consumers": [
-        "test/unit/CallGraphAnalyzer.test.ts dynamic import() lazy loading of optional language grammars",
-        "test/unit/CallGraphAnalyzer.test.ts TypeScript plugin.extractCallSites behavior"
-      ],
-      "reason": "CallGraphAnalyzer keeps language-specific plugin behavior tests against plugin.extractCallSites()/walk(). The stable @alembic/core/test-fixtures facade exposes high-level analyzeSourceFile/resources, but not the per-language plugin objects those tests assert.",
-      "removalTrigger": "Core ships a stable test fixture or lazy language-parser facade exposing the per-language plugin behavior needed by these tests."
+      "reason": "CO-5B @alembic/core/test-fixtures does not export discoverer preference helpers. The retired @alembic/core/project-intelligence aggregate is no longer package-exported, so this test keeps the narrow still-exported core/discovery route for the exact unsupported helpers only.",
+      "removalTrigger": "Core exposes detectConflict/loadPreference/savePreference through @alembic/core/test-fixtures or another stable fixture facade, or the preference-helper tests move into AlembicCore."
     },
     "@alembic/core/project-intelligence": {
       "owner": "AlembicPlugin",
-      "consumers": ["legacy panorama/discovery/project-intelligence tests outside CO-3B"],
-      "reason": "Existing tests outside CO-3B still import the retired project-intelligence aggregate. CO-3B migrated its focused CallGraphAnalyzer and enhancement/Go/bootstrap tests, but a full panorama/discovery test migration is separate follow-up scope.",
-      "removalTrigger": "CO-4 or a dedicated project-intelligence test migration moves the remaining tests to stable facades or owned Core tests."
+      "consumers": [
+        "test/unit/ProjectAnalysisMaterialization.test.ts materialization/phase-runner helpers: buildEntityGraphInput, materializeCallGraph, resolveProjectAnalysisMaterialization, runPhase1_7_CallGraph, runPhase2_DependencyGraph"
+      ],
+      "reason": "CO-5B @alembic/core/test-fixtures covers AST analysis, discovery registry, language service, call graph analysis classes, language plugin fixtures, panorama classes, FileDiffSnapshotStore helpers, and evaluateProjectAnalysisIncrementalPlan; it does not export these materialization/phase-runner helpers. CO-5C leaves this exact residual import rather than inventing mocks or editing Core.",
+      "removalTrigger": "Core exposes equivalent real helpers through @alembic/core/test-fixtures or another stable fixture facade, or these tests move into AlembicCore."
     }
   },
   "allowedSpecifiers": [
-    "@alembic/core/core",
-    "@alembic/core/core/analysis",
-    "@alembic/core/core/ast/lang-dart",
-    "@alembic/core/core/ast/lang-go",
-    "@alembic/core/core/ast/lang-java",
-    "@alembic/core/core/ast/lang-kotlin",
-    "@alembic/core/core/ast/lang-rust",
-    "@alembic/core/core/ast/lang-swift",
-    "@alembic/core/core/ast/lang-typescript",
     "@alembic/core/core/discovery",
     "@alembic/core/daemon",
     "@alembic/core/database",
@@ -137,6 +95,7 @@
     "@alembic/core/service/recipe",
     "@alembic/core/shared",
     "@alembic/core/source-graph",
+    "@alembic/core/test-fixtures",
     "@alembic/core/types",
     "@alembic/core/vector",
     "@alembic/core/workspace"

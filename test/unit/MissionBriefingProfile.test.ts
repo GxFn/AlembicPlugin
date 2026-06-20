@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HostAgentRescanEvidencePlan } from '@alembic/core/host-agent-workflows';
 import { buildMissionBriefing } from '@alembic/core/host-agent-workflows';
-import type { DimensionDef } from '@alembic/core/project-intelligence';
+import type { DimensionDef } from '@alembic/core/test-fixtures';
 import { describe, expect, test } from 'vitest';
 
 describe('MissionBriefing profiles', () => {

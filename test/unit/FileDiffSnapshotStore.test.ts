@@ -3,7 +3,7 @@ import {
   normalizeSnapshotPath,
   reconcileSnapshotHashes,
   type SnapshotData,
-} from '@alembic/core/project-intelligence';
+} from '@alembic/core/test-fixtures';
 import { describe, expect, it } from 'vitest';
 
 describe('normalizeSnapshotPath', () => {

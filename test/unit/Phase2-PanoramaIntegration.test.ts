@@ -12,17 +12,19 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ConfigLayer, Edge, ModuleCandidate } from '@alembic/core/project-intelligence';
+import type { ConfigLayer, Edge, ModuleCandidate } from '@alembic/core/test-fixtures';
 import {
   CouplingAnalyzer,
-  detectConflict,
   LayerInferrer,
-  loadPreference,
   ModuleDiscoverer,
   PanoramaAggregator,
   RoleRefiner,
+} from '@alembic/core/test-fixtures';
+import {
+  detectConflict,
+  loadPreference,
   savePreference,
-} from '@alembic/core/project-intelligence';
+} from '@alembic/core/core/discovery';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createMockRepos, type MockEdge } from '../helpers/panorama-mocks.js';

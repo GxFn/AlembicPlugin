@@ -23,7 +23,7 @@ let getDiscovererRegistry;
 let resetDiscovererRegistry;
 
 beforeAll(async () => {
-  const mod = await import('@alembic/core/project-intelligence');
+  const mod = await import('@alembic/core/test-fixtures');
   getDiscovererRegistry = mod.getDiscovererRegistry;
   resetDiscovererRegistry = mod.resetDiscovererRegistry;
 });

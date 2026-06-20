@@ -15,7 +15,7 @@ import {
   parseReactNativeProject,
   parseStarlarkBuildFile,
   RULE_TO_LANGUAGE,
-} from '@alembic/core/project-intelligence';
+} from '@alembic/core/test-fixtures';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // ═══ StarlarkParser ═══════════════════════════════════

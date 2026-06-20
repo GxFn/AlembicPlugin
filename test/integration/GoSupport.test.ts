@@ -17,12 +17,15 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { analyzeProject } from '@alembic/core/core';
-import { getDiscovererRegistry, resetDiscovererRegistry } from '@alembic/core/core/discovery';
 import { DimensionCopy } from '@alembic/core/dimensions';
 import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
 import { LanguageService } from '@alembic/core/shared';
-import { analyzeSourceFile as analyzeFile } from '@alembic/core/test-fixtures';
+import {
+  analyzeProject,
+  analyzeSourceFile as analyzeFile,
+  getDiscovererRegistry,
+  resetDiscovererRegistry,
+} from '@alembic/core/test-fixtures';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');
