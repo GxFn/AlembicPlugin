@@ -14,9 +14,9 @@ import {
 } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import type { HostEnhancementRouteChoice } from '../../runtime/EnhancementRoute.js';
-import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
+import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import { readCodexPluginMcpDeclaration } from '../../runtime/PluginRegistry.js';
-import type { CodexProjectRootResolution } from '../../runtime/ProjectRootResolver.js';
+import type { ProjectRootResolution } from '../../runtime/ProjectRootResolver.js';
 import type { HostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
 import { resolveHostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
 import type {
@@ -27,18 +27,18 @@ import type { DaemonStatus } from '../daemon-status.js';
 
 const PROJECT_RUNTIME_CONTEXT_VERSION = 1;
 
-export type CodexMcpEntryMode = 'local-dev-direct-dist' | 'marketplace-shell' | 'unknown';
+export type McpEntryMode = 'local-dev-direct-dist' | 'marketplace-shell' | 'unknown';
 
-export interface CodexProjectRuntimeContext {
+export interface ProjectRuntimeContext {
   contractVersion: typeof PROJECT_RUNTIME_CONTEXT_VERSION;
   blockedFallbacks: string[];
-  entryMode: CodexProjectRuntimeEntryMode;
-  fallbackIsolation: CodexRuntimeFallbackIsolation[];
+  entryMode: ProjectRuntimeEntryMode;
+  fallbackIsolation: RuntimeFallbackIsolation[];
   failureEnvelopes: ProjectRuntimeFailureEnvelope[];
   identity: ProjectRuntimeIdentityContract;
   readinessState: ProjectRuntimeReadinessState;
   requiredServices: ProjectRuntimeServiceReadiness[];
-  sourceOfTruth: CodexAlembicRuntimeSourceOfTruth | null;
+  sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   sourcePolicy: {
     effectiveIdentitySource: 'codex-current-project';
     projectScopeSource: 'resident-read-only' | 'single-folder-baseline';
@@ -47,14 +47,14 @@ export interface CodexProjectRuntimeContext {
   };
 }
 
-export type CodexRuntimeFallbackIsolationId =
+export type RuntimeFallbackIsolationId =
   | 'embedded-plugin-owned-runtime'
   | 'local-jobstore'
   | 'runtime-control-selected-active'
   | 'saved-project-root';
 
-export interface CodexRuntimeFallbackIsolation {
-  id: CodexRuntimeFallbackIsolationId;
+export interface RuntimeFallbackIsolation {
+  id: RuntimeFallbackIsolationId;
   allowedUse:
     | 'blocked-effective-identity'
     | 'codex-host-agent-execution-route'
@@ -66,7 +66,7 @@ export interface CodexRuntimeFallbackIsolation {
   reason: string;
 }
 
-export const CODEX_RUNTIME_FALLBACK_ISOLATION: readonly CodexRuntimeFallbackIsolation[] = [
+export const RUNTIME_FALLBACK_ISOLATION: readonly RuntimeFallbackIsolation[] = [
   {
     allowedUse: 'blocked-effective-identity',
     effectiveIdentityAllowed: false,
@@ -105,25 +105,25 @@ export const CODEX_RUNTIME_FALLBACK_ISOLATION: readonly CodexRuntimeFallbackIsol
   },
 ];
 
-export function getCodexRuntimeFallbackIsolation(
-  id: CodexRuntimeFallbackIsolationId
-): CodexRuntimeFallbackIsolation {
-  const isolation = CODEX_RUNTIME_FALLBACK_ISOLATION.find((item) => item.id === id);
+export function getRuntimeFallbackIsolation(
+  id: RuntimeFallbackIsolationId
+): RuntimeFallbackIsolation {
+  const isolation = RUNTIME_FALLBACK_ISOLATION.find((item) => item.id === id);
   if (!isolation) {
     throw new Error(`Unknown Codex runtime fallback isolation id: ${id}`);
   }
   return { ...isolation };
 }
 
-export interface CodexProjectRuntimeEntryMode {
-  mode: CodexMcpEntryMode;
+export interface ProjectRuntimeEntryMode {
+  mode: McpEntryMode;
   command: string | null;
   mcpConfigPath: string | null;
   runtimeSpecifier: string | null;
   source: 'plugin-mcp-config' | 'runtime-context';
 }
 
-export interface CodexAlembicRuntimeSourceOfTruth {
+export interface AlembicRuntimeSourceOfTruth {
   contractVersion: number | null;
   diagnostics: Record<string, unknown>[];
   failure: Record<string, unknown> | null;
@@ -159,21 +159,21 @@ export interface CodexAlembicRuntimeSourceOfTruth {
   writePolicy: Record<string, unknown> | null;
 }
 
-export interface BuildCodexProjectRuntimeContextOptions {
+export interface BuildProjectRuntimeContextOptions {
   daemonStatus?: DaemonStatus | null;
   enhancementRoute?: HostEnhancementRouteChoice | null;
-  hostProjectAlignment?: CodexHostProjectAlignment | null;
+  hostProjectAlignment?: HostProjectAlignment | null;
   includeOptionalServices?: boolean;
   projectRoot: string;
-  projectRootResolution?: CodexProjectRootResolution | null;
+  projectRootResolution?: ProjectRootResolution | null;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity | null;
   requiredServices?: readonly ProjectRuntimeRequiredService[];
   runtime?: HostRuntimeContext;
 }
 
-export function buildCodexProjectRuntimeContext(
-  options: BuildCodexProjectRuntimeContextOptions
-): CodexProjectRuntimeContext {
+export function buildProjectRuntimeContext(
+  options: BuildProjectRuntimeContextOptions
+): ProjectRuntimeContext {
   const projectRoot = resolve(options.projectRoot);
   const runtime = options.runtime ?? resolveHostRuntimeContext();
   const resolver = WorkspaceResolver.fromProject(projectRoot, {
@@ -218,8 +218,8 @@ export function buildCodexProjectRuntimeContext(
       'runtime-control-selected-active-effective-identity',
       'local-jobstore-default-effective-identity',
     ],
-    entryMode: detectCodexMcpEntryMode(runtime),
-    fallbackIsolation: CODEX_RUNTIME_FALLBACK_ISOLATION.map((item) => ({ ...item })),
+    entryMode: detectMcpEntryMode(runtime),
+    fallbackIsolation: RUNTIME_FALLBACK_ISOLATION.map((item) => ({ ...item })),
     failureEnvelopes,
     identity,
     readinessState,
@@ -236,11 +236,11 @@ export function buildCodexProjectRuntimeContext(
   };
 }
 
-export function buildCodexPrimeRuntimeContext(input: {
+export function buildPrimeRuntimeContext(input: {
   projectRoot: string;
   residentSearch?: ResidentSearchAttemptMeta | null;
 }): Pick<
-  CodexProjectRuntimeContext,
+  ProjectRuntimeContext,
   | 'blockedFallbacks'
   | 'contractVersion'
   | 'fallbackIsolation'
@@ -250,7 +250,7 @@ export function buildCodexPrimeRuntimeContext(input: {
   | 'requiredServices'
   | 'sourcePolicy'
 > {
-  return buildCodexProjectRuntimeContext({
+  return buildProjectRuntimeContext({
     projectRoot: input.projectRoot,
     projectScopeIdentity: input.residentSearch?.projectScopeIdentity ?? null,
     requiredServices: ['project-identity'],
@@ -322,13 +322,13 @@ function buildProjectRuntimeIdentity(input: {
 function buildRequiredServiceReadiness(input: {
   daemonStatus: DaemonStatus | null;
   enhancementRoute: HostEnhancementRouteChoice | null;
-  hostProjectAlignment: CodexHostProjectAlignment | null;
+  hostProjectAlignment: HostProjectAlignment | null;
   identity: ProjectRuntimeIdentityContract;
   includeOptionalServices: boolean;
-  projectRootResolution: CodexProjectRootResolution | null;
+  projectRootResolution: ProjectRootResolution | null;
   projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
   requiredServices: readonly ProjectRuntimeRequiredService[];
-  sourceOfTruth: CodexAlembicRuntimeSourceOfTruth | null;
+  sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
 }): ProjectRuntimeServiceReadiness[] {
   const required = new Set<ProjectRuntimeRequiredService>(input.requiredServices);
   const services: ProjectRuntimeRequiredService[] = input.includeOptionalServices
@@ -351,11 +351,11 @@ function isServiceAvailable(
   input: {
     daemonStatus: DaemonStatus | null;
     enhancementRoute: HostEnhancementRouteChoice | null;
-    hostProjectAlignment: CodexHostProjectAlignment | null;
+    hostProjectAlignment: HostProjectAlignment | null;
     identity: ProjectRuntimeIdentityContract;
-    projectRootResolution: CodexProjectRootResolution | null;
+    projectRootResolution: ProjectRootResolution | null;
     projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
-    sourceOfTruth: CodexAlembicRuntimeSourceOfTruth | null;
+    sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   }
 ): boolean {
   switch (service) {
@@ -398,10 +398,10 @@ function serviceFailureReason(
   service: ProjectRuntimeRequiredService,
   input: {
     daemonStatus: DaemonStatus | null;
-    hostProjectAlignment: CodexHostProjectAlignment | null;
-    projectRootResolution: CodexProjectRootResolution | null;
+    hostProjectAlignment: HostProjectAlignment | null;
+    projectRootResolution: ProjectRootResolution | null;
     projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
-    sourceOfTruth: CodexAlembicRuntimeSourceOfTruth | null;
+    sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   }
 ): ProjectRuntimeFailureReason | null {
   if (isServiceAvailable(service, { ...input, enhancementRoute: null, identity: nullIdentity() })) {
@@ -433,9 +433,9 @@ function serviceMessage(
   service: ProjectRuntimeRequiredService,
   input: {
     daemonStatus: DaemonStatus | null;
-    hostProjectAlignment: CodexHostProjectAlignment | null;
+    hostProjectAlignment: HostProjectAlignment | null;
     projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
-    sourceOfTruth: CodexAlembicRuntimeSourceOfTruth | null;
+    sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   }
 ): string | null {
   if (service === 'project-scope' && input.projectScopeIdentity?.reason) {
@@ -458,7 +458,7 @@ function serviceSource(
   service: ProjectRuntimeRequiredService,
   input: {
     projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
-    sourceOfTruth: CodexAlembicRuntimeSourceOfTruth | null;
+    sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   }
 ): string {
   switch (service) {
@@ -477,7 +477,7 @@ function serviceSource(
 
 function daemonFailureReason(
   status: DaemonStatus | null,
-  sourceOfTruth: CodexAlembicRuntimeSourceOfTruth | null
+  sourceOfTruth: AlembicRuntimeSourceOfTruth | null
 ): ProjectRuntimeFailureReason {
   const sourceReason = sourceOfTruth?.readiness?.reasonCode;
   if (sourceReason === 'daemon-stale') {
@@ -529,7 +529,7 @@ function summarizeReadiness(
   return 'ready';
 }
 
-function detectCodexMcpEntryMode(runtime: HostRuntimeContext): CodexProjectRuntimeEntryMode {
+function detectMcpEntryMode(runtime: HostRuntimeContext): ProjectRuntimeEntryMode {
   // Shared per-host declaration reader: .mcp.json (Codex shell, historical
   // byte-identical behavior) or the inline .claude-plugin manifest mcpServers
   // (Claude Code shell). Fixes the mode=unknown meta riding F-V2-2.
@@ -561,7 +561,7 @@ function detectCodexMcpEntryMode(runtime: HostRuntimeContext): CodexProjectRunti
 
 function extractAlembicRuntimeSourceOfTruth(
   daemonStatus?: DaemonStatus | null
-): CodexAlembicRuntimeSourceOfTruth | null {
+): AlembicRuntimeSourceOfTruth | null {
   const data = asRecord(daemonStatus?.health?.data);
   const raw = asRecord(data?.projectRuntimeSourceOfTruth);
   if (!raw) {

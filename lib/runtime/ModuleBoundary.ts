@@ -1,5 +1,5 @@
 import type { HostEnhancementRouteChoice } from '../runtime/EnhancementRoute.js';
-import type { CodexHostProjectAlignment } from '../runtime/HostProjectAlignment.js';
+import type { HostProjectAlignment } from '../runtime/HostProjectAlignment.js';
 import {
   EMBEDDED_RUNTIME_REQUIRED_FILES,
   EMBEDDED_RUNTIME_REQUIRED_ROUTES,
@@ -11,7 +11,7 @@ import {
   CODEX_RUNTIME_PACKAGE,
 } from '../runtime/runtime/RuntimeContext.js';
 
-export type CodexModuleBoundaryOwner =
+export type ModuleBoundaryOwner =
   | 'Alembic'
   | 'AlembicAgent'
   | 'AlembicCore'
@@ -19,15 +19,15 @@ export type CodexModuleBoundaryOwner =
   | 'AlembicPlugin'
   | 'Codex host';
 
-export interface CodexModuleBoundaryEntry {
+export interface ModuleBoundaryEntry {
   id: string;
-  owner: CodexModuleBoundaryOwner;
+  owner: ModuleBoundaryOwner;
   pluginRole: string;
   retainedInPlugin: boolean;
   sourceOfTruth: string;
 }
 
-export interface CodexDashboardArtifactBoundary {
+export interface DashboardArtifactBoundary {
   artifactPath: null;
   buildCommand: null;
   deletionCompletedThisWave: true;
@@ -37,7 +37,7 @@ export interface CodexDashboardArtifactBoundary {
   sourceOwner: 'Alembic/AlembicDashboard';
 }
 
-export interface CodexModuleBoundaryStatus {
+export interface ModuleBoundaryStatus {
   adapters: {
     embeddedRuntime: {
       artifact: string;
@@ -79,17 +79,17 @@ export interface CodexModuleBoundaryStatus {
       runtimeBoundaryAvailable: boolean;
     };
   };
-  dashboard: CodexDashboardArtifactBoundary;
+  dashboard: DashboardArtifactBoundary;
   phase:
     | 'runtime-contract-consumption-wave-2'
     | 'capability-code-interface-cleanup-ccic-7-plugin-dashboard-handoff'
     | 'unified-resident-service-phase-4-behavior-cleanup';
-  pluginDoesNotOwn: CodexModuleBoundaryEntry[];
-  pluginOwns: CodexModuleBoundaryEntry[];
+  pluginDoesNotOwn: ModuleBoundaryEntry[];
+  pluginOwns: ModuleBoundaryEntry[];
   nextWaveGaps: string[];
 }
 
-export const CODEX_DASHBOARD_ARTIFACT_BOUNDARY: CodexDashboardArtifactBoundary = {
+export const DASHBOARD_ARTIFACT_BOUNDARY: DashboardArtifactBoundary = {
   artifactPath: null,
   buildCommand: null,
   deletionCompletedThisWave: true,
@@ -104,7 +104,7 @@ export const CODEX_DASHBOARD_ARTIFACT_BOUNDARY: CodexDashboardArtifactBoundary =
   sourceOwner: 'Alembic/AlembicDashboard',
 };
 
-const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
+const PLUGIN_OWNED_BOUNDARIES: ModuleBoundaryEntry[] = [
   {
     id: 'codex-entry',
     owner: 'AlembicPlugin',
@@ -146,7 +146,7 @@ const PLUGIN_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
   },
 ];
 
-const EXTERNAL_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
+const EXTERNAL_OWNED_BOUNDARIES: ModuleBoundaryEntry[] = [
   {
     id: 'alembic-daemon-main',
     owner: 'Alembic',
@@ -197,12 +197,12 @@ const EXTERNAL_OWNED_BOUNDARIES: CodexModuleBoundaryEntry[] = [
   },
 ];
 
-export function buildCodexModuleBoundaryStatus(
+export function buildModuleBoundaryStatus(
   input: {
     enhancementRoute?: HostEnhancementRouteChoice | null;
-    hostProjectAlignment?: CodexHostProjectAlignment | null;
+    hostProjectAlignment?: HostProjectAlignment | null;
   } = {}
-): CodexModuleBoundaryStatus {
+): ModuleBoundaryStatus {
   const route = input.enhancementRoute || null;
   const hostProjectAlignment = input.hostProjectAlignment || null;
   const residentService = route?.localAlembic.daemon.residentService?.status ?? null;
@@ -256,7 +256,7 @@ export function buildCodexModuleBoundaryStatus(
         runtimeBoundarySource: route?.localAlembic.daemon.runtimeBoundary.source ?? null,
       },
     },
-    dashboard: { ...CODEX_DASHBOARD_ARTIFACT_BOUNDARY },
+    dashboard: { ...DASHBOARD_ARTIFACT_BOUNDARY },
     nextWaveGaps: [
       'Ask Alembic/AlembicDashboard to guarantee a stable local Dashboard URL contract for Codex handoff; do not reintroduce Plugin-packaged frontend assets.',
       'Keep runtimeBoundary as diagnostics only; Plugin capability and project decisions must not fall back to it.',
@@ -266,6 +266,6 @@ export function buildCodexModuleBoundaryStatus(
   };
 }
 
-function copyBoundary(entry: CodexModuleBoundaryEntry): CodexModuleBoundaryEntry {
+function copyBoundary(entry: ModuleBoundaryEntry): ModuleBoundaryEntry {
   return { ...entry };
 }

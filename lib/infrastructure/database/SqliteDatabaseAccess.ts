@@ -22,7 +22,7 @@ interface DbWrapper {
   getDb?: () => SqliteDb;
 }
 
-export interface CodexSourceRefReadState {
+export interface SourceRefReadState {
   activeCount: number;
   databasePath: string;
   reason: string | null;
@@ -34,7 +34,7 @@ export interface CodexSourceRefReadState {
   totalCount: number;
 }
 
-export interface CodexSnapshotReadState {
+export interface SnapshotReadState {
   databasePath: string;
   latest: {
     affectedDimsCount: number;
@@ -91,7 +91,7 @@ export function getLatestSchemaMigrationVersion(db: unknown): string | null {
   }
 }
 
-export function readCodexSourceRefState(databasePath: string): CodexSourceRefReadState {
+export function readSourceRefState(databasePath: string): SourceRefReadState {
   if (!existsSync(databasePath)) {
     return {
       activeCount: 0,
@@ -105,7 +105,7 @@ export function readCodexSourceRefState(databasePath: string): CodexSourceRefRea
       totalCount: 0,
     };
   }
-  return withReadonlyDatabase<CodexSourceRefReadState>(databasePath, (db) => {
+  return withReadonlyDatabase<SourceRefReadState>(databasePath, (db) => {
     if (!sqliteTableExists(db, 'recipe_source_refs')) {
       return {
         activeCount: 0,
@@ -145,10 +145,7 @@ export function readCodexSourceRefState(databasePath: string): CodexSourceRefRea
   });
 }
 
-export function readCodexSnapshotState(
-  databasePath: string,
-  projectRoot: string
-): CodexSnapshotReadState {
+export function readSnapshotState(databasePath: string, projectRoot: string): SnapshotReadState {
   if (!existsSync(databasePath)) {
     return {
       databasePath,
@@ -159,7 +156,7 @@ export function readCodexSnapshotState(
       totalCount: 0,
     };
   }
-  return withReadonlyDatabase<CodexSnapshotReadState>(databasePath, (db) => {
+  return withReadonlyDatabase<SnapshotReadState>(databasePath, (db) => {
     if (!sqliteTableExists(db, 'bootstrap_snapshots')) {
       return {
         databasePath,

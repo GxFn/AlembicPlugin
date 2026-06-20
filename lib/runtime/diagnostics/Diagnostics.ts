@@ -7,10 +7,10 @@ import {
   buildHostEnhancementRouteChoice,
   type HostEnhancementRouteChoice,
 } from '../../runtime/EnhancementRoute.js';
-import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
+import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import {
-  buildCodexModuleBoundaryStatus,
-  type CodexModuleBoundaryStatus,
+  buildModuleBoundaryStatus,
+  type ModuleBoundaryStatus,
 } from '../../runtime/ModuleBoundary.js';
 import {
   asString,
@@ -18,11 +18,11 @@ import {
   loadCodexPluginRegistry,
 } from '../../runtime/PluginRegistry.js';
 import {
-  buildCodexProjectRootRequiredMessage,
-  type CodexProjectRootResolution,
-  summarizeCodexProjectRootResolution,
+  buildProjectRootRequiredMessage,
+  type ProjectRootResolution,
+  summarizeProjectRootResolution,
 } from '../../runtime/ProjectRootResolver.js';
-import type { CodexProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
+import type { ProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
@@ -41,7 +41,7 @@ import type { AlembicResidentProjectScopeIdentity } from '../../service/resident
 import type { DaemonStatus } from '../daemon-status.js';
 import { hostAdapterForShape } from '../host-adapter/resolveHostAdapter.js';
 
-export interface CodexPluginDiagnostics {
+export interface PluginDiagnostics {
   assets: { missing: string[]; ok: boolean; required: string[] };
   manifest: { ok: boolean; path: string; version: string | null };
   mcp: {
@@ -61,12 +61,12 @@ export interface CodexPluginDiagnostics {
     runtimeMode: boolean;
     runtimeModeValue: string | null;
     runtimeSpecifier: string | null;
-    entry: CodexMcpEntryDiagnostics;
+    entry: McpEntryDiagnostics;
     wrapper: {
       exists: boolean;
       path: string | null;
       startupLock: boolean;
-      startupLockDiagnostics: CodexWrapperStartupLockDiagnostics;
+      startupLockDiagnostics: WrapperStartupLockDiagnostics;
     };
   };
   ok: boolean;
@@ -80,7 +80,7 @@ export interface CodexPluginDiagnostics {
   skills: { missing: string[]; ok: boolean; required: string[] };
 }
 
-export interface CodexMcpEntryDiagnostics {
+export interface McpEntryDiagnostics {
   args: string[];
   cacheMarker: {
     canonicalLocalDevCommand: string | null;
@@ -112,7 +112,7 @@ export interface CodexMcpEntryDiagnostics {
   wrapperPath: string | null;
 }
 
-export interface CodexWrapperStartupLockDiagnostics {
+export interface WrapperStartupLockDiagnostics {
   cacheParentCreation: boolean;
   configured: boolean;
   holdTimeoutEnv: string;
@@ -126,26 +126,26 @@ export interface CodexWrapperStartupLockDiagnostics {
   nextAction: string;
 }
 
-export interface CodexRuntimeDiagnosticsOptions {
+export interface RuntimeDiagnosticsOptions {
   autoInit?: Record<string, unknown>;
-  commandProbeRunner?: CodexCommandProbeRunner;
+  commandProbeRunner?: CommandProbeRunner;
   enhancementRoute?: HostEnhancementRouteChoice;
-  hostProjectAlignment?: CodexHostProjectAlignment;
-  moduleBoundary?: CodexModuleBoundaryStatus;
-  projectRuntime?: CodexProjectRuntimeContext;
+  hostProjectAlignment?: HostProjectAlignment;
+  moduleBoundary?: ModuleBoundaryStatus;
+  projectRuntime?: ProjectRuntimeContext;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity;
-  projectRootResolution?: CodexProjectRootResolution;
+  projectRootResolution?: ProjectRootResolution;
   residentService?: AlembicResidentServiceProbe;
 }
 
-export interface CodexDiagnosticIssue {
+export interface DiagnosticIssue {
   action: string;
   code: string;
   message: string;
   severity: 'error' | 'warning';
 }
 
-export interface CodexCommandProbeResult {
+export interface CommandProbeResult {
   available: boolean;
   cwd: string | null;
   error: string | null;
@@ -153,7 +153,7 @@ export interface CodexCommandProbeResult {
   version: string | null;
 }
 
-export type CodexCommandProbeRunner = (
+export type CommandProbeRunner = (
   command: string,
   args: string[],
   options: { cwd?: string; encoding: 'utf8'; timeout: number }
@@ -164,24 +164,24 @@ export type CodexCommandProbeRunner = (
   status: number | null;
 };
 
-type CodexMcpConfigMode = 'local-dev-direct-dist' | 'marketplace-shell' | 'unknown';
+type McpConfigMode = 'local-dev-direct-dist' | 'marketplace-shell' | 'unknown';
 type CodexPluginRegistry = ReturnType<typeof loadCodexPluginRegistry>;
-type CodexRuntimeChecks = Record<string, boolean>;
+type RuntimeChecks = Record<string, boolean>;
 
 interface BuildDiagnosticIssuesInput {
   adminEnabled: boolean;
-  checks: CodexRuntimeChecks;
-  npm: CodexCommandProbeResult;
-  npx: CodexCommandProbeResult;
+  checks: RuntimeChecks;
+  npm: CommandProbeResult;
+  npx: CommandProbeResult;
   packageVersion: string;
   pluginHost: string;
-  plugin: CodexPluginDiagnostics;
-  projectRootResolution?: CodexProjectRootResolution;
+  plugin: PluginDiagnostics;
+  projectRootResolution?: ProjectRootResolution;
   requestedTier: string;
   runtimeMode: string;
 }
 
-interface CodexMcpEntryDiagnosticsInput {
+interface McpEntryDiagnosticsInput {
   args: string[];
   command: string | null;
   packageVersion: string;
@@ -192,17 +192,17 @@ interface CodexMcpEntryDiagnosticsInput {
   wrapperPath: string | null;
 }
 
-export function buildCodexRuntimeDiagnostics(
+export function buildRuntimeDiagnostics(
   daemonStatus: DaemonStatus,
   context: HostRuntimeContext = resolveHostRuntimeContext(),
-  options: CodexRuntimeDiagnosticsOptions = {}
+  options: RuntimeDiagnosticsOptions = {}
 ): Record<string, unknown> {
   const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] || '0', 10);
-  const npm = probeCodexRuntimeCommand('npm', context, options.commandProbeRunner);
-  const npx = probeCodexRuntimeCommand('npx', context, options.commandProbeRunner);
+  const npm = probeRuntimeCommand('npm', context, options.commandProbeRunner);
+  const npx = probeRuntimeCommand('npx', context, options.commandProbeRunner);
   const npmAvailable = npm.available === true;
   const npxAvailable = npx.available === true;
-  const plugin = buildCodexPluginDiagnostics(context);
+  const plugin = buildPluginDiagnostics(context);
   const enhancementRoute =
     options.enhancementRoute ||
     buildHostEnhancementRouteChoice({
@@ -211,11 +211,11 @@ export function buildCodexRuntimeDiagnostics(
     });
   const moduleBoundary =
     options.moduleBoundary ||
-    buildCodexModuleBoundaryStatus({
+    buildModuleBoundaryStatus({
       enhancementRoute,
       hostProjectAlignment: options.hostProjectAlignment,
     });
-  const checks = buildCodexRuntimeChecks({
+  const checks = buildRuntimeChecks({
     context,
     nodeMajor,
     npmAvailable,
@@ -262,7 +262,7 @@ export function buildCodexRuntimeDiagnostics(
           startsDaemon: false,
           tool: 'alembic_status',
         }),
-    ...buildCodexRuntimeReportSections({
+    ...buildRuntimeReportSections({
       checks,
       context,
       daemonStatus,
@@ -276,14 +276,14 @@ export function buildCodexRuntimeDiagnostics(
   };
 }
 
-function buildCodexRuntimeChecks(input: {
+function buildRuntimeChecks(input: {
   context: HostRuntimeContext;
   nodeMajor: number;
   npmAvailable: boolean;
   npxAvailable: boolean;
-  options: CodexRuntimeDiagnosticsOptions;
-  plugin: CodexPluginDiagnostics;
-}): CodexRuntimeChecks {
+  options: RuntimeDiagnosticsOptions;
+  plugin: PluginDiagnostics;
+}): RuntimeChecks {
   return {
     adminGate: input.context.requestedTier !== 'admin' || input.context.adminEnabled,
     node: input.nodeMajor >= 22,
@@ -310,7 +310,7 @@ function buildCodexRuntimeChecks(input: {
   };
 }
 
-function areKnowledgeWorkflowDiagnosticsOk(checks: CodexRuntimeChecks): boolean {
+function areKnowledgeWorkflowDiagnosticsOk(checks: RuntimeChecks): boolean {
   const blockingChecks = [
     'adminGate',
     'node',
@@ -330,16 +330,16 @@ function areKnowledgeWorkflowDiagnosticsOk(checks: CodexRuntimeChecks): boolean 
   return blockingChecks.every((checkName) => checks[checkName] === true);
 }
 
-function buildCodexRuntimeReportSections(input: {
-  checks: CodexRuntimeChecks;
+function buildRuntimeReportSections(input: {
+  checks: RuntimeChecks;
   context: HostRuntimeContext;
   daemonStatus: DaemonStatus;
   enhancementRoute: HostEnhancementRouteChoice;
-  moduleBoundary: CodexModuleBoundaryStatus;
-  npm: CodexCommandProbeResult;
-  npx: CodexCommandProbeResult;
-  options: CodexRuntimeDiagnosticsOptions;
-  plugin: CodexPluginDiagnostics;
+  moduleBoundary: ModuleBoundaryStatus;
+  npm: CommandProbeResult;
+  npx: CommandProbeResult;
+  options: RuntimeDiagnosticsOptions;
+  plugin: PluginDiagnostics;
 }): Record<string, unknown> {
   return {
     node: {
@@ -363,7 +363,7 @@ function buildCodexRuntimeReportSections(input: {
       mcpBinary: input.context.runtimeBin,
     },
     projectRootResolution: input.options.projectRootResolution
-      ? summarizeCodexProjectRootResolution(input.options.projectRootResolution)
+      ? summarizeProjectRootResolution(input.options.projectRootResolution)
       : null,
     autoInit: input.options.autoInit || null,
     hostProjectAlignment: input.options.hostProjectAlignment || null,
@@ -421,15 +421,15 @@ function buildCodexRuntimeReportSections(input: {
   };
 }
 
-export function buildCodexPluginDiagnostics(
+export function buildPluginDiagnostics(
   context: HostRuntimeContext = resolveHostRuntimeContext()
-): CodexPluginDiagnostics {
+): PluginDiagnostics {
   const registry = loadCodexPluginRegistry(context);
-  const assets = buildCodexPluginAssetDiagnostics(registry);
-  const manifest = buildCodexPluginManifestDiagnostics(registry);
-  const mcp = buildCodexPluginMcpDiagnostics(context, registry);
-  const readme = buildCodexPluginReadmeDiagnostics(context, registry);
-  const skills = buildCodexPluginSkillDiagnostics(registry);
+  const assets = buildPluginAssetDiagnostics(registry);
+  const manifest = buildPluginManifestDiagnostics(registry);
+  const mcp = buildPluginMcpDiagnostics(context, registry);
+  const readme = buildPluginReadmeDiagnostics(context, registry);
+  const skills = buildPluginSkillDiagnostics(registry);
 
   return {
     assets,
@@ -442,10 +442,10 @@ export function buildCodexPluginDiagnostics(
   };
 }
 
-function buildCodexPluginMcpDiagnostics(
+function buildPluginMcpDiagnostics(
   context: HostRuntimeContext,
   registry: CodexPluginRegistry
-): CodexPluginDiagnostics['mcp'] {
+): PluginDiagnostics['mcp'] {
   const args = registry.mcp.args;
   const command =
     typeof registry.mcp.server?.command === 'string' ? registry.mcp.server.command : null;
@@ -457,7 +457,7 @@ function buildCodexPluginMcpDiagnostics(
     startupPath && existsSync(startupPath) ? readFileSync(startupPath, 'utf8') : '';
   const runtimeTarballPath = join(registry.plugin.root, 'runtime.tgz');
   const shellUsesPinnedRuntime = startupSourceUsesPinnedRuntime(startupSource, context);
-  const entry = buildCodexMcpEntryDiagnostics({
+  const entry = buildMcpEntryDiagnostics({
     args,
     command,
     packageVersion: context.packageVersion,
@@ -482,7 +482,7 @@ function buildCodexPluginMcpDiagnostics(
     binary === context.runtimeBin &&
     !args.includes('latest');
   const packagePin = embeddedRuntime || localDevRuntime;
-  const envDiagnostics = buildCodexPluginMcpEnvDiagnostics(registry);
+  const envDiagnostics = buildPluginMcpEnvDiagnostics(registry);
   const mcpOk =
     packagePin &&
     envDiagnostics.adminDisabledByDefault &&
@@ -519,10 +519,10 @@ function buildCodexPluginMcpDiagnostics(
   };
 }
 
-function buildCodexPluginMcpEnvDiagnostics(
+function buildPluginMcpEnvDiagnostics(
   registry: CodexPluginRegistry
 ): Pick<
-  CodexPluginDiagnostics['mcp'],
+  PluginDiagnostics['mcp'],
   | 'adminDisabledByDefault'
   | 'agentTierByDefault'
   | 'codexShimMode'
@@ -572,9 +572,7 @@ function startupSourceUsesPinnedRuntime(
   );
 }
 
-function buildCodexPluginAssetDiagnostics(
-  registry: CodexPluginRegistry
-): CodexPluginDiagnostics['assets'] {
+function buildPluginAssetDiagnostics(registry: CodexPluginRegistry): PluginDiagnostics['assets'] {
   const missingAssets = registry.plugin.assets.filter(
     (asset) => !existsSync(join(registry.plugin.root, asset))
   );
@@ -591,9 +589,9 @@ function buildCodexPluginAssetDiagnostics(
   };
 }
 
-function buildCodexPluginManifestDiagnostics(
+function buildPluginManifestDiagnostics(
   registry: CodexPluginRegistry
-): CodexPluginDiagnostics['manifest'] {
+): PluginDiagnostics['manifest'] {
   return {
     ok:
       registry.plugin.manifest.ok &&
@@ -603,9 +601,7 @@ function buildCodexPluginManifestDiagnostics(
   };
 }
 
-function buildCodexPluginSkillDiagnostics(
-  registry: CodexPluginRegistry
-): CodexPluginDiagnostics['skills'] {
+function buildPluginSkillDiagnostics(registry: CodexPluginRegistry): PluginDiagnostics['skills'] {
   const requiredSkills = [...CODEX_REQUIRED_SKILLS];
   const missingSkills = requiredSkills.filter(
     (skill) => !existsSync(join(registry.plugin.root, 'skills', skill, 'SKILL.md'))
@@ -617,10 +613,10 @@ function buildCodexPluginSkillDiagnostics(
   };
 }
 
-function buildCodexPluginReadmeDiagnostics(
+function buildPluginReadmeDiagnostics(
   context: HostRuntimeContext,
   registry: CodexPluginRegistry
-): CodexPluginDiagnostics['readme'] {
+): PluginDiagnostics['readme'] {
   const mentionsEmbeddedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
   const mentionsPinnedRuntime = registry.plugin.readme.includes(context.pinnedRuntimeSpecifier);
   return {
@@ -631,9 +627,7 @@ function buildCodexPluginReadmeDiagnostics(
   };
 }
 
-function buildCodexMcpEntryDiagnostics(
-  input: CodexMcpEntryDiagnosticsInput
-): CodexMcpEntryDiagnostics {
+function buildMcpEntryDiagnostics(input: McpEntryDiagnosticsInput): McpEntryDiagnostics {
   const marker = readInstalledRefreshMarker(
     join(input.registryPluginRoot, '.alembic-dev-refresh.json')
   );
@@ -642,8 +636,8 @@ function buildCodexMcpEntryDiagnostics(
   const localDistEntryExists = localDistPath ? existsSync(localDistPath) : null;
   const runtimeTarballExists = existsSync(input.runtimeTarballPath);
   const hasWrapper = Boolean(input.wrapperArg);
-  const configMode = resolveCodexMcpConfigMode(localDistArg, hasWrapper);
-  const staleReasons = collectCodexMcpEntryStaleReasons({
+  const configMode = resolveMcpConfigMode(localDistArg, hasWrapper);
+  const staleReasons = collectMcpEntryStaleReasons({
     configMode,
     hasWrapper,
     input,
@@ -686,7 +680,7 @@ function findLocalDistArg(args: string[]): string | null {
 
 function resolveLocalDistEntryPath(
   registryPluginRoot: string,
-  marker: CodexMcpEntryDiagnostics['cacheMarker'],
+  marker: McpEntryDiagnostics['cacheMarker'],
   localDistArg: string | null
 ): string | null {
   if (localDistArg) {
@@ -695,23 +689,20 @@ function resolveLocalDistEntryPath(
   return typeof marker.localMcpEntry === 'string' ? marker.localMcpEntry : null;
 }
 
-function resolveCodexMcpConfigMode(
-  localDistArg: string | null,
-  hasWrapper: boolean
-): CodexMcpConfigMode {
+function resolveMcpConfigMode(localDistArg: string | null, hasWrapper: boolean): McpConfigMode {
   if (localDistArg) {
     return 'local-dev-direct-dist';
   }
   return hasWrapper ? 'marketplace-shell' : 'unknown';
 }
 
-function collectCodexMcpEntryStaleReasons(input: {
-  configMode: CodexMcpConfigMode;
+function collectMcpEntryStaleReasons(input: {
+  configMode: McpConfigMode;
   hasWrapper: boolean;
-  input: CodexMcpEntryDiagnosticsInput;
+  input: McpEntryDiagnosticsInput;
   localDistEntryExists: boolean | null;
   localDistPath: string | null;
-  marker: CodexMcpEntryDiagnostics['cacheMarker'];
+  marker: McpEntryDiagnostics['cacheMarker'];
   runtimeTarballExists: boolean;
 }): string[] {
   const staleReasons: string[] = [];
@@ -730,9 +721,9 @@ function collectCodexMcpEntryStaleReasons(input: {
 
 function collectRefreshMarkerStaleReasons(
   input: {
-    configMode: CodexMcpConfigMode;
-    input: CodexMcpEntryDiagnosticsInput;
-    marker: CodexMcpEntryDiagnostics['cacheMarker'];
+    configMode: McpConfigMode;
+    input: McpEntryDiagnosticsInput;
+    marker: McpEntryDiagnostics['cacheMarker'];
   },
   staleReasons: string[]
 ): void {
@@ -771,10 +762,10 @@ function collectRefreshMarkerStaleReasons(
 
 function collectLocalMcpMarkerStaleReasons(
   input: {
-    configMode: CodexMcpConfigMode;
-    input: CodexMcpEntryDiagnosticsInput;
+    configMode: McpConfigMode;
+    input: McpEntryDiagnosticsInput;
     localDistPath: string | null;
-    marker: CodexMcpEntryDiagnostics['cacheMarker'];
+    marker: McpEntryDiagnostics['cacheMarker'];
   },
   staleReasons: string[]
 ): void {
@@ -795,9 +786,7 @@ function collectLocalMcpMarkerStaleReasons(
   }
 }
 
-function buildWrapperStartupLockDiagnostics(
-  wrapperSource: string
-): CodexWrapperStartupLockDiagnostics {
+function buildWrapperStartupLockDiagnostics(wrapperSource: string): WrapperStartupLockDiagnostics {
   const configured =
     wrapperSource.includes('acquireRuntimeLock') && wrapperSource.includes('lockDir');
   const releaseSignals = [
@@ -806,7 +795,7 @@ function buildWrapperStartupLockDiagnostics(
     wrapperSource.includes('runtime-lock-stale-removed') ? 'stale-removed' : null,
     wrapperSource.includes('ALEMBIC_CODEX_RUNTIME_LOCK_TIMEOUT') ? 'timeout-diagnostic' : null,
   ].filter((signal): signal is string => typeof signal === 'string');
-  let scope: CodexWrapperStartupLockDiagnostics['scope'] = 'missing';
+  let scope: WrapperStartupLockDiagnostics['scope'] = 'missing';
   if (configured) {
     scope = 'global-cache-base';
   }
@@ -842,7 +831,7 @@ function buildWrapperStartupLockDiagnostics(
   };
 }
 
-function readInstalledRefreshMarker(path: string): CodexMcpEntryDiagnostics['cacheMarker'] {
+function readInstalledRefreshMarker(path: string): McpEntryDiagnostics['cacheMarker'] {
   const marker = readJsonIfExists(path);
   return {
     canonicalLocalDevCommand: stringOrNull(marker?.canonicalLocalDevCommand),
@@ -861,7 +850,7 @@ function resolveMaybePluginRelative(pluginRoot: string, path: string): string {
   return path.startsWith('/') ? path : join(pluginRoot, path.replace(/^\.\//, ''));
 }
 
-function entryModeNextAction(mode: CodexMcpEntryDiagnostics['mode']): string {
+function entryModeNextAction(mode: McpEntryDiagnostics['mode']): string {
   switch (mode) {
     case 'local-dev-direct-dist':
       return 'Use npm run dev:codex-plugin:reload after local source changes so installed caches keep pointing at the fresh dist build.';
@@ -874,7 +863,7 @@ function entryModeNextAction(mode: CodexMcpEntryDiagnostics['mode']): string {
   }
 }
 
-function buildDiagnosticIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+function buildDiagnosticIssues(input: BuildDiagnosticIssuesInput): DiagnosticIssue[] {
   return [
     ...buildProjectRootIssues(input),
     ...buildRuntimeCommandIssues(input),
@@ -885,7 +874,7 @@ function buildDiagnosticIssues(input: BuildDiagnosticIssuesInput): CodexDiagnost
   ];
 }
 
-function buildProjectRootIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+function buildProjectRootIssues(input: BuildDiagnosticIssuesInput): DiagnosticIssue[] {
   if (input.projectRootResolution && input.projectRootResolution.trust !== 'trusted') {
     const rejected = input.projectRootResolution.trust === 'rejected';
     return [
@@ -893,7 +882,7 @@ function buildProjectRootIssues(input: BuildDiagnosticIssuesInput): CodexDiagnos
         action:
           'Pass the current workspace directory as the projectRoot argument, then rerun the Alembic tool.',
         code: rejected ? 'CODEX_PROJECT_ROOT_REJECTED' : 'CODEX_PROJECT_ROOT_UNRESOLVED',
-        message: buildCodexProjectRootRequiredMessage(input.projectRootResolution),
+        message: buildProjectRootRequiredMessage(input.projectRootResolution),
         severity: 'error',
       },
     ];
@@ -901,8 +890,8 @@ function buildProjectRootIssues(input: BuildDiagnosticIssuesInput): CodexDiagnos
   return [];
 }
 
-function buildRuntimeCommandIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
-  const issues: CodexDiagnosticIssue[] = [];
+function buildRuntimeCommandIssues(input: BuildDiagnosticIssuesInput): DiagnosticIssue[] {
+  const issues: DiagnosticIssue[] = [];
   if (!input.checks.node) {
     issues.push({
       action:
@@ -934,7 +923,7 @@ function buildRuntimeCommandIssues(input: BuildDiagnosticIssuesInput): CodexDiag
   return issues;
 }
 
-function buildRuntimeIdentityIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+function buildRuntimeIdentityIssues(input: BuildDiagnosticIssuesInput): DiagnosticIssue[] {
   if (!input.checks.runtimeMode || !input.checks.runtimePluginHost) {
     return [
       {
@@ -949,8 +938,8 @@ function buildRuntimeIdentityIssues(input: BuildDiagnosticIssuesInput): CodexDia
   return [];
 }
 
-function buildPluginConfigurationIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
-  const issues: CodexDiagnosticIssue[] = [];
+function buildPluginConfigurationIssues(input: BuildDiagnosticIssuesInput): DiagnosticIssue[] {
+  const issues: DiagnosticIssue[] = [];
   if (!input.checks.packagePin) {
     issues.push({
       action:
@@ -993,7 +982,7 @@ function buildPluginConfigurationIssues(input: BuildDiagnosticIssuesInput): Code
   return issues;
 }
 
-function buildPluginMcpEntryIssue(entry: CodexMcpEntryDiagnostics): CodexDiagnosticIssue {
+function buildPluginMcpEntryIssue(entry: McpEntryDiagnostics): DiagnosticIssue {
   const stale = entry.mode === 'stale-installed-cache';
   return {
     action: stale
@@ -1007,9 +996,7 @@ function buildPluginMcpEntryIssue(entry: CodexMcpEntryDiagnostics): CodexDiagnos
   };
 }
 
-function buildResidentServiceContractIssues(
-  input: BuildDiagnosticIssuesInput
-): CodexDiagnosticIssue[] {
+function buildResidentServiceContractIssues(input: BuildDiagnosticIssuesInput): DiagnosticIssue[] {
   if (!input.checks.residentServiceContract) {
     return [
       {
@@ -1024,7 +1011,7 @@ function buildResidentServiceContractIssues(
   return [];
 }
 
-function buildAdminTierIssues(input: BuildDiagnosticIssuesInput): CodexDiagnosticIssue[] {
+function buildAdminTierIssues(input: BuildDiagnosticIssuesInput): DiagnosticIssue[] {
   if (input.requestedTier === 'admin' && !input.adminEnabled) {
     return [
       {
@@ -1062,14 +1049,14 @@ function buildResidentServiceBoundary(
   };
 }
 
-function buildDiagnosticNextActions(issues: CodexDiagnosticIssue[]): string[] {
+function buildDiagnosticNextActions(issues: DiagnosticIssue[]): string[] {
   if (issues.length === 0) {
     return ['Alembic Codex runtime checks passed.'];
   }
   return [...new Set(issues.map((issue) => issue.action))];
 }
 
-function buildDiagnosticSummary(issues: CodexDiagnosticIssue[]): string {
+function buildDiagnosticSummary(issues: DiagnosticIssue[]): string {
   if (issues.length === 0) {
     return 'Alembic Codex runtime checks passed. Continue with status, init, bootstrap, or priming.';
   }
@@ -1104,11 +1091,11 @@ function buildRecommendedAction(input: {
   };
 }
 
-export function probeCodexRuntimeCommand(
+export function probeRuntimeCommand(
   command: string,
   context: HostRuntimeContext = resolveHostRuntimeContext(),
-  runner: CodexCommandProbeRunner = spawnSync
-): CodexCommandProbeResult {
+  runner: CommandProbeRunner = spawnSync
+): CommandProbeResult {
   const cwd = resolveDiagnosticsCommandCwd(context);
   const result = runner(command, ['--version'], {
     ...(cwd ? { cwd } : {}),

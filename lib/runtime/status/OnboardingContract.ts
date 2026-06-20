@@ -1,12 +1,12 @@
 import path from 'node:path';
-import type { CodexHostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
+import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import type { HostKnowledgeState } from '../../runtime/KnowledgeState.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolSurfaceEntry,
 } from '../../runtime/mcp/PluginToolSurfaceCatalog.js';
 
-export const CODEX_ONBOARDING_CONTRACT_VERSION = 1;
+export const ONBOARDING_CONTRACT_VERSION = 1;
 
 const CANONICAL_PROJECT_CONTEXT_TOOLS = ['alembic_recipe_map', 'alembic_graph'] as const;
 
@@ -64,7 +64,7 @@ interface LanguageOverlaySummary {
   uncertainty: string | null;
 }
 
-export interface CodexOnboardingContract {
+export interface OnboardingContract {
   bootstrapState: Record<string, unknown>;
   currentDomainNextActions: Array<Record<string, unknown>>;
   currentDomainSop: Record<string, unknown>;
@@ -77,12 +77,12 @@ export interface CodexOnboardingContract {
   toolCapabilities: Record<string, unknown>;
 }
 
-export interface BuildCodexOnboardingContractInput {
+export interface BuildOnboardingContractInput {
   dataRoot?: string;
   diagnosticsOk?: boolean;
   dimensions?: unknown;
   fileCount?: number | null;
-  hostProjectAlignment?: CodexHostProjectAlignment;
+  hostProjectAlignment?: HostProjectAlignment;
   knowledge?: HostKnowledgeState;
   moduleCount?: number | null;
   primaryLanguage?: string | null;
@@ -262,21 +262,19 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
   },
 ];
 
-export function buildCodexColdStartOnboardingContract(
-  input: BuildCodexOnboardingContractInput
-): CodexOnboardingContract {
-  return buildCodexOnboardingContract({ ...input, source: 'bootstrap' });
+export function buildColdStartOnboardingContract(
+  input: BuildOnboardingContractInput
+): OnboardingContract {
+  return buildOnboardingContract({ ...input, source: 'bootstrap' });
 }
 
-export function buildCodexStatusOnboardingContract(
-  input: BuildCodexOnboardingContractInput
-): CodexOnboardingContract {
-  return buildCodexOnboardingContract({ ...input, source: 'status' });
+export function buildStatusOnboardingContract(
+  input: BuildOnboardingContractInput
+): OnboardingContract {
+  return buildOnboardingContract({ ...input, source: 'status' });
 }
 
-function buildCodexOnboardingContract(
-  input: BuildCodexOnboardingContractInput
-): CodexOnboardingContract {
+function buildOnboardingContract(input: BuildOnboardingContractInput): OnboardingContract {
   const dimensions = summarizeDimensions(input.dimensions);
   const domainQueue = buildDomainQueue(dimensions);
   const currentDomain = domainQueue[0] || buildDomainQueue([])[0];
@@ -305,7 +303,7 @@ function buildCodexOnboardingContract(
     domainQueue,
     gates,
     initialToolBriefing: {
-      contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+      contractVersion: ONBOARDING_CONTRACT_VERSION,
       defaultOrder: [
         'alembic_status',
         'alembic_recipe_map',
@@ -334,14 +332,14 @@ function buildCodexOnboardingContract(
 }
 
 function buildBootstrapState(
-  input: BuildCodexOnboardingContractInput,
+  input: BuildOnboardingContractInput,
   context: { currentDomainId: string; dimensions: DimensionSummary[] }
 ): Record<string, unknown> {
   const knowledge = input.knowledge;
   const status = resolveBootstrapStatus(input);
   const sessionSummary = summarizeSession(input.session, context.dimensions.length);
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     status,
     source: input.source || 'status',
     projectIdentity: {
@@ -374,7 +372,7 @@ function buildBootstrapState(
   };
 }
 
-function resolveBootstrapStatus(input: BuildCodexOnboardingContractInput): string {
+function resolveBootstrapStatus(input: BuildOnboardingContractInput): string {
   if (input.projectRootTrusted === false) {
     return 'wrong_scope';
   }
@@ -397,9 +395,7 @@ function resolveBootstrapStatus(input: BuildCodexOnboardingContractInput): strin
   return knowledge.usable ? 'knowledge_ready' : 'initialized_empty';
 }
 
-function buildProjectContextState(
-  input: BuildCodexOnboardingContractInput
-): Record<string, unknown> {
+function buildProjectContextState(input: BuildOnboardingContractInput): Record<string, unknown> {
   const sourceRefs = input.knowledge?.sourceRefs;
   const snapshots = input.knowledge?.snapshots;
   const freshness = input.knowledge?.freshness;
@@ -423,12 +419,12 @@ function buildProjectContextState(
 }
 
 function buildSingleWriterLeaseVisibility(
-  input: BuildCodexOnboardingContractInput
+  input: BuildOnboardingContractInput
 ): Record<string, unknown> {
   const activeBootstrap =
     input.knowledge?.jobs?.active.find((job) => job.kind === 'bootstrap') || null;
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     status: activeBootstrap ? 'held' : 'available',
     publicStatus: activeBootstrap ? 'bootstrap_in_progress' : 'no_active_bootstrap',
     leaseHolder: activeBootstrap
@@ -464,7 +460,7 @@ function buildSingleWriterLeaseVisibility(
 function buildToolCapabilities(entries: PluginToolSurfaceEntry[]): Record<string, unknown> {
   const byName = new Map(entries.map((entry) => [entry.name, entry]));
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     source: 'PluginToolSurfaceCatalog',
     visibleToolNames: entries.map((entry) => entry.name),
     canonicalProjectContext: summarizeToolGroup(CANONICAL_PROJECT_CONTEXT_TOOLS, byName),
@@ -529,7 +525,7 @@ function buildCurrentDomainSop(
   context: { languageProfile: Record<string, unknown> }
 ): Record<string, unknown> {
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     domainId: playbook.domainId,
     title: playbook.title,
     goal: playbook.goal,
@@ -623,11 +619,11 @@ function buildCurrentDomainSop(
 }
 
 function buildSopPack(
-  input: BuildCodexOnboardingContractInput,
+  input: BuildOnboardingContractInput,
   context: { languageProfile: Record<string, unknown>; toolSurface: PluginToolSurfaceEntry[] }
 ): Record<string, unknown> {
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     source: 'wakeflow-ledger/domain-sop-baseline-2026-06-12',
     scopeBrief: buildScopeBrief(input),
     toolCapabilityMatrix: buildToolCapabilityMatrix(context.toolSurface),
@@ -882,7 +878,7 @@ function buildKnowledgeResetContract(): Record<string, unknown> {
   };
 }
 
-function buildScopeBrief(input: BuildCodexOnboardingContractInput): Record<string, unknown> {
+function buildScopeBrief(input: BuildOnboardingContractInput): Record<string, unknown> {
   const storageMode =
     input.dataRoot && input.dataRoot !== input.projectRoot
       ? 'ghost-or-external-data-root'
@@ -1032,7 +1028,7 @@ function describeToolInvalidConclusions(toolName: string): string[] {
   return ['controller acceptance or user-visible completion'];
 }
 
-function buildLanguageProfile(input: BuildCodexOnboardingContractInput): Record<string, unknown> {
+function buildLanguageProfile(input: BuildOnboardingContractInput): Record<string, unknown> {
   const languages = normalizeLanguages(input.primaryLanguage, input.secondaryLanguages || []);
   const overlays =
     languages.length > 0 ? languages.map(buildLanguageOverlay) : [buildGenericOverlay(null)];
@@ -1300,7 +1296,7 @@ function buildAgentDecisionChecklist(
 
 function buildGates(): Record<string, unknown> {
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     scope: {
       rule: 'Project root and data root must match the active Codex host project before source facts can be trusted.',
       firstRepairTool: 'alembic_status',
@@ -1339,7 +1335,7 @@ function buildProgress(
   dimensions: DimensionSummary[]
 ): Record<string, unknown> {
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     stage: 'current-domain-ready',
     currentDomainId: domainQueue[0]?.domainId || DOMAIN_PLAYBOOKS[0].domainId,
     completedDomainIds: [],
@@ -1354,7 +1350,7 @@ function buildProgress(
 }
 
 function buildRepairState(
-  input: BuildCodexOnboardingContractInput,
+  input: BuildOnboardingContractInput,
   bootstrapState: Record<string, unknown>
 ): Record<string, unknown> {
   const status = typeof bootstrapState.status === 'string' ? bootstrapState.status : 'unknown';
@@ -1376,7 +1372,7 @@ function buildRepairState(
   }
   const waiting = status === 'bootstrap_in_progress';
   return {
-    contractVersion: CODEX_ONBOARDING_CONTRACT_VERSION,
+    contractVersion: ONBOARDING_CONTRACT_VERSION,
     status: waiting ? 'waiting' : reasons.length > 0 ? 'repair-needed' : 'ready',
     reasons,
     rebuildRequired: status === 'project_context_stale',

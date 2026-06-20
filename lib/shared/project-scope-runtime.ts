@@ -8,12 +8,12 @@ import {
 
 export const ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV = 'ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY';
 
-export interface CodexProjectScopeRuntime {
+export interface ProjectScopeRuntime {
   descriptor: ProjectDescriptor;
   summary: ProjectScopeSummary;
 }
 
-export function serializeCodexProjectScopeSummary(
+export function serializeProjectScopeSummary(
   summary: ProjectScopeSummary | null | undefined
 ): string | null {
   if (!summary) {
@@ -22,7 +22,7 @@ export function serializeCodexProjectScopeSummary(
   return JSON.stringify(summary);
 }
 
-export function readCodexProjectScopeRuntimeFromEnv(): CodexProjectScopeRuntime | null {
+export function readProjectScopeRuntimeFromEnv(): ProjectScopeRuntime | null {
   const raw = process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
   if (!raw) {
     return null;
@@ -41,7 +41,7 @@ export function readCodexProjectScopeRuntimeFromEnv(): CodexProjectScopeRuntime 
   }
 }
 
-export function isCodexProjectScopeSummaryForFolder(
+export function isProjectScopeSummaryForFolder(
   summary: ProjectScopeSummary | null | undefined,
   folderPath: string
 ): boolean {

@@ -1,7 +1,7 @@
 import {
-  CODEX_AGENT_PUBLIC_TOOL_NAMES,
-  CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
-  CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
+  HOST_AGENT_WORKFLOW_TOOL_NAMES,
+  PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
+  TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
 } from '../../../runtime/ToolPolicy.js';
 
 interface GuidanceToolLike {
@@ -9,7 +9,7 @@ interface GuidanceToolLike {
   name: string;
 }
 
-export interface CodexMcpGuidance {
+export interface McpGuidance {
   guardTools: string[];
   instructions: string;
   knowledgeTools: string[];
@@ -21,24 +21,26 @@ export interface CodexMcpGuidance {
   visibleToolNames: string[];
 }
 
-const KNOWLEDGE_TOOL_NAMES = CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES;
+const KNOWLEDGE_TOOL_NAMES = PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES;
 
 const GUARD_TOOL_NAMES = new Set(['alembic_code_guard']);
 
 const RECOVERY_TOOL_NAMES = new Set([
   'alembic_init',
   'alembic_job',
-  ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
+  ...HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 
 const VALIDATION_TOOL_NAMES = new Set(['alembic_code_guard']);
 
-export function buildCodexMcpGuidance(tools: readonly GuidanceToolLike[]): CodexMcpGuidance {
+export function buildMcpGuidance(tools: readonly GuidanceToolLike[]): McpGuidance {
   const visibleToolNames = tools.map((tool) => tool.name);
   const visibleToolNameSet = new Set(visibleToolNames);
   const knowledgeTools = visibleToolNames.filter((name) => KNOWLEDGE_TOOL_NAMES.has(name));
   const guardTools = visibleToolNames.filter((name) => GUARD_TOOL_NAMES.has(name));
-  const lifecycleTools = visibleToolNames.filter((name) => CODEX_AGENT_PUBLIC_TOOL_NAMES.has(name));
+  const lifecycleTools = visibleToolNames.filter((name) =>
+    TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES.has(name)
+  );
   const recoveryTools = visibleToolNames.filter((name) => RECOVERY_TOOL_NAMES.has(name));
   const validationTools = visibleToolNames.filter((name) => VALIDATION_TOOL_NAMES.has(name));
 
@@ -69,8 +71,8 @@ export function buildCodexMcpGuidance(tools: readonly GuidanceToolLike[]): Codex
   };
 }
 
-export function buildCodexMcpInitializeInstructions(tools: readonly GuidanceToolLike[]): string {
-  return buildCodexMcpGuidance(tools).instructions;
+export function buildMcpInitializeInstructions(tools: readonly GuidanceToolLike[]): string {
+  return buildMcpGuidance(tools).instructions;
 }
 
 function buildProjectContextPlaybookLine(knowledgeTools: string[]): string {

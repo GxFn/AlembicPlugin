@@ -7,7 +7,7 @@ import { dimensionTags } from '@alembic/core/dimensions';
 import { UnifiedValidator } from '@alembic/core/knowledge';
 import { getDeveloperIdentity } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { normalizeCodexHostAgentWriteSource } from '#codex/SourceBoundary.js';
+import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import type { McpContext, McpServiceContainer } from '../../../runtime/mcp/handlers/types.js';
 
@@ -58,7 +58,7 @@ function _enrichToV3(args: EnrichInput, container: McpServiceContainer | null): 
   const data: EnrichInput = { ...args };
 
   // 来源标记（非调用方职责）
-  data.source = normalizeCodexHostAgentWriteSource(data.source);
+  data.source = normalizeHostAgentWriteSource(data.source);
 
   // RecipeExtractor 语义标签（程序化）
   try {

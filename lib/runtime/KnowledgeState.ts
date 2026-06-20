@@ -2,29 +2,26 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DaemonJobKind, DaemonJobRecord, DaemonJobStatus } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import {
-  readCodexSnapshotState,
-  readCodexSourceRefState,
-} from '#infra/database/SqliteDatabaseAccess.js';
+import { readSnapshotState, readSourceRefState } from '#infra/database/SqliteDatabaseAccess.js';
 import { countProjectSkillKnowledgeEntries } from '../repository/skills/ProjectSkillKnowledgeRepository.js';
 
-export type CodexKnowledgeStatus =
+export type KnowledgeStatus =
   | 'not_initialized'
   | 'initialized_empty'
   | 'bootstrap_running'
   | 'knowledge_ready'
   | 'knowledge_stale';
 
-export type CodexKnowledgeFreshnessStatus =
+export type KnowledgeFreshnessStatus =
   | 'current'
   | 'refresh_failed'
   | 'refresh_running'
   | 'source_refs_stale'
   | 'unknown';
 
-export type CodexVectorStatus = 'empty' | 'missing' | 'ready' | 'unreadable';
+export type VectorStatus = 'empty' | 'missing' | 'ready' | 'unreadable';
 
-export interface CodexJobSummary {
+export interface JobSummary {
   channelId?: string;
   client?: string;
   completedAt?: string;
@@ -45,28 +42,28 @@ export interface CodexJobSummary {
   updatedAt?: string;
 }
 
-export interface CodexJobActivityState {
-  active: CodexJobSummary[];
+export interface JobActivityState {
+  active: JobSummary[];
   bootstrapRunning: boolean;
   jobsDir: string;
   jobsDirExists: boolean;
-  latest: CodexJobSummary | null;
-  latestTerminal: CodexJobSummary | null;
+  latest: JobSummary | null;
+  latestTerminal: JobSummary | null;
   rescanRunning: boolean;
   running: boolean;
   total: number;
 }
 
-export interface CodexKnowledgeFreshness {
+export interface KnowledgeFreshness {
   checkedAt: string;
   latestJobAt: string | null;
   latestKnowledgeAt: string | null;
   reason: string | null;
   stale: boolean;
-  status: CodexKnowledgeFreshnessStatus;
+  status: KnowledgeFreshnessStatus;
 }
 
-export interface CodexVectorState {
+export interface VectorState {
   documentCount: number | null;
   hnswIndexPath: string;
   indexDir: string;
@@ -76,11 +73,11 @@ export interface CodexVectorState {
   ready: boolean;
   reason: string | null;
   skipped: boolean;
-  status: CodexVectorStatus;
+  status: VectorStatus;
   updatedAt: string | null;
 }
 
-export interface CodexSourceRefState {
+export interface SourceRefState {
   activeCount: number;
   databasePath: string;
   reason: string | null;
@@ -92,7 +89,7 @@ export interface CodexSourceRefState {
   totalCount: number;
 }
 
-export interface CodexSnapshotState {
+export interface SnapshotState {
   databasePath: string;
   latest: {
     affectedDimsCount: number;
@@ -114,20 +111,20 @@ export interface CodexSnapshotState {
 
 export interface HostKnowledgeState {
   databaseEntryCount?: number;
-  freshness?: CodexKnowledgeFreshness;
+  freshness?: KnowledgeFreshness;
   hasKnowledge: boolean;
   initialized: boolean;
-  jobs?: CodexJobActivityState;
+  jobs?: JobActivityState;
   recipeCount: number;
   skillCount: number;
-  status: CodexKnowledgeStatus;
-  sourceRefs?: CodexSourceRefState;
-  snapshots?: CodexSnapshotState;
+  status: KnowledgeStatus;
+  sourceRefs?: SourceRefState;
+  snapshots?: SnapshotState;
   usable: boolean;
-  vector?: CodexVectorState;
+  vector?: VectorState;
 }
 
-export const EMPTY_CODEX_KNOWLEDGE_STATE: HostKnowledgeState = {
+export const EMPTY_KNOWLEDGE_STATE: HostKnowledgeState = {
   freshness: {
     checkedAt: new Date(0).toISOString(),
     latestJobAt: null,
@@ -187,7 +184,7 @@ export const EMPTY_CODEX_KNOWLEDGE_STATE: HostKnowledgeState = {
   },
 };
 
-export function inspectCodexKnowledge(projectRoot: string): HostKnowledgeState {
+export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
   let resolver: WorkspaceResolver;
   try {
     resolver = WorkspaceResolver.fromProject(projectRoot);
@@ -208,24 +205,24 @@ export function inspectCodexKnowledge(projectRoot: string): HostKnowledgeState {
   const databaseEntryCount = countProjectSkillKnowledgeEntries(resolver.dataRoot);
   const hasKnowledge = recipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;
   const usable = initialized && hasKnowledge;
-  const jobs = inspectCodexJobActivity(resolver);
-  const sourceRefs = inspectCodexSourceRefs(resolver);
-  const snapshots = inspectCodexSnapshots(resolver);
+  const jobs = inspectJobActivity(resolver);
+  const sourceRefs = inspectSourceRefs(resolver);
+  const snapshots = inspectSnapshots(resolver);
   const latestKnowledgeMtimeMs = Math.max(
     recipeScan.latestMtimeMs,
     skillScan.latestMtimeMs,
     databaseEntryCount > 0 ? safeExistingMtimeMs(resolver.databasePath) : 0,
     0
   );
-  const freshness = buildCodexKnowledgeFreshness({
+  const freshness = buildKnowledgeFreshness({
     jobs,
     latestKnowledgeAt:
       latestKnowledgeMtimeMs > 0 ? new Date(latestKnowledgeMtimeMs).toISOString() : null,
     sourceRefs,
     usable,
   });
-  const vector = inspectCodexVectorState(resolver, { usable });
-  const status = resolveCodexKnowledgeStatus({
+  const vector = inspectVectorState(resolver, { usable });
+  const status = resolveKnowledgeStatus({
     freshness,
     initialized,
     jobs,
@@ -247,12 +244,12 @@ export function inspectCodexKnowledge(projectRoot: string): HostKnowledgeState {
   };
 }
 
-function resolveCodexKnowledgeStatus(input: {
-  freshness: CodexKnowledgeFreshness;
+function resolveKnowledgeStatus(input: {
+  freshness: KnowledgeFreshness;
   initialized: boolean;
-  jobs: CodexJobActivityState;
+  jobs: JobActivityState;
   usable: boolean;
-}): CodexKnowledgeStatus {
+}): KnowledgeStatus {
   if (!input.initialized) {
     return 'not_initialized';
   }
@@ -319,10 +316,10 @@ function scanSkillFiles(dir: string): { count: number; latestMtimeMs: number } {
   }
 }
 
-function inspectCodexJobActivity(resolver: WorkspaceResolver): CodexJobActivityState {
+function inspectJobActivity(resolver: WorkspaceResolver): JobActivityState {
   const jobsDir = join(resolver.runtimeDir, 'jobs');
   const jobsDirExists = existsSync(jobsDir);
-  const jobs = jobsDirExists ? readCodexJobSummaries(jobsDir) : [];
+  const jobs = jobsDirExists ? readJobSummaries(jobsDir) : [];
   const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running');
   const latest = jobs[0] || null;
   const latestTerminal =
@@ -342,19 +339,19 @@ function inspectCodexJobActivity(resolver: WorkspaceResolver): CodexJobActivityS
   };
 }
 
-function readCodexJobSummaries(jobsDir: string): CodexJobSummary[] {
+function readJobSummaries(jobsDir: string): JobSummary[] {
   try {
     return readdirSync(jobsDir, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
       .map((entry) => parseCodexJobFile(join(jobsDir, entry.name)))
-      .filter((job): job is CodexJobSummary => Boolean(job))
+      .filter((job): job is JobSummary => Boolean(job))
       .sort((a, b) => jobTimeMs(b) - jobTimeMs(a));
   } catch {
     return [];
   }
 }
 
-function parseCodexJobFile(filePath: string): CodexJobSummary | null {
+function parseCodexJobFile(filePath: string): JobSummary | null {
   try {
     const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<DaemonJobRecord>;
     if (
@@ -372,7 +369,7 @@ function parseCodexJobFile(filePath: string): CodexJobSummary | null {
       ...(typeof parsed.channelId === 'string' ? { channelId: parsed.channelId } : {}),
       ...(typeof parsed.client === 'string' ? { client: parsed.client } : {}),
       ...(typeof parsed.createdByTool === 'string' ? { createdByTool: parsed.createdByTool } : {}),
-      ...(parsed.request ? { request: summarizeCodexJobRequest(parsed.request) } : {}),
+      ...(parsed.request ? { request: summarizeJobRequest(parsed.request) } : {}),
       ...(typeof parsed.sessionId === 'string' ? { sessionId: parsed.sessionId } : {}),
       ...(typeof parsed.createdAt === 'string' ? { createdAt: parsed.createdAt } : {}),
       ...(typeof parsed.updatedAt === 'string' ? { updatedAt: parsed.updatedAt } : {}),
@@ -383,12 +380,12 @@ function parseCodexJobFile(filePath: string): CodexJobSummary | null {
   }
 }
 
-function buildCodexKnowledgeFreshness(input: {
-  jobs: CodexJobActivityState;
+function buildKnowledgeFreshness(input: {
+  jobs: JobActivityState;
   latestKnowledgeAt: string | null;
-  sourceRefs: CodexSourceRefState;
+  sourceRefs: SourceRefState;
   usable: boolean;
-}): CodexKnowledgeFreshness {
+}): KnowledgeFreshness {
   const latestJob = input.jobs.latestTerminal || input.jobs.latest;
   const latestJobAt =
     latestJob?.completedAt || latestJob?.updatedAt || latestJob?.createdAt || null;
@@ -446,7 +443,7 @@ function buildCodexKnowledgeFreshness(input: {
   };
 }
 
-function summarizeCodexJobRequest(request: unknown): CodexJobSummary['request'] {
+function summarizeJobRequest(request: unknown): JobSummary['request'] {
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     return {};
   }
@@ -464,18 +461,15 @@ function summarizeCodexJobRequest(request: unknown): CodexJobSummary['request'] 
   };
 }
 
-function inspectCodexSourceRefs(resolver: WorkspaceResolver): CodexSourceRefState {
-  return readCodexSourceRefState(resolver.databasePath);
+function inspectSourceRefs(resolver: WorkspaceResolver): SourceRefState {
+  return readSourceRefState(resolver.databasePath);
 }
 
-function inspectCodexSnapshots(resolver: WorkspaceResolver): CodexSnapshotState {
-  return readCodexSnapshotState(resolver.databasePath, resolver.projectRoot);
+function inspectSnapshots(resolver: WorkspaceResolver): SnapshotState {
+  return readSnapshotState(resolver.databasePath, resolver.projectRoot);
 }
 
-function inspectCodexVectorState(
-  resolver: WorkspaceResolver,
-  input: { usable: boolean }
-): CodexVectorState {
+function inspectVectorState(resolver: WorkspaceResolver, input: { usable: boolean }): VectorState {
   const indexDir = join(resolver.contextDir, 'index');
   const jsonIndexPath = join(indexDir, 'vector_index.json');
   const hnswIndexPath = join(indexDir, 'vector_index.asvec');
@@ -520,7 +514,7 @@ function inspectCodexVectorState(
     };
   }
 
-  const status: CodexVectorStatus = existsSync(indexDir) ? 'empty' : 'missing';
+  const status: VectorStatus = existsSync(indexDir) ? 'empty' : 'missing';
   return {
     documentCount: 0,
     hnswIndexPath,
@@ -589,7 +583,7 @@ function isAfter(left: string | null, right: string | null): boolean {
   return Date.parse(left) > Date.parse(right);
 }
 
-function jobTimeMs(job: CodexJobSummary): number {
+function jobTimeMs(job: JobSummary): number {
   return Date.parse(job.updatedAt || job.completedAt || job.createdAt || '') || 0;
 }
 

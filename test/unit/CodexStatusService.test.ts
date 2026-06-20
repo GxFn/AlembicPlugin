@@ -11,8 +11,8 @@ import {
 import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
-import { buildCodexStatus } from '../../lib/runtime/index.js';
-import { buildCodexPostInitActions } from '../../lib/runtime/status/StatusService.js';
+import { buildStatus } from '../../lib/runtime/index.js';
+import { buildPostInitActions } from '../../lib/runtime/status/StatusService.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
@@ -264,7 +264,7 @@ afterEach(() => {
 
 describe('Codex status service', () => {
   test('recommends agent-facing prime after init instead of legacy task operations', () => {
-    const actions = buildCodexPostInitActions({
+    const actions = buildPostInitActions({
       hasKnowledge: true,
       initialized: true,
       recipeCount: 1,
@@ -289,7 +289,7 @@ describe('Codex status service', () => {
       status: vi.fn(async () => makeDaemonStatus(projectRoot, false)),
     };
 
-    const status = await buildCodexStatus(projectRoot, { supervisor });
+    const status = await buildStatus(projectRoot, { supervisor });
     const onboarding = status.onboarding as { primaryAction: { tool: string }; state: string };
 
     expect(status).toMatchObject({
@@ -321,7 +321,7 @@ describe('Codex status service', () => {
       status: vi.fn(async () => makeDaemonStatus(projectRoot, false)),
     };
 
-    const status = await buildCodexStatus(projectRoot, { supervisor });
+    const status = await buildStatus(projectRoot, { supervisor });
     const onboarding = status.onboarding as {
       nextActions: Array<{ label: string; tool: string }>;
       notes: string[];
@@ -353,7 +353,7 @@ describe('Codex status service', () => {
       status: vi.fn(async () => makeDaemonStatus(projectRoot, true)),
     };
 
-    const status = await buildCodexStatus(projectRoot, { supervisor });
+    const status = await buildStatus(projectRoot, { supervisor });
     const serialized = JSON.stringify(status);
     const onboarding = status.onboarding as {
       bootstrapState?: { singleWriterLease?: { status?: string }; status?: string };
@@ -427,7 +427,7 @@ describe('Codex status service', () => {
       status: vi.fn(async () => makeDaemonStatus(projectRoot, true)),
     };
 
-    const status = await buildCodexStatus(projectRoot, { supervisor });
+    const status = await buildStatus(projectRoot, { supervisor });
     const onboarding = status.onboarding as {
       primaryAction?: { tool?: string };
       state?: string;
@@ -451,7 +451,7 @@ describe('Codex status service', () => {
       })),
     };
 
-    const status = await buildCodexStatus(projectRoot, { supervisor });
+    const status = await buildStatus(projectRoot, { supervisor });
 
     expect(status.project).toMatchObject({
       hostConnectionState: 'connected',
@@ -517,7 +517,7 @@ describe('Codex status service', () => {
       status: vi.fn(async () => makeDaemonStatus(boundFolder, false)),
     };
 
-    const status = await buildCodexStatus(boundFolder, { supervisor });
+    const status = await buildStatus(boundFolder, { supervisor });
 
     expect(status.project).toMatchObject({
       hostConnectionState: 'connected',
@@ -549,7 +549,7 @@ describe('Codex status service', () => {
       status: vi.fn(async () => makeDaemonStatus(hostProjectRoot, false)),
     };
 
-    const status = await buildCodexStatus(hostProjectRoot, { supervisor });
+    const status = await buildStatus(hostProjectRoot, { supervisor });
 
     expect(status.project).toMatchObject({
       hostConnectionState: 'mismatch',
@@ -579,7 +579,7 @@ describe('Codex status service', () => {
       status: vi.fn(async () => makeDaemonStatus(hostProjectRoot, false)),
     };
 
-    const status = await buildCodexStatus(hostProjectRoot, { supervisor });
+    const status = await buildStatus(hostProjectRoot, { supervisor });
 
     expect(status.project).toMatchObject({
       hostConnectionState: 'mismatch',

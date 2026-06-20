@@ -1,4 +1,4 @@
-import { getVisibleCodexTools, HostMcpServer } from '../../../lib/runtime/mcp/HostMcpServer.js';
+import { getVisibleTools, HostMcpServer } from '../../../lib/runtime/mcp/HostMcpServer.js';
 import type {
   CodexScenarioToolCallFact,
   CodexSessionHarnessMode,
@@ -66,7 +66,7 @@ export class AlembicInProcessMcpHarness implements AlembicMcpHarness {
   }
 
   listTools(): Array<{ name: string }> {
-    return getVisibleCodexTools().map((tool) => ({ name: tool.name }));
+    return getVisibleTools().map((tool) => ({ name: tool.name }));
   }
 
   restore(): void {
@@ -144,7 +144,7 @@ export class AlembicLiveLocalMcpHarness implements AlembicMcpHarness {
   }
 
   listTools(): Array<{ name: string }> {
-    return getVisibleCodexTools().map((tool) => ({ name: tool.name }));
+    return getVisibleTools().map((tool) => ({ name: tool.name }));
   }
 
   restore(): void {

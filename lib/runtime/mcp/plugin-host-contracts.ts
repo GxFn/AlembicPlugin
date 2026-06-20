@@ -1,6 +1,6 @@
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/core-tools/output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/knowledge-context-tools/output.js';
-import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/local-tools/output.js';
+import { LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../runtime/mcp/local-tools/output.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolResidentRoutePolicy,
@@ -93,7 +93,7 @@ export const PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS = [
   {
     family: 'codex-local',
     registryRowIds: ['I13', 'I14', 'I15', 'I23', 'I24'],
-    toolNames: CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
+    toolNames: LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
   },
   {
     family: 'embedded-core',

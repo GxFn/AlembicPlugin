@@ -12,51 +12,51 @@ import {
 } from '#service/task/host-turn-meta.js';
 import { SetupService } from '../../cli/SetupService.js';
 import {
-  buildCodexHostProjectAlignment,
-  buildCodexPostInitActions,
-  buildCodexPostInitMessage,
-  buildCodexProjectRootRequiredActions,
-  buildCodexProjectRootRequiredMessage,
-  buildCodexProjectRuntimeContext,
-  buildCodexRecommendedAction,
-  buildCodexRuntimeDiagnostics,
-  buildCodexStatus,
   buildHostEnhancementRouteChoice,
-  CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES,
+  buildHostProjectAlignment,
+  buildPostInitActions,
+  buildPostInitMessage,
+  buildProjectRootRequiredActions,
+  buildProjectRootRequiredMessage,
+  buildProjectRuntimeContext,
+  buildRecommendedAction,
+  buildRuntimeDiagnostics,
+  buildStatus,
   CODEX_SETUP_PROFILE,
-  type CodexProjectRootResolution,
-  EMPTY_CODEX_KNOWLEDGE_STATE,
-  getCodexRuntimeFallbackIsolation,
+  EMPTY_KNOWLEDGE_STATE,
+  getRuntimeFallbackIsolation,
   type HostAdapter,
   type HostKnowledgeState,
-  inspectCodexKnowledge,
-  isCodexInitOnDemandTool,
-  preflightCodexTool,
+  inspectKnowledge,
+  isInitOnDemandTool,
+  type ProjectRootResolution,
+  preflightTool,
+  RESIDENT_PROJECT_SCOPE_TOOL_NAMES,
   resolveHostAdapter,
   resolveServiceRequestBoundary,
   type ServiceBoundaryDecision,
-  summarizeCodexProjectRootResolution,
+  summarizeProjectRootResolution,
 } from '../../runtime/index.js';
 import {
-  CodexEmbeddedToolExecutor,
-  type CodexToolExecutionContext,
-  resetCodexPluginOwnedMcpServerForTests,
+  EmbeddedToolExecutor,
   resetPluginOwnedMcpServer,
+  resetPluginOwnedMcpServerForTests,
+  type ToolExecutionContext,
 } from '../../runtime/mcp/host/embedded-executor.js';
-import { buildCodexMcpInitializeInstructions } from '../../runtime/mcp/host/guidance.js';
-import { dispatchCodexLocalTool } from '../../runtime/mcp/host/local-tool-dispatcher.js';
+import { buildMcpInitializeInstructions } from '../../runtime/mcp/host/guidance.js';
+import { dispatchLocalTool } from '../../runtime/mcp/host/local-tool-dispatcher.js';
 import { attachPluginOpportunisticEvolutionSurface } from '../../runtime/mcp/host/opportunistic-evolution-presenter.js';
 import { safeProjectRootFallback } from '../../runtime/mcp/host/project-root.js';
 import {
   persistTrustedCodexProjectRootScope,
-  resolveCodexProjectRootScope,
+  resolveProjectRootScope,
 } from '../../runtime/mcp/host/project-root-scope.js';
 import {
   attachServiceBoundary,
   failureResult,
   isErrorResult,
 } from '../../runtime/mcp/host/results.js';
-import { getVisibleCodexTools } from '../../runtime/mcp/host/tool-visibility.js';
+import { getVisibleTools } from '../../runtime/mcp/host/tool-visibility.js';
 import {
   createCleanMcpErrorResponse,
   createMcpStructuredToolResult,
@@ -77,7 +77,7 @@ interface HostMcpServerOptions {
   waitUntilReadyMs?: number;
 }
 
-interface CodexInitRuntimeState {
+interface InitRuntimeState {
   attempted: boolean;
   lastAttemptedAt: string | null;
   lastError: string | null;
@@ -86,7 +86,7 @@ interface CodexInitRuntimeState {
   route: 'explicit' | 'tool-call' | null;
 }
 
-interface CodexToolCallOptions {
+interface ToolCallOptions {
   hostTurnMeta?: HostTurnMetaInput;
 }
 
@@ -101,7 +101,7 @@ interface WorkspaceInitializationInput {
 
 function attachProjectRuntimeContext(
   result: unknown,
-  projectRuntime: ReturnType<typeof buildCodexProjectRuntimeContext>
+  projectRuntime: ReturnType<typeof buildProjectRuntimeContext>
 ): unknown {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return { success: true, data: { projectRuntime, value: result } };
@@ -144,14 +144,14 @@ function resolveWorkspaceModeConflict(
 
 export class HostMcpServer {
   readonly projectRoot: string;
-  readonly projectRootResolution: CodexProjectRootResolution;
+  readonly projectRootResolution: ProjectRootResolution;
   readonly waitUntilReadyMs: number;
   readonly sessionId: string;
   sdkServer: SdkMcpServer | null = null;
-  #embeddedToolExecutor: CodexEmbeddedToolExecutor | null = null;
+  #embeddedToolExecutor: EmbeddedToolExecutor | null = null;
   #residentCapabilityClients: AlembicResidentCapabilityClients | null = null;
   #initPromise: Promise<Record<string, unknown>> | null = null;
-  #initRuntimeState: CodexInitRuntimeState = {
+  #initRuntimeState: InitRuntimeState = {
     attempted: false,
     lastAttemptedAt: null,
     lastError: null,
@@ -173,18 +173,18 @@ export class HostMcpServer {
   }
 
   async start(): Promise<void> {
-    const visibleTools = getVisibleCodexTools(undefined, this.projectRoot);
+    const visibleTools = getVisibleTools(undefined, this.projectRoot);
     this.sdkServer = new SdkMcpServer(
       { name: 'alembic', version: getPackageVersion() },
       {
         capabilities: { tools: {} },
-        instructions: buildCodexMcpInitializeInstructions(visibleTools),
+        instructions: buildMcpInitializeInstructions(visibleTools),
       }
     );
     this.registerHandlers();
     await this.sdkServer.connect(new StdioServerTransport());
     process.stderr.write(
-      `Alembic Codex MCP ready — ${getVisibleCodexTools(undefined, this.projectRoot).length} tools\n`
+      `Alembic Codex MCP ready — ${getVisibleTools(undefined, this.projectRoot).length} tools\n`
     );
   }
 
@@ -202,7 +202,7 @@ export class HostMcpServer {
     const server = this.sdkServer.server;
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: getVisibleCodexTools(undefined, this.projectRoot, {
+      tools: getVisibleTools(undefined, this.projectRoot, {
         residentProjectScopeAvailable: await this.isResidentProjectScopeAvailable(),
       }),
     }));
@@ -227,13 +227,13 @@ export class HostMcpServer {
   }
 
   getInitializeInstructions(): string {
-    return buildCodexMcpInitializeInstructions(getVisibleCodexTools(undefined, this.projectRoot));
+    return buildMcpInitializeInstructions(getVisibleTools(undefined, this.projectRoot));
   }
 
   async handleToolCall(
     name: string,
     args: Record<string, unknown>,
-    options: CodexToolCallOptions = {}
+    options: ToolCallOptions = {}
   ): Promise<unknown> {
     if (name === 'alembic_task') {
       return createCleanMcpErrorResponse({
@@ -244,7 +244,7 @@ export class HostMcpServer {
         toolName: name,
       });
     }
-    const scope = resolveCodexProjectRootScope(name, args);
+    const scope = resolveProjectRootScope(name, args);
     if (scope.kind === 'failure') {
       return scope.result;
     }
@@ -267,13 +267,13 @@ export class HostMcpServer {
   private async handleToolCallInCurrentProject(
     name: string,
     args: Record<string, unknown>,
-    options: CodexToolCallOptions = {}
+    options: ToolCallOptions = {}
   ): Promise<unknown> {
     const executionContext = await this.resolveToolExecutionContext(name);
-    let knowledge = inspectCodexKnowledge(this.projectRoot);
+    let knowledge = inspectKnowledge(this.projectRoot);
     const residentProjectScopeAvailable = executionContext.residentProjectScopeAvailable;
 
-    const initialPreflight = preflightCodexTool({
+    const initialPreflight = preflightTool({
       coreTools: TOOLS,
       knowledge,
       projectRootResolution: this.projectRootResolution,
@@ -291,10 +291,10 @@ export class HostMcpServer {
       if (isErrorResult(initResult)) {
         return initResult;
       }
-      knowledge = inspectCodexKnowledge(this.projectRoot);
+      knowledge = inspectKnowledge(this.projectRoot);
     }
 
-    const executePreflight = preflightCodexTool({
+    const executePreflight = preflightTool({
       coreTools: TOOLS,
       knowledge,
       projectRootResolution: this.projectRootResolution,
@@ -307,7 +307,7 @@ export class HostMcpServer {
       return executePreflight.failure;
     }
 
-    const localDispatch = dispatchCodexLocalTool(name, args, {
+    const localDispatch = dispatchLocalTool(name, args, {
       buildColdStartKnowledgeStatus: () => this.buildColdStartKnowledgeStatus(),
       buildDiagnostics: () => this.buildDiagnostics(),
       buildStatus: () => this.buildStatus(),
@@ -335,7 +335,7 @@ export class HostMcpServer {
   async buildStatus(): Promise<Record<string, unknown>> {
     return {
       success: true,
-      data: await buildCodexStatus(this.projectRoot, {
+      data: await buildStatus(this.projectRoot, {
         autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
         projectRootResolution: this.projectRootResolution,
       }),
@@ -395,13 +395,13 @@ export class HostMcpServer {
       daemonStatus,
       requirement: 'status',
     });
-    const hostProjectAlignment = buildCodexHostProjectAlignment({
+    const hostProjectAlignment = buildHostProjectAlignment({
       daemonStatus,
       enhancementRoute,
       projectScopeIdentity,
       projectRoot: this.projectRoot,
     });
-    const projectRuntime = buildCodexProjectRuntimeContext({
+    const projectRuntime = buildProjectRuntimeContext({
       daemonStatus,
       enhancementRoute,
       hostProjectAlignment,
@@ -413,7 +413,7 @@ export class HostMcpServer {
     });
     return {
       success: true,
-      data: buildCodexRuntimeDiagnostics(daemonStatus, runtime, {
+      data: buildRuntimeDiagnostics(daemonStatus, runtime, {
         autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
         enhancementRoute,
         hostProjectAlignment,
@@ -445,7 +445,7 @@ export class HostMcpServer {
     const ok = initResult.success !== false && results.every((result) => result.ok !== false);
     const knowledgeAfterInit =
       (status as { data?: { knowledge?: HostKnowledgeState } }).data?.knowledge ??
-      EMPTY_CODEX_KNOWLEDGE_STATE;
+      EMPTY_KNOWLEDGE_STATE;
     return {
       success: ok,
       data: {
@@ -456,9 +456,9 @@ export class HostMcpServer {
           requestedMode ??
           'ghost',
         nextActions: ok
-          ? buildCodexPostInitActions(knowledgeAfterInit)
+          ? buildPostInitActions(knowledgeAfterInit)
           : [
-              buildCodexRecommendedAction({
+              buildRecommendedAction({
                 label: 'Run diagnostics',
                 reason: 'Inspect runtime, package, and plugin metadata before retrying setup.',
                 startsDaemon: false,
@@ -470,16 +470,16 @@ export class HostMcpServer {
         status: (status as { data?: unknown }).data,
       },
       message: ok
-        ? buildCodexPostInitMessage(knowledgeAfterInit)
+        ? buildPostInitMessage(knowledgeAfterInit)
         : 'Alembic Codex initialization failed. Run diagnostics before retrying.',
     };
   }
 
   async ensureWorkspaceInitializedForTool(toolName: string): Promise<Record<string, unknown>> {
-    if (!isCodexInitOnDemandTool(toolName)) {
+    if (!isInitOnDemandTool(toolName)) {
       return { success: true, data: { initialized: false, reason: 'tool is not init-on-demand' } };
     }
-    if (inspectCodexKnowledge(this.projectRoot).initialized) {
+    if (inspectKnowledge(this.projectRoot).initialized) {
       return {
         success: true,
         data: {
@@ -510,20 +510,20 @@ export class HostMcpServer {
       this.#initRuntimeState = {
         attempted: false,
         lastAttemptedAt: null,
-        lastError: buildCodexProjectRootRequiredMessage(this.projectRootResolution),
+        lastError: buildProjectRootRequiredMessage(this.projectRootResolution),
         ok: false,
         requestedTool: input.requestedTool || null,
         route: input.route,
       };
       return failureResult(
         input.requestedTool || 'alembic_init',
-        buildCodexProjectRootRequiredMessage(this.projectRootResolution),
+        buildProjectRootRequiredMessage(this.projectRootResolution),
         {
           errorCode,
           needsUserInput: true,
-          projectRootResolution: summarizeCodexProjectRootResolution(this.projectRootResolution),
+          projectRootResolution: summarizeProjectRootResolution(this.projectRootResolution),
           required: { projectRoot: 'absolute path' },
-          requiredActions: buildCodexProjectRootRequiredActions(),
+          requiredActions: buildProjectRootRequiredActions(),
         }
       );
     }
@@ -570,7 +570,7 @@ export class HostMcpServer {
           projectId: modeConflict.projectId,
           requestedMode: modeConflict.requestedMode,
           nextActions: [
-            buildCodexRecommendedAction({
+            buildRecommendedAction({
               label: 'Check workspace status',
               reason: 'Inspect the registered Alembic workspace mode before retrying init.',
               startsDaemon: false,
@@ -582,7 +582,7 @@ export class HostMcpServer {
     }
 
     if (
-      inspectCodexKnowledge(this.projectRoot).initialized &&
+      inspectKnowledge(this.projectRoot).initialized &&
       !input.force &&
       !input.seed &&
       input.requestedMode !== 'standard'
@@ -677,7 +677,7 @@ export class HostMcpServer {
     // stop or status-probe here. cleanupRuntime keeps only the LOCAL filesystem
     // cleanup of the runtimeDir daemon files; daemon status resolves to null and
     // the project runtime context is built daemon-less (mirrors enqueueJob).
-    const projectRuntime = buildCodexProjectRuntimeContext({
+    const projectRuntime = buildProjectRuntimeContext({
       daemonStatus: null,
       enhancementRoute: null,
       hostProjectAlignment: null,
@@ -742,7 +742,7 @@ export class HostMcpServer {
     const container = getServiceContainer();
     const logger = Logger.getInstance();
     // No daemon → daemon-less project runtime context (mirrors readJob's null path).
-    const projectRuntime = buildCodexProjectRuntimeContext({
+    const projectRuntime = buildProjectRuntimeContext({
       daemonStatus: null,
       enhancementRoute: null,
       hostProjectAlignment: null,
@@ -814,14 +814,14 @@ export class HostMcpServer {
       : null;
     const hostProjectAlignment =
       daemon && enhancementRoute
-        ? buildCodexHostProjectAlignment({
+        ? buildHostProjectAlignment({
             daemonStatus: daemon,
             enhancementRoute,
             projectScopeIdentity,
             projectRoot: this.projectRoot,
           })
         : null;
-    const projectRuntime = buildCodexProjectRuntimeContext({
+    const projectRuntime = buildProjectRuntimeContext({
       daemonStatus: daemon,
       enhancementRoute,
       hostProjectAlignment,
@@ -838,7 +838,7 @@ export class HostMcpServer {
     const store = new JobStore({ projectRoot: this.projectRoot });
     const jobRoute = {
       fallback: true,
-      fallbackIsolation: getCodexRuntimeFallbackIsolation('local-jobstore'),
+      fallbackIsolation: getRuntimeFallbackIsolation('local-jobstore'),
       reason: 'resident-job-api-unavailable-or-not-ready',
       selected: 'embedded-host-agent-recoverable',
       note: 'Local JobStore is exposed only as embedded Codex host-agent job recovery, not as the effective project identity source.',
@@ -888,12 +888,12 @@ export class HostMcpServer {
     name: string,
     args: Record<string, unknown>,
     serviceBoundary: ServiceBoundaryDecision,
-    executionContext: CodexToolExecutionContext = {
+    executionContext: ToolExecutionContext = {
       projectRoot: this.projectRoot,
       projectScopeIdentity: null,
       residentProjectScopeAvailable: false,
     },
-    options: CodexToolCallOptions = {}
+    options: ToolCallOptions = {}
   ): Promise<unknown> {
     const scopedExecutionContext = executionContext.projectRuntime
       ? executionContext
@@ -926,9 +926,9 @@ export class HostMcpServer {
     return this.#residentCapabilityClients;
   }
 
-  private embeddedToolExecutor(): CodexEmbeddedToolExecutor {
+  private embeddedToolExecutor(): EmbeddedToolExecutor {
     if (!this.#embeddedToolExecutor) {
-      this.#embeddedToolExecutor = new CodexEmbeddedToolExecutor({
+      this.#embeddedToolExecutor = new EmbeddedToolExecutor({
         getSessionId: () => this.sessionId,
         hostProjectRoot: this.projectRoot,
       });
@@ -945,8 +945,8 @@ export class HostMcpServer {
     }
   }
 
-  private async resolveToolExecutionContext(toolName: string): Promise<CodexToolExecutionContext> {
-    const usesResidentProjectScope = CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(toolName);
+  private async resolveToolExecutionContext(toolName: string): Promise<ToolExecutionContext> {
+    const usesResidentProjectScope = RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(toolName);
     if (!usesResidentProjectScope) {
       return {
         projectRoot: this.projectRoot,
@@ -976,8 +976,8 @@ export class HostMcpServer {
   }
 
   private async buildPluginOwnedProjectRuntimeContext(
-    executionContext: CodexToolExecutionContext
-  ): Promise<ReturnType<typeof buildCodexProjectRuntimeContext>> {
+    executionContext: ToolExecutionContext
+  ): Promise<ReturnType<typeof buildProjectRuntimeContext>> {
     // PDR-3: daemon removed → daemon status always null. Downstream is guarded
     // by `daemonStatus ? ... : null`, so the four-tool live path stays valid.
     const daemonStatus: DaemonStatus | null = null;
@@ -990,14 +990,14 @@ export class HostMcpServer {
       : null;
     const hostProjectAlignment =
       daemonStatus && enhancementRoute
-        ? buildCodexHostProjectAlignment({
+        ? buildHostProjectAlignment({
             daemonStatus,
             enhancementRoute,
             projectScopeIdentity: executionContext.projectScopeIdentity,
             projectRoot: this.projectRoot,
           })
         : null;
-    return buildCodexProjectRuntimeContext({
+    return buildProjectRuntimeContext({
       daemonStatus,
       enhancementRoute,
       hostProjectAlignment,
@@ -1010,7 +1010,7 @@ export class HostMcpServer {
   }
 }
 
-export { getVisibleCodexTools, resetCodexPluginOwnedMcpServerForTests };
+export { getVisibleTools, resetPluginOwnedMcpServerForTests };
 
 export async function startHostMcpServer(): Promise<HostMcpServer> {
   const server = new HostMcpServer();

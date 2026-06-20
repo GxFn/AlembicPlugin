@@ -12,7 +12,7 @@ import { WorkspaceResolver } from '@alembic/core/workspace';
 import { CODEX_PLUGIN_ROOT_ENV, CODEX_SETUP_PROFILE } from '../runtime/runtime/RuntimeContext.js';
 import { getPackageVersion, PACKAGE_ROOT } from '../shared/package-assets.js';
 
-export type CodexProjectRootSource =
+export type ProjectRootSource =
   | 'explicit-option'
   | 'ALEMBIC_PROJECT_DIR'
   | 'CODEX_WORKSPACE_DIR'
@@ -23,21 +23,21 @@ export type CodexProjectRootSource =
   | 'PWD'
   | 'process.cwd';
 
-export type CodexProjectRootTrust = 'fallback' | 'rejected' | 'trusted';
+export type ProjectRootTrust = 'fallback' | 'rejected' | 'trusted';
 
-export interface CodexProjectRootCandidate {
+export interface ProjectRootCandidate {
   path: string;
-  source: CodexProjectRootSource;
-  trust: Exclude<CodexProjectRootTrust, 'rejected'>;
+  source: ProjectRootSource;
+  trust: Exclude<ProjectRootTrust, 'rejected'>;
 }
 
-export interface CodexProjectRootResolution {
-  candidates: CodexProjectRootCandidate[];
+export interface ProjectRootResolution {
+  candidates: ProjectRootCandidate[];
   path: string | null;
   reason: string;
   rejected: boolean;
-  source: CodexProjectRootSource | null;
-  trust: CodexProjectRootTrust;
+  source: ProjectRootSource | null;
+  trust: ProjectRootTrust;
 }
 
 export interface CodexSavedProjectRoot {
@@ -75,7 +75,7 @@ const PROJECT_ROOT_REQUIRED_ACTIONS = [
 
 export function resolveCodexProjectRoot(
   options: ResolveCodexProjectRootOptions = {}
-): CodexProjectRootResolution {
+): ProjectRootResolution {
   const env = options.env || process.env;
   const candidates = buildProjectRootCandidates(options.projectRoot, env);
   if (candidates.length === 0) {
@@ -124,16 +124,14 @@ export function resolveCodexProjectRoot(
   };
 }
 
-export function buildCodexProjectRootRequiredMessage(
-  resolution: CodexProjectRootResolution
-): string {
+export function buildProjectRootRequiredMessage(resolution: ProjectRootResolution): string {
   const candidate = resolution.path
     ? ` Current candidate from ${resolution.source || 'unknown'} was: ${resolution.path}.`
     : '';
   return `Alembic Codex cannot determine the target project directory, so project workflows cannot be used yet. Pass the current workspace directory as an absolute projectRoot argument.${candidate} Reason: ${resolution.reason}`;
 }
 
-export function buildCodexProjectRootRequiredActions(): string[] {
+export function buildProjectRootRequiredActions(): string[] {
   return [...PROJECT_ROOT_REQUIRED_ACTIONS];
 }
 
@@ -192,12 +190,12 @@ export function writeCodexSavedProjectRoot(
   return marker;
 }
 
-export function isTrustedCodexProjectRoot(resolution: CodexProjectRootResolution): boolean {
+export function isTrustedProjectRoot(resolution: ProjectRootResolution): boolean {
   return Boolean(resolution.path) && resolution.trust === 'trusted' && !resolution.rejected;
 }
 
-export function summarizeCodexProjectRootResolution(
-  resolution: CodexProjectRootResolution
+export function summarizeProjectRootResolution(
+  resolution: ProjectRootResolution
 ): Record<string, unknown> {
   return {
     path: resolution.path,
@@ -206,8 +204,8 @@ export function summarizeCodexProjectRootResolution(
     rejected: resolution.rejected,
     reason: resolution.reason,
     userMessage:
-      resolution.trust === 'trusted' ? null : buildCodexProjectRootRequiredMessage(resolution),
-    requiredActions: resolution.trust === 'trusted' ? [] : buildCodexProjectRootRequiredActions(),
+      resolution.trust === 'trusted' ? null : buildProjectRootRequiredMessage(resolution),
+    requiredActions: resolution.trust === 'trusted' ? [] : buildProjectRootRequiredActions(),
     candidates: resolution.candidates.map((candidate) => ({
       source: candidate.source,
       trust: candidate.trust,
@@ -275,8 +273,8 @@ export function writeCodexInitMarker(
 function buildProjectRootCandidates(
   projectRoot: string | undefined,
   env: NodeJS.ProcessEnv
-): CodexProjectRootCandidate[] {
-  const candidates: CodexProjectRootCandidate[] = [];
+): ProjectRootCandidate[] {
+  const candidates: ProjectRootCandidate[] = [];
   pushCandidate(candidates, projectRoot, 'explicit-option', 'trusted', env);
   pushCandidate(candidates, env.ALEMBIC_PROJECT_DIR, 'ALEMBIC_PROJECT_DIR', 'trusted', env);
   pushCandidate(candidates, env.CODEX_WORKSPACE_DIR, 'CODEX_WORKSPACE_DIR', 'trusted', env);
@@ -295,10 +293,10 @@ function buildProjectRootCandidates(
 }
 
 function pushCandidate(
-  candidates: CodexProjectRootCandidate[],
+  candidates: ProjectRootCandidate[],
   rawPath: string | undefined,
-  source: CodexProjectRootSource,
-  trust: Exclude<CodexProjectRootTrust, 'rejected'>,
+  source: ProjectRootSource,
+  trust: Exclude<ProjectRootTrust, 'rejected'>,
   env: NodeJS.ProcessEnv
 ): void {
   const resolved = resolveCandidatePath(rawPath, env);

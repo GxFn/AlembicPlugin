@@ -1,7 +1,7 @@
 import type {
   CodexInitMarker,
-  CodexProjectRootResolution,
   CodexSavedProjectRoot,
+  ProjectRootResolution,
   ResolveCodexProjectRootOptions,
 } from '../ProjectRootResolver.js';
 import type { HostRuntimeContext } from '../runtime/RuntimeContext.js';
@@ -63,9 +63,9 @@ export interface HostAdapter {
 
   // —— 项目根解析 / 信任 ——
   /** 从宿主 env 源（ALEMBIC_PROJECT_DIR / 工作区 env / cwd 回退）解析并校验项目根。 */
-  resolveProjectRoot(options?: ResolveCodexProjectRootOptions): CodexProjectRootResolution;
+  resolveProjectRoot(options?: ResolveCodexProjectRootOptions): ProjectRootResolution;
   /** 项目根是否可信（存在 + trusted + 未拒绝），用于门控工具执行。 */
-  isTrustedProjectRoot(resolution: CodexProjectRootResolution): boolean;
+  isTrustedProjectRoot(resolution: ProjectRootResolution): boolean;
 
   // —— saved-root / init-marker 持久化 ——
   /** 读取 saved project root 标记（诊断 / 恢复用，非有效身份来源）。 */

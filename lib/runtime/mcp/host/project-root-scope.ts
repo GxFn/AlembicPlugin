@@ -1,15 +1,15 @@
 import { isAbsolute } from 'node:path';
-import { type CodexProjectRootResolution, resolveHostAdapter } from '../../../runtime/index.js';
+import { type ProjectRootResolution, resolveHostAdapter } from '../../../runtime/index.js';
 import { failureResult } from '../../../runtime/mcp/host/results.js';
 
-export interface CodexProjectRootScopeOverride {
+export interface ProjectRootScopeOverride {
   args: Record<string, unknown>;
   projectRoot: string;
-  resolution: CodexProjectRootResolution;
+  resolution: ProjectRootResolution;
   trusted: boolean;
 }
 
-export type CodexProjectRootScopeDecision =
+export type ProjectRootScopeDecision =
   | {
       kind: 'current-project';
       args: Record<string, unknown>;
@@ -20,13 +20,13 @@ export type CodexProjectRootScopeDecision =
     }
   | {
       kind: 'scoped-project';
-      override: CodexProjectRootScopeOverride;
+      override: ProjectRootScopeOverride;
     };
 
-export function resolveCodexProjectRootScope(
+export function resolveProjectRootScope(
   toolName: string,
   args: Record<string, unknown>
-): CodexProjectRootScopeDecision {
+): ProjectRootScopeDecision {
   const projectRootArg = args.projectRoot;
   if (projectRootArg === undefined) {
     return { kind: 'current-project', args };
@@ -67,7 +67,7 @@ export function resolveCodexProjectRootScope(
   };
 }
 
-export function persistTrustedCodexProjectRootScope(scope: CodexProjectRootScopeOverride): void {
+export function persistTrustedCodexProjectRootScope(scope: ProjectRootScopeOverride): void {
   if (scope.trusted && scope.resolution.path) {
     resolveHostAdapter().writeSavedProjectRoot(scope.resolution.path);
   }

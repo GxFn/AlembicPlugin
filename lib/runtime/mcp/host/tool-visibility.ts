@@ -2,12 +2,12 @@ import {
   CODEX_ADMIN_ENABLE_ENV,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_TIER_ENV,
-  CODEX_PROJECT_ROOT_PROPERTY,
-  EMPTY_CODEX_KNOWLEDGE_STATE,
+  EMPTY_KNOWLEDGE_STATE,
   type HostKnowledgeState,
-  inspectCodexKnowledge,
-  resolveCodexToolPolicy,
+  inspectKnowledge,
+  PROJECT_ROOT_PROPERTY,
   resolveHostAdapter,
+  resolveToolPolicy,
 } from '../../../runtime/index.js';
 import '../../../runtime/mcp/local-tools/output.js';
 import { safeProjectRootFallback } from '../../../runtime/mcp/host/project-root.js';
@@ -15,7 +15,7 @@ import { withMcpOutputSchema } from '../../../runtime/mcp/output-contract.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../../../runtime/mcp/tools.js';
 
 // Tool list 必须按当前知识状态和 tier 过滤，同时保留 projectRoot 覆盖入口。
-export function getVisibleCodexTools(
+export function getVisibleTools(
   tierName = process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER,
   projectRoot = resolveHostAdapter().resolveProjectRoot().path || safeProjectRootFallback(),
   options: { residentProjectScopeAvailable?: boolean } = {}
@@ -24,9 +24,9 @@ export function getVisibleCodexTools(
   const adapter = resolveHostAdapter();
   const resolution = adapter.resolveProjectRoot({ projectRoot });
   const knowledge = adapter.isTrustedProjectRoot(resolution)
-    ? inspectCodexKnowledge(projectRoot)
+    ? inspectKnowledge(projectRoot)
     : buildExplicitProjectRootRequiredKnowledgeState();
-  return resolveCodexToolPolicy({
+  return resolveToolPolicy({
     adminEnabled: process.env[CODEX_ADMIN_ENABLE_ENV] === '1',
     coreTools: TOOLS,
     knowledge,
@@ -36,12 +36,12 @@ export function getVisibleCodexTools(
   })
     .visibleTools.map(withMcpToolAnnotations)
     .map(withMcpOutputSchema)
-    .map(withCodexProjectRootInput);
+    .map(withProjectRootInput);
 }
 
 function buildExplicitProjectRootRequiredKnowledgeState(): HostKnowledgeState {
   return {
-    ...EMPTY_CODEX_KNOWLEDGE_STATE,
+    ...EMPTY_KNOWLEDGE_STATE,
     initialized: true,
     hasKnowledge: true,
     recipeCount: 1,
@@ -51,9 +51,7 @@ function buildExplicitProjectRootRequiredKnowledgeState(): HostKnowledgeState {
   };
 }
 
-function withCodexProjectRootInput<T extends { inputSchema?: Record<string, unknown> }>(
-  tool: T
-): T {
+function withProjectRootInput<T extends { inputSchema?: Record<string, unknown> }>(tool: T): T {
   const inputSchema = tool.inputSchema || {};
   const properties =
     inputSchema.properties && typeof inputSchema.properties === 'object'
@@ -65,7 +63,7 @@ function withCodexProjectRootInput<T extends { inputSchema?: Record<string, unkn
       ...inputSchema,
       type: 'object',
       properties: {
-        projectRoot: CODEX_PROJECT_ROOT_PROPERTY,
+        projectRoot: PROJECT_ROOT_PROPERTY,
         ...properties,
       },
     },

@@ -13,9 +13,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getCodexProjectRuntimeControlStatePath } from '#codex/HostProjectAlignment.js';
+import { getProjectRuntimeControlStatePath } from '#codex/HostProjectAlignment.js';
 import HostMcpServer, {
-  resetCodexPluginOwnedMcpServerForTests,
+  resetPluginOwnedMcpServerForTests,
 } from '#codex/mcp/HostMcpServer.js';
 import { resetServiceContainer } from '#inject/ServiceContainer.js';
 
@@ -39,7 +39,7 @@ function listFiles(root: string): string[] {
 }
 
 afterEach(async () => {
-  await resetCodexPluginOwnedMcpServerForTests();
+  await resetPluginOwnedMcpServerForTests();
   resetServiceContainer();
 });
 
@@ -59,7 +59,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
 
     // 探针目录保持空；runtime-control.json 绝不出现。
     expect(listFiles(probeDir)).toHaveLength(0);
-    expect(fs.existsSync(getCodexProjectRuntimeControlStatePath())).toBe(false);
+    expect(fs.existsSync(getProjectRuntimeControlStatePath())).toBe(false);
   });
 
   it('destructive class: alembic_bootstrap confines writes to the data root and registry', async () => {
@@ -87,6 +87,6 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     }
     // 外部探针目录保持空；runtime-control.json（Alembic 所有）绝不被创建。
     expect(listFiles(probeDir)).toHaveLength(0);
-    expect(fs.existsSync(getCodexProjectRuntimeControlStatePath())).toBe(false);
+    expect(fs.existsSync(getProjectRuntimeControlStatePath())).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-export interface CodexLocalToolHandlers {
+export interface LocalToolHandlers {
   buildColdStartKnowledgeStatus(): Promise<Record<string, unknown>>;
   buildDiagnostics(): Promise<Record<string, unknown>>;
   buildStatus(): Promise<Record<string, unknown>>;
@@ -8,7 +8,7 @@ export interface CodexLocalToolHandlers {
   readJob(args: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
-export type CodexLocalToolDispatchResult =
+export type LocalToolDispatchResult =
   | {
       handled: false;
     }
@@ -17,11 +17,11 @@ export type CodexLocalToolDispatchResult =
       result: Promise<unknown>;
     };
 
-export function dispatchCodexLocalTool(
+export function dispatchLocalTool(
   name: string,
   args: Record<string, unknown>,
-  handlers: CodexLocalToolHandlers
-): CodexLocalToolDispatchResult {
+  handlers: LocalToolHandlers
+): LocalToolDispatchResult {
   switch (name) {
     // MTC-4: alembic_mcp_status + alembic_codex_diagnostics merged into
     // alembic_status. aspect routes the cold-start view: knowledge = local

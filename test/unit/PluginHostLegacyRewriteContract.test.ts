@@ -11,9 +11,9 @@ import {
   createAgentPublicToolResultEnvelope,
 } from '../../lib/runtime/mcp/public-tools/index.js';
 import {
-  isTrustedCodexProjectRoot,
+  isTrustedProjectRoot,
   resolveCodexProjectRoot,
-  summarizeCodexProjectRootResolution,
+  summarizeProjectRootResolution,
 } from '../../lib/runtime/ProjectRootResolver.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
@@ -65,14 +65,14 @@ describe('Plugin host legacy rewrite D12 contract', () => {
         PWD: fallbackRoot,
       },
     });
-    const summary = summarizeCodexProjectRootResolution(resolution);
+    const summary = summarizeProjectRootResolution(resolution);
 
     expect(resolution).toMatchObject({
       rejected: false,
       source: 'PWD',
       trust: 'fallback',
     });
-    expect(isTrustedCodexProjectRoot(resolution)).toBe(false);
+    expect(isTrustedProjectRoot(resolution)).toBe(false);
     expect(summary).toMatchObject({
       rejected: false,
       trust: 'fallback',

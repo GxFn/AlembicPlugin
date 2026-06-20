@@ -8,9 +8,9 @@ import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
   ALEMBIC_RUNTIME_MODE_PLUGIN,
-  buildCodexPluginDiagnostics,
-  buildCodexProjectRuntimeContext,
-  buildCodexRuntimeDiagnostics,
+  buildPluginDiagnostics,
+  buildProjectRuntimeContext,
+  buildRuntimeDiagnostics,
   CLAUDE_CODE_PLUGIN_HOST,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_MODE_ENV,
@@ -20,7 +20,7 @@ import {
   CODEX_PLUGIN_ROOT_ENV,
   ensureCodexRuntimeEnvironment,
   loadCodexPluginRegistry,
-  probeCodexRuntimeCommand,
+  probeRuntimeCommand,
   resolveHostRuntimeContext,
 } from '../../lib/runtime/index.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
@@ -122,7 +122,7 @@ describe('Codex runtime context', () => {
 
   test('builds plugin diagnostics from shared Codex registry facts', () => {
     const context = resolveHostRuntimeContext();
-    const diagnostics = buildCodexPluginDiagnostics(context);
+    const diagnostics = buildPluginDiagnostics(context);
 
     expect(diagnostics.manifest.ok).toBe(true);
     expect(diagnostics.mcp.packagePin).toBe(true);
@@ -146,7 +146,7 @@ describe('Codex runtime context', () => {
     const context = resolveHostRuntimeContext();
     let observedCwd: string | undefined;
 
-    const probe = probeCodexRuntimeCommand('npm', context, (_command, _args, options) => {
+    const probe = probeRuntimeCommand('npm', context, (_command, _args, options) => {
       observedCwd = options.cwd;
       return { status: 0, stdout: '10.9.4\n' };
     });
@@ -161,7 +161,7 @@ describe('Codex runtime context', () => {
   });
 
   test('classifies uv_cwd failures as stale MCP cwd instead of missing npm', () => {
-    const diagnostics = buildCodexRuntimeDiagnostics(
+    const diagnostics = buildRuntimeDiagnostics(
       makeDaemonStatus(),
       resolveHostRuntimeContext(),
       {
@@ -221,7 +221,7 @@ describe('Codex runtime context', () => {
       workspaceMode: 'ghost',
     };
 
-    const context = buildCodexProjectRuntimeContext({
+    const context = buildProjectRuntimeContext({
       includeOptionalServices: false,
       projectRoot,
       projectScopeIdentity,
@@ -414,7 +414,7 @@ describe('Codex runtime context', () => {
       status: 'stale',
     };
 
-    const context = buildCodexProjectRuntimeContext({
+    const context = buildProjectRuntimeContext({
       daemonStatus,
       includeOptionalServices: false,
       projectRoot,
@@ -574,7 +574,7 @@ describe('Codex runtime context', () => {
       status: 'stopped',
     };
 
-    const context = buildCodexProjectRuntimeContext({
+    const context = buildProjectRuntimeContext({
       daemonStatus,
       includeOptionalServices: false,
       projectRoot,

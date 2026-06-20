@@ -2,39 +2,39 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import { buildCodexRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
+import { buildRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
 import {
   buildHostEnhancementRouteChoice,
   type HostEnhancementRouteChoice,
 } from '../../runtime/EnhancementRoute.js';
 import {
-  buildCodexHostProjectAlignment,
-  type CodexHostProjectAlignment,
+  buildHostProjectAlignment,
+  type HostProjectAlignment,
 } from '../../runtime/HostProjectAlignment.js';
-import { type HostKnowledgeState, inspectCodexKnowledge } from '../../runtime/KnowledgeState.js';
-import { buildCodexModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
+import { type HostKnowledgeState, inspectKnowledge } from '../../runtime/KnowledgeState.js';
+import { buildModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
 import {
-  buildCodexProjectRootRequiredActions,
-  buildCodexProjectRootRequiredMessage,
-  type CodexProjectRootResolution,
+  buildProjectRootRequiredActions,
+  buildProjectRootRequiredMessage,
   getCodexInitMarkerPath,
+  type ProjectRootResolution,
   readCodexInitMarker,
   resolveCodexProjectRoot,
 } from '../../runtime/ProjectRootResolver.js';
-import { buildCodexProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
+import { buildProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
 import {
   type HostRuntimeContext,
   resolveHostRuntimeContext,
 } from '../../runtime/runtime/RuntimeContext.js';
-import { buildCodexStatusOnboardingContract } from '../../runtime/status/OnboardingContract.js';
+import { buildStatusOnboardingContract } from '../../runtime/status/OnboardingContract.js';
 import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
 import type { DaemonStatus } from '../daemon-status.js';
 
-export interface CodexDaemonStatusProvider {
+export interface DaemonStatusProvider {
   status(projectRoot: string): Promise<DaemonStatus>;
 }
 
-export interface CodexRecommendedAction {
+export interface RecommendedAction {
   arguments: Record<string, unknown>;
   label: string;
   reason: string;
@@ -42,14 +42,14 @@ export interface CodexRecommendedAction {
   tool: string;
 }
 
-export interface CodexStatusServiceOptions {
+export interface StatusServiceOptions {
   autoInit?: Record<string, unknown>;
-  projectRootResolution?: CodexProjectRootResolution;
+  projectRootResolution?: ProjectRootResolution;
   runtime?: HostRuntimeContext;
-  supervisor?: CodexDaemonStatusProvider;
+  supervisor?: DaemonStatusProvider;
 }
 
-export interface CodexStatusData {
+export interface StatusData {
   autoInit: {
     attempted: boolean;
     enabled: boolean;
@@ -61,7 +61,7 @@ export interface CodexStatusData {
     route: unknown;
     skippedReason: unknown;
   };
-  daemon: Pick<CodexDaemonSummary, 'message' | 'pidAlive' | 'projectId' | 'ready' | 'status'> & {
+  daemon: Pick<DaemonSummary, 'message' | 'pidAlive' | 'projectId' | 'ready' | 'status'> & {
     implemented: boolean;
     pidExists: boolean;
     stateExists: boolean;
@@ -111,13 +111,13 @@ export interface CodexStatusData {
   };
 }
 
-interface CodexStatusOnboardingInput {
+interface StatusOnboardingInput {
   daemonStatus: DaemonStatus;
   diagnostics: Record<string, unknown>;
   enhancementRoute?: HostEnhancementRouteChoice;
-  hostProjectAlignment?: CodexHostProjectAlignment;
+  hostProjectAlignment?: HostProjectAlignment;
   knowledge: HostKnowledgeState;
-  projectRootResolution?: CodexProjectRootResolution;
+  projectRootResolution?: ProjectRootResolution;
   workspace?: {
     ghost: boolean;
     mode: string;
@@ -125,10 +125,10 @@ interface CodexStatusOnboardingInput {
   };
 }
 
-export async function buildCodexStatus(
+export async function buildStatus(
   projectRootInput: string,
-  options: CodexStatusServiceOptions = {}
-): Promise<CodexStatusData> {
+  options: StatusServiceOptions = {}
+): Promise<StatusData> {
   const projectRoot = resolve(projectRootInput);
   const resolver = WorkspaceResolver.fromProject(projectRoot);
   const settingsStore = new WorkspaceSettingsStore(resolver);
@@ -138,7 +138,7 @@ export async function buildCodexStatus(
   // downstream consumers (enhancement-route, host-project-alignment, resident
   // probe, project-runtime-context, diagnostics, onboarding) keep their existing
   // non-null DaemonStatus typing while reflecting the absent daemon. A caller may
-  // still inject a CodexDaemonStatusProvider via options.supervisor.
+  // still inject a DaemonStatusProvider via options.supervisor.
   const daemonStatus: DaemonStatus = options.supervisor
     ? await options.supervisor.status(projectRoot)
     : {
@@ -156,7 +156,7 @@ export async function buildCodexStatus(
         health: null,
         message: 'daemon removed (PDR-3)',
       };
-  const knowledge = inspectCodexKnowledge(projectRoot);
+  const knowledge = inspectKnowledge(projectRoot);
   const runtime = options.runtime || resolveHostRuntimeContext();
   const residentClient = new AlembicResidentServiceClient({ projectRoot });
   const residentService = await residentClient.probe({ daemonStatus });
@@ -165,7 +165,7 @@ export async function buildCodexStatus(
     daemonStatus,
     requirement: 'status',
   });
-  const hostProjectAlignment = buildCodexHostProjectAlignment({
+  const hostProjectAlignment = buildHostProjectAlignment({
     daemonStatus,
     enhancementRoute,
     projectScopeIdentity,
@@ -173,7 +173,7 @@ export async function buildCodexStatus(
   });
   const projectRootResolution =
     options.projectRootResolution || resolveCodexProjectRoot({ projectRoot: projectRootInput });
-  const projectRuntime = buildCodexProjectRuntimeContext({
+  const projectRuntime = buildProjectRuntimeContext({
     daemonStatus,
     enhancementRoute,
     hostProjectAlignment,
@@ -183,14 +183,14 @@ export async function buildCodexStatus(
     requiredServices: ['project-identity'],
     runtime,
   });
-  const moduleBoundary = buildCodexModuleBoundaryStatus({
+  const moduleBoundary = buildModuleBoundaryStatus({
     enhancementRoute,
     hostProjectAlignment,
   });
-  const autoInit = buildCodexAutoInitStatus(projectRoot, knowledge, projectRootResolution, {
+  const autoInit = buildAutoInitStatus(projectRoot, knowledge, projectRootResolution, {
     runtimeState: options.autoInit,
   });
-  const diagnostics = buildCodexRuntimeDiagnostics(daemonStatus, runtime, {
+  const diagnostics = buildRuntimeDiagnostics(daemonStatus, runtime, {
     autoInit,
     enhancementRoute,
     hostProjectAlignment,
@@ -200,7 +200,7 @@ export async function buildCodexStatus(
     projectScopeIdentity,
     residentService,
   });
-  const onboarding = buildCodexStatusOnboarding({
+  const onboarding = buildStatusOnboarding({
     daemonStatus,
     diagnostics,
     enhancementRoute,
@@ -247,22 +247,22 @@ export async function buildCodexStatus(
       secretsExists: existsSync(settingsStore.secretsPath),
     },
     daemon: {
-      ...summarizeCompactCodexDaemonStatus(daemonStatus),
+      ...summarizeCompactDaemonStatus(daemonStatus),
       implemented: true,
       stateExists: existsSync(daemonStatePath),
       pidExists: existsSync(daemonPidPath),
     },
     knowledge: summarizeHostKnowledgeState(knowledge),
-    autoInit: summarizeCodexAutoInitStatus(autoInit),
-    onboarding: summarizeCodexOnboarding(onboarding),
-    nextActions: buildCodexActionLabels(onboarding.nextActions),
+    autoInit: summarizeAutoInitStatus(autoInit),
+    onboarding: summarizeOnboarding(onboarding),
+    nextActions: buildActionLabels(onboarding.nextActions),
   };
 }
 
-function buildCodexAutoInitStatus(
+function buildAutoInitStatus(
   projectRoot: string,
   knowledge: HostKnowledgeState,
-  projectRootResolution: CodexProjectRootResolution,
+  projectRootResolution: ProjectRootResolution,
   options: { runtimeState?: Record<string, unknown> } = {}
 ): Record<string, unknown> {
   let markerPath: string | null = null;
@@ -278,7 +278,7 @@ function buildCodexAutoInitStatus(
   const runtimeState = options.runtimeState || {};
   const skippedReason =
     projectRootResolution.trust !== 'trusted'
-      ? buildCodexProjectRootRequiredMessage(projectRootResolution)
+      ? buildProjectRootRequiredMessage(projectRootResolution)
       : knowledge.initialized
         ? 'workspace already initialized'
         : 'waiting for explicit init or an init-on-demand tool call';
@@ -297,7 +297,7 @@ function buildCodexAutoInitStatus(
   };
 }
 
-export interface CodexDaemonSummary {
+export interface DaemonSummary {
   dataRoot: string;
   logPath: string;
   message?: string;
@@ -311,7 +311,7 @@ export interface CodexDaemonSummary {
   status: string;
 }
 
-export function summarizeCodexDaemonStatus(status: DaemonStatus): CodexDaemonSummary {
+export function summarizeDaemonStatus(status: DaemonStatus): DaemonSummary {
   return {
     status: status.status,
     ready: status.ready,
@@ -322,14 +322,14 @@ export function summarizeCodexDaemonStatus(status: DaemonStatus): CodexDaemonSum
     statePath: status.statePath,
     pidPath: status.pidPath,
     logPath: status.logPath,
-    state: summarizeCodexDaemonState(status.state),
+    state: summarizeDaemonState(status.state),
     message: status.message,
   };
 }
 
-function summarizeCompactCodexDaemonStatus(
+function summarizeCompactDaemonStatus(
   status: DaemonStatus
-): Pick<CodexDaemonSummary, 'message' | 'pidAlive' | 'projectId' | 'ready' | 'status'> {
+): Pick<DaemonSummary, 'message' | 'pidAlive' | 'projectId' | 'ready' | 'status'> {
   return {
     status: status.status,
     ready: status.ready,
@@ -339,7 +339,7 @@ function summarizeCompactCodexDaemonStatus(
   };
 }
 
-function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): CodexStatusData['knowledge'] {
+function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): StatusData['knowledge'] {
   const jobs = asPlainRecord(knowledge.jobs) || {};
   return {
     initialized: knowledge.initialized,
@@ -363,7 +363,7 @@ function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): CodexStatus
   };
 }
 
-function summarizeCodexAutoInitStatus(value: Record<string, unknown>): CodexStatusData['autoInit'] {
+function summarizeAutoInitStatus(value: Record<string, unknown>): StatusData['autoInit'] {
   return {
     enabled: value.enabled === true,
     attempted: value.attempted === true,
@@ -377,14 +377,14 @@ function summarizeCodexAutoInitStatus(value: Record<string, unknown>): CodexStat
   };
 }
 
-function summarizeCodexOnboarding(value: unknown): Record<string, unknown> {
+function summarizeOnboarding(value: unknown): Record<string, unknown> {
   const onboarding = asPlainRecord(value) || {};
   return {
     state: onboarding.state ?? null,
     summary: onboarding.summary ?? null,
-    primaryAction: summarizeCodexRecommendedAction(onboarding.primaryAction),
+    primaryAction: summarizeRecommendedAction(onboarding.primaryAction),
     nextActions: Array.isArray(onboarding.nextActions)
-      ? onboarding.nextActions.map(summarizeCodexRecommendedAction).filter(Boolean)
+      ? onboarding.nextActions.map(summarizeRecommendedAction).filter(Boolean)
       : [],
     notes: Array.isArray(onboarding.notes)
       ? onboarding.notes.filter((note): note is string => typeof note === 'string').slice(0, 6)
@@ -392,7 +392,7 @@ function summarizeCodexOnboarding(value: unknown): Record<string, unknown> {
   };
 }
 
-function summarizeCodexRecommendedAction(value: unknown): Record<string, unknown> | null {
+function summarizeRecommendedAction(value: unknown): Record<string, unknown> | null {
   const action = asPlainRecord(value);
   if (!action) {
     return null;
@@ -420,12 +420,12 @@ function summarizeStringRecord(value: unknown, keys: readonly string[]): Record<
   return out;
 }
 
-function buildCodexHostAgentBootstrapAction(input: {
+function buildHostAgentBootstrapAction(input: {
   label?: string;
   reason?: string;
   startsDaemon: boolean;
-}): CodexRecommendedAction {
-  return buildCodexRecommendedAction({
+}): RecommendedAction {
+  return buildRecommendedAction({
     label: input.label || 'Start Codex host-agent bootstrap',
     reason:
       input.reason ||
@@ -435,12 +435,12 @@ function buildCodexHostAgentBootstrapAction(input: {
   });
 }
 
-function buildCodexHostAgentRescanAction(input: {
+function buildHostAgentRescanAction(input: {
   label?: string;
   reason?: string;
   startsDaemon: boolean;
-}): CodexRecommendedAction {
-  return buildCodexRecommendedAction({
+}): RecommendedAction {
+  return buildRecommendedAction({
     label: input.label || 'Run Codex host-agent rescan',
     reason:
       input.reason ||
@@ -450,12 +450,12 @@ function buildCodexHostAgentRescanAction(input: {
   });
 }
 
-function buildCodexAgentPrimeAction(input: {
+function buildAgentPrimeAction(input: {
   label?: string;
   reason?: string;
   startsDaemon: boolean;
-}): CodexRecommendedAction {
-  return buildCodexRecommendedAction({
+}): RecommendedAction {
+  return buildRecommendedAction({
     arguments: { inputSource: 'host-declared-intent' },
     label: input.label || 'Prime agent context',
     reason:
@@ -466,22 +466,22 @@ function buildCodexAgentPrimeAction(input: {
   });
 }
 
-export function buildCodexPostInitActions(knowledge: HostKnowledgeState): CodexRecommendedAction[] {
+export function buildPostInitActions(knowledge: HostKnowledgeState): RecommendedAction[] {
   if (knowledge.usable) {
     return [
-      buildCodexAgentPrimeAction({
+      buildAgentPrimeAction({
         reason:
           'Load the most relevant Alembic Recipes through the agent-facing public prime tool before non-trivial coding work.',
         startsDaemon: true,
       }),
-      buildCodexHostAgentRescanAction({
+      buildHostAgentRescanAction({
         reason: 'Refresh Alembic project knowledge through the Codex host-agent workflow.',
         startsDaemon: true,
       }),
     ];
   }
   return [
-    buildCodexHostAgentBootstrapAction({
+    buildHostAgentBootstrapAction({
       reason:
         'Build the first Alembic project knowledge through Codex host-agent analysis; no Alembic AI Provider is required.',
       startsDaemon: true,
@@ -489,17 +489,15 @@ export function buildCodexPostInitActions(knowledge: HostKnowledgeState): CodexR
   ];
 }
 
-export function buildCodexPostInitMessage(knowledge: HostKnowledgeState): string {
+export function buildPostInitMessage(knowledge: HostKnowledgeState): string {
   return knowledge.usable
     ? 'Alembic Codex workspace initialized with usable project knowledge. Next: prime agent context or run host-agent rescan.'
     : 'Alembic Codex workspace initialized. Next: run Codex host-agent bootstrap to build the first usable project knowledge.';
 }
 
-export function buildCodexKnowledgeGateActions(
-  knowledge: HostKnowledgeState
-): CodexRecommendedAction[] {
+export function buildKnowledgeGateActions(knowledge: HostKnowledgeState): RecommendedAction[] {
   const actions = [
-    buildCodexRecommendedAction({
+    buildRecommendedAction({
       label: 'Check workspace status',
       reason: 'Inspect whether this project is initialized and whether Alembic knowledge exists.',
       startsDaemon: false,
@@ -508,7 +506,7 @@ export function buildCodexKnowledgeGateActions(
   ];
   if (!knowledge.initialized) {
     actions.push(
-      buildCodexRecommendedAction({
+      buildRecommendedAction({
         label: 'Initialize or attach workspace',
         reason:
           'Create or attach Alembic Codex data roots according to the ProjectRegistry workspace mode.',
@@ -518,7 +516,7 @@ export function buildCodexKnowledgeGateActions(
     );
   } else {
     actions.push(
-      buildCodexHostAgentBootstrapAction({
+      buildHostAgentBootstrapAction({
         reason:
           'Build the first Alembic project knowledge through Codex host-agent analysis; no Alembic AI Provider is required.',
         startsDaemon: true,
@@ -528,19 +526,17 @@ export function buildCodexKnowledgeGateActions(
   return actions;
 }
 
-export function buildCodexStatusOnboarding(
-  input: CodexStatusOnboardingInput
-): Record<string, unknown> {
-  const boundaryNotes = buildCodexRouteBoundaryNotes(input.enhancementRoute);
-  const alignmentNotes = buildCodexHostProjectAlignmentNotes(input.hostProjectAlignment);
+export function buildStatusOnboarding(input: StatusOnboardingInput): Record<string, unknown> {
+  const boundaryNotes = buildRouteBoundaryNotes(input.enhancementRoute);
+  const alignmentNotes = buildHostProjectAlignmentNotes(input.hostProjectAlignment);
   const diagnosticsOk = input.diagnostics.ok !== false;
-  const onboardingContract = buildStatusOnboardingContract(input, diagnosticsOk);
+  const onboardingContract = composeStatusOnboardingContract(input, diagnosticsOk);
   if (input.projectRootResolution && input.projectRootResolution.trust !== 'trusted') {
     return {
       state: 'project_root_unresolved',
       summary:
         'Alembic Codex cannot determine the target project directory, so project workflows cannot be used yet.',
-      primaryAction: buildCodexRecommendedAction({
+      primaryAction: buildRecommendedAction({
         label: 'Run diagnostics',
         reason:
           'Show why the project root is unavailable and which absolute path must be provided.',
@@ -548,7 +544,7 @@ export function buildCodexStatusOnboarding(
         tool: 'alembic_status',
       }),
       nextActions: [
-        buildCodexRecommendedAction({
+        buildRecommendedAction({
           label: 'Run diagnostics',
           reason: 'Show the rejected or fallback project root and required environment variables.',
           startsDaemon: false,
@@ -556,8 +552,8 @@ export function buildCodexStatusOnboarding(
         }),
       ],
       notes: [
-        buildCodexProjectRootRequiredMessage(input.projectRootResolution),
-        ...buildCodexProjectRootRequiredActions(),
+        buildProjectRootRequiredMessage(input.projectRootResolution),
+        ...buildProjectRootRequiredActions(),
         'Initialization and init-on-demand tools fail closed until the project root is trusted.',
         ...alignmentNotes,
         ...boundaryNotes,
@@ -571,14 +567,14 @@ export function buildCodexStatusOnboarding(
       state: 'runtime_issue',
       summary:
         'Alembic Codex is installed, but runtime diagnostics need attention before project knowledge is reliable.',
-      primaryAction: buildCodexRecommendedAction({
+      primaryAction: buildRecommendedAction({
         label: 'Run diagnostics',
         reason: 'Resolve Node, npm, embedded runtime, or plugin metadata issues first.',
         startsDaemon: false,
         tool: 'alembic_status',
       }),
       nextActions: [
-        buildCodexRecommendedAction({
+        buildRecommendedAction({
           label: 'Run diagnostics',
           reason: 'Inspect structured issues and repair guidance.',
           startsDaemon: false,
@@ -606,14 +602,14 @@ export function buildCodexStatusOnboarding(
       summary: input.knowledge.hasKnowledge
         ? 'Alembic knowledge files exist for this project, but the Codex workspace runtime has not been initialized yet.'
         : 'Alembic Codex is installed and the runtime is healthy, but this workspace has not been initialized yet.',
-      primaryAction: buildCodexRecommendedAction({
+      primaryAction: buildRecommendedAction({
         label: initLabel,
         reason: initReason,
         startsDaemon: false,
         tool: 'alembic_init',
       }),
       nextActions: [
-        buildCodexRecommendedAction({
+        buildRecommendedAction({
           label: initLabel,
           reason: registeredStandard
             ? 'Set up Codex runtime files in the registered Standard data root.'
@@ -641,7 +637,7 @@ export function buildCodexStatusOnboarding(
       state: 'bootstrap_in_progress',
       summary:
         'Alembic Codex bootstrap is already running for this project; a second writer must not be started.',
-      primaryAction: buildCodexRecommendedAction({
+      primaryAction: buildRecommendedAction({
         label: 'Check bootstrap progress',
         reason:
           'Read the single-writer bootstrap lease and wait for the existing Codex-owned bootstrap route to finish.',
@@ -649,14 +645,14 @@ export function buildCodexStatusOnboarding(
         tool: 'alembic_status',
       }),
       nextActions: [
-        buildCodexRecommendedAction({
+        buildRecommendedAction({
           label: 'Check bootstrap progress',
           reason:
             'Read bootstrapState.singleWriterLease and current progress without starting work.',
           startsDaemon: false,
           tool: 'alembic_status',
         }),
-        buildCodexRecommendedAction({
+        buildRecommendedAction({
           label: 'Inspect bootstrap job',
           reason: 'Inspect Codex bootstrap job state when job tools are available.',
           startsDaemon: false,
@@ -678,13 +674,13 @@ export function buildCodexStatusOnboarding(
       state: 'needs_bootstrap',
       summary:
         'Alembic Codex is initialized, but this project does not have usable Alembic Recipes or Project Skills yet.',
-      primaryAction: buildCodexHostAgentBootstrapAction({
+      primaryAction: buildHostAgentBootstrapAction({
         reason:
           'Build the first Alembic project knowledge through Codex host-agent analysis; no Alembic AI Provider is required.',
         startsDaemon: true,
       }),
       nextActions: [
-        buildCodexHostAgentBootstrapAction({
+        buildHostAgentBootstrapAction({
           reason:
             'Create the initial Alembic knowledge base by following the Mission Briefing from Codex.',
           startsDaemon: true,
@@ -707,7 +703,7 @@ export function buildCodexStatusOnboarding(
         input.hostProjectAlignment.connectionState === 'mismatch'
           ? 'Alembic Codex is initialized, but the Codex host project differs from the Alembic selected or active project.'
           : 'Alembic Codex is initialized, but this Codex host project is not connected to an active Alembic runtime project yet.',
-      primaryAction: buildCodexRecommendedAction({
+      primaryAction: buildRecommendedAction({
         label: 'Check workspace status',
         reason:
           'Inspect the Codex host project, Alembic selected project, and active runtime project before Dashboard handoff.',
@@ -715,7 +711,7 @@ export function buildCodexStatusOnboarding(
         tool: 'alembic_status',
       }),
       nextActions: [
-        buildCodexRecommendedAction({
+        buildRecommendedAction({
           label: 'Run diagnostics',
           reason: 'Review plugin runtime status and project handoff mismatch details.',
           startsDaemon: false,
@@ -737,18 +733,18 @@ export function buildCodexStatusOnboarding(
     summary: daemonReady
       ? 'Alembic Codex is initialized and the daemon is ready.'
       : 'Alembic Codex is initialized. The daemon will start on demand when a project-knowledge tool needs it.',
-    primaryAction: buildCodexAgentPrimeAction({
+    primaryAction: buildAgentPrimeAction({
       reason:
         'Load relevant Alembic Recipes through the agent-facing public prime tool before non-trivial coding work.',
       startsDaemon: !daemonReady,
     }),
     nextActions: [
-      buildCodexAgentPrimeAction({
+      buildAgentPrimeAction({
         reason:
           'Load project conventions and trusted context from an intentRef or host-declared intent.',
         startsDaemon: !daemonReady,
       }),
-      buildCodexHostAgentRescanAction({
+      buildHostAgentRescanAction({
         reason: 'Refresh project knowledge through the Codex host-agent workflow.',
         startsDaemon: !daemonReady,
       }),
@@ -764,12 +760,12 @@ export function buildCodexStatusOnboarding(
   };
 }
 
-function buildStatusOnboardingContract(
-  input: CodexStatusOnboardingInput,
+function composeStatusOnboardingContract(
+  input: StatusOnboardingInput,
   diagnosticsOk: boolean
-): ReturnType<typeof buildCodexStatusOnboardingContract> {
+): ReturnType<typeof buildStatusOnboardingContract> {
   const latestSnapshot = input.knowledge.snapshots?.latest;
-  return buildCodexStatusOnboardingContract({
+  return buildStatusOnboardingContract({
     dataRoot: input.daemonStatus.dataRoot,
     diagnosticsOk,
     dimensions: latestSnapshot
@@ -791,7 +787,7 @@ function buildStatusOnboardingContract(
   });
 }
 
-function buildCodexHostProjectAlignmentNotes(alignment?: CodexHostProjectAlignment): string[] {
+function buildHostProjectAlignmentNotes(alignment?: HostProjectAlignment): string[] {
   if (!alignment) {
     return [];
   }
@@ -810,7 +806,7 @@ function buildCodexHostProjectAlignmentNotes(alignment?: CodexHostProjectAlignme
   ];
 }
 
-function buildCodexRouteBoundaryNotes(enhancementRoute?: HostEnhancementRouteChoice): string[] {
+function buildRouteBoundaryNotes(enhancementRoute?: HostEnhancementRouteChoice): string[] {
   if (!enhancementRoute) {
     return [
       'Codex host-agent workflows write source=host-agent and remain separate from Alembic resident daemon job provider configuration.',
@@ -832,13 +828,13 @@ function buildCodexRouteBoundaryNotes(enhancementRoute?: HostEnhancementRouteCho
   ];
 }
 
-export function buildCodexRecommendedAction(input: {
+export function buildRecommendedAction(input: {
   arguments?: Record<string, unknown>;
   label: string;
   reason: string;
   startsDaemon: boolean;
   tool: string;
-}): CodexRecommendedAction {
+}): RecommendedAction {
   return {
     arguments: input.arguments || {},
     label: input.label,
@@ -848,7 +844,7 @@ export function buildCodexRecommendedAction(input: {
   };
 }
 
-export function buildCodexActionLabels(actions: unknown): string[] {
+export function buildActionLabels(actions: unknown): string[] {
   return Array.isArray(actions)
     ? actions
         .map((action) => asPlainRecord(action))
@@ -861,7 +857,7 @@ export function buildCodexActionLabels(actions: unknown): string[] {
     : [];
 }
 
-function summarizeCodexDaemonState(state: unknown): Record<string, unknown> | null {
+function summarizeDaemonState(state: unknown): Record<string, unknown> | null {
   const value = asPlainRecord(state);
   if (!value) {
     return null;

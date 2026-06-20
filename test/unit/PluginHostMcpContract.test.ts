@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/local-tools/output.js';
+import { LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
 import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
@@ -47,7 +47,7 @@ describe('Plugin host MCP D4 contract', () => {
       'knowledge-context',
     ]);
     expect(PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS[0]?.toolNames).toEqual(
-      CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES
+      LOCAL_CLEAN_OUTPUT_TOOL_NAMES
     );
     expect(PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS[1]?.toolNames).toEqual(
       CORE_CLEAN_OUTPUT_TOOL_NAMES
@@ -66,7 +66,7 @@ describe('Plugin host MCP D4 contract', () => {
     expect(
       PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES.every((toolName) =>
         uniqueStrings([
-          ...CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
+          ...LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
           ...CORE_CLEAN_OUTPUT_TOOL_NAMES,
           ...AGENT_PUBLIC_TOOL_NAMES,
           ...KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES,

@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createSkill, loadSkill } from '#codex/mcp/handlers/skill.js';
 import {
-  getCodexProjectSkillRoot,
+  getProjectSkillRoot,
   PROJECT_SKILL_MARKER_FILE,
 } from '#codex/ProjectSkillDelivery.js';
 import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
@@ -28,7 +28,7 @@ describe('ProjectSkillService', () => {
       false
     );
     expect(
-      fs.existsSync(path.join(getCodexProjectSkillRoot(root), 'alembic-recipes', 'SKILL.md'))
+      fs.existsSync(path.join(getProjectSkillRoot(root), 'alembic-recipes', 'SKILL.md'))
     ).toBe(false);
     fs.rmSync(root, { recursive: true, force: true });
   });
@@ -43,7 +43,7 @@ describe('ProjectSkillService', () => {
     const result = service.refreshKnowledgeSkills({ authorizeProjectSkillExport: true });
 
     const sourcePath = path.join(root, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md');
-    const runtimePath = path.join(getCodexProjectSkillRoot(root), 'alembic-recipes', 'SKILL.md');
+    const runtimePath = path.join(getProjectSkillRoot(root), 'alembic-recipes', 'SKILL.md');
     expect(result.success).toBe(true);
     expect(result.data?.hasKnowledgeBase).toBe(true);
     expect(fs.existsSync(sourcePath)).toBe(true);
@@ -87,7 +87,7 @@ describe('ProjectSkillService', () => {
     const root = makeRoot();
     const ctx = createContext(root);
     const service = createProjectSkillService(ctx);
-    const targetDir = path.join(getCodexProjectSkillRoot(root), 'alembic-guard');
+    const targetDir = path.join(getProjectSkillRoot(root), 'alembic-guard');
     fs.mkdirSync(targetDir, { recursive: true });
     fs.writeFileSync(path.join(targetDir, 'SKILL.md'), '# User Skill\n');
 
@@ -147,7 +147,7 @@ describe('ProjectSkillService', () => {
     expect(created.success).toBe(true);
     expect(
       fs.existsSync(
-        path.join(getCodexProjectSkillRoot(root), 'alembic-guard', PROJECT_SKILL_MARKER_FILE)
+        path.join(getProjectSkillRoot(root), 'alembic-guard', PROJECT_SKILL_MARKER_FILE)
       )
     ).toBe(true);
 

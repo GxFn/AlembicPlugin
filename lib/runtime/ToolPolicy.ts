@@ -7,7 +7,7 @@ import {
   resolveEffectiveCodexTier,
 } from '../runtime/runtime/RuntimeContext.js';
 
-export interface CodexToolDefinition {
+export interface ToolDefinition {
   annotations?: ToolAnnotations;
   description: string;
   inputSchema: Record<string, unknown>;
@@ -15,7 +15,7 @@ export interface CodexToolDefinition {
   tier?: string;
 }
 
-export interface CodexToolPolicyInput<T extends CodexToolDefinition = CodexToolDefinition> {
+export interface ToolPolicyInput<T extends ToolDefinition = ToolDefinition> {
   adminEnabled?: boolean;
   channelId?: string;
   coreTools: T[];
@@ -30,7 +30,7 @@ export interface CodexToolPolicyInput<T extends CodexToolDefinition = CodexToolD
   tierOrder: Record<string, number>;
 }
 
-export type CodexToolPolicyState =
+export type ToolPolicyState =
   | 'bootstrap_running'
   | 'daemon_stale'
   | 'needs_bootstrap'
@@ -39,23 +39,23 @@ export type CodexToolPolicyState =
   | 'ready_refreshing'
   | 'ready_stale';
 
-export interface CodexToolPolicySignal {
+export interface ToolPolicySignal {
   code: string;
   message: string;
   severity: 'info' | 'warning';
 }
 
-export interface CodexToolPolicyResult<T extends CodexToolDefinition = CodexToolDefinition> {
+export interface ToolPolicyResult<T extends ToolDefinition = ToolDefinition> {
   allowedLocalToolNames: Set<string>;
   effectiveTier: string;
   hiddenReason: string | null;
-  signals: CodexToolPolicySignal[];
-  state: CodexToolPolicyState;
-  visibleTools: Array<T | CodexToolDefinition>;
+  signals: ToolPolicySignal[];
+  state: ToolPolicyState;
+  visibleTools: Array<T | ToolDefinition>;
 }
 
 // Codex 插件当前只有 alembic（壳目录 plugins/alembic-codex）一个入口；这里维护单插件工具策略，不做多插件抽象。
-export const CODEX_PROJECT_ROOT_PROPERTY = {
+export const PROJECT_ROOT_PROPERTY = {
   type: 'string',
   description:
     'Absolute target project root. Pass the current workspace directory when Alembic cannot determine the project.',
@@ -65,18 +65,18 @@ function codexInputSchema(properties: Record<string, unknown> = {}): Record<stri
   return {
     type: 'object',
     properties: {
-      projectRoot: CODEX_PROJECT_ROOT_PROPERTY,
+      projectRoot: PROJECT_ROOT_PROPERTY,
       ...properties,
     },
     additionalProperties: false,
   };
 }
 
-export const CODEX_DISCOVERY_TOOL_NAMES = new Set(['alembic_status']);
+export const DISCOVERY_TOOL_NAMES = new Set(['alembic_status']);
 
-export const CODEX_INIT_TOOL_NAMES = new Set([...CODEX_DISCOVERY_TOOL_NAMES, 'alembic_init']);
+export const INIT_TOOL_NAMES = new Set([...DISCOVERY_TOOL_NAMES, 'alembic_init']);
 
-export const CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
+export const PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
   'alembic_recipe_map',
   'alembic_prime',
   'alembic_search',
@@ -87,7 +87,7 @@ export const CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
 // alembic_knowledge/structure/call_context/panorama/task are retired and their handlers
 // deleted, so the retirement filter is obsolete — they are simply not registered tools.
 
-export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
+export const HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_bootstrap',
   'alembic_rescan',
   'alembic_submit_knowledge',
@@ -99,7 +99,7 @@ export const CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
 // local knowledge exists so the handlers can return structured skipped,
 // degraded, or blocked envelopes instead of disappearing behind the knowledge
 // gate.
-export const CODEX_AGENT_PUBLIC_TOOL_NAMES = new Set([
+export const TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES = new Set([
   'alembic_prime',
   'alembic_work',
   'alembic_code_guard',
@@ -108,37 +108,37 @@ export const CODEX_AGENT_PUBLIC_TOOL_NAMES = new Set([
 // Agent lifecycle tools are the active public route. Legacy alembic_task is no
 // longer a visible policy surface; older direct calls are handled separately by
 // the hidden compatibility boundary in the MCP executor.
-export const CODEX_TASK_LIFECYCLE_TOOL_NAMES = new Set([...CODEX_AGENT_PUBLIC_TOOL_NAMES]);
+export const TASK_LIFECYCLE_TOOL_NAMES = new Set([...TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES]);
 
 // Project Skill delivery is a Codex runtime surface, not a Recipe/Guard knowledge
 // consumption surface. It must remain available for initialized projects so Codex
 // can export or inspect generated Project Skill receipts even while bootstrap is
 // still producing the first usable knowledge base.
-export const CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES = new Set(['alembic_project_skill']);
+export const PROJECT_SKILL_DELIVERY_TOOL_NAMES = new Set(['alembic_project_skill']);
 
 // ProjectScope resident 已连通但 Project 级知识库仍为空时，Codex 仍需要看见这些
 // resident-backed 工具：prime/search 可以返回空结果和 telemetry，而不是被本地
 // single-folder knowledge gate 误判为 CODEX_ALEMBIC_KNOWLEDGE_REQUIRED。
 // MTC-4: alembic_health is gone; the merged alembic_status is a cold-start local
-// tool (always visible via CODEX_DISCOVERY_TOOL_NAMES), so it does not need a
+// tool (always visible via DISCOVERY_TOOL_NAMES), so it does not need a
 // resident-project-scope entry here.
-export const CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
-  ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
-  ...CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
+export const RESIDENT_PROJECT_SCOPE_TOOL_NAMES = new Set([
+  ...TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
+  ...PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
 ]);
 
-export const CODEX_INIT_ON_DEMAND_TOOL_NAMES = new Set([
+export const INIT_ON_DEMAND_TOOL_NAMES = new Set([
   'alembic_job',
-  ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
+  ...HOST_AGENT_WORKFLOW_TOOL_NAMES,
 ]);
 
-export const CODEX_COLD_START_TOOL_NAMES = new Set([
-  ...CODEX_INIT_TOOL_NAMES,
-  ...CODEX_INIT_ON_DEMAND_TOOL_NAMES,
-  ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
+export const COLD_START_TOOL_NAMES = new Set([
+  ...INIT_TOOL_NAMES,
+  ...INIT_ON_DEMAND_TOOL_NAMES,
+  ...TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
 ]);
 
-export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
+export const LOCAL_TOOLS: ToolDefinition[] = [
   {
     name: 'alembic_status',
     tier: 'agent',
@@ -253,32 +253,32 @@ export const CODEX_LOCAL_TOOLS: CodexToolDefinition[] = [
   },
 ];
 
-export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
-  input: CodexToolPolicyInput<T>
-): CodexToolPolicyResult<T> {
-  const allowedLocalToolNames = allowedCodexToolNames(input.knowledge);
+export function resolveToolPolicy<T extends ToolDefinition>(
+  input: ToolPolicyInput<T>
+): ToolPolicyResult<T> {
+  const allowedLocalToolNames = allowedToolNames(input.knowledge);
   const tierName = input.tierName || process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
   const adminEnabled = input.adminEnabled ?? process.env[CODEX_ADMIN_ENABLE_ENV] === '1';
   const effectiveTier = resolveEffectiveCodexTier(tierName, adminEnabled);
   const maxTier = input.tierOrder[effectiveTier] ?? input.tierOrder[CODEX_DEFAULT_MCP_TIER] ?? 0;
-  const localTools = CODEX_LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
+  const localTools = LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
   // MTC-4: alembic_status is both a resident core tool (TOOLS) and a cold-start
-  // local tool (CODEX_LOCAL_TOOLS). Exclude any core tool already shown via the
+  // local tool (LOCAL_TOOLS). Exclude any core tool already shown via the
   // local surface so the merged status tool is not listed twice.
   const localToolNameSet = new Set(localTools.map((tool) => tool.name));
   const coreTools = input.coreTools.filter(
     (tool) =>
       !localToolNameSet.has(tool.name) &&
       (input.knowledge.usable ||
-        CODEX_AGENT_PUBLIC_TOOL_NAMES.has(tool.name) ||
+        TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES.has(tool.name) ||
         (input.residentProjectScopeAvailable === true &&
-          CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(tool.name)) ||
-        CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name) ||
-        (input.knowledge.initialized && CODEX_TASK_LIFECYCLE_TOOL_NAMES.has(tool.name)) ||
-        isCodexProjectSkillDeliveryToolVisible(tool.name, input.knowledge)) &&
+          RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(tool.name)) ||
+        HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name) ||
+        (input.knowledge.initialized && TASK_LIFECYCLE_TOOL_NAMES.has(tool.name)) ||
+        isProjectSkillDeliveryToolVisible(tool.name, input.knowledge)) &&
       (input.tierOrder[tool.tier || 'agent'] ?? 0) <= maxTier
   );
-  const state = resolveCodexToolPolicyState(input);
+  const state = resolveToolPolicyState(input);
   return {
     allowedLocalToolNames,
     effectiveTier,
@@ -286,47 +286,41 @@ export function resolveCodexToolPolicy<T extends CodexToolDefinition>(
       input.knowledge.usable || input.residentProjectScopeAvailable === true
         ? null
         : 'CODEX_ALEMBIC_KNOWLEDGE_REQUIRED',
-    signals: buildCodexToolPolicySignals(input, state),
+    signals: buildToolPolicySignals(input, state),
     state,
     visibleTools: [...localTools, ...coreTools],
   };
 }
 
-export function allowedCodexToolNames(knowledge: HostKnowledgeState): Set<string> {
+export function allowedToolNames(knowledge: HostKnowledgeState): Set<string> {
   if (knowledge.usable) {
-    return new Set([
-      ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
-      ...CODEX_HOST_AGENT_WORKFLOW_TOOL_NAMES,
-    ]);
+    return new Set([...LOCAL_TOOLS.map((tool) => tool.name), ...HOST_AGENT_WORKFLOW_TOOL_NAMES]);
   }
   if (knowledge.initialized) {
     return new Set([
-      ...CODEX_COLD_START_TOOL_NAMES,
-      ...CODEX_TASK_LIFECYCLE_TOOL_NAMES,
-      ...CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES,
+      ...COLD_START_TOOL_NAMES,
+      ...TASK_LIFECYCLE_TOOL_NAMES,
+      ...PROJECT_SKILL_DELIVERY_TOOL_NAMES,
     ]);
   }
-  return new Set([...CODEX_COLD_START_TOOL_NAMES]);
+  return new Set([...COLD_START_TOOL_NAMES]);
 }
 
-export function isCodexProjectSkillDeliveryToolVisible(
+export function isProjectSkillDeliveryToolVisible(
   name: string,
   knowledge: HostKnowledgeState
 ): boolean {
-  return knowledge.initialized && CODEX_PROJECT_SKILL_DELIVERY_TOOL_NAMES.has(name);
+  return knowledge.initialized && PROJECT_SKILL_DELIVERY_TOOL_NAMES.has(name);
 }
 
-export function isToolAllowedForCodexKnowledge(
-  name: string,
-  knowledge: HostKnowledgeState
-): boolean {
+export function isToolAllowedForKnowledge(name: string, knowledge: HostKnowledgeState): boolean {
   if (knowledge.usable) {
     return true;
   }
-  return allowedCodexToolNames(knowledge).has(name);
+  return allowedToolNames(knowledge).has(name);
 }
 
-export function resolveCodexToolPolicyState(input: CodexToolPolicyInput): CodexToolPolicyState {
+export function resolveToolPolicyState(input: ToolPolicyInput): ToolPolicyState {
   const knowledge = input.knowledge;
   if (!knowledge.initialized) {
     return 'needs_init';
@@ -349,11 +343,11 @@ export function resolveCodexToolPolicyState(input: CodexToolPolicyInput): CodexT
   return 'ready';
 }
 
-export function buildCodexToolPolicySignals(
-  input: CodexToolPolicyInput,
-  state: CodexToolPolicyState
-): CodexToolPolicySignal[] {
-  const signals: CodexToolPolicySignal[] = [];
+export function buildToolPolicySignals(
+  input: ToolPolicyInput,
+  state: ToolPolicyState
+): ToolPolicySignal[] {
+  const signals: ToolPolicySignal[] = [];
   if (state === 'bootstrap_running') {
     signals.push({
       code: 'CODEX_BOOTSTRAP_RUNNING',

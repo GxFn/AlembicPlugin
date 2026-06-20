@@ -1,14 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/runtime/index.js';
-import { buildCodexMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
+import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/runtime/index.js';
+import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
 import { listPluginToolSurfaceCatalog } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
 import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 
 const ROOT = process.cwd();
 
-const publicKnowledgeNavigationToolNames = [...CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES];
+const publicKnowledgeNavigationToolNames = [...PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES];
 const legacyPublicKnowledgeToolNames = [
   'alembic_knowledge',
   'alembic_structure',
@@ -67,7 +67,7 @@ describe('public knowledge context surface guidance', () => {
   });
 
   test('builds initialize guidance from the four public knowledge context tools', () => {
-    const guidance = buildCodexMcpGuidance(TOOLS);
+    const guidance = buildMcpGuidance(TOOLS);
 
     expect(guidance.knowledgeTools.sort()).toEqual(publicKnowledgeNavigationToolNames.sort());
     expect(guidance.instructions).toContain('recipe_map');

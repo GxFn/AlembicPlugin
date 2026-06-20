@@ -12,7 +12,7 @@ import {
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import type { DaemonStatus } from './daemon-status.js';
 
-export type CodexEnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
+export type EnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
 
 // PDR-5: the Plugin's enhancement-route choice is a plugin-local concept with two
 // first-class routes. It is intentionally NOT Core's AlembicRuntimeRouteKind (the
@@ -20,16 +20,16 @@ export type CodexEnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status
 //   - 'resident': 有主体 — a resident Alembic service is reachable, consumed via Core contracts.
 //   - 'pure-local': 无主体 — in-process MCP Services + local stage cache + local vector.
 //     Fully functional; a first-class route, NOT a degrade fallback.
-export type CodexEnhancementRouteKind = 'resident' | 'pure-local';
+export type EnhancementRouteKind = 'resident' | 'pure-local';
 
-export const CODEX_HOST_AGENT_ROUTE_TOOLS = [
+export const HOST_AGENT_ROUTE_TOOLS = [
   'alembic_bootstrap',
   'alembic_rescan',
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
 ] as const;
 
-export interface CodexDaemonCapabilitySummary {
+export interface DaemonCapabilitySummary {
   apiAvailable: boolean | null;
   dashboardAvailable: boolean | null;
   dashboardUrl: string | null;
@@ -40,7 +40,7 @@ export interface CodexDaemonCapabilitySummary {
   residentDaemonJobsAvailable: boolean | null;
 }
 
-export interface CodexDaemonRuntimeBoundarySummary {
+export interface DaemonRuntimeBoundarySummary {
   available: boolean;
   dashboard: {
     frontendOwner: string | null;
@@ -84,11 +84,11 @@ export interface CodexDaemonRuntimeBoundarySummary {
   };
 }
 
-export interface CodexEnhancementDaemonProbe {
+export interface EnhancementDaemonProbe {
   available: boolean;
-  capabilities: CodexDaemonCapabilitySummary;
+  capabilities: DaemonCapabilitySummary;
   compatibility: {
-    runtimeBoundary: CodexDaemonRuntimeBoundaryCompatibility;
+    runtimeBoundary: DaemonRuntimeBoundaryCompatibility;
   };
   dashboardUrl: string | null;
   healthVersion: string | null;
@@ -99,22 +99,22 @@ export interface CodexEnhancementDaemonProbe {
     summary: AlembicResidentServiceStatusSummary;
   } | null;
   route: string | null;
-  runtimeBoundary: CodexDaemonRuntimeBoundarySummary;
+  runtimeBoundary: DaemonRuntimeBoundarySummary;
   status: string;
   version: string | null;
 }
 
-export interface CodexDaemonRuntimeBoundaryCompatibility {
+export interface DaemonRuntimeBoundaryCompatibility {
   activeFallback: boolean;
   canonicalResidentServicePresent: boolean;
   consumer: string | null;
   deletionCondition: string | null;
   reason: string | null;
   retained: boolean;
-  source: CodexDaemonRuntimeBoundarySummary['source'];
+  source: DaemonRuntimeBoundarySummary['source'];
 }
 
-export interface CodexLocalAlembicInstallProbe {
+export interface LocalAlembicInstallProbe {
   available: boolean;
   command: string;
   error: string | null;
@@ -125,7 +125,7 @@ export interface HostEnhancementRouteChoice {
   hostAgentRoute: {
     requiresAiProvider: false;
     source: typeof HOST_AGENT_SOURCE;
-    tools: typeof CODEX_HOST_AGENT_ROUTE_TOOLS;
+    tools: typeof HOST_AGENT_ROUTE_TOOLS;
   };
   residentDaemonJobProvider: {
     available: boolean;
@@ -134,19 +134,19 @@ export interface HostEnhancementRouteChoice {
     provider: string | null;
   };
   localAlembic: {
-    daemon: CodexEnhancementDaemonProbe;
-    install: CodexLocalAlembicInstallProbe;
+    daemon: EnhancementDaemonProbe;
+    install: LocalAlembicInstallProbe;
   };
   missingCapabilities: string[];
   reason: string;
-  requirement: CodexEnhancementRequirement;
-  selected: CodexEnhancementRouteKind;
+  requirement: EnhancementRequirement;
+  selected: EnhancementRouteKind;
 }
 
 export function buildHostEnhancementRouteChoice(input: {
   daemonStatus: DaemonStatus;
-  localInstall?: CodexLocalAlembicInstallProbe;
-  requirement?: CodexEnhancementRequirement;
+  localInstall?: LocalAlembicInstallProbe;
+  requirement?: EnhancementRequirement;
 }): HostEnhancementRouteChoice {
   const requirement = input.requirement || 'status';
   const daemon = summarizeEnhancementDaemon(input.daemonStatus);
@@ -160,7 +160,7 @@ export function buildHostEnhancementRouteChoice(input: {
     hostAgentRoute: {
       requiresAiProvider: false,
       source: HOST_AGENT_SOURCE,
-      tools: CODEX_HOST_AGENT_ROUTE_TOOLS,
+      tools: HOST_AGENT_ROUTE_TOOLS,
     },
     residentDaemonJobProvider,
     localAlembic: {
@@ -178,7 +178,7 @@ export function buildHostEnhancementRouteChoice(input: {
   };
 }
 
-export function probeLocalAlembicInstall(command = 'alembic'): CodexLocalAlembicInstallProbe {
+export function probeLocalAlembicInstall(command = 'alembic'): LocalAlembicInstallProbe {
   const versionResult = spawnSync(command, ['--version'], {
     encoding: 'utf8',
     timeout: 1500,
@@ -210,7 +210,7 @@ export function probeLocalAlembicInstall(command = 'alembic'): CodexLocalAlembic
   };
 }
 
-export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhancementDaemonProbe {
+export function summarizeEnhancementDaemon(status: DaemonStatus): EnhancementDaemonProbe {
   const data = asRecord(status.health?.data);
   const enhancement = asRecord(data?.enhancement);
   const capabilities = asRecord(data?.capabilities);
@@ -219,7 +219,7 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
     : null;
   const runtimeBoundary = summarizeDaemonRuntimeBoundary(capabilities, data);
   const capabilitySummary = mergeCapabilitySummaryWithResidentService(
-    toCodexDaemonCapabilitySummary(summarizeAlembicRuntimeCapabilities(capabilities)),
+    toDaemonCapabilitySummary(summarizeAlembicRuntimeCapabilities(capabilities)),
     residentServiceStatus
   );
   const route =
@@ -262,9 +262,7 @@ export function summarizeEnhancementDaemon(status: DaemonStatus): CodexEnhanceme
   };
 }
 
-function selectEnhancementRoute(input: {
-  daemon: CodexEnhancementDaemonProbe;
-}): CodexEnhancementRouteKind {
+function selectEnhancementRoute(input: { daemon: EnhancementDaemonProbe }): EnhancementRouteKind {
   // 有主体: a resident Alembic service is reachable (Core resident state present) → consume it.
   if (input.daemon.residentService !== null) {
     return 'resident';
@@ -275,9 +273,9 @@ function selectEnhancementRoute(input: {
 }
 
 function buildEnhancementRouteReason(input: {
-  daemon: CodexEnhancementDaemonProbe;
+  daemon: EnhancementDaemonProbe;
   missingCapabilities: string[];
-  selected: CodexEnhancementRouteKind;
+  selected: EnhancementRouteKind;
 }): string {
   if (input.selected === 'resident') {
     const suffix =
@@ -298,9 +296,9 @@ function buildEnhancementRouteReason(input: {
 }
 
 function summarizeRuntimeBoundaryCompatibility(
-  runtimeBoundary: CodexDaemonRuntimeBoundarySummary,
+  runtimeBoundary: DaemonRuntimeBoundarySummary,
   residentService: AlembicResidentServiceStatus | null
-): CodexDaemonRuntimeBoundaryCompatibility {
+): DaemonRuntimeBoundaryCompatibility {
   const reported = runtimeBoundary.available;
   const canonicalResidentServicePresent = residentService !== null;
   return {
@@ -321,7 +319,7 @@ function summarizeRuntimeBoundaryCompatibility(
 function summarizeDaemonRuntimeBoundary(
   capabilities: Record<string, unknown> | null,
   data: Record<string, unknown> | null
-): CodexDaemonRuntimeBoundarySummary {
+): DaemonRuntimeBoundarySummary {
   const source = asRecord(capabilities?.runtimeBoundary) || asRecord(data?.runtimeBoundary);
   const sourceName = asRecord(capabilities?.runtimeBoundary)
     ? 'capabilities.runtimeBoundary'
@@ -383,9 +381,9 @@ function summarizeDaemonRuntimeBoundary(
 }
 
 function mergeCapabilitySummaryWithResidentService(
-  summary: CodexDaemonCapabilitySummary,
+  summary: DaemonCapabilitySummary,
   residentService: AlembicResidentServiceStatus | null
-): CodexDaemonCapabilitySummary {
+): DaemonCapabilitySummary {
   if (!residentService) {
     return summary;
   }
@@ -446,9 +444,9 @@ function mergeCapabilitySummaryWithResidentService(
   };
 }
 
-function toCodexDaemonCapabilitySummary(
+function toDaemonCapabilitySummary(
   summary: AlembicRuntimeCapabilitySummary
-): CodexDaemonCapabilitySummary {
+): DaemonCapabilitySummary {
   return {
     apiAvailable: summary.apiAvailable,
     dashboardAvailable: summary.dashboardAvailable,
@@ -468,8 +466,8 @@ function isLocalAlembicDaemonRoute(route: string | null): boolean {
 }
 
 function findMissingCapabilities(
-  requirement: CodexEnhancementRequirement,
-  daemon: CodexEnhancementDaemonProbe
+  requirement: EnhancementRequirement,
+  daemon: EnhancementDaemonProbe
 ): string[] {
   if (!daemon.ready) {
     return requirement === 'status' ? [] : ['daemon-api'];

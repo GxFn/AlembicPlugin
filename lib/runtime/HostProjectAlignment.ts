@@ -15,20 +15,16 @@ import type { HostEnhancementRouteChoice } from '../runtime/EnhancementRoute.js'
 import type { AlembicResidentProjectScopeIdentity } from '../service/resident/AlembicResidentServiceClient.js';
 import type { DaemonStatus } from './daemon-status.js';
 
-export type CodexHostProjectConnectionState =
-  | 'connected'
-  | 'mismatch'
-  | 'disconnected'
-  | 'unavailable';
+export type HostProjectConnectionState = 'connected' | 'mismatch' | 'disconnected' | 'unavailable';
 
-export type CodexHostProjectAlignmentSource =
+export type HostProjectAlignmentSource =
   | 'codex-host'
   | 'daemon-state'
   | 'project-registry'
   | 'resident-service-scope'
   | 'runtime-control-state';
 
-export interface CodexAlignedProjectSummary {
+export interface AlignedProjectSummary {
   dataRoot: string | null;
   dataRootSource: string | null;
   ghost: boolean | null;
@@ -36,10 +32,10 @@ export interface CodexAlignedProjectSummary {
   projectRealpath: string | null;
   projectRoot: string | null;
   registered: boolean | null;
-  source: CodexHostProjectAlignmentSource;
+  source: HostProjectAlignmentSource;
 }
 
-export interface CodexHandoffMismatch {
+export interface HandoffMismatch {
   activeRoot: string | null;
   hostRoot: string | null;
   reason:
@@ -51,7 +47,7 @@ export interface CodexHandoffMismatch {
   selectedRoot: string | null;
 }
 
-export interface CodexRuntimeControlStateSummary {
+export interface RuntimeControlStateSummary {
   exists: boolean;
   path: string;
   readable: boolean;
@@ -61,15 +57,15 @@ export interface CodexRuntimeControlStateSummary {
   updatedAt: string | null;
 }
 
-export interface CodexHostProjectAlignment {
-  activeRuntimeProject: CodexAlignedProjectSummary | null;
-  connectionState: CodexHostProjectConnectionState;
+export interface HostProjectAlignment {
+  activeRuntimeProject: AlignedProjectSummary | null;
+  connectionState: HostProjectConnectionState;
   handoffAllowed: boolean;
-  handoffMismatch: CodexHandoffMismatch | null;
-  hostProject: CodexAlignedProjectSummary;
+  handoffMismatch: HandoffMismatch | null;
+  hostProject: AlignedProjectSummary;
   nextActions: string[];
-  runtimeControlState: CodexRuntimeControlStateSummary;
-  selectedProject: CodexAlignedProjectSummary | null;
+  runtimeControlState: RuntimeControlStateSummary;
+  selectedProject: AlignedProjectSummary | null;
   sources: {
     daemonRuntimeBoundary: boolean;
     daemonState: boolean;
@@ -82,15 +78,15 @@ export interface CodexHostProjectAlignment {
 
 interface RuntimeControlReadResult {
   state: ProjectRuntimeControlState;
-  summary: CodexRuntimeControlStateSummary;
+  summary: RuntimeControlStateSummary;
 }
 
-export function buildCodexHostProjectAlignment(input: {
+export function buildHostProjectAlignment(input: {
   daemonStatus: DaemonStatus;
   enhancementRoute?: HostEnhancementRouteChoice | null;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity | null;
   projectRoot: string;
-}): CodexHostProjectAlignment {
+}): HostProjectAlignment {
   const hostProject = projectFromRoot(input.projectRoot, 'codex-host');
   const runtimeControl = readProjectRuntimeControlState();
   const selectedProject = projectFromRuntimeControlTarget(
@@ -162,12 +158,12 @@ export function buildCodexHostProjectAlignment(input: {
   };
 }
 
-export function getCodexProjectRuntimeControlStatePath(): string {
+export function getProjectRuntimeControlStatePath(): string {
   return join(getProjectRegistryDir(), 'runtime-control.json');
 }
 
 function readProjectRuntimeControlState(): RuntimeControlReadResult {
-  const path = getCodexProjectRuntimeControlStatePath();
+  const path = getProjectRuntimeControlStatePath();
   const exists = existsSync(path);
   if (!exists) {
     return {
@@ -243,10 +239,10 @@ function resolveConnectionState(input: {
   daemonReady: boolean;
   hostRoot: string | null;
   projectScopeResidentReady: boolean;
-  runtimeControl: CodexRuntimeControlStateSummary;
+  runtimeControl: RuntimeControlStateSummary;
   selectedDiffers: boolean;
   selectedRoot: string | null;
-}): CodexHostProjectConnectionState {
+}): HostProjectConnectionState {
   if (!input.hostRoot) {
     return 'unavailable';
   }
@@ -268,12 +264,12 @@ function resolveConnectionState(input: {
 function buildHandoffMismatch(input: {
   activeDiffers: boolean;
   activeRoot: string | null;
-  connectionState: CodexHostProjectConnectionState;
+  connectionState: HostProjectConnectionState;
   hostRoot: string | null;
-  runtimeControl: CodexRuntimeControlStateSummary;
+  runtimeControl: RuntimeControlStateSummary;
   selectedDiffers: boolean;
   selectedRoot: string | null;
-}): CodexHandoffMismatch | null {
+}): HandoffMismatch | null {
   if (input.connectionState === 'connected') {
     return null;
   }
@@ -312,7 +308,7 @@ function buildHandoffMismatch(input: {
   };
 }
 
-function buildAlignmentNextActions(state: CodexHostProjectConnectionState): string[] {
+function buildAlignmentNextActions(state: HostProjectConnectionState): string[] {
   if (state === 'connected') {
     return ['Codex host project is aligned with the Alembic selected and active runtime project.'];
   }
@@ -333,7 +329,7 @@ function buildAlignmentNextActions(state: CodexHostProjectConnectionState): stri
 
 function projectFromResidentServiceScope(
   enhancementRoute?: HostEnhancementRouteChoice | null
-): CodexAlignedProjectSummary | null {
+): AlignedProjectSummary | null {
   const status = enhancementRoute?.localAlembic.daemon.residentService?.status;
   if (!status || status.route !== 'local-alembic-daemon' || status.owner !== 'alembic') {
     return null;
@@ -352,7 +348,7 @@ function projectFromResidentServiceScope(
   });
 }
 
-function projectFromDaemonState(status: DaemonStatus): CodexAlignedProjectSummary | null {
+function projectFromDaemonState(status: DaemonStatus): AlignedProjectSummary | null {
   if (!status.ready || !status.state?.projectRoot) {
     return null;
   }
@@ -366,8 +362,8 @@ function projectFromDaemonState(status: DaemonStatus): CodexAlignedProjectSummar
 function projectFromRuntimeControlTarget(
   projectRoot: string | null,
   projectId: string | null,
-  source: CodexHostProjectAlignmentSource
-): CodexAlignedProjectSummary | null {
+  source: HostProjectAlignmentSource
+): AlignedProjectSummary | null {
   const root = projectRoot || findRegisteredProjectRootById(projectId);
   if (!root) {
     return null;
@@ -377,13 +373,13 @@ function projectFromRuntimeControlTarget(
 
 function projectFromRoot(
   projectRootInput: string,
-  source: CodexHostProjectAlignmentSource,
+  source: HostProjectAlignmentSource,
   overrides: {
     dataRoot?: string | null;
     dataRootSource?: string | null;
     projectId?: string | null;
   } = {}
-): CodexAlignedProjectSummary {
+): AlignedProjectSummary {
   const fallbackRoot = resolve(projectRootInput);
   let inspection: ProjectRegistryInspection | null = null;
   try {
@@ -425,7 +421,7 @@ function findRegisteredProjectRootById(projectId: string | null): string | null 
  * is realpath-based only (no daemon project-scope identity available on
  * this path), so the warning is informational, never blocking.
  */
-export function buildCodexLocalSelectionMismatch(projectRoot: string): {
+export function buildLocalSelectionMismatch(projectRoot: string): {
   activeProjectRoot: string | null;
   hostProjectRoot: string;
   note: string;

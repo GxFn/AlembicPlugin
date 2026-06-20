@@ -3,11 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
-  buildCodexProjectRootRequiredMessage,
+  buildProjectRootRequiredMessage,
   getCodexSavedProjectRootPath,
   readCodexSavedProjectRoot,
   resolveCodexProjectRoot,
-  summarizeCodexProjectRootResolution,
+  summarizeProjectRootResolution,
   writeCodexSavedProjectRoot,
 } from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
@@ -82,7 +82,7 @@ describe('CodexProjectRootResolver', () => {
       trust: 'fallback',
       rejected: false,
     });
-    expect(buildCodexProjectRootRequiredMessage(resolution)).toContain(
+    expect(buildProjectRootRequiredMessage(resolution)).toContain(
       'cannot determine the target project directory'
     );
   });
@@ -111,7 +111,7 @@ describe('CodexProjectRootResolver', () => {
       rejected: true,
     });
     expect(resolution.reason).toContain('plugin cache');
-    expect(summarizeCodexProjectRootResolution(resolution)).toMatchObject({
+    expect(summarizeProjectRootResolution(resolution)).toMatchObject({
       requiredActions: expect.arrayContaining([
         'Provide the target project root as an absolute path.',
       ]),

@@ -46,8 +46,8 @@ import {
 } from '../../runtime/mcp/output-contract.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../../runtime/mcp/tools.js';
 import {
-  isCodexProjectScopeSummaryForFolder,
-  readCodexProjectScopeRuntimeFromEnv,
+  isProjectScopeSummaryForFolder,
+  readProjectScopeRuntimeFromEnv,
 } from '../../shared/project-scope-runtime.js';
 
 // ─── TypeScript Interfaces ──────────────────────────────────
@@ -218,10 +218,10 @@ export class McpServer {
       const { ProjectRegistry } = await import('@alembic/core/workspace');
       const isGhost = ProjectRegistry.isGhost(projectRoot);
       const exclusion = isExcludedProject(projectRoot);
-      const projectScopeRuntime = readCodexProjectScopeRuntimeFromEnv();
+      const projectScopeRuntime = readProjectScopeRuntimeFromEnv();
       const isProjectScopeGhostExecution =
         projectScopeRuntime?.summary.storageKind === 'ghost' &&
-        isCodexProjectScopeSummaryForFolder(projectScopeRuntime.summary, projectRoot);
+        isProjectScopeSummaryForFolder(projectScopeRuntime.summary, projectRoot);
       if (exclusion.excluded && !isGhost && !isProjectScopeGhostExecution) {
         const msg =
           `[MCP] projectRoot "${projectRoot}" 是排除项目（${exclusion.reason}），` +

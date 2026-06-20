@@ -6,8 +6,8 @@ import { afterEach, describe, expect, test } from 'vitest';
 import {
   getLatestSchemaMigrationVersion,
   queryRecipeSnapshotRows,
-  readCodexSnapshotState,
-  readCodexSourceRefState,
+  readSnapshotState,
+  readSourceRefState,
   resolveSqliteDb,
 } from '../../lib/infrastructure/database/SqliteDatabaseAccess.js';
 
@@ -79,7 +79,7 @@ describe('SqliteDatabaseAccess', () => {
     );
     db.close();
 
-    expect(readCodexSourceRefState(dbPath)).toMatchObject({
+    expect(readSourceRefState(dbPath)).toMatchObject({
       activeCount: 1,
       staleCount: 1,
       staleRecipeCount: 1,
@@ -87,7 +87,7 @@ describe('SqliteDatabaseAccess', () => {
       tableExists: true,
       totalCount: 2,
     });
-    expect(readCodexSnapshotState(dbPath, '/project')).toMatchObject({
+    expect(readSnapshotState(dbPath, '/project')).toMatchObject({
       latest: {
         affectedDimsCount: 1,
         candidateCount: 1,

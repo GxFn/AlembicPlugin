@@ -6,26 +6,26 @@ import { attachServiceBoundary, failureResult } from '../../../runtime/mcp/host/
 import { McpServer as EmbeddedMcpServer } from '../../../runtime/mcp/McpServer.js';
 import { isCleanMcpResponse } from '../../../runtime/mcp/output-contract.js';
 import { TOOLS } from '../../../runtime/mcp/tools.js';
-import type { CodexProjectRuntimeContext } from '../../../runtime/runtime/ProjectRuntimeContext.js';
+import type { ProjectRuntimeContext } from '../../../runtime/runtime/ProjectRuntimeContext.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../../service/resident/AlembicResidentServiceClient.js';
 import {
   ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV,
-  serializeCodexProjectScopeSummary,
+  serializeProjectScopeSummary,
 } from '../../../shared/project-scope-runtime.js';
 
-export interface CodexToolExecutionContext {
-  projectRuntime?: CodexProjectRuntimeContext | null;
+export interface ToolExecutionContext {
+  projectRuntime?: ProjectRuntimeContext | null;
   projectRoot: string;
   projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
   residentProjectScopeAvailable: boolean;
 }
 
-export interface CodexEmbeddedToolExecutorOptions {
+export interface EmbeddedToolExecutorOptions {
   getSessionId(): string;
   hostProjectRoot: string;
 }
 
-interface CodexEmbeddedToolCallOptions {
+interface EmbeddedToolCallOptions {
   hostTurnMeta?: HostTurnMetaInput;
 }
 
@@ -43,15 +43,15 @@ export async function resetPluginOwnedMcpServer(): Promise<void> {
   }
 }
 
-export async function resetCodexPluginOwnedMcpServerForTests(): Promise<void> {
+export async function resetPluginOwnedMcpServerForTests(): Promise<void> {
   await resetPluginOwnedMcpServer();
 }
 
-export class CodexEmbeddedToolExecutor {
+export class EmbeddedToolExecutor {
   readonly #getSessionId: () => string;
   readonly #hostProjectRoot: string;
 
-  constructor(options: CodexEmbeddedToolExecutorOptions) {
+  constructor(options: EmbeddedToolExecutorOptions) {
     this.#getSessionId = options.getSessionId;
     this.#hostProjectRoot = options.hostProjectRoot;
   }
@@ -60,8 +60,8 @@ export class CodexEmbeddedToolExecutor {
     name: string,
     args: Record<string, unknown>,
     serviceBoundary: ServiceBoundaryDecision,
-    executionContext: CodexToolExecutionContext,
-    options: CodexEmbeddedToolCallOptions = {}
+    executionContext: ToolExecutionContext,
+    options: EmbeddedToolCallOptions = {}
   ): Promise<unknown> {
     if (!TOOLS.some((tool) => tool.name === name)) {
       return attachServiceBoundary(
@@ -82,14 +82,14 @@ export class CodexEmbeddedToolExecutor {
         surface: 'codex',
         hostTurnMeta: options.hostTurnMeta,
       });
-      return attachCodexExecutionContext(
+      return attachExecutionContext(
         attachServiceBoundary(result, serviceBoundary),
         executionContext,
         this.#hostProjectRoot
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      return attachCodexExecutionContext(
+      return attachExecutionContext(
         attachServiceBoundary(
           failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`),
           serviceBoundary
@@ -101,7 +101,7 @@ export class CodexEmbeddedToolExecutor {
   }
 
   async #getPluginOwnedMcpServer(
-    executionContext: CodexToolExecutionContext
+    executionContext: ToolExecutionContext
   ): Promise<EmbeddedMcpServer> {
     const scopeKey = [
       executionContext.projectRoot,
@@ -117,7 +117,7 @@ export class CodexEmbeddedToolExecutor {
     const previousProjectScopeSummary = process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
     const previousCwd = safeProjectRootFallback();
     process.env.ALEMBIC_PROJECT_DIR = executionContext.projectRoot;
-    const serializedProjectScope = serializeCodexProjectScopeSummary(
+    const serializedProjectScope = serializeProjectScopeSummary(
       executionContext.projectScopeIdentity?.projectScope ?? null
     );
     if (serializedProjectScope) {
@@ -169,9 +169,9 @@ export class CodexEmbeddedToolExecutor {
   }
 }
 
-function attachCodexExecutionContext(
+function attachExecutionContext(
   result: unknown,
-  executionContext: CodexToolExecutionContext,
+  executionContext: ToolExecutionContext,
   hostProjectRoot: string
 ): unknown {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {

@@ -5,8 +5,8 @@ import { pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   buildPluginProjectSkillDeliveryReceipt,
-  exportProjectSkillReceiptToCodexRuntime,
-  getCodexProjectSkillRoot,
+  exportProjectSkillReceiptToRuntime,
+  getProjectSkillRoot,
   PROJECT_SKILL_MARKER_FILE,
 } from '#codex/ProjectSkillDelivery.js';
 
@@ -25,13 +25,13 @@ describe('ProjectSkillDelivery', () => {
       sourcePath,
     });
 
-    const result = exportProjectSkillReceiptToCodexRuntime(ctx, { receipt });
+    const result = exportProjectSkillReceiptToRuntime(ctx, { receipt });
 
     expect(result.runtimeExportStatus).toBe('blocked');
     expect(result.authorizationStatus).toBe('pending');
     expect(result.conflictStatus).toBe('blocked');
     expect(
-      fs.existsSync(path.join(getCodexProjectSkillRoot(projectRoot), 'project-api', 'SKILL.md'))
+      fs.existsSync(path.join(getProjectSkillRoot(projectRoot), 'project-api', 'SKILL.md'))
     ).toBe(false);
 
     fs.rmSync(projectRoot, { recursive: true, force: true });
@@ -47,13 +47,13 @@ describe('ProjectSkillDelivery', () => {
       sourcePath,
     });
 
-    const exported = exportProjectSkillReceiptToCodexRuntime(ctx, {
+    const exported = exportProjectSkillReceiptToRuntime(ctx, {
       receipt,
       authorize: true,
       grantedBy: 'unit-test',
     });
 
-    const targetDir = path.join(getCodexProjectSkillRoot(projectRoot), 'project-api');
+    const targetDir = path.join(getProjectSkillRoot(projectRoot), 'project-api');
     const targetSkillPath = path.join(targetDir, 'SKILL.md');
     const markerPath = path.join(targetDir, PROJECT_SKILL_MARKER_FILE);
     expect(exported.runtimeExportStatus).toBe('exported');
@@ -70,7 +70,7 @@ describe('ProjectSkillDelivery', () => {
       sourcePath,
     });
 
-    const refreshed = exportProjectSkillReceiptToCodexRuntime(ctx, {
+    const refreshed = exportProjectSkillReceiptToRuntime(ctx, {
       receipt: exported.receipt,
       authorize: true,
       grantedBy: 'unit-test',
@@ -84,7 +84,7 @@ describe('ProjectSkillDelivery', () => {
   test('blocks unmanaged existing Codex runtime skill targets', () => {
     const projectRoot = makeProjectRoot();
     const sourcePath = writeSourceSkill(projectRoot, 'project-api');
-    const targetDir = path.join(getCodexProjectSkillRoot(projectRoot), 'project-api');
+    const targetDir = path.join(getProjectSkillRoot(projectRoot), 'project-api');
     fs.mkdirSync(targetDir, { recursive: true });
     fs.writeFileSync(path.join(targetDir, 'SKILL.md'), '# Unmanaged\n', 'utf8');
 
@@ -94,7 +94,7 @@ describe('ProjectSkillDelivery', () => {
       description: 'Project API skill',
       sourcePath,
     });
-    const result = exportProjectSkillReceiptToCodexRuntime(ctx, {
+    const result = exportProjectSkillReceiptToRuntime(ctx, {
       receipt,
       authorize: true,
       grantedBy: 'unit-test',

@@ -6,18 +6,18 @@ import {
   registerMcpOutputProjector,
 } from '../../../runtime/mcp/output-contract.js';
 
-export const CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
+export const LOCAL_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_status',
   'alembic_init',
   'alembic_job',
   'alembic_runtime',
 ] as const;
 
-export type CodexLocalCleanOutputToolName = (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number];
+export type LocalCleanOutputToolName = (typeof LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number];
 
-export const CodexLocalCleanOutputToolNameSchema = z.enum(CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES);
+export const LocalCleanOutputToolNameSchema = z.enum(LOCAL_CLEAN_OUTPUT_TOOL_NAMES);
 
-export const CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES = [
+export const LOCAL_BASE_OUTPUT_FIELD_NAMES = [
   'error',
   'meta',
   'ok',
@@ -26,13 +26,13 @@ export const CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES = [
   'toolName',
 ] as const;
 
-export const CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES = [
+export const LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES = [
   'alembic_status',
   'alembic_job',
   'alembic_runtime',
-] as const satisfies readonly CodexLocalCleanOutputToolName[];
+] as const satisfies readonly LocalCleanOutputToolName[];
 
-export const CODEX_LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS = new Set([
+export const LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS = new Set([
   'data',
   'errorCode',
   'message',
@@ -40,7 +40,7 @@ export const CODEX_LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS = new Set([
   'success',
 ]);
 
-export const CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set([
+export const LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set([
   'diagnostics',
   'enhancementRoute',
   'hostProjectAlignment',
@@ -54,7 +54,7 @@ export const CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set([
 // legitimately carries those fields under aspect=runtime, so that per-tool
 // forbidden-key special-case is removed.
 
-const CODEX_LOCAL_SENSITIVE_OUTPUT_KEYS = new Set([
+const LOCAL_SENSITIVE_OUTPUT_KEYS = new Set([
   'accesstoken',
   'apikey',
   'authheader',
@@ -87,7 +87,7 @@ const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
 
 const ALLOWED_CLEAN_META_KEYS = new Set(['responseTimeMs', 'source']);
 
-export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
+export const LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   // MTC-7: union of the merged bootstrap/rescan enqueue fields + the job-read
   // (codex_job) fields, projected for the single alembic_job route.
   alembic_job: [
@@ -169,22 +169,22 @@ export const CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'route',
     'statusSnapshot',
   ],
-} as const satisfies Record<CodexLocalCleanOutputToolName, readonly string[]>;
+} as const satisfies Record<LocalCleanOutputToolName, readonly string[]>;
 
-export type CodexLocalToolCleanOutput = z.infer<typeof CleanMcpResponseBaseSchema> & {
-  toolName: CodexLocalCleanOutputToolName;
+export type LocalToolCleanOutput = z.infer<typeof CleanMcpResponseBaseSchema> & {
+  toolName: LocalCleanOutputToolName;
 } & Record<string, unknown>;
 
-type CodexLocalToolOutputSchema = z.ZodType<CodexLocalToolCleanOutput>;
-type CodexLocalToolSummaryInput = {
+type LocalToolOutputSchema = z.ZodType<LocalToolCleanOutput>;
+type LocalToolSummaryInput = {
   business: Record<string, unknown>;
   errorDetails: Record<string, unknown> | null;
   message: string;
   ok: boolean;
 };
 
-const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
-  Record<CodexLocalCleanOutputToolName, (input: CodexLocalToolSummaryInput) => string>
+const LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
+  Record<LocalCleanOutputToolName, (input: LocalToolSummaryInput) => string>
 > = {
   alembic_status: (input) =>
     typeof input.business.businessSummary === 'string'
@@ -208,25 +208,22 @@ const CODEX_LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
   },
 };
 
-export const CodexLocalToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
-  toolName: CodexLocalCleanOutputToolNameSchema,
+export const LocalToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
+  toolName: LocalCleanOutputToolNameSchema,
 }).strict();
 
-export const CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS = Object.fromEntries(
-  CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES.map((toolName) => [
+export const LOCAL_TOOL_OUTPUT_SCHEMAS = Object.fromEntries(
+  LOCAL_CLEAN_OUTPUT_TOOL_NAMES.map((toolName) => [
     toolName,
-    createCodexLocalToolOutputSchema(
-      toolName,
-      CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName]
-    ),
+    createLocalToolOutputSchema(toolName, LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName]),
   ])
-) as unknown as Record<CodexLocalCleanOutputToolName, CodexLocalToolOutputSchema>;
+) as unknown as Record<LocalCleanOutputToolName, LocalToolOutputSchema>;
 
-export function projectCodexLocalToolOutput(
+export function projectLocalToolOutput(
   input: unknown,
-  toolName: CodexLocalCleanOutputToolName
-): CodexLocalToolCleanOutput {
-  const schema = CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS[toolName];
+  toolName: LocalCleanOutputToolName
+): LocalToolCleanOutput {
+  const schema = LOCAL_TOOL_OUTPUT_SCHEMAS[toolName];
   const alreadyClean = schema.safeParse(input);
   if (alreadyClean.success) {
     return alreadyClean.data;
@@ -239,13 +236,13 @@ export function projectCodexLocalToolOutput(
   const cleanMeta = pickCleanMeta(legacy.meta);
   const errorDetails = pickLegacyErrorDetails(legacy, businessSource);
   const reasonCode = extractReasonCode(legacy, businessSource, errorDetails);
-  const summary = buildCodexLocalToolSummary(toolName, {
+  const summary = buildLocalToolSummary(toolName, {
     business,
     errorDetails,
     message: typeof legacy.message === 'string' ? legacy.message : '',
     ok,
   });
-  const status = deriveCodexLocalToolStatus({ business, ok, reasonCode, toolName });
+  const status = deriveLocalToolStatus({ business, ok, reasonCode, toolName });
   const response = createCleanMcpResponse(
     {
       ...business,
@@ -271,9 +268,9 @@ export function projectCodexLocalToolOutput(
   return schema.parse(response);
 }
 
-export function findForbiddenCodexLocalOutputField(
+export function findForbiddenLocalOutputField(
   value: unknown,
-  toolName?: CodexLocalCleanOutputToolName,
+  toolName?: LocalCleanOutputToolName,
   path: string[] = []
 ): { path: string[] } | null {
   if (!value || typeof value !== 'object') {
@@ -281,7 +278,7 @@ export function findForbiddenCodexLocalOutputField(
   }
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      const found = findForbiddenCodexLocalOutputField(item, toolName, [...path, String(index)]);
+      const found = findForbiddenLocalOutputField(item, toolName, [...path, String(index)]);
       if (found) {
         return found;
       }
@@ -290,10 +287,10 @@ export function findForbiddenCodexLocalOutputField(
   }
 
   for (const [key, child] of Object.entries(value)) {
-    if (path.length === 0 && CODEX_LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS.has(key)) {
+    if (path.length === 0 && LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS.has(key)) {
       return { path: [key] };
     }
-    if (path[0] !== 'meta' && isSensitiveCodexLocalOutputKey(key)) {
+    if (path[0] !== 'meta' && isSensitiveLocalOutputKey(key)) {
       return { path: [...path, key] };
     }
     if (path[0] !== 'meta' && shouldForbidRuntimeField(key, toolName)) {
@@ -302,7 +299,7 @@ export function findForbiddenCodexLocalOutputField(
     if (path.length === 0 && key === 'meta') {
       continue;
     }
-    const found = findForbiddenCodexLocalOutputField(child, toolName, [...path, key]);
+    const found = findForbiddenLocalOutputField(child, toolName, [...path, key]);
     if (found) {
       return found;
     }
@@ -310,10 +307,10 @@ export function findForbiddenCodexLocalOutputField(
   return null;
 }
 
-function createCodexLocalToolOutputSchema(
-  toolName: CodexLocalCleanOutputToolName,
+function createLocalToolOutputSchema(
+  toolName: LocalCleanOutputToolName,
   businessFields: readonly string[]
-): CodexLocalToolOutputSchema {
+): LocalToolOutputSchema {
   const shape: Record<string, z.ZodType> = { toolName: z.literal(toolName) };
   for (const fieldName of businessFields) {
     shape[fieldName] = z.unknown().optional();
@@ -321,7 +318,7 @@ function createCodexLocalToolOutputSchema(
   return CleanMcpResponseBaseSchema.extend(shape)
     .strict()
     .superRefine((output, ctx) => {
-      const forbidden = findForbiddenCodexLocalOutputField(output, toolName);
+      const forbidden = findForbiddenLocalOutputField(output, toolName);
       if (forbidden) {
         ctx.addIssue({
           code: 'custom',
@@ -329,7 +326,7 @@ function createCodexLocalToolOutputSchema(
           message: `Codex local MCP clean output must not expose ${forbidden.path.join('.')}`,
         });
       }
-    }) as unknown as CodexLocalToolOutputSchema;
+    }) as unknown as LocalToolOutputSchema;
 }
 
 function extractLegacyBusinessValue(value: Record<string, unknown>): unknown {
@@ -338,7 +335,7 @@ function extractLegacyBusinessValue(value: Record<string, unknown>): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (CODEX_LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS.has(key) || key === 'meta') {
+    if (LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS.has(key) || key === 'meta') {
       continue;
     }
     out[key] = child;
@@ -348,7 +345,7 @@ function extractLegacyBusinessValue(value: Record<string, unknown>): unknown {
 
 function sanitizeBusinessFields(
   value: unknown,
-  toolName: CodexLocalCleanOutputToolName
+  toolName: LocalCleanOutputToolName
 ): Record<string, unknown> {
   const sanitized = sanitizeBusinessValue(normalizeBusinessValue(value, toolName), toolName);
   let business: Record<string, unknown>;
@@ -362,7 +359,7 @@ function sanitizeBusinessFields(
   return pickAllowedBusinessFields(business, toolName);
 }
 
-function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputToolName): unknown {
+function normalizeBusinessValue(value: unknown, toolName: LocalCleanOutputToolName): unknown {
   if (!isRecord(value)) {
     return value;
   }
@@ -384,7 +381,7 @@ function normalizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputT
   return out;
 }
 
-function sanitizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputToolName): unknown {
+function sanitizeBusinessValue(value: unknown, toolName: LocalCleanOutputToolName): unknown {
   if (!value || typeof value !== 'object') {
     return value;
   }
@@ -394,7 +391,7 @@ function sanitizeBusinessValue(value: unknown, toolName: CodexLocalCleanOutputTo
 
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (shouldStripRuntimeField(key, toolName) || isSensitiveCodexLocalOutputKey(key)) {
+    if (shouldStripRuntimeField(key, toolName) || isSensitiveLocalOutputKey(key)) {
       continue;
     }
     const sanitized = sanitizeBusinessValue(child, toolName);
@@ -416,9 +413,9 @@ function renameReservedTopLevelFields(value: Record<string, unknown>): Record<st
 
 function pickAllowedBusinessFields(
   value: Record<string, unknown>,
-  toolName: CodexLocalCleanOutputToolName
+  toolName: LocalCleanOutputToolName
 ): Record<string, unknown> {
-  const allowed = new Set<string>(CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName]);
+  const allowed = new Set<string>(LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName]);
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     if (allowed.has(key)) {
@@ -428,29 +425,29 @@ function pickAllowedBusinessFields(
   return out;
 }
 
-function shouldStripRuntimeField(key: string, toolName: CodexLocalCleanOutputToolName): boolean {
+function shouldStripRuntimeField(key: string, toolName: LocalCleanOutputToolName): boolean {
   return (
     !isRuntimeDiagnosticTool(toolName) &&
-    (CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key) ||
+    (LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key) ||
       key === 'daemon' ||
       key === 'projectScopeIdentity')
   );
 }
 
-function shouldForbidRuntimeField(key: string, toolName?: CodexLocalCleanOutputToolName): boolean {
+function shouldForbidRuntimeField(key: string, toolName?: LocalCleanOutputToolName): boolean {
   if (!toolName || isRuntimeDiagnosticTool(toolName)) {
     return false;
   }
-  return CODEX_LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key);
+  return LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key);
 }
 
-function isRuntimeDiagnosticTool(toolName: CodexLocalCleanOutputToolName): boolean {
-  return (CODEX_LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES as readonly string[]).includes(toolName);
+function isRuntimeDiagnosticTool(toolName: LocalCleanOutputToolName): boolean {
+  return (LOCAL_RUNTIME_DIAGNOSTIC_TOOL_NAMES as readonly string[]).includes(toolName);
 }
 
-function isSensitiveCodexLocalOutputKey(key: string): boolean {
+function isSensitiveLocalOutputKey(key: string): boolean {
   const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  return CODEX_LOCAL_SENSITIVE_OUTPUT_KEYS.has(normalized);
+  return LOCAL_SENSITIVE_OUTPUT_KEYS.has(normalized);
 }
 
 function pickCleanMeta(value: unknown): Record<string, unknown> | null {
@@ -499,11 +496,11 @@ function pickLegacyErrorDetails(
   return null;
 }
 
-function deriveCodexLocalToolStatus(input: {
+function deriveLocalToolStatus(input: {
   business: Record<string, unknown>;
   ok: boolean;
   reasonCode: string | null;
-  toolName: CodexLocalCleanOutputToolName;
+  toolName: LocalCleanOutputToolName;
 }): string {
   if (!input.ok) {
     return 'blocked';
@@ -520,9 +517,9 @@ function deriveCodexLocalToolStatus(input: {
   return 'ready';
 }
 
-function buildCodexLocalToolSummary(
-  toolName: CodexLocalCleanOutputToolName,
-  input: CodexLocalToolSummaryInput
+function buildLocalToolSummary(
+  toolName: LocalCleanOutputToolName,
+  input: LocalToolSummaryInput
 ): string {
   if (input.message.trim()) {
     return input.message.trim();
@@ -533,7 +530,7 @@ function buildCodexLocalToolSummary(
   if (!input.ok) {
     return `${toolName} blocked.`;
   }
-  const buildSummary = CODEX_LOCAL_TOOL_SUMMARY_BUILDERS[toolName];
+  const buildSummary = LOCAL_TOOL_SUMMARY_BUILDERS[toolName];
   if (buildSummary) {
     return buildSummary(input);
   }
@@ -545,11 +542,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-for (const toolName of CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
+for (const toolName of LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
   registerMcpOutputProjector({
-    outputSchema: CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS[toolName],
+    outputSchema: LOCAL_TOOL_OUTPUT_SCHEMAS[toolName],
     outputSchemaName: `${toolName}_clean_output`,
-    project: (input) => projectCodexLocalToolOutput(input, toolName),
+    project: (input) => projectLocalToolOutput(input, toolName),
     projectorName: 'codex-local-clean-output-projector',
     toolName,
   });

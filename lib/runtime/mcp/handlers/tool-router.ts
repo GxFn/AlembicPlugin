@@ -12,7 +12,7 @@
 import { dimensionTags } from '@alembic/core/dimensions';
 import type { CreateRecipeResult } from '@alembic/core/knowledge';
 import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
-import { getDeveloperIdentity } from '@alembic/core/shared';
+import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
@@ -21,10 +21,7 @@ import {
   shouldRunRecipeEvidenceGate,
   validateRecipeProductionEvidenceGate,
 } from '#codex/mcp/host-agent-workflows/recipe-evidence-gate.js';
-import {
-  CODEX_HOST_AGENT_SOURCE,
-  normalizeCodexHostAgentWriteSource,
-} from '#codex/SourceBoundary.js';
+import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import * as recipeMapHandlers from '../../../runtime/mcp/handlers/recipe-map.js';
 import * as searchHandlers from '../../../runtime/mcp/handlers/search.js';
@@ -126,7 +123,7 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   }
 
   const skipConsolidation = (args.skipConsolidation as boolean) === true;
-  const source = normalizeCodexHostAgentWriteSource(args.source);
+  const source = normalizeHostAgentWriteSource(args.source);
   const dimensionId = args.dimensionId as string | undefined;
   const bootstrapSessionId =
     typeof args.sessionId === 'string'
@@ -154,7 +151,7 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   // ── Step 2: MCP 特有预处理 ──
   // 注入批次级选项到各条目
   for (const item of items) {
-    item.source = normalizeCodexHostAgentWriteSource(item.source || source);
+    item.source = normalizeHostAgentWriteSource(item.source || source);
     if (dimensionId && !item.dimensionId) {
       item.dimensionId = dimensionId;
     }
@@ -228,7 +225,7 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   });
 
   const gatewayResult = await gateway.create({
-    source: CODEX_HOST_AGENT_SOURCE,
+    source: HOST_AGENT_SOURCE,
     items: items as import('@alembic/core/knowledge').CreateRecipeItem[],
     options: {
       skipConsolidation,

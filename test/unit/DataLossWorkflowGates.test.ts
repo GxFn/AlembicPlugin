@@ -9,8 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { inspectCodexKnowledge } from '#codex/KnowledgeState.js';
-import { buildCodexHostProjectHandoffBlock } from '#codex/mcp/host/host-project-handoff.js';
+import { inspectKnowledge } from '#codex/KnowledgeState.js';
+import { buildHostProjectHandoffBlock } from '#codex/mcp/host/host-project-handoff.js';
 import { buildBootstrapRebuildConfirmationBlock } from '#codex/mcp/host-agent-workflows/cold-start.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import { BootstrapInput } from '#shared/schemas/mcp-tools.js';
@@ -88,7 +88,7 @@ describe('P3-2: bootstrap rebuild confirmation gate', () => {
   });
 
   it('blocks a bare bootstrap when the knowledge base is usable', () => {
-    const knowledge = inspectCodexKnowledge(makeUsableProject());
+    const knowledge = inspectKnowledge(makeUsableProject());
     expect(knowledge.usable).toBe(true);
 
     const block = buildBootstrapRebuildConfirmationBlock(knowledge, {});
@@ -105,13 +105,13 @@ describe('P3-2: bootstrap rebuild confirmation gate', () => {
   });
 
   it('proceeds with explicit rebuild:true on a usable knowledge base', () => {
-    const knowledge = inspectCodexKnowledge(makeUsableProject());
+    const knowledge = inspectKnowledge(makeUsableProject());
     expect(buildBootstrapRebuildConfirmationBlock(knowledge, { rebuild: true })).toBeNull();
   });
 
   it('proceeds without confirmation on a non-usable knowledge base', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't6-fresh-'));
-    const knowledge = inspectCodexKnowledge(projectRoot);
+    const knowledge = inspectKnowledge(projectRoot);
     expect(knowledge.usable).toBe(false);
     expect(buildBootstrapRebuildConfirmationBlock(knowledge, {})).toBeNull();
   });
@@ -137,7 +137,7 @@ describe('P3-3: selection-mismatch block carries an executable local recovery', 
 
   it('recommends the local host-agent workflow first (bootstrap on a fresh project)', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't6-mismatch-'));
-    const block = buildCodexHostProjectHandoffBlock(makeBlockInput(projectRoot)) as {
+    const block = buildHostProjectHandoffBlock(makeBlockInput(projectRoot)) as {
       data: { nextActions: Array<{ tool: string }> };
       message: string;
     };

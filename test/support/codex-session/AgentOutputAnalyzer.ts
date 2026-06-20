@@ -3,7 +3,7 @@ import path from 'node:path';
 import { JobStore } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
-import { inspectCodexKnowledge } from '../../../lib/runtime/KnowledgeState.js';
+import { inspectKnowledge } from '../../../lib/runtime/KnowledgeState.js';
 import {
   getCodexSavedProjectRootPath,
   readCodexInitMarker,
@@ -34,7 +34,7 @@ export function buildScenarioFacts(options: {
     mode: options.projectRootMode,
     toolCalls: options.harness.toolCalls,
   });
-  const knowledge = inspectCodexKnowledge(options.projectRoot);
+  const knowledge = inspectKnowledge(options.projectRoot);
   const resolver = WorkspaceResolver.fromProject(options.projectRoot);
   const jobs = collectJobFacts(options.projectRoot, options.harness.toolCalls);
   return {

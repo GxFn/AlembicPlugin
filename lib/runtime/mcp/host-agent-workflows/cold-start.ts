@@ -21,16 +21,16 @@ import {
   type WorkflowLogger,
 } from '@alembic/core/host-agent-workflows';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
+import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
-import { type HostKnowledgeState, inspectCodexKnowledge } from '#codex/KnowledgeState.js';
+import { type HostKnowledgeState, inspectKnowledge } from '#codex/KnowledgeState.js';
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
   selectProjectContextDimensions,
 } from '#codex/mcp/host-agent-workflows/project-context-analysis.js';
 import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
-import { buildCodexColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
+import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
@@ -75,11 +75,11 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: Boot
   // Step 0: 重建确认门禁（MT1 P1 数据丢失门禁的 bootstrap 半边）
   // fullReset 会把全部现有知识移入垃圾桶并清空 DB；可用知识库存在时
   // 必须显式 rebuild:true 确认，否则拒绝并推荐保留式 alembic_rescan。
-  // 使用与 tools/list 知识门同一谓词（inspectCodexKnowledge.usable），
+  // 使用与 tools/list 知识门同一谓词（inspectKnowledge.usable），
   // 保证确认门禁与工具面收合发生在同一事实上。
   // ═══════════════════════════════════════════════════════════
 
-  const knowledgeBefore = inspectCodexKnowledge(projectRoot);
+  const knowledgeBefore = inspectKnowledge(projectRoot);
   const confirmationBlock = buildBootstrapRebuildConfirmationBlock(knowledgeBefore, args);
   if (confirmationBlock) {
     return attachLocalSelectionMismatch(confirmationBlock, projectRoot);
@@ -247,7 +247,7 @@ function attachLocalSelectionMismatch(
   response: Record<string, unknown>,
   projectRoot: string
 ): Record<string, unknown> {
-  const mismatch = buildCodexLocalSelectionMismatch(projectRoot);
+  const mismatch = buildLocalSelectionMismatch(projectRoot);
   if (!mismatch) {
     return response;
   }
@@ -293,9 +293,8 @@ function attachIDEAgentAnalysisSurface<T extends { meta?: Record<string, unknown
 
 function attachColdStartOnboardingSurface<T extends { meta?: Record<string, unknown> }>(
   input: AttachColdStartOnboardingInput<T>
-): T &
-  ReturnType<typeof buildCodexColdStartOnboardingContract> & { meta: Record<string, unknown> } {
-  const onboardingContract = buildCodexColdStartOnboardingContract({
+): T & ReturnType<typeof buildColdStartOnboardingContract> & { meta: Record<string, unknown> } {
+  const onboardingContract = buildColdStartOnboardingContract({
     dataRoot: input.dataRoot,
     dimensions: input.dimensions,
     fileCount: input.fileCount,
@@ -306,14 +305,13 @@ function attachColdStartOnboardingSurface<T extends { meta?: Record<string, unkn
     secondaryLanguages: input.secondaryLanguages,
     session: input.session,
   });
-  return attachCodexOnboardingContract(input.briefing, onboardingContract);
+  return attachOnboardingContract(input.briefing, onboardingContract);
 }
 
-function attachCodexOnboardingContract<T extends { meta?: Record<string, unknown> }>(
+function attachOnboardingContract<T extends { meta?: Record<string, unknown> }>(
   briefing: T,
-  onboardingContract: ReturnType<typeof buildCodexColdStartOnboardingContract>
-): T &
-  ReturnType<typeof buildCodexColdStartOnboardingContract> & { meta: Record<string, unknown> } {
+  onboardingContract: ReturnType<typeof buildColdStartOnboardingContract>
+): T & ReturnType<typeof buildColdStartOnboardingContract> & { meta: Record<string, unknown> } {
   return {
     ...briefing,
     ...onboardingContract,

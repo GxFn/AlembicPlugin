@@ -1,61 +1,59 @@
 import type { HostKnowledgeState } from '../../runtime/KnowledgeState.js';
 import {
-  buildCodexProjectRootRequiredActions,
-  buildCodexProjectRootRequiredMessage,
-  type CodexProjectRootResolution,
-  isTrustedCodexProjectRoot,
-  summarizeCodexProjectRootResolution,
+  buildProjectRootRequiredActions,
+  buildProjectRootRequiredMessage,
+  isTrustedProjectRoot,
+  type ProjectRootResolution,
+  summarizeProjectRootResolution,
 } from '../../runtime/ProjectRootResolver.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
   CODEX_DEFAULT_MCP_TIER,
   CODEX_MCP_TIER_ENV,
 } from '../../runtime/runtime/RuntimeContext.js';
-import { buildCodexKnowledgeGateActions } from '../../runtime/status/StatusService.js';
+import { buildKnowledgeGateActions } from '../../runtime/status/StatusService.js';
 import {
-  allowedCodexToolNames,
-  CODEX_INIT_ON_DEMAND_TOOL_NAMES,
-  CODEX_LOCAL_TOOLS,
-  type CodexToolDefinition,
-  resolveCodexToolPolicy,
+  allowedToolNames,
+  INIT_ON_DEMAND_TOOL_NAMES,
+  LOCAL_TOOLS,
+  resolveToolPolicy,
+  type ToolDefinition,
 } from '../../runtime/ToolPolicy.js';
 
-export type CodexPreflightStage = 'before-auto-init' | 'execute';
+export type PreflightStage = 'before-auto-init' | 'execute';
 
-export interface CodexPreflightInput<T extends CodexToolDefinition = CodexToolDefinition> {
+export interface PreflightInput<T extends ToolDefinition = ToolDefinition> {
   adminEnabled?: boolean;
   args?: Record<string, unknown>;
   coreTools: T[];
   knowledge: HostKnowledgeState;
-  projectRootResolution: CodexProjectRootResolution;
+  projectRootResolution: ProjectRootResolution;
   residentProjectScopeAvailable?: boolean;
-  stage: CodexPreflightStage;
+  stage: PreflightStage;
   tierName?: string;
   tierOrder: Record<string, number>;
   toolName: string;
 }
 
-export interface CodexPreflightOk {
+export interface PreflightOk {
   autoInit: boolean;
   ok: true;
   state: {
     allowedTools: string[];
-    stage: CodexPreflightStage;
+    stage: PreflightStage;
   };
 }
 
-export interface CodexPreflightBlocked {
+export interface PreflightBlocked {
   failure: Record<string, unknown>;
   ok: false;
 }
 
-export type CodexPreflightResult = CodexPreflightOk | CodexPreflightBlocked;
+export type PreflightResult = PreflightOk | PreflightBlocked;
 
 const PROJECT_ROOT_DISCOVERY_TOOL_NAMES = new Set(['alembic_status']);
 
-export function preflightCodexTool<T extends CodexToolDefinition>(
-  input: CodexPreflightInput<T>
-): CodexPreflightResult {
+export function preflightTool<T extends ToolDefinition>(input: PreflightInput<T>): PreflightResult {
   const tool = findKnownTool(input.toolName, input.coreTools);
   if (!tool) {
     return {
@@ -67,7 +65,7 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
   }
 
   if (
-    !isTrustedCodexProjectRoot(input.projectRootResolution) &&
+    !isTrustedProjectRoot(input.projectRootResolution) &&
     !PROJECT_ROOT_DISCOVERY_TOOL_NAMES.has(input.toolName)
   ) {
     const errorCode =
@@ -78,19 +76,19 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
       ok: false,
       failure: codexFailure(
         input.toolName,
-        buildCodexProjectRootRequiredMessage(input.projectRootResolution),
+        buildProjectRootRequiredMessage(input.projectRootResolution),
         {
           errorCode,
           needsUserInput: true,
-          projectRootResolution: summarizeCodexProjectRootResolution(input.projectRootResolution),
+          projectRootResolution: summarizeProjectRootResolution(input.projectRootResolution),
           required: { projectRoot: 'absolute path' },
-          requiredActions: buildCodexProjectRootRequiredActions(),
+          requiredActions: buildProjectRootRequiredActions(),
         }
       ),
     };
   }
 
-  const policy = resolveCodexToolPolicy({
+  const policy = resolveToolPolicy({
     adminEnabled: input.adminEnabled ?? process.env[CODEX_ADMIN_ENABLE_ENV] === '1',
     coreTools: input.coreTools,
     knowledge: input.knowledge,
@@ -103,7 +101,7 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
     return {
       ok: false,
       failure: buildToolHiddenFailure({
-        allowedTools: [...allowedCodexToolNames(input.knowledge)],
+        allowedTools: [...allowedToolNames(input.knowledge)],
         coreTools: input.coreTools,
         effectiveTier: policy.effectiveTier,
         knowledge: input.knowledge,
@@ -116,7 +114,7 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
   const autoInit =
     input.stage === 'before-auto-init' &&
     !input.knowledge.initialized &&
-    CODEX_INIT_ON_DEMAND_TOOL_NAMES.has(input.toolName);
+    INIT_ON_DEMAND_TOOL_NAMES.has(input.toolName);
 
   return {
     ok: true,
@@ -128,17 +126,17 @@ export function preflightCodexTool<T extends CodexToolDefinition>(
   };
 }
 
-export function isCodexInitOnDemandTool(name: string): boolean {
-  return CODEX_INIT_ON_DEMAND_TOOL_NAMES.has(name);
+export function isInitOnDemandTool(name: string): boolean {
+  return INIT_ON_DEMAND_TOOL_NAMES.has(name);
 }
 
-export function isCodexProjectRootDiscoveryTool(name: string): boolean {
+export function isProjectRootDiscoveryTool(name: string): boolean {
   return PROJECT_ROOT_DISCOVERY_TOOL_NAMES.has(name);
 }
 
 function buildToolHiddenFailure(input: {
   allowedTools: string[];
-  coreTools: CodexToolDefinition[];
+  coreTools: ToolDefinition[];
   effectiveTier: string;
   knowledge: HostKnowledgeState;
   residentProjectScopeAvailable: boolean;
@@ -169,7 +167,7 @@ function buildToolHiddenFailure(input: {
       {
         allowedTools: input.allowedTools,
         errorCode: 'CODEX_ALEMBIC_KNOWLEDGE_REQUIRED',
-        nextActions: buildCodexKnowledgeGateActions(input.knowledge),
+        nextActions: buildKnowledgeGateActions(input.knowledge),
       }
     );
   }
@@ -180,12 +178,12 @@ function buildToolHiddenFailure(input: {
   });
 }
 
-function findKnownTool<T extends CodexToolDefinition>(
+function findKnownTool<T extends ToolDefinition>(
   toolName: string,
   coreTools: T[]
-): T | CodexToolDefinition | null {
+): T | ToolDefinition | null {
   return (
-    CODEX_LOCAL_TOOLS.find((tool) => tool.name === toolName) ||
+    LOCAL_TOOLS.find((tool) => tool.name === toolName) ||
     coreTools.find((tool) => tool.name === toolName) ||
     null
   );

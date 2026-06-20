@@ -4,7 +4,7 @@ import {
   vectorPortFromService,
 } from '@alembic/core/recipe-context';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { buildCodexPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
+import { buildPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import {
   buildPrimeKnowledgeMaterial,
@@ -274,7 +274,7 @@ function buildPrimeRefs(input: PrimeHandlerSharedInput) {
 }
 
 async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
-  const projectRuntime = buildCodexPrimeRuntimeContext({
+  const projectRuntime = buildPrimeRuntimeContext({
     projectRoot: input.effectiveProjectRoot,
     residentSearch: input.primeSearch.searchResult?.searchMeta.residentSearch ?? null,
   });

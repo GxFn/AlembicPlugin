@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
-import { inspectCodexKnowledge } from '../../lib/runtime/index.js';
+import { inspectKnowledge } from '../../lib/runtime/index.js';
 
 const roots: string[] = [];
 
@@ -33,7 +33,7 @@ describe('Codex knowledge state', () => {
       updatedAt: '2026-05-12T00:01:00Z',
     });
 
-    const state = inspectCodexKnowledge(root);
+    const state = inspectKnowledge(root);
 
     expect(state.status).toBe('bootstrap_running');
     expect(state.jobs?.bootstrapRunning).toBe(true);
@@ -51,7 +51,7 @@ describe('Codex knowledge state', () => {
     initializeWorkspace(root);
     writeRecipe(root, 'core.md', '# Core recipe\n');
 
-    const state = inspectCodexKnowledge(root);
+    const state = inspectKnowledge(root);
 
     expect(state.status).toBe('knowledge_ready');
     expect(state.usable).toBe(true);
@@ -65,7 +65,7 @@ describe('Codex knowledge state', () => {
     initializeWorkspace(root);
     seedKnowledgeEntries(root);
 
-    const state = inspectCodexKnowledge(root);
+    const state = inspectKnowledge(root);
 
     expect(state.status).toBe('knowledge_ready');
     expect(state.usable).toBe(true);
@@ -93,7 +93,7 @@ describe('Codex knowledge state', () => {
       completedAt: '2026-05-12T00:01:00Z',
     });
 
-    const state = inspectCodexKnowledge(root);
+    const state = inspectKnowledge(root);
 
     expect(state.status).toBe('knowledge_stale');
     expect(state.freshness?.status).toBe('refresh_failed');
@@ -121,7 +121,7 @@ describe('Codex knowledge state', () => {
       updatedAt: '2026-05-12T00:01:00Z',
     });
 
-    const state = inspectCodexKnowledge(root);
+    const state = inspectKnowledge(root);
 
     expect(state.status).toBe('knowledge_ready');
     expect(state.jobs?.rescanRunning).toBe(true);
@@ -137,7 +137,7 @@ describe('Codex knowledge state', () => {
     writeRecipe(root, 'core.md', '# Core recipe\n');
     seedCodexDatabase(root);
 
-    const state = inspectCodexKnowledge(root);
+    const state = inspectKnowledge(root);
 
     expect(state.status).toBe('knowledge_stale');
     expect(state.freshness?.status).toBe('source_refs_stale');

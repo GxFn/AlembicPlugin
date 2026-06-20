@@ -5,7 +5,7 @@ import {
   saveDimensionCheckpoint,
 } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
-import { getDeveloperIdentity } from '@alembic/core/shared';
+import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
 import {
@@ -14,7 +14,6 @@ import {
   primaryEvidenceGateCode,
   validateDimensionCompletionEvidenceGate,
 } from '#codex/mcp/host-agent-workflows/recipe-evidence-gate.js';
-import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import { BootstrapEventEmitter } from '#service/bootstrap/BootstrapEventEmitter.js';
 import {
   runWorkflowCompletionFinalizer,
@@ -740,7 +739,7 @@ async function createHostAgentDimensionSkill({
     effectiveAnalysis,
     referencedFiles,
     keyFindings,
-    CODEX_HOST_AGENT_SOURCE
+    HOST_AGENT_SOURCE
   );
   if (!skillResult.success) {
     logger.warn(`[DimensionComplete] Skill skipped for "${dimensionId}": ${skillResult.error}`);
@@ -896,7 +895,7 @@ async function persistKeyFindings({
         finding.substring(0, 80),
         'finding',
         'discovered_in',
-        { source: CODEX_HOST_AGENT_SOURCE, sessionId: session.id }
+        { source: HOST_AGENT_SOURCE, sessionId: session.id }
       );
     }
   } catch (err: unknown) {
@@ -939,10 +938,10 @@ function emitHostAgentCompletionProgress({
     recipesBound,
     progress: `${progress.completed}/${progress.total}`,
     isBootstrapComplete: isComplete,
-    source: CODEX_HOST_AGENT_SOURCE,
+    source: HOST_AGENT_SOURCE,
   });
   if (isComplete) {
-    emitter.emitAllComplete(session.id, progress.total, CODEX_HOST_AGENT_SOURCE);
+    emitter.emitAllComplete(session.id, progress.total, HOST_AGENT_SOURCE);
   }
 }
 

@@ -28,7 +28,7 @@ import {
   syncKnowledgeStoreForRescan,
 } from '@alembic/core/host-agent-workflows';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { buildCodexLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
+import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import {
   buildHostAgentProjectContextAnalysis,
@@ -270,7 +270,7 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
   }
 
   // MT1 P3-3 一致性：与 alembic_bootstrap 相同的选择不一致事实回带。
-  const mismatch = buildCodexLocalSelectionMismatch(projectRoot);
+  const mismatch = buildLocalSelectionMismatch(projectRoot);
   if (mismatch) {
     response.meta = { ...(response.meta ?? {}), hostProjectSelectionMismatch: mismatch };
   }

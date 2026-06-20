@@ -20,11 +20,11 @@ import {
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
-  getVisibleCodexTools,
+  getVisibleTools,
   HostMcpServer,
-  resetCodexPluginOwnedMcpServerForTests,
+  resetPluginOwnedMcpServerForTests,
 } from '../../lib/runtime/mcp/HostMcpServer.js';
-import { buildCodexMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
+import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
 import {
   getCodexSavedProjectRootPath,
   readCodexInitMarker,
@@ -46,10 +46,10 @@ const CODEX_HOST_AGENT_TOOL_NAMES = [
   'alembic_rescan',
   'alembic_dimension_complete',
 ];
-const CODEX_AGENT_PUBLIC_TOOL_NAMES = ['alembic_prime', 'alembic_work', 'alembic_code_guard'];
+const TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES = ['alembic_prime', 'alembic_work', 'alembic_code_guard'];
 const CODEX_SOURCE_GRAPH_TOOL_NAMES: string[] = [];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
-  ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
+  ...TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -247,7 +247,7 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): URL {
 afterEach(async () => {
   // Codex-facing tools now execute in the Plugin process, so tests must clear
   // per-project globals between temporary workspaces.
-  await resetCodexPluginOwnedMcpServerForTests();
+  await resetPluginOwnedMcpServerForTests();
   resetServiceContainer();
   pathGuard._reset();
   if (ORIGINAL_ALEMBIC_HOME === undefined) {
@@ -302,7 +302,7 @@ describe('HostMcpServer', () => {
   test('lists Codex local tools alongside agent-tier Alembic tools', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const tools = getVisibleCodexTools('agent', projectRoot);
+    const tools = getVisibleTools('agent', projectRoot);
     const names = tools.map((tool) => tool.name);
 
     expect(names).not.toContain(['alembic', 'codex', 'ai', 'config'].join('_'));
@@ -333,7 +333,7 @@ describe('HostMcpServer', () => {
   });
 
   test('does not advertise retired source graph tools in initialize guidance', () => {
-    const guidance = buildCodexMcpGuidance([
+    const guidance = buildMcpGuidance([
       { name: 'alembic_source_graph_status' },
       { name: 'alembic_code_explore' },
       { name: 'alembic_recipe_map' },
@@ -358,7 +358,7 @@ describe('HostMcpServer', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
     const byName = new Map(
-      getVisibleCodexTools('agent', projectRoot).map((tool) => [tool.name, tool])
+      getVisibleTools('agent', projectRoot).map((tool) => [tool.name, tool])
     );
 
     expect(byName.get('alembic_recipe_map')?.description).toContain('ProjectContext');
@@ -371,7 +371,7 @@ describe('HostMcpServer', () => {
   test('exposes MCP tool annotations so clients can reduce approval prompts', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const tools = getVisibleCodexTools('agent', projectRoot);
+    const tools = getVisibleTools('agent', projectRoot);
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
     expect(tools.every((tool) => tool.annotations)).toBe(true);
@@ -394,14 +394,14 @@ describe('HostMcpServer', () => {
 
   test('exposes cold-start and init-on-demand tools before workspace initialization', () => {
     const projectRoot = makeProjectRoot();
-    const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
+    const names = getVisibleTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).toEqual([
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_init',
       'alembic_job',
-      ...CODEX_AGENT_PUBLIC_TOOL_NAMES,
+      ...TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
       ...CODEX_HOST_AGENT_TOOL_NAMES,
     ]);
   });
@@ -409,7 +409,7 @@ describe('HostMcpServer', () => {
   test('exposes cold-start plus Codex host-agent workflow tools when initialized workspace has no usable knowledge', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
+    const names = getVisibleTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).toEqual([
       'alembic_status',
@@ -427,7 +427,7 @@ describe('HostMcpServer', () => {
   test('exposes resident-backed tools for ProjectScope resident even when local folder knowledge is empty', () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    const names = getVisibleCodexTools('agent', projectRoot, {
+    const names = getVisibleTools('agent', projectRoot, {
       residentProjectScopeAvailable: true,
     }).map((tool) => tool.name);
 
@@ -644,7 +644,7 @@ describe('HostMcpServer', () => {
     makeInitializedWorkspace(projectRoot);
     writeRunningBootstrapJob(projectRoot);
 
-    const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
+    const names = getVisibleTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).toContain('alembic_project_skill');
     expect(names).not.toContain('alembic_skill');
@@ -675,14 +675,14 @@ describe('HostMcpServer', () => {
       '# Ignored Project Tree Recipe\n'
     );
 
-    expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).toEqual([
+    expect(getVisibleTools('agent', projectRoot).map((tool) => tool.name)).toEqual([
       'alembic_status',
       ...CODEX_SOURCE_GRAPH_TOOL_NAMES,
       'alembic_init',
       'alembic_job',
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
-    expect(getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name)).not.toContain(
+    expect(getVisibleTools('agent', projectRoot).map((tool) => tool.name)).not.toContain(
       'alembic_skill'
     );
 
@@ -691,7 +691,7 @@ describe('HostMcpServer', () => {
       '# Ghost Recipe\n'
     );
 
-    const names = getVisibleCodexTools('agent', projectRoot).map((tool) => tool.name);
+    const names = getVisibleTools('agent', projectRoot).map((tool) => tool.name);
 
     expect(names).not.toContain('alembic_task');
     expect(names).toContain('alembic_status');
@@ -703,13 +703,13 @@ describe('HostMcpServer', () => {
     process.env.ALEMBIC_MCP_TIER = 'admin';
     delete process.env.ALEMBIC_CODEX_ENABLE_ADMIN;
 
-    expect(getVisibleCodexTools(undefined, projectRoot).map((tool) => tool.name)).not.toContain(
+    expect(getVisibleTools(undefined, projectRoot).map((tool) => tool.name)).not.toContain(
       'alembic_knowledge_lifecycle'
     );
 
     process.env.ALEMBIC_CODEX_ENABLE_ADMIN = '1';
 
-    expect(getVisibleCodexTools(undefined, projectRoot).map((tool) => tool.name)).toContain(
+    expect(getVisibleTools(undefined, projectRoot).map((tool) => tool.name)).toContain(
       'alembic_knowledge_lifecycle'
     );
   });
@@ -1127,7 +1127,7 @@ describe('HostMcpServer', () => {
     fs.mkdirSync(pluginRoot, { recursive: true });
     process.env.PWD = pluginRoot;
 
-    const tools = getVisibleCodexTools('agent');
+    const tools = getVisibleTools('agent');
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     const server = new HostMcpServer();
 

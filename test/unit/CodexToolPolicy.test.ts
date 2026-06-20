@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import {
-  CODEX_LOCAL_TOOLS,
-  CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
+  LOCAL_TOOLS,
+  PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
   type HostKnowledgeState,
-  resolveCodexToolPolicy,
+  resolveToolPolicy,
 } from '../../lib/runtime/index.js';
 import {
   getPluginToolSurfaceEntry,
@@ -19,7 +19,7 @@ const hostWorkflowToolNames = [
   'alembic_dimension_complete',
 ];
 const sourceGraphToolNames: string[] = [];
-const publicKnowledgeNavigationToolNames = [...CODEX_PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES];
+const publicKnowledgeNavigationToolNames = [...PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES];
 // MTC-1: alembic_knowledge/structure/call_context/panorama/task are retired and deleted;
 // the ToolPolicy retirement filter is gone, so they are no longer test fixtures here.
 const coreTools = [
@@ -87,11 +87,11 @@ describe('Codex tool policy', () => {
   test('keeps Codex-visible tool surface metadata in the Plugin catalog', () => {
     const catalog = listPluginToolSurfaceCatalog();
     const catalogNames = catalog.map((entry) => entry.name).sort();
-    // MTC-4: alembic_status is a cross-server tool present in both CODEX_LOCAL_TOOLS
+    // MTC-4: alembic_status is a cross-server tool present in both LOCAL_TOOLS
     // and TOOLS, so the catalog lists it once — dedup the union before comparing.
     const visibleSurfaceNames = [
       ...new Set([
-        ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
+        ...LOCAL_TOOLS.map((tool) => tool.name),
         ...TOOLS.map((tool) => tool.name),
       ]),
     ].sort();
@@ -115,7 +115,7 @@ describe('Codex tool policy', () => {
   });
 
   test('keeps uninitialized workspaces on diagnostics/status/init and init-on-demand tools', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools,
       knowledge: notInitialized,
       tierName: 'agent',
@@ -134,7 +134,7 @@ describe('Codex tool policy', () => {
   });
 
   test('exposes Codex host-agent workflow tools after initialization and before usable knowledge', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools,
       knowledge: initializedEmpty,
       tierName: 'agent',
@@ -160,7 +160,7 @@ describe('Codex tool policy', () => {
   });
 
   test('exposes resident-backed ProjectScope tools when resident is connected but knowledge is empty', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools: residentCoreTools,
       knowledge: initializedEmpty,
       residentProjectScopeAvailable: true,
@@ -184,7 +184,7 @@ describe('Codex tool policy', () => {
   });
 
   test('exposes all Codex local tools and agent core tools when knowledge is usable', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools,
       knowledge: knowledgeReady,
       tierName: 'agent',
@@ -194,7 +194,7 @@ describe('Codex tool policy', () => {
 
     expect(result.state).toBe('ready');
     expect(names).toEqual([
-      ...CODEX_LOCAL_TOOLS.map((tool) => tool.name),
+      ...LOCAL_TOOLS.map((tool) => tool.name),
       ...hostWorkflowToolNames,
       'alembic_project_skill',
     ]);
@@ -203,14 +203,14 @@ describe('Codex tool policy', () => {
   });
 
   test('keeps admin tools hidden unless Codex admin opt-in is explicit', () => {
-    const withoutOptIn = resolveCodexToolPolicy({
+    const withoutOptIn = resolveToolPolicy({
       adminEnabled: false,
       coreTools,
       knowledge: knowledgeReady,
       tierName: 'admin',
       tierOrder,
     });
-    const withOptIn = resolveCodexToolPolicy({
+    const withOptIn = resolveToolPolicy({
       adminEnabled: true,
       coreTools,
       knowledge: knowledgeReady,
@@ -229,7 +229,7 @@ describe('Codex tool policy', () => {
   });
 
   test('keeps cold-start tools visible while bootstrap is already running', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools,
       knowledge: {
         ...initializedEmpty,
@@ -277,7 +277,7 @@ describe('Codex tool policy', () => {
   });
 
   test('reports stale knowledge and vector skip without hiding agent tools', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools,
       knowledge: {
         ...knowledgeReady,
@@ -317,7 +317,7 @@ describe('Codex tool policy', () => {
   });
 
   test('reports stale daemon state without downgrading usable knowledge tools', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools,
       daemon: {
         message: 'daemon pid is not alive',
@@ -335,7 +335,7 @@ describe('Codex tool policy', () => {
   });
 
   test('reports stale SourceRefs as knowledge stale without hiding usable tools', () => {
-    const result = resolveCodexToolPolicy({
+    const result = resolveToolPolicy({
       coreTools,
       knowledge: {
         ...knowledgeReady,

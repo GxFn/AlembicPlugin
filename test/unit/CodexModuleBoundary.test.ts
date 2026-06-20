@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildCodexModuleBoundaryStatus } from '../../lib/runtime/ModuleBoundary.js';
+import { buildModuleBoundaryStatus } from '../../lib/runtime/ModuleBoundary.js';
 
 describe('Codex module boundary status', () => {
   it('keeps Codex plugin ownership separate from Alembic runtime ownership', () => {
-    const status = buildCodexModuleBoundaryStatus();
+    const status = buildModuleBoundaryStatus();
     const pluginOwned = status.pluginOwns.map((entry) => entry.id);
     const externalOwned = status.pluginDoesNotOwn.map((entry) => entry.id);
 
     // PDR-3: the alembic_dashboard tool was removed, so the Plugin-owned
     // 'dashboard-url-handoff' boundary entry (which named the alembic_dashboard tool
-    // handoff) is gone. The shared CODEX_DASHBOARD_ARTIFACT_BOUNDARY descriptor
+    // handoff) is gone. The shared DASHBOARD_ARTIFACT_BOUNDARY descriptor
     // (status.dashboard, asserted below) is retained.
     expect(pluginOwned).toEqual([
       'codex-entry',
@@ -28,7 +28,7 @@ describe('Codex module boundary status', () => {
   });
 
   it('records Dashboard as an external source with only URL handoff retained', () => {
-    const status = buildCodexModuleBoundaryStatus();
+    const status = buildModuleBoundaryStatus();
 
     expect(status.dashboard).toMatchObject({
       artifactPath: null,
@@ -43,7 +43,7 @@ describe('Codex module boundary status', () => {
   });
 
   it('marks embedded runtime as a Plugin adapter rather than daemon source of truth', () => {
-    const status = buildCodexModuleBoundaryStatus({
+    const status = buildModuleBoundaryStatus({
       enhancementRoute: {
         hostAgentRoute: {
           requiresAiProvider: false,

@@ -1,9 +1,9 @@
 import { join } from 'node:path';
 import {
   type CodexInitMarker,
-  type CodexProjectRootResolution,
   type CodexSavedProjectRoot,
-  isTrustedCodexProjectRoot,
+  isTrustedProjectRoot,
+  type ProjectRootResolution,
   type ResolveCodexProjectRootOptions,
   readCodexInitMarker,
   readCodexSavedProjectRoot,
@@ -45,12 +45,12 @@ export class CodexHostAdapter implements HostAdapter {
     return resolveEffectiveCodexTier(tierName, adminEnabled);
   }
 
-  resolveProjectRoot(options?: ResolveCodexProjectRootOptions): CodexProjectRootResolution {
+  resolveProjectRoot(options?: ResolveCodexProjectRootOptions): ProjectRootResolution {
     return resolveCodexProjectRoot(options);
   }
 
-  isTrustedProjectRoot(resolution: CodexProjectRootResolution): boolean {
-    return isTrustedCodexProjectRoot(resolution);
+  isTrustedProjectRoot(resolution: ProjectRootResolution): boolean {
+    return isTrustedProjectRoot(resolution);
   }
 
   readSavedProjectRoot(env?: NodeJS.ProcessEnv): CodexSavedProjectRoot | null {

@@ -5,11 +5,11 @@ import {
   shouldAttachPluginOpportunisticEvolution,
 } from '#codex/evolution/PluginOpportunisticEvolution.js';
 import { GitDiffScanner } from '#service/evolution/git-diff-checkpoint/GitDiffScanner.js';
-import type { CodexToolExecutionContext } from '../../../runtime/mcp/host/embedded-executor.js';
+import type { ToolExecutionContext } from '../../../runtime/mcp/host/embedded-executor.js';
 
 export async function attachPluginOpportunisticEvolutionSurface(input: {
   args: Record<string, unknown>;
-  executionContext: CodexToolExecutionContext;
+  executionContext: ToolExecutionContext;
   projectRoot: string;
   result: unknown;
   toolName: string;

@@ -10,10 +10,10 @@ import {
   validateProjectSkillDeliveryReceipt,
 } from '@alembic/core/host-agent-workflows';
 import { pathGuard } from '@alembic/core/io';
+import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { CODEX_HOST_AGENT_SOURCE } from '../runtime/SourceBoundary.js';
 
-export const CODEX_PROJECT_SKILL_ROOT = path.join('.agents', 'skills');
+export const PROJECT_SKILL_ROOT = path.join('.agents', 'skills');
 export const PROJECT_SKILL_MARKER_FILE = '.alembic-managed.json';
 
 interface ProjectSkillDeliveryContext {
@@ -49,8 +49,8 @@ export interface ProjectSkillRuntimeExportResult {
   targetPath: string | null;
 }
 
-export function getCodexProjectSkillRoot(projectRoot: string): string {
-  return path.join(projectRoot, CODEX_PROJECT_SKILL_ROOT);
+export function getProjectSkillRoot(projectRoot: string): string {
+  return path.join(projectRoot, PROJECT_SKILL_ROOT);
 }
 
 export function buildContentHash(content: string | Buffer): string {
@@ -71,7 +71,7 @@ export function buildPluginProjectSkillDeliveryReceipt(
 ): ProjectSkillDeliveryReceipt {
   const projectRoot = input.projectRoot ?? resolveProjectRoot(ctx?.container as never);
   const projectScopeId = buildProjectScopeId(projectRoot);
-  const codexSkillRoot = getCodexProjectSkillRoot(projectRoot);
+  const codexSkillRoot = getProjectSkillRoot(projectRoot);
   const sourcePath = path.resolve(input.sourcePath);
   const markerPath = path.join(codexSkillRoot, input.skillName, PROJECT_SKILL_MARKER_FILE);
   const contentHash =
@@ -138,7 +138,7 @@ export function buildPluginProjectSkillDeliveryReceipt(
   });
 }
 
-export function exportProjectSkillReceiptToCodexRuntime(
+export function exportProjectSkillReceiptToRuntime(
   ctx: ProjectSkillDeliveryContext | null,
   options: ProjectSkillRuntimeExportOptions
 ): ProjectSkillRuntimeExportResult {
@@ -160,7 +160,7 @@ export function exportProjectSkillReceiptToCodexRuntime(
   }
 
   const sourceSkillPath = resolveSourceSkillPath(normalized);
-  const codexSkillRoot = getCodexProjectSkillRoot(projectRoot);
+  const codexSkillRoot = getProjectSkillRoot(projectRoot);
   const projectScopeId =
     normalized.projectScopeId ||
     normalized.authorization.projectScopeId ||
@@ -342,7 +342,7 @@ function finalizeReceipt(
       status: outcome.authorizationStatus,
       grantedBy:
         outcome.authorizationStatus === 'granted'
-          ? receipt.authorization.grantedBy || CODEX_HOST_AGENT_SOURCE
+          ? receipt.authorization.grantedBy || HOST_AGENT_SOURCE
           : receipt.authorization.grantedBy,
       projectScopeId: receipt.authorization.projectScopeId || receipt.projectScopeId,
       codexSkillRoot: receipt.authorization.codexSkillRoot || targetRoot,

@@ -1,11 +1,11 @@
 import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
 import { describe, expect, test } from 'vitest';
 import {
-  CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES,
-  CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
-  CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
-  CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS,
-  findForbiddenCodexLocalOutputField,
+  LOCAL_BASE_OUTPUT_FIELD_NAMES,
+  LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
+  LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
+  LOCAL_TOOL_OUTPUT_SCHEMAS,
+  findForbiddenLocalOutputField,
 } from '../../lib/runtime/mcp/local-tools/output.js';
 import {
   getMcpOutputProjector,
@@ -22,9 +22,9 @@ const expectedCodexLocalToolNames = [
 
 describe('MCP Codex local tools clean output contract', () => {
   test('registers output schemas for every P4 Codex local tool', () => {
-    expect(CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES).toEqual(expectedCodexLocalToolNames);
+    expect(LOCAL_CLEAN_OUTPUT_TOOL_NAMES).toEqual(expectedCodexLocalToolNames);
 
-    for (const toolName of CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
+    for (const toolName of LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
       expect(getMcpOutputProjector(toolName)).toMatchObject({
         outputSchemaName: `${toolName}_clean_output`,
         projectorName: 'codex-local-clean-output-projector',
@@ -34,16 +34,16 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('exposes explicit tool-specific outputSchema fields without a generic data bag', () => {
-    const baseFields = new Set<string>(CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES);
+    const baseFields = new Set<string>(LOCAL_BASE_OUTPUT_FIELD_NAMES);
 
-    for (const toolName of CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
+    for (const toolName of LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
       const outputSchema = withMcpOutputSchema({ name: toolName }).outputSchema as
         | { additionalProperties?: unknown; properties?: Record<string, unknown> }
         | undefined;
       const properties = outputSchema?.properties ?? {};
-      const businessFields = CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName];
+      const businessFields = LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName];
 
-      for (const fieldName of [...CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES, ...businessFields]) {
+      for (const fieldName of [...LOCAL_BASE_OUTPUT_FIELD_NAMES, ...businessFields]) {
         expect(properties).toHaveProperty(fieldName);
       }
       expect(Object.keys(properties).some((fieldName) => !baseFields.has(fieldName))).toBe(true);
@@ -55,7 +55,7 @@ describe('MCP Codex local tools clean output contract', () => {
   });
 
   test('projects legacy Codex local envelopes into clean structuredContent', () => {
-    for (const toolName of CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
+    for (const toolName of LOCAL_CLEAN_OUTPUT_TOOL_NAMES) {
       const legacy = sampleLegacyEnvelope(toolName);
       const result = serializeMcpToolResult(toolName, legacy, {
         isErrorResult: (value) =>
@@ -85,8 +85,8 @@ describe('MCP Codex local tools clean output contract', () => {
       expect(structured).not.toHaveProperty('unexpectedContractLeak');
       expect(structured).not.toHaveProperty('value');
       expect(topLevelFieldsAreWhitelisted(toolName, structured)).toEqual([]);
-      expect(findForbiddenCodexLocalOutputField(structured, toolName)).toBeNull();
-      expect(CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS[toolName].parse(structured)).toEqual(structured);
+      expect(findForbiddenLocalOutputField(structured, toolName)).toBeNull();
+      expect(LOCAL_TOOL_OUTPUT_SCHEMAS[toolName].parse(structured)).toEqual(structured);
     }
   });
 
@@ -158,12 +158,12 @@ describe('MCP Codex local tools clean output contract', () => {
       expect(JSON.stringify(structured)).not.toContain('privateDaemonUrl');
       expect(JSON.stringify(structured)).not.toContain('providerPrivateTrace');
       expect(JSON.stringify(structured)).not.toContain('secretToken');
-      expect(findForbiddenCodexLocalOutputField(structured, 'alembic_job')).toBeNull();
+      expect(findForbiddenLocalOutputField(structured, 'alembic_job')).toBeNull();
     }
   });
 
   test('rejects already-clean Codex local outputs with non-whitelisted fields', () => {
-    const parsed = CODEX_LOCAL_TOOL_OUTPUT_SCHEMAS.alembic_status.safeParse({
+    const parsed = LOCAL_TOOL_OUTPUT_SCHEMAS.alembic_status.safeParse({
       ok: true,
       status: 'ready',
       summary: 'Status checked.',
@@ -178,17 +178,17 @@ describe('MCP Codex local tools clean output contract', () => {
 });
 
 function topLevelFieldsAreWhitelisted(
-  toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number],
+  toolName: (typeof LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number],
   structured: Record<string, unknown>
 ) {
   const allowed = new Set<string>([
-    ...CODEX_LOCAL_BASE_OUTPUT_FIELD_NAMES,
-    ...CODEX_LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName],
+    ...LOCAL_BASE_OUTPUT_FIELD_NAMES,
+    ...LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES[toolName],
   ]);
   return Object.keys(structured).filter((fieldName) => !allowed.has(fieldName));
 }
 
-function sampleLegacyEnvelope(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
+function sampleLegacyEnvelope(toolName: (typeof LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
   return {
     success: true,
     errorCode: null,
@@ -211,7 +211,7 @@ function sampleLegacyEnvelope(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NA
   };
 }
 
-function sampleBusinessData(toolName: (typeof CODEX_LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
+function sampleBusinessData(toolName: (typeof LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[number]) {
   switch (toolName) {
     case 'alembic_status':
       return {

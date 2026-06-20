@@ -3,16 +3,16 @@ import path from 'node:path';
 import { getProjectSkillsPath } from '@alembic/core/config';
 import type { ProjectSkillDeliveryReceipt } from '@alembic/core/host-agent-workflows';
 import { pathGuard, type WriteZone } from '@alembic/core/io';
+import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import {
   buildContentHash,
   buildPluginProjectSkillDeliveryReceipt,
-  exportProjectSkillReceiptToCodexRuntime,
-  getCodexProjectSkillRoot,
+  exportProjectSkillReceiptToRuntime,
+  getProjectSkillRoot,
   PROJECT_SKILL_MARKER_FILE,
   type ProjectSkillRuntimeExportResult,
 } from '#codex/ProjectSkillDelivery.js';
-import { CODEX_HOST_AGENT_SOURCE } from '#codex/SourceBoundary.js';
 import { PACKAGE_SKILLS_DIR } from '#shared/package-assets.js';
 import { countProjectSkillKnowledgeEntries } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 
@@ -92,7 +92,7 @@ export class ProjectSkillService {
   list(): ProjectSkillServiceResult {
     const projectRoot = this.projectRoot();
     const sourceRoot = this.sourceRoot();
-    const runtimeRoot = getCodexProjectSkillRoot(projectRoot);
+    const runtimeRoot = getProjectSkillRoot(projectRoot);
     const builtin = listSkillDirs(PACKAGE_SKILLS_DIR).map((name) =>
       this.describeSkillLocation(this.builtinLocation(name))
     );
@@ -221,10 +221,10 @@ export class ProjectSkillService {
     });
 
     const exportResult = args.authorizeProjectSkillExport
-      ? exportProjectSkillReceiptToCodexRuntime(this.ctx, {
+      ? exportProjectSkillReceiptToRuntime(this.ctx, {
           receipt,
           authorize: true,
-          grantedBy: CODEX_HOST_AGENT_SOURCE,
+          grantedBy: HOST_AGENT_SOURCE,
           overwriteManaged: args.overwrite !== false,
         })
       : null;
@@ -296,10 +296,10 @@ export class ProjectSkillService {
       );
     }
 
-    const result = exportProjectSkillReceiptToCodexRuntime(this.ctx, {
+    const result = exportProjectSkillReceiptToRuntime(this.ctx, {
       receipt,
       authorize: args.authorizeProjectSkillExport === true,
-      grantedBy: CODEX_HOST_AGENT_SOURCE,
+      grantedBy: HOST_AGENT_SOURCE,
       overwriteManaged: args.overwrite !== false,
     });
     if (result.runtimeExportStatus === 'exported') {
@@ -421,7 +421,7 @@ export class ProjectSkillService {
   }
 
   private runtimeLocation(name: string): SkillLocation {
-    const skillDir = path.join(getCodexProjectSkillRoot(this.projectRoot()), name);
+    const skillDir = path.join(getProjectSkillRoot(this.projectRoot()), name);
     return buildLocation('codex-runtime', name, skillDir);
   }
 
