@@ -225,6 +225,14 @@ portable/fallback Core 源：本地开发始终优先解析同级 `../AlembicCor
   修改 → 把 `wakeflow-shared` 标记段逐字同步到本仓库 → 双仓门禁绿色。
   禁止直接在本仓库修改共享段；host 段（标记外、`<!-- wakeflow-host:plugin
   ... -->` 注释说明）由本仓库自行维护。
+- DH-4b per-host 段：`skill-shared-sections` 资产可在 manifest 声明
+  `perHostSections`（host-divergent 工具面，如 `skill-alembic-recipes` 的
+  `intro-and-overview` / `use-context-tail`、`skill-alembic-structure` 的
+  `title-intro` / `tools-and-graph`）——这些段各 host 自为权威、门禁做
+  cross-host coherence-skip（不逐字同步），与「标记内＝共享」并存。
+  `skill-alembic-structure` 现两个共享段均 per-host（0 个 cross-host
+  coherent 共享段）＝在插件资产不可改前提下的已接受取舍；未来双侧重构
+  可恢复 host-agnostic 散文 coherence。
 - 工具契约段是已验证的有意分叉，禁止互相合并：本仓库技能只引用真实的
   Codex MCP 工具面（`alembic_code_guard` files/code/workRef、source-graph
   工具、`alembic_prime` / `alembic_codex_*`），不得引入 main-only 工具名
