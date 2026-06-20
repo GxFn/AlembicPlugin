@@ -1,21 +1,20 @@
 {
   "version": 2,
-  "phase": "CO-5C: plugin test/config consumers migrated to Core test-fixtures; only fixture-uncovered discovery preference and project-intelligence materialization helpers remain as shrink-only exceptions",
+  "phase": "CO-5C rework: plugin test/config consumers migrated to Core test-fixtures; only fixture-uncovered discovery preference helpers remain as a shrink-only exception",
   "generatedAt": "2026-06-21",
   "sourcePlan": "wakeflow-ledger/requirement-designs/alembic-portfolio-execution-plan/portfolio-execution-plan-2026-06-12.md",
   "scanRoots": ["lib", "bin", "scripts", "test"],
   "allowedRootSpecifiers": ["@alembic/core"],
   "referenceCount": 401,
-  "uniqueSpecifierCount": 36,
+  "uniqueSpecifierCount": 35,
   "referenceLimits": {
     "@alembic/core/core/discovery": 1,
     "@alembic/core/infrastructure/database/drizzle": 4,
     "@alembic/core/infrastructure/database/drizzle/schema": 1,
     "@alembic/core/infrastructure/database/migrations/001_initial_schema": 1,
-    "@alembic/core/infrastructure/database/migrations/004_evolution_proposals": 3,
-    "@alembic/core/project-intelligence": 1
+    "@alembic/core/infrastructure/database/migrations/004_evolution_proposals": 3
   },
-  "referenceLimitsNote": "Limits are TRUE scanner counts (multi-line imports included), recalibrated 2026-06-21 after CO-5C migrated AST/discovery/analysis/project-intelligence test consumers to @alembic/core/test-fixtures where CO-5B exposed equivalent helpers. Remaining limits are shrink-only for infra DB fixture exceptions, one core/discovery preference-helper test residual, and one project-intelligence materialization-helper test residual not yet covered by test-fixtures.",
+  "referenceLimitsNote": "Limits are TRUE scanner counts (multi-line imports included), recalibrated 2026-06-21 after CO-5C rework removed the unresolvable @alembic/core/project-intelligence test residual and migrated AST/discovery/analysis/project-intelligence-adjacent test consumers to @alembic/core/test-fixtures where CO-5B exposed equivalent helpers. Remaining limits are shrink-only for infra DB fixture exceptions and one core/discovery preference-helper test residual.",
   "keepWithOwner": {
     "@alembic/core/infrastructure/database/drizzle": {
       "owner": "AlembicPlugin",
@@ -57,14 +56,6 @@
       ],
       "reason": "CO-5B @alembic/core/test-fixtures does not export discoverer preference helpers. The retired @alembic/core/project-intelligence aggregate is no longer package-exported, so this test keeps the narrow still-exported core/discovery route for the exact unsupported helpers only.",
       "removalTrigger": "Core exposes detectConflict/loadPreference/savePreference through @alembic/core/test-fixtures or another stable fixture facade, or the preference-helper tests move into AlembicCore."
-    },
-    "@alembic/core/project-intelligence": {
-      "owner": "AlembicPlugin",
-      "consumers": [
-        "test/unit/ProjectAnalysisMaterialization.test.ts materialization/phase-runner helpers: buildEntityGraphInput, materializeCallGraph, resolveProjectAnalysisMaterialization, runPhase1_7_CallGraph, runPhase2_DependencyGraph"
-      ],
-      "reason": "CO-5B @alembic/core/test-fixtures covers AST analysis, discovery registry, language service, call graph analysis classes, language plugin fixtures, panorama classes, FileDiffSnapshotStore helpers, and evaluateProjectAnalysisIncrementalPlan; it does not export these materialization/phase-runner helpers. CO-5C leaves this exact residual import rather than inventing mocks or editing Core.",
-      "removalTrigger": "Core exposes equivalent real helpers through @alembic/core/test-fixtures or another stable fixture facade, or these tests move into AlembicCore."
     }
   },
   "allowedSpecifiers": [
@@ -85,7 +76,6 @@
     "@alembic/core/knowledge",
     "@alembic/core/logging",
     "@alembic/core/memory",
-    "@alembic/core/project-intelligence",
     "@alembic/core/repositories",
     "@alembic/core/search",
     "@alembic/core/service/candidate",
