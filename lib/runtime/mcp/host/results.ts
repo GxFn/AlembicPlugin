@@ -1,6 +1,6 @@
 import type {
-  CodexServiceBoundaryDecision,
   HostEnhancementRouteChoice,
+  ServiceBoundaryDecision,
 } from '../../../runtime/index.js';
 import { isCleanMcpResponse } from '../../../runtime/mcp/output-contract.js';
 
@@ -60,9 +60,9 @@ export function attachEnhancementRoute(
   };
 }
 
-export function attachCodexServiceBoundary(
+export function attachServiceBoundary(
   result: unknown,
-  serviceBoundary: CodexServiceBoundaryDecision
+  serviceBoundary: ServiceBoundaryDecision
 ): unknown {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return result;

@@ -1,8 +1,8 @@
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
-import type { CodexServiceBoundaryDecision } from '../../../runtime/index.js';
+import type { ServiceBoundaryDecision } from '../../../runtime/index.js';
 import { safeProjectRootFallback } from '../../../runtime/mcp/host/project-root.js';
-import { attachCodexServiceBoundary, failureResult } from '../../../runtime/mcp/host/results.js';
+import { attachServiceBoundary, failureResult } from '../../../runtime/mcp/host/results.js';
 import { McpServer as EmbeddedMcpServer } from '../../../runtime/mcp/McpServer.js';
 import { isCleanMcpResponse } from '../../../runtime/mcp/output-contract.js';
 import { TOOLS } from '../../../runtime/mcp/tools.js';
@@ -59,12 +59,12 @@ export class CodexEmbeddedToolExecutor {
   async execute(
     name: string,
     args: Record<string, unknown>,
-    serviceBoundary: CodexServiceBoundaryDecision,
+    serviceBoundary: ServiceBoundaryDecision,
     executionContext: CodexToolExecutionContext,
     options: CodexEmbeddedToolCallOptions = {}
   ): Promise<unknown> {
     if (!TOOLS.some((tool) => tool.name === name)) {
-      return attachCodexServiceBoundary(
+      return attachServiceBoundary(
         failureResult(name, `Unknown Alembic tool: ${name}`),
         serviceBoundary
       );
@@ -83,14 +83,14 @@ export class CodexEmbeddedToolExecutor {
         hostTurnMeta: options.hostTurnMeta,
       });
       return attachCodexExecutionContext(
-        attachCodexServiceBoundary(result, serviceBoundary),
+        attachServiceBoundary(result, serviceBoundary),
         executionContext,
         this.#hostProjectRoot
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       return attachCodexExecutionContext(
-        attachCodexServiceBoundary(
+        attachServiceBoundary(
           failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`),
           serviceBoundary
         ),

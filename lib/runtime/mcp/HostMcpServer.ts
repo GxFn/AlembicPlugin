@@ -25,7 +25,6 @@ import {
   CODEX_RESIDENT_PROJECT_SCOPE_TOOL_NAMES,
   CODEX_SETUP_PROFILE,
   type CodexProjectRootResolution,
-  type CodexServiceBoundaryDecision,
   EMPTY_CODEX_KNOWLEDGE_STATE,
   getCodexRuntimeFallbackIsolation,
   type HostAdapter,
@@ -33,8 +32,9 @@ import {
   inspectCodexKnowledge,
   isCodexInitOnDemandTool,
   preflightCodexTool,
-  resolveCodexServiceRequestBoundary,
   resolveHostAdapter,
+  resolveServiceRequestBoundary,
+  type ServiceBoundaryDecision,
   summarizeCodexProjectRootResolution,
 } from '../../runtime/index.js';
 import {
@@ -52,7 +52,7 @@ import {
   resolveCodexProjectRootScope,
 } from '../../runtime/mcp/host/project-root-scope.js';
 import {
-  attachCodexServiceBoundary,
+  attachServiceBoundary,
   failureResult,
   isErrorResult,
 } from '../../runtime/mcp/host/results.js';
@@ -314,21 +314,21 @@ export class HostMcpServer {
       cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
       initializeWorkspace: (nextArgs) => this.initializeWorkspace(nextArgs),
       enqueueJob: async (kind, nextArgs) =>
-        attachCodexServiceBoundary(
+        attachServiceBoundary(
           await this.enqueueJob(kind, nextArgs),
-          resolveCodexServiceRequestBoundary(name, args)
+          resolveServiceRequestBoundary(name, args)
         ),
       readJob: async (nextArgs) =>
-        attachCodexServiceBoundary(
+        attachServiceBoundary(
           await this.readJob(nextArgs),
-          resolveCodexServiceRequestBoundary(name, args)
+          resolveServiceRequestBoundary(name, args)
         ) as Record<string, unknown>,
     });
     if (localDispatch.handled) {
       return localDispatch.result;
     }
 
-    const serviceBoundary = resolveCodexServiceRequestBoundary(name, args);
+    const serviceBoundary = resolveServiceRequestBoundary(name, args);
     return this.callPluginOwnedTool(name, args, serviceBoundary, executionContext, options);
   }
 
@@ -887,7 +887,7 @@ export class HostMcpServer {
   async callPluginOwnedTool(
     name: string,
     args: Record<string, unknown>,
-    serviceBoundary: CodexServiceBoundaryDecision,
+    serviceBoundary: ServiceBoundaryDecision,
     executionContext: CodexToolExecutionContext = {
       projectRoot: this.projectRoot,
       projectScopeIdentity: null,

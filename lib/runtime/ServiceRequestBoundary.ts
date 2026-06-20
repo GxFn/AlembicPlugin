@@ -1,13 +1,11 @@
-export type CodexServiceBoundaryOwner = 'alembic-plugin' | 'alembic-resident-service';
+export type ServiceBoundaryOwner = 'alembic-plugin' | 'alembic-resident-service';
 
-export type CodexServiceBoundaryExecutionPath =
-  | 'plugin-owned-codex-facing'
-  | 'resident-service-request';
+export type ServiceBoundaryExecutionPath = 'plugin-owned-codex-facing' | 'resident-service-request';
 
-export interface CodexServiceBoundaryDecision {
-  executionPath: CodexServiceBoundaryExecutionPath;
+export interface ServiceBoundaryDecision {
+  executionPath: ServiceBoundaryExecutionPath;
   operation: string | null;
-  owner: CodexServiceBoundaryOwner;
+  owner: ServiceBoundaryOwner;
   reason: string;
   residentServiceRequested: boolean;
   sharedContractCandidate: boolean;
@@ -16,10 +14,10 @@ export interface CodexServiceBoundaryDecision {
 
 const RESIDENT_SERVICE_REQUEST_TOOLS = new Set(['alembic_search', 'alembic_job']);
 
-export function resolveCodexServiceRequestBoundary(
+export function resolveServiceRequestBoundary(
   tool: string,
   args: Record<string, unknown>
-): CodexServiceBoundaryDecision {
+): ServiceBoundaryDecision {
   const operation = typeof args.operation === 'string' ? args.operation : null;
 
   // Codex-facing MCP tools are Plugin-owned. Alembic may still be asked through explicit resident
@@ -35,7 +33,7 @@ export function resolveCodexServiceRequestBoundary(
   };
 }
 
-export function isPluginOwnedCodexFacingTool(decision: CodexServiceBoundaryDecision): boolean {
+export function isPluginOwnedTool(decision: ServiceBoundaryDecision): boolean {
   return decision.executionPath === 'plugin-owned-codex-facing';
 }
 
