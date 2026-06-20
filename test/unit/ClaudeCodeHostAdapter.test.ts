@@ -8,7 +8,7 @@ import {
   CODEX_PLUGIN_HOST,
   CODEX_PLUGIN_ROOT_ENV,
   CodexHostAdapter,
-  resolveCodexProjectRoot,
+  resolveProjectRootFromEnv,
   resolveHostAdapter,
   resolveHostRuntimeContext,
 } from '../../lib/runtime/index.js';
@@ -61,7 +61,7 @@ describe('DH-3① host-aware HostAdapter selection', () => {
     const projectDir = mkdtempSync(join(tmpdir(), 'alembic-cc-projroot-'));
     tempRoots.push(projectDir);
 
-    const resolution = resolveCodexProjectRoot({ env: { CLAUDE_PROJECT_DIR: projectDir } });
+    const resolution = resolveProjectRootFromEnv({ env: { CLAUDE_PROJECT_DIR: projectDir } });
 
     expect(resolution.source).toBe('CLAUDE_PROJECT_DIR');
     expect(resolution.trust).toBe('trusted');

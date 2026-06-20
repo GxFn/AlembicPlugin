@@ -4,11 +4,11 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
   buildProjectRootRequiredMessage,
-  getCodexSavedProjectRootPath,
-  readCodexSavedProjectRoot,
-  resolveCodexProjectRoot,
+  getSavedProjectRootPath,
+  readSavedProjectRoot,
+  resolveProjectRootFromEnv,
   summarizeProjectRootResolution,
-  writeCodexSavedProjectRoot,
+  writeSavedProjectRoot,
 } from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -20,7 +20,7 @@ describe('CodexProjectRootResolver', () => {
   test('trusts explicit projectRoot', () => {
     const projectRoot = makeDir('codex-root-explicit-');
 
-    const resolution = resolveCodexProjectRoot({ projectRoot });
+    const resolution = resolveProjectRootFromEnv({ projectRoot });
 
     expect(resolution).toMatchObject({
       path: projectRoot,
@@ -35,11 +35,11 @@ describe('CodexProjectRootResolver', () => {
     const alembicHome = makeDir('codex-home-saved-');
     const env = { ALEMBIC_HOME: alembicHome } as NodeJS.ProcessEnv;
 
-    const saved = writeCodexSavedProjectRoot(projectRoot, env);
-    const resolution = resolveCodexProjectRoot({ env });
+    const saved = writeSavedProjectRoot(projectRoot, env);
+    const resolution = resolveProjectRootFromEnv({ env });
 
-    expect(fs.existsSync(getCodexSavedProjectRootPath(env))).toBe(true);
-    expect(readCodexSavedProjectRoot(env)).toMatchObject({
+    expect(fs.existsSync(getSavedProjectRootPath(env))).toBe(true);
+    expect(readSavedProjectRoot(env)).toMatchObject({
       projectRoot,
       source: 'explicit-projectRoot',
     });
@@ -57,13 +57,13 @@ describe('CodexProjectRootResolver', () => {
     const codexRoot = makeDir('codex-root-codex-');
     const workspaceRoot = makeDir('codex-root-workspace-');
 
-    expect(resolveCodexProjectRoot({ env: { ALEMBIC_PROJECT_DIR: alembicRoot } }).source).toBe(
+    expect(resolveProjectRootFromEnv({ env: { ALEMBIC_PROJECT_DIR: alembicRoot } }).source).toBe(
       'ALEMBIC_PROJECT_DIR'
     );
-    expect(resolveCodexProjectRoot({ env: { CODEX_WORKSPACE_DIR: codexRoot } }).source).toBe(
+    expect(resolveProjectRootFromEnv({ env: { CODEX_WORKSPACE_DIR: codexRoot } }).source).toBe(
       'CODEX_WORKSPACE_DIR'
     );
-    expect(resolveCodexProjectRoot({ env: { CODEX_WORKSPACE_ROOT: workspaceRoot } }).source).toBe(
+    expect(resolveProjectRootFromEnv({ env: { CODEX_WORKSPACE_ROOT: workspaceRoot } }).source).toBe(
       'CODEX_WORKSPACE_ROOT'
     );
   });
@@ -72,7 +72,7 @@ describe('CodexProjectRootResolver', () => {
     const projectRoot = makeDir('codex-root-fallback-');
     const alembicHome = makeDir('codex-home-fallback-');
 
-    const resolution = resolveCodexProjectRoot({
+    const resolution = resolveProjectRootFromEnv({
       env: { ALEMBIC_HOME: alembicHome, PWD: projectRoot },
     });
 
@@ -100,7 +100,7 @@ describe('CodexProjectRootResolver', () => {
     );
     fs.mkdirSync(cacheRoot, { recursive: true });
 
-    const resolution = resolveCodexProjectRoot({
+    const resolution = resolveProjectRootFromEnv({
       env: { ALEMBIC_HOME: alembicHome, PWD: cacheRoot },
     });
 
@@ -122,7 +122,7 @@ describe('CodexProjectRootResolver', () => {
   test('rejects missing directories', () => {
     const missingRoot = path.join(makeDir('codex-root-missing-parent-'), 'missing-project');
 
-    const resolution = resolveCodexProjectRoot({ projectRoot: missingRoot });
+    const resolution = resolveProjectRootFromEnv({ projectRoot: missingRoot });
 
     expect(resolution).toMatchObject({
       path: missingRoot,

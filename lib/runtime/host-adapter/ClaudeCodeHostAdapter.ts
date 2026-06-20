@@ -1,20 +1,20 @@
 import { join } from 'node:path';
 import {
-  type CodexInitMarker,
-  type CodexSavedProjectRoot,
-  getCodexInitMarkerPath,
+  getInitMarkerPath,
+  type InitMarker,
   type ProjectRootResolution,
-  type ResolveCodexProjectRootOptions,
-  readCodexInitMarker,
-  readCodexSavedProjectRoot,
-  resolveCodexProjectRoot,
-  writeCodexInitMarker,
-  writeCodexSavedProjectRoot,
+  type ResolveProjectRootOptions,
+  readInitMarker as readInitMarkerImpl,
+  readSavedProjectRoot as readSavedProjectRootImpl,
+  resolveProjectRootFromEnv,
+  type SavedProjectRoot,
+  writeInitMarker as writeInitMarkerImpl,
+  writeSavedProjectRoot as writeSavedProjectRootImpl,
 } from '../ProjectRootResolver.js';
 import {
   CLAUDE_CODE_PLUGIN_HOST,
   CODEX_SETUP_PROFILE,
-  ensureCodexRuntimeEnvironment,
+  ensureRuntimeEnvironment as ensureRuntimeEnvironmentImpl,
   type HostRuntimeContext,
   resolveHostRuntimeContext,
 } from '../runtime/RuntimeContext.js';
@@ -31,8 +31,8 @@ import type { HostAdapter, HostInitMarkerInput } from './HostAdapter.js';
  *
  * 留待 DH-3b / DH-4（已 flag）：cluster 5（静态 tool list）/6（无 host introspection→自生成）/8
  * （无 turn-meta）的 cc 优雅降级细化；cc 专属 setupProfile（现复用 codex-plugin，因 init-marker
- * profile 字段类型与 SetupService profile 锁定，属 per-host 产物）；物理迁入函数体 + de-Codex
- * 改名。本类不引入常驻进程（守纯 MCP 非强进程不变量）。
+ * profile 字段类型与 SetupService profile 锁定，属 per-host 产物）。工作区身份簇为 host-agnostic
+ * 共享 L1（DH-3g de-Codex 完成、否决物理迁入），本 adapter 委托同一份得正确 cc 行为。本类不引入常驻进程（守纯 MCP 非强进程不变量）。
  */
 export class ClaudeCodeHostAdapter implements HostAdapter {
   readonly hostId = CLAUDE_CODE_PLUGIN_HOST;
@@ -43,35 +43,35 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
   readonly allowsEmptyPluginAssets = true;
 
   ensureRuntimeEnvironment(env?: NodeJS.ProcessEnv): void {
-    ensureCodexRuntimeEnvironment(env);
+    ensureRuntimeEnvironmentImpl(env);
   }
 
   resolveRuntimeContext(env?: NodeJS.ProcessEnv): HostRuntimeContext {
     return resolveHostRuntimeContext(env);
   }
 
-  resolveProjectRoot(options?: ResolveCodexProjectRootOptions): ProjectRootResolution {
-    return resolveCodexProjectRoot(options);
+  resolveProjectRoot(options?: ResolveProjectRootOptions): ProjectRootResolution {
+    return resolveProjectRootFromEnv(options);
   }
 
-  readSavedProjectRoot(env?: NodeJS.ProcessEnv): CodexSavedProjectRoot | null {
-    return readCodexSavedProjectRoot(env);
+  readSavedProjectRoot(env?: NodeJS.ProcessEnv): SavedProjectRoot | null {
+    return readSavedProjectRootImpl(env);
   }
 
-  writeSavedProjectRoot(projectRoot: string, env?: NodeJS.ProcessEnv): CodexSavedProjectRoot {
-    return writeCodexSavedProjectRoot(projectRoot, env);
+  writeSavedProjectRoot(projectRoot: string, env?: NodeJS.ProcessEnv): SavedProjectRoot {
+    return writeSavedProjectRootImpl(projectRoot, env);
   }
 
-  readInitMarker(projectRoot: string): CodexInitMarker | null {
-    return readCodexInitMarker(projectRoot);
+  readInitMarker(projectRoot: string): InitMarker | null {
+    return readInitMarkerImpl(projectRoot);
   }
 
-  writeInitMarker(projectRoot: string, input: HostInitMarkerInput): CodexInitMarker {
-    return writeCodexInitMarker(projectRoot, input);
+  writeInitMarker(projectRoot: string, input: HostInitMarkerInput): InitMarker {
+    return writeInitMarkerImpl(projectRoot, input);
   }
 
   initMarkerPath(projectRoot: string): string {
-    return getCodexInitMarkerPath(projectRoot);
+    return getInitMarkerPath(projectRoot);
   }
 
   pluginMcpManifestPath(pluginRoot: string): string {

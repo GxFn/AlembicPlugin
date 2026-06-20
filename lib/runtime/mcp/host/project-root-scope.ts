@@ -71,7 +71,7 @@ export function resolveProjectRootScope(
   };
 }
 
-export function persistTrustedCodexProjectRootScope(scope: ProjectRootScopeOverride): void {
+export function persistTrustedProjectRootScope(scope: ProjectRootScopeOverride): void {
   if (scope.trusted && scope.resolution.path) {
     resolveHostAdapter().writeSavedProjectRoot(scope.resolution.path);
   }

@@ -12,7 +12,7 @@ import {
 } from '../../lib/runtime/mcp/public-tools/index.js';
 import {
   isTrustedProjectRoot,
-  resolveCodexProjectRoot,
+  resolveProjectRootFromEnv,
   summarizeProjectRootResolution,
 } from '../../lib/runtime/ProjectRootResolver.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
@@ -58,7 +58,7 @@ describe('Plugin host legacy rewrite D12 contract', () => {
   test('keeps fallback project roots diagnostic-only and untrusted', () => {
     const fallbackRoot = mkdtempSync(join(tmpdir(), 'alembic-d12-fallback-root-'));
     const alembicHome = mkdtempSync(join(tmpdir(), 'alembic-d12-home-'));
-    const resolution = resolveCodexProjectRoot({
+    const resolution = resolveProjectRootFromEnv({
       env: {
         ALEMBIC_HOME: alembicHome,
         HOME: alembicHome,

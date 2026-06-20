@@ -26,8 +26,8 @@ import {
 } from '../../lib/runtime/mcp/HostMcpServer.js';
 import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
 import {
-  getCodexSavedProjectRootPath,
-  readCodexInitMarker,
+  getSavedProjectRootPath,
+  readInitMarker,
 } from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -846,7 +846,7 @@ describe('HostMcpServer', () => {
       success: boolean;
     };
 
-    expect(fs.existsSync(getCodexSavedProjectRootPath())).toBe(true);
+    expect(fs.existsSync(getSavedProjectRootPath())).toBe(true);
     expect(result.data.project?.root).not.toBe(projectRoot);
     if (!result.success) {
       expect(result.data.errorCode).toBe('CODEX_PROJECT_ROOT_REJECTED');
@@ -894,7 +894,7 @@ describe('HostMcpServer', () => {
         };
       };
     };
-    const marker = readCodexInitMarker(projectRoot);
+    const marker = readInitMarker(projectRoot);
 
     expect(result.success).toBe(true);
     expect(result.data.status.initialized).toBe(true);
@@ -991,7 +991,7 @@ describe('HostMcpServer', () => {
 
     expect(result.success).toBe(false);
     expect(result.data.errorCode).toBe('CODEX_UNKNOWN_TOOL');
-    expect(readCodexInitMarker(projectRoot)).toBeNull();
+    expect(readInitMarker(projectRoot)).toBeNull();
   });
 
   test('init-on-demand initializes before reading Codex job status', async () => {
@@ -1003,7 +1003,7 @@ describe('HostMcpServer', () => {
       success: boolean;
       data: { jobs: unknown[] };
     };
-    const marker = readCodexInitMarker(projectRoot);
+    const marker = readInitMarker(projectRoot);
 
     expect(result.success).toBe(true);
     expect(result.data.jobs).toEqual([]);
@@ -1039,7 +1039,7 @@ describe('HostMcpServer', () => {
       data: { status: { initialized: boolean; workspace: { ghost: boolean } } };
       success: boolean;
     };
-    const marker = readCodexInitMarker(projectRoot);
+    const marker = readInitMarker(projectRoot);
 
     expect(result.success).toBe(true);
     expect(result.data.status.workspace.ghost).toBe(true);
@@ -1059,7 +1059,7 @@ describe('HostMcpServer', () => {
     await server.handleToolCall('alembic_status', {});
     await server.handleToolCall('alembic_status', { aspect: 'runtime' });
 
-    expect(readCodexInitMarker(projectRoot)).toBeNull();
+    expect(readInitMarker(projectRoot)).toBeNull();
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
   });
 

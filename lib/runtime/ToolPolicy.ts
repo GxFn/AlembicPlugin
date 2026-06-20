@@ -2,8 +2,8 @@ import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import type { HostKnowledgeState } from '../runtime/KnowledgeState.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
-  CODEX_DEFAULT_MCP_TIER,
-  CODEX_MCP_TIER_ENV,
+  DEFAULT_MCP_TIER,
+  MCP_TIER_ENV,
   resolveEffectiveTier,
 } from '../runtime/runtime/RuntimeContext.js';
 
@@ -257,10 +257,10 @@ export function resolveToolPolicy<T extends ToolDefinition>(
   input: ToolPolicyInput<T>
 ): ToolPolicyResult<T> {
   const allowedLocalToolNames = allowedToolNames(input.knowledge);
-  const tierName = input.tierName || process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER;
+  const tierName = input.tierName || process.env[MCP_TIER_ENV] || DEFAULT_MCP_TIER;
   const adminEnabled = input.adminEnabled ?? process.env[CODEX_ADMIN_ENABLE_ENV] === '1';
   const effectiveTier = resolveEffectiveTier(tierName, adminEnabled);
-  const maxTier = input.tierOrder[effectiveTier] ?? input.tierOrder[CODEX_DEFAULT_MCP_TIER] ?? 0;
+  const maxTier = input.tierOrder[effectiveTier] ?? input.tierOrder[DEFAULT_MCP_TIER] ?? 0;
   const localTools = LOCAL_TOOLS.filter((tool) => allowedLocalToolNames.has(tool.name));
   // MTC-4: alembic_status is both a resident core tool (TOOLS) and a cold-start
   // local tool (LOCAL_TOOLS). Exclude any core tool already shown via the

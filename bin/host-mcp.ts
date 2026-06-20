@@ -6,7 +6,7 @@
  */
 
 // DH-2（RC-2）：host env 初始化经 L3 HostAdapter（codex 单实现逐行委托现有
-// ensureCodexRuntimeEnvironment，行为不变）；DH-3 起按物理 shell 形态选 codex / cc adapter。
+// ensureRuntimeEnvironment，行为不变）；DH-3 起按物理 shell 形态选 codex / cc adapter。
 const { resolveHostAdapter } = await import('../lib/runtime/index.js');
 resolveHostAdapter().ensureRuntimeEnvironment();
 

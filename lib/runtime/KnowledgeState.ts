@@ -343,7 +343,7 @@ function readJobSummaries(jobsDir: string): JobSummary[] {
   try {
     return readdirSync(jobsDir, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
-      .map((entry) => parseCodexJobFile(join(jobsDir, entry.name)))
+      .map((entry) => parseJobFile(join(jobsDir, entry.name)))
       .filter((job): job is JobSummary => Boolean(job))
       .sort((a, b) => jobTimeMs(b) - jobTimeMs(a));
   } catch {
@@ -351,7 +351,7 @@ function readJobSummaries(jobsDir: string): JobSummary[] {
   }
 }
 
-function parseCodexJobFile(filePath: string): JobSummary | null {
+function parseJobFile(filePath: string): JobSummary | null {
   try {
     const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<DaemonJobRecord>;
     if (

@@ -8,8 +8,8 @@ import {
 } from '../../runtime/ProjectRootResolver.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
-  CODEX_DEFAULT_MCP_TIER,
-  CODEX_MCP_TIER_ENV,
+  DEFAULT_MCP_TIER,
+  MCP_TIER_ENV,
 } from '../../runtime/runtime/RuntimeContext.js';
 import { buildKnowledgeGateActions } from '../../runtime/status/StatusService.js';
 import {
@@ -93,7 +93,7 @@ export function preflightTool<T extends ToolDefinition>(input: PreflightInput<T>
     coreTools: input.coreTools,
     knowledge: input.knowledge,
     residentProjectScopeAvailable: input.residentProjectScopeAvailable,
-    tierName: input.tierName || process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER,
+    tierName: input.tierName || process.env[MCP_TIER_ENV] || DEFAULT_MCP_TIER,
     tierOrder: input.tierOrder,
   });
   const visibleToolNames = new Set(policy.visibleTools.map((visibleTool) => visibleTool.name));
@@ -154,7 +154,7 @@ function buildToolHiddenFailure(input: {
         required: { env: `${CODEX_ADMIN_ENABLE_ENV}=1`, tier: 'admin' },
         requiredActions: [
           `Set ${CODEX_ADMIN_ENABLE_ENV}=1 only for explicit admin workflows.`,
-          `Set ${CODEX_MCP_TIER_ENV}=admin for this Codex plugin session.`,
+          `Set ${MCP_TIER_ENV}=admin for this Codex plugin session.`,
         ],
       }
     );

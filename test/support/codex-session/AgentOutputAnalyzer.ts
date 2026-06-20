@@ -5,8 +5,8 @@ import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { inspectKnowledge } from '../../../lib/runtime/KnowledgeState.js';
 import {
-  getCodexSavedProjectRootPath,
-  readCodexInitMarker,
+  getSavedProjectRootPath,
+  readInitMarker,
 } from '../../../lib/runtime/ProjectRootResolver.js';
 import type { AlembicMcpHarness } from './McpHarness.js';
 import type {
@@ -50,11 +50,11 @@ export function buildScenarioFacts(options: {
     projectRootSource: options.projectRootSource,
     unexpectedProjectRootToolCalls: projectRootFacts.unexpected,
     sideEffects: {
-      initMarkerWritten: Boolean(readCodexInitMarker(options.projectRoot)),
+      initMarkerWritten: Boolean(readInitMarker(options.projectRoot)),
       jobCreated: options.harness.fetchCalls.some((call) =>
         /\/api\/v1\/jobs\/(?:bootstrap|rescan)/.test(call.url)
       ),
-      savedProjectRootWritten: fs.existsSync(getCodexSavedProjectRootPath()),
+      savedProjectRootWritten: fs.existsSync(getSavedProjectRootPath()),
       secretWritten: options.secretWritten,
     },
     toolCalls: options.harness.toolCalls,

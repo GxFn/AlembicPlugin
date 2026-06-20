@@ -40,7 +40,7 @@ export interface ProjectRootResolution {
   trust: ProjectRootTrust;
 }
 
-export interface CodexSavedProjectRoot {
+export interface SavedProjectRoot {
   projectRealpath: string;
   projectRoot: string;
   savedAt: string;
@@ -48,7 +48,7 @@ export interface CodexSavedProjectRoot {
   source: 'explicit-projectRoot';
 }
 
-export interface CodexInitMarker {
+export interface InitMarker {
   dataRoot: string;
   ghost: boolean;
   initializedAt: string;
@@ -62,7 +62,7 @@ export interface CodexInitMarker {
   schemaVersion: 1;
 }
 
-export interface ResolveCodexProjectRootOptions {
+export interface ResolveProjectRootOptions {
   env?: NodeJS.ProcessEnv;
   projectRoot?: string;
 }
@@ -73,8 +73,8 @@ const PROJECT_ROOT_REQUIRED_ACTIONS = [
   'Rerun the Alembic tool after the project root is available.',
 ];
 
-export function resolveCodexProjectRoot(
-  options: ResolveCodexProjectRootOptions = {}
+export function resolveProjectRootFromEnv(
+  options: ResolveProjectRootOptions = {}
 ): ProjectRootResolution {
   const env = options.env || process.env;
   const candidates = buildProjectRootCandidates(options.projectRoot, env);
@@ -135,20 +135,20 @@ export function buildProjectRootRequiredActions(): string[] {
   return [...PROJECT_ROOT_REQUIRED_ACTIONS];
 }
 
-export function getCodexSavedProjectRootPath(env: NodeJS.ProcessEnv = process.env): string {
-  return resolve(getCodexGlobalRoot(env), 'codex-project-root.json');
+export function getSavedProjectRootPath(env: NodeJS.ProcessEnv = process.env): string {
+  return resolve(getGlobalRoot(env), 'codex-project-root.json');
 }
 
-export function readCodexSavedProjectRoot(
+export function readSavedProjectRoot(
   env: NodeJS.ProcessEnv = process.env
-): CodexSavedProjectRoot | null {
-  const markerPath = getCodexSavedProjectRootPath(env);
+): SavedProjectRoot | null {
+  const markerPath = getSavedProjectRootPath(env);
   if (!existsSync(markerPath)) {
     return null;
   }
   try {
-    const parsed = JSON.parse(readFileSync(markerPath, 'utf8')) as Partial<CodexSavedProjectRoot>;
-    if (!isCodexSavedProjectRoot(parsed)) {
+    const parsed = JSON.parse(readFileSync(markerPath, 'utf8')) as Partial<SavedProjectRoot>;
+    if (!isSavedProjectRoot(parsed)) {
       return null;
     }
     const resolved = resolveCandidatePath(parsed.projectRoot, env);
@@ -165,10 +165,10 @@ export function readCodexSavedProjectRoot(
   }
 }
 
-export function writeCodexSavedProjectRoot(
+export function writeSavedProjectRoot(
   projectRoot: string,
   env: NodeJS.ProcessEnv = process.env
-): CodexSavedProjectRoot {
+): SavedProjectRoot {
   const resolved = resolveCandidatePath(projectRoot, env);
   if (!resolved || !isAbsolute(projectRoot)) {
     throw new Error('projectRoot must be an absolute path before it can be saved.');
@@ -177,14 +177,14 @@ export function writeCodexSavedProjectRoot(
   if (rejection) {
     throw new Error(`Cannot save Codex project root: ${rejection}`);
   }
-  const marker: CodexSavedProjectRoot = {
+  const marker: SavedProjectRoot = {
     schemaVersion: 1,
     savedAt: new Date().toISOString(),
     source: 'explicit-projectRoot',
     projectRoot: resolved,
     projectRealpath: safeRealpath(resolved),
   };
-  const markerPath = getCodexSavedProjectRootPath(env);
+  const markerPath = getSavedProjectRootPath(env);
   mkdirSync(dirname(markerPath), { recursive: true, mode: 0o700 });
   writeFileSync(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o600 });
   return marker;
@@ -214,15 +214,15 @@ export function summarizeProjectRootResolution(
   };
 }
 
-export function getCodexInitMarkerPath(projectRoot: string): string {
+export function getInitMarkerPath(projectRoot: string): string {
   const resolver = WorkspaceResolver.fromProject(projectRoot);
   return resolve(resolver.runtimeDir, 'codex-init.json');
 }
 
-export function readCodexInitMarker(projectRoot: string): CodexInitMarker | null {
+export function readInitMarker(projectRoot: string): InitMarker | null {
   let markerPath: string;
   try {
-    markerPath = getCodexInitMarkerPath(projectRoot);
+    markerPath = getInitMarkerPath(projectRoot);
   } catch {
     return null;
   }
@@ -230,17 +230,17 @@ export function readCodexInitMarker(projectRoot: string): CodexInitMarker | null
     return null;
   }
   try {
-    const parsed = JSON.parse(readFileSync(markerPath, 'utf8')) as Partial<CodexInitMarker>;
-    return isCodexInitMarker(parsed) ? parsed : null;
+    const parsed = JSON.parse(readFileSync(markerPath, 'utf8')) as Partial<InitMarker>;
+    return isInitMarker(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
-export function writeCodexInitMarker(
+export function writeInitMarker(
   projectRoot: string,
   input: Omit<
-    CodexInitMarker,
+    InitMarker,
     | 'dataRoot'
     | 'ghost'
     | 'initializedAt'
@@ -249,9 +249,9 @@ export function writeCodexInitMarker(
     | 'projectRoot'
     | 'schemaVersion'
   >
-): CodexInitMarker {
+): InitMarker {
   const resolver = WorkspaceResolver.fromProject(projectRoot);
-  const marker: CodexInitMarker = {
+  const marker: InitMarker = {
     schemaVersion: 1,
     initializedAt: new Date().toISOString(),
     initializedBy: input.initializedBy,
@@ -264,7 +264,7 @@ export function writeCodexInitMarker(
     results: input.results,
     ...(input.requestedTool ? { requestedTool: input.requestedTool } : {}),
   };
-  const markerPath = getCodexInitMarkerPath(projectRoot);
+  const markerPath = getInitMarkerPath(projectRoot);
   mkdirSync(dirname(markerPath), { recursive: true });
   writeFileSync(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o600 });
   return marker;
@@ -386,7 +386,7 @@ function absoluteEnvPath(path: string | undefined): string | undefined {
   return trimmed && isAbsolute(trimmed) ? trimmed : undefined;
 }
 
-function getCodexGlobalRoot(env: NodeJS.ProcessEnv): string {
+function getGlobalRoot(env: NodeJS.ProcessEnv): string {
   const root = env.ALEMBIC_HOME || env.HOME || env.USERPROFILE || homedir();
   return resolve(root, '.asd');
 }
@@ -399,9 +399,7 @@ function safeRealpath(path: string): string {
   }
 }
 
-function isCodexSavedProjectRoot(
-  value: Partial<CodexSavedProjectRoot>
-): value is CodexSavedProjectRoot {
+function isSavedProjectRoot(value: Partial<SavedProjectRoot>): value is SavedProjectRoot {
   return (
     value.schemaVersion === 1 &&
     value.source === 'explicit-projectRoot' &&
@@ -411,7 +409,7 @@ function isCodexSavedProjectRoot(
   );
 }
 
-function isCodexInitMarker(value: Partial<CodexInitMarker>): value is CodexInitMarker {
+function isInitMarker(value: Partial<InitMarker>): value is InitMarker {
   return (
     value.schemaVersion === 1 &&
     typeof value.initializedAt === 'string' &&

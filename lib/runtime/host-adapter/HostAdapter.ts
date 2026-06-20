@@ -1,8 +1,8 @@
 import type {
-  CodexInitMarker,
-  CodexSavedProjectRoot,
+  InitMarker,
   ProjectRootResolution,
-  ResolveCodexProjectRootOptions,
+  ResolveProjectRootOptions,
+  SavedProjectRoot,
 } from '../ProjectRootResolver.js';
 import type { HostRuntimeContext } from '../runtime/RuntimeContext.js';
 
@@ -12,7 +12,7 @@ import type { HostRuntimeContext } from '../runtime/RuntimeContext.js';
  * 工作区解析后填充，调用方只提供 initializedBy / route / results / requestedTool。
  */
 export type HostInitMarkerInput = Omit<
-  CodexInitMarker,
+  InitMarker,
   | 'dataRoot'
   | 'ghost'
   | 'initializedAt'
@@ -61,17 +61,17 @@ export interface HostAdapter {
 
   // —— 项目根解析 / 信任 ——
   /** 从宿主 env 源（ALEMBIC_PROJECT_DIR / 工作区 env / cwd 回退）解析并校验项目根。 */
-  resolveProjectRoot(options?: ResolveCodexProjectRootOptions): ProjectRootResolution;
+  resolveProjectRoot(options?: ResolveProjectRootOptions): ProjectRootResolution;
 
   // —— saved-root / init-marker 持久化 ——
   /** 读取 saved project root 标记（诊断 / 恢复用，非有效身份来源）。 */
-  readSavedProjectRoot(env?: NodeJS.ProcessEnv): CodexSavedProjectRoot | null;
+  readSavedProjectRoot(env?: NodeJS.ProcessEnv): SavedProjectRoot | null;
   /** 持久化 saved project root 标记。 */
-  writeSavedProjectRoot(projectRoot: string, env?: NodeJS.ProcessEnv): CodexSavedProjectRoot;
+  writeSavedProjectRoot(projectRoot: string, env?: NodeJS.ProcessEnv): SavedProjectRoot;
   /** 读取 per-project init marker（status 报告初始化状态）。 */
-  readInitMarker(projectRoot: string): CodexInitMarker | null;
+  readInitMarker(projectRoot: string): InitMarker | null;
   /** 工作区初始化成功后写入 init marker（系统字段由实现填充）。 */
-  writeInitMarker(projectRoot: string, input: HostInitMarkerInput): CodexInitMarker;
+  writeInitMarker(projectRoot: string, input: HostInitMarkerInput): InitMarker;
   /** per-project init marker 文件路径（status 报告 markerPath）。 */
   initMarkerPath(projectRoot: string): string;
 

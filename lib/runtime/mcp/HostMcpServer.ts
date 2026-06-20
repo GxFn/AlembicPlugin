@@ -49,7 +49,7 @@ import { dispatchLocalTool } from '../../runtime/mcp/host/local-tool-dispatcher.
 import { attachPluginOpportunisticEvolutionSurface } from '../../runtime/mcp/host/opportunistic-evolution-presenter.js';
 import { safeProjectRootFallback } from '../../runtime/mcp/host/project-root.js';
 import {
-  persistTrustedCodexProjectRootScope,
+  persistTrustedProjectRootScope,
   resolveProjectRootScope,
 } from '../../runtime/mcp/host/project-root-scope.js';
 import {
@@ -254,7 +254,7 @@ export class HostMcpServer {
         projectRoot: scope.override.projectRoot,
         waitUntilReadyMs: this.waitUntilReadyMs,
       });
-      persistTrustedCodexProjectRootScope({
+      persistTrustedProjectRootScope({
         ...scope.override,
         projectRoot: scopedServer.projectRoot,
         resolution: scopedServer.projectRootResolution,

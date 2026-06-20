@@ -1,11 +1,11 @@
 import {
   CODEX_ADMIN_ENABLE_ENV,
-  CODEX_DEFAULT_MCP_TIER,
-  CODEX_MCP_TIER_ENV,
+  DEFAULT_MCP_TIER,
   EMPTY_KNOWLEDGE_STATE,
   type HostKnowledgeState,
   inspectKnowledge,
   isTrustedProjectRoot,
+  MCP_TIER_ENV,
   PROJECT_ROOT_PROPERTY,
   resolveHostAdapter,
   resolveToolPolicy,
@@ -17,7 +17,7 @@ import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../../../runtime/mcp/
 
 // Tool list 必须按当前知识状态和 tier 过滤，同时保留 projectRoot 覆盖入口。
 export function getVisibleTools(
-  tierName = process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER,
+  tierName = process.env[MCP_TIER_ENV] || DEFAULT_MCP_TIER,
   projectRoot = resolveHostAdapter().resolveProjectRoot().path || safeProjectRootFallback(),
   options: { residentProjectScopeAvailable?: boolean } = {}
 ) {

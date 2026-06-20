@@ -12,13 +12,13 @@ import {
   buildProjectRuntimeContext,
   buildRuntimeDiagnostics,
   CLAUDE_CODE_PLUGIN_HOST,
-  CODEX_DEFAULT_MCP_TIER,
-  CODEX_MCP_MODE_ENV,
+  DEFAULT_MCP_TIER,
+  MCP_MODE_ENV,
   CODEX_MCP_SHIM_ENV,
-  CODEX_MCP_TIER_ENV,
+  MCP_TIER_ENV,
   CODEX_PLUGIN_HOST,
   CODEX_PLUGIN_ROOT_ENV,
-  ensureCodexRuntimeEnvironment,
+  ensureRuntimeEnvironment,
   loadCodexPluginRegistry,
   probeRuntimeCommand,
   resolveHostRuntimeContext,
@@ -53,16 +53,16 @@ afterEach(() => {
 describe('Codex runtime context', () => {
   test('sets Codex MCP defaults without overwriting explicit tier', () => {
     const env: NodeJS.ProcessEnv = {
-      [CODEX_MCP_TIER_ENV]: 'admin',
+      [MCP_TIER_ENV]: 'admin',
     };
 
-    ensureCodexRuntimeEnvironment(env);
+    ensureRuntimeEnvironment(env);
 
-    expect(env[CODEX_MCP_MODE_ENV]).toBe('1');
+    expect(env[MCP_MODE_ENV]).toBe('1');
     expect(env[CODEX_MCP_SHIM_ENV]).toBe('1');
     expect(env[ALEMBIC_RUNTIME_MODE_ENV]).toBe(ALEMBIC_RUNTIME_MODE_PLUGIN);
     expect(env[ALEMBIC_PLUGIN_HOST_ENV]).toBe(CODEX_PLUGIN_HOST);
-    expect(env[CODEX_MCP_TIER_ENV]).toBe('admin');
+    expect(env[MCP_TIER_ENV]).toBe('admin');
   });
 
   test('keeps explicit generic plugin runtime identity when supplied', () => {
@@ -71,7 +71,7 @@ describe('Codex runtime context', () => {
       [ALEMBIC_RUNTIME_MODE_ENV]: 'plugin',
     };
 
-    ensureCodexRuntimeEnvironment(env);
+    ensureRuntimeEnvironment(env);
 
     expect(env[ALEMBIC_RUNTIME_MODE_ENV]).toBe('plugin');
     expect(env[ALEMBIC_PLUGIN_HOST_ENV]).toBe('custom-host');
@@ -81,7 +81,7 @@ describe('Codex runtime context', () => {
     const context = resolveHostRuntimeContext({
       [ALEMBIC_PLUGIN_HOST_ENV]: 'Codex',
       [ALEMBIC_RUNTIME_MODE_ENV]: 'Plugin',
-      [CODEX_MCP_TIER_ENV]: 'admin',
+      [MCP_TIER_ENV]: 'admin',
     });
 
     expect(context.runtimeMode).toBe(ALEMBIC_RUNTIME_MODE_PLUGIN);
@@ -89,7 +89,7 @@ describe('Codex runtime context', () => {
     expect(context.expectedRuntimeMode).toBe(ALEMBIC_RUNTIME_MODE_PLUGIN);
     expect(context.expectedPluginHost).toBe(CODEX_PLUGIN_HOST);
     expect(context.requestedTier).toBe('admin');
-    expect(context.effectiveTier).toBe(CODEX_DEFAULT_MCP_TIER);
+    expect(context.effectiveTier).toBe(DEFAULT_MCP_TIER);
   });
 
   test('derives claude-code host identity from the Claude Code shell shape (RC-1)', () => {
@@ -139,7 +139,7 @@ describe('Codex runtime context', () => {
     expect(diagnostics.mcp.wrapper.path).toContain('alembic-start.mjs');
     expect(diagnostics.skills.missing).toEqual([]);
     expect(diagnostics.assets.missing).toEqual([]);
-    expect(context.defaultTier).toBe(CODEX_DEFAULT_MCP_TIER);
+    expect(context.defaultTier).toBe(DEFAULT_MCP_TIER);
   });
 
   test('probes npm and npx from a stable plugin cwd instead of inherited process cwd', () => {
