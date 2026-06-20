@@ -29,10 +29,14 @@ import {
   HostMcpServer,
   resetPluginOwnedMcpServerForTests,
 } from '../../lib/runtime/mcp/HostMcpServer.js';
+import { workStartHandler } from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
+import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const tempRoots: string[] = [];
 const ORIGINAL_ENV: Record<string, string | undefined> = {
   ALEMBIC_HOME: process.env.ALEMBIC_HOME,
+  ALEMBIC_PLUGIN_HOST: process.env.ALEMBIC_PLUGIN_HOST,
   [CODEX_PLUGIN_ROOT_ENV]: process.env[CODEX_PLUGIN_ROOT_ENV],
   CLAUDE_PROJECT_DIR: process.env.CLAUDE_PROJECT_DIR,
 };
@@ -256,5 +260,72 @@ describe('RC-7 cc host runtime — HostMcpServer cc path + dispatch parity', () 
     expect(cc.data.initialized).toBe(codex.data.initialized);
     expect(cc.data.project.root).toBe(codex.data.project.root);
     expect(cc.data.project.root).toBe(projectRoot);
+  });
+});
+
+// DH-7 / F1 (RC-1): the calling-host-agent family (`agentHost`) defaulted to a hardcoded
+// 'codex' when omitted, mislabeling cc calls as codex. The default now derives from the
+// runtime-resolved pluginHost. These lock that fix.
+function minimalCtx(): McpContext {
+  return {
+    container: { get: () => null },
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+  } as unknown as McpContext;
+}
+
+function readAgentHost(out: unknown): unknown {
+  const record = out as { structuredContent?: { agentHost?: unknown }; data?: { agentHost?: unknown }; agentHost?: unknown } | null;
+  return record?.structuredContent?.agentHost ?? record?.data?.agentHost ?? record?.agentHost;
+}
+
+async function resolvedAgentHost(args: Record<string, unknown> = {}): Promise<unknown> {
+  const out = await workStartHandler(minimalCtx(), args as Parameters<typeof workStartHandler>[1]);
+  return readAgentHost(out);
+}
+
+describe('DH-7 — omitted agentHost defaults from the runtime pluginHost (F1)', () => {
+  const primeBaseInput = {
+    capability: 'MCP runtime',
+    integrationBoundary: 'MCP tool',
+    projectRoot: '/tmp/project',
+    requirementGoal: 'Implement the prime gate',
+    taskAction: 'implement' as const,
+  };
+
+  test('schema: alembic_prime input no longer hardcodes agentHost (omittable; was default codex)', () => {
+    const parsed = TOOL_SCHEMAS.alembic_prime.safeParse(primeBaseInput);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      // Was `.default('codex')` → would have been 'codex' here; now optional → undefined,
+      // so the handler resolves it from the runtime pluginHost instead.
+      expect(parsed.data.agentHost).toBeUndefined();
+    }
+  });
+
+  test('schema: explicit agentHost is accepted, a non-host label still rejected (AGENT_HOSTS unchanged)', () => {
+    expect(
+      TOOL_SCHEMAS.alembic_prime.safeParse({ ...primeBaseInput, agentHost: 'claude-code' }).success
+    ).toBe(true);
+    expect(
+      TOOL_SCHEMAS.alembic_prime.safeParse({ ...primeBaseInput, agentHost: 'not-a-host' }).success
+    ).toBe(false);
+  });
+
+  test('cc runtime + omitted agentHost → resolves claude-code', async () => {
+    process.env[CODEX_PLUGIN_ROOT_ENV] = shellRoots().claudeShellRoot;
+    delete process.env.ALEMBIC_PLUGIN_HOST;
+    expect(await resolvedAgentHost()).toBe(CLAUDE_CODE_PLUGIN_HOST);
+  });
+
+  test('codex runtime + omitted agentHost → resolves codex (behavior unchanged)', async () => {
+    process.env[CODEX_PLUGIN_ROOT_ENV] = shellRoots().codexShellRoot;
+    delete process.env.ALEMBIC_PLUGIN_HOST;
+    expect(await resolvedAgentHost()).toBe(CODEX_PLUGIN_HOST);
+  });
+
+  test('explicit agentHost is preserved as-is, even when the runtime host differs', async () => {
+    process.env[CODEX_PLUGIN_ROOT_ENV] = shellRoots().claudeShellRoot;
+    delete process.env.ALEMBIC_PLUGIN_HOST;
+    expect(await resolvedAgentHost({ agentHost: CODEX_PLUGIN_HOST })).toBe(CODEX_PLUGIN_HOST);
   });
 });

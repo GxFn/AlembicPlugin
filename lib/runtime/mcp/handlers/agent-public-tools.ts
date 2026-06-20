@@ -5,6 +5,7 @@ import {
 } from '@alembic/core/recipe-context';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildPrimeRuntimeContext } from '#codex/runtime/ProjectRuntimeContext.js';
+import { resolveHostRuntimeContext } from '#codex/runtime/RuntimeContext.js';
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import {
   buildPrimeKnowledgeMaterial,
@@ -889,6 +890,14 @@ function buildCodeGuardExplicitScope(args: AgentCodeGuardArgs, scope: CodeGuardS
  * agentHost/inputSource/sourceRefs from their structured args and reuse the Core
  * lifecycle classifier directly.
  */
+// DH-7 / RC-1: default the calling-host-agent family from the runtime-resolved pluginHost
+// (same source as status.runtimeIdentity.pluginHost) — codex runtime → 'codex', cc runtime →
+// 'claude-code' — replacing the hardcoded 'codex'. This only READS the already-resolved value
+// (host selection stays in L3; no host-name branch here); pluginHost is always one of AGENT_HOSTS.
+function resolveDefaultAgentHost(): AgentHost {
+  return resolveHostRuntimeContext().pluginHost as AgentHost;
+}
+
 function buildAgentToolContext(args: AgentPublicBaseArgs) {
   const rawUserQuery = firstString(args.userQuery);
   const lifecycle = classifyTaskLifecycleInput({
@@ -902,7 +911,7 @@ function buildAgentToolContext(args: AgentPublicBaseArgs) {
     ...(args.hostDeclaredIntent?.sourceRefs ?? []),
   ]);
   return {
-    agentHost: args.agentHost ?? ('codex' as const),
+    agentHost: args.agentHost ?? resolveDefaultAgentHost(),
     inputSource: resolveAgentInputSource(args.inputSource, lifecycle.inputSource),
     lifecycle,
     sourceRefs,
@@ -922,7 +931,7 @@ function buildPrimeToolContext(args: AgentPrimeArgs): ReturnType<typeof buildAge
     ...(args.sourceEvidenceRefs ?? []),
   ]);
   return {
-    agentHost: args.agentHost ?? ('codex' as const),
+    agentHost: args.agentHost ?? resolveDefaultAgentHost(),
     inputSource: resolveAgentInputSource(args.inputSource, lifecycle.inputSource),
     lifecycle,
     sourceRefs,

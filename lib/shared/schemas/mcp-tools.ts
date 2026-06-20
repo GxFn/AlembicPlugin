@@ -125,7 +125,7 @@ const AgentIntentKindSchema = z.enum([
 ]);
 
 const AgentPublicToolBaseInput = z.object({
-  agentHost: AgentHostSchema.default('codex').describe('Calling host agent family'),
+  agentHost: AgentHostSchema.optional().describe('Calling host agent family'),
   inputSource: AgentInputSourceSchema.default('user-message').describe(
     'Enum-first source classification for the current host input'
   ),
