@@ -1,10 +1,5 @@
 import { isAbsolute } from 'node:path';
-import {
-  type CodexProjectRootResolution,
-  isTrustedCodexProjectRoot,
-  resolveCodexProjectRoot,
-  writeCodexSavedProjectRoot,
-} from '../../../runtime/index.js';
+import { type CodexProjectRootResolution, resolveHostAdapter } from '../../../runtime/index.js';
 import { failureResult } from '../../../runtime/mcp/host/results.js';
 
 export interface CodexProjectRootScopeOverride {
@@ -58,20 +53,22 @@ export function resolveCodexProjectRootScope(
 
   const scopedArgs = { ...args };
   delete scopedArgs.projectRoot;
-  const resolution = resolveCodexProjectRoot({ projectRoot: projectRootArg });
+  // DH-3c: host-operation 经 L3 HostAdapter 走（L2 不再直依赖 host-specific 函数）。
+  const adapter = resolveHostAdapter();
+  const resolution = adapter.resolveProjectRoot({ projectRoot: projectRootArg });
   return {
     kind: 'scoped-project',
     override: {
       args: scopedArgs,
       projectRoot: projectRootArg,
       resolution,
-      trusted: isTrustedCodexProjectRoot(resolution),
+      trusted: adapter.isTrustedProjectRoot(resolution),
     },
   };
 }
 
 export function persistTrustedCodexProjectRootScope(scope: CodexProjectRootScopeOverride): void {
   if (scope.trusted && scope.resolution.path) {
-    writeCodexSavedProjectRoot(scope.resolution.path);
+    resolveHostAdapter().writeSavedProjectRoot(scope.resolution.path);
   }
 }

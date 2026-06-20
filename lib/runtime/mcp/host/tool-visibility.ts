@@ -6,9 +6,8 @@ import {
   EMPTY_CODEX_KNOWLEDGE_STATE,
   type HostKnowledgeState,
   inspectCodexKnowledge,
-  isTrustedCodexProjectRoot,
-  resolveCodexProjectRoot,
   resolveCodexToolPolicy,
+  resolveHostAdapter,
 } from '../../../runtime/index.js';
 import '../../../runtime/mcp/local-tools/output.js';
 import { safeProjectRootFallback } from '../../../runtime/mcp/host/project-root.js';
@@ -18,11 +17,13 @@ import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../../../runtime/mcp/
 // Tool list 必须按当前知识状态和 tier 过滤，同时保留 projectRoot 覆盖入口。
 export function getVisibleCodexTools(
   tierName = process.env[CODEX_MCP_TIER_ENV] || CODEX_DEFAULT_MCP_TIER,
-  projectRoot = resolveCodexProjectRoot().path || safeProjectRootFallback(),
+  projectRoot = resolveHostAdapter().resolveProjectRoot().path || safeProjectRootFallback(),
   options: { residentProjectScopeAvailable?: boolean } = {}
 ) {
-  const resolution = resolveCodexProjectRoot({ projectRoot });
-  const knowledge = isTrustedCodexProjectRoot(resolution)
+  // DH-3c: host-operation 经 L3 HostAdapter 走（L2 不再直依赖 host-specific 函数）。
+  const adapter = resolveHostAdapter();
+  const resolution = adapter.resolveProjectRoot({ projectRoot });
+  const knowledge = adapter.isTrustedProjectRoot(resolution)
     ? inspectCodexKnowledge(projectRoot)
     : buildExplicitProjectRootRequiredKnowledgeState();
   return resolveCodexToolPolicy({
