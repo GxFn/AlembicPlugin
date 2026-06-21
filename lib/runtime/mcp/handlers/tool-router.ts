@@ -35,6 +35,10 @@ import type {
   ToolRouterSearchArgs,
   ToolRouterSkillArgs,
 } from '../../../runtime/mcp/handlers/types.js';
+import {
+  type RecipeFreshnessPublicOutput,
+  refreshCreatedRecipeFreshness,
+} from '../../../service/knowledge/RecipeFreshnessRuntime.js';
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
 type BootstrapSession = ReturnType<typeof resolveBootstrapSession>;
@@ -171,7 +175,13 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
     readBootstrapSubmissionSets(bootstrapSession)
   );
   trackSubmitKnowledgeResult(ctx, itemsResult.items, options.dimensionId, gatewayResult);
-  return buildSubmitKnowledgeResponse(gatewayResult, itemsResult.items, options.supersedes);
+  const freshness = await refreshCreatedRecipeFreshness(ctx.container, gatewayResult.created);
+  return buildSubmitKnowledgeResponse(
+    gatewayResult,
+    itemsResult.items,
+    options.supersedes,
+    freshness
+  );
 }
 
 function resolveSubmitKnowledgeItems(args: Record<string, unknown>): SubmitItemsResult {
@@ -334,7 +344,8 @@ function trackSubmitKnowledgeResult(
 function buildSubmitKnowledgeResponse(
   gatewayResult: CreateRecipeResult,
   items: Array<Record<string, unknown>>,
-  supersedes: string | undefined
+  supersedes: string | undefined,
+  freshness: RecipeFreshnessPublicOutput | null
 ) {
   const successCount = gatewayResult.created.length;
   const data: Record<string, unknown> = {
@@ -348,6 +359,7 @@ function buildSubmitKnowledgeResponse(
   appendProposalSubmitData(data, gatewayResult, supersedes);
   appendPendingSemanticReviewData(data, gatewayResult);
   appendRelationshipGroundingData(data, items);
+  appendSubmitFreshnessData(data, freshness);
 
   if (successCount === 0 && gatewayResult.rejected.length === items.length) {
     return buildAllRejectedSubmitResponse(data, gatewayResult, items.length);
@@ -362,6 +374,17 @@ function buildSubmitKnowledgeResponse(
       : `已提交 ${successCount}/${items.length} 条知识条目。`,
     meta: { tool: 'alembic_submit_knowledge' },
   });
+}
+
+function appendSubmitFreshnessData(
+  data: Record<string, unknown>,
+  freshness: RecipeFreshnessPublicOutput | null
+): void {
+  if (!freshness) {
+    return;
+  }
+  data.freshness = freshness;
+  data.retrievalMayBeStale = freshness.retrievalMayBeStale;
 }
 
 function appendCreatedSubmitData(

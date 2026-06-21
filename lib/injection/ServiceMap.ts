@@ -28,6 +28,7 @@ import type {
   KnowledgeService,
   KnowledgeSyncService,
   RecipeExtractor,
+  RecipeFreshnessService,
   RecipeProductionGateway,
 } from '@alembic/core/knowledge';
 import type Logger from '@alembic/core/logging';
@@ -118,6 +119,7 @@ export interface ServiceMap {
   // ═══ KnowledgeModule ═══
   confidenceRouter: ConfidenceRouter;
   knowledgeService: KnowledgeService;
+  recipeFreshnessService: RecipeFreshnessService;
   recipeProductionGateway: RecipeProductionGateway;
   knowledgeGraphService: KnowledgeGraphService;
   codeEntityGraph: CodeEntityGraph;

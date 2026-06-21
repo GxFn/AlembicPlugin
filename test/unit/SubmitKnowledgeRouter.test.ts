@@ -7,6 +7,52 @@ import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 
 const gatewayState = vi.hoisted(() => ({
   createCalls: [] as unknown[],
+  freshnessCalls: [] as unknown[],
+  freshnessResult: {
+    errors: [],
+    processed: 1,
+    recipes: [
+      {
+        errors: [],
+        recipeId: 'recipe-semantic-001',
+        retrievalMayBeStale: true,
+        sourceRefs: {
+          activeRefs: ['src/current.ts:1-3'],
+          active: 1,
+          allRefs: ['src/current.ts:1-3', 'src/old.ts:8-9'],
+          cleaned: 1,
+          errors: [],
+          inserted: 1,
+          recipesProcessed: 1,
+          skipped: 0,
+          staleRefs: ['src/old.ts:8-9'],
+          stale: 1,
+          status: 'completed',
+        },
+        sourceRefsBridge: {
+          refs: ['src/current.ts:1-3'],
+          status: 'partial',
+        },
+        vector: {
+          availability: {
+            available: false,
+            embedProviderConfigured: false,
+            probeStatus: 'not-applicable',
+            reason: 'embed-provider-missing',
+            status: 'unavailable',
+          },
+          degradedReason: 'embed-provider-missing',
+          entrySyncStatus: 'skipped',
+          errors: [],
+          regionSyncStatus: 'skipped',
+          status: 'degraded',
+        },
+      },
+    ],
+    requested: 1,
+    retrievalMayBeStale: true,
+    status: 'degraded',
+  },
   projectRoot: '/tmp/alembic-project',
   result: {
     created: [
@@ -74,7 +120,53 @@ vi.mock('../../lib/runtime/mcp/RateLimiter.js', () => ({
 describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
   beforeEach(() => {
     gatewayState.createCalls = [];
+    gatewayState.freshnessCalls = [];
     gatewayState.projectRoot = '/tmp/alembic-project';
+    gatewayState.freshnessResult = {
+      errors: [],
+      processed: 1,
+      recipes: [
+        {
+          errors: [],
+          recipeId: 'recipe-semantic-001',
+          retrievalMayBeStale: true,
+          sourceRefs: {
+            activeRefs: ['src/current.ts:1-3'],
+            active: 1,
+            allRefs: ['src/current.ts:1-3', 'src/old.ts:8-9'],
+            cleaned: 1,
+            errors: [],
+            inserted: 1,
+            recipesProcessed: 1,
+            skipped: 0,
+            staleRefs: ['src/old.ts:8-9'],
+            stale: 1,
+            status: 'completed',
+          },
+          sourceRefsBridge: {
+            refs: ['src/current.ts:1-3'],
+            status: 'partial',
+          },
+          vector: {
+            availability: {
+              available: false,
+              embedProviderConfigured: false,
+              probeStatus: 'not-applicable',
+              reason: 'embed-provider-missing',
+              status: 'unavailable',
+            },
+            degradedReason: 'embed-provider-missing',
+            entrySyncStatus: 'skipped',
+            errors: [],
+            regionSyncStatus: 'skipped',
+            status: 'degraded',
+          },
+        },
+      ],
+      requested: 1,
+      retrievalMayBeStale: true,
+      status: 'degraded',
+    };
     gatewayState.result = {
       created: [
         {
@@ -314,6 +406,69 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
   });
 
+  it('refreshes created Recipes and returns source-ref/vector freshness summaries', async () => {
+    gatewayState.result.created = [
+      {
+        index: 0,
+        id: 'recipe-semantic-001',
+        title: 'Codex Recipe Interaction',
+        lifecycle: 'candidate',
+        raw: {
+          id: 'recipe-semantic-001',
+          title: 'Codex Recipe Interaction',
+          content: { markdown: 'Fresh recipe content.' },
+          reasoning: { sources: ['src/current.ts:1-3'] },
+        },
+      },
+    ];
+
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      items: [{ title: 'Codex Recipe Interaction' }],
+      skipConsolidation: true,
+    });
+
+    expect(gatewayState.freshnessCalls).toHaveLength(1);
+    expect(gatewayState.freshnessCalls[0]).toMatchObject([
+      {
+        id: 'recipe-semantic-001',
+        title: 'Codex Recipe Interaction',
+      },
+    ]);
+    expect(result.data).toMatchObject({
+      freshness: {
+        status: 'degraded',
+        processed: 1,
+        retrievalMayBeStale: true,
+        recipes: [
+          {
+            recipeId: 'recipe-semantic-001',
+            sourceRefs: {
+              activeCount: 1,
+              activeRefs: ['src/current.ts:1-3'],
+              reconcile: {
+                active: 1,
+                cleaned: 1,
+                inserted: 1,
+                recipesProcessed: 1,
+                skipped: 0,
+                stale: 1,
+              },
+              staleCount: 1,
+              staleRefs: ['src/old.ts:8-9'],
+            },
+            vector: {
+              status: 'degraded',
+              availabilityStatus: 'unavailable',
+              availabilityReason: 'embed-provider-missing',
+              degradedReason: 'embed-provider-missing',
+            },
+          },
+        ],
+      },
+      retrievalMayBeStale: true,
+    });
+  });
+
   it('returns ProjectContext relationship grounding guidance without blocking normal submit', async () => {
     const result = await routeSubmitKnowledgeTool(makeContext(), {
       skipConsolidation: true,
@@ -434,6 +589,14 @@ function makeContext({ projectRoot }: { projectRoot?: string } = {}): McpContext
       get(name: string) {
         if (name === 'knowledgeService') {
           return {};
+        }
+        if (name === 'recipeFreshnessService') {
+          return {
+            refreshRecipes(entries: unknown) {
+              gatewayState.freshnessCalls.push(entries);
+              return gatewayState.freshnessResult;
+            },
+          };
         }
         if (name === 'bootstrapSessionManager') {
           return {

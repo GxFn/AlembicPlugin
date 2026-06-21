@@ -14,6 +14,13 @@ import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { envelope } from '#codex/mcp/envelope.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { EvolveInput } from '#shared/schemas/mcp-tools.js';
+import {
+  mergeFreshnessOutputs,
+  type RecipeFreshnessPublicOutput,
+  type RecipeFreshnessPublicRecipe,
+  refreshRecipeFreshnessByIds,
+  skippedRecipe,
+} from '../../../../service/knowledge/RecipeFreshnessRuntime.js';
 
 /** MCP handler context */
 interface McpContext {
@@ -36,6 +43,15 @@ interface EvolveResult {
   refreshed: number;
   quotaChange: { freed: number; occupied: number };
   errors: Array<{ recipeId: string; error: string }>;
+  freshness?: RecipeFreshnessPublicOutput;
+  retrievalMayBeStale?: boolean;
+}
+
+type EvolveDecision = EvolveInput['decisions'][number];
+
+interface EvolveFreshnessTracker {
+  recipeIds: Set<string>;
+  skipped: RecipeFreshnessPublicRecipe[];
 }
 
 // ── 主入口 ─────────────────────────────────────────────────
@@ -61,15 +77,8 @@ export async function evolveForHostAgent(ctx: McpContext, args: EvolveInput) {
     });
   }
 
-  const result: EvolveResult = {
-    processed: 0,
-    proposed: 0,
-    deprecated: 0,
-    skipped: 0,
-    refreshed: 0,
-    quotaChange: { freed: 0, occupied: 0 },
-    errors: [],
-  };
+  const result = createEvolveResult();
+  const freshness = createFreshnessTracker();
 
   const gateway = ctx.container.get('evolutionGateway') as EvolutionGateway | null;
   if (!gateway) {
@@ -82,114 +91,215 @@ export async function evolveForHostAgent(ctx: McpContext, args: EvolveInput) {
   }
 
   for (const decision of decisions) {
-    try {
-      switch (decision.action) {
-        case 'propose_evolution': {
-          if (!decision.evidence) {
-            result.errors.push({
-              recipeId: decision.recipeId,
-              error: 'evidence is required for propose_evolution',
-            });
-            break;
-          }
-
-          const gResult = await gateway.submit({
-            recipeId: decision.recipeId,
-            action: 'update',
-            source: HOST_AGENT_SOURCE,
-            confidence: 0.8,
-            description: decision.evidence.suggestedChanges,
-            evidence: [
-              {
-                sourceStatus: 'modified',
-                currentCode: decision.evidence.codeSnippet,
-                filePath: decision.evidence.filePath,
-                suggestedChanges: decision.evidence.suggestedChanges,
-                verifiedBy: HOST_AGENT_SOURCE,
-                verifiedAt: Date.now(),
-              },
-            ],
-          });
-
-          if (gResult.outcome === 'proposal-created' || gResult.outcome === 'proposal-upgraded') {
-            result.proposed++;
-            ctx.logger.info(
-              `[Evolve] propose_evolution: ${decision.recipeId} → ${gResult.outcome} ${gResult.proposalId}`
-            );
-          } else {
-            result.errors.push({
-              recipeId: decision.recipeId,
-              error: gResult.error ?? `Unexpected outcome: ${gResult.outcome}`,
-            });
-          }
-          break;
-        }
-
-        case 'confirm_deprecation': {
-          const reason = decision.reason || 'Host agent confirmed deprecation';
-
-          const gResult = await gateway.submit({
-            recipeId: decision.recipeId,
-            action: 'deprecate',
-            source: HOST_AGENT_SOURCE,
-            confidence: 0.9,
-            reason,
-          });
-
-          if (
-            gResult.outcome === 'immediately-executed' ||
-            gResult.outcome === 'proposal-created'
-          ) {
-            result.deprecated++;
-            result.quotaChange.freed++;
-            ctx.logger.info(`[Evolve] confirm_deprecation: ${decision.recipeId}`);
-          } else {
-            result.errors.push({
-              recipeId: decision.recipeId,
-              error: gResult.error ?? `Unexpected outcome: ${gResult.outcome}`,
-            });
-          }
-          break;
-        }
-
-        case 'skip': {
-          if (decision.skipReason === 'still_valid') {
-            const gResult = await gateway.submit({
-              recipeId: decision.recipeId,
-              action: 'valid',
-              source: HOST_AGENT_SOURCE,
-              confidence: 0.5,
-              reason: decision.skipReason,
-            });
-
-            if (gResult.outcome === 'verified') {
-              result.refreshed++;
-            }
-          }
-          result.skipped++;
-          ctx.logger.info(
-            `[Evolve] skip: ${decision.recipeId} (${decision.skipReason || 'no reason'})`
-          );
-          break;
-        }
-
-        default: {
-          result.errors.push({
-            recipeId: decision.recipeId,
-            error: `Unknown action: ${(decision as { action: string }).action}`,
-          });
-        }
-      }
-      result.processed++;
-    } catch (err: unknown) {
-      result.errors.push({
-        recipeId: decision.recipeId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      result.processed++;
-    }
+    await processEvolveDecision({ ctx, decision, freshness, gateway, result });
   }
 
+  await attachFreshness(ctx, result, freshness);
+  const summary = buildEvolveSummary(result);
+
+  return envelope({
+    success: true,
+    data: result,
+    message:
+      `✅ 处理了 ${result.processed} 个 Recipe: ${summary}` +
+      (result.errors.length > 0 ? ` (${result.errors.length} 个错误)` : ''),
+    meta: { tool: 'alembic_evolve', responseTimeMs: Date.now() - t0 },
+  });
+}
+
+function createEvolveResult(): EvolveResult {
+  return {
+    processed: 0,
+    proposed: 0,
+    deprecated: 0,
+    skipped: 0,
+    refreshed: 0,
+    quotaChange: { freed: 0, occupied: 0 },
+    errors: [],
+  };
+}
+
+function createFreshnessTracker(): EvolveFreshnessTracker {
+  return {
+    recipeIds: new Set<string>(),
+    skipped: [],
+  };
+}
+
+async function processEvolveDecision(input: {
+  ctx: McpContext;
+  decision: EvolveDecision;
+  freshness: EvolveFreshnessTracker;
+  gateway: EvolutionGateway;
+  result: EvolveResult;
+}): Promise<void> {
+  const { ctx, decision, freshness, gateway, result } = input;
+  try {
+    switch (decision.action) {
+      case 'propose_evolution':
+        await handleProposeEvolution(ctx, gateway, decision, result, freshness);
+        break;
+      case 'confirm_deprecation':
+        await handleConfirmDeprecation(ctx, gateway, decision, result, freshness);
+        break;
+      case 'skip':
+        await handleSkipDecision(ctx, gateway, decision, result, freshness);
+        break;
+      default:
+        recordEvolveError(
+          result,
+          decision,
+          `Unknown action: ${(decision as { action: string }).action}`
+        );
+    }
+  } catch (err: unknown) {
+    recordEvolveError(result, decision, err instanceof Error ? err.message : String(err));
+  } finally {
+    result.processed++;
+  }
+}
+
+async function handleProposeEvolution(
+  ctx: McpContext,
+  gateway: EvolutionGateway,
+  decision: EvolveDecision,
+  result: EvolveResult,
+  freshness: EvolveFreshnessTracker
+): Promise<void> {
+  if (decision.action !== 'propose_evolution') {
+    return;
+  }
+  if (!decision.evidence) {
+    recordEvolveError(result, decision, 'evidence is required for propose_evolution');
+    return;
+  }
+
+  const gatewayResult = await gateway.submit({
+    recipeId: decision.recipeId,
+    action: 'update',
+    source: HOST_AGENT_SOURCE,
+    confidence: 0.8,
+    description: decision.evidence.suggestedChanges,
+    evidence: [
+      {
+        sourceStatus: 'modified',
+        currentCode: decision.evidence.codeSnippet,
+        filePath: decision.evidence.filePath,
+        suggestedChanges: decision.evidence.suggestedChanges,
+        verifiedBy: HOST_AGENT_SOURCE,
+        verifiedAt: Date.now(),
+      },
+    ],
+  });
+
+  if (
+    gatewayResult.outcome === 'proposal-created' ||
+    gatewayResult.outcome === 'proposal-upgraded'
+  ) {
+    result.proposed++;
+    freshness.skipped.push(
+      skippedRecipe(decision.recipeId, `proposal-only:${gatewayResult.outcome}`)
+    );
+    ctx.logger.info(
+      `[Evolve] propose_evolution: ${decision.recipeId} → ${gatewayResult.outcome} ${gatewayResult.proposalId}`
+    );
+    return;
+  }
+
+  recordEvolveError(
+    result,
+    decision,
+    gatewayResult.error ?? `Unexpected outcome: ${gatewayResult.outcome}`
+  );
+}
+
+async function handleConfirmDeprecation(
+  ctx: McpContext,
+  gateway: EvolutionGateway,
+  decision: EvolveDecision,
+  result: EvolveResult,
+  freshness: EvolveFreshnessTracker
+): Promise<void> {
+  if (decision.action !== 'confirm_deprecation') {
+    return;
+  }
+  const gatewayResult = await gateway.submit({
+    recipeId: decision.recipeId,
+    action: 'deprecate',
+    source: HOST_AGENT_SOURCE,
+    confidence: 0.9,
+    reason: decision.reason || 'Host agent confirmed deprecation',
+  });
+
+  if (gatewayResult.outcome === 'immediately-executed') {
+    result.deprecated++;
+    result.quotaChange.freed++;
+    freshness.recipeIds.add(decision.recipeId);
+    ctx.logger.info(`[Evolve] confirm_deprecation: ${decision.recipeId}`);
+    return;
+  }
+
+  if (gatewayResult.outcome === 'proposal-created') {
+    result.deprecated++;
+    result.quotaChange.freed++;
+    freshness.skipped.push(skippedRecipe(decision.recipeId, 'proposal-only:proposal-created'));
+    ctx.logger.info(`[Evolve] confirm_deprecation: ${decision.recipeId}`);
+    return;
+  }
+
+  recordEvolveError(
+    result,
+    decision,
+    gatewayResult.error ?? `Unexpected outcome: ${gatewayResult.outcome}`
+  );
+}
+
+async function handleSkipDecision(
+  ctx: McpContext,
+  gateway: EvolutionGateway,
+  decision: EvolveDecision,
+  result: EvolveResult,
+  freshness: EvolveFreshnessTracker
+): Promise<void> {
+  if (decision.action !== 'skip') {
+    return;
+  }
+  if (decision.skipReason === 'still_valid') {
+    const gatewayResult = await gateway.submit({
+      recipeId: decision.recipeId,
+      action: 'valid',
+      source: HOST_AGENT_SOURCE,
+      confidence: 0.5,
+      reason: decision.skipReason,
+    });
+
+    if (gatewayResult.outcome === 'verified') {
+      result.refreshed++;
+      freshness.recipeIds.add(decision.recipeId);
+    }
+  } else {
+    freshness.skipped.push(skippedRecipe(decision.recipeId, 'skip-insufficient-info'));
+  }
+
+  result.skipped++;
+  ctx.logger.info(`[Evolve] skip: ${decision.recipeId} (${decision.skipReason || 'no reason'})`);
+}
+
+async function attachFreshness(
+  ctx: McpContext,
+  result: EvolveResult,
+  tracker: EvolveFreshnessTracker
+): Promise<void> {
+  const refreshed = await refreshRecipeFreshnessByIds(ctx.container, [...tracker.recipeIds]);
+  const freshness = mergeFreshnessOutputs([refreshed], tracker.skipped);
+  if (!freshness) {
+    return;
+  }
+  result.freshness = freshness;
+  result.retrievalMayBeStale = freshness.retrievalMayBeStale;
+}
+
+function buildEvolveSummary(result: EvolveResult): string {
   const parts: string[] = [];
   if (result.proposed > 0) {
     parts.push(`${result.proposed} 个进化提案`);
@@ -203,15 +313,12 @@ export async function evolveForHostAgent(ctx: McpContext, args: EvolveInput) {
   if (result.skipped - result.refreshed > 0) {
     parts.push(`${result.skipped - result.refreshed} 个跳过`);
   }
+  return parts.length > 0 ? parts.join(', ') : '无变更';
+}
 
-  const summary = parts.length > 0 ? parts.join(', ') : '无变更';
-
-  return envelope({
-    success: true,
-    data: result,
-    message:
-      `✅ 处理了 ${result.processed} 个 Recipe: ${summary}` +
-      (result.errors.length > 0 ? ` (${result.errors.length} 个错误)` : ''),
-    meta: { tool: 'alembic_evolve', responseTimeMs: Date.now() - t0 },
+function recordEvolveError(result: EvolveResult, decision: EvolveDecision, error: string): void {
+  result.errors.push({
+    recipeId: decision.recipeId,
+    error,
   });
 }

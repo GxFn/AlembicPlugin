@@ -30,6 +30,7 @@ import {
   ConfidenceRouter,
   KnowledgeGraphService,
   KnowledgeService,
+  RecipeFreshnessService,
   RecipeProductionGateway,
   SourceRefReconciler,
 } from '@alembic/core/knowledge';
@@ -49,6 +50,7 @@ import {
   resolveKnowledgeScanDirs,
   resolveProjectRoot,
 } from '@alembic/core/workspace';
+import { refreshRecipeFreshnessByIds } from '../../service/knowledge/RecipeFreshnessRuntime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 interface VectorRuntimeRoot {
@@ -256,6 +258,22 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
     });
   });
 
+  c.singleton('recipeFreshnessService', (ct: ServiceContainer) => {
+    return new RecipeFreshnessService({
+      sourceRefReconciler: ct.get('sourceRefReconciler') as ConstructorParameters<
+        typeof RecipeFreshnessService
+      >[0]['sourceRefReconciler'],
+      sourceRefRepository: ct.get('recipeSourceRefRepository') as ConstructorParameters<
+        typeof RecipeFreshnessService
+      >[0]['sourceRefRepository'],
+      vectorService: ct.services.vectorService
+        ? (ct.get('vectorService') as ConstructorParameters<
+            typeof RecipeFreshnessService
+          >[0]['vectorService'])
+        : null,
+    });
+  });
+
   c.singleton('stagingManager', (ct: ServiceContainer) => {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new StagingManager(knowledgeRepo, {
@@ -404,15 +422,15 @@ export function initializeKnowledgeServices(c: ServiceContainer): void {
       }
     });
 
-    // recipe_source_refs 填充：MCP 内提交新知识后同步更新桥接表
+    // Best-effort post-create freshness: Core owns source_ref reconciliation and vector sync.
     eventBus.on('knowledge:changed', (data: unknown) => {
       try {
         const d = data as { action?: string; entryId?: string };
         if (d.action === 'create' && d.entryId) {
-          void _populateSourceRefsForEntry(c, d.entryId);
+          void _refreshFreshnessForEntry(c, d.entryId);
         }
       } catch {
-        /* sourceRef population failure is non-fatal */
+        /* freshness refresh failure is non-fatal */
       }
     });
   } catch {
@@ -428,50 +446,10 @@ function await_import_EventBus() {
   };
 }
 
-/**
- * 从 knowledge_entries.reasoning 中提取 sources 并填充 recipe_source_refs 桥接表
- * 使用 KnowledgeRepository + RecipeSourceRefRepository 类型安全 API
- */
-async function _populateSourceRefsForEntry(c: ServiceContainer, entryId: string): Promise<void> {
+async function _refreshFreshnessForEntry(c: ServiceContainer, entryId: string): Promise<void> {
   try {
-    const knowledgeRepo = c.get('knowledgeRepository') as KnowledgeRepository;
-    const sourceRefRepo = c.get('recipeSourceRefRepository') as SourceRefRepository;
-
-    const row = await knowledgeRepo.findSourceFileAndReasoning(entryId);
-    if (!row?.reasoning) {
-      return;
-    }
-
-    let sources: string[] = [];
-    try {
-      const reasoning = JSON.parse(row.reasoning);
-      sources = Array.isArray(reasoning.sources)
-        ? reasoning.sources.filter(
-            (s: unknown) => typeof s === 'string' && (s as string).length > 0
-          )
-        : [];
-    } catch {
-      return;
-    }
-
-    if (sources.length === 0) {
-      return;
-    }
-
-    const now = Date.now();
-    for (const sourcePath of sources) {
-      try {
-        sourceRefRepo.upsert({
-          recipeId: entryId,
-          sourcePath,
-          status: 'active',
-          verifiedAt: now,
-        });
-      } catch {
-        /* table may not exist yet */
-      }
-    }
+    await refreshRecipeFreshnessByIds(c, [entryId]);
   } catch {
-    /* repos may not be registered yet */
+    /* repos/services may not be registered yet */
   }
 }

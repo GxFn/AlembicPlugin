@@ -165,10 +165,12 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   alembic_evolve: [
     'deprecated',
     'errors',
+    'freshness',
     'processed',
     'proposed',
     'quotaChange',
     'refreshed',
+    'retrievalMayBeStale',
     'skipped',
   ],
   alembic_knowledge: [
@@ -310,6 +312,7 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'blockedSummary',
     'commonErrors',
     'count',
+    'freshness',
     'ideAgentAnalysisLinkage',
     'ids',
     'nextAction',
@@ -321,6 +324,7 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'rejectedSummary',
     'relationshipGrounding',
     'requiredFields',
+    'retrievalMayBeStale',
     'total',
   ],
 } as const satisfies Record<CoreCleanOutputToolName, readonly string[]>;

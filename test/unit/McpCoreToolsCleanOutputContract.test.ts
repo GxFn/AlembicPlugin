@@ -247,8 +247,10 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
     case 'alembic_submit_knowledge':
       return {
         count: 1,
+        freshness: { status: 'completed', processed: 1, retrievalMayBeStale: false },
         ids: ['recipe-1'],
         relationshipGrounding: { status: 'grounded' },
+        retrievalMayBeStale: false,
         total: 1,
       };
     case 'alembic_project_skill':
@@ -282,7 +284,13 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
         recipeCreationNextActions: [{ tool: 'alembic_recipe_map' }],
       };
     case 'alembic_evolve':
-      return { processed: 1, proposed: 0, refreshed: 1 };
+      return {
+        freshness: { status: 'completed', processed: 1, retrievalMayBeStale: false },
+        processed: 1,
+        proposed: 0,
+        refreshed: 1,
+        retrievalMayBeStale: false,
+      };
     case 'alembic_consolidate':
       return { kept: 1, merged: 0, processed: 1, rejected: 0 };
     case 'alembic_dimension_complete':
