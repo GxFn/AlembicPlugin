@@ -41,6 +41,7 @@ import {
   planGateNoCleanupResult,
   resolvePlanGenerationGate,
 } from '#recipe-generation/plan-generation-gate.js';
+import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 
@@ -255,6 +256,7 @@ function buildColdStartMissionBriefing(
   input: {
     briefingDimensions: ReturnType<typeof selectProjectContextDimensions>;
     dataRoot: string;
+    planGate: PlanGenerationGateReady;
     projectContextAnalysis: Awaited<ReturnType<typeof buildHostAgentProjectContextAnalysis>>;
     projectRoot: string;
   },
@@ -291,11 +293,22 @@ function buildColdStartMissionBriefing(
     moduleSeedCount: input.projectContextAnalysis.moduleSeeds.length,
     requestKinds: input.projectContextAnalysis.requestKinds,
   };
+  const briefingWithProjectContextGuide = attachProjectContextCreationGuide(
+    briefingWithOnboardingContract,
+    {
+      dimensionIds: input.briefingDimensions.map((dimension) => dimension.id),
+      generationStage: input.planGate.generationStage,
+      moduleScope: input.planGate.moduleScope,
+      projectRoot: input.projectRoot,
+      stage: 'bootstrap',
+      testMode: input.planGate.testMode,
+    }
+  );
   ctx.logger.info(
     `[BootstrapHostAgent] ProjectContext Mission Briefing ready: ${input.projectContextAnalysis.fileCount} files, ${input.briefingDimensions.length} dims, ` +
-      `${briefingWithOnboardingContract.meta?.responseSizeKB || '?'}KB — session ${(session as { id?: string }).id}`
+      `${briefingWithProjectContextGuide.meta?.responseSizeKB || '?'}KB — session ${(session as { id?: string }).id}`
   );
-  return briefingWithOnboardingContract;
+  return briefingWithProjectContextGuide;
 }
 
 function attachColdStartTrashMessage(

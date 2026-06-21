@@ -239,9 +239,18 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
         operation: 'get',
         plan: { planId: 'plan-1', version: 1 },
         planState: { coverage: { gaps: [] } },
+        projectContextCreationGuide: {
+          source: 'RG-5-project-context-anchored-creation',
+          stage: 'plan-get',
+        },
       };
     case 'alembic_submit_knowledge':
-      return { count: 1, ids: ['recipe-1'], total: 1 };
+      return {
+        count: 1,
+        ids: ['recipe-1'],
+        relationshipGrounding: { status: 'grounded' },
+        total: 1,
+      };
     case 'alembic_project_skill':
       return { operation: 'list', skills: [] };
     case 'alembic_bootstrap':
@@ -252,12 +261,26 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
         domainQueue: [{ domainId: 'D1-runtime-entrypoints' }],
         executionPlan: [],
         gates: { graphFreshness: { rule: 'check status first' } },
+        projectContextCreationGuide: {
+          source: 'RG-5-project-context-anchored-creation',
+          stage: 'bootstrap',
+        },
+        recipeCreationNextActions: [{ tool: 'alembic_recipe_map' }],
         repairState: { status: 'ready' },
         sopPack: { contractVersion: 1 },
         toolCapabilities: { canonicalSourceGraph: [] },
       };
     case 'alembic_rescan':
-      return { allRecipes: [], dimensions: [], executionPlan: [] };
+      return {
+        allRecipes: [],
+        dimensions: [],
+        executionPlan: [],
+        projectContextCreationGuide: {
+          source: 'RG-5-project-context-anchored-creation',
+          stage: 'rescan',
+        },
+        recipeCreationNextActions: [{ tool: 'alembic_recipe_map' }],
+      };
     case 'alembic_evolve':
       return { processed: 1, proposed: 0, refreshed: 1 };
     case 'alembic_consolidate':

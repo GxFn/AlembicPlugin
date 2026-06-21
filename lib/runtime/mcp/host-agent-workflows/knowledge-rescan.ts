@@ -42,6 +42,7 @@ import {
   type PlanGenerationGateReady,
   resolvePlanGenerationGate,
 } from '#recipe-generation/plan-generation-gate.js';
+import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import { rebuildLocalKnowledgeIndexes } from './knowledge-index-rebuild.js';
@@ -331,8 +332,19 @@ function buildRescanBriefing(
     moduleSeedCount: projectContextAnalysis.moduleSeeds.length,
     requestKinds: projectContextAnalysis.requestKinds,
   };
+  const briefingWithProjectContextGuide = attachProjectContextCreationGuide(
+    briefingWithIdeAgentSurface,
+    {
+      dimensionIds: (Array.isArray(dimensions) ? dimensions : []).map((dimension) => dimension.id),
+      generationStage: state.planGate.generationStage,
+      moduleScope: state.planGate.moduleScope,
+      projectRoot: state.projectRoot,
+      stage: 'rescan',
+      testMode: state.planGate.testMode,
+    }
+  );
   logRescanBriefingReady(ctx, state, planning, session.id, ideAgentAnalysis.progress.totalUnits);
-  return briefingWithIdeAgentSurface;
+  return briefingWithProjectContextGuide;
 }
 
 function logRescanBriefingReady(

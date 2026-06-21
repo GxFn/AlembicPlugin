@@ -23,6 +23,7 @@ import {
 } from '#codex/mcp/host-agent-workflows/recipe-evidence-gate.js';
 import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
 import { routePlanTool as routePlanToolImpl } from '#recipe-generation/plan-tool.js';
+import { assessProjectContextRelationshipGrounding } from '#recipe-generation/project-context-anchoring.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import * as recipeMapHandlers from '../../../runtime/mcp/handlers/recipe-map.js';
 import * as searchHandlers from '../../../runtime/mcp/handlers/search.js';
@@ -346,6 +347,7 @@ function buildSubmitKnowledgeResponse(
   appendBlockedSubmitData(data, gatewayResult);
   appendProposalSubmitData(data, gatewayResult, supersedes);
   appendPendingSemanticReviewData(data, gatewayResult);
+  appendRelationshipGroundingData(data, items);
 
   if (successCount === 0 && gatewayResult.rejected.length === items.length) {
     return buildAllRejectedSubmitResponse(data, gatewayResult, items.length);
@@ -473,6 +475,16 @@ function appendPendingSemanticReviewData(
   appendConsolidateBlockedAction(data, reviewActions);
 }
 
+function appendRelationshipGroundingData(
+  data: Record<string, unknown>,
+  items: Array<Record<string, unknown>>
+): void {
+  const relationshipGrounding = assessProjectContextRelationshipGrounding(items);
+  if (relationshipGrounding) {
+    data.relationshipGrounding = relationshipGrounding;
+  }
+}
+
 function appendConsolidateNextAction(
   data: Record<string, unknown>,
   reviewActions: Array<{
@@ -536,6 +548,7 @@ function buildAllRejectedSubmitResponse(
       rejectedItems: data.rejectedItems,
       requiredFields: getRequiredFieldsDescription(),
       commonErrors: [...new Set(gatewayResult.rejected.flatMap((it) => it.errors))],
+      ...(data.relationshipGrounding ? { relationshipGrounding: data.relationshipGrounding } : {}),
     },
     meta: { tool: 'alembic_submit_knowledge' },
   });

@@ -54,6 +54,26 @@ describe('alembic_plan tool', () => {
     const sourceReports = asRecord(draft.data?.sourceReports);
     const planningAids = asRecord(sourceReports.planningAids);
     expect(asArray(planningAids.dimensionOrder).length).toBeGreaterThan(0);
+    expect(asRecord(draft.data?.projectContextCreationGuide)).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'plan-draft',
+      confirmedPlanBoundary: { noPluginOnlyPlanStore: true },
+    });
+    expect(asRecord(planningBrief.projectContextCreationGuide)).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'plan-draft',
+    });
+    expect(
+      actionTools(asArray(asRecord(draft.data?.projectContextCreationGuide).nextActions))
+    ).toEqual(
+      expect.arrayContaining([
+        'alembic_recipe_map',
+        'alembic_graph',
+        'alembic_search',
+        'alembic_prime',
+        'alembic_submit_knowledge',
+      ])
+    );
 
     const dynamicSignals = asRecord(sourceReports.dynamicSignals);
     const planSignalKinds = asArray(dynamicSignals.planSignals).map((item) => asRecord(item).kind);
@@ -203,6 +223,23 @@ describe('alembic_plan tool', () => {
     const byDimension = asRecord(coverage.byDimension);
     expect(asRecord(byDimension[dimensionId])).toMatchObject({ generated: 1 });
     expect(asRecord(get.data?.signature)).toMatchObject({ matches: true });
+    expect(asRecord(get.data?.projectContextCreationGuide)).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'plan-get',
+      confirmedPlanBoundary: {
+        moduleScope: ['src'],
+        planId: String(plan.planId),
+      },
+    });
+    expect(actionTools(asArray(get.data?.nextActions))).toEqual(
+      expect.arrayContaining([
+        'alembic_recipe_map',
+        'alembic_graph',
+        'alembic_search',
+        'alembic_prime',
+        'alembic_submit_knowledge',
+      ])
+    );
   });
 });
 
@@ -305,4 +342,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function actionTools(actions: unknown[]): string[] {
+  return actions.map((action) => String(asRecord(action).tool));
 }

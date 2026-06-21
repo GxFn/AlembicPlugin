@@ -1,4 +1,8 @@
 import path from 'node:path';
+import {
+  buildProjectContextCreationGuide,
+  buildProjectContextCreationNextActions,
+} from '#recipe-generation/project-context-anchoring.js';
 import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import type { HostKnowledgeState } from '../../runtime/KnowledgeState.js';
 import {
@@ -240,15 +244,31 @@ const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
     goal: 'Turn repeated, source-backed project rules into Recipes only after evidence and boundary checks are present.',
     keywordHints: ['convention', 'standard', 'style', 'recipe', 'rule', 'pattern'],
     toolSequence: [
-      'alembic_prime',
+      'alembic_recipe_map',
+      'alembic_graph',
       'alembic_search',
+      'alembic_prime',
       'alembic_submit_knowledge',
       'alembic_dimension_complete',
     ],
     toolToInformation: [
       {
+        tool: 'alembic_recipe_map',
+        information:
+          'ProjectContext region, Recipe mounts, module scope, and partial/freshness notes before authoring',
+      },
+      {
+        tool: 'alembic_graph',
+        information:
+          'ProjectContext relation/detail refs for ownership, dependency, caller/callee, and impact claims',
+      },
+      {
+        tool: 'alembic_search',
+        information: 'existing Recipes and prior decisions relevant to the candidate',
+      },
+      {
         tool: 'alembic_prime',
-        information: 'existing Recipes and prior project guidance before adding candidates',
+        information: 'task-semantic Recipe context before adding candidates',
       },
       {
         tool: 'alembic_submit_knowledge',
@@ -286,6 +306,8 @@ function buildOnboardingContract(input: BuildOnboardingContractInput): Onboardin
   const languageProfile = buildLanguageProfile(input);
   const currentDomainSop = buildCurrentDomainSop(currentPlaybook || DOMAIN_PLAYBOOKS[0], {
     languageProfile,
+    projectRoot: input.projectRoot,
+    source: input.source || 'status',
   });
   const toolCapabilities = buildToolCapabilities(toolSurface);
   const bootstrapState = buildBootstrapState(input, {
@@ -309,6 +331,8 @@ function buildOnboardingContract(input: BuildOnboardingContractInput): Onboardin
         'alembic_status',
         'alembic_recipe_map',
         currentPlaybook?.toolSequence[1] || 'alembic_graph',
+        'alembic_search',
+        'alembic_prime',
         'alembic_submit_knowledge',
         'alembic_dimension_complete',
       ],
@@ -321,7 +345,12 @@ function buildOnboardingContract(input: BuildOnboardingContractInput): Onboardin
         'toolCapabilities',
         'currentDomainSop.requiredEvidence',
         'currentDomainSop.recipeGuidanceFloor',
+        'currentDomainSop.projectContextCreationGuide',
       ],
+      projectContextCreationGuide: buildProjectContextCreationGuide({
+        projectRoot: input.projectRoot,
+        stage: input.source === 'status' ? 'submit-knowledge' : 'bootstrap',
+      }),
       sopField: 'currentDomainSop',
       toolCapabilityField: 'toolCapabilities',
     },
@@ -523,7 +552,11 @@ function dimensionMatchesPlaybook(dimension: DimensionSummary, playbook: DomainP
 
 function buildCurrentDomainSop(
   playbook: DomainPlaybook,
-  context: { languageProfile: Record<string, unknown> }
+  context: {
+    languageProfile: Record<string, unknown>;
+    projectRoot: string;
+    source: 'bootstrap' | 'status';
+  }
 ): Record<string, unknown> {
   return {
     contractVersion: ONBOARDING_CONTRACT_VERSION,
@@ -541,6 +574,10 @@ function buildCurrentDomainSop(
       runtimeLlmGeneration: false,
     },
     recipeGuidanceFloor: buildRecipeGuidanceFloor(),
+    projectContextCreationGuide: buildProjectContextCreationGuide({
+      projectRoot: context.projectRoot,
+      stage: context.source === 'status' ? 'submit-knowledge' : 'bootstrap',
+    }),
     candidateVariety: {
       minimumPerDimension: 3,
       targetPerDimension: 5,
@@ -597,18 +634,16 @@ function buildCurrentDomainSop(
       'Cross-domain duplicates are rejected before submission.',
     ],
     nextActions: [
-      {
-        label: 'Read ProjectContext matrix',
-        tool: 'alembic_recipe_map',
-      },
-      {
-        label: `Collect evidence for ${playbook.title}`,
-        tool: playbook.toolSequence[1] || 'alembic_graph',
-      },
-      {
-        label: 'Submit source-grounded Recipe candidates',
-        tool: 'alembic_submit_knowledge',
-      },
+      ...buildProjectContextCreationNextActions({
+        projectRoot: context.projectRoot,
+        stage: context.source === 'status' ? 'submit-knowledge' : 'bootstrap',
+      }).map((action) => ({
+        ...action,
+        label:
+          action.tool === 'alembic_submit_knowledge'
+            ? 'Submit source-grounded Recipe candidates'
+            : `ProjectContext evidence for ${playbook.title}`,
+      })),
       {
         label: 'Complete the staged domain only after evidence is recorded',
         tool: 'alembic_dimension_complete',
@@ -637,6 +672,10 @@ function buildSopPack(
     domainPlaybooks: buildDomainPlaybookContracts(),
     languageOverlayContract: context.languageProfile,
     recipeGuidanceFloor: buildRecipeGuidanceFloor(),
+    projectContextCreationGuide: buildProjectContextCreationGuide({
+      projectRoot: input.projectRoot,
+      stage: input.source === 'status' ? 'submit-knowledge' : 'bootstrap',
+    }),
     recipeOntology: buildRecipeOntologyContract(),
     recipeAuthoringRubric: buildRecipeAuthoringRubric(),
     submitKnowledgeContract: buildSubmitKnowledgeContract(),
@@ -798,6 +837,20 @@ function buildSubmitKnowledgeContract(): Record<string, unknown> {
       'matching snippet or coreCode evidence',
       'graph refs for relationship claims',
     ],
+    relationshipGrounding: {
+      status: 'additive-warning-plus-session-hard-gate',
+      relationshipClaimFields: [
+        'relationshipClaim',
+        'requiresGraphEvidence',
+        'relationshipEvidenceRequired',
+        'relations',
+        'relationships',
+      ],
+      acceptedGraphEvidenceFields: ['sourceGraphRefs', 'graphRefs', 'reasoning.graphRefs'],
+      warningBoundary:
+        'Normal submit responses return relationshipGrounding.needs-evidence for unbound relationship claims; session-bound production submissions remain hard-gated by the Recipe evidence gate.',
+      nextTools: ['alembic_recipe_map', 'alembic_graph'],
+    },
     failureCodes: [
       'missing-source-ref',
       'snippet-mismatch',
@@ -1163,6 +1216,12 @@ function buildRecipeGuidanceFloor(): Record<string, unknown> {
       citationFormat: 'full repo-relative path plus line citation',
       bareFilenameForbidden: true,
       moduleAttributionRequired: true,
+    },
+    projectContextAnchoring: {
+      requiredBeforeRecipeCreation: true,
+      firstTools: ['alembic_recipe_map', 'alembic_graph'],
+      compareTools: ['alembic_search', 'alembic_prime'],
+      rule: 'Use ProjectContext refs and Recipe mounts before authoring; relationship claims need graph/detail refs or an explicit raw-read fallback.',
     },
     candidateContent: {
       allowedCategories: [

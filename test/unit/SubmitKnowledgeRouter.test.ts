@@ -314,6 +314,64 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
   });
 
+  it('returns ProjectContext relationship grounding guidance without blocking normal submit', async () => {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Relationship Claim Needs Graph',
+          relationshipClaim: true,
+          description: 'The API client call chain depends on the React app entrypoint.',
+          content: {
+            markdown:
+              'The caller/callee relationship should be grounded before this Recipe is final.',
+          },
+          reasoning: {
+            whyStandard: 'This relationship affects dependency and impact claims.',
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(gatewayState.createCalls).toHaveLength(1);
+    expect(result.data).toMatchObject({
+      relationshipGrounding: {
+        status: 'needs-evidence',
+        relationshipClaimCount: 1,
+        missingGraphEvidenceCount: 1,
+        requiredEvidenceFields: expect.arrayContaining(['sourceGraphRefs', 'graphRefs']),
+        nextActions: expect.arrayContaining([
+          expect.objectContaining({ tool: 'alembic_recipe_map' }),
+          expect.objectContaining({ tool: 'alembic_graph' }),
+        ]),
+      },
+    });
+  });
+
+  it('marks relationship claims grounded when graph refs are supplied', async () => {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Relationship Claim With Graph',
+          relationshipClaim: true,
+          sourceGraphRefs: ['pc:module:src/api:call-chain'],
+          description: 'The graph ref grounds the caller/callee relationship.',
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      relationshipGrounding: {
+        status: 'grounded',
+        acceptedGraphRefCount: 1,
+        missingGraphEvidenceCount: 0,
+      },
+    });
+  });
+
   it('forwards p11 bootstrapSessionRef references to the production evidence gate', async () => {
     const projectRoot = makeProjectRoot();
     gatewayState.projectRoot = projectRoot;

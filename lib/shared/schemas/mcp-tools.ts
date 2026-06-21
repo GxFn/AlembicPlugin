@@ -677,6 +677,29 @@ export const SubmitKnowledgeItemSchema = z.object({
   tags: z.array(z.string()).optional(),
   constraints: z.record(z.string(), z.unknown()).optional(),
   relations: z.record(z.string(), z.unknown()).optional(),
+  relationships: z.record(z.string(), z.unknown()).optional(),
+  relationshipClaim: z
+    .boolean()
+    .optional()
+    .describe(
+      'Set true when the candidate claims caller/callee, dependency, ownership, or impact relationships'
+    ),
+  requiresGraphEvidence: z
+    .boolean()
+    .optional()
+    .describe('Set true when relationship claims require ProjectContext graph evidence'),
+  relationshipEvidenceRequired: z
+    .boolean()
+    .optional()
+    .describe('Compatibility alias for requiresGraphEvidence'),
+  graphRefs: z
+    .array(z.string())
+    .optional()
+    .describe('ProjectContext graph/detail refs that support relationship-heavy Recipe claims'),
+  sourceGraphRefs: z
+    .array(z.string())
+    .optional()
+    .describe('ProjectContext source/detail refs from alembic_graph or alembic_recipe_map'),
   headerPaths: z.array(z.string()).optional(),
   moduleName: z.string().optional(),
   includeHeaders: z.boolean().optional(),
@@ -702,7 +725,7 @@ export const SubmitKnowledgeInput = z.object({
     .describe(
       '知识条目数组（1~N 条）。单条与批量统一处理，所有条目严格校验 + 融合分析。' +
         '每条字段: title, language, content(对象), kind, doClause, dontClause, whenClause, coreCode, category(业务/组件分类), trigger, description, headers, usageGuide, knowledgeType(知识类型), reasoning(对象), dimensionId(维度归属)。' +
-        '可选 unitId / analysisUnitIds / sourceRefs 用于 IDE Agent packet linkage；sourceRefs 可引用 package.json:1 等根文件；rule/pattern 的单文件正当例外请显式传 scope: "narrow" 或 "file-local"。'
+        '可选 unitId / analysisUnitIds / sourceRefs 用于 IDE Agent packet linkage；关系型声明应附 sourceGraphRefs/graphRefs；sourceRefs 可引用 package.json:1 等根文件；rule/pattern 的单文件正当例外请显式传 scope: "narrow" 或 "file-local"。'
     ),
   target_name: z.string().optional().describe('来源标识，如 network-module-scan'),
   source: z.string().optional().describe('来源标记，默认 mcp'),

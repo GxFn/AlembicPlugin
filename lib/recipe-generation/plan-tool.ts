@@ -33,6 +33,11 @@ import { ProjectContextCapabilities } from '@alembic/core/project-context-capabi
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
+import {
+  buildProjectContextCreationGuide,
+  buildProjectContextCreationNextActions,
+  type ProjectContextCreationStage,
+} from './project-context-anchoring.js';
 
 interface PlanToolContext {
   actor?: { role?: string; user?: string };
@@ -370,6 +375,11 @@ function buildDraftPlanningBrief(
     onboardingContract: summarizeOnboardingContract(
       buildOnboardingContractForDraft(analysis, projectRoot)
     ),
+    projectContextCreationGuide: buildProjectContextCreationGuide({
+      dimensionIds: analysis.dimensions.map((dimension) => dimension.id),
+      projectRoot,
+      stage: 'plan-draft',
+    }),
     projectContext: summarizeProjectContext(analysis),
     sourceReports: {
       dynamicSignals: summarizeDynamicSignals(reports.dynamicSignals),
@@ -404,6 +414,7 @@ function planDraftResponse(plan: PlanRecord, draftContext: PlanDraftContext): Pl
       projectRoot: draftContext.projectRoot,
       projectContextSignature: draftContext.projectContextSignature,
       currentProjectContextSignature: draftContext.projectContextSignature,
+      projectContextCreationGuide: buildPlanProjectContextCreationGuide(plan, 'plan-draft'),
       plan: projectPlanRecord(plan),
       planningBrief: draftContext.planningBrief,
       sourceReports: draftContext.planningBrief.sourceReports,
@@ -582,6 +593,7 @@ function confirmedPlanResponse(
       projectRoot: confirmed.projectRoot,
       projectContextSignature: confirmed.projectContextSignature,
       currentProjectContextSignature,
+      projectContextCreationGuide: buildPlanProjectContextCreationGuide(confirmed, 'plan-confirm'),
       plan: projectPlanRecord(confirmed),
       ...(view
         ? {
@@ -617,6 +629,10 @@ async function getPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolRe
     return blocked('PLAN_NOT_FOUND', 'No matching confirmed Plan was found.', {
       operation: 'get',
       projectRoot,
+      projectContextCreationGuide: buildProjectContextCreationGuide({
+        projectRoot,
+        stage: 'plan-get',
+      }),
       planDiagnostics: [
         {
           code: 'no-confirmed-plan',
@@ -660,6 +676,7 @@ async function getPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolRe
       projectRoot: view.intent.projectRoot,
       projectContextSignature: view.intent.projectContextSignature,
       currentProjectContextSignature,
+      projectContextCreationGuide: buildPlanProjectContextCreationGuide(view.intent, 'plan-get'),
       plan: projectPlanRecord(view.intent),
       planView: projectPlanView(view),
       planState: projectPlanState(view.state),
@@ -1078,6 +1095,31 @@ function projectPlanState(state: PlanGenerationState): Record<string, unknown> {
   };
 }
 
+function buildPlanProjectContextCreationGuide(
+  plan: PlanRecord,
+  stage: ProjectContextCreationStage
+): Record<string, unknown> {
+  return buildProjectContextCreationGuide({
+    dimensionIds: plan.intent.dimensions.map((dimension) => dimension.dimensionId),
+    generationStage: inferPlanGenerationStage(plan.intent),
+    moduleScope: plan.intent.moduleBindings.map((binding) => binding.modulePath),
+    planId: plan.planId,
+    projectRoot: plan.projectRoot,
+    stage,
+  });
+}
+
+function inferPlanGenerationStage(intent: PlanIntent): PlanStageId {
+  if (intent.stages.moduleMining.perModule.length > 0) {
+    return 'moduleMining';
+  }
+  const selectedStages = intent.dimensions.map((dimension) => dimension.stage);
+  if (selectedStages.includes('deepMining')) {
+    return 'deepMining';
+  }
+  return 'coldStart';
+}
+
 function buildGetNextActions(view: PlanView): Record<string, unknown>[] {
   if (!view.signature.matches) {
     return [
@@ -1091,18 +1133,14 @@ function buildGetNextActions(view: PlanView): Record<string, unknown>[] {
     ];
   }
   if (view.state.coverage.gaps.length > 0) {
-    return [
-      {
-        tool: 'alembic_recipe_map',
-        required: false,
-        reason: 'Inspect planned modules and mounted Recipes before filling coverage gaps.',
-      },
-      {
-        tool: 'alembic_search',
-        required: false,
-        reason: 'Read Recipe details for generated/stale coverage before creating new Recipes.',
-      },
-    ];
+    return buildProjectContextCreationNextActions({
+      dimensionIds: view.intent.intent.dimensions.map((dimension) => dimension.dimensionId),
+      generationStage: inferPlanGenerationStage(view.intent.intent),
+      moduleScope: view.intent.intent.moduleBindings.map((binding) => binding.modulePath),
+      planId: view.intent.planId,
+      projectRoot: view.intent.projectRoot,
+      stage: 'plan-get',
+    });
   }
   return [
     {

@@ -87,6 +87,24 @@ describe('Plan-driven generation gate', () => {
       enabled: true,
       dimensions: [dimensionId],
     });
+    expect(result.data?.projectContextCreationGuide).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'bootstrap',
+      confirmedPlanBoundary: {
+        generationStage: 'coldStart',
+        moduleScope: ['src/api'],
+        testMode: true,
+      },
+    });
+    expect(actionTools(asArray(result.data?.recipeCreationNextActions))).toEqual(
+      expect.arrayContaining([
+        'alembic_recipe_map',
+        'alembic_graph',
+        'alembic_search',
+        'alembic_prime',
+        'alembic_submit_knowledge',
+      ])
+    );
     expect(asRecord(result.data?.cleanup)).toMatchObject({
       clearedTables: 0,
       deletedRecipes: 0,
@@ -119,6 +137,24 @@ describe('Plan-driven generation gate', () => {
       testMode: true,
     });
     expect(result.data?.moduleScope).toEqual(['src/api']);
+    expect(result.data?.projectContextCreationGuide).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'rescan',
+      confirmedPlanBoundary: {
+        generationStage: 'moduleMining',
+        moduleScope: ['src/api'],
+        testMode: true,
+      },
+    });
+    expect(actionTools(asArray(result.data?.recipeCreationNextActions))).toEqual(
+      expect.arrayContaining([
+        'alembic_recipe_map',
+        'alembic_graph',
+        'alembic_search',
+        'alembic_prime',
+        'alembic_submit_knowledge',
+      ])
+    );
     expect(asRecord(result.data?.rescan)).toMatchObject({
       cleanedFiles: 0,
       cleanedTables: 0,
@@ -338,6 +374,14 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function actionTools(actions: unknown[]): string[] {
+  return actions.map((action) => String(asRecord(action).tool));
 }
 
 function buildReadyGate(overrides: Partial<PlanGenerationGateReady> = {}): PlanGenerationGateReady {
