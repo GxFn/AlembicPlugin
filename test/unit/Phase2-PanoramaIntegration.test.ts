@@ -9,23 +9,21 @@
  * - Phase 2.2+: ModuleDiscoverer configLayer / readConfigLayers
  * - Phase 2.2+: PanoramaAggregator 传递 configLayers
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConfigLayer, Edge, ModuleCandidate } from '@alembic/core/test-fixtures';
 import {
   CouplingAnalyzer,
+  detectConflict,
   LayerInferrer,
+  loadPreference,
   ModuleDiscoverer,
   PanoramaAggregator,
   RoleRefiner,
-} from '@alembic/core/test-fixtures';
-import {
-  detectConflict,
-  loadPreference,
   savePreference,
-} from '@alembic/core/core/discovery';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+} from '@alembic/core/test-fixtures';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createMockRepos, type MockEdge } from '../helpers/panorama-mocks.js';
 
@@ -106,18 +104,18 @@ describe('DiscovererPreference — persistence', () => {
 
     const pref = loadPreference(testDir);
     expect(pref).not.toBeNull();
-    expect(pref!.selectedDiscoverer).toBe('custom-config');
-    expect(pref!.alternatives).toEqual(['spm', 'cocoapods']);
-    expect(pref!.userConfirmed).toBe(true);
-    expect(pref!.selectedAt).toBeDefined();
+    expect(pref?.selectedDiscoverer).toBe('custom-config');
+    expect(pref?.alternatives).toEqual(['spm', 'cocoapods']);
+    expect(pref?.userConfirmed).toBe(true);
+    expect(pref?.selectedAt).toBeDefined();
   });
 
   it('should overwrite existing preference', () => {
     savePreference(testDir, 'spm', ['custom-config'], false);
 
     const pref = loadPreference(testDir);
-    expect(pref!.selectedDiscoverer).toBe('spm');
-    expect(pref!.userConfirmed).toBe(false);
+    expect(pref?.selectedDiscoverer).toBe('spm');
+    expect(pref?.userConfirmed).toBe(false);
   });
 
   it('should return null for corrupted preference file', () => {
@@ -245,15 +243,15 @@ describe('LayerInferrer — config-based inference', () => {
     // Vendors 层级应在 L0（最底层），因为 order 最大被反转
     const vendorsLevel = result.levels.find((l) => l.name === 'Vendors');
     expect(vendorsLevel).toBeDefined();
-    expect(vendorsLevel!.level).toBe(0);
-    expect(vendorsLevel!.modules).toContain('Foundation');
-    expect(vendorsLevel!.modules).toContain('Alamofire');
+    expect(vendorsLevel?.level).toBe(0);
+    expect(vendorsLevel?.modules).toContain('Foundation');
+    expect(vendorsLevel?.modules).toContain('Alamofire');
 
     // Accessories 层级应在最高层
     const accLevel = result.levels.find((l) => l.name === 'Accessories');
     expect(accLevel).toBeDefined();
-    expect(accLevel!.level).toBe(4);
-    expect(accLevel!.modules).toContain('UIKit');
+    expect(accLevel?.level).toBe(4);
+    expect(accLevel?.modules).toContain('UIKit');
   });
 
   it('should fallback to topology when config coverage < 50%', () => {
@@ -266,7 +264,6 @@ describe('LayerInferrer — config-based inference', () => {
 
     // 覆盖率仅 1/6 < 50%，应该用拓扑推断
     // 拓扑推断不会使用配置层名，而是用启发式命名
-    const hasConfigName = result.levels.some((l) => l.name === 'Vendors');
     // 拓扑法不一定会产生叫 'Vendors' 的层（取决于启发式匹配）
     // 关键是应该有合理的层级结构
     expect(result.levels.length).toBeGreaterThanOrEqual(2);
@@ -369,8 +366,8 @@ describe('RoleRefiner — configLayer signal', () => {
     const result = await refiner.refineRole(candidate);
     const configSignal = result.signals.find((s) => s.source === 'config-layer');
     expect(configSignal).toBeDefined();
-    expect(configSignal!.role).toBe('utility');
-    expect(configSignal!.confidence).toBe(0.85);
+    expect(configSignal?.role).toBe('utility');
+    expect(configSignal?.confidence).toBe(0.85);
   });
 
   it('should map Basics layer to core role', async () => {
@@ -386,7 +383,7 @@ describe('RoleRefiner — configLayer signal', () => {
     const result = await refiner.refineRole(candidate);
     const configSignal = result.signals.find((s) => s.source === 'config-layer');
     expect(configSignal).toBeDefined();
-    expect(configSignal!.role).toBe('core');
+    expect(configSignal?.role).toBe('core');
   });
 
   it('should map Components/Accessories layer to feature role', async () => {
@@ -403,7 +400,7 @@ describe('RoleRefiner — configLayer signal', () => {
       const result = await refiner.refineRole(candidate);
       const configSignal = result.signals.find((s) => s.source === 'config-layer');
       expect(configSignal).toBeDefined();
-      expect(configSignal!.role).toBe('feature');
+      expect(configSignal?.role).toBe('feature');
     }
   });
 
@@ -447,7 +444,7 @@ describe('RoleRefiner — configLayer signal', () => {
     const result = await refiner.refineRole(candidate);
     const configSignal = result.signals.find((s) => s.source === 'config-layer');
     expect(configSignal).toBeDefined();
-    expect(configSignal!.role).toBe('service');
+    expect(configSignal?.role).toBe('service');
   });
 });
 
@@ -478,8 +475,8 @@ describe('ModuleDiscoverer — configLayer integration', () => {
     const result = await discoverer.readConfigLayers();
     expect(result).not.toBeNull();
     expect(result).toHaveLength(3);
-    expect(result![0].name).toBe('Services');
-    expect(result![2].accessibleLayers).toEqual([]);
+    expect(result?.[0].name).toBe('Services');
+    expect(result?.[2].accessibleLayers).toEqual([]);
   });
 
   it('should return null when no config layers entity exists', async () => {
@@ -643,7 +640,7 @@ describe('PanoramaAggregator — configLayers integration', () => {
     // Core 应在最底层 (order=2 翻转为 L0)
     const coreLevel = result.layers.levels.find((l) => l.modules.includes('Core'));
     expect(coreLevel).toBeDefined();
-    expect(coreLevel!.level).toBe(0);
+    expect(coreLevel?.level).toBe(0);
   });
 
   it('should work without configLayers (backward compatible)', async () => {
