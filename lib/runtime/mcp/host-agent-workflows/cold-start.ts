@@ -32,6 +32,15 @@ import {
 import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
+import {
+  acquirePlanGenerationLease,
+  applyPlanGateToProjectAnalysisIntent,
+  attachPlanGenerationGateData,
+  type PlanGenerationGateReady,
+  type PlanGenerationLease,
+  planGateNoCleanupResult,
+  resolvePlanGenerationGate,
+} from '#recipe-generation/plan-generation-gate.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 
@@ -55,6 +64,10 @@ interface AttachColdStartOnboardingInput<T extends { meta?: Record<string, unkno
   session: unknown;
 }
 
+type ColdStartPlanGatePreparation =
+  | { ok: true; lease: PlanGenerationLease; planGate: PlanGenerationGateReady }
+  | { ok: false; response: Record<string, unknown> };
+
 // ── 主入口 ─────────────────────────────────────────────────────
 
 /**
@@ -70,32 +83,127 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: Boot
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);
+  const gate = await prepareColdStartPlanGate(ctx, args, projectRoot);
+  if (!gate.ok) {
+    return attachLocalSelectionMismatch(gate.response, projectRoot);
+  }
 
-  // ═══════════════════════════════════════════════════════════
-  // Step 0: 重建确认门禁（MT1 P1 数据丢失门禁的 bootstrap 半边）
-  // fullReset 会把全部现有知识移入垃圾桶并清空 DB；可用知识库存在时
-  // 必须显式 rebuild:true 确认，否则拒绝并推荐保留式 alembic_rescan。
-  // 使用与 tools/list 知识门同一谓词（inspectKnowledge.usable），
-  // 保证确认门禁与工具面收合发生在同一事实上。
-  // ═══════════════════════════════════════════════════════════
+  try {
+    return await runPlanGatedColdStart(ctx, args, {
+      dataRoot,
+      planGate: gate.planGate,
+      projectRoot,
+      responseStartMs: t0,
+    });
+  } finally {
+    gate.lease.release();
+  }
+}
 
-  const knowledgeBefore = inspectKnowledge(projectRoot);
-  const confirmationBlock = buildBootstrapRebuildConfirmationBlock(knowledgeBefore, args);
+async function prepareColdStartPlanGate(
+  ctx: McpContext,
+  args: BootstrapInput | undefined,
+  projectRoot: string
+): Promise<ColdStartPlanGatePreparation> {
+  const planGate = await resolvePlanGenerationGate(ctx, args, {
+    defaultStage: 'coldStart',
+    toolName: 'alembic_bootstrap',
+  });
+  if (!planGate.ok) {
+    return { ok: false, response: planGate.response };
+  }
+  const lease = acquirePlanGenerationLease({
+    gate: planGate.value,
+    idempotencyKey: args?.rescanId,
+    toolName: 'alembic_bootstrap',
+  });
+  if (!lease.ok) {
+    return { ok: false, response: lease.response };
+  }
+  return { ok: true, lease: lease.lease, planGate: planGate.value };
+}
+
+async function runPlanGatedColdStart(
+  ctx: McpContext,
+  args: BootstrapInput | undefined,
+  input: {
+    dataRoot: string;
+    planGate: PlanGenerationGateReady;
+    projectRoot: string;
+    responseStartMs: number;
+  }
+): Promise<Record<string, unknown>> {
+  const confirmationBlock = buildColdStartDestructiveConfirmationBlock(
+    input.projectRoot,
+    input.planGate,
+    args
+  );
   if (confirmationBlock) {
-    return attachLocalSelectionMismatch(confirmationBlock, projectRoot);
+    return attachLocalSelectionMismatch(confirmationBlock, input.projectRoot);
   }
 
   const intent = createHostAgentColdStartIntent();
-  const plan = buildColdStartWorkflowPlan({ intent, projectRoot, dataRoot });
+  applyPlanGateToProjectAnalysisIntent(intent, input.planGate);
+  const plan = buildColdStartWorkflowPlan({
+    intent,
+    projectRoot: input.projectRoot,
+    dataRoot: input.dataRoot,
+  });
+  const cleanupResult = await runColdStartCleanup(ctx, input, plan);
+  const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
+    maxFiles: plan.projectAnalysis.scan.maxFiles,
+    projectRoot: plan.projectAnalysis.projectRoot,
+    source: 'codex-host-bootstrap',
+  });
+  if (projectContextAnalysis.isEmpty) {
+    const response = attachPlanGenerationGateData(
+      presentHostAgentColdStartEmptyProject({
+        responseTimeMs: Date.now() - input.responseStartMs,
+      }) as Record<string, unknown>,
+      input.planGate
+    );
+    return attachLocalSelectionMismatch(response, input.projectRoot);
+  }
 
-  // ═══════════════════════════════════════════════════════════
-  // Step 1: 全量清理 (CleanupService.fullReset)
-  // ═══════════════════════════════════════════════════════════
+  const briefingDimensions = selectProjectContextDimensions(
+    projectContextAnalysis.dimensions,
+    intent.dimensionIds
+  );
+  const response = buildColdStartMissionBriefingResponse(ctx, {
+    briefingDimensions,
+    cleanupResult,
+    dataRoot: input.dataRoot,
+    planGate: input.planGate,
+    projectContextAnalysis,
+    projectRoot: input.projectRoot,
+    responseTimeMs: Date.now() - input.responseStartMs,
+  });
+  return attachLocalSelectionMismatch(response, input.projectRoot);
+}
 
+function buildColdStartDestructiveConfirmationBlock(
+  projectRoot: string,
+  planGate: PlanGenerationGateReady,
+  args: BootstrapInput | undefined
+): Record<string, unknown> | null {
+  const knowledgeBefore = inspectKnowledge(projectRoot);
+  return planGate.cleanupPolicy === 'full-reset'
+    ? buildBootstrapRebuildConfirmationBlock(knowledgeBefore, args)
+    : null;
+}
+
+async function runColdStartCleanup(
+  ctx: McpContext,
+  input: { dataRoot: string; planGate: PlanGenerationGateReady },
+  plan: ReturnType<typeof buildColdStartWorkflowPlan>
+) {
+  if (input.planGate.cleanupPolicy === 'none') {
+    return planGateNoCleanupResult();
+  }
   const db = ctx.container.get('database');
-  const cleanupResult = await runFullResetPolicy({
+  return runFullResetPolicy({
     projectRoot: plan.cleanup.projectRoot,
-    dataRoot,
+    dataRoot: input.dataRoot,
     db,
     logger: ctx.logger,
     createCleanupService: (policyCtx) =>
@@ -106,92 +214,103 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: Boot
         logger: policyCtx.logger,
       }),
   });
+}
 
-  const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
-    maxFiles: plan.projectAnalysis.scan.maxFiles,
-    projectRoot: plan.projectAnalysis.projectRoot,
-    source: 'codex-host-bootstrap',
-  });
-
-  // 空项目 fast-path
-  if (projectContextAnalysis.isEmpty) {
-    return presentHostAgentColdStartEmptyProject({ responseTimeMs: Date.now() - t0 });
+function buildColdStartMissionBriefingResponse(
+  ctx: McpContext,
+  input: {
+    briefingDimensions: ReturnType<typeof selectProjectContextDimensions>;
+    cleanupResult: Awaited<ReturnType<typeof runColdStartCleanup>>;
+    dataRoot: string;
+    planGate: PlanGenerationGateReady;
+    projectContextAnalysis: Awaited<ReturnType<typeof buildHostAgentProjectContextAnalysis>>;
+    projectRoot: string;
+    responseTimeMs: number;
   }
-
-  const briefingDimensions = selectProjectContextDimensions(
-    projectContextAnalysis.dimensions,
-    intent.dimensionIds
-  );
-
-  // ═══════════════════════════════════════════════════════════
-  // 构建 ProjectContext-backed Mission Briefing
-  // ═══════════════════════════════════════════════════════════
-
+): Record<string, unknown> & { message?: string } {
   const session = createProjectContextHostAgentSession({
     container: ctx.container,
-    dimensions: briefingDimensions,
-    fileCount: projectContextAnalysis.fileCount,
-    moduleCount: projectContextAnalysis.moduleCount,
-    primaryLang: projectContextAnalysis.primaryLang,
-    projectRoot,
+    dimensions: input.briefingDimensions,
+    fileCount: input.projectContextAnalysis.fileCount,
+    moduleCount: input.projectContextAnalysis.moduleCount,
+    primaryLang: input.projectContextAnalysis.primaryLang,
+    projectRoot: input.projectRoot,
   });
+  const briefing = buildColdStartMissionBriefing(ctx, input, session);
+  const response = attachPlanGenerationGateData(
+    presentHostAgentColdStartResponse({
+      cleanupResult: input.cleanupResult,
+      briefing,
+      dimensionCount: input.briefingDimensions.length,
+      responseTimeMs: input.responseTimeMs,
+    }) as Record<string, unknown> & { message?: string },
+    input.planGate
+  );
+  attachColdStartTrashMessage(response, input.cleanupResult);
+  return response;
+}
 
+function buildColdStartMissionBriefing(
+  ctx: McpContext,
+  input: {
+    briefingDimensions: ReturnType<typeof selectProjectContextDimensions>;
+    dataRoot: string;
+    projectContextAnalysis: Awaited<ReturnType<typeof buildHostAgentProjectContextAnalysis>>;
+    projectRoot: string;
+  },
+  session: ReturnType<typeof createProjectContextHostAgentSession>
+) {
   const briefing = buildProjectContextMissionBriefing({
-    activeDimensions: briefingDimensions,
-    projectContext: projectContextAnalysis.presenterInput,
+    activeDimensions: input.briefingDimensions,
+    projectContext: input.projectContextAnalysis.presenterInput,
     profile: 'cold-start-host-agent',
     session,
   });
   const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
-    dimensions: briefingDimensions,
-    options: {
-      profile: 'cold-start',
-      projectRoot,
-    },
-    projectContext: projectContextAnalysis.presenterInput,
+    dimensions: input.briefingDimensions,
+    options: { profile: 'cold-start', projectRoot: input.projectRoot },
+    projectContext: input.projectContextAnalysis.presenterInput,
   });
-  const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
-  const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(briefing, ideAgentAnalysis);
+  const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(
+    briefing,
+    buildIDEAgentAnalysisSurface(ideAgentPacket)
+  );
   const briefingWithOnboardingContract = attachColdStartOnboardingSurface({
     briefing: briefingWithIdeAgentSurface,
-    dataRoot,
-    dimensions: briefingDimensions,
-    fileCount: projectContextAnalysis.fileCount,
-    moduleCount: projectContextAnalysis.moduleCount,
-    primaryLang: projectContextAnalysis.primaryLang,
-    projectRoot,
-    projectType: projectContextAnalysis.projectType,
-    secondaryLanguages: projectContextAnalysis.secondaryLanguages,
+    dataRoot: input.dataRoot,
+    dimensions: input.briefingDimensions,
+    fileCount: input.projectContextAnalysis.fileCount,
+    moduleCount: input.projectContextAnalysis.moduleCount,
+    primaryLang: input.projectContextAnalysis.primaryLang,
+    projectRoot: input.projectRoot,
+    projectType: input.projectContextAnalysis.projectType,
+    secondaryLanguages: input.projectContextAnalysis.secondaryLanguages,
     session,
   });
-
   briefingWithOnboardingContract.meta.projectContextDirectSwitch = {
-    moduleSeedCount: projectContextAnalysis.moduleSeeds.length,
-    requestKinds: projectContextAnalysis.requestKinds,
+    moduleSeedCount: input.projectContextAnalysis.moduleSeeds.length,
+    requestKinds: input.projectContextAnalysis.requestKinds,
   };
-
   ctx.logger.info(
-    `[BootstrapHostAgent] ProjectContext Mission Briefing ready: ${projectContextAnalysis.fileCount} files, ${briefingDimensions.length} dims, ` +
-      `${briefingWithOnboardingContract.meta?.responseSizeKB || '?'}KB — session ${session.id}`
+    `[BootstrapHostAgent] ProjectContext Mission Briefing ready: ${input.projectContextAnalysis.fileCount} files, ${input.briefingDimensions.length} dims, ` +
+      `${briefingWithOnboardingContract.meta?.responseSizeKB || '?'}KB — session ${(session as { id?: string }).id}`
   );
+  return briefingWithOnboardingContract;
+}
 
-  const response = presentHostAgentColdStartResponse({
-    cleanupResult,
-    briefing: briefingWithOnboardingContract,
-    dimensionCount: briefingDimensions.length,
-    responseTimeMs: Date.now() - t0,
-  }) as Record<string, unknown> & { message?: string };
-
-  // MT1 P1 归档诚实性：销毁式重建必须在摘要里说明归档去向与工具面变化，
-  // 不允许只在结构化字段里携带。
-  if (cleanupResult.trash && cleanupResult.trash.movedItems > 0) {
-    response.message =
-      `⚠️ 原有知识已归档到 .asd/.trash/${baseName(cleanupResult.trash.folder)}/` +
-      `（${cleanupResult.trash.movedItems} 项，含 DB 快照 ${cleanupResult.trash.dbSnapshotRows} 行，可恢复）。` +
-      `知识库清空后，知识相关工具会从 tools/list 暂时隐藏，直到重建出可用知识。` +
-      `${response.message ?? ''}`;
+function attachColdStartTrashMessage(
+  response: Record<string, unknown> & { message?: string },
+  cleanupResult: Awaited<ReturnType<typeof runColdStartCleanup>>
+): void {
+  const cleanupTrash = cleanupResult.trash;
+  if (!cleanupTrash || cleanupTrash.movedItems <= 0) {
+    return;
   }
-  return attachLocalSelectionMismatch(response, projectRoot);
+  response.message =
+    `⚠️ 原有知识已归档到 .asd/.trash/${baseName(cleanupTrash.folder)}/` +
+    `（${cleanupTrash.movedItems} 项，含 DB 快照 ${cleanupTrash.dbSnapshotRows} 行，可恢复）。` +
+    `知识库清空后，知识相关工具会从 tools/list 暂时隐藏，直到重建出可用知识。` +
+    `${response.message ?? ''}`;
 }
 
 /**

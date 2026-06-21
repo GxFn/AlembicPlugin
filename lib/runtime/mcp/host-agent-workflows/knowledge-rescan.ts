@@ -35,6 +35,13 @@ import {
   selectProjectContextDimensions,
 } from '#codex/mcp/host-agent-workflows/project-context-analysis.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
+import {
+  acquirePlanGenerationLease,
+  applyPlanGateToProjectAnalysisIntent,
+  attachPlanGenerationGateData,
+  type PlanGenerationGateReady,
+  resolvePlanGenerationGate,
+} from '#recipe-generation/plan-generation-gate.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import { rebuildLocalKnowledgeIndexes } from './knowledge-index-rebuild.js';
@@ -58,21 +65,62 @@ interface ProjectContextAuditFile {
 
 export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args: RescanInput) {
   const t0 = Date.now();
-  const state = await prepareRescanState(ctx, args);
-
-  // 空项目 fast-path
-  if (state.projectContextAnalysis.isEmpty) {
-    return presentHostAgentKnowledgeRescanEmptyProject({ responseTimeMs: Date.now() - t0 });
+  const planGate = await resolvePlanGenerationGate(ctx, args, {
+    defaultStage: resolveDefaultRescanGenerationStage(args),
+    toolName: 'alembic_rescan',
+  });
+  if (!planGate.ok) {
+    return planGate.response;
+  }
+  const lease = acquirePlanGenerationLease({
+    gate: planGate.value,
+    idempotencyKey: args.rescanId,
+    toolName: 'alembic_rescan',
+  });
+  if (!lease.ok) {
+    return lease.response;
   }
 
-  return buildRescanResponse(ctx, state, Date.now() - t0);
+  try {
+    const state = await prepareRescanState(ctx, args, planGate.value);
+
+    // 空项目 fast-path
+    if (state.projectContextAnalysis.isEmpty) {
+      const response = attachPlanGenerationGateData(
+        presentHostAgentKnowledgeRescanEmptyProject({
+          responseTimeMs: Date.now() - t0,
+        }) as Record<string, unknown> & { meta?: Record<string, unknown> },
+        state.planGate
+      );
+      attachHostProjectSelectionMismatch(response, state.projectRoot);
+      return response;
+    }
+
+    return buildRescanResponse(ctx, state, Date.now() - t0);
+  } finally {
+    lease.lease.release();
+  }
 }
 
-async function prepareRescanState(ctx: McpContext, args: RescanInput) {
+async function prepareRescanState(
+  ctx: McpContext,
+  args: RescanInput,
+  planGate: PlanGenerationGateReady
+) {
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveDataRoot(ctx.container);
   const db = ctx.container.get('database');
-  const intent = createHostAgentKnowledgeRescanIntent(args);
+  const intent = createHostAgentKnowledgeRescanIntent({
+    ...args,
+    contentMaxLines: planGate.scale.contentMaxLines,
+    dimensions: planGate.dimensionIds,
+    force: planGate.cleanupPolicy === 'force-rescan',
+    maxFiles: planGate.scale.maxFiles,
+  });
+  applyPlanGateToProjectAnalysisIntent(intent, planGate);
+  intent.cleanupPolicy =
+    planGate.cleanupPolicy === 'full-reset' ? 'rescan-clean' : planGate.cleanupPolicy;
+  intent.analysisMode = planGate.cleanupPolicy === 'force-rescan' ? 'full' : 'incremental';
   const plan = buildKnowledgeRescanWorkflowPlan({ intent, projectRoot, dataRoot });
   const { cleanResult, recipeSnapshot } = await runRescanCleanup({
     dataRoot,
@@ -87,10 +135,13 @@ async function prepareRescanState(ctx: McpContext, args: RescanInput) {
     coverageByDimension: recipeSnapshot.coverageByDimension,
   });
 
-  await rebuildRescanIndexes(ctx, db);
+  if (intent.cleanupPolicy !== 'none') {
+    await rebuildRescanIndexes(ctx, db);
+  }
 
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
     maxFiles: plan.projectAnalysis.scan.maxFiles,
+    moduleScope: planGate.moduleScope,
     projectRoot: plan.projectAnalysis.projectRoot,
     source: 'codex-host-rescan',
   });
@@ -101,6 +152,7 @@ async function prepareRescanState(ctx: McpContext, args: RescanInput) {
     db,
     intent,
     plan,
+    planGate,
     projectContextAnalysis,
     projectRoot,
     recipeSnapshot,
@@ -181,9 +233,17 @@ async function buildRescanResponse(
     responseTimeMs,
   }) as Record<string, unknown> & { message?: string; meta?: Record<string, unknown> };
 
+  attachPlanGenerationGateData(response, state.planGate);
   attachTrashArchiveMessage(response, state.cleanResult);
   attachHostProjectSelectionMismatch(response, state.projectRoot);
   return response;
+}
+
+function resolveDefaultRescanGenerationStage(args: RescanInput): 'deepMining' | 'moduleMining' {
+  if (args.generationStage === 'moduleMining' || (args.moduleScope?.length ?? 0) > 0) {
+    return 'moduleMining';
+  }
+  return 'deepMining';
 }
 
 async function buildRescanPlanning(

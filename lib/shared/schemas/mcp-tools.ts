@@ -880,7 +880,16 @@ export type ProjectSkillInput = z.infer<typeof ProjectSkillInput>;
 //  11. alembic_bootstrap — 仅重建确认参数
 // ══════════════════════════════════════════════════════
 
+const GenerationScaleOverrideInput = z
+  .object({
+    maxFiles: z.number().int().min(1).max(20000).optional(),
+    contentMaxLines: z.number().int().min(1).max(2000).optional(),
+    totalRecipeBudget: z.number().int().min(1).max(500).optional(),
+  })
+  .strict();
+
 export const BootstrapInput = z.object({
+  projectRoot: z.string().min(1).max(2000).optional(),
   // MT1 P1 数据丢失门禁：可用知识库存在时，bootstrap 会把全部现有知识
   // 移入 .asd/.trash/<ts>/ 并从零重建，必须显式 rebuild:true 确认。
   rebuild: z
@@ -889,6 +898,27 @@ export const BootstrapInput = z.object({
     .describe(
       'Required confirmation when a usable knowledge base already exists: pass true to archive ALL existing knowledge to .asd/.trash/<timestamp>/ and rebuild from zero. Without it, bootstrap refuses and recommends alembic_rescan instead.'
     ),
+  generationStage: z.literal('coldStart').optional(),
+  testMode: z
+    .boolean()
+    .optional()
+    .describe(
+      'Plan-confirmed bounded test mode. Requires an active confirmed Plan, skips fullReset, and returns a small scoped Mission Briefing.'
+    ),
+  dimensions: z
+    .array(z.string().min(1).max(120))
+    .max(60)
+    .optional()
+    .describe('Optional subset of confirmed Plan dimensions for coldStart/testMode.'),
+  scaleOverride: GenerationScaleOverrideInput.optional().describe(
+    'Optional bounded scan/generation budget override after Plan confirmation.'
+  ),
+  rescanId: z
+    .string()
+    .min(1)
+    .max(240)
+    .optional()
+    .describe('Optional idempotency key for the Plan-driven generation lease.'),
 });
 export type BootstrapInput = z.infer<typeof BootstrapInput>;
 
@@ -919,6 +949,7 @@ const ProduceSessionRouteInput = z
   .passthrough();
 
 export const RescanInput = z.object({
+  projectRoot: z.string().min(1).max(2000).optional(),
   dimensions: z.array(z.string()).optional().describe('指定维度列表，空 = 全部活跃维度'),
   reason: z.string().optional().describe('触发原因（记录到报告）'),
   force: z
@@ -937,6 +968,27 @@ export const RescanInput = z.object({
     .optional()
     .describe('可选：produceSession.dimensions 的兼容顶层别名'),
   controllerAuthorized: z.boolean().optional().describe('可选：顶层 controller 授权标志'),
+  generationStage: z.enum(['deepMining', 'moduleMining']).optional(),
+  testMode: z
+    .boolean()
+    .optional()
+    .describe(
+      'Plan-confirmed bounded test mode. Requires an active confirmed Plan, uses cleanupPolicy none, and returns a small scoped Mission Briefing.'
+    ),
+  moduleScope: z
+    .array(z.string().min(1).max(2000))
+    .max(80)
+    .optional()
+    .describe('Plan-confirmed module paths for moduleMining scoped ProjectContext analysis.'),
+  scaleOverride: GenerationScaleOverrideInput.optional().describe(
+    'Optional bounded scan/generation budget override after Plan confirmation.'
+  ),
+  rescanId: z
+    .string()
+    .min(1)
+    .max(240)
+    .optional()
+    .describe('Optional idempotency key for the Plan-driven rescan/moduleMining lease.'),
 });
 export type RescanInput = z.infer<typeof RescanInput>;
 

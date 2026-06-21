@@ -23,6 +23,7 @@ import { ProjectContextCapabilities } from '@alembic/core/project-context-capabi
 interface BuildHostAgentProjectContextAnalysisInput {
   projectRoot: string;
   source: 'codex-host-bootstrap' | 'codex-host-rescan';
+  moduleScope?: readonly string[];
   maxFiles?: unknown;
   maxModuleSeeds?: number;
   maxModuleDetails?: number;
@@ -107,7 +108,7 @@ export async function buildHostAgentProjectContextAnalysis(
     }
   );
   const repoData = isRepoContext(firstRepoEnvelope.data) ? firstRepoEnvelope.data : undefined;
-  const moduleSeeds = selectProjectContextModuleSeeds(repoData, maxModuleSeeds);
+  const moduleSeeds = selectProjectContextModuleSeeds(repoData, maxModuleSeeds, input.moduleScope);
   const repoEnvelope =
     moduleSeeds.length > 0
       ? await executeProjectContextRequest('repo', input.projectRoot, input.source, {
@@ -230,11 +231,13 @@ async function executeProjectContextRequest(
 
 function selectProjectContextModuleSeeds(
   repo: RepoContext | undefined,
-  limit: number
+  limit: number,
+  moduleScope?: readonly string[]
 ): ProjectContextModuleSeed[] {
   if (!repo) {
     return [];
   }
+  const requestedScope = new Set((moduleScope ?? []).map(normalizeModulePath).filter(isPresent));
   const candidates: ProjectContextModuleSeed[] = [
     ...repo.localPackages.map((pkg) => ({
       kind: 'local-package',
@@ -265,7 +268,11 @@ function selectProjectContextModuleSeeds(
     ),
   ].filter(hasUsableSeedScope);
 
-  return dedupeModuleSeeds(candidates).slice(0, limit);
+  const scopedCandidates =
+    requestedScope.size > 0
+      ? candidates.filter((seed) => seedMatchesRequestedScope(seed, requestedScope))
+      : candidates;
+  return dedupeModuleSeeds(scopedCandidates).slice(0, limit);
 }
 
 function seedFromFileRef(
@@ -336,6 +343,28 @@ function inferProjectContextProjectType(input: ProjectContextPresenterInput): st
 
 function hasUsableSeedScope(seed: ProjectContextModuleSeed): boolean {
   return Boolean(seed.ownedFiles?.length || normalizeModulePath(seed.modulePath));
+}
+
+function seedMatchesRequestedScope(
+  seed: ProjectContextModuleSeed,
+  requestedScope: ReadonlySet<string>
+): boolean {
+  const paths = [
+    normalizeModulePath(seed.modulePath),
+    ...(seed.ownedFiles ?? []).map(normalizeModulePath),
+  ].filter(isPresent);
+  return paths.some((pathValue) =>
+    [...requestedScope].some(
+      (scope) =>
+        pathValue === scope ||
+        pathValue.startsWith(`${scope}/`) ||
+        scope.startsWith(`${pathValue}/`)
+    )
+  );
+}
+
+function isPresent(value: string | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function normalizeModulePath(value: string | undefined): string | undefined {

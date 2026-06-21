@@ -61,6 +61,17 @@ const _RescanSchema =
     dimensions: z.array(z.string()).optional(),
     reason: z.string().optional(),
     force: z.boolean().optional(),
+    generationStage: z.enum(['deepMining', 'moduleMining']).optional(),
+    testMode: z.boolean().optional(),
+    moduleScope: z.array(z.string()).optional(),
+    scaleOverride: z
+      .object({
+        maxFiles: z.number().int().positive().optional(),
+        contentMaxLines: z.number().int().positive().optional(),
+        totalRecipeBudget: z.number().int().positive().optional(),
+      })
+      .optional(),
+    rescanId: z.string().optional(),
     produceSession: z.record(z.string(), z.unknown()).optional(),
     controllerAuthorizedGaps: z.array(z.record(z.string(), z.unknown())).optional(),
     produceSessionDimensions: z.array(z.string()).optional(),
@@ -256,10 +267,11 @@ export const TOOLS = [
     name: 'alembic_bootstrap',
     tier: 'agent',
     description:
-      'Cold-start — DESTRUCTIVE on an existing knowledge base: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). On a fresh project no parameters are needed. Auto-analyzes the project (AST, dependency graph, Guard audit) and returns a Mission Briefing:\n' +
+      'Plan-driven cold-start — requires an active confirmed alembic_plan before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded Plan dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
-      '• Dimension task list (8 dimensions × 3 Tiers)\n' +
+      '• Confirmed Plan-selected dimension task list and scale\n' +
       '• ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
+      '• planGate/planState projection showing selected dimensions, gaps, cleanupPolicy, and module scope\n' +
       '• Execution plan and submission examples\n' +
       'After receiving the Briefing, complete all dimension analyses per the executionPlan.',
     inputSchema: zodToMcpSchema(BootstrapInput),
@@ -270,13 +282,15 @@ export const TOOLS = [
     name: 'alembic_rescan',
     tier: 'agent',
     description:
-      'Incremental rescan — preserves existing Recipes and re-analyzes project.\n' +
-      '• Snapshots approved Recipes → cleans derived caches → full Phase 1-4 analysis\n' +
+      'Plan-driven incremental rescan / moduleMining — requires an active confirmed alembic_plan before cleanup or generation.\n' +
+      '• deepMining snapshots approved Recipes → cleans derived caches → Plan-selected ProjectContext analysis\n' +
+      '• moduleMining or testMode uses cleanupPolicy:none and scoped ProjectContext module analysis, preserving candidates/wiki/cache\n' +
       '• Runs relevance audit (evidence check, auto-decay stale Recipes)\n' +
       '\u2022 Returns Mission Briefing with allRecipes (full content + auditHint per recipe)\n' +
       '\u2022 Includes ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
+      '\u2022 Includes planGate/planState projection with coverage gaps, selected dimensions, moduleScope, cleanupPolicy, and scale\n' +
       '\u2022 Per-dimension workflow: evolve (alembic_evolve) \u2192 gap-fill (submit_knowledge) \u2192 dimension_complete\n' +
-      '\u2022 Optional: dimensions/reason plus controller-authorized produceSession fields for session-bound ASQ publication',
+      '\u2022 Optional: dimensions/reason/generationStage/moduleScope/testMode/scaleOverride plus controller-authorized produceSession fields for session-bound ASQ publication',
     inputSchema: zodToMcpSchema(_RescanSchema),
   },
 

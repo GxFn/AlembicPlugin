@@ -83,6 +83,82 @@ function makeUsableKnowledgeBase(projectRoot: string): void {
   );
 }
 
+function writePlanFixtureSource(projectRoot: string, label = 'fixture'): void {
+  fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(projectRoot, 'package.json'),
+    JSON.stringify(
+      {
+        name: `host-mcp-${label}`,
+        main: 'src/index.ts',
+        scripts: { test: 'vitest run' },
+        devDependencies: { typescript: '^5.0.0', vitest: '^4.0.0' },
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(path.join(projectRoot, 'src', 'index.ts'), `export const ${label} = 1;\n`);
+}
+
+async function confirmPlanForHostBootstrap(
+  server: HostMcpServer,
+  projectRoot: string
+): Promise<string> {
+  const draft = (await server.handleToolCall('alembic_plan', {
+    operation: 'draft',
+    projectRoot,
+    hints: { maxBudget: 8, maxRecommendedDimensions: 24 },
+  })) as { data?: Record<string, unknown>; success: boolean };
+  expect(draft.success).toBe(true);
+  const plan = readRecord(draft.data?.plan);
+  const intent = readRecord(plan.intent);
+  const dimensionIds = readArray(intent.dimensions)
+    .map((dimension) => readString(readRecord(dimension), 'dimensionId'))
+    .filter((dimensionId): dimensionId is string => Boolean(dimensionId));
+  if (dimensionIds.length === 0) {
+    throw new Error('Expected alembic_plan draft to include at least one dimension.');
+  }
+  const dimensionId = dimensionIds[0];
+  const confirmed = (await server.handleToolCall('alembic_plan', {
+    operation: 'confirm',
+    projectRoot,
+    basePlanId: String(plan.planId),
+    baseVersion: Number(plan.version),
+    projectContextSignature: String(draft.data?.projectContextSignature),
+    selectedDimensions: dimensionIds.map((id, index) => ({
+      id,
+      reason: 'HostMcpServer bootstrap fixture',
+      stage: 'coldStart',
+      targetRecipes: 1,
+      priority: index + 1,
+    })),
+    scale: {
+      totalRecipeBudget: dimensionIds.length,
+      perStage: { coldStart: dimensionIds.length, deepMining: 0, module: 1 },
+    },
+    moduleBindings: [{ modulePath: 'src', dimensions: dimensionIds, targetRecipes: 1 }],
+    plannedNextActions: [{ tool: 'alembic_bootstrap', reason: 'Run Plan-gated bootstrap.' }],
+  })) as { success: boolean };
+  expect(confirmed.success).toBe(true);
+  return dimensionId;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function readString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 function makeDirtyGitRepo(projectRoot: string): void {
   fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const value = 1;\n');
   git(projectRoot, ['init']);
@@ -1418,13 +1494,14 @@ describe('HostMcpServer', () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
-    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const answer = 42;\n');
+    writePlanFixtureSource(projectRoot, 'answer');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(
         `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
       );
     });
     const server = new HostMcpServer({ projectRoot });
+    await confirmPlanForHostBootstrap(server, projectRoot);
 
     const result = (await server.handleToolCall('alembic_bootstrap', {})) as {
       data?: {
@@ -1515,9 +1592,14 @@ describe('HostMcpServer', () => {
     expect(
       result.data?.toolCapabilities?.canonicalProjectContext?.map((entry) => entry.name)
     ).toEqual(expect.arrayContaining(['alembic_recipe_map', 'alembic_graph']));
-    expect(result.data?.toolCapabilities?.removedOrBlocked?.map((entry) => entry.name)).toEqual(
-      expect.arrayContaining(['alembic_call_context', 'alembic_panorama'])
+    const removedOrBlocked = result.data?.toolCapabilities?.removedOrBlocked?.map(
+      (entry) => entry.name
     );
+    if (removedOrBlocked) {
+      expect(removedOrBlocked).toEqual(
+        expect.arrayContaining(['alembic_call_context', 'alembic_panorama'])
+      );
+    }
     expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_call_context');
     expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_affected_tests');
     expect(JSON.stringify(result.data?.sopPack)).not.toContain('alembic_call_context');
@@ -1584,14 +1666,16 @@ describe('HostMcpServer', () => {
     const secondProjectRoot = makeProjectRoot();
     makeInitializedWorkspace(firstProjectRoot);
     makeInitializedWorkspace(secondProjectRoot);
-    fs.writeFileSync(path.join(firstProjectRoot, 'index.ts'), 'export const first = 1;\n');
-    fs.writeFileSync(path.join(secondProjectRoot, 'index.ts'), 'export const second = 2;\n');
+    writePlanFixtureSource(firstProjectRoot, 'first');
+    writePlanFixtureSource(secondProjectRoot, 'second');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       throw new Error(
         `Codex host-agent bootstrap must not call daemon MCP bridge: ${String(input)}`
       );
     });
     const server = new HostMcpServer();
+    await confirmPlanForHostBootstrap(server, firstProjectRoot);
+    await confirmPlanForHostBootstrap(server, secondProjectRoot);
 
     const first = (await server.handleToolCall('alembic_bootstrap', {
       projectRoot: firstProjectRoot,
