@@ -203,6 +203,92 @@ describe('Git diff checkpoint', () => {
     ]);
   });
 
+  test('scanner uses deterministic HEAD range diff with rename and copy detection', async () => {
+    const execGit = createExecGitStub({
+      currentHead: 'b',
+      headDiff: 'R100\tsrc/old.ts\tsrc/new.ts\nC100\tsrc/base.ts\tsrc/copy.ts\n',
+      mergeBase: 'a',
+    });
+    const scanner = new GitDiffScanner({ execGit, projectRoot: '/repo' });
+
+    const result = await scanner.scanOnce(1_000, { previousHead: 'a' });
+
+    expect(execGit).toHaveBeenCalledWith(
+      ['diff', '--name-status', '-M90%', '-C90%', 'a..b'],
+      '/repo'
+    );
+    expect(result).toMatchObject({
+      dirtyPathCount: 2,
+      headChanged: true,
+      headRangeStatus: 'ancestor',
+      truncated: false,
+    });
+    expect(result.events).toEqual([
+      {
+        eventSource: 'git-head',
+        oldPath: 'src/old.ts',
+        path: 'src/new.ts',
+        type: 'renamed',
+      },
+      {
+        eventSource: 'git-head',
+        oldPath: 'src/base.ts',
+        path: 'src/copy.ts',
+        type: 'created',
+      },
+    ]);
+  });
+
+  test('scanner stops HEAD range dispatch when merge-base is not the previous checkpoint', async () => {
+    const scanner = new GitDiffScanner({
+      execGit: createExecGitStub({
+        currentHead: 'b',
+        headDiff: 'A\tsrc/committed.ts\n',
+        mergeBase: 'base',
+      }),
+      projectRoot: '/repo',
+    });
+
+    const result = await scanner.scanOnce(1_000, { previousHead: 'a' });
+
+    expect(result).toMatchObject({
+      dirtyPathCount: 0,
+      fallbackReason: 'merge-base-catch-up-required',
+      headChanged: true,
+      headRangeStatus: 'non-ancestor',
+      range: { from: 'a', to: 'b' },
+    });
+    expect(result.events).toEqual([]);
+  });
+
+  test('scanner applies scale guard before dispatching oversized diff batches', async () => {
+    const scanner = new GitDiffScanner({
+      execGit: createExecGitStub({
+        currentHead: 'b',
+        headDiff: 'A\tsrc/a.ts\nA\tsrc/b.ts\n',
+        mergeBase: 'a',
+      }),
+      maxEvents: 1,
+      projectRoot: '/repo',
+    });
+
+    const result = await scanner.scanOnce(1_000, { previousHead: 'a' });
+
+    expect(result).toMatchObject({
+      dirtyPathCount: 2,
+      fallbackReason: 'scale-guard:2>1',
+      maxEvents: 1,
+      truncated: true,
+    });
+    expect(result.events).toEqual([
+      {
+        eventSource: 'git-head',
+        path: 'src/a.ts',
+        type: 'created',
+      },
+    ]);
+  });
+
   test('scanner exposes git unavailable status for non-worktrees', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'alembic-git-diff-nongit-'));
     tempDirs.push(dir);
@@ -255,6 +341,29 @@ function createRepo(): string {
 
 function git(cwd: string, args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'ignore' });
+}
+
+function createExecGitStub(input: {
+  currentHead: string;
+  headDiff: string;
+  mergeBase: string;
+}): (args: string[], cwd: string) => Promise<string> {
+  return vi.fn(async (args: string[]) => {
+    const key = args.join(' ');
+    if (key === 'rev-parse --is-inside-work-tree') {
+      return 'true\n';
+    }
+    if (key === 'rev-parse HEAD') {
+      return `${input.currentHead}\n`;
+    }
+    if (key === `merge-base a ${input.currentHead}`) {
+      return `${input.mergeBase}\n`;
+    }
+    if (key === `diff --name-status -M90% -C90% a..${input.currentHead}`) {
+      return input.headDiff;
+    }
+    return '';
+  }) as (args: string[], cwd: string) => Promise<string>;
 }
 
 function makeReport(eventsSource: ReactiveEvolutionReport['eventSource']): ReactiveEvolutionReport {

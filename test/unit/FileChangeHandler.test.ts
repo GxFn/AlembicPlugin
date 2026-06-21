@@ -1,4 +1,4 @@
-import type { FileChangeEvent, ImpactLevel } from '@alembic/core/types';
+import type { FileChangeEvent } from '@alembic/core/types';
 import { vi } from 'vitest';
 import { FileChangeHandler } from '../../lib/service/evolution/FileChangeHandler.js';
 
@@ -26,6 +26,7 @@ function mockSourceRefRepo() {
       _refs.filter((r) => r.sourcePath === path && r.status === 'active')
     ),
     findByRecipeId: vi.fn((id: string) => _refs.filter((r) => r.recipeId === id)),
+    findAll: vi.fn(() => _refs),
     upsert: vi.fn(),
     replaceSourcePath: vi.fn(),
     _seed(recipeId: string, sourcePath: string, status = 'active') {
@@ -311,14 +312,34 @@ describe('FileChangeHandler', () => {
       expect(report.suggestReview).toBe(true);
     });
 
-    test('仅 skip/created → suggestReview=false', async () => {
-      const { handler } = createHandler();
+    test('created 新模块 → 建议 module-mining，不写 Plan', async () => {
+      const { handler, signalBus } = createHandler();
 
       const report = await handler.handleFileChanges([
         { type: 'created', path: 'Sources/New.swift' },
       ]);
 
-      expect(report.suggestReview).toBe(false);
+      expect(report.suggestReview).toBe(true);
+      expect(report.classificationCounts.newModuleRecommendations).toBe(1);
+      expect(report.recommendations[0]).toMatchObject({
+        path: 'Sources/New.swift',
+        nextActions: expect.arrayContaining(['alembic_plan get']),
+      });
+      expect(report.planBoundary).toEqual({
+        generationStateWrites: 0,
+        planIntentWrites: 0,
+        projectedFromExistingDbSources: true,
+      });
+      expect(signalBus.send).toHaveBeenCalledWith(
+        'quality',
+        'PluginUnifiedEvolution',
+        0.6,
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            reason: 'new-module-scope-recommendation',
+          }),
+        })
+      );
     });
   });
 
@@ -339,9 +360,10 @@ describe('FileChangeHandler', () => {
         expect.objectContaining({
           recipeId: 'r1',
           action: 'deprecate',
-          confidence: 0.9,
+          confidence: 0.79,
         })
       );
+      expect(gateway.submit.mock.calls[0]?.[0].confidence).toBeLessThan(0.8);
     });
 
     test('还有其他 active ref → 仅标记 stale', async () => {
@@ -378,6 +400,58 @@ describe('FileChangeHandler', () => {
         'Sources/Old.swift',
         'Sources/New.swift',
         expect.any(Number)
+      );
+    });
+
+    test('低置信 rename → 指针修复 + update proposal', async () => {
+      const { handler, sourceRefRepo, knowledgeRepo, gateway } = createHandler();
+      sourceRefRepo._seed('r1', 'Sources/Old.swift');
+      knowledgeRepo._seed('r1', { title: 'Renamed Recipe', coreCode: '' });
+
+      const report = await handler.handleFileChanges([
+        {
+          type: 'renamed',
+          path: 'Sources/New.swift',
+          oldPath: 'Sources/Old.swift',
+          similarity: 0.5,
+        } as FileChangeEvent,
+      ]);
+
+      expect(report.fixed).toBe(1);
+      expect(report.needsReview).toBe(1);
+      expect(report.classificationCounts.repaired).toBe(1);
+      expect(report.classificationCounts.proposed).toBe(1);
+      expect(sourceRefRepo.replaceSourcePath).toHaveBeenCalledWith(
+        'r1',
+        'Sources/Old.swift',
+        'Sources/New.swift',
+        expect.any(Number)
+      );
+      expect(gateway.submit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipeId: 'r1',
+          action: 'update',
+          source: 'file-change',
+        })
+      );
+    });
+
+    test('已覆盖模块的 created 文件 → 不触发新模块建议', async () => {
+      const { handler, sourceRefRepo, signalBus } = createHandler();
+      sourceRefRepo._seed('r1', 'Sources/Core/Existing.swift');
+
+      const report = await handler.handleFileChanges([
+        { type: 'created', path: 'Sources/Core/New.swift' },
+      ]);
+
+      expect(report.suggestReview).toBe(false);
+      expect(report.classificationCounts.coveredCreated).toBe(1);
+      expect(report.classificationCounts.newModuleRecommendations).toBe(0);
+      expect(signalBus.send).not.toHaveBeenCalledWith(
+        'quality',
+        'PluginUnifiedEvolution',
+        expect.any(Number),
+        expect.any(Object)
       );
     });
   });

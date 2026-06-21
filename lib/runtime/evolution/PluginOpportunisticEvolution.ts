@@ -1,3 +1,4 @@
+import type { UnifiedEvolutionReport } from '#service/evolution/FileChangeHandler.js';
 import type {
   GitDiffScanner,
   GitDiffScanResult,
@@ -8,6 +9,7 @@ type GitDiffScannerLike = Pick<GitDiffScanner, 'scanOnce'>;
 export type PluginOpportunisticEvolutionVerdict =
   | 'defer-to-alembic-service'
   | 'no-op'
+  | 'routed'
   | 'strong-proposal'
   | 'weak-hint';
 
@@ -45,10 +47,19 @@ export interface PluginOpportunisticEvolutionSurface {
       path: string;
       type: string;
     }>;
+    fallbackReason?: string;
     head: string | null;
+    headChanged: boolean;
+    headRangeStatus: string;
+    previousHead: string | null;
+    range?: {
+      from: string;
+      to: string;
+    };
     scanned: boolean;
     scannedAt: string;
     signature: string | null;
+    truncated: boolean;
   };
   hint?: {
     message: string;
@@ -67,6 +78,21 @@ export interface PluginOpportunisticEvolutionSurface {
     toolOutcome: PluginOpportunisticEvolutionToolOutcome;
   };
   serviceGate: PluginOpportunisticEvolutionServiceGate;
+  trigger: {
+    tool: string | null;
+    reason: string;
+  };
+  unifiedEvolution?: {
+    classificationCounts: UnifiedEvolutionReport['classificationCounts'];
+    deprecated: number;
+    fixed: number;
+    freshness?: UnifiedEvolutionReport['freshness'];
+    needsReview: number;
+    planBoundary: UnifiedEvolutionReport['planBoundary'];
+    recommendations: UnifiedEvolutionReport['recommendations'];
+    skipped: number;
+    suggestReview: boolean;
+  };
 }
 
 export interface BuildPluginOpportunisticEvolutionSurfaceInput {
@@ -76,6 +102,7 @@ export interface BuildPluginOpportunisticEvolutionSurfaceInput {
   scan?: GitDiffScanResult;
   serviceGate: PluginOpportunisticEvolutionServiceGate;
   toolOutcome?: PluginOpportunisticEvolutionToolOutcome;
+  unifiedEvolution?: UnifiedEvolutionReport | null;
 }
 
 export async function buildPluginOpportunisticEvolutionSurface(
@@ -88,15 +115,25 @@ export async function buildPluginOpportunisticEvolutionSurface(
       separatedFrom: 'daemon-file-change' as const,
     },
     serviceGate: input.serviceGate,
+    trigger: {
+      tool: input.toolOutcome?.tool ?? null,
+      reason: 'commit-driven-unified-evolution',
+    },
   };
 
-  if (input.serviceGate.mainServiceCanHandleProjectScope) {
+  const scan = filterScanToTaskScopedFiles(
+    input.scan ?? (await input.scanner?.scanOnce()),
+    input.guardDecision?.taskScopedFiles
+  );
+
+  if (input.serviceGate.mainServiceCanHandleProjectScope && !scan?.headChanged) {
     return {
       ...base,
+      ...(scan ? { gitDiffEvidence: projectGitDiffEvidence(scan) } : {}),
       evidenceGate: {
         verdict: 'defer-to-alembic-service',
         reasons: [
-          'Alembic resident service can handle the current project scope; Plugin fallback is a no-op.',
+          'Alembic resident service can handle the current project scope and no HEAD range changed; Plugin fallback is a no-op.',
         ],
       },
     };
@@ -114,10 +151,6 @@ export async function buildPluginOpportunisticEvolutionSurface(
     };
   }
 
-  const scan = filterScanToTaskScopedFiles(
-    input.scan ?? (await input.scanner?.scanOnce()),
-    input.guardDecision?.taskScopedFiles
-  );
   if (!scan || !scan.scanned || scan.events.length === 0) {
     return {
       ...base,
@@ -126,7 +159,9 @@ export async function buildPluginOpportunisticEvolutionSurface(
         reasons: [
           scan?.scanned === false
             ? 'Git diff evidence is unavailable; Plugin fallback will not infer knowledge changes.'
-            : 'No git diff evidence was found; Plugin fallback has nothing to surface.',
+            : scan?.fallbackReason
+              ? `Git diff evidence produced no dispatchable events (${scan.fallbackReason}).`
+              : 'No git diff evidence was found; Plugin fallback has nothing to surface.',
         ],
       },
       ...(scan ? { gitDiffEvidence: projectGitDiffEvidence(scan) } : {}),
@@ -144,6 +179,19 @@ export async function buildPluginOpportunisticEvolutionSurface(
       ? `tool outcome available from ${input.toolOutcome?.tool}`
       : 'tool outcome evidence is missing or unsuccessful',
   ];
+
+  if (scan.fallbackReason) {
+    reasons.push(`fallback reason: ${scan.fallbackReason}`);
+  }
+
+  if (input.unifiedEvolution) {
+    return {
+      ...base,
+      evidenceGate: { verdict: 'routed', reasons },
+      gitDiffEvidence: projectGitDiffEvidence(scan),
+      unifiedEvolution: summarizeUnifiedEvolution(input.unifiedEvolution),
+    };
+  }
 
   if (hasProjectScope && hasFileEvidence && hasToolOutcome && input.toolOutcome) {
     return {
@@ -178,8 +226,22 @@ export function shouldAttachPluginOpportunisticEvolution(input: {
   args: Record<string, unknown>;
   toolName: string;
 }): boolean {
-  return input.toolName === 'alembic_task' && input.args.operation === 'close';
+  void input.args;
+  return COMMIT_DRIVEN_TRIGGER_TOOLS.has(input.toolName);
 }
+
+const COMMIT_DRIVEN_TRIGGER_TOOLS = new Set([
+  'alembic_bootstrap',
+  'alembic_code_guard',
+  'alembic_consolidate',
+  'alembic_dimension_complete',
+  'alembic_evolve',
+  'alembic_knowledge_lifecycle',
+  'alembic_plan',
+  'alembic_rescan',
+  'alembic_submit_knowledge',
+  'alembic_work',
+]);
 
 export function extractTaskCloseGuardDecision(
   result: unknown
@@ -227,6 +289,20 @@ export function extractTaskCloseOutcome(
   };
 }
 
+export function extractPluginToolOutcome(
+  toolName: string,
+  result: unknown
+): PluginOpportunisticEvolutionToolOutcome | null {
+  if (!isRecord(result) || result.success === false) {
+    return null;
+  }
+  return {
+    tool: toolName,
+    success: true,
+    reason: typeof result.message === 'string' ? result.message : null,
+  };
+}
+
 function filterScanToTaskScopedFiles(
   scan: GitDiffScanResult | undefined,
   taskScopedFiles: string[] | undefined
@@ -255,10 +331,32 @@ function projectGitDiffEvidence(
       path: event.path,
       type: event.type,
     })),
+    ...(scan.fallbackReason ? { fallbackReason: scan.fallbackReason } : {}),
     head: scan.head,
+    headChanged: scan.headChanged,
+    headRangeStatus: scan.headRangeStatus,
+    previousHead: scan.previousHead,
+    ...(scan.range ? { range: scan.range } : {}),
     scanned: scan.scanned,
     scannedAt: scan.scannedAt,
     signature: scan.signature,
+    truncated: scan.truncated,
+  };
+}
+
+function summarizeUnifiedEvolution(
+  report: UnifiedEvolutionReport
+): NonNullable<PluginOpportunisticEvolutionSurface['unifiedEvolution']> {
+  return {
+    classificationCounts: report.classificationCounts,
+    deprecated: report.deprecated,
+    fixed: report.fixed,
+    ...(report.freshness ? { freshness: report.freshness } : {}),
+    needsReview: report.needsReview,
+    planBoundary: report.planBoundary,
+    recommendations: report.recommendations,
+    skipped: report.skipped,
+    suggestReview: report.suggestReview,
   };
 }
 

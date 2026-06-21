@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildPluginOpportunisticEvolutionSurface,
+  extractPluginToolOutcome,
   extractTaskCloseOutcome,
   shouldAttachPluginOpportunisticEvolution,
 } from '../../lib/runtime/evolution/PluginOpportunisticEvolution.js';
@@ -14,7 +15,6 @@ const fallbackGate = {
 
 function makeScan(overrides: Partial<GitDiffScanResult> = {}): GitDiffScanResult {
   return {
-    changed: true,
     dirtyPathCount: 1,
     events: [
       {
@@ -25,9 +25,13 @@ function makeScan(overrides: Partial<GitDiffScanResult> = {}): GitDiffScanResult
     ],
     head: 'abc123',
     headChanged: false,
+    headRangeStatus: 'none',
+    maxEvents: 200,
+    previousHead: null,
     scanned: true,
     scannedAt: '2026-05-31T10:00:00.000Z',
     signature: 'sig',
+    truncated: false,
     ...overrides,
   };
 }
@@ -51,7 +55,7 @@ describe('Plugin opportunistic evolution surface', () => {
       toolOutcome: { success: true, tool: 'alembic_task' },
     });
 
-    expect(scanned).toBe(false);
+    expect(scanned).toBe(true);
     expect(surface.evidenceGate.verdict).toBe('defer-to-alembic-service');
     expect(surface.producerBoundary.producerKind).toBe('plugin-opportunistic');
   });
@@ -110,10 +114,16 @@ describe('Plugin opportunistic evolution surface', () => {
         toolName: 'alembic_task',
         args: { operation: 'close' },
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldAttachPluginOpportunisticEvolution({
         toolName: 'alembic_code_guard',
+        args: {},
+      })
+    ).toBe(true);
+    expect(
+      shouldAttachPluginOpportunisticEvolution({
+        toolName: 'alembic_search',
         args: {},
       })
     ).toBe(false);
@@ -123,6 +133,64 @@ describe('Plugin opportunistic evolution surface', () => {
         data: { closed: { id: 'task-1', reason: 'done' } },
       })
     ).toMatchObject({ taskId: 'task-1', reason: 'done' });
+    expect(
+      extractPluginToolOutcome('alembic_code_guard', { success: true, message: 'ok' })
+    ).toEqual({
+      reason: 'ok',
+      success: true,
+      tool: 'alembic_code_guard',
+    });
     expect(extractTaskCloseOutcome({ success: false })).toBeNull();
+  });
+
+  it('returns routed surface when unified evolution handled git diff events', async () => {
+    const surface = await buildPluginOpportunisticEvolutionSurface({
+      projectRoot: '/repo',
+      scan: makeScan(),
+      serviceGate: fallbackGate,
+      toolOutcome: {
+        success: true,
+        tool: 'alembic_code_guard',
+        reason: 'guard completed',
+      },
+      unifiedEvolution: {
+        classificationCounts: {
+          coveredCreated: 0,
+          created: 0,
+          deleted: 0,
+          deprecationProposals: 0,
+          modified: 1,
+          newModuleRecommendations: 0,
+          proposed: 1,
+          renamed: 0,
+          repaired: 0,
+          skipped: 0,
+        },
+        deprecated: 0,
+        details: [],
+        fixed: 0,
+        needsReview: 1,
+        planBoundary: {
+          generationStateWrites: 0,
+          planIntentWrites: 0,
+          projectedFromExistingDbSources: true,
+        },
+        recommendations: [],
+        skipped: 0,
+        suggestReview: true,
+      },
+    });
+
+    expect(surface.evidenceGate.verdict).toBe('routed');
+    expect(surface.unifiedEvolution).toMatchObject({
+      classificationCounts: { modified: 1, proposed: 1 },
+      needsReview: 1,
+      planBoundary: {
+        generationStateWrites: 0,
+        planIntentWrites: 0,
+        projectedFromExistingDbSources: true,
+      },
+    });
+    expect(surface.proposal).toBeUndefined();
   });
 });

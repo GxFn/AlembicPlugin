@@ -1,3 +1,8 @@
+export {
+  type GitDiffCheckpointResult,
+  GitDiffCheckpointService,
+  type GitDiffCheckpointServiceOptions,
+} from './GitDiffCheckpointService.js';
 export type {
   GitDiffCheckpointError,
   GitDiffCheckpointErrorCode,
