@@ -18,6 +18,7 @@ const expectedCoreToolNames = [
   'alembic_knowledge',
   'alembic_structure',
   'alembic_call_context',
+  'alembic_plan',
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -233,6 +234,12 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
       return { summary: { targetCount: 1 }, targets: [{ name: 'App' }] };
     case 'alembic_call_context':
       return { callers: [], callees: [], methodName: 'run' };
+    case 'alembic_plan':
+      return {
+        operation: 'get',
+        plan: { planId: 'plan-1', version: 1 },
+        planState: { coverage: { gaps: [] } },
+      };
     case 'alembic_submit_knowledge':
       return { count: 1, ids: ['recipe-1'], total: 1 };
     case 'alembic_project_skill':

@@ -737,6 +737,115 @@ export const SubmitKnowledgeInput = z.object({
 export type SubmitKnowledgeInput = z.infer<typeof SubmitKnowledgeInput>;
 
 // ══════════════════════════════════════════════════════
+//  9. alembic_plan — Plan draft / confirm / get
+// ══════════════════════════════════════════════════════
+
+const PlanStageIdInput = z.enum(['coldStart', 'deepMining', 'moduleMining']);
+
+const PlanSelectedDimensionInput = z
+  .object({
+    id: z.string().min(1).max(120).optional().describe('Dimension id alias.'),
+    dimensionId: z.string().min(1).max(120).optional().describe('Canonical dimension id.'),
+    decided: z
+      .boolean()
+      .optional()
+      .describe('false skips this dimension when confirming the Plan.'),
+    priority: z.number().int().min(1).max(100).optional(),
+    reason: z.string().min(1).max(1000).optional(),
+    rationale: z.string().min(1).max(1000).optional(),
+    stage: PlanStageIdInput.optional(),
+    targetRecipes: z.number().int().min(0).max(500).optional(),
+    tier: z.string().min(1).max(80).optional().describe('Optional Agent-facing tier label.'),
+  })
+  .strict();
+
+const PlanScaleInput = z
+  .object({
+    totalRecipeBudget: z.number().int().min(1).max(500).optional(),
+    budgetLevel: z.enum(['focused', 'standard', 'expanded']).optional(),
+    scale: z.enum(['small', 'medium', 'large', 'very-large']).optional(),
+    depthLevels: z.array(z.string().min(1).max(80)).max(12).optional(),
+    perStage: z
+      .object({
+        coldStart: z.number().int().min(0).max(500).optional(),
+        deepMining: z.number().int().min(0).max(500).optional(),
+        module: z.number().int().min(0).max(500).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const PlanModuleBindingInput = z
+  .object({
+    modulePath: z.string().min(1).max(2000),
+    moduleId: z.string().min(1).max(240).optional(),
+    dimensions: z.array(z.string().min(1).max(120)).max(60).optional(),
+    targetRecipes: z.number().int().min(0).max(500).optional(),
+    priority: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
+const PlanNextActionInput = z
+  .object({
+    tool: z.string().min(1).max(160),
+    reason: z.string().min(1).max(1000),
+    order: z.number().int().min(1).max(100).optional(),
+    dimensionIds: z.array(z.string().min(1).max(120)).max(60).optional(),
+    modulePaths: z.array(z.string().min(1).max(2000)).max(60).optional(),
+  })
+  .strict();
+
+export const PlanInput = z.object({
+  operation: z
+    .enum(['draft', 'confirm', 'get'])
+    .describe(
+      'draft=collect real project planning signals and persist a draft Plan | confirm=confirm a draft Plan intent | get=read active confirmed Plan plus projected generation state'
+    ),
+  projectRoot: z.string().min(1).max(2000).optional(),
+  hints: z
+    .object({
+      focusModules: z.array(z.string().min(1).max(2000)).max(40).optional(),
+      goal: z.string().min(1).max(2000).optional(),
+      maxBudget: z.number().int().min(1).max(500).optional(),
+      maxRecommendedDimensions: z.number().int().min(1).max(24).optional(),
+    })
+    .strict()
+    .optional()
+    .describe(
+      'draft-only optional planning hints; real ProjectContext and Core signals remain authoritative.'
+    ),
+  basePlanId: z.string().min(1).max(200).optional().describe('confirm-only draft Plan id.'),
+  planId: z.string().min(1).max(200).optional().describe('confirm/get Plan id.'),
+  baseVersion: z.number().int().min(1).optional().describe('confirm-only draft Plan version.'),
+  version: z.number().int().min(1).optional().describe('confirm/get Plan version.'),
+  projectContextSignature: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('Signature returned by draft; confirm rejects mismatches.'),
+  selectedDimensions: z.array(PlanSelectedDimensionInput).max(80).optional(),
+  scale: PlanScaleInput.optional(),
+  moduleBindings: z.array(PlanModuleBindingInput).max(80).optional(),
+  plannedNextActions: z.array(PlanNextActionInput).max(80).optional(),
+  rationale: z
+    .union([z.string().min(1).max(4000), z.array(z.string().min(1).max(1000))])
+    .optional(),
+  allowSignatureMismatch: z
+    .boolean()
+    .default(false)
+    .describe(
+      'confirm-only escape hatch for controller-reviewed stale ProjectContext; default false.'
+    ),
+  allowStaleVersion: z
+    .boolean()
+    .default(false)
+    .describe('confirm-only escape hatch when a newer draft version exists; default false.'),
+});
+export type PlanInput = z.infer<typeof PlanInput>;
+
+// ══════════════════════════════════════════════════════
 //  10. alembic_project_skill
 // ══════════════════════════════════════════════════════
 
@@ -1045,6 +1154,7 @@ const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_status: StatusInput,
   alembic_search: SearchInput,
   alembic_graph: GraphInput,
+  alembic_plan: PlanInput,
   alembic_submit_knowledge: SubmitKnowledgeInput,
   alembic_project_skill: ProjectSkillInput,
   alembic_bootstrap: BootstrapInput,

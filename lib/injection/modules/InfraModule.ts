@@ -146,6 +146,10 @@ function registerRepositories(c: ServiceContainer) {
   c.singleton('recipeSourceRefRepository', (ct: ServiceContainer) => {
     return getCoreRepositories(ct).recipeSourceRefRepository;
   });
+
+  c.singleton('planRepository', (ct: ServiceContainer) => {
+    return getCoreRepositories(ct).planRepository;
+  });
 }
 
 function registerKnowledgeSync(c: ServiceContainer) {

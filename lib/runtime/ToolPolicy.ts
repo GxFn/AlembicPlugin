@@ -90,6 +90,7 @@ export const PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
 export const HOST_AGENT_WORKFLOW_TOOL_NAMES = new Set([
   'alembic_bootstrap',
   'alembic_rescan',
+  'alembic_plan',
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
 ]);

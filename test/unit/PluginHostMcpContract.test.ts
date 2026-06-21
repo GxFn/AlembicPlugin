@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/local-tools/output.js';
 import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
 import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
 import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
 import { RECIPE_MAP_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/recipe-map-output.js';
 import { SEARCH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/search-output.js';
+import { LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/local-tools/output.js';
 import {
   getMcpOutputProjector,
   withMcpOutputSchema,
@@ -153,11 +153,11 @@ describe('Plugin host MCP D4 contract', () => {
       'runtime-health.unavailable',
       'workflow.unavailable',
     ]);
-    // PDR-3: removing alembic_dashboard drops active/clean-output tool counts by one
-    // (19 -> 18) and the resident-route tool count by one (8 -> 7).
+    // RG-3: alembic_plan adds one active/clean-output tool; alembic_dashboard
+    // remains removed, so resident-route count stays at seven.
     expect(summarizePluginHostMcpContracts()).toMatchObject({
-      activeToolCount: 18,
-      cleanOutputToolCount: 18,
+      activeToolCount: 19,
+      cleanOutputToolCount: 19,
       d24ConsumerReplayScenarioCount: 4,
       providerReplayFixtureCount: 18,
       residentRouteToolCount: 7,

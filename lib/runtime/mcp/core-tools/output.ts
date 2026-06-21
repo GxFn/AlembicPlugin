@@ -12,6 +12,7 @@ export const CORE_CLEAN_OUTPUT_TOOL_NAMES = [
   'alembic_knowledge',
   'alembic_structure',
   'alembic_call_context',
+  'alembic_plan',
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -215,6 +216,21 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'results',
     'staging',
     'suggestions',
+  ],
+  alembic_plan: [
+    'currentProjectContextSignature',
+    'nextActions',
+    'operation',
+    'plan',
+    'planDiagnostics',
+    'planState',
+    'planView',
+    'planningBrief',
+    'projectContextSignature',
+    'projectRoot',
+    'signature',
+    'sourceReports',
+    'warnings',
   ],
   alembic_project_skill: [
     'businessError',
@@ -577,6 +593,8 @@ function buildCoreToolSummary(
       return 'Structure request completed.';
     case 'alembic_call_context':
       return 'Call context request completed.';
+    case 'alembic_plan':
+      return 'Plan request completed.';
     case 'alembic_submit_knowledge':
       return `Knowledge submission processed ${numberField(input.business.count)} item(s).`;
     case 'alembic_project_skill':

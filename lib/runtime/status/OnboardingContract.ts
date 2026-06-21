@@ -15,6 +15,7 @@ const KNOWLEDGE_AND_RECIPE_TOOLS = [
   'alembic_prime',
   'alembic_search',
   'alembic_graph',
+  'alembic_plan',
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
 ] as const;

@@ -1,5 +1,5 @@
 /**
- * MCP Tool Definitions — V3 Routed Surface (18 agent + 1 admin = 19 tools)
+ * MCP Tool Definitions — V3 Routed Surface (19 agent + 1 admin = 20 tools)
  *
  * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
@@ -26,6 +26,7 @@ import {
   EvolveInput,
   GraphInput,
   KnowledgeLifecycleInput,
+  PlanInput,
   PrimeInput,
   ProjectSkillInput,
   RecipeMapInput,
@@ -121,7 +122,7 @@ const CODE_GUARD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_code_g
 
 export const TOOLS = [
   // ══════════════════════════════════════════════════════
-  //  Tier: agent — Core Agent Toolset (18)
+  //  Tier: agent — Core Agent Toolset (19)
   // ══════════════════════════════════════════════════════
 
   // Agent-facing public workflow tools
@@ -206,6 +207,18 @@ export const TOOLS = [
   },
 
   // Submit Knowledge (Unified Pipeline)
+  {
+    name: 'alembic_plan',
+    tier: 'agent',
+    description:
+      'Plan Alembic Recipe generation before cold-start/deep/module mining.\n' +
+      '• draft — collect real ProjectContext, architecture/dimension/dynamic signals, Mission Briefing, and tool capability context; persist a Core Plan draft and return planId/version/projectContextSignature for Agent review\n' +
+      '• confirm — confirm the draft Plan intent with selectedDimensions, scale/budget, moduleBindings, plannedNextActions, and rationale; rejects stale version/signature mismatches unless explicitly overridden\n' +
+      '• get — read the active confirmed Plan plus read-time Core generation-state projection: codeRecipeMapping, coverage, gaps, proposals, change log, and signature comparison\n' +
+      'Non-goal: does not start generation, bootstrap, rescan, vector jobs, or any RG-4 gate; Plan state is stored only in Core plans ledger.',
+    inputSchema: zodToMcpSchema(PlanInput),
+  },
+
   {
     name: 'alembic_submit_knowledge',
     tier: 'agent',

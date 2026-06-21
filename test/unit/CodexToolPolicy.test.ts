@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
+  type HostKnowledgeState,
   LOCAL_TOOLS,
   PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
-  type HostKnowledgeState,
   resolveToolPolicy,
 } from '../../lib/runtime/index.js';
 import {
@@ -15,6 +15,7 @@ const tierOrder = { agent: 0, admin: 1 };
 const hostWorkflowToolNames = [
   'alembic_bootstrap',
   'alembic_rescan',
+  'alembic_plan',
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
 ];
@@ -90,10 +91,7 @@ describe('Codex tool policy', () => {
     // MTC-4: alembic_status is a cross-server tool present in both LOCAL_TOOLS
     // and TOOLS, so the catalog lists it once — dedup the union before comparing.
     const visibleSurfaceNames = [
-      ...new Set([
-        ...LOCAL_TOOLS.map((tool) => tool.name),
-        ...TOOLS.map((tool) => tool.name),
-      ]),
+      ...new Set([...LOCAL_TOOLS.map((tool) => tool.name), ...TOOLS.map((tool) => tool.name)]),
     ].sort();
 
     expect(catalogNames).toEqual(visibleSurfaceNames);
@@ -154,9 +152,7 @@ describe('Codex tool policy', () => {
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_task');
     // MTC-4: alembic_status is the merged cross-server tool; it must appear exactly
     // once (served via the cold-start local surface, deduped from the core surface).
-    expect(
-      result.visibleTools.filter((tool) => tool.name === 'alembic_status')
-    ).toHaveLength(1);
+    expect(result.visibleTools.filter((tool) => tool.name === 'alembic_status')).toHaveLength(1);
   });
 
   test('exposes resident-backed ProjectScope tools when resident is connected but knowledge is empty', () => {

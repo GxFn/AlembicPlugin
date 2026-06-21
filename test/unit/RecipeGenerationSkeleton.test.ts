@@ -11,7 +11,7 @@ import { listPluginToolSurfaceCatalog } from '../../lib/runtime/mcp/PluginToolSu
 import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
-const futurePlanToolName = 'alembic_plan';
+const planToolName = 'alembic_plan';
 
 function sorted(values: Iterable<string>): string[] {
   return [...values].sort();
@@ -79,14 +79,14 @@ describe('RG-0 recipe generation skeleton', () => {
     });
   });
 
-  test('does not publish the future alembic_plan tool through any current MCP surface', () => {
+  test('publishes the RG-3 alembic_plan tool while preserving the RG-0 historical boundary record', () => {
     const toolNames = new Set(TOOLS.map((tool) => tool.name));
     const catalogNames = new Set(listPluginToolSurfaceCatalog().map((entry) => entry.name));
     const schemaNames = new Set(Object.keys(TOOL_SCHEMAS));
 
-    expect(toolNames.has(futurePlanToolName)).toBe(false);
-    expect(catalogNames.has(futurePlanToolName)).toBe(false);
-    expect(schemaNames.has(futurePlanToolName)).toBe(false);
+    expect(toolNames.has(planToolName)).toBe(true);
+    expect(catalogNames.has(planToolName)).toBe(true);
+    expect(schemaNames.has(planToolName)).toBe(true);
     expect(RECIPE_GENERATION_SKELETON_CONTRACT.rg0Boundary.forbidden).toContain(
       'alembic_plan-tool-registration'
     );

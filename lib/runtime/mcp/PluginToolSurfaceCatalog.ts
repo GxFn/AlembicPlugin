@@ -195,6 +195,17 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     knowledgeGate: 'resident-project-scope',
     residentRoutePolicy: 'none',
   }),
+  alembic_plan: catalogEntry({
+    name: 'alembic_plan',
+    owner: 'plugin-embedded-core',
+    handlerOwner: 'McpServer.tool-router',
+    tier: 'agent',
+    schema: 'PlanInput',
+    annotations: aiBackedWriteTool('Draft Confirm Or Read Alembic Plan'),
+    gateway: null,
+    knowledgeGate: 'initialized',
+    residentRoutePolicy: 'none',
+  }),
   alembic_submit_knowledge: catalogEntry({
     name: 'alembic_submit_knowledge',
     owner: 'plugin-embedded-core',
