@@ -22,7 +22,7 @@
         },
         "result": {
           "success": true,
-          "data.projectRootResolution.trust": "trusted"
+          "data.project.trust": "trusted"
         }
       },
       {

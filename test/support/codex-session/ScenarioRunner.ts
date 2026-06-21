@@ -56,10 +56,12 @@ export async function runCodexSessionScenario(
     }
     const scripted = resolveScenarioSteps(scenario);
     let assistantFinalText = '';
+    const previousResults: unknown[] = [];
     for (const [index, step] of scripted.entries()) {
       const turn = Math.min(index + 1, Math.max(1, scenario.turns.length));
-      const args = resolveStepArguments(step.arguments || {}, fixture.projectRoot);
+      const args = resolveStepArguments(step.arguments || {}, fixture.projectRoot, previousResults);
       const result = await harness.callTool(turn, step.name, args);
+      previousResults.push(result);
       assistantFinalText =
         step.assistantFinalText ||
         buildMechanicalAssistantText({
@@ -149,13 +151,49 @@ function resolveScenarioSteps(scenario: CodexSessionScenario): CodexScenarioStep
 
 function resolveStepArguments(
   args: Record<string, unknown>,
-  projectRoot: string
+  projectRoot: string,
+  previousResults: readonly unknown[]
 ): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(args)) {
-    resolved[key] = value === '$projectRoot' ? projectRoot : value;
+  return resolveStepValue(args, projectRoot, previousResults) as Record<string, unknown>;
+}
+
+function resolveStepValue(
+  value: unknown,
+  projectRoot: string,
+  previousResults: readonly unknown[]
+): unknown {
+  if (value === '$projectRoot') {
+    return projectRoot;
   }
-  return resolved;
+  if (typeof value === 'string') {
+    const match = /^\$toolResult:(\d+):(.+)$/.exec(value);
+    if (match) {
+      const index = Number(match[1]) - 1;
+      return getPath(previousResults[index], match[2]);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveStepValue(item, projectRoot, previousResults));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        resolveStepValue(nested, projectRoot, previousResults),
+      ])
+    );
+  }
+  return value;
+}
+
+function getPath(value: unknown, pathExpression: string): unknown {
+  return pathExpression.split('.').reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== 'object') {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[segment];
+  }, value);
 }
 
 function buildMechanicalAssistantText(input: {

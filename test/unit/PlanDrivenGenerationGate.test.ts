@@ -12,6 +12,10 @@ import { runHostAgentColdStartWorkflow } from '../../lib/runtime/mcp/host-agent-
 import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/runtime/mcp/host-agent-workflows/knowledge-rescan.js';
 import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import {
+  acquirePlanGenerationLease,
+  type PlanGenerationGateReady,
+} from '../../lib/recipe-generation/plan-generation-gate.js';
 
 interface ToolResponse {
   data?: Record<string, unknown>;
@@ -121,6 +125,63 @@ describe('Plan-driven generation gate', () => {
       archive: null,
     });
     expect(fs.existsSync(path.join(projectRoot, '.asd', '.trash'))).toBe(false);
+  });
+
+  test('moduleMining lease blocks duplicate rescanId until release', () => {
+    const gate = buildReadyGate({
+      cleanupPolicy: 'none',
+      generationStage: 'moduleMining',
+      moduleScope: ['src/api'],
+      testMode: true,
+    });
+    const first = acquirePlanGenerationLease({
+      gate,
+      idempotencyKey: 'rg4-module-mining-rescan',
+      toolName: 'alembic_rescan',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      throw new Error('expected first lease acquisition to succeed');
+    }
+
+    try {
+      const duplicate = acquirePlanGenerationLease({
+        gate,
+        idempotencyKey: 'rg4-module-mining-rescan',
+        toolName: 'alembic_rescan',
+      });
+
+      expect(duplicate.ok).toBe(false);
+      if (duplicate.ok) {
+        duplicate.lease.release();
+        throw new Error('expected duplicate lease acquisition to be blocked');
+      }
+      expect(duplicate.response).toMatchObject({
+        success: false,
+        errorCode: 'PLAN_GENERATION_IN_PROGRESS',
+        data: {
+          needsUserInput: false,
+          planGate: {
+            status: 'in-progress',
+            generationStage: 'moduleMining',
+            cleanupPolicy: 'none',
+          },
+        },
+      });
+      expect(fs.existsSync(path.join(projectRoot, '.asd', '.trash'))).toBe(false);
+    } finally {
+      first.lease.release();
+    }
+
+    const afterRelease = acquirePlanGenerationLease({
+      gate,
+      idempotencyKey: 'rg4-module-mining-rescan',
+      toolName: 'alembic_rescan',
+    });
+    expect(afterRelease.ok).toBe(true);
+    if (afterRelease.ok) {
+      afterRelease.lease.release();
+    }
   });
 });
 
@@ -277,4 +338,41 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function buildReadyGate(overrides: Partial<PlanGenerationGateReady> = {}): PlanGenerationGateReady {
+  const generationStage = overrides.generationStage ?? 'moduleMining';
+  const cleanupPolicy = overrides.cleanupPolicy ?? 'none';
+  const moduleScope = overrides.moduleScope ?? ['src/api'];
+  const testMode = overrides.testMode ?? true;
+  return {
+    cleanupPolicy,
+    currentProjectContextSignature: 'fixture-signature',
+    dimensionIds: ['architecture'],
+    generationStage,
+    moduleScope,
+    plan: {
+      planId: 'fixture-plan',
+      version: 1,
+    },
+    planGate: {
+      status: 'ready',
+      toolName: 'alembic_rescan',
+      generationStage,
+      cleanupPolicy,
+      testMode,
+      moduleScope,
+    },
+    planState: {},
+    planView: {},
+    projectRoot,
+    scale: {
+      contentMaxLines: 12,
+      maxFiles: 6,
+      totalRecipeBudget: 1,
+    },
+    signature: { matches: true },
+    testMode,
+    ...overrides,
+  };
 }

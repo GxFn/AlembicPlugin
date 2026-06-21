@@ -30,6 +30,41 @@
           "projectRoot": "$projectRoot"
         },
         "result": {
+          "success": false,
+          "errorCode": "PLAN_REQUIRED",
+          "data.needsUserInput": true,
+          "data.planGate.status": "blocked",
+          "data.nextActions.0.tool": "alembic_plan",
+          "data.nextActions.0.operation": "draft",
+          "data.nextActions.1.operation": "confirm"
+        }
+      },
+      {
+        "name": "alembic_plan",
+        "arguments": {
+          "operation": "draft",
+          "projectRoot": "$projectRoot"
+        },
+        "result": {
+          "success": true
+        }
+      },
+      {
+        "name": "alembic_plan",
+        "arguments": {
+          "operation": "confirm",
+          "projectRoot": "$projectRoot"
+        },
+        "result": {
+          "success": true
+        }
+      },
+      {
+        "name": "alembic_bootstrap",
+        "arguments": {
+          "projectRoot": "$projectRoot"
+        },
+        "result": {
           "success": true,
           "data.serviceBoundary.executionPath": "plugin-owned-codex-facing",
           "data.serviceBoundary.owner": "alembic-plugin"
@@ -46,5 +81,69 @@
       "mustMention": ["host-agent bootstrap", "Mission Briefing"],
       "mustNotMention": ["AI Provider", "知识挖掘任务已入队"]
     }
-  }
+  },
+  "steps": [
+    {
+      "name": "alembic_status",
+      "arguments": {
+        "projectRoot": "$projectRoot"
+      }
+    },
+    {
+      "name": "alembic_bootstrap",
+      "arguments": {
+        "projectRoot": "$projectRoot"
+      },
+      "assistantFinalText": "Alembic bootstrap 需要先确认 Plan：请调用 alembic_plan draft，再 confirm；这不需要 Alembic AI Provider，也不会启动 daemon job。"
+    },
+    {
+      "name": "alembic_plan",
+      "arguments": {
+        "operation": "draft",
+        "projectRoot": "$projectRoot",
+        "hints": {
+          "maxBudget": 3,
+          "maxRecommendedDimensions": 3
+        }
+      }
+    },
+    {
+      "name": "alembic_plan",
+      "arguments": {
+        "operation": "confirm",
+        "projectRoot": "$projectRoot",
+        "basePlanId": "$toolResult:3:data.plan.planId",
+        "baseVersion": "$toolResult:3:data.plan.version",
+        "projectContextSignature": "$toolResult:3:data.projectContextSignature",
+        "selectedDimensions": [
+          {
+            "id": "$toolResult:3:data.plan.dimensions.0.dimensionId",
+            "reason": "Codex session first-use Plan gate scenario",
+            "stage": "coldStart",
+            "targetRecipes": 1
+          }
+        ],
+        "scale": {
+          "totalRecipeBudget": 1,
+          "perStage": {
+            "coldStart": 1,
+            "deepMining": 0,
+            "module": 0
+          }
+        },
+        "plannedNextActions": [
+          {
+            "tool": "alembic_bootstrap",
+            "reason": "Run confirmed Plan-gated host-agent bootstrap."
+          }
+        ]
+      }
+    },
+    {
+      "name": "alembic_bootstrap",
+      "arguments": {
+        "projectRoot": "$projectRoot"
+      }
+    }
+  ]
 }
