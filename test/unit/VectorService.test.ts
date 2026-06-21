@@ -459,6 +459,40 @@ describe('VectorService', () => {
     });
   });
 
+  // ── getAvailability ──
+
+  describe('getAvailability()', () => {
+    it('reports configured providers through the structured availability surface', async () => {
+      const svc = createService();
+      const availability = await svc.getAvailability();
+
+      expect(availability).toMatchObject({
+        available: true,
+        embedProviderConfigured: true,
+        probeStatus: 'not-supported',
+        reason: 'embed-provider-configured',
+        status: 'available',
+      });
+    });
+
+    it('reports degraded provider probes without relying on stats', async () => {
+      const provider = {
+        ...createMockEmbedProvider(),
+        isAvailable: vi.fn(async () => false),
+      };
+      const svc = createService({ embedProvider: provider });
+      const availability = await svc.getAvailability();
+
+      expect(availability).toMatchObject({
+        available: false,
+        embedProviderConfigured: true,
+        probeStatus: 'unavailable',
+        reason: 'embed-provider-unavailable',
+        status: 'degraded',
+      });
+    });
+  });
+
   // ── similarById ──
 
   describe('similarById()', () => {

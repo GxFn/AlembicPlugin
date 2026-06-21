@@ -1651,6 +1651,117 @@ describe('alembic_search resident search enhancement', () => {
     expect(serialized).not.toContain('recipe-related');
   });
 
+  it('surfaces structured resident vector availability degradation in public output', async () => {
+    const engineSearch = vi.fn(async () => {
+      throw new Error('embedded search should not run when resident search returns items');
+    });
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        items: [item('resident-1', 'Resident vector recipe', 0.93)],
+        meta: {
+          attempted: true,
+          available: true,
+          actualMode: 'semantic',
+          durationMs: 9,
+          requestedMode: 'semantic',
+          residentVector: {
+            available: false,
+            availability: {
+              available: false,
+              embedProviderConfigured: true,
+              probeStatus: 'unavailable',
+              reason: 'embed-provider-unavailable',
+              status: 'degraded',
+            },
+            endpoint: '/api/v1/search',
+            reason: 'embed-provider-unavailable',
+            stats: {
+              count: 140,
+              dimension: 1024,
+              hasIndex: true,
+              indexSize: 140,
+            },
+          },
+          resultCount: 1,
+          route: 'alembic-resident-service',
+          searchMeta: {
+            actualMode: 'semantic',
+            requestedMode: 'semantic',
+            residentVector: {
+              available: false,
+              availability: {
+                available: false,
+                embedProviderConfigured: true,
+                probeStatus: 'unavailable',
+                reason: 'embed-provider-unavailable',
+                status: 'degraded',
+              },
+              endpoint: '/api/v1/search',
+              reason: 'embed-provider-unavailable',
+              stats: {
+                count: 140,
+                dimension: 1024,
+                hasIndex: true,
+                indexSize: 140,
+              },
+            },
+            route: 'resident-search',
+            semanticUsed: true,
+            vectorUsed: true,
+          },
+          semanticUsed: true,
+          used: true,
+          vectorUsed: true,
+        },
+      })
+    );
+
+    const result = (await search(context({ engineSearch, residentSearch }), {
+      limit: 3,
+      mode: 'semantic',
+      query: 'resident search',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        result: Record<string, unknown>;
+        status: string;
+      };
+    };
+
+    expect(engineSearch).not.toHaveBeenCalled();
+    expect(result.structuredContent.status).toBe('degraded');
+    expect(result.structuredContent.inventory).toMatchObject({
+      laneEvidence: {
+        semantic: expect.objectContaining({
+          available: false,
+          unavailableReason: 'embed-provider-unavailable',
+          used: false,
+        }),
+      },
+    });
+    expect(result.structuredContent.result).toMatchObject({
+      residentSearch: {
+        available: true,
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+      residentVector: {
+        available: false,
+        availability: {
+          available: false,
+          probeStatus: 'unavailable',
+          reason: 'embed-provider-unavailable',
+          status: 'degraded',
+        },
+        reason: 'embed-provider-unavailable',
+      },
+      vector: {
+        available: false,
+        used: false,
+      },
+    });
+  });
+
   it('strips top-level search item relation targets from public search output', async () => {
     const engineSearch = vi.fn(async () => ({
       items: [

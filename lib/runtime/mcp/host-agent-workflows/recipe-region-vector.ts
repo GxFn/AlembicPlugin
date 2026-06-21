@@ -1,4 +1,4 @@
-import type { RecipeSourceRefsBridge } from '@alembic/core/vector';
+import type { RecipeSourceRefsBridge, VectorAvailability } from '@alembic/core/vector';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { ServiceMap } from '#inject/ServiceMap.js';
 
@@ -6,8 +6,8 @@ import type { ServiceMap } from '#inject/ServiceMap.js';
 // bootstrap/rescan path (PDR-2a). These region chunks are what subject-less
 // prime retrieves to earn recipe-semantic-region trust evidence (full quality,
 // no lexical downgrade). The build is:
-//   - embed-gated: region chunks must be embedded by the local Ollama provider;
-//     when that provider is absent we skip entirely rather than running
+//   - availability-gated: region chunks must be embedded by an available provider;
+//     when that provider is absent or degraded we skip entirely rather than running
 //     syncRecipeSemanticRegions (whose removeStale step precedes the embed step
 //     and would otherwise strip changed-recipe chunks without re-embedding them).
 //   - non-blocking: any failure is logged and swallowed so rescan still returns.
@@ -25,6 +25,7 @@ export interface RecipeRegionVectorBuildReport {
   reason: string | null;
   status: 'failed' | 'skipped' | 'synced';
   syncResult: Awaited<ReturnType<ServiceMap['vectorService']['syncRecipeSemanticRegions']>> | null;
+  vectorAvailability: VectorAvailability | null;
   vectorStatsAfter: Record<string, unknown> | null;
   vectorStatsBefore: Record<string, unknown> | null;
 }
@@ -68,24 +69,32 @@ export async function buildRecipeSemanticRegionVectors(
     );
   }
 
-  // Embed gate — probe before touching the index (see header note on removeStale).
-  let embedProviderAvailable = false;
+  // Availability gate — probe before touching the index (see header note on removeStale).
   const vectorStatsBefore = await readVectorStats(vectorService);
+  let vectorAvailability: VectorAvailability;
   try {
-    embedProviderAvailable = (await vectorService.getStats()).embedProviderAvailable;
+    vectorAvailability = await vectorService.getAvailability();
   } catch (err: unknown) {
-    logger.info(`[${logPrefix}] Recipe region-vector build skipped (vector stats unavailable)`, {
-      reason: err instanceof Error ? err.message : String(err),
-    });
+    logger.info(
+      `[${logPrefix}] Recipe region-vector build skipped (vector availability unavailable)`,
+      {
+        reason: err instanceof Error ? err.message : String(err),
+      }
+    );
     return skippedRegionBuildReport(
-      'vector-stats-unavailable',
+      'vector-availability-unavailable',
       err instanceof Error ? err.message : String(err),
       { vectorStatsBefore }
     );
   }
-  if (!embedProviderAvailable) {
-    logger.info(`[${logPrefix}] Recipe region-vector build skipped (embed provider unavailable)`);
-    return skippedRegionBuildReport('embed-provider-unavailable', null, { vectorStatsBefore });
+  if (!vectorAvailability.available) {
+    logger.info(`[${logPrefix}] Recipe region-vector build skipped (vector unavailable)`, {
+      availability: summarizeVectorAvailability(vectorAvailability),
+    });
+    return skippedRegionBuildReport(vectorAvailability.reason, null, {
+      vectorAvailability,
+      vectorStatsBefore,
+    });
   }
 
   let entries: Parameters<typeof vectorService.syncRecipeSemanticRegions>[0];
@@ -102,11 +111,14 @@ export async function buildRecipeSemanticRegionVectors(
     return skippedRegionBuildReport(
       'knowledge-list-failed',
       err instanceof Error ? err.message : String(err),
-      { vectorStatsBefore }
+      { vectorAvailability, vectorStatsBefore }
     );
   }
   if (entries.length === 0) {
-    return skippedRegionBuildReport('no-recipe-entries', null, { vectorStatsBefore });
+    return skippedRegionBuildReport('no-recipe-entries', null, {
+      vectorAvailability,
+      vectorStatsBefore,
+    });
   }
 
   try {
@@ -136,6 +148,7 @@ export async function buildRecipeSemanticRegionVectors(
       reason: null,
       status: 'synced',
       syncResult: result,
+      vectorAvailability,
       vectorStatsAfter,
       vectorStatsBefore,
     };
@@ -150,6 +163,7 @@ export async function buildRecipeSemanticRegionVectors(
       reason: err instanceof Error ? err.message : String(err),
       status: 'failed',
       syncResult: null,
+      vectorAvailability,
       vectorStatsAfter: await readVectorStats(vectorService),
       vectorStatsBefore,
     };
@@ -231,10 +245,24 @@ async function readVectorStats(
   }
 }
 
+function summarizeVectorAvailability(availability: VectorAvailability): Record<string, unknown> {
+  return {
+    available: availability.available,
+    detail: availability.detail,
+    embedProviderConfigured: availability.embedProviderConfigured,
+    probeStatus: availability.probeStatus,
+    reason: availability.reason,
+    status: availability.status,
+  };
+}
+
 function skippedRegionBuildReport(
   reason: string,
   detail: string | null,
-  opts: { vectorStatsBefore?: Record<string, unknown> | null } = {}
+  opts: {
+    vectorAvailability?: VectorAvailability | null;
+    vectorStatsBefore?: Record<string, unknown> | null;
+  } = {}
 ): RecipeRegionVectorBuildReport {
   return {
     bridgeRecipeCount: 0,
@@ -243,6 +271,7 @@ function skippedRegionBuildReport(
     reason: detail ? `${reason}: ${detail}` : reason,
     status: 'skipped',
     syncResult: null,
+    vectorAvailability: opts.vectorAvailability ?? null,
     vectorStatsAfter: opts.vectorStatsBefore ?? null,
     vectorStatsBefore: opts.vectorStatsBefore ?? null,
   };

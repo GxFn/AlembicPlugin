@@ -1675,8 +1675,14 @@ function residentVectorEmptyIndex(vector: Record<string, unknown> | undefined): 
   if (!stats) {
     return false;
   }
+  const count = readNumber(stats?.count);
+  const dimension = readNumber(stats?.dimension);
   const indexSize = readNumber(stats?.indexSize);
   if (indexSize === 0) {
+    const available = residentVectorAvailabilityAvailable(vector);
+    if ((count ?? 0) > 0 && (dimension ?? 0) > 0 && available !== false) {
+      return false;
+    }
     return true;
   }
   if (indexSize !== undefined) {
@@ -1685,10 +1691,7 @@ function residentVectorEmptyIndex(vector: Record<string, unknown> | undefined): 
   if (readBoolean(stats?.hasIndex) === false) {
     return true;
   }
-  const count = readNumber(stats?.count);
-  const dimension = readNumber(stats?.dimension);
-  const embedProviderAvailable = readBoolean(stats?.embedProviderAvailable);
-  if ((count ?? 0) > 0 && (dimension ?? 0) > 0 && embedProviderAvailable !== false) {
+  if ((count ?? 0) > 0 && (dimension ?? 0) > 0) {
     return false;
   }
   return false;
@@ -1733,16 +1736,42 @@ function residentVectorUnavailableReason(
   if (explicitReason === 'empty-vector-index') {
     return explicitReason;
   }
+  const availability = residentVectorAvailability(vector);
+  const availabilityReason = readString(availability?.reason);
+  const available = residentVectorAvailableSignal(vector, availability);
+  if (available === false) {
+    return explicitReason ?? availabilityReason ?? 'resident-vector-unavailable';
+  }
   if (residentVectorSparseOnly(vector)) {
     return 'sparse-only';
   }
   if (residentVectorEmptyIndex(vector)) {
     return 'empty-vector-index';
   }
-  if (readBoolean(vector.available) === false) {
-    return explicitReason ?? 'resident-vector-unavailable';
-  }
   return undefined;
+}
+
+function residentVectorAvailability(
+  vector: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  return readRecord(vector?.availability);
+}
+
+function residentVectorAvailabilityAvailable(vector: Record<string, unknown>): boolean | undefined {
+  const availability = residentVectorAvailability(vector);
+  return residentVectorAvailableSignal(vector, availability);
+}
+
+function residentVectorAvailableSignal(
+  vector: Record<string, unknown>,
+  availability: Record<string, unknown> | undefined = residentVectorAvailability(vector)
+): boolean | undefined {
+  const availabilityAvailable = readBoolean(availability?.available);
+  const vectorAvailable = readBoolean(vector.available);
+  if (availabilityAvailable === false || vectorAvailable === false) {
+    return false;
+  }
+  return availabilityAvailable ?? vectorAvailable;
 }
 
 function residentSemanticUnavailableReason(pipeline: SearchPipelineResult): string | undefined {
@@ -1766,6 +1795,22 @@ function compactResidentVectorStats(
     embedProviderAvailable: readBoolean(stats.embedProviderAvailable),
     hasIndex: readBoolean(stats.hasIndex),
     indexSize: readNumber(stats.indexSize),
+  };
+}
+
+function compactResidentVectorAvailability(
+  availability: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!availability) {
+    return undefined;
+  }
+  return {
+    available: readBoolean(availability.available),
+    detail: readString(availability.detail),
+    embedProviderConfigured: readBoolean(availability.embedProviderConfigured),
+    probeStatus: readString(availability.probeStatus),
+    reason: readString(availability.reason),
+    status: readString(availability.status),
   };
 }
 
@@ -1822,6 +1867,7 @@ function sanitizeResidentVector(value: unknown): Record<string, unknown> | undef
   }
   return {
     available: readBoolean(vector.available),
+    availability: compactResidentVectorAvailability(readRecord(vector.availability)),
     endpoint: readString(vector.endpoint),
     reason: readString(vector.reason),
     stats: compactResidentVectorStats(readRecord(vector.stats)),

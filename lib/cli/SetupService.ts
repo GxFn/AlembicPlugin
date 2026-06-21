@@ -53,6 +53,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { isExcludedProject } from '@alembic/core/shared';
+import type { VectorAvailability } from '@alembic/core/vector';
 import {
   DEFAULT_KNOWLEDGE_BASE_DIR,
   DEFAULT_SUB_REPO_DIR,
@@ -779,14 +780,18 @@ export class SetupService {
 
       const vectorService = container.get('vectorService');
 
-      const stats = await vectorService.getStats();
+      const [stats, vectorAvailability] = await Promise.all([
+        vectorService.getStats(),
+        vectorService.getAvailability(),
+      ]);
 
-      // embedded runtime 不注入第三方 embedding provider，语义检索由 resident service 增强。
-      if (!stats.embedProviderAvailable) {
+      // embedded runtime 通常不注入第三方 embedding provider，语义检索由 resident service 增强。
+      if (!vectorAvailability.available) {
         return {
           status: 'skipped',
-          reason: 'embedded runtime 未配置本地 embedding provider',
+          reason: `本地 embedding provider 不可用 (${vectorAvailability.reason})`,
           hint: 'baseline/hybrid search 可继续使用；语义检索由 Alembic resident service / resident search 增强提供',
+          vectorAvailability: compactVectorAvailability(vectorAvailability),
         };
       }
 
@@ -795,6 +800,7 @@ export class SetupService {
         return {
           status: 'skipped',
           reason: `向量索引已存在 (${stats.count} entries)`,
+          vectorAvailability: compactVectorAvailability(vectorAvailability),
         };
       }
 
@@ -805,6 +811,7 @@ export class SetupService {
         indexed: result.upserted ?? 0,
         skipped: result.skipped ?? 0,
         errors: result.errors ?? 0,
+        vectorAvailability: compactVectorAvailability(vectorAvailability),
       };
     } catch (err: unknown) {
       // 向量初始化失败不阻塞 setup 流程
@@ -815,6 +822,17 @@ export class SetupService {
       };
     }
   }
+}
+
+function compactVectorAvailability(availability: VectorAvailability): Record<string, unknown> {
+  return {
+    available: availability.available,
+    detail: availability.detail,
+    embedProviderConfigured: availability.embedProviderConfigured,
+    probeStatus: availability.probeStatus,
+    reason: availability.reason,
+    status: availability.status,
+  };
 }
 
 export default SetupService;

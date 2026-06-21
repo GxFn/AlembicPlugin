@@ -1002,6 +1002,7 @@ function buildResidentMeta(input: {
       ...(primeInjectionPackage ? { primeInjectionPackage } : {}),
       projectScopeIdentity: input.projectScopeIdentity,
       residentRequestMode: input.residentRequestMode,
+      residentVector,
       retrievalConsumer,
     },
     semanticUsed: residentVector.available ? booleanFrom(meta.semanticUsed) : false,
@@ -1109,8 +1110,7 @@ function residentSearchVectorIndexEmpty(
   }
   const count = numberFrom(stats?.count);
   const dimension = numberFrom(stats?.dimension);
-  const embedProviderAvailable = booleanFrom(stats?.embedProviderAvailable);
-  if ((count ?? 0) > 0 && (dimension ?? 0) > 0 && embedProviderAvailable !== false) {
+  if ((count ?? 0) > 0 && (dimension ?? 0) > 0) {
     return false;
   }
   return true;
@@ -1145,16 +1145,37 @@ function residentSearchVectorUnavailableReason(
   if (explicitReason === 'empty-vector-index') {
     return explicitReason;
   }
+  const availability = residentSearchVectorAvailability(vector);
+  const availabilityReason = stringFrom(availability?.reason);
+  const available = residentSearchVectorAvailableSignal(vector, availability);
+  if (available === false) {
+    return explicitReason ?? availabilityReason ?? 'resident-vector-unavailable';
+  }
   if (residentSearchVectorSparseOnly(vector)) {
     return 'sparse-only';
   }
   if (residentSearchVectorIndexEmpty(vector)) {
     return 'empty-vector-index';
   }
-  if (booleanFrom(vector.available) === false) {
-    return explicitReason ?? 'resident-vector-unavailable';
-  }
   return null;
+}
+
+function residentSearchVectorAvailability(
+  vector: ResidentSearchAttemptMeta['residentVector']
+): Record<string, unknown> | null {
+  return isRecord(vector.availability) ? vector.availability : null;
+}
+
+function residentSearchVectorAvailableSignal(
+  vector: ResidentSearchAttemptMeta['residentVector'],
+  availability: Record<string, unknown> | null = residentSearchVectorAvailability(vector)
+): boolean | undefined {
+  const availabilityAvailable = booleanFrom(availability?.available);
+  const vectorAvailable = booleanFrom(vector.available);
+  if (availabilityAvailable === false || vectorAvailable === false) {
+    return false;
+  }
+  return availabilityAvailable ?? vectorAvailable;
 }
 
 function findResidentSearchWorkspaceMismatch(input: {

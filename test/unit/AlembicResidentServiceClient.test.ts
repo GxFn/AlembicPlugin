@@ -883,7 +883,7 @@ describe('AlembicResidentServiceClient', () => {
     });
   });
 
-  it('keeps resident vector telemetry when indexSize is zero but usable vector stats are present', async () => {
+  it('keeps resident vector telemetry when structured availability is ready', async () => {
     const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
       if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
         return new Response(JSON.stringify(residentHealthPayload()), {
@@ -901,11 +901,17 @@ describe('AlembicResidentServiceClient', () => {
               vectorUsed: true,
               residentVector: {
                 available: true,
+                availability: {
+                  available: true,
+                  embedProviderConfigured: true,
+                  probeStatus: 'available',
+                  reason: 'embed-provider-ready',
+                  status: 'available',
+                },
                 reason: null,
                 stats: {
                   count: 140,
                   dimension: 1024,
-                  embedProviderAvailable: true,
                   hasIndex: true,
                   indexSize: 0,
                 },
@@ -927,17 +933,89 @@ describe('AlembicResidentServiceClient', () => {
 
     expect(result.meta.residentVector).toMatchObject({
       available: true,
+      availability: {
+        available: true,
+        embedProviderConfigured: true,
+        probeStatus: 'available',
+        reason: 'embed-provider-ready',
+        status: 'available',
+      },
       reason: null,
       stats: {
         count: 140,
         dimension: 1024,
-        embedProviderAvailable: true,
         hasIndex: true,
         indexSize: 0,
       },
     });
     expect(result.meta.semanticUsed).toBe(true);
     expect(result.meta.vectorUsed).toBe(true);
+  });
+
+  it('downgrades resident vector telemetry from structured provider availability', async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (fetchInputUrl(input).pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            items: [{ id: 'resident-1', title: 'Resident vector recipe', score: 0.92 }],
+            searchMeta: {
+              semanticUsed: true,
+              vectorUsed: true,
+              residentVector: {
+                available: true,
+                availability: {
+                  available: false,
+                  embedProviderConfigured: true,
+                  probeStatus: 'unavailable',
+                  reason: 'embed-provider-unavailable',
+                  status: 'degraded',
+                },
+                reason: null,
+                stats: {
+                  count: 140,
+                  dimension: 1024,
+                  hasIndex: true,
+                  indexSize: 140,
+                },
+              },
+            },
+          },
+        }),
+        { headers: { 'content-type': 'application/json' }, status: 200 }
+      );
+    }) as unknown as typeof fetch;
+
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/project',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({ query: 'semantic output quality', mode: 'semantic' });
+
+    expect(result.meta.residentVector).toMatchObject({
+      available: false,
+      availability: {
+        available: false,
+        probeStatus: 'unavailable',
+        reason: 'embed-provider-unavailable',
+        status: 'degraded',
+      },
+      reason: 'embed-provider-unavailable',
+    });
+    expect(result.meta.searchMeta?.residentVector).toMatchObject({
+      available: false,
+      reason: 'embed-provider-unavailable',
+    });
+    expect(result.meta.semanticUsed).toBe(false);
+    expect(result.meta.vectorUsed).toBe(false);
   });
 
   it('downgrades resident vector telemetry when the daemon explicitly reports an empty index', async () => {
