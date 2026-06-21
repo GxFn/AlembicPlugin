@@ -14,6 +14,7 @@ const sourceImportAliases = new Map([
   ['inject', 'injection'],
   ['platform', 'platform'],
   ['repo', 'repository'],
+  ['recipe-generation', 'recipe-generation'],
   ['sandbox', 'sandbox'],
   ['service', 'service'],
   ['shared', 'shared'],
