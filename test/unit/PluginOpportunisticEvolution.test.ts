@@ -3,7 +3,6 @@ import type { GitDiffScanResult } from '../../lib/recipe-generation/evolution/gi
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractPluginToolOutcome,
-  extractTaskCloseOutcome,
   shouldAttachPluginOpportunisticEvolution,
 } from '../../lib/recipe-generation/evolution/PluginOpportunisticEvolution.js';
 import { attachPluginOpportunisticEvolutionSurface } from '../../lib/runtime/mcp/host/opportunistic-evolution-presenter.js';
@@ -61,7 +60,7 @@ describe('Plugin opportunistic evolution surface', () => {
     expect(surface.producerBoundary.producerKind).toBe('plugin-opportunistic');
   });
 
-  it('surfaces a strong proposal from scoped git diff plus successful tool outcome', async () => {
+  it('returns no-op when git diff evidence was not routed to unified evolution', async () => {
     const surface = await buildPluginOpportunisticEvolutionSurface({
       projectRoot: '/repo',
       scan: makeScan(),
@@ -74,26 +73,26 @@ describe('Plugin opportunistic evolution surface', () => {
       },
     });
 
-    expect(surface.evidenceGate.verdict).toBe('strong-proposal');
-    expect(surface.proposal).toMatchObject({
-      producerKind: 'plugin-opportunistic',
-      sourceRefs: ['src/service.ts'],
-      toolOutcome: { taskId: 'task-1' },
-    });
+    expect(surface.evidenceGate.verdict).toBe('no-op');
+    expect(surface.gitDiffEvidence?.events).toEqual([
+      expect.objectContaining({ path: 'src/service.ts' }),
+    ]);
+    expect('proposal' in surface).toBe(false);
+    expect('hint' in surface).toBe(false);
     expect(surface.autoSubmit).toBe(false);
     expect(surface.producerBoundary.separatedFrom).toBe('daemon-file-change');
   });
 
-  it('downgrades to weak hint when tool outcome evidence is missing', async () => {
+  it('keeps fallback no-op when tool outcome evidence is missing', async () => {
     const surface = await buildPluginOpportunisticEvolutionSurface({
       projectRoot: '/repo',
       scan: makeScan(),
       serviceGate: fallbackGate,
     });
 
-    expect(surface.evidenceGate.verdict).toBe('weak-hint');
-    expect(surface.hint?.sourceRefs).toEqual(['src/service.ts']);
-    expect(surface.proposal).toBeUndefined();
+    expect(surface.evidenceGate.verdict).toBe('no-op');
+    expect('proposal' in surface).toBe(false);
+    expect('hint' in surface).toBe(false);
   });
 
   it('returns no-op when fallback has no git diff evidence', async () => {
@@ -105,11 +104,11 @@ describe('Plugin opportunistic evolution surface', () => {
     });
 
     expect(surface.evidenceGate.verdict).toBe('no-op');
-    expect(surface.proposal).toBeUndefined();
-    expect(surface.hint).toBeUndefined();
+    expect('proposal' in surface).toBe(false);
+    expect('hint' in surface).toBe(false);
   });
 
-  it('only attaches to successful task close results', () => {
+  it('attaches only to current commit-driven trigger tools', () => {
     expect(
       shouldAttachPluginOpportunisticEvolution({
         toolName: 'alembic_task',
@@ -129,19 +128,12 @@ describe('Plugin opportunistic evolution surface', () => {
       })
     ).toBe(false);
     expect(
-      extractTaskCloseOutcome({
-        success: true,
-        data: { closed: { id: 'task-1', reason: 'done' } },
-      })
-    ).toMatchObject({ taskId: 'task-1', reason: 'done' });
-    expect(
       extractPluginToolOutcome('alembic_code_guard', { success: true, message: 'ok' })
     ).toEqual({
       reason: 'ok',
       success: true,
       tool: 'alembic_code_guard',
     });
-    expect(extractTaskCloseOutcome({ success: false })).toBeNull();
   });
 
   it('returns routed surface when unified evolution handled git diff events', async () => {
@@ -160,8 +152,8 @@ describe('Plugin opportunistic evolution surface', () => {
           created: 0,
           deleted: 0,
           deprecationProposals: 0,
+          moduleMiningRoutes: 0,
           modified: 1,
-          newModuleRecommendations: 0,
           proposed: 1,
           renamed: 0,
           repaired: 0,
@@ -179,6 +171,7 @@ describe('Plugin opportunistic evolution surface', () => {
             recipeId: 'recipe-1',
           },
         ],
+        moduleMiningRoutes: [],
         needsReview: 1,
         pendingProposals: [
           {
@@ -196,7 +189,6 @@ describe('Plugin opportunistic evolution surface', () => {
           planIntentWrites: 0,
           projectedFromExistingDbSources: true,
         },
-        recommendations: [],
         skipped: 0,
         suggestReview: true,
       },
@@ -206,6 +198,7 @@ describe('Plugin opportunistic evolution surface', () => {
     expect(surface.unifiedEvolution).toMatchObject({
       classificationCounts: { modified: 1, proposed: 1 },
       generationChangeLog: [expect.objectContaining({ action: 'source-modified-review-needed' })],
+      moduleMiningRoutes: [],
       needsReview: 1,
       pendingProposals: [expect.objectContaining({ action: 'update', recipeId: 'recipe-1' })],
       planBoundary: {
@@ -214,7 +207,7 @@ describe('Plugin opportunistic evolution surface', () => {
         projectedFromExistingDbSources: true,
       },
     });
-    expect(surface.proposal).toBeUndefined();
+    expect('proposal' in surface).toBe(false);
   });
 
   it('keeps alembic_rescan-owned unified evolution instead of overwriting it with a second scan', async () => {

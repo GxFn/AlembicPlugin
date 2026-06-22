@@ -1,4 +1,13 @@
 export {
+  buildPluginGitDiffCheckpointScope,
+  createPluginGitDiffCheckpointRuntime,
+  type PluginGitDiffCheckpointContainer,
+  type PluginGitDiffCheckpointRuntime,
+  type PluginGitDiffCheckpointSurface,
+  type PluginGitDiffRouteReportSummary,
+  recordPluginGitDiffCheckpointRouteOutcome,
+} from './DurableGitDiffCheckpointRouting.js';
+export {
   type GitDiffCheckpointResult,
   GitDiffCheckpointService,
   type GitDiffCheckpointServiceOptions,

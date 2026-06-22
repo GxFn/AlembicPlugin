@@ -143,6 +143,10 @@ function registerRepositories(c: ServiceContainer) {
     return getCoreRepositories(ct).lifecycleEventRepository;
   });
 
+  c.singleton('gitDiffCheckpointRepository', (ct: ServiceContainer) => {
+    return getCoreRepositories(ct).gitDiffCheckpointRepository;
+  });
+
   c.singleton('recipeSourceRefRepository', (ct: ServiceContainer) => {
     return getCoreRepositories(ct).recipeSourceRefRepository;
   });

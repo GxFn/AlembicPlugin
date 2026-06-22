@@ -37,6 +37,7 @@ import type { MemoryRepositoryImpl } from '@alembic/core/memory';
 import type {
   BootstrapRepository,
   CodeEntityRepository,
+  EvolutionGitDiffCheckpointRepository,
   EvolutionLifecycleEventRepository,
   EvolutionProposalRepository,
   EvolutionWarningRepository,
@@ -97,6 +98,7 @@ export interface ServiceMap {
   proposalRepository: EvolutionProposalRepository;
   warningRepository: EvolutionWarningRepository;
   lifecycleEventRepository: EvolutionLifecycleEventRepository;
+  gitDiffCheckpointRepository: EvolutionGitDiffCheckpointRepository;
   recipeSourceRefRepository: SourceRefRepository;
   planRepository: PlanRepository;
   knowledgeFileWriter: KnowledgeFileWriter;

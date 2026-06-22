@@ -1,8 +1,14 @@
 import { getServiceContainer } from '#inject/ServiceContainer.js';
 import {
+  describeUnifiedEvolutionRouteIncomplete,
   FileChangeHandler,
+  isUnifiedEvolutionReportRouteComplete,
   type UnifiedEvolutionReport,
 } from '#recipe-generation/evolution/FileChangeHandler.js';
+import {
+  createPluginGitDiffCheckpointRuntime,
+  recordPluginGitDiffCheckpointRouteOutcome,
+} from '#recipe-generation/evolution/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
 import {
   GitDiffScanner,
   type GitDiffScanResult,
@@ -14,13 +20,6 @@ import {
   shouldAttachPluginOpportunisticEvolution,
 } from '#recipe-generation/evolution/PluginOpportunisticEvolution.js';
 import type { ToolExecutionContext } from '../../../runtime/mcp/host/embedded-executor.js';
-
-interface PluginUnifiedEvolutionCheckpoint {
-  head: string | null;
-  signature: string | null;
-}
-
-let pluginUnifiedEvolutionCheckpoints: Map<string, PluginUnifiedEvolutionCheckpoint> | null = null;
 
 export async function attachPluginOpportunisticEvolutionSurface(input: {
   args: Record<string, unknown>;
@@ -39,24 +38,31 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
   if (!toolOutcome) {
     return input.result;
   }
-  const checkpointKey = pluginEvolutionCheckpointKey(input.projectRoot, input.executionContext);
-  const checkpoints = getPluginUnifiedEvolutionCheckpoints();
-  const checkpoint = checkpoints.get(checkpointKey) ?? {
-    head: null,
-    signature: null,
-  };
+  const container = getServiceContainer();
+  const checkpointRuntime = createPluginGitDiffCheckpointRuntime(container, {
+    currentFolderId: input.executionContext.projectScopeIdentity?.currentFolderId ?? null,
+    projectRoot: input.projectRoot,
+    projectScopeId: input.executionContext.projectScopeIdentity?.projectScopeId ?? null,
+  });
   const scanner = new GitDiffScanner({ projectRoot: input.projectRoot });
-  const scan = await scanner.scanOnce(Date.now(), { previousHead: checkpoint.head });
+  const scan = await scanner.scanOnce(Date.now(), {
+    previousHead: checkpointRuntime?.checkpointCommit ?? null,
+  });
   let unifiedEvolution: UnifiedEvolutionReport | null = null;
   let routeError: string | null = null;
+  let routeAttempted = false;
   const shouldDeferToResident =
     input.executionContext.residentProjectScopeAvailable && !scan.headChanged;
 
   if (!shouldDeferToResident && shouldRouteUnifiedEvolution(scan)) {
+    routeAttempted = true;
     const handler = createUnifiedEvolutionHandler(input.projectRoot);
     if (handler) {
       try {
         unifiedEvolution = await handler.handleFileChanges(scan.events);
+        if (!isUnifiedEvolutionReportRouteComplete(unifiedEvolution)) {
+          routeError = describeUnifiedEvolutionRouteIncomplete(unifiedEvolution);
+        }
       } catch (error: unknown) {
         routeError = error instanceof Error ? error.message : String(error);
       }
@@ -65,12 +71,15 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
     }
   }
 
-  if (scan.scanned) {
-    checkpoints.set(checkpointKey, {
-      head: scan.head,
-      signature: scan.signature,
-    });
-  }
+  const checkpoint = checkpointRuntime
+    ? recordPluginGitDiffCheckpointRouteOutcome({
+        report: unifiedEvolution,
+        routeAttempted,
+        routeError,
+        runtime: checkpointRuntime,
+        scan,
+      })
+    : undefined;
 
   const serviceGateReason = input.executionContext.residentProjectScopeAvailable
     ? 'Alembic resident ProjectScope is ready for this source folder.'
@@ -87,6 +96,7 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
         : serviceGateReason,
     },
     toolOutcome,
+    checkpoint,
     unifiedEvolution,
   });
   return attachNestedData(input.result, { unifiedEvolution: surface });
@@ -123,18 +133,6 @@ function hasEmbeddedUnifiedEvolutionSurface(result: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-export function resetPluginUnifiedEvolutionCheckpointsForTests(): void {
-  pluginUnifiedEvolutionCheckpoints?.clear();
-  pluginUnifiedEvolutionCheckpoints = null;
-}
-
-function getPluginUnifiedEvolutionCheckpoints(): Map<string, PluginUnifiedEvolutionCheckpoint> {
-  if (pluginUnifiedEvolutionCheckpoints === null) {
-    pluginUnifiedEvolutionCheckpoints = new Map();
-  }
-  return pluginUnifiedEvolutionCheckpoints;
 }
 
 function shouldRouteUnifiedEvolution(scan: GitDiffScanResult): boolean {
@@ -201,15 +199,4 @@ function hasFunctions(value: unknown, names: readonly string[]): value is Record
     return false;
   }
   return names.every((name) => typeof (value as Record<string, unknown>)[name] === 'function');
-}
-
-function pluginEvolutionCheckpointKey(
-  projectRoot: string,
-  executionContext: ToolExecutionContext
-): string {
-  return [
-    projectRoot,
-    executionContext.projectScopeIdentity?.projectScopeId ?? 'single-folder',
-    executionContext.projectScopeIdentity?.currentFolderId ?? '',
-  ].join('\0');
 }

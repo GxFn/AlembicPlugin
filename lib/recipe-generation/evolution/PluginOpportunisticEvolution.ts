@@ -6,12 +6,7 @@ import type {
 
 type GitDiffScannerLike = Pick<GitDiffScanner, 'scanOnce'>;
 
-export type PluginOpportunisticEvolutionVerdict =
-  | 'defer-to-alembic-service'
-  | 'no-op'
-  | 'routed'
-  | 'strong-proposal'
-  | 'weak-hint';
+export type PluginOpportunisticEvolutionVerdict = 'defer-to-alembic-service' | 'no-op' | 'routed';
 
 export interface PluginOpportunisticEvolutionToolOutcome {
   reason?: string | null;
@@ -61,21 +56,26 @@ export interface PluginOpportunisticEvolutionSurface {
     signature: string | null;
     truncated: boolean;
   };
-  hint?: {
-    message: string;
-    sourceRefs: string[];
+  checkpoint?: {
+    advanced: boolean;
+    checkpointCommit: string | null;
+    recorded: boolean;
+    reason: string;
+    routeStatus?: string;
+    scope: {
+      folderId: string;
+      projectRoot: string;
+      scopeId: string;
+    };
+    unresolvedRange?: {
+      fromCommit: string | null;
+      mergeBaseCommit: string | null;
+      toCommit: string;
+    } | null;
   };
   producerBoundary: {
     producerKind: 'plugin-opportunistic';
     separatedFrom: 'daemon-file-change';
-  };
-  proposal?: {
-    confidence: number;
-    kind: 'knowledge-evolution-proposal';
-    message: string;
-    producerKind: 'plugin-opportunistic';
-    sourceRefs: string[];
-    toolOutcome: PluginOpportunisticEvolutionToolOutcome;
   };
   serviceGate: PluginOpportunisticEvolutionServiceGate;
   trigger: {
@@ -88,16 +88,17 @@ export interface PluginOpportunisticEvolutionSurface {
     fixed: number;
     freshness?: UnifiedEvolutionReport['freshness'];
     generationChangeLog: UnifiedEvolutionReport['generationChangeLog'];
+    moduleMiningRoutes: UnifiedEvolutionReport['moduleMiningRoutes'];
     needsReview: number;
     pendingProposals: UnifiedEvolutionReport['pendingProposals'];
     planBoundary: UnifiedEvolutionReport['planBoundary'];
-    recommendations: UnifiedEvolutionReport['recommendations'];
     skipped: number;
     suggestReview: boolean;
   };
 }
 
 export interface BuildPluginOpportunisticEvolutionSurfaceInput {
+  checkpoint?: PluginOpportunisticEvolutionSurface['checkpoint'];
   guardDecision?: PluginOpportunisticEvolutionGuardDecision;
   projectRoot: string;
   scanner?: GitDiffScannerLike;
@@ -116,6 +117,7 @@ export async function buildPluginOpportunisticEvolutionSurface(
       producerKind: 'plugin-opportunistic' as const,
       separatedFrom: 'daemon-file-change' as const,
     },
+    ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
     serviceGate: input.serviceGate,
     trigger: {
       tool: input.toolOutcome?.tool ?? null,
@@ -171,8 +173,6 @@ export async function buildPluginOpportunisticEvolutionSurface(
   }
 
   const sourceRefs = uniqueStrings(scan.events.map((event) => event.path));
-  const hasProjectScope = input.projectRoot.trim().length > 0;
-  const hasFileEvidence = sourceRefs.length > 0;
   const hasToolOutcome = input.toolOutcome?.success === true;
   const reasons = [
     input.serviceGate.reason,
@@ -195,32 +195,16 @@ export async function buildPluginOpportunisticEvolutionSurface(
     };
   }
 
-  if (hasProjectScope && hasFileEvidence && hasToolOutcome && input.toolOutcome) {
-    return {
-      ...base,
-      evidenceGate: { verdict: 'strong-proposal', reasons },
-      gitDiffEvidence: projectGitDiffEvidence(scan),
-      proposal: {
-        confidence: confidenceForDiff(scan),
-        kind: 'knowledge-evolution-proposal',
-        message:
-          'Plugin fallback found scoped git diff evidence after a successful host-agent tool outcome. Review the changed files and explicitly submit/evolve knowledge if warranted.',
-        producerKind: 'plugin-opportunistic',
-        sourceRefs,
-        toolOutcome: input.toolOutcome,
-      },
-    };
-  }
-
   return {
     ...base,
-    evidenceGate: { verdict: 'weak-hint', reasons },
-    gitDiffEvidence: projectGitDiffEvidence(scan),
-    hint: {
-      message:
-        'Plugin fallback found git diff evidence but not enough scoped tool outcome evidence for a strong proposal.',
-      sourceRefs,
+    evidenceGate: {
+      verdict: 'no-op',
+      reasons: [
+        ...reasons,
+        'Git diff evidence was not routed to unified evolution; Plugin fallback stays no-op.',
+      ],
     },
+    gitDiffEvidence: projectGitDiffEvidence(scan),
   };
 }
 
@@ -269,25 +253,6 @@ export function extractTaskCloseGuardDecision(
     action,
     reasonCode,
     taskScopedFiles: normalizeSourceRefs(guardDecision.taskScopedFiles),
-  };
-}
-
-export function extractTaskCloseOutcome(
-  result: unknown
-): PluginOpportunisticEvolutionToolOutcome | null {
-  if (!isRecord(result) || result.success === false) {
-    return null;
-  }
-  const data = isRecord(result.data) ? result.data : {};
-  const closed = isRecord(data.closed) ? data.closed : null;
-  if (!closed) {
-    return null;
-  }
-  return {
-    tool: 'alembic_task',
-    success: true,
-    taskId: typeof closed.id === 'string' ? closed.id : null,
-    reason: typeof closed.reason === 'string' ? closed.reason : null,
   };
 }
 
@@ -355,25 +320,13 @@ function summarizeUnifiedEvolution(
     fixed: report.fixed,
     ...(report.freshness ? { freshness: report.freshness } : {}),
     generationChangeLog: report.generationChangeLog,
+    moduleMiningRoutes: report.moduleMiningRoutes,
     needsReview: report.needsReview,
     pendingProposals: report.pendingProposals,
     planBoundary: report.planBoundary,
-    recommendations: report.recommendations,
     skipped: report.skipped,
     suggestReview: report.suggestReview,
   };
-}
-
-function confidenceForDiff(scan: GitDiffScanResult): number {
-  const hasDeletion = scan.events.some((event) => event.type === 'deleted');
-  const hasModification = scan.events.some((event) => event.type === 'modified');
-  if (hasDeletion) {
-    return 0.78;
-  }
-  if (hasModification) {
-    return 0.72;
-  }
-  return 0.66;
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

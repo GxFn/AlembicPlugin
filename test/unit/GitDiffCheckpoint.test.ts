@@ -1,8 +1,6 @@
-import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { FileChangeEvent, ReactiveEvolutionReport } from '@alembic/core/types';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   createInactiveGitDiffCheckpointStatus,
@@ -11,7 +9,6 @@ import {
   shouldIgnoreProjectPath,
   toProjectRelativePath,
 } from '../../lib/recipe-generation/evolution/git-diff-checkpoint/index.js';
-import type { FileChangeDispatcher } from '../../lib/service/FileChangeDispatcher.js';
 
 const tempDirs: string[] = [];
 
@@ -58,149 +55,83 @@ describe('Git diff checkpoint', () => {
     });
   });
 
-  test('dispatches current dirty diff on first checkpoint and repeats only when content changes', async () => {
-    const repo = createRepo();
-    const { checkpoint, dispatch } = createCheckpoint(repo);
-
-    appendFileSync(join(repo, 'src', 'index.ts'), '\nexport const next = 2;\n');
-    const first = await checkpoint.checkpoint(1_000);
-
-    expect(first).toMatchObject({
-      changed: true,
-      dirtyPathCount: 1,
-      dispatchedEventCount: 1,
-      ok: true,
-      scanned: true,
+  test('durable service initializes from active confirmed Plan and advances only routed ranges', () => {
+    const checkpointRepository = createInMemoryCheckpointRepository();
+    const planRepository = {
+      getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
+    };
+    const service = new GitDiffCheckpointService({
+      checkpointRepository: checkpointRepository as never,
+      planRepository: planRepository as never,
     });
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch.mock.calls[0]?.[0]).toEqual([
-      {
-        eventSource: 'git-worktree',
-        path: 'src/index.ts',
-        type: 'modified',
-      },
-    ]);
+    const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
 
-    const unchanged = await checkpoint.checkpoint(2_000);
-    expect(unchanged).toMatchObject({
-      changed: false,
-      dispatchedEventCount: 0,
-      ok: true,
+    const ensured = service.ensureCheckpoint({ ...scope, now: 1_000 });
+    expect(ensured.source).toBe('active-confirmed-plan');
+    expect(ensured.checkpoint.checkpointCommit).toBe('plan-head');
+
+    const skipped = service.recordRouteOutcome({
+      ...scope,
+      routeStatus: 'skipped',
+      scannedAt: 2_000,
+      targetCommit: 'head-b',
     });
-    expect(dispatch).toHaveBeenCalledTimes(1);
-
-    appendFileSync(join(repo, 'src', 'index.ts'), '\nexport const later = 3;\n');
-    const changedAgain = await checkpoint.checkpoint(3_000);
-
-    expect(changedAgain).toMatchObject({
-      changed: true,
-      dispatchedEventCount: 1,
-      ok: true,
+    expect(skipped).toMatchObject({
+      advanced: false,
+      unresolvedRange: { fromCommit: 'plan-head', toCommit: 'head-b' },
     });
-    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(skipped.checkpoint.checkpointCommit).toBe('plan-head');
+
+    const routed = service.recordRouteOutcome({
+      ...scope,
+      routeStatus: 'routed',
+      scannedAt: 3_000,
+      targetCommit: 'head-b',
+    });
+    expect(routed).toMatchObject({
+      advanced: true,
+      unresolvedRange: null,
+    });
+    expect(routed.checkpoint.checkpointCommit).toBe('head-b');
   });
 
-  test('dispatches untracked file content changes without watcher events', async () => {
-    const repo = createRepo();
-    const { checkpoint, dispatch } = createCheckpoint(repo);
-
-    writeFileSync(join(repo, 'src', 'draft.ts'), 'export const draft = 1;\n');
-    await checkpoint.checkpoint(1_000);
-    await checkpoint.checkpoint(2_000);
-    appendFileSync(join(repo, 'src', 'draft.ts'), 'export const draft2 = 2;\n');
-    const changedAgain = await checkpoint.checkpoint(3_000);
-
-    expect(changedAgain).toMatchObject({
-      changed: true,
-      dispatchedEventCount: 1,
-      ok: true,
+  test('durable service preserves unresolved non-ancestor and failed ranges', () => {
+    const checkpointRepository = createInMemoryCheckpointRepository();
+    const service = new GitDiffCheckpointService({
+      checkpointRepository: checkpointRepository as never,
+      planRepository: {
+        getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
+      } as never,
     });
-    expect(dispatch).toHaveBeenCalledTimes(2);
-    expect(dispatch.mock.calls.map((call) => call[0]?.[0])).toEqual([
-      {
-        eventSource: 'git-worktree',
-        path: 'src/draft.ts',
-        type: 'created',
+    const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
+
+    const nonAncestor = service.recordRouteOutcome({
+      ...scope,
+      mergeBaseCommit: 'merge-base',
+      routeStatus: 'non-ancestor',
+      scannedAt: 2_000,
+      targetCommit: 'head-c',
+    });
+    const failed = service.recordRouteOutcome({
+      ...scope,
+      routeStatus: 'failed',
+      scannedAt: 3_000,
+      targetCommit: 'head-d',
+    });
+
+    expect(nonAncestor).toMatchObject({
+      advanced: false,
+      unresolvedRange: {
+        fromCommit: 'plan-head',
+        mergeBaseCommit: 'merge-base',
+        toCommit: 'head-c',
       },
-      {
-        eventSource: 'git-worktree',
-        path: 'src/draft.ts',
-        type: 'created',
-      },
-    ]);
-  });
-
-  test('filters Alembic internal files from git diff dispatch', async () => {
-    const repo = createRepo();
-    const { checkpoint, dispatch } = createCheckpoint(repo);
-
-    mkdirSync(join(repo, '.asd'), { recursive: true });
-    writeFileSync(join(repo, '.asd', 'state.json'), '{}\n');
-    const result = await checkpoint.checkpoint(1_000);
-
-    expect(result).toMatchObject({
-      changed: false,
-      dirtyPathCount: 0,
-      dispatchedEventCount: 0,
-      ok: true,
     });
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  test('does not accept a diff signature when dispatch fails, so the next checkpoint retries', async () => {
-    const repo = createRepo();
-    const dispatch = vi
-      .fn<(events: FileChangeEvent[]) => Promise<ReactiveEvolutionReport>>()
-      .mockRejectedValueOnce(new Error('dispatcher offline'))
-      .mockResolvedValueOnce(makeReport('git-worktree'));
-    const dispatcher = { dispatch } as unknown as FileChangeDispatcher;
-    const checkpoint = new GitDiffCheckpointService({
-      dispatcher,
-      logger: { info: vi.fn(), warn: vi.fn() },
-      projectRoot: repo,
-    });
-
-    appendFileSync(join(repo, 'src', 'index.ts'), '\nexport const next = 2;\n');
-    const failed = await checkpoint.checkpoint(1_000);
-    const retried = await checkpoint.checkpoint(2_000);
-
     expect(failed).toMatchObject({
-      changed: true,
-      dispatchedEventCount: 0,
-      ok: false,
+      advanced: false,
+      unresolvedRange: { fromCommit: 'plan-head', toCommit: 'head-d' },
     });
-    expect(retried).toMatchObject({
-      changed: true,
-      dispatchedEventCount: 1,
-      ok: true,
-    });
-    expect(dispatch).toHaveBeenCalledTimes(2);
-  });
-
-  test('reports committed HEAD changes as git-head events at checkpoint time', async () => {
-    const repo = createRepo();
-    const { checkpoint, dispatch } = createCheckpoint(repo);
-
-    await checkpoint.checkpoint(1_000);
-    writeFileSync(join(repo, 'src', 'committed.ts'), 'export const committed = true;\n');
-    git(repo, ['add', '.']);
-    git(repo, ['commit', '-m', 'add committed file']);
-    const result = await checkpoint.checkpoint(2_000);
-
-    expect(result).toMatchObject({
-      changed: true,
-      dispatchedEventCount: 1,
-      headChanged: true,
-      ok: true,
-    });
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch.mock.calls[0]?.[0]).toEqual([
-      {
-        eventSource: 'git-head',
-        path: 'src/committed.ts',
-        type: 'created',
-      },
-    ]);
+    expect(failed.checkpoint.checkpointCommit).toBe('plan-head');
   });
 
   test('scanner uses deterministic HEAD range diff with rename and copy detection', async () => {
@@ -310,37 +241,49 @@ describe('Git diff checkpoint', () => {
   });
 });
 
-function createCheckpoint(repo: string) {
-  const dispatch = vi.fn(async (events: FileChangeEvent[]) => makeReport(events[0]?.eventSource));
-  const dispatcher = { dispatch } as unknown as FileChangeDispatcher;
-  const checkpoint = new GitDiffCheckpointService({
-    dispatcher,
-    logger: {
-      info: vi.fn(),
-      warn: vi.fn(),
+function createInMemoryCheckpointRepository() {
+  type Scope = { folderId: string; projectRoot: string; scopeId: string };
+  type Record = Scope & {
+    advancedAt: number | null;
+    checkpointCommit: string | null;
+    createdAt: number;
+    initialFromPlanCommit: string | null;
+    lastRouteReason: string | null;
+    lastRouteStatus: string;
+    lastScannedAt: number | null;
+    mergeBaseCommit: string | null;
+    targetCommit: string | null;
+    updatedAt: number;
+  };
+  const rows = new Map<string, Record>();
+  const key = (scope: Scope) => `${scope.projectRoot}\0${scope.scopeId}\0${scope.folderId}`;
+
+  return {
+    get(scope: Scope): Record | null {
+      return rows.get(key(scope)) ?? null;
     },
-    projectRoot: repo,
-  });
-  return { checkpoint, dispatch };
-}
-
-function createRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'alembic-git-diff-checkpoint-'));
-  tempDirs.push(dir);
-
-  mkdirSync(join(dir, 'src'), { recursive: true });
-  writeFileSync(join(dir, 'src', 'index.ts'), 'export const value = 1;\n');
-  git(dir, ['init']);
-  git(dir, ['config', 'user.email', 'test@example.com']);
-  git(dir, ['config', 'user.name', 'Alembic Test']);
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-m', 'init']);
-
-  return dir;
-}
-
-function git(cwd: string, args: string[]): void {
-  execFileSync('git', args, { cwd, stdio: 'ignore' });
+    upsert(input: Scope & Partial<Record>): Record {
+      const existing = rows.get(key(input));
+      const now = input.updatedAt ?? Date.now();
+      const row: Record = {
+        advancedAt: input.advancedAt ?? null,
+        checkpointCommit: input.checkpointCommit ?? null,
+        createdAt: input.createdAt ?? existing?.createdAt ?? now,
+        folderId: input.folderId,
+        initialFromPlanCommit: input.initialFromPlanCommit ?? null,
+        lastRouteReason: input.lastRouteReason ?? null,
+        lastRouteStatus: input.lastRouteStatus ?? 'initialized',
+        lastScannedAt: input.lastScannedAt ?? null,
+        mergeBaseCommit: input.mergeBaseCommit ?? null,
+        projectRoot: input.projectRoot,
+        scopeId: input.scopeId,
+        targetCommit: input.targetCommit ?? null,
+        updatedAt: now,
+      };
+      rows.set(key(row), row);
+      return row;
+    },
+  };
 }
 
 function createExecGitStub(input: {
@@ -364,16 +307,4 @@ function createExecGitStub(input: {
     }
     return '';
   }) as (args: string[], cwd: string) => Promise<string>;
-}
-
-function makeReport(eventsSource: ReactiveEvolutionReport['eventSource']): ReactiveEvolutionReport {
-  return {
-    deprecated: 0,
-    details: [],
-    eventSource: eventsSource,
-    fixed: 0,
-    needsReview: 0,
-    skipped: 0,
-    suggestReview: false,
-  };
 }

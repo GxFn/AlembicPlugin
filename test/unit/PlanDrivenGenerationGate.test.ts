@@ -263,6 +263,7 @@ describe('Plan-driven generation gate', () => {
       ].join('\n')
     );
     initializeGitRepository(projectRoot);
+    const initialHead = gitOutput(projectRoot, ['rev-parse', 'HEAD']);
     moveFile(projectRoot, 'src/api/client.ts', 'src/api/RG10Client.ts');
     writeFile(
       projectRoot,
@@ -343,6 +344,16 @@ describe('Plan-driven generation gate', () => {
       status: 'active',
       verifiedAt: 100,
     });
+    repositories.gitDiffCheckpointRepository.upsert({
+      projectRoot,
+      scopeId: 'single-folder',
+      folderId: 'root',
+      checkpointCommit: initialHead,
+      initialFromPlanCommit: initialHead,
+      lastRouteStatus: 'initialized',
+      createdAt: 100,
+      updatedAt: 100,
+    });
 
     const result = (await runHostAgentKnowledgeRescanWorkflow(createContext(), {
       dimensions: [dimensionId],
@@ -376,7 +387,7 @@ describe('Plan-driven generation gate', () => {
     expect(asRecord(result.data?.evolution)).toMatchObject({
       classificationCounts: expect.objectContaining({
         modified: 1,
-        newModuleRecommendations: 1,
+        moduleMiningRoutes: 1,
         renamed: 1,
         repaired: 1,
       }),
@@ -395,7 +406,7 @@ describe('Plan-driven generation gate', () => {
           recipeId: modifiedRecipe.id,
         }),
         expect.objectContaining({
-          action: 'new-module-recommendation',
+          action: 'new-module-module-mining-routed',
           filePath: 'src/RG10AcceptanceProbe/index.ts',
         }),
       ])
@@ -586,6 +597,7 @@ async function replaceFixtureProject(nextProjectRoot: string): Promise<void> {
 function createContext(): McpContext {
   const services: Record<string, unknown> = {
     database: runtime.connection,
+    gitDiffCheckpointRepository: repositories.gitDiffCheckpointRepository,
     knowledgeRepository: repositories.knowledgeRepository,
     lifecycleEventRepository: repositories.lifecycleEventRepository,
     planRepository: repositories.planRepository,
@@ -769,6 +781,10 @@ function initializeGitRepository(root: string): void {
 
 function git(cwd: string, args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'ignore' });
+}
+
+function gitOutput(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

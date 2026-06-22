@@ -11,6 +11,10 @@ import type {
   ImpactLevel,
   ReactiveEvolutionReport,
 } from '@alembic/core/types';
+import {
+  buildHostAgentProjectContextAnalysis,
+  type HostAgentProjectContextAnalysis,
+} from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
 
 type SourceRefRow = {
   recipeId: string;
@@ -58,17 +62,35 @@ interface SignalBusLike {
 
 export interface FileChangeHandlerOptions {
   evolutionGateway?: Pick<EvolutionGateway, 'submit'> | null;
+  moduleMiningAnalyzer?: ModuleMiningAnalyzer;
   projectRoot?: string;
   recipeFreshnessService?: Pick<RecipeFreshnessService, 'refreshRecipes'> | null;
   renameAutoRepairThreshold?: number;
   signalBus?: SignalBusLike | null;
 }
 
-export interface UnifiedEvolutionRecommendation {
+export interface ModuleMiningAnalyzerInput {
+  event: FileChangeEvent;
   moduleId: string;
+  moduleScope: string[];
+  projectRoot: string;
+}
+
+export type ModuleMiningAnalyzer = (
+  input: ModuleMiningAnalyzerInput
+) => Promise<HostAgentProjectContextAnalysis>;
+
+export interface UnifiedEvolutionModuleMiningRoute {
+  fileCount: number;
+  moduleId: string;
+  moduleScope: string[];
   path: string;
   reason: string;
-  nextActions: string[];
+  requestKinds: string[];
+  status: 'routed' | 'failed';
+  error?: string;
+  moduleCount?: number;
+  moduleSeedCount?: number;
 }
 
 export interface UnifiedEvolutionProposalSignal {
@@ -99,8 +121,8 @@ export interface UnifiedEvolutionReport extends ReactiveEvolutionReport {
     created: number;
     deleted: number;
     deprecationProposals: number;
+    moduleMiningRoutes: number;
     modified: number;
-    newModuleRecommendations: number;
     proposed: number;
     renamed: number;
     repaired: number;
@@ -118,8 +140,8 @@ export interface UnifiedEvolutionReport extends ReactiveEvolutionReport {
     planIntentWrites: 0;
     projectedFromExistingDbSources: true;
   };
+  moduleMiningRoutes: UnifiedEvolutionModuleMiningRoute[];
   pendingProposals: UnifiedEvolutionProposalSignal[];
-  recommendations: UnifiedEvolutionRecommendation[];
 }
 
 const DEFAULT_RENAME_AUTO_REPAIR_THRESHOLD = 0.9;
@@ -128,6 +150,7 @@ const FILE_CHANGE_PROPOSAL_SOURCE = 'file-change';
 export class FileChangeHandler {
   readonly #evolutionGateway: Pick<EvolutionGateway, 'submit'> | null;
   readonly #knowledgeRepo: KnowledgeRepositoryLike;
+  readonly #moduleMiningAnalyzer: ModuleMiningAnalyzer;
   readonly #projectRoot: string;
   readonly #recipeFreshnessService: Pick<RecipeFreshnessService, 'refreshRecipes'> | null;
   readonly #renameAutoRepairThreshold: number;
@@ -143,6 +166,7 @@ export class FileChangeHandler {
     this.#sourceRefRepo = sourceRefRepo;
     this.#knowledgeRepo = knowledgeRepo;
     this.#evolutionGateway = options.evolutionGateway ?? null;
+    this.#moduleMiningAnalyzer = options.moduleMiningAnalyzer ?? defaultModuleMiningAnalyzer;
     this.#projectRoot = options.projectRoot ?? process.cwd();
     this.#recipeFreshnessService = options.recipeFreshnessService ?? null;
     this.#renameAutoRepairThreshold =
@@ -166,7 +190,7 @@ export class FileChangeHandler {
           await this.#handleDeleted(event, report);
           break;
         case 'created':
-          this.#handleCreated(event, report);
+          await this.#handleCreated(event, report);
           break;
       }
     }
@@ -176,8 +200,8 @@ export class FileChangeHandler {
     report.suggestReview =
       report.needsReview > 0 ||
       report.deprecated > 0 ||
-      report.recommendations.length > 0 ||
-      report.classificationCounts.newModuleRecommendations > 0;
+      report.moduleMiningRoutes.length > 0 ||
+      report.classificationCounts.moduleMiningRoutes > 0;
     return report;
   }
 
@@ -257,14 +281,23 @@ export class FileChangeHandler {
       const impact = assessFileImpact(this.#projectRoot, event.path, tokens);
       if (!impact) {
         if (event.eventSource === 'git-head') {
+          const proposal = await this.#submitUpdateProposal(entry, event.path, {
+            currentCode: '',
+            impactLevel: 'reference',
+            matchedTokens: [],
+            reason:
+              'Committed git-head event modified covered source; working-tree diff content is no longer available, so a Recipe update proposal must preserve review evidence.',
+          });
+          report.pendingProposals.push(proposal);
           report.needsReview++;
+          report.classificationCounts.proposed++;
           report.generationChangeLog.push({
             action: 'source-modified-review-needed',
             createdAt: Date.now(),
             eventSource: event.eventSource,
             filePath: event.path,
             reason:
-              'Committed git-head event modified covered source; working-tree diff content is no longer available, so host review is required.',
+              'Committed git-head event modified covered source; working-tree diff content is no longer available, so a Recipe update proposal was routed.',
             recipeId: entry.id,
           });
           report.details.push({
@@ -365,7 +398,7 @@ export class FileChangeHandler {
     }
   }
 
-  #handleCreated(event: FileChangeEvent, report: UnifiedEvolutionReport): void {
+  async #handleCreated(event: FileChangeEvent, report: UnifiedEvolutionReport): Promise<void> {
     report.classificationCounts.created++;
     const moduleId = moduleIdForPath(event.path);
     if (!moduleId) {
@@ -398,32 +431,76 @@ export class FileChangeHandler {
       return;
     }
 
-    const recommendation = {
-      moduleId,
-      path: event.path,
-      reason: 'created path appears in a new module without existing recipe_source_refs coverage',
-      nextActions: [
-        'alembic_plan get',
-        'alembic_rescan { generationStage: "moduleMining", moduleScope: [...] }',
-      ],
-    };
-    report.recommendations.push(recommendation);
-    report.classificationCounts.newModuleRecommendations++;
+    const route = await this.#routeNewModuleToModuleMining(event, moduleId);
+    report.moduleMiningRoutes.push(route);
     report.generationChangeLog.push({
-      action: 'new-module-recommendation',
+      action:
+        route.status === 'routed'
+          ? 'new-module-module-mining-routed'
+          : 'new-module-module-mining-failed',
       createdAt: Date.now(),
       eventSource: event.eventSource,
       filePath: event.path,
-      reason: recommendation.reason,
+      reason: route.reason,
     });
-    this.#signalBus?.send('quality', 'PluginUnifiedEvolution', 0.6, {
-      metadata: {
-        reason: 'new-module-scope-recommendation',
+    if (route.status === 'routed') {
+      report.classificationCounts.moduleMiningRoutes++;
+    } else {
+      report.needsReview++;
+    }
+    this.#signalBus?.send(
+      'quality',
+      'PluginUnifiedEvolution',
+      route.status === 'routed' ? 0.7 : 0.5,
+      {
+        metadata: {
+          reason: 'new-module-module-mining-route',
+          moduleId,
+          moduleScope: route.moduleScope,
+          path: event.path,
+          status: route.status,
+        },
+      }
+    );
+  }
+
+  async #routeNewModuleToModuleMining(
+    event: FileChangeEvent,
+    moduleId: string
+  ): Promise<UnifiedEvolutionModuleMiningRoute> {
+    const moduleScope = [event.path];
+    try {
+      const analysis = await this.#moduleMiningAnalyzer({
+        event,
         moduleId,
+        moduleScope,
+        projectRoot: this.#projectRoot,
+      });
+      return {
+        fileCount: analysis.fileCount,
+        moduleCount: analysis.moduleCount,
+        moduleId,
+        moduleScope,
+        moduleSeedCount: analysis.moduleSeeds.length,
         path: event.path,
-        nextActions: recommendation.nextActions,
-      },
-    });
+        reason:
+          'Created path appears in a new module without recipe_source_refs coverage; routed to scoped moduleMining ProjectContext analysis without Plan state writes.',
+        requestKinds: [...analysis.requestKinds],
+        status: 'routed',
+      };
+    } catch (err: unknown) {
+      return {
+        error: err instanceof Error ? err.message : String(err),
+        fileCount: 0,
+        moduleId,
+        moduleScope,
+        path: event.path,
+        reason:
+          'Created path appears in a new module without recipe_source_refs coverage, but scoped moduleMining ProjectContext analysis failed.',
+        requestKinds: [],
+        status: 'failed',
+      };
+    }
   }
 
   #activeRefsForPath(path: string): SourceRefRow[] {
@@ -592,8 +669,8 @@ function createReport(events: readonly FileChangeEvent[]): UnifiedEvolutionRepor
       created: 0,
       deleted: 0,
       deprecationProposals: 0,
+      moduleMiningRoutes: 0,
       modified: 0,
-      newModuleRecommendations: 0,
       proposed: 0,
       renamed: 0,
       repaired: 0,
@@ -604,6 +681,7 @@ function createReport(events: readonly FileChangeEvent[]): UnifiedEvolutionRepor
     eventSource: dominantEventSource(events),
     fixed: 0,
     generationChangeLog: [],
+    moduleMiningRoutes: [],
     needsReview: 0,
     pendingProposals: [],
     planBoundary: {
@@ -611,10 +689,49 @@ function createReport(events: readonly FileChangeEvent[]): UnifiedEvolutionRepor
       planIntentWrites: 0,
       projectedFromExistingDbSources: true,
     },
-    recommendations: [],
     skipped: 0,
     suggestReview: false,
   };
+}
+
+async function defaultModuleMiningAnalyzer(
+  input: ModuleMiningAnalyzerInput
+): Promise<HostAgentProjectContextAnalysis> {
+  void input.event;
+  void input.moduleId;
+  return await buildHostAgentProjectContextAnalysis({
+    maxFileDetails: 4,
+    maxModuleDetails: 1,
+    maxModuleSeeds: 1,
+    moduleScope: input.moduleScope,
+    projectRoot: input.projectRoot,
+    source: 'codex-host-rescan',
+  });
+}
+
+export function isUnifiedEvolutionReportRouteComplete(report: UnifiedEvolutionReport): boolean {
+  return (
+    report.pendingProposals.every((proposal) => proposal.status === 'submitted') &&
+    report.moduleMiningRoutes.every((route) => route.status === 'routed')
+  );
+}
+
+export function describeUnifiedEvolutionRouteIncomplete(
+  report: UnifiedEvolutionReport
+): string | null {
+  const unavailableProposal = report.pendingProposals.find(
+    (proposal) => proposal.status !== 'submitted'
+  );
+  if (unavailableProposal) {
+    return `Update/deprecation proposal for ${unavailableProposal.recipeId} was not submitted.`;
+  }
+  const failedModuleMining = report.moduleMiningRoutes.find((route) => route.status !== 'routed');
+  if (failedModuleMining) {
+    return `ModuleMining route for ${failedModuleMining.path} failed${
+      failedModuleMining.error ? `: ${failedModuleMining.error}` : ''
+    }.`;
+  }
+  return null;
 }
 
 function isDeprecated(entry: KnowledgeEntryLike): boolean {

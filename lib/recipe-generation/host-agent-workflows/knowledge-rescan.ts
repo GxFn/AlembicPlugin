@@ -11,7 +11,6 @@
  *   5. 返回给宿主 Agent 按维度执行: evolve → gap-fill → dimension_complete
  */
 
-import { execFile } from 'node:child_process';
 import {
   auditRecipesForRescan,
   buildIDEAgentAnalysisPacketFromProjectContext,
@@ -32,9 +31,15 @@ import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
+  describeUnifiedEvolutionRouteIncomplete,
   FileChangeHandler,
+  isUnifiedEvolutionReportRouteComplete,
   type UnifiedEvolutionReport,
 } from '#recipe-generation/evolution/FileChangeHandler.js';
+import {
+  createPluginGitDiffCheckpointRuntime,
+  recordPluginGitDiffCheckpointRouteOutcome,
+} from '#recipe-generation/evolution/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
 import {
   GitDiffScanner,
   type GitDiffScanResult,
@@ -72,19 +77,12 @@ interface ProjectContextAuditFile {
   filePath: string;
 }
 
-interface RescanUnifiedEvolutionCheckpoint {
-  head: string | null;
-  signature: string | null;
-}
-
 interface RescanUnifiedEvolutionResult {
   report: UnifiedEvolutionReport | null;
   routeError: string | null;
   scan: GitDiffScanResult;
   surface: Awaited<ReturnType<typeof buildPluginOpportunisticEvolutionSurface>>;
 }
-
-let rescanUnifiedEvolutionCheckpoints: Map<string, RescanUnifiedEvolutionCheckpoint> | null = null;
 
 // ── 主入口 ─────────────────────────────────────────────────
 
@@ -171,7 +169,6 @@ async function prepareRescanState(
     source: 'codex-host-rescan',
   });
   const unifiedEvolution = await runRescanUnifiedEvolution(ctx, {
-    planGate,
     projectRoot,
   });
 
@@ -380,26 +377,28 @@ function buildRescanBriefing(
 async function runRescanUnifiedEvolution(
   ctx: McpContext,
   input: {
-    planGate: PlanGenerationGateReady;
     projectRoot: string;
   }
 ): Promise<RescanUnifiedEvolutionResult> {
-  const checkpointKey = input.projectRoot;
-  const checkpoints = getRescanUnifiedEvolutionCheckpoints();
-  const checkpoint = checkpoints.get(checkpointKey) ?? null;
-  const previousHead =
-    checkpoint?.head ??
-    (await resolveInitialRescanEvolutionPreviousHead(input.projectRoot, input.planGate));
+  const checkpointRuntime = createPluginGitDiffCheckpointRuntime(ctx.container, {
+    projectRoot: input.projectRoot,
+  });
+  const previousHead = checkpointRuntime?.checkpointCommit ?? null;
   const scanner = new GitDiffScanner({ projectRoot: input.projectRoot });
   const scan = await scanner.scanOnce(Date.now(), { previousHead });
   let report: UnifiedEvolutionReport | null = null;
   let routeError: string | null = null;
+  let routeAttempted = false;
 
   if (shouldRouteRescanUnifiedEvolution(scan)) {
+    routeAttempted = true;
     const handler = createRescanUnifiedEvolutionHandler(ctx, input.projectRoot);
     if (handler) {
       try {
         report = await handler.handleFileChanges(scan.events);
+        if (!isUnifiedEvolutionReportRouteComplete(report)) {
+          routeError = describeUnifiedEvolutionRouteIncomplete(report);
+        }
       } catch (error: unknown) {
         routeError = error instanceof Error ? error.message : String(error);
       }
@@ -408,12 +407,15 @@ async function runRescanUnifiedEvolution(
     }
   }
 
-  if (scan.scanned) {
-    checkpoints.set(checkpointKey, {
-      head: scan.head,
-      signature: scan.signature,
-    });
-  }
+  const checkpoint = checkpointRuntime
+    ? recordPluginGitDiffCheckpointRouteOutcome({
+        report,
+        routeAttempted,
+        routeError,
+        runtime: checkpointRuntime,
+        scan,
+      })
+    : undefined;
 
   const serviceGateReason =
     'alembic_rescan public workflow owns Plugin commit-driven unified evolution routing for this rescan response.';
@@ -432,6 +434,7 @@ async function runRescanUnifiedEvolution(
       success: true,
       tool: 'alembic_rescan',
     },
+    checkpoint,
     unifiedEvolution: report,
   });
 
@@ -460,7 +463,7 @@ function attachRescanUnifiedEvolution(
     target.pendingProposals = evolution.pendingProposals;
     target.proposals = evolution.pendingProposals;
     target.generationChangeLog = evolution.generationChangeLog;
-    target.recommendations = evolution.recommendations;
+    target.moduleMiningRoutes = evolution.moduleMiningRoutes;
   };
   attach(response);
   attach(data);
@@ -509,43 +512,6 @@ function createRescanUnifiedEvolutionHandler(
       signalBus: hasFunctions(signalBus, ['send']) ? (signalBus as never) : null,
     }
   );
-}
-
-async function resolveInitialRescanEvolutionPreviousHead(
-  projectRoot: string,
-  planGate: PlanGenerationGateReady
-): Promise<string | null> {
-  const currentHead = await gitRevParse(projectRoot, 'HEAD');
-  const planCommit = readString(planGate.plan, 'lastUpdatedFromCommit');
-  if (currentHead && planCommit && planCommit !== currentHead) {
-    return planCommit;
-  }
-  return await gitRevParse(projectRoot, 'HEAD^');
-}
-
-function gitRevParse(projectRoot: string, revision: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      'git',
-      ['rev-parse', '--verify', revision],
-      { cwd: projectRoot, encoding: 'utf8', timeout: 5000 },
-      (error, stdout) => {
-        if (error) {
-          resolve(null);
-          return;
-        }
-        const value = stdout.trim();
-        resolve(value.length > 0 ? value : null);
-      }
-    );
-  });
-}
-
-function getRescanUnifiedEvolutionCheckpoints(): Map<string, RescanUnifiedEvolutionCheckpoint> {
-  if (rescanUnifiedEvolutionCheckpoints === null) {
-    rescanUnifiedEvolutionCheckpoints = new Map();
-  }
-  return rescanUnifiedEvolutionCheckpoints;
 }
 
 function safeContainerGet(ctx: McpContext, serviceName: string): unknown {
@@ -657,12 +623,4 @@ function projectContextFilesForRescanAudit(files: readonly ProjectContextAuditFi
     path: file.filePath,
     relativePath: file.filePath,
   }));
-}
-
-function readString(record: unknown, key: string): string | undefined {
-  const value =
-    record && typeof record === 'object' && !Array.isArray(record)
-      ? (record as Record<string, unknown>)[key]
-      : undefined;
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }

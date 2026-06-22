@@ -81,6 +81,23 @@ function mockGateway() {
   };
 }
 
+function mockModuleMiningAnalyzer() {
+  return vi.fn(async (input: { moduleId: string; moduleScope: string[]; projectRoot: string }) => ({
+    dimensions: [],
+    envelopes: [],
+    fileCount: 1,
+    isEmpty: false,
+    isMultiLang: false,
+    moduleCount: 1,
+    moduleSeeds: [{ moduleName: input.moduleId, ownedFiles: input.moduleScope }],
+    presenterInput: { files: [], modules: [], refs: [] },
+    primaryLang: 'typescript',
+    projectType: 'unit-test',
+    requestKinds: ['space', 'repo', 'map', 'module'],
+    secondaryLanguages: [],
+  }));
+}
+
 function createHandler(overrides: Record<string, unknown> = {}) {
   const sourceRefRepo =
     (overrides.sourceRefRepo as ReturnType<typeof mockSourceRefRepo>) ?? mockSourceRefRepo();
@@ -90,6 +107,9 @@ function createHandler(overrides: Record<string, unknown> = {}) {
     (overrides.contentPatcher as ReturnType<typeof mockContentPatcher>) ?? mockContentPatcher();
   const signalBus = (overrides.signalBus as ReturnType<typeof mockSignalBus>) ?? mockSignalBus();
   const gateway = (overrides.gateway as ReturnType<typeof mockGateway>) ?? mockGateway();
+  const moduleMiningAnalyzer =
+    (overrides.moduleMiningAnalyzer as ReturnType<typeof mockModuleMiningAnalyzer>) ??
+    mockModuleMiningAnalyzer();
 
   const handler = new FileChangeHandler(
     sourceRefRepo as never,
@@ -98,10 +118,19 @@ function createHandler(overrides: Record<string, unknown> = {}) {
     {
       signalBus: signalBus as never,
       evolutionGateway: gateway as never,
+      moduleMiningAnalyzer: moduleMiningAnalyzer as never,
     }
   );
 
-  return { handler, sourceRefRepo, knowledgeRepo, contentPatcher, signalBus, gateway };
+  return {
+    handler,
+    sourceRefRepo,
+    knowledgeRepo,
+    contentPatcher,
+    signalBus,
+    gateway,
+    moduleMiningAnalyzer,
+  };
 }
 
 /* ════════════════════════════════════════════
@@ -230,6 +259,52 @@ describe('FileChangeHandler', () => {
       expect(report.needsReview).toBe(0);
       expect(report.skipped).toBe(1);
     });
+
+    test('git-head covered source 且 diff 不可用 → 提交 update proposal', async () => {
+      mockAssessFileImpact.mockReturnValue(null);
+      const { handler, sourceRefRepo, knowledgeRepo, gateway } = createHandler();
+      sourceRefRepo._seed('r1', 'Sources/Committed.swift');
+      knowledgeRepo._seed('r1', {
+        title: 'Committed Recipe',
+        coreCode: 'export const committed = true;',
+      });
+
+      const report = await handler.handleFileChanges([
+        {
+          eventSource: 'git-head',
+          type: 'modified',
+          path: 'Sources/Committed.swift',
+        },
+      ]);
+
+      expect(report.needsReview).toBe(1);
+      expect(report.classificationCounts.proposed).toBe(1);
+      expect(report.pendingProposals).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'update',
+            recipeId: 'r1',
+            status: 'submitted',
+          }),
+        ])
+      );
+      expect(gateway.submit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'update',
+          recipeId: 'r1',
+          source: 'file-change',
+        })
+      );
+      expect(report.generationChangeLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'source-modified-review-needed',
+            filePath: 'Sources/Committed.swift',
+            recipeId: 'r1',
+          }),
+        ])
+      );
+    });
   });
 
   /* ─── Signal 发射验证 ─── */
@@ -321,27 +396,34 @@ describe('FileChangeHandler', () => {
       expect(report.suggestReview).toBe(true);
     });
 
-    test('created 新模块 → 建议 module-mining，不写 Plan', async () => {
-      const { handler, signalBus } = createHandler();
+    test('created 新模块 → 路由 scoped moduleMining，不写 Plan', async () => {
+      const { handler, moduleMiningAnalyzer, signalBus } = createHandler();
 
       const report = await handler.handleFileChanges([
         { type: 'created', path: 'Sources/New.swift' },
       ]);
 
       expect(report.suggestReview).toBe(true);
-      expect(report.classificationCounts.newModuleRecommendations).toBe(1);
+      expect(report.classificationCounts.moduleMiningRoutes).toBe(1);
       expect(report.generationChangeLog).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            action: 'new-module-recommendation',
+            action: 'new-module-module-mining-routed',
             filePath: 'Sources/New.swift',
           }),
         ])
       );
-      expect(report.recommendations[0]).toMatchObject({
+      expect(report.moduleMiningRoutes[0]).toMatchObject({
+        moduleScope: ['Sources/New.swift'],
         path: 'Sources/New.swift',
-        nextActions: expect.arrayContaining(['alembic_plan get']),
+        status: 'routed',
       });
+      expect(moduleMiningAnalyzer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          moduleScope: ['Sources/New.swift'],
+          projectRoot: expect.any(String),
+        })
+      );
       expect(report.planBoundary).toEqual({
         generationStateWrites: 0,
         planIntentWrites: 0,
@@ -350,10 +432,11 @@ describe('FileChangeHandler', () => {
       expect(signalBus.send).toHaveBeenCalledWith(
         'quality',
         'PluginUnifiedEvolution',
-        0.6,
+        0.7,
         expect.objectContaining({
           metadata: expect.objectContaining({
-            reason: 'new-module-scope-recommendation',
+            reason: 'new-module-module-mining-route',
+            status: 'routed',
           }),
         })
       );
@@ -505,7 +588,7 @@ describe('FileChangeHandler', () => {
       );
     });
 
-    test('已覆盖模块的 created 文件 → 不触发新模块建议', async () => {
+    test('已覆盖模块的 created 文件 → 不触发 moduleMining route', async () => {
       const { handler, sourceRefRepo, signalBus } = createHandler();
       sourceRefRepo._seed('r1', 'Sources/Core/Existing.swift');
 
@@ -515,7 +598,8 @@ describe('FileChangeHandler', () => {
 
       expect(report.suggestReview).toBe(false);
       expect(report.classificationCounts.coveredCreated).toBe(1);
-      expect(report.classificationCounts.newModuleRecommendations).toBe(0);
+      expect(report.classificationCounts.moduleMiningRoutes).toBe(0);
+      expect(report.moduleMiningRoutes).toHaveLength(0);
       expect(signalBus.send).not.toHaveBeenCalledWith(
         'quality',
         'PluginUnifiedEvolution',
