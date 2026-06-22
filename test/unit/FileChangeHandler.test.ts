@@ -430,6 +430,39 @@ describe('FileChangeHandler', () => {
       );
     });
 
+    test('带行号 sourceRef 的高置信 rename → 按文件路径匹配并保留行号修复', async () => {
+      const { handler, sourceRefRepo, knowledgeRepo } = createHandler();
+      sourceRefRepo._seed('r1', 'Sources/Features/VideoFeed/VideoFeedViewModel.swift:1-78');
+      knowledgeRepo._seed('r1', { title: 'VideoFeed Recipe', coreCode: '' });
+
+      const report = await handler.handleFileChanges([
+        {
+          eventSource: 'git-head',
+          type: 'renamed',
+          path: 'Sources/Features/VideoFeed/RG10VideoFeedViewModel.swift',
+          oldPath: 'Sources/Features/VideoFeed/VideoFeedViewModel.swift',
+        },
+      ]);
+
+      expect(report.fixed).toBe(1);
+      expect(report.classificationCounts.repaired).toBe(1);
+      expect(sourceRefRepo.replaceSourcePath).toHaveBeenCalledWith(
+        'r1',
+        'Sources/Features/VideoFeed/VideoFeedViewModel.swift:1-78',
+        'Sources/Features/VideoFeed/RG10VideoFeedViewModel.swift:1-78',
+        expect.any(Number)
+      );
+      expect(report.generationChangeLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'source-ref-repaired',
+            oldPath: 'Sources/Features/VideoFeed/VideoFeedViewModel.swift:1-78',
+            newPath: 'Sources/Features/VideoFeed/RG10VideoFeedViewModel.swift:1-78',
+          }),
+        ])
+      );
+    });
+
     test('低置信 rename → 指针修复 + update proposal', async () => {
       const { handler, sourceRefRepo, knowledgeRepo, gateway } = createHandler();
       sourceRefRepo._seed('r1', 'Sources/Old.swift');
@@ -521,6 +554,36 @@ describe('FileChangeHandler', () => {
       expect(report.skipped).toBe(1);
       expect(report.details).toHaveLength(0);
       expect(signalBus.send).not.toHaveBeenCalled();
+    });
+
+    test('已提交 git-head modified 事件匹配带行号 sourceRef → 生成 review-needed changeLog', async () => {
+      mockAssessFileImpact.mockReturnValue(null);
+      const { handler, sourceRefRepo, knowledgeRepo } = createHandler();
+      sourceRefRepo._seed(
+        'r1',
+        'Sources/Infrastructure/Networking/Repository/FeedRepository.swift:1-69'
+      );
+      knowledgeRepo._seed('r1', { title: 'FeedRepository Recipe', coreCode: '' });
+
+      const report = await handler.handleFileChanges([
+        {
+          eventSource: 'git-head',
+          type: 'modified',
+          path: 'Sources/Infrastructure/Networking/Repository/FeedRepository.swift',
+        },
+      ]);
+
+      expect(report.skipped).toBe(0);
+      expect(report.needsReview).toBe(1);
+      expect(report.generationChangeLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'source-modified-review-needed',
+            filePath: 'Sources/Infrastructure/Networking/Repository/FeedRepository.swift',
+            recipeId: 'r1',
+          }),
+        ])
+      );
     });
 
     test('diff 返回 pattern → 进入 details + needsReview + 创建 update 提案', async () => {

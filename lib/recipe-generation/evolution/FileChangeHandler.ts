@@ -204,7 +204,13 @@ export class FileChangeHandler {
         report.skipped++;
         continue;
       }
-      this.#sourceRefRepo.replaceSourcePath(ref.recipeId, event.oldPath, event.path, Date.now());
+      const repairedSourcePath = repairSourceRefPath(ref.sourcePath, event.path);
+      this.#sourceRefRepo.replaceSourcePath(
+        ref.recipeId,
+        ref.sourcePath,
+        repairedSourcePath,
+        Date.now()
+      );
       freshnessIds.add(ref.recipeId);
       report.fixed++;
       report.classificationCounts.repaired++;
@@ -212,10 +218,10 @@ export class FileChangeHandler {
         action: 'source-ref-repaired',
         createdAt: Date.now(),
         eventSource: event.eventSource,
-        filePath: event.path,
-        newPath: event.path,
-        oldPath: event.oldPath,
-        reason: `High-confidence rename repaired Recipe sourceRef ${event.oldPath} -> ${event.path}.`,
+        filePath: repairedSourcePath,
+        newPath: repairedSourcePath,
+        oldPath: ref.sourcePath,
+        reason: `High-confidence rename repaired Recipe sourceRef ${ref.sourcePath} -> ${repairedSourcePath}.`,
         recipeId: ref.recipeId,
       });
       if (confidence < this.#renameAutoRepairThreshold) {
@@ -250,6 +256,27 @@ export class FileChangeHandler {
       const tokens = extractRecipeTokens(entry);
       const impact = assessFileImpact(this.#projectRoot, event.path, tokens);
       if (!impact) {
+        if (event.eventSource === 'git-head') {
+          report.needsReview++;
+          report.generationChangeLog.push({
+            action: 'source-modified-review-needed',
+            createdAt: Date.now(),
+            eventSource: event.eventSource,
+            filePath: event.path,
+            reason:
+              'Committed git-head event modified covered source; working-tree diff content is no longer available, so host review is required.',
+            recipeId: entry.id,
+          });
+          report.details.push({
+            action: 'needs-review',
+            impactLevel: 'reference',
+            modifiedPath: event.path,
+            reason: 'Committed git-head modification touched a covered sourceRef',
+            recipeId: entry.id,
+            recipeTitle: entry.title ?? entry.id,
+          });
+          continue;
+        }
         report.skipped++;
         continue;
       }
@@ -306,14 +333,19 @@ export class FileChangeHandler {
         continue;
       }
       const activeRefs = this.#activeRefsForRecipe(ref.recipeId);
-      if (activeRefs.some((active) => active.sourcePath !== event.path)) {
-        this.#markSourceRefStale(ref.recipeId, event.path);
+      const deletedComparablePath = normalizeComparableSourcePath(event.path);
+      if (
+        activeRefs.some(
+          (active) => normalizeComparableSourcePath(active.sourcePath) !== deletedComparablePath
+        )
+      ) {
+        this.#markSourceRefStale(ref.recipeId, ref.sourcePath);
         report.generationChangeLog.push({
           action: 'source-ref-stale',
           createdAt: Date.now(),
           eventSource: event.eventSource,
-          filePath: event.path,
-          reason: `Deleted source ${event.path} marked stale because Recipe keeps other active sourceRefs.`,
+          filePath: ref.sourcePath,
+          reason: `Deleted source ${ref.sourcePath} marked stale because Recipe keeps other active sourceRefs.`,
           recipeId: ref.recipeId,
         });
         report.skipped++;
@@ -395,7 +427,22 @@ export class FileChangeHandler {
   }
 
   #activeRefsForPath(path: string): SourceRefRow[] {
-    return this.#sourceRefRepo.findBySourcePath(path).filter((ref) => ref.status !== 'stale');
+    const exactRefs = this.#sourceRefRepo
+      .findBySourcePath(path)
+      .filter((ref) => ref.status !== 'stale');
+    if (exactRefs.length > 0 || !this.#sourceRefRepo.findAll) {
+      return exactRefs;
+    }
+    const comparablePath = normalizeComparableSourcePath(path);
+    return uniqueSourceRefs(
+      this.#sourceRefRepo
+        .findAll()
+        .filter(
+          (ref) =>
+            ref.status !== 'stale' &&
+            normalizeComparableSourcePath(ref.sourcePath) === comparablePath
+        )
+    );
   }
 
   #activeRefsForRecipe(recipeId: string): SourceRefRow[] {
@@ -594,7 +641,7 @@ function renameConfidence(event: FileChangeEvent): number {
 }
 
 function moduleIdForPath(filePath: string): string | null {
-  const parts = filePath.split('/').filter(Boolean);
+  const parts = normalizeComparableSourcePath(filePath).split('/').filter(Boolean);
   if (parts.length === 0) {
     return null;
   }
@@ -625,4 +672,40 @@ function dominantEventSource(
     counts.set(event.eventSource, (counts.get(event.eventSource) ?? 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+}
+
+function normalizeComparableSourcePath(sourceRef: string): string {
+  const { filePath } = splitSourceRefLocation(sourceRef);
+  return filePath.replace(/^\.\//, '');
+}
+
+function repairSourceRefPath(sourceRef: string, newFilePath: string): string {
+  const { lineSuffix } = splitSourceRefLocation(sourceRef);
+  return `${normalizeComparableSourcePath(newFilePath)}${lineSuffix}`;
+}
+
+function splitSourceRefLocation(sourceRef: string): { filePath: string; lineSuffix: string } {
+  const trimmed = sourceRef.trim();
+  const lineMatch = /^(.*?)(:\d+(?:-\d+)?)$/.exec(trimmed);
+  if (!lineMatch) {
+    return { filePath: trimmed, lineSuffix: '' };
+  }
+  return {
+    filePath: lineMatch[1] ?? trimmed,
+    lineSuffix: lineMatch[2] ?? '',
+  };
+}
+
+function uniqueSourceRefs(refs: SourceRefRow[]): SourceRefRow[] {
+  const seen = new Set<string>();
+  const unique: SourceRefRow[] = [];
+  for (const ref of refs) {
+    const key = `${ref.recipeId}\0${ref.sourcePath}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(ref);
+  }
+  return unique;
 }

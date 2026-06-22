@@ -254,8 +254,29 @@ describe('Plan-driven generation gate', () => {
   });
 
   test('moduleMining rescan preserves Plan scope and surfaces commit-driven evolution', async () => {
+    writeFile(
+      projectRoot,
+      'src/data/repository.ts',
+      [
+        'export function normalizedPage(raw: number) {',
+        '  return { cursor: String(raw), items: [] as string[] };',
+        '}',
+        '',
+      ].join('\n')
+    );
     initializeGitRepository(projectRoot);
     moveFile(projectRoot, 'src/api/client.ts', 'src/api/RG10Client.ts');
+    writeFile(
+      projectRoot,
+      'src/data/repository.ts',
+      [
+        'export function normalizedPage(raw: number) {',
+        '  const pageCursor = "cursor-" + String(raw);',
+        '  return { cursor: pageCursor, items: ["rg10"] };',
+        '}',
+        '',
+      ].join('\n')
+    );
     writeFile(
       projectRoot,
       'src/RG10AcceptanceProbe/index.ts',
@@ -266,11 +287,11 @@ describe('Plan-driven generation gate', () => {
 
     const { dimensionId } = await confirmPlan({
       dimensionStage: 'deepMining',
-      moduleBindings: ['src/api', 'src/RG10AcceptanceProbe'],
+      moduleBindings: ['src/api', 'src/data', 'src/RG10AcceptanceProbe'],
       modulePath: 'src/api',
-      plannedModulePaths: ['src/api', 'src/RG10AcceptanceProbe'],
+      plannedModulePaths: ['src/api', 'src/data', 'src/RG10AcceptanceProbe'],
     });
-    const recipe = new KnowledgeEntry({
+    const renameRecipe = new KnowledgeEntry({
       id: 'recipe-rg10-client',
       title: 'RG10 API client recipe',
       description: 'Recipe anchored to the pre-rename API client.',
@@ -290,10 +311,37 @@ describe('Plan-driven generation gate', () => {
         whyStandard: 'The API client source is the recipe anchor.',
       },
     });
-    await repositories.knowledgeRepository.create(recipe);
+    const modifiedRecipe = new KnowledgeEntry({
+      id: 'recipe-rg10-repository',
+      title: 'RG10 repository recipe',
+      description: 'Recipe anchored to repository page normalization.',
+      lifecycle: 'active',
+      language: 'typescript',
+      dimensionId,
+      category: 'architecture',
+      knowledgeType: 'code-pattern',
+      sourceFile: 'src/data/repository.ts',
+      content: {
+        pattern: 'normalizedPage creates a stable page cursor for repository calls.',
+        rationale: 'Used by moduleMining rescan modified-path regression.',
+      },
+      reasoning: {
+        confidence: 0.9,
+        sources: ['src/data/repository.ts:1-3'],
+        whyStandard: 'The repository source is the recipe anchor.',
+      },
+    });
+    await repositories.knowledgeRepository.create(renameRecipe);
+    await repositories.knowledgeRepository.create(modifiedRecipe);
     repositories.recipeSourceRefRepository.upsert({
-      recipeId: recipe.id,
-      sourcePath: 'src/api/client.ts',
+      recipeId: renameRecipe.id,
+      sourcePath: 'src/api/client.ts:1-3',
+      status: 'active',
+      verifiedAt: 100,
+    });
+    repositories.recipeSourceRefRepository.upsert({
+      recipeId: modifiedRecipe.id,
+      sourcePath: 'src/data/repository.ts:1-3',
       status: 'active',
       verifiedAt: 100,
     });
@@ -308,20 +356,28 @@ describe('Plan-driven generation gate', () => {
     })) as ToolResponse;
 
     expect(result.success).toBe(true);
-    expect(result.data?.moduleScope).toEqual(['src/api', 'src/RG10AcceptanceProbe']);
+    expect(result.data?.moduleScope).toEqual(['src/api', 'src/data', 'src/RG10AcceptanceProbe']);
     expect(asRecord(result.data?.planGate).moduleScope).toEqual([
       'src/api',
+      'src/data',
       'src/RG10AcceptanceProbe',
     ]);
-    expect(asRecord(result.data?.unifiedEvolution).evidenceGate).toMatchObject({
+    const unifiedEvolutionSurface = asRecord(result.data?.unifiedEvolution);
+    const topLevelGitDiffEvidence = asRecord(result.data?.gitDiffEvidence);
+    const nestedGitDiffEvidence = asRecord(unifiedEvolutionSurface.gitDiffEvidence);
+    expect(unifiedEvolutionSurface.evidenceGate).toMatchObject({
       verdict: 'routed',
     });
-    expect(asRecord(result.data?.gitDiffEvidence)).toMatchObject({
+    expect(topLevelGitDiffEvidence).toEqual(nestedGitDiffEvidence);
+    expect(topLevelGitDiffEvidence).toMatchObject({
+      dirtyPathCount: 3,
+      eventCount: 3,
       headRangeStatus: 'ancestor',
-      eventCount: expect.any(Number),
+      headChanged: true,
     });
     expect(asRecord(result.data?.evolution)).toMatchObject({
       classificationCounts: expect.objectContaining({
+        modified: 1,
         newModuleRecommendations: 1,
         renamed: 1,
         repaired: 1,
@@ -331,9 +387,14 @@ describe('Plan-driven generation gate', () => {
       expect.arrayContaining([
         expect.objectContaining({
           action: 'source-ref-repaired',
-          oldPath: 'src/api/client.ts',
-          newPath: 'src/api/RG10Client.ts',
-          recipeId: recipe.id,
+          oldPath: 'src/api/client.ts:1-3',
+          newPath: 'src/api/RG10Client.ts:1-3',
+          recipeId: renameRecipe.id,
+        }),
+        expect.objectContaining({
+          action: 'source-modified-review-needed',
+          filePath: 'src/data/repository.ts',
+          recipeId: modifiedRecipe.id,
         }),
         expect.objectContaining({
           action: 'new-module-recommendation',
@@ -342,13 +403,15 @@ describe('Plan-driven generation gate', () => {
       ])
     );
     expect(
-      repositories.recipeSourceRefRepository.findBySourcePath('src/api/RG10Client.ts')
+      repositories.recipeSourceRefRepository.findBySourcePath('src/api/RG10Client.ts:1-3')
     ).toEqual(
-      expect.arrayContaining([expect.objectContaining({ recipeId: recipe.id, status: 'active' })])
+      expect.arrayContaining([
+        expect.objectContaining({ recipeId: renameRecipe.id, status: 'active' }),
+      ])
     );
-    expect(repositories.recipeSourceRefRepository.findBySourcePath('src/api/client.ts')).toEqual(
-      []
-    );
+    expect(
+      repositories.recipeSourceRefRepository.findBySourcePath('src/api/client.ts:1-3')
+    ).toEqual([]);
   });
 
   test('moduleMining lease blocks duplicate rescanId until release', () => {

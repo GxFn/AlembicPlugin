@@ -32,6 +32,9 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
   if (!shouldAttachPluginOpportunisticEvolution({ args: input.args, toolName: input.toolName })) {
     return input.result;
   }
+  if (hasEmbeddedUnifiedEvolutionSurface(input.result)) {
+    return input.result;
+  }
   const toolOutcome = extractPluginToolOutcome(input.toolName, input.result);
   if (!toolOutcome) {
     return input.result;
@@ -105,6 +108,21 @@ function attachNestedData(result: unknown, patch: Record<string, unknown>): unkn
       ...patch,
     },
   };
+}
+
+function hasEmbeddedUnifiedEvolutionSurface(result: unknown): boolean {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return false;
+  }
+  const record = result as Record<string, unknown>;
+  if (isRecord(record.unifiedEvolution)) {
+    return true;
+  }
+  return isRecord(record.data) && isRecord(record.data.unifiedEvolution);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 export function resetPluginUnifiedEvolutionCheckpointsForTests(): void {

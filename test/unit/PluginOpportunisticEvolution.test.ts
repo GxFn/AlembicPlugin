@@ -6,6 +6,7 @@ import {
   extractTaskCloseOutcome,
   shouldAttachPluginOpportunisticEvolution,
 } from '../../lib/recipe-generation/evolution/PluginOpportunisticEvolution.js';
+import { attachPluginOpportunisticEvolutionSurface } from '../../lib/runtime/mcp/host/opportunistic-evolution-presenter.js';
 
 const fallbackGate = {
   mainServiceCanHandleProjectScope: false,
@@ -214,5 +215,32 @@ describe('Plugin opportunistic evolution surface', () => {
       },
     });
     expect(surface.proposal).toBeUndefined();
+  });
+
+  it('keeps alembic_rescan-owned unified evolution instead of overwriting it with a second scan', async () => {
+    const rescanOwnedResult = {
+      success: true,
+      data: {
+        gitDiffEvidence: { eventCount: 3, headChanged: true },
+        unifiedEvolution: {
+          evidenceGate: { verdict: 'routed' },
+          gitDiffEvidence: { eventCount: 3, headChanged: true },
+        },
+      },
+    };
+
+    const result = await attachPluginOpportunisticEvolutionSurface({
+      args: {},
+      executionContext: { residentProjectScopeAvailable: false } as never,
+      projectRoot: '/repo/that/does/not/need/git',
+      result: rescanOwnedResult,
+      toolName: 'alembic_rescan',
+    });
+
+    expect(result).toBe(rescanOwnedResult);
+    expect((result as typeof rescanOwnedResult).data.unifiedEvolution).toMatchObject({
+      evidenceGate: { verdict: 'routed' },
+      gitDiffEvidence: { eventCount: 3, headChanged: true },
+    });
   });
 });
