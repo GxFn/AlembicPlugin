@@ -20,11 +20,16 @@ export interface ProjectContextCreationGuideInput {
 
 export interface RelationshipGroundingAssessment {
   readonly acceptedGraphRefCount: number;
+  readonly acceptedSourceRefCount: number;
+  readonly degraded?: boolean;
+  readonly finality: 'final' | 'non-final';
   readonly items: readonly Record<string, unknown>[];
   readonly missingGraphEvidenceCount: number;
+  readonly missingSourceEvidenceCount: number;
   readonly nextActions: readonly Record<string, unknown>[];
   readonly relationshipClaimCount: number;
   readonly requiredEvidenceFields: readonly string[];
+  readonly retrievalMayBeStale: boolean;
   readonly status: 'grounded' | 'needs-evidence' | 'not-applicable';
   readonly warning?: string;
 }
@@ -48,6 +53,7 @@ export function buildProjectContextCreationGuide(
     rule: 'Before creating Recipes, anchor project claims in ProjectContext evidence, compare existing Recipes, and cite raw source or graph refs for relationship-heavy claims.',
     confirmedPlanBoundary: {
       required: true,
+      dimensionIds: input.dimensionIds ?? [],
       planId: input.planId ?? null,
       generationStage: input.generationStage ?? null,
       moduleScope: input.moduleScope ?? [],
@@ -175,14 +181,17 @@ export function assessProjectContextRelationshipGrounding(
     const title = readString(item.title) ?? `(item ${index})`;
     const hasRelationship = hasRelationshipClaim(item);
     const graphRefs = collectGraphRefs(item);
+    const sourceRefs = collectSourceRefs(item);
+    const hasRequiredEvidence = graphRefs.length > 0 && sourceRefs.length > 0;
     return {
       index,
       title,
       hasRelationship,
       graphRefCount: graphRefs.length,
+      sourceRefCount: sourceRefs.length,
       status: !hasRelationship
         ? 'not-applicable'
-        : graphRefs.length > 0
+        : hasRequiredEvidence
           ? 'grounded'
           : 'needs-evidence',
     };
@@ -191,20 +200,28 @@ export function assessProjectContextRelationshipGrounding(
   if (relationshipItems.length === 0) {
     return null;
   }
-  const missing = relationshipItems.filter((item) => item.graphRefCount === 0);
-  const status = missing.length > 0 ? 'needs-evidence' : 'grounded';
+  const missingGraph = relationshipItems.filter((item) => item.graphRefCount === 0);
+  const missingSource = relationshipItems.filter((item) => item.sourceRefCount === 0);
+  const status =
+    missingGraph.length > 0 || missingSource.length > 0 ? 'needs-evidence' : 'grounded';
+  const needsEvidence = status === 'needs-evidence';
   return {
     acceptedGraphRefCount: relationshipItems.reduce((sum, item) => sum + item.graphRefCount, 0),
+    acceptedSourceRefCount: relationshipItems.reduce((sum, item) => sum + item.sourceRefCount, 0),
+    ...(needsEvidence ? { degraded: true } : {}),
+    finality: needsEvidence ? 'non-final' : 'final',
     items: inspected,
-    missingGraphEvidenceCount: missing.length,
+    missingGraphEvidenceCount: missingGraph.length,
+    missingSourceEvidenceCount: missingSource.length,
     nextActions: buildProjectContextCreationNextActions({ stage: 'submit-knowledge' }).slice(0, 2),
     relationshipClaimCount: relationshipItems.length,
     requiredEvidenceFields: RELATIONSHIP_EVIDENCE_FIELDS,
+    retrievalMayBeStale: needsEvidence,
     status,
-    ...(status === 'needs-evidence'
+    ...(needsEvidence
       ? {
           warning:
-            'Relationship-heavy Recipe claims are not fully grounded until sourceGraphRefs or graphRefs from alembic_graph/recipe_map are attached.',
+            'Relationship-heavy Recipe claims are non-final until both sourceRefs/reasoning.sources and sourceGraphRefs/graphRefs from alembic_graph/recipe_map are attached.',
         }
       : {}),
   };
@@ -291,6 +308,15 @@ function collectGraphRefs(item: Record<string, unknown>): string[] {
     ...stringArray(readRecord(item.relations)?.graphRefs),
     ...stringArray(readRecord(item.relationships)?.graphRefs),
     ...stringArray(readRecord(item.reasoning)?.graphRefs),
+  ]);
+}
+
+function collectSourceRefs(item: Record<string, unknown>): string[] {
+  return uniqueStrings([
+    ...stringArray(item.sourceRefs),
+    ...stringArray(readRecord(item.reasoning)?.sources),
+    ...stringArray(readRecord(item.relations)?.sourceRefs),
+    ...stringArray(readRecord(item.relationships)?.sourceRefs),
   ]);
 }
 

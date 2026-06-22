@@ -317,8 +317,12 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   alembic_submit_knowledge: [
     'blockedItems',
     'blockedSummary',
+    'businessStatus',
     'commonErrors',
     'count',
+    'degraded',
+    'degradedReasons',
+    'finality',
     'freshness',
     'ideAgentAnalysisLinkage',
     'ids',

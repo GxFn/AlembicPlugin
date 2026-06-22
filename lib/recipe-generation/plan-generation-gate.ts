@@ -230,6 +230,7 @@ function buildPlanGenerationGateReady(input: {
     moduleScope,
     scale,
     signature,
+    coverageByModuleDimension: readRecord(readRecord(planState.coverage).byModuleDimension),
     coverageGaps: summarizeCoverageGaps(planState, generationStage, moduleScope).slice(0, 20),
   };
 

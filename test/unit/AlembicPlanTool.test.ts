@@ -390,7 +390,10 @@ describe('alembic_plan tool', () => {
       basePlanId: String(plan.planId),
       baseVersion: Number(plan.version),
       projectContextSignature: signature,
-      selectedDimensions: confirmedDimensions([dimensionId], 'coldStart'),
+      selectedDimensions: confirmedDimensions([dimensionId], 'coldStart').map((dimension) => ({
+        ...dimension,
+        targetRecipes: 2,
+      })),
       moduleBindings: [{ modulePath: 'src', dimensions: [dimensionId], targetRecipes: 2 }],
       scale: {
         totalRecipeBudget: 2,
@@ -430,6 +433,27 @@ describe('alembic_plan tool', () => {
       status: 'active',
       verifiedAt: 100,
     });
+    const unanchoredRecipe = new KnowledgeEntry({
+      id: 'recipe-plan-unanchored',
+      title: 'React API client unanchored recipe',
+      description: 'Recipe has a legacy sourceFile but no recipe_source_refs bridge.',
+      lifecycle: 'active',
+      language: 'typescript',
+      dimensionId,
+      category: 'architecture',
+      knowledgeType: 'code-pattern',
+      sourceFile: 'src/api/client.ts',
+      content: {
+        pattern: 'The API client fetches user data.',
+        rationale: 'Used by alembic_plan missing source-ref projection test.',
+      },
+      reasoning: {
+        confidence: 0.9,
+        sources: ['src/api/client.ts'],
+        whyStandard: 'Legacy sourceFile without source refs must not count as generated.',
+      },
+    });
+    await repositories.knowledgeRepository.create(unanchoredRecipe);
 
     const get = await callPlan({ operation: 'get' });
     expect(get.success).toBe(true);
@@ -445,18 +469,59 @@ describe('alembic_plan tool', () => {
         }),
       ])
     );
+    expect(asArray(planState.codeRecipeMapping)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          codeRegion: 'src/api/client.ts',
+          recipeIds: ['recipe-plan-unanchored'],
+          status: 'missing',
+        }),
+      ])
+    );
     const coverage = asRecord(planState.coverage);
     const byDimension = asRecord(coverage.byDimension);
     expect(asRecord(byDimension[dimensionId])).toMatchObject({ generated: 1 });
+    const byModuleDimension = asRecord(coverage.byModuleDimension);
+    expect(asRecord(asRecord(byModuleDimension.src)[dimensionId])).toMatchObject({
+      generated: 1,
+      missing: 1,
+      planned: 2,
+    });
+    expect(asArray(coverage.gaps)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dimensionId,
+          modulePath: 'src',
+          generated: 1,
+          missing: 1,
+          planned: 2,
+        }),
+      ])
+    );
     expect(asRecord(get.data?.signature)).toMatchObject({ matches: true });
     expect(asRecord(get.data?.projectContextCreationGuide)).toMatchObject({
       source: 'RG-5-project-context-anchored-creation',
       stage: 'plan-get',
       confirmedPlanBoundary: {
+        dimensionIds: [dimensionId],
         moduleScope: ['src'],
         planId: String(plan.planId),
       },
     });
+    expect(asArray(asRecord(get.data?.projectContextCreationGuide).nextActions)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tool: 'alembic_submit_knowledge',
+          argsTemplate: expect.objectContaining({
+            items: [
+              expect.objectContaining({
+                dimensionId,
+              }),
+            ],
+          }),
+        }),
+      ])
+    );
     expect(actionTools(asArray(get.data?.nextActions))).toEqual(
       expect.arrayContaining([
         'alembic_recipe_map',

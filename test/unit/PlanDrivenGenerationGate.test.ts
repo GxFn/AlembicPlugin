@@ -81,6 +81,14 @@ describe('Plan-driven generation gate', () => {
     expect(result.success).toBe(true);
     expect(result.data?.planGate).toMatchObject({
       cleanupPolicy: 'none',
+      coverageByModuleDimension: {
+        'src/api': {
+          [dimensionId]: expect.objectContaining({ missing: 1, planned: 1 }),
+        },
+      },
+      coverageGaps: expect.arrayContaining([
+        expect.objectContaining({ dimensionId, modulePath: 'src/api', missing: 1, planned: 1 }),
+      ]),
       generationStage: 'coldStart',
       selectedDimensions: [dimensionId],
       testMode: true,

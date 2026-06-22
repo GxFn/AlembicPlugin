@@ -435,6 +435,14 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
       },
     ]);
     expect(result.data).toMatchObject({
+      status: 'degraded',
+      finality: 'non-final',
+      degraded: true,
+      degradedReasons: expect.arrayContaining([
+        'freshness:degraded',
+        'freshness:retrieval-may-be-stale',
+        'vector:recipe-semantic-001:embed-provider-missing',
+      ]),
       freshness: {
         status: 'degraded',
         processed: 1,
@@ -469,6 +477,41 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
   });
 
+  it('keeps created Recipes visible as degraded and non-final when freshness is unavailable', async () => {
+    const result = await routeSubmitKnowledgeTool(
+      makeContext({ freshnessServiceAvailable: false }),
+      {
+        items: [{ title: 'Codex Recipe Interaction' }],
+        skipConsolidation: true,
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(gatewayState.createCalls).toHaveLength(1);
+    expect(result.data).toMatchObject({
+      status: 'degraded',
+      finality: 'non-final',
+      degraded: true,
+      degradedReasons: expect.arrayContaining([
+        'freshness:skipped',
+        'freshness:retrieval-may-be-stale',
+        'freshness:recipe-semantic-001:recipeFreshnessService-unavailable',
+      ]),
+      freshness: {
+        status: 'skipped',
+        retrievalMayBeStale: true,
+        recipes: [
+          expect.objectContaining({
+            recipeId: 'recipe-semantic-001',
+            status: 'skipped',
+            skippedReason: 'recipeFreshnessService-unavailable',
+          }),
+        ],
+      },
+      retrievalMayBeStale: true,
+    });
+  });
+
   it('returns ProjectContext relationship grounding guidance without blocking normal submit', async () => {
     const result = await routeSubmitKnowledgeTool(makeContext(), {
       skipConsolidation: true,
@@ -491,10 +534,22 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     expect(result.success).toBe(true);
     expect(gatewayState.createCalls).toHaveLength(1);
     expect(result.data).toMatchObject({
+      status: 'degraded',
+      finality: 'non-final',
+      degraded: true,
+      degradedReasons: expect.arrayContaining([
+        'relationship-grounding:needs-evidence',
+        'relationship-grounding:missing-graph-evidence',
+        'relationship-grounding:missing-source-evidence',
+      ]),
+      retrievalMayBeStale: true,
       relationshipGrounding: {
         status: 'needs-evidence',
+        finality: 'non-final',
+        retrievalMayBeStale: true,
         relationshipClaimCount: 1,
         missingGraphEvidenceCount: 1,
+        missingSourceEvidenceCount: 1,
         requiredEvidenceFields: expect.arrayContaining(['sourceGraphRefs', 'graphRefs']),
         nextActions: expect.arrayContaining([
           expect.objectContaining({ tool: 'alembic_recipe_map' }),
@@ -511,6 +566,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
         {
           title: 'Relationship Claim With Graph',
           relationshipClaim: true,
+          sourceRefs: ['src/api/client.ts:1-3'],
           sourceGraphRefs: ['pc:module:src/api:call-chain'],
           description: 'The graph ref grounds the caller/callee relationship.',
         },
@@ -521,9 +577,38 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     expect(result.data).toMatchObject({
       relationshipGrounding: {
         status: 'grounded',
+        finality: 'final',
         acceptedGraphRefCount: 1,
+        acceptedSourceRefCount: 1,
         missingGraphEvidenceCount: 0,
+        missingSourceEvidenceCount: 0,
       },
+    });
+  });
+
+  it('marks relationship graph refs non-final when source refs are missing', async () => {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Relationship Claim Missing Source',
+          relationshipClaim: true,
+          sourceGraphRefs: ['pc:module:src/api:call-chain'],
+          description: 'The graph ref alone is not enough for a source-anchored Recipe.',
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      status: 'degraded',
+      finality: 'non-final',
+      relationshipGrounding: {
+        status: 'needs-evidence',
+        missingGraphEvidenceCount: 0,
+        missingSourceEvidenceCount: 1,
+      },
+      retrievalMayBeStale: true,
     });
   });
 
@@ -569,7 +654,13 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
   });
 });
 
-function makeContext({ projectRoot }: { projectRoot?: string } = {}): McpContext {
+function makeContext({
+  freshnessServiceAvailable = true,
+  projectRoot,
+}: {
+  freshnessServiceAvailable?: boolean;
+  projectRoot?: string;
+} = {}): McpContext {
   const session = projectRoot
     ? {
         id: 'session-1',
@@ -591,6 +682,9 @@ function makeContext({ projectRoot }: { projectRoot?: string } = {}): McpContext
           return {};
         }
         if (name === 'recipeFreshnessService') {
+          if (!freshnessServiceAvailable) {
+            return null;
+          }
           return {
             refreshRecipes(entries: unknown) {
               gatewayState.freshnessCalls.push(entries);

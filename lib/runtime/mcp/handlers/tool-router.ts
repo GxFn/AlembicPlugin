@@ -360,6 +360,7 @@ function buildSubmitKnowledgeResponse(
   appendPendingSemanticReviewData(data, gatewayResult);
   appendRelationshipGroundingData(data, items);
   appendSubmitFreshnessData(data, freshness);
+  appendSubmitTruthfulnessData(data, freshness);
 
   if (successCount === 0 && gatewayResult.rejected.length === items.length) {
     return buildAllRejectedSubmitResponse(data, gatewayResult, items.length);
@@ -385,6 +386,73 @@ function appendSubmitFreshnessData(
   }
   data.freshness = freshness;
   data.retrievalMayBeStale = freshness.retrievalMayBeStale;
+}
+
+function appendSubmitTruthfulnessData(
+  data: Record<string, unknown>,
+  freshness: RecipeFreshnessPublicOutput | null
+): void {
+  const degradedReasons = collectSubmitDegradedReasons(data, freshness);
+  const degraded = degradedReasons.length > 0;
+  data.status = degraded ? 'degraded' : 'completed';
+  data.finality = degraded ? 'non-final' : 'final';
+  if (degraded) {
+    data.degraded = true;
+    data.degradedReasons = degradedReasons;
+    data.retrievalMayBeStale = true;
+  } else if (data.retrievalMayBeStale !== true) {
+    data.retrievalMayBeStale = false;
+  }
+}
+
+function collectSubmitDegradedReasons(
+  data: Record<string, unknown>,
+  freshness: RecipeFreshnessPublicOutput | null
+): string[] {
+  const reasons: string[] = [];
+  if (freshness) {
+    if (freshness.status !== 'completed') {
+      reasons.push(`freshness:${freshness.status}`);
+    }
+    if (freshness.retrievalMayBeStale) {
+      reasons.push('freshness:retrieval-may-be-stale');
+    }
+    for (const recipe of freshness.recipes) {
+      if (recipe.status !== 'completed') {
+        reasons.push(`freshness:${recipe.recipeId}:${recipe.status}`);
+      }
+      if (recipe.skippedReason) {
+        reasons.push(`freshness:${recipe.recipeId}:${recipe.skippedReason}`);
+      }
+      for (const error of recipe.errors ?? []) {
+        reasons.push(`freshness:${recipe.recipeId}:${error}`);
+      }
+      for (const error of recipe.sourceRefs.errors ?? []) {
+        reasons.push(`source-refs:${recipe.recipeId}:${error}`);
+      }
+      if (recipe.vector.degradedReason) {
+        reasons.push(`vector:${recipe.recipeId}:${recipe.vector.degradedReason}`);
+      }
+      if (recipe.vector.availabilityReason) {
+        reasons.push(`vector:${recipe.recipeId}:${recipe.vector.availabilityReason}`);
+      }
+    }
+    for (const error of freshness.errors ?? []) {
+      reasons.push(`freshness:${error}`);
+    }
+  }
+
+  const relationshipGrounding = readRecord(data.relationshipGrounding);
+  if (relationshipGrounding.status === 'needs-evidence') {
+    reasons.push('relationship-grounding:needs-evidence');
+    if ((readNumber(relationshipGrounding.missingGraphEvidenceCount) ?? 0) > 0) {
+      reasons.push('relationship-grounding:missing-graph-evidence');
+    }
+    if ((readNumber(relationshipGrounding.missingSourceEvidenceCount) ?? 0) > 0) {
+      reasons.push('relationship-grounding:missing-source-evidence');
+    }
+  }
+  return uniqueStrings(reasons);
 }
 
 function appendCreatedSubmitData(
@@ -754,6 +822,16 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function uniqueStrings(value: readonly string[]): string[] {

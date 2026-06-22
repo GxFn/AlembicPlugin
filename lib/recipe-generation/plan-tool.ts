@@ -1330,10 +1330,11 @@ function buildGetNextActions(view: PlanView): Record<string, unknown>[] {
     ];
   }
   if (view.state.coverage.gaps.length > 0) {
+    const gapScope = buildCoverageGapGuideScope(view);
     return buildProjectContextCreationNextActions({
-      dimensionIds: view.intent.intent.dimensions.map((dimension) => dimension.dimensionId),
+      dimensionIds: gapScope.dimensionIds,
       generationStage: inferPlanGenerationStage(view.intent.intent),
-      moduleScope: view.intent.intent.moduleBindings.map((binding) => binding.modulePath),
+      moduleScope: gapScope.moduleScope,
       planId: view.intent.planId,
       projectRoot: view.intent.projectRoot,
       stage: 'plan-get',
@@ -1348,6 +1349,28 @@ function buildGetNextActions(view: PlanView): Record<string, unknown>[] {
         'Plan coverage currently has no missing buckets; re-read when project or Recipes change.',
     },
   ];
+}
+
+function buildCoverageGapGuideScope(view: PlanView): {
+  dimensionIds: string[];
+  moduleScope: string[];
+} {
+  const gapDimensions = uniqueStrings(
+    view.state.coverage.gaps.map((gap) => gap.dimensionId).filter(isPresent)
+  );
+  const gapModules = uniqueStrings(
+    view.state.coverage.gaps.map((gap) => gap.modulePath).filter(isPresent)
+  );
+  return {
+    dimensionIds:
+      gapDimensions.length > 0
+        ? gapDimensions
+        : view.intent.intent.dimensions.map((dimension) => dimension.dimensionId),
+    moduleScope:
+      gapModules.length > 0
+        ? gapModules
+        : view.intent.intent.moduleBindings.map((binding) => binding.modulePath),
+  };
 }
 
 function summarizeProjectContext(analysis: PlanProjectContextAnalysis): Record<string, unknown> {

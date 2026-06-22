@@ -247,6 +247,7 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
     case 'alembic_submit_knowledge':
       return {
         count: 1,
+        finality: 'final',
         freshness: { status: 'completed', processed: 1, retrievalMayBeStale: false },
         ids: ['recipe-1'],
         relationshipGrounding: { status: 'grounded' },
