@@ -34,6 +34,10 @@ import {
   PRIME_PUBLIC_TRUST_LAYERS,
   type PrimePublicPackage,
 } from '../../../runtime/mcp/public-tools/index.js';
+import {
+  buildRetrievalCheckpointPosture,
+  type RetrievalCheckpointPosture,
+} from './retrieval-checkpoint-diagnostics.js';
 
 interface AgentPublicBaseArgs {
   activeFile?: string;
@@ -300,11 +304,16 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     buildStandalonePrimeRequirementFrame(input.args),
     input.args
   );
-  const effectiveSearchDegraded =
+  const checkpointPosture = buildRetrievalCheckpointPosture(input.ctx.container, {
+    projectRoot: input.effectiveProjectRoot,
+  });
+  const baseSearchDegraded =
     input.primeSearch.searchDegraded || material.primeKnowledgeMaterial.status === 'degraded';
+  const effectiveSearchDegraded = baseSearchDegraded || checkpointPosture.retrievalMayBeStale;
   const status = resolvePrimeStatus({
     primeKnowledgeMaterial: material.primeKnowledgeMaterial,
     retrievalConsumer: material.retrievalConsumer,
+    retrievalCheckpoint: checkpointPosture,
     searchDegraded: input.primeSearch.searchDegraded,
     searchResult: input.primeSearch.searchResult,
     skippedReason: input.primeSearch.skippedReason,
@@ -326,12 +335,24 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   return createAgentPublicToolOutput(result, {
     primePackage,
     detailRefs: [...input.detailRefs, ...primeMaterialDetailRefs(material.primeKnowledgeMaterial)],
-    diagnostics: buildPrimeReadyDiagnostics(
-      input.primeSearch,
-      effectiveSearchDegraded,
-      input.primeSearch.regionEvidence
-    ),
-    nextActions: [],
+    diagnostics: [
+      ...buildPrimeReadyDiagnostics(
+        input.primeSearch,
+        baseSearchDegraded,
+        input.primeSearch.regionEvidence
+      ),
+      ...checkpointPosture.diagnostics.map((diagnostic) => ({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        retryable: diagnostic.retryable,
+      })),
+    ],
+    nextActions: checkpointPosture.nextActions.map((action) => ({
+      tool: action.tool,
+      reason: action.reason,
+      required: action.required,
+    })),
   });
 }
 
@@ -1593,6 +1614,7 @@ function resolvePrimeStatus(input: {
     'acceptedGuards' | 'acceptedKnowledge' | 'degradedReason' | 'status'
   >;
   retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
+  retrievalCheckpoint: RetrievalCheckpointPosture;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
   skippedReason: AgentPrimeSkippedReason | null;
@@ -1607,6 +1629,22 @@ function resolvePrimeStatus(input: {
       },
       status: 'skipped',
       summary: `Prime skipped: ${input.skippedReason}.`,
+    };
+  }
+  if (input.retrievalCheckpoint.retrievalMayBeStale) {
+    const firstDiagnostic = input.retrievalCheckpoint.diagnostics[0];
+    return {
+      reason: {
+        kind: 'degraded',
+        code: 'optional-service-unavailable',
+        message:
+          firstDiagnostic?.message ??
+          'Prime retrieval may be stale until alembic_rescan catches up the durable git diff checkpoint.',
+        retryable: true,
+      },
+      status: 'degraded',
+      summary:
+        'Prime retrieval may be stale because the durable git diff checkpoint needs catch-up.',
     };
   }
   if (input.retrievalConsumer && !input.retrievalConsumer.producerContract.available) {

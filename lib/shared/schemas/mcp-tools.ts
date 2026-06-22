@@ -1067,7 +1067,7 @@ export const BootstrapInput = z.object({
     .optional()
     .describe('Optional testMode-only execution slice from confirmed Plan dimensions.'),
   scaleOverride: GenerationScaleOverrideInput.optional().describe(
-    'Optional bounded scan/generation budget override after Plan confirmation.'
+    'Optional testMode-only bounded scan/generation budget override after Plan confirmation; ignored for non-test execution.'
   ),
   rescanId: z
     .string()
@@ -1106,7 +1106,12 @@ const ProduceSessionRouteInput = z
 
 export const RescanInput = z.object({
   projectRoot: z.string().min(1).max(2000).optional(),
-  dimensions: z.array(z.string()).optional().describe('指定维度列表，空 = 全部活跃维度'),
+  dimensions: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Optional testMode-only execution slice from confirmed Plan dimensions; non-test rescan uses the confirmed Plan.'
+    ),
   reason: z.string().optional().describe('触发原因（记录到报告）'),
   force: z
     .boolean()
@@ -1135,9 +1140,11 @@ export const RescanInput = z.object({
     .array(z.string().min(1).max(2000))
     .max(80)
     .optional()
-    .describe('Plan-confirmed module paths for moduleMining scoped ProjectContext analysis.'),
+    .describe(
+      'Optional testMode-only upper bound over confirmed Plan module paths for moduleMining scoped ProjectContext analysis; never expands the Plan.'
+    ),
   scaleOverride: GenerationScaleOverrideInput.optional().describe(
-    'Optional bounded scan/generation budget override after Plan confirmation.'
+    'Optional testMode-only bounded scan/generation budget override after Plan confirmation; ignored for non-test execution.'
   ),
   rescanId: z
     .string()

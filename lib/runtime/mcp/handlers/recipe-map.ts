@@ -14,9 +14,12 @@ import {
 } from '@alembic/core/recipe-context-capabilities';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
+  type AlembicRecipeMapOutput,
   createAlembicRecipeMapMcpResult,
   defaultProjectGraphProvider,
+  type MapDiagnostic,
   type MapFocus,
+  type MapNextAction,
   type MapRadius,
   type RegionFocus,
   type RegionFocusKind,
@@ -30,6 +33,10 @@ import {
   type RecipeSourceRefRow,
 } from '#service/project-knowledge-context/recipe-map/index.js';
 import type { McpContext } from '../../../runtime/mcp/handlers/types.js';
+import {
+  buildRetrievalCheckpointPosture,
+  type RetrievalCheckpointPosture,
+} from './retrieval-checkpoint-diagnostics.js';
 
 interface RecipeMapArgs {
   focus?: {
@@ -96,7 +103,10 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
   const request = normalizeRecipeMapRequest(args, projectRoot);
   const deps = buildRecipeMapDeps(ctx);
   const output = await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
-  return createAlembicRecipeMapMcpResult(output);
+  const checkpointPosture = buildRetrievalCheckpointPosture(ctx.container, { projectRoot });
+  return createAlembicRecipeMapMcpResult(
+    attachRecipeMapCheckpointPosture(output, checkpointPosture)
+  );
 }
 
 function normalizeRecipeMapRequest(args: RecipeMapArgs, projectRoot: string): RecipeMapRequest {
@@ -266,5 +276,45 @@ function toRecipeRecordLite(record: RecipeContextRecipeRecord): RecipeRecordLite
     ...(record.sourceFile === undefined || record.sourceFile === null
       ? {}
       : { sourceFile: record.sourceFile }),
+  };
+}
+
+function attachRecipeMapCheckpointPosture(
+  output: AlembicRecipeMapOutput,
+  checkpointPosture: RetrievalCheckpointPosture
+): AlembicRecipeMapOutput {
+  if (!checkpointPosture.retrievalMayBeStale && checkpointPosture.diagnostics.length === 0) {
+    return output;
+  }
+  const diagnostics: MapDiagnostic[] = [
+    ...output.diagnostics,
+    ...checkpointPosture.diagnostics.map(
+      (diagnostic): MapDiagnostic => ({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        retryable: diagnostic.retryable,
+      })
+    ),
+  ];
+  const nextActions: MapNextAction[] = [
+    ...checkpointPosture.nextActions.map(
+      (action): MapNextAction => ({
+        tool: action.tool,
+        reason: action.reason,
+        required: action.required,
+      })
+    ),
+    ...output.nextActions,
+  ].slice(0, 20);
+
+  return {
+    ...output,
+    status: output.status === 'ready' ? 'partial' : output.status,
+    summary: checkpointPosture.retrievalMayBeStale
+      ? `${output.summary} Retrieval freshness requires git diff checkpoint catch-up.`
+      : output.summary,
+    diagnostics,
+    nextActions,
   };
 }

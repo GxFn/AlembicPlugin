@@ -15,6 +15,7 @@ import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation
 import {
   acquirePlanGenerationLease,
   type PlanGenerationGateReady,
+  resolvePlanGenerationGate,
 } from '../../lib/recipe-generation/plan-generation-gate.js';
 import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
@@ -121,6 +122,83 @@ describe('Plan-driven generation gate', () => {
       trash: null,
     });
     expect(fs.existsSync(path.join(projectRoot, '.asd', '.trash'))).toBe(false);
+  });
+
+  test('non-test Plan gate ignores caller dimensions, moduleScope, and scaleOverride', async () => {
+    const { dimensionId } = await confirmPlan({
+      dimensionStage: 'deepMining',
+      moduleBindings: ['src/api', 'src/data'],
+      modulePath: 'src/api',
+      plannedModulePaths: ['src/api', 'src/data'],
+    });
+
+    const gate = await resolvePlanGenerationGate(
+      createContext(),
+      {
+        dimensions: ['caller-dimension'],
+        generationStage: 'moduleMining',
+        moduleScope: ['src/rogue'],
+        scaleOverride: { maxFiles: 1, contentMaxLines: 1, totalRecipeBudget: 1 },
+        testMode: false,
+      },
+      { defaultStage: 'moduleMining', toolName: 'alembic_rescan' }
+    );
+
+    expect(gate.ok).toBe(true);
+    if (!gate.ok) {
+      throw new Error(`expected Plan gate ready: ${JSON.stringify(gate.response)}`);
+    }
+    expect(gate.value.dimensionIds).toEqual([dimensionId]);
+    expect(gate.value.moduleScope).toEqual(['src/api', 'src/data']);
+    expect(gate.value.moduleScope).not.toContain('src/rogue');
+    expect(gate.value.scale).toMatchObject({
+      contentMaxLines: 120,
+      maxFiles: 500,
+      totalRecipeBudget: 2,
+    });
+    expect(gate.value.testMode).toBe(false);
+    expect(gate.value.planGate).toMatchObject({
+      selectedDimensions: [dimensionId],
+      moduleScope: ['src/api', 'src/data'],
+      testMode: false,
+    });
+  });
+
+  test('testMode moduleScope is an upper bound over the confirmed Plan scope', async () => {
+    const { dimensionId } = await confirmPlan({
+      dimensionStage: 'deepMining',
+      moduleBindings: ['src/api', 'src/data', 'src/components'],
+      modulePath: 'src/api',
+      plannedModulePaths: ['src/api', 'src/data', 'src/components'],
+    });
+
+    const gate = await resolvePlanGenerationGate(
+      createContext(),
+      {
+        dimensions: [dimensionId],
+        generationStage: 'moduleMining',
+        moduleScope: ['src/api', 'src/rogue'],
+        scaleOverride: { maxFiles: 8, contentMaxLines: 9, totalRecipeBudget: 1 },
+        testMode: true,
+      },
+      { defaultStage: 'moduleMining', toolName: 'alembic_rescan' }
+    );
+
+    expect(gate.ok).toBe(true);
+    if (!gate.ok) {
+      throw new Error(`expected Plan gate ready: ${JSON.stringify(gate.response)}`);
+    }
+    expect(gate.value.moduleScope).toEqual(['src/api']);
+    expect(gate.value.moduleScope).not.toContain('src/rogue');
+    expect(gate.value.scale).toMatchObject({
+      contentMaxLines: 9,
+      maxFiles: 8,
+      totalRecipeBudget: 1,
+    });
+    expect(asArray(asRecord(gate.value.planGate).coverageGaps)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ modulePath: 'src/api' })])
+    );
+    expect(JSON.stringify(asRecord(gate.value.planGate).coverageGaps)).not.toContain('src/data');
   });
 
   test('focused Swift confirmed Plan drives bootstrap with scoped signature reuse', async () => {
@@ -367,7 +445,7 @@ describe('Plan-driven generation gate', () => {
     const result = (await runHostAgentKnowledgeRescanWorkflow(createContext(), {
       dimensions: [dimensionId],
       generationStage: 'moduleMining',
-      moduleScope: ['src/api'],
+      moduleScope: ['src/api', 'src/data', 'src/RG10AcceptanceProbe'],
       reason: 'rg10 commit-driven evolution fixture',
       scaleOverride: { maxFiles: 10, contentMaxLines: 20, totalRecipeBudget: 2 },
       testMode: true,

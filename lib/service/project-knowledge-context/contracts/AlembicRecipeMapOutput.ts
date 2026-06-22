@@ -106,7 +106,13 @@ export type MapDiagnostic = z.infer<typeof MapDiagnosticSchema>;
 
 export const MapNextActionSchema = z
   .object({
-    tool: z.enum(['alembic_graph', 'alembic_search', 'alembic_recipe_map', 'alembic_prime']),
+    tool: z.enum([
+      'alembic_graph',
+      'alembic_search',
+      'alembic_recipe_map',
+      'alembic_prime',
+      'alembic_rescan',
+    ]),
     reason: z.string().min(1).max(600),
     focusKind: RecipeMapFocusKindSchema.optional(),
     queryKind: z.string().min(1).max(60).optional(),

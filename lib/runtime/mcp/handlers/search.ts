@@ -12,6 +12,7 @@
  */
 
 import { groupByKind, slimSearchResult } from '@alembic/core/search';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
   ALEMBIC_SEARCH_OUTPUT_CONTRACT_VERSION,
   type AlembicSearchOperation,
@@ -41,6 +42,7 @@ import type {
   SearchArgs,
   SearchResultItem,
 } from '../../../runtime/mcp/handlers/types.js';
+import { buildRetrievalCheckpointPosture } from './retrieval-checkpoint-diagnostics.js';
 
 const KEYWORD_MATCH_THRESHOLD = 0.5;
 const SEMANTIC_MATCH_THRESHOLD = 0.55;
@@ -177,6 +179,8 @@ export async function search(ctx: McpContext, args: SearchArgs) {
     return projectDetailOperation(ctx, args, operation);
   }
   const pipeline = await runSearchPipeline(ctx, args);
+  const projectRoot = readString(args.projectRoot) ?? resolveProjectRoot(ctx.container);
+  const checkpointPosture = buildRetrievalCheckpointPosture(ctx.container, { projectRoot });
   const candidateItems = await buildKnowledgeCandidates(ctx, args, pipeline);
   const relevance = assessSearchRelevance(candidateItems, args, pipeline);
   const knowledgeItems = relevance.items;
@@ -201,6 +205,12 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       omittedCount: relevance.omittedCount,
       operation: 'search',
       returnedCount: relevance.returnedCount,
+      gitDiffCheckpoint: {
+        available: checkpointPosture.available,
+        checkpoint: checkpointPosture.checkpoint,
+        retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
+        status: checkpointPosture.status,
+      },
       thresholds: relevance.thresholds,
       zeroMatch: relevance.zeroMatch,
     },
@@ -230,6 +240,13 @@ export async function search(ctx: McpContext, args: SearchArgs) {
         thresholds: relevance.thresholds,
         zeroMatch: relevance.zeroMatch,
       },
+      gitDiffCheckpoint: {
+        available: checkpointPosture.available,
+        checkpoint: checkpointPosture.checkpoint,
+        reason: checkpointPosture.reason,
+        retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
+        status: checkpointPosture.status,
+      },
       totalResults: knowledgeItems.length,
       vector: {
         available: vectorAvailable(pipeline.searchMeta),
@@ -243,7 +260,9 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   };
 
   const status: AlembicSearchStatus =
-    pipeline.degraded || relevance.zeroMatch ? 'degraded' : 'ready';
+    pipeline.degraded || relevance.zeroMatch || checkpointPosture.retrievalMayBeStale
+      ? 'degraded'
+      : 'ready';
   const diagnostics: SearchDiagnostic[] = relevance.zeroMatch
     ? [
         {
@@ -257,6 +276,16 @@ export async function search(ctx: McpContext, args: SearchArgs) {
         },
       ]
     : [];
+  diagnostics.push(
+    ...checkpointPosture.diagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      severity: diagnostic.severity,
+      message: diagnostic.message,
+      domain: diagnostic.domain,
+      retryable: diagnostic.retryable,
+    }))
+  );
+  payload.nextActions.unshift(...checkpointPosture.nextActions);
   return projectAlembicSearchOutput(payload, { operation: 'search', status, diagnostics });
 }
 

@@ -519,7 +519,7 @@ function selectPlanModuleScope(input: {
     }))
     .filter((binding) => binding.modulePath.length > 0);
   const boundModulePaths = bindings.map((binding) => binding.modulePath).filter(Boolean);
-  const requested = input.moduleScope.length ? input.moduleScope : [];
+  const requested = input.testMode && input.moduleScope.length ? input.moduleScope : [];
   const plannedModulePaths = arrayRecords(intent.plannedNextActions)
     .filter((action) => {
       const tool = readString(action, 'tool');
@@ -529,13 +529,14 @@ function selectPlanModuleScope(input: {
   const gapModules = arrayRecords(readRecord(input.planState.coverage).gaps)
     .map((gap) => readString(gap, 'modulePath'))
     .filter(isPresent);
-  const selected = uniqueStrings(
+  const planScope =
     input.generationStage === 'moduleMining'
-      ? [...requested, ...plannedModulePaths, ...boundModulePaths, ...gapModules]
-      : requested.length > 0
-        ? requested
-        : [...boundModulePaths, ...plannedModulePaths]
-  );
+      ? [...plannedModulePaths, ...boundModulePaths, ...gapModules]
+      : [...boundModulePaths, ...plannedModulePaths];
+  const selected =
+    requested.length > 0
+      ? uniqueStrings(planScope).filter((modulePath) => requested.includes(modulePath))
+      : uniqueStrings(planScope);
   return selected;
 }
 
@@ -546,14 +547,15 @@ function resolvePlanScale(input: {
   testMode: boolean;
 }): PlanGenerationGateReady['scale'] {
   const planScale = readRecord(readRecord(input.plan.intent).scale);
+  const override = input.testMode ? input.override : undefined;
   const totalRecipeBudget =
-    input.override?.totalRecipeBudget ??
+    override?.totalRecipeBudget ??
     readNumber(planScale, 'totalRecipeBudget') ??
     Math.max(1, input.dimensions.length);
   const maxFiles =
-    input.override?.maxFiles ?? (input.testMode ? TEST_MODE_DEFAULT_MAX_FILES : DEFAULT_MAX_FILES);
+    override?.maxFiles ?? (input.testMode ? TEST_MODE_DEFAULT_MAX_FILES : DEFAULT_MAX_FILES);
   const contentMaxLines =
-    input.override?.contentMaxLines ??
+    override?.contentMaxLines ??
     (input.testMode ? TEST_MODE_DEFAULT_CONTENT_MAX_LINES : DEFAULT_CONTENT_MAX_LINES);
   return {
     contentMaxLines: clampPositiveInteger(contentMaxLines, DEFAULT_CONTENT_MAX_LINES, 2000),

@@ -79,116 +79,20 @@ describe('AuditLogger audit:entry EventBus emission', () => {
   });
 });
 
-/* ═══ 2. MissionBriefingBuilder panorama field ══════════════ */
+/* ═══ 2. MissionBriefingBuilder deleted Panorama boundary ══════════════ */
 
-describe('MissionBriefingBuilder panorama injection', () => {
-  it('buildMissionBriefing includes panorama field from panoramaResult', async () => {
-    // We test the summarizePanorama logic indirectly via buildMissionBriefing
-    // Create a mock panorama result matching PanoramaResult shape
-    const mockPanoramaResult = {
-      modules: new Map([
-        [
-          'BDAuth',
-          {
-            name: 'BDAuth',
-            inferredRole: 'service',
-            refinedRole: 'service',
-            roleConfidence: 0.9,
-            layer: 3,
-            fanIn: 23,
-            fanOut: 5,
-            files: [],
-            fileCount: 10,
-            recipeCount: 5,
-            coverageRatio: 0.5,
-          },
-        ],
-        [
-          'BDRouter',
-          {
-            name: 'BDRouter',
-            inferredRole: 'core',
-            refinedRole: 'core',
-            roleConfidence: 0.85,
-            layer: 2,
-            fanIn: 18,
-            fanOut: 3,
-            files: [],
-            fileCount: 8,
-            recipeCount: 2,
-            coverageRatio: 0.25,
-          },
-        ],
-      ]),
-      layers: {
-        levels: [
-          { level: 0, name: 'Foundation', modules: ['Utils'] },
-          { level: 1, name: 'Service', modules: ['BDAuth'] },
-          { level: 2, name: 'UI', modules: ['BDRouter'] },
-        ],
-        violations: [],
-      },
-      cycles: [{ cycle: ['A', 'B'], severity: 'warning' }],
-      gaps: [
-        {
-          dimension: 'error-handling',
-          dimensionName: '错误处理',
-          recipeCount: 0,
-          status: 'missing',
-          priority: 'high',
-          suggestedTopics: ['exception-pattern'],
-          affectedRoles: ['service'],
-        },
-      ],
-      callFlowSummary: {
-        topCalledMethods: [],
-        entryPoints: [],
-        dataProducers: [],
-        dataConsumers: [],
-      },
-      healthRadar: {
-        dimensions: [],
-        overallScore: 0,
-        totalRecipes: 0,
-        coveredDimensions: 0,
-        totalDimensions: 11,
-        dimensionCoverage: 0,
-      },
-      computedAt: Date.now(),
-    };
-
+describe('MissionBriefingBuilder deleted Panorama boundary', () => {
+  it('buildMissionBriefing no longer receives or asserts retired Core Panorama content', async () => {
     const { buildMissionBriefing } = await import('@alembic/core/host-agent-workflows');
 
     const briefing = buildMissionBriefing({
       projectMeta: { name: 'TestProject', fileCount: 100 },
       activeDimensions: [],
       session: { toJSON: () => ({ id: 'test-session' }) },
-      panoramaResult: mockPanoramaResult,
     });
 
-    expect(briefing.panorama).not.toBeNull();
-    expect(briefing.panorama!.layers).toHaveLength(3);
-    expect(briefing.panorama!.layers[0]).toEqual({
-      level: 0,
-      name: 'Foundation',
-      modules: ['Utils'],
-    });
-    expect(briefing.panorama!.couplingHotspots).toHaveLength(2);
-    expect(briefing.panorama!.couplingHotspots[0].module).toBe('BDAuth');
-    expect(briefing.panorama!.cyclicDependencies).toHaveLength(1);
-    expect(briefing.panorama!.knowledgeGaps).toHaveLength(1);
-    expect(briefing.panorama!.knowledgeGaps[0].dimension).toBe('error-handling');
-  });
-
-  it('buildMissionBriefing sets panorama to null when no panoramaResult', async () => {
-    const { buildMissionBriefing } = await import('@alembic/core/host-agent-workflows');
-
-    const briefing = buildMissionBriefing({
-      projectMeta: { name: 'TestProject', fileCount: 10 },
-      activeDimensions: [],
-      session: { toJSON: () => ({ id: 'test' }) },
-    });
-
-    expect(briefing.panorama).toBeNull();
+    expect(JSON.stringify(briefing)).not.toContain('Retired');
+    expect(JSON.stringify(briefing)).not.toContain('Legacy');
+    expect((briefing as Record<string, unknown>).panorama ?? null).toBeNull();
   });
 });
