@@ -197,6 +197,73 @@ describe('Git diff checkpoint', () => {
     expect(routed.unresolvedRange).toBeUndefined();
   });
 
+  test('plugin route outcome does not overwrite routed checkpoint with same-HEAD empty scan', () => {
+    const checkpointRepository = createInMemoryCheckpointRepository();
+    const service = new GitDiffCheckpointService({
+      checkpointRepository: checkpointRepository as never,
+      planRepository: {
+        getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
+      } as never,
+    });
+    const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
+    const runtime = {
+      checkpointCommit: 'plan-head',
+      initializationSource: 'active-confirmed-plan' as const,
+      scope,
+      service,
+    };
+    const routed = recordPluginGitDiffCheckpointRouteOutcome({
+      report: {
+        deprecated: 0,
+        fixed: 0,
+        needsReview: 1,
+        pendingProposals: [{ status: 'submitted' }],
+        skipped: 0,
+      },
+      routeAttempted: true,
+      routeError: null,
+      runtime,
+      scan: makeCatchUpScan(),
+    });
+    expect(routed).toMatchObject({
+      advanced: true,
+      checkpointCommit: 'head-c',
+      routeStatus: 'catch-up-routed',
+    });
+
+    const noOp = recordPluginGitDiffCheckpointRouteOutcome({
+      report: null,
+      routeAttempted: false,
+      routeError: null,
+      runtime: { ...runtime, checkpointCommit: 'head-c' },
+      scan: {
+        dirtyPathCount: 0,
+        events: [],
+        head: 'head-c',
+        headChanged: false,
+        headRangeStatus: 'none',
+        maxEvents: 200,
+        mergeBase: null,
+        previousHead: 'head-c',
+        scanned: true,
+        scannedAt: '2026-06-22T00:01:00.000Z',
+        signature: 'same-head',
+        truncated: false,
+      },
+    });
+
+    expect(noOp).toMatchObject({
+      advanced: false,
+      checkpointCommit: 'head-c',
+      recorded: false,
+      routeStatus: 'skipped',
+    });
+    expect(checkpointRepository.get(scope)).toMatchObject({
+      checkpointCommit: 'head-c',
+      lastRouteStatus: 'catch-up-routed',
+    });
+  });
+
   test('scanner uses deterministic HEAD range diff with rename and copy detection', async () => {
     const execGit = createExecGitStub({
       currentHead: 'b',

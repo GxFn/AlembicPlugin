@@ -291,6 +291,7 @@ describe('Plan-driven generation gate', () => {
     );
     git(projectRoot, ['add', '.']);
     git(projectRoot, ['commit', '-m', 'rg10 rescan evolution fixture']);
+    const changedHead = gitOutput(projectRoot, ['rev-parse', 'HEAD']);
 
     const { dimensionId } = await confirmPlan({
       dimensionStage: 'deepMining',
@@ -385,6 +386,11 @@ describe('Plan-driven generation gate', () => {
     expect(unifiedEvolutionSurface.evidenceGate).toMatchObject({
       verdict: 'routed',
     });
+    expect(asRecord(unifiedEvolutionSurface.checkpoint)).toMatchObject({
+      advanced: true,
+      checkpointCommit: changedHead,
+      routeStatus: 'routed',
+    });
     expect(topLevelGitDiffEvidence).toEqual(nestedGitDiffEvidence);
     expect(topLevelGitDiffEvidence).toMatchObject({
       dirtyPathCount: 3,
@@ -429,6 +435,18 @@ describe('Plan-driven generation gate', () => {
     expect(
       repositories.recipeSourceRefRepository.findBySourcePath('src/api/client.ts:1-3')
     ).toEqual([]);
+    expect(
+      repositories.gitDiffCheckpointRepository.get({
+        folderId: 'root',
+        projectRoot,
+        scopeId: 'single-folder',
+      })
+    ).toMatchObject({
+      checkpointCommit: changedHead,
+      lastRouteReason:
+        'Plugin commit-driven unified evolution routed the git diff range successfully.',
+      lastRouteStatus: 'routed',
+    });
   });
 
   test('moduleMining lease blocks duplicate rescanId until release', () => {
@@ -605,6 +623,9 @@ async function replaceFixtureProject(nextProjectRoot: string): Promise<void> {
 function createContext(): McpContext {
   const services: Record<string, unknown> = {
     database: runtime.connection,
+    evolutionGateway: {
+      submit: async () => ({ id: 'proposal-rg10-route-complete' }),
+    },
     gitDiffCheckpointRepository: repositories.gitDiffCheckpointRepository,
     knowledgeRepository: repositories.knowledgeRepository,
     lifecycleEventRepository: repositories.lifecycleEventRepository,

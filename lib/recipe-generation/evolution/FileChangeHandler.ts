@@ -1,4 +1,3 @@
-import { ModuleDeltaDetector } from '@alembic/core/dimensions';
 import {
   assessFileImpact,
   type EvolutionGateway,
@@ -54,6 +53,7 @@ interface SourceRefRepositoryLike {
 
 interface KnowledgeRepositoryLike {
   findById(recipeId: string): Promise<KnowledgeEntryLike | null> | KnowledgeEntryLike | null;
+  updateReasoning?(id: string, reasoning: string, updatedAt: number): Promise<boolean> | boolean;
 }
 
 interface SignalBusLike {
@@ -177,11 +177,12 @@ export class FileChangeHandler {
   async handleFileChanges(events: FileChangeEvent[]): Promise<UnifiedEvolutionReport> {
     const report = createReport(events);
     const freshnessIds = new Set<string>();
+    const freshnessEntries = new Map<string, KnowledgeEntryLike>();
 
     for (const event of events) {
       switch (event.type) {
         case 'renamed':
-          await this.#handleRenamed(event, report, freshnessIds);
+          await this.#handleRenamed(event, report, freshnessIds, freshnessEntries);
           break;
         case 'modified':
           await this.#handleModified(event, report);
@@ -195,7 +196,7 @@ export class FileChangeHandler {
       }
     }
 
-    await this.#refreshAffectedRecipes(report, [...freshnessIds]);
+    await this.#refreshAffectedRecipes(report, [...freshnessIds], freshnessEntries);
     report.classificationCounts.skipped = report.skipped;
     report.suggestReview =
       report.needsReview > 0 ||
@@ -208,7 +209,8 @@ export class FileChangeHandler {
   async #handleRenamed(
     event: FileChangeEvent,
     report: UnifiedEvolutionReport,
-    freshnessIds: Set<string>
+    freshnessIds: Set<string>,
+    freshnessEntries: Map<string, KnowledgeEntryLike>
   ): Promise<void> {
     report.classificationCounts.renamed++;
     if (!event.oldPath) {
@@ -229,13 +231,20 @@ export class FileChangeHandler {
         continue;
       }
       const repairedSourcePath = repairSourceRefPath(ref.sourcePath, event.path);
+      const oldSourcePath = ref.sourcePath;
       this.#sourceRefRepo.replaceSourcePath(
         ref.recipeId,
-        ref.sourcePath,
+        oldSourcePath,
         repairedSourcePath,
         Date.now()
       );
+      const refreshedEntry = await this.#persistReasoningSourcePathRepair(
+        entry,
+        oldSourcePath,
+        repairedSourcePath
+      );
       freshnessIds.add(ref.recipeId);
+      freshnessEntries.set(ref.recipeId, refreshedEntry);
       report.fixed++;
       report.classificationCounts.repaired++;
       report.generationChangeLog.push({
@@ -244,8 +253,8 @@ export class FileChangeHandler {
         eventSource: event.eventSource,
         filePath: repairedSourcePath,
         newPath: repairedSourcePath,
-        oldPath: ref.sourcePath,
-        reason: `High-confidence rename repaired Recipe sourceRef ${ref.sourcePath} -> ${repairedSourcePath}.`,
+        oldPath: oldSourcePath,
+        reason: `High-confidence rename repaired Recipe sourceRef ${oldSourcePath} -> ${repairedSourcePath}.`,
         recipeId: ref.recipeId,
       });
       if (confidence < this.#renameAutoRepairThreshold) {
@@ -406,28 +415,8 @@ export class FileChangeHandler {
       return;
     }
 
-    const coveredModules = new Set(
-      this.#allSourceRefs()
-        .map((ref) => moduleIdForPath(ref.sourcePath))
-        .filter((value): value is string => Boolean(value))
-    );
-    if (coveredModules.has(moduleId)) {
+    if (this.#activeRefsForPath(event.path).length > 0) {
       report.classificationCounts.coveredCreated++;
-      return;
-    }
-
-    const delta = new ModuleDeltaDetector().detect({
-      previousModules: [...coveredModules].map((id) => ({ moduleId: id, moduleName: id })),
-      currentModules: [
-        ...[...coveredModules].map((id) => ({ moduleId: id, moduleName: id })),
-        { files: [event.path], moduleId, moduleName: moduleId },
-      ],
-      changedFiles: [event.path],
-      renameSimilarityThreshold: 0.9,
-    });
-    const added = delta.added.some((change) => change.moduleId === moduleId);
-    if (!added) {
-      report.skipped++;
       return;
     }
 
@@ -484,7 +473,7 @@ export class FileChangeHandler {
         moduleSeedCount: analysis.moduleSeeds.length,
         path: event.path,
         reason:
-          'Created path appears in a new module without recipe_source_refs coverage; routed to scoped moduleMining ProjectContext analysis without Plan state writes.',
+          'Created path has no exact recipe_source_refs coverage; routed to scoped moduleMining ProjectContext analysis without Plan state writes.',
         requestKinds: [...analysis.requestKinds],
         status: 'routed',
       };
@@ -496,7 +485,7 @@ export class FileChangeHandler {
         moduleScope,
         path: event.path,
         reason:
-          'Created path appears in a new module without recipe_source_refs coverage, but scoped moduleMining ProjectContext analysis failed.',
+          'Created path has no exact recipe_source_refs coverage, but scoped moduleMining ProjectContext analysis failed.',
         requestKinds: [],
         status: 'failed',
       };
@@ -526,13 +515,6 @@ export class FileChangeHandler {
     return this.#sourceRefRepo.findByRecipeId(recipeId).filter((ref) => ref.status !== 'stale');
   }
 
-  #allSourceRefs(): SourceRefRow[] {
-    if (this.#sourceRefRepo.findAll) {
-      return this.#sourceRefRepo.findAll();
-    }
-    return [];
-  }
-
   async #loadEntry(recipeId: string): Promise<KnowledgeEntryLike | null> {
     return await this.#knowledgeRepo.findById(recipeId);
   }
@@ -544,6 +526,27 @@ export class FileChangeHandler {
       status: 'stale',
       verifiedAt: Date.now(),
     });
+  }
+
+  async #persistReasoningSourcePathRepair(
+    entry: KnowledgeEntryLike,
+    oldSourcePath: string,
+    newSourcePath: string
+  ): Promise<KnowledgeEntryLike> {
+    const repairedReasoning = replaceReasoningSourcePath(
+      entry.reasoning,
+      oldSourcePath,
+      newSourcePath
+    );
+    if (!repairedReasoning.changed) {
+      return entry;
+    }
+    await this.#knowledgeRepo.updateReasoning?.(
+      entry.id,
+      JSON.stringify(repairedReasoning.value),
+      Date.now()
+    );
+    return { ...entry, reasoning: repairedReasoning.value };
   }
 
   async #submitUpdateProposal(
@@ -639,12 +642,17 @@ export class FileChangeHandler {
 
   async #refreshAffectedRecipes(
     report: UnifiedEvolutionReport,
-    recipeIds: string[]
+    recipeIds: string[],
+    entryOverrides: Map<string, KnowledgeEntryLike>
   ): Promise<void> {
     if (!this.#recipeFreshnessService || recipeIds.length === 0) {
       return;
     }
-    const entries = (await Promise.all(recipeIds.map((id) => this.#loadEntry(id))))
+    const entries = (
+      await Promise.all(
+        recipeIds.map(async (id) => entryOverrides.get(id) ?? (await this.#loadEntry(id)))
+      )
+    )
       .filter((entry): entry is KnowledgeEntryLike => Boolean(entry?.id))
       .map((entry) => entry as unknown as RecipeFreshnessEntry);
     if (entries.length === 0) {
@@ -750,6 +758,46 @@ function readResultId(value: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function replaceReasoningSourcePath(
+  reasoning: unknown,
+  oldSourcePath: string,
+  newSourcePath: string
+): { changed: boolean; value: unknown } {
+  const parsed = parseReasoning(reasoning);
+  if (!parsed || !Array.isArray(parsed.sources)) {
+    return { changed: false, value: reasoning };
+  }
+  let changed = false;
+  const sources = parsed.sources.map((source) => {
+    if (source === oldSourcePath) {
+      changed = true;
+      return newSourcePath;
+    }
+    return source;
+  });
+  if (!changed) {
+    return { changed: false, value: reasoning };
+  }
+  return { changed: true, value: { ...parsed, sources } };
+}
+
+function parseReasoning(value: unknown): { sources?: unknown[]; [key: string]: unknown } | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as { sources?: unknown[]; [key: string]: unknown };
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as { sources?: unknown[]; [key: string]: unknown })
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function renameConfidence(event: FileChangeEvent): number {

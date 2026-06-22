@@ -28,7 +28,14 @@ function mockSourceRefRepo() {
     findByRecipeId: vi.fn((id: string) => _refs.filter((r) => r.recipeId === id)),
     findAll: vi.fn(() => _refs),
     upsert: vi.fn(),
-    replaceSourcePath: vi.fn(),
+    replaceSourcePath: vi.fn((recipeId: string, oldSourcePath: string, newSourcePath: string) => {
+      for (const ref of _refs) {
+        if (ref.recipeId === recipeId && ref.sourcePath === oldSourcePath) {
+          ref.sourcePath = newSourcePath;
+          ref.status = 'active';
+        }
+      }
+    }),
     _seed(recipeId: string, sourcePath: string, status = 'active') {
       _refs.push({ recipeId, sourcePath, status });
     },
@@ -43,7 +50,14 @@ function mockKnowledgeRepo() {
       const e = _store.get(id);
       return e ? { reasoning: JSON.stringify(e.reasoning ?? {}) } : null;
     }),
-    updateReasoning: vi.fn(),
+    updateReasoning: vi.fn(async (id: string, reasoning: string) => {
+      const existing = _store.get(id);
+      if (!existing) {
+        return false;
+      }
+      _store.set(id, { ...existing, reasoning: JSON.parse(reasoning) as unknown });
+      return true;
+    }),
     _seed(id: string, data: Record<string, unknown>) {
       _store.set(id, { id, lifecycle: 'active', ...data });
     },
@@ -110,6 +124,7 @@ function createHandler(overrides: Record<string, unknown> = {}) {
   const moduleMiningAnalyzer =
     (overrides.moduleMiningAnalyzer as ReturnType<typeof mockModuleMiningAnalyzer>) ??
     mockModuleMiningAnalyzer();
+  const recipeFreshnessService = overrides.recipeFreshnessService ?? null;
 
   const handler = new FileChangeHandler(
     sourceRefRepo as never,
@@ -119,6 +134,7 @@ function createHandler(overrides: Record<string, unknown> = {}) {
       signalBus: signalBus as never,
       evolutionGateway: gateway as never,
       moduleMiningAnalyzer: moduleMiningAnalyzer as never,
+      recipeFreshnessService: recipeFreshnessService as never,
     }
   );
 
@@ -130,6 +146,7 @@ function createHandler(overrides: Record<string, unknown> = {}) {
     signalBus,
     gateway,
     moduleMiningAnalyzer,
+    recipeFreshnessService,
   };
 }
 
@@ -588,9 +605,9 @@ describe('FileChangeHandler', () => {
       );
     });
 
-    test('已覆盖模块的 created 文件 → 不触发 moduleMining route', async () => {
+    test('created 同文件 sourceRef 已存在 → 只保留 exact duplicate 保护', async () => {
       const { handler, sourceRefRepo, signalBus } = createHandler();
-      sourceRefRepo._seed('r1', 'Sources/Core/Existing.swift');
+      sourceRefRepo._seed('r1', 'Sources/Core/New.swift:1-10');
 
       const report = await handler.handleFileChanges([
         { type: 'created', path: 'Sources/Core/New.swift' },
@@ -606,6 +623,104 @@ describe('FileChangeHandler', () => {
         expect.any(Number),
         expect.any(Object)
       );
+    });
+
+    test('BiliDili-like created sibling under covered parent → routes file-level moduleMining', async () => {
+      const { handler, sourceRefRepo, moduleMiningAnalyzer, signalBus } = createHandler();
+      sourceRefRepo._seed(
+        'video-feed-recipe',
+        'Sources/Features/VideoFeed/VideoFeedViewModel.swift:35-46'
+      );
+
+      const report = await handler.handleFileChanges([
+        { type: 'created', path: 'Sources/Features/RG10AcceptanceProbe/index.swift' },
+      ]);
+
+      expect(report.suggestReview).toBe(true);
+      expect(report.classificationCounts.coveredCreated).toBe(0);
+      expect(report.classificationCounts.moduleMiningRoutes).toBe(1);
+      expect(report.moduleMiningRoutes).toEqual([
+        expect.objectContaining({
+          moduleScope: ['Sources/Features/RG10AcceptanceProbe/index.swift'],
+          path: 'Sources/Features/RG10AcceptanceProbe/index.swift',
+          status: 'routed',
+        }),
+      ]);
+      expect(moduleMiningAnalyzer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          moduleScope: ['Sources/Features/RG10AcceptanceProbe/index.swift'],
+        })
+      );
+      expect(signalBus.send).toHaveBeenCalledWith(
+        'quality',
+        'PluginUnifiedEvolution',
+        0.7,
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            path: 'Sources/Features/RG10AcceptanceProbe/index.swift',
+            status: 'routed',
+          }),
+        })
+      );
+    });
+
+    test('high-confidence rename persists repaired reasoning before freshness refresh', async () => {
+      const recipeFreshnessService = {
+        refreshRecipes: vi.fn(async (entries: Array<Record<string, unknown>>) => {
+          expect(entries[0]?.reasoning).toMatchObject({
+            sources: [
+              'Sources/Infrastructure/Networking/Repository/VideoRepositoryRenamed.swift:44-61',
+            ],
+          });
+          return {
+            processed: 1,
+            recipes: [{ recipeId: 'video-repository-recipe' }],
+            retrievalMayBeStale: false,
+            status: 'completed',
+          };
+        }),
+      };
+      const { handler, sourceRefRepo, knowledgeRepo } = createHandler({
+        recipeFreshnessService,
+      });
+      sourceRefRepo._seed(
+        'video-repository-recipe',
+        'Sources/Infrastructure/Networking/Repository/VideoRepository.swift:44-61'
+      );
+      knowledgeRepo._seed('video-repository-recipe', {
+        title: 'VideoRepository Recipe',
+        coreCode: '',
+        reasoning: {
+          sources: ['Sources/Infrastructure/Networking/Repository/VideoRepository.swift:44-61'],
+        },
+      });
+
+      const report = await handler.handleFileChanges([
+        {
+          eventSource: 'git-head',
+          oldPath: 'Sources/Infrastructure/Networking/Repository/VideoRepository.swift',
+          path: 'Sources/Infrastructure/Networking/Repository/VideoRepositoryRenamed.swift',
+          type: 'renamed',
+        },
+      ]);
+
+      expect(report.fixed).toBe(1);
+      expect(recipeFreshnessService.refreshRecipes).toHaveBeenCalledOnce();
+      expect(knowledgeRepo.updateReasoning).toHaveBeenCalledWith(
+        'video-repository-recipe',
+        expect.stringContaining('VideoRepositoryRenamed.swift'),
+        expect.any(Number)
+      );
+      expect(
+        sourceRefRepo.findBySourcePath(
+          'Sources/Infrastructure/Networking/Repository/VideoRepositoryRenamed.swift:44-61'
+        )
+      ).toHaveLength(1);
+      expect(
+        sourceRefRepo.findBySourcePath(
+          'Sources/Infrastructure/Networking/Repository/VideoRepository.swift:44-61'
+        )
+      ).toHaveLength(0);
     });
   });
 

@@ -105,6 +105,23 @@ export function recordPluginGitDiffCheckpointRouteOutcome(input: {
       scope: input.runtime.scope,
     };
   }
+  if (
+    routeStatus === 'skipped' &&
+    input.scan.events.length === 0 &&
+    input.runtime.checkpointCommit === input.scan.head
+  ) {
+    return {
+      advanced: false,
+      checkpointCommit: input.runtime.checkpointCommit,
+      initializationSource: input.runtime.initializationSource,
+      mergeBaseCommit: input.scan.mergeBase,
+      recorded: false,
+      reason:
+        'Git diff scan is already at the current checkpoint HEAD with no dispatchable file events; preserving the previous durable route outcome.',
+      routeStatus,
+      scope: input.runtime.scope,
+    };
+  }
 
   const result = input.runtime.service.recordRouteOutcome({
     ...input.runtime.scope,
