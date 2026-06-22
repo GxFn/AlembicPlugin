@@ -1801,6 +1801,75 @@ describe('alembic_search resident search enhancement', () => {
     expect(result.structuredContent).not.toHaveProperty('relations');
   });
 
+  it('admits source-ref path keyword matches when vector evidence is unavailable', async () => {
+    const sourceRefs = [
+      'Sources/Features/VideoFeed/VideoFeedViewModel.swift:1-78',
+      'Sources/Infrastructure/Networking/Repository/FeedRepository.swift:1-69',
+      'Sources/Features/Home/Views/HomeCategoryView.swift:1-150',
+    ];
+    const engineSearch = vi.fn(async () => ({
+      items: [
+        {
+          id: '553ae99c-602e-485b-a171-41cbae1df952',
+          title: '分页边界隔离',
+          trigger: '@pagination-boundary',
+          kind: 'pattern',
+          language: 'swift',
+          category: 'architecture',
+          dimensionId: 'architecture',
+          description: '源路径锚定的分页边界约束。',
+          score: 0.72,
+          sourceRefs,
+        },
+      ],
+      mode: 'keyword',
+      searchMeta: {
+        actualMode: 'keyword',
+        requestedMode: 'keyword',
+        residentVector: { available: false, reason: 'embed-provider-missing' },
+        route: 'field-weighted',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    }));
+
+    const result = (await search(context({ engineSearch }), {
+      dimensionId: 'architecture',
+      limit: 3,
+      mode: 'keyword',
+      query: 'RG10 BiliDili FeedRepository VideoFeed pagination HomeCategory refresh',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<Record<string, unknown>>;
+        result: Record<string, unknown>;
+        status: string;
+      };
+    };
+
+    expect(result.structuredContent.status).toBe('ready');
+    expect(result.structuredContent.items).toEqual([
+      expect.objectContaining({
+        id: '553ae99c-602e-485b-a171-41cbae1df952',
+        matchRoutes: ['keyword'],
+        routeEvidence: expect.arrayContaining([expect.stringMatching(/^keyword:/u)]),
+      }),
+    ]);
+    expect(JSON.stringify(result.structuredContent.items)).not.toContain('sourceRefs');
+    expect(result.structuredContent.inventory).toMatchObject({
+      candidateCount: 1,
+      matchedCount: 1,
+      returnedCount: 1,
+      zeroMatch: false,
+      laneEvidence: {
+        keyword: expect.objectContaining({ returnedCount: 1 }),
+      },
+    });
+    expect(result.structuredContent.result).toMatchObject({
+      vector: { available: false, used: false },
+    });
+  });
+
   it('reports budget truncation with stable detail handles and summary-only search items', async () => {
     const engineSearch = vi.fn(async () => ({
       items: [],

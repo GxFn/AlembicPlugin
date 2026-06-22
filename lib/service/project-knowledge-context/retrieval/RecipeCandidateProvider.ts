@@ -123,6 +123,8 @@ function candidateMetadataText(metadata: Record<string, unknown> | undefined): s
     metadata.dimensionId,
     metadata.knowledgeType,
     metadata.scope,
+    metadata.sourceFile,
+    ...stringArray(metadata.sourceRefs),
     ...stringArray(metadata.tags),
   ].filter((value): value is string => typeof value === 'string' && value.length > 0);
 }

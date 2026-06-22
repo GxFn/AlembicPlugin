@@ -589,8 +589,8 @@ function validateDraftSignatureEcho(
   );
 }
 
-function buildPlanProjectContextHintsFromDraft(draft: PlanRecord): PlanArgs['hints'] | undefined {
-  const planningBrief = readRecord(draft.planningBrief);
+function buildPlanProjectContextHintsFromRecord(plan: PlanRecord): PlanArgs['hints'] | undefined {
+  const planningBrief = readRecord(plan.planningBrief);
   const projectContext = readRecord(planningBrief.projectContext);
   const signatureScope = readPlanProjectContextSignatureScope(projectContext.signatureScope);
   if (!signatureScope.focusModules?.length) {
@@ -613,7 +613,7 @@ async function validateConfirmCurrentSignature(
 ): Promise<ConfirmCurrentSignatureResult> {
   const currentProjectContextSignature = await computeCurrentSignature(
     projectRoot,
-    buildPlanProjectContextHintsFromDraft(draft)
+    buildPlanProjectContextHintsFromRecord(draft)
   );
   const signature = compareProjectContextSignature(
     draft.projectContextSignature,
@@ -700,8 +700,6 @@ async function getPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolRe
   const repositories = resolvePlanRepositories(ctx);
   const service = createPlanLedgerService(ctx);
   const projectRoot = resolvePlanProjectRoot(ctx, args);
-  const currentProjectContextSignature =
-    args.projectContextSignature ?? (await computeCurrentSignature(projectRoot));
   const planRecord = args.planId
     ? repositories.planRepository.get(args.planId, args.version)
     : repositories.planRepository.getActiveConfirmed(projectRoot);
@@ -731,6 +729,12 @@ async function getPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolRe
       ],
     });
   }
+  const currentProjectContextSignature =
+    args.projectContextSignature ??
+    (await computeCurrentSignature(
+      planRecord.projectRoot,
+      buildPlanProjectContextHintsFromRecord(planRecord)
+    ));
   const view = args.planId
     ? await service.getPlanView(
         planRecord.planId,

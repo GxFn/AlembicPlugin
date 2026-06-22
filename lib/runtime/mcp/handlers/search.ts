@@ -1215,6 +1215,7 @@ function searchItemToCandidate(
   const itemScoreBreakdown = scoreBreakdownForItem(id, searchMeta);
   const rawMetadata = readRecord(rawItem.metadata);
   const laneRoutes = readStringArray(rawMetadata?.[INTERNAL_SEARCH_ROUTES_KEY]);
+  const metadata = searchItemCandidateMetadata(rawItem, slimItem);
   return {
     category: readString(rawItem.category) ?? readString(rawItem.metadata?.category),
     contentPreview: summary,
@@ -1222,7 +1223,7 @@ function searchItemToCandidate(
     id,
     kind,
     language: readString(rawItem.language),
-    metadata: stripInternalSearchMetadata(rawItem.metadata),
+    metadata,
     resident: sanitizeResidentSearchMeta(searchMeta.residentSearch),
     score: typeof rawItem.score === 'number' ? rawItem.score : undefined,
     scoreBreakdown: {
@@ -1244,6 +1245,53 @@ function searchItemToCandidate(
   };
 }
 
+function searchItemCandidateMetadata(
+  rawItem: SearchResultItem,
+  slimItem: ReturnType<typeof slimSearchResult> | undefined
+): Record<string, unknown> | undefined {
+  const metadata = {
+    ...(stripInternalSearchMetadata(rawItem.metadata) ?? {}),
+    category:
+      readString(rawItem.category) ??
+      readString(rawItem.metadata?.category) ??
+      readString(slimItem?.category),
+    dimensionId:
+      readString(rawItem.dimensionId) ??
+      readString(rawItem.metadata?.dimensionId) ??
+      readString(slimItem?.dimensionId),
+    knowledgeType:
+      readString(rawItem.knowledgeType) ??
+      readString(rawItem.metadata?.knowledgeType) ??
+      readString(slimItem?.knowledgeType),
+    scope:
+      readString(rawItem.scope) ??
+      readString(rawItem.metadata?.scope) ??
+      readString(slimItem?.scope),
+    sourceFile: readString(rawItem.sourceFile) ?? readString(rawItem.metadata?.sourceFile),
+    sourceRefs: sourceRefsFromSearchItem(rawItem, slimItem),
+    tags:
+      readStringArray(rawItem.tags).length > 0
+        ? readStringArray(rawItem.tags)
+        : readStringArray(rawItem.metadata?.tags).length > 0
+          ? readStringArray(rawItem.metadata?.tags)
+          : readStringArray(slimItem?.tags),
+  };
+  return compactCandidateMetadata(metadata);
+}
+
+function sourceRefsFromSearchItem(
+  rawItem: SearchResultItem,
+  slimItem: ReturnType<typeof slimSearchResult> | undefined
+): string[] {
+  return uniqueStrings([
+    readString(rawItem.sourceFile),
+    readString(rawItem.metadata?.sourceFile),
+    ...readStringArray(rawItem.sourceRefs),
+    ...readStringArray(rawItem.metadata?.sourceRefs),
+    ...readStringArray(slimItem?.sourceRefs),
+  ]);
+}
+
 function stripInternalSearchMetadata(value: unknown): Record<string, unknown> | undefined {
   const metadata = readRecord(value);
   if (!metadata) {
@@ -1256,6 +1304,7 @@ function stripInternalSearchMetadata(value: unknown): Record<string, unknown> | 
 function knowledgeEntryToCandidate(entry: KnowledgeEntryJSON): KnowledgeRetrievalItem {
   const json = toKnowledgeEntryJson(entry);
   const content = readRecord(json.content);
+  const sourceRefs = sourceRefsFromKnowledgeEntry(json);
   const summary =
     json.description ??
     json.doClause ??
@@ -1278,12 +1327,14 @@ function knowledgeEntryToCandidate(entry: KnowledgeEntryJSON): KnowledgeRetrieva
     id: json.id,
     kind: json.kind,
     language: json.language,
-    metadata: {
+    metadata: compactCandidateMetadata({
       dimensionId: readString(json.dimensionId),
       knowledgeType: json.knowledgeType,
       scope: json.scope,
+      sourceFile: readString(json.sourceFile),
+      sourceRefs,
       tags: json.tags,
-    },
+    }),
     score: typeof json.quality?.overall === 'number' ? json.quality.overall : undefined,
     scoreBreakdown: {
       baseScore: typeof json.quality?.overall === 'number' ? json.quality.overall : 0,
@@ -1299,6 +1350,31 @@ function knowledgeEntryToCandidate(entry: KnowledgeEntryJSON): KnowledgeRetrieva
     },
     whyMatched: ['knowledge-service'],
   };
+}
+
+function sourceRefsFromKnowledgeEntry(entry: KnowledgeEntryJSON): string[] {
+  return uniqueStrings([
+    readString(entry.sourceFile),
+    ...readStringArray(entry.sourceRefs),
+    ...readStringArray(entry.reasoning?.sources),
+  ]);
+}
+
+function compactCandidateMetadata(
+  metadata: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const compacted = Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => {
+      if (typeof value === 'string') {
+        return value.length > 0;
+      }
+      if (Array.isArray(value)) {
+        return value.some((item) => typeof item === 'string' && item.length > 0);
+      }
+      return value !== undefined && value !== null;
+    })
+  );
+  return Object.keys(compacted).length > 0 ? compacted : undefined;
 }
 
 function mergeKnowledgeCandidates(

@@ -113,6 +113,94 @@ describe('Plan-driven generation gate', () => {
     expect(fs.existsSync(path.join(projectRoot, '.asd', '.trash'))).toBe(false);
   });
 
+  test('focused Swift confirmed Plan drives bootstrap with scoped signature reuse', async () => {
+    await replaceFixtureProject(createSwiftFixtureProject());
+    const focusModules = [
+      'Sources/Features/VideoFeed',
+      'Sources/Infrastructure',
+      'BiliDili/Modules',
+    ];
+    const { dimensionId } = await confirmPlan({
+      dimensionStage: 'coldStart',
+      draftHints: {
+        focusModules,
+        goal: 'RG-10 focused BiliDili generation gate regression',
+        maxBudget: 6,
+        maxRecommendedDimensions: 6,
+      },
+      modulePath: 'Sources/Features/VideoFeed',
+    });
+
+    const activePlan = (await routePlanTool(createContext(), {
+      operation: 'get',
+      projectRoot,
+    })) as ToolResponse;
+    expect(activePlan.success).toBe(true);
+    expect(activePlan.data?.currentProjectContextSignature).toBe(
+      activePlan.data?.projectContextSignature
+    );
+    expect(asRecord(activePlan.data?.signature)).toMatchObject({ matches: true });
+
+    const result = (await runHostAgentColdStartWorkflow(createContext(), {
+      dimensions: [dimensionId],
+      scaleOverride: { maxFiles: 8, contentMaxLines: 16, totalRecipeBudget: 1 },
+      testMode: true,
+    })) as ToolResponse;
+
+    expect(result.success).toBe(true);
+    expect(asRecord(result.data?.planGate)).toMatchObject({
+      cleanupPolicy: 'none',
+      generationStage: 'coldStart',
+      signature: expect.objectContaining({ matches: true }),
+      testMode: true,
+    });
+    expect(result.data?.testMode).toMatchObject({
+      enabled: true,
+      dimensions: [dimensionId],
+    });
+  });
+
+  test('focused Swift generation gate rejects scoped source changes after confirmation', async () => {
+    await replaceFixtureProject(createSwiftFixtureProject());
+    const { dimensionId } = await confirmPlan({
+      dimensionStage: 'coldStart',
+      draftHints: {
+        focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
+        goal: 'RG-10 focused BiliDili stale gate regression',
+        maxBudget: 6,
+        maxRecommendedDimensions: 6,
+      },
+      modulePath: 'Sources/Features/VideoFeed',
+    });
+    writeFile(
+      projectRoot,
+      'Sources/Features/VideoFeed/VideoFeedCoordinator.swift',
+      [
+        'import SwiftUI',
+        'import Infrastructure',
+        '',
+        'struct VideoFeedCoordinator: View {',
+        '  var body: some View { Text("Fresh Feed") }',
+        '}',
+        '',
+      ].join('\n')
+    );
+
+    const result = (await runHostAgentColdStartWorkflow(createContext(), {
+      dimensions: [dimensionId],
+      scaleOverride: { maxFiles: 8, contentMaxLines: 16, totalRecipeBudget: 1 },
+      testMode: true,
+    })) as ToolResponse;
+
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: 'PLAN_PROJECT_CONTEXT_STALE',
+    });
+    expect(asRecord(asRecord(result.data?.planGate).signature)).toMatchObject({
+      matches: false,
+    });
+  });
+
   test('confirmed Plan drives moduleMining rescan with scoped ProjectContext and no cleanup', async () => {
     const { dimensionId } = await confirmPlan({
       dimensionStage: 'deepMining',
@@ -223,6 +311,7 @@ describe('Plan-driven generation gate', () => {
 
 async function confirmPlan(input: {
   dimensionStage: 'coldStart' | 'deepMining';
+  draftHints?: Record<string, unknown>;
   modulePath: string;
 }): Promise<{ dimensionId: string; planId: string; version: number }> {
   const draft = (await routePlanTool(createContext(), {
@@ -233,6 +322,7 @@ async function confirmPlan(input: {
     hints: {
       maxBudget: 3,
       maxRecommendedDimensions: 3,
+      ...(input.draftHints ?? {}),
     },
   })) as ToolResponse;
   if (!draft.success) {
@@ -287,6 +377,18 @@ async function confirmPlan(input: {
     planId: String(plan.planId),
     version: Number(plan.version),
   };
+}
+
+async function replaceFixtureProject(nextProjectRoot: string): Promise<void> {
+  runtime.close();
+  fs.rmSync(projectRoot, { recursive: true, force: true });
+  projectRoot = nextProjectRoot;
+  fs.mkdirSync(path.join(projectRoot, '.asd'), { recursive: true });
+  runtime = await openAlembicDatabase(
+    { path: path.join(projectRoot, '.asd', 'alembic.db') },
+    { workspaceResolver: WorkspaceResolver.fromProject(projectRoot) }
+  );
+  repositories = createAlembicRepositories(runtime.connection);
 }
 
 function createContext(): McpContext {
@@ -358,6 +460,94 @@ function createFixtureProject(): string {
       'describe("fetchUser", () => {',
       '  test("returns a user", () => expect(fetchUser("1").name).toBe("Ada"));',
       '});',
+      '',
+    ].join('\n')
+  );
+  return root;
+}
+
+function createSwiftFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-gate-swift-fixture-'));
+  writeFile(
+    root,
+    'Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(',
+      '  name: "BiliDiliFixture",',
+      '  platforms: [.iOS(.v17)],',
+      '  products: [.library(name: "BiliDiliFixture", targets: ["VideoFeed", "Infrastructure"])],',
+      '  targets: [',
+      '    .target(name: "VideoFeed", dependencies: ["Infrastructure"], path: "Sources/Features/VideoFeed"),',
+      '    .target(name: "Infrastructure", path: "Sources/Infrastructure"),',
+      '  ]',
+      ')',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/Features/VideoFeed/VideoFeedViewModel.swift',
+    [
+      'import Foundation',
+      'import Infrastructure',
+      '',
+      '@MainActor',
+      'final class VideoFeedViewModel: ObservableObject {',
+      '  @Published private(set) var pages: [FeedPage] = []',
+      '  private let repository = FeedRepository(client: VideoAPIClient())',
+      '  func refresh() async {',
+      '    pages = (try? await repository.fetchPages(cursor: nil)) ?? []',
+      '  }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/Infrastructure/Networking/Repository/FeedRepository.swift',
+    [
+      'import Foundation',
+      '',
+      'public struct FeedPage { public let cursor: String? }',
+      'public final class FeedRepository {',
+      '  private let client: VideoAPIClient',
+      '  public init(client: VideoAPIClient) { self.client = client }',
+      '  public func fetchPages(cursor: String?) async throws -> [FeedPage] {',
+      '    try await client.fetchFeed(cursor: cursor).map { _ in [FeedPage(cursor: nil)] }',
+      '  }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/Infrastructure/Networking/VideoAPIClient.swift',
+    [
+      'import Foundation',
+      '',
+      'public final class VideoAPIClient {',
+      '  public init() {}',
+      '  public func fetchFeed(cursor: String?) async throws -> Data {',
+      '    Data(cursor?.utf8 ?? [])',
+      '  }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'BiliDili/Modules/NetworkModule.swift',
+    [
+      'import UIKit',
+      'import Foundation',
+      '',
+      'final class NetworkModule {',
+      '  func register() {',
+      '    DispatchQueue.main.async { _ = UIView() }',
+      '  }',
+      '}',
       '',
     ].join('\n')
   );
