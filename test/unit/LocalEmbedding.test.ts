@@ -11,7 +11,7 @@ import {
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
   selectLocalEmbedLane,
-} from '../../lib/service/vector/LocalEmbedding.js';
+} from '../../lib/recipe-generation/vector/LocalEmbedding.js';
 
 // Fake Ollama /api/tags transport so detection/selection are deterministic + offline.
 function fakeFetch(models: string[], opts: { fail?: boolean; status?: number } = {}): FetchLike {

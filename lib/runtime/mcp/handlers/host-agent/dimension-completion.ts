@@ -9,7 +9,7 @@ import { envelope } from '#codex/mcp/envelope.js';
 import {
   type HostAgentDimensionCompleteArgs,
   runHostAgentDimensionCompletionWorkflow,
-} from '#codex/mcp/host-agent-workflows/dimension-completion.js';
+} from '#recipe-generation/host-agent-workflows/dimension-completion.js';
 import type { McpContext } from '../../../../runtime/mcp/handlers/types.js';
 
 export async function dimensionComplete(ctx: McpContext, args: HostAgentDimensionCompleteArgs) {

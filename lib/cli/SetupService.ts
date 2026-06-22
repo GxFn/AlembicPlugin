@@ -66,7 +66,7 @@ import {
   DEFAULT_OLLAMA_ENDPOINT,
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
-} from '../service/vector/LocalEmbedding.js';
+} from '#recipe-generation/vector/LocalEmbedding.js';
 import { PACKAGE_ROOT } from '../shared/package-assets.js';
 
 /** Alembic 源码仓库根目录（定位 templates/ 等资源） */

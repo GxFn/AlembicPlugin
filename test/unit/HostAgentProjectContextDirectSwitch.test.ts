@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildHostAgentProjectContextAnalysis,
   selectProjectContextDimensions,
-} from '../../lib/runtime/mcp/host-agent-workflows/project-context-analysis.js';
+} from '../../lib/recipe-generation/host-agent-workflows/project-context-analysis.js';
 
 const tempRoots: string[] = [];
 

@@ -24,9 +24,9 @@ import {
   createAlembicRepositories,
 } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { BootstrapTaskManager } from '#recipe-generation/bootstrap/BootstrapTaskManager.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
-import { BootstrapTaskManager } from '../../service/bootstrap/BootstrapTaskManager.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {

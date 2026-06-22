@@ -1,6 +1,6 @@
 import type { FileChangeEvent } from '@alembic/core/types';
 import { vi } from 'vitest';
-import { FileChangeHandler } from '../../lib/service/evolution/FileChangeHandler.js';
+import { FileChangeHandler } from '../../lib/recipe-generation/evolution/FileChangeHandler.js';
 
 /* ════════════════════════════════════════════
  *  Mock ContentImpactAnalyzer — 控制 diff 返回

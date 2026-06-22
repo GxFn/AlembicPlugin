@@ -8,4 +8,4 @@
 export {
   getActiveSession,
   runHostAgentColdStartWorkflow as bootstrapForHostAgent,
-} from '#codex/mcp/host-agent-workflows/cold-start.js';
+} from '#recipe-generation/host-agent-workflows/cold-start.js';

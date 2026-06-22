@@ -11,11 +11,11 @@
 
 import type { EmbedLaneSelection } from '@alembic/core/vector';
 import { VectorService } from '@alembic/core/vector';
-import type { ContextualEnricher } from '../../service/vector/ContextualEnricher.js';
+import type { ContextualEnricher } from '#recipe-generation/vector/ContextualEnricher.js';
 import {
   resolveLocalEmbeddingConfig,
   selectLocalEmbedLane,
-} from '../../service/vector/LocalEmbedding.js';
+} from '#recipe-generation/vector/LocalEmbedding.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 // GMAP-L3: the singleton key holding the local-first embed-lane selection. It is

@@ -6,7 +6,7 @@ import {
   type BootstrapSessionLike,
   validateDimensionCompletionEvidenceGate,
   validateRecipeProductionEvidenceGate,
-} from '#codex/mcp/host-agent-workflows/recipe-evidence-gate.js';
+} from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
 
 describe('HostAgentRecipeEvidenceGate', () => {
   it.each([

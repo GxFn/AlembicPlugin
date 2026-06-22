@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
+import type { GitDiffCheckpointStatus } from '#recipe-generation/evolution/git-diff-checkpoint/index.js';
 import {
   buildHostEnhancementRouteChoice,
   type HostEnhancementRouteChoice,
@@ -32,7 +33,6 @@ import {
   MCP_MODE_ENV,
   resolveHostRuntimeContext,
 } from '../../runtime/runtime/RuntimeContext.js';
-import type { GitDiffCheckpointStatus } from '../../service/evolution/git-diff-checkpoint/index.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../service/resident/AlembicResidentServiceClient.js';
 import type { DaemonStatus } from '../daemon-status.js';
 import { hostAdapterForShape } from '../host-adapter/resolveHostAdapter.js';
@@ -445,14 +445,49 @@ function buildPluginMcpDiagnostics(
   const args = registry.mcp.args;
   const command =
     typeof registry.mcp.server?.command === 'string' ? registry.mcp.server.command : null;
-  const startupArg = args.find((arg) => arg.endsWith('alembic-start.mjs')) || null;
+  const startup = resolveMcpStartupDiagnostics(context, registry, args, command);
+  const envDiagnostics = buildPluginMcpEnvDiagnostics(registry);
+
+  return {
+    adminDisabledByDefault: envDiagnostics.adminDisabledByDefault,
+    agentTierByDefault: envDiagnostics.agentTierByDefault,
+    binary: startup.binary,
+    codexShimMode: envDiagnostics.codexShimMode,
+    command,
+    embeddedRuntime: startup.embeddedRuntime,
+    mcpMode: envDiagnostics.mcpMode,
+    ok: mcpDiagnosticsOk(startup.packagePin, envDiagnostics),
+    packagePin: startup.packagePin,
+    path: registry.mcp.json.path,
+    pluginHost: envDiagnostics.pluginHost,
+    pluginHostValue: envDiagnostics.pluginHostValue,
+    pinnedSpecifier: context.pinnedRuntimeSpecifier,
+    runtimeMode: envDiagnostics.runtimeMode,
+    runtimeModeValue: envDiagnostics.runtimeModeValue,
+    runtimeSpecifier: context.pinnedRuntimeSpecifier,
+    entry: startup.entry,
+    wrapper: {
+      exists: Boolean(startup.startupPath && existsSync(startup.startupPath)),
+      path: startup.startupPath,
+      startupLock: false,
+      startupLockDiagnostics: startup.startupLockDiagnostics,
+    },
+  };
+}
+
+function resolveMcpStartupDiagnostics(
+  context: HostRuntimeContext,
+  registry: PluginRegistry,
+  args: string[],
+  command: string | null
+) {
+  const startupArg = resolveStartupArg(args);
   const startupPath = startupArg
     ? join(registry.plugin.root, startupArg.replace(/^\.\//, ''))
     : null;
-  const startupSource =
-    startupPath && existsSync(startupPath) ? readFileSync(startupPath, 'utf8') : '';
-  const runtimeTarballPath = join(registry.plugin.root, 'runtime.tgz');
+  const startupSource = readExistingTextFile(startupPath);
   const shellUsesPinnedRuntime = startupSourceUsesPinnedRuntime(startupSource, context);
+  const runtimeTarballPath = join(registry.plugin.root, 'runtime.tgz');
   const entry = buildMcpEntryDiagnostics({
     args,
     command,
@@ -464,55 +499,82 @@ function buildPluginMcpDiagnostics(
     wrapperPath: startupPath,
   });
   const startupLockDiagnostics = buildWrapperStartupLockDiagnostics(startupSource);
-  const localDevRuntime =
+  const localDevRuntime = usesLocalDevRuntime(entry, args);
+  const binary = resolveMcpRuntimeBinary(args, shellUsesPinnedRuntime || localDevRuntime, context);
+  const embeddedRuntime = usesEmbeddedRuntime({
+    args,
+    binary,
+    command,
+    context,
+    shellUsesPinnedRuntime,
+  });
+  const packagePin = embeddedRuntime || localDevRuntime;
+
+  return {
+    binary,
+    embeddedRuntime,
+    entry,
+    packagePin,
+    startupLockDiagnostics,
+    startupPath,
+  };
+}
+
+function resolveStartupArg(args: string[]): string | null {
+  return args.find((arg) => arg.endsWith('alembic-start.mjs')) || null;
+}
+
+function readExistingTextFile(filePath: string | null): string {
+  return filePath && existsSync(filePath) ? readFileSync(filePath, 'utf8') : '';
+}
+
+function usesLocalDevRuntime(entry: McpEntryDiagnostics, args: string[]): boolean {
+  return (
     entry.mode === 'local-dev-direct-dist' &&
     entry.localDistEntry.exists === true &&
-    !args.includes('latest');
-  const binary =
-    args.find((arg) => arg === context.runtimeBin) ||
-    (shellUsesPinnedRuntime || localDevRuntime ? context.runtimeBin : null);
-  const embeddedRuntime =
-    command === 'node' &&
-    args.includes(CODEX_MARKETPLACE_SHELL_ENTRY) &&
-    shellUsesPinnedRuntime &&
-    binary === context.runtimeBin &&
-    !args.includes('latest');
-  const packagePin = embeddedRuntime || localDevRuntime;
-  const envDiagnostics = buildPluginMcpEnvDiagnostics(registry);
-  const mcpOk =
+    !args.includes('latest')
+  );
+}
+
+function resolveMcpRuntimeBinary(
+  args: string[],
+  canUseRuntimeBin: boolean,
+  context: HostRuntimeContext
+): string | null {
+  return (
+    args.find((arg) => arg === context.runtimeBin) || (canUseRuntimeBin ? context.runtimeBin : null)
+  );
+}
+
+function usesEmbeddedRuntime(input: {
+  args: string[];
+  binary: string | null;
+  command: string | null;
+  context: HostRuntimeContext;
+  shellUsesPinnedRuntime: boolean;
+}): boolean {
+  return (
+    input.command === 'node' &&
+    input.args.includes(CODEX_MARKETPLACE_SHELL_ENTRY) &&
+    input.shellUsesPinnedRuntime &&
+    input.binary === input.context.runtimeBin &&
+    !input.args.includes('latest')
+  );
+}
+
+function mcpDiagnosticsOk(
+  packagePin: boolean,
+  envDiagnostics: ReturnType<typeof buildPluginMcpEnvDiagnostics>
+): boolean {
+  return (
     packagePin &&
     envDiagnostics.adminDisabledByDefault &&
     envDiagnostics.agentTierByDefault &&
     envDiagnostics.pluginHost &&
     envDiagnostics.runtimeMode &&
     envDiagnostics.mcpMode &&
-    envDiagnostics.codexShimMode;
-
-  return {
-    adminDisabledByDefault: envDiagnostics.adminDisabledByDefault,
-    agentTierByDefault: envDiagnostics.agentTierByDefault,
-    binary,
-    codexShimMode: envDiagnostics.codexShimMode,
-    command,
-    embeddedRuntime,
-    mcpMode: envDiagnostics.mcpMode,
-    ok: mcpOk,
-    packagePin,
-    path: registry.mcp.json.path,
-    pluginHost: envDiagnostics.pluginHost,
-    pluginHostValue: envDiagnostics.pluginHostValue,
-    pinnedSpecifier: context.pinnedRuntimeSpecifier,
-    runtimeMode: envDiagnostics.runtimeMode,
-    runtimeModeValue: envDiagnostics.runtimeModeValue,
-    runtimeSpecifier: context.pinnedRuntimeSpecifier,
-    entry,
-    wrapper: {
-      exists: Boolean(startupPath && existsSync(startupPath)),
-      path: startupPath,
-      startupLock: false,
-      startupLockDiagnostics,
-    },
-  };
+    envDiagnostics.codexShimMode
+  );
 }
 
 function buildPluginMcpEnvDiagnostics(

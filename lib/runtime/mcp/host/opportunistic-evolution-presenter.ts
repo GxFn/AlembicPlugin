@@ -1,18 +1,18 @@
+import { getServiceContainer } from '#inject/ServiceContainer.js';
+import {
+  FileChangeHandler,
+  type UnifiedEvolutionReport,
+} from '#recipe-generation/evolution/FileChangeHandler.js';
+import {
+  GitDiffScanner,
+  type GitDiffScanResult,
+} from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractPluginToolOutcome,
   extractTaskCloseGuardDecision,
   shouldAttachPluginOpportunisticEvolution,
-} from '#codex/evolution/PluginOpportunisticEvolution.js';
-import { getServiceContainer } from '#inject/ServiceContainer.js';
-import {
-  FileChangeHandler,
-  type UnifiedEvolutionReport,
-} from '#service/evolution/FileChangeHandler.js';
-import {
-  GitDiffScanner,
-  type GitDiffScanResult,
-} from '#service/evolution/git-diff-checkpoint/GitDiffScanner.js';
+} from '#recipe-generation/evolution/PluginOpportunisticEvolution.js';
 import type { ToolExecutionContext } from '../../../runtime/mcp/host/embedded-executor.js';
 
 interface PluginUnifiedEvolutionCheckpoint {
@@ -20,7 +20,7 @@ interface PluginUnifiedEvolutionCheckpoint {
   signature: string | null;
 }
 
-const pluginUnifiedEvolutionCheckpoints = new Map<string, PluginUnifiedEvolutionCheckpoint>();
+let pluginUnifiedEvolutionCheckpoints: Map<string, PluginUnifiedEvolutionCheckpoint> | null = null;
 
 export async function attachPluginOpportunisticEvolutionSurface(input: {
   args: Record<string, unknown>;
@@ -37,7 +37,8 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
     return input.result;
   }
   const checkpointKey = pluginEvolutionCheckpointKey(input.projectRoot, input.executionContext);
-  const checkpoint = pluginUnifiedEvolutionCheckpoints.get(checkpointKey) ?? {
+  const checkpoints = getPluginUnifiedEvolutionCheckpoints();
+  const checkpoint = checkpoints.get(checkpointKey) ?? {
     head: null,
     signature: null,
   };
@@ -62,7 +63,7 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
   }
 
   if (scan.scanned) {
-    pluginUnifiedEvolutionCheckpoints.set(checkpointKey, {
+    checkpoints.set(checkpointKey, {
       head: scan.head,
       signature: scan.signature,
     });
@@ -107,7 +108,15 @@ function attachNestedData(result: unknown, patch: Record<string, unknown>): unkn
 }
 
 export function resetPluginUnifiedEvolutionCheckpointsForTests(): void {
-  pluginUnifiedEvolutionCheckpoints.clear();
+  pluginUnifiedEvolutionCheckpoints?.clear();
+  pluginUnifiedEvolutionCheckpoints = null;
+}
+
+function getPluginUnifiedEvolutionCheckpoints(): Map<string, PluginUnifiedEvolutionCheckpoint> {
+  if (pluginUnifiedEvolutionCheckpoints === null) {
+    pluginUnifiedEvolutionCheckpoints = new Map();
+  }
+  return pluginUnifiedEvolutionCheckpoints;
 }
 
 function shouldRouteUnifiedEvolution(scan: GitDiffScanResult): boolean {

@@ -119,7 +119,7 @@ const PLUGIN_OWNED_BOUNDARIES: ModuleBoundaryEntry[] = [
       'Routes Codex host-agent bootstrap, rescan, candidate submission, and dimension completion through Core workflow contracts.',
     retainedInPlugin: true,
     sourceOfTruth:
-      'lib/runtime/mcp/handlers/host-agent/** + lib/runtime/mcp/host-agent-workflows/** with @alembic/core/host-agent-workflows',
+      'lib/runtime/mcp/handlers/host-agent/** + lib/recipe-generation/host-agent-workflows/** with @alembic/core/host-agent-workflows',
   },
   {
     id: 'marketplace-artifact',

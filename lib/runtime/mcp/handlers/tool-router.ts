@@ -13,15 +13,15 @@ import { dimensionTags } from '@alembic/core/dimensions';
 import type { CreateRecipeItem, CreateRecipeResult } from '@alembic/core/knowledge';
 import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import { resolveHostAgentDataRoot } from '#codex/mcp/host-agent-workflows/project-data-root.js';
+import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
+import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
   primaryEvidenceGateCode,
   resolveBootstrapSession,
   shouldRunRecipeEvidenceGate,
   validateRecipeProductionEvidenceGate,
-} from '#codex/mcp/host-agent-workflows/recipe-evidence-gate.js';
-import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
+} from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
 import { routePlanTool as routePlanToolImpl } from '#recipe-generation/plan-tool.js';
 import { assessProjectContextRelationshipGrounding } from '#recipe-generation/project-context-anchoring.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';

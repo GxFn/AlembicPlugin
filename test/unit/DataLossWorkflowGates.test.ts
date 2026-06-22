@@ -11,7 +11,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { inspectKnowledge } from '#codex/KnowledgeState.js';
 import { buildHostProjectHandoffBlock } from '#codex/mcp/host/host-project-handoff.js';
-import { buildBootstrapRebuildConfirmationBlock } from '#codex/mcp/host-agent-workflows/cold-start.js';
+import { buildBootstrapRebuildConfirmationBlock } from '#recipe-generation/host-agent-workflows/cold-start.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 
@@ -22,8 +22,12 @@ function makeDataRoot(withProjections: boolean): string {
     const wiki = path.join(root, 'Alembic', 'wiki');
     fs.mkdirSync(candidates, { recursive: true });
     fs.mkdirSync(wiki, { recursive: true });
-    for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(candidates, `c${i}.md`), `c${i}`);
-    for (let i = 0; i < 3; i++) fs.writeFileSync(path.join(wiki, `w${i}.md`), `w${i}`);
+    for (let i = 0; i < 5; i++) {
+      fs.writeFileSync(path.join(candidates, `c${i}.md`), `c${i}`);
+    }
+    for (let i = 0; i < 3; i++) {
+      fs.writeFileSync(path.join(wiki, `w${i}.md`), `w${i}`);
+    }
   }
   return root;
 }

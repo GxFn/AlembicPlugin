@@ -55,12 +55,13 @@ import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/servi
 // ── Shared Types ──
 import type { LanguageService } from '@alembic/core/shared';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
+import type { BootstrapTaskManager } from '#recipe-generation/bootstrap/BootstrapTaskManager.js';
+import type { ContextualEnricher } from '#recipe-generation/vector/ContextualEnricher.js';
 // ── Domain Types ──
 // ── Core Types ──
 // ── InfraModule Types ──
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
-import type { BootstrapTaskManager } from '../service/bootstrap/BootstrapTaskManager.js';
 import type { ModuleService } from '../service/module/ModuleService.js';
 import type {
   AlembicResidentCapabilityClients,
@@ -69,8 +70,6 @@ import type {
 import type { AlembicResidentServiceClient } from '../service/resident/AlembicResidentServiceClient.js';
 import type { SkillHooks } from '../service/skills/SkillHooks.js';
 import type { PrimeSearchPipeline } from '../service/task/PrimeSearchPipeline.js';
-// ── Vector Service Types ──
-import type { ContextualEnricher } from '../service/vector/ContextualEnricher.js';
 
 /**
  * 类型安全的服务映射表

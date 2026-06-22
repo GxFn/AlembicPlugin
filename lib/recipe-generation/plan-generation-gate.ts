@@ -82,8 +82,8 @@ const TEST_MODE_DEFAULT_CONTENT_MAX_LINES = 80;
 const DEFAULT_MAX_FILES = 500;
 const DEFAULT_CONTENT_MAX_LINES = 120;
 
-const activePlanGenerationLeases = new Map<string, ActivePlanGenerationLease>();
-let nextLeaseEpoch = 1;
+let activePlanGenerationLeases: Map<string, ActivePlanGenerationLease> | null = null;
+let nextLeaseEpoch: number | null = null;
 
 export async function resolvePlanGenerationGate(
   ctx: PlanGenerationGateContext,
@@ -268,7 +268,8 @@ export function acquirePlanGenerationLease(input: {
       input.gate.moduleScope.join(','),
       input.gate.testMode ? 'test' : 'live',
     ].join(':');
-  const existing = activePlanGenerationLeases.get(key);
+  const leases = getActivePlanGenerationLeases();
+  const existing = leases.get(key);
   if (existing) {
     return {
       ok: false,
@@ -294,27 +295,40 @@ export function acquirePlanGenerationLease(input: {
     };
   }
   const lease: ActivePlanGenerationLease = {
-    epoch: nextLeaseEpoch++,
+    epoch: nextPlanGenerationLeaseEpoch(),
     key,
     projectRoot: input.gate.projectRoot,
     startedAt: Date.now(),
     stage: input.gate.generationStage,
     toolName: input.toolName,
   };
-  activePlanGenerationLeases.set(key, lease);
+  leases.set(key, lease);
   return {
     ok: true,
     lease: {
       epoch: lease.epoch,
       key,
       release: () => {
-        const current = activePlanGenerationLeases.get(key);
+        const current = getActivePlanGenerationLeases().get(key);
         if (current?.epoch === lease.epoch) {
-          activePlanGenerationLeases.delete(key);
+          getActivePlanGenerationLeases().delete(key);
         }
       },
     },
   };
+}
+
+function getActivePlanGenerationLeases(): Map<string, ActivePlanGenerationLease> {
+  if (activePlanGenerationLeases === null) {
+    activePlanGenerationLeases = new Map();
+  }
+  return activePlanGenerationLeases;
+}
+
+function nextPlanGenerationLeaseEpoch(): number {
+  const epoch = nextLeaseEpoch ?? 1;
+  nextLeaseEpoch = epoch + 1;
+  return epoch;
 }
 
 export function attachPlanGenerationGateData<T extends Record<string, unknown>>(

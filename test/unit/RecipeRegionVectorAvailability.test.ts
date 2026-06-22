@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildRecipeSemanticRegionVectors } from '../../lib/runtime/mcp/host-agent-workflows/recipe-region-vector.js';
 import type { ServiceContainer } from '../../lib/injection/ServiceContainer.js';
+import { buildRecipeSemanticRegionVectors } from '../../lib/recipe-generation/host-agent-workflows/recipe-region-vector.js';
 
 describe('buildRecipeSemanticRegionVectors availability gate', () => {
   it('uses VectorService availability instead of stats embedProviderAvailable', async () => {

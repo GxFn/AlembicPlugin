@@ -10,7 +10,7 @@ import {
   GitDiffScanner,
   shouldIgnoreProjectPath,
   toProjectRelativePath,
-} from '../../lib/service/evolution/git-diff-checkpoint/index.js';
+} from '../../lib/recipe-generation/evolution/git-diff-checkpoint/index.js';
 import type { FileChangeDispatcher } from '../../lib/service/FileChangeDispatcher.js';
 
 const tempDirs: string[] = [];

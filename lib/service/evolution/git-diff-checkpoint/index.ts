@@ -1,26 +1,3 @@
-export {
-  type GitDiffCheckpointResult,
-  GitDiffCheckpointService,
-  type GitDiffCheckpointServiceOptions,
-} from './GitDiffCheckpointService.js';
-export type {
-  GitDiffCheckpointError,
-  GitDiffCheckpointErrorCode,
-  GitDiffCheckpointStatus,
-  GitDiffLastDispatchStatus,
-  GitDiffScanStatus,
-} from './GitDiffCheckpointStatus.js';
-export { createInactiveGitDiffCheckpointStatus } from './GitDiffCheckpointStatus.js';
-export {
-  addNameStatusEvents,
-  GitDiffScanner,
-  type GitDiffScannerOptions,
-  type GitDiffScanOptions,
-  type GitDiffScanResult,
-} from './GitDiffScanner.js';
-export {
-  isSafeProjectRelativePath,
-  normalizeProjectRelativePath,
-  shouldIgnoreProjectPath,
-  toProjectRelativePath,
-} from './ProjectDiffIgnore.js';
+// RG9 兼容适配：当前消费者为旧 #service/evolution/git-diff-checkpoint 路径和历史测试。
+// 保留原因是维持 git diff checkpoint 入口稳定；移除条件是消费者全部切到 #recipe-generation/*；owner: AlembicPlugin RG9。
+export * from '#recipe-generation/evolution/git-diff-checkpoint/index.js';

@@ -1,18 +1,3 @@
-import { resolveDataRoot, WorkspaceResolver } from '@alembic/core/workspace';
-
-/**
- * Host-agent cold-start writes must follow the current Codex project identity.
- * The shared MCP container may carry resident or previously selected project
- * state, so derive the data root from the explicit project root first.
- */
-export function resolveHostAgentDataRoot(container: unknown, projectRoot: string): string {
-  try {
-    return WorkspaceResolver.fromProject(projectRoot).dataRoot;
-  } catch {
-    try {
-      return resolveDataRoot(container as never) || projectRoot;
-    } catch {
-      return projectRoot;
-    }
-  }
-}
+// RG9 兼容适配：当前消费者为旧 #codex/mcp/host-agent-workflows 路径和历史测试。
+// 保留原因是维持 MCP/相对导入稳定；移除条件是消费者全部切到 #recipe-generation/*；owner: AlembicPlugin RG9。
+export * from '#recipe-generation/host-agent-workflows/project-data-root.js';

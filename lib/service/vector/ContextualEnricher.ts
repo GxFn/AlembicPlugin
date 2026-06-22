@@ -1,32 +1,3 @@
-/**
- * ContextualEnricher — deterministic pass-through adapter.
- *
- * AlembicPlugin no longer executes local AI enrichment. The class remains as a
- * VectorChunkEnricher-compatible boundary so existing DI and Core vector
- * contracts can opt into a host/Core-provided enricher later.
- */
-
-import type {
-  VectorChunkData,
-  VectorChunkEnricher,
-  VectorDocumentInfo,
-} from '@alembic/core/vector';
-
-export type ChunkData = VectorChunkData;
-export type DocumentInfo = VectorDocumentInfo;
-
-export interface EnricherConfig {
-  cacheEnabled?: boolean;
-}
-
-export class ContextualEnricher implements VectorChunkEnricher {
-  async enrichChunks(_document: DocumentInfo, chunks: ChunkData[]): Promise<ChunkData[]> {
-    return chunks;
-  }
-
-  clearCache(): void {}
-
-  get cacheSize(): number {
-    return 0;
-  }
-}
+// RG9 兼容适配：当前消费者为旧 #service/vector 路径、CLI/DI 和历史测试。
+// 保留原因是维持向量配置入口稳定；移除条件是消费者全部切到 #recipe-generation/*；owner: AlembicPlugin RG9。
+export * from '#recipe-generation/vector/ContextualEnricher.js';
