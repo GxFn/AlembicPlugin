@@ -79,6 +79,7 @@ interface PlanProjectContextAnalysis {
   projectType: string;
   requestKinds: ProjectContextRequestKind[];
   secondaryLanguages: string[];
+  signatureScope: PlanProjectContextSignatureScope;
 }
 
 interface ModuleSnapshot {
@@ -92,6 +93,9 @@ interface ModuleSnapshot {
 type PlanArgs = PlanInput;
 type PlanFileSummary = FileFlowContext['file'];
 type PlanRelationSummary = FileFlowContext['imports'][number];
+type PlanProjectContextSignatureScope = {
+  focusModules?: string[];
+};
 type PlanProjectContextFallback = {
   diagnostics: Record<string, unknown>[];
   fileFlows: FileFlowContext[];
@@ -585,12 +589,32 @@ function validateDraftSignatureEcho(
   );
 }
 
+function buildPlanProjectContextHintsFromDraft(draft: PlanRecord): PlanArgs['hints'] | undefined {
+  const planningBrief = readRecord(draft.planningBrief);
+  const projectContext = readRecord(planningBrief.projectContext);
+  const signatureScope = readPlanProjectContextSignatureScope(projectContext.signatureScope);
+  if (!signatureScope.focusModules?.length) {
+    return undefined;
+  }
+  return { focusModules: signatureScope.focusModules };
+}
+
+function readPlanProjectContextSignatureScope(value: unknown): PlanProjectContextSignatureScope {
+  const focusModules = dedupeOrderedStrings(
+    arrayStrings(readRecord(value).focusModules).map(normalizePath).filter(isPresent)
+  ).slice(0, 40);
+  return focusModules.length > 0 ? { focusModules } : {};
+}
+
 async function validateConfirmCurrentSignature(
   projectRoot: string,
   draft: PlanRecord,
   allowSignatureMismatch: boolean
 ): Promise<ConfirmCurrentSignatureResult> {
-  const currentProjectContextSignature = await computeCurrentSignature(projectRoot);
+  const currentProjectContextSignature = await computeCurrentSignature(
+    projectRoot,
+    buildPlanProjectContextHintsFromDraft(draft)
+  );
   const signature = compareProjectContextSignature(
     draft.projectContextSignature,
     currentProjectContextSignature
@@ -768,7 +792,9 @@ async function collectPlanProjectContext(
   await push('space', { includeProjectTree: true });
   const repoEnvelope = await push('repo', { includeMapSummary: true });
   const repo = isRepoContext(repoEnvelope.data) ? repoEnvelope.data : undefined;
-  const moduleSeeds = selectPlanModuleSeeds(repo, hints?.focusModules);
+  const signatureScope = buildPlanProjectContextSignatureScope(projectRoot, hints);
+  const scopedHints = buildPlanProjectContextScopedHints(hints, signatureScope);
+  const moduleSeeds = selectPlanModuleSeeds(repo, signatureScope.focusModules);
   if (moduleSeeds.length > 0) {
     await push('map', {
       moduleSeeds,
@@ -789,7 +815,7 @@ async function collectPlanProjectContext(
 
   const presenterInput = buildProjectContextPresenterInput(envelopes);
   const fallback = await buildPlanProjectContextFallback({
-    hints,
+    hints: scopedHints,
     moduleSeeds,
     presenterInput,
     projectRoot,
@@ -825,6 +851,7 @@ async function collectPlanProjectContext(
     projectType: inferProjectType(effectivePresenterInput),
     requestKinds: [...new Set(envelopes.map((envelope) => envelope.queryLevel))],
     secondaryLanguages,
+    signatureScope,
   };
 }
 
@@ -874,6 +901,32 @@ async function buildPlanProjectContextFallback(input: {
     frameworks,
     moduleSeeds,
     modules,
+  };
+}
+
+function buildPlanProjectContextSignatureScope(
+  projectRoot: string,
+  hints: PlanArgs['hints']
+): PlanProjectContextSignatureScope {
+  const focusModules = dedupeOrderedStrings(
+    (hints?.focusModules ?? [])
+      .map(normalizePath)
+      .filter(isPresent)
+      .filter((candidate) => pathExistsInsideProject(projectRoot, candidate))
+  ).slice(0, 40);
+  return focusModules.length > 0 ? { focusModules } : {};
+}
+
+function buildPlanProjectContextScopedHints(
+  hints: PlanArgs['hints'],
+  signatureScope: PlanProjectContextSignatureScope
+): PlanArgs['hints'] {
+  if (!signatureScope.focusModules?.length) {
+    return hints;
+  }
+  return {
+    ...(hints ?? {}),
+    focusModules: signatureScope.focusModules,
   };
 }
 
@@ -1539,8 +1592,11 @@ function resolvePlanProjectRoot(ctx: PlanToolContext, args: Partial<PlanArgs>): 
   return args.projectRoot ?? resolveProjectRoot(ctx.container);
 }
 
-async function computeCurrentSignature(projectRoot: string): Promise<string> {
-  const analysis = await collectPlanProjectContext(projectRoot, undefined);
+async function computeCurrentSignature(
+  projectRoot: string,
+  hints?: PlanArgs['hints']
+): Promise<string> {
+  const analysis = await collectPlanProjectContext(projectRoot, hints);
   const architectureIntelligence = ProjectContextCapabilities.analyzeArchitectureIntelligence({
     projectContext: analysis.presenterInput,
     primaryLanguage: analysis.primaryLanguage,
@@ -1566,6 +1622,9 @@ function computePlanProjectContextSignature(input: {
       moduleCount: input.analysis.moduleCount,
       projectType: input.analysis.projectType,
       requestKinds: input.analysis.requestKinds,
+      ...(input.analysis.signatureScope.focusModules?.length
+        ? { signatureScope: input.analysis.signatureScope }
+        : {}),
     },
     modules: collectModuleSnapshots(input.analysis).map((module) => ({
       files: module.files,
@@ -1853,6 +1912,9 @@ function summarizeProjectContext(analysis: PlanProjectContextAnalysis): Record<s
     projectType: analysis.projectType,
     requestKinds: analysis.requestKinds,
     secondaryLanguages: analysis.secondaryLanguages,
+    ...(analysis.signatureScope.focusModules?.length
+      ? { signatureScope: analysis.signatureScope }
+      : {}),
   };
 }
 

@@ -106,6 +106,9 @@ describe('alembic_plan tool', () => {
       factSource: 'project-context-repo-fallback',
       primaryLanguage: 'swift',
     });
+    expect(asRecord(projectContext.signatureScope)).toMatchObject({
+      focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
+    });
     expect(projectContext.fileCount as number).toBeGreaterThan(0);
     expect(projectContext.moduleCount as number).toBeGreaterThan(0);
     expect(asArray(projectContext.requestKinds)).toEqual(expect.arrayContaining(['repo']));
@@ -148,8 +151,109 @@ describe('alembic_plan tool', () => {
       projectContext: expect.objectContaining({
         factSource: 'project-context-repo-fallback',
         primaryLanguage: 'swift',
+        signatureScope: expect.objectContaining({
+          focusModules: [
+            'Sources/Features/VideoFeed',
+            'Sources/Infrastructure',
+            'BiliDili/Modules',
+          ],
+        }),
       }),
     });
+
+    const selectedDimensions = selectedDimensionsFromDraft(draft, 3);
+    const selectedDimensionIds = selectedDimensions.map((dimension) => dimension.id);
+    const confirmed = await callPlan({
+      operation: 'confirm',
+      basePlanId: String(plan.planId),
+      baseVersion: Number(plan.version),
+      projectContextSignature: String(draft.data?.projectContextSignature),
+      selectedDimensions,
+      scale: {
+        budgetLevel: 'focused',
+        scale: 'small',
+        totalRecipeBudget: 6,
+        perStage: { coldStart: 3, deepMining: 2, module: 3 },
+      },
+      moduleBindings: moduleBindingsFromDraft(draft, selectedDimensionIds),
+      plannedNextActions: [
+        {
+          tool: 'alembic_bootstrap',
+          reason: 'Run bounded test-mode scoped generation for confirmed RG-10 dimensions.',
+          order: 1,
+          dimensionIds: selectedDimensionIds,
+        },
+        {
+          tool: 'alembic_rescan',
+          reason: 'Run bounded moduleMining after controlled BiliDili commit changes.',
+          order: 2,
+          dimensionIds: selectedDimensionIds,
+        },
+      ],
+      rationale:
+        'RG-10 Test confirms only a small, evidence-grounded BiliDili subset; full Recipe quality is out of scope.',
+    });
+    expect(confirmed.success).toBe(true);
+    expect(asRecord(confirmed.data?.plan)).toMatchObject({ planStatus: 'confirmed' });
+  });
+
+  test('confirm rejects stale focused Swift drafts after scoped source changes', async () => {
+    await replaceFixtureProject(createSwiftFixtureProject());
+
+    const draft = await draftPlan({
+      focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
+      goal: 'RG-10 stale signature protection for focused Swift ProjectContext scope',
+      maxBudget: 6,
+      maxRecommendedDimensions: 6,
+    });
+    expect(draft.success).toBe(true);
+
+    writeFile(
+      projectRoot,
+      'Sources/Features/VideoFeed/VideoFeedCoordinator.swift',
+      [
+        'import SwiftUI',
+        'import Infrastructure',
+        '',
+        'struct VideoFeedCoordinator: View {',
+        '  var body: some View { Text("Fresh Feed") }',
+        '}',
+        '',
+      ].join('\n')
+    );
+
+    const plan = asRecord(draft.data?.plan);
+    const selectedDimensions = selectedDimensionsFromDraft(draft, 2);
+    const selectedDimensionIds = selectedDimensions.map((dimension) => dimension.id);
+    const stale = await callPlan({
+      operation: 'confirm',
+      basePlanId: String(plan.planId),
+      baseVersion: Number(plan.version),
+      projectContextSignature: String(draft.data?.projectContextSignature),
+      selectedDimensions,
+      scale: {
+        budgetLevel: 'focused',
+        scale: 'small',
+        totalRecipeBudget: 4,
+        perStage: { coldStart: 2, deepMining: 1, module: 2 },
+      },
+      moduleBindings: moduleBindingsFromDraft(draft, selectedDimensionIds),
+      plannedNextActions: [
+        {
+          tool: 'alembic_bootstrap',
+          reason: 'Confirm stale protection before generation.',
+          order: 1,
+          dimensionIds: selectedDimensionIds,
+        },
+      ],
+      rationale: 'The source changed after draft, so strict confirm must reject it.',
+    });
+
+    expect(stale).toMatchObject({
+      success: false,
+      errorCode: 'PLAN_PROJECT_CONTEXT_STALE',
+    });
+    expect(asRecord(stale.data?.signature)).toMatchObject({ matches: false });
   });
 
   test('confirm rejects signature echo mismatch and stale base versions before confirming intent', async () => {
@@ -504,6 +608,57 @@ function firstDimensionId(intent: unknown): string {
   const dimensions = asArray(asRecord(intent).dimensions);
   const first = asRecord(dimensions[0]);
   return String(first.dimensionId);
+}
+
+function selectedDimensionsFromDraft(
+  draft: PlanToolResponse,
+  count: number
+): Array<{ id: string; reason: string; targetRecipes: number }> {
+  const planningAids = asRecord(asRecord(draft.data?.sourceReports).planningAids);
+  const recommended = asArray(planningAids.recommendedDimensions)
+    .map((item) => asRecord(item))
+    .map((item) => ({
+      id: String(item.dimensionId ?? ''),
+      reason: asArray(item.reasons).map(String).join('; ') || 'RG-10 focused Swift confirmation',
+      targetRecipes: 1,
+    }))
+    .filter((item) => item.id.length > 0)
+    .slice(0, count);
+  if (recommended.length > 0) {
+    return recommended;
+  }
+  return asArray(asRecord(asRecord(draft.data?.plan).intent).dimensions)
+    .map((item) => asRecord(item))
+    .map((item) => ({
+      id: String(item.dimensionId ?? ''),
+      reason: 'RG-10 focused Swift confirmation',
+      targetRecipes: 1,
+    }))
+    .filter((item) => item.id.length > 0)
+    .slice(0, count);
+}
+
+function moduleBindingsFromDraft(
+  draft: PlanToolResponse,
+  dimensionIds: string[]
+): Array<{
+  dimensions: string[];
+  modulePath: string;
+  priority: number;
+  targetRecipes: number;
+}> {
+  const planningBrief = asRecord(draft.data?.planningBrief);
+  const projectContext = asRecord(planningBrief.projectContext);
+  return asArray(projectContext.moduleSeeds)
+    .map((seed) => asRecord(seed))
+    .map((seed, index) => ({
+      dimensions: dimensionIds,
+      modulePath: String(seed.modulePath ?? ''),
+      priority: index + 1,
+      targetRecipes: 1,
+    }))
+    .filter((binding) => binding.modulePath.length > 0)
+    .slice(0, 3);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
