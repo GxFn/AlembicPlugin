@@ -223,8 +223,8 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Plan Alembic Recipe generation before cold-start/deep/module mining.\n' +
-      '• draft — collect real ProjectContext, architecture/dimension/dynamic signals, Mission Briefing, and tool capability context; persist a Core Plan draft and return planId/version/projectContextSignature for Agent review\n' +
-      '• confirm — confirm the draft Plan intent with selectedDimensions, scale/budget, moduleBindings, plannedNextActions, and rationale; rejects stale version/signature mismatches unless explicitly overridden\n' +
+      '• draft — collect real ProjectContext, architecture/dimension/dynamic signals, Mission Briefing, and tool capability context; persist a Core Plan draft fact package and return planId/version/projectContextSignature for Agent review\n' +
+      '• confirm — persist the complete Agent-authored Plan payload with selectedDimensions, scale/budget, moduleBindings, plannedNextActions, evidenceRefs, and rationale; stale version/signature mismatches are rejected\n' +
       '• get — read the active confirmed Plan plus read-time Core generation-state projection: codeRecipeMapping, coverage, gaps, proposals, change log, and signature comparison\n' +
       'Non-goal: does not start generation, bootstrap, rescan, vector jobs, or any RG-4 gate; Plan state is stored only in Core plans ledger.',
     inputSchema: zodToMcpSchema(PlanInput),
@@ -269,9 +269,9 @@ export const TOOLS = [
     description:
       'Plan-driven cold-start — requires an active confirmed alembic_plan before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded Plan dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
-      '• Confirmed Plan-selected dimension task list and scale\n' +
+      '• Confirmed Plan dimension task list and scale\n' +
       '• ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
-      '• planGate/planState projection showing selected dimensions, gaps, cleanupPolicy, and module scope\n' +
+      '• planGate/planState projection showing execution dimensions, gaps, cleanupPolicy, and module scope\n' +
       '• Execution plan and submission examples\n' +
       'After receiving the Briefing, complete all dimension analyses per the executionPlan.',
     inputSchema: zodToMcpSchema(BootstrapInput),
@@ -283,12 +283,12 @@ export const TOOLS = [
     tier: 'agent',
     description:
       'Plan-driven incremental rescan / moduleMining — requires an active confirmed alembic_plan before cleanup or generation.\n' +
-      '• deepMining snapshots approved Recipes → cleans derived caches → Plan-selected ProjectContext analysis\n' +
+      '• deepMining snapshots approved Recipes → cleans derived caches → confirmed Plan ProjectContext analysis\n' +
       '• moduleMining or testMode uses cleanupPolicy:none and scoped ProjectContext module analysis, preserving candidates/wiki/cache\n' +
       '• Runs relevance audit (evidence check, auto-decay stale Recipes)\n' +
       '\u2022 Returns Mission Briefing with allRecipes (full content + auditHint per recipe)\n' +
       '\u2022 Includes ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
-      '\u2022 Includes planGate/planState projection with coverage gaps, selected dimensions, moduleScope, cleanupPolicy, and scale\n' +
+      '\u2022 Includes planGate/planState projection with coverage gaps, execution dimensions, moduleScope, cleanupPolicy, and scale\n' +
       '\u2022 Per-dimension workflow: evolve (alembic_evolve) \u2192 gap-fill (submit_knowledge) \u2192 dimension_complete\n' +
       '\u2022 Optional: dimensions/reason/generationStage/moduleScope/testMode/scaleOverride plus controller-authorized produceSession fields for session-bound ASQ publication',
     inputSchema: zodToMcpSchema(_RescanSchema),

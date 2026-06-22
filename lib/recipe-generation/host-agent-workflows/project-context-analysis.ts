@@ -4,7 +4,7 @@ import {
   type DimensionDef,
   getOrCreateSessionManager,
   type HostAgentSessionContainer,
-  resolveActiveDimensions,
+  resolvePlanDimensionDefinitions,
 } from '@alembic/core/host-agent-workflows';
 import {
   buildProjectContextPresenterInput,
@@ -205,8 +205,7 @@ export function selectProjectContextDimensions(
   if (!requestedDimensionIds?.length) {
     return [...dimensions];
   }
-  const requested = new Set(requestedDimensionIds);
-  return dimensions.filter((dimension) => requested.has(dimension.id));
+  return resolvePlanDimensionDefinitions(baseDimensions, requestedDimensionIds).dimensions;
 }
 
 async function executeProjectContextRequest(
@@ -310,8 +309,8 @@ function selectProjectContextDetailFiles(
     .slice(0, limit);
 }
 
-function resolveProjectContextDimensions(primaryLang: string): DimensionDef[] {
-  return resolveActiveDimensions(baseDimensions, primaryLang, []);
+function resolveProjectContextDimensions(_primaryLang: string): DimensionDef[] {
+  return [...baseDimensions];
 }
 
 function inferProjectContextPrimaryLanguage(input: ProjectContextPresenterInput): string {

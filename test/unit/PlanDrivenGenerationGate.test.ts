@@ -128,7 +128,6 @@ describe('Plan-driven generation gate', () => {
         focusModules,
         goal: 'RG-10 focused BiliDili generation gate regression',
         maxBudget: 6,
-        maxRecommendedDimensions: 6,
       },
       modulePath: 'Sources/Features/VideoFeed',
     });
@@ -170,7 +169,6 @@ describe('Plan-driven generation gate', () => {
         focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
         goal: 'RG-10 focused BiliDili stale gate regression',
         maxBudget: 6,
-        maxRecommendedDimensions: 6,
       },
       modulePath: 'Sources/Features/VideoFeed',
     });
@@ -481,12 +479,9 @@ async function confirmPlan(input: {
 }): Promise<{ dimensionId: string; planId: string; version: number }> {
   const draft = (await routePlanTool(createContext(), {
     operation: 'draft',
-    allowSignatureMismatch: false,
-    allowStaleVersion: false,
     projectRoot,
     hints: {
       maxBudget: 3,
-      maxRecommendedDimensions: 3,
       ...(input.draftHints ?? {}),
     },
   })) as ToolResponse;
@@ -494,33 +489,21 @@ async function confirmPlan(input: {
     throw new Error(`draft failed: ${JSON.stringify(draft, null, 2)}`);
   }
   const plan = asRecord(draft.data?.plan);
-  const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
-  if (!stored) {
-    throw new Error('Expected draft Plan to be persisted.');
-  }
-  const dimensionId = stored.intent.dimensions[0]?.dimensionId;
+  const dimensionId = dimensionIdsFromDraftFacts(draft, 1)[0];
   if (!dimensionId) {
-    throw new Error('Expected draft Plan to contain at least one dimension.');
+    throw new Error('Expected draft Plan fact package to contain at least one dimension.');
   }
   const signature = String(draft.data?.projectContextSignature);
   const confirmed = (await routePlanTool(createContext(), {
     operation: 'confirm',
-    allowSignatureMismatch: false,
-    allowStaleVersion: false,
     basePlanId: String(plan.planId),
     baseVersion: Number(plan.version),
     projectContextSignature: signature,
-    selectedDimensions: [
-      {
-        id: dimensionId,
-        reason: `RG4 ${input.dimensionStage} fixture`,
-        stage: input.dimensionStage,
-        targetRecipes: 1,
-      },
-    ],
+    selectedDimensions: confirmedDimensions([dimensionId], input.dimensionStage),
     scale: {
       totalRecipeBudget: 2,
       perStage: { coldStart: 1, deepMining: 1, module: 1 },
+      depthLevels: ['project', 'module'],
     },
     moduleBindings: (input.moduleBindings ?? [input.modulePath]).map((modulePath) => ({
       modulePath,
@@ -534,6 +517,8 @@ async function confirmPlan(input: {
         ...(input.plannedModulePaths ? { modulePaths: input.plannedModulePaths } : {}),
       },
     ],
+    evidenceRefs: projectContextEvidenceRefs(draft),
+    rationale: 'RG4 fixture confirms a complete Agent-authored Plan payload.',
   })) as ToolResponse;
   expect(confirmed.success).toBe(true);
   return {
@@ -541,6 +526,49 @@ async function confirmPlan(input: {
     planId: String(plan.planId),
     version: Number(plan.version),
   };
+}
+
+function dimensionIdsFromDraftFacts(draft: ToolResponse, count: number): string[] {
+  const planningAids = asRecord(asRecord(draft.data?.sourceReports).planningAids);
+  const activeDimensionIds = asArray(asRecord(planningAids.selection).activeDimensionIds)
+    .map(String)
+    .filter((id) => id.length > 0)
+    .slice(0, count);
+  if (activeDimensionIds.length === 0) {
+    throw new Error('Expected draft fact package to include active dimension ids.');
+  }
+  return activeDimensionIds;
+}
+
+function confirmedDimensions(
+  dimensionIds: readonly string[],
+  stage: 'coldStart' | 'deepMining'
+): Array<{
+  id: string;
+  priority: number;
+  rationale: string;
+  stage: 'coldStart' | 'deepMining';
+  targetRecipes: number;
+}> {
+  return dimensionIds.map((id, index) => ({
+    id,
+    priority: index + 1,
+    rationale: `Plan gate fixture dimension ${id}`,
+    stage,
+    targetRecipes: 1,
+  }));
+}
+
+function projectContextEvidenceRefs(
+  draft: ToolResponse
+): Array<{ kind: 'project-context'; ref: string; detail: string }> {
+  return [
+    {
+      kind: 'project-context',
+      ref: String(draft.data?.projectContextSignature),
+      detail: 'draft fact package signature',
+    },
+  ];
 }
 
 async function replaceFixtureProject(nextProjectRoot: string): Promise<void> {

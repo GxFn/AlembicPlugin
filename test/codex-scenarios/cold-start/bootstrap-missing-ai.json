@@ -53,7 +53,50 @@
         "name": "alembic_plan",
         "arguments": {
           "operation": "confirm",
-          "projectRoot": "$projectRoot"
+          "projectRoot": "$projectRoot",
+          "basePlanId": "$toolResult:3:data.plan.planId",
+          "baseVersion": "$toolResult:3:data.plan.version",
+          "projectContextSignature": "$toolResult:3:data.projectContextSignature",
+          "selectedDimensions": [
+            {
+              "id": "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0",
+              "rationale": "Codex session first-use Plan gate scenario",
+              "stage": "coldStart",
+              "targetRecipes": 1
+            }
+          ],
+          "scale": {
+            "totalRecipeBudget": 1,
+            "depthLevels": ["project"],
+            "perStage": {
+              "coldStart": 1,
+              "deepMining": 0,
+              "module": 0
+            }
+          },
+          "moduleBindings": [
+            {
+              "modulePath": "src",
+              "dimensions": [
+                "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0"
+              ],
+              "targetRecipes": 1
+            }
+          ],
+          "plannedNextActions": [
+            {
+              "tool": "alembic_bootstrap",
+              "reason": "Run confirmed Plan-gated host-agent bootstrap."
+            }
+          ],
+          "evidenceRefs": [
+            {
+              "kind": "project-context",
+              "ref": "$toolResult:3:data.projectContextSignature",
+              "detail": "draft fact package signature"
+            }
+          ],
+          "rationale": "Codex session first-use Plan gate scenario"
         },
         "result": {
           "success": true
@@ -102,8 +145,7 @@
         "operation": "draft",
         "projectRoot": "$projectRoot",
         "hints": {
-          "maxBudget": 3,
-          "maxRecommendedDimensions": 3
+          "maxBudget": 3
         }
       }
     },
@@ -117,26 +159,44 @@
         "projectContextSignature": "$toolResult:3:data.projectContextSignature",
         "selectedDimensions": [
           {
-            "id": "$toolResult:3:data.plan.dimensions.0.dimensionId",
-            "reason": "Codex session first-use Plan gate scenario",
+            "id": "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0",
+            "rationale": "Codex session first-use Plan gate scenario",
             "stage": "coldStart",
             "targetRecipes": 1
           }
         ],
         "scale": {
           "totalRecipeBudget": 1,
+          "depthLevels": ["project"],
           "perStage": {
             "coldStart": 1,
             "deepMining": 0,
             "module": 0
           }
         },
+        "moduleBindings": [
+          {
+            "modulePath": "src",
+            "dimensions": [
+              "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0"
+            ],
+            "targetRecipes": 1
+          }
+        ],
         "plannedNextActions": [
           {
             "tool": "alembic_bootstrap",
             "reason": "Run confirmed Plan-gated host-agent bootstrap."
           }
-        ]
+        ],
+        "evidenceRefs": [
+          {
+            "kind": "project-context",
+            "ref": "$toolResult:3:data.projectContextSignature",
+            "detail": "draft fact package signature"
+          }
+        ],
+        "rationale": "Codex session first-use Plan gate scenario"
       }
     },
     {

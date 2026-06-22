@@ -39,8 +39,8 @@ describe('alembic_plan tool', () => {
     fs.rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  test('draft persists a Core Plan from real ProjectContext and dynamic planning signals', async () => {
-    const draft = await draftPlan({ maxBudget: 6, maxRecommendedDimensions: 4 });
+  test('draft persists a Core Plan fact package from real ProjectContext and dynamic planning signals', async () => {
+    const draft = await draftPlan({ maxBudget: 6 });
 
     expect(draft.success).toBe(true);
     expect(draft.data?.projectContextSignature).toMatch(/^pcsig:/);
@@ -53,7 +53,9 @@ describe('alembic_plan tool', () => {
 
     const sourceReports = asRecord(draft.data?.sourceReports);
     const planningAids = asRecord(sourceReports.planningAids);
-    expect(asArray(planningAids.dimensionOrder).length).toBeGreaterThan(0);
+    expect(asArray(asRecord(planningAids.selection).activeDimensionIds).length).toBeGreaterThan(0);
+    expect(planningAids).not.toHaveProperty('dimensionOrder');
+    expect(planningAids).not.toHaveProperty('recommendedDimensions');
     expect(asRecord(draft.data?.projectContextCreationGuide)).toMatchObject({
       source: 'RG-5-project-context-anchored-creation',
       stage: 'plan-draft',
@@ -77,24 +79,21 @@ describe('alembic_plan tool', () => {
 
     const dynamicSignals = asRecord(sourceReports.dynamicSignals);
     const planSignalKinds = asArray(dynamicSignals.planSignals).map((item) => asRecord(item).kind);
-    expect(planSignalKinds).toContain('new-module');
+    expect(planSignalKinds).not.toContain('new-module');
 
     const plan = asRecord(draft.data?.plan);
     const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
-    expect(stored?.planningBrief).toMatchObject({
-      projectContext: expect.objectContaining({ primaryLanguage: 'typescript' }),
-    });
-    expect(JSON.stringify(stored?.intent)).not.toContain('codeRecipeMapping');
+    expect(stored?.planningBrief).toBeNull();
+    expect(stored?.intent.dimensions).toEqual([]);
   });
 
-  test('draft grounds focused Swift projects with repo-level ProjectContext fallback', async () => {
+  test('draft surfaces focused Swift ProjectContext facts without local source guesses', async () => {
     await replaceFixtureProject(createSwiftFixtureProject());
 
     const draft = await draftPlan({
       focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
       goal: 'RG-10 BiliDili planning truthfulness for Swift UI networking concurrency signals',
       maxBudget: 6,
-      maxRecommendedDimensions: 8,
     });
 
     expect(draft.success).toBe(true);
@@ -102,78 +101,43 @@ describe('alembic_plan tool', () => {
 
     const planningBrief = asRecord(draft.data?.planningBrief);
     const projectContext = asRecord(planningBrief.projectContext);
-    expect(projectContext).toMatchObject({
-      factSource: 'project-context-repo-fallback',
-      primaryLanguage: 'swift',
-    });
-    expect(asRecord(projectContext.signatureScope)).toMatchObject({
-      focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
-    });
+    expect(projectContext).toMatchObject({ factSource: 'project-context', primaryLanguage: 'swift' });
     expect(projectContext.fileCount as number).toBeGreaterThan(0);
     expect(projectContext.moduleCount as number).toBeGreaterThan(0);
     expect(asArray(projectContext.requestKinds)).toEqual(expect.arrayContaining(['repo']));
-    expect(asArray(projectContext.frameworks)).toEqual(
-      expect.arrayContaining(['swiftui', 'uikit', 'networking', 'async'])
-    );
     expect(
       asArray(projectContext.moduleSeeds).map((seed) => String(asRecord(seed).modulePath))
     ).toEqual(
-      expect.arrayContaining([
-        'Sources/Features/VideoFeed',
-        'Sources/Infrastructure',
-        'BiliDili/Modules',
-      ])
+      expect.arrayContaining(['Sources', 'BiliDili', 'Package.swift'])
     );
-    expect(asArray(projectContext.fallbackDiagnostics)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: 'project-context-repo-fallback',
-          fileCount: expect.any(Number),
-        }),
-      ])
-    );
+    expect(projectContext).not.toHaveProperty('fallbackDiagnostics');
+    expect(projectContext).not.toHaveProperty('signatureScope');
 
     const sourceReports = asRecord(draft.data?.sourceReports);
     const planningAids = asRecord(sourceReports.planningAids);
-    const recommendedDimensions = asArray(planningAids.recommendedDimensions).map((item) =>
-      String(asRecord(item).dimensionId)
+    const activeDimensionIds = asArray(asRecord(planningAids.selection).activeDimensionIds).map(
+      String
     );
-    expect(recommendedDimensions).toEqual(
-      expect.arrayContaining(['swift-objc-idiom', 'swiftui-patterns'])
-    );
-    expect(recommendedDimensions).toEqual(
-      expect.arrayContaining(['networking-api', 'concurrency-async'])
-    );
+    expect(activeDimensionIds.length).toBeGreaterThan(0);
+    expect(planningAids).not.toHaveProperty('recommendedDimensions');
 
     const plan = asRecord(draft.data?.plan);
     const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
-    expect(stored?.planningBrief).toMatchObject({
-      projectContext: expect.objectContaining({
-        factSource: 'project-context-repo-fallback',
-        primaryLanguage: 'swift',
-        signatureScope: expect.objectContaining({
-          focusModules: [
-            'Sources/Features/VideoFeed',
-            'Sources/Infrastructure',
-            'BiliDili/Modules',
-          ],
-        }),
-      }),
-    });
+    expect(stored?.planningBrief).toBeNull();
 
-    const selectedDimensions = selectedDimensionsFromDraft(draft, 3);
-    const selectedDimensionIds = selectedDimensions.map((dimension) => dimension.id);
+    const selectedDimensionIds = dimensionIdsFromDraftFacts(draft, 3);
     const confirmed = await callPlan({
       operation: 'confirm',
       basePlanId: String(plan.planId),
       baseVersion: Number(plan.version),
       projectContextSignature: String(draft.data?.projectContextSignature),
-      selectedDimensions,
+      selectedDimensions: confirmedDimensions(selectedDimensionIds, 'coldStart'),
       scale: {
         budgetLevel: 'focused',
         scale: 'small',
         totalRecipeBudget: 6,
         perStage: { coldStart: 3, deepMining: 2, module: 3 },
+        depthLevels: ['project', 'module'],
       },
       moduleBindings: moduleBindingsFromDraft(draft, selectedDimensionIds),
       plannedNextActions: [
@@ -190,8 +154,9 @@ describe('alembic_plan tool', () => {
           dimensionIds: selectedDimensionIds,
         },
       ],
+      evidenceRefs: projectContextEvidenceRefs(draft),
       rationale:
-        'RG-10 Test confirms only a small, evidence-grounded BiliDili subset; full Recipe quality is out of scope.',
+        'RG-10 Test confirms an evidence-grounded BiliDili Plan from ProjectContext facts.',
     });
     expect(confirmed.success).toBe(true);
     expect(asRecord(confirmed.data?.plan)).toMatchObject({ planStatus: 'confirmed' });
@@ -204,7 +169,6 @@ describe('alembic_plan tool', () => {
       focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
       goal: 'RG-10 stale signature protection for focused Swift ProjectContext scope',
       maxBudget: 6,
-      maxRecommendedDimensions: 6,
     });
     expect(draft.success).toBe(true);
 
@@ -223,19 +187,19 @@ describe('alembic_plan tool', () => {
     );
 
     const plan = asRecord(draft.data?.plan);
-    const selectedDimensions = selectedDimensionsFromDraft(draft, 2);
-    const selectedDimensionIds = selectedDimensions.map((dimension) => dimension.id);
+    const selectedDimensionIds = dimensionIdsFromDraftFacts(draft, 2);
     const stale = await callPlan({
       operation: 'confirm',
       basePlanId: String(plan.planId),
       baseVersion: Number(plan.version),
       projectContextSignature: String(draft.data?.projectContextSignature),
-      selectedDimensions,
+      selectedDimensions: confirmedDimensions(selectedDimensionIds, 'coldStart'),
       scale: {
         budgetLevel: 'focused',
         scale: 'small',
         totalRecipeBudget: 4,
         perStage: { coldStart: 2, deepMining: 1, module: 2 },
+        depthLevels: ['project', 'module'],
       },
       moduleBindings: moduleBindingsFromDraft(draft, selectedDimensionIds),
       plannedNextActions: [
@@ -246,6 +210,7 @@ describe('alembic_plan tool', () => {
           dimensionIds: selectedDimensionIds,
         },
       ],
+      evidenceRefs: projectContextEvidenceRefs(draft),
       rationale: 'The source changed after draft, so strict confirm must reject it.',
     });
 
@@ -283,43 +248,59 @@ describe('alembic_plan tool', () => {
       planId,
       projectRoot,
       projectContextSignature: signature,
-      intent: storedDraft.intent,
-      planningBrief: storedDraft.planningBrief,
       rationale: ['newer draft for stale-version test'],
     });
+    const selectedDimensionIds = dimensionIdsFromDraftFacts(draft, 1);
 
     const stale = await callPlan({
       operation: 'confirm',
       basePlanId: planId,
       baseVersion: version,
       projectContextSignature: signature,
-      selectedDimensions: [
-        { id: firstDimensionId(storedDraft.intent), reason: 'confirm baseline' },
+      selectedDimensions: confirmedDimensions(selectedDimensionIds, 'coldStart'),
+      scale: {
+        totalRecipeBudget: 3,
+        perStage: { coldStart: 2, deepMining: 1, module: 1 },
+        depthLevels: ['project'],
+      },
+      moduleBindings: [
+        {
+          modulePath: 'src',
+          dimensions: selectedDimensionIds,
+          targetRecipes: 2,
+        },
       ],
+      plannedNextActions: [{ tool: 'alembic_recipe_map', reason: 'inspect planned source refs' }],
+      evidenceRefs: projectContextEvidenceRefs(draft),
+      rationale: 'Agent confirms the tested Plan intent.',
     });
     expect(stale).toMatchObject({
       success: false,
       errorCode: 'PLAN_STALE_VERSION',
     });
 
+    const latest = repositories.planRepository.get(planId);
+    expect(latest?.version).toBe(version + 1);
     const confirmed = await callPlan({
       operation: 'confirm',
       basePlanId: planId,
-      baseVersion: version,
+      baseVersion: version + 1,
       projectContextSignature: signature,
-      allowStaleVersion: true,
-      selectedDimensions: [
-        { id: firstDimensionId(storedDraft.intent), reason: 'confirm baseline' },
-      ],
-      scale: { totalRecipeBudget: 3, perStage: { coldStart: 2, deepMining: 1, module: 1 } },
+      selectedDimensions: confirmedDimensions(selectedDimensionIds, 'coldStart'),
+      scale: {
+        totalRecipeBudget: 3,
+        perStage: { coldStart: 2, deepMining: 1, module: 1 },
+        depthLevels: ['project'],
+      },
       moduleBindings: [
         {
           modulePath: 'src',
-          dimensions: [firstDimensionId(storedDraft.intent)],
+          dimensions: selectedDimensionIds,
           targetRecipes: 2,
         },
       ],
       plannedNextActions: [{ tool: 'alembic_recipe_map', reason: 'inspect planned source refs' }],
+      evidenceRefs: projectContextEvidenceRefs(draft),
       rationale: 'Agent confirmed the tested Plan intent.',
     });
 
@@ -335,16 +316,23 @@ describe('alembic_plan tool', () => {
     if (!storedDraft) {
       throw new Error('Expected stored draft Plan in projection test.');
     }
-    const dimensionId = firstDimensionId(storedDraft.intent);
+    const dimensionId = dimensionIdsFromDraftFacts(draft, 1)[0];
     const signature = String(draft.data?.projectContextSignature);
     const confirmed = await callPlan({
       operation: 'confirm',
       basePlanId: String(plan.planId),
       baseVersion: Number(plan.version),
       projectContextSignature: signature,
-      selectedDimensions: [{ id: dimensionId, reason: 'projection fixture' }],
+      selectedDimensions: confirmedDimensions([dimensionId], 'coldStart'),
       moduleBindings: [{ modulePath: 'src', dimensions: [dimensionId], targetRecipes: 2 }],
-      scale: { totalRecipeBudget: 2, perStage: { coldStart: 1, deepMining: 1, module: 1 } },
+      scale: {
+        totalRecipeBudget: 2,
+        perStage: { coldStart: 1, deepMining: 1, module: 1 },
+        depthLevels: ['project'],
+      },
+      plannedNextActions: [{ tool: 'alembic_bootstrap', reason: 'Run projection fixture.' }],
+      evidenceRefs: projectContextEvidenceRefs(draft),
+      rationale: 'Projection fixture confirms a complete Plan payload.',
     });
     expect(confirmed.success).toBe(true);
 
@@ -604,38 +592,49 @@ function writeFile(root: string, relativePath: string, content: string) {
   fs.writeFileSync(target, content);
 }
 
-function firstDimensionId(intent: unknown): string {
-  const dimensions = asArray(asRecord(intent).dimensions);
-  const first = asRecord(dimensions[0]);
-  return String(first.dimensionId);
+function dimensionIdsFromDraftFacts(draft: PlanToolResponse, count: number): string[] {
+  const sourceReports = asRecord(draft.data?.sourceReports);
+  const planningAids = asRecord(sourceReports.planningAids);
+  const selection = asRecord(planningAids.selection);
+  const activeDimensionIds = asArray(selection.activeDimensionIds)
+    .map(String)
+    .filter((id) => id.length > 0)
+    .slice(0, count);
+  if (activeDimensionIds.length === 0) {
+    throw new Error('Expected draft fact package to include active dimension ids.');
+  }
+  return activeDimensionIds;
 }
 
-function selectedDimensionsFromDraft(
+function confirmedDimensions(
+  dimensionIds: readonly string[],
+  stage: 'coldStart' | 'deepMining'
+): Array<{
+  id: string;
+  priority: number;
+  rationale: string;
+  stage: 'coldStart' | 'deepMining';
+  targetRecipes: number;
+}> {
+  return dimensionIds.map((id, index) => ({
+    id,
+    priority: index + 1,
+    rationale: `Agent-authored Plan dimension ${id}`,
+    stage,
+    targetRecipes: 1,
+  }));
+}
+
+function projectContextEvidenceRefs(
   draft: PlanToolResponse,
-  count: number
-): Array<{ id: string; reason: string; targetRecipes: number }> {
-  const planningAids = asRecord(asRecord(draft.data?.sourceReports).planningAids);
-  const recommended = asArray(planningAids.recommendedDimensions)
-    .map((item) => asRecord(item))
-    .map((item) => ({
-      id: String(item.dimensionId ?? ''),
-      reason: asArray(item.reasons).map(String).join('; ') || 'RG-10 focused Swift confirmation',
-      targetRecipes: 1,
-    }))
-    .filter((item) => item.id.length > 0)
-    .slice(0, count);
-  if (recommended.length > 0) {
-    return recommended;
-  }
-  return asArray(asRecord(asRecord(draft.data?.plan).intent).dimensions)
-    .map((item) => asRecord(item))
-    .map((item) => ({
-      id: String(item.dimensionId ?? ''),
-      reason: 'RG-10 focused Swift confirmation',
-      targetRecipes: 1,
-    }))
-    .filter((item) => item.id.length > 0)
-    .slice(0, count);
+): Array<{ kind: 'project-context'; ref: string; detail: string }> {
+  return [
+    {
+      kind: 'project-context',
+      ref: String(draft.data?.projectContextSignature),
+      detail: 'draft fact package signature',
+    },
+  ];
 }
 
 function moduleBindingsFromDraft(

@@ -1,11 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import fs from 'node:fs';
-import path, { basename } from 'node:path';
+import { basename } from 'node:path';
 import {
   baseDimensions,
   buildProjectContextMissionBriefing,
   type DimensionDef,
-  resolveActiveDimensions,
+  resolvePlanDimensionDefinitions,
 } from '@alembic/core/host-agent-workflows';
 import {
   buildPlanDraftInformationPackage,
@@ -23,8 +22,6 @@ import {
 } from '@alembic/core/plans';
 import {
   buildProjectContextPresenterInput,
-  type FileFlowContext,
-  type ModuleContext,
   type ProjectContextEnvelope,
   type ProjectContextPresenterInput,
   type ProjectContextRef,
@@ -66,10 +63,10 @@ interface PlanModuleSeed {
 }
 
 interface PlanProjectContextAnalysis {
+  contextStatus: 'complete' | 'partial';
   dimensions: DimensionDef[];
   envelopes: ProjectContextEnvelope<ProjectContextResult>[];
-  factSource: 'project-context' | 'project-context-repo-fallback';
-  fallbackDiagnostics: Record<string, unknown>[];
+  factSource: 'project-context';
   fileCount: number;
   frameworks: string[];
   moduleCount: number;
@@ -79,7 +76,7 @@ interface PlanProjectContextAnalysis {
   projectType: string;
   requestKinds: ProjectContextRequestKind[];
   secondaryLanguages: string[];
-  signatureScope: PlanProjectContextSignatureScope;
+  understandingGaps: Record<string, unknown>[];
 }
 
 interface ModuleSnapshot {
@@ -91,19 +88,6 @@ interface ModuleSnapshot {
 }
 
 type PlanArgs = PlanInput;
-type PlanFileSummary = FileFlowContext['file'];
-type PlanRelationSummary = FileFlowContext['imports'][number];
-type PlanProjectContextSignatureScope = {
-  focusModules?: string[];
-};
-type PlanProjectContextFallback = {
-  diagnostics: Record<string, unknown>[];
-  fileFlows: FileFlowContext[];
-  fileSummaries: PlanFileSummary[];
-  frameworks: string[];
-  moduleSeeds: PlanModuleSeed[];
-  modules: ModuleContext[];
-};
 type ArchitectureIntelligence = ReturnType<
   typeof ProjectContextCapabilities.analyzeArchitectureIntelligence
 >;
@@ -139,6 +123,10 @@ type ConfirmCurrentSignatureResult =
   | { ok: true; currentProjectContextSignature: string }
   | { ok: false; response: PlanToolResponse };
 
+type BuildConfirmIntentResult =
+  | { ok: true; intent: PlanIntent }
+  | { ok: false; response: PlanToolResponse };
+
 const COUNTABLE_RECIPE_LIFECYCLES = [
   'active',
   'staging',
@@ -148,47 +136,6 @@ const COUNTABLE_RECIPE_LIFECYCLES = [
 ] as const;
 
 const PLAN_TOOL_NAME = 'alembic_plan';
-const PLAN_FALLBACK_MAX_FILES = 96;
-const PLAN_FALLBACK_MAX_FILES_PER_MODULE = 32;
-const PLAN_FALLBACK_MAX_IMPORTS_PER_FILE = 16;
-const PLAN_FALLBACK_MAX_SCAN_DEPTH = 8;
-const PLAN_FALLBACK_SOURCE_EXTENSIONS = new Set([
-  '.c',
-  '.cc',
-  '.cpp',
-  '.cs',
-  '.cxx',
-  '.go',
-  '.h',
-  '.hpp',
-  '.java',
-  '.js',
-  '.jsx',
-  '.kt',
-  '.m',
-  '.mm',
-  '.mjs',
-  '.py',
-  '.rs',
-  '.swift',
-  '.ts',
-  '.tsx',
-]);
-const PLAN_FALLBACK_EXCLUDED_DIRECTORIES = new Set([
-  '.asd',
-  '.build',
-  '.git',
-  '.swiftpm',
-  'Alembic',
-  'Build',
-  'DerivedData',
-  'Pods',
-  'build',
-  'dist',
-  'node_modules',
-  'third_party',
-  'vendor',
-]);
 
 export async function routePlanTool(
   ctx: PlanToolContext,
@@ -235,7 +182,7 @@ async function confirmPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTo
       plan: base,
     });
   }
-  const versionResponse = validateConfirmPlanVersion(repositories, base, draft, args);
+  const versionResponse = validateConfirmPlanVersion(repositories, base, draft);
   if (versionResponse) {
     return versionResponse;
   }
@@ -244,15 +191,24 @@ async function confirmPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTo
     return signatureEchoResponse;
   }
   const projectRoot = args.projectRoot ?? draft.projectRoot;
-  const signatureResult = await validateConfirmCurrentSignature(
-    projectRoot,
-    draft,
-    args.allowSignatureMismatch
-  );
+  const signatureResult = await validateConfirmCurrentSignature(projectRoot, draft);
   if (!signatureResult.ok) {
     return signatureResult.response;
   }
-  const confirmed = saveConfirmedPlan(ctx, args, base, draft);
+  const payloadResult = buildConfirmedPlanIntent(args, draft);
+  if (!payloadResult.ok) {
+    return payloadResult.response;
+  }
+  let confirmed: PlanRecord;
+  try {
+    confirmed = saveConfirmedPlan(ctx, args, base, payloadResult.intent);
+  } catch (err: unknown) {
+    return blocked(
+      'PLAN_CONFIRM_PAYLOAD_INVALID',
+      err instanceof Error ? err.message : 'Core rejected the complete Plan confirmation payload.',
+      { operation: 'confirm', plan: projectPlanRecord(draft) }
+    );
+  }
   const view = await createPlanLedgerService(ctx).getPlanView(
     confirmed.planId,
     confirmed.version,
@@ -291,29 +247,28 @@ async function buildPlanDraftContext(
     dimensions: analysis.dimensions,
     moduleSnapshots: collectModuleSnapshots(analysis),
   });
-  const planningAids = buildDraftPlanningAids(
-    args,
-    analysis,
-    architectureIntelligence,
-    dynamicSignals
-  );
+  const planningAids = buildDraftPlanningAids(analysis, architectureIntelligence, dynamicSignals);
+  const effectiveAnalysis = {
+    ...analysis,
+    dimensions: resolvePlanningAidActiveDimensions(planningAids),
+  };
   const projectContextSignature = computePlanProjectContextSignature({
-    analysis,
+    analysis: effectiveAnalysis,
     architectureStyle: architectureIntelligence.styles.primary,
     projectRoot,
   });
   const draftPackage = buildDraftInformationPackage(ctx, args, {
-    analysis,
+    analysis: effectiveAnalysis,
     architectureIntelligence,
     dynamicSignals,
     planningAids,
     projectContextSignature,
   });
   return {
-    analysis,
+    analysis: effectiveAnalysis,
     dynamicSignals,
     planningAids,
-    planningBrief: buildDraftPlanningBrief(projectRoot, analysis, draftPackage, {
+    planningBrief: buildDraftPlanningBrief(projectRoot, effectiveAnalysis, draftPackage, {
       dynamicSignals,
       planningAids,
     }),
@@ -335,7 +290,6 @@ function analyzeDraftArchitecture(
 }
 
 function buildDraftPlanningAids(
-  args: PlanArgs,
   analysis: PlanProjectContextAnalysis,
   architectureIntelligence: ArchitectureIntelligence,
   dynamicSignals: DynamicPlanningSignals
@@ -344,9 +298,14 @@ function buildDraftPlanningAids(
     architectureIntelligence,
     detectedFrameworks: analysis.frameworks,
     dynamicSignals,
-    maxRecommendedDimensions: args.hints?.maxRecommendedDimensions,
     primaryLanguage: analysis.primaryLanguage,
   });
+}
+
+function resolvePlanningAidActiveDimensions(planningAids: DimensionPlanningAids): DimensionDef[] {
+  const ids = planningAids.selection.activeDimensions.map((dimension) => dimension.id);
+  const resolution = resolvePlanDimensionDefinitions(baseDimensions, ids);
+  return resolution.dimensions;
 }
 
 function buildDraftInformationPackage(
@@ -456,12 +415,12 @@ function savePlanDraft(
 ): PlanRecord {
   return createPlanLedgerService(ctx).saveDraft({
     createdBy: resolvePlanActor(ctx),
-    intent: draftContext.draftPackage.intent,
     lastUpdatedFromCommit: readGitCommit(draftContext.projectRoot),
-    planningBrief: draftContext.planningBrief,
     projectContextSignature: draftContext.projectContextSignature,
     projectRoot: draftContext.projectRoot,
-    rationale: args.hints?.goal ? [`draft goal: ${args.hints.goal}`] : ['deterministic plan draft'],
+    rationale: args.hints?.goal
+      ? [`draft goal: ${args.hints.goal}`]
+      : ['Plan draft fact package collected.'],
   });
 }
 
@@ -477,6 +436,9 @@ function planDraftResponse(plan: PlanRecord, draftContext: PlanDraftContext): Pl
       projectContextCreationGuide: buildPlanProjectContextCreationGuide(plan, 'plan-draft'),
       plan: projectPlanRecord(plan),
       planningBrief: draftContext.planningBrief,
+      ...(draftContext.analysis.contextStatus === 'partial'
+        ? { planDiagnostics: buildPartialProjectContextDiagnostics(draftContext.analysis) }
+        : {}),
       sourceReports: draftContext.planningBrief.sourceReports,
       nextActions: [buildDraftConfirmNextAction(plan, draftContext.projectContextSignature)],
     },
@@ -492,7 +454,15 @@ function buildDraftConfirmNextAction(
     operation: 'confirm',
     required: true,
     reason:
-      'Confirm selected dimensions, scale, module bindings, and planned next actions before generation.',
+      'Agent must author a complete Plan confirmation payload from the returned facts before generation.',
+    requiredPayloadFields: [
+      'selectedDimensions',
+      'scale',
+      'moduleBindings',
+      'plannedNextActions',
+      'evidenceRefs',
+      'rationale',
+    ],
     args: {
       operation: 'confirm',
       basePlanId: plan.planId,
@@ -544,11 +514,10 @@ function resolveConfirmPlanBase(args: PlanArgs): ConfirmBaseResult {
 function validateConfirmPlanVersion(
   repositories: PlanRepositories,
   base: ConfirmPlanBase,
-  draft: PlanRecord,
-  args: PlanArgs
+  draft: PlanRecord
 ): PlanToolResponse | null {
   const latest = repositories.planRepository.get(base.planId);
-  if (!latest || latest.version === base.version || args.allowStaleVersion) {
+  if (!latest || latest.version === base.version) {
     return null;
   }
   return blocked(
@@ -589,27 +558,13 @@ function validateDraftSignatureEcho(
   );
 }
 
-function buildPlanProjectContextHintsFromRecord(plan: PlanRecord): PlanArgs['hints'] | undefined {
-  const planningBrief = readRecord(plan.planningBrief);
-  const projectContext = readRecord(planningBrief.projectContext);
-  const signatureScope = readPlanProjectContextSignatureScope(projectContext.signatureScope);
-  if (!signatureScope.focusModules?.length) {
-    return undefined;
-  }
-  return { focusModules: signatureScope.focusModules };
-}
-
-function readPlanProjectContextSignatureScope(value: unknown): PlanProjectContextSignatureScope {
-  const focusModules = dedupeOrderedStrings(
-    arrayStrings(readRecord(value).focusModules).map(normalizePath).filter(isPresent)
-  ).slice(0, 40);
-  return focusModules.length > 0 ? { focusModules } : {};
+function buildPlanProjectContextHintsFromRecord(_plan: PlanRecord): PlanArgs['hints'] | undefined {
+  return undefined;
 }
 
 async function validateConfirmCurrentSignature(
   projectRoot: string,
-  draft: PlanRecord,
-  allowSignatureMismatch: boolean
+  draft: PlanRecord
 ): Promise<ConfirmCurrentSignatureResult> {
   const currentProjectContextSignature = await computeCurrentSignature(
     projectRoot,
@@ -619,7 +574,7 @@ async function validateConfirmCurrentSignature(
     draft.projectContextSignature,
     currentProjectContextSignature
   );
-  if (signature.matches || allowSignatureMismatch) {
+  if (signature.matches) {
     return { ok: true, currentProjectContextSignature };
   }
   return {
@@ -636,7 +591,7 @@ async function validateConfirmCurrentSignature(
             code: 'project-context-signature-mismatch',
             severity: 'error',
             message:
-              'Project files/modules changed after draft; refresh the draft or confirm with controller-reviewed override.',
+              'Project files/modules changed after draft; refresh the draft before confirming.',
           },
         ],
         signature,
@@ -649,15 +604,21 @@ function saveConfirmedPlan(
   ctx: PlanToolContext,
   args: PlanArgs,
   base: ConfirmPlanBase,
-  draft: PlanRecord
+  intent: PlanIntent
 ): PlanRecord {
-  return createPlanLedgerService(ctx).confirmPlan({
-    confirmedBy: resolvePlanActor(ctx),
-    intentPatch: buildConfirmIntentPatch(draft.intent, args),
-    planId: base.planId,
-    rationale: normalizeRationale(args.rationale, draft.rationale),
-    version: base.version,
-  });
+  try {
+    return createPlanLedgerService(ctx).confirmPlan({
+      confirmedBy: resolvePlanActor(ctx),
+      intent,
+      planId: base.planId,
+      rationale: normalizeRequiredRationale(args.rationale),
+      version: base.version,
+    });
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : 'Core rejected the complete Plan confirmation payload.';
+    throw new Error(message);
+  }
 }
 
 function confirmedPlanResponse(
@@ -772,7 +733,7 @@ async function getPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolRe
 
 async function collectPlanProjectContext(
   projectRoot: string,
-  hints: PlanArgs['hints']
+  _hints: PlanArgs['hints']
 ): Promise<PlanProjectContextAnalysis> {
   const envelopes: ProjectContextEnvelope<ProjectContextResult>[] = [];
   const push = async (
@@ -796,16 +757,14 @@ async function collectPlanProjectContext(
   await push('space', { includeProjectTree: true });
   const repoEnvelope = await push('repo', { includeMapSummary: true });
   const repo = isRepoContext(repoEnvelope.data) ? repoEnvelope.data : undefined;
-  const signatureScope = buildPlanProjectContextSignatureScope(projectRoot, hints);
-  const scopedHints = buildPlanProjectContextScopedHints(hints, signatureScope);
-  const moduleSeeds = selectPlanModuleSeeds(repo, signatureScope.focusModules);
+  const moduleSeeds = selectPlanModuleSeeds(repo);
   if (moduleSeeds.length > 0) {
     await push('map', {
       moduleSeeds,
       repoName: readRecord(repo)?.repo ? readString(readRecord(repo)?.repo, 'name') : undefined,
     });
   }
-  for (const seed of moduleSeeds.slice(0, 4)) {
+  for (const seed of moduleSeeds) {
     await push('module', {
       ...seed,
       includeDependencies: true,
@@ -818,512 +777,40 @@ async function collectPlanProjectContext(
   }
 
   const presenterInput = buildProjectContextPresenterInput(envelopes);
-  const fallback = await buildPlanProjectContextFallback({
-    hints: scopedHints,
+  const frameworks = uniqueStrings(collectFrameworkHints(presenterInput));
+  const primaryLanguage = inferPrimaryLanguage(presenterInput);
+  const secondaryLanguages = inferSecondaryLanguages(presenterInput, primaryLanguage);
+  const repoFileCount = countRepoLanguageFiles(repo);
+  const moduleCount =
+    presenterInput.modules.length || presenterInput.map?.modules.length || moduleSeeds.length;
+  const understandingGaps = buildProjectContextUnderstandingGaps({
+    moduleCount,
     moduleSeeds,
     presenterInput,
-    projectRoot,
-    repo,
+    repoFileCount,
   });
-  const effectivePresenterInput = fallback
-    ? mergePlanPresenterInput(presenterInput, fallback)
-    : presenterInput;
-  const effectiveModuleSeeds = fallback
-    ? mergePlanModuleSeeds([...moduleSeeds, ...fallback.moduleSeeds])
-    : moduleSeeds;
-  const frameworks = uniqueStrings([
-    ...collectFrameworkHints(effectivePresenterInput),
-    ...(fallback?.frameworks ?? []),
-  ]);
-  const primaryLanguage = inferPrimaryLanguage(effectivePresenterInput);
-  const secondaryLanguages = inferSecondaryLanguages(effectivePresenterInput, primaryLanguage);
-  const repoFileCount = countRepoLanguageFiles(repo);
   return {
-    dimensions: resolveActiveDimensions(baseDimensions, primaryLanguage, frameworks),
+    contextStatus: understandingGaps.length > 0 ? 'partial' : 'complete',
+    dimensions: [...baseDimensions],
     envelopes,
-    factSource: fallback ? 'project-context-repo-fallback' : 'project-context',
-    fallbackDiagnostics: fallback?.diagnostics ?? [],
-    fileCount: Math.max(effectivePresenterInput.files.length, repoFileCount),
+    factSource: 'project-context',
+    fileCount: Math.max(presenterInput.files.length, repoFileCount),
     frameworks,
-    moduleCount:
-      effectivePresenterInput.modules.length ||
-      effectivePresenterInput.map?.modules.length ||
-      effectiveModuleSeeds.length,
-    moduleSeeds: effectiveModuleSeeds,
-    presenterInput: effectivePresenterInput,
+    moduleCount,
+    moduleSeeds,
+    presenterInput,
     primaryLanguage,
-    projectType: inferProjectType(effectivePresenterInput),
+    projectType: inferProjectType(presenterInput),
     requestKinds: [...new Set(envelopes.map((envelope) => envelope.queryLevel))],
     secondaryLanguages,
-    signatureScope,
+    understandingGaps,
   };
-}
-
-async function buildPlanProjectContextFallback(input: {
-  hints: PlanArgs['hints'];
-  moduleSeeds: readonly PlanModuleSeed[];
-  presenterInput: ProjectContextPresenterInput;
-  projectRoot: string;
-  repo: RepoContext | undefined;
-}): Promise<PlanProjectContextFallback | null> {
-  if (!shouldBuildPlanProjectContextFallback(input)) {
-    return null;
-  }
-
-  const roots = selectFallbackRoots(input.projectRoot, input.repo, input.hints, input.moduleSeeds);
-  const files = collectFallbackFiles(input.projectRoot, roots).slice(0, PLAN_FALLBACK_MAX_FILES);
-  if (files.length === 0) {
-    return null;
-  }
-
-  const fileDetails = files.map((filePath) => readFallbackFile(input.projectRoot, filePath));
-  const fileSummaries = fileDetails.map((detail) => detail.summary);
-  const fileFlows = fileDetails.map((detail) =>
-    buildFallbackFileFlow(input.projectRoot, detail.summary, detail.content)
-  );
-  const moduleSeeds = buildFallbackModuleSeeds(input.projectRoot, roots, fileSummaries);
-  const modules = buildFallbackModules(input.projectRoot, moduleSeeds, fileSummaries);
-  const frameworks = uniqueStrings([
-    ...collectFallbackFrameworkHints(fileDetails),
-    ...collectFallbackFrameworkHintsFromRepo(input.repo),
-  ]);
-
-  return {
-    diagnostics: [
-      {
-        code: 'project-context-repo-fallback',
-        severity: 'info',
-        message:
-          'Core ProjectContext repo facts showed source files while presenter module/file facts were empty or sparse; Plan used bounded local source facts for draft grounding.',
-        fileCount: fileSummaries.length,
-        moduleCount: moduleSeeds.length,
-        roots,
-      },
-    ],
-    fileFlows,
-    fileSummaries,
-    frameworks,
-    moduleSeeds,
-    modules,
-  };
-}
-
-function buildPlanProjectContextSignatureScope(
-  projectRoot: string,
-  hints: PlanArgs['hints']
-): PlanProjectContextSignatureScope {
-  const focusModules = dedupeOrderedStrings(
-    (hints?.focusModules ?? [])
-      .map(normalizePath)
-      .filter(isPresent)
-      .filter((candidate) => pathExistsInsideProject(projectRoot, candidate))
-  ).slice(0, 40);
-  return focusModules.length > 0 ? { focusModules } : {};
-}
-
-function buildPlanProjectContextScopedHints(
-  hints: PlanArgs['hints'],
-  signatureScope: PlanProjectContextSignatureScope
-): PlanArgs['hints'] {
-  if (!signatureScope.focusModules?.length) {
-    return hints;
-  }
-  return {
-    ...(hints ?? {}),
-    focusModules: signatureScope.focusModules,
-  };
-}
-
-function shouldBuildPlanProjectContextFallback(input: {
-  hints: PlanArgs['hints'];
-  moduleSeeds: readonly PlanModuleSeed[];
-  presenterInput: ProjectContextPresenterInput;
-  repo: RepoContext | undefined;
-}): boolean {
-  const repoFileCount = countRepoLanguageFiles(input.repo);
-  if (repoFileCount <= 0) {
-    return false;
-  }
-  const presenterModuleCount =
-    input.presenterInput.modules.length || input.presenterInput.map?.modules.length || 0;
-  return (
-    input.presenterInput.files.length === 0 ||
-    presenterModuleCount === 0 ||
-    ((input.hints?.focusModules?.length ?? 0) > 0 && input.moduleSeeds.length === 0)
-  );
-}
-
-function mergePlanPresenterInput(
-  presenterInput: ProjectContextPresenterInput,
-  fallback: PlanProjectContextFallback
-): ProjectContextPresenterInput {
-  return {
-    ...presenterInput,
-    fileFlows: dedupeBy(
-      [...presenterInput.fileFlows, ...fallback.fileFlows],
-      (flow) => flow.file.filePath
-    ),
-    files: dedupeFileSummaries([...presenterInput.files, ...fallback.fileSummaries]),
-    modules: dedupeBy(
-      [...presenterInput.modules, ...fallback.modules],
-      (module) => module.module.id
-    ),
-    refs: dedupeBy([...presenterInput.refs, ...collectFallbackRefs(fallback)], (ref) => ref.id),
-  };
-}
-
-function collectFallbackRefs(fallback: PlanProjectContextFallback): ProjectContextRef[] {
-  return [
-    ...fallback.fileSummaries.map((file) => file.ref).filter(isPresent),
-    ...fallback.fileFlows.flatMap((flow) => [
-      ...flow.imports.map((relation) => relation.ref).filter(isPresent),
-      ...flow.nextRefs,
-    ]),
-    ...fallback.modules.flatMap((module) => [
-      ...(module.module.ref ? [module.module.ref] : []),
-      ...module.nextRefs,
-      ...module.ownedFiles.map((file) => file.ref).filter(isPresent),
-    ]),
-  ];
-}
-
-function selectFallbackRoots(
-  projectRoot: string,
-  repo: RepoContext | undefined,
-  hints: PlanArgs['hints'],
-  moduleSeeds: readonly PlanModuleSeed[]
-): string[] {
-  const requestedFocus = (hints?.focusModules ?? [])
-    .map(normalizePath)
-    .filter(isPresent)
-    .filter((candidate) => pathExistsInsideProject(projectRoot, candidate));
-  const seedRoots = moduleSeeds
-    .map((seed) => seed.modulePath)
-    .map(normalizePath)
-    .filter(isPresent)
-    .filter((candidate) => pathExistsInsideProject(projectRoot, candidate));
-  const repoRoots = [
-    ...arrayRecords(readRecord(repo).sourceRoots)
-      .filter((root) => readBoolean(root, 'exists') !== false)
-      .map((root) => readString(root, 'path')),
-    ...arrayRecords(readRecord(repo).topAreas)
-      .filter((area) => readBoolean(area, 'exists') !== false)
-      .filter((area) => {
-        const role = readString(area, 'role') ?? '';
-        return role === 'source-root' || role === 'top-directory' || role === 'source-area';
-      })
-      .map((area) => readString(area, 'path')),
-  ]
-    .map(normalizePath)
-    .filter(isPresent)
-    .filter((candidate) => pathExistsInsideProject(projectRoot, candidate));
-
-  return dedupeOrderedStrings([...requestedFocus, ...seedRoots, ...repoRoots, '.']).filter(
-    (candidate) => !isExcludedFallbackPath(candidate)
-  );
-}
-
-function collectFallbackFiles(projectRoot: string, roots: readonly string[]): string[] {
-  const files = new Set<string>();
-  for (const root of roots) {
-    for (const filePath of collectFallbackFilesFromRoot(projectRoot, root)) {
-      files.add(filePath);
-      if (files.size >= PLAN_FALLBACK_MAX_FILES) {
-        break;
-      }
-    }
-    if (files.size >= PLAN_FALLBACK_MAX_FILES) {
-      break;
-    }
-  }
-  return [...files].sort(compareFallbackFilePaths);
-}
-
-function collectFallbackFilesFromRoot(projectRoot: string, root: string): string[] {
-  const absoluteRoot = path.resolve(projectRoot, root);
-  if (!isInsideProject(projectRoot, absoluteRoot) || !fs.existsSync(absoluteRoot)) {
-    return [];
-  }
-  const stat = fs.lstatSync(absoluteRoot);
-  if (stat.isFile()) {
-    const filePath = relativeProjectPath(projectRoot, absoluteRoot);
-    return filePath && isFallbackSourceFile(filePath) ? [filePath] : [];
-  }
-  if (!stat.isDirectory()) {
-    return [];
-  }
-
-  const files: string[] = [];
-  const visit = (directory: string, depth: number) => {
-    if (depth > PLAN_FALLBACK_MAX_SCAN_DEPTH || files.length >= PLAN_FALLBACK_MAX_FILES) {
-      return;
-    }
-    const relativeDirectory = relativeProjectPath(projectRoot, directory);
-    if (relativeDirectory && isExcludedFallbackPath(relativeDirectory)) {
-      return;
-    }
-    const entries = fs
-      .readdirSync(directory, { withFileTypes: true })
-      .sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
-      if (files.length >= PLAN_FALLBACK_MAX_FILES) {
-        return;
-      }
-      const absoluteEntry = path.join(directory, entry.name);
-      const relativeEntry = relativeProjectPath(projectRoot, absoluteEntry);
-      if (!relativeEntry || isExcludedFallbackPath(relativeEntry)) {
-        continue;
-      }
-      if (entry.isDirectory()) {
-        visit(absoluteEntry, depth + 1);
-      } else if (entry.isFile() && isFallbackSourceFile(relativeEntry)) {
-        files.push(relativeEntry);
-      }
-    }
-  };
-  visit(absoluteRoot, 0);
-  return files.sort(compareFallbackFilePaths);
-}
-
-function readFallbackFile(
-  projectRoot: string,
-  filePath: string
-): { content: string; summary: PlanFileSummary } {
-  const absolutePath = path.resolve(projectRoot, filePath);
-  const stat = fs.statSync(absolutePath);
-  const content = fs.readFileSync(absolutePath, 'utf8');
-  const lineCount = content.length > 0 ? content.split(/\r?\n/).length : 0;
-  const ref = fallbackRef(projectRoot, 'file', filePath, {
-    label: filePath,
-    level: 'source-file',
-  });
-  return {
-    content,
-    summary: {
-      filePath,
-      language: languageFromFilePath(filePath),
-      lineCount,
-      mtimeMs: stat.mtimeMs,
-      ref,
-    },
-  };
-}
-
-function buildFallbackFileFlow(
-  projectRoot: string,
-  file: PlanFileSummary,
-  content: string
-): FileFlowContext {
-  const imports = dedupeBy(
-    [
-      ...extractImportRelations(projectRoot, file, content),
-      ...extractSignalRelations(projectRoot, file, content),
-    ],
-    (relation) =>
-      `${relation.kind}:${relation.label}:${relation.filePath}:${relation.range?.startLine ?? 0}`
-  );
-  return {
-    file,
-    imports,
-    exports: [],
-    callers: [],
-    callees: [],
-    inflow: [],
-    outflow: imports,
-    nextRefs: imports.map((relation) => relation.ref).filter(isPresent),
-  };
-}
-
-function extractImportRelations(
-  projectRoot: string,
-  file: PlanFileSummary,
-  content: string
-): PlanRelationSummary[] {
-  const relations: PlanRelationSummary[] = [];
-  const lines = content.split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    if (relations.length >= PLAN_FALLBACK_MAX_IMPORTS_PER_FILE) {
-      break;
-    }
-    const line = lines[index] ?? '';
-    const importName =
-      matchFirst(line, /^\s*import\s+([A-Za-z_][\w.]*)/) ??
-      matchFirst(line, /^\s*import\s+[^'"]*['"]([^'"]+)['"]/) ??
-      matchFirst(line, /^\s*#import\s+[<"]([^>"]+)/);
-    if (!importName) {
-      continue;
-    }
-    const lineNumber = index + 1;
-    const ref = fallbackRef(projectRoot, 'relation-site', file.filePath, {
-      label: `import ${importName}`,
-      level: 'file-flow',
-      range: { startLine: lineNumber, endLine: lineNumber },
-    });
-    relations.push({
-      direction: 'outflow',
-      filePath: file.filePath,
-      from: { label: file.filePath, filePath: file.filePath, ref: file.ref },
-      kind: 'imports',
-      label: importName,
-      range: { startLine: lineNumber, endLine: lineNumber },
-      ref,
-      sourceRef: file.ref,
-      to: { label: importName },
-    });
-  }
-  return relations;
-}
-
-function extractSignalRelations(
-  projectRoot: string,
-  file: PlanFileSummary,
-  content: string
-): PlanRelationSummary[] {
-  const signals: string[] = [];
-  const text = `${file.filePath}\n${content}`;
-  if (/\bURLSession\b|\bWebSocket\b|\bHTTP\b|network|api|client/i.test(text)) {
-    signals.push('URLSession networking api');
-  }
-  if (/\basync\b|\bawait\b|\bTask\b|\bactor\b|\bDispatchQueue\b/i.test(text)) {
-    signals.push('async await Task actor concurrency');
-  }
-  if (/\bSwiftUI\b/.test(text)) {
-    signals.push('SwiftUI ui');
-  }
-  if (/\bUIKit\b/.test(text)) {
-    signals.push('UIKit ui');
-  }
-  return uniqueStrings(signals).map((label, index) => {
-    const ref = fallbackRef(projectRoot, 'relation-site', file.filePath, {
-      label,
-      level: 'file-flow',
-      range: { startLine: index + 1, endLine: index + 1 },
-    });
-    return {
-      direction: 'outflow',
-      filePath: file.filePath,
-      from: { label: file.filePath, filePath: file.filePath, ref: file.ref },
-      kind: 'uses',
-      label,
-      range: { startLine: index + 1, endLine: index + 1 },
-      ref,
-      sourceRef: file.ref,
-      to: { label },
-    };
-  });
-}
-
-function buildFallbackModuleSeeds(
-  projectRoot: string,
-  roots: readonly string[],
-  files: readonly PlanFileSummary[]
-): PlanModuleSeed[] {
-  const seeds = roots
-    .filter((root) => root !== '.')
-    .map((root) => {
-      const ownedFiles = files
-        .map((file) => file.filePath)
-        .filter((filePath) => isPathWithinModule(filePath, root))
-        .slice(0, PLAN_FALLBACK_MAX_FILES_PER_MODULE);
-      if (ownedFiles.length === 0) {
-        return null;
-      }
-      return {
-        moduleName: moduleNameFromPath(root),
-        modulePath: normalizePath(root),
-        ownedFiles,
-        ref: fallbackRef(projectRoot, 'module', root, {
-          label: moduleNameFromPath(root),
-          level: 'module',
-        }),
-        role: inferModuleRoleFromPath(root),
-      } satisfies PlanModuleSeed;
-    })
-    .filter(isPresent);
-  return mergePlanModuleSeeds(seeds).slice(0, 8);
-}
-
-function buildFallbackModules(
-  projectRoot: string,
-  seeds: readonly PlanModuleSeed[],
-  files: readonly PlanFileSummary[]
-): ModuleContext[] {
-  return seeds.map((seed) => {
-    const ownedFiles = files.filter((file) =>
-      seed.modulePath ? isPathWithinModule(file.filePath, seed.modulePath) : false
-    );
-    const moduleRef =
-      seed.ref ??
-      fallbackRef(projectRoot, 'module', seed.modulePath ?? seed.moduleName, {
-        label: seed.moduleName,
-        level: 'module',
-      });
-    return {
-      module: {
-        id: seed.modulePath ?? seed.moduleName,
-        name: seed.moduleName,
-        ownedFileCount: ownedFiles.length,
-        ref: moduleRef,
-        role: seed.role,
-        roleConfidence: 0.58,
-      },
-      ownedFiles,
-      publicSurfaces: [],
-      inflow: [],
-      outflow: [],
-      nextRefs: [moduleRef, ...ownedFiles.map((file) => file.ref).filter(isPresent)],
-    };
-  });
 }
 
 function mergePlanModuleSeeds(seeds: readonly PlanModuleSeed[]): PlanModuleSeed[] {
   return dedupeBy(
     seeds.map((seed) => ({ ...seed, modulePath: normalizePath(seed.modulePath) })),
     (seed) => `${seed.modulePath ?? seed.ownedFiles?.join(',')}:${seed.moduleName}`
-  );
-}
-
-function dedupeFileSummaries(files: readonly PlanFileSummary[]): PlanFileSummary[] {
-  return dedupeBy(files, (file) => file.filePath).sort((left, right) =>
-    left.filePath.localeCompare(right.filePath)
-  );
-}
-
-function collectFallbackFrameworkHints(
-  details: readonly { content: string; summary: PlanFileSummary }[]
-): string[] {
-  const hints: string[] = [];
-  for (const detail of details) {
-    const text = `${detail.summary.filePath}\n${detail.content}`;
-    if (/\bSwiftUI\b/.test(text)) {
-      hints.push('swiftui', 'ui');
-    }
-    if (/\bUIKit\b/.test(text)) {
-      hints.push('uikit', 'ui');
-    }
-    if (/\bFoundation\b/.test(text)) {
-      hints.push('foundation');
-    }
-    if (/\bCombine\b/.test(text)) {
-      hints.push('combine', 'concurrency');
-    }
-    if (/\bURLSession\b|\bWebSocket\b|\bHTTP\b|network|api|client/i.test(text)) {
-      hints.push('networking', 'api');
-    }
-    if (/\basync\b|\bawait\b|\bTask\b|\bactor\b|\bDispatchQueue\b/i.test(text)) {
-      hints.push('async', 'concurrency');
-    }
-  }
-  return uniqueStrings(hints);
-}
-
-function collectFallbackFrameworkHintsFromRepo(repo: RepoContext | undefined): string[] {
-  return uniqueStrings(
-    [
-      ...arrayRecords(readRecord(repo).packageSystems).map((entry) => readString(entry, 'kind')),
-      ...arrayRecords(readRecord(repo).buildSystems).map((entry) => readString(entry, 'kind')),
-      ...arrayRecords(readRecord(repo).configFiles).map((entry) => readString(entry, 'kind')),
-    ].filter(isPresent)
   );
 }
 
@@ -1334,161 +821,44 @@ function countRepoLanguageFiles(repo: RepoContext | undefined): number {
   );
 }
 
-function fallbackRef(
-  projectRoot: string,
-  kind: ProjectContextRef['kind'],
-  filePath: string,
-  options: {
-    label?: string;
-    level?: string;
-    range?: ProjectContextRef['scope']['range'];
-  } = {}
-): ProjectContextRef {
-  return {
-    id: `plan-fallback:${kind}:${filePath}:${options.range?.startLine ?? 0}:${fallbackRefIdSegment(
-      options.label ?? filePath
-    )}`,
-    kind,
-    label: options.label ?? filePath,
-    level: options.level,
-    scope: {
-      filePath,
-      projectRoot,
-      ...(options.range ? { range: options.range } : {}),
-    },
-    metadata: {
-      source: 'alembic-plan-project-context-fallback',
-    },
-  };
-}
-
-function fallbackRefIdSegment(value: string): string {
-  return value.replace(/[^\w./:-]+/g, '-').replace(/^-|-$/g, '');
-}
-
-function languageFromFilePath(filePath: string): string {
-  const extension = path.extname(filePath).toLowerCase();
-  switch (extension) {
-    case '.swift':
-      return 'swift';
-    case '.m':
-    case '.mm':
-    case '.h':
-    case '.hpp':
-      return 'objectivec';
-    case '.ts':
-    case '.tsx':
-      return 'typescript';
-    case '.js':
-    case '.jsx':
-    case '.mjs':
-      return 'javascript';
-    case '.py':
-      return 'python';
-    case '.rs':
-      return 'rust';
-    case '.go':
-      return 'go';
-    case '.java':
-      return 'java';
-    case '.kt':
-      return 'kotlin';
-    case '.cs':
-      return 'csharp';
-    default:
-      return 'unknown';
+function buildProjectContextUnderstandingGaps(input: {
+  moduleCount: number;
+  moduleSeeds: readonly PlanModuleSeed[];
+  presenterInput: ProjectContextPresenterInput;
+  repoFileCount: number;
+}): Record<string, unknown>[] {
+  const gaps: Record<string, unknown>[] = [];
+  if (input.repoFileCount > 0 && input.presenterInput.files.length === 0) {
+    gaps.push({
+      code: 'project-context-files-omitted',
+      severity: 'warning',
+      message:
+        'ProjectContext repo facts reported language files, but no file summaries were present in the presenter payload.',
+      omittedFact: 'fileSummaries',
+      repoFileCount: input.repoFileCount,
+    });
   }
-}
-
-function inferModuleRoleFromPath(pathValue: string): string | undefined {
-  const normalized = pathValue.toLowerCase();
-  if (/network|api|client|websocket/.test(normalized)) {
-    return 'networking';
+  if (input.moduleSeeds.length > 0 && input.moduleCount === 0) {
+    gaps.push({
+      code: 'project-context-modules-partial',
+      severity: 'warning',
+      message:
+        'ProjectContext repo facts exposed module seeds, but map/module presenter details were not available.',
+      omittedFact: 'moduleDetails',
+      moduleSeedCount: input.moduleSeeds.length,
+    });
   }
-  if (/ui|view|screen|feature|module/.test(normalized)) {
-    return 'ui';
-  }
-  if (/core|foundation|infrastructure/.test(normalized)) {
-    return 'core';
-  }
-  if (/test|spec/.test(normalized)) {
-    return 'test';
-  }
-  return undefined;
+  return gaps;
 }
 
-function compareFallbackFilePaths(left: string, right: string): number {
-  return fallbackFilePriority(left) - fallbackFilePriority(right) || left.localeCompare(right);
-}
-
-function fallbackFilePriority(filePath: string): number {
-  const extension = path.extname(filePath).toLowerCase();
-  if (extension === '.swift') {
-    return 0;
-  }
-  if (['.ts', '.tsx', '.js', '.jsx', '.mjs'].includes(extension)) {
-    return 1;
-  }
-  if (['.m', '.mm', '.h', '.hpp'].includes(extension)) {
-    return 2;
-  }
-  return 3;
-}
-
-function isFallbackSourceFile(filePath: string): boolean {
-  return PLAN_FALLBACK_SOURCE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
-
-function pathExistsInsideProject(projectRoot: string, pathValue: string): boolean {
-  const absolutePath = path.resolve(projectRoot, pathValue);
-  return isInsideProject(projectRoot, absolutePath) && fs.existsSync(absolutePath);
-}
-
-function isInsideProject(projectRoot: string, absolutePath: string): boolean {
-  const relative = path.relative(projectRoot, absolutePath);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-function relativeProjectPath(projectRoot: string, absolutePath: string): string | undefined {
-  const relative = path.relative(projectRoot, absolutePath);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return undefined;
-  }
-  return normalizePath(relative);
-}
-
-function isExcludedFallbackPath(pathValue: string): boolean {
-  return pathValue
-    .split('/')
-    .filter(Boolean)
-    .some((part) => PLAN_FALLBACK_EXCLUDED_DIRECTORIES.has(part));
-}
-
-function isPathWithinModule(filePath: string, modulePath: string): boolean {
-  const normalizedFile = normalizePath(filePath);
-  const normalizedModule = normalizePath(modulePath);
-  return Boolean(
-    normalizedFile &&
-      normalizedModule &&
-      (normalizedFile === normalizedModule || normalizedFile.startsWith(`${normalizedModule}/`))
-  );
-}
-
-function pathMatchesFocus(pathValue: string, focus: ReadonlySet<string>): boolean {
-  const normalized = normalizePath(pathValue);
-  if (!normalized) {
-    return false;
-  }
-  return [...focus].some(
-    (focusPath) =>
-      normalized === focusPath ||
-      normalized.startsWith(`${focusPath}/`) ||
-      focusPath.startsWith(`${normalized}/`)
-  );
-}
-
-function matchFirst(value: string, pattern: RegExp): string | undefined {
-  return value.match(pattern)?.[1];
+function buildPartialProjectContextDiagnostics(
+  analysis: PlanProjectContextAnalysis
+): Record<string, unknown>[] {
+  return analysis.understandingGaps.map((gap) => ({
+    ...gap,
+    code: readString(gap, 'code') ?? 'project-context-partial',
+    severity: readString(gap, 'severity') ?? 'warning',
+  }));
 }
 
 async function buildDynamicSignals(
@@ -1539,6 +909,10 @@ async function buildDynamicSignals(
       },
     ];
   });
+  const previousModules = collectPreviousModuleSnapshotsFromSourceRefs(
+    sourceRefs,
+    input.moduleSnapshots
+  );
   return ProjectContextCapabilities.aggregateDynamicPlanningSignals({
     architectureIntelligence: input.architectureIntelligence,
     decaySignals: recipes
@@ -1558,12 +932,26 @@ async function buildDynamicSignals(
       dimensionIds: input.dimensions.map((dimension) => dimension.id),
       targetPerModuleDimension: 2,
     },
-    moduleDelta: {
-      previousModules: [],
-      currentModules: input.moduleSnapshots,
-    },
+    ...(previousModules.length > 0
+      ? {
+          moduleDelta: {
+            previousModules,
+            currentModules: input.moduleSnapshots,
+          },
+        }
+      : {}),
     proposals: safeActiveProposalSignals(ctx),
   });
+}
+
+function collectPreviousModuleSnapshotsFromSourceRefs(
+  sourceRefs: readonly Record<string, unknown>[],
+  currentModules: readonly ModuleSnapshot[]
+): ModuleSnapshot[] {
+  const modules = sourceRefs
+    .map((ref) => resolveModuleForPath(readString(ref, 'sourcePath') ?? '', currentModules))
+    .filter(isPresent);
+  return dedupeBy(modules, (module) => module.moduleId);
 }
 
 function createPlanLedgerService(ctx: PlanToolContext): PlanLedgerService {
@@ -1626,9 +1014,6 @@ function computePlanProjectContextSignature(input: {
       moduleCount: input.analysis.moduleCount,
       projectType: input.analysis.projectType,
       requestKinds: input.analysis.requestKinds,
-      ...(input.analysis.signatureScope.focusModules?.length
-        ? { signatureScope: input.analysis.signatureScope }
-        : {}),
     },
     modules: collectModuleSnapshots(input.analysis).map((module) => ({
       files: module.files,
@@ -1648,130 +1033,182 @@ function computePlanProjectContextSignature(input: {
   });
 }
 
-function buildConfirmIntentPatch(existing: PlanIntent, args: PlanArgs): Partial<PlanIntent> {
-  const selectedDimensions = normalizeSelectedDimensions(args.selectedDimensions, existing);
-  const dimensionIds = selectedDimensions.map((dimension) => dimension.dimensionId);
-  const scale = normalizePlanScale(existing.scale, args.scale, selectedDimensions.length);
-  const moduleBindings = normalizeModuleBindings(
-    existing.moduleBindings,
-    args.moduleBindings,
+function buildConfirmedPlanIntent(args: PlanArgs, draft: PlanRecord): BuildConfirmIntentResult {
+  const issues: string[] = [];
+  const dimensions = normalizeConfirmedDimensions(args.selectedDimensions, issues);
+  const dimensionIds = dimensions.map((dimension) => dimension.dimensionId);
+  const missingDimensionIds = resolvePlanDimensionDefinitions(
+    baseDimensions,
     dimensionIds
-  );
+  ).missingDimensionIds;
+  for (const dimensionId of missingDimensionIds) {
+    issues.push(`selectedDimensions references unknown dimension ${dimensionId}`);
+  }
+  const scale = normalizeRequiredPlanScale(args.scale, issues);
+  const moduleBindings = normalizeRequiredModuleBindings(args.moduleBindings, dimensionIds, issues);
+  const plannedNextActions = normalizeRequiredNextActions(args.plannedNextActions, issues);
+  const evidenceRefs = normalizeRequiredEvidenceRefs(args.evidenceRefs, issues);
+  const rationale = normalizeRequiredRationale(args.rationale);
+  if (rationale.length === 0) {
+    issues.push('rationale is required');
+  }
+  if (issues.length > 0) {
+    return {
+      ok: false,
+      response: blocked(
+        'PLAN_CONFIRM_PAYLOAD_REQUIRED',
+        'confirm requires a complete Agent-authored Plan payload.',
+        {
+          operation: 'confirm',
+          plan: projectPlanRecord(draft),
+          planDiagnostics: uniqueStrings(issues).map((issue) => ({
+            code: 'confirm-payload-required',
+            severity: 'error',
+            message: issue,
+          })),
+        }
+      ),
+    };
+  }
   return {
-    dimensions: selectedDimensions,
-    scale,
-    moduleBindings,
-    plannedNextActions: normalizeNextActions(existing.plannedNextActions, args.plannedNextActions),
-    stages: {
-      coldStart: {
-        dimensions: selectedDimensions
-          .filter((dimension) => dimension.stage === 'coldStart')
-          .map((dimension) => dimension.dimensionId),
-        breadthBudget: scale.perStage.coldStart,
+    ok: true,
+    intent: {
+      projectProfile: draft.intent.projectProfile,
+      dimensions,
+      scale,
+      moduleBindings,
+      stages: {
+        coldStart: {
+          dimensions: dimensions
+            .filter((dimension) => dimension.stage === 'coldStart')
+            .map((dimension) => dimension.dimensionId),
+          breadthBudget: scale.perStage.coldStart,
+        },
+        deepMining: {
+          dimensions: dimensions
+            .filter((dimension) => dimension.stage === 'deepMining')
+            .map((dimension) => dimension.dimensionId),
+          depthBudget: scale.perStage.deepMining,
+          focusModules: moduleBindings.map((binding) => binding.modulePath),
+        },
+        moduleMining: {
+          perModule: moduleBindings,
+        },
       },
-      deepMining: {
-        dimensions: selectedDimensions
-          .filter((dimension) => dimension.stage !== 'coldStart')
-          .map((dimension) => dimension.dimensionId),
-        depthBudget: scale.perStage.deepMining,
-        focusModules: moduleBindings.map((binding) => binding.modulePath),
-      },
-      moduleMining: {
-        perModule: moduleBindings,
-      },
+      plannedNextActions,
+      evidenceRefs,
+      draftSource: 'host-agent',
     },
   };
 }
 
-function normalizeSelectedDimensions(
+function normalizeConfirmedDimensions(
   selected: PlanArgs['selectedDimensions'],
-  existing: PlanIntent
+  issues: string[]
 ): PlanIntent['dimensions'] {
-  if (!selected || selected.length === 0) {
-    return existing.dimensions;
+  if (!selected || selected.filter((dimension) => dimension.decided !== false).length === 0) {
+    issues.push('selectedDimensions are required');
+    return [];
   }
-  const existingById = new Map(
-    existing.dimensions.map((dimension) => [dimension.dimensionId, dimension])
-  );
   return selected
     .filter((dimension) => dimension.decided !== false)
     .map((dimension, index) => {
       const dimensionId = dimension.dimensionId ?? dimension.id ?? '';
-      const previous = existingById.get(dimensionId);
+      const rationale = dimension.reason ?? dimension.rationale ?? '';
+      if (!dimensionId) {
+        issues.push(`selectedDimensions[${index}].dimensionId is required`);
+      }
+      if (!rationale) {
+        issues.push(`selectedDimensions[${index}].rationale is required`);
+      }
+      if (!dimension.stage) {
+        issues.push(`selectedDimensions[${index}].stage is required`);
+      }
+      if (!dimension.targetRecipes || dimension.targetRecipes <= 0) {
+        issues.push(`selectedDimensions[${index}].targetRecipes must be > 0`);
+      }
       return {
         dimensionId,
-        priority: dimension.priority ?? previous?.priority ?? index + 1,
-        rationale:
-          dimension.reason ??
-          dimension.rationale ??
-          previous?.rationale ??
-          'confirmed by host Agent',
-        stage: dimension.stage ?? previous?.stage ?? resolvePlanStage(index, selected.length),
-        targetRecipes: dimension.targetRecipes ?? previous?.targetRecipes ?? 1,
+        priority: dimension.priority ?? index + 1,
+        rationale,
+        stage: dimension.stage ?? 'coldStart',
+        targetRecipes: dimension.targetRecipes ?? 0,
       };
     })
     .filter((dimension) => dimension.dimensionId.length > 0);
 }
 
-function normalizePlanScale(
-  existing: PlanScaleDecision,
-  input: PlanArgs['scale'],
-  selectedDimensionCount: number
-): PlanScaleDecision {
-  const totalRecipeBudget =
-    input?.totalRecipeBudget ??
-    existing.totalRecipeBudget ??
-    Math.max(1, selectedDimensionCount * 2);
+function normalizeRequiredPlanScale(input: PlanArgs['scale'], issues: string[]): PlanScaleDecision {
+  if (!input) {
+    issues.push('scale is required');
+  }
+  if (!input?.totalRecipeBudget) {
+    issues.push('scale.totalRecipeBudget is required');
+  }
+  if (!input?.perStage) {
+    issues.push('scale.perStage is required');
+  }
+  if (!input?.depthLevels?.length) {
+    issues.push('scale.depthLevels are required');
+  }
+  const perStage = input?.perStage ?? {};
+  for (const key of ['coldStart', 'deepMining', 'module'] as const) {
+    if (perStage[key] === undefined) {
+      issues.push(`scale.perStage.${key} is required`);
+    }
+  }
   return {
-    totalRecipeBudget,
+    totalRecipeBudget: input?.totalRecipeBudget ?? 0,
     perStage: {
-      coldStart:
-        input?.perStage?.coldStart ??
-        existing.perStage.coldStart ??
-        Math.ceil(totalRecipeBudget * 0.55),
-      deepMining:
-        input?.perStage?.deepMining ??
-        existing.perStage.deepMining ??
-        Math.ceil(totalRecipeBudget * 0.3),
-      module:
-        input?.perStage?.module ??
-        existing.perStage.module ??
-        Math.max(1, Math.floor(totalRecipeBudget * 0.15)),
+      coldStart: perStage.coldStart ?? 0,
+      deepMining: perStage.deepMining ?? 0,
+      module: perStage.module ?? 0,
     },
-    depthLevels: input?.depthLevels ?? existing.depthLevels,
-    ...((input?.budgetLevel ?? existing.budgetLevel)
-      ? { budgetLevel: input?.budgetLevel ?? existing.budgetLevel }
-      : {}),
-    ...((input?.scale ?? existing.scale) ? { scale: input?.scale ?? existing.scale } : {}),
+    depthLevels: input?.depthLevels ?? [],
+    ...(input?.budgetLevel ? { budgetLevel: input.budgetLevel } : {}),
+    ...(input?.scale ? { scale: input.scale } : {}),
   };
 }
 
-function normalizeModuleBindings(
-  existing: readonly PlanModuleBinding[],
+function normalizeRequiredModuleBindings(
   input: PlanArgs['moduleBindings'],
-  dimensionIds: readonly string[]
+  dimensionIds: readonly string[],
+  issues: string[]
 ): readonly PlanModuleBinding[] {
   if (!input || input.length === 0) {
-    return existing.map((binding) => ({
-      ...binding,
-      dimensions: binding.dimensions.filter((dimensionId) => dimensionIds.includes(dimensionId)),
-    }));
+    issues.push('moduleBindings are required');
+    return [];
   }
-  return input.map((binding, index) => ({
-    modulePath: binding.modulePath,
-    ...(binding.moduleId ? { moduleId: binding.moduleId } : {}),
-    dimensions: binding.dimensions?.length ? binding.dimensions : dimensionIds,
-    targetRecipes: binding.targetRecipes ?? 1,
-    priority: binding.priority ?? index + 1,
-  }));
+  const knownDimensionIds = new Set(dimensionIds);
+  return input.map((binding, index) => {
+    if (!binding.dimensions?.length) {
+      issues.push(`moduleBindings[${index}].dimensions are required`);
+    }
+    if (!binding.targetRecipes || binding.targetRecipes <= 0) {
+      issues.push(`moduleBindings[${index}].targetRecipes must be > 0`);
+    }
+    for (const dimensionId of binding.dimensions ?? []) {
+      if (!knownDimensionIds.has(dimensionId)) {
+        issues.push(`moduleBindings[${index}] references unknown dimension ${dimensionId}`);
+      }
+    }
+    return {
+      modulePath: binding.modulePath,
+      ...(binding.moduleId ? { moduleId: binding.moduleId } : {}),
+      dimensions: binding.dimensions ?? [],
+      targetRecipes: binding.targetRecipes ?? 0,
+      priority: binding.priority ?? index + 1,
+    };
+  });
 }
 
-function normalizeNextActions(
-  existing: readonly PlanNextAction[],
-  input: PlanArgs['plannedNextActions']
+function normalizeRequiredNextActions(
+  input: PlanArgs['plannedNextActions'],
+  issues: string[]
 ): readonly PlanNextAction[] {
   if (!input || input.length === 0) {
-    return existing;
+    issues.push('plannedNextActions are required');
+    return [];
   }
   return input.map((action, index) => ({
     tool: action.tool,
@@ -1779,6 +1216,21 @@ function normalizeNextActions(
     order: action.order ?? index + 1,
     ...(action.dimensionIds ? { dimensionIds: action.dimensionIds } : {}),
     ...(action.modulePaths ? { modulePaths: action.modulePaths } : {}),
+  }));
+}
+
+function normalizeRequiredEvidenceRefs(
+  input: PlanArgs['evidenceRefs'],
+  issues: string[]
+): PlanIntent['evidenceRefs'] {
+  if (!input || input.length === 0) {
+    issues.push('evidenceRefs are required');
+    return [];
+  }
+  return input.map((ref) => ({
+    kind: ref.kind,
+    ref: ref.ref,
+    ...(ref.detail ? { detail: ref.detail } : {}),
   }));
 }
 
@@ -1901,8 +1353,8 @@ function buildGetNextActions(view: PlanView): Record<string, unknown>[] {
 
 function summarizeProjectContext(analysis: PlanProjectContextAnalysis): Record<string, unknown> {
   return {
+    contextStatus: analysis.contextStatus,
     factSource: analysis.factSource,
-    fallbackDiagnostics: analysis.fallbackDiagnostics,
     fileCount: analysis.fileCount,
     frameworks: analysis.frameworks,
     moduleCount: analysis.moduleCount,
@@ -1916,9 +1368,7 @@ function summarizeProjectContext(analysis: PlanProjectContextAnalysis): Record<s
     projectType: analysis.projectType,
     requestKinds: analysis.requestKinds,
     secondaryLanguages: analysis.secondaryLanguages,
-    ...(analysis.signatureScope.focusModules?.length
-      ? { signatureScope: analysis.signatureScope }
-      : {}),
+    understandingGaps: analysis.understandingGaps,
   };
 }
 
@@ -1926,17 +1376,34 @@ function summarizePlanningAids(
   planningAids: ReturnType<typeof ProjectContextCapabilities.buildDimensionPlanningAids>
 ): Record<string, unknown> {
   return {
-    dimensionOrder: planningAids.dimensionOrder,
-    recommendedDimensions: planningAids.recommendedDimensions.map((item) => ({
-      dimensionId: item.dimension.id,
-      priorityScore: item.priorityScore,
-      reasons: item.reasons,
-      informationSteps: item.informationSteps,
+    selection: {
+      activeDimensionIds: planningAids.selection.activeDimensions.map((dimension) => dimension.id),
+      skippedDimensionIds: planningAids.selection.skippedDimensions.map(
+        (dimension) => dimension.id
+      ),
+      lowConfidenceDimensions: planningAids.selection.lowConfidenceDimensions.map((decision) => ({
+        dimensionId: decision.dimension.id,
+        reasons: decision.reasons,
+        confidence: decision.confidence,
+        detail: decision.detail,
+      })),
+      decisions: planningAids.selection.decisions.map((decision) => ({
+        dimensionId: decision.dimension.id,
+        kind: decision.kind,
+        reasons: decision.reasons,
+        confidence: decision.confidence,
+        domains: decision.domains,
+        detail: decision.detail,
+      })),
+      unavailableSignals: planningAids.selection.unavailableSignals,
+    },
+    informationGatheringSteps: planningAids.informationGatheringSteps.map((step) => ({
+      stepId: step.stepId,
+      tool: step.tool,
+      dimensions: step.dimensions,
+      reason: step.reason,
+      priority: step.priority,
     })),
-    informationGatheringSteps: planningAids.informationGatheringSteps,
-    scaleDecision: planningAids.scaleDecision,
-    subsetHints: planningAids.subsetHints,
-    crossDimensionConstraints: planningAids.crossDimensionConstraints,
     lowConfidenceSignals: planningAids.lowConfidenceSignals,
     unavailableSignals: planningAids.unavailableSignals,
   };
@@ -2001,11 +1468,7 @@ function summarizeOnboardingContract(
   };
 }
 
-function selectPlanModuleSeeds(
-  repo: RepoContext | undefined,
-  focusModules?: readonly string[]
-): PlanModuleSeed[] {
-  const focus = new Set((focusModules ?? []).map(normalizePath).filter(isPresent));
+function selectPlanModuleSeeds(repo: RepoContext | undefined): PlanModuleSeed[] {
   const records = readRecord(repo);
   const candidates: PlanModuleSeed[] = [
     ...arrayRecords(records.localPackages).map((pkg) => ({
@@ -2043,36 +1506,9 @@ function selectPlanModuleSeeds(
       }))
     ),
   ].filter(hasSeedScope);
-  const filtered = focus.size
-    ? [
-        ...focusModuleSeedsFromPaths(repo, focus),
-        ...candidates.filter((seed) => seed.modulePath && pathMatchesFocus(seed.modulePath, focus)),
-      ]
-    : candidates;
   return mergePlanModuleSeeds(
-    filtered.map((seed) => ({ ...seed, modulePath: normalizePath(seed.modulePath) }))
-  ).slice(0, 8);
-}
-
-function focusModuleSeedsFromPaths(
-  repo: RepoContext | undefined,
-  focus: ReadonlySet<string>
-): PlanModuleSeed[] {
-  const records = readRecord(repo);
-  const repoPaths = new Set(
-    [
-      ...arrayRecords(records.sourceRoots).map((root) => readString(root, 'path')),
-      ...arrayRecords(records.topAreas).map((area) => readString(area, 'path')),
-      ...arrayRecords(records.localPackages).map((pkg) => readString(pkg, 'path')),
-    ]
-      .map(normalizePath)
-      .filter(isPresent)
+    candidates.map((seed) => ({ ...seed, modulePath: normalizePath(seed.modulePath) }))
   );
-  return [...focus].map((modulePath) => ({
-    moduleName: moduleNameFromPath(modulePath),
-    modulePath,
-    role: repoPaths.has(modulePath) ? 'focus-module' : 'focus-submodule',
-  }));
 }
 
 function collectModuleSnapshots(analysis: PlanProjectContextAnalysis): ModuleSnapshot[] {
@@ -2244,21 +1680,14 @@ function hasSeedScope(seed: PlanModuleSeed): boolean {
   return Boolean(seed.modulePath || seed.ownedFiles?.length);
 }
 
-function resolvePlanStage(index: number, total: number): PlanStageId {
-  return index < Math.ceil(total * 0.55) ? 'coldStart' : 'deepMining';
-}
-
-function normalizeRationale(
-  rationale: PlanArgs['rationale'],
-  fallback: readonly string[]
-): readonly string[] {
+function normalizeRequiredRationale(rationale: PlanArgs['rationale']): readonly string[] {
   if (Array.isArray(rationale)) {
     return rationale;
   }
   if (typeof rationale === 'string') {
     return [rationale];
   }
-  return fallback;
+  return [];
 }
 
 function createPlanDraftSession(projectRoot: string): { toJSON(): Record<string, unknown> } {
@@ -2340,11 +1769,6 @@ function readNumber(record: unknown, key: string): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function readBoolean(record: unknown, key: string): boolean | undefined {
-  const value = readRecord(record)[key];
-  return typeof value === 'boolean' ? value : undefined;
-}
-
 function arrayRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(readRecord) : [];
 }
@@ -2388,10 +1812,6 @@ function normalizePath(value: string | undefined): string | undefined {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort();
-}
-
-function dedupeOrderedStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function dedupeBy<T>(values: readonly T[], keyFn: (value: T) => string): T[] {

@@ -819,53 +819,53 @@ const PlanNextActionInput = z
   })
   .strict();
 
-export const PlanInput = z.object({
-  operation: z
-    .enum(['draft', 'confirm', 'get'])
-    .describe(
-      'draft=collect real project planning signals and persist a draft Plan | confirm=confirm a draft Plan intent | get=read active confirmed Plan plus projected generation state'
-    ),
-  projectRoot: z.string().min(1).max(2000).optional(),
-  hints: z
-    .object({
-      focusModules: z.array(z.string().min(1).max(2000)).max(40).optional(),
-      goal: z.string().min(1).max(2000).optional(),
-      maxBudget: z.number().int().min(1).max(500).optional(),
-      maxRecommendedDimensions: z.number().int().min(1).max(24).optional(),
-    })
-    .strict()
-    .optional()
-    .describe(
-      'draft-only optional planning hints; real ProjectContext and Core signals remain authoritative.'
-    ),
-  basePlanId: z.string().min(1).max(200).optional().describe('confirm-only draft Plan id.'),
-  planId: z.string().min(1).max(200).optional().describe('confirm/get Plan id.'),
-  baseVersion: z.number().int().min(1).optional().describe('confirm-only draft Plan version.'),
-  version: z.number().int().min(1).optional().describe('confirm/get Plan version.'),
-  projectContextSignature: z
-    .string()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe('Signature returned by draft; confirm rejects mismatches.'),
-  selectedDimensions: z.array(PlanSelectedDimensionInput).max(80).optional(),
-  scale: PlanScaleInput.optional(),
-  moduleBindings: z.array(PlanModuleBindingInput).max(80).optional(),
-  plannedNextActions: z.array(PlanNextActionInput).max(80).optional(),
-  rationale: z
-    .union([z.string().min(1).max(4000), z.array(z.string().min(1).max(1000))])
-    .optional(),
-  allowSignatureMismatch: z
-    .boolean()
-    .default(false)
-    .describe(
-      'confirm-only escape hatch for controller-reviewed stale ProjectContext; default false.'
-    ),
-  allowStaleVersion: z
-    .boolean()
-    .default(false)
-    .describe('confirm-only escape hatch when a newer draft version exists; default false.'),
-});
+const PlanEvidenceRefInput = z
+  .object({
+    kind: z.enum(['project-context', 'recipe-context', 'evolution', 'lifecycle', 'human']),
+    ref: z.string().min(1).max(1000),
+    detail: z.string().min(1).max(1000).optional(),
+  })
+  .strict();
+
+export const PlanInput = z
+  .object({
+    operation: z
+      .enum(['draft', 'confirm', 'get'])
+      .describe(
+        'draft=collect real ProjectContext and Core fact reports | confirm=persist a complete Agent-authored Plan intent | get=read active confirmed Plan plus projected generation state'
+      ),
+    projectRoot: z.string().min(1).max(2000).optional(),
+    hints: z
+      .object({
+        focusModules: z.array(z.string().min(1).max(2000)).max(40).optional(),
+        goal: z.string().min(1).max(2000).optional(),
+        maxBudget: z.number().int().min(1).max(500).optional(),
+      })
+      .strict()
+      .optional()
+      .describe(
+        'draft-only optional planning hints; real ProjectContext and Core fact reports remain authoritative.'
+      ),
+    basePlanId: z.string().min(1).max(200).optional().describe('confirm-only draft Plan id.'),
+    planId: z.string().min(1).max(200).optional().describe('confirm/get Plan id.'),
+    baseVersion: z.number().int().min(1).optional().describe('confirm-only draft Plan version.'),
+    version: z.number().int().min(1).optional().describe('confirm/get Plan version.'),
+    projectContextSignature: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe('Signature returned by draft; confirm rejects mismatches.'),
+    selectedDimensions: z.array(PlanSelectedDimensionInput).max(80).optional(),
+    scale: PlanScaleInput.optional(),
+    moduleBindings: z.array(PlanModuleBindingInput).max(80).optional(),
+    plannedNextActions: z.array(PlanNextActionInput).max(80).optional(),
+    evidenceRefs: z.array(PlanEvidenceRefInput).max(80).optional(),
+    rationale: z
+      .union([z.string().min(1).max(4000), z.array(z.string().min(1).max(1000))])
+      .optional(),
+  })
+  .strict();
 export type PlanInput = z.infer<typeof PlanInput>;
 
 // ══════════════════════════════════════════════════════
@@ -932,7 +932,7 @@ export const BootstrapInput = z.object({
     .array(z.string().min(1).max(120))
     .max(60)
     .optional()
-    .describe('Optional subset of confirmed Plan dimensions for coldStart/testMode.'),
+    .describe('Optional testMode-only execution slice from confirmed Plan dimensions.'),
   scaleOverride: GenerationScaleOverrideInput.optional().describe(
     'Optional bounded scan/generation budget override after Plan confirmation.'
   ),

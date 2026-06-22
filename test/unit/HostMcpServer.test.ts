@@ -108,16 +108,16 @@ async function confirmPlanForHostBootstrap(
   const draft = (await server.handleToolCall('alembic_plan', {
     operation: 'draft',
     projectRoot,
-    hints: { maxBudget: 8, maxRecommendedDimensions: 24 },
+    hints: { maxBudget: 8 },
   })) as { data?: Record<string, unknown>; success: boolean };
   expect(draft.success).toBe(true);
   const plan = readRecord(draft.data?.plan);
-  const intent = readRecord(plan.intent);
-  const dimensionIds = readArray(intent.dimensions)
-    .map((dimension) => readString(readRecord(dimension), 'dimensionId'))
+  const planningAids = readRecord(readRecord(draft.data?.sourceReports).planningAids);
+  const dimensionIds = readArray(readRecord(planningAids.selection).activeDimensionIds)
+    .map((dimensionId) => (typeof dimensionId === 'string' ? dimensionId : undefined))
     .filter((dimensionId): dimensionId is string => Boolean(dimensionId));
   if (dimensionIds.length === 0) {
-    throw new Error('Expected alembic_plan draft to include at least one dimension.');
+    throw new Error('Expected alembic_plan draft fact package to include at least one dimension.');
   }
   const dimensionId = dimensionIds[0];
   const confirmed = (await server.handleToolCall('alembic_plan', {
@@ -136,9 +136,18 @@ async function confirmPlanForHostBootstrap(
     scale: {
       totalRecipeBudget: dimensionIds.length,
       perStage: { coldStart: dimensionIds.length, deepMining: 0, module: 1 },
+      depthLevels: ['project'],
     },
     moduleBindings: [{ modulePath: 'src', dimensions: dimensionIds, targetRecipes: 1 }],
     plannedNextActions: [{ tool: 'alembic_bootstrap', reason: 'Run Plan-gated bootstrap.' }],
+    evidenceRefs: [
+      {
+        kind: 'project-context',
+        ref: String(draft.data?.projectContextSignature),
+        detail: 'draft fact package signature',
+      },
+    ],
+    rationale: 'HostMcpServer bootstrap fixture confirms a complete Plan payload.',
   })) as { success: boolean };
   expect(confirmed.success).toBe(true);
   return dimensionId;

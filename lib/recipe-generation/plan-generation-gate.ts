@@ -123,8 +123,6 @@ async function readConfirmedPlanGateResponse(
   try {
     planResponse = (await routePlanTool(ctx as never, {
       operation: 'get',
-      allowSignatureMismatch: false,
-      allowStaleVersion: false,
       projectRoot: options.projectRoot,
     })) as PlanGateResponse;
   } catch (err: unknown) {
@@ -200,6 +198,7 @@ function buildPlanGenerationGateReady(input: {
     generationStage,
     plan,
     planState,
+    testMode: input.input?.testMode === true,
   });
   const moduleScope = selectPlanModuleScope({
     generationStage,
@@ -436,8 +435,7 @@ function buildPlanGateNextActions(projectRoot: string): Record<string, unknown>[
       tool: 'alembic_plan',
       operation: 'confirm',
       required: true,
-      reason:
-        'Confirm selected dimensions, scale, module bindings, and planned next actions returned by the draft.',
+      reason: 'Confirm a complete Agent-authored Plan payload from the draft fact package.',
     },
   ];
 }
@@ -447,6 +445,7 @@ function selectPlanDimensions(input: {
   plan: Record<string, unknown>;
   planState: Record<string, unknown>;
   requestedDimensionIds: readonly string[];
+  testMode: boolean;
 }): string[] {
   const intent = readRecord(input.plan.intent);
   const stages = readRecord(intent.stages);
@@ -480,7 +479,7 @@ function selectPlanDimensions(input: {
       .map((dimension) => dimension.dimensionId)
       .filter(Boolean);
   }
-  if (input.requestedDimensionIds.length > 0) {
+  if (input.testMode && input.requestedDimensionIds.length > 0) {
     const requested = new Set(input.requestedDimensionIds);
     selected = selected.filter((dimensionId) => requested.has(dimensionId));
   }
