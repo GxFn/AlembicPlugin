@@ -23,6 +23,7 @@ export interface PluginGitDiffCheckpointSurface {
   advanced: boolean;
   checkpointCommit: string | null;
   initializationSource?: PluginGitDiffCheckpointRuntime['initializationSource'];
+  mergeBaseCommit?: string | null;
   recorded: boolean;
   reason: string;
   routeStatus?: GitDiffCheckpointRouteStatus;
@@ -110,12 +111,14 @@ export function recordPluginGitDiffCheckpointRouteOutcome(input: {
     routeReason: buildRouteReason(routeStatus, input),
     routeStatus,
     scannedAt: Date.parse(input.scan.scannedAt),
+    mergeBaseCommit: input.scan.mergeBase,
     targetCommit: input.scan.head,
   });
   return {
     advanced: result.advanced,
     checkpointCommit: result.checkpoint.checkpointCommit,
     initializationSource: input.runtime.initializationSource,
+    mergeBaseCommit: result.checkpoint.mergeBaseCommit,
     recorded: true,
     reason: result.reason,
     routeStatus,
@@ -131,17 +134,19 @@ function resolveRouteStatus(input: {
   scan: GitDiffScanResult;
 }): GitDiffCheckpointRouteStatus | null {
   const scan = input.scan;
+  const isCatchUpRange =
+    scan.headChanged && scan.headRangeStatus === 'non-ancestor' && Boolean(scan.mergeBase);
   if (!scan.scanned) {
     return scan.head ? 'failed' : null;
   }
   if (scan.truncated) {
     return 'truncated';
   }
-  if (scan.headChanged && scan.headRangeStatus === 'non-ancestor') {
-    return 'non-ancestor';
-  }
   if (scan.headChanged && scan.headRangeStatus === 'unavailable') {
     return 'unresolved';
+  }
+  if (scan.headChanged && scan.headRangeStatus === 'non-ancestor' && !scan.mergeBase) {
+    return 'non-ancestor';
   }
   if (scan.events.length === 0 || !input.routeAttempted) {
     return 'skipped';
@@ -152,7 +157,10 @@ function resolveRouteStatus(input: {
   if (input.report && reportOnlySkipped(input.report, scan.events.length)) {
     return 'skipped';
   }
-  return input.report ? 'routed' : 'failed';
+  if (!input.report) {
+    return 'failed';
+  }
+  return isCatchUpRange ? 'catch-up-routed' : 'routed';
 }
 
 function buildRouteReason(
@@ -165,6 +173,9 @@ function buildRouteReason(
 ): string {
   if (status === 'routed') {
     return 'Plugin commit-driven unified evolution routed the git diff range successfully.';
+  }
+  if (status === 'catch-up-routed') {
+    return `Plugin commit-driven unified evolution routed catch-up range ${formatScanRange(input.scan)} successfully.`;
   }
   if (input.routeError) {
     return `Plugin commit-driven unified evolution route failed: ${input.routeError}`;
@@ -187,6 +198,16 @@ function buildRouteReason(
     return input.scan.fallbackReason ?? 'Git diff HEAD range could not be resolved.';
   }
   return 'Git diff route did not complete.';
+}
+
+function formatScanRange(scan: GitDiffScanResult): string {
+  if (scan.range) {
+    return `${scan.range.from}..${scan.range.to}`;
+  }
+  if (scan.mergeBase && scan.head) {
+    return `${scan.mergeBase}..${scan.head}`;
+  }
+  return 'merge-base..HEAD';
 }
 
 function reportOnlySkipped(report: PluginGitDiffRouteReportSummary, eventCount: number): boolean {

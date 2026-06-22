@@ -6,6 +6,9 @@ import {
   createInactiveGitDiffCheckpointStatus,
   GitDiffCheckpointService,
   GitDiffScanner,
+  type GitDiffScanResult,
+  type PluginGitDiffRouteReportSummary,
+  recordPluginGitDiffCheckpointRouteOutcome,
   shouldIgnoreProjectPath,
   toProjectRelativePath,
 } from '../../lib/recipe-generation/evolution/git-diff-checkpoint/index.js';
@@ -134,6 +137,66 @@ describe('Git diff checkpoint', () => {
     expect(failed.checkpoint.checkpointCommit).toBe('plan-head');
   });
 
+  test('plugin route outcome advances only after successful catch-up routing', () => {
+    const checkpointRepository = createInMemoryCheckpointRepository();
+    const service = new GitDiffCheckpointService({
+      checkpointRepository: checkpointRepository as never,
+      planRepository: {
+        getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
+      } as never,
+    });
+    const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
+    const runtime = {
+      checkpointCommit: 'plan-head',
+      initializationSource: 'active-confirmed-plan' as const,
+      scope,
+      service,
+    };
+    const scan = makeCatchUpScan();
+
+    const skipped = recordPluginGitDiffCheckpointRouteOutcome({
+      report: null,
+      routeAttempted: false,
+      routeError: null,
+      runtime,
+      scan,
+    });
+    expect(skipped).toMatchObject({
+      advanced: false,
+      checkpointCommit: 'plan-head',
+      mergeBaseCommit: 'merge-base',
+      routeStatus: 'skipped',
+      unresolvedRange: {
+        fromCommit: 'plan-head',
+        mergeBaseCommit: 'merge-base',
+        toCommit: 'head-c',
+      },
+    });
+
+    const routedReport: PluginGitDiffRouteReportSummary = {
+      deprecated: 0,
+      fixed: 0,
+      needsReview: 1,
+      pendingProposals: [{ status: 'submitted' }],
+      skipped: 0,
+    };
+    const routed = recordPluginGitDiffCheckpointRouteOutcome({
+      report: routedReport,
+      routeAttempted: true,
+      routeError: null,
+      runtime,
+      scan,
+    });
+
+    expect(routed).toMatchObject({
+      advanced: true,
+      checkpointCommit: 'head-c',
+      mergeBaseCommit: 'merge-base',
+      routeStatus: 'catch-up-routed',
+    });
+    expect(routed.unresolvedRange).toBeUndefined();
+  });
+
   test('scanner uses deterministic HEAD range diff with rename and copy detection', async () => {
     const execGit = createExecGitStub({
       currentHead: 'b',
@@ -152,6 +215,7 @@ describe('Git diff checkpoint', () => {
       dirtyPathCount: 2,
       headChanged: true,
       headRangeStatus: 'ancestor',
+      mergeBase: 'a',
       truncated: false,
     });
     expect(result.events).toEqual([
@@ -170,7 +234,7 @@ describe('Git diff checkpoint', () => {
     ]);
   });
 
-  test('scanner stops HEAD range dispatch when merge-base is not the previous checkpoint', async () => {
+  test('scanner routes catch-up HEAD range when merge-base is not the previous checkpoint', async () => {
     const scanner = new GitDiffScanner({
       execGit: createExecGitStub({
         currentHead: 'b',
@@ -183,13 +247,19 @@ describe('Git diff checkpoint', () => {
     const result = await scanner.scanOnce(1_000, { previousHead: 'a' });
 
     expect(result).toMatchObject({
-      dirtyPathCount: 0,
-      fallbackReason: 'merge-base-catch-up-required',
+      dirtyPathCount: 1,
       headChanged: true,
       headRangeStatus: 'non-ancestor',
-      range: { from: 'a', to: 'b' },
+      mergeBase: 'base',
+      range: { from: 'base', to: 'b' },
     });
-    expect(result.events).toEqual([]);
+    expect(result.events).toEqual([
+      {
+        eventSource: 'git-head',
+        path: 'src/committed.ts',
+        type: 'created',
+      },
+    ]);
   });
 
   test('scanner applies scale guard before dispatching oversized diff batches', async () => {
@@ -286,6 +356,30 @@ function createInMemoryCheckpointRepository() {
   };
 }
 
+function makeCatchUpScan(): GitDiffScanResult {
+  return {
+    dirtyPathCount: 1,
+    events: [
+      {
+        eventSource: 'git-head',
+        path: 'src/committed.ts',
+        type: 'modified',
+      },
+    ],
+    head: 'head-c',
+    headChanged: true,
+    headRangeStatus: 'non-ancestor',
+    maxEvents: 200,
+    mergeBase: 'merge-base',
+    previousHead: 'plan-head',
+    range: { from: 'merge-base', to: 'head-c' },
+    scanned: true,
+    scannedAt: '2026-06-22T00:00:00.000Z',
+    signature: 'sig',
+    truncated: false,
+  };
+}
+
 function createExecGitStub(input: {
   currentHead: string;
   headDiff: string;
@@ -302,7 +396,7 @@ function createExecGitStub(input: {
     if (key === `merge-base a ${input.currentHead}`) {
       return `${input.mergeBase}\n`;
     }
-    if (key === `diff --name-status -M90% -C90% a..${input.currentHead}`) {
+    if (key === `diff --name-status -M90% -C90% ${input.mergeBase}..${input.currentHead}`) {
       return input.headDiff;
     }
     return '';

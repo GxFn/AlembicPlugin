@@ -27,6 +27,7 @@ function makeScan(overrides: Partial<GitDiffScanResult> = {}): GitDiffScanResult
     headChanged: false,
     headRangeStatus: 'none',
     maxEvents: 200,
+    mergeBase: null,
     previousHead: null,
     scanned: true,
     scannedAt: '2026-05-31T10:00:00.000Z',

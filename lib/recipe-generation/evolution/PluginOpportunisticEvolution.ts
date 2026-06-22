@@ -46,6 +46,7 @@ export interface PluginOpportunisticEvolutionSurface {
     head: string | null;
     headChanged: boolean;
     headRangeStatus: string;
+    mergeBase: string | null;
     previousHead: string | null;
     range?: {
       from: string;
@@ -59,6 +60,7 @@ export interface PluginOpportunisticEvolutionSurface {
   checkpoint?: {
     advanced: boolean;
     checkpointCommit: string | null;
+    mergeBaseCommit?: string | null;
     recorded: boolean;
     reason: string;
     routeStatus?: string;
@@ -302,6 +304,7 @@ function projectGitDiffEvidence(
     head: scan.head,
     headChanged: scan.headChanged,
     headRangeStatus: scan.headRangeStatus,
+    mergeBase: scan.mergeBase,
     previousHead: scan.previousHead,
     ...(scan.range ? { range: scan.range } : {}),
     scanned: scan.scanned,

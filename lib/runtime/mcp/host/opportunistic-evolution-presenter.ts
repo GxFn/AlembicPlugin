@@ -139,7 +139,10 @@ function shouldRouteUnifiedEvolution(scan: GitDiffScanResult): boolean {
   if (!scan.scanned || scan.events.length === 0 || scan.truncated) {
     return false;
   }
-  if (scan.headChanged && scan.headRangeStatus !== 'ancestor') {
+  if (scan.headChanged && scan.headRangeStatus === 'unavailable') {
+    return false;
+  }
+  if (scan.headChanged && scan.headRangeStatus === 'non-ancestor' && !scan.mergeBase) {
     return false;
   }
   return true;

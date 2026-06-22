@@ -39,6 +39,7 @@ export interface GitDiffScanResult {
   headChanged: boolean;
   headRangeStatus: GitDiffHeadRangeStatus;
   maxEvents: number;
+  mergeBase: string | null;
   previousHead: string | null;
   range?: {
     from: string;
@@ -106,12 +107,14 @@ export class GitDiffScanner {
         options.previousHead !== currentHead;
       let headRangeStatus: GitDiffHeadRangeStatus = headChanged ? 'unavailable' : 'none';
       let fallbackReason: string | undefined;
+      let mergeBase: string | null = null;
       let range: GitDiffScanResult['range'];
 
       if (headChanged && options.previousHead && currentHead) {
         const headRange = await this.#collectHeadRangeEvents(options.previousHead, currentHead);
         headRangeStatus = headRange.status;
         fallbackReason = headRange.fallbackReason;
+        mergeBase = headRange.mergeBase;
         range = headRange.range;
         if (headRange.output) {
           addNameStatusEvents(snapshot.eventsByKey, headRange.output, 'git-head');
@@ -148,6 +151,7 @@ export class GitDiffScanner {
         headChanged,
         headRangeStatus,
         maxEvents: this.#maxEvents,
+        mergeBase,
         previousHead: options.previousHead ?? null,
         ...(range ? { range } : {}),
         scanned: true,
@@ -202,6 +206,7 @@ export class GitDiffScanner {
     currentHead: string
   ): Promise<{
     fallbackReason?: string;
+    mergeBase: string | null;
     output?: string;
     range?: GitDiffScanResult['range'];
     status: GitDiffHeadRangeStatus;
@@ -212,19 +217,31 @@ export class GitDiffScanner {
     if (!mergeBase) {
       return {
         fallbackReason: 'merge-base-unavailable',
+        mergeBase: null,
         range: { from: previousHead, to: currentHead },
         status: 'unavailable',
       };
     }
+    const threshold = `${this.#renameSimilarityThreshold}%`;
     if (mergeBase !== previousHead) {
+      const output = await this.#execGit(
+        [
+          'diff',
+          '--name-status',
+          `-M${threshold}`,
+          `-C${threshold}`,
+          `${mergeBase}..${currentHead}`,
+        ],
+        this.#projectRoot
+      );
       return {
-        fallbackReason: 'merge-base-catch-up-required',
-        range: { from: previousHead, to: currentHead },
+        mergeBase,
+        output,
+        range: { from: mergeBase, to: currentHead },
         status: 'non-ancestor',
       };
     }
 
-    const threshold = `${this.#renameSimilarityThreshold}%`;
     const output = await this.#execGit(
       [
         'diff',
@@ -236,6 +253,7 @@ export class GitDiffScanner {
       this.#projectRoot
     );
     return {
+      mergeBase,
       output,
       range: { from: previousHead, to: currentHead },
       status: 'ancestor',
@@ -355,6 +373,7 @@ function emptyResult(scannedAt: string): GitDiffScanResult {
     head: null,
     headChanged: false,
     maxEvents: DEFAULT_MAX_DIFF_EVENTS,
+    mergeBase: null,
     previousHead: null,
     scanned: false,
     scannedAt,
