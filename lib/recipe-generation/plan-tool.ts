@@ -1249,7 +1249,6 @@ function projectPlanRecord(plan: PlanRecord): Record<string, unknown> {
     updatedAt: plan.updatedAt,
     supersedesPlanId: plan.supersedesPlanId,
     intent: plan.intent,
-    planningBrief: plan.planningBrief,
     rationale: plan.rationale,
     intentChangeLog: plan.intentChangeLog,
   };

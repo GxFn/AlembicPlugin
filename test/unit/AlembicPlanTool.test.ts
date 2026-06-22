@@ -11,6 +11,7 @@ import { WorkspaceResolver } from '@alembic/core/workspace';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { PlanInput as PlanInputSchema } from '../../lib/shared/schemas/mcp-tools.js';
 
 interface PlanToolResponse {
   data?: Record<string, unknown>;
@@ -82,9 +83,58 @@ describe('alembic_plan tool', () => {
     expect(planSignalKinds).not.toContain('new-module');
 
     const plan = asRecord(draft.data?.plan);
+    expect(plan).not.toHaveProperty('planningBrief');
     const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
     expect(stored?.planningBrief).toBeNull();
     expect(stored?.intent.dimensions).toEqual([]);
+  });
+
+  test('PlanInput schema routes confirm validation to complete Agent-authored payloads only', () => {
+    expect(PlanInputSchema.safeParse({ operation: 'draft', hints: { maxBudget: 4 } }).success).toBe(
+      true
+    );
+    expect(PlanInputSchema.safeParse({ operation: 'get', projectRoot }).success).toBe(true);
+
+    const incomplete = PlanInputSchema.safeParse({
+      operation: 'confirm',
+      basePlanId: 'plan-test',
+      baseVersion: 1,
+      projectContextSignature: 'pcsig:test',
+    });
+    expect(incomplete.success).toBe(false);
+    if (!incomplete.success) {
+      const issuePaths = incomplete.error.issues.map((issue) => issue.path.join('.'));
+      expect(issuePaths).toEqual(
+        expect.arrayContaining([
+          'selectedDimensions',
+          'scale',
+          'moduleBindings',
+          'plannedNextActions',
+          'evidenceRefs',
+          'rationale',
+        ])
+      );
+    }
+
+    const complete = PlanInputSchema.safeParse({
+      operation: 'confirm',
+      basePlanId: 'plan-test',
+      baseVersion: 1,
+      projectContextSignature: 'pcsig:test',
+      selectedDimensions: confirmedDimensions(['architecture'], 'coldStart'),
+      scale: {
+        totalRecipeBudget: 3,
+        perStage: { coldStart: 1, deepMining: 1, module: 1 },
+        depthLevels: ['project'],
+      },
+      moduleBindings: [{ modulePath: 'src', dimensions: ['architecture'], targetRecipes: 1 }],
+      plannedNextActions: [{ tool: 'alembic_recipe_map', reason: 'inspect source refs' }],
+      evidenceRefs: [
+        { kind: 'project-context', ref: 'pcsig:test', detail: 'schema regression fixture' },
+      ],
+      rationale: 'Agent authored a complete Plan payload.',
+    });
+    expect(complete.success).toBe(true);
   });
 
   test('draft surfaces focused Swift ProjectContext facts without local source guesses', async () => {
@@ -101,15 +151,16 @@ describe('alembic_plan tool', () => {
 
     const planningBrief = asRecord(draft.data?.planningBrief);
     const projectContext = asRecord(planningBrief.projectContext);
-    expect(projectContext).toMatchObject({ factSource: 'project-context', primaryLanguage: 'swift' });
+    expect(projectContext).toMatchObject({
+      factSource: 'project-context',
+      primaryLanguage: 'swift',
+    });
     expect(projectContext.fileCount as number).toBeGreaterThan(0);
     expect(projectContext.moduleCount as number).toBeGreaterThan(0);
     expect(asArray(projectContext.requestKinds)).toEqual(expect.arrayContaining(['repo']));
     expect(
       asArray(projectContext.moduleSeeds).map((seed) => String(asRecord(seed).modulePath))
-    ).toEqual(
-      expect.arrayContaining(['Sources', 'BiliDili', 'Package.swift'])
-    );
+    ).toEqual(expect.arrayContaining(['Sources', 'BiliDili', 'Package.swift']));
     expect(projectContext).not.toHaveProperty('fallbackDiagnostics');
     expect(projectContext).not.toHaveProperty('signatureScope');
 
@@ -122,6 +173,7 @@ describe('alembic_plan tool', () => {
     expect(planningAids).not.toHaveProperty('recommendedDimensions');
 
     const plan = asRecord(draft.data?.plan);
+    expect(plan).not.toHaveProperty('planningBrief');
     const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
     expect(stored?.planningBrief).toBeNull();
 
@@ -159,7 +211,9 @@ describe('alembic_plan tool', () => {
         'RG-10 Test confirms an evidence-grounded BiliDili Plan from ProjectContext facts.',
     });
     expect(confirmed.success).toBe(true);
-    expect(asRecord(confirmed.data?.plan)).toMatchObject({ planStatus: 'confirmed' });
+    const confirmedPlan = asRecord(confirmed.data?.plan);
+    expect(confirmedPlan).toMatchObject({ planStatus: 'confirmed' });
+    expect(confirmedPlan).not.toHaveProperty('planningBrief');
   });
 
   test('confirm rejects stale focused Swift drafts after scoped source changes', async () => {
@@ -239,6 +293,17 @@ describe('alembic_plan tool', () => {
       errorCode: 'PLAN_SIGNATURE_ECHO_MISMATCH',
     });
 
+    const missingPayload = await callPlan({
+      operation: 'confirm',
+      basePlanId: planId,
+      baseVersion: version,
+      projectContextSignature: signature,
+    });
+    expect(missingPayload).toMatchObject({
+      success: false,
+      errorCode: 'PLAN_CONFIRM_PAYLOAD_REQUIRED',
+    });
+
     const storedDraft = repositories.planRepository.get(planId, version);
     expect(storedDraft).toBeTruthy();
     if (!storedDraft) {
@@ -305,7 +370,9 @@ describe('alembic_plan tool', () => {
     });
 
     expect(confirmed).toMatchObject({ success: true });
-    expect(asRecord(confirmed.data?.plan)).toMatchObject({ planStatus: 'confirmed' });
+    const confirmedPlan = asRecord(confirmed.data?.plan);
+    expect(confirmedPlan).toMatchObject({ planStatus: 'confirmed' });
+    expect(confirmedPlan).not.toHaveProperty('planningBrief');
     expect(repositories.planRepository.getActiveConfirmed(projectRoot)?.planId).toBe(planId);
   });
 
@@ -366,6 +433,8 @@ describe('alembic_plan tool', () => {
 
     const get = await callPlan({ operation: 'get' });
     expect(get.success).toBe(true);
+    expect(asRecord(get.data?.plan)).not.toHaveProperty('planningBrief');
+    expect(asRecord(asRecord(get.data?.planView).intent)).not.toHaveProperty('planningBrief');
     const planState = asRecord(get.data?.planState);
     expect(asArray(planState.codeRecipeMapping)).toEqual(
       expect.arrayContaining([
@@ -626,7 +695,7 @@ function confirmedDimensions(
 }
 
 function projectContextEvidenceRefs(
-  draft: PlanToolResponse,
+  draft: PlanToolResponse
 ): Array<{ kind: 'project-context'; ref: string; detail: string }> {
   return [
     {

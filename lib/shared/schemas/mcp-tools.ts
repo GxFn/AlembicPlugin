@@ -827,6 +827,18 @@ const PlanEvidenceRefInput = z
   })
   .strict();
 
+function addPlanConfirmIssue(
+  ctx: z.RefinementCtx,
+  path: (string | number)[],
+  message: string
+): void {
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message,
+    path,
+  });
+}
+
 export const PlanInput = z
   .object({
     operation: z
@@ -865,7 +877,128 @@ export const PlanInput = z
       .union([z.string().min(1).max(4000), z.array(z.string().min(1).max(1000))])
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.operation !== 'confirm') {
+      return;
+    }
+
+    const selectedDimensions = value.selectedDimensions?.filter(
+      (dimension) => dimension.decided !== false
+    );
+    if (!selectedDimensions?.length) {
+      addPlanConfirmIssue(
+        ctx,
+        ['selectedDimensions'],
+        'confirm requires non-empty selectedDimensions'
+      );
+    } else {
+      selectedDimensions.forEach((dimension, index) => {
+        if (!(dimension.dimensionId ?? dimension.id)) {
+          addPlanConfirmIssue(
+            ctx,
+            ['selectedDimensions', index, 'dimensionId'],
+            'confirm selectedDimensions require dimensionId or id'
+          );
+        }
+        if (!(dimension.reason ?? dimension.rationale)) {
+          addPlanConfirmIssue(
+            ctx,
+            ['selectedDimensions', index, 'rationale'],
+            'confirm selectedDimensions require rationale or reason'
+          );
+        }
+        if (!dimension.stage) {
+          addPlanConfirmIssue(
+            ctx,
+            ['selectedDimensions', index, 'stage'],
+            'confirm selectedDimensions require stage'
+          );
+        }
+        if (!dimension.targetRecipes || dimension.targetRecipes <= 0) {
+          addPlanConfirmIssue(
+            ctx,
+            ['selectedDimensions', index, 'targetRecipes'],
+            'confirm selectedDimensions require targetRecipes > 0'
+          );
+        }
+      });
+    }
+
+    if (!value.scale) {
+      addPlanConfirmIssue(ctx, ['scale'], 'confirm requires scale');
+    } else {
+      if (!value.scale.totalRecipeBudget || value.scale.totalRecipeBudget <= 0) {
+        addPlanConfirmIssue(
+          ctx,
+          ['scale', 'totalRecipeBudget'],
+          'confirm scale requires totalRecipeBudget > 0'
+        );
+      }
+      if (!value.scale.depthLevels?.length) {
+        addPlanConfirmIssue(
+          ctx,
+          ['scale', 'depthLevels'],
+          'confirm scale requires non-empty depthLevels'
+        );
+      }
+      if (!value.scale.perStage) {
+        addPlanConfirmIssue(ctx, ['scale', 'perStage'], 'confirm scale requires perStage');
+      } else {
+        for (const stage of ['coldStart', 'deepMining', 'module'] as const) {
+          if (value.scale.perStage[stage] === undefined) {
+            addPlanConfirmIssue(
+              ctx,
+              ['scale', 'perStage', stage],
+              `confirm scale.perStage.${stage} is required`
+            );
+          }
+        }
+      }
+    }
+
+    if (!value.moduleBindings?.length) {
+      addPlanConfirmIssue(ctx, ['moduleBindings'], 'confirm requires non-empty moduleBindings');
+    } else {
+      value.moduleBindings.forEach((binding, index) => {
+        if (!binding.dimensions?.length) {
+          addPlanConfirmIssue(
+            ctx,
+            ['moduleBindings', index, 'dimensions'],
+            'confirm moduleBindings require dimensions'
+          );
+        }
+        if (!binding.targetRecipes || binding.targetRecipes <= 0) {
+          addPlanConfirmIssue(
+            ctx,
+            ['moduleBindings', index, 'targetRecipes'],
+            'confirm moduleBindings require targetRecipes > 0'
+          );
+        }
+      });
+    }
+
+    if (!value.plannedNextActions?.length) {
+      addPlanConfirmIssue(
+        ctx,
+        ['plannedNextActions'],
+        'confirm requires non-empty plannedNextActions'
+      );
+    }
+
+    if (!value.evidenceRefs?.length) {
+      addPlanConfirmIssue(ctx, ['evidenceRefs'], 'confirm requires non-empty evidenceRefs');
+    }
+
+    const rationale = value.rationale;
+    if (
+      !rationale ||
+      (Array.isArray(rationale) && rationale.length === 0) ||
+      (typeof rationale === 'string' && rationale.trim().length === 0)
+    ) {
+      addPlanConfirmIssue(ctx, ['rationale'], 'confirm requires rationale');
+    }
+  });
 export type PlanInput = z.infer<typeof PlanInput>;
 
 // ══════════════════════════════════════════════════════
