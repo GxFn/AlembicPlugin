@@ -169,7 +169,27 @@ describe('Plugin opportunistic evolution surface', () => {
         deprecated: 0,
         details: [],
         fixed: 0,
+        generationChangeLog: [
+          {
+            action: 'source-modified-review-needed',
+            createdAt: 1,
+            filePath: 'src/service.ts',
+            reason: 'changed service tokens',
+            recipeId: 'recipe-1',
+          },
+        ],
         needsReview: 1,
+        pendingProposals: [
+          {
+            action: 'update',
+            confidence: 0.72,
+            description: 'changed service tokens',
+            filePath: 'src/service.ts',
+            recipeId: 'recipe-1',
+            source: 'file-change',
+            status: 'submitted',
+          },
+        ],
         planBoundary: {
           generationStateWrites: 0,
           planIntentWrites: 0,
@@ -184,7 +204,9 @@ describe('Plugin opportunistic evolution surface', () => {
     expect(surface.evidenceGate.verdict).toBe('routed');
     expect(surface.unifiedEvolution).toMatchObject({
       classificationCounts: { modified: 1, proposed: 1 },
+      generationChangeLog: [expect.objectContaining({ action: 'source-modified-review-needed' })],
       needsReview: 1,
+      pendingProposals: [expect.objectContaining({ action: 'update', recipeId: 'recipe-1' })],
       planBoundary: {
         generationStateWrites: 0,
         planIntentWrites: 0,

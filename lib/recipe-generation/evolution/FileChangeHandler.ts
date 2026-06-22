@@ -71,6 +71,28 @@ export interface UnifiedEvolutionRecommendation {
   nextActions: string[];
 }
 
+export interface UnifiedEvolutionProposalSignal {
+  action: 'deprecate' | 'update';
+  confidence: number;
+  description: string;
+  filePath: string;
+  recipeId: string;
+  source: string;
+  status: 'submitted' | 'unavailable';
+  proposalId?: string;
+}
+
+export interface UnifiedEvolutionChangeLogEntry {
+  action: string;
+  createdAt: number;
+  filePath: string;
+  reason: string;
+  eventSource?: FileChangeEventSource;
+  newPath?: string;
+  oldPath?: string;
+  recipeId?: string;
+}
+
 export interface UnifiedEvolutionReport extends ReactiveEvolutionReport {
   classificationCounts: {
     coveredCreated: number;
@@ -84,6 +106,7 @@ export interface UnifiedEvolutionReport extends ReactiveEvolutionReport {
     repaired: number;
     skipped: number;
   };
+  generationChangeLog: UnifiedEvolutionChangeLogEntry[];
   freshness?: {
     processed: number;
     recipeIds: string[];
@@ -95,6 +118,7 @@ export interface UnifiedEvolutionReport extends ReactiveEvolutionReport {
     planIntentWrites: 0;
     projectedFromExistingDbSources: true;
   };
+  pendingProposals: UnifiedEvolutionProposalSignal[];
   recommendations: UnifiedEvolutionRecommendation[];
 }
 
@@ -184,13 +208,24 @@ export class FileChangeHandler {
       freshnessIds.add(ref.recipeId);
       report.fixed++;
       report.classificationCounts.repaired++;
+      report.generationChangeLog.push({
+        action: 'source-ref-repaired',
+        createdAt: Date.now(),
+        eventSource: event.eventSource,
+        filePath: event.path,
+        newPath: event.path,
+        oldPath: event.oldPath,
+        reason: `High-confidence rename repaired Recipe sourceRef ${event.oldPath} -> ${event.path}.`,
+        recipeId: ref.recipeId,
+      });
       if (confidence < this.#renameAutoRepairThreshold) {
-        await this.#submitUpdateProposal(entry, event.path, {
+        const proposal = await this.#submitUpdateProposal(entry, event.path, {
           currentCode: '',
           impactLevel: 'reference',
           matchedTokens: [],
           reason: `Low-confidence rename ${event.oldPath} -> ${event.path}; pointer repaired, content review recommended.`,
         });
+        report.pendingProposals.push(proposal);
         report.needsReview++;
         report.classificationCounts.proposed++;
       }
@@ -219,16 +254,30 @@ export class FileChangeHandler {
         continue;
       }
       this.#emitSourceModified(entry.id, event.path, impact.level, impact.score);
+      report.generationChangeLog.push({
+        action:
+          impact.level === 'reference'
+            ? 'source-modified-reference'
+            : 'source-modified-review-needed',
+        createdAt: Date.now(),
+        eventSource: event.eventSource,
+        filePath: event.path,
+        reason:
+          impact.matchedTokens.join(', ') ||
+          `Modified covered source ${event.path} touched Recipe evidence.`,
+        recipeId: entry.id,
+      });
       if (impact.level === 'reference') {
         continue;
       }
 
-      await this.#submitUpdateProposal(entry, event.path, {
+      const proposal = await this.#submitUpdateProposal(entry, event.path, {
         currentCode: '',
         impactLevel: impact.level,
         matchedTokens: impact.matchedTokens,
         reason: `Modified covered source ${event.path} changed Recipe-relevant tokens: ${impact.matchedTokens.join(', ') || 'pattern match'}.`,
       });
+      report.pendingProposals.push(proposal);
       report.needsReview++;
       report.classificationCounts.proposed++;
       report.details.push({
@@ -259,11 +308,20 @@ export class FileChangeHandler {
       const activeRefs = this.#activeRefsForRecipe(ref.recipeId);
       if (activeRefs.some((active) => active.sourcePath !== event.path)) {
         this.#markSourceRefStale(ref.recipeId, event.path);
+        report.generationChangeLog.push({
+          action: 'source-ref-stale',
+          createdAt: Date.now(),
+          eventSource: event.eventSource,
+          filePath: event.path,
+          reason: `Deleted source ${event.path} marked stale because Recipe keeps other active sourceRefs.`,
+          recipeId: ref.recipeId,
+        });
         report.skipped++;
         continue;
       }
 
-      await this.#submitDeprecationProposal(entry, event.path);
+      const proposal = await this.#submitDeprecationProposal(entry, event.path);
+      report.pendingProposals.push(proposal);
       report.deprecated++;
       report.classificationCounts.deprecationProposals++;
       report.details.push({
@@ -319,6 +377,13 @@ export class FileChangeHandler {
     };
     report.recommendations.push(recommendation);
     report.classificationCounts.newModuleRecommendations++;
+    report.generationChangeLog.push({
+      action: 'new-module-recommendation',
+      createdAt: Date.now(),
+      eventSource: event.eventSource,
+      filePath: event.path,
+      reason: recommendation.reason,
+    });
     this.#signalBus?.send('quality', 'PluginUnifiedEvolution', 0.6, {
       metadata: {
         reason: 'new-module-scope-recommendation',
@@ -366,9 +431,9 @@ export class FileChangeHandler {
       matchedTokens: string[];
       reason: string;
     }
-  ): Promise<void> {
-    await this.#evolutionGateway?.submit({
-      action: 'update',
+  ): Promise<UnifiedEvolutionProposalSignal> {
+    const payload = {
+      action: 'update' as const,
       confidence: input.impactLevel === 'direct' ? 0.86 : 0.72,
       description: input.reason,
       evidence: [
@@ -384,13 +449,27 @@ export class FileChangeHandler {
         },
       ],
       recipeId: entry.id,
+      source: FILE_CHANGE_PROPOSAL_SOURCE as 'file-change',
+    };
+    const result = await this.#evolutionGateway?.submit(payload);
+    return {
+      action: payload.action,
+      confidence: payload.confidence,
+      description: payload.description,
+      filePath,
+      ...(readResultId(result) ? { proposalId: readResultId(result) } : {}),
+      recipeId: entry.id,
       source: FILE_CHANGE_PROPOSAL_SOURCE,
-    });
+      status: this.#evolutionGateway ? 'submitted' : 'unavailable',
+    };
   }
 
-  async #submitDeprecationProposal(entry: KnowledgeEntryLike, filePath: string): Promise<void> {
-    await this.#evolutionGateway?.submit({
-      action: 'deprecate',
+  async #submitDeprecationProposal(
+    entry: KnowledgeEntryLike,
+    filePath: string
+  ): Promise<UnifiedEvolutionProposalSignal> {
+    const payload = {
+      action: 'deprecate' as const,
       confidence: 0.79,
       description: `Covered source was deleted: ${filePath}`,
       evidence: [
@@ -403,8 +482,19 @@ export class FileChangeHandler {
       ],
       recipeId: entry.id,
       reason: `Covered source was deleted: ${filePath}`,
+      source: FILE_CHANGE_PROPOSAL_SOURCE as 'file-change',
+    };
+    const result = await this.#evolutionGateway?.submit(payload);
+    return {
+      action: payload.action,
+      confidence: payload.confidence,
+      description: payload.description,
+      filePath,
+      ...(readResultId(result) ? { proposalId: readResultId(result) } : {}),
+      recipeId: entry.id,
       source: FILE_CHANGE_PROPOSAL_SOURCE,
-    });
+      status: this.#evolutionGateway ? 'submitted' : 'unavailable',
+    };
   }
 
   #emitSourceModified(
@@ -466,7 +556,9 @@ function createReport(events: readonly FileChangeEvent[]): UnifiedEvolutionRepor
     details: [],
     eventSource: dominantEventSource(events),
     fixed: 0,
+    generationChangeLog: [],
     needsReview: 0,
+    pendingProposals: [],
     planBoundary: {
       generationStateWrites: 0,
       planIntentWrites: 0,
@@ -480,6 +572,20 @@ function createReport(events: readonly FileChangeEvent[]): UnifiedEvolutionRepor
 
 function isDeprecated(entry: KnowledgeEntryLike): boolean {
   return entry.lifecycle === 'deprecated';
+}
+
+function readResultId(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ['proposalId', 'id']) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
 }
 
 function renameConfidence(event: FileChangeEvent): number {

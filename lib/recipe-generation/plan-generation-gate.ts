@@ -519,20 +519,23 @@ function selectPlanModuleScope(input: {
     }))
     .filter((binding) => binding.modulePath.length > 0);
   const boundModulePaths = bindings.map((binding) => binding.modulePath).filter(Boolean);
-  const requested = input.moduleScope.length ? input.moduleScope : boundModulePaths;
+  const requested = input.moduleScope.length ? input.moduleScope : [];
+  const plannedModulePaths = arrayRecords(intent.plannedNextActions)
+    .filter((action) => {
+      const tool = readString(action, 'tool');
+      return tool === 'alembic_rescan' || normalizeStringArray(action.modulePaths).length > 0;
+    })
+    .flatMap((action) => normalizeStringArray(action.modulePaths));
   const gapModules = arrayRecords(readRecord(input.planState.coverage).gaps)
     .map((gap) => readString(gap, 'modulePath'))
     .filter(isPresent);
   const selected = uniqueStrings(
-    requested.length > 0
-      ? requested
-      : input.generationStage === 'moduleMining'
-        ? gapModules
-        : boundModulePaths
+    input.generationStage === 'moduleMining'
+      ? [...requested, ...plannedModulePaths, ...boundModulePaths, ...gapModules]
+      : requested.length > 0
+        ? requested
+        : [...boundModulePaths, ...plannedModulePaths]
   );
-  if (input.testMode && selected.length > 1) {
-    return selected.slice(0, 1);
-  }
   return selected;
 }
 

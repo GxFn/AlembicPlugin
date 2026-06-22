@@ -11,6 +11,7 @@
  *   5. 返回给宿主 Agent 按维度执行: evolve → gap-fill → dimension_complete
  */
 
+import { execFile } from 'node:child_process';
 import {
   auditRecipesForRescan,
   buildIDEAgentAnalysisPacketFromProjectContext,
@@ -30,6 +31,15 @@ import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
+import {
+  FileChangeHandler,
+  type UnifiedEvolutionReport,
+} from '#recipe-generation/evolution/FileChangeHandler.js';
+import {
+  GitDiffScanner,
+  type GitDiffScanResult,
+} from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
+import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/evolution/PluginOpportunisticEvolution.js';
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
@@ -61,6 +71,20 @@ interface McpContext {
 interface ProjectContextAuditFile {
   filePath: string;
 }
+
+interface RescanUnifiedEvolutionCheckpoint {
+  head: string | null;
+  signature: string | null;
+}
+
+interface RescanUnifiedEvolutionResult {
+  report: UnifiedEvolutionReport | null;
+  routeError: string | null;
+  scan: GitDiffScanResult;
+  surface: Awaited<ReturnType<typeof buildPluginOpportunisticEvolutionSurface>>;
+}
+
+let rescanUnifiedEvolutionCheckpoints: Map<string, RescanUnifiedEvolutionCheckpoint> | null = null;
 
 // ── 主入口 ─────────────────────────────────────────────────
 
@@ -146,6 +170,10 @@ async function prepareRescanState(
     projectRoot: plan.projectAnalysis.projectRoot,
     source: 'codex-host-rescan',
   });
+  const unifiedEvolution = await runRescanUnifiedEvolution(ctx, {
+    planGate,
+    projectRoot,
+  });
 
   return {
     cleanResult,
@@ -157,6 +185,7 @@ async function prepareRescanState(
     projectContextAnalysis,
     projectRoot,
     recipeSnapshot,
+    unifiedEvolution,
   };
 }
 
@@ -235,6 +264,7 @@ async function buildRescanResponse(
   }) as Record<string, unknown> & { message?: string; meta?: Record<string, unknown> };
 
   attachPlanGenerationGateData(response, state.planGate);
+  attachRescanUnifiedEvolution(response, state.unifiedEvolution);
   attachTrashArchiveMessage(response, state.cleanResult);
   attachHostProjectSelectionMismatch(response, state.projectRoot);
   return response;
@@ -347,6 +377,192 @@ function buildRescanBriefing(
   return briefingWithProjectContextGuide;
 }
 
+async function runRescanUnifiedEvolution(
+  ctx: McpContext,
+  input: {
+    planGate: PlanGenerationGateReady;
+    projectRoot: string;
+  }
+): Promise<RescanUnifiedEvolutionResult> {
+  const checkpointKey = input.projectRoot;
+  const checkpoints = getRescanUnifiedEvolutionCheckpoints();
+  const checkpoint = checkpoints.get(checkpointKey) ?? null;
+  const previousHead =
+    checkpoint?.head ??
+    (await resolveInitialRescanEvolutionPreviousHead(input.projectRoot, input.planGate));
+  const scanner = new GitDiffScanner({ projectRoot: input.projectRoot });
+  const scan = await scanner.scanOnce(Date.now(), { previousHead });
+  let report: UnifiedEvolutionReport | null = null;
+  let routeError: string | null = null;
+
+  if (shouldRouteRescanUnifiedEvolution(scan)) {
+    const handler = createRescanUnifiedEvolutionHandler(ctx, input.projectRoot);
+    if (handler) {
+      try {
+        report = await handler.handleFileChanges(scan.events);
+      } catch (error: unknown) {
+        routeError = error instanceof Error ? error.message : String(error);
+      }
+    } else {
+      routeError = 'Core unified evolution services are unavailable in the rescan MCP container';
+    }
+  }
+
+  if (scan.scanned) {
+    checkpoints.set(checkpointKey, {
+      head: scan.head,
+      signature: scan.signature,
+    });
+  }
+
+  const serviceGateReason =
+    'alembic_rescan public workflow owns Plugin commit-driven unified evolution routing for this rescan response.';
+  const surface = await buildPluginOpportunisticEvolutionSurface({
+    projectRoot: input.projectRoot,
+    scan,
+    serviceGate: {
+      mainServiceCanHandleProjectScope: false,
+      residentProjectScopeAvailable: false,
+      reason: routeError
+        ? `${serviceGateReason} Routing did not complete: ${routeError}.`
+        : serviceGateReason,
+    },
+    toolOutcome: {
+      reason: 'alembic_rescan completed',
+      success: true,
+      tool: 'alembic_rescan',
+    },
+    unifiedEvolution: report,
+  });
+
+  return { report, routeError, scan, surface };
+}
+
+function attachRescanUnifiedEvolution(
+  response: Record<string, unknown>,
+  unifiedEvolution: RescanUnifiedEvolutionResult
+): void {
+  const data =
+    response.data && typeof response.data === 'object' && !Array.isArray(response.data)
+      ? (response.data as Record<string, unknown>)
+      : {};
+  response.data = data;
+  const attach = (target: Record<string, unknown>) => {
+    target.unifiedEvolution = unifiedEvolution.surface;
+    if (unifiedEvolution.surface.gitDiffEvidence) {
+      target.gitDiffEvidence = unifiedEvolution.surface.gitDiffEvidence;
+    }
+    if (!unifiedEvolution.surface.unifiedEvolution) {
+      return;
+    }
+    const evolution = unifiedEvolution.surface.unifiedEvolution;
+    target.evolution = evolution;
+    target.pendingProposals = evolution.pendingProposals;
+    target.proposals = evolution.pendingProposals;
+    target.generationChangeLog = evolution.generationChangeLog;
+    target.recommendations = evolution.recommendations;
+  };
+  attach(response);
+  attach(data);
+}
+
+function shouldRouteRescanUnifiedEvolution(scan: GitDiffScanResult): boolean {
+  if (!scan.scanned || scan.events.length === 0 || scan.truncated) {
+    return false;
+  }
+  if (scan.headChanged && scan.headRangeStatus !== 'ancestor') {
+    return false;
+  }
+  return true;
+}
+
+function createRescanUnifiedEvolutionHandler(
+  ctx: McpContext,
+  projectRoot: string
+): FileChangeHandler | null {
+  const sourceRefRepository = safeContainerGet(ctx, 'recipeSourceRefRepository');
+  const knowledgeRepository = safeContainerGet(ctx, 'knowledgeRepository');
+  if (
+    !hasFunctions(sourceRefRepository, ['findByRecipeId', 'findBySourcePath', 'replaceSourcePath'])
+  ) {
+    return null;
+  }
+  if (!hasFunctions(knowledgeRepository, ['findById'])) {
+    return null;
+  }
+  const contentPatcher = safeContainerGet(ctx, 'contentPatcher');
+  const evolutionGateway = safeContainerGet(ctx, 'evolutionGateway');
+  const recipeFreshnessService = safeContainerGet(ctx, 'recipeFreshnessService');
+  const signalBus = safeContainerGet(ctx, 'signalBus');
+  return new FileChangeHandler(
+    sourceRefRepository as never,
+    knowledgeRepository as never,
+    contentPatcher,
+    {
+      evolutionGateway: hasFunctions(evolutionGateway, ['submit'])
+        ? (evolutionGateway as never)
+        : null,
+      projectRoot,
+      recipeFreshnessService: hasFunctions(recipeFreshnessService, ['refreshRecipes'])
+        ? (recipeFreshnessService as never)
+        : null,
+      signalBus: hasFunctions(signalBus, ['send']) ? (signalBus as never) : null,
+    }
+  );
+}
+
+async function resolveInitialRescanEvolutionPreviousHead(
+  projectRoot: string,
+  planGate: PlanGenerationGateReady
+): Promise<string | null> {
+  const currentHead = await gitRevParse(projectRoot, 'HEAD');
+  const planCommit = readString(planGate.plan, 'lastUpdatedFromCommit');
+  if (currentHead && planCommit && planCommit !== currentHead) {
+    return planCommit;
+  }
+  return await gitRevParse(projectRoot, 'HEAD^');
+}
+
+function gitRevParse(projectRoot: string, revision: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['rev-parse', '--verify', revision],
+      { cwd: projectRoot, encoding: 'utf8', timeout: 5000 },
+      (error, stdout) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
+        const value = stdout.trim();
+        resolve(value.length > 0 ? value : null);
+      }
+    );
+  });
+}
+
+function getRescanUnifiedEvolutionCheckpoints(): Map<string, RescanUnifiedEvolutionCheckpoint> {
+  if (rescanUnifiedEvolutionCheckpoints === null) {
+    rescanUnifiedEvolutionCheckpoints = new Map();
+  }
+  return rescanUnifiedEvolutionCheckpoints;
+}
+
+function safeContainerGet(ctx: McpContext, serviceName: string): unknown {
+  try {
+    return ctx.container.get(serviceName);
+  } catch {
+    return null;
+  }
+}
+
+function hasFunctions(value: unknown, names: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  return names.every((name) => typeof (value as Record<string, unknown>)[name] === 'function');
+}
+
 function logRescanBriefingReady(
   ctx: McpContext,
   state: Awaited<ReturnType<typeof prepareRescanState>>,
@@ -441,4 +657,12 @@ function projectContextFilesForRescanAudit(files: readonly ProjectContextAuditFi
     path: file.filePath,
     relativePath: file.filePath,
   }));
+}
+
+function readString(record: unknown, key: string): string | undefined {
+  const value =
+    record && typeof record === 'object' && !Array.isArray(record)
+      ? (record as Record<string, unknown>)[key]
+      : undefined;
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }

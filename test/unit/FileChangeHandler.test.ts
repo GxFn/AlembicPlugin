@@ -144,6 +144,15 @@ describe('FileChangeHandler', () => {
         expect.any(Number),
         expect.objectContaining({ target: 'r1' })
       );
+      expect(report.generationChangeLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'source-modified-reference',
+            filePath: 'Sources/Networking/AuthMiddleware.swift',
+            recipeId: 'r1',
+          }),
+        ])
+      );
     });
 
     test('sourceRef 匹配多条 Recipe → 每条都发射信号', async () => {
@@ -321,6 +330,14 @@ describe('FileChangeHandler', () => {
 
       expect(report.suggestReview).toBe(true);
       expect(report.classificationCounts.newModuleRecommendations).toBe(1);
+      expect(report.generationChangeLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'new-module-recommendation',
+            filePath: 'Sources/New.swift',
+          }),
+        ])
+      );
       expect(report.recommendations[0]).toMatchObject({
         path: 'Sources/New.swift',
         nextActions: expect.arrayContaining(['alembic_plan get']),
@@ -395,6 +412,16 @@ describe('FileChangeHandler', () => {
       ]);
 
       expect(report.fixed).toBe(1);
+      expect(report.generationChangeLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'source-ref-repaired',
+            oldPath: 'Sources/Old.swift',
+            newPath: 'Sources/New.swift',
+            recipeId: 'r1',
+          }),
+        ])
+      );
       expect(sourceRefRepo.replaceSourcePath).toHaveBeenCalledWith(
         'r1',
         'Sources/Old.swift',
@@ -421,6 +448,15 @@ describe('FileChangeHandler', () => {
       expect(report.needsReview).toBe(1);
       expect(report.classificationCounts.repaired).toBe(1);
       expect(report.classificationCounts.proposed).toBe(1);
+      expect(report.pendingProposals).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'update',
+            recipeId: 'r1',
+            status: 'submitted',
+          }),
+        ])
+      );
       expect(sourceRefRepo.replaceSourcePath).toHaveBeenCalledWith(
         'r1',
         'Sources/Old.swift',
@@ -524,6 +560,15 @@ describe('FileChangeHandler', () => {
           source: 'file-change',
           confidence: expect.any(Number),
         })
+      );
+      expect(report.pendingProposals).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'update',
+            filePath: 'Sources/A.swift',
+            recipeId: 'r1',
+          }),
+        ])
       );
     });
 

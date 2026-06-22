@@ -87,7 +87,9 @@ export interface PluginOpportunisticEvolutionSurface {
     deprecated: number;
     fixed: number;
     freshness?: UnifiedEvolutionReport['freshness'];
+    generationChangeLog: UnifiedEvolutionReport['generationChangeLog'];
     needsReview: number;
+    pendingProposals: UnifiedEvolutionReport['pendingProposals'];
     planBoundary: UnifiedEvolutionReport['planBoundary'];
     recommendations: UnifiedEvolutionReport['recommendations'];
     skipped: number;
@@ -352,7 +354,9 @@ function summarizeUnifiedEvolution(
     deprecated: report.deprecated,
     fixed: report.fixed,
     ...(report.freshness ? { freshness: report.freshness } : {}),
+    generationChangeLog: report.generationChangeLog,
     needsReview: report.needsReview,
+    pendingProposals: report.pendingProposals,
     planBoundary: report.planBoundary,
     recommendations: report.recommendations,
     skipped: report.skipped,

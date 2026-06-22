@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { type AlembicDatabaseRuntime, openAlembicDatabase } from '@alembic/core/database';
+import { KnowledgeEntry } from '@alembic/core/knowledge';
 import {
   type AlembicRepositoryBundle,
   createAlembicRepositories,
@@ -251,6 +253,104 @@ describe('Plan-driven generation gate', () => {
     expect(fs.existsSync(path.join(projectRoot, '.asd', '.trash'))).toBe(false);
   });
 
+  test('moduleMining rescan preserves Plan scope and surfaces commit-driven evolution', async () => {
+    initializeGitRepository(projectRoot);
+    moveFile(projectRoot, 'src/api/client.ts', 'src/api/RG10Client.ts');
+    writeFile(
+      projectRoot,
+      'src/RG10AcceptanceProbe/index.ts',
+      ['export const rg10Probe = true;', ''].join('\n')
+    );
+    git(projectRoot, ['add', '.']);
+    git(projectRoot, ['commit', '-m', 'rg10 rescan evolution fixture']);
+
+    const { dimensionId } = await confirmPlan({
+      dimensionStage: 'deepMining',
+      moduleBindings: ['src/api', 'src/RG10AcceptanceProbe'],
+      modulePath: 'src/api',
+      plannedModulePaths: ['src/api', 'src/RG10AcceptanceProbe'],
+    });
+    const recipe = new KnowledgeEntry({
+      id: 'recipe-rg10-client',
+      title: 'RG10 API client recipe',
+      description: 'Recipe anchored to the pre-rename API client.',
+      lifecycle: 'active',
+      language: 'typescript',
+      dimensionId,
+      category: 'architecture',
+      knowledgeType: 'code-pattern',
+      sourceFile: 'src/api/client.ts',
+      content: {
+        pattern: 'fetchUser returns typed user data for the app.',
+        rationale: 'Used by moduleMining rescan evolution regression.',
+      },
+      reasoning: {
+        confidence: 0.9,
+        sources: ['src/api/client.ts'],
+        whyStandard: 'The API client source is the recipe anchor.',
+      },
+    });
+    await repositories.knowledgeRepository.create(recipe);
+    repositories.recipeSourceRefRepository.upsert({
+      recipeId: recipe.id,
+      sourcePath: 'src/api/client.ts',
+      status: 'active',
+      verifiedAt: 100,
+    });
+
+    const result = (await runHostAgentKnowledgeRescanWorkflow(createContext(), {
+      dimensions: [dimensionId],
+      generationStage: 'moduleMining',
+      moduleScope: ['src/api'],
+      reason: 'rg10 commit-driven evolution fixture',
+      scaleOverride: { maxFiles: 10, contentMaxLines: 20, totalRecipeBudget: 2 },
+      testMode: true,
+    })) as ToolResponse;
+
+    expect(result.success).toBe(true);
+    expect(result.data?.moduleScope).toEqual(['src/api', 'src/RG10AcceptanceProbe']);
+    expect(asRecord(result.data?.planGate).moduleScope).toEqual([
+      'src/api',
+      'src/RG10AcceptanceProbe',
+    ]);
+    expect(asRecord(result.data?.unifiedEvolution).evidenceGate).toMatchObject({
+      verdict: 'routed',
+    });
+    expect(asRecord(result.data?.gitDiffEvidence)).toMatchObject({
+      headRangeStatus: 'ancestor',
+      eventCount: expect.any(Number),
+    });
+    expect(asRecord(result.data?.evolution)).toMatchObject({
+      classificationCounts: expect.objectContaining({
+        newModuleRecommendations: 1,
+        renamed: 1,
+        repaired: 1,
+      }),
+    });
+    expect(asArray(result.data?.generationChangeLog)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'source-ref-repaired',
+          oldPath: 'src/api/client.ts',
+          newPath: 'src/api/RG10Client.ts',
+          recipeId: recipe.id,
+        }),
+        expect.objectContaining({
+          action: 'new-module-recommendation',
+          filePath: 'src/RG10AcceptanceProbe/index.ts',
+        }),
+      ])
+    );
+    expect(
+      repositories.recipeSourceRefRepository.findBySourcePath('src/api/RG10Client.ts')
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ recipeId: recipe.id, status: 'active' })])
+    );
+    expect(repositories.recipeSourceRefRepository.findBySourcePath('src/api/client.ts')).toEqual(
+      []
+    );
+  });
+
   test('moduleMining lease blocks duplicate rescanId until release', () => {
     const gate = buildReadyGate({
       cleanupPolicy: 'none',
@@ -312,7 +412,9 @@ describe('Plan-driven generation gate', () => {
 async function confirmPlan(input: {
   dimensionStage: 'coldStart' | 'deepMining';
   draftHints?: Record<string, unknown>;
+  moduleBindings?: string[];
   modulePath: string;
+  plannedModulePaths?: string[];
 }): Promise<{ dimensionId: string; planId: string; version: number }> {
   const draft = (await routePlanTool(createContext(), {
     operation: 'draft',
@@ -357,17 +459,16 @@ async function confirmPlan(input: {
       totalRecipeBudget: 2,
       perStage: { coldStart: 1, deepMining: 1, module: 1 },
     },
-    moduleBindings: [
-      {
-        modulePath: input.modulePath,
-        dimensions: [dimensionId],
-        targetRecipes: 1,
-      },
-    ],
+    moduleBindings: (input.moduleBindings ?? [input.modulePath]).map((modulePath) => ({
+      modulePath,
+      dimensions: [dimensionId],
+      targetRecipes: 1,
+    })),
     plannedNextActions: [
       {
         tool: 'alembic_rescan',
         reason: 'RG4 Plan-driven generation fixture',
+        ...(input.plannedModulePaths ? { modulePaths: input.plannedModulePaths } : {}),
       },
     ],
   })) as ToolResponse;
@@ -558,6 +659,25 @@ function writeFile(root: string, relativePath: string, content: string): void {
   const filePath = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function moveFile(root: string, from: string, to: string): void {
+  const fromPath = path.join(root, from);
+  const toPath = path.join(root, to);
+  fs.mkdirSync(path.dirname(toPath), { recursive: true });
+  fs.renameSync(fromPath, toPath);
+}
+
+function initializeGitRepository(root: string): void {
+  git(root, ['init']);
+  git(root, ['config', 'user.email', 'test@example.com']);
+  git(root, ['config', 'user.name', 'Alembic Test']);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'initial fixture']);
+}
+
+function git(cwd: string, args: string[]): void {
+  execFileSync('git', args, { cwd, stdio: 'ignore' });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
