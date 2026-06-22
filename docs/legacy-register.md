@@ -99,9 +99,8 @@ RC4 execution (2026-06-11).
   literals) confirmed the only importers were the plugin `HttpServer` mount
   and the panorama unit test; the Dashboard's `/panorama` + `/evolution`
   calls (`src/api.ts`, relative `/api/v1` base) reach the MAIN Alembic daemon,
-  whose twin routes stay (contract-required). Neither route is in
-  `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`. Behavior-neutral: the MCP
-  `alembic_panorama` tool and the `PanoramaService` capability are untouched
-  and reachable through other surfaces; only the dead HTTP read surfaces are
-  gone. Served MCP wire surface proven byte-stable (tools/list + callTool
-  parity unchanged).
+  whose twin routes stayed contract-required at the time. Neither route is in
+  `CODEX_EMBEDDED_RUNTIME_REQUIRED_ROUTES`. Follow-up P5 cleanup (2026-06-23)
+  retired the Core `PanoramaService` implementation and removed the Plugin
+  `alembic_panorama` clean-output business contract; direct calls now remain
+  only as explicit retired-tool diagnostics instead of a live Panorama surface.

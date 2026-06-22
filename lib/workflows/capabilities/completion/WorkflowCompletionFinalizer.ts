@@ -1,7 +1,7 @@
 import Logger from '@alembic/core/logging';
 import {
   consolidateSemanticMemory,
-  refreshPanorama,
+  refreshProjectContextReads,
 } from '#workflows/capabilities/completion/CompletionSteps.js';
 import type {
   CompletionContextLike,
@@ -48,29 +48,30 @@ export async function runWorkflowCompletionFinalizer({
   const getServiceContainer = dependencies.getServiceContainer ?? defaultGetServiceContainer;
   const scheduleTask = dependencies.scheduleTask ?? defaultScheduleTask;
   const semanticMemoryMode = semanticMemory.mode ?? 'scheduled';
-  const panoramaMode = steps.panorama ?? 'run';
+  const projectContextMode = steps.projectContext ?? 'run';
 
   if (shouldAbort?.()) {
-    log.info('[CompletionFinalizer] Aborted before panorama — user cancelled');
+    log.info('[CompletionFinalizer] Aborted before ProjectContext refresh — user cancelled');
     return {
       semanticMemoryResult: null,
-      panoramaStatus: 'skipped',
+      projectContextRefreshStatus: 'skipped',
     };
   }
 
-  let panoramaStatus: WorkflowCompletionFinalizerResult['panoramaStatus'] = 'skipped';
-  if (panoramaMode === 'run') {
-    await refreshPanorama({ getServiceContainer, log });
-    panoramaStatus = 'completed';
+  let projectContextRefreshStatus: WorkflowCompletionFinalizerResult['projectContextRefreshStatus'] =
+    'skipped';
+  if (projectContextMode === 'run') {
+    await refreshProjectContextReads({ getServiceContainer, log });
+    projectContextRefreshStatus = 'completed';
   } else {
-    log.info('[CompletionFinalizer] Panorama refresh skipped by workflow option');
+    log.info('[CompletionFinalizer] ProjectContext refresh skipped by workflow option');
   }
 
   if (shouldAbort?.()) {
     log.info('[CompletionFinalizer] Aborted before semantic memory — user cancelled');
     return {
       semanticMemoryResult: null,
-      panoramaStatus,
+      projectContextRefreshStatus,
     };
   }
   let semanticMemoryResult: WorkflowCompletionFinalizerResult['semanticMemoryResult'] = null;
@@ -86,7 +87,7 @@ export async function runWorkflowCompletionFinalizer({
     }
   }
 
-  return { semanticMemoryResult, panoramaStatus };
+  return { semanticMemoryResult, projectContextRefreshStatus };
 }
 
 async function defaultGetServiceContainer(): Promise<ServiceContainerLike> {

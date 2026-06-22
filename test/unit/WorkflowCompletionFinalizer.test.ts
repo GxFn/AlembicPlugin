@@ -23,10 +23,10 @@ describe('WorkflowCompletionFinalizer', () => {
 
     expect(events).toEqual([]);
     expect(log.info).toHaveBeenCalledWith(
-      '[DimensionComplete] Project information refresh skipped: panorama provider retired; ProjectContext reads are live.'
+      '[DimensionComplete] ProjectContext refresh skipped: retired project refresh provider has no work; ProjectContext reads are live.'
     );
     expect(result.semanticMemoryResult).toBeNull();
-    expect(result.panoramaStatus).toBe('completed');
+    expect(result.projectContextRefreshStatus).toBe('completed');
   });
 
   test('scheduled semantic memory uses the workflow scheduler', async () => {
@@ -46,7 +46,7 @@ describe('WorkflowCompletionFinalizer', () => {
     expect(scheduled).toHaveLength(1);
   });
 
-  test('can skip panorama while keeping scheduled semantic memory', async () => {
+  test('can skip ProjectContext refresh while keeping scheduled semantic memory', async () => {
     const events: string[] = [];
     const scheduled: Array<() => Promise<void>> = [];
 
@@ -59,13 +59,13 @@ describe('WorkflowCompletionFinalizer', () => {
         getServiceContainer: () => createContainer(events),
         scheduleTask: (task) => scheduled.push(task),
       },
-      steps: { panorama: 'skip' },
+      steps: { projectContext: 'skip' },
     });
 
     expect(events).toEqual([]);
     expect(scheduled).toHaveLength(1);
     expect(result).toMatchObject({
-      panoramaStatus: 'skipped',
+      projectContextRefreshStatus: 'skipped',
     });
   });
 
@@ -76,7 +76,7 @@ describe('WorkflowCompletionFinalizer', () => {
     );
 
     expect(source).toContain('CompletionSteps.js');
-    expect(source).toContain('refreshPanorama');
+    expect(source).toContain('refreshProjectContextReads');
     expect(source).toContain('consolidateSemanticMemory');
   });
 });

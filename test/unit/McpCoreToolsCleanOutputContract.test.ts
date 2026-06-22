@@ -26,7 +26,6 @@ const expectedCoreToolNames = [
   'alembic_evolve',
   'alembic_consolidate',
   'alembic_dimension_complete',
-  'alembic_panorama',
   'alembic_knowledge_lifecycle',
 ] as const;
 
@@ -296,8 +295,6 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
       return { kept: 1, merged: 0, processed: 1, rejected: 0 };
     case 'alembic_dimension_complete':
       return { completed: true, dimensionId: 'architecture' };
-    case 'alembic_panorama':
-      return { modules: [], overview: { moduleCount: 0 } };
     case 'alembic_knowledge_lifecycle':
       return { action: 'reactivate', updated: 1 };
   }

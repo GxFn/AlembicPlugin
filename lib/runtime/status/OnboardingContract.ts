@@ -964,12 +964,7 @@ function buildScopeBrief(input: BuildOnboardingContractInput): Record<string, un
 function buildToolCapabilityMatrix(
   entries: PluginToolSurfaceEntry[]
 ): Array<Record<string, unknown>> {
-  const blockedForSop = new Set([
-    'alembic_call_context',
-    'alembic_knowledge',
-    'alembic_structure',
-    'alembic_panorama',
-  ]);
+  const blockedForSop = new Set(['alembic_call_context', 'alembic_knowledge', 'alembic_structure']);
   return entries
     .filter((entry) => !blockedForSop.has(entry.name))
     .map((entry) => ({

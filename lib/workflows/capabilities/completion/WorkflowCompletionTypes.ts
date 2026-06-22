@@ -60,7 +60,7 @@ export interface WorkflowCompletionFinalizerDependencies {
 export type WorkflowSemanticMemoryMode = 'scheduled' | 'immediate' | 'skip';
 
 export interface WorkflowCompletionStepOptions {
-  panorama?: 'run' | 'skip';
+  projectContext?: 'run' | 'skip';
 }
 
 export interface WorkflowSemanticMemoryConsolidationResult {
@@ -71,7 +71,7 @@ export interface WorkflowSemanticMemoryConsolidationResult {
 
 export interface WorkflowCompletionFinalizerResult {
   semanticMemoryResult: WorkflowSemanticMemoryConsolidationResult | null;
-  panoramaStatus?: WorkflowCompletionStepStatus;
+  projectContextRefreshStatus?: WorkflowCompletionStepStatus;
 }
 
 export type WorkflowCompletionStepStatus = 'completed' | 'scheduled' | 'skipped';

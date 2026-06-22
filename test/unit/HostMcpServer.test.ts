@@ -25,10 +25,7 @@ import {
   resetPluginOwnedMcpServerForTests,
 } from '../../lib/runtime/mcp/HostMcpServer.js';
 import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
-import {
-  getSavedProjectRootPath,
-  readInitMarker,
-} from '../../lib/runtime/ProjectRootResolver.js';
+import { getSavedProjectRootPath, readInitMarker } from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
@@ -161,11 +158,6 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function readArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
-}
-
-function readString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key];
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function makeDirtyGitRepo(projectRoot: string): void {
@@ -442,9 +434,7 @@ describe('HostMcpServer', () => {
   test('keeps ProjectContext tool-list descriptions aligned with initialize guidance', () => {
     const projectRoot = makeProjectRoot();
     makeUsableKnowledgeBase(projectRoot);
-    const byName = new Map(
-      getVisibleTools('agent', projectRoot).map((tool) => [tool.name, tool])
-    );
+    const byName = new Map(getVisibleTools('agent', projectRoot).map((tool) => [tool.name, tool]));
 
     expect(byName.get('alembic_recipe_map')?.description).toContain('ProjectContext');
     expect(byName.get('alembic_graph')?.description).toContain('ProjectContext');
@@ -1605,9 +1595,8 @@ describe('HostMcpServer', () => {
       (entry) => entry.name
     );
     if (removedOrBlocked) {
-      expect(removedOrBlocked).toEqual(
-        expect.arrayContaining(['alembic_call_context', 'alembic_panorama'])
-      );
+      expect(removedOrBlocked).toEqual(expect.arrayContaining(['alembic_call_context']));
+      expect(removedOrBlocked).not.toContain('alembic_panorama');
     }
     expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_call_context');
     expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_affected_tests');

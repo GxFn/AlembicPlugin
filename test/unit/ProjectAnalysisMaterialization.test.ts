@@ -15,7 +15,6 @@ describe('ProjectAnalysis materialization plan', () => {
       dependencyEdges: true,
       moduleEntities: true,
       guardViolations: true,
-      panorama: true,
       sourceGraph: true,
     });
   });
@@ -27,7 +26,6 @@ describe('ProjectAnalysis materialization plan', () => {
       dependencyEdges: false,
       moduleEntities: false,
       guardViolations: false,
-      panorama: false,
       sourceGraph: false,
     });
   });
@@ -36,7 +34,7 @@ describe('ProjectAnalysis materialization plan', () => {
     expect(resolveProjectAnalysisMaterialization({ dependencyEdges: false })).toMatchObject({
       codeEntityGraph: true,
       dependencyEdges: false,
-      panorama: true,
+      sourceGraph: true,
     });
   });
 

@@ -1,7 +1,7 @@
 /**
  * CompletionSteps — Workflow 完成阶段的各步骤实现
  *
- * 包含 Panorama 刷新和语义记忆固化，
+ * 包含 ProjectContext 刷新占位和语义记忆固化，
  * 由 WorkflowCompletionFinalizer 按顺序调用。
  */
 
@@ -15,16 +15,16 @@ import type {
   WorkflowSemanticMemoryConsolidationResult,
 } from '#workflows/capabilities/completion/WorkflowCompletionTypes.js';
 
-// ── PanoramaCompletionStep ──
+// ── ProjectContextCompletionStep ──
 
-export async function refreshPanorama({
+export async function refreshProjectContextReads({
   log,
 }: {
   getServiceContainer: LoadServiceContainer;
   log: CompletionLogger;
 }): Promise<void> {
   log.info(
-    '[DimensionComplete] Project information refresh skipped: panorama provider retired; ProjectContext reads are live.'
+    '[DimensionComplete] ProjectContext refresh skipped: retired project refresh provider has no work; ProjectContext reads are live.'
   );
 }
 
