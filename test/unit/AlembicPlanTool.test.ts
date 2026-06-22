@@ -87,6 +87,71 @@ describe('alembic_plan tool', () => {
     expect(JSON.stringify(stored?.intent)).not.toContain('codeRecipeMapping');
   });
 
+  test('draft grounds focused Swift projects with repo-level ProjectContext fallback', async () => {
+    await replaceFixtureProject(createSwiftFixtureProject());
+
+    const draft = await draftPlan({
+      focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
+      goal: 'RG-10 BiliDili planning truthfulness for Swift UI networking concurrency signals',
+      maxBudget: 6,
+      maxRecommendedDimensions: 8,
+    });
+
+    expect(draft.success).toBe(true);
+    expect(draft.errorCode).toBeUndefined();
+
+    const planningBrief = asRecord(draft.data?.planningBrief);
+    const projectContext = asRecord(planningBrief.projectContext);
+    expect(projectContext).toMatchObject({
+      factSource: 'project-context-repo-fallback',
+      primaryLanguage: 'swift',
+    });
+    expect(projectContext.fileCount as number).toBeGreaterThan(0);
+    expect(projectContext.moduleCount as number).toBeGreaterThan(0);
+    expect(asArray(projectContext.requestKinds)).toEqual(expect.arrayContaining(['repo']));
+    expect(asArray(projectContext.frameworks)).toEqual(
+      expect.arrayContaining(['swiftui', 'uikit', 'networking', 'async'])
+    );
+    expect(
+      asArray(projectContext.moduleSeeds).map((seed) => String(asRecord(seed).modulePath))
+    ).toEqual(
+      expect.arrayContaining([
+        'Sources/Features/VideoFeed',
+        'Sources/Infrastructure',
+        'BiliDili/Modules',
+      ])
+    );
+    expect(asArray(projectContext.fallbackDiagnostics)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'project-context-repo-fallback',
+          fileCount: expect.any(Number),
+        }),
+      ])
+    );
+
+    const sourceReports = asRecord(draft.data?.sourceReports);
+    const planningAids = asRecord(sourceReports.planningAids);
+    const recommendedDimensions = asArray(planningAids.recommendedDimensions).map((item) =>
+      String(asRecord(item).dimensionId)
+    );
+    expect(recommendedDimensions).toEqual(
+      expect.arrayContaining(['swift-objc-idiom', 'swiftui-patterns'])
+    );
+    expect(recommendedDimensions).toEqual(
+      expect.arrayContaining(['networking-api', 'concurrency-async'])
+    );
+
+    const plan = asRecord(draft.data?.plan);
+    const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
+    expect(stored?.planningBrief).toMatchObject({
+      projectContext: expect.objectContaining({
+        factSource: 'project-context-repo-fallback',
+        primaryLanguage: 'swift',
+      }),
+    });
+  });
+
   test('confirm rejects signature echo mismatch and stale base versions before confirming intent', async () => {
     const draft = await draftPlan();
     const plan = asRecord(draft.data?.plan);
@@ -247,6 +312,18 @@ async function draftPlan(hints: Record<string, unknown> = {}): Promise<PlanToolR
   return callPlan({ operation: 'draft', hints });
 }
 
+async function replaceFixtureProject(nextProjectRoot: string): Promise<void> {
+  runtime.close();
+  fs.rmSync(projectRoot, { recursive: true, force: true });
+  projectRoot = nextProjectRoot;
+  fs.mkdirSync(path.join(projectRoot, '.asd'), { recursive: true });
+  runtime = await openAlembicDatabase(
+    { path: path.join(projectRoot, '.asd', 'alembic.db') },
+    { workspaceResolver: WorkspaceResolver.fromProject(projectRoot) }
+  );
+  repositories = createAlembicRepositories(runtime.connection);
+}
+
 async function callPlan(args: Record<string, unknown>): Promise<PlanToolResponse> {
   return (await routePlanTool(createContext(), { projectRoot, ...args })) as PlanToolResponse;
 }
@@ -316,6 +393,101 @@ function createFixtureProject(): string {
       'describe("fetchUser", () => {',
       '  test("returns a user", () => expect(fetchUser("1").name).toBe("Ada"));',
       '});',
+      '',
+    ].join('\n')
+  );
+  return root;
+}
+
+function createSwiftFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-tool-swift-fixture-'));
+  writeFile(
+    root,
+    'Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(',
+      '  name: "BiliDiliFixture",',
+      '  platforms: [.iOS(.v17)],',
+      '  products: [.library(name: "BiliDiliFixture", targets: ["VideoFeed", "Infrastructure"])],',
+      '  targets: [',
+      '    .target(name: "VideoFeed", dependencies: ["Infrastructure"], path: "Sources/Features/VideoFeed"),',
+      '    .target(name: "Infrastructure", path: "Sources/Infrastructure"),',
+      '  ]',
+      ')',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/Features/VideoFeed/VideoFeedViewController.swift',
+    [
+      'import UIKit',
+      'import SwiftUI',
+      'import Infrastructure',
+      '',
+      'final class VideoFeedViewController: UIViewController {',
+      '  private let client = VideoAPIClient()',
+      '  override func viewDidLoad() {',
+      '    super.viewDidLoad()',
+      '    Task { await loadFeed() }',
+      '  }',
+      '  private func loadFeed() async {',
+      '    _ = try? await client.fetchFeed()',
+      '  }',
+      '}',
+      '',
+      'struct VideoFeedPreview: View {',
+      '  var body: some View { Text("Feed") }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/Infrastructure/Networking/VideoAPIClient.swift',
+    [
+      'import Foundation',
+      'import Combine',
+      '',
+      'public final class VideoAPIClient {',
+      '  public init() {}',
+      '  public func fetchFeed() async throws -> Data {',
+      '    let url = URL(string: "https://example.test/feed")!',
+      '    let (data, _) = try await URLSession.shared.data(from: url)',
+      '    return data',
+      '  }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/Infrastructure/Concurrency/FeedRefreshActor.swift',
+    [
+      'import Foundation',
+      '',
+      'public actor FeedRefreshActor {',
+      '  public func refresh(using client: VideoAPIClient) async throws -> Data {',
+      '    try await client.fetchFeed()',
+      '  }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'BiliDili/Modules/NetworkModule.swift',
+    [
+      'import UIKit',
+      'import Foundation',
+      '',
+      'final class NetworkModule {',
+      '  func register() {',
+      '    DispatchQueue.main.async { _ = UIView() }',
+      '  }',
+      '}',
       '',
     ].join('\n')
   );

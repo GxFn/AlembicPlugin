@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { basename } from 'node:path';
+import fs from 'node:fs';
+import path, { basename } from 'node:path';
 import {
   baseDimensions,
   buildProjectContextMissionBriefing,
@@ -22,6 +23,8 @@ import {
 } from '@alembic/core/plans';
 import {
   buildProjectContextPresenterInput,
+  type FileFlowContext,
+  type ModuleContext,
   type ProjectContextEnvelope,
   type ProjectContextPresenterInput,
   type ProjectContextRef,
@@ -65,6 +68,8 @@ interface PlanModuleSeed {
 interface PlanProjectContextAnalysis {
   dimensions: DimensionDef[];
   envelopes: ProjectContextEnvelope<ProjectContextResult>[];
+  factSource: 'project-context' | 'project-context-repo-fallback';
+  fallbackDiagnostics: Record<string, unknown>[];
   fileCount: number;
   frameworks: string[];
   moduleCount: number;
@@ -85,6 +90,16 @@ interface ModuleSnapshot {
 }
 
 type PlanArgs = PlanInput;
+type PlanFileSummary = FileFlowContext['file'];
+type PlanRelationSummary = FileFlowContext['imports'][number];
+type PlanProjectContextFallback = {
+  diagnostics: Record<string, unknown>[];
+  fileFlows: FileFlowContext[];
+  fileSummaries: PlanFileSummary[];
+  frameworks: string[];
+  moduleSeeds: PlanModuleSeed[];
+  modules: ModuleContext[];
+};
 type ArchitectureIntelligence = ReturnType<
   typeof ProjectContextCapabilities.analyzeArchitectureIntelligence
 >;
@@ -129,6 +144,47 @@ const COUNTABLE_RECIPE_LIFECYCLES = [
 ] as const;
 
 const PLAN_TOOL_NAME = 'alembic_plan';
+const PLAN_FALLBACK_MAX_FILES = 96;
+const PLAN_FALLBACK_MAX_FILES_PER_MODULE = 32;
+const PLAN_FALLBACK_MAX_IMPORTS_PER_FILE = 16;
+const PLAN_FALLBACK_MAX_SCAN_DEPTH = 8;
+const PLAN_FALLBACK_SOURCE_EXTENSIONS = new Set([
+  '.c',
+  '.cc',
+  '.cpp',
+  '.cs',
+  '.cxx',
+  '.go',
+  '.h',
+  '.hpp',
+  '.java',
+  '.js',
+  '.jsx',
+  '.kt',
+  '.m',
+  '.mm',
+  '.mjs',
+  '.py',
+  '.rs',
+  '.swift',
+  '.ts',
+  '.tsx',
+]);
+const PLAN_FALLBACK_EXCLUDED_DIRECTORIES = new Set([
+  '.asd',
+  '.build',
+  '.git',
+  '.swiftpm',
+  'Alembic',
+  'Build',
+  'DerivedData',
+  'Pods',
+  'build',
+  'dist',
+  'node_modules',
+  'third_party',
+  'vendor',
+]);
 
 export async function routePlanTool(
   ctx: PlanToolContext,
@@ -732,23 +788,650 @@ async function collectPlanProjectContext(
   }
 
   const presenterInput = buildProjectContextPresenterInput(envelopes);
-  const primaryLanguage = inferPrimaryLanguage(presenterInput);
-  const secondaryLanguages = inferSecondaryLanguages(presenterInput, primaryLanguage);
-  const frameworks = collectFrameworkHints(presenterInput);
-  return {
-    dimensions: resolveActiveDimensions(baseDimensions, primaryLanguage, []),
-    envelopes,
-    fileCount: presenterInput.files.length,
-    frameworks,
-    moduleCount:
-      presenterInput.modules.length || presenterInput.map?.modules.length || moduleSeeds.length,
+  const fallback = await buildPlanProjectContextFallback({
+    hints,
     moduleSeeds,
     presenterInput,
+    projectRoot,
+    repo,
+  });
+  const effectivePresenterInput = fallback
+    ? mergePlanPresenterInput(presenterInput, fallback)
+    : presenterInput;
+  const effectiveModuleSeeds = fallback
+    ? mergePlanModuleSeeds([...moduleSeeds, ...fallback.moduleSeeds])
+    : moduleSeeds;
+  const frameworks = uniqueStrings([
+    ...collectFrameworkHints(effectivePresenterInput),
+    ...(fallback?.frameworks ?? []),
+  ]);
+  const primaryLanguage = inferPrimaryLanguage(effectivePresenterInput);
+  const secondaryLanguages = inferSecondaryLanguages(effectivePresenterInput, primaryLanguage);
+  const repoFileCount = countRepoLanguageFiles(repo);
+  return {
+    dimensions: resolveActiveDimensions(baseDimensions, primaryLanguage, frameworks),
+    envelopes,
+    factSource: fallback ? 'project-context-repo-fallback' : 'project-context',
+    fallbackDiagnostics: fallback?.diagnostics ?? [],
+    fileCount: Math.max(effectivePresenterInput.files.length, repoFileCount),
+    frameworks,
+    moduleCount:
+      effectivePresenterInput.modules.length ||
+      effectivePresenterInput.map?.modules.length ||
+      effectiveModuleSeeds.length,
+    moduleSeeds: effectiveModuleSeeds,
+    presenterInput: effectivePresenterInput,
     primaryLanguage,
-    projectType: inferProjectType(presenterInput),
+    projectType: inferProjectType(effectivePresenterInput),
     requestKinds: [...new Set(envelopes.map((envelope) => envelope.queryLevel))],
     secondaryLanguages,
   };
+}
+
+async function buildPlanProjectContextFallback(input: {
+  hints: PlanArgs['hints'];
+  moduleSeeds: readonly PlanModuleSeed[];
+  presenterInput: ProjectContextPresenterInput;
+  projectRoot: string;
+  repo: RepoContext | undefined;
+}): Promise<PlanProjectContextFallback | null> {
+  if (!shouldBuildPlanProjectContextFallback(input)) {
+    return null;
+  }
+
+  const roots = selectFallbackRoots(input.projectRoot, input.repo, input.hints, input.moduleSeeds);
+  const files = collectFallbackFiles(input.projectRoot, roots).slice(0, PLAN_FALLBACK_MAX_FILES);
+  if (files.length === 0) {
+    return null;
+  }
+
+  const fileDetails = files.map((filePath) => readFallbackFile(input.projectRoot, filePath));
+  const fileSummaries = fileDetails.map((detail) => detail.summary);
+  const fileFlows = fileDetails.map((detail) =>
+    buildFallbackFileFlow(input.projectRoot, detail.summary, detail.content)
+  );
+  const moduleSeeds = buildFallbackModuleSeeds(input.projectRoot, roots, fileSummaries);
+  const modules = buildFallbackModules(input.projectRoot, moduleSeeds, fileSummaries);
+  const frameworks = uniqueStrings([
+    ...collectFallbackFrameworkHints(fileDetails),
+    ...collectFallbackFrameworkHintsFromRepo(input.repo),
+  ]);
+
+  return {
+    diagnostics: [
+      {
+        code: 'project-context-repo-fallback',
+        severity: 'info',
+        message:
+          'Core ProjectContext repo facts showed source files while presenter module/file facts were empty or sparse; Plan used bounded local source facts for draft grounding.',
+        fileCount: fileSummaries.length,
+        moduleCount: moduleSeeds.length,
+        roots,
+      },
+    ],
+    fileFlows,
+    fileSummaries,
+    frameworks,
+    moduleSeeds,
+    modules,
+  };
+}
+
+function shouldBuildPlanProjectContextFallback(input: {
+  hints: PlanArgs['hints'];
+  moduleSeeds: readonly PlanModuleSeed[];
+  presenterInput: ProjectContextPresenterInput;
+  repo: RepoContext | undefined;
+}): boolean {
+  const repoFileCount = countRepoLanguageFiles(input.repo);
+  if (repoFileCount <= 0) {
+    return false;
+  }
+  const presenterModuleCount =
+    input.presenterInput.modules.length || input.presenterInput.map?.modules.length || 0;
+  return (
+    input.presenterInput.files.length === 0 ||
+    presenterModuleCount === 0 ||
+    ((input.hints?.focusModules?.length ?? 0) > 0 && input.moduleSeeds.length === 0)
+  );
+}
+
+function mergePlanPresenterInput(
+  presenterInput: ProjectContextPresenterInput,
+  fallback: PlanProjectContextFallback
+): ProjectContextPresenterInput {
+  return {
+    ...presenterInput,
+    fileFlows: dedupeBy(
+      [...presenterInput.fileFlows, ...fallback.fileFlows],
+      (flow) => flow.file.filePath
+    ),
+    files: dedupeFileSummaries([...presenterInput.files, ...fallback.fileSummaries]),
+    modules: dedupeBy(
+      [...presenterInput.modules, ...fallback.modules],
+      (module) => module.module.id
+    ),
+    refs: dedupeBy([...presenterInput.refs, ...collectFallbackRefs(fallback)], (ref) => ref.id),
+  };
+}
+
+function collectFallbackRefs(fallback: PlanProjectContextFallback): ProjectContextRef[] {
+  return [
+    ...fallback.fileSummaries.map((file) => file.ref).filter(isPresent),
+    ...fallback.fileFlows.flatMap((flow) => [
+      ...flow.imports.map((relation) => relation.ref).filter(isPresent),
+      ...flow.nextRefs,
+    ]),
+    ...fallback.modules.flatMap((module) => [
+      ...(module.module.ref ? [module.module.ref] : []),
+      ...module.nextRefs,
+      ...module.ownedFiles.map((file) => file.ref).filter(isPresent),
+    ]),
+  ];
+}
+
+function selectFallbackRoots(
+  projectRoot: string,
+  repo: RepoContext | undefined,
+  hints: PlanArgs['hints'],
+  moduleSeeds: readonly PlanModuleSeed[]
+): string[] {
+  const requestedFocus = (hints?.focusModules ?? [])
+    .map(normalizePath)
+    .filter(isPresent)
+    .filter((candidate) => pathExistsInsideProject(projectRoot, candidate));
+  const seedRoots = moduleSeeds
+    .map((seed) => seed.modulePath)
+    .map(normalizePath)
+    .filter(isPresent)
+    .filter((candidate) => pathExistsInsideProject(projectRoot, candidate));
+  const repoRoots = [
+    ...arrayRecords(readRecord(repo).sourceRoots)
+      .filter((root) => readBoolean(root, 'exists') !== false)
+      .map((root) => readString(root, 'path')),
+    ...arrayRecords(readRecord(repo).topAreas)
+      .filter((area) => readBoolean(area, 'exists') !== false)
+      .filter((area) => {
+        const role = readString(area, 'role') ?? '';
+        return role === 'source-root' || role === 'top-directory' || role === 'source-area';
+      })
+      .map((area) => readString(area, 'path')),
+  ]
+    .map(normalizePath)
+    .filter(isPresent)
+    .filter((candidate) => pathExistsInsideProject(projectRoot, candidate));
+
+  return dedupeOrderedStrings([...requestedFocus, ...seedRoots, ...repoRoots, '.']).filter(
+    (candidate) => !isExcludedFallbackPath(candidate)
+  );
+}
+
+function collectFallbackFiles(projectRoot: string, roots: readonly string[]): string[] {
+  const files = new Set<string>();
+  for (const root of roots) {
+    for (const filePath of collectFallbackFilesFromRoot(projectRoot, root)) {
+      files.add(filePath);
+      if (files.size >= PLAN_FALLBACK_MAX_FILES) {
+        break;
+      }
+    }
+    if (files.size >= PLAN_FALLBACK_MAX_FILES) {
+      break;
+    }
+  }
+  return [...files].sort(compareFallbackFilePaths);
+}
+
+function collectFallbackFilesFromRoot(projectRoot: string, root: string): string[] {
+  const absoluteRoot = path.resolve(projectRoot, root);
+  if (!isInsideProject(projectRoot, absoluteRoot) || !fs.existsSync(absoluteRoot)) {
+    return [];
+  }
+  const stat = fs.lstatSync(absoluteRoot);
+  if (stat.isFile()) {
+    const filePath = relativeProjectPath(projectRoot, absoluteRoot);
+    return filePath && isFallbackSourceFile(filePath) ? [filePath] : [];
+  }
+  if (!stat.isDirectory()) {
+    return [];
+  }
+
+  const files: string[] = [];
+  const visit = (directory: string, depth: number) => {
+    if (depth > PLAN_FALLBACK_MAX_SCAN_DEPTH || files.length >= PLAN_FALLBACK_MAX_FILES) {
+      return;
+    }
+    const relativeDirectory = relativeProjectPath(projectRoot, directory);
+    if (relativeDirectory && isExcludedFallbackPath(relativeDirectory)) {
+      return;
+    }
+    const entries = fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (files.length >= PLAN_FALLBACK_MAX_FILES) {
+        return;
+      }
+      const absoluteEntry = path.join(directory, entry.name);
+      const relativeEntry = relativeProjectPath(projectRoot, absoluteEntry);
+      if (!relativeEntry || isExcludedFallbackPath(relativeEntry)) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        visit(absoluteEntry, depth + 1);
+      } else if (entry.isFile() && isFallbackSourceFile(relativeEntry)) {
+        files.push(relativeEntry);
+      }
+    }
+  };
+  visit(absoluteRoot, 0);
+  return files.sort(compareFallbackFilePaths);
+}
+
+function readFallbackFile(
+  projectRoot: string,
+  filePath: string
+): { content: string; summary: PlanFileSummary } {
+  const absolutePath = path.resolve(projectRoot, filePath);
+  const stat = fs.statSync(absolutePath);
+  const content = fs.readFileSync(absolutePath, 'utf8');
+  const lineCount = content.length > 0 ? content.split(/\r?\n/).length : 0;
+  const ref = fallbackRef(projectRoot, 'file', filePath, {
+    label: filePath,
+    level: 'source-file',
+  });
+  return {
+    content,
+    summary: {
+      filePath,
+      language: languageFromFilePath(filePath),
+      lineCount,
+      mtimeMs: stat.mtimeMs,
+      ref,
+    },
+  };
+}
+
+function buildFallbackFileFlow(
+  projectRoot: string,
+  file: PlanFileSummary,
+  content: string
+): FileFlowContext {
+  const imports = dedupeBy(
+    [
+      ...extractImportRelations(projectRoot, file, content),
+      ...extractSignalRelations(projectRoot, file, content),
+    ],
+    (relation) =>
+      `${relation.kind}:${relation.label}:${relation.filePath}:${relation.range?.startLine ?? 0}`
+  );
+  return {
+    file,
+    imports,
+    exports: [],
+    callers: [],
+    callees: [],
+    inflow: [],
+    outflow: imports,
+    nextRefs: imports.map((relation) => relation.ref).filter(isPresent),
+  };
+}
+
+function extractImportRelations(
+  projectRoot: string,
+  file: PlanFileSummary,
+  content: string
+): PlanRelationSummary[] {
+  const relations: PlanRelationSummary[] = [];
+  const lines = content.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (relations.length >= PLAN_FALLBACK_MAX_IMPORTS_PER_FILE) {
+      break;
+    }
+    const line = lines[index] ?? '';
+    const importName =
+      matchFirst(line, /^\s*import\s+([A-Za-z_][\w.]*)/) ??
+      matchFirst(line, /^\s*import\s+[^'"]*['"]([^'"]+)['"]/) ??
+      matchFirst(line, /^\s*#import\s+[<"]([^>"]+)/);
+    if (!importName) {
+      continue;
+    }
+    const lineNumber = index + 1;
+    const ref = fallbackRef(projectRoot, 'relation-site', file.filePath, {
+      label: `import ${importName}`,
+      level: 'file-flow',
+      range: { startLine: lineNumber, endLine: lineNumber },
+    });
+    relations.push({
+      direction: 'outflow',
+      filePath: file.filePath,
+      from: { label: file.filePath, filePath: file.filePath, ref: file.ref },
+      kind: 'imports',
+      label: importName,
+      range: { startLine: lineNumber, endLine: lineNumber },
+      ref,
+      sourceRef: file.ref,
+      to: { label: importName },
+    });
+  }
+  return relations;
+}
+
+function extractSignalRelations(
+  projectRoot: string,
+  file: PlanFileSummary,
+  content: string
+): PlanRelationSummary[] {
+  const signals: string[] = [];
+  const text = `${file.filePath}\n${content}`;
+  if (/\bURLSession\b|\bWebSocket\b|\bHTTP\b|network|api|client/i.test(text)) {
+    signals.push('URLSession networking api');
+  }
+  if (/\basync\b|\bawait\b|\bTask\b|\bactor\b|\bDispatchQueue\b/i.test(text)) {
+    signals.push('async await Task actor concurrency');
+  }
+  if (/\bSwiftUI\b/.test(text)) {
+    signals.push('SwiftUI ui');
+  }
+  if (/\bUIKit\b/.test(text)) {
+    signals.push('UIKit ui');
+  }
+  return uniqueStrings(signals).map((label, index) => {
+    const ref = fallbackRef(projectRoot, 'relation-site', file.filePath, {
+      label,
+      level: 'file-flow',
+      range: { startLine: index + 1, endLine: index + 1 },
+    });
+    return {
+      direction: 'outflow',
+      filePath: file.filePath,
+      from: { label: file.filePath, filePath: file.filePath, ref: file.ref },
+      kind: 'uses',
+      label,
+      range: { startLine: index + 1, endLine: index + 1 },
+      ref,
+      sourceRef: file.ref,
+      to: { label },
+    };
+  });
+}
+
+function buildFallbackModuleSeeds(
+  projectRoot: string,
+  roots: readonly string[],
+  files: readonly PlanFileSummary[]
+): PlanModuleSeed[] {
+  const seeds = roots
+    .filter((root) => root !== '.')
+    .map((root) => {
+      const ownedFiles = files
+        .map((file) => file.filePath)
+        .filter((filePath) => isPathWithinModule(filePath, root))
+        .slice(0, PLAN_FALLBACK_MAX_FILES_PER_MODULE);
+      if (ownedFiles.length === 0) {
+        return null;
+      }
+      return {
+        moduleName: moduleNameFromPath(root),
+        modulePath: normalizePath(root),
+        ownedFiles,
+        ref: fallbackRef(projectRoot, 'module', root, {
+          label: moduleNameFromPath(root),
+          level: 'module',
+        }),
+        role: inferModuleRoleFromPath(root),
+      } satisfies PlanModuleSeed;
+    })
+    .filter(isPresent);
+  return mergePlanModuleSeeds(seeds).slice(0, 8);
+}
+
+function buildFallbackModules(
+  projectRoot: string,
+  seeds: readonly PlanModuleSeed[],
+  files: readonly PlanFileSummary[]
+): ModuleContext[] {
+  return seeds.map((seed) => {
+    const ownedFiles = files.filter((file) =>
+      seed.modulePath ? isPathWithinModule(file.filePath, seed.modulePath) : false
+    );
+    const moduleRef =
+      seed.ref ??
+      fallbackRef(projectRoot, 'module', seed.modulePath ?? seed.moduleName, {
+        label: seed.moduleName,
+        level: 'module',
+      });
+    return {
+      module: {
+        id: seed.modulePath ?? seed.moduleName,
+        name: seed.moduleName,
+        ownedFileCount: ownedFiles.length,
+        ref: moduleRef,
+        role: seed.role,
+        roleConfidence: 0.58,
+      },
+      ownedFiles,
+      publicSurfaces: [],
+      inflow: [],
+      outflow: [],
+      nextRefs: [moduleRef, ...ownedFiles.map((file) => file.ref).filter(isPresent)],
+    };
+  });
+}
+
+function mergePlanModuleSeeds(seeds: readonly PlanModuleSeed[]): PlanModuleSeed[] {
+  return dedupeBy(
+    seeds.map((seed) => ({ ...seed, modulePath: normalizePath(seed.modulePath) })),
+    (seed) => `${seed.modulePath ?? seed.ownedFiles?.join(',')}:${seed.moduleName}`
+  );
+}
+
+function dedupeFileSummaries(files: readonly PlanFileSummary[]): PlanFileSummary[] {
+  return dedupeBy(files, (file) => file.filePath).sort((left, right) =>
+    left.filePath.localeCompare(right.filePath)
+  );
+}
+
+function collectFallbackFrameworkHints(
+  details: readonly { content: string; summary: PlanFileSummary }[]
+): string[] {
+  const hints: string[] = [];
+  for (const detail of details) {
+    const text = `${detail.summary.filePath}\n${detail.content}`;
+    if (/\bSwiftUI\b/.test(text)) {
+      hints.push('swiftui', 'ui');
+    }
+    if (/\bUIKit\b/.test(text)) {
+      hints.push('uikit', 'ui');
+    }
+    if (/\bFoundation\b/.test(text)) {
+      hints.push('foundation');
+    }
+    if (/\bCombine\b/.test(text)) {
+      hints.push('combine', 'concurrency');
+    }
+    if (/\bURLSession\b|\bWebSocket\b|\bHTTP\b|network|api|client/i.test(text)) {
+      hints.push('networking', 'api');
+    }
+    if (/\basync\b|\bawait\b|\bTask\b|\bactor\b|\bDispatchQueue\b/i.test(text)) {
+      hints.push('async', 'concurrency');
+    }
+  }
+  return uniqueStrings(hints);
+}
+
+function collectFallbackFrameworkHintsFromRepo(repo: RepoContext | undefined): string[] {
+  return uniqueStrings(
+    [
+      ...arrayRecords(readRecord(repo).packageSystems).map((entry) => readString(entry, 'kind')),
+      ...arrayRecords(readRecord(repo).buildSystems).map((entry) => readString(entry, 'kind')),
+      ...arrayRecords(readRecord(repo).configFiles).map((entry) => readString(entry, 'kind')),
+    ].filter(isPresent)
+  );
+}
+
+function countRepoLanguageFiles(repo: RepoContext | undefined): number {
+  return arrayRecords(readRecord(repo).languages).reduce(
+    (sum, language) => sum + (readNumber(language, 'fileCount') ?? 0),
+    0
+  );
+}
+
+function fallbackRef(
+  projectRoot: string,
+  kind: ProjectContextRef['kind'],
+  filePath: string,
+  options: {
+    label?: string;
+    level?: string;
+    range?: ProjectContextRef['scope']['range'];
+  } = {}
+): ProjectContextRef {
+  return {
+    id: `plan-fallback:${kind}:${filePath}:${options.range?.startLine ?? 0}:${fallbackRefIdSegment(
+      options.label ?? filePath
+    )}`,
+    kind,
+    label: options.label ?? filePath,
+    level: options.level,
+    scope: {
+      filePath,
+      projectRoot,
+      ...(options.range ? { range: options.range } : {}),
+    },
+    metadata: {
+      source: 'alembic-plan-project-context-fallback',
+    },
+  };
+}
+
+function fallbackRefIdSegment(value: string): string {
+  return value.replace(/[^\w./:-]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function languageFromFilePath(filePath: string): string {
+  const extension = path.extname(filePath).toLowerCase();
+  switch (extension) {
+    case '.swift':
+      return 'swift';
+    case '.m':
+    case '.mm':
+    case '.h':
+    case '.hpp':
+      return 'objectivec';
+    case '.ts':
+    case '.tsx':
+      return 'typescript';
+    case '.js':
+    case '.jsx':
+    case '.mjs':
+      return 'javascript';
+    case '.py':
+      return 'python';
+    case '.rs':
+      return 'rust';
+    case '.go':
+      return 'go';
+    case '.java':
+      return 'java';
+    case '.kt':
+      return 'kotlin';
+    case '.cs':
+      return 'csharp';
+    default:
+      return 'unknown';
+  }
+}
+
+function inferModuleRoleFromPath(pathValue: string): string | undefined {
+  const normalized = pathValue.toLowerCase();
+  if (/network|api|client|websocket/.test(normalized)) {
+    return 'networking';
+  }
+  if (/ui|view|screen|feature|module/.test(normalized)) {
+    return 'ui';
+  }
+  if (/core|foundation|infrastructure/.test(normalized)) {
+    return 'core';
+  }
+  if (/test|spec/.test(normalized)) {
+    return 'test';
+  }
+  return undefined;
+}
+
+function compareFallbackFilePaths(left: string, right: string): number {
+  return fallbackFilePriority(left) - fallbackFilePriority(right) || left.localeCompare(right);
+}
+
+function fallbackFilePriority(filePath: string): number {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.swift') {
+    return 0;
+  }
+  if (['.ts', '.tsx', '.js', '.jsx', '.mjs'].includes(extension)) {
+    return 1;
+  }
+  if (['.m', '.mm', '.h', '.hpp'].includes(extension)) {
+    return 2;
+  }
+  return 3;
+}
+
+function isFallbackSourceFile(filePath: string): boolean {
+  return PLAN_FALLBACK_SOURCE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+function pathExistsInsideProject(projectRoot: string, pathValue: string): boolean {
+  const absolutePath = path.resolve(projectRoot, pathValue);
+  return isInsideProject(projectRoot, absolutePath) && fs.existsSync(absolutePath);
+}
+
+function isInsideProject(projectRoot: string, absolutePath: string): boolean {
+  const relative = path.relative(projectRoot, absolutePath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function relativeProjectPath(projectRoot: string, absolutePath: string): string | undefined {
+  const relative = path.relative(projectRoot, absolutePath);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return undefined;
+  }
+  return normalizePath(relative);
+}
+
+function isExcludedFallbackPath(pathValue: string): boolean {
+  return pathValue
+    .split('/')
+    .filter(Boolean)
+    .some((part) => PLAN_FALLBACK_EXCLUDED_DIRECTORIES.has(part));
+}
+
+function isPathWithinModule(filePath: string, modulePath: string): boolean {
+  const normalizedFile = normalizePath(filePath);
+  const normalizedModule = normalizePath(modulePath);
+  return Boolean(
+    normalizedFile &&
+      normalizedModule &&
+      (normalizedFile === normalizedModule || normalizedFile.startsWith(`${normalizedModule}/`))
+  );
+}
+
+function pathMatchesFocus(pathValue: string, focus: ReadonlySet<string>): boolean {
+  const normalized = normalizePath(pathValue);
+  if (!normalized) {
+    return false;
+  }
+  return [...focus].some(
+    (focusPath) =>
+      normalized === focusPath ||
+      normalized.startsWith(`${focusPath}/`) ||
+      focusPath.startsWith(`${normalized}/`)
+  );
+}
+
+function matchFirst(value: string, pattern: RegExp): string | undefined {
+  return value.match(pattern)?.[1];
 }
 
 async function buildDynamicSignals(
@@ -1155,6 +1838,8 @@ function buildGetNextActions(view: PlanView): Record<string, unknown>[] {
 
 function summarizeProjectContext(analysis: PlanProjectContextAnalysis): Record<string, unknown> {
   return {
+    factSource: analysis.factSource,
+    fallbackDiagnostics: analysis.fallbackDiagnostics,
     fileCount: analysis.fileCount,
     frameworks: analysis.frameworks,
     moduleCount: analysis.moduleCount,
@@ -1293,12 +1978,35 @@ function selectPlanModuleSeeds(
     ),
   ].filter(hasSeedScope);
   const filtered = focus.size
-    ? candidates.filter((seed) => seed.modulePath && focus.has(seed.modulePath))
+    ? [
+        ...focusModuleSeedsFromPaths(repo, focus),
+        ...candidates.filter((seed) => seed.modulePath && pathMatchesFocus(seed.modulePath, focus)),
+      ]
     : candidates;
-  return dedupeBy(
-    filtered.map((seed) => ({ ...seed, modulePath: normalizePath(seed.modulePath) })),
-    (seed) => `${seed.modulePath ?? seed.ownedFiles?.join(',')}:${seed.moduleName}`
+  return mergePlanModuleSeeds(
+    filtered.map((seed) => ({ ...seed, modulePath: normalizePath(seed.modulePath) }))
   ).slice(0, 8);
+}
+
+function focusModuleSeedsFromPaths(
+  repo: RepoContext | undefined,
+  focus: ReadonlySet<string>
+): PlanModuleSeed[] {
+  const records = readRecord(repo);
+  const repoPaths = new Set(
+    [
+      ...arrayRecords(records.sourceRoots).map((root) => readString(root, 'path')),
+      ...arrayRecords(records.topAreas).map((area) => readString(area, 'path')),
+      ...arrayRecords(records.localPackages).map((pkg) => readString(pkg, 'path')),
+    ]
+      .map(normalizePath)
+      .filter(isPresent)
+  );
+  return [...focus].map((modulePath) => ({
+    moduleName: moduleNameFromPath(modulePath),
+    modulePath,
+    role: repoPaths.has(modulePath) ? 'focus-module' : 'focus-submodule',
+  }));
 }
 
 function collectModuleSnapshots(analysis: PlanProjectContextAnalysis): ModuleSnapshot[] {
@@ -1566,6 +2274,11 @@ function readNumber(record: unknown, key: string): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function readBoolean(record: unknown, key: string): boolean | undefined {
+  const value = readRecord(record)[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 function arrayRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(readRecord) : [];
 }
@@ -1609,6 +2322,10 @@ function normalizePath(value: string | undefined): string | undefined {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort();
+}
+
+function dedupeOrderedStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function dedupeBy<T>(values: readonly T[], keyFn: (value: T) => string): T[] {
