@@ -59,7 +59,7 @@
           "projectContextSignature": "$toolResult:3:data.projectContextSignature",
           "selectedDimensions": [
             {
-              "id": "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0",
+              "id": "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0",
               "rationale": "Codex session first-use Plan gate scenario",
               "stage": "coldStart",
               "targetRecipes": 1
@@ -78,7 +78,7 @@
             {
               "modulePath": "src",
               "dimensions": [
-                "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0"
+                "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0"
               ],
               "targetRecipes": 1
             }
@@ -159,7 +159,7 @@
         "projectContextSignature": "$toolResult:3:data.projectContextSignature",
         "selectedDimensions": [
           {
-            "id": "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0",
+            "id": "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0",
             "rationale": "Codex session first-use Plan gate scenario",
             "stage": "coldStart",
             "targetRecipes": 1
@@ -178,7 +178,7 @@
           {
             "modulePath": "src",
             "dimensions": [
-              "$toolResult:3:data.sourceReports.planningAids.selection.activeDimensionIds.0"
+              "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0"
             ],
             "targetRecipes": 1
           }

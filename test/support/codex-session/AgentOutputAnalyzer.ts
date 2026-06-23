@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { inspect, isDeepStrictEqual } from 'node:util';
 import { JobStore } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
@@ -156,17 +157,18 @@ function checkToolCalls(
     }
     for (const [key, value] of Object.entries(expectedCall.arguments || {})) {
       const expectedValue = resolveExpectedValue(value, facts);
-      if (actualCall.arguments[key] !== expectedValue) {
+      if (!isDeepStrictEqual(actualCall.arguments[key], expectedValue)) {
         errors.push(
-          `tool call ${expectedCall.name} argument ${key} expected ${String(expectedValue)} but saw ${String(actualCall.arguments[key])}`
+          `tool call ${expectedCall.name} argument ${key} expected ${formatValue(expectedValue)} but saw ${formatValue(actualCall.arguments[key])}`
         );
       }
     }
     for (const [path, value] of Object.entries(expectedCall.result || {})) {
       const actualValue = getPath(actualCall.result, path);
-      if (actualValue !== value) {
+      const expectedValue = resolveExpectedValue(value, facts);
+      if (!isDeepStrictEqual(actualValue, expectedValue)) {
         errors.push(
-          `tool call ${expectedCall.name} result ${path} expected ${String(value)} but saw ${String(actualValue)}`
+          `tool call ${expectedCall.name} result ${path} expected ${formatValue(expectedValue)} but saw ${formatValue(actualValue)}`
         );
       }
     }
@@ -456,5 +458,25 @@ function resolveExpectedValue(value: unknown, facts: CodexScenarioRunFacts): unk
   if (value === '$projectRoot') {
     return facts.projectRoot;
   }
+  if (typeof value === 'string') {
+    const match = /^\$toolResult:(\d+):(.+)$/.exec(value);
+    if (match) {
+      const index = Number(match[1]) - 1;
+      return getPath(facts.toolCalls[index]?.result, match[2]);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveExpectedValue(item, facts));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [key, resolveExpectedValue(nested, facts)])
+    );
+  }
   return value;
+}
+
+function formatValue(value: unknown): string {
+  return inspect(value, { breakLength: 120, depth: 8 });
 }
