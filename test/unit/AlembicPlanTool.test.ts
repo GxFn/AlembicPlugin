@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { type AlembicDatabaseRuntime, openAlembicDatabase } from '@alembic/core/database';
+import { ALL_DIMENSION_IDS } from '@alembic/core/dimensions';
 import { KnowledgeEntry } from '@alembic/core/knowledge';
 import {
   type AlembicRepositoryBundle,
@@ -53,6 +54,43 @@ describe('alembic_plan tool', () => {
     expect(projectContext.requestKinds).toEqual(expect.arrayContaining(['space', 'repo']));
 
     const sourceReports = asRecord(draft.data?.sourceReports);
+    const dimensionCatalog = asRecord(sourceReports.dimensionCatalog);
+    expect(dimensionCatalog).toMatchObject({
+      source: 'DIMENSION_REGISTRY',
+      dimensionCount: 25,
+      policy: {
+        allDimensionsReturned: true,
+        agentOwnsRelevanceAndScale: true,
+        languageApplicableIsFactualOnly: true,
+        noDraftRankingOrFiltering: true,
+      },
+    });
+    const catalogDimensions = asArray(dimensionCatalog.dimensions).map(asRecord);
+    expect(catalogDimensions.map((dimension) => String(dimension.id))).toEqual([
+      ...ALL_DIMENSION_IDS,
+    ]);
+    for (const dimension of catalogDimensions) {
+      expect(asArray(asRecord(dimension.sop).steps).length).toBeGreaterThan(0);
+      expect(asArray(asRecord(dimension.analysisGuide).steps).length).toBeGreaterThan(0);
+      expect(asArray(asRecord(dimension.submissionSpec).knowledgeTypes).length).toBeGreaterThan(0);
+      expect(dimension).toHaveProperty('languageApplicable');
+      expect(dimension).toHaveProperty('languageApplicability');
+      for (const forbidden of [
+        'active',
+        'skip',
+        'skipped',
+        'rank',
+        'score',
+        'scale',
+        'recommend',
+        'recommended',
+        'top',
+        'subset',
+        'weight',
+      ]) {
+        expect(dimension).not.toHaveProperty(forbidden);
+      }
+    }
     const planningAids = asRecord(sourceReports.planningAids);
     expect(planningAids).not.toHaveProperty('selection');
     expect(planningAids).not.toHaveProperty('dimensionOrder');
@@ -114,6 +152,16 @@ describe('alembic_plan tool', () => {
     expect(asArray(presenterInput.modules).length).toBeGreaterThan(0);
 
     const sourceReports = asRecord(draft.data?.sourceReports);
+    const dimensionCatalog = asRecord(sourceReports.dimensionCatalog);
+    const catalogDimensions = asArray(dimensionCatalog.dimensions).map(asRecord);
+    expect(catalogDimensions).toHaveLength(25);
+    expect(catalogDimensions.map((dimension) => String(dimension.id))).toEqual([
+      ...ALL_DIMENSION_IDS,
+    ]);
+    expect(catalogDimensions.find((dimension) => dimension.id === 'architecture')).toMatchObject({
+      languageApplicable: true,
+      languageApplicability: { reason: 'universal-dimension' },
+    });
     const planningAids = asRecord(sourceReports.planningAids);
     expect(planningAids).not.toHaveProperty('selection');
     expect(JSON.stringify(planningAids)).not.toMatch(
@@ -231,6 +279,31 @@ describe('alembic_plan tool', () => {
     expect(projectContext).not.toHaveProperty('signatureScope');
 
     const sourceReports = asRecord(draft.data?.sourceReports);
+    const dimensionCatalog = asRecord(sourceReports.dimensionCatalog);
+    const catalogDimensions = asArray(dimensionCatalog.dimensions).map(asRecord);
+    expect(catalogDimensions).toHaveLength(25);
+    expect(catalogDimensions.map((dimension) => String(dimension.id))).toEqual([
+      ...ALL_DIMENSION_IDS,
+    ]);
+    const catalogById = new Map(
+      catalogDimensions.map((dimension) => [String(dimension.id), dimension])
+    );
+    expect(catalogById.get('architecture')).toMatchObject({
+      languageApplicable: true,
+      languageApplicability: { reason: 'universal-dimension' },
+    });
+    expect(catalogById.get('swift-objc-idiom')).toMatchObject({
+      languageApplicable: true,
+      languageApplicability: { reason: 'language-match', matchedLanguages: ['swift'] },
+    });
+    expect(catalogById.get('react-patterns')).toMatchObject({
+      languageApplicable: false,
+      languageApplicability: { reason: 'no-factual-match' },
+    });
+    expect(asRecord(dimensionCatalog.projectFacts)).toMatchObject({
+      primaryLanguage: 'swift',
+      languages: expect.arrayContaining(['swift']),
+    });
     const planningAids = asRecord(sourceReports.planningAids);
     expect(planningAids).not.toHaveProperty('selection');
     expect(planningAids).not.toHaveProperty('recommendedDimensions');

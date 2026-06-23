@@ -3,6 +3,11 @@ import type { Dirent, Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path, { basename } from 'node:path';
 import {
+  buildDimensionCatalogPayload,
+  type DimensionCatalogPayloadItem,
+  type ProjectLanguageFrameworkFacts,
+} from '@alembic/core/dimensions';
+import {
   baseDimensions,
   buildProjectContextMissionBriefing,
   type DimensionDef,
@@ -88,6 +93,8 @@ interface PlanProjectContextAnalysis {
   sourceFileFacts: PlanProjectSourceFileFact[];
   understandingGaps: Record<string, unknown>[];
 }
+
+type DraftDimensionCatalogItem = Omit<DimensionCatalogPayloadItem, 'weight'>;
 
 interface ModuleSnapshot {
   files: string[];
@@ -374,8 +381,10 @@ function buildDraftPlanningBrief(
   }
 ): Record<string, unknown> {
   const missionBriefing = buildMissionBriefingForDraft(analysis, projectRoot);
+  const dimensionCatalog = buildDraftDimensionCatalog(analysis);
   return {
     ...draftPackage.planningBrief,
+    dimensionCatalog,
     onboardingContract: summarizeOnboardingContract(
       buildOnboardingContractForDraft(analysis, projectRoot)
     ),
@@ -386,10 +395,52 @@ function buildDraftPlanningBrief(
     }),
     projectContext: buildProjectContextFactPackage(analysis),
     sourceReports: {
+      dimensionCatalog,
       dynamicSignals: reports.dynamicSignals as unknown as Record<string, unknown>,
       missionBriefing,
     },
   };
+}
+
+function buildDraftDimensionCatalog(analysis: PlanProjectContextAnalysis): Record<string, unknown> {
+  const facts = buildProjectLanguageFrameworkFacts(analysis);
+  const dimensions = buildDimensionCatalogPayload(facts).map(omitDraftDimensionWeight);
+  return {
+    source: 'DIMENSION_REGISTRY',
+    policy: {
+      allDimensionsReturned: true,
+      agentOwnsRelevanceAndScale: true,
+      languageApplicableIsFactualOnly: true,
+      noDraftRankingOrFiltering: true,
+    },
+    projectFacts: facts,
+    dimensionCount: dimensions.length,
+    dimensions,
+  };
+}
+
+function buildProjectLanguageFrameworkFacts(
+  analysis: PlanProjectContextAnalysis
+): ProjectLanguageFrameworkFacts {
+  const sourceLanguages = analysis.sourceFileFacts.map((file) => file.language);
+  const languages = uniqueStrings([
+    analysis.primaryLanguage,
+    ...analysis.secondaryLanguages,
+    ...sourceLanguages,
+  ]);
+  return {
+    frameworks: analysis.frameworks,
+    languages,
+    primaryLanguage: analysis.primaryLanguage,
+  };
+}
+
+function omitDraftDimensionWeight(
+  dimension: DimensionCatalogPayloadItem
+): DraftDimensionCatalogItem {
+  // draft 只交付事实材料，不把历史 registry weight 暴露成 Agent 可能误读的优先级。
+  const { weight: _weight, ...draftDimension } = dimension;
+  return draftDimension;
 }
 
 function savePlanDraft(
