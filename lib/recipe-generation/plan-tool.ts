@@ -6,12 +6,12 @@ import {
   buildDimensionCatalogPayload,
   type DimensionCatalogPayloadItem,
   type ProjectLanguageFrameworkFacts,
+  resolvePlanDimensionDefinitions,
 } from '@alembic/core/dimensions';
 import {
   baseDimensions,
   buildProjectContextMissionBriefing,
   type DimensionDef,
-  resolvePlanDimensionDefinitions,
 } from '@alembic/core/host-agent-workflows';
 import {
   buildPlanDraftInformationPackage,
@@ -1203,10 +1203,7 @@ function buildConfirmedPlanIntent(args: PlanArgs, draft: PlanRecord): BuildConfi
   const issues: string[] = [];
   const dimensions = normalizeConfirmedDimensions(args.selectedDimensions, issues);
   const dimensionIds = dimensions.map((dimension) => dimension.dimensionId);
-  const missingDimensionIds = resolvePlanDimensionDefinitions(
-    baseDimensions,
-    dimensionIds
-  ).missingDimensionIds;
+  const missingDimensionIds = resolvePlanDimensionDefinitions(dimensionIds).missingDimensionIds;
   for (const dimensionId of missingDimensionIds) {
     issues.push(`selectedDimensions references unknown dimension ${dimensionId}`);
   }

@@ -208,7 +208,9 @@ describe('Plan-driven generation gate', () => {
       'Sources/Infrastructure',
       'BiliDili/Modules',
     ];
-    const { dimensionId } = await confirmPlan({
+    const selectedDimensionIds = ['swift-objc-idiom', 'react-patterns', 'swiftui-patterns'];
+    const { dimensionIds } = await confirmPlan({
+      dimensionIds: selectedDimensionIds,
       dimensionStage: 'coldStart',
       draftHints: {
         focusModules,
@@ -227,9 +229,14 @@ describe('Plan-driven generation gate', () => {
       activePlan.data?.projectContextSignature
     );
     expect(asRecord(activePlan.data?.signature)).toMatchObject({ matches: true });
+    expect(
+      asArray(asRecord(asRecord(activePlan.data?.plan).intent).dimensions).map((dimension) =>
+        String(asRecord(dimension).dimensionId)
+      )
+    ).toEqual(selectedDimensionIds);
 
     const result = (await runHostAgentColdStartWorkflow(createContext(), {
-      dimensions: [dimensionId],
+      dimensions: dimensionIds,
       scaleOverride: { maxFiles: 8, contentMaxLines: 16, totalRecipeBudget: 1 },
       testMode: true,
     })) as ToolResponse;
@@ -238,12 +245,22 @@ describe('Plan-driven generation gate', () => {
     expect(asRecord(result.data?.planGate)).toMatchObject({
       cleanupPolicy: 'none',
       generationStage: 'coldStart',
+      selectedDimensions: selectedDimensionIds,
       signature: expect.objectContaining({ matches: true }),
       testMode: true,
     });
     expect(result.data?.testMode).toMatchObject({
       enabled: true,
-      dimensions: [dimensionId],
+      dimensions: selectedDimensionIds,
+    });
+    expect(result.data?.projectContextCreationGuide).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'bootstrap',
+      confirmedPlanBoundary: {
+        dimensionIds: selectedDimensionIds,
+        generationStage: 'coldStart',
+        testMode: true,
+      },
     });
   });
 
@@ -586,12 +603,13 @@ describe('Plan-driven generation gate', () => {
 });
 
 async function confirmPlan(input: {
+  dimensionIds?: string[];
   dimensionStage: 'coldStart' | 'deepMining';
   draftHints?: Record<string, unknown>;
   moduleBindings?: string[];
   modulePath: string;
   plannedModulePaths?: string[];
-}): Promise<{ dimensionId: string; planId: string; version: number }> {
+}): Promise<{ dimensionId: string; dimensionIds: string[]; planId: string; version: number }> {
   const draft = (await routePlanTool(createContext(), {
     operation: 'draft',
     projectRoot,
@@ -604,7 +622,11 @@ async function confirmPlan(input: {
     throw new Error(`draft failed: ${JSON.stringify(draft, null, 2)}`);
   }
   const plan = asRecord(draft.data?.plan);
-  const dimensionId = dimensionIdsFromDraftFacts(draft, 1)[0];
+  const dimensionIds = requireDimensionIdsFromDraftCatalog(
+    draft,
+    input.dimensionIds ?? dimensionIdsFromDraftFacts(draft, 1)
+  );
+  const dimensionId = dimensionIds[0];
   if (!dimensionId) {
     throw new Error('Expected draft Plan fact package to contain at least one dimension.');
   }
@@ -614,7 +636,7 @@ async function confirmPlan(input: {
     basePlanId: String(plan.planId),
     baseVersion: Number(plan.version),
     projectContextSignature: signature,
-    selectedDimensions: confirmedDimensions([dimensionId], input.dimensionStage),
+    selectedDimensions: confirmedDimensions(dimensionIds, input.dimensionStage),
     scale: {
       totalRecipeBudget: 2,
       perStage: { coldStart: 1, deepMining: 1, module: 1 },
@@ -622,7 +644,7 @@ async function confirmPlan(input: {
     },
     moduleBindings: (input.moduleBindings ?? [input.modulePath]).map((modulePath) => ({
       modulePath,
-      dimensions: [dimensionId],
+      dimensions: dimensionIds,
       targetRecipes: 1,
     })),
     plannedNextActions: [
@@ -638,6 +660,7 @@ async function confirmPlan(input: {
   expect(confirmed.success).toBe(true);
   return {
     dimensionId,
+    dimensionIds,
     planId: String(plan.planId),
     version: Number(plan.version),
   };
@@ -661,6 +684,24 @@ function dimensionIdsFromDraftFacts(draft: ToolResponse, count: number): string[
     throw new Error('Expected draft fact package to include dimension ids.');
   }
   return missionDimensionIds;
+}
+
+function requireDimensionIdsFromDraftCatalog(
+  draft: ToolResponse,
+  dimensionIds: readonly string[]
+): string[] {
+  const catalog = asRecord(asRecord(draft.data?.sourceReports).dimensionCatalog);
+  const catalogIds = new Set(
+    asArray(catalog.dimensions)
+      .map((dimension) => String(asRecord(dimension).id))
+      .filter((id) => id.length > 0)
+  );
+  for (const dimensionId of dimensionIds) {
+    if (!catalogIds.has(dimensionId)) {
+      throw new Error(`Expected draft dimension catalog to include ${dimensionId}.`);
+    }
+  }
+  return [...dimensionIds];
 }
 
 function confirmedDimensions(

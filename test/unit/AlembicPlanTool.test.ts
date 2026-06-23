@@ -331,7 +331,11 @@ describe('alembic_plan tool', () => {
     const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
     expect(stored?.planningBrief).toBeNull();
 
-    const selectedDimensionIds = dimensionIdsFromDraftFacts(draft, 3);
+    const selectedDimensionIds = requireDimensionIdsFromDraftCatalog(draft, [
+      'swift-objc-idiom',
+      'react-patterns',
+      'swiftui-patterns',
+    ]);
     const confirmed = await callPlan({
       operation: 'confirm',
       basePlanId: String(plan.planId),
@@ -368,6 +372,36 @@ describe('alembic_plan tool', () => {
     const confirmedPlan = asRecord(confirmed.data?.plan);
     expect(confirmedPlan).toMatchObject({ planStatus: 'confirmed' });
     expect(confirmedPlan).not.toHaveProperty('planningBrief');
+    expect(
+      asArray(asRecord(confirmedPlan.intent).dimensions).map((dimension) =>
+        String(asRecord(dimension).dimensionId)
+      )
+    ).toEqual(selectedDimensionIds);
+    expect(asRecord(confirmed.data?.projectContextCreationGuide)).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'plan-confirm',
+      confirmedPlanBoundary: {
+        dimensionIds: selectedDimensionIds,
+      },
+    });
+
+    const get = await callPlan({ operation: 'get' });
+    expect(get.success).toBe(true);
+    const getPlan = asRecord(get.data?.plan);
+    expect(
+      asArray(asRecord(getPlan.intent).dimensions).map((dimension) =>
+        String(asRecord(dimension).dimensionId)
+      )
+    ).toEqual(selectedDimensionIds);
+    expect(asRecord(get.data?.projectContextCreationGuide)).toMatchObject({
+      source: 'RG-5-project-context-anchored-creation',
+      stage: 'plan-get',
+      confirmedPlanBoundary: {
+        dimensionIds: selectedDimensionIds,
+        moduleScope: expect.arrayContaining(['Sources', 'BiliDili', 'Package.swift']),
+        planId: String(plan.planId),
+      },
+    });
   });
 
   test('confirm rejects stale focused Swift drafts after scoped source changes', async () => {
@@ -900,6 +934,25 @@ function dimensionIdsFromDraftFacts(draft: PlanToolResponse, count: number): str
     throw new Error('Expected draft fact package to include dimension ids.');
   }
   return missionDimensionIds;
+}
+
+function requireDimensionIdsFromDraftCatalog(
+  draft: PlanToolResponse,
+  dimensionIds: readonly string[]
+): string[] {
+  const sourceReports = asRecord(draft.data?.sourceReports);
+  const catalog = asRecord(sourceReports.dimensionCatalog);
+  const catalogIds = new Set(
+    asArray(catalog.dimensions)
+      .map((dimension) => String(asRecord(dimension).id))
+      .filter((id) => id.length > 0)
+  );
+  for (const dimensionId of dimensionIds) {
+    if (!catalogIds.has(dimensionId)) {
+      throw new Error(`Expected draft dimension catalog to include ${dimensionId}.`);
+    }
+  }
+  return [...dimensionIds];
 }
 
 function confirmedDimensions(
