@@ -69,6 +69,7 @@ import {
   isResidentProjectScopeReady,
 } from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
+import type { BootstrapInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
 import type { DaemonStatus } from '../daemon-status.js';
 import '../../runtime/mcp/local-tools/output.js';
 import { TIER_ORDER, TOOLS } from '../../runtime/mcp/tools.js';
@@ -765,13 +766,17 @@ export class HostMcpServer {
       let raw: unknown;
       if (kind === 'bootstrap') {
         const { bootstrapForHostAgent } = await import('./handlers/host-agent/bootstrap.js');
-        raw = await bootstrapForHostAgent({ container, logger });
+        raw = await bootstrapForHostAgent(
+          { container, logger },
+          { planSelection: args.planSelection as BootstrapInput['planSelection'] }
+        );
       } else {
         const { rescanForHostAgent } = await import('./handlers/host-agent/rescan.js');
         raw = await rescanForHostAgent(
           { container, logger },
           {
             reason: typeof args.reason === 'string' ? args.reason : 'host-rescan',
+            planSelection: args.planSelection as RescanInput['planSelection'],
             dimensions: Array.isArray(args.dimensions)
               ? args.dimensions.filter(
                   (dimension): dimension is string => typeof dimension === 'string'

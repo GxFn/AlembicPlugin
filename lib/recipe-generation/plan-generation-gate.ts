@@ -1,5 +1,4 @@
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { routePlanTool } from '#recipe-generation/plan-tool.js';
 
 export type PlanGenerationStage = 'coldStart' | 'deepMining' | 'moduleMining';
 
@@ -9,10 +8,26 @@ export interface PlanScaleOverride {
   totalRecipeBudget?: number;
 }
 
+export interface PlanSelectionModuleBinding {
+  dimensions?: readonly string[];
+  moduleId?: string;
+  modulePath: string;
+  priority?: number;
+  targetRecipes?: number;
+}
+
+export interface PlanSelectionInput {
+  dimensions?: readonly string[];
+  generationStage?: PlanGenerationStage;
+  moduleBindings?: readonly PlanSelectionModuleBinding[];
+  scale?: PlanScaleOverride & { depthLevels?: readonly string[] };
+}
+
 export interface PlanGenerationGateInput {
   dimensions?: readonly string[];
   generationStage?: PlanGenerationStage;
   moduleScope?: readonly string[];
+  planSelection?: PlanSelectionInput;
   projectRoot?: string;
   rescanId?: string;
   scaleOverride?: PlanScaleOverride;
@@ -29,13 +44,6 @@ export interface PlanGenerationGateContext {
     info?(msg: string, meta?: Record<string, unknown>): void;
     warn?(msg: string, meta?: Record<string, unknown>): void;
   };
-}
-
-interface PlanGateResponse {
-  data?: Record<string, unknown>;
-  errorCode?: string;
-  message?: string;
-  success?: boolean;
 }
 
 export interface PlanGenerationGateReady {
@@ -57,6 +65,10 @@ export interface PlanGenerationGateReady {
   signature: Record<string, unknown>;
   testMode: boolean;
 }
+
+type NormalizedPlanSelection = Required<
+  Pick<PlanSelectionInput, 'dimensions' | 'generationStage' | 'moduleBindings' | 'scale'>
+>;
 
 export type PlanGenerationGateResult =
   | { ok: true; value: PlanGenerationGateReady }
@@ -91,126 +103,135 @@ export async function resolvePlanGenerationGate(
   options: { defaultStage: PlanGenerationStage; toolName: string }
 ): Promise<PlanGenerationGateResult> {
   const projectRoot = input?.projectRoot ?? resolveProjectRoot(ctx.container);
-  const generationStage = input?.generationStage ?? options.defaultStage;
-  const planRead = await readConfirmedPlanGateResponse(ctx, {
-    generationStage,
-    projectRoot,
-    toolName: options.toolName,
-  });
-  if (!planRead.ok) {
-    return planRead;
+  const generationStage =
+    input?.planSelection?.generationStage ?? input?.generationStage ?? options.defaultStage;
+  const planSelection = validatePlanSelection(input?.planSelection, generationStage);
+  if (!planSelection.ok) {
+    return {
+      ok: false,
+      response: buildPlanGateBlockedResponse({
+        blockedReason: planSelection.reason,
+        errorCode: 'PLAN_REQUIRED',
+        generationStage,
+        projectRoot,
+        toolName: options.toolName,
+      }),
+    };
   }
 
   return {
     ok: true,
     value: buildPlanGenerationGateReady({
-      data: planRead.data,
       generationStage,
       input,
+      planSelection: planSelection.value,
       projectRoot,
       toolName: options.toolName,
     }),
   };
 }
 
-async function readConfirmedPlanGateResponse(
-  ctx: PlanGenerationGateContext,
-  options: { generationStage: PlanGenerationStage; projectRoot: string; toolName: string }
-): Promise<
-  { ok: true; data: Record<string, unknown> } | { ok: false; response: Record<string, unknown> }
-> {
-  let planResponse: PlanGateResponse;
-  try {
-    planResponse = (await routePlanTool(ctx as never, {
-      operation: 'get',
-      projectRoot: options.projectRoot,
-    })) as PlanGateResponse;
-  } catch (err: unknown) {
+function validatePlanSelection(
+  selection: PlanSelectionInput | undefined,
+  generationStage: PlanGenerationStage
+): { ok: true; value: NormalizedPlanSelection } | { ok: false; reason: string } {
+  if (!selection) {
     return {
       ok: false,
-      response: buildPlanGateBlockedResponse({
-        blockedReason:
-          err instanceof Error
-            ? `Plan gate could not read the active confirmed Plan: ${err.message}`
-            : 'Plan gate could not read the active confirmed Plan.',
-        errorCode: 'PLAN_GATE_UNAVAILABLE',
-        generationStage: options.generationStage,
-        projectRoot: options.projectRoot,
-        toolName: options.toolName,
-      }),
+      reason:
+        'Missing stateless planSelection. Run alembic_plan draft, confirm the single-stage selection, then pass planSelection to this tool.',
     };
   }
-
-  if (planResponse.success !== true) {
+  if (selection.generationStage && selection.generationStage !== generationStage) {
     return {
       ok: false,
-      response: buildPlanGateBlockedResponse({
-        blockedReason:
-          planResponse.message ||
-          'No active confirmed Plan is available for generation-stage tools.',
-        errorCode:
-          planResponse.errorCode === 'PLAN_NOT_FOUND'
-            ? 'PLAN_REQUIRED'
-            : planResponse.errorCode || 'PLAN_REQUIRED',
-        generationStage: options.generationStage,
-        planToolData: planResponse.data,
-        projectRoot: options.projectRoot,
-        toolName: options.toolName,
-      }),
+      reason: `planSelection.generationStage ${selection.generationStage} does not match requested ${generationStage}.`,
     };
   }
-
-  const data = readRecord(planResponse.data);
-  const signature = readRecord(data.signature);
-  if (signature.matches !== true) {
-    return {
-      ok: false,
-      response: buildPlanGateBlockedResponse({
-        blockedReason:
-          'Current ProjectContext signature differs from the confirmed Plan; refresh and confirm a new Plan before generation.',
-        errorCode: 'PLAN_PROJECT_CONTEXT_STALE',
-        generationStage: options.generationStage,
-        planToolData: data,
-        projectRoot: options.projectRoot,
-        signature,
-        toolName: options.toolName,
-      }),
-    };
+  const dimensions = uniqueStrings(selection.dimensions ?? []);
+  if (dimensions.length === 0) {
+    return { ok: false, reason: 'planSelection.dimensions must be non-empty.' };
   }
-
-  return { ok: true, data };
+  const scale = selection.scale;
+  if (!scale?.totalRecipeBudget || scale.totalRecipeBudget <= 0) {
+    return { ok: false, reason: 'planSelection.scale.totalRecipeBudget must be > 0.' };
+  }
+  const moduleBindings = (selection.moduleBindings ?? []).filter(
+    (binding) => binding.modulePath.trim().length > 0
+  );
+  if (moduleBindings.length === 0) {
+    return { ok: false, reason: 'planSelection.moduleBindings must be non-empty.' };
+  }
+  const knownDimensions = new Set(dimensions);
+  for (const binding of moduleBindings) {
+    const bindingDimensions = uniqueStrings(binding.dimensions ?? []);
+    if (bindingDimensions.length === 0) {
+      return {
+        ok: false,
+        reason: `planSelection.moduleBindings ${binding.modulePath} must declare dimensions.`,
+      };
+    }
+    for (const dimensionId of bindingDimensions) {
+      if (!knownDimensions.has(dimensionId)) {
+        return {
+          ok: false,
+          reason: `planSelection.moduleBindings ${binding.modulePath} references unknown dimension ${dimensionId}.`,
+        };
+      }
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      dimensions,
+      generationStage: selection.generationStage ?? generationStage,
+      moduleBindings,
+      scale,
+    },
+  };
 }
 
 function buildPlanGenerationGateReady(input: {
-  data: Record<string, unknown>;
   generationStage: PlanGenerationStage;
   input: PlanGenerationGateInput | undefined;
+  planSelection: NormalizedPlanSelection;
   projectRoot: string;
   toolName: string;
 }): PlanGenerationGateReady {
-  const { data, generationStage, projectRoot, toolName } = input;
-  const plan = readRecord(data.plan);
-  const planState = readRecord(data.planState);
-  const planView = readRecord(data.planView);
-  const signature = readRecord(data.signature);
+  const { generationStage, planSelection, projectRoot, toolName } = input;
+  const plan = {
+    planStatus: 'confirmed',
+    projectRoot,
+    intent: {
+      generationStage,
+      dimensions: planSelection.dimensions.map((dimensionId, index) => ({
+        dimensionId,
+        priority: index + 1,
+      })),
+      moduleBindings: planSelection.moduleBindings,
+      scale: planSelection.scale,
+    },
+    selectionSource: 'stateless-planSelection',
+  };
+  const planState = buildEmptyPlanState(planSelection);
+  const planView = { planSelection };
+  const signature = { matches: true, source: 'stateless-planSelection' };
   const dimensions = selectPlanDimensions({
     requestedDimensionIds: normalizeStringArray(input.input?.dimensions),
     generationStage,
-    plan,
-    planState,
+    planSelection,
     testMode: input.input?.testMode === true,
   });
   const moduleScope = selectPlanModuleScope({
     generationStage,
     moduleScope: normalizeStringArray(input.input?.moduleScope),
-    plan,
-    planState,
+    planSelection,
     testMode: input.input?.testMode === true,
   });
   const scale = resolvePlanScale({
     dimensions,
     override: input.input?.scaleOverride,
-    plan,
+    planSelection,
     testMode: input.input?.testMode === true,
   });
   const cleanupPolicy = resolvePlanCleanupPolicy({
@@ -236,7 +257,6 @@ function buildPlanGenerationGateReady(input: {
 
   return {
     cleanupPolicy,
-    currentProjectContextSignature: readString(data, 'currentProjectContextSignature'),
     dimensionIds: dimensions,
     generationStage,
     moduleScope,
@@ -251,6 +271,38 @@ function buildPlanGenerationGateReady(input: {
   };
 }
 
+function buildEmptyPlanState(selection: NormalizedPlanSelection): Record<string, unknown> {
+  return {
+    codeRecipeMapping: [],
+    coverage: {
+      byDimension: Object.fromEntries(
+        selection.dimensions.map((dimensionId) => [
+          dimensionId,
+          { planned: 0, generated: 0, stale: 0, missing: 0 },
+        ])
+      ),
+      byModule: Object.fromEntries(
+        selection.moduleBindings.map((binding) => [
+          binding.modulePath,
+          {
+            planned: binding.targetRecipes ?? 0,
+            generated: 0,
+            stale: 0,
+            missing: binding.targetRecipes ?? 0,
+            dimensions: binding.dimensions ?? [],
+          },
+        ])
+      ),
+      byModuleDimension: {},
+      generated: 0,
+      planned: selection.scale.totalRecipeBudget,
+      gaps: [],
+    },
+    pendingProposals: [],
+    generationChangeLog: [],
+  };
+}
+
 export function acquirePlanGenerationLease(input: {
   gate: PlanGenerationGateReady;
   idempotencyKey?: string;
@@ -261,9 +313,7 @@ export function acquirePlanGenerationLease(input: {
     [
       input.toolName,
       input.gate.generationStage,
-      readString(input.gate.plan, 'planId') ?? 'plan',
-      readNumber(input.gate.plan, 'version') ?? 0,
-      input.gate.currentProjectContextSignature ?? 'signature',
+      input.gate.projectRoot,
       input.gate.dimensionIds.join(','),
       input.gate.moduleScope.join(','),
       input.gate.testMode ? 'test' : 'live',
@@ -443,119 +493,61 @@ function buildPlanGateNextActions(projectRoot: string): Record<string, unknown>[
 
 function selectPlanDimensions(input: {
   generationStage: PlanGenerationStage;
-  plan: Record<string, unknown>;
-  planState: Record<string, unknown>;
+  planSelection: NormalizedPlanSelection;
   requestedDimensionIds: readonly string[];
   testMode: boolean;
 }): string[] {
-  const intent = readRecord(input.plan.intent);
-  const stages = readRecord(intent.stages);
-  const stageTarget = readRecord(stages[input.generationStage]);
-  const planDimensions = arrayRecords(intent.dimensions)
-    .map((dimension) => ({
-      dimensionId: readString(dimension, 'dimensionId') ?? '',
-      priority: readNumber(dimension, 'priority'),
-      stage: readString(dimension, 'stage') as PlanGenerationStage | undefined,
-      targetRecipes: readNumber(dimension, 'targetRecipes'),
-    }))
-    .filter((dimension) => dimension.dimensionId.length > 0);
-  let selected =
-    input.generationStage === 'moduleMining'
-      ? dimensionsFromModuleBindings(intent, input.planState)
-      : normalizeStringArray(stageTarget.dimensions);
-  if (selected.length === 0) {
-    selected = planDimensions
-      .filter((dimension) =>
-        input.generationStage === 'coldStart'
-          ? dimension.stage === 'coldStart'
-          : dimension.stage !== 'coldStart'
-      )
-      .sort((left, right) => (left.priority ?? 999) - (right.priority ?? 999))
-      .map((dimension) => dimension.dimensionId)
-      .filter(Boolean);
-  }
-  if (selected.length === 0) {
-    selected = planDimensions
-      .sort((left, right) => (left.priority ?? 999) - (right.priority ?? 999))
-      .map((dimension) => dimension.dimensionId)
-      .filter(Boolean);
+  let selected = uniqueStrings(input.planSelection.dimensions);
+  if (input.generationStage === 'moduleMining') {
+    const bindingDimensions = uniqueStrings(
+      input.planSelection.moduleBindings.flatMap((binding) => binding.dimensions ?? [])
+    );
+    if (bindingDimensions.length > 0) {
+      selected = bindingDimensions;
+    }
   }
   if (input.testMode && input.requestedDimensionIds.length > 0) {
     const requested = new Set(input.requestedDimensionIds);
     selected = selected.filter((dimensionId) => requested.has(dimensionId));
   }
-  return uniqueStrings(selected);
-}
-
-function dimensionsFromModuleBindings(
-  intent: Record<string, unknown>,
-  planState: Record<string, unknown>
-): string[] {
-  const gaps = arrayRecords(readRecord(planState.coverage).gaps);
-  const gapDimensions = gaps.map((gap) => readString(gap, 'dimensionId')).filter(isPresent);
-  if (gapDimensions.length > 0) {
-    return gapDimensions;
-  }
-  return arrayRecords(intent.moduleBindings)
-    .flatMap((binding) => normalizeStringArray(binding.dimensions))
-    .filter(isPresent);
+  return selected;
 }
 
 function selectPlanModuleScope(input: {
   generationStage: PlanGenerationStage;
   moduleScope: readonly string[];
-  plan: Record<string, unknown>;
-  planState: Record<string, unknown>;
+  planSelection: NormalizedPlanSelection;
   testMode: boolean;
 }): string[] {
-  const intent = readRecord(input.plan.intent);
-  const bindings = arrayRecords(intent.moduleBindings)
-    .map((binding) => ({
-      dimensions: normalizeStringArray(binding.dimensions),
-      moduleId: readString(binding, 'moduleId'),
-      modulePath: readString(binding, 'modulePath') ?? '',
-      priority: readNumber(binding, 'priority'),
-      targetRecipes: readNumber(binding, 'targetRecipes'),
-    }))
-    .filter((binding) => binding.modulePath.length > 0);
-  const boundModulePaths = bindings.map((binding) => binding.modulePath).filter(Boolean);
-  const requested = input.testMode && input.moduleScope.length ? input.moduleScope : [];
-  const plannedModulePaths = arrayRecords(intent.plannedNextActions)
-    .filter((action) => {
-      const tool = readString(action, 'tool');
-      return tool === 'alembic_rescan' || normalizeStringArray(action.modulePaths).length > 0;
-    })
-    .flatMap((action) => normalizeStringArray(action.modulePaths));
-  const gapModules = arrayRecords(readRecord(input.planState.coverage).gaps)
-    .map((gap) => readString(gap, 'modulePath'))
-    .filter(isPresent);
-  const planScope =
-    input.generationStage === 'moduleMining'
-      ? [...plannedModulePaths, ...boundModulePaths, ...gapModules]
-      : [...boundModulePaths, ...plannedModulePaths];
-  const selected =
-    requested.length > 0
-      ? uniqueStrings(planScope).filter((modulePath) => requested.includes(modulePath))
-      : uniqueStrings(planScope);
-  return selected;
+  const plannedModulePaths = uniqueStrings(
+    input.planSelection.moduleBindings.map((binding) => binding.modulePath)
+  );
+  if (input.testMode && input.moduleScope.length > 0) {
+    const requested = new Set(input.moduleScope);
+    return plannedModulePaths.filter((modulePath) => requested.has(modulePath));
+  }
+  return plannedModulePaths;
 }
 
 function resolvePlanScale(input: {
   dimensions: readonly string[];
   override?: PlanScaleOverride;
-  plan: Record<string, unknown>;
+  planSelection: NormalizedPlanSelection;
   testMode: boolean;
 }): PlanGenerationGateReady['scale'] {
-  const planScale = readRecord(readRecord(input.plan.intent).scale);
+  const planScale = input.planSelection.scale;
   const override = input.testMode ? input.override : undefined;
   const totalRecipeBudget =
     override?.totalRecipeBudget ??
-    readNumber(planScale, 'totalRecipeBudget') ??
+    planScale.totalRecipeBudget ??
     Math.max(1, input.dimensions.length);
   const maxFiles =
-    override?.maxFiles ?? (input.testMode ? TEST_MODE_DEFAULT_MAX_FILES : DEFAULT_MAX_FILES);
+    override?.maxFiles ??
+    planScale.maxFiles ??
+    (input.testMode ? TEST_MODE_DEFAULT_MAX_FILES : DEFAULT_MAX_FILES);
   const contentMaxLines =
     override?.contentMaxLines ??
+    planScale.contentMaxLines ??
     (input.testMode ? TEST_MODE_DEFAULT_CONTENT_MAX_LINES : DEFAULT_CONTENT_MAX_LINES);
   return {
     contentMaxLines: clampPositiveInteger(contentMaxLines, DEFAULT_CONTENT_MAX_LINES, 2000),
@@ -650,10 +642,6 @@ function readNumber(record: unknown, key: string): number | undefined {
 function readBoolean(record: unknown, key: string): boolean | undefined {
   const value = readRecord(record)[key];
   return typeof value === 'boolean' ? value : undefined;
-}
-
-function isPresent(value: string | undefined): value is string {
-  return typeof value === 'string' && value.length > 0;
 }
 
 function clampPositiveInteger(value: number, fallback: number, max: number): number {

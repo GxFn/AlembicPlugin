@@ -785,6 +785,8 @@ const PlanSelectedDimensionInput = z
 const PlanScaleInput = z
   .object({
     totalRecipeBudget: z.number().int().min(1).max(500).optional(),
+    maxFiles: z.number().int().min(1).max(20000).optional(),
+    contentMaxLines: z.number().int().min(1).max(2000).optional(),
     budgetLevel: z.enum(['focused', 'standard', 'expanded']).optional(),
     scale: z.enum(['small', 'medium', 'large', 'very-large']).optional(),
     depthLevels: z.array(z.string().min(1).max(80)).max(12).optional(),
@@ -827,6 +829,34 @@ const PlanEvidenceRefInput = z
   })
   .strict();
 
+const PlanProjectProfileInput = z
+  .object({
+    projectType: z.string().min(1).max(200).optional(),
+    primaryLanguage: z.string().min(1).max(120).optional(),
+    secondaryLanguages: z.array(z.string().min(1).max(120)).max(40).optional(),
+    frameworks: z.array(z.string().min(1).max(160)).max(80).optional(),
+    moduleCount: z.number().int().min(0).max(100000).optional(),
+    fileCount: z.number().int().min(0).max(1000000).optional(),
+    architectureHints: z.array(z.string().min(1).max(300)).max(80).optional(),
+  })
+  .strict();
+
+const PlanSelectionInput = z
+  .object({
+    generationStage: PlanStageIdInput,
+    dimensions: z.array(z.string().min(1).max(120)).min(1).max(80),
+    scale: z
+      .object({
+        totalRecipeBudget: z.number().int().min(1).max(500),
+        maxFiles: z.number().int().min(1).max(20000).optional(),
+        contentMaxLines: z.number().int().min(1).max(2000).optional(),
+        depthLevels: z.array(z.string().min(1).max(80)).max(12).optional(),
+      })
+      .strict(),
+    moduleBindings: z.array(PlanModuleBindingInput).min(1).max(80),
+  })
+  .strict();
+
 function addPlanConfirmIssue(
   ctx: z.RefinementCtx,
   path: (string | number)[],
@@ -844,9 +874,10 @@ export const PlanInput = z
     operation: z
       .enum(['draft', 'confirm', 'get'])
       .describe(
-        'draft=collect real ProjectContext and Core fact reports | confirm=persist a complete Agent-authored Plan intent | get=read active confirmed Plan plus projected generation state'
+        'draft=collect real ProjectContext and Core fact reports | confirm=validate a stateless Agent-authored planSelection | get=removed compatibility route'
       ),
     projectRoot: z.string().min(1).max(2000).optional(),
+    generationStage: PlanStageIdInput.optional(),
     hints: z
       .object({
         focusModules: z.array(z.string().min(1).max(2000)).max(40).optional(),
@@ -868,6 +899,7 @@ export const PlanInput = z
       .max(200)
       .optional()
       .describe('Signature returned by draft; confirm rejects mismatches.'),
+    projectProfile: PlanProjectProfileInput.optional(),
     selectedDimensions: z.array(PlanSelectedDimensionInput).max(80).optional(),
     scale: PlanScaleInput.optional(),
     moduleBindings: z.array(PlanModuleBindingInput).max(80).optional(),
@@ -908,13 +940,6 @@ export const PlanInput = z
             'confirm selectedDimensions require rationale or reason'
           );
         }
-        if (!dimension.stage) {
-          addPlanConfirmIssue(
-            ctx,
-            ['selectedDimensions', index, 'stage'],
-            'confirm selectedDimensions require stage'
-          );
-        }
         if (!dimension.targetRecipes || dimension.targetRecipes <= 0) {
           addPlanConfirmIssue(
             ctx,
@@ -941,19 +966,6 @@ export const PlanInput = z
           ['scale', 'depthLevels'],
           'confirm scale requires non-empty depthLevels'
         );
-      }
-      if (!value.scale.perStage) {
-        addPlanConfirmIssue(ctx, ['scale', 'perStage'], 'confirm scale requires perStage');
-      } else {
-        for (const stage of ['coldStart', 'deepMining', 'module'] as const) {
-          if (value.scale.perStage[stage] === undefined) {
-            addPlanConfirmIssue(
-              ctx,
-              ['scale', 'perStage', stage],
-              `confirm scale.perStage.${stage} is required`
-            );
-          }
-        }
       }
     }
 
@@ -1055,6 +1067,7 @@ export const BootstrapInput = z.object({
       'Required confirmation when a usable knowledge base already exists: pass true to archive ALL existing knowledge to .asd/.trash/<timestamp>/ and rebuild from zero. Without it, bootstrap refuses and recommends alembic_rescan instead.'
     ),
   generationStage: z.literal('coldStart').optional(),
+  planSelection: PlanSelectionInput.optional(),
   testMode: z
     .boolean()
     .optional()
@@ -1130,6 +1143,7 @@ export const RescanInput = z.object({
     .describe('可选：produceSession.dimensions 的兼容顶层别名'),
   controllerAuthorized: z.boolean().optional().describe('可选：顶层 controller 授权标志'),
   generationStage: z.enum(['deepMining', 'moduleMining']).optional(),
+  planSelection: PlanSelectionInput.optional(),
   testMode: z
     .boolean()
     .optional()

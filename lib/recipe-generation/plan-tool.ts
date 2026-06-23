@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import type { Dirent, Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path, { basename } from 'node:path';
@@ -15,17 +14,15 @@ import {
 } from '@alembic/core/host-agent-workflows';
 import {
   buildPlanDraftInformationPackage,
-  compareProjectContextSignature,
   computeProjectContextSignature,
-  type PlanGenerationState,
+  normalizeConfirmedPlanIntent,
   type PlanIntent,
-  PlanLedgerService,
   type PlanModuleBinding,
   type PlanNextAction,
-  type PlanRecord,
   type PlanScaleDecision,
+  type PlanSelection,
   type PlanStageId,
-  type PlanView,
+  validateCompletePlanIntent,
 } from '@alembic/core/plans';
 import {
   buildProjectContextPresenterInput,
@@ -39,11 +36,9 @@ import {
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import { LanguageService } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 import {
   buildProjectContextCreationGuide,
-  buildProjectContextCreationNextActions,
   type ProjectContextCreationStage,
 } from './project-context-anchoring.js';
 
@@ -112,7 +107,6 @@ type DynamicPlanningSignals = ReturnType<
   typeof ProjectContextCapabilities.aggregateDynamicPlanningSignals
 >;
 type PlanDraftPackage = ReturnType<typeof buildPlanDraftInformationPackage>;
-type PlanRepositories = ConstructorParameters<typeof PlanLedgerService>[0];
 
 interface PlanDraftContext {
   analysis: PlanProjectContextAnalysis;
@@ -123,18 +117,17 @@ interface PlanDraftContext {
   draftPackage: PlanDraftPackage;
 }
 
-interface ConfirmPlanBase {
+interface EphemeralPlanSnapshot {
+  createdAt: number;
+  createdBy: string;
+  intent: PlanIntent;
   planId: string;
+  projectContextSignature: string;
+  projectRoot: string;
+  status: 'draft' | 'confirmed';
+  updatedAt: number;
   version: number;
 }
-
-type ConfirmBaseResult =
-  | { ok: true; base: ConfirmPlanBase; projectContextSignature: string }
-  | { ok: false; response: PlanToolResponse };
-
-type ConfirmCurrentSignatureResult =
-  | { ok: true; currentProjectContextSignature: string }
-  | { ok: false; response: PlanToolResponse };
 
 type BuildConfirmIntentResult =
   | { ok: true; intent: PlanIntent }
@@ -171,7 +164,15 @@ export async function routePlanTool(
     case 'confirm':
       return confirmPlan(ctx, args);
     case 'get':
-      return getPlan(ctx, args);
+      return blocked(
+        'PLAN_GET_REMOVED',
+        'alembic_plan get was removed with the stateless planSelection contract; run draft and confirm for each generation stage.',
+        {
+          operation: 'get',
+          projectRoot: resolvePlanProjectRoot(ctx, args),
+          nextActions: buildStatelessPlanNextActions(resolvePlanProjectRoot(ctx, args)),
+        }
+      );
     default:
       return blocked(
         'PLAN_INVALID_OPERATION',
@@ -188,57 +189,30 @@ async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTool
   }
 
   const draftContext = await buildPlanDraftContext(ctx, args, projectRoot, analysis);
-  const plan = savePlanDraft(ctx, args, draftContext);
+  const plan = buildEphemeralDraftSnapshot(ctx, draftContext);
   return planDraftResponse(plan, draftContext);
 }
 
 async function confirmPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolResponse> {
-  const baseResult = resolveConfirmPlanBase(args);
-  if (!baseResult.ok) {
-    return baseResult.response;
-  }
-  const { base, projectContextSignature } = baseResult;
-  const repositories = resolvePlanRepositories(ctx);
-  const draft = repositories.planRepository.get(base.planId, base.version);
-  if (!draft) {
-    return blocked('PLAN_NOT_FOUND', `Plan ${base.planId}@${base.version} does not exist.`, {
-      operation: 'confirm',
-      plan: base,
-    });
-  }
-  const versionResponse = validateConfirmPlanVersion(repositories, base, draft);
-  if (versionResponse) {
-    return versionResponse;
-  }
-  const signatureEchoResponse = validateDraftSignatureEcho(draft, projectContextSignature);
-  if (signatureEchoResponse) {
-    return signatureEchoResponse;
-  }
-  const projectRoot = args.projectRoot ?? draft.projectRoot;
-  const signatureResult = await validateConfirmCurrentSignature(projectRoot, draft);
-  if (!signatureResult.ok) {
-    return signatureResult.response;
-  }
-  const payloadResult = buildConfirmedPlanIntent(args, draft);
+  const projectRoot = resolvePlanProjectRoot(ctx, args);
+  const payloadResult = buildConfirmedPlanIntent(args, buildConfirmProjectProfile(args));
   if (!payloadResult.ok) {
     return payloadResult.response;
   }
-  let confirmed: PlanRecord;
+  let intent: PlanIntent;
   try {
-    confirmed = saveConfirmedPlan(ctx, args, base, payloadResult.intent);
+    intent = normalizeConfirmedPlanIntent(payloadResult.intent);
+    validateCompletePlanIntent(intent);
   } catch (err: unknown) {
     return blocked(
       'PLAN_CONFIRM_PAYLOAD_INVALID',
-      err instanceof Error ? err.message : 'Core rejected the complete Plan confirmation payload.',
-      { operation: 'confirm', plan: projectPlanRecord(draft) }
+      err instanceof Error
+        ? err.message
+        : 'Core rejected the stateless planSelection confirmation payload.',
+      { operation: 'confirm', projectRoot }
     );
   }
-  const view = await createPlanLedgerService(ctx).getPlanView(
-    confirmed.planId,
-    confirmed.version,
-    signatureResult.currentProjectContextSignature
-  );
-  return confirmedPlanResponse(confirmed, view, signatureResult.currentProjectContextSignature);
+  return confirmedPlanResponse(ctx, projectRoot, intent, buildPlanSelection(intent));
 }
 
 function emptyProjectContextResponse(projectRoot: string): PlanToolResponse {
@@ -356,22 +330,6 @@ function buildMissionBriefingForDraft(
   });
 }
 
-function buildOnboardingContractForDraft(
-  analysis: PlanProjectContextAnalysis,
-  projectRoot: string
-): ReturnType<typeof buildColdStartOnboardingContract> {
-  return buildColdStartOnboardingContract({
-    dimensions: analysis.dimensions,
-    fileCount: analysis.fileCount,
-    moduleCount: analysis.moduleCount,
-    primaryLanguage: analysis.primaryLanguage,
-    projectRoot,
-    projectType: analysis.projectType,
-    secondaryLanguages: analysis.secondaryLanguages,
-    session: createPlanDraftSession(projectRoot),
-  });
-}
-
 function buildDraftPlanningBrief(
   projectRoot: string,
   analysis: PlanProjectContextAnalysis,
@@ -385,9 +343,6 @@ function buildDraftPlanningBrief(
   return {
     ...draftPackage.planningBrief,
     dimensionCatalog,
-    onboardingContract: summarizeOnboardingContract(
-      buildOnboardingContractForDraft(analysis, projectRoot)
-    ),
     projectContextCreationGuide: buildProjectContextCreationGuide({
       dimensionIds: analysis.dimensions.map((dimension) => dimension.id),
       projectRoot,
@@ -443,26 +398,40 @@ function omitDraftDimensionWeight(
   return draftDimension;
 }
 
-function savePlanDraft(
+function buildEphemeralDraftSnapshot(
   ctx: PlanToolContext,
-  args: PlanArgs,
   draftContext: PlanDraftContext
-): PlanRecord {
-  return createPlanLedgerService(ctx).saveDraft({
+): EphemeralPlanSnapshot {
+  const now = Date.now();
+  return {
+    createdAt: now,
     createdBy: resolvePlanActor(ctx),
-    lastUpdatedFromCommit: readGitCommit(draftContext.projectRoot),
+    intent: {
+      generationStage: 'coldStart',
+      projectProfile: buildProjectProfileFromAnalysis(draftContext.analysis),
+      dimensions: [],
+      scale: { totalRecipeBudget: 0, depthLevels: [] },
+      moduleBindings: [],
+      plannedNextActions: [],
+      evidenceRefs: [],
+      draftSource: 'plugin-collected-facts',
+    },
+    planId: `plan-${now}-${hashShort(draftContext.projectContextSignature)}`,
     projectContextSignature: draftContext.projectContextSignature,
     projectRoot: draftContext.projectRoot,
-    rationale: args.hints?.goal
-      ? [`draft goal: ${args.hints.goal}`]
-      : ['Plan draft fact package collected.'],
-  });
+    status: 'draft',
+    updatedAt: now,
+    version: 1,
+  };
 }
 
-function planDraftResponse(plan: PlanRecord, draftContext: PlanDraftContext): PlanToolResponse {
+function planDraftResponse(
+  plan: EphemeralPlanSnapshot,
+  draftContext: PlanDraftContext
+): PlanToolResponse {
   return {
     success: true,
-    message: `Plan draft ${plan.planId}@${plan.version} is ready for Agent confirmation.`,
+    message: `Stateless Plan draft ${plan.planId}@${plan.version} is ready for Agent confirmation.`,
     data: {
       operation: 'draft',
       projectRoot: draftContext.projectRoot,
@@ -473,7 +442,7 @@ function planDraftResponse(plan: PlanRecord, draftContext: PlanDraftContext): Pl
         projectRoot: draftContext.projectRoot,
         stage: 'plan-draft',
       }),
-      plan: projectPlanRecord(plan),
+      plan: projectPlanSnapshot(plan),
       planningBrief: draftContext.planningBrief,
       ...(draftContext.analysis.contextStatus === 'partial'
         ? { planDiagnostics: buildPartialProjectContextDiagnostics(draftContext.analysis) }
@@ -485,7 +454,7 @@ function planDraftResponse(plan: PlanRecord, draftContext: PlanDraftContext): Pl
 }
 
 function buildDraftConfirmNextAction(
-  plan: PlanRecord,
+  plan: EphemeralPlanSnapshot,
   projectContextSignature: string
 ): Record<string, unknown> {
   return {
@@ -507,265 +476,101 @@ function buildDraftConfirmNextAction(
       basePlanId: plan.planId,
       baseVersion: plan.version,
       projectContextSignature,
+      projectProfile: plan.intent.projectProfile,
     },
   };
 }
 
-function resolveConfirmPlanBase(args: PlanArgs): ConfirmBaseResult {
-  const planId = args.basePlanId ?? args.planId;
-  const version = args.baseVersion ?? args.version;
-  if (!planId || !version) {
-    return {
-      ok: false,
-      response: blocked(
-        'PLAN_CONFIRM_BASE_REQUIRED',
-        'confirm requires basePlanId/planId and baseVersion/version.',
-        {
-          operation: 'confirm',
-          planDiagnostics: [
-            {
-              code: 'base-plan-required',
-              severity: 'error',
-              message: 'No base Plan id/version was supplied.',
-            },
-          ],
-        }
-      ),
-    };
-  }
-  if (!args.projectContextSignature) {
-    return {
-      ok: false,
-      response: blocked(
-        'PLAN_CONFIRM_SIGNATURE_REQUIRED',
-        'confirm requires projectContextSignature returned by draft.',
-        { operation: 'confirm', plan: { planId, version } }
-      ),
-    };
-  }
+function buildProjectProfileFromAnalysis(
+  analysis: PlanProjectContextAnalysis
+): PlanIntent['projectProfile'] {
   return {
-    ok: true,
-    base: { planId, version },
-    projectContextSignature: args.projectContextSignature,
+    fileCount: analysis.fileCount,
+    frameworks: analysis.frameworks,
+    moduleCount: analysis.moduleCount,
+    primaryLanguage: analysis.primaryLanguage,
+    projectType: analysis.projectType,
+    secondaryLanguages: analysis.secondaryLanguages,
   };
 }
 
-function validateConfirmPlanVersion(
-  repositories: PlanRepositories,
-  base: ConfirmPlanBase,
-  draft: PlanRecord
-): PlanToolResponse | null {
-  const latest = repositories.planRepository.get(base.planId);
-  if (!latest || latest.version === base.version) {
-    return null;
-  }
-  return blocked(
-    'PLAN_STALE_VERSION',
-    `Plan ${base.planId}@${base.version} is stale; latest version is ${latest.version}.`,
-    {
-      operation: 'confirm',
-      plan: projectPlanRecord(draft),
-      planDiagnostics: [
-        {
-          code: 'stale-plan-version',
-          severity: 'error',
-          message: `Latest draft version is ${latest.version}.`,
-        },
-      ],
-    }
-  );
-}
-
-function validateDraftSignatureEcho(
-  draft: PlanRecord,
-  projectContextSignature: string
-): PlanToolResponse | null {
-  if (draft.projectContextSignature === projectContextSignature) {
-    return null;
-  }
-  return blocked(
-    'PLAN_SIGNATURE_ECHO_MISMATCH',
-    'Provided projectContextSignature does not match the draft Plan signature.',
-    {
-      operation: 'confirm',
-      plan: projectPlanRecord(draft),
-      signature: compareProjectContextSignature(
-        draft.projectContextSignature,
-        projectContextSignature
-      ),
-    }
-  );
-}
-
-function buildPlanProjectContextHintsFromRecord(_plan: PlanRecord): PlanArgs['hints'] | undefined {
-  return undefined;
-}
-
-async function validateConfirmCurrentSignature(
-  projectRoot: string,
-  draft: PlanRecord
-): Promise<ConfirmCurrentSignatureResult> {
-  const currentProjectContextSignature = await computeCurrentSignature(
-    projectRoot,
-    buildPlanProjectContextHintsFromRecord(draft)
-  );
-  const signature = compareProjectContextSignature(
-    draft.projectContextSignature,
-    currentProjectContextSignature
-  );
-  if (signature.matches) {
-    return { ok: true, currentProjectContextSignature };
-  }
+function buildConfirmProjectProfile(args: PlanArgs): PlanIntent['projectProfile'] {
+  const profile = readRecord(args.projectProfile);
   return {
-    ok: false,
-    response: blocked(
-      'PLAN_PROJECT_CONTEXT_STALE',
-      'Current ProjectContext signature differs from the draft Plan signature.',
-      {
-        operation: 'confirm',
-        currentProjectContextSignature,
-        plan: projectPlanRecord(draft),
-        planDiagnostics: [
-          {
-            code: 'project-context-signature-mismatch',
-            severity: 'error',
-            message:
-              'Project files/modules changed after draft; refresh the draft before confirming.',
-          },
-        ],
-        signature,
-      }
-    ),
+    ...(readString(profile, 'projectType')
+      ? { projectType: readString(profile, 'projectType') }
+      : {}),
+    ...(readString(profile, 'primaryLanguage')
+      ? { primaryLanguage: readString(profile, 'primaryLanguage') }
+      : {}),
+    secondaryLanguages: normalizeStringArray(profile.secondaryLanguages),
+    frameworks: normalizeStringArray(profile.frameworks),
+    ...(readNumber(profile, 'moduleCount') !== undefined
+      ? { moduleCount: readNumber(profile, 'moduleCount') }
+      : {}),
+    ...(readNumber(profile, 'fileCount') !== undefined
+      ? { fileCount: readNumber(profile, 'fileCount') }
+      : {}),
+    architectureHints: normalizeStringArray(profile.architectureHints),
   };
 }
 
-function saveConfirmedPlan(
-  ctx: PlanToolContext,
-  args: PlanArgs,
-  base: ConfirmPlanBase,
-  intent: PlanIntent
-): PlanRecord {
-  try {
-    return createPlanLedgerService(ctx).confirmPlan({
-      confirmedBy: resolvePlanActor(ctx),
-      intent,
-      planId: base.planId,
-      rationale: normalizeRequiredRationale(args.rationale),
-      version: base.version,
-    });
-  } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : 'Core rejected the complete Plan confirmation payload.';
-    throw new Error(message);
+function resolveConfirmGenerationStage(args: PlanArgs): PlanStageId {
+  if (args.generationStage) {
+    return args.generationStage;
   }
+  const selectedStages = (args.selectedDimensions ?? [])
+    .map((dimension) => dimension.stage)
+    .filter((stage): stage is PlanStageId => Boolean(stage));
+  return selectedStages[0] ?? 'coldStart';
+}
+
+function nextGenerationToolForStage(stage: PlanStageId): 'alembic_bootstrap' | 'alembic_rescan' {
+  return stage === 'coldStart' ? 'alembic_bootstrap' : 'alembic_rescan';
+}
+
+function buildStatelessPlanNextActions(projectRoot: string): Record<string, unknown>[] {
+  return [
+    {
+      tool: PLAN_TOOL_NAME,
+      operation: 'draft',
+      required: true,
+      reason: 'Collect a fresh bounded projectInfoTree and candidateDimensions before generation.',
+      args: { operation: 'draft', projectRoot },
+    },
+    {
+      tool: PLAN_TOOL_NAME,
+      operation: 'confirm',
+      required: true,
+      reason: 'Return a stateless planSelection and pass it directly to the generation tool.',
+    },
+  ];
 }
 
 function confirmedPlanResponse(
-  confirmed: PlanRecord,
-  view: PlanView | null,
-  currentProjectContextSignature: string
+  ctx: PlanToolContext,
+  projectRoot: string,
+  intent: PlanIntent,
+  planSelection: PlanSelection
 ): PlanToolResponse {
+  const plan = buildConfirmedPlanSnapshot(ctx, projectRoot, intent);
   return {
     success: true,
-    message: `Plan ${confirmed.planId}@${confirmed.version} confirmed for downstream generation.`,
+    message: `Stateless planSelection for ${intent.generationStage} is ready for downstream generation.`,
     data: {
       operation: 'confirm',
-      projectRoot: confirmed.projectRoot,
-      projectContextSignature: confirmed.projectContextSignature,
-      currentProjectContextSignature,
-      projectContextCreationGuide: buildPlanProjectContextCreationGuide(confirmed, 'plan-confirm'),
-      plan: projectPlanRecord(confirmed),
-      ...(view
-        ? {
-            planView: projectPlanView(view),
-            planState: projectPlanState(view.state),
-            signature: view.signature,
-          }
-        : {}),
-      nextActions: [
-        {
-          tool: PLAN_TOOL_NAME,
-          operation: 'get',
-          required: false,
-          reason:
-            'Read the active confirmed Plan with current generation-state projection before generation work.',
-          args: { operation: 'get', projectRoot: confirmed.projectRoot },
-        },
-      ],
-    },
-  };
-}
-
-async function getPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolResponse> {
-  const repositories = resolvePlanRepositories(ctx);
-  const service = createPlanLedgerService(ctx);
-  const projectRoot = resolvePlanProjectRoot(ctx, args);
-  const planRecord = args.planId
-    ? repositories.planRepository.get(args.planId, args.version)
-    : repositories.planRepository.getActiveConfirmed(projectRoot);
-  if (!planRecord) {
-    return blocked('PLAN_NOT_FOUND', 'No matching confirmed Plan was found.', {
-      operation: 'get',
       projectRoot,
-      projectContextCreationGuide: buildProjectContextCreationGuide({
-        projectRoot,
-        stage: 'plan-get',
-      }),
-      planDiagnostics: [
-        {
-          code: 'no-confirmed-plan',
-          severity: 'warning',
-          message: 'Call alembic_plan draft and confirm before generation-stage tools.',
-        },
-      ],
+      projectContextCreationGuide: buildPlanProjectContextCreationGuide(plan, 'plan-confirm'),
+      plan: projectPlanSnapshot(plan),
+      planSelection,
       nextActions: [
         {
-          tool: PLAN_TOOL_NAME,
-          operation: 'draft',
+          tool: nextGenerationToolForStage(intent.generationStage),
           required: true,
-          reason: 'Create a Plan draft before generation work.',
-          args: { operation: 'draft', projectRoot },
+          reason: 'Pass this stateless planSelection directly to the generation tool.',
+          args: { planSelection, projectRoot },
         },
       ],
-    });
-  }
-  const currentProjectContextSignature =
-    args.projectContextSignature ??
-    (await computeCurrentSignature(
-      planRecord.projectRoot,
-      buildPlanProjectContextHintsFromRecord(planRecord)
-    ));
-  const view = args.planId
-    ? await service.getPlanView(
-        planRecord.planId,
-        planRecord.version,
-        currentProjectContextSignature
-      )
-    : await service.getActivePlanView(planRecord.projectRoot, currentProjectContextSignature);
-  if (!view) {
-    return blocked(
-      'PLAN_VIEW_UNAVAILABLE',
-      `Plan ${planRecord.planId}@${planRecord.version} could not be projected.`,
-      {
-        operation: 'get',
-        plan: projectPlanRecord(planRecord),
-      }
-    );
-  }
-  return {
-    success: true,
-    message: `Plan ${view.intent.planId}@${view.intent.version} returned with generation-state projection.`,
-    data: {
-      operation: 'get',
-      projectRoot: view.intent.projectRoot,
-      projectContextSignature: view.intent.projectContextSignature,
-      currentProjectContextSignature,
-      projectContextCreationGuide: buildPlanProjectContextCreationGuide(view.intent, 'plan-get'),
-      plan: projectPlanRecord(view.intent),
-      planView: projectPlanView(view),
-      planState: projectPlanState(view.state),
-      signature: view.signature,
-      nextActions: buildGetNextActions(view),
     },
   };
 }
@@ -1103,51 +908,8 @@ function collectPreviousModuleSnapshotsFromSourceRefs(
   return dedupeBy(modules, (module) => module.moduleId);
 }
 
-function createPlanLedgerService(ctx: PlanToolContext): PlanLedgerService {
-  return new PlanLedgerService(resolvePlanRepositories(ctx));
-}
-
-function resolvePlanRepositories(
-  ctx: PlanToolContext
-): ConstructorParameters<typeof PlanLedgerService>[0] {
-  return {
-    knowledgeRepository: ctx.container.get('knowledgeRepository') as ConstructorParameters<
-      typeof PlanLedgerService
-    >[0]['knowledgeRepository'],
-    lifecycleEventRepository: safeGet(ctx, 'lifecycleEventRepository') as ConstructorParameters<
-      typeof PlanLedgerService
-    >[0]['lifecycleEventRepository'],
-    planRepository: ctx.container.get('planRepository') as ConstructorParameters<
-      typeof PlanLedgerService
-    >[0]['planRepository'],
-    proposalRepository: safeGet(ctx, 'proposalRepository') as ConstructorParameters<
-      typeof PlanLedgerService
-    >[0]['proposalRepository'],
-    recipeSourceRefRepository: ctx.container.get(
-      'recipeSourceRefRepository'
-    ) as ConstructorParameters<typeof PlanLedgerService>[0]['recipeSourceRefRepository'],
-  };
-}
-
 function resolvePlanProjectRoot(ctx: PlanToolContext, args: Partial<PlanArgs>): string {
   return args.projectRoot ?? resolveProjectRoot(ctx.container);
-}
-
-async function computeCurrentSignature(
-  projectRoot: string,
-  hints?: PlanArgs['hints']
-): Promise<string> {
-  const analysis = await collectPlanProjectContext(projectRoot, hints);
-  const architectureIntelligence = ProjectContextCapabilities.analyzeArchitectureIntelligence({
-    projectContext: analysis.presenterInput,
-    primaryLanguage: analysis.primaryLanguage,
-    projectRoot,
-  });
-  return computePlanProjectContextSignature({
-    analysis,
-    architectureStyle: architectureIntelligence.styles.primary,
-    projectRoot,
-  });
 }
 
 function computePlanProjectContextSignature(input: {
@@ -1199,7 +961,10 @@ function collectProjectContextSignatureFiles(analysis: PlanProjectContextAnalysi
   );
 }
 
-function buildConfirmedPlanIntent(args: PlanArgs, draft: PlanRecord): BuildConfirmIntentResult {
+function buildConfirmedPlanIntent(
+  args: PlanArgs,
+  projectProfile: PlanIntent['projectProfile']
+): BuildConfirmIntentResult {
   const issues: string[] = [];
   const dimensions = normalizeConfirmedDimensions(args.selectedDimensions, issues);
   const dimensionIds = dimensions.map((dimension) => dimension.dimensionId);
@@ -1223,7 +988,6 @@ function buildConfirmedPlanIntent(args: PlanArgs, draft: PlanRecord): BuildConfi
         'confirm requires a complete Agent-authored Plan payload.',
         {
           operation: 'confirm',
-          plan: projectPlanRecord(draft),
           planDiagnostics: uniqueStrings(issues).map((issue) => ({
             code: 'confirm-payload-required',
             severity: 'error',
@@ -1236,28 +1000,11 @@ function buildConfirmedPlanIntent(args: PlanArgs, draft: PlanRecord): BuildConfi
   return {
     ok: true,
     intent: {
-      projectProfile: draft.intent.projectProfile,
+      generationStage: resolveConfirmGenerationStage(args),
+      projectProfile,
       dimensions,
       scale,
       moduleBindings,
-      stages: {
-        coldStart: {
-          dimensions: dimensions
-            .filter((dimension) => dimension.stage === 'coldStart')
-            .map((dimension) => dimension.dimensionId),
-          breadthBudget: scale.perStage.coldStart,
-        },
-        deepMining: {
-          dimensions: dimensions
-            .filter((dimension) => dimension.stage === 'deepMining')
-            .map((dimension) => dimension.dimensionId),
-          depthBudget: scale.perStage.deepMining,
-          focusModules: moduleBindings.map((binding) => binding.modulePath),
-        },
-        moduleMining: {
-          perModule: moduleBindings,
-        },
-      },
       plannedNextActions,
       evidenceRefs,
       draftSource: 'host-agent',
@@ -1284,9 +1031,6 @@ function normalizeConfirmedDimensions(
       if (!rationale) {
         issues.push(`selectedDimensions[${index}].rationale is required`);
       }
-      if (!dimension.stage) {
-        issues.push(`selectedDimensions[${index}].stage is required`);
-      }
       if (!dimension.targetRecipes || dimension.targetRecipes <= 0) {
         issues.push(`selectedDimensions[${index}].targetRecipes must be > 0`);
       }
@@ -1294,7 +1038,6 @@ function normalizeConfirmedDimensions(
         dimensionId,
         priority: dimension.priority ?? index + 1,
         rationale,
-        stage: dimension.stage ?? 'coldStart',
         targetRecipes: dimension.targetRecipes ?? 0,
       };
     })
@@ -1308,26 +1051,14 @@ function normalizeRequiredPlanScale(input: PlanArgs['scale'], issues: string[]):
   if (!input?.totalRecipeBudget) {
     issues.push('scale.totalRecipeBudget is required');
   }
-  if (!input?.perStage) {
-    issues.push('scale.perStage is required');
-  }
   if (!input?.depthLevels?.length) {
     issues.push('scale.depthLevels are required');
   }
-  const perStage = input?.perStage ?? {};
-  for (const key of ['coldStart', 'deepMining', 'module'] as const) {
-    if (perStage[key] === undefined) {
-      issues.push(`scale.perStage.${key} is required`);
-    }
-  }
   return {
     totalRecipeBudget: input?.totalRecipeBudget ?? 0,
-    perStage: {
-      coldStart: perStage.coldStart ?? 0,
-      deepMining: perStage.deepMining ?? 0,
-      module: perStage.module ?? 0,
-    },
     depthLevels: input?.depthLevels ?? [],
+    ...(input?.maxFiles ? { maxFiles: input.maxFiles } : {}),
+    ...(input?.contentMaxLines ? { contentMaxLines: input.contentMaxLines } : {}),
     ...(input?.budgetLevel ? { budgetLevel: input.budgetLevel } : {}),
     ...(input?.scale ? { scale: input.scale } : {}),
   };
@@ -1397,143 +1128,67 @@ function normalizeRequiredEvidenceRefs(
   }));
 }
 
-function projectPlanRecord(plan: PlanRecord): Record<string, unknown> {
+function buildConfirmedPlanSnapshot(
+  ctx: PlanToolContext,
+  projectRoot: string,
+  intent: PlanIntent
+): EphemeralPlanSnapshot {
+  const now = Date.now();
+  return {
+    createdAt: now,
+    createdBy: resolvePlanActor(ctx),
+    intent,
+    planId: `selection-${now}-${hashShort(JSON.stringify(buildPlanSelection(intent)))}`,
+    projectContextSignature: '',
+    projectRoot,
+    status: 'confirmed',
+    updatedAt: now,
+    version: 1,
+  };
+}
+
+function buildPlanSelection(intent: PlanIntent): PlanSelection {
+  return {
+    generationStage: intent.generationStage,
+    dimensions: intent.dimensions.map((dimension) => dimension.dimensionId),
+    scale: {
+      totalRecipeBudget: intent.scale.totalRecipeBudget,
+      ...(intent.scale.maxFiles ? { maxFiles: intent.scale.maxFiles } : {}),
+      ...(intent.scale.contentMaxLines ? { contentMaxLines: intent.scale.contentMaxLines } : {}),
+      ...(intent.scale.depthLevels.length > 0 ? { depthLevels: intent.scale.depthLevels } : {}),
+    },
+    moduleBindings: intent.moduleBindings,
+  };
+}
+
+function projectPlanSnapshot(plan: EphemeralPlanSnapshot): Record<string, unknown> {
   return {
     planId: plan.planId,
     version: plan.version,
     planStatus: plan.status,
     projectRoot: plan.projectRoot,
-    projectContextSignature: plan.projectContextSignature,
-    lastUpdatedFromCommit: plan.lastUpdatedFromCommit,
+    ...(plan.projectContextSignature
+      ? { projectContextSignature: plan.projectContextSignature }
+      : {}),
     createdBy: plan.createdBy,
-    confirmedBy: plan.confirmedBy,
-    confirmedAt: plan.confirmedAt,
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
-    supersedesPlanId: plan.supersedesPlanId,
     intent: plan.intent,
-    rationale: plan.rationale,
-    intentChangeLog: plan.intentChangeLog,
-  };
-}
-
-function projectPlanView(view: PlanView): Record<string, unknown> {
-  return {
-    intent: projectPlanRecord(view.intent),
-    planState: projectPlanState(view.state),
-    signature: view.signature,
-  };
-}
-
-function projectPlanState(state: PlanGenerationState): Record<string, unknown> {
-  return {
-    codeRecipeMapping: state.codeRecipeMapping.map((mapping) => ({
-      codeRegion: mapping.codeRegion,
-      recipeIds: mapping.recipeIds,
-      status: mapping.status,
-      dimensionIds: mapping.dimensionIds,
-      modulePath: mapping.modulePath,
-      evidenceRefs: mapping.evidenceRefs,
-    })),
-    coverage: state.coverage,
-    pendingProposals: state.pendingProposals.map((proposal) => ({
-      id: readString(proposal, 'id'),
-      type: readString(proposal, 'type'),
-      targetRecipeId: readString(proposal, 'targetRecipeId'),
-      status: readString(proposal, 'status'),
-      confidence: readNumber(proposal, 'confidence'),
-      description: readString(proposal, 'description'),
-    })),
-    generationChangeLog: state.generationChangeLog.map((event) => ({
-      id: readString(event, 'id'),
-      recipeId: readString(event, 'recipeId'),
-      fromState: readString(event, 'fromState'),
-      toState: readString(event, 'toState'),
-      trigger: readString(event, 'trigger'),
-      createdAt: readNumber(event, 'createdAt'),
-    })),
   };
 }
 
 function buildPlanProjectContextCreationGuide(
-  plan: PlanRecord,
+  plan: EphemeralPlanSnapshot,
   stage: ProjectContextCreationStage
 ): Record<string, unknown> {
   return buildProjectContextCreationGuide({
     dimensionIds: plan.intent.dimensions.map((dimension) => dimension.dimensionId),
-    generationStage: inferPlanGenerationStage(plan.intent),
+    generationStage: plan.intent.generationStage,
     moduleScope: plan.intent.moduleBindings.map((binding) => binding.modulePath),
     planId: plan.planId,
     projectRoot: plan.projectRoot,
     stage,
   });
-}
-
-function inferPlanGenerationStage(intent: PlanIntent): PlanStageId {
-  if (intent.stages.moduleMining.perModule.length > 0) {
-    return 'moduleMining';
-  }
-  const selectedStages = intent.dimensions.map((dimension) => dimension.stage);
-  if (selectedStages.includes('deepMining')) {
-    return 'deepMining';
-  }
-  return 'coldStart';
-}
-
-function buildGetNextActions(view: PlanView): Record<string, unknown>[] {
-  if (!view.signature.matches) {
-    return [
-      {
-        tool: PLAN_TOOL_NAME,
-        operation: 'draft',
-        required: true,
-        reason: 'ProjectContext changed; refresh the Plan draft before generation.',
-        args: { operation: 'draft', projectRoot: view.intent.projectRoot },
-      },
-    ];
-  }
-  if (view.state.coverage.gaps.length > 0) {
-    const gapScope = buildCoverageGapGuideScope(view);
-    return buildProjectContextCreationNextActions({
-      dimensionIds: gapScope.dimensionIds,
-      generationStage: inferPlanGenerationStage(view.intent.intent),
-      moduleScope: gapScope.moduleScope,
-      planId: view.intent.planId,
-      projectRoot: view.intent.projectRoot,
-      stage: 'plan-get',
-    });
-  }
-  return [
-    {
-      tool: PLAN_TOOL_NAME,
-      operation: 'get',
-      required: false,
-      reason:
-        'Plan coverage currently has no missing buckets; re-read when project or Recipes change.',
-    },
-  ];
-}
-
-function buildCoverageGapGuideScope(view: PlanView): {
-  dimensionIds: string[];
-  moduleScope: string[];
-} {
-  const gapDimensions = uniqueStrings(
-    view.state.coverage.gaps.map((gap) => gap.dimensionId).filter(isPresent)
-  );
-  const gapModules = uniqueStrings(
-    view.state.coverage.gaps.map((gap) => gap.modulePath).filter(isPresent)
-  );
-  return {
-    dimensionIds:
-      gapDimensions.length > 0
-        ? gapDimensions
-        : view.intent.intent.dimensions.map((dimension) => dimension.dimensionId),
-    moduleScope:
-      gapModules.length > 0
-        ? gapModules
-        : view.intent.intent.moduleBindings.map((binding) => binding.modulePath),
-  };
 }
 
 function buildProjectContextFactPackage(
@@ -1576,32 +1231,6 @@ function countSourceFilesByLanguage(
   return Object.fromEntries(
     Object.entries(counts).sort(([left], [right]) => left.localeCompare(right))
   );
-}
-
-function summarizeOnboardingContract(
-  contract: ReturnType<typeof buildColdStartOnboardingContract>
-): Record<string, unknown> {
-  return {
-    bootstrapState: {
-      status: readString(contract.bootstrapState, 'status'),
-      projectIdentity: readRecord(contract.bootstrapState.projectIdentity),
-    },
-    currentDomainSop: {
-      domainId: readString(contract.currentDomainSop, 'domainId'),
-      title: readString(contract.currentDomainSop, 'title'),
-      toolSequence: Array.isArray(contract.currentDomainSop.toolSequence)
-        ? contract.currentDomainSop.toolSequence
-        : [],
-    },
-    domainQueue: contract.domainQueue.map((entry) => ({
-      domainId: entry.domainId,
-      status: entry.status,
-      dimensionRefs: entry.dimensionRefs,
-      toolSequence: entry.toolSequence,
-    })),
-    initialToolBriefing: contract.initialToolBriefing,
-    toolCapabilities: contract.toolCapabilities,
-  };
 }
 
 function selectPlanModuleSeeds(repo: RepoContext | undefined): PlanModuleSeed[] {
@@ -1837,19 +1466,16 @@ function createPlanDraftSession(projectRoot: string): { toJSON(): Record<string,
   };
 }
 
-function readGitCommit(projectRoot: string): string | null {
-  try {
-    return execFileSync('git', ['-C', projectRoot, 'rev-parse', 'HEAD'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return null;
-  }
-}
-
 function resolvePlanActor(ctx: PlanToolContext): string {
   return ctx.actor?.user ?? ctx.actor?.role ?? 'host-agent';
+}
+
+function hashShort(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
 }
 
 function blocked(
@@ -1913,6 +1539,12 @@ function arrayStrings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return arrayStrings(value)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }
 
 function readScopeFilePath(ref: unknown): string | undefined {

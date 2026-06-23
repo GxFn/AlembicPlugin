@@ -43,7 +43,6 @@ import type {
   GuardViolationRepository,
   KnowledgeEdgeRepository,
   KnowledgeRepository,
-  PlanRepository,
   SessionRepository,
   SourceRefRepository,
   TokenUsageStore,
@@ -99,7 +98,6 @@ export interface ServiceMap {
   lifecycleEventRepository: EvolutionLifecycleEventRepository;
   gitDiffCheckpointRepository: EvolutionGitDiffCheckpointRepository;
   recipeSourceRefRepository: SourceRefRepository;
-  planRepository: PlanRepository;
   knowledgeFileWriter: KnowledgeFileWriter;
   knowledgeSyncService: KnowledgeSyncService;
 

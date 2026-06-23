@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import {
   type GitDiffCheckpointRouteStatus,
   type GitDiffCheckpointScope,
@@ -14,7 +15,7 @@ export interface PluginGitDiffCheckpointContainer {
 
 export interface PluginGitDiffCheckpointRuntime {
   checkpointCommit: string | null;
-  initializationSource: 'existing-checkpoint' | 'active-confirmed-plan' | 'empty';
+  initializationSource: 'existing-checkpoint' | 'current-head' | 'empty';
   scope: GitDiffCheckpointScope;
   service: GitDiffCheckpointService;
 }
@@ -50,18 +51,16 @@ export function createPluginGitDiffCheckpointRuntime(
   }
 ): PluginGitDiffCheckpointRuntime | null {
   const checkpointRepository = safeContainerGet(container, 'gitDiffCheckpointRepository');
-  const planRepository = safeContainerGet(container, 'planRepository');
-  if (
-    !hasFunctions(checkpointRepository, ['get', 'upsert']) ||
-    !hasFunctions(planRepository, ['getActiveConfirmed'])
-  ) {
+  if (!hasFunctions(checkpointRepository, ['get', 'upsert'])) {
     return null;
   }
 
   const service = new GitDiffCheckpointService({
     checkpointRepository:
       checkpointRepository as unknown as GitDiffCheckpointRepositories['checkpointRepository'],
-    planRepository: planRepository as unknown as GitDiffCheckpointRepositories['planRepository'],
+    baselineProvider: {
+      getBaselineCommit: readCurrentHeadCommit,
+    },
   });
   const scope = buildPluginGitDiffCheckpointScope(input);
   const ensured = service.ensureCheckpoint(scope);
@@ -71,6 +70,18 @@ export function createPluginGitDiffCheckpointRuntime(
     scope,
     service,
   };
+}
+
+function readCurrentHeadCommit(projectRoot: string): string | null {
+  try {
+    const head = execFileSync('git', ['-C', projectRoot, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return head.length > 0 ? head : null;
+  } catch {
+    return null;
+  }
 }
 
 export function buildPluginGitDiffCheckpointScope(input: {

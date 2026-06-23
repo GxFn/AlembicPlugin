@@ -58,20 +58,17 @@ describe('Git diff checkpoint', () => {
     });
   });
 
-  test('durable service initializes from active confirmed Plan and advances only routed ranges', () => {
+  test('durable service initializes from current HEAD and advances only routed ranges', () => {
     const checkpointRepository = createInMemoryCheckpointRepository();
-    const planRepository = {
-      getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
-    };
     const service = new GitDiffCheckpointService({
       checkpointRepository: checkpointRepository as never,
-      planRepository: planRepository as never,
+      baselineProvider: { getBaselineCommit: vi.fn(() => 'head-a') },
     });
     const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
 
     const ensured = service.ensureCheckpoint({ ...scope, now: 1_000 });
-    expect(ensured.source).toBe('active-confirmed-plan');
-    expect(ensured.checkpoint.checkpointCommit).toBe('plan-head');
+    expect(ensured.source).toBe('current-head');
+    expect(ensured.checkpoint.checkpointCommit).toBe('head-a');
 
     const skipped = service.recordRouteOutcome({
       ...scope,
@@ -81,9 +78,9 @@ describe('Git diff checkpoint', () => {
     });
     expect(skipped).toMatchObject({
       advanced: false,
-      unresolvedRange: { fromCommit: 'plan-head', toCommit: 'head-b' },
+      unresolvedRange: { fromCommit: 'head-a', toCommit: 'head-b' },
     });
-    expect(skipped.checkpoint.checkpointCommit).toBe('plan-head');
+    expect(skipped.checkpoint.checkpointCommit).toBe('head-a');
 
     const routed = service.recordRouteOutcome({
       ...scope,
@@ -102,9 +99,7 @@ describe('Git diff checkpoint', () => {
     const checkpointRepository = createInMemoryCheckpointRepository();
     const service = new GitDiffCheckpointService({
       checkpointRepository: checkpointRepository as never,
-      planRepository: {
-        getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
-      } as never,
+      baselineProvider: { getBaselineCommit: vi.fn(() => 'head-a') },
     });
     const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
 
@@ -125,30 +120,28 @@ describe('Git diff checkpoint', () => {
     expect(nonAncestor).toMatchObject({
       advanced: false,
       unresolvedRange: {
-        fromCommit: 'plan-head',
+        fromCommit: 'head-a',
         mergeBaseCommit: 'merge-base',
         toCommit: 'head-c',
       },
     });
     expect(failed).toMatchObject({
       advanced: false,
-      unresolvedRange: { fromCommit: 'plan-head', toCommit: 'head-d' },
+      unresolvedRange: { fromCommit: 'head-a', toCommit: 'head-d' },
     });
-    expect(failed.checkpoint.checkpointCommit).toBe('plan-head');
+    expect(failed.checkpoint.checkpointCommit).toBe('head-a');
   });
 
   test('plugin route outcome advances only after successful catch-up routing', () => {
     const checkpointRepository = createInMemoryCheckpointRepository();
     const service = new GitDiffCheckpointService({
       checkpointRepository: checkpointRepository as never,
-      planRepository: {
-        getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
-      } as never,
+      baselineProvider: { getBaselineCommit: vi.fn(() => 'head-a') },
     });
     const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
     const runtime = {
-      checkpointCommit: 'plan-head',
-      initializationSource: 'active-confirmed-plan' as const,
+      checkpointCommit: 'head-a',
+      initializationSource: 'current-head' as const,
       scope,
       service,
     };
@@ -163,11 +156,11 @@ describe('Git diff checkpoint', () => {
     });
     expect(skipped).toMatchObject({
       advanced: false,
-      checkpointCommit: 'plan-head',
+      checkpointCommit: 'head-a',
       mergeBaseCommit: 'merge-base',
       routeStatus: 'skipped',
       unresolvedRange: {
-        fromCommit: 'plan-head',
+        fromCommit: 'head-a',
         mergeBaseCommit: 'merge-base',
         toCommit: 'head-c',
       },
@@ -201,14 +194,12 @@ describe('Git diff checkpoint', () => {
     const checkpointRepository = createInMemoryCheckpointRepository();
     const service = new GitDiffCheckpointService({
       checkpointRepository: checkpointRepository as never,
-      planRepository: {
-        getActiveConfirmed: vi.fn(() => ({ lastUpdatedFromCommit: 'plan-head' })),
-      } as never,
+      baselineProvider: { getBaselineCommit: vi.fn(() => 'head-a') },
     });
     const scope = { folderId: 'root', projectRoot: '/repo', scopeId: 'single-folder' };
     const runtime = {
-      checkpointCommit: 'plan-head',
-      initializationSource: 'active-confirmed-plan' as const,
+      checkpointCommit: 'head-a',
+      initializationSource: 'current-head' as const,
       scope,
       service,
     };
