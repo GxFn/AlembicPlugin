@@ -94,16 +94,12 @@ type ArchitectureIntelligence = ReturnType<
 type DynamicPlanningSignals = ReturnType<
   typeof ProjectContextCapabilities.aggregateDynamicPlanningSignals
 >;
-type DimensionPlanningAids = ReturnType<
-  typeof ProjectContextCapabilities.buildDimensionPlanningAids
->;
 type PlanDraftPackage = ReturnType<typeof buildPlanDraftInformationPackage>;
 type PlanRepositories = ConstructorParameters<typeof PlanLedgerService>[0];
 
 interface PlanDraftContext {
   analysis: PlanProjectContextAnalysis;
   dynamicSignals: DynamicPlanningSignals;
-  planningAids: DimensionPlanningAids;
   planningBrief: Record<string, unknown>;
   projectContextSignature: string;
   projectRoot: string;
@@ -247,30 +243,22 @@ async function buildPlanDraftContext(
     dimensions: analysis.dimensions,
     moduleSnapshots: collectModuleSnapshots(analysis),
   });
-  const planningAids = buildDraftPlanningAids(analysis, architectureIntelligence, dynamicSignals);
-  const effectiveAnalysis = {
-    ...analysis,
-    dimensions: resolvePlanningAidActiveDimensions(planningAids),
-  };
   const projectContextSignature = computePlanProjectContextSignature({
-    analysis: effectiveAnalysis,
+    analysis,
     architectureStyle: architectureIntelligence.styles.primary,
     projectRoot,
   });
   const draftPackage = buildDraftInformationPackage(ctx, args, {
-    analysis: effectiveAnalysis,
+    analysis,
     architectureIntelligence,
     dynamicSignals,
-    planningAids,
     projectContextSignature,
   });
   return {
-    analysis: effectiveAnalysis,
+    analysis,
     dynamicSignals,
-    planningAids,
-    planningBrief: buildDraftPlanningBrief(projectRoot, effectiveAnalysis, draftPackage, {
+    planningBrief: buildDraftPlanningBrief(projectRoot, analysis, draftPackage, {
       dynamicSignals,
-      planningAids,
     }),
     projectContextSignature,
     projectRoot,
@@ -289,25 +277,6 @@ function analyzeDraftArchitecture(
   });
 }
 
-function buildDraftPlanningAids(
-  analysis: PlanProjectContextAnalysis,
-  architectureIntelligence: ArchitectureIntelligence,
-  dynamicSignals: DynamicPlanningSignals
-): DimensionPlanningAids {
-  return ProjectContextCapabilities.buildDimensionPlanningAids({
-    architectureIntelligence,
-    detectedFrameworks: analysis.frameworks,
-    dynamicSignals,
-    primaryLanguage: analysis.primaryLanguage,
-  });
-}
-
-function resolvePlanningAidActiveDimensions(planningAids: DimensionPlanningAids): DimensionDef[] {
-  const ids = planningAids.selection.activeDimensions.map((dimension) => dimension.id);
-  const resolution = resolvePlanDimensionDefinitions(baseDimensions, ids);
-  return resolution.dimensions;
-}
-
 function buildDraftInformationPackage(
   ctx: PlanToolContext,
   args: PlanArgs,
@@ -315,7 +284,6 @@ function buildDraftInformationPackage(
     analysis: PlanProjectContextAnalysis;
     architectureIntelligence: ArchitectureIntelligence;
     dynamicSignals: DynamicPlanningSignals;
-    planningAids: DimensionPlanningAids;
     projectContextSignature: string;
   }
 ): PlanDraftPackage {
@@ -323,10 +291,7 @@ function buildDraftInformationPackage(
   return buildPlanDraftInformationPackage({
     dynamicSignals: summarizeDynamicSignals(input.dynamicSignals),
     hints: buildDraftHints(ctx, args),
-    missionBriefing: summarizeMissionBriefing(
-      buildMissionBriefingForDraft(profile, resolvePlanProjectRoot(ctx, args))
-    ),
-    planningAids: input.planningAids,
+    missionBriefing: buildMissionBriefingForDraft(profile, resolvePlanProjectRoot(ctx, args)),
     projectContextSignature: input.projectContextSignature,
     projectProfile: {
       architectureHints: [
@@ -385,7 +350,6 @@ function buildDraftPlanningBrief(
   draftPackage: PlanDraftPackage,
   reports: {
     dynamicSignals: DynamicPlanningSignals;
-    planningAids: DimensionPlanningAids;
   }
 ): Record<string, unknown> {
   const missionBriefing = buildMissionBriefingForDraft(analysis, projectRoot);
@@ -399,11 +363,10 @@ function buildDraftPlanningBrief(
       projectRoot,
       stage: 'plan-draft',
     }),
-    projectContext: summarizeProjectContext(analysis),
+    projectContext: buildProjectContextFactPackage(analysis),
     sourceReports: {
       dynamicSignals: summarizeDynamicSignals(reports.dynamicSignals),
-      missionBriefing: summarizeMissionBriefing(missionBriefing),
-      planningAids: summarizePlanningAids(reports.planningAids),
+      missionBriefing,
     },
   };
 }
@@ -433,7 +396,11 @@ function planDraftResponse(plan: PlanRecord, draftContext: PlanDraftContext): Pl
       projectRoot: draftContext.projectRoot,
       projectContextSignature: draftContext.projectContextSignature,
       currentProjectContextSignature: draftContext.projectContextSignature,
-      projectContextCreationGuide: buildPlanProjectContextCreationGuide(plan, 'plan-draft'),
+      projectContextCreationGuide: buildProjectContextCreationGuide({
+        dimensionIds: draftContext.analysis.dimensions.map((dimension) => dimension.id),
+        projectRoot: draftContext.projectRoot,
+        stage: 'plan-draft',
+      }),
       plan: projectPlanRecord(plan),
       planningBrief: draftContext.planningBrief,
       ...(draftContext.analysis.contextStatus === 'partial'
@@ -1373,9 +1340,12 @@ function buildCoverageGapGuideScope(view: PlanView): {
   };
 }
 
-function summarizeProjectContext(analysis: PlanProjectContextAnalysis): Record<string, unknown> {
+function buildProjectContextFactPackage(
+  analysis: PlanProjectContextAnalysis
+): Record<string, unknown> {
   return {
     contextStatus: analysis.contextStatus,
+    envelopes: analysis.envelopes,
     factSource: analysis.factSource,
     fileCount: analysis.fileCount,
     frameworks: analysis.frameworks,
@@ -1387,47 +1357,11 @@ function summarizeProjectContext(analysis: PlanProjectContextAnalysis): Record<s
       ownedFiles: seed.ownedFiles,
     })),
     primaryLanguage: analysis.primaryLanguage,
+    presenterInput: analysis.presenterInput,
     projectType: analysis.projectType,
     requestKinds: analysis.requestKinds,
     secondaryLanguages: analysis.secondaryLanguages,
     understandingGaps: analysis.understandingGaps,
-  };
-}
-
-function summarizePlanningAids(
-  planningAids: ReturnType<typeof ProjectContextCapabilities.buildDimensionPlanningAids>
-): Record<string, unknown> {
-  return {
-    selection: {
-      activeDimensionIds: planningAids.selection.activeDimensions.map((dimension) => dimension.id),
-      skippedDimensionIds: planningAids.selection.skippedDimensions.map(
-        (dimension) => dimension.id
-      ),
-      lowConfidenceDimensions: planningAids.selection.lowConfidenceDimensions.map((decision) => ({
-        dimensionId: decision.dimension.id,
-        reasons: decision.reasons,
-        confidence: decision.confidence,
-        detail: decision.detail,
-      })),
-      decisions: planningAids.selection.decisions.map((decision) => ({
-        dimensionId: decision.dimension.id,
-        kind: decision.kind,
-        reasons: decision.reasons,
-        confidence: decision.confidence,
-        domains: decision.domains,
-        detail: decision.detail,
-      })),
-      unavailableSignals: planningAids.selection.unavailableSignals,
-    },
-    informationGatheringSteps: planningAids.informationGatheringSteps.map((step) => ({
-      stepId: step.stepId,
-      tool: step.tool,
-      dimensions: step.dimensions,
-      reason: step.reason,
-      priority: step.priority,
-    })),
-    lowConfidenceSignals: planningAids.lowConfidenceSignals,
-    unavailableSignals: planningAids.unavailableSignals,
   };
 }
 
@@ -1449,18 +1383,6 @@ function summarizeDynamicSignals(
     },
     hotspotModuleIds: dynamicSignals.hotspotModuleIds,
     planSignals: dynamicSignals.planSignals,
-  };
-}
-
-function summarizeMissionBriefing(briefing: Record<string, unknown>): Record<string, unknown> {
-  const dimensions = Array.isArray(briefing.dimensions) ? briefing.dimensions : [];
-  const projectContext = readRecord(briefing.projectContext);
-  return {
-    dimensionCount: dimensions.length,
-    hasProjectContext: Boolean(projectContext),
-    projectContextSource: readString(projectContext, 'source'),
-    responseSizeKB: readNumber(readRecord(briefing.meta), 'responseSizeKB'),
-    projectInformationSource: readString(readRecord(briefing.meta), 'projectInformationSource'),
   };
 }
 

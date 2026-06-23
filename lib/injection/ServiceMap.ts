@@ -21,7 +21,6 @@ import type {
 } from '@alembic/core/guard';
 import type { WriteZone } from '@alembic/core/io';
 import type {
-  CodeEntityGraph,
   ConfidenceRouter,
   KnowledgeFileWriter,
   KnowledgeGraphService,
@@ -123,7 +122,6 @@ export interface ServiceMap {
   recipeFreshnessService: RecipeFreshnessService;
   recipeProductionGateway: RecipeProductionGateway;
   knowledgeGraphService: KnowledgeGraphService;
-  codeEntityGraph: CodeEntityGraph;
   searchEngine: SearchEngine;
   vectorStore: VectorStore;
   indexingPipeline: IndexingPipeline;

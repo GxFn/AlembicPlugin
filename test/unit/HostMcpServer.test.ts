@@ -109,8 +109,8 @@ async function confirmPlanForHostBootstrap(
   })) as { data?: Record<string, unknown>; success: boolean };
   expect(draft.success).toBe(true);
   const plan = readRecord(draft.data?.plan);
-  const planningAids = readRecord(readRecord(draft.data?.sourceReports).planningAids);
-  const dimensionIds = readArray(readRecord(planningAids.selection).activeDimensionIds)
+  const guide = readRecord(draft.data?.projectContextCreationGuide);
+  const dimensionIds = readArray(readRecord(guide.confirmedPlanBoundary).dimensionIds)
     .map((dimensionId) => (typeof dimensionId === 'string' ? dimensionId : undefined))
     .filter((dimensionId): dimensionId is string => Boolean(dimensionId));
   if (dimensionIds.length === 0) {

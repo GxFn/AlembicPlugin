@@ -644,15 +644,23 @@ async function confirmPlan(input: {
 }
 
 function dimensionIdsFromDraftFacts(draft: ToolResponse, count: number): string[] {
-  const planningAids = asRecord(asRecord(draft.data?.sourceReports).planningAids);
-  const activeDimensionIds = asArray(asRecord(planningAids.selection).activeDimensionIds)
+  const guide = asRecord(draft.data?.projectContextCreationGuide);
+  const guideDimensionIds = asArray(asRecord(guide.confirmedPlanBoundary).dimensionIds)
     .map(String)
     .filter((id) => id.length > 0)
     .slice(0, count);
-  if (activeDimensionIds.length === 0) {
-    throw new Error('Expected draft fact package to include active dimension ids.');
+  if (guideDimensionIds.length > 0) {
+    return guideDimensionIds;
   }
-  return activeDimensionIds;
+  const missionBriefing = asRecord(asRecord(draft.data?.sourceReports).missionBriefing);
+  const missionDimensionIds = asArray(missionBriefing.dimensions)
+    .map((dimension) => String(asRecord(dimension).id))
+    .filter((id) => id.length > 0)
+    .slice(0, count);
+  if (missionDimensionIds.length === 0) {
+    throw new Error('Expected draft fact package to include dimension ids.');
+  }
+  return missionDimensionIds;
 }
 
 function confirmedDimensions(

@@ -54,7 +54,7 @@ describe('alembic_plan tool', () => {
 
     const sourceReports = asRecord(draft.data?.sourceReports);
     const planningAids = asRecord(sourceReports.planningAids);
-    expect(asArray(asRecord(planningAids.selection).activeDimensionIds).length).toBeGreaterThan(0);
+    expect(planningAids).not.toHaveProperty('selection');
     expect(planningAids).not.toHaveProperty('dimensionOrder');
     expect(planningAids).not.toHaveProperty('recommendedDimensions');
     expect(asRecord(draft.data?.projectContextCreationGuide)).toMatchObject({
@@ -87,6 +87,45 @@ describe('alembic_plan tool', () => {
     const stored = repositories.planRepository.get(String(plan.planId), Number(plan.version));
     expect(stored?.planningBrief).toBeNull();
     expect(stored?.intent.dimensions).toEqual([]);
+  });
+
+  test('draft returns pure collected facts without active-skip filtering or count-only summaries', async () => {
+    const draft = await draftPlan({ maxBudget: 6 });
+
+    expect(draft.success).toBe(true);
+
+    const topLevelGuide = asRecord(draft.data?.projectContextCreationGuide);
+    const guideDimensionIds = asArray(asRecord(topLevelGuide.confirmedPlanBoundary).dimensionIds)
+      .map(String)
+      .filter((id) => id.length > 0);
+    expect(guideDimensionIds.length).toBeGreaterThan(10);
+    expect(guideDimensionIds).toEqual(
+      expect.arrayContaining(['architecture', 'coding-standards', 'networking-api'])
+    );
+
+    const planningBrief = asRecord(draft.data?.planningBrief);
+    const projectContext = asRecord(planningBrief.projectContext);
+    const presenterInput = asRecord(projectContext.presenterInput);
+    expect(asArray(presenterInput.envelopes).length).toBeGreaterThan(0);
+    expect(asArray(presenterInput.files).length).toBeGreaterThan(0);
+    expect(asArray(presenterInput.modules).length).toBeGreaterThan(0);
+
+    const sourceReports = asRecord(draft.data?.sourceReports);
+    const planningAids = asRecord(sourceReports.planningAids);
+    expect(planningAids).not.toHaveProperty('selection');
+    expect(JSON.stringify(planningAids)).not.toMatch(
+      /activeDimensionIds|skippedDimensionIds|lowConfidenceDimensions/
+    );
+
+    const missionBriefing = asRecord(sourceReports.missionBriefing);
+    const missionDimensionIds = asArray(missionBriefing.dimensions)
+      .map((dimension) => String(asRecord(dimension).id))
+      .filter((id) => id.length > 0);
+    expect(missionDimensionIds.length).toBeGreaterThan(10);
+    expect(missionDimensionIds).toEqual(
+      expect.arrayContaining(['architecture', 'coding-standards', 'networking-api'])
+    );
+    expect(missionBriefing).toHaveProperty('projectContext');
   });
 
   test('PlanInput schema routes confirm validation to complete Agent-authored payloads only', () => {
@@ -166,10 +205,7 @@ describe('alembic_plan tool', () => {
 
     const sourceReports = asRecord(draft.data?.sourceReports);
     const planningAids = asRecord(sourceReports.planningAids);
-    const activeDimensionIds = asArray(asRecord(planningAids.selection).activeDimensionIds).map(
-      String
-    );
-    expect(activeDimensionIds.length).toBeGreaterThan(0);
+    expect(planningAids).not.toHaveProperty('selection');
     expect(planningAids).not.toHaveProperty('recommendedDimensions');
 
     const plan = asRecord(draft.data?.plan);
@@ -727,17 +763,25 @@ function writeFile(root: string, relativePath: string, content: string) {
 }
 
 function dimensionIdsFromDraftFacts(draft: PlanToolResponse, count: number): string[] {
-  const sourceReports = asRecord(draft.data?.sourceReports);
-  const planningAids = asRecord(sourceReports.planningAids);
-  const selection = asRecord(planningAids.selection);
-  const activeDimensionIds = asArray(selection.activeDimensionIds)
+  const guide = asRecord(draft.data?.projectContextCreationGuide);
+  const boundary = asRecord(guide.confirmedPlanBoundary);
+  const guideDimensionIds = asArray(boundary.dimensionIds)
     .map(String)
     .filter((id) => id.length > 0)
     .slice(0, count);
-  if (activeDimensionIds.length === 0) {
-    throw new Error('Expected draft fact package to include active dimension ids.');
+  if (guideDimensionIds.length > 0) {
+    return guideDimensionIds;
   }
-  return activeDimensionIds;
+  const sourceReports = asRecord(draft.data?.sourceReports);
+  const missionBriefing = asRecord(sourceReports.missionBriefing);
+  const missionDimensionIds = asArray(missionBriefing.dimensions)
+    .map((dimension) => String(asRecord(dimension).id))
+    .filter((id) => id.length > 0)
+    .slice(0, count);
+  if (missionDimensionIds.length === 0) {
+    throw new Error('Expected draft fact package to include dimension ids.');
+  }
+  return missionDimensionIds;
 }
 
 function confirmedDimensions(
