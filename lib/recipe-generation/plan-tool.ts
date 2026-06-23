@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { basename } from 'node:path';
+import type { Dirent, Stats } from 'node:fs';
+import fs from 'node:fs/promises';
+import path, { basename } from 'node:path';
 import {
   baseDimensions,
   buildProjectContextMissionBriefing,
@@ -30,6 +32,7 @@ import {
   type RepoContext,
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
+import { LanguageService } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
@@ -62,6 +65,12 @@ interface PlanModuleSeed {
   role?: string;
 }
 
+interface PlanProjectSourceFileFact {
+  filePath: string;
+  language: string;
+  sizeBytes: number;
+}
+
 interface PlanProjectContextAnalysis {
   contextStatus: 'complete' | 'partial';
   dimensions: DimensionDef[];
@@ -76,6 +85,7 @@ interface PlanProjectContextAnalysis {
   projectType: string;
   requestKinds: ProjectContextRequestKind[];
   secondaryLanguages: string[];
+  sourceFileFacts: PlanProjectSourceFileFact[];
   understandingGaps: Record<string, unknown>[];
 }
 
@@ -132,6 +142,17 @@ const COUNTABLE_RECIPE_LIFECYCLES = [
 ] as const;
 
 const PLAN_TOOL_NAME = 'alembic_plan';
+const PLAN_SOURCE_SCAN_MAX_FILES = 5000;
+const PLAN_MODULE_OWNED_FILE_LIMIT = 400;
+const PLAN_SOURCE_SCAN_EXCLUDE_DIRS = new Set([
+  ...LanguageService.scanSkipDirs,
+  '.asd',
+  '.git',
+  '.wakeflow-active',
+  '.wakeflow-local',
+  'DerivedData',
+  'node_modules',
+]);
 
 export async function routePlanTool(
   ctx: PlanToolContext,
@@ -289,7 +310,7 @@ function buildDraftInformationPackage(
 ): PlanDraftPackage {
   const profile = input.analysis;
   return buildPlanDraftInformationPackage({
-    dynamicSignals: summarizeDynamicSignals(input.dynamicSignals),
+    dynamicSignals: input.dynamicSignals as unknown as Record<string, unknown>,
     hints: buildDraftHints(ctx, args),
     missionBriefing: buildMissionBriefingForDraft(profile, resolvePlanProjectRoot(ctx, args)),
     projectContextSignature: input.projectContextSignature,
@@ -365,7 +386,7 @@ function buildDraftPlanningBrief(
     }),
     projectContext: buildProjectContextFactPackage(analysis),
     sourceReports: {
-      dynamicSignals: summarizeDynamicSignals(reports.dynamicSignals),
+      dynamicSignals: reports.dynamicSignals as unknown as Record<string, unknown>,
       missionBriefing,
     },
   };
@@ -724,7 +745,8 @@ async function collectPlanProjectContext(
   await push('space', { includeProjectTree: true });
   const repoEnvelope = await push('repo', { includeMapSummary: true });
   const repo = isRepoContext(repoEnvelope.data) ? repoEnvelope.data : undefined;
-  const moduleSeeds = selectPlanModuleSeeds(repo);
+  const sourceFileFacts = await collectProjectSourceFileFacts(projectRoot);
+  const moduleSeeds = attachSourceFilesToModuleSeeds(selectPlanModuleSeeds(repo), sourceFileFacts);
   if (moduleSeeds.length > 0) {
     await push('map', {
       moduleSeeds,
@@ -761,7 +783,7 @@ async function collectPlanProjectContext(
     dimensions: [...baseDimensions],
     envelopes,
     factSource: 'project-context',
-    fileCount: Math.max(presenterInput.files.length, repoFileCount),
+    fileCount: Math.max(presenterInput.files.length, repoFileCount, sourceFileFacts.length),
     frameworks,
     moduleCount,
     moduleSeeds,
@@ -770,8 +792,117 @@ async function collectPlanProjectContext(
     projectType: inferProjectType(presenterInput),
     requestKinds: [...new Set(envelopes.map((envelope) => envelope.queryLevel))],
     secondaryLanguages,
+    sourceFileFacts,
     understandingGaps,
   };
+}
+
+async function collectProjectSourceFileFacts(
+  projectRoot: string
+): Promise<PlanProjectSourceFileFact[]> {
+  const facts: PlanProjectSourceFileFact[] = [];
+  const absoluteRoot = path.resolve(projectRoot);
+  const pending = [absoluteRoot];
+  while (pending.length > 0 && facts.length < PLAN_SOURCE_SCAN_MAX_FILES) {
+    const current = pending.pop();
+    if (!current) {
+      continue;
+    }
+    const entries = await safeReadDir(current);
+    for (const entry of entries) {
+      const absolutePath = path.join(current, entry.name);
+      const relativePath = toProjectContextPath(path.relative(absoluteRoot, absolutePath));
+      if (!relativePath || relativePath.startsWith('..')) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        if (!PLAN_SOURCE_SCAN_EXCLUDE_DIRS.has(entry.name)) {
+          pending.push(absolutePath);
+        }
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      const language = LanguageService.inferLang(relativePath);
+      if (language === 'unknown') {
+        continue;
+      }
+      const stat = await safeStat(absolutePath);
+      facts.push({
+        filePath: relativePath,
+        language,
+        sizeBytes: stat?.size ?? 0,
+      });
+      if (facts.length >= PLAN_SOURCE_SCAN_MAX_FILES) {
+        break;
+      }
+    }
+  }
+  return facts.sort((left, right) => left.filePath.localeCompare(right.filePath));
+}
+
+async function safeReadDir(directoryPath: string): Promise<Dirent[]> {
+  try {
+    return await fs.readdir(directoryPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+async function safeStat(filePath: string): Promise<Stats | undefined> {
+  try {
+    return await fs.stat(filePath);
+  } catch {
+    return undefined;
+  }
+}
+
+function attachSourceFilesToModuleSeeds(
+  seeds: readonly PlanModuleSeed[],
+  sourceFileFacts: readonly PlanProjectSourceFileFact[]
+): PlanModuleSeed[] {
+  const sourceFilesByPath = new Set(sourceFileFacts.map((file) => file.filePath));
+  return mergePlanModuleSeeds(
+    seeds
+      .map((seed) => {
+        const explicitFiles = uniqueStrings(
+          (seed.ownedFiles ?? [])
+            .map(normalizePath)
+            .filter(isPresent)
+            .filter((filePath) => sourceFilesByPath.has(filePath))
+        );
+        const matchedFiles = sourceFilesForModuleSeed(seed, sourceFileFacts).map(
+          (file) => file.filePath
+        );
+        const ownedFiles = uniqueStrings([...explicitFiles, ...matchedFiles]).slice(
+          0,
+          PLAN_MODULE_OWNED_FILE_LIMIT
+        );
+        return {
+          ...seed,
+          ownedFiles: ownedFiles.length > 0 ? ownedFiles : undefined,
+        };
+      })
+      .filter((seed) => hasSeedScope(seed) && (seed.ownedFiles?.length ?? 0) > 0)
+  );
+}
+
+function sourceFilesForModuleSeed(
+  seed: PlanModuleSeed,
+  sourceFileFacts: readonly PlanProjectSourceFileFact[]
+): PlanProjectSourceFileFact[] {
+  const modulePath = normalizePath(seed.modulePath);
+  if (!modulePath) {
+    return [];
+  }
+  return sourceFileFacts.filter(
+    (file) => file.filePath === modulePath || file.filePath.startsWith(`${modulePath}/`)
+  );
+}
+
+function toProjectContextPath(value: string): string {
+  return value.split(path.sep).join('/');
 }
 
 function mergePlanModuleSeeds(seeds: readonly PlanModuleSeed[]): PlanModuleSeed[] {
@@ -991,13 +1122,30 @@ function computePlanProjectContextSignature(input: {
     })),
     primaryLanguage: input.analysis.primaryLanguage,
     projectRoot: input.projectRoot,
-    files: input.analysis.presenterInput.files.map((file) => ({
-      contentHash: file.ref?.id ?? '',
-      filePath: file.filePath,
-      language: file.language,
-      lineCount: file.lineCount,
-    })),
+    files: collectProjectContextSignatureFiles(input.analysis),
   });
+}
+
+function collectProjectContextSignatureFiles(analysis: PlanProjectContextAnalysis): Array<{
+  contentHash: string;
+  filePath: string;
+  language?: string;
+  lineCount?: number;
+}> {
+  const presenterFiles = analysis.presenterInput.files.map((file) => ({
+    contentHash: file.ref?.id ?? '',
+    filePath: file.filePath,
+    language: file.language,
+    lineCount: file.lineCount,
+  }));
+  const sourceFiles = analysis.sourceFileFacts.map((file) => ({
+    contentHash: '',
+    filePath: file.filePath,
+    language: file.language,
+  }));
+  return dedupeBy([...presenterFiles, ...sourceFiles], (file) => file.filePath).sort(
+    (left, right) => left.filePath.localeCompare(right.filePath)
+  );
 }
 
 function buildConfirmedPlanIntent(args: PlanArgs, draft: PlanRecord): BuildConfirmIntentResult {
@@ -1359,31 +1507,27 @@ function buildProjectContextFactPackage(
     primaryLanguage: analysis.primaryLanguage,
     presenterInput: analysis.presenterInput,
     projectType: analysis.projectType,
+    repoFacts: {
+      sourceFileCount: analysis.sourceFileFacts.length,
+      sourceFiles: analysis.sourceFileFacts,
+      sourceFilesByLanguage: countSourceFilesByLanguage(analysis.sourceFileFacts),
+    },
     requestKinds: analysis.requestKinds,
     secondaryLanguages: analysis.secondaryLanguages,
     understandingGaps: analysis.understandingGaps,
   };
 }
 
-function summarizeDynamicSignals(
-  dynamicSignals: ReturnType<typeof ProjectContextCapabilities.aggregateDynamicPlanningSignals>
-): Record<string, unknown> {
-  return {
-    proposals: dynamicSignals.proposals,
-    decay: dynamicSignals.decay,
-    coverage: {
-      targetPerModuleDimension: dynamicSignals.coverage.targetPerModuleDimension,
-      gaps: dynamicSignals.coverage.gaps,
-    },
-    moduleDelta: {
-      added: dynamicSignals.moduleDelta.added,
-      changed: dynamicSignals.moduleDelta.changed,
-      removed: dynamicSignals.moduleDelta.removed,
-      affectedModuleIds: dynamicSignals.moduleDelta.affectedModuleIds,
-    },
-    hotspotModuleIds: dynamicSignals.hotspotModuleIds,
-    planSignals: dynamicSignals.planSignals,
-  };
+function countSourceFilesByLanguage(
+  files: readonly PlanProjectSourceFileFact[]
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const file of files) {
+    counts[file.language] = (counts[file.language] ?? 0) + 1;
+  }
+  return Object.fromEntries(
+    Object.entries(counts).sort(([left], [right]) => left.localeCompare(right))
+  );
 }
 
 function summarizeOnboardingContract(
@@ -1444,7 +1588,7 @@ function selectPlanModuleSeeds(repo: RepoContext | undefined): PlanModuleSeed[] 
       arrayRecords(target.refs).map((ref) => ({
         moduleName:
           readString(target, 'name') ?? moduleNameFromPath(readScopeFilePath(ref) ?? 'target'),
-        modulePath: normalizePath(parentPath(readScopeFilePath(ref))),
+        modulePath: normalizePath(readScopeFilePath(ref)),
         ownedFiles: [readScopeFilePath(ref)].filter(isPresent),
         role: readString(target, 'kind') ?? 'target',
       }))

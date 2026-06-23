@@ -79,6 +79,7 @@ describe('alembic_plan tool', () => {
     );
 
     const dynamicSignals = asRecord(sourceReports.dynamicSignals);
+    expect(asArray(asRecord(dynamicSignals.coverage).byModule).length).toBeGreaterThan(0);
     const planSignalKinds = asArray(dynamicSignals.planSignals).map((item) => asRecord(item).kind);
     expect(planSignalKinds).not.toContain('new-module');
 
@@ -105,6 +106,8 @@ describe('alembic_plan tool', () => {
 
     const planningBrief = asRecord(draft.data?.planningBrief);
     const projectContext = asRecord(planningBrief.projectContext);
+    const repoFacts = asRecord(projectContext.repoFacts);
+    expect(asArray(repoFacts.sourceFiles).length).toBeGreaterThan(0);
     const presenterInput = asRecord(projectContext.presenterInput);
     expect(asArray(presenterInput.envelopes).length).toBeGreaterThan(0);
     expect(asArray(presenterInput.files).length).toBeGreaterThan(0);
@@ -200,6 +203,30 @@ describe('alembic_plan tool', () => {
     expect(
       asArray(projectContext.moduleSeeds).map((seed) => String(asRecord(seed).modulePath))
     ).toEqual(expect.arrayContaining(['Sources', 'BiliDili', 'Package.swift']));
+    const repoFacts = asRecord(projectContext.repoFacts);
+    const repoSourceFiles = asArray(repoFacts.sourceFiles).map((file) =>
+      String(asRecord(file).filePath)
+    );
+    expect(repoSourceFiles).toEqual(
+      expect.arrayContaining([
+        'Sources/Features/VideoFeed/VideoFeedViewController.swift',
+        'Sources/Infrastructure/Networking/VideoAPIClient.swift',
+        'BiliDili/Modules/NetworkModule.swift',
+        'Package.swift',
+      ])
+    );
+    expect(asRecord(repoFacts.sourceFilesByLanguage).swift).toBeGreaterThanOrEqual(4);
+    const presenterInput = asRecord(projectContext.presenterInput);
+    const presenterFilePaths = asArray(presenterInput.files).map((file) =>
+      String(asRecord(file).filePath)
+    );
+    expect(presenterFilePaths).toEqual(
+      expect.arrayContaining([
+        'Sources/Features/VideoFeed/VideoFeedViewController.swift',
+        'Sources/Infrastructure/Networking/VideoAPIClient.swift',
+        'BiliDili/Modules/NetworkModule.swift',
+      ])
+    );
     expect(projectContext).not.toHaveProperty('fallbackDiagnostics');
     expect(projectContext).not.toHaveProperty('signatureScope');
 
@@ -207,6 +234,24 @@ describe('alembic_plan tool', () => {
     const planningAids = asRecord(sourceReports.planningAids);
     expect(planningAids).not.toHaveProperty('selection');
     expect(planningAids).not.toHaveProperty('recommendedDimensions');
+    const missionBriefing = asRecord(sourceReports.missionBriefing);
+    expect(missionBriefing).toHaveProperty('architectureOverview');
+    expect(missionBriefing).toHaveProperty('ast');
+    expect(missionBriefing).toHaveProperty('callGraph');
+    expect(missionBriefing).toHaveProperty('dependencyGraph');
+    expect(missionBriefing).toHaveProperty('guardFindings');
+    expect(missionBriefing).toHaveProperty('mustCoverModules');
+    const missionSourceFiles = asArray(asRecord(missionBriefing.projectContext).sourceFiles).map(
+      (file) => String(asRecord(file).filePath)
+    );
+    expect(missionSourceFiles).toEqual(
+      expect.arrayContaining([
+        'Sources/Features/VideoFeed/VideoFeedViewController.swift',
+        'Sources/Infrastructure/Networking/VideoAPIClient.swift',
+      ])
+    );
+    const dynamicSignals = asRecord(sourceReports.dynamicSignals);
+    expect(asArray(asRecord(dynamicSignals.coverage).byModule).length).toBeGreaterThan(0);
 
     const plan = asRecord(draft.data?.plan);
     expect(plan).not.toHaveProperty('planningBrief');
