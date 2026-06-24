@@ -58,6 +58,29 @@ import { zodToMcpSchema } from '../../runtime/mcp/zodToMcpSchema.js';
 const _RescanSchema =
   RescanInput ??
   z.object({
+    planSelection: z
+      .object({
+        generationStage: z.enum(['deepMining', 'moduleMining']),
+        dimensions: z.array(z.string()).min(1),
+        scale: z.object({
+          totalRecipeBudget: z.number().int().positive(),
+          maxFiles: z.number().int().positive().optional(),
+          contentMaxLines: z.number().int().positive().optional(),
+          depthLevels: z.array(z.string()).optional(),
+        }),
+        moduleBindings: z
+          .array(
+            z.object({
+              modulePath: z.string().min(1),
+              moduleId: z.string().optional(),
+              dimensions: z.array(z.string()).optional(),
+              targetRecipes: z.number().int().nonnegative().optional(),
+              priority: z.number().int().positive().optional(),
+            })
+          )
+          .min(1),
+      })
+      .strict(),
     dimensions: z.array(z.string()).optional(),
     reason: z.string().optional(),
     force: z.boolean().optional(),
@@ -222,11 +245,11 @@ export const TOOLS = [
     name: 'alembic_plan',
     tier: 'agent',
     description:
-      'Plan Alembic Recipe generation before cold-start/deep/module mining.\n' +
-      '• draft — collect real ProjectContext, architecture/dimension/dynamic signals, Mission Briefing, and tool capability context; persist a Core Plan draft fact package and return planId/version/projectContextSignature for Agent review\n' +
-      '• confirm — persist the complete Agent-authored Plan payload with selectedDimensions, scale/budget, moduleBindings, plannedNextActions, evidenceRefs, and rationale; stale version/signature mismatches are rejected\n' +
-      '• get — read the active confirmed Plan plus read-time Core generation-state projection: codeRecipeMapping, coverage, gaps, proposals, change log, and signature comparison\n' +
-      'Non-goal: does not start generation, bootstrap, rescan, vector jobs, or any RG-4 gate; Plan state is stored only in Core plans ledger.',
+      'Prepare the stateless planSelection required immediately before Alembic Recipe generation.\n' +
+      '• draft — collect bounded real ProjectContext as projectInfoTree plus the full candidate dimension catalog and Agent decision checklist for one generation stage\n' +
+      '• confirm — validate the Agent-authored single-stage selection and return planSelection {generationStage, dimensions, scale, moduleBindings}; it is not persisted\n' +
+      '• get — removed compatibility route; run draft + confirm again for the next cold-start/deep/module execution\n' +
+      'Non-goal: does not start generation, bootstrap, rescan, vector jobs, or any durable Plan ledger write.',
     inputSchema: zodToMcpSchema(PlanInput),
   },
 
@@ -267,9 +290,9 @@ export const TOOLS = [
     name: 'alembic_bootstrap',
     tier: 'agent',
     description:
-      'Plan-driven cold-start — requires an active confirmed alembic_plan before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded Plan dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
+      'Plan-selection-driven cold-start — requires planSelection from a just-run alembic_plan confirm before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded planSelection dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
-      '• Confirmed Plan dimension task list and scale\n' +
+      '• planSelection dimension task list and scale\n' +
       '• ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
       '• planGate/planState projection showing execution dimensions, gaps, cleanupPolicy, and module scope\n' +
       '• Execution plan and submission examples\n' +
@@ -282,8 +305,8 @@ export const TOOLS = [
     name: 'alembic_rescan',
     tier: 'agent',
     description:
-      'Plan-driven incremental rescan / moduleMining — requires an active confirmed alembic_plan before cleanup or generation.\n' +
-      '• deepMining snapshots approved Recipes → cleans derived caches → confirmed Plan ProjectContext analysis\n' +
+      'Plan-selection-driven incremental rescan / moduleMining — requires planSelection from a just-run alembic_plan confirm before cleanup or generation.\n' +
+      '• deepMining snapshots approved Recipes → cleans derived caches → planSelection ProjectContext analysis\n' +
       '• moduleMining or testMode uses cleanupPolicy:none and scoped ProjectContext module analysis, preserving candidates/wiki/cache\n' +
       '• Runs relevance audit (evidence check, auto-decay stale Recipes)\n' +
       '\u2022 Returns Mission Briefing with allRecipes (full content + auditHint per recipe)\n' +

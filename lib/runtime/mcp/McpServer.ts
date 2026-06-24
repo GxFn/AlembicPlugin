@@ -419,7 +419,10 @@ export class McpServer {
           args as Parameters<typeof bootstrapForHostAgent>[1]
         ),
       alembic_rescan: (ctx, args) =>
-        rescanForHostAgent(ctx as Parameters<typeof rescanForHostAgent>[0], args),
+        rescanForHostAgent(
+          ctx as Parameters<typeof rescanForHostAgent>[0],
+          args as Parameters<typeof rescanForHostAgent>[1]
+        ),
       alembic_evolve: (ctx, args) =>
         evolveForHostAgent(
           ctx as Parameters<typeof evolveForHostAgent>[0],

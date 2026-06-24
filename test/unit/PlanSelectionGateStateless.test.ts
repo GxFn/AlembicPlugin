@@ -1,20 +1,51 @@
 import { describe, expect, test } from 'vitest';
+import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
+import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import { resolvePlanGenerationGate } from '../../lib/recipe-generation/plan-generation-gate.js';
+import { BootstrapInput, RescanInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('stateless planSelection generation gate', () => {
-  test('blocks generation when planSelection is missing without reading storage', async () => {
-    const gate = await resolvePlanGenerationGate(
-      {
-        container: {
-          get: (name: string) => {
-            throw new Error(`unexpected storage read: ${name}`);
-          },
-          singletons: { _projectRoot: '/tmp/stateless-plan-gate' },
+  test('executor schemas require planSelection on bootstrap and rescan', () => {
+    expect(BootstrapInput.safeParse({}).success).toBe(false);
+    expect(RescanInput.safeParse({ reason: 'missing-planSelection' }).success).toBe(false);
+    expect(BootstrapInput.safeParse({ planSelection: coldStartSelection() }).success).toBe(true);
+    expect(
+      RescanInput.safeParse({
+        planSelection: rescanSelection(),
+        reason: 'schema-required-planSelection',
+      }).success
+    ).toBe(true);
+  });
+
+  test('bootstrap and rescan block before scan execution when planSelection is missing', async () => {
+    const ctx = createNoStorageContext();
+
+    const bootstrap = (await runHostAgentColdStartWorkflow(ctx, {
+      rebuild: true,
+    } as Parameters<typeof runHostAgentColdStartWorkflow>[1])) as Record<string, unknown>;
+    const rescan = (await runHostAgentKnowledgeRescanWorkflow(ctx, {
+      reason: 'missing-planSelection',
+    } as Parameters<typeof runHostAgentKnowledgeRescanWorkflow>[1])) as Record<string, unknown>;
+
+    for (const response of [bootstrap, rescan]) {
+      expect(response).toMatchObject({
+        success: false,
+        errorCode: 'PLAN_REQUIRED',
+        data: {
+          needsUserInput: true,
+          planGate: { status: 'blocked', errorCode: 'PLAN_REQUIRED' },
         },
-      },
-      undefined,
-      { defaultStage: 'coldStart', toolName: 'alembic_bootstrap' }
-    );
+      });
+      expect(JSON.stringify(response)).toContain('planSelection');
+      expect(JSON.stringify(response)).toContain('alembic_plan');
+    }
+  });
+
+  test('gate blocks generation when planSelection is missing without reading storage', async () => {
+    const gate = await resolvePlanGenerationGate(createNoStorageContext(), undefined, {
+      defaultStage: 'coldStart',
+      toolName: 'alembic_bootstrap',
+    });
 
     expect(gate.ok).toBe(false);
     if (!gate.ok) {
@@ -26,6 +57,7 @@ describe('stateless planSelection generation gate', () => {
           planGate: { status: 'blocked', errorCode: 'PLAN_REQUIRED' },
         },
       });
+      expect(String(gate.response.message)).toContain('planSelection');
       expect(String(gate.response.data?.blockedReason)).toContain('planSelection');
     }
   });
@@ -41,24 +73,7 @@ describe('stateless planSelection generation gate', () => {
         },
       },
       {
-        planSelection: {
-          generationStage: 'deepMining',
-          dimensions: ['architecture', 'swift-objc-idiom'],
-          scale: {
-            totalRecipeBudget: 7,
-            maxFiles: 37,
-            contentMaxLines: 91,
-            depthLevels: ['project', 'module'],
-          },
-          moduleBindings: [
-            {
-              modulePath: 'Sources',
-              dimensions: ['architecture', 'swift-objc-idiom'],
-              targetRecipes: 3,
-              priority: 1,
-            },
-          ],
-        },
+        planSelection: rescanSelection(),
       },
       { defaultStage: 'deepMining', toolName: 'alembic_rescan' }
     );
@@ -78,6 +93,66 @@ describe('stateless planSelection generation gate', () => {
         selectedDimensions: ['architecture', 'swift-objc-idiom'],
         moduleScope: ['Sources'],
       });
+      expect(gate.value.planGate).toMatchObject({
+        plan: { selectionSource: 'stateless-planSelection' },
+      });
     }
   });
 });
+
+function createNoStorageContext() {
+  return {
+    container: {
+      get: (name: string) => {
+        throw new Error(`unexpected storage or scan dependency read: ${name}`);
+      },
+      singletons: { _projectRoot: '/tmp/stateless-plan-gate' },
+    },
+    logger: {
+      info() {},
+      warn() {},
+    },
+  };
+}
+
+function coldStartSelection() {
+  return {
+    generationStage: 'coldStart',
+    dimensions: ['architecture'],
+    scale: {
+      totalRecipeBudget: 3,
+      maxFiles: 17,
+      contentMaxLines: 41,
+      depthLevels: ['project'],
+    },
+    moduleBindings: [
+      {
+        modulePath: 'Sources',
+        dimensions: ['architecture'],
+        targetRecipes: 2,
+        priority: 1,
+      },
+    ],
+  };
+}
+
+function rescanSelection() {
+  return {
+    generationStage: 'deepMining',
+    dimensions: ['architecture', 'swift-objc-idiom'],
+    scale: {
+      totalRecipeBudget: 7,
+      maxFiles: 37,
+      contentMaxLines: 91,
+      depthLevels: ['project', 'module'],
+    },
+    moduleBindings: [
+      {
+        modulePath: 'Sources',
+        dimensions: ['architecture', 'swift-objc-idiom'],
+        targetRecipes: 3,
+        priority: 1,
+      },
+    ],
+  };
+}

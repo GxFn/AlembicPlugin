@@ -766,24 +766,10 @@ export class HostMcpServer {
       let raw: unknown;
       if (kind === 'bootstrap') {
         const { bootstrapForHostAgent } = await import('./handlers/host-agent/bootstrap.js');
-        raw = await bootstrapForHostAgent(
-          { container, logger },
-          { planSelection: args.planSelection as BootstrapInput['planSelection'] }
-        );
+        raw = await bootstrapForHostAgent({ container, logger }, normalizeBootstrapJobArgs(args));
       } else {
         const { rescanForHostAgent } = await import('./handlers/host-agent/rescan.js');
-        raw = await rescanForHostAgent(
-          { container, logger },
-          {
-            reason: typeof args.reason === 'string' ? args.reason : 'host-rescan',
-            planSelection: args.planSelection as RescanInput['planSelection'],
-            dimensions: Array.isArray(args.dimensions)
-              ? args.dimensions.filter(
-                  (dimension): dimension is string => typeof dimension === 'string'
-                )
-              : undefined,
-          }
-        );
+        raw = await rescanForHostAgent({ container, logger }, normalizeRescanJobArgs(args));
       }
       // Match the daemon job runner: store the unwrapped envelope data as the job result.
       const result =
@@ -1014,6 +1000,91 @@ export class HostMcpServer {
       runtime,
     });
   }
+}
+
+function normalizeBootstrapJobArgs(args: Record<string, unknown>): BootstrapInput {
+  return {
+    rebuild: readOptionalBoolean(args.rebuild),
+    generationStage: args.generationStage === 'coldStart' ? 'coldStart' : undefined,
+    planSelection: args.planSelection as BootstrapInput['planSelection'],
+    testMode: readOptionalBoolean(args.testMode),
+    dimensions: readStringArray(args.dimensions),
+    scaleOverride: readScaleOverride(args.scaleOverride),
+    rescanId: readOptionalString(args.rescanId),
+  };
+}
+
+function normalizeRescanJobArgs(args: Record<string, unknown>): RescanInput {
+  return {
+    dimensions: readStringArray(args.dimensions),
+    reason: readOptionalString(args.reason) ?? 'host-rescan',
+    force: readOptionalBoolean(args.force),
+    produceSession: readOptionalRecord(args.produceSession) as RescanInput['produceSession'],
+    controllerAuthorizedGaps: readRecordArray(
+      args.controllerAuthorizedGaps
+    ) as RescanInput['controllerAuthorizedGaps'],
+    produceSessionDimensions: readStringArray(args.produceSessionDimensions),
+    controllerAuthorized: readOptionalBoolean(args.controllerAuthorized),
+    generationStage: readRescanGenerationStage(args.generationStage),
+    planSelection: args.planSelection as RescanInput['planSelection'],
+    testMode: readOptionalBoolean(args.testMode),
+    moduleScope: readStringArray(args.moduleScope),
+    scaleOverride: readScaleOverride(args.scaleOverride),
+    rescanId: readOptionalString(args.rescanId),
+  };
+}
+
+function readRescanGenerationStage(value: unknown): RescanInput['generationStage'] {
+  return value === 'deepMining' || value === 'moduleMining' ? value : undefined;
+}
+
+function readOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readOptionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] | undefined {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          !!item && typeof item === 'object' && !Array.isArray(item)
+      )
+    : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const strings = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item) => item.length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function readScaleOverride(value: unknown): BootstrapInput['scaleOverride'] {
+  const record = readOptionalRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  return {
+    contentMaxLines: readPositiveNumber(record.contentMaxLines),
+    maxFiles: readPositiveNumber(record.maxFiles),
+    totalRecipeBudget: readPositiveNumber(record.totalRecipeBudget),
+  };
+}
+
+function readPositiveNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 export { getVisibleTools, resetPluginOwnedMcpServerForTests };

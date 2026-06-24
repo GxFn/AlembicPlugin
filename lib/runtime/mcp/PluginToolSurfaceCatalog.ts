@@ -201,7 +201,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     handlerOwner: 'McpServer.tool-router',
     tier: 'agent',
     schema: 'PlanInput',
-    annotations: aiBackedWriteTool('Draft Confirm Or Read Alembic Plan'),
+    annotations: aiBackedWriteTool('Draft Or Confirm Stateless Alembic Plan Selection'),
     gateway: null,
     knowledgeGate: 'initialized',
     residentRoutePolicy: 'none',

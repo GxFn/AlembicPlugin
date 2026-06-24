@@ -453,7 +453,7 @@ function buildPlanGateBlockedResponse(input: {
     success: false,
     errorCode: input.errorCode,
     tool: input.toolName,
-    message: `${input.toolName} blocked: confirm an Alembic Plan before ${input.generationStage} generation.`,
+    message: `${input.toolName} blocked: pass planSelection from a just-run alembic_plan confirm before ${input.generationStage} generation.`,
     data: {
       blockedReason: input.blockedReason,
       generationStage: input.generationStage,
@@ -479,14 +479,15 @@ function buildPlanGateNextActions(projectRoot: string): Record<string, unknown>[
       tool: 'alembic_plan',
       operation: 'draft',
       required: true,
-      reason: 'Create a ProjectContext-grounded Plan draft before generation.',
+      reason: 'Collect the bounded ProjectContext and candidate dimensions before generation.',
       args: { operation: 'draft', projectRoot },
     },
     {
       tool: 'alembic_plan',
       operation: 'confirm',
       required: true,
-      reason: 'Confirm a complete Agent-authored Plan payload from the draft fact package.',
+      reason:
+        'Confirm the Agent-authored single-stage selection and pass the returned planSelection to the executor.',
     },
   ];
 }
@@ -579,11 +580,9 @@ function resolvePlanCleanupPolicy(input: {
 
 function summarizePlan(plan: Record<string, unknown>): Record<string, unknown> {
   return {
-    planId: readString(plan, 'planId'),
-    version: readNumber(plan, 'version'),
     planStatus: readString(plan, 'planStatus'),
     projectRoot: readString(plan, 'projectRoot'),
-    projectContextSignature: readString(plan, 'projectContextSignature'),
+    selectionSource: readString(plan, 'selectionSource'),
   };
 }
 
@@ -632,11 +631,6 @@ function uniqueStrings(values: readonly string[]): string[] {
 function readString(record: unknown, key: string): string | undefined {
   const value = readRecord(record)[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function readNumber(record: unknown, key: string): number | undefined {
-  const value = readRecord(record)[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function readBoolean(record: unknown, key: string): boolean | undefined {
