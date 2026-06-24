@@ -63,6 +63,7 @@ describe('alembic_plan draft two-block projector', () => {
     });
     expect(asArray(tree.children).length).toBeGreaterThan(0);
     expect(Buffer.byteLength(JSON.stringify(tree), 'utf8')).toBeLessThanOrEqual(12 * 1024);
+    expectProjectInfoTreeModulesDeduped(tree);
 
     const candidateDimensions = asArray(draft.data?.candidateDimensions).map(asRecord);
     expect(candidateDimensions).toHaveLength(25);
@@ -100,6 +101,7 @@ describe('alembic_plan draft two-block projector', () => {
     expect(['modules', 'files', 'symbols']).toContain(meta.deliveredDepth);
     expect(Object.keys(asRecord(meta.omitted)).length).toBeGreaterThan(0);
     expect(asArray(tree.children).length).toBeGreaterThan(0);
+    expectProjectInfoTreeModulesDeduped(tree);
 
     const fullTreeRef = asRecord(meta.fullTreeRef);
     expect(typeof fullTreeRef.path).toBe('string');
@@ -109,6 +111,7 @@ describe('alembic_plan draft two-block projector', () => {
       string,
       unknown
     >;
+    expectProjectInfoTreeModulesDeduped(fullTree);
     expect(countFileNodes(fullTree)).toBeGreaterThanOrEqual(120);
     expect(countFileNodes(fullTree)).toBeGreaterThan(countFileNodes(tree));
     expect(Buffer.byteLength(JSON.stringify(fullTree), 'utf8')).toBeGreaterThan(
@@ -228,4 +231,54 @@ function countFileNodes(tree: Record<string, unknown>): number {
     (sum, moduleNode) => sum + asArray(asRecord(moduleNode).children).length,
     0
   );
+}
+
+function expectProjectInfoTreeModulesDeduped(tree: Record<string, unknown>): void {
+  const children = asArray(tree.children).map(asRecord);
+  const childPaths = children.map((child) => String(child.path));
+  expect(childPaths).not.toContain('module');
+  expect(childPaths.filter((childPath) => childPath.includes('module:root:'))).toEqual([]);
+  expect(new Set(childPaths).size).toBe(childPaths.length);
+
+  const meta = asRecord(tree.meta);
+  const omitted = asRecord(meta.omitted);
+  const omittedFiles = Number(omitted.files ?? 0);
+  const fileCount = Number(tree.fileCount ?? 0);
+  expect(omittedFiles).toBeLessThanOrEqual(fileCount);
+  expect(typeof meta.truncated).toBe('boolean');
+  expect(Boolean(meta.fullTreeRef)).toBe(Boolean(meta.truncated));
+
+  const filePaths = collectFilePaths(tree);
+  expect(findDuplicates(filePaths)).toEqual([]);
+  expect(filePaths.length).toBeLessThanOrEqual(fileCount);
+  if (!meta.truncated && Object.keys(omitted).length === 0) {
+    expect(filePaths.length).toBe(fileCount);
+  }
+}
+
+function collectFilePaths(tree: Record<string, unknown>): string[] {
+  const paths: string[] = [];
+  collectFilePathsInto(tree, paths);
+  return paths;
+}
+
+function collectFilePathsInto(node: Record<string, unknown>, paths: string[]): void {
+  if (node.kind === 'file' && typeof node.path === 'string') {
+    paths.push(node.path);
+  }
+  for (const child of asArray(node.children).map(asRecord)) {
+    collectFilePathsInto(child, paths);
+  }
+}
+
+function findDuplicates(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      duplicates.add(value);
+    }
+    seen.add(value);
+  }
+  return [...duplicates].sort();
 }

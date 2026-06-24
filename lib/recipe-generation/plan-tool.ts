@@ -159,6 +159,7 @@ interface ModuleSnapshot {
   fingerprint: string;
   moduleId: string;
   moduleName: string;
+  modulePath?: string;
   role?: string;
 }
 
@@ -460,7 +461,7 @@ async function attachFullProjectInfoTreeRefIfNeeded(
     projectRoot: string;
   }
 ): Promise<void> {
-  if (!projectInfoTree.meta.truncated) {
+  if (!hasProjectInfoTreeOmissions(projectInfoTree.meta)) {
     await removeProjectInfoFullTreeIfPresent(input.projectRoot);
     projectInfoTree.meta = {
       ...projectInfoTree.meta,
@@ -537,19 +538,26 @@ function collectProjectInfoModuleCandidates(
   analysis: PlanProjectContextAnalysis
 ): ProjectInfoModuleCandidate[] {
   const fileFacts = collectProjectInfoFileFacts(analysis);
-  const moduleContexts = new Map(
-    analysis.presenterInput.modules.map((moduleContext) => [
-      normalizePath(moduleContext.module.id) ?? moduleContext.module.name,
-      moduleContext,
-    ])
-  );
-  const fromSnapshots = collectModuleSnapshots(analysis).map((snapshot) => {
+  const moduleContexts = collectProjectInfoModuleContexts(analysis);
+  const fromSnapshots = collectModuleSnapshots(analysis).flatMap((snapshot) => {
     const context =
-      moduleContexts.get(snapshot.moduleId) ?? moduleContexts.get(snapshot.moduleName);
+      moduleContexts.get(snapshot.moduleId) ??
+      moduleContexts.get(snapshot.modulePath ?? '') ??
+      moduleContexts.get(snapshot.moduleName);
     const filePaths = uniqueStrings([
       ...snapshot.files,
       ...(context?.ownedFiles.map((file) => file.filePath) ?? []),
     ]);
+    const modulePath = canonicalProjectInfoModulePath({
+      files: filePaths,
+      moduleId: snapshot.moduleId,
+      moduleName: snapshot.moduleName,
+      modulePath: snapshot.modulePath,
+      role: snapshot.role ?? context?.module.role,
+    });
+    if (!modulePath) {
+      return [];
+    }
     return buildProjectInfoModuleCandidate({
       analysis,
       fileFacts,
@@ -558,18 +566,56 @@ function collectProjectInfoModuleCandidates(
       key: snapshot.moduleId,
       keyDependencies: collectModuleKeyDependencies(context),
       language: dominantLanguage(filePaths, fileFacts),
-      path: normalizePath(snapshot.moduleId) ?? snapshot.moduleName,
+      path: modulePath,
       role: snapshot.role ?? context?.module.role,
     });
   });
 
   if (fromSnapshots.length > 0) {
-    return dedupeBy(fromSnapshots, (candidate) => candidate.path).sort((left, right) =>
-      left.path.localeCompare(right.path)
+    const mergedSnapshots = pruneProjectInfoCandidateFileOwnership(
+      mergeProjectInfoModuleCandidates(fromSnapshots)
     );
+    const assignedFilePaths = new Set(
+      mergedSnapshots.flatMap((candidate) => candidate.files.map((file) => file.path))
+    );
+    const uncoveredFilePaths = [...fileFacts.keys()].filter(
+      (filePath) => !assignedFilePaths.has(filePath)
+    );
+    return pruneProjectInfoCandidateFileOwnership(
+      mergeProjectInfoModuleCandidates([
+        ...mergedSnapshots,
+        ...groupFilesIntoFallbackModules(analysis, fileFacts, uncoveredFilePaths),
+      ])
+    ).sort((left, right) => left.path.localeCompare(right.path));
   }
 
-  return groupFilesIntoFallbackModules(analysis, fileFacts);
+  return pruneProjectInfoCandidateFileOwnership(
+    groupFilesIntoFallbackModules(analysis, fileFacts, [...fileFacts.keys()])
+  );
+}
+
+function collectProjectInfoModuleContexts(
+  analysis: PlanProjectContextAnalysis
+): Map<string, ProjectContextPresenterInput['modules'][number]> {
+  const contexts = new Map<string, ProjectContextPresenterInput['modules'][number]>();
+  for (const moduleContext of analysis.presenterInput.modules) {
+    for (const key of [
+      normalizePath(moduleContext.module.id),
+      canonicalProjectInfoModulePath({
+        moduleId: moduleContext.module.id,
+        moduleName: moduleContext.module.name,
+        modulePath: readString(moduleContext.module, 'path'),
+        role: moduleContext.module.role,
+      }),
+      normalizePath(readString(moduleContext.module, 'path')),
+      moduleContext.module.name,
+    ]) {
+      if (key) {
+        contexts.set(key, moduleContext);
+      }
+    }
+  }
+  return contexts;
 }
 
 function buildProjectInfoModuleCandidate(input: {
@@ -595,6 +641,176 @@ function buildProjectInfoModuleCandidate(input: {
     path: input.path,
     ...(input.role ? { role: input.role } : {}),
   };
+}
+
+function mergeProjectInfoModuleCandidates(
+  candidates: readonly ProjectInfoModuleCandidate[]
+): ProjectInfoModuleCandidate[] {
+  const byPath = new Map<string, ProjectInfoModuleCandidate>();
+  for (const candidate of candidates) {
+    const modulePath = canonicalProjectInfoModulePath({
+      files: candidate.files.map((file) => file.path),
+      modulePath: candidate.path,
+      role: candidate.role,
+    });
+    if (!modulePath) {
+      continue;
+    }
+    const normalizedCandidate = { ...candidate, path: modulePath };
+    const existing = byPath.get(modulePath);
+    if (!existing) {
+      byPath.set(modulePath, normalizedCandidate);
+      continue;
+    }
+    const files = dedupeBy([...existing.files, ...normalizedCandidate.files], (file) => file.path);
+    byPath.set(modulePath, {
+      ...existing,
+      files,
+      fileCount: files.length,
+      keyDependencies: uniqueStrings([
+        ...existing.keyDependencies,
+        ...normalizedCandidate.keyDependencies,
+      ]).slice(0, 8),
+      kind:
+        existing.kind === 'package' || normalizedCandidate.kind === 'package'
+          ? 'package'
+          : 'module',
+      language: dominantLanguageFromProjectInfoFiles(files),
+      role: existing.role ?? normalizedCandidate.role,
+    });
+  }
+  return [...byPath.values()];
+}
+
+function pruneProjectInfoCandidateFileOwnership(
+  candidates: readonly ProjectInfoModuleCandidate[]
+): ProjectInfoModuleCandidate[] {
+  const candidatesByFilePath = new Map<string, ProjectInfoModuleCandidate[]>();
+  for (const candidate of candidates) {
+    for (const file of candidate.files) {
+      const existing = candidatesByFilePath.get(file.path) ?? [];
+      existing.push(candidate);
+      candidatesByFilePath.set(file.path, existing);
+    }
+  }
+  return candidates
+    .map((candidate) => {
+      const files = candidate.files.filter((file) =>
+        isProjectInfoCandidateFileOwner(candidate, file.path, candidatesByFilePath)
+      );
+      return {
+        ...candidate,
+        files,
+        fileCount: files.length,
+        language: dominantLanguageFromProjectInfoFiles(files),
+      };
+    })
+    .filter((candidate) => candidate.fileCount > 0);
+}
+
+function isProjectInfoCandidateFileOwner(
+  candidate: ProjectInfoModuleCandidate,
+  filePath: string,
+  candidatesByFilePath: Map<string, ProjectInfoModuleCandidate[]>
+): boolean {
+  const candidates = candidatesByFilePath.get(filePath) ?? [];
+  const pathOwners = candidates.filter((owner) =>
+    projectInfoFileBelongsToPath(filePath, owner.path)
+  );
+  if (pathOwners.length === 0) {
+    return true;
+  }
+  const longestOwnerPathLength = Math.max(...pathOwners.map((owner) => owner.path.length));
+  return pathOwners.some(
+    (owner) => owner.path === candidate.path && owner.path.length === longestOwnerPathLength
+  );
+}
+
+function projectInfoFileBelongsToPath(filePath: string, candidatePath: string): boolean {
+  return filePath === candidatePath || filePath.startsWith(`${candidatePath}/`);
+}
+
+function canonicalProjectInfoModulePath(input: {
+  files?: readonly string[];
+  moduleId?: string;
+  moduleName?: string;
+  modulePath?: string;
+  role?: string;
+}): string | undefined {
+  const explicitPath = normalizeProjectInfoModulePath(input.modulePath);
+  if (explicitPath && !isGenericProjectInfoModulePath(explicitPath, input.role)) {
+    return explicitPath;
+  }
+  const pathFromId = normalizeProjectInfoModulePath(projectInfoPathFromModuleId(input.moduleId));
+  if (pathFromId && !isGenericProjectInfoModulePath(pathFromId, input.role)) {
+    return pathFromId;
+  }
+  const inferred = inferProjectInfoModulePathFromFiles(input.files ?? []);
+  if (inferred) {
+    return inferred;
+  }
+  const namePath = normalizeProjectInfoModulePath(input.moduleName);
+  if (namePath && !isGenericProjectInfoModulePath(namePath, input.role)) {
+    return namePath;
+  }
+  return undefined;
+}
+
+function projectInfoPathFromModuleId(value: string | undefined): string | undefined {
+  const normalized = normalizePath(value);
+  if (!normalized) {
+    return undefined;
+  }
+  if (!normalized.startsWith('module:root:')) {
+    return normalized;
+  }
+  const parts = normalized.split(':');
+  return parts.length >= 4 ? parts.slice(3).join(':') : undefined;
+}
+
+function normalizeProjectInfoModulePath(value: string | undefined): string | undefined {
+  const normalized = normalizePath(value);
+  if (!normalized || normalized.startsWith('module:root:')) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function isGenericProjectInfoModulePath(value: string, role: string | undefined): boolean {
+  return value === 'module' && !role;
+}
+
+function inferProjectInfoModulePathFromFiles(files: readonly string[]): string | undefined {
+  const normalizedFiles = files.map(normalizePath).filter(isPresent);
+  if (normalizedFiles.length === 0) {
+    return undefined;
+  }
+  const topLevel = uniqueStrings(normalizedFiles.map((filePath) => filePath.split('/')[0] ?? ''));
+  if (topLevel.length !== 1) {
+    return undefined;
+  }
+  const first = normalizedFiles[0];
+  if (!first) {
+    return undefined;
+  }
+  const parts = first.split('/');
+  if (parts[0] === 'Packages' && parts.length >= 2) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+  return parts[0];
+}
+
+function dominantLanguageFromProjectInfoFiles(files: readonly ProjectInfoFileCandidate[]): string {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    counts.set(file.language, (counts.get(file.language) ?? 0) + 1);
+  }
+  return (
+    [...counts.entries()].sort(
+      ([leftLanguage, leftCount], [rightLanguage, rightCount]) =>
+        rightCount - leftCount || leftLanguage.localeCompare(rightLanguage)
+    )[0]?.[0] ?? 'unknown'
+  );
 }
 
 function collectProjectInfoFileFacts(
@@ -667,10 +883,11 @@ function collectModuleKeyDependencies(
 
 function groupFilesIntoFallbackModules(
   analysis: PlanProjectContextAnalysis,
-  fileFacts: Map<string, ProjectInfoFileCandidate>
+  fileFacts: Map<string, ProjectInfoFileCandidate>,
+  filePaths: readonly string[]
 ): ProjectInfoModuleCandidate[] {
   const byTopPath = new Map<string, string[]>();
-  for (const filePath of fileFacts.keys()) {
+  for (const filePath of filePaths) {
     const topPath = filePath.split('/')[0] ?? filePath;
     const existing = byTopPath.get(topPath) ?? [];
     existing.push(filePath);
@@ -736,6 +953,7 @@ function buildProjectInfoTreeMeta(input: {
   fullTreeRef?: ProjectInfoFullTreeRef | null;
   totals: { files: number; modules: number; symbols: number };
 }): ProjectInfoTreeMeta {
+  const fullTreeRef = input.fullTreeRef ?? null;
   const omitted = {
     ...(input.totals.modules > input.delivered.modules
       ? { modules: input.totals.modules - input.delivered.modules }
@@ -751,10 +969,14 @@ function buildProjectInfoTreeMeta(input: {
     budgetBytes: input.budgetBytes,
     deliveredDepth:
       input.delivered.symbols > 0 ? 'symbols' : input.delivered.files > 0 ? 'files' : 'modules',
-    fullTreeRef: input.fullTreeRef ?? null,
+    fullTreeRef,
     omitted,
-    truncated: Object.keys(omitted).length > 0,
+    truncated: fullTreeRef !== null,
   };
+}
+
+function hasProjectInfoTreeOmissions(meta: ProjectInfoTreeMeta): boolean {
+  return Object.keys(meta.omitted).length > 0;
 }
 
 function tryAppendProjectInfoNode<T>(
@@ -1445,12 +1667,20 @@ function collectModuleSnapshots(analysis: PlanProjectContextAnalysis): ModuleSna
       readString(module, 'id') ??
       normalizePath(readString(module, 'path')) ??
       moduleName;
+    const role = readString(module, 'role');
     return {
       files,
-      fingerprint: `${readString(module, 'role') ?? ''}:${files.join('|')}`,
+      fingerprint: `${role ?? ''}:${files.join('|')}`,
       moduleId,
       moduleName,
-      role: readString(module, 'role'),
+      modulePath: canonicalProjectInfoModulePath({
+        files,
+        moduleId,
+        moduleName,
+        modulePath: readString(module, 'path'),
+        role,
+      }),
+      role,
     };
   });
   const fromSeeds = analysis.moduleSeeds.map((seed) => {
@@ -1461,6 +1691,7 @@ function collectModuleSnapshots(analysis: PlanProjectContextAnalysis): ModuleSna
       fingerprint: `${seed.role ?? ''}:${seed.modulePath ?? ''}:${files.join('|')}`,
       moduleId,
       moduleName: seed.moduleName,
+      modulePath: normalizeProjectInfoModulePath(seed.modulePath),
       role: seed.role,
     };
   });
