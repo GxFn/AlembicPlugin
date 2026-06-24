@@ -73,6 +73,30 @@ describe('MCP core tools clean output contract', () => {
     }
   });
 
+  test('rejects legacy alembic_plan keys at the strict clean output schema boundary', () => {
+    const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_plan.safeParse({
+      ok: true,
+      status: 'ready',
+      summary: 'legacy plan leak',
+      toolName: 'alembic_plan',
+      meta: {
+        contractVersion: 1,
+        outputSchema: 'alembic_plan_clean_output',
+        projector: 'core-tools-clean-output-projector',
+        toolName: 'alembic_plan',
+      },
+      operation: 'draft',
+      projectRoot: '/tmp/project',
+      projectInfoTree: {},
+      candidateDimensions: [],
+      agentDecisionChecklist: [],
+      nextActions: [],
+      plan: { planId: 'removed' },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   test('projects legacy envelopes into clean structuredContent with summary-only text', () => {
     for (const toolName of CORE_CLEAN_OUTPUT_TOOL_NAMES) {
       const legacy = sampleLegacyEnvelope(toolName);
@@ -235,13 +259,34 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
       return { callers: [], callees: [], methodName: 'run' };
     case 'alembic_plan':
       return {
-        operation: 'get',
-        plan: { planId: 'plan-1', version: 1 },
-        planState: { coverage: { gaps: [] } },
-        projectContextCreationGuide: {
-          source: 'RG-5-project-context-anchored-creation',
-          stage: 'plan-get',
+        operation: 'draft',
+        projectInfoTree: {
+          kind: 'project',
+          projectType: 'swift-package',
+          primaryLanguage: 'swift',
+          secondaryLanguages: [],
+          frameworks: ['swift-package-manager'],
+          moduleCount: 1,
+          fileCount: 2,
+          children: [],
+          meta: {
+            budgetBytes: 65536,
+            deliveredDepth: 'modules',
+            omitted: {},
+            truncated: false,
+          },
         },
+        candidateDimensions: [
+          {
+            id: 'architecture',
+            label: 'Architecture',
+            layer: 'universal',
+            languageApplicable: true,
+            miningGuidance: 'Architecture boundaries',
+          },
+        ],
+        agentDecisionChecklist: ['Select dimensions and scale before confirm.'],
+        nextActions: [{ tool: 'alembic_plan', operation: 'confirm' }],
       };
     case 'alembic_submit_knowledge':
       return {
