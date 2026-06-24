@@ -14,7 +14,9 @@ import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/host-
 import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import {
   acquirePlanGenerationLease,
+  type PlanGenerationStage,
   type PlanGenerationGateReady,
+  type PlanSelectionInput,
   resolvePlanGenerationGate,
 } from '../../lib/recipe-generation/plan-generation-gate.js';
 import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
@@ -68,13 +70,14 @@ describe('Plan-driven generation gate', () => {
   });
 
   test('confirmed Plan drives bootstrap testMode without fullReset', async () => {
-    const { dimensionId } = await confirmPlan({
+    const { dimensionId, planSelection } = await confirmPlan({
       dimensionStage: 'coldStart',
       modulePath: 'src/api',
     });
 
     const result = (await runHostAgentColdStartWorkflow(createContext(), {
       dimensions: [dimensionId],
+      planSelection,
       scaleOverride: { maxFiles: 6, contentMaxLines: 12, totalRecipeBudget: 1 },
       testMode: true,
     })) as ToolResponse;
@@ -82,18 +85,13 @@ describe('Plan-driven generation gate', () => {
     expect(result.success).toBe(true);
     expect(result.data?.planGate).toMatchObject({
       cleanupPolicy: 'none',
-      coverageByModuleDimension: {
-        'src/api': {
-          [dimensionId]: expect.objectContaining({ missing: 1, planned: 1 }),
-        },
-      },
-      coverageGaps: expect.arrayContaining([
-        expect.objectContaining({ dimensionId, modulePath: 'src/api', missing: 1, planned: 1 }),
-      ]),
       generationStage: 'coldStart',
+      moduleScope: ['src/api'],
       selectedDimensions: [dimensionId],
       testMode: true,
     });
+    expect(asRecord(result.data?.planGate)).not.toHaveProperty('coverageGaps');
+    expect(result.data).not.toHaveProperty('planState');
     expect(result.data?.testMode).toMatchObject({
       enabled: true,
       dimensions: [dimensionId],
@@ -125,8 +123,8 @@ describe('Plan-driven generation gate', () => {
   });
 
   test('non-test Plan gate ignores caller dimensions, moduleScope, and scaleOverride', async () => {
-    const { dimensionId } = await confirmPlan({
-      dimensionStage: 'deepMining',
+    const { dimensionId, planSelection } = await confirmPlan({
+      dimensionStage: 'moduleMining',
       moduleBindings: ['src/api', 'src/data'],
       modulePath: 'src/api',
       plannedModulePaths: ['src/api', 'src/data'],
@@ -138,6 +136,7 @@ describe('Plan-driven generation gate', () => {
         dimensions: ['caller-dimension'],
         generationStage: 'moduleMining',
         moduleScope: ['src/rogue'],
+        planSelection,
         scaleOverride: { maxFiles: 1, contentMaxLines: 1, totalRecipeBudget: 1 },
         testMode: false,
       },
@@ -152,8 +151,8 @@ describe('Plan-driven generation gate', () => {
     expect(gate.value.moduleScope).toEqual(['src/api', 'src/data']);
     expect(gate.value.moduleScope).not.toContain('src/rogue');
     expect(gate.value.scale).toMatchObject({
-      contentMaxLines: 120,
-      maxFiles: 500,
+      contentMaxLines: 80,
+      maxFiles: 32,
       totalRecipeBudget: 2,
     });
     expect(gate.value.testMode).toBe(false);
@@ -165,8 +164,8 @@ describe('Plan-driven generation gate', () => {
   });
 
   test('testMode moduleScope is an upper bound over the confirmed Plan scope', async () => {
-    const { dimensionId } = await confirmPlan({
-      dimensionStage: 'deepMining',
+    const { dimensionId, planSelection } = await confirmPlan({
+      dimensionStage: 'moduleMining',
       moduleBindings: ['src/api', 'src/data', 'src/components'],
       modulePath: 'src/api',
       plannedModulePaths: ['src/api', 'src/data', 'src/components'],
@@ -178,6 +177,7 @@ describe('Plan-driven generation gate', () => {
         dimensions: [dimensionId],
         generationStage: 'moduleMining',
         moduleScope: ['src/api', 'src/rogue'],
+        planSelection,
         scaleOverride: { maxFiles: 8, contentMaxLines: 9, totalRecipeBudget: 1 },
         testMode: true,
       },
@@ -195,13 +195,15 @@ describe('Plan-driven generation gate', () => {
       maxFiles: 8,
       totalRecipeBudget: 1,
     });
-    expect(asArray(asRecord(gate.value.planGate).coverageGaps)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ modulePath: 'src/api' })])
-    );
-    expect(JSON.stringify(asRecord(gate.value.planGate).coverageGaps)).not.toContain('src/data');
+    expect(gate.value.planGate).toMatchObject({
+      moduleScope: ['src/api'],
+      selectedDimensions: [dimensionId],
+      testMode: true,
+    });
+    expect(gate.value.planGate).not.toHaveProperty('coverageGaps');
   });
 
-  test('focused Swift confirmed Plan drives bootstrap with scoped signature reuse', async () => {
+  test('focused Swift confirmed Plan drives bootstrap with stateless planSelection', async () => {
     await replaceFixtureProject(createSwiftFixtureProject());
     const focusModules = [
       'Sources/Features/VideoFeed',
@@ -209,7 +211,7 @@ describe('Plan-driven generation gate', () => {
       'BiliDili/Modules',
     ];
     const selectedDimensionIds = ['swift-objc-idiom', 'react-patterns', 'swiftui-patterns'];
-    const { dimensionIds } = await confirmPlan({
+    const { dimensionIds, planSelection } = await confirmPlan({
       dimensionIds: selectedDimensionIds,
       dimensionStage: 'coldStart',
       draftHints: {
@@ -219,24 +221,11 @@ describe('Plan-driven generation gate', () => {
       },
       modulePath: 'Sources/Features/VideoFeed',
     });
-
-    const activePlan = (await routePlanTool(createContext(), {
-      operation: 'get',
-      projectRoot,
-    })) as ToolResponse;
-    expect(activePlan.success).toBe(true);
-    expect(activePlan.data?.currentProjectContextSignature).toBe(
-      activePlan.data?.projectContextSignature
-    );
-    expect(asRecord(activePlan.data?.signature)).toMatchObject({ matches: true });
-    expect(
-      asArray(asRecord(asRecord(activePlan.data?.plan).intent).dimensions).map((dimension) =>
-        String(asRecord(dimension).dimensionId)
-      )
-    ).toEqual(selectedDimensionIds);
+    expect(planSelection.dimensions).toEqual(selectedDimensionIds);
 
     const result = (await runHostAgentColdStartWorkflow(createContext(), {
       dimensions: dimensionIds,
+      planSelection,
       scaleOverride: { maxFiles: 8, contentMaxLines: 16, totalRecipeBudget: 1 },
       testMode: true,
     })) as ToolResponse;
@@ -246,9 +235,9 @@ describe('Plan-driven generation gate', () => {
       cleanupPolicy: 'none',
       generationStage: 'coldStart',
       selectedDimensions: selectedDimensionIds,
-      signature: expect.objectContaining({ matches: true }),
       testMode: true,
     });
+    expect(asRecord(result.data?.planGate)).not.toHaveProperty('signature');
     expect(result.data?.testMode).toMatchObject({
       enabled: true,
       dimensions: selectedDimensionIds,
@@ -264,9 +253,9 @@ describe('Plan-driven generation gate', () => {
     });
   });
 
-  test('focused Swift generation gate rejects scoped source changes after confirmation', async () => {
+  test('focused Swift generation gate uses stateless planSelection after scoped source changes', async () => {
     await replaceFixtureProject(createSwiftFixtureProject());
-    const { dimensionId } = await confirmPlan({
+    const { dimensionId, planSelection } = await confirmPlan({
       dimensionStage: 'coldStart',
       draftHints: {
         focusModules: ['Sources/Features/VideoFeed', 'Sources/Infrastructure', 'BiliDili/Modules'],
@@ -291,22 +280,26 @@ describe('Plan-driven generation gate', () => {
 
     const result = (await runHostAgentColdStartWorkflow(createContext(), {
       dimensions: [dimensionId],
+      planSelection,
       scaleOverride: { maxFiles: 8, contentMaxLines: 16, totalRecipeBudget: 1 },
       testMode: true,
     })) as ToolResponse;
 
     expect(result).toMatchObject({
-      success: false,
-      errorCode: 'PLAN_PROJECT_CONTEXT_STALE',
+      success: true,
+      data: {
+        planGate: {
+          selectedDimensions: [dimensionId],
+          testMode: true,
+        },
+      },
     });
-    expect(asRecord(asRecord(result.data?.planGate).signature)).toMatchObject({
-      matches: false,
-    });
+    expect(asRecord(result.data?.planGate)).not.toHaveProperty('signature');
   });
 
   test('confirmed Plan drives moduleMining rescan with scoped ProjectContext and no cleanup', async () => {
-    const { dimensionId } = await confirmPlan({
-      dimensionStage: 'deepMining',
+    const { dimensionId, planSelection } = await confirmPlan({
+      dimensionStage: 'moduleMining',
       modulePath: 'src/api',
     });
 
@@ -314,6 +307,7 @@ describe('Plan-driven generation gate', () => {
       dimensions: [dimensionId],
       generationStage: 'moduleMining',
       moduleScope: ['src/api'],
+      planSelection,
       reason: 'rg4 moduleMining test mode',
       scaleOverride: { maxFiles: 6, contentMaxLines: 12, totalRecipeBudget: 1 },
       testMode: true,
@@ -388,8 +382,8 @@ describe('Plan-driven generation gate', () => {
     git(projectRoot, ['commit', '-m', 'rg10 rescan evolution fixture']);
     const changedHead = gitOutput(projectRoot, ['rev-parse', 'HEAD']);
 
-    const { dimensionId } = await confirmPlan({
-      dimensionStage: 'deepMining',
+    const { dimensionId, planSelection } = await confirmPlan({
+      dimensionStage: 'moduleMining',
       moduleBindings: ['src/api', 'src/data', 'src/RG10AcceptanceProbe'],
       modulePath: 'src/api',
       plannedModulePaths: ['src/api', 'src/data', 'src/RG10AcceptanceProbe'],
@@ -463,6 +457,7 @@ describe('Plan-driven generation gate', () => {
       dimensions: [dimensionId],
       generationStage: 'moduleMining',
       moduleScope: ['src/api', 'src/data', 'src/RG10AcceptanceProbe'],
+      planSelection,
       reason: 'rg10 commit-driven evolution fixture',
       scaleOverride: { maxFiles: 10, contentMaxLines: 20, totalRecipeBudget: 2 },
       testMode: true,
@@ -604,12 +599,12 @@ describe('Plan-driven generation gate', () => {
 
 async function confirmPlan(input: {
   dimensionIds?: string[];
-  dimensionStage: 'coldStart' | 'deepMining';
+  dimensionStage: PlanGenerationStage;
   draftHints?: Record<string, unknown>;
   moduleBindings?: string[];
   modulePath: string;
   plannedModulePaths?: string[];
-}): Promise<{ dimensionId: string; dimensionIds: string[]; planId: string; version: number }> {
+}): Promise<{ dimensionId: string; dimensionIds: string[]; planSelection: PlanSelectionInput }> {
   const draft = (await routePlanTool(createContext(), {
     operation: 'draft',
     projectRoot,
@@ -621,7 +616,6 @@ async function confirmPlan(input: {
   if (!draft.success) {
     throw new Error(`draft failed: ${JSON.stringify(draft, null, 2)}`);
   }
-  const plan = asRecord(draft.data?.plan);
   const dimensionIds = requireDimensionIdsFromDraftCatalog(
     draft,
     input.dimensionIds ?? dimensionIdsFromDraftFacts(draft, 1)
@@ -630,16 +624,15 @@ async function confirmPlan(input: {
   if (!dimensionId) {
     throw new Error('Expected draft Plan fact package to contain at least one dimension.');
   }
-  const signature = String(draft.data?.projectContextSignature);
   const confirmed = (await routePlanTool(createContext(), {
     operation: 'confirm',
-    basePlanId: String(plan.planId),
-    baseVersion: Number(plan.version),
-    projectContextSignature: signature,
-    selectedDimensions: confirmedDimensions(dimensionIds, input.dimensionStage),
+    generationStage: input.dimensionStage,
+    projectProfile: projectProfileFromDraft(draft),
+    selectedDimensions: confirmedDimensions(dimensionIds),
     scale: {
       totalRecipeBudget: 2,
-      perStage: { coldStart: 1, deepMining: 1, module: 1 },
+      maxFiles: 32,
+      contentMaxLines: 80,
       depthLevels: ['project', 'module'],
     },
     moduleBindings: (input.moduleBindings ?? [input.modulePath]).map((modulePath) => ({
@@ -649,7 +642,7 @@ async function confirmPlan(input: {
     })),
     plannedNextActions: [
       {
-        tool: 'alembic_rescan',
+        tool: input.dimensionStage === 'coldStart' ? 'alembic_bootstrap' : 'alembic_rescan',
         reason: 'RG4 Plan-driven generation fixture',
         ...(input.plannedModulePaths ? { modulePaths: input.plannedModulePaths } : {}),
       },
@@ -658,41 +651,35 @@ async function confirmPlan(input: {
     rationale: 'RG4 fixture confirms a complete Agent-authored Plan payload.',
   })) as ToolResponse;
   expect(confirmed.success).toBe(true);
+  const planSelection = asRecord(confirmed.data?.planSelection) as unknown as PlanSelectionInput;
+  expect(planSelection).toMatchObject({
+    generationStage: input.dimensionStage,
+    dimensions: dimensionIds,
+  });
   return {
     dimensionId,
     dimensionIds,
-    planId: String(plan.planId),
-    version: Number(plan.version),
+    planSelection,
   };
 }
 
 function dimensionIdsFromDraftFacts(draft: ToolResponse, count: number): string[] {
-  const guide = asRecord(draft.data?.projectContextCreationGuide);
-  const guideDimensionIds = asArray(asRecord(guide.confirmedPlanBoundary).dimensionIds)
-    .map(String)
-    .filter((id) => id.length > 0)
-    .slice(0, count);
-  if (guideDimensionIds.length > 0) {
-    return guideDimensionIds;
-  }
-  const missionBriefing = asRecord(asRecord(draft.data?.sourceReports).missionBriefing);
-  const missionDimensionIds = asArray(missionBriefing.dimensions)
+  const candidateDimensionIds = asArray(draft.data?.candidateDimensions)
     .map((dimension) => String(asRecord(dimension).id))
     .filter((id) => id.length > 0)
     .slice(0, count);
-  if (missionDimensionIds.length === 0) {
-    throw new Error('Expected draft fact package to include dimension ids.');
+  if (candidateDimensionIds.length === 0) {
+    throw new Error('Expected draft candidateDimensions to include dimension ids.');
   }
-  return missionDimensionIds;
+  return candidateDimensionIds;
 }
 
 function requireDimensionIdsFromDraftCatalog(
   draft: ToolResponse,
   dimensionIds: readonly string[]
 ): string[] {
-  const catalog = asRecord(asRecord(draft.data?.sourceReports).dimensionCatalog);
   const catalogIds = new Set(
-    asArray(catalog.dimensions)
+    asArray(draft.data?.candidateDimensions)
       .map((dimension) => String(asRecord(dimension).id))
       .filter((id) => id.length > 0)
   );
@@ -704,33 +691,47 @@ function requireDimensionIdsFromDraftCatalog(
   return [...dimensionIds];
 }
 
-function confirmedDimensions(
-  dimensionIds: readonly string[],
-  stage: 'coldStart' | 'deepMining'
-): Array<{
-  id: string;
+function confirmedDimensions(dimensionIds: readonly string[]): Array<{
+  dimensionId: string;
   priority: number;
   rationale: string;
-  stage: 'coldStart' | 'deepMining';
   targetRecipes: number;
 }> {
   return dimensionIds.map((id, index) => ({
-    id,
+    dimensionId: id,
     priority: index + 1,
     rationale: `Plan gate fixture dimension ${id}`,
-    stage,
     targetRecipes: 1,
   }));
+}
+
+function projectProfileFromDraft(draft: ToolResponse): Record<string, unknown> {
+  const tree = asRecord(draft.data?.projectInfoTree);
+  return {
+    projectType: String(tree.projectType ?? 'unknown'),
+    primaryLanguage: String(tree.primaryLanguage ?? 'unknown'),
+    secondaryLanguages: asArray(tree.secondaryLanguages).map(String),
+    frameworks: asArray(tree.frameworks).map(String),
+    moduleCount: Number(tree.moduleCount ?? 0),
+    fileCount: Number(tree.fileCount ?? 0),
+    architectureHints: asArray(tree.children)
+      .map((child) => String(asRecord(child).path ?? ''))
+      .filter((path) => path.length > 0)
+      .slice(0, 8),
+  };
 }
 
 function projectContextEvidenceRefs(
   draft: ToolResponse
 ): Array<{ kind: 'project-context'; ref: string; detail: string }> {
+  const tree = asRecord(draft.data?.projectInfoTree);
   return [
     {
       kind: 'project-context',
-      ref: String(draft.data?.projectContextSignature),
-      detail: 'draft fact package signature',
+      ref: `projectInfoTree:${String(tree.primaryLanguage ?? 'unknown')}:${String(
+        tree.fileCount ?? 0
+      )}`,
+      detail: 'draft projectInfoTree and candidateDimensions',
     },
   ];
 }
@@ -968,10 +969,6 @@ function buildReadyGate(overrides: Partial<PlanGenerationGateReady> = {}): PlanG
     dimensionIds: ['architecture'],
     generationStage,
     moduleScope,
-    plan: {
-      planId: 'fixture-plan',
-      version: 1,
-    },
     planGate: {
       status: 'ready',
       toolName: 'alembic_rescan',
@@ -980,15 +977,28 @@ function buildReadyGate(overrides: Partial<PlanGenerationGateReady> = {}): PlanG
       testMode,
       moduleScope,
     },
-    planState: {},
-    planView: {},
+    planSelection: {
+      generationStage,
+      dimensions: ['architecture'],
+      scale: {
+        totalRecipeBudget: 1,
+        maxFiles: 6,
+        contentMaxLines: 12,
+      },
+      moduleBindings: [
+        {
+          modulePath: 'src/api',
+          dimensions: ['architecture'],
+          targetRecipes: 1,
+        },
+      ],
+    },
     projectRoot,
     scale: {
       contentMaxLines: 12,
       maxFiles: 6,
       totalRecipeBudget: 1,
     },
-    signature: { matches: true },
     testMode,
     ...overrides,
   };

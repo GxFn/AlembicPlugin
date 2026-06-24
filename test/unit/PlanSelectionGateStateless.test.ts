@@ -203,9 +203,9 @@ describe('stateless planSelection generation gate', () => {
         selectedDimensions: ['architecture', 'swift-objc-idiom'],
         moduleScope: ['Sources'],
       });
-      expect(gate.value.planGate).toMatchObject({
-        plan: { selectionSource: 'stateless-planSelection' },
-      });
+      expect(gate.value.planGate).not.toHaveProperty('plan');
+      expect(gate.value.planGate).not.toHaveProperty('signature');
+      expect(gate.value.planGate).not.toHaveProperty('coverageGaps');
     }
   });
 

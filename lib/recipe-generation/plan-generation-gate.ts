@@ -52,18 +52,14 @@ export interface PlanGenerationGateReady {
   dimensionIds: string[];
   generationStage: PlanGenerationStage;
   moduleScope: string[];
-  plan: Record<string, unknown>;
   planGate: Record<string, unknown>;
   planSelection: NormalizedPlanSelection;
-  planState: Record<string, unknown>;
-  planView: Record<string, unknown>;
   projectRoot: string;
   scale: {
     contentMaxLines: number;
     maxFiles: number;
     totalRecipeBudget: number;
   };
-  signature: Record<string, unknown>;
   testMode: boolean;
 }
 
@@ -264,23 +260,6 @@ function buildPlanGenerationGateReady(input: {
   toolName: string;
 }): PlanGenerationGateReady {
   const { generationStage, planSelection, projectRoot, toolName } = input;
-  const plan = {
-    planStatus: 'confirmed',
-    projectRoot,
-    intent: {
-      generationStage,
-      dimensions: planSelection.dimensions.map((dimensionId, index) => ({
-        dimensionId,
-        priority: index + 1,
-      })),
-      moduleBindings: planSelection.moduleBindings,
-      scale: planSelection.scale,
-    },
-    selectionSource: 'stateless-planSelection',
-  };
-  const planState = buildEmptyPlanState(planSelection);
-  const planView = { planSelection };
-  const signature = { matches: true, source: 'stateless-planSelection' };
   const dimensions = selectPlanDimensions({
     planSelection,
   });
@@ -308,13 +287,9 @@ function buildPlanGenerationGateReady(input: {
     generationStage,
     cleanupPolicy,
     testMode: input.input?.testMode === true,
-    plan: summarizePlan(plan),
     selectedDimensions: dimensions,
     moduleScope,
     scale,
-    signature,
-    coverageByModuleDimension: readRecord(readRecord(planState.coverage).byModuleDimension),
-    coverageGaps: summarizeCoverageGaps(planState, generationStage, moduleScope).slice(0, 20),
   };
 
   return {
@@ -322,47 +297,11 @@ function buildPlanGenerationGateReady(input: {
     dimensionIds: dimensions,
     generationStage,
     moduleScope,
-    plan,
     planGate,
     planSelection,
-    planState,
-    planView,
     projectRoot,
     scale,
-    signature,
     testMode: input.input?.testMode === true,
-  };
-}
-
-function buildEmptyPlanState(selection: NormalizedPlanSelection): Record<string, unknown> {
-  return {
-    codeRecipeMapping: [],
-    coverage: {
-      byDimension: Object.fromEntries(
-        selection.dimensions.map((dimensionId) => [
-          dimensionId,
-          { planned: 0, generated: 0, stale: 0, missing: 0 },
-        ])
-      ),
-      byModule: Object.fromEntries(
-        selection.moduleBindings.map((binding) => [
-          binding.modulePath,
-          {
-            planned: binding.targetRecipes ?? 0,
-            generated: 0,
-            stale: 0,
-            missing: binding.targetRecipes ?? 0,
-            dimensions: binding.dimensions ?? [],
-          },
-        ])
-      ),
-      byModuleDimension: {},
-      generated: 0,
-      planned: selection.scale.totalRecipeBudget,
-      gaps: [],
-    },
-    pendingProposals: [],
-    generationChangeLog: [],
   };
 }
 
@@ -456,7 +395,6 @@ export function attachPlanGenerationGateData<T extends Record<string, unknown>>(
     cleanupPolicy: gate.cleanupPolicy,
     moduleScope: gate.moduleScope,
     planGate: gate.planGate,
-    planState: gate.planState,
     testMode: gate.testMode
       ? {
           enabled: true,
@@ -509,7 +447,6 @@ function buildPlanGateBlockedResponse(input: {
   generationStage: PlanGenerationStage;
   planToolData?: unknown;
   projectRoot: string;
-  signature?: Record<string, unknown>;
   toolName: string;
 }): Record<string, unknown> {
   return {
@@ -527,7 +464,6 @@ function buildPlanGateBlockedResponse(input: {
         errorCode: input.errorCode,
         generationStage: input.generationStage,
         projectRoot: input.projectRoot,
-        signature: input.signature,
       },
       projectRoot: input.projectRoot,
       ...(input.planToolData ? { planToolData: input.planToolData } : {}),
@@ -623,42 +559,10 @@ function resolvePlanCleanupPolicy(input: {
   return input.force ? 'force-rescan' : 'rescan-clean';
 }
 
-function summarizePlan(plan: Record<string, unknown>): Record<string, unknown> {
-  return {
-    planStatus: readString(plan, 'planStatus'),
-    projectRoot: readString(plan, 'projectRoot'),
-    selectionSource: readString(plan, 'selectionSource'),
-  };
-}
-
-function summarizeCoverageGaps(
-  planState: Record<string, unknown>,
-  generationStage: PlanGenerationStage,
-  moduleScope: readonly string[]
-): Record<string, unknown>[] {
-  const scope = new Set(moduleScope);
-  return arrayRecords(readRecord(planState.coverage).gaps).filter((gap) => {
-    const modulePath = readString(gap, 'modulePath');
-    if (generationStage !== 'moduleMining' || scope.size === 0) {
-      return true;
-    }
-    return modulePath ? scope.has(modulePath) : false;
-  });
-}
-
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function arrayRecords(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is Record<string, unknown> =>
-          !!item && typeof item === 'object' && !Array.isArray(item)
-      )
-    : [];
 }
 
 function normalizeStringArray(value: unknown): string[] {
