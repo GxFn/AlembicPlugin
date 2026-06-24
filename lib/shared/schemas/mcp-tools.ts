@@ -776,7 +776,6 @@ const PlanSelectedDimensionInput = z
     priority: z.number().int().min(1).max(100).optional(),
     reason: z.string().min(1).max(1000).optional(),
     rationale: z.string().min(1).max(1000).optional(),
-    stage: PlanStageIdInput.optional(),
     targetRecipes: z.number().int().min(0).max(500).optional(),
     tier: z.string().min(1).max(80).optional().describe('Optional Agent-facing tier label.'),
   })
@@ -787,17 +786,7 @@ const PlanScaleInput = z
     totalRecipeBudget: z.number().int().min(1).max(500).optional(),
     maxFiles: z.number().int().min(1).max(20000).optional(),
     contentMaxLines: z.number().int().min(1).max(2000).optional(),
-    budgetLevel: z.enum(['focused', 'standard', 'expanded']).optional(),
-    scale: z.enum(['small', 'medium', 'large', 'very-large']).optional(),
     depthLevels: z.array(z.string().min(1).max(80)).max(12).optional(),
-    perStage: z
-      .object({
-        coldStart: z.number().int().min(0).max(500).optional(),
-        deepMining: z.number().int().min(0).max(500).optional(),
-        module: z.number().int().min(0).max(500).optional(),
-      })
-      .strict()
-      .optional(),
   })
   .strict();
 
@@ -889,16 +878,6 @@ export const PlanInput = z
       .describe(
         'draft-only optional planning hints; real ProjectContext and Core fact reports remain authoritative.'
       ),
-    basePlanId: z.string().min(1).max(200).optional().describe('confirm-only draft Plan id.'),
-    planId: z.string().min(1).max(200).optional().describe('confirm/get Plan id.'),
-    baseVersion: z.number().int().min(1).optional().describe('confirm-only draft Plan version.'),
-    version: z.number().int().min(1).optional().describe('confirm/get Plan version.'),
-    projectContextSignature: z
-      .string()
-      .min(1)
-      .max(200)
-      .optional()
-      .describe('Signature returned by draft; confirm rejects mismatches.'),
     projectProfile: PlanProjectProfileInput.optional(),
     selectedDimensions: z.array(PlanSelectedDimensionInput).max(80).optional(),
     scale: PlanScaleInput.optional(),
@@ -913,6 +892,14 @@ export const PlanInput = z
   .superRefine((value, ctx) => {
     if (value.operation !== 'confirm') {
       return;
+    }
+
+    if (!value.generationStage) {
+      addPlanConfirmIssue(ctx, ['generationStage'], 'confirm requires generationStage');
+    }
+
+    if (!value.projectProfile) {
+      addPlanConfirmIssue(ctx, ['projectProfile'], 'confirm requires projectProfile from draft');
     }
 
     const selectedDimensions = value.selectedDimensions?.filter(

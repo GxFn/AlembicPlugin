@@ -31,10 +31,6 @@ import { ProjectContextCapabilities } from '@alembic/core/project-context-capabi
 import { LanguageService } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
-import {
-  buildProjectContextCreationGuide,
-  type ProjectContextCreationStage,
-} from './project-context-anchoring.js';
 
 interface PlanToolContext {
   actor?: { role?: string; user?: string };
@@ -168,18 +164,6 @@ interface PlanDraftContext {
   candidateDimensions: CandidateDimension[];
 }
 
-interface EphemeralPlanSnapshot {
-  createdAt: number;
-  createdBy: string;
-  intent: PlanIntent;
-  planId: string;
-  projectContextSignature: string;
-  projectRoot: string;
-  status: 'draft' | 'confirmed';
-  updatedAt: number;
-  version: number;
-}
-
 type BuildConfirmIntentResult =
   | { ok: true; intent: PlanIntent }
   | { ok: false; response: PlanToolResponse };
@@ -238,7 +222,7 @@ async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTool
 
 async function confirmPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolResponse> {
   const projectRoot = resolvePlanProjectRoot(ctx, args);
-  const payloadResult = buildConfirmedPlanIntent(args, buildConfirmProjectProfile(args));
+  const payloadResult = buildConfirmedPlanIntent(args);
   if (!payloadResult.ok) {
     return payloadResult.response;
   }
@@ -255,7 +239,7 @@ async function confirmPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTo
       { operation: 'confirm', projectRoot }
     );
   }
-  return confirmedPlanResponse(ctx, projectRoot, intent, buildPlanSelection(intent));
+  return confirmedPlanResponse(projectRoot, intent, buildPlanSelection(intent));
 }
 
 function emptyProjectContextResponse(projectRoot: string): PlanToolResponse {
@@ -771,8 +755,14 @@ function buildProjectProfileFromAnalysis(
   };
 }
 
-function buildConfirmProjectProfile(args: PlanArgs): PlanIntent['projectProfile'] {
-  const profile = readRecord(args.projectProfile);
+function buildConfirmProjectProfile(
+  input: PlanArgs['projectProfile'],
+  issues: string[]
+): PlanIntent['projectProfile'] {
+  if (!input) {
+    issues.push('projectProfile is required');
+  }
+  const profile = readRecord(input);
   return {
     ...(readString(profile, 'projectType')
       ? { projectType: readString(profile, 'projectType') }
@@ -790,16 +780,6 @@ function buildConfirmProjectProfile(args: PlanArgs): PlanIntent['projectProfile'
       : {}),
     architectureHints: normalizeStringArray(profile.architectureHints),
   };
-}
-
-function resolveConfirmGenerationStage(args: PlanArgs): PlanStageId {
-  if (args.generationStage) {
-    return args.generationStage;
-  }
-  const selectedStages = (args.selectedDimensions ?? [])
-    .map((dimension) => dimension.stage)
-    .filter((stage): stage is PlanStageId => Boolean(stage));
-  return selectedStages[0] ?? 'coldStart';
 }
 
 function nextGenerationToolForStage(stage: PlanStageId): 'alembic_bootstrap' | 'alembic_rescan' {
@@ -825,20 +805,17 @@ function buildStatelessPlanNextActions(projectRoot: string): Record<string, unkn
 }
 
 function confirmedPlanResponse(
-  ctx: PlanToolContext,
   projectRoot: string,
   intent: PlanIntent,
   planSelection: PlanSelection
 ): PlanToolResponse {
-  const plan = buildConfirmedPlanSnapshot(ctx, projectRoot, intent);
   return {
     success: true,
     message: `Stateless planSelection for ${intent.generationStage} is ready for downstream generation.`,
     data: {
       operation: 'confirm',
       projectRoot,
-      projectContextCreationGuide: buildPlanProjectContextCreationGuide(plan, 'plan-confirm'),
-      plan: projectPlanSnapshot(plan),
+      status: 'confirmed',
       planSelection,
       nextActions: [
         {
@@ -1086,11 +1063,9 @@ function resolvePlanProjectRoot(ctx: PlanToolContext, args: Partial<PlanArgs>): 
   return args.projectRoot ?? resolveProjectRoot(ctx.container);
 }
 
-function buildConfirmedPlanIntent(
-  args: PlanArgs,
-  projectProfile: PlanIntent['projectProfile']
-): BuildConfirmIntentResult {
+function buildConfirmedPlanIntent(args: PlanArgs): BuildConfirmIntentResult {
   const issues: string[] = [];
+  const projectProfile = buildConfirmProjectProfile(args.projectProfile, issues);
   const dimensions = normalizeConfirmedDimensions(args.selectedDimensions, issues);
   const dimensionIds = dimensions.map((dimension) => dimension.dimensionId);
   const missingDimensionIds = resolvePlanDimensionDefinitions(dimensionIds).missingDimensionIds;
@@ -1102,6 +1077,7 @@ function buildConfirmedPlanIntent(
   const plannedNextActions = normalizeRequiredNextActions(args.plannedNextActions, issues);
   const evidenceRefs = normalizeRequiredEvidenceRefs(args.evidenceRefs, issues);
   const rationale = normalizeRequiredRationale(args.rationale);
+  const generationStage = normalizeRequiredGenerationStage(args, issues);
   if (rationale.length === 0) {
     issues.push('rationale is required');
   }
@@ -1125,7 +1101,7 @@ function buildConfirmedPlanIntent(
   return {
     ok: true,
     intent: {
-      generationStage: resolveConfirmGenerationStage(args),
+      generationStage,
       projectProfile,
       dimensions,
       scale,
@@ -1135,6 +1111,14 @@ function buildConfirmedPlanIntent(
       draftSource: 'host-agent',
     },
   };
+}
+
+function normalizeRequiredGenerationStage(args: PlanArgs, issues: string[]): PlanStageId {
+  if (!args.generationStage) {
+    issues.push('generationStage is required');
+    return 'coldStart';
+  }
+  return args.generationStage;
 }
 
 function normalizeConfirmedDimensions(
@@ -1184,8 +1168,6 @@ function normalizeRequiredPlanScale(input: PlanArgs['scale'], issues: string[]):
     depthLevels: input?.depthLevels ?? [],
     ...(input?.maxFiles ? { maxFiles: input.maxFiles } : {}),
     ...(input?.contentMaxLines ? { contentMaxLines: input.contentMaxLines } : {}),
-    ...(input?.budgetLevel ? { budgetLevel: input.budgetLevel } : {}),
-    ...(input?.scale ? { scale: input.scale } : {}),
   };
 }
 
@@ -1253,25 +1235,6 @@ function normalizeRequiredEvidenceRefs(
   }));
 }
 
-function buildConfirmedPlanSnapshot(
-  ctx: PlanToolContext,
-  projectRoot: string,
-  intent: PlanIntent
-): EphemeralPlanSnapshot {
-  const now = Date.now();
-  return {
-    createdAt: now,
-    createdBy: resolvePlanActor(ctx),
-    intent,
-    planId: `selection-${now}-${hashShort(JSON.stringify(buildPlanSelection(intent)))}`,
-    projectContextSignature: '',
-    projectRoot,
-    status: 'confirmed',
-    updatedAt: now,
-    version: 1,
-  };
-}
-
 function buildPlanSelection(intent: PlanIntent): PlanSelection {
   return {
     generationStage: intent.generationStage,
@@ -1284,36 +1247,6 @@ function buildPlanSelection(intent: PlanIntent): PlanSelection {
     },
     moduleBindings: intent.moduleBindings,
   };
-}
-
-function projectPlanSnapshot(plan: EphemeralPlanSnapshot): Record<string, unknown> {
-  return {
-    planId: plan.planId,
-    version: plan.version,
-    planStatus: plan.status,
-    projectRoot: plan.projectRoot,
-    ...(plan.projectContextSignature
-      ? { projectContextSignature: plan.projectContextSignature }
-      : {}),
-    createdBy: plan.createdBy,
-    createdAt: plan.createdAt,
-    updatedAt: plan.updatedAt,
-    intent: plan.intent,
-  };
-}
-
-function buildPlanProjectContextCreationGuide(
-  plan: EphemeralPlanSnapshot,
-  stage: ProjectContextCreationStage
-): Record<string, unknown> {
-  return buildProjectContextCreationGuide({
-    dimensionIds: plan.intent.dimensions.map((dimension) => dimension.dimensionId),
-    generationStage: plan.intent.generationStage,
-    moduleScope: plan.intent.moduleBindings.map((binding) => binding.modulePath),
-    planId: plan.planId,
-    projectRoot: plan.projectRoot,
-    stage,
-  });
 }
 
 function selectPlanModuleSeeds(repo: RepoContext | undefined): PlanModuleSeed[] {
@@ -1464,18 +1397,6 @@ function normalizeRequiredRationale(rationale: PlanArgs['rationale']): readonly 
     return [rationale];
   }
   return [];
-}
-
-function resolvePlanActor(ctx: PlanToolContext): string {
-  return ctx.actor?.user ?? ctx.actor?.role ?? 'host-agent';
-}
-
-function hashShort(value: string): string {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
 }
 
 function blocked(
