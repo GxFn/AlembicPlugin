@@ -10,6 +10,7 @@ import {
   buildHostAgentProjectContextAnalysis,
   selectProjectContextDimensions,
 } from '../../lib/recipe-generation/host-agent-workflows/project-context-analysis.js';
+import { attachPlanScopeTargetCounts } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 
 const tempRoots: string[] = [];
 
@@ -121,6 +122,54 @@ describe('Host Agent ProjectContext direct switch', () => {
     });
     expect(targets.find((target) => target.name === 'AOXNetworkKit')).toMatchObject({
       fileCount: 4,
+    });
+  });
+
+  it('honors plan moduleScope for top-level Sources in ProjectContext analysis', async () => {
+    const projectRoot = await createBiliDiliLikeSwiftProject();
+    const analysis = await buildHostAgentProjectContextAnalysis({
+      maxFileDetails: 2,
+      maxFiles: 4,
+      maxModuleDetails: 4,
+      maxModuleSeeds: 12,
+      moduleScope: ['Packages/AOXFoundationKit', 'Packages/AOXNetworkKit', 'Sources'],
+      projectRoot,
+      source: 'codex-host-bootstrap',
+    });
+
+    expect(analysis.moduleSeeds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          moduleName: 'Sources',
+          modulePath: 'Sources',
+          ownedFiles: expect.arrayContaining([
+            'Sources/Infrastructure/Networking/Endpoint/Endpoint+Video.swift',
+            'Sources/Infrastructure/Networking/Repository/FeedRepository.swift',
+          ]),
+        }),
+      ])
+    );
+
+    const briefing = attachPlanScopeTargetCounts(
+      buildProjectContextMissionBriefing({
+        activeDimensions: selectProjectContextDimensions(analysis.dimensions).slice(0, 1),
+        profile: 'cold-start-host-agent',
+        projectContext: analysis.presenterInput,
+        projectMeta: {
+          fileCount: analysis.fileCount,
+          moduleCount: analysis.moduleCount,
+        },
+        session: { toJSON: () => ({ id: 'session-module-scope' }) },
+      }),
+      {
+        moduleScope: ['Packages/AOXFoundationKit', 'Packages/AOXNetworkKit', 'Sources'],
+        sourceFileFacts: analysis.sourceFileFacts,
+      }
+    );
+    const targets = briefing.targets as Array<{ fileCount?: number; name?: string }>;
+
+    expect(targets.find((target) => target.name === 'Sources')).toMatchObject({
+      fileCount: 3,
     });
   });
 
@@ -282,6 +331,44 @@ async function createBiliDiliLikeSwiftProject(): Promise<string> {
       'import Foundation',
       'public enum NetworkError: Error {',
       '  case invalidResponse',
+      '}',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Sources/Infrastructure/Networking/Endpoint/Endpoint+Video.swift',
+    [
+      'import Foundation',
+      'import AOXNetworkKit',
+      'public extension Endpoint where Response == VideoInfoData {',
+      '  static func videoInfo(bvid: String) -> Endpoint {',
+      '    Endpoint(path: "/x/web-interface/view", parameters: ["bvid": bvid])',
+      '  }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Sources/Infrastructure/Networking/Repository/FeedRepository.swift',
+    [
+      'import AOXFoundationKit',
+      'import AOXNetworkKit',
+      'public protocol FeedRepositoryProtocol: Sendable {',
+      '  func fetchPopular(page: Int, pageSize: Int) async throws -> [VideoModel]',
+      '  func fetchRecommend(page: Int, pageSize: Int) async throws -> [VideoModel]',
+      '}',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Sources/Features/Home/HomeViewModel.swift',
+    [
+      'import Foundation',
+      'public final class HomeViewModel {',
+      '  public init() {}',
       '}',
       '',
     ].join('\n')

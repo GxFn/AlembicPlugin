@@ -168,6 +168,7 @@ async function runPlanGatedColdStart(
   const cleanupResult = await runColdStartCleanup(ctx, input, plan);
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
     maxFiles: plan.projectAnalysis.scan.maxFiles,
+    moduleScope: input.planGate.moduleScope,
     projectRoot: plan.projectAnalysis.projectRoot,
     source: 'codex-host-bootstrap',
   });
@@ -282,16 +283,22 @@ async function buildColdStartMissionBriefing(
   },
   session: ReturnType<typeof createProjectContextHostAgentSession>
 ) {
-  const briefing = buildProjectContextMissionBriefing({
-    activeDimensions: input.briefingDimensions,
-    projectContext: input.projectContextAnalysis.presenterInput,
-    projectMeta: {
-      fileCount: input.projectContextAnalysis.fileCount,
-      moduleCount: input.projectContextAnalysis.moduleCount,
-    },
-    profile: 'cold-start-host-agent',
-    session,
-  });
+  const briefing = attachPlanScopeTargetCounts(
+    buildProjectContextMissionBriefing({
+      activeDimensions: input.briefingDimensions,
+      projectContext: input.projectContextAnalysis.presenterInput,
+      projectMeta: {
+        fileCount: input.projectContextAnalysis.fileCount,
+        moduleCount: input.projectContextAnalysis.moduleCount,
+      },
+      profile: 'cold-start-host-agent',
+      session,
+    }),
+    {
+      moduleScope: input.planGate.moduleScope,
+      sourceFileFacts: input.projectContextAnalysis.sourceFileFacts,
+    }
+  );
   const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
     dimensions: input.briefingDimensions,
     options: { profile: 'cold-start', projectRoot: input.projectRoot },
@@ -333,6 +340,87 @@ async function buildColdStartMissionBriefing(
       `${briefingWithProjectContextGuide.meta?.responseSizeKB || '?'}KB — session ${(session as { id?: string }).id}`
   );
   return briefingWithProjectContextGuide;
+}
+
+export function attachPlanScopeTargetCounts<T extends { targets?: unknown }>(
+  briefing: T,
+  input: {
+    moduleScope?: readonly string[];
+    sourceFileFacts: readonly { filePath: string }[];
+  }
+): T {
+  const moduleScopes = (input.moduleScope ?? []).map(normalizeProjectScopePath).filter(isString);
+  if (moduleScopes.length === 0) {
+    return briefing;
+  }
+  const targets = readRecordArray(briefing.targets).map((target) => ({ ...target }));
+  for (const scope of moduleScopes) {
+    const files = input.sourceFileFacts
+      .map((file) => file.filePath)
+      .filter((filePath) => filePath === scope || filePath.startsWith(`${scope}/`))
+      .sort();
+    if (files.length === 0) {
+      continue;
+    }
+    const targetName = moduleNameFromProjectScope(scope);
+    const existingIndex = targets.findIndex((target) =>
+      targetMatchesProjectScope(target, targetName, scope)
+    );
+    const patch = {
+      fileCount: files.length,
+      keyFiles: files.slice(0, 12),
+      modulePath: scope,
+      name: targetName,
+      source: 'plan-module-scope',
+      type: 'target',
+    };
+    if (existingIndex >= 0) {
+      targets[existingIndex] = {
+        ...targets[existingIndex],
+        ...patch,
+        fileCount: Math.max(readNumber(targets[existingIndex].fileCount) ?? 0, files.length),
+      };
+    } else {
+      targets.push(patch);
+    }
+  }
+  return {
+    ...briefing,
+    targets,
+  };
+}
+
+function targetMatchesProjectScope(
+  target: Record<string, unknown>,
+  targetName: string,
+  scope: string
+): boolean {
+  const modulePath = normalizeProjectScopePath(readString(target.modulePath) ?? undefined);
+  const name = readString(target.name);
+  return modulePath === scope || name === targetName || name === scope;
+}
+
+function normalizeProjectScopePath(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === '.') {
+    return undefined;
+  }
+  return trimmed.replace(/\\/g, '/').replace(/\/$/, '');
+}
+
+function moduleNameFromProjectScope(scope: string): string {
+  return scope
+    .split('/')
+    .filter(Boolean)
+    .at(-1) ?? scope;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 async function budgetColdStartResponseData(input: Record<string, unknown>, context: {

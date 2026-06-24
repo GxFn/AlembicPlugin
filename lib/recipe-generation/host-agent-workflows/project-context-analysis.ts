@@ -116,8 +116,14 @@ export async function buildHostAgentProjectContextAnalysis(
   );
   const repoData = isRepoContext(firstRepoEnvelope.data) ? firstRepoEnvelope.data : undefined;
   const sourceFileFacts = await collectProjectSourceFileFacts(input.projectRoot);
+  const selectedModuleSeeds = selectProjectContextModuleSeeds(repoData, input.moduleScope);
+  const moduleScopeFallbackSeeds = createModuleScopeFallbackSeeds(
+    input.moduleScope,
+    selectedModuleSeeds,
+    sourceFileFacts
+  );
   const discoveredModuleSeeds = attachSourceFilesToProjectContextModuleSeeds(
-    selectProjectContextModuleSeeds(repoData, input.moduleScope),
+    dedupeModuleSeeds([...selectedModuleSeeds, ...moduleScopeFallbackSeeds]),
     sourceFileFacts
   );
   const moduleSeeds = discoveredModuleSeeds.slice(0, maxModuleSeeds);
@@ -292,6 +298,32 @@ function selectProjectContextModuleSeeds(
       ? candidates.filter((seed) => seedMatchesRequestedScope(seed, requestedScope))
       : candidates;
   return dedupeModuleSeeds(scopedCandidates);
+}
+
+function createModuleScopeFallbackSeeds(
+  moduleScope: readonly string[] | undefined,
+  selectedSeeds: readonly ProjectContextModuleSeed[],
+  sourceFileFacts: readonly ProjectSourceFileFact[]
+): ProjectContextModuleSeed[] {
+  const requestedScopes = (moduleScope ?? []).map(normalizeModulePath).filter(isPresent);
+  if (requestedScopes.length === 0) {
+    return [];
+  }
+  return requestedScopes
+    .filter(
+      (scope) => !selectedSeeds.some((seed) => seedMatchesRequestedScope(seed, new Set([scope])))
+    )
+    .filter((scope) =>
+      sourceFileFacts.some(
+        (file) => file.filePath === scope || file.filePath.startsWith(`${scope}/`)
+      )
+    )
+    .map((scope) => ({
+      kind: 'module-scope-fallback',
+      moduleName: moduleNameFromPath(scope, 'module-scope'),
+      modulePath: scope,
+      role: 'module-scope',
+    }));
 }
 
 function seedFromFileRef(
