@@ -46,7 +46,7 @@ describe('alembic_plan draft two-block projector', () => {
 
   test('returns only projectInfoTree, candidateDimensions, checklist, and nextActions', async () => {
     const projectRoot = createSmallSwiftProject();
-    const draft = await callDraft(projectRoot, { maxBudget: 64 });
+    const draft = await callDraft(projectRoot);
 
     expect(draft.success).toBe(true);
     expect(Object.keys(draft.data ?? {}).sort()).toEqual([...allowedDraftFields].sort());
@@ -56,12 +56,13 @@ describe('alembic_plan draft two-block projector', () => {
       kind: 'project',
       primaryLanguage: 'swift',
       meta: {
-        budgetBytes: 64 * 1024,
+        budgetBytes: 12 * 1024,
+        fullTreeRef: null,
         truncated: false,
       },
     });
     expect(asArray(tree.children).length).toBeGreaterThan(0);
-    expect(Buffer.byteLength(JSON.stringify(tree), 'utf8')).toBeLessThanOrEqual(64 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(tree), 'utf8')).toBeLessThanOrEqual(12 * 1024);
 
     const candidateDimensions = asArray(draft.data?.candidateDimensions).map(asRecord);
     expect(candidateDimensions).toHaveLength(25);
@@ -91,24 +92,39 @@ describe('alembic_plan draft two-block projector', () => {
     expect(draft.success).toBe(true);
     const tree = asRecord(draft.data?.projectInfoTree);
     expect(Buffer.byteLength(JSON.stringify(tree), 'utf8')).toBeLessThanOrEqual(8 * 1024);
-    expect(asRecord(tree.meta)).toMatchObject({
+    const meta = asRecord(tree.meta);
+    expect(meta).toMatchObject({
       budgetBytes: 8 * 1024,
       truncated: true,
     });
-    expect(['modules', 'files', 'symbols']).toContain(asRecord(tree.meta).deliveredDepth);
-    expect(Object.keys(asRecord(asRecord(tree.meta).omitted)).length).toBeGreaterThan(0);
+    expect(['modules', 'files', 'symbols']).toContain(meta.deliveredDepth);
+    expect(Object.keys(asRecord(meta.omitted)).length).toBeGreaterThan(0);
     expect(asArray(tree.children).length).toBeGreaterThan(0);
+
+    const fullTreeRef = asRecord(meta.fullTreeRef);
+    expect(typeof fullTreeRef.path).toBe('string');
+    expect(Number(fullTreeRef.bytes)).toBeGreaterThan(8 * 1024);
+    expect(fs.existsSync(String(fullTreeRef.path))).toBe(true);
+    const fullTree = JSON.parse(fs.readFileSync(String(fullTreeRef.path), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(countFileNodes(fullTree)).toBeGreaterThanOrEqual(120);
+    expect(countFileNodes(fullTree)).toBeGreaterThan(countFileNodes(tree));
+    expect(Buffer.byteLength(JSON.stringify(fullTree), 'utf8')).toBeGreaterThan(
+      Buffer.byteLength(JSON.stringify(tree), 'utf8')
+    );
   });
 });
 
 async function callDraft(
   projectRoot: string,
-  hints: Record<string, unknown>
+  hints?: Record<string, unknown>
 ): Promise<PlanToolResponse> {
   return (await routePlanTool(createContext(), {
     operation: 'draft',
     projectRoot,
-    hints,
+    ...(hints ? { hints } : {}),
   })) as PlanToolResponse;
 }
 
@@ -205,4 +221,11 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function countFileNodes(tree: Record<string, unknown>): number {
+  return asArray(tree.children).reduce(
+    (sum, moduleNode) => sum + asArray(asRecord(moduleNode).children).length,
+    0
+  );
 }

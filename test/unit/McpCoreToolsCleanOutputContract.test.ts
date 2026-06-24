@@ -270,8 +270,9 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
           fileCount: 2,
           children: [],
           meta: {
-            budgetBytes: 65536,
+            budgetBytes: 12288,
             deliveredDepth: 'modules',
+            fullTreeRef: null,
             omitted: {},
             truncated: false,
           },

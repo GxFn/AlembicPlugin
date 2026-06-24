@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Dirent, Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path, { basename } from 'node:path';
@@ -29,7 +30,7 @@ import {
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import { LanguageService } from '@alembic/core/shared';
-import { resolveProjectRoot } from '@alembic/core/workspace';
+import { resolveProjectRoot, WorkspaceResolver } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 
 interface PlanToolContext {
@@ -92,12 +93,18 @@ type ProjectInfoDeliveredDepth = 'modules' | 'files' | 'symbols';
 interface ProjectInfoTreeMeta {
   budgetBytes: number;
   deliveredDepth: ProjectInfoDeliveredDepth;
+  fullTreeRef: ProjectInfoFullTreeRef | null;
   omitted: {
     files?: number;
     modules?: number;
     symbols?: number;
   };
   truncated: boolean;
+}
+
+interface ProjectInfoFullTreeRef {
+  bytes: number;
+  path: string;
 }
 
 interface ProjectInfoTreeRoot {
@@ -169,7 +176,7 @@ type BuildConfirmIntentResult =
   | { ok: false; response: PlanToolResponse };
 
 const PLAN_TOOL_NAME = 'alembic_plan';
-const DEFAULT_PROJECT_INFO_TREE_BUDGET_BYTES = 64 * 1024;
+const DEFAULT_PROJECT_INFO_TREE_BUDGET_BYTES = 12 * 1024;
 const PLAN_SOURCE_SCAN_MAX_FILES = 5000;
 const PLAN_MODULE_OWNED_FILE_LIMIT = 400;
 const PLAN_SOURCE_SCAN_EXCLUDE_DIRS = new Set([
@@ -216,7 +223,7 @@ async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTool
     return emptyProjectContextResponse(projectRoot);
   }
 
-  const draftContext = buildPlanDraftContext(args, projectRoot, analysis);
+  const draftContext = await buildPlanDraftContext(args, projectRoot, analysis);
   return planDraftResponse(draftContext);
 }
 
@@ -260,15 +267,21 @@ function emptyProjectContextResponse(projectRoot: string): PlanToolResponse {
   );
 }
 
-function buildPlanDraftContext(
+async function buildPlanDraftContext(
   args: PlanArgs,
   projectRoot: string,
   analysis: PlanProjectContextAnalysis
-): PlanDraftContext {
+): Promise<PlanDraftContext> {
+  const budgetBytes = resolveProjectInfoTreeBudgetBytes(args);
+  const projectInfoTree = buildProjectInfoTree(analysis, budgetBytes);
+  await attachFullProjectInfoTreeRefIfNeeded(projectInfoTree, {
+    analysis,
+    projectRoot,
+  });
   return {
     analysis,
     projectRoot,
-    projectInfoTree: buildProjectInfoTree(analysis, resolveProjectInfoTreeBudgetBytes(args)),
+    projectInfoTree,
     candidateDimensions: buildCandidateDimensions(analysis),
   };
 }
@@ -438,6 +451,86 @@ function buildProjectInfoTree(
   root.meta = buildProjectInfoTreeMeta({ budgetBytes, delivered, totals });
   pruneProjectInfoTreeToBudget(root, budgetBytes, totals);
   return root;
+}
+
+async function attachFullProjectInfoTreeRefIfNeeded(
+  projectInfoTree: ProjectInfoTreeRoot,
+  input: {
+    analysis: PlanProjectContextAnalysis;
+    projectRoot: string;
+  }
+): Promise<void> {
+  if (!projectInfoTree.meta.truncated) {
+    await removeProjectInfoFullTreeIfPresent(input.projectRoot);
+    projectInfoTree.meta = {
+      ...projectInfoTree.meta,
+      fullTreeRef: null,
+    };
+    return;
+  }
+
+  const fullTree = buildCompleteProjectInfoTree(input.analysis);
+  const fullTreeRef = await writeProjectInfoFullTree({
+    projectRoot: input.projectRoot,
+    tree: fullTree,
+  });
+  projectInfoTree.meta = {
+    ...projectInfoTree.meta,
+    fullTreeRef,
+  };
+  pruneProjectInfoTreeToBudget(
+    projectInfoTree,
+    projectInfoTree.meta.budgetBytes,
+    countDeliveredProjectInfoNodes(fullTree)
+  );
+}
+
+function buildCompleteProjectInfoTree(analysis: PlanProjectContextAnalysis): ProjectInfoTreeRoot {
+  const candidates = collectProjectInfoModuleCandidates(analysis);
+  const totals = countProjectInfoCandidateTotals(candidates);
+  const root = createProjectInfoTreeRoot(analysis, {
+    budgetBytes: 0,
+    delivered: totals,
+    totals,
+  });
+  root.children = candidates.map((candidate) => ({
+    children: candidate.files.map((file) => ({
+      children: file.symbols.map((symbol) => ({ ...symbol, children: [] })),
+      kind: file.kind,
+      language: file.language,
+      lineCount: file.lineCount,
+      path: file.path,
+    })),
+    fileCount: candidate.fileCount,
+    keyDependencies: candidate.keyDependencies,
+    kind: candidate.kind,
+    language: candidate.language,
+    path: candidate.path,
+    ...(candidate.role ? { role: candidate.role } : {}),
+  }));
+  root.meta = buildProjectInfoTreeMeta({
+    budgetBytes: projectInfoTreeByteLength(root),
+    delivered: totals,
+    totals,
+  });
+  return root;
+}
+
+function createProjectInfoTreeRoot(
+  analysis: PlanProjectContextAnalysis,
+  metaInput: Parameters<typeof buildProjectInfoTreeMeta>[0]
+): ProjectInfoTreeRoot {
+  return {
+    children: [],
+    fileCount: analysis.fileCount,
+    frameworks: analysis.frameworks,
+    kind: 'project',
+    meta: buildProjectInfoTreeMeta(metaInput),
+    moduleCount: analysis.moduleCount,
+    primaryLanguage: analysis.primaryLanguage,
+    projectType: analysis.projectType,
+    secondaryLanguages: analysis.secondaryLanguages,
+  };
 }
 
 function collectProjectInfoModuleCandidates(
@@ -640,6 +733,7 @@ function countProjectInfoCandidateTotals(candidates: readonly ProjectInfoModuleC
 function buildProjectInfoTreeMeta(input: {
   budgetBytes: number;
   delivered: { files: number; modules: number; symbols: number };
+  fullTreeRef?: ProjectInfoFullTreeRef | null;
   totals: { files: number; modules: number; symbols: number };
 }): ProjectInfoTreeMeta {
   const omitted = {
@@ -657,6 +751,7 @@ function buildProjectInfoTreeMeta(input: {
     budgetBytes: input.budgetBytes,
     deliveredDepth:
       input.delivered.symbols > 0 ? 'symbols' : input.delivered.files > 0 ? 'files' : 'modules',
+    fullTreeRef: input.fullTreeRef ?? null,
     omitted,
     truncated: Object.keys(omitted).length > 0,
   };
@@ -686,6 +781,7 @@ function pruneProjectInfoTreeToBudget(
       root.meta = buildProjectInfoTreeMeta({
         budgetBytes,
         delivered: countDeliveredProjectInfoNodes(root),
+        fullTreeRef: root.meta.fullTreeRef,
         totals,
       });
       continue;
@@ -694,6 +790,7 @@ function pruneProjectInfoTreeToBudget(
       root.meta = buildProjectInfoTreeMeta({
         budgetBytes,
         delivered: countDeliveredProjectInfoNodes(root),
+        fullTreeRef: root.meta.fullTreeRef,
         totals,
       });
       continue;
@@ -740,6 +837,41 @@ function countDeliveredProjectInfoNodes(root: ProjectInfoTreeRoot): {
 
 function projectInfoTreeByteLength(root: ProjectInfoTreeRoot): number {
   return Buffer.byteLength(JSON.stringify(root), 'utf8');
+}
+
+async function writeProjectInfoFullTree(input: {
+  projectRoot: string;
+  tree: ProjectInfoTreeRoot;
+}): Promise<ProjectInfoFullTreeRef> {
+  const filePath = projectInfoFullTreePath(input.projectRoot);
+  const content = `${JSON.stringify(input.tree, null, 2)}\n`;
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, content, 'utf8');
+  return {
+    bytes: Buffer.byteLength(content, 'utf8'),
+    path: filePath,
+  };
+}
+
+async function removeProjectInfoFullTreeIfPresent(projectRoot: string): Promise<void> {
+  await fs.rm(projectInfoFullTreePath(projectRoot), { force: true });
+}
+
+function projectInfoFullTreePath(projectRoot: string): string {
+  const dataRoot = resolvePlanTreeDataRoot(projectRoot);
+  return path.join(dataRoot, '.asd', 'tmp', `plan-tree-${projectHash(projectRoot)}.json`);
+}
+
+function resolvePlanTreeDataRoot(projectRoot: string): string {
+  try {
+    return WorkspaceResolver.fromProject(projectRoot).dataRoot;
+  } catch {
+    return projectRoot;
+  }
+}
+
+function projectHash(projectRoot: string): string {
+  return createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 16);
 }
 
 function buildProjectProfileFromAnalysis(
