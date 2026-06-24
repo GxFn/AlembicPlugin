@@ -68,10 +68,12 @@ export interface StatusData {
   knowledge: {
     bootstrapRunning: boolean;
     databaseEntryCount: number | null;
+    dbRecipeCount: number | null;
     freshness: Record<string, unknown>;
     hasKnowledge: boolean;
     initialized: boolean;
     jobs: Record<string, unknown>;
+    materializedRecipeCount: number | null;
     recipeCount: number | null;
     skillCount: number | null;
     status: string | null;
@@ -347,6 +349,11 @@ function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): StatusData[
     usable: knowledge.usable,
     status: typeof knowledge.status === 'string' ? knowledge.status : null,
     recipeCount: typeof knowledge.recipeCount === 'number' ? knowledge.recipeCount : null,
+    dbRecipeCount: typeof knowledge.dbRecipeCount === 'number' ? knowledge.dbRecipeCount : null,
+    materializedRecipeCount:
+      typeof knowledge.materializedRecipeCount === 'number'
+        ? knowledge.materializedRecipeCount
+        : null,
     skillCount: typeof knowledge.skillCount === 'number' ? knowledge.skillCount : null,
     databaseEntryCount:
       typeof knowledge.databaseEntryCount === 'number' ? knowledge.databaseEntryCount : null,

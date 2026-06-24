@@ -9,6 +9,7 @@ import {
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
 import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import { buildStatus } from '../../lib/runtime/index.js';
@@ -31,6 +32,28 @@ function makeInitializedWorkspace(projectRoot: string): void {
   fs.writeFileSync(path.join(projectRoot, '.asd', 'alembic.db'), '');
   fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
   fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+}
+
+function writeMaterializedRecipe(projectRoot: string, name: string): void {
+  fs.writeFileSync(path.join(projectRoot, 'Alembic', 'recipes', name), '# Recipe\n');
+}
+
+function seedKnowledgeEntries(projectRoot: string, count: number): void {
+  const db = new Database(path.join(projectRoot, '.asd', 'alembic.db'));
+  try {
+    db.exec(`
+      CREATE TABLE knowledge_entries (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL
+      );
+    `);
+    const stmt = db.prepare('INSERT INTO knowledge_entries (id, title) VALUES (?, ?)');
+    for (let index = 1; index <= count; index += 1) {
+      stmt.run(`entry_${index}`, `DB Recipe ${index}`);
+    }
+  } finally {
+    db.close();
+  }
 }
 
 function writeRunningBootstrapJob(projectRoot: string): void {
@@ -416,6 +439,27 @@ describe('Codex status service', () => {
       primaryAction: { tool: 'alembic_bootstrap' },
     });
     expect(serialized).not.toContain('secret-token');
+  });
+
+  test('status knowledge separates DB recipe reality from materialized exports', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    seedKnowledgeEntries(projectRoot, 3);
+    writeMaterializedRecipe(projectRoot, 'exported.md');
+    const supervisor = {
+      status: vi.fn(async () => makeDaemonStatus(projectRoot, true)),
+    };
+
+    const status = await buildStatus(projectRoot, { supervisor });
+
+    expect(status.knowledge).toMatchObject({
+      usable: true,
+      recipeCount: 3,
+      dbRecipeCount: 3,
+      databaseEntryCount: 3,
+      materializedRecipeCount: 1,
+    });
   });
 
   test('reports bootstrap_in_progress with single-writer lease visibility', async () => {

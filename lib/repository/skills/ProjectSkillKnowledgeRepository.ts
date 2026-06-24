@@ -3,6 +3,16 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 export function countProjectSkillKnowledgeEntries(dataRoot: string): number {
+  return countKnowledgeEntries(dataRoot);
+}
+
+export function countProjectDatabaseRecipes(dataRoot: string): number {
+  // 当前统一模型里 knowledge_entries 是 DB 持久化 Recipe 表；磁盘 .md 导出数由
+  // KnowledgeState 单独扫描 materializedRecipeCount，避免两个来源再次混淆。
+  return countKnowledgeEntries(dataRoot);
+}
+
+function countKnowledgeEntries(dataRoot: string): number {
   const candidates = [path.join(dataRoot, '.asd', 'alembic.db'), path.join(dataRoot, 'alembic.db')];
   for (const dbPath of candidates) {
     if (!fs.existsSync(dbPath)) {

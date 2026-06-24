@@ -136,7 +136,10 @@ async function runStatusCases(context) {
       expect(structured.knowledge && typeof structured.knowledge === 'object', 'missing knowledge');
       return {
         databaseEntryCount: structured.knowledge.databaseEntryCount ?? null,
+        dbRecipeCount: structured.knowledge.dbRecipeCount ?? null,
         hasKnowledge: structured.knowledge.hasKnowledge === true,
+        materializedRecipeCount: structured.knowledge.materializedRecipeCount ?? null,
+        recipeCount: structured.knowledge.recipeCount ?? null,
         usable: structured.knowledge.usable === true,
       };
     },

@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import type { DaemonJobKind, DaemonJobRecord, DaemonJobStatus } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { readSnapshotState, readSourceRefState } from '#infra/database/SqliteDatabaseAccess.js';
-import { countProjectSkillKnowledgeEntries } from '../repository/skills/ProjectSkillKnowledgeRepository.js';
+import {
+  countProjectDatabaseRecipes,
+  countProjectSkillKnowledgeEntries,
+} from '../repository/skills/ProjectSkillKnowledgeRepository.js';
 
 export type KnowledgeStatus =
   | 'not_initialized'
@@ -111,10 +114,12 @@ export interface SnapshotState {
 
 export interface HostKnowledgeState {
   databaseEntryCount?: number;
+  dbRecipeCount?: number;
   freshness?: KnowledgeFreshness;
   hasKnowledge: boolean;
   initialized: boolean;
   jobs?: JobActivityState;
+  materializedRecipeCount?: number;
   recipeCount: number;
   skillCount: number;
   status: KnowledgeStatus;
@@ -146,6 +151,8 @@ export const EMPTY_KNOWLEDGE_STATE: HostKnowledgeState = {
     running: false,
     total: 0,
   },
+  dbRecipeCount: 0,
+  materializedRecipeCount: 0,
   recipeCount: 0,
   skillCount: 0,
   status: 'not_initialized',
@@ -200,10 +207,13 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
     excludeNames: new Set(['_template.md']),
   });
   const skillScan = scanSkillFiles(resolver.skillsDir);
-  const recipeCount = recipeScan.count;
+  const materializedRecipeCount = recipeScan.count;
   const skillCount = skillScan.count;
   const databaseEntryCount = countProjectSkillKnowledgeEntries(resolver.dataRoot);
-  const hasKnowledge = recipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;
+  const dbRecipeCount = countProjectDatabaseRecipes(resolver.dataRoot);
+  const recipeCount = dbRecipeCount;
+  const hasKnowledge =
+    recipeCount > 0 || materializedRecipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;
   const usable = initialized && hasKnowledge;
   const jobs = inspectJobActivity(resolver);
   const sourceRefs = inspectSourceRefs(resolver);
@@ -230,10 +240,12 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
   });
   return {
     databaseEntryCount,
+    dbRecipeCount,
     freshness,
     hasKnowledge,
     initialized,
     jobs,
+    materializedRecipeCount,
     recipeCount,
     skillCount,
     status,

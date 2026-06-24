@@ -70,9 +70,27 @@ describe('Codex knowledge state', () => {
     expect(state.status).toBe('knowledge_ready');
     expect(state.usable).toBe(true);
     expect(state.hasKnowledge).toBe(true);
-    expect(state.recipeCount).toBe(0);
+    expect(state.recipeCount).toBe(1);
+    expect(state.dbRecipeCount).toBe(1);
+    expect(state.materializedRecipeCount).toBe(0);
     expect(state.skillCount).toBe(0);
     expect(state.databaseEntryCount).toBe(1);
+  });
+
+  test('separates DB recipe count from materialized markdown exports', () => {
+    const root = createProject();
+    initializeWorkspace(root);
+    writeRecipe(root, 'core.md', '# Core recipe\n');
+    writeRecipe(root, 'network.md', '# Network recipe\n');
+    seedKnowledgeEntries(root);
+
+    const state = inspectKnowledge(root);
+
+    expect(state.status).toBe('knowledge_ready');
+    expect(state.recipeCount).toBe(1);
+    expect(state.dbRecipeCount).toBe(1);
+    expect(state.databaseEntryCount).toBe(1);
+    expect(state.materializedRecipeCount).toBe(2);
   });
 
   test('marks knowledge stale when the latest refresh job failed after current knowledge', () => {

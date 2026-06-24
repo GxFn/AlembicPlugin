@@ -909,13 +909,15 @@ export function buildBootstrapRebuildConfirmationBlock(
     errorCode: 'CODEX_BOOTSTRAP_REBUILD_CONFIRMATION_REQUIRED',
     tool: 'alembic_bootstrap',
     message:
-      `当前项目已有可用知识库（Recipe ${knowledge.recipeCount} 个、Skill ${knowledge.skillCount} 个、DB 条目 ${knowledge.databaseEntryCount} 条）。` +
+      `当前项目已有可用知识库（DB Recipe ${knowledge.recipeCount} 个、磁盘导出 Recipe ${knowledge.materializedRecipeCount ?? 0} 个、Skill ${knowledge.skillCount} 个、DB 条目 ${knowledge.databaseEntryCount} 条）。` +
       `bootstrap 会把全部现有知识移入 .asd/.trash/<时间戳>/ 并从零重建。` +
       `如需保留 Recipe 并刷新知识，请改用 alembic_rescan；` +
       `确认要重建请显式传入 { "rebuild": true } 重新调用。本次未做任何修改。`,
     data: {
       knowledge: {
         databaseEntryCount: knowledge.databaseEntryCount,
+        dbRecipeCount: knowledge.dbRecipeCount,
+        materializedRecipeCount: knowledge.materializedRecipeCount,
         recipeCount: knowledge.recipeCount,
         skillCount: knowledge.skillCount,
         usable: knowledge.usable,

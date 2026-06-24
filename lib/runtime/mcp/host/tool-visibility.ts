@@ -45,6 +45,8 @@ function buildExplicitProjectRootRequiredKnowledgeState(): HostKnowledgeState {
     ...EMPTY_KNOWLEDGE_STATE,
     initialized: true,
     hasKnowledge: true,
+    dbRecipeCount: 1,
+    materializedRecipeCount: 0,
     recipeCount: 1,
     skillCount: 0,
     status: 'knowledge_ready',
