@@ -103,8 +103,20 @@ export async function resolvePlanGenerationGate(
   options: { defaultStage: PlanGenerationStage; toolName: string }
 ): Promise<PlanGenerationGateResult> {
   const projectRoot = input?.projectRoot ?? resolveProjectRoot(ctx.container);
-  const generationStage =
-    input?.planSelection?.generationStage ?? input?.generationStage ?? options.defaultStage;
+  const stageResolution = resolveExecutorGenerationStage(input, options);
+  const generationStage = stageResolution.generationStage;
+  if (!stageResolution.ok) {
+    return {
+      ok: false,
+      response: buildPlanGateBlockedResponse({
+        blockedReason: stageResolution.reason,
+        errorCode: 'PLAN_REQUIRED',
+        generationStage,
+        projectRoot,
+        toolName: options.toolName,
+      }),
+    };
+  }
   const planSelection = validatePlanSelection(input?.planSelection, generationStage);
   if (!planSelection.ok) {
     return {
@@ -129,6 +141,54 @@ export async function resolvePlanGenerationGate(
       toolName: options.toolName,
     }),
   };
+}
+
+function resolveExecutorGenerationStage(
+  input: PlanGenerationGateInput | undefined,
+  options: { defaultStage: PlanGenerationStage; toolName: string }
+):
+  | { ok: true; generationStage: PlanGenerationStage }
+  | { ok: false; generationStage: PlanGenerationStage; reason: string } {
+  const requestedStage = readString(input, 'generationStage');
+  const normalizedRequestedStage =
+    requestedStage && isPlanGenerationStage(requestedStage) ? requestedStage : undefined;
+  if (requestedStage && !normalizedRequestedStage) {
+    return {
+      ok: false,
+      generationStage: options.defaultStage,
+      reason: `Unsupported generationStage ${requestedStage}.`,
+    };
+  }
+  if (options.toolName === 'alembic_bootstrap') {
+    if (normalizedRequestedStage && normalizedRequestedStage !== 'coldStart') {
+      return {
+        ok: false,
+        generationStage: 'coldStart',
+        reason: `alembic_bootstrap only supports coldStart generationStage; received ${normalizedRequestedStage}.`,
+      };
+    }
+    return { ok: true, generationStage: 'coldStart' };
+  }
+  if (options.toolName === 'alembic_rescan') {
+    if (normalizedRequestedStage === 'coldStart') {
+      return {
+        ok: false,
+        generationStage: 'coldStart',
+        reason: 'alembic_rescan requires deepMining or moduleMining generationStage.',
+      };
+    }
+    if (normalizedRequestedStage === 'deepMining' || normalizedRequestedStage === 'moduleMining') {
+      return { ok: true, generationStage: normalizedRequestedStage };
+    }
+    if (options.defaultStage === 'coldStart') {
+      return {
+        ok: false,
+        generationStage: 'coldStart',
+        reason: 'alembic_rescan default generationStage must be deepMining or moduleMining.',
+      };
+    }
+  }
+  return { ok: true, generationStage: normalizedRequestedStage ?? options.defaultStage };
 }
 
 function validatePlanSelection(
@@ -189,6 +249,10 @@ function validatePlanSelection(
       scale,
     },
   };
+}
+
+function isPlanGenerationStage(value: string): value is PlanGenerationStage {
+  return value === 'coldStart' || value === 'deepMining' || value === 'moduleMining';
 }
 
 function buildPlanGenerationGateReady(input: {

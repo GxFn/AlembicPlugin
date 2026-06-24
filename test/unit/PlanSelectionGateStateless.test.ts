@@ -9,9 +9,25 @@ describe('stateless planSelection generation gate', () => {
     expect(BootstrapInput.safeParse({}).success).toBe(false);
     expect(RescanInput.safeParse({ reason: 'missing-planSelection' }).success).toBe(false);
     expect(BootstrapInput.safeParse({ planSelection: coldStartSelection() }).success).toBe(true);
+    expect(BootstrapInput.safeParse({ planSelection: rescanSelection() }).success).toBe(false);
+    expect(BootstrapInput.safeParse({ planSelection: moduleMiningSelection() }).success).toBe(
+      false
+    );
+    expect(
+      RescanInput.safeParse({
+        planSelection: coldStartSelection(),
+        reason: 'schema-stage-mismatch',
+      }).success
+    ).toBe(false);
     expect(
       RescanInput.safeParse({
         planSelection: rescanSelection(),
+        reason: 'schema-required-planSelection',
+      }).success
+    ).toBe(true);
+    expect(
+      RescanInput.safeParse({
+        planSelection: moduleMiningSelection(),
         reason: 'schema-required-planSelection',
       }).success
     ).toBe(true);
@@ -59,6 +75,89 @@ describe('stateless planSelection generation gate', () => {
       });
       expect(String(gate.response.message)).toContain('planSelection');
       expect(String(gate.response.data?.blockedReason)).toContain('planSelection');
+    }
+  });
+
+  test('gate rejects planSelection stage mismatches instead of changing executor stage', async () => {
+    const ctx = createNoStorageContext();
+
+    const bootstrapWithDeepPlan = await resolvePlanGenerationGate(
+      ctx,
+      {
+        planSelection: rescanSelection(),
+      },
+      { defaultStage: 'coldStart', toolName: 'alembic_bootstrap' }
+    );
+    const rescanWithColdPlan = await resolvePlanGenerationGate(
+      ctx,
+      {
+        planSelection: coldStartSelection(),
+      },
+      { defaultStage: 'deepMining', toolName: 'alembic_rescan' }
+    );
+
+    expect(bootstrapWithDeepPlan.ok).toBe(false);
+    if (!bootstrapWithDeepPlan.ok) {
+      expect(bootstrapWithDeepPlan.response).toMatchObject({
+        success: false,
+        errorCode: 'PLAN_REQUIRED',
+        data: {
+          generationStage: 'coldStart',
+          planGate: { status: 'blocked', errorCode: 'PLAN_REQUIRED' },
+        },
+      });
+      expect(String(bootstrapWithDeepPlan.response.data?.blockedReason)).toContain(
+        'does not match requested coldStart'
+      );
+    }
+
+    expect(rescanWithColdPlan.ok).toBe(false);
+    if (!rescanWithColdPlan.ok) {
+      expect(rescanWithColdPlan.response).toMatchObject({
+        success: false,
+        errorCode: 'PLAN_REQUIRED',
+        data: {
+          generationStage: 'deepMining',
+          planGate: { status: 'blocked', errorCode: 'PLAN_REQUIRED' },
+        },
+      });
+      expect(String(rescanWithColdPlan.response.data?.blockedReason)).toContain(
+        'does not match requested deepMining'
+      );
+    }
+  });
+
+  test('gate rejects runtime payloads that request unsupported executor stages', async () => {
+    const ctx = createNoStorageContext();
+
+    const bootstrapWithDeepRequest = await resolvePlanGenerationGate(
+      ctx,
+      {
+        generationStage: 'deepMining',
+        planSelection: rescanSelection(),
+      },
+      { defaultStage: 'coldStart', toolName: 'alembic_bootstrap' }
+    );
+    const rescanWithColdRequest = await resolvePlanGenerationGate(
+      ctx,
+      {
+        generationStage: 'coldStart',
+        planSelection: coldStartSelection(),
+      },
+      { defaultStage: 'deepMining', toolName: 'alembic_rescan' }
+    );
+
+    expect(bootstrapWithDeepRequest.ok).toBe(false);
+    if (!bootstrapWithDeepRequest.ok) {
+      expect(String(bootstrapWithDeepRequest.response.data?.blockedReason)).toContain(
+        'alembic_bootstrap only supports coldStart'
+      );
+    }
+    expect(rescanWithColdRequest.ok).toBe(false);
+    if (!rescanWithColdRequest.ok) {
+      expect(String(rescanWithColdRequest.response.data?.blockedReason)).toContain(
+        'alembic_rescan requires deepMining or moduleMining'
+      );
     }
   });
 
@@ -151,6 +250,27 @@ function rescanSelection() {
         modulePath: 'Sources',
         dimensions: ['architecture', 'swift-objc-idiom'],
         targetRecipes: 3,
+        priority: 1,
+      },
+    ],
+  };
+}
+
+function moduleMiningSelection() {
+  return {
+    generationStage: 'moduleMining',
+    dimensions: ['architecture', 'swift-objc-idiom'],
+    scale: {
+      totalRecipeBudget: 4,
+      maxFiles: 23,
+      contentMaxLines: 47,
+      depthLevels: ['module'],
+    },
+    moduleBindings: [
+      {
+        modulePath: 'Sources/App',
+        dimensions: ['architecture', 'swift-objc-idiom'],
+        targetRecipes: 2,
         priority: 1,
       },
     ],

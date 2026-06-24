@@ -846,6 +846,14 @@ const PlanSelectionInput = z
   })
   .strict();
 
+const ColdStartPlanSelectionInput = PlanSelectionInput.extend({
+  generationStage: z.literal('coldStart'),
+});
+
+const RescanPlanSelectionInput = PlanSelectionInput.extend({
+  generationStage: z.enum(['deepMining', 'moduleMining']),
+});
+
 function addPlanConfirmIssue(
   ctx: z.RefinementCtx,
   path: (string | number)[],
@@ -1054,7 +1062,7 @@ export const BootstrapInput = z.object({
       'Required confirmation when a usable knowledge base already exists: pass true to archive ALL existing knowledge to .asd/.trash/<timestamp>/ and rebuild from zero. Without it, bootstrap refuses and recommends alembic_rescan instead.'
     ),
   generationStage: z.literal('coldStart').optional(),
-  planSelection: PlanSelectionInput.describe(
+  planSelection: ColdStartPlanSelectionInput.describe(
     'Required planSelection returned by alembic_plan confirm for the just-planned coldStart run.'
   ),
   testMode: z
@@ -1132,7 +1140,7 @@ export const RescanInput = z.object({
     .describe('可选：produceSession.dimensions 的兼容顶层别名'),
   controllerAuthorized: z.boolean().optional().describe('可选：顶层 controller 授权标志'),
   generationStage: z.enum(['deepMining', 'moduleMining']).optional(),
-  planSelection: PlanSelectionInput.describe(
+  planSelection: RescanPlanSelectionInput.describe(
     'Required planSelection returned by alembic_plan confirm for the just-planned deepMining or moduleMining run.'
   ),
   testMode: z
