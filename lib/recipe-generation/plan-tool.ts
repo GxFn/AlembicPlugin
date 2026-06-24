@@ -1,6 +1,4 @@
-import type { Dirent, Stats } from 'node:fs';
-import fs from 'node:fs/promises';
-import path, { basename } from 'node:path';
+import { basename } from 'node:path';
 import {
   buildDimensionCatalogPayload,
   type DimensionCatalogPayloadItem,
@@ -28,13 +26,17 @@ import {
   type RepoContext,
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
-import { LanguageService } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
   removeTransientTransportIfPresent,
   writeTransientTransport,
 } from '#shared/transient-transport.js';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
+import {
+  attachSourceFilesToProjectContextModuleSeeds,
+  collectProjectSourceFileFacts,
+  type ProjectSourceFileFact,
+} from './project-source-facts.js';
 
 interface PlanToolContext {
   actor?: { role?: string; user?: string };
@@ -59,12 +61,6 @@ interface PlanModuleSeed {
   role?: string;
 }
 
-interface PlanProjectSourceFileFact {
-  filePath: string;
-  language: string;
-  sizeBytes: number;
-}
-
 interface PlanProjectContextAnalysis {
   contextStatus: 'complete' | 'partial';
   dimensions: DimensionDef[];
@@ -79,7 +75,7 @@ interface PlanProjectContextAnalysis {
   projectType: string;
   requestKinds: ProjectContextRequestKind[];
   secondaryLanguages: string[];
-  sourceFileFacts: PlanProjectSourceFileFact[];
+  sourceFileFacts: ProjectSourceFileFact[];
   understandingGaps: Record<string, unknown>[];
 }
 
@@ -181,17 +177,6 @@ type BuildConfirmIntentResult =
 
 const PLAN_TOOL_NAME = 'alembic_plan';
 const DEFAULT_PROJECT_INFO_TREE_BUDGET_BYTES = 12 * 1024;
-const PLAN_SOURCE_SCAN_MAX_FILES = 5000;
-const PLAN_MODULE_OWNED_FILE_LIMIT = 400;
-const PLAN_SOURCE_SCAN_EXCLUDE_DIRS = new Set([
-  ...LanguageService.scanSkipDirs,
-  '.asd',
-  '.git',
-  '.wakeflow-active',
-  '.wakeflow-local',
-  'DerivedData',
-  'node_modules',
-]);
 
 export async function routePlanTool(
   ctx: PlanToolContext,
@@ -1193,7 +1178,10 @@ async function collectPlanProjectContext(
   const repoEnvelope = await push('repo', { includeMapSummary: true });
   const repo = isRepoContext(repoEnvelope.data) ? repoEnvelope.data : undefined;
   const sourceFileFacts = await collectProjectSourceFileFacts(projectRoot);
-  const moduleSeeds = attachSourceFilesToModuleSeeds(selectPlanModuleSeeds(repo), sourceFileFacts);
+  const moduleSeeds = attachSourceFilesToProjectContextModuleSeeds(
+    selectPlanModuleSeeds(repo),
+    sourceFileFacts
+  );
   if (moduleSeeds.length > 0) {
     await push('map', {
       moduleSeeds,
@@ -1242,114 +1230,6 @@ async function collectPlanProjectContext(
     sourceFileFacts,
     understandingGaps,
   };
-}
-
-async function collectProjectSourceFileFacts(
-  projectRoot: string
-): Promise<PlanProjectSourceFileFact[]> {
-  const facts: PlanProjectSourceFileFact[] = [];
-  const absoluteRoot = path.resolve(projectRoot);
-  const pending = [absoluteRoot];
-  while (pending.length > 0 && facts.length < PLAN_SOURCE_SCAN_MAX_FILES) {
-    const current = pending.pop();
-    if (!current) {
-      continue;
-    }
-    const entries = await safeReadDir(current);
-    for (const entry of entries) {
-      const absolutePath = path.join(current, entry.name);
-      const relativePath = toProjectContextPath(path.relative(absoluteRoot, absolutePath));
-      if (!relativePath || relativePath.startsWith('..')) {
-        continue;
-      }
-      if (entry.isDirectory()) {
-        if (!PLAN_SOURCE_SCAN_EXCLUDE_DIRS.has(entry.name)) {
-          pending.push(absolutePath);
-        }
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
-      const language = LanguageService.inferLang(relativePath);
-      if (language === 'unknown') {
-        continue;
-      }
-      const stat = await safeStat(absolutePath);
-      facts.push({
-        filePath: relativePath,
-        language,
-        sizeBytes: stat?.size ?? 0,
-      });
-      if (facts.length >= PLAN_SOURCE_SCAN_MAX_FILES) {
-        break;
-      }
-    }
-  }
-  return facts.sort((left, right) => left.filePath.localeCompare(right.filePath));
-}
-
-async function safeReadDir(directoryPath: string): Promise<Dirent[]> {
-  try {
-    return await fs.readdir(directoryPath, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
-async function safeStat(filePath: string): Promise<Stats | undefined> {
-  try {
-    return await fs.stat(filePath);
-  } catch {
-    return undefined;
-  }
-}
-
-function attachSourceFilesToModuleSeeds(
-  seeds: readonly PlanModuleSeed[],
-  sourceFileFacts: readonly PlanProjectSourceFileFact[]
-): PlanModuleSeed[] {
-  const sourceFilesByPath = new Set(sourceFileFacts.map((file) => file.filePath));
-  return mergePlanModuleSeeds(
-    seeds
-      .map((seed) => {
-        const explicitFiles = uniqueStrings(
-          (seed.ownedFiles ?? [])
-            .map(normalizePath)
-            .filter(isPresent)
-            .filter((filePath) => sourceFilesByPath.has(filePath))
-        );
-        const matchedFiles = sourceFilesForModuleSeed(seed, sourceFileFacts).map(
-          (file) => file.filePath
-        );
-        const ownedFiles = uniqueStrings([...explicitFiles, ...matchedFiles]).slice(
-          0,
-          PLAN_MODULE_OWNED_FILE_LIMIT
-        );
-        return {
-          ...seed,
-          ownedFiles: ownedFiles.length > 0 ? ownedFiles : undefined,
-        };
-      })
-      .filter((seed) => hasSeedScope(seed) && (seed.ownedFiles?.length ?? 0) > 0)
-  );
-}
-
-function sourceFilesForModuleSeed(
-  seed: PlanModuleSeed,
-  sourceFileFacts: readonly PlanProjectSourceFileFact[]
-): PlanProjectSourceFileFact[] {
-  const modulePath = normalizePath(seed.modulePath);
-  if (!modulePath) {
-    return [];
-  }
-  return sourceFileFacts.filter(
-    (file) => file.filePath === modulePath || file.filePath.startsWith(`${modulePath}/`)
-  );
-}
-
-function toProjectContextPath(value: string): string {
-  return value.split(path.sep).join('/');
 }
 
 function mergePlanModuleSeeds(seeds: readonly PlanModuleSeed[]): PlanModuleSeed[] {

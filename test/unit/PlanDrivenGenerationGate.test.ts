@@ -96,7 +96,7 @@ describe('Plan-driven generation gate', () => {
       enabled: true,
       dimensions: [dimensionId],
     });
-    expect(result.data?.projectContextCreationGuide).toMatchObject({
+    expect(readFullBriefingFromResponse(result).projectContextCreationGuide).toMatchObject({
       source: 'RG-5-project-context-anchored-creation',
       stage: 'bootstrap',
       confirmedPlanBoundary: {
@@ -105,7 +105,9 @@ describe('Plan-driven generation gate', () => {
         testMode: true,
       },
     });
-    expect(actionTools(asArray(result.data?.recipeCreationNextActions))).toEqual(
+    expect(
+      actionTools(asArray(readFullBriefingFromResponse(result).recipeCreationNextActions))
+    ).toEqual(
       expect.arrayContaining([
         'alembic_recipe_map',
         'alembic_graph',
@@ -242,7 +244,7 @@ describe('Plan-driven generation gate', () => {
       enabled: true,
       dimensions: selectedDimensionIds,
     });
-    expect(result.data?.projectContextCreationGuide).toMatchObject({
+    expect(readFullBriefingFromResponse(result).projectContextCreationGuide).toMatchObject({
       source: 'RG-5-project-context-anchored-creation',
       stage: 'bootstrap',
       confirmedPlanBoundary: {
@@ -952,6 +954,15 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function readFullBriefingFromResponse(response: ToolResponse): Record<string, unknown> {
+  const data = asRecord(response.data);
+  const meta = asRecord(data.meta);
+  const fullBriefingRef = asRecord(meta.fullBriefingRef);
+  const fullBriefingPath =
+    typeof fullBriefingRef.path === 'string' ? fullBriefingRef.path : undefined;
+  return fullBriefingPath ? JSON.parse(fs.readFileSync(fullBriefingPath, 'utf8')) : data;
 }
 
 function actionTools(actions: unknown[]): string[] {

@@ -282,7 +282,7 @@ async function buildRescanPlanning(
     container: ctx.container,
     logger: ctx.logger,
     recipeEntries: state.recipeSnapshot.entries,
-    allFiles: projectContextFilesForRescanAudit(state.projectContextAnalysis.presenterInput.files),
+    allFiles: projectContextFilesForRescanAudit(state.projectContextAnalysis.sourceFileFacts),
     projectRoot: state.projectRoot,
   });
 
@@ -338,6 +338,10 @@ function buildRescanBriefing(
   const briefing = buildProjectContextMissionBriefing({
     activeDimensions: Array.isArray(dimensions) ? dimensions : [],
     projectContext: projectContextAnalysis.presenterInput,
+    projectMeta: {
+      fileCount: projectContextAnalysis.fileCount,
+      moduleCount: projectContextAnalysis.moduleCount,
+    },
     profile: 'rescan-host-agent',
     rescan: { evidencePlan: planning.evidencePlan, prescreen: planning.prescreen },
     session,

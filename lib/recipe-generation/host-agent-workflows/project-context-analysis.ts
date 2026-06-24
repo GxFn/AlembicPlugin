@@ -19,6 +19,12 @@ import {
   type SpaceContext,
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
+import {
+  attachSourceFilesToProjectContextModuleSeeds,
+  collectProjectSourceFileFacts,
+  normalizeProjectContextPath,
+  type ProjectSourceFileFact,
+} from '#recipe-generation/project-source-facts.js';
 
 interface BuildHostAgentProjectContextAnalysisInput {
   projectRoot: string;
@@ -53,6 +59,7 @@ export interface HostAgentProjectContextAnalysis {
   projectType: string;
   requestKinds: ProjectContextRequestKind[];
   secondaryLanguages: string[];
+  sourceFileFacts: ProjectSourceFileFact[];
 }
 
 export function createProjectContextHostAgentSession(input: {
@@ -83,7 +90,7 @@ export function createProjectContextHostAgentSession(input: {
 export async function buildHostAgentProjectContextAnalysis(
   input: BuildHostAgentProjectContextAnalysisInput
 ): Promise<HostAgentProjectContextAnalysis> {
-  const maxModuleSeeds = input.maxModuleSeeds ?? 6;
+  const maxModuleSeeds = input.maxModuleSeeds ?? 25;
   const maxModuleDetails = input.maxModuleDetails ?? 3;
   const maxFileDetails = input.maxFileDetails ?? 8;
   const maxFiles = readPositiveInteger(input.maxFiles);
@@ -108,7 +115,12 @@ export async function buildHostAgentProjectContextAnalysis(
     }
   );
   const repoData = isRepoContext(firstRepoEnvelope.data) ? firstRepoEnvelope.data : undefined;
-  const moduleSeeds = selectProjectContextModuleSeeds(repoData, maxModuleSeeds, input.moduleScope);
+  const sourceFileFacts = await collectProjectSourceFileFacts(input.projectRoot);
+  const discoveredModuleSeeds = attachSourceFilesToProjectContextModuleSeeds(
+    selectProjectContextModuleSeeds(repoData, input.moduleScope),
+    sourceFileFacts
+  );
+  const moduleSeeds = discoveredModuleSeeds.slice(0, maxModuleSeeds);
   const repoEnvelope =
     moduleSeeds.length > 0
       ? await executeProjectContextRequest('repo', input.projectRoot, input.source, {
@@ -185,16 +197,25 @@ export async function buildHostAgentProjectContextAnalysis(
   return {
     dimensions,
     envelopes,
-    fileCount: presenterInput.files.length,
+    fileCount: Math.max(
+      presenterInput.files.length,
+      countRepoLanguageFiles(repoData),
+      sourceFileFacts.length
+    ),
     isEmpty: presenterInput.files.length === 0 && presenterInput.refs.length === 0,
     isMultiLang: secondaryLanguages.length > 0,
-    moduleCount: presenterInput.modules.length || presenterInput.map?.modules.length || 0,
+    moduleCount: Math.max(
+      presenterInput.modules.length,
+      presenterInput.map?.modules.length ?? 0,
+      discoveredModuleSeeds.length
+    ),
     moduleSeeds,
     presenterInput,
     primaryLang,
     projectType: inferProjectContextProjectType(presenterInput),
     requestKinds: uniqueRequestKinds(envelopes.map((envelope) => envelope.queryLevel)),
     secondaryLanguages,
+    sourceFileFacts,
   };
 }
 
@@ -230,7 +251,6 @@ async function executeProjectContextRequest(
 
 function selectProjectContextModuleSeeds(
   repo: RepoContext | undefined,
-  limit: number,
   moduleScope?: readonly string[]
 ): ProjectContextModuleSeed[] {
   if (!repo) {
@@ -271,7 +291,7 @@ function selectProjectContextModuleSeeds(
     requestedScope.size > 0
       ? candidates.filter((seed) => seedMatchesRequestedScope(seed, requestedScope))
       : candidates;
-  return dedupeModuleSeeds(scopedCandidates).slice(0, limit);
+  return dedupeModuleSeeds(scopedCandidates);
 }
 
 function seedFromFileRef(
@@ -283,10 +303,12 @@ function seedFromFileRef(
   if (!filePath) {
     return [];
   }
+  const modulePath = inferModulePathFromProjectContextRef(filePath);
   return [
     {
       kind: 'file-anchor',
-      moduleName: moduleNameFromPath(filePath, moduleName),
+      moduleName,
+      ...(modulePath ? { modulePath } : {}),
       ownedFiles: [filePath],
       ref,
       role,
@@ -340,6 +362,10 @@ function inferProjectContextProjectType(input: ProjectContextPresenterInput): st
   );
 }
 
+function countRepoLanguageFiles(repo: RepoContext | undefined): number {
+  return (repo?.languages ?? []).reduce((sum, language) => sum + (language.fileCount ?? 0), 0);
+}
+
 function hasUsableSeedScope(seed: ProjectContextModuleSeed): boolean {
   return Boolean(seed.ownedFiles?.length || normalizeModulePath(seed.modulePath));
 }
@@ -367,11 +393,27 @@ function isPresent(value: string | undefined): value is string {
 }
 
 function normalizeModulePath(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed || trimmed === '.') {
+  return normalizeProjectContextPath(value);
+}
+
+function inferModulePathFromProjectContextRef(filePath: string): string | undefined {
+  const normalized = normalizeModulePath(filePath);
+  if (!normalized) {
     return undefined;
   }
-  return trimmed.replace(/\\/g, '/').replace(/\/$/, '');
+  const parts = normalized.split('/');
+  if (parts[0] === 'Packages' && parts.length >= 2) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+  if (normalized.endsWith('/Package.swift')) {
+    return parentPath(normalized);
+  }
+  return normalized.includes('.') ? parentPath(normalized) : normalized;
+}
+
+function parentPath(value: string): string | undefined {
+  const index = value.lastIndexOf('/');
+  return index > 0 ? value.slice(0, index) : undefined;
 }
 
 function moduleNameFromPath(pathValue: string, fallback: string): string {

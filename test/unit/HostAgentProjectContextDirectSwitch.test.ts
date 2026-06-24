@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   buildIDEAgentAnalysisPacketFromProjectContext,
   buildProjectContextMissionBriefing,
@@ -58,6 +58,72 @@ describe('Host Agent ProjectContext direct switch', () => {
     expect(JSON.stringify({ briefing, packet })).not.toMatch(/sourceGraph|panoramaResult/);
   });
 
+  it('feeds real Swift package source counts into bootstrap briefing targets', async () => {
+    const projectRoot = await createBiliDiliLikeSwiftProject();
+    const analysis = await buildHostAgentProjectContextAnalysis({
+      maxFileDetails: 2,
+      maxFiles: 4,
+      maxModuleDetails: 4,
+      maxModuleSeeds: 12,
+      projectRoot,
+      source: 'codex-host-bootstrap',
+    });
+    const dimensions = selectProjectContextDimensions(analysis.dimensions).slice(0, 1);
+
+    expect(analysis.fileCount).toBeGreaterThanOrEqual(7);
+    expect(analysis.moduleCount).toBeGreaterThanOrEqual(2);
+    expect(analysis.sourceFileFacts.map((file) => file.filePath)).toEqual(
+      expect.arrayContaining([
+        'Packages/AOXFoundationKit/Package.swift',
+        'Packages/AOXFoundationKit/Sources/AOXFoundationKit/FoundationClock.swift',
+        'Packages/AOXNetworkKit/Sources/AOXNetworkKit/NetworkClient.swift',
+      ])
+    );
+    expect(analysis.moduleSeeds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          moduleName: 'AOXFoundationKit',
+          modulePath: 'Packages/AOXFoundationKit',
+          ownedFiles: expect.arrayContaining([
+            'Packages/AOXFoundationKit/Package.swift',
+            'Packages/AOXFoundationKit/Sources/AOXFoundationKit/FoundationClock.swift',
+          ]),
+        }),
+        expect.objectContaining({
+          moduleName: 'AOXNetworkKit',
+          modulePath: 'Packages/AOXNetworkKit',
+          ownedFiles: expect.arrayContaining([
+            'Packages/AOXNetworkKit/Package.swift',
+            'Packages/AOXNetworkKit/Sources/AOXNetworkKit/NetworkClient.swift',
+          ]),
+        }),
+      ])
+    );
+
+    const briefing = buildProjectContextMissionBriefing({
+      activeDimensions: dimensions,
+      profile: 'cold-start-host-agent',
+      projectContext: analysis.presenterInput,
+      projectMeta: {
+        fileCount: analysis.fileCount,
+        moduleCount: analysis.moduleCount,
+      },
+      session: { toJSON: () => ({ id: 'session-bilidili-like' }) },
+    });
+    const targets = briefing.targets as Array<{ fileCount?: number; name?: string }>;
+
+    expect(briefing.projectMeta).toMatchObject({
+      fileCount: analysis.fileCount,
+      moduleCount: analysis.moduleCount,
+    });
+    expect(targets.find((target) => target.name === 'AOXFoundationKit')).toMatchObject({
+      fileCount: 3,
+    });
+    expect(targets.find((target) => target.name === 'AOXNetworkKit')).toMatchObject({
+      fileCount: 4,
+    });
+  });
+
   it('keeps Plugin cold-start and rescan workflows off old project-information carriers', async () => {
     const workflowText = await Promise.all([
       readWorkflow('cold-start.ts'),
@@ -111,6 +177,122 @@ async function createTinyTypeScriptProject(): Promise<string> {
     ].join('\n')
   );
   return root;
+}
+
+async function createBiliDiliLikeSwiftProject(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'alembic-project-context-bilidili-'));
+  tempRoots.push(root);
+  await writeFixtureFile(
+    root,
+    'Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(',
+      '  name: "BiliDiliFixture",',
+      '  products: [.library(name: "BiliDiliFixture", targets: ["AOXFoundationKit", "AOXNetworkKit"])],',
+      '  targets: [',
+      '    .target(name: "AOXFoundationKit", path: "Packages/AOXFoundationKit/Sources/AOXFoundationKit"),',
+      '    .target(name: "AOXNetworkKit", dependencies: ["AOXFoundationKit"], path: "Packages/AOXNetworkKit/Sources/AOXNetworkKit")',
+      '  ]',
+      ')',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Packages/AOXFoundationKit/Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(',
+      '  name: "AOXFoundationKit",',
+      '  products: [.library(name: "AOXFoundationKit", targets: ["AOXFoundationKit"])],',
+      '  targets: [.target(name: "AOXFoundationKit", path: "Sources/AOXFoundationKit")]',
+      ')',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Packages/AOXFoundationKit/Sources/AOXFoundationKit/FoundationClock.swift',
+    [
+      'import Foundation',
+      'public struct FoundationClock {',
+      '  public init() {}',
+      '  public func now() -> Date { Date() }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Packages/AOXFoundationKit/Sources/AOXFoundationKit/FoundationLogger.swift',
+    [
+      'import Foundation',
+      'public enum FoundationLogger {',
+      '  public static func info(_ message: String) { print(message) }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Packages/AOXNetworkKit/Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(',
+      '  name: "AOXNetworkKit",',
+      '  products: [.library(name: "AOXNetworkKit", targets: ["AOXNetworkKit"])],',
+      '  dependencies: [.package(path: "../AOXFoundationKit")],',
+      '  targets: [.target(name: "AOXNetworkKit", dependencies: ["AOXFoundationKit"], path: "Sources/AOXNetworkKit")]',
+      ')',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Packages/AOXNetworkKit/Sources/AOXNetworkKit/NetworkClient.swift',
+    [
+      'import Foundation',
+      'import AOXFoundationKit',
+      'public final class NetworkClient {',
+      '  public init(clock: FoundationClock = FoundationClock()) {}',
+      '  public func fetch() async throws -> Data { Data() }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Packages/AOXNetworkKit/Sources/AOXNetworkKit/Endpoint.swift',
+    [
+      'import Foundation',
+      'public struct Endpoint {',
+      '  public let path: String',
+      '}',
+      '',
+    ].join('\n')
+  );
+  await writeFixtureFile(
+    root,
+    'Packages/AOXNetworkKit/Sources/AOXNetworkKit/NetworkError.swift',
+    [
+      'import Foundation',
+      'public enum NetworkError: Error {',
+      '  case invalidResponse',
+      '}',
+      '',
+    ].join('\n')
+  );
+  return root;
+}
+
+async function writeFixtureFile(root: string, relativePath: string, content: string): Promise<void> {
+  const filePath = join(root, relativePath);
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, content);
 }
 
 function readWorkflow(fileName: string): Promise<string> {

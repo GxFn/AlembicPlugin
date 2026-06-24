@@ -285,6 +285,10 @@ async function buildColdStartMissionBriefing(
   const briefing = buildProjectContextMissionBriefing({
     activeDimensions: input.briefingDimensions,
     projectContext: input.projectContextAnalysis.presenterInput,
+    projectMeta: {
+      fileCount: input.projectContextAnalysis.fileCount,
+      moduleCount: input.projectContextAnalysis.moduleCount,
+    },
     profile: 'cold-start-host-agent',
     session,
   });

@@ -241,7 +241,23 @@ describe('stateless planSelection generation gate', () => {
       'architecture',
       'swift-objc-idiom',
     ]);
-    for (const dimension of dimensionTasks) {
+    const inlineGuidanceDimensions = asArray(
+      asRecord(data.currentDimensionGuidance).dimensions
+    ).map(asRecord);
+    expect(inlineGuidanceDimensions.map((dimension) => String(dimension.dimensionId))).toEqual([
+      'architecture',
+      'swift-objc-idiom',
+    ]);
+    expect(
+      inlineGuidanceDimensions.some(
+        (dimension) => asArray(asRecord(dimension.analysisGuide).steps).length > 0
+      )
+    ).toBe(true);
+    const fullBriefing = readFullBriefingFromResponse(response);
+    const fullDimensionTasks = asArray(fullBriefing.dimensions).map(asRecord);
+    for (const dimension of fullDimensionTasks.filter((dimension) =>
+      ['architecture', 'swift-objc-idiom'].includes(String(dimension.id))
+    )) {
       expect(asArray(asRecord(dimension.analysisGuide).steps).length).toBeGreaterThan(0);
     }
     expect(asRecord(data.planGate)).toMatchObject({
@@ -309,6 +325,15 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function readFullBriefingFromResponse(response: Record<string, unknown>): Record<string, unknown> {
+  const data = asRecord(response.data);
+  const meta = asRecord(data.meta);
+  const fullBriefingRef = asRecord(meta.fullBriefingRef);
+  const fullBriefingPath =
+    typeof fullBriefingRef.path === 'string' ? fullBriefingRef.path : undefined;
+  return fullBriefingPath ? JSON.parse(fs.readFileSync(fullBriefingPath, 'utf8')) : data;
 }
 
 function coldStartSelection() {
