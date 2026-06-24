@@ -200,12 +200,35 @@ describe('MCP clean output contract foundation', () => {
       'alembic_submit_knowledge',
       {
         success: false,
-        errorCode: 'SOURCE_REF_LINE_MISSING',
-        message: 'Source ref must include a line or line range.',
+        errorCode: 'SNIPPET_MISMATCH',
+        message:
+          'Recipe evidence gate failed (1 violation): #0 SNIPPET_MISMATCH → Cite the exact source line range that contains the submitted code snippet.',
         data: {
           evidenceGate: {
             status: 'rebuild-required',
+            violationCount: 1,
+            violations: [
+              {
+                code: 'SNIPPET_MISMATCH',
+                itemIndex: 0,
+                nextAction:
+                  'Cite the exact source line range that contains the submitted code snippet.',
+              },
+            ],
           },
+          problem: {
+            status: 'rebuild-required',
+            nextAction:
+              'Cite the exact source line range that contains the submitted code snippet.',
+          },
+          rejectedItems: [
+            {
+              code: 'SNIPPET_MISMATCH',
+              index: 0,
+              nextAction:
+                'Cite the exact source line range that contains the submitted code snippet.',
+            },
+          ],
         },
       },
       {
@@ -217,7 +240,7 @@ describe('MCP clean output contract foundation', () => {
     expect(serialized.structuredContent).toMatchObject({
       ok: false,
       error: {
-        code: 'SOURCE_REF_LINE_MISSING',
+        code: 'SNIPPET_MISMATCH',
         failureId: 'core.failure.invalid-input',
         mcpStatus: 'invalid-input',
         problemClass: 'request-problem',
@@ -225,6 +248,12 @@ describe('MCP clean output contract foundation', () => {
       },
       toolName: 'alembic_submit_knowledge',
     });
+    expect(serialized.content).toEqual([
+      {
+        type: 'text',
+        text: 'Recipe evidence gate failed (1 violation): #0 SNIPPET_MISMATCH → Cite the exact source line range that contains the submitted code snippet.',
+      },
+    ]);
   });
 
   test('classifies durable bootstrap lease conflicts as public state conflicts', () => {

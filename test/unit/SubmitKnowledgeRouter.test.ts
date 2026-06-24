@@ -302,31 +302,66 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
   });
 
-  it('blocks bootstrap Recipe submissions without source evidence before Core persistence', async () => {
+  it('blocks bootstrap Recipe submissions with actionable snippet mismatch details', async () => {
     const projectRoot = makeProjectRoot();
     gatewayState.projectRoot = projectRoot;
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, 'src', 'source.ts'),
+      ['export function realSource() {', '  return "source-bound";', '}', ''].join('\n')
+    );
     const result = await routeSubmitKnowledgeTool(makeContext({ projectRoot }), {
       dimensionId: 'architecture',
       sessionId: 'session-1',
       skipConsolidation: true,
       items: [
         {
-          title: 'Missing Evidence',
+          title: 'Mismatched Evidence',
           kind: 'fact',
-          content: { markdown: 'This candidate has no source refs.' },
+          sourceRefs: ['src/source.ts:1-3'],
+          coreCode: 'export function realSource() {\n  return "polished";\n}',
+          content: {
+            markdown:
+              'This candidate cites src/source.ts:1-3 but the submitted snippet was rewritten instead of copied from that exact source range.',
+          },
+          reasoning: {
+            sources: ['src/source.ts:1-3'],
+          },
         },
       ],
     });
 
     expect(result.success).toBe(false);
-    expect(result.errorCode).toBe('SOURCE_REFS_MISSING');
+    expect(result.errorCode).toBe('SNIPPET_MISMATCH');
+    expect(result.message).toContain('Recipe evidence gate failed (1 violation)');
+    expect(result.message).toContain('#0 SNIPPET_MISMATCH');
+    expect(result.message).toContain(
+      'Cite the exact source line range that contains the submitted code snippet.'
+    );
     expect(result.data).toMatchObject({
       problem: {
         status: 'rebuild-required',
+        nextAction: 'Cite the exact source line range that contains the submitted code snippet.',
       },
       evidenceGate: {
         status: 'rebuild-required',
+        violationCount: 1,
+        violations: [
+          {
+            code: 'SNIPPET_MISMATCH',
+            itemIndex: 0,
+            nextAction:
+              'Cite the exact source line range that contains the submitted code snippet.',
+          },
+        ],
       },
+      rejectedItems: [
+        {
+          code: 'SNIPPET_MISMATCH',
+          index: 0,
+          nextAction: 'Cite the exact source line range that contains the submitted code snippet.',
+        },
+      ],
     });
     expect(gatewayState.createCalls).toHaveLength(0);
   });

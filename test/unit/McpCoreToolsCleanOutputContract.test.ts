@@ -185,6 +185,80 @@ describe('MCP core tools clean output contract', () => {
     }
   });
 
+  test('preserves actionable submit_knowledge evidence gate refusal details', () => {
+    const nextAction =
+      'Cite the exact source line range that contains the submitted code snippet.';
+    const summary = `Recipe evidence gate failed (1 violation): #0 SNIPPET_MISMATCH → ${nextAction}`;
+    const result = serializeMcpToolResult(
+      'alembic_submit_knowledge',
+      {
+        success: false,
+        errorCode: 'SNIPPET_MISMATCH',
+        message: summary,
+        data: {
+          evidenceGate: {
+            status: 'rebuild-required',
+            violationCount: 1,
+            violations: [
+              {
+                code: 'SNIPPET_MISMATCH',
+                itemIndex: 0,
+                nextAction,
+              },
+            ],
+          },
+          problem: {
+            status: 'rebuild-required',
+            nextAction,
+          },
+          rejectedItems: [
+            {
+              code: 'SNIPPET_MISMATCH',
+              index: 0,
+              nextAction,
+            },
+          ],
+        },
+      },
+      {
+        isErrorResult: () => true,
+      }
+    );
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: 'text', text: summary }]);
+    expect(structured).toMatchObject({
+      ok: false,
+      error: { code: 'SNIPPET_MISMATCH' },
+      evidenceGate: {
+        status: 'rebuild-required',
+        violationCount: 1,
+        violations: [
+          {
+            code: 'SNIPPET_MISMATCH',
+            itemIndex: 0,
+            nextAction,
+          },
+        ],
+      },
+      problem: {
+        status: 'rebuild-required',
+        nextAction,
+      },
+      rejectedItems: [
+        {
+          code: 'SNIPPET_MISMATCH',
+          index: 0,
+          nextAction,
+        },
+      ],
+      toolName: 'alembic_submit_knowledge',
+    });
+    expect(topLevelFieldsAreWhitelisted('alembic_submit_knowledge', structured)).toEqual([]);
+    expect(findForbiddenCoreOutputField(structured)).toBeNull();
+  });
+
   test('rejects diagnostic/runtime/source/search metadata bags in ordinary business output', () => {
     const parsed = CORE_TOOL_OUTPUT_SCHEMAS.alembic_call_context.safeParse({
       ok: true,

@@ -16,6 +16,7 @@ import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
 import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
+  type RecipeEvidenceGateResult,
   buildEvidenceGateFailureData,
   primaryEvidenceGateCode,
   resolveBootstrapSession,
@@ -682,8 +683,7 @@ function buildSubmitKnowledgeEvidenceGateResponse({
   return envelope({
     success: false,
     errorCode: primaryEvidenceGateCode(evidenceGate),
-    message:
-      'Recipe evidence gate failed before persistence. Rebuild the rejected candidates with concrete source evidence.',
+    message: buildSubmitKnowledgeEvidenceGateSummary(evidenceGate),
     data: {
       ...buildEvidenceGateFailureData(evidenceGate),
       problem: {
@@ -698,6 +698,21 @@ function buildSubmitKnowledgeEvidenceGateResponse({
     },
     meta: { tool: 'alembic_submit_knowledge' },
   });
+}
+
+function buildSubmitKnowledgeEvidenceGateSummary(evidenceGate: RecipeEvidenceGateResult): string {
+  const violationCount = evidenceGate.violations.length;
+  const violationWord = violationCount === 1 ? 'violation' : 'violations';
+  const actionableItems = evidenceGate.violations
+    .map((violation) => {
+      const itemIndex =
+        typeof violation.itemIndex === 'number' ? `#${violation.itemIndex}` : '#-';
+      return `${itemIndex} ${violation.code} \u2192 ${violation.nextAction}`;
+    })
+    .join(' | ');
+  return actionableItems
+    ? `Recipe evidence gate failed (${violationCount} ${violationWord}): ${actionableItems}`
+    : 'Recipe evidence gate failed (0 violations): rebuild the candidates with concrete source evidence.';
 }
 
 function normalizeBootstrapSessionRef(ref: string): string {
