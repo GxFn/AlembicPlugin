@@ -37,27 +37,7 @@ const BOOTSTRAP_AND_RECOVERY_TOOLS = [
 interface DimensionSummary {
   id: string;
   title: string;
-}
-
-interface DomainPlaybook {
-  domainId: string;
-  title: string;
-  goal: string;
-  keywordHints: string[];
-  requiredEvidence: string[];
-  toolSequence: string[];
-  toolToInformation: Array<{ information: string; tool: string }>;
-}
-
-interface DomainQueueEntry {
-  dimensionRefs: string[];
-  domainId: string;
-  nextActionTool: string;
-  reason: string;
-  requiredEvidence: string[];
-  status: string;
-  title: string;
-  toolSequence: string[];
+  tier: number | null;
 }
 
 interface LanguageOverlaySummary {
@@ -71,14 +51,13 @@ interface LanguageOverlaySummary {
 
 export interface OnboardingContract {
   bootstrapState: Record<string, unknown>;
-  currentDomainNextActions: Array<Record<string, unknown>>;
-  currentDomainSop: Record<string, unknown>;
-  domainQueue: DomainQueueEntry[];
+  currentDimensionGuidance: Record<string, unknown>;
+  currentDimensionNextActions: Array<Record<string, unknown>>;
   gates: Record<string, unknown>;
+  hostAgentContract: Record<string, unknown>;
   initialToolBriefing: Record<string, unknown>;
   progress: Record<string, unknown>;
   repairState: Record<string, unknown>;
-  sopPack: Record<string, unknown>;
   toolCapabilities: Record<string, unknown>;
 }
 
@@ -99,190 +78,6 @@ export interface BuildOnboardingContractInput {
   source?: 'bootstrap' | 'status';
 }
 
-const DOMAIN_PLAYBOOKS: DomainPlaybook[] = [
-  {
-    domainId: 'D1-runtime-entrypoints',
-    title: 'Runtime And Entrypoints',
-    goal: 'Identify real commands, package exports, runtime entrypoints, and host-owned execution paths before describing behavior.',
-    keywordHints: ['runtime', 'entry', 'cli', 'daemon', 'mcp', 'bootstrap', 'server'],
-    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_search'],
-    toolToInformation: [
-      {
-        tool: 'alembic_recipe_map',
-        information:
-          'ProjectContext orientation, key modules, entrypoints, detail refs, and partial notes',
-      },
-      {
-        tool: 'alembic_graph',
-        information: 'ProjectContext-backed entrypoint, package, file, symbol, and relation hints',
-      },
-      {
-        tool: 'alembic_search',
-        information: 'prior Recipes and decisions relevant to runtime entrypoint conventions',
-      },
-    ],
-    requiredEvidence: [
-      'entrypoint file path and exported symbol',
-      'caller or command that reaches the entrypoint',
-      'validation command that exercises the runtime path',
-    ],
-  },
-  {
-    domainId: 'D2-source-structure-ownership',
-    title: 'Source Structure And Ownership',
-    goal: 'Map owned modules, boundaries, and cross-package imports without moving responsibility between repositories.',
-    keywordHints: ['architecture', 'module', 'package', 'ownership', 'boundary', 'dependency'],
-    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_search'],
-    toolToInformation: [
-      {
-        tool: 'alembic_recipe_map',
-        information: 'directory and module inventory for the requested scope',
-      },
-      {
-        tool: 'alembic_graph',
-        information: 'bounded dependency, import/export, entrypoint, and ownership relations',
-      },
-    ],
-    requiredEvidence: [
-      'module owner and repository boundary',
-      'import path or package export that proves the boundary',
-      'consumer that would break if ownership is changed',
-    ],
-  },
-  {
-    domainId: 'D3-state-persistence',
-    title: 'State And Persistence',
-    goal: 'Trace data roots, persisted files, sessions, job state, and recovery markers before writing lifecycle guidance.',
-    keywordHints: ['state', 'persistence', 'session', 'job', 'database', 'storage'],
-    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_search'],
-    toolToInformation: [
-      {
-        tool: 'alembic_graph',
-        information:
-          'ProjectContext file/module/function relation hints for state readers and writers',
-      },
-      {
-        tool: 'alembic_search',
-        information: 'existing project rules or decisions about persisted state',
-      },
-    ],
-    requiredEvidence: [
-      'state file, database table, or session field name',
-      'writer and reader call chain',
-      'recovery or cleanup behavior for stale state',
-    ],
-  },
-  {
-    domainId: 'D4-tool-contracts-output',
-    title: 'Tool Contracts And Outputs',
-    goal: 'Confirm MCP schemas, clean output fields, and host-facing tool semantics before changing tool guidance.',
-    keywordHints: ['tool', 'mcp', 'schema', 'output', 'contract', 'structuredcontent'],
-    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_code_guard'],
-    toolToInformation: [
-      {
-        tool: 'alembic_recipe_map',
-        information: 'tool declaration, handler-owner, and output-contract orientation',
-      },
-      {
-        tool: 'alembic_graph',
-        information: 'bounded schema/handler/projector relation detail',
-      },
-    ],
-    requiredEvidence: [
-      'tool name, input schema, and output field contract',
-      'handler owner and runtime route',
-      'test or probe that reads the structured output',
-    ],
-  },
-  {
-    domainId: 'D5-validation-safety',
-    title: 'Validation And Safety',
-    goal: 'Choose checks that match the actual behavior changed, then separate ProjectContext orientation from acceptance.',
-    keywordHints: ['test', 'validation', 'guard', 'safety', 'lint', 'check'],
-    toolSequence: ['alembic_recipe_map', 'alembic_graph', 'alembic_code_guard'],
-    toolToInformation: [
-      {
-        tool: 'alembic_graph',
-        information: 'candidate affected modules, entrypoints, and relation hints',
-      },
-      {
-        tool: 'alembic_code_guard',
-        information: 'Recipe/Guard review after meaningful edits with explicit files',
-      },
-    ],
-    requiredEvidence: [
-      'command output or host probe result',
-      'why the validation matches the changed behavior',
-      'explicit residual risk when a recommended check cannot run',
-    ],
-  },
-  {
-    domainId: 'D6-failure-recovery',
-    title: 'Failure And Recovery',
-    goal: 'Describe degraded states, repair triggers, and rebuild requirements without hiding transport or ProjectContext partial-state failures.',
-    keywordHints: ['failure', 'error', 'recovery', 'diagnostics', 'degraded', 'stale'],
-    toolSequence: ['alembic_status', 'alembic_recipe_map', 'alembic_graph'],
-    toolToInformation: [
-      {
-        tool: 'alembic_status',
-        information: 'runtime, initialization, knowledge, and repair state',
-      },
-      {
-        tool: 'alembic_recipe_map',
-        information: 'ProjectContext freshness, partial notes, and current project orientation',
-      },
-    ],
-    requiredEvidence: [
-      'failure state or error code',
-      'first repair action and owner',
-      'stop condition that prevents false acceptance',
-    ],
-  },
-  {
-    domainId: 'D7-project-conventions',
-    title: 'Project Conventions',
-    goal: 'Turn repeated, source-backed project rules into Recipes only after evidence and boundary checks are present.',
-    keywordHints: ['convention', 'standard', 'style', 'recipe', 'rule', 'pattern'],
-    toolSequence: [
-      'alembic_recipe_map',
-      'alembic_graph',
-      'alembic_search',
-      'alembic_prime',
-      'alembic_submit_knowledge',
-      'alembic_dimension_complete',
-    ],
-    toolToInformation: [
-      {
-        tool: 'alembic_recipe_map',
-        information:
-          'ProjectContext region, Recipe mounts, module scope, and partial/freshness notes before authoring',
-      },
-      {
-        tool: 'alembic_graph',
-        information:
-          'ProjectContext relation/detail refs for ownership, dependency, caller/callee, and impact claims',
-      },
-      {
-        tool: 'alembic_search',
-        information: 'existing Recipes and prior decisions relevant to the candidate',
-      },
-      {
-        tool: 'alembic_prime',
-        information: 'task-semantic Recipe context before adding candidates',
-      },
-      {
-        tool: 'alembic_submit_knowledge',
-        information: 'submit only source-grounded, reusable Recipe candidates',
-      },
-    ],
-    requiredEvidence: [
-      'specific source facts or commands behind the convention',
-      'when and when-not guidance',
-      'validation and edge-case notes',
-    ],
-  },
-];
-
 export function buildColdStartOnboardingContract(
   input: BuildOnboardingContractInput
 ): OnboardingContract {
@@ -297,73 +92,65 @@ export function buildStatusOnboardingContract(
 
 function buildOnboardingContract(input: BuildOnboardingContractInput): OnboardingContract {
   const dimensions = summarizeDimensions(input.dimensions);
-  const domainQueue = buildDomainQueue(dimensions);
-  const currentDomain = domainQueue[0] || buildDomainQueue([])[0];
-  const currentPlaybook = DOMAIN_PLAYBOOKS.find(
-    (playbook) => playbook.domainId === currentDomain?.domainId
-  );
   const toolSurface = listPluginToolSurfaceCatalog();
   const languageProfile = buildLanguageProfile(input);
-  const currentDomainSop = buildCurrentDomainSop(currentPlaybook || DOMAIN_PLAYBOOKS[0], {
-    languageProfile,
-    projectRoot: input.projectRoot,
-    source: input.source || 'status',
-  });
   const toolCapabilities = buildToolCapabilities(toolSurface);
   const bootstrapState = buildBootstrapState(input, {
-    currentDomainId: currentDomain?.domainId || DOMAIN_PLAYBOOKS[0].domainId,
     dimensions,
   });
-  const progress = buildProgress(domainQueue, dimensions);
+  const progress = buildProgress(dimensions);
   const repairState = buildRepairState(input, bootstrapState);
-  const currentDomainNextActions = buildCurrentDomainNextActions(currentDomainSop);
   const gates = buildGates();
+  const hostAgentContract = buildHostAgentContract(input, { languageProfile, toolSurface });
+  const currentDimensionGuidance = buildPlanNeutralDimensionGuidance(dimensions);
+  const currentDimensionNextActions = buildCurrentDimensionNextActions(input);
 
   return {
     bootstrapState,
-    currentDomainNextActions,
-    currentDomainSop,
-    domainQueue,
+    currentDimensionGuidance,
+    currentDimensionNextActions,
     gates,
+    hostAgentContract,
     initialToolBriefing: {
       contractVersion: ONBOARDING_CONTRACT_VERSION,
       defaultOrder: [
         'alembic_status',
         'alembic_recipe_map',
-        currentPlaybook?.toolSequence[1] || 'alembic_graph',
+        'alembic_graph',
         'alembic_search',
         'alembic_prime',
         'alembic_submit_knowledge',
         'alembic_dimension_complete',
       ],
       rule: 'Use ProjectContext matrix/graph for compact orientation; fall back to raw file reads and repository validation when project context is partial or ambiguous.',
-      agentDecisionChecklist: buildAgentDecisionChecklist(currentDomainSop),
+      agentDecisionChecklist: buildAgentDecisionChecklist(),
       blockedConclusionsField: 'repairState.blockedConclusions',
       evidenceFields: [
         'bootstrapState.projectIdentity',
         'bootstrapState.projectContext',
         'toolCapabilities',
-        'currentDomainSop.requiredEvidence',
-        'currentDomainSop.recipeGuidanceFloor',
-        'currentDomainSop.projectContextCreationGuide',
+        'currentDimensionGuidance.dimensions[].analysisGuide',
+        'currentDimensionGuidance.dimensions[].submissionSpec',
+        'hostAgentContract.recipeGuidanceFloor',
+        'hostAgentContract.submitKnowledgeContract',
       ],
       projectContextCreationGuide: buildProjectContextCreationGuide({
         projectRoot: input.projectRoot,
         stage: input.source === 'status' ? 'submit-knowledge' : 'bootstrap',
       }),
-      sopField: 'currentDomainSop',
+      guidanceField: 'currentDimensionGuidance',
+      hostAgentContractField: 'hostAgentContract',
       toolCapabilityField: 'toolCapabilities',
     },
     progress,
     repairState,
-    sopPack: buildSopPack(input, { languageProfile, toolSurface }),
     toolCapabilities,
   };
 }
 
 function buildBootstrapState(
   input: BuildOnboardingContractInput,
-  context: { currentDomainId: string; dimensions: DimensionSummary[] }
+  context: { dimensions: DimensionSummary[] }
 ): Record<string, unknown> {
   const knowledge = input.knowledge;
   const status = resolveBootstrapStatus(input);
@@ -395,9 +182,9 @@ function buildBootstrapState(
     singleWriterLease: buildSingleWriterLeaseVisibility(input),
     session: sessionSummary,
     progress: {
-      currentDomainId: context.currentDomainId,
+      currentDimensionIds: context.dimensions.map((dimension) => dimension.id),
       dimensionCount: context.dimensions.length,
-      stagedDomainCount: DOMAIN_PLAYBOOKS.length,
+      stagedBy: 'plan-selection-dimensions',
     },
   };
 }
@@ -524,152 +311,44 @@ function summarizeToolGroup(
     }));
 }
 
-function buildDomainQueue(dimensions: DimensionSummary[]): DomainQueueEntry[] {
-  return DOMAIN_PLAYBOOKS.map((playbook, index) => {
-    const dimensionRefs = dimensions
-      .filter((dimension) => dimensionMatchesPlaybook(dimension, playbook))
-      .map((dimension) => dimension.id);
-    return {
-      domainId: playbook.domainId,
-      title: playbook.title,
-      status: index === 0 ? 'current' : 'pending',
-      reason:
-        index === 0
-          ? 'Start with runtime entrypoints so later Recipe claims have a real execution path.'
-          : 'Pending until the previous domain has source-backed Recipe candidates or a documented no-op.',
-      dimensionRefs,
-      nextActionTool: playbook.toolSequence[0],
-      requiredEvidence: playbook.requiredEvidence,
-      toolSequence: playbook.toolSequence,
-    };
-  });
-}
-
-function dimensionMatchesPlaybook(dimension: DimensionSummary, playbook: DomainPlaybook): boolean {
-  const text = `${dimension.id} ${dimension.title}`.toLowerCase();
-  return playbook.keywordHints.some((hint) => text.includes(hint));
-}
-
-function buildCurrentDomainSop(
-  playbook: DomainPlaybook,
-  context: {
-    languageProfile: Record<string, unknown>;
-    projectRoot: string;
-    source: 'bootstrap' | 'status';
-  }
-): Record<string, unknown> {
+function buildPlanNeutralDimensionGuidance(dimensions: DimensionSummary[]): Record<string, unknown> {
   return {
     contractVersion: ONBOARDING_CONTRACT_VERSION,
-    domainId: playbook.domainId,
-    title: playbook.title,
-    goal: playbook.goal,
-    stage: 'domain-discovery',
-    toolSequence: playbook.toolSequence,
-    toolToInformation: playbook.toolToInformation,
-    languageProfile: context.languageProfile,
-    sectionBoundaries: {
-      maxCurrentDomainSteps: 8,
-      maxOverlayCount: 3,
-      renderedFrom: 'domain-sop-baseline-2026-06-12 plus current bootstrap state',
-      runtimeLlmGeneration: false,
-    },
-    recipeGuidanceFloor: buildRecipeGuidanceFloor(),
-    projectContextCreationGuide: buildProjectContextCreationGuide({
-      projectRoot: context.projectRoot,
-      stage: context.source === 'status' ? 'submit-knowledge' : 'bootstrap',
-    }),
-    candidateVariety: {
-      minimumPerDimension: 3,
-      targetPerDimension: 5,
-      requiredKinds: ['fact', 'rule', 'pattern'],
-      noPaddingRule:
-        'Submit fewer only when evidence is genuinely absent; never pad weak candidates to satisfy numeric targets.',
-    },
-    recipeOntologyReminders: [
-      'Recipe candidates must describe reusable project guidance, not raw symbol dumps.',
-      'Submit-ready candidates must already satisfy the submit_knowledge schema floor: content.markdown >= 200 chars, standard category, concrete sourceRefs, reasoning.sources, and a 3-8 line copyable coreCode when code behavior is claimed.',
-      'Relationship claims require ProjectContext detail refs or raw source evidence, with uncertainty named when context is partial.',
-      'A good Recipe states when to use it, when not to use it, and which validation proves the behavior.',
+    source: 'plan-selection-dimensions',
+    currentTier: null,
+    dimensionIds: dimensions.map((dimension) => dimension.id),
+    dimensions: dimensions.map((dimension) => ({
+      dimensionId: dimension.id,
+      title: dimension.title,
+      tier: dimension.tier,
+      analysisGuide: null,
+      submissionSpec: null,
+    })),
+    note:
+      'Bootstrap replaces this status-level summary with executionPlan current-tier guidance from the Mission Briefing; no static task-decomposition playbook is used.',
+    requiredEvidenceFields: buildRequiredEvidenceFields(),
+    invalidConclusions: [
+      'do not infer current work from retired static task queues',
+      'do not submit Recipes without the current plan dimension analysisGuide/submissionSpec',
     ],
-    recipeCreationSop: [
-      'Check ProjectContext matrix/graph orientation first.',
-      'Collect exact source facts with file paths, symbols, and relationship evidence from ProjectContext detail refs or raw source reads.',
-      'Draft candidates against submitKnowledgeContract before calling alembic_submit_knowledge; do not rely on tool rejection to discover missing fields.',
-      'Compare with existing Recipes before submitting a new candidate.',
-      'Submit only project-specific, reusable guidance.',
-      'Complete the dimension only after candidates, no-op reasons, and validation notes are recorded.',
-    ],
-    requiredEvidence: playbook.requiredEvidence,
-    requiredEvidenceFields: [
-      'repo-relative file path',
-      'line citation',
-      'module attribution',
-      'sourceRefs',
-      'ProjectContext relation/detail refs when making caller/callee/impact claims',
-      'validation command or explicit no-op reason',
-    ],
-    rejectionExamples: buildDomainRejectionExamples(playbook.domainId),
-    qualityGates: [
-      'No generic advice without project-specific source evidence.',
-      'No bare filename claims without symbol or snippet context.',
-      'No relationship claim without ProjectContext relation/detail refs or raw source fallback.',
-      'No acceptance from ProjectContext output alone; run matching repository validation.',
-    ],
-    repairRebuildRules: [
-      'If scope is wrong, stop and resolve the project root before using source facts.',
-      'If ProjectContext is partial or stale, use matrix/graph partial notes, fall back to raw file reads, and name the uncertainty.',
-      'If transport closes, repair MCP/runtime transport before claiming live Codex usability.',
-    ],
-    stopConditions: [
-      'wrong project root',
-      'partial ProjectContext used as final proof',
-      'missing validation for behavior-changing edits',
-      'Recipe candidate lacks source-backed reusable guidance',
-    ],
-    completionRules: [
-      'Every claim cites repo-relative file paths and line numbers or names a raw-read fallback.',
-      'Every relationship claim cites ProjectContext relation/detail refs or explicitly marks context uncertainty.',
-      'Every candidate includes content.markdown >= 200 chars, description <= 80 chars, a standard category, sourceRefs matching coreCode, and reasoning.sources before the first submit attempt.',
-      'Dimension completion records referencedFiles, 3-5 keyFindings, and analysisText >= 500 chars.',
-      'Cross-domain duplicates are rejected before submission.',
-    ],
-    nextActions: [
-      ...buildProjectContextCreationNextActions({
-        projectRoot: context.projectRoot,
-        stage: context.source === 'status' ? 'submit-knowledge' : 'bootstrap',
-      }).map((action) => ({
-        ...action,
-        label:
-          action.tool === 'alembic_submit_knowledge'
-            ? 'Submit source-grounded Recipe candidates'
-            : `ProjectContext evidence for ${playbook.title}`,
-      })),
-      {
-        label: 'Complete the staged domain only after evidence is recorded',
-        tool: 'alembic_dimension_complete',
-      },
-    ],
-    llmBoundary:
-      'The plugin returns deterministic SOP guidance; Codex may reason over it, but the runtime does not call a server-side LLM on this route.',
   };
 }
 
-function buildSopPack(
+function buildHostAgentContract(
   input: BuildOnboardingContractInput,
   context: { languageProfile: Record<string, unknown>; toolSurface: PluginToolSurfaceEntry[] }
 ): Record<string, unknown> {
   return {
     contractVersion: ONBOARDING_CONTRACT_VERSION,
-    source: 'wakeflow-ledger/domain-sop-baseline-2026-06-12',
+    source: 'host-agent-plan-neutral-quality-contract',
     scopeBrief: buildScopeBrief(input),
     toolCapabilityMatrix: buildToolCapabilityMatrix(context.toolSurface),
     stagedProtocol: [
-      'Read bootstrapState and confirm project identity, runtime route, ProjectContext readiness, and current domain.',
-      'Run the currentDomainSop tool sequence and keep source evidence tied to file paths or symbols.',
+      'Read bootstrapState and confirm project identity, runtime route, ProjectContext readiness, and current plan tier.',
+      'Use currentDimensionGuidance for the executionPlan tier and keep source evidence tied to file paths or symbols.',
       'Before submit, draft against submitKnowledgeContract so the first alembic_submit_knowledge call is already schema-complete and source-grounded.',
-      'Complete the domain, then move to the next pending domain in domainQueue.',
+      'Complete only the current plan dimensions after session-bound Recipe ids and analysis evidence are recorded.',
     ],
-    domainPlaybooks: buildDomainPlaybookContracts(),
     languageOverlayContract: context.languageProfile,
     recipeGuidanceFloor: buildRecipeGuidanceFloor(),
     projectContextCreationGuide: buildProjectContextCreationGuide({
@@ -681,17 +360,30 @@ function buildSopPack(
     submitKnowledgeContract: buildSubmitKnowledgeContract(),
     dimensionCompletionContract: buildDimensionCompletionContract(),
     knowledgeResetContract: buildKnowledgeResetContract(),
+    recipeCreationSop: [
+      'Check ProjectContext matrix/graph orientation first.',
+      'Collect exact source facts with file paths, symbols, and relationship evidence from ProjectContext detail refs or raw source reads.',
+      'Draft candidates against submitKnowledgeContract before calling alembic_submit_knowledge; do not rely on tool rejection to discover missing fields.',
+      'Compare with existing Recipes before submitting a new candidate.',
+      'Submit only project-specific, reusable guidance.',
+      'Complete the dimension only after candidates, no-op reasons, and validation notes are recorded.',
+    ],
+    requiredEvidenceFields: buildRequiredEvidenceFields(),
+    qualityGates: [
+      'No generic advice without project-specific source evidence.',
+      'No bare filename claims without symbol or snippet context.',
+      'No relationship claim without ProjectContext relation/detail refs or raw source fallback.',
+      'No acceptance from ProjectContext output alone; run matching repository validation.',
+    ],
     repairPrompts: [
       'If ProjectContext is stale or partial, use raw file reads and state the uncertainty.',
       'If runtime transport closes, repair MCP/plugin transport before using live-output claims.',
       'If scope differs from the host project, stop and resolve project identity.',
     ],
-    nextDomainPrompt:
-      'After the current domain passes dimension completion, read domainQueue for the next pending domain and repeat the same status, evidence, submit, and complete loop; skip only after controller/user decision records the block.',
     resumePrompt: {
       bootstrapSessionRefField: 'bootstrapState.session.id',
       resumeTools: ['alembic_status', 'alembic_bootstrap'],
-      rule: 'After MCP process restart, read status, compare project identity, then resume the current domain from progress.currentDomainId instead of starting a hidden second bootstrap writer.',
+      rule: 'After MCP process restart, read status, compare project identity, then resume from executionPlan/currentDimensionGuidance instead of starting a hidden second bootstrap writer.',
     },
     stopConditions: [
       'project root or data root mismatch',
@@ -702,37 +394,25 @@ function buildSopPack(
       'runtime transport lacks real MCP readback',
     ],
     renderingBudget: {
-      currentDomainSop: 'compact current domain plus selected language overlays only',
-      sopPack: 'sectioned machine-readable fields; no giant free-form briefing',
-      domainPlaybooks: 'stable seven-domain summaries with per-domain detail rendered on demand',
+      currentDimensionGuidance:
+        'executionPlan current tier plus matching dimensions[].analysisGuide/submissionSpec only',
+      hostAgentContract:
+        'plan-neutral quality contract; no retired static playbook or duplicate task decomposition',
     },
     llmParticipationBoundary:
       'This SOP pack is deterministic plugin output. Codex is responsible for judgment; plugin runtime does not perform provider-backed Recipe writing on the default route.',
   };
 }
 
-function buildDomainPlaybookContracts(): Array<Record<string, unknown>> {
-  return DOMAIN_PLAYBOOKS.map((playbook) => ({
-    domainId: playbook.domainId,
-    title: playbook.title,
-    goal: playbook.goal,
-    candidateVariety: {
-      minimumPerDimension: 3,
-      targetPerDimension: 5,
-      requiredKinds: ['fact', 'rule', 'pattern'],
-    },
-    requiredEvidenceFields: [
-      'sourceRefs',
-      'repo-relative file path',
-      'line citation',
-      'module attribution',
-      'validation or no-op reason',
-    ],
-    requiredEvidence: playbook.requiredEvidence,
-    rejectionExamples: buildDomainRejectionExamples(playbook.domainId),
-    completionRules: buildDomainCompletionRules(playbook.domainId),
-    toolSequence: playbook.toolSequence,
-  }));
+function buildRequiredEvidenceFields(): string[] {
+  return [
+    'repo-relative file path',
+    'line citation',
+    'module attribution',
+    'sourceRefs',
+    'ProjectContext relation/detail refs when making caller/callee/impact claims',
+    'validation command or explicit no-op reason',
+  ];
 }
 
 function buildRecipeOntologyContract(): Record<string, unknown> {
@@ -767,7 +447,7 @@ function buildRecipeAuthoringRubric(): Record<string, unknown> {
     failureAndEdgeCases:
       'Failure modes, degraded states, and recovery paths are part of the candidate, not optional prose.',
     dimensionCoverage:
-      'A dimension is complete only after strong candidates or explicit no-op reasons cover the staged domain.',
+      'A dimension is complete only after strong candidates or explicit no-op reasons cover the staged plan dimension.',
     duplicateAndShallowRejection:
       'Duplicate titles, shallow restatements, and candidates without project-specific evidence are rejected.',
   };
@@ -868,8 +548,8 @@ function buildDimensionCompletionContract(): Record<string, unknown> {
       'Use sessionId: bootstrapState.session.id. Do not send bootstrapSessionRef to alembic_dimension_complete; bootstrapSessionRef is accepted by alembic_submit_knowledge only.',
     requiredBeforeComplete: [
       'session-bound Recipe ids returned by alembic_submit_knowledge',
-      'current domain evidence summary tied to submitted sourceRefs',
-      'residual risks and next domain handoff notes',
+      'current dimension evidence summary tied to submitted sourceRefs',
+      'residual risks and next dimension handoff notes',
     ],
     requiredFields: [
       'sessionId',
@@ -917,7 +597,7 @@ function buildKnowledgeResetContract(): Record<string, unknown> {
       'host-agent bootstrap session state',
       'generated candidates for the active bootstrap session',
       'ProjectContext freshness and partial markers produced by the bootstrap route',
-      'staged domain progress for Codex-owned cold start',
+      'staged dimension progress for Codex-owned cold start',
     ],
     backupByDefault: true,
     backupRef:
@@ -928,7 +608,7 @@ function buildKnowledgeResetContract(): Record<string, unknown> {
       'Use workspace/dataRoot from scopeBrief; Ghost mode writes Alembic data outside the source tree and must not mutate user source files.',
     idempotentRerun:
       'Repeating bootstrap with the same project and no new evidence resumes or replaces only Codex-owned bootstrap artifacts.',
-    rule: 'Host-agent bootstrap resets and rebuilds deterministic analysis state, then waits for Codex to submit Recipes and complete staged domains.',
+    rule: 'Host-agent bootstrap resets and rebuilds deterministic analysis state, then waits for Codex to submit Recipes and complete staged dimensions.',
   };
 }
 
@@ -1069,7 +749,7 @@ function describeToolInvalidConclusions(toolName: string): string[] {
     return ['current behavior is proven without raw source reads or validation'];
   }
   if (toolName === 'alembic_submit_knowledge') {
-    return ['domain is complete'];
+    return ['dimension is complete'];
   }
   if (toolName === 'alembic_dimension_complete') {
     return ['whole project cold start is accepted by the controller'];
@@ -1085,7 +765,7 @@ function buildLanguageProfile(input: BuildOnboardingContractInput): Record<strin
     .filter((overlay) => overlay.id === 'generic-fallback')
     .map((overlay) => overlay.language);
   return {
-    source: 'domain-sop-baseline-2026-06-12',
+    source: 'host-agent-language-overlay-contract',
     selectedLanguages: languages,
     selectedOverlays: overlays,
     genericFallbackUsed: fallbackLanguages.length > 0,
@@ -1271,60 +951,7 @@ function buildRecipeGuidanceFloor(): Record<string, unknown> {
   };
 }
 
-function buildDomainRejectionExamples(domainId: string): string[] {
-  const shared = [
-    'generic advice that would fit any repository',
-    'claim without repo-relative file and line evidence',
-    'relationship claim without caller/callee/impact proof or raw-read fallback note',
-  ];
-  const specific: Record<string, string[]> = {
-    'D1-runtime-entrypoints': ['entrypoint list copied from README without the real start chain'],
-    'D2-source-structure-ownership': ['directory listing restated as architecture'],
-    'D3-state-persistence': ['persistence lifecycle without writer and reader evidence'],
-    'D4-tool-contracts-output': ['schema inventory without output projector or consumer evidence'],
-    'D5-validation-safety': ['test-pyramid theory without this repository command names'],
-    'D6-failure-recovery': ['recovery step that bypasses fail-closed project scope checks'],
-    'D7-project-conventions': [
-      'public style-guide content without project config or source precedent',
-    ],
-  };
-  return [...(specific[domainId] || []), ...shared];
-}
-
-function buildDomainCompletionRules(domainId: string): string[] {
-  const shared = [
-    'minimum 3 / target 5 candidates per active dimension unless no-op is justified',
-    'each candidate carries sourceRefs and module attribution',
-    'dimension_complete includes referencedFiles, keyFindings, analysisText, and residual risk',
-  ];
-  const specific: Record<string, string[]> = {
-    'D1-runtime-entrypoints': [
-      'externally reachable start paths are documented with invocation proof',
-    ],
-    'D2-source-structure-ownership': [
-      'top-level module ownership and dependency direction are evidenced',
-    ],
-    'D3-state-persistence': [
-      'durable state families have owner, writer, reader, and change procedure',
-    ],
-    'D4-tool-contracts-output': [
-      'public tool/route families have schema, projector, and change procedure',
-    ],
-    'D5-validation-safety': ['major change areas name exact checks and failure meaning'],
-    'D6-failure-recovery': ['stable failure states map to meaning, recovery, and evidence surface'],
-    'D7-project-conventions': [
-      'enforced and practiced conventions are separated with config or examples',
-    ],
-  };
-  return [...(specific[domainId] || []), ...shared];
-}
-
-function buildAgentDecisionChecklist(
-  currentDomainSop: Record<string, unknown>
-): Array<Record<string, unknown>> {
-  const toolSequence = Array.isArray(currentDomainSop.toolSequence)
-    ? currentDomainSop.toolSequence
-    : [];
+function buildAgentDecisionChecklist(): Array<Record<string, unknown>> {
   return [
     {
       when: 'bootstrapState.status is wrong_scope, degraded, or project_root_unresolved',
@@ -1342,8 +969,8 @@ function buildAgentDecisionChecklist(
       blockedConclusions: ['do not claim ProjectContext completeness'],
     },
     {
-      when: 'current domain needs source evidence',
-      nextTool: toolSequence[1] || 'alembic_graph',
+      when: 'current plan dimension needs source evidence',
+      nextTool: 'alembic_graph',
       blockedConclusions: ['do not submit generic or source-free Recipes'],
     },
   ];
@@ -1385,19 +1012,17 @@ function buildGates(): Record<string, unknown> {
   };
 }
 
-function buildProgress(
-  domainQueue: DomainQueueEntry[],
-  dimensions: DimensionSummary[]
-): Record<string, unknown> {
+function buildProgress(dimensions: DimensionSummary[]): Record<string, unknown> {
   return {
     contractVersion: ONBOARDING_CONTRACT_VERSION,
-    stage: 'current-domain-ready',
-    currentDomainId: domainQueue[0]?.domainId || DOMAIN_PLAYBOOKS[0].domainId,
-    completedDomainIds: [],
-    pendingDomainIds: domainQueue.map((domain) => domain.domainId),
+    stage: 'plan-dimensions-ready',
+    currentDimensionIds: dimensions.map((dimension) => dimension.id),
+    completedDimensionIds: [],
+    pendingDimensionIds: dimensions.map((dimension) => dimension.id),
     dimensionCount: dimensions.length,
     nextRequiredTools: [
       'alembic_recipe_map',
+      'alembic_graph',
       'alembic_submit_knowledge',
       'alembic_dimension_complete',
     ],
@@ -1444,23 +1069,37 @@ function buildRepairState(
     blockedConclusions: [
       'do not claim ProjectContext completeness without matrix/graph evidence',
       'do not claim live Codex usability without a real MCP/tool readback',
-      'do not mark a domain complete without evidence or an explicit no-op reason',
+      'do not mark a dimension complete without evidence or an explicit no-op reason',
       'do not start a second bootstrap writer while bootstrap_in_progress is visible',
     ],
   };
 }
 
-function buildCurrentDomainNextActions(
-  currentDomainSop: Record<string, unknown>
+function buildCurrentDimensionNextActions(
+  input: BuildOnboardingContractInput
 ): Array<Record<string, unknown>> {
-  const actions = Array.isArray(currentDomainSop.nextActions) ? currentDomainSop.nextActions : [];
-  return actions
-    .filter((action): action is Record<string, unknown> => isRecord(action))
-    .map((action, index) => ({
+  const stage = input.source === 'status' ? 'submit-knowledge' : 'bootstrap';
+  const actions = [
+    ...buildProjectContextCreationNextActions({
+      projectRoot: input.projectRoot,
+      stage,
+    }).map((action) => ({
       ...action,
-      order: index + 1,
-      required: index < 2,
-    }));
+      label:
+        action.tool === 'alembic_submit_knowledge'
+          ? 'Submit source-grounded Recipe candidates for current plan dimensions'
+          : 'Collect ProjectContext evidence for current plan dimensions',
+    })),
+    {
+      label: 'Complete only after current dimension evidence and session-bound Recipe ids exist',
+      tool: 'alembic_dimension_complete',
+    },
+  ];
+  return actions.map((action, index) => ({
+    ...action,
+    order: index + 1,
+    required: index < 2,
+  }));
 }
 
 function summarizeDimensions(value: unknown): DimensionSummary[] {
@@ -1478,7 +1117,9 @@ function summarizeDimension(value: unknown, index: number): DimensionSummary {
     readString(record.key) ||
     `dimension-${index + 1}`;
   const title = readString(record.title) || readString(record.name) || id;
-  return { id, title };
+  const tier =
+    typeof record.tier === 'number' && Number.isFinite(record.tier) ? record.tier : null;
+  return { id, tier, title };
 }
 
 function summarizeSession(value: unknown, dimensionCount: number): Record<string, unknown> {

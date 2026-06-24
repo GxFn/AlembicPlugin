@@ -69,6 +69,12 @@ type ColdStartPlanGatePreparation =
   | { ok: true; lease: PlanGenerationLease; planGate: PlanGenerationGateReady }
   | { ok: false; response: Record<string, unknown> };
 
+type ColdStartOnboardingContract = ReturnType<typeof buildColdStartOnboardingContract>;
+type ColdStartOnboardingContractWithGuidance = ColdStartOnboardingContract & {
+  currentDimensionGuidance: Record<string, unknown>;
+  currentDimensionNextActions: Array<Record<string, unknown>>;
+};
+
 // ── 主入口 ─────────────────────────────────────────────────────
 
 /**
@@ -425,7 +431,7 @@ function attachIDEAgentAnalysisSurface<T extends { meta?: Record<string, unknown
 
 function attachColdStartOnboardingSurface<T extends { meta?: Record<string, unknown> }>(
   input: AttachColdStartOnboardingInput<T>
-): T & ReturnType<typeof buildColdStartOnboardingContract> & { meta: Record<string, unknown> } {
+): T & ColdStartOnboardingContractWithGuidance & { meta: Record<string, unknown> } {
   const onboardingContract = buildColdStartOnboardingContract({
     dataRoot: input.dataRoot,
     dimensions: input.dimensions,
@@ -437,13 +443,22 @@ function attachColdStartOnboardingSurface<T extends { meta?: Record<string, unkn
     secondaryLanguages: input.secondaryLanguages,
     session: input.session,
   });
-  return attachOnboardingContract(input.briefing, onboardingContract);
+  const currentDimensionGuidance = buildCurrentDimensionGuidanceFromBriefing(
+    input.briefing as Record<string, unknown>
+  );
+  return attachOnboardingContract(input.briefing, {
+    ...onboardingContract,
+    currentDimensionGuidance,
+    currentDimensionNextActions: buildCurrentDimensionNextActionsFromGuidance(
+      currentDimensionGuidance
+    ),
+  });
 }
 
 function attachOnboardingContract<T extends { meta?: Record<string, unknown> }>(
   briefing: T,
-  onboardingContract: ReturnType<typeof buildColdStartOnboardingContract>
-): T & ReturnType<typeof buildColdStartOnboardingContract> & { meta: Record<string, unknown> } {
+  onboardingContract: ColdStartOnboardingContractWithGuidance
+): T & ColdStartOnboardingContractWithGuidance & { meta: Record<string, unknown> } {
   return {
     ...briefing,
     ...onboardingContract,
@@ -451,9 +466,175 @@ function attachOnboardingContract<T extends { meta?: Record<string, unknown> }>(
       ...(briefing.meta || {}),
       onboardingContract: {
         contractVersion: 1,
-        currentDomainId: onboardingContract.progress.currentDomainId,
-        stagedDomainCount: onboardingContract.domainQueue.length,
+        currentDimensionIds: readGuidanceDimensionIds(onboardingContract.currentDimensionGuidance),
+        currentTier: readGuidanceCurrentTier(onboardingContract.currentDimensionGuidance),
       },
     },
   };
+}
+
+function buildCurrentDimensionGuidanceFromBriefing(
+  briefing: Record<string, unknown>
+): Record<string, unknown> {
+  const dimensions = readRecordArray(briefing.dimensions);
+  const dimensionById = new Map(
+    dimensions
+      .map((dimension, index) => [readDimensionId(dimension, index), dimension] as const)
+      .filter(([id]) => id.length > 0)
+  );
+  const executionPlan = isRecord(briefing.executionPlan) ? briefing.executionPlan : {};
+  const currentTier = selectCurrentExecutionTier(executionPlan);
+  const tierDimensionIds = currentTier ? readTierDimensionIds(currentTier) : [];
+  const fallbackDimensionIds = dimensions.map((dimension, index) => readDimensionId(dimension, index));
+  const dimensionIds = uniqueStrings(tierDimensionIds.length > 0 ? tierDimensionIds : fallbackDimensionIds);
+  const guidanceDimensions = dimensionIds.map((dimensionId) => {
+    const dimension = dimensionById.get(dimensionId) || {};
+    return {
+      dimensionId,
+      title: readString(dimension.label) || readString(dimension.title) || readString(dimension.name) || dimensionId,
+      tier:
+        typeof dimension.tier === 'number' && Number.isFinite(dimension.tier)
+          ? dimension.tier
+          : null,
+      analysisGuide: isRecord(dimension.analysisGuide) ? dimension.analysisGuide : dimension.analysisGuide ?? null,
+      submissionSpec: isRecord(dimension.submissionSpec)
+        ? dimension.submissionSpec
+        : dimension.submissionSpec ?? null,
+    };
+  });
+
+  return {
+    contractVersion: 1,
+    source: 'mission-briefing.executionPlan.current-tier',
+    currentTier: currentTier
+      ? {
+          tier: currentTier.tier ?? null,
+          label: readString(currentTier.label),
+          note: readString(currentTier.note),
+          dimensions: readTierDimensionIds(currentTier),
+        }
+      : null,
+    dimensionIds,
+    dimensions: guidanceDimensions,
+    nextActions: buildCurrentDimensionActionTemplates(),
+    invalidConclusions: [
+      'do not infer current work from retired static task queues',
+      'do not submit Recipes without exact sourceRefs and graph/detail evidence',
+      'do not complete a dimension before session-bound Recipe ids are returned',
+    ],
+    note:
+      currentTier && tierDimensionIds.length > 0
+        ? 'Current work is projected from executionPlan.tiers[0] and the matching dimensions[].analysisGuide/submissionSpec already present in this briefing.'
+        : 'No executionPlan tier was available; use the visible dimensions as a plan-derived fallback and do not invent extra dimensions.',
+  };
+}
+
+function selectCurrentExecutionTier(
+  executionPlan: Record<string, unknown>
+): Record<string, unknown> | null {
+  const explicitCurrent = isRecord(executionPlan.currentTier) ? executionPlan.currentTier : null;
+  if (explicitCurrent) {
+    return explicitCurrent;
+  }
+  const tiers = readRecordArray(executionPlan.tiers);
+  return tiers[0] || null;
+}
+
+function buildCurrentDimensionActionTemplates(): Array<Record<string, unknown>> {
+  return [
+    {
+      label: 'Orient current plan dimensions',
+      reason: 'Use compact ProjectContext orientation before broad raw exploration.',
+      tool: 'alembic_recipe_map',
+    },
+    {
+      label: 'Collect source and relationship evidence',
+      reason: 'Use graph/detail refs for caller/callee/ownership/impact claims, then raw-read gaps.',
+      tool: 'alembic_graph',
+    },
+    {
+      label: 'Submit source-grounded Recipe candidates',
+      reason: 'Submit only after candidates satisfy hostAgentContract.submitKnowledgeContract.',
+      tool: 'alembic_submit_knowledge',
+    },
+    {
+      label: 'Complete current dimensions',
+      reason: 'Use session-bound Recipe ids and analysis evidence for alembic_dimension_complete.',
+      tool: 'alembic_dimension_complete',
+    },
+  ];
+}
+
+function buildCurrentDimensionNextActionsFromGuidance(
+  guidance: Record<string, unknown>
+): Array<Record<string, unknown>> {
+  const actions = Array.isArray(guidance.nextActions) ? guidance.nextActions : [];
+  return actions
+    .filter((action): action is Record<string, unknown> => isRecord(action))
+    .map((action, index) => ({
+      ...action,
+      order: index + 1,
+      required: index < 2,
+    }));
+}
+
+function readTierDimensionIds(tier: Record<string, unknown>): string[] {
+  const dimensionValues = Array.isArray(tier.dimensions)
+    ? tier.dimensions
+    : Array.isArray(tier.dimensionIds)
+      ? tier.dimensionIds
+      : [];
+  return uniqueStrings(
+    dimensionValues
+      .map((value, index) =>
+        typeof value === 'string'
+          ? value
+          : isRecord(value)
+            ? readDimensionId(value, index)
+            : ''
+      )
+      .filter((value) => value.length > 0)
+  );
+}
+
+function readDimensionId(dimension: Record<string, unknown>, index: number): string {
+  return (
+    readString(dimension.id) ||
+    readString(dimension.dimensionId) ||
+    readString(dimension.key) ||
+    `dimension-${index + 1}`
+  );
+}
+
+function readGuidanceDimensionIds(guidance: Record<string, unknown>): string[] {
+  return Array.isArray(guidance.dimensionIds)
+    ? uniqueStrings(guidance.dimensionIds.filter((value): value is string => typeof value === 'string'))
+    : [];
+}
+
+function readGuidanceCurrentTier(guidance: Record<string, unknown>): Record<string, unknown> | null {
+  return isRecord(guidance.currentTier) ? guidance.currentTier : null;
+}
+
+function readRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => isRecord(item)) : [];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+    return true;
+  });
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

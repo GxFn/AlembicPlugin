@@ -121,7 +121,7 @@ function buildOnboardingPlaybookLine(visibleToolNameSet: Set<string>): string {
   const bootstrapTool = visibleToolNameSet.has('alembic_bootstrap')
     ? '`alembic_bootstrap`'
     : 'bootstrap output when available';
-  return `Onboarding: read ${statusTool}/${bootstrapTool} fields \`bootstrapState\`, \`toolCapabilities\`, \`domainQueue\`, \`currentDomainSop\`, \`sopPack\`, \`gates\`, and \`repairState\` before choosing the next tool.`;
+  return `Onboarding: read ${statusTool}/${bootstrapTool} fields \`bootstrapState\`, \`toolCapabilities\`, \`currentDimensionGuidance\`, \`hostAgentContract\`, \`gates\`, and \`repairState\` before choosing the next tool.`;
 }
 
 function buildFallbackPlaybookLine(visibleToolNameSet: Set<string>): string {

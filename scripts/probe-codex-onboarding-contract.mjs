@@ -42,7 +42,8 @@ const supervisor = {
 };
 
 const server = new HostMcpServer({ projectRoot, supervisor });
-const bootstrap = await server.handleToolCall('alembic_bootstrap', {});
+const planSelection = await confirmPlanSelection(server, projectRoot);
+const bootstrap = await server.handleToolCall('alembic_bootstrap', { planSelection });
 const status = await server.handleToolCall('alembic_status', {});
 
 console.log(
@@ -61,23 +62,31 @@ console.log(
 function summarizeContract(data) {
   return {
     bootstrapState: data?.bootstrapState,
-    currentDomainSop: {
-      domainId: data?.currentDomainSop?.domainId,
-      languageProfile: data?.currentDomainSop?.languageProfile,
-      recipeGuidanceFloor: data?.currentDomainSop?.recipeGuidanceFloor,
-      toolSequence: data?.currentDomainSop?.toolSequence,
+    currentDimensionGuidance: {
+      currentTier: data?.currentDimensionGuidance?.currentTier,
+      dimensionIds: data?.currentDimensionGuidance?.dimensionIds,
+      dimensions: data?.currentDimensionGuidance?.dimensions?.map((dimension) => ({
+        dimensionId: dimension?.dimensionId,
+        hasAnalysisGuide: Boolean(dimension?.analysisGuide),
+        hasSubmissionSpec: Boolean(dimension?.submissionSpec),
+      })),
     },
-    domainQueueFirst: data?.domainQueue?.[0],
     gates: Object.keys(data?.gates || {}),
+    retiredFieldsAbsent: {
+      currentDomainSop: data?.currentDomainSop === undefined,
+      domainQueue: data?.domainQueue === undefined,
+      sopPack: data?.sopPack === undefined,
+    },
     repairState: data?.repairState,
-    sopPackFields: Object.keys(data?.sopPack || {}),
-    sopPackRequiredReadback: {
-      hasKnowledgeResetContract: Boolean(data?.sopPack?.knowledgeResetContract?.scopes),
-      hasRecipeAuthoringRubric: Boolean(data?.sopPack?.recipeAuthoringRubric),
-      hasResumePrompt: Boolean(data?.sopPack?.resumePrompt),
-      hasScopeBrief: Boolean(data?.sopPack?.scopeBrief),
-      hasStopConditions: Boolean(data?.sopPack?.stopConditions),
-      hasToolCapabilityMatrix: Boolean(data?.sopPack?.toolCapabilityMatrix),
+    hostAgentContractFields: Object.keys(data?.hostAgentContract || {}),
+    hostAgentContractRequiredReadback: {
+      hasKnowledgeResetContract: Boolean(data?.hostAgentContract?.knowledgeResetContract?.scopes),
+      hasRecipeAuthoringRubric: Boolean(data?.hostAgentContract?.recipeAuthoringRubric),
+      hasRecipeCreationSop: Boolean(data?.hostAgentContract?.recipeCreationSop),
+      hasScopeBrief: Boolean(data?.hostAgentContract?.scopeBrief),
+      hasStopConditions: Boolean(data?.hostAgentContract?.stopConditions),
+      hasSubmitKnowledgeContract: Boolean(data?.hostAgentContract?.submitKnowledgeContract),
+      hasToolCapabilityMatrix: Boolean(data?.hostAgentContract?.toolCapabilityMatrix),
     },
     toolCapabilities: {
       canonicalSourceGraph: data?.toolCapabilities?.canonicalSourceGraph?.map((tool) => tool.name),
@@ -86,10 +95,82 @@ function summarizeContract(data) {
     agentReadinessWalkthrough: {
       firstTool: data?.initialToolBriefing?.defaultOrder?.[0],
       currentDomainEvidenceTool:
-        data?.currentDomainNextActions?.[1]?.tool || data?.currentDomainSop?.toolSequence?.[1],
+        data?.currentDimensionNextActions?.[1]?.tool ||
+        data?.currentDimensionGuidance?.nextActions?.[1]?.tool,
       blockedConclusions: data?.repairState?.blockedConclusions?.slice(0, 4),
-      stopConditions: data?.sopPack?.stopConditions?.slice(0, 4),
+      stopConditions: data?.hostAgentContract?.stopConditions?.slice(0, 4),
       hiddenProjectKnowledgeRequired: false,
     },
   };
+}
+
+async function confirmPlanSelection(server, projectRoot) {
+  const draft = await server.handleToolCall('alembic_plan', {
+    operation: 'draft',
+    projectRoot,
+    hints: { maxBudget: 8 },
+  });
+  if (draft?.success !== true) {
+    throw new Error(`alembic_plan draft failed: ${JSON.stringify(draft)}`);
+  }
+  const dimensionIds = readArray(draft?.data?.candidateDimensions)
+    .map((dimension) => readRecord(dimension).id)
+    .filter((dimensionId) => typeof dimensionId === 'string' && dimensionId.length > 0);
+  if (dimensionIds.length === 0) {
+    throw new Error('alembic_plan draft returned no candidate dimensions');
+  }
+  const confirmed = await server.handleToolCall('alembic_plan', {
+    operation: 'confirm',
+    projectRoot,
+    generationStage: 'coldStart',
+    projectProfile: {
+      projectType: 'node-package',
+      primaryLanguage: 'typescript',
+      secondaryLanguages: [],
+      frameworks: ['node'],
+      moduleCount: 1,
+      fileCount: 2,
+    },
+    selectedDimensions: dimensionIds.map((dimensionId, index) => ({
+      dimensionId,
+      priority: index + 1,
+      rationale: 'Onboarding probe confirms stateless planSelection.',
+      targetRecipes: 1,
+    })),
+    scale: {
+      totalRecipeBudget: dimensionIds.length,
+      maxFiles: 8,
+      contentMaxLines: 24,
+      depthLevels: ['project'],
+    },
+    moduleBindings: [
+      {
+        modulePath: 'src',
+        dimensions: dimensionIds,
+        targetRecipes: 1,
+        priority: 1,
+      },
+    ],
+    plannedNextActions: [{ tool: 'alembic_bootstrap', reason: 'Run Plan-gated bootstrap.' }],
+    evidenceRefs: [
+      {
+        kind: 'project-context',
+        ref: String(draft?.data?.projectContextSignature || 'probe-signature'),
+        detail: 'draft fact package signature',
+      },
+    ],
+    rationale: 'Probe confirms a complete Plan payload before bootstrap.',
+  });
+  if (confirmed?.success !== true) {
+    throw new Error(`alembic_plan confirm failed: ${JSON.stringify(confirmed)}`);
+  }
+  return readRecord(confirmed?.data?.planSelection);
+}
+
+function readRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function readArray(value) {
+  return Array.isArray(value) ? value : [];
 }

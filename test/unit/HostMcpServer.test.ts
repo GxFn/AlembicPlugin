@@ -101,18 +101,25 @@ function writePlanFixtureSource(projectRoot: string, label = 'fixture'): void {
 async function confirmPlanForHostBootstrap(
   server: HostMcpServer,
   projectRoot: string
-): Promise<string> {
+): Promise<{ dimensionId: string; planSelection: Record<string, unknown> }> {
   const draft = (await server.handleToolCall('alembic_plan', {
     operation: 'draft',
     projectRoot,
     hints: { maxBudget: 8 },
   })) as { data?: Record<string, unknown>; success: boolean };
   expect(draft.success).toBe(true);
-  const plan = readRecord(draft.data?.plan);
   const guide = readRecord(draft.data?.projectContextCreationGuide);
-  const dimensionIds = readArray(readRecord(guide.confirmedPlanBoundary).dimensionIds)
+  const boundaryDimensionIds = readArray(readRecord(guide.confirmedPlanBoundary).dimensionIds)
     .map((dimensionId) => (typeof dimensionId === 'string' ? dimensionId : undefined))
     .filter((dimensionId): dimensionId is string => Boolean(dimensionId));
+  const candidateDimensionIds = readArray(draft.data?.candidateDimensions)
+    .map((dimension) => {
+      const id = readRecord(dimension).id;
+      return typeof id === 'string' ? id : undefined;
+    })
+    .filter((dimensionId): dimensionId is string => Boolean(dimensionId));
+  const dimensionIds =
+    boundaryDimensionIds.length > 0 ? boundaryDimensionIds : candidateDimensionIds;
   if (dimensionIds.length === 0) {
     throw new Error('Expected alembic_plan draft fact package to include at least one dimension.');
   }
@@ -120,22 +127,28 @@ async function confirmPlanForHostBootstrap(
   const confirmed = (await server.handleToolCall('alembic_plan', {
     operation: 'confirm',
     projectRoot,
-    basePlanId: String(plan.planId),
-    baseVersion: Number(plan.version),
-    projectContextSignature: String(draft.data?.projectContextSignature),
+    generationStage: 'coldStart',
+    projectProfile: {
+      projectType: 'node-package',
+      primaryLanguage: 'typescript',
+      secondaryLanguages: [],
+      frameworks: ['node'],
+      moduleCount: 1,
+      fileCount: 2,
+    },
     selectedDimensions: dimensionIds.map((id, index) => ({
-      id,
-      reason: 'HostMcpServer bootstrap fixture',
-      stage: 'coldStart',
-      targetRecipes: 1,
+      dimensionId: id,
       priority: index + 1,
+      rationale: 'HostMcpServer bootstrap fixture',
+      targetRecipes: 1,
     })),
     scale: {
       totalRecipeBudget: dimensionIds.length,
-      perStage: { coldStart: dimensionIds.length, deepMining: 0, module: 1 },
       depthLevels: ['project'],
+      maxFiles: 8,
+      contentMaxLines: 24,
     },
-    moduleBindings: [{ modulePath: 'src', dimensions: dimensionIds, targetRecipes: 1 }],
+    moduleBindings: [{ modulePath: 'src', dimensions: dimensionIds, targetRecipes: 1, priority: 1 }],
     plannedNextActions: [{ tool: 'alembic_bootstrap', reason: 'Run Plan-gated bootstrap.' }],
     evidenceRefs: [
       {
@@ -145,9 +158,9 @@ async function confirmPlanForHostBootstrap(
       },
     ],
     rationale: 'HostMcpServer bootstrap fixture confirms a complete Plan payload.',
-  })) as { success: boolean };
+  })) as { data?: Record<string, unknown>; success: boolean };
   expect(confirmed.success).toBe(true);
-  return dimensionId;
+  return { dimensionId, planSelection: readRecord(confirmed.data?.planSelection) };
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -403,8 +416,12 @@ describe('HostMcpServer', () => {
     expect(instructions).toContain('`alembic_search`');
     expect(instructions).toContain('`alembic_code_guard`');
     expect(instructions).toContain('`bootstrapState`');
-    expect(instructions).toContain('`currentDomainSop`');
+    expect(instructions).toContain('`currentDimensionGuidance`');
+    expect(instructions).toContain('`hostAgentContract`');
     expect(instructions).toContain('`toolCapabilities`');
+    expect(instructions).not.toContain('`currentDomainSop`');
+    expect(instructions).not.toContain('`domainQueue`');
+    expect(instructions).not.toContain('`sopPack`');
     expect(instructions).toContain('raw file reads/search');
     expect(instructions).toContain('Validation is still required');
   });
@@ -1500,9 +1517,9 @@ describe('HostMcpServer', () => {
       );
     });
     const server = new HostMcpServer({ projectRoot });
-    await confirmPlanForHostBootstrap(server, projectRoot);
+    const { planSelection } = await confirmPlanForHostBootstrap(server, projectRoot);
 
-    const result = (await server.handleToolCall('alembic_bootstrap', {})) as {
+    const result = (await server.handleToolCall('alembic_bootstrap', { planSelection })) as {
       data?: {
         bootstrapState?: {
           runtime?: { daemonRequiredForBootstrap?: boolean; owner?: string };
@@ -1510,24 +1527,29 @@ describe('HostMcpServer', () => {
           projectContext?: { firstTool?: string };
           status?: string;
         };
-        currentDomainSop?: {
-          domainId?: string;
-          recipeGuidanceFloor?: {
-            candidateCounts?: { minimumPerDimension?: number; targetPerDimension?: number };
-          };
-          toolSequence?: string[];
+        currentDimensionGuidance?: {
+          currentTier?: { dimensions?: string[]; tier?: number };
+          dimensionIds?: string[];
+          dimensions?: Array<{
+            analysisGuide?: unknown;
+            dimensionId?: string;
+            submissionSpec?: unknown;
+          }>;
         };
-        domainQueue?: Array<{ domainId?: string }>;
+        currentDimensionNextActions?: Array<{ tool?: string }>;
+        currentDomainSop?: unknown;
+        domainQueue?: unknown;
         dimensions?: unknown;
         executionPlan?: unknown;
         gates?: Record<string, unknown>;
-        sopPack?: {
+        hostAgentContract?: {
           dimensionCompletionContract?: {
             firstCallExample?: Record<string, unknown>;
             requiredFields?: string[];
             sessionField?: string;
           };
           knowledgeResetContract?: { backupByDefault?: boolean; scopes?: string[] };
+          recipeCreationSop?: string[];
           recipeAuthoringRubric?: Record<string, unknown>;
           resumePrompt?: Record<string, unknown>;
           scopeBrief?: Record<string, unknown>;
@@ -1540,6 +1562,7 @@ describe('HostMcpServer', () => {
           };
           toolCapabilityMatrix?: Array<{ name?: string }>;
         };
+        sopPack?: unknown;
         serviceBoundary?: {
           executionPath: string;
           owner: string;
@@ -1575,19 +1598,30 @@ describe('HostMcpServer', () => {
       },
       status: 'bootstrap_ready',
     });
-    expect(result.data?.domainQueue?.[0]).toMatchObject({
-      domainId: 'D1-runtime-entrypoints',
-    });
-    expect(result.data?.currentDomainSop).toMatchObject({
-      domainId: 'D1-runtime-entrypoints',
-      toolSequence: expect.arrayContaining(['alembic_recipe_map', 'alembic_graph']),
-      recipeGuidanceFloor: expect.objectContaining({
-        candidateCounts: expect.objectContaining({
-          minimumPerDimension: 3,
-          targetPerDimension: 5,
-        }),
-      }),
-    });
+    const executionPlan = result.data?.executionPlan as
+      | { tiers?: Array<{ dimensions?: string[] }> }
+      | undefined;
+    const currentTierDimensionIds = executionPlan?.tiers?.[0]?.dimensions || [];
+    expect(currentTierDimensionIds.length).toBeGreaterThan(0);
+    expect(result.data?.currentDimensionGuidance?.currentTier?.dimensions).toEqual(
+      currentTierDimensionIds
+    );
+    expect(result.data?.currentDimensionGuidance?.dimensionIds).toEqual(
+      currentTierDimensionIds
+    );
+    expect(
+      result.data?.currentDimensionGuidance?.dimensions?.map((dimension) => dimension.dimensionId)
+    ).toEqual(currentTierDimensionIds);
+    for (const dimension of result.data?.currentDimensionGuidance?.dimensions || []) {
+      expect(dimension.analysisGuide).toBeTruthy();
+      expect(dimension.submissionSpec).toBeTruthy();
+    }
+    expect(result.data?.currentDimensionNextActions?.map((action) => action.tool)).toEqual(
+      expect.arrayContaining(['alembic_recipe_map', 'alembic_graph'])
+    );
+    expect(result.data?.currentDomainSop).toBeUndefined();
+    expect(result.data?.domainQueue).toBeUndefined();
+    expect(result.data?.sopPack).toBeUndefined();
     expect(
       result.data?.toolCapabilities?.canonicalProjectContext?.map((entry) => entry.name)
     ).toEqual(expect.arrayContaining(['alembic_recipe_map', 'alembic_graph']));
@@ -1598,12 +1632,24 @@ describe('HostMcpServer', () => {
       expect(removedOrBlocked).toEqual(expect.arrayContaining(['alembic_call_context']));
       expect(removedOrBlocked).not.toContain('alembic_panorama');
     }
-    expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_call_context');
-    expect(JSON.stringify(result.data?.currentDomainSop)).not.toContain('alembic_affected_tests');
-    expect(JSON.stringify(result.data?.sopPack)).not.toContain('alembic_call_context');
-    expect(JSON.stringify(result.data?.sopPack)).not.toContain('alembic_affected_tests');
-    expect(result.data?.sopPack).toMatchObject({
+    const bootstrapPayload = JSON.stringify(result.data);
+    expect(bootstrapPayload).not.toContain('D1-runtime-entrypoints');
+    expect(bootstrapPayload).not.toContain('D2-source-structure-ownership');
+    expect(bootstrapPayload).not.toContain('D3-state-persistence');
+    expect(bootstrapPayload).not.toContain('D4-tool-contracts-output');
+    expect(bootstrapPayload).not.toContain('D5-validation-safety');
+    expect(bootstrapPayload).not.toContain('D6-failure-recovery');
+    expect(bootstrapPayload).not.toContain('D7-project-conventions');
+    expect(bootstrapPayload).not.toContain('runtime-entrypoints');
+    expect(bootstrapPayload).not.toContain('tool-contracts');
+    expect(bootstrapPayload).not.toContain('domainRefs');
+    expect(JSON.stringify(result.data?.hostAgentContract)).not.toContain('alembic_call_context');
+    expect(JSON.stringify(result.data?.hostAgentContract)).not.toContain('alembic_affected_tests');
+    expect(result.data?.hostAgentContract).toMatchObject({
       scopeBrief: expect.any(Object),
+      recipeCreationSop: expect.arrayContaining([
+        'Check ProjectContext matrix/graph orientation first.',
+      ]),
       recipeAuthoringRubric: expect.objectContaining({
         futureActionability: expect.any(String),
       }),
@@ -1647,7 +1693,13 @@ describe('HostMcpServer', () => {
         }),
       }),
     });
-    expect(result.data?.sopPack?.toolCapabilityMatrix).toEqual(
+    expect(result.data?.hostAgentContract?.recipeGuidanceFloor).toMatchObject({
+      candidateCounts: expect.objectContaining({
+        minimumPerDimension: 3,
+        targetPerDimension: 5,
+      }),
+    });
+    expect(result.data?.hostAgentContract?.toolCapabilityMatrix).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           name: 'alembic_recipe_map',
@@ -1672,13 +1724,15 @@ describe('HostMcpServer', () => {
       );
     });
     const server = new HostMcpServer();
-    await confirmPlanForHostBootstrap(server, firstProjectRoot);
-    await confirmPlanForHostBootstrap(server, secondProjectRoot);
+    const firstPlan = await confirmPlanForHostBootstrap(server, firstProjectRoot);
+    const secondPlan = await confirmPlanForHostBootstrap(server, secondProjectRoot);
 
     const first = (await server.handleToolCall('alembic_bootstrap', {
+      planSelection: firstPlan.planSelection,
       projectRoot: firstProjectRoot,
     })) as { message?: string; success: boolean };
     const second = (await server.handleToolCall('alembic_bootstrap', {
+      planSelection: secondPlan.planSelection,
       projectRoot: secondProjectRoot,
     })) as { message?: string; success: boolean };
 

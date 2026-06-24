@@ -378,18 +378,32 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
     case 'alembic_bootstrap':
       return {
         bootstrapState: { status: 'bootstrap_ready' },
-        currentDomainSop: { domainId: 'D1-runtime-entrypoints' },
+        currentDimensionGuidance: {
+          currentTier: { dimensions: ['architecture'], tier: 1 },
+          dimensionIds: ['architecture'],
+          dimensions: [
+            {
+              analysisGuide: { steps: [{ phase: 'scan' }] },
+              dimensionId: 'architecture',
+              submissionSpec: { knowledgeTypes: ['architecture'] },
+            },
+          ],
+        },
+        currentDimensionNextActions: [{ tool: 'alembic_recipe_map' }],
         dimensions: [],
-        domainQueue: [{ domainId: 'D1-runtime-entrypoints' }],
         executionPlan: [],
         gates: { graphFreshness: { rule: 'check status first' } },
+        hostAgentContract: {
+          contractVersion: 1,
+          recipeGuidanceFloor: { candidateCounts: { minimumPerDimension: 3 } },
+          submitKnowledgeContract: { tool: 'alembic_submit_knowledge' },
+        },
         projectContextCreationGuide: {
           source: 'RG-5-project-context-anchored-creation',
           stage: 'bootstrap',
         },
         recipeCreationNextActions: [{ tool: 'alembic_recipe_map' }],
         repairState: { status: 'ready' },
-        sopPack: { contractVersion: 1 },
         toolCapabilities: { canonicalSourceGraph: [] },
       };
     case 'alembic_rescan':

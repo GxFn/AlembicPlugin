@@ -357,28 +357,20 @@ describe('Codex status service', () => {
     const serialized = JSON.stringify(status);
     const onboarding = status.onboarding as {
       bootstrapState?: { singleWriterLease?: { status?: string }; status?: string };
-      currentDomainSop?: {
-        domainId?: string;
-        languageProfile?: Record<string, unknown>;
-        recipeGuidanceFloor?: {
-          candidateCounts?: { minimumPerDimension?: number; targetPerDimension?: number };
-        };
-        toolSequence?: string[];
+      currentDimensionGuidance?: {
+        dimensionIds?: string[];
+        dimensions?: Array<{ analysisGuide?: unknown; submissionSpec?: unknown }>;
       };
-      domainQueue?: Array<{ domainId?: string }>;
+      currentDimensionNextActions?: Array<{ tool?: string }>;
       gates?: Record<string, unknown>;
-      initialToolBriefing?: {
-        agentDecisionChecklist?: Array<Record<string, unknown>>;
-        blockedConclusionsField?: string;
-      };
-      repairState?: { status?: string };
-      sopPack?: {
+      hostAgentContract?: {
         dimensionCompletionContract?: {
           firstCallExample?: Record<string, unknown>;
           requiredFields?: string[];
           sessionField?: string;
         };
         knowledgeResetContract?: { backupByDefault?: boolean; scopes?: string[] };
+        recipeCreationSop?: string[];
         recipeAuthoringRubric?: Record<string, unknown>;
         resumePrompt?: Record<string, unknown>;
         scopeBrief?: Record<string, unknown>;
@@ -391,6 +383,11 @@ describe('Codex status service', () => {
         };
         toolCapabilityMatrix?: Array<{ name?: string; outputTrustLevel?: string }>;
       };
+      initialToolBriefing?: {
+        agentDecisionChecklist?: Array<Record<string, unknown>>;
+        blockedConclusionsField?: string;
+      };
+      repairState?: { status?: string };
       toolCapabilities?: {
         canonicalSourceGraph?: Array<{ name?: string }>;
         removedOrBlocked?: Array<{ name?: string }>;
@@ -411,6 +408,9 @@ describe('Codex status service', () => {
     expect(status.nextActions).toContain(
       'Start Codex host-agent bootstrap: call alembic_bootstrap'
     );
+    expect(serialized).not.toContain('currentDomainSop');
+    expect(serialized).not.toContain('domainQueue');
+    expect(serialized).not.toContain('sopPack');
     expect(onboarding).toMatchObject({
       state: 'needs_bootstrap',
       primaryAction: { tool: 'alembic_bootstrap' },
