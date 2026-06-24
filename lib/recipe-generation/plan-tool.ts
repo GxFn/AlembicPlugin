@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { Dirent, Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path, { basename } from 'node:path';
@@ -30,7 +29,11 @@ import {
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import { LanguageService } from '@alembic/core/shared';
-import { resolveProjectRoot, WorkspaceResolver } from '@alembic/core/workspace';
+import { resolveProjectRoot } from '@alembic/core/workspace';
+import {
+  removeTransientTransportIfPresent,
+  writeTransientTransport,
+} from '#shared/transient-transport.js';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 
 interface PlanToolContext {
@@ -1065,35 +1068,15 @@ async function writeProjectInfoFullTree(input: {
   projectRoot: string;
   tree: ProjectInfoTreeRoot;
 }): Promise<ProjectInfoFullTreeRef> {
-  const filePath = projectInfoFullTreePath(input.projectRoot);
-  const content = `${JSON.stringify(input.tree, null, 2)}\n`;
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, content, 'utf8');
-  return {
-    bytes: Buffer.byteLength(content, 'utf8'),
-    path: filePath,
-  };
+  return writeTransientTransport({
+    name: 'plan-tree',
+    payload: input.tree,
+    projectRoot: input.projectRoot,
+  });
 }
 
 async function removeProjectInfoFullTreeIfPresent(projectRoot: string): Promise<void> {
-  await fs.rm(projectInfoFullTreePath(projectRoot), { force: true });
-}
-
-function projectInfoFullTreePath(projectRoot: string): string {
-  const dataRoot = resolvePlanTreeDataRoot(projectRoot);
-  return path.join(dataRoot, '.asd', 'tmp', `plan-tree-${projectHash(projectRoot)}.json`);
-}
-
-function resolvePlanTreeDataRoot(projectRoot: string): string {
-  try {
-    return WorkspaceResolver.fromProject(projectRoot).dataRoot;
-  } catch {
-    return projectRoot;
-  }
-}
-
-function projectHash(projectRoot: string): string {
-  return createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 16);
+  await removeTransientTransportIfPresent({ name: 'plan-tree', projectRoot });
 }
 
 function buildProjectProfileFromAnalysis(

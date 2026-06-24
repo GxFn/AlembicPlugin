@@ -43,6 +43,12 @@ import {
 } from '#recipe-generation/plan-generation-gate.js';
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
+import {
+  jsonByteLength,
+  removeTransientTransportIfPresent,
+  type TransientTransportRef,
+  writeTransientTransport,
+} from '#shared/transient-transport.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 
 interface McpContext {
@@ -74,6 +80,9 @@ type ColdStartOnboardingContractWithGuidance = ColdStartOnboardingContract & {
   currentDimensionGuidance: Record<string, unknown>;
   currentDimensionNextActions: Array<Record<string, unknown>>;
 };
+
+const COLD_START_BRIEFING_INLINE_BUDGET_BYTES = 20 * 1024;
+const MAX_INLINE_CURRENT_DIMENSION_GUIDES = 2;
 
 // ── 主入口 ─────────────────────────────────────────────────────
 
@@ -176,7 +185,7 @@ async function runPlanGatedColdStart(
     projectContextAnalysis.dimensions,
     input.planGate.planSelection.dimensions
   );
-  const response = buildColdStartMissionBriefingResponse(ctx, {
+  const response = await buildColdStartMissionBriefingResponse(ctx, {
     briefingDimensions,
     cleanupResult,
     dataRoot: input.dataRoot,
@@ -223,7 +232,7 @@ async function runColdStartCleanup(
   });
 }
 
-function buildColdStartMissionBriefingResponse(
+async function buildColdStartMissionBriefingResponse(
   ctx: McpContext,
   input: {
     briefingDimensions: ReturnType<typeof selectProjectContextDimensions>;
@@ -234,7 +243,7 @@ function buildColdStartMissionBriefingResponse(
     projectRoot: string;
     responseTimeMs: number;
   }
-): Record<string, unknown> & { message?: string } {
+): Promise<Record<string, unknown> & { message?: string }> {
   const session = createProjectContextHostAgentSession({
     container: ctx.container,
     dimensions: input.briefingDimensions,
@@ -243,7 +252,7 @@ function buildColdStartMissionBriefingResponse(
     primaryLang: input.projectContextAnalysis.primaryLang,
     projectRoot: input.projectRoot,
   });
-  const briefing = buildColdStartMissionBriefing(ctx, input, session);
+  const briefing = await buildColdStartMissionBriefing(ctx, input, session);
   const response = attachPlanGenerationGateData(
     presentHostAgentColdStartResponse({
       cleanupResult: input.cleanupResult,
@@ -253,11 +262,16 @@ function buildColdStartMissionBriefingResponse(
     }) as Record<string, unknown> & { message?: string },
     input.planGate
   );
+  await budgetColdStartResponseData(response, {
+    dataRoot: input.dataRoot,
+    projectRoot: input.projectRoot,
+  });
+  attachBriefingTransportMeta(response, readRecord(response.data) ?? {});
   attachColdStartTrashMessage(response, input.cleanupResult);
   return response;
 }
 
-function buildColdStartMissionBriefing(
+async function buildColdStartMissionBriefing(
   ctx: McpContext,
   input: {
     briefingDimensions: ReturnType<typeof selectProjectContextDimensions>;
@@ -315,6 +329,554 @@ function buildColdStartMissionBriefing(
       `${briefingWithProjectContextGuide.meta?.responseSizeKB || '?'}KB — session ${(session as { id?: string }).id}`
   );
   return briefingWithProjectContextGuide;
+}
+
+async function budgetColdStartResponseData(input: Record<string, unknown>, context: {
+  dataRoot: string;
+  projectRoot: string;
+}): Promise<void> {
+  const data = readRecord(input.data) ?? {};
+  const fullInline = attachFullBriefingRef(data, null);
+  if (jsonByteLength(fullInline) <= COLD_START_BRIEFING_INLINE_BUDGET_BYTES) {
+    await removeTransientTransportIfPresent({
+      dataRoot: context.dataRoot,
+      name: 'bootstrap-briefing',
+      projectRoot: context.projectRoot,
+    });
+    input.data = fullInline;
+    return;
+  }
+
+  const fullBriefingRef = await writeTransientTransport({
+    dataRoot: context.dataRoot,
+    name: 'bootstrap-briefing',
+    payload: fullInline,
+    projectRoot: context.projectRoot,
+  });
+  const compact = attachFullBriefingRef(compactColdStartBriefing(fullInline), fullBriefingRef);
+  input.data = trimColdStartBriefingToBudget(compact, COLD_START_BRIEFING_INLINE_BUDGET_BYTES);
+}
+
+function attachFullBriefingRef<T extends { meta?: Record<string, unknown> }>(
+  briefing: T,
+  fullBriefingRef: TransientTransportRef | null
+): T & { meta: Record<string, unknown> } {
+  return {
+    ...briefing,
+    meta: {
+      ...(briefing.meta || {}),
+      fullBriefingRef,
+    },
+  };
+}
+
+function compactColdStartBriefing<T extends { meta?: Record<string, unknown> }>(
+  briefing: T
+): T & { meta: Record<string, unknown> } {
+  const record = briefing as Record<string, unknown>;
+  const currentDimensionIds = readGuidanceDimensionIds(
+    readRecord(record.currentDimensionGuidance) ?? {}
+  );
+  const inlineFullIds = new Set(
+    currentDimensionIds.slice(0, MAX_INLINE_CURRENT_DIMENSION_GUIDES)
+  );
+  return {
+    ...briefing,
+    dimensions: readRecordArray(record.dimensions).map((dimension, index) =>
+      compactBriefingDimension(dimension, index, new Set())
+    ),
+    currentDimensionGuidance: compactCurrentDimensionGuidance(
+      record.currentDimensionGuidance,
+      inlineFullIds
+    ),
+    meta: { ...(briefing.meta || {}) },
+  };
+}
+
+type CurrentDimensionDetailMode = 'full' | 'compact';
+
+function compactBriefingDimension(
+  dimension: Record<string, unknown>,
+  index: number,
+  currentIds: Set<string>,
+  detailMode: CurrentDimensionDetailMode = 'full'
+): Record<string, unknown> {
+  const dimensionId = readDimensionId(dimension, index);
+  const summary = {
+    id: dimensionId,
+    dimensionId,
+    label:
+      readString(dimension.label) ||
+      readString(dimension.title) ||
+      readString(dimension.name) ||
+      dimensionId,
+    tier:
+      typeof dimension.tier === 'number' && Number.isFinite(dimension.tier)
+        ? dimension.tier
+        : null,
+  };
+  if (!currentIds.has(dimensionId)) {
+    return summary;
+  }
+  if (detailMode === 'full') {
+    return {
+      ...summary,
+      analysisGuide: dimension.analysisGuide ?? null,
+      submissionSpec: dimension.submissionSpec ?? null,
+    };
+  }
+  return {
+    ...summary,
+    analysisGuide: compactDimensionGuide(dimension.analysisGuide),
+    submissionSpec: compactDimensionSubmissionSpec(dimension.submissionSpec),
+  };
+}
+
+function compactDimensionGuide(value: unknown): unknown {
+  const guide = readRecord(value);
+  if (!guide) {
+    return value ?? null;
+  }
+  return {
+    purpose: guide.purpose ?? guide.goal ?? guide.summary ?? null,
+    focus: guide.focus ?? guide.focusAreas ?? guide.keyQuestions ?? null,
+    steps: readRecordArray(guide.steps).slice(0, 4),
+    evidence: guide.evidence ?? guide.requiredEvidence ?? null,
+    fullGuideRef: 'meta.fullBriefingRef.path',
+  };
+}
+
+function compactDimensionSubmissionSpec(value: unknown): unknown {
+  const spec = readRecord(value);
+  if (!spec) {
+    return value ?? null;
+  }
+  const checklist = readRecord(spec.preSubmitChecklist);
+  return {
+    knowledgeTypes: spec.knowledgeTypes,
+    requiredFields: spec.requiredFields,
+    sourceRefRequirements: spec.sourceRefRequirements ?? spec.sourceRefs,
+    preSubmitChecklist: checklist
+      ? {
+          required: checklist.required ?? checklist.MUST ?? checklist.must,
+          rejectIf: checklist.rejectIf ?? checklist.FAIL ?? checklist.fail,
+        }
+      : undefined,
+    fullSubmissionSpecRef: 'meta.fullBriefingRef.path',
+  };
+}
+
+function compactCurrentDimensionGuidance(
+  value: unknown,
+  inlineFullIds: Set<string>,
+  detailMode: CurrentDimensionDetailMode = 'full'
+): Record<string, unknown> | unknown {
+  const guidance = readRecord(value);
+  if (!guidance) {
+    return value;
+  }
+  const dimensions = readRecordArray(guidance.dimensions).map((dimension, index) =>
+    compactBriefingDimension(dimension, index, inlineFullIds, detailMode)
+  );
+  return {
+    ...guidance,
+    dimensions,
+    inlineFullDimensionIds: detailMode === 'full' ? [...inlineFullIds] : [],
+    inlineDimensionDetailMode: detailMode,
+    fullDimensionGuidanceRef: 'meta.fullBriefingRef.path',
+  };
+}
+
+function trimColdStartBriefingToBudget<T extends { meta?: Record<string, unknown> }>(
+  briefing: T & { meta: Record<string, unknown> },
+  budgetBytes: number
+): T & { meta: Record<string, unknown> } {
+  let compact = briefing;
+  if (jsonByteLength(compact) <= budgetBytes) {
+    return compact;
+  }
+
+  const record = compact as Record<string, unknown>;
+  if (isRecord(record.ideAgentAnalysis)) {
+    compact = {
+      ...compact,
+      ideAgentAnalysis: compactIDEAgentAnalysis(record.ideAgentAnalysis, {
+        maxNextUnits: 3,
+        maxProgressUnits: 20,
+        maxReadSet: 20,
+        maxSourceRefs: 24,
+        maxStructuralRefs: 12,
+      }),
+    };
+  }
+  if (jsonByteLength(compact) <= budgetBytes) {
+    return compact;
+  }
+
+  const compactRecord = compact as Record<string, unknown>;
+  const ideAgentAnalysis = compactRecord.ideAgentAnalysis;
+  compact = {
+    ...compact,
+    ideAgentAnalysis: isRecord(ideAgentAnalysis)
+      ? compactIDEAgentAnalysis(ideAgentAnalysis, {
+          maxNextUnits: 1,
+          maxProgressUnits: 8,
+          maxReadSet: 8,
+          maxSourceRefs: 8,
+          maxStructuralRefs: 4,
+        })
+      : ideAgentAnalysis,
+  };
+  if (jsonByteLength(compact) <= budgetBytes) {
+    return compact;
+  }
+
+  compact = compactColdStartLargeAnalysisFields(compact);
+  if (jsonByteLength(compact) <= budgetBytes) {
+    return compact;
+  }
+
+  compact = reduceCurrentDimensionGuidanceDetail(compact, 1);
+  if (jsonByteLength(compact) <= budgetBytes) {
+    return compact;
+  }
+
+  return minimalColdStartInlineData(compact);
+}
+
+function compactIDEAgentAnalysis(
+  value: Record<string, unknown>,
+  limits: {
+    maxNextUnits: number;
+    maxProgressUnits: number;
+    maxReadSet: number;
+    maxSourceRefs: number;
+    maxStructuralRefs: number;
+  }
+): Record<string, unknown> {
+  const retrieval = readRecord(value.retrieval) ?? {};
+  const progress = readRecord(value.progress) ?? {};
+  return {
+    ...value,
+    nextUnits: readRecordArray(value.nextUnits).slice(0, limits.maxNextUnits),
+    retrieval: {
+      ...retrieval,
+      requiredReadSet: readStringArray(retrieval.requiredReadSet).slice(0, limits.maxReadSet),
+      sourceRefs: readRecordArray(retrieval.sourceRefs).slice(0, limits.maxSourceRefs),
+      structuralEvidenceRefs: readRecordArray(retrieval.structuralEvidenceRefs).slice(
+        0,
+        limits.maxStructuralRefs
+      ),
+    },
+    progress: {
+      ...progress,
+      remainingUnitIds: readStringArray(progress.remainingUnitIds).slice(
+        0,
+        limits.maxProgressUnits
+      ),
+      unitProgress: readRecordArray(progress.unitProgress).slice(0, limits.maxProgressUnits),
+    },
+  };
+}
+
+function attachBriefingTransportMeta(
+  response: Record<string, unknown>,
+  briefing: Record<string, unknown>
+): void {
+  const briefingMeta = readRecord(briefing.meta);
+  const fullBriefingRef = briefingMeta?.fullBriefingRef;
+  const meta = readRecord(response.meta) ?? {};
+  response.meta = {
+    ...meta,
+    fullBriefingRef: isTransientTransportRef(fullBriefingRef) ? fullBriefingRef : null,
+  };
+}
+
+function compactColdStartLargeAnalysisFields<T extends { meta?: Record<string, unknown> }>(
+  briefing: T & { meta: Record<string, unknown> }
+): T & { meta: Record<string, unknown> } {
+  const record = briefing as Record<string, unknown>;
+  return {
+    ...briefing,
+    ast: summarizeAst(record.ast),
+    currentDimensionNextActions: readRecordArray(record.currentDimensionNextActions).map(
+      compactNextAction
+    ),
+    dependencyGraph: summarizeDependencyGraph(record.dependencyGraph),
+    guardFindings: summarizeGuardFindings(record.guardFindings),
+    hostAgentContract: compactHostAgentContract(record.hostAgentContract),
+    initialToolBriefing: undefined,
+    languageExtension: summarizeMaybePresent(record.languageExtension),
+    mustCoverModules: summarizeMustCoverModules(record.mustCoverModules),
+    panorama: summarizePanorama(record.panorama),
+    progress: undefined,
+    projectContextCreationGuide: undefined,
+    recipeCreationNextActions: undefined,
+    session: undefined,
+    submissionSchema: summarizeSubmissionSchema(record.submissionSchema),
+    toolCapabilities: compactToolCapabilities(record.toolCapabilities),
+  };
+}
+
+function reduceCurrentDimensionGuidanceDetail<T extends { meta?: Record<string, unknown> }>(
+  briefing: T & { meta: Record<string, unknown> },
+  maxFullDimensions: number
+): T & { meta: Record<string, unknown> } {
+  const record = briefing as Record<string, unknown>;
+  const guidance = readRecord(record.currentDimensionGuidance);
+  if (!guidance) {
+    return briefing;
+  }
+  const fullIds = readRecordArray(guidance.dimensions)
+    .map((dimension, index) => readDimensionId(dimension, index))
+    .slice(0, maxFullDimensions);
+  return {
+    ...briefing,
+    currentDimensionGuidance: compactCurrentDimensionGuidance(
+      guidance,
+      new Set(fullIds),
+      'compact'
+    ),
+  };
+}
+
+function minimalColdStartInlineData<T extends { meta?: Record<string, unknown> }>(
+  briefing: T & { meta: Record<string, unknown> }
+): T & { meta: Record<string, unknown> } {
+  const record = briefing as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of [
+    'bootstrapState',
+    'cleanup',
+    'cleanupPolicy',
+    'currentDimensionGuidance',
+    'currentDimensionNextActions',
+    'dimensions',
+    'executionPlan',
+    'fileCount',
+    'gates',
+    'generationStage',
+    'hostAgentContract',
+    'initialToolBriefing',
+    'meta',
+    'moduleScope',
+    'planGate',
+    'progress',
+    'projectContextCreationGuide',
+    'projectRoot',
+    'recipeCreationNextActions',
+    'repairState',
+    'serviceBoundary',
+    'session',
+    'targets',
+    'testMode',
+    'toolCapabilities',
+  ]) {
+    if (key in record) {
+      out[key] = record[key];
+    }
+  }
+  return out as T & { meta: Record<string, unknown> };
+}
+
+function compactHostAgentContract(value: unknown): unknown {
+  const contract = readRecord(value);
+  if (!contract) {
+    return value;
+  }
+  const knowledgeResetContract = readRecord(contract.knowledgeResetContract);
+  const dimensionCompletionContract = readRecord(contract.dimensionCompletionContract);
+  const recipeAuthoringRubric = readRecord(contract.recipeAuthoringRubric);
+  const recipeGuidanceFloor = readRecord(contract.recipeGuidanceFloor);
+  const resumePrompt = readRecord(contract.resumePrompt);
+  const submitKnowledgeContract = readRecord(contract.submitKnowledgeContract);
+  const fieldFloors = readRecord(submitKnowledgeContract?.fieldFloors);
+  const sourceRefCardinality = readRecord(submitKnowledgeContract?.sourceRefCardinality);
+  return {
+    contractVersion: contract.contractVersion,
+    dimensionCompletionContract: dimensionCompletionContract
+      ? {
+          sessionField: dimensionCompletionContract.sessionField,
+          requiredFields: dimensionCompletionContract.requiredFields,
+          firstCallExample: dimensionCompletionContract.firstCallExample,
+        }
+      : undefined,
+    knowledgeResetContract: knowledgeResetContract
+      ? {
+          backupByDefault: knowledgeResetContract.backupByDefault,
+          scopes: knowledgeResetContract.scopes,
+        }
+      : undefined,
+    recipeAuthoringRubric: recipeAuthoringRubric
+      ? { futureActionability: recipeAuthoringRubric.futureActionability }
+      : undefined,
+    recipeCreationSop: readStringArray(contract.recipeCreationSop).slice(0, 5),
+    recipeGuidanceFloor: recipeGuidanceFloor
+      ? { candidateCounts: recipeGuidanceFloor.candidateCounts }
+      : undefined,
+    resumePrompt: resumePrompt
+      ? { bootstrapSessionRefField: resumePrompt.bootstrapSessionRefField }
+      : undefined,
+    scopeBrief: summarizeScopeBrief(contract.scopeBrief),
+    stopConditions: readStringArray(contract.stopConditions).slice(0, 6),
+    submitKnowledgeContract: submitKnowledgeContract
+      ? {
+          exactFields: submitKnowledgeContract.exactFields,
+          fieldFloors: {
+            category: fieldFloors?.category,
+            contentMarkdown: fieldFloors?.contentMarkdown,
+          },
+          purpose: submitKnowledgeContract.purpose,
+          sourceRefCardinality: {
+            universalRuleOrPattern: sourceRefCardinality?.universalRuleOrPattern,
+          },
+        }
+      : undefined,
+    toolCapabilityMatrix: readRecordArray(contract.toolCapabilityMatrix)
+      .map((entry) => ({
+        name: entry.name,
+        status: entry.status,
+        provides: entry.provides,
+        requiredFor: entry.requiredFor,
+      }))
+      .slice(0, 12),
+  };
+}
+
+function summarizeScopeBrief(value: unknown): Record<string, unknown> {
+  const scopeBrief = readRecord(value);
+  if (!scopeBrief) {
+    return {};
+  }
+  return {
+    goal: scopeBrief.goal,
+    primaryTools: scopeBrief.primaryTools,
+    forbiddenConclusions: readStringArray(scopeBrief.forbiddenConclusions).slice(0, 4),
+  };
+}
+
+function compactToolCapabilities(value: unknown): unknown {
+  const capabilities = readRecord(value);
+  if (!capabilities) {
+    return value;
+  }
+  const removedOrBlocked = readRecordArray(capabilities.removedOrBlocked).map(
+    compactToolCapabilityEntry
+  );
+  return {
+    canonicalProjectContext: readRecordArray(capabilities.canonicalProjectContext).map(
+      compactToolCapabilityEntry
+    ),
+    ...(removedOrBlocked.length > 0 ? { removedOrBlocked } : {}),
+  };
+}
+
+function compactToolCapabilityEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  return {
+    name: entry.name,
+    status: entry.status,
+    replacementTools: entry.replacementTools,
+  };
+}
+
+function compactNextAction(action: Record<string, unknown>): Record<string, unknown> {
+  return {
+    tool: action.tool,
+    required: action.required,
+    order: action.order,
+  };
+}
+
+function summarizeAst(value: unknown): unknown {
+  const ast = readRecord(value);
+  if (!ast) {
+    return value;
+  }
+  return {
+    compressionLevel: ast.compressionLevel,
+    classCount: readRecordArray(ast.classes).length,
+    protocolCount: readRecordArray(ast.protocols).length,
+    categoriesCount: Array.isArray(ast.categories) ? ast.categories.length : 0,
+  };
+}
+
+function summarizeDependencyGraph(value: unknown): unknown {
+  const graph = readRecord(value);
+  if (!graph) {
+    return value;
+  }
+  return {
+    nodeCount: readRecordArray(graph.nodes).length,
+    edgeCount: Array.isArray(graph.edges) ? graph.edges.length : 0,
+    nodes: readRecordArray(graph.nodes).slice(0, 12),
+  };
+}
+
+function summarizeGuardFindings(value: unknown): unknown {
+  const findings = readRecord(value);
+  if (!findings) {
+    return value;
+  }
+  return {
+    totalViolations: findings.totalViolations,
+    errors: findings.errors,
+    warnings: findings.warnings,
+    topViolations: readRecordArray(findings.topViolations).slice(0, 5),
+  };
+}
+
+function summarizeMustCoverModules(value: unknown): unknown {
+  const modules = readRecord(value);
+  if (!modules) {
+    return value;
+  }
+  return {
+    totalLocalPackages: modules.totalLocalPackages,
+    instruction: modules.instruction,
+    modules: readRecordArray(modules.modules)
+      .map((module) => ({
+        name: module.name,
+        packageName: module.packageName,
+        fileCount: module.fileCount,
+        inferredRole: module.inferredRole,
+      }))
+      .slice(0, 20),
+  };
+}
+
+function summarizePanorama(value: unknown): unknown {
+  const panorama = readRecord(value);
+  if (!panorama) {
+    return value;
+  }
+  return {
+    layers: readRecordArray(panorama.layers).slice(0, 8),
+    couplingHotspots: readRecordArray(panorama.couplingHotspots).slice(0, 8),
+    cyclicDependencies: readRecordArray(panorama.cyclicDependencies).slice(0, 5),
+    knowledgeGaps: readRecordArray(panorama.knowledgeGaps).slice(0, 12),
+  };
+}
+
+function summarizeSubmissionSchema(value: unknown): unknown {
+  const schema = readRecord(value);
+  if (!schema) {
+    return value;
+  }
+  return {
+    requiredFields: schema.requiredFields,
+    topLevelFields: schema.topLevelFields,
+    note: 'Full submission schema is available from meta.fullBriefingRef.path when this inline briefing is truncated.',
+  };
+}
+
+function summarizeMaybePresent(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  return {
+    available: true,
+    note: 'Full language extension details are available from meta.fullBriefingRef.path.',
+  };
 }
 
 function attachColdStartTrashMessage(
@@ -618,6 +1180,27 @@ function readGuidanceCurrentTier(guidance: Record<string, unknown>): Record<stri
 
 function readRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => isRecord(item)) : [];
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
+}
+
+function isTransientTransportRef(value: unknown): value is TransientTransportRef {
+  return (
+    isRecord(value) &&
+    typeof value.path === 'string' &&
+    value.path.length > 0 &&
+    typeof value.bytes === 'number' &&
+    Number.isFinite(value.bytes) &&
+    value.bytes >= 0
+  );
 }
 
 function uniqueStrings(values: string[]): string[] {

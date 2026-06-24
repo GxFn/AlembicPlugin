@@ -90,7 +90,12 @@ const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
   toolName: 'businessToolName',
 };
 
-const ALLOWED_CLEAN_META_KEYS = new Set(['responseTimeMs', 'source']);
+const ALLOWED_CLEAN_META_KEYS = new Set([
+  'fullBriefingRef',
+  'fullMapRef',
+  'responseTimeMs',
+  'source',
+]);
 
 export const CORE_BASE_OUTPUT_FIELD_NAMES = [
   'error',

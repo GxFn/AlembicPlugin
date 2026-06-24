@@ -25,6 +25,7 @@ import {
   resetPluginOwnedMcpServerForTests,
 } from '../../lib/runtime/mcp/HostMcpServer.js';
 import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
+import { serializeMcpToolResult } from '../../lib/runtime/mcp/output-contract.js';
 import { getSavedProjectRootPath, readInitMarker } from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -1573,10 +1574,38 @@ describe('HostMcpServer', () => {
           removedOrBlocked?: Array<{ name?: string; replacementTools?: string[] }>;
         };
       };
+      meta?: {
+        fullBriefingRef?: { bytes?: number; path?: string } | null;
+      };
       success: boolean;
     };
 
     expect(result.success).toBe(true);
+    const mcpResult = serializeMcpToolResult('alembic_bootstrap', result, {
+      isErrorResult: (value) =>
+        !!value &&
+        typeof value === 'object' &&
+        (value as { success?: unknown }).success === false,
+    });
+    const structured = mcpResult.structuredContent as Record<string, unknown>;
+    expect(Buffer.byteLength(JSON.stringify(structured), 'utf8')).toBeLessThanOrEqual(20 * 1024);
+    expect(readRecord(structured.meta).fullBriefingRef).toMatchObject({
+      bytes: expect.any(Number),
+      path: expect.any(String),
+    });
+    expect(result.meta?.fullBriefingRef).toMatchObject({
+      bytes: expect.any(Number),
+      path: expect.any(String),
+    });
+    const fullBriefingPath = result.meta?.fullBriefingRef?.path;
+    expect(fullBriefingPath ? fs.existsSync(fullBriefingPath) : false).toBe(true);
+    const fullBriefing = JSON.parse(fs.readFileSync(fullBriefingPath || '', 'utf8')) as {
+      dimensions?: unknown[];
+    };
+    expect(readArray(fullBriefing.dimensions).length).toBe(readArray(result.data?.dimensions).length);
+    expect(Buffer.byteLength(JSON.stringify(fullBriefing.dimensions), 'utf8')).toBeGreaterThan(
+      Buffer.byteLength(JSON.stringify(result.data?.dimensions), 'utf8')
+    );
     expect(result.data?.executionPlan).toBeTruthy();
     expect(result.data?.dimensions).toBeTruthy();
     expect(result.data?.serviceBoundary).toMatchObject({
@@ -1612,7 +1641,11 @@ describe('HostMcpServer', () => {
     expect(
       result.data?.currentDimensionGuidance?.dimensions?.map((dimension) => dimension.dimensionId)
     ).toEqual(currentTierDimensionIds);
-    for (const dimension of result.data?.currentDimensionGuidance?.dimensions || []) {
+    const inlineFullDimensions = (result.data?.currentDimensionGuidance?.dimensions || []).filter(
+      (dimension) => dimension.analysisGuide && dimension.submissionSpec
+    );
+    expect(inlineFullDimensions.length).toBeGreaterThan(0);
+    for (const dimension of inlineFullDimensions) {
       expect(dimension.analysisGuide).toBeTruthy();
       expect(dimension.submissionSpec).toBeTruthy();
     }

@@ -200,6 +200,8 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
   test('mounts use only source refs + metadata, with no semantic markers or full Recipe body', async () => {
     const projectRoot = createFixtureProject();
     const output = await recipeMap(projectRoot, 'module');
+    expect(Buffer.byteLength(JSON.stringify(output), 'utf8')).toBeLessThanOrEqual(20 * 1024);
+    expect(output.meta.fullMapRef ?? null).toBeNull();
     const serialized = JSON.stringify(output).toLowerCase();
     // No semantic/keyword search artifacts leak into deterministic mounting.
     expect(serialized).not.toContain('vectorscore');
@@ -223,6 +225,39 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     const a = await recipeMap(projectRoot, 'module');
     const b = await recipeMap(projectRoot, 'module');
     expect(JSON.stringify(b.recipeMounts)).toEqual(JSON.stringify(a.recipeMounts));
+  });
+
+  test('large recipe_map source refs stay inline with a readable fullMapRef', async () => {
+    const projectRoot = createFixtureProject();
+    const recipeIds = Array.from({ length: 60 }, (_, index) => `r-large-${index + 1}`);
+    const output = await defaultRecipeMapProvider.resolveRecipeMap(request(projectRoot, 'module'), {
+      ...fakeDeps(),
+      listRecipes: async () =>
+        recipeIds.map((id) => ({ id, sources: [], tags: [], title: `Large recipe ${id}` })),
+      querySourceRefs: async () => ({
+        diagnostics: [],
+        rows: recipeIds.flatMap((recipeId) =>
+          Array.from({ length: 80 }, (_, index) => ({
+            recipeId,
+            sourcePath: `lib/index.ts:${(index % 2) + 1}`,
+            status: 'active',
+          }))
+        ),
+      }),
+    });
+
+    expect(Buffer.byteLength(JSON.stringify(output), 'utf8')).toBeLessThanOrEqual(20 * 1024);
+    expect(output.meta.fullMapRef).toMatchObject({
+      bytes: expect.any(Number),
+      path: expect.any(String),
+    });
+    const fullMapPath = output.meta.fullMapRef?.path;
+    expect(fullMapPath ? fs.existsSync(fullMapPath) : false).toBe(true);
+    const fullMap = JSON.parse(fs.readFileSync(fullMapPath || '', 'utf8')) as {
+      recipeMounts?: Array<{ sourceRefs?: string[] }>;
+    };
+    expect(fullMap.recipeMounts?.[0]?.sourceRefs?.length).toBe(80);
+    expect(output.recipeMounts.every((mount) => mount.sourceRefs.length <= 8)).toBe(true);
   });
 
   test('discovery shows alembic_recipe_map and not alembic_project_matrix (no alias)', () => {

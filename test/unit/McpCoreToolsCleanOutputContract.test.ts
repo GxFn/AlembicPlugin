@@ -131,6 +131,12 @@ describe('MCP core tools clean output contract', () => {
       expect(topLevelFieldsAreWhitelisted(toolName, structured)).toEqual([]);
       expect(findForbiddenCoreOutputField(structured)).toBeNull();
       expect(CORE_TOOL_OUTPUT_SCHEMAS[toolName].parse(structured)).toEqual(structured);
+      if (toolName === 'alembic_bootstrap') {
+        expect(readRecord(structured.meta).fullBriefingRef).toMatchObject({
+          bytes: 1234,
+          path: '/tmp/full-bootstrap.json',
+        });
+      }
     }
   });
 
@@ -316,6 +322,9 @@ function sampleLegacyEnvelope(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[nu
       unexpectedContractLeak: 'must be dropped by the tool whitelist',
     },
     meta: {
+      ...(toolName === 'alembic_bootstrap'
+        ? { fullBriefingRef: { bytes: 1234, path: '/tmp/full-bootstrap.json' } }
+        : {}),
       responseTimeMs: 7,
       source: 'unit-sample',
       tool: toolName,
@@ -432,4 +441,10 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
     case 'alembic_knowledge_lifecycle':
       return { action: 'reactivate', updated: 1 };
   }
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

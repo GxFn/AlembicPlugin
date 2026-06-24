@@ -22,9 +22,18 @@ export const CleanMcpErrorSchema = CleanMcpFailureTaxonomySchema.extend({
   message: z.string().min(1),
 }).strict();
 
+const CleanMcpTransientTransportRefSchema = z
+  .object({
+    bytes: z.number().int().nonnegative(),
+    path: z.string().min(1),
+  })
+  .strict();
+
 export const CleanMcpMetaSchema = z
   .object({
     contractVersion: z.literal(CLEAN_MCP_OUTPUT_CONTRACT_VERSION),
+    fullBriefingRef: CleanMcpTransientTransportRefSchema.nullable().optional(),
+    fullMapRef: CleanMcpTransientTransportRefSchema.nullable().optional(),
     generatedAt: z.string().datetime({ offset: true }).optional(),
     outputSchema: z.string().min(1).max(160).optional(),
     producer: z.string().min(1).max(160).optional(),

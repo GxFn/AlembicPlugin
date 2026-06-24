@@ -173,6 +173,13 @@ export const AlembicRecipeMapLimitsSchema = z
   })
   .strict();
 
+const TransientTransportRefSchema = z
+  .object({
+    bytes: z.number().int().nonnegative(),
+    path: z.string().min(1),
+  })
+  .strict();
+
 export const AlembicRecipeMapOutputSchema = z
   .object({
     ok: z.boolean(),
@@ -196,6 +203,7 @@ export const AlembicRecipeMapOutputSchema = z
       .object({
         contractVersion: z.literal(ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION),
         outputSchema: z.literal('AlembicRecipeMapOutput').default('AlembicRecipeMapOutput'),
+        fullMapRef: TransientTransportRefSchema.nullable().optional(),
         generatedAt: z.string().datetime({ offset: true }).optional(),
         producer: z.string().min(1).max(160).optional(),
       })

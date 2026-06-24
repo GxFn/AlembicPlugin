@@ -22,6 +22,12 @@ import {
   type RegionNode,
 } from '../contracts/index.js';
 import {
+  jsonByteLength,
+  removeTransientTransportIfPresent,
+  type TransientTransportRef,
+  writeTransientTransport,
+} from '#shared/transient-transport.js';
+import {
   buildRegionIndex,
   compareMounts,
   type MountDiagnostic,
@@ -53,6 +59,7 @@ export interface RecipeMapDeps {
 }
 
 const DEFAULT_REF_LIMIT = 80;
+const RECIPE_MAP_INLINE_BUDGET_BYTES = 20 * 1024;
 
 export class RecipeMapProvider {
   async resolveRecipeMap(
@@ -93,7 +100,7 @@ export class RecipeMapProvider {
     const status = deriveStatus(region, diagnostics, mounts);
     const summary = `alembic_recipe_map ${request.focus.kind} returned ${mounts.length} recipe mounts over ${nodes.length} region nodes (ProjectContext ${status}).`;
 
-    return AlembicRecipeMapOutputSchema.parse({
+    const output = AlembicRecipeMapOutputSchema.parse({
       ok: status !== 'failed',
       status,
       tool: 'alembic_recipe_map',
@@ -121,11 +128,103 @@ export class RecipeMapProvider {
       },
       meta: {
         contractVersion: ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION,
+        fullMapRef: null,
         outputSchema: 'AlembicRecipeMapOutput',
         producer: 'RecipeMapProvider',
       },
     });
+    return budgetRecipeMapOutput(output, request);
   }
+}
+
+async function budgetRecipeMapOutput(
+  output: AlembicRecipeMapOutput,
+  request: RecipeMapRequest
+): Promise<AlembicRecipeMapOutput> {
+  const fullInline = attachFullMapRef(output, null);
+  if (jsonByteLength(fullInline) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
+    await removeTransientTransportIfPresent({
+      name: 'recipe-map',
+      projectRoot: request.projectRoot,
+    });
+    return fullInline;
+  }
+
+  const fullMapRef = await writeTransientTransport({
+    name: 'recipe-map',
+    payload: fullInline,
+    projectRoot: request.projectRoot,
+  });
+  const compact = attachFullMapRef(compactRecipeMapOutput(fullInline, 8), fullMapRef);
+  return AlembicRecipeMapOutputSchema.parse(trimRecipeMapOutputToBudget(compact));
+}
+
+function attachFullMapRef(
+  output: AlembicRecipeMapOutput,
+  fullMapRef: TransientTransportRef | null
+): AlembicRecipeMapOutput {
+  return {
+    ...output,
+    meta: {
+      ...output.meta,
+      fullMapRef,
+    },
+  };
+}
+
+function compactRecipeMapOutput(
+  output: AlembicRecipeMapOutput,
+  refsPerMount: number
+): AlembicRecipeMapOutput {
+  return {
+    ...output,
+    recipeMounts: output.recipeMounts.map((mount) => ({
+      ...mount,
+      sourceRefs: mount.sourceRefs.slice(0, refsPerMount),
+      matchedRefs: mount.matchedRefs.slice(0, refsPerMount),
+    })),
+  };
+}
+
+function trimRecipeMapOutputToBudget(output: AlembicRecipeMapOutput): AlembicRecipeMapOutput {
+  for (const refsPerMount of [8, 2, 0]) {
+    const compact = compactRecipeMapOutput(output, refsPerMount);
+    if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
+      return compact;
+    }
+  }
+
+  const refFree = compactRecipeMapOutput(output, 0);
+  for (const caps of [
+    { diagnostics: 80, nodes: 120, refs: 40, rollups: 100 },
+    { diagnostics: 40, nodes: 60, refs: 20, rollups: 60 },
+    { diagnostics: 20, nodes: 24, refs: 8, rollups: 24 },
+    { diagnostics: 10, nodes: 10, refs: 4, rollups: 10 },
+  ]) {
+    const compact = trimRecipeMapArrays(refFree, caps);
+    if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
+      return compact;
+    }
+  }
+  return trimRecipeMapArrays(refFree, { diagnostics: 5, nodes: 5, refs: 2, rollups: 5 });
+}
+
+function trimRecipeMapArrays(
+  output: AlembicRecipeMapOutput,
+  caps: { diagnostics: number; nodes: number; refs: number; rollups: number }
+): AlembicRecipeMapOutput {
+  const nodes = output.region.nodes.slice(0, caps.nodes);
+  return {
+    ...output,
+    refs: output.refs.slice(0, caps.refs),
+    region: {
+      ...output.region,
+      nodes,
+      truncated: output.region.truncated || output.region.nodes.length > nodes.length,
+    },
+    recipeRollups: output.recipeRollups.slice(0, caps.rollups),
+    diagnostics: output.diagnostics.slice(0, caps.diagnostics),
+  };
 }
 
 async function collectRecipeMounts(
