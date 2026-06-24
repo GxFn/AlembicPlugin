@@ -54,6 +54,7 @@ export interface PlanGenerationGateReady {
   moduleScope: string[];
   plan: Record<string, unknown>;
   planGate: Record<string, unknown>;
+  planSelection: NormalizedPlanSelection;
   planState: Record<string, unknown>;
   planView: Record<string, unknown>;
   projectRoot: string;
@@ -66,7 +67,7 @@ export interface PlanGenerationGateReady {
   testMode: boolean;
 }
 
-type NormalizedPlanSelection = Required<
+export type NormalizedPlanSelection = Required<
   Pick<PlanSelectionInput, 'dimensions' | 'generationStage' | 'moduleBindings' | 'scale'>
 >;
 
@@ -281,10 +282,7 @@ function buildPlanGenerationGateReady(input: {
   const planView = { planSelection };
   const signature = { matches: true, source: 'stateless-planSelection' };
   const dimensions = selectPlanDimensions({
-    requestedDimensionIds: normalizeStringArray(input.input?.dimensions),
-    generationStage,
     planSelection,
-    testMode: input.input?.testMode === true,
   });
   const moduleScope = selectPlanModuleScope({
     generationStage,
@@ -326,6 +324,7 @@ function buildPlanGenerationGateReady(input: {
     moduleScope,
     plan,
     planGate,
+    planSelection,
     planState,
     planView,
     projectRoot,
@@ -477,7 +476,7 @@ export function applyPlanGateToProjectAnalysisIntent(
   },
   gate: PlanGenerationGateReady
 ): void {
-  intent.dimensionIds = gate.dimensionIds;
+  intent.dimensionIds = [...gate.planSelection.dimensions];
   if (intent.projectAnalysis) {
     intent.projectAnalysis.maxFiles = gate.scale.maxFiles;
     intent.projectAnalysis.contentMaxLines = gate.scale.contentMaxLines;
@@ -556,26 +555,8 @@ function buildPlanGateNextActions(projectRoot: string): Record<string, unknown>[
   ];
 }
 
-function selectPlanDimensions(input: {
-  generationStage: PlanGenerationStage;
-  planSelection: NormalizedPlanSelection;
-  requestedDimensionIds: readonly string[];
-  testMode: boolean;
-}): string[] {
-  let selected = uniqueStrings(input.planSelection.dimensions);
-  if (input.generationStage === 'moduleMining') {
-    const bindingDimensions = uniqueStrings(
-      input.planSelection.moduleBindings.flatMap((binding) => binding.dimensions ?? [])
-    );
-    if (bindingDimensions.length > 0) {
-      selected = bindingDimensions;
-    }
-  }
-  if (input.testMode && input.requestedDimensionIds.length > 0) {
-    const requested = new Set(input.requestedDimensionIds);
-    selected = selected.filter((dimensionId) => requested.has(dimensionId));
-  }
-  return selected;
+function selectPlanDimensions(input: { planSelection: NormalizedPlanSelection }): string[] {
+  return uniqueStrings(input.planSelection.dimensions);
 }
 
 function selectPlanModuleScope(input: {

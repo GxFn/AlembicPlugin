@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   createInactiveGitDiffCheckpointStatus,
+  createPluginGitDiffCheckpointRuntime,
   GitDiffCheckpointService,
   GitDiffScanner,
   type GitDiffScanResult,
@@ -93,6 +95,42 @@ describe('Git diff checkpoint', () => {
       unresolvedRange: null,
     });
     expect(routed.checkpoint.checkpointCommit).toBe('head-b');
+  });
+
+  test('plugin runtime initializes checkpoint from the real current HEAD via Core provider', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'alembic-git-diff-head-'));
+    tempDirs.push(projectRoot);
+    writeFileSync(join(projectRoot, 'README.md'), 'checkpoint fixture\n');
+    git(projectRoot, ['init']);
+    git(projectRoot, ['config', 'user.email', 'alembic@example.test']);
+    git(projectRoot, ['config', 'user.name', 'Alembic Test']);
+    git(projectRoot, ['add', 'README.md']);
+    git(projectRoot, ['commit', '-m', 'initial']);
+    const head = git(projectRoot, ['rev-parse', '--verify', 'HEAD']);
+    const checkpointRepository = createInMemoryCheckpointRepository();
+
+    const runtime = createPluginGitDiffCheckpointRuntime(
+      {
+        get(name: string) {
+          if (name === 'gitDiffCheckpointRepository') {
+            return checkpointRepository;
+          }
+          throw new Error(`unexpected service lookup ${name}`);
+        },
+      },
+      { projectRoot }
+    );
+
+    expect(runtime).not.toBeNull();
+    expect(runtime).toMatchObject({
+      checkpointCommit: head,
+      initializationSource: 'current-head',
+    });
+    expect(runtime?.initializationSource).not.toBe('empty');
+    expect(checkpointRepository.get(runtime!.scope)).toMatchObject({
+      checkpointCommit: head,
+      initialFromPlanCommit: head,
+    });
   });
 
   test('durable service preserves unresolved non-ancestor and failed ranges', () => {
@@ -459,4 +497,12 @@ function createExecGitStub(input: {
     }
     return '';
   }) as (args: string[], cwd: string) => Promise<string>;
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 }

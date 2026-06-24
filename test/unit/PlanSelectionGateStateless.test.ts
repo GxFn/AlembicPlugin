@@ -1,10 +1,21 @@
-import { describe, expect, test } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, test } from 'vitest';
 import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import { resolvePlanGenerationGate } from '../../lib/recipe-generation/plan-generation-gate.js';
 import { BootstrapInput, RescanInput } from '../../lib/shared/schemas/mcp-tools.js';
 
+const fixtureRoots: string[] = [];
+
 describe('stateless planSelection generation gate', () => {
+  afterEach(() => {
+    for (const root of fixtureRoots.splice(0)) {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('executor schemas require planSelection on bootstrap and rescan', () => {
     expect(BootstrapInput.safeParse({}).success).toBe(false);
     expect(RescanInput.safeParse({ reason: 'missing-planSelection' }).success).toBe(false);
@@ -197,21 +208,107 @@ describe('stateless planSelection generation gate', () => {
       });
     }
   });
+
+  test('bootstrap mission briefing uses planSelection dimensions and attaches SOP guides', async () => {
+    const projectRoot = createSmallSwiftProject();
+    const response = (await runHostAgentColdStartWorkflow(createNoStorageContext(projectRoot), {
+      dimensions: ['architecture'],
+      planSelection: {
+        generationStage: 'coldStart',
+        dimensions: ['architecture', 'swift-objc-idiom'],
+        scale: {
+          totalRecipeBudget: 4,
+          maxFiles: 12,
+          contentMaxLines: 24,
+          depthLevels: ['project'],
+        },
+        moduleBindings: [
+          {
+            modulePath: 'Sources/App',
+            dimensions: ['architecture', 'swift-objc-idiom'],
+            targetRecipes: 2,
+          },
+        ],
+      },
+      scaleOverride: { totalRecipeBudget: 1, maxFiles: 6, contentMaxLines: 12 },
+      testMode: true,
+    })) as Record<string, unknown>;
+
+    expect(response).toMatchObject({ success: true });
+    const data = asRecord(response.data);
+    const dimensionTasks = asArray(data.dimensions).map(asRecord);
+    expect(dimensionTasks.map((dimension) => String(dimension.id))).toEqual([
+      'architecture',
+      'swift-objc-idiom',
+    ]);
+    for (const dimension of dimensionTasks) {
+      expect(asArray(asRecord(dimension.analysisGuide).steps).length).toBeGreaterThan(0);
+    }
+    expect(asRecord(data.planGate)).toMatchObject({
+      selectedDimensions: ['architecture', 'swift-objc-idiom'],
+      testMode: true,
+    });
+  });
 });
 
-function createNoStorageContext() {
+function createNoStorageContext(projectRoot = '/tmp/stateless-plan-gate') {
   return {
     container: {
       get: (name: string) => {
         throw new Error(`unexpected storage or scan dependency read: ${name}`);
       },
-      singletons: { _projectRoot: '/tmp/stateless-plan-gate' },
+      singletons: { _projectRoot: projectRoot },
     },
     logger: {
       info() {},
       warn() {},
     },
   };
+}
+
+function createSmallSwiftProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-selection-briefing-'));
+  fixtureRoots.push(root);
+  writeFile(
+    root,
+    'Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(name: "PlanSelectionBriefing", targets: [.target(name: "App", path: "Sources/App")])',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/App/AppView.swift',
+    [
+      'import SwiftUI',
+      '',
+      'public struct AppView: View {',
+      '  public init() {}',
+      '  public var body: some View { Text("Ready") }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  return root;
+}
+
+function writeFile(root: string, relativePath: string, content: string): void {
+  const absolutePath = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  fs.writeFileSync(absolutePath, content);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function coldStartSelection() {

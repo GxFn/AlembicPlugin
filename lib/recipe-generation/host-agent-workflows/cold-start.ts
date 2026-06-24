@@ -168,7 +168,7 @@ async function runPlanGatedColdStart(
 
   const briefingDimensions = selectProjectContextDimensions(
     projectContextAnalysis.dimensions,
-    intent.dimensionIds
+    input.planGate.planSelection.dimensions
   );
   const response = buildColdStartMissionBriefingResponse(ctx, {
     briefingDimensions,

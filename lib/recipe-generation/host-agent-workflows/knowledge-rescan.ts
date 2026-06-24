@@ -136,7 +136,7 @@ async function prepareRescanState(
   const intent = createHostAgentKnowledgeRescanIntent({
     ...args,
     contentMaxLines: planGate.scale.contentMaxLines,
-    dimensions: planGate.dimensionIds,
+    dimensions: planGate.planSelection.dimensions,
     force: planGate.cleanupPolicy === 'force-rescan',
     maxFiles: planGate.scale.maxFiles,
   });

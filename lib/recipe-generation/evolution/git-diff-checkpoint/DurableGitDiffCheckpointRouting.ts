@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import {
+  createCurrentGitHeadBaselineProvider,
   type GitDiffCheckpointRouteStatus,
   type GitDiffCheckpointScope,
   GitDiffCheckpointService,
@@ -58,9 +58,7 @@ export function createPluginGitDiffCheckpointRuntime(
   const service = new GitDiffCheckpointService({
     checkpointRepository:
       checkpointRepository as unknown as GitDiffCheckpointRepositories['checkpointRepository'],
-    baselineProvider: {
-      getBaselineCommit: readCurrentHeadCommit,
-    },
+    baselineProvider: createCurrentGitHeadBaselineProvider(),
   });
   const scope = buildPluginGitDiffCheckpointScope(input);
   const ensured = service.ensureCheckpoint(scope);
@@ -70,18 +68,6 @@ export function createPluginGitDiffCheckpointRuntime(
     scope,
     service,
   };
-}
-
-function readCurrentHeadCommit(projectRoot: string): string | null {
-  try {
-    const head = execFileSync('git', ['-C', projectRoot, 'rev-parse', 'HEAD'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return head.length > 0 ? head : null;
-  } catch {
-    return null;
-  }
 }
 
 export function buildPluginGitDiffCheckpointScope(input: {
