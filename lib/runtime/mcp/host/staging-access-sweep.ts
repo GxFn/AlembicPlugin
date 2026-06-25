@@ -34,6 +34,18 @@ interface LifecycleStateMachineLike {
   }>;
 }
 
+interface ProposalExecutorLike {
+  // cap 可选，对齐 Core ProposalExecutor.checkAndExecute(cap?: number): Promise<ProposalExecutionResult>。
+  // 仅 duck-type 出可观测计数所需的数组字段（executed/rejected/expired/skipped 条目）。
+  // 不传=无界（字节一致），传=单 tick 处理 ≤cap 条 observing proposal（Core 侧最旧优先、跨 tick 排空）。
+  checkAndExecute(cap?: number): Promise<{
+    executed?: unknown[];
+    rejected?: unknown[];
+    expired?: unknown[];
+    skipped?: unknown[];
+  }>;
+}
+
 interface LoggerLike {
   debug?(message: string, meta?: Record<string, unknown>): void;
   info?(message: string, meta?: Record<string, unknown>): void;
@@ -54,14 +66,18 @@ export interface StagingAccessSweepInput {
 }
 
 export interface StagingAccessSweepResult {
-  // P2 additive 可观测计数（lifecycle 超时驱动）：checkedTimeouts=本 tick checkTimeouts 扫描的条数、
-  // timedOutCount=经 transition 实际迁移的条数。注意与下方 timedOut(布尔，sweep 2s 信封超时标志)
-  // 语义不同，勿混用；仅新增字段，既有字段语义不变。
+  // P2/P3 additive 可观测计数（lifecycle 超时 + proposal 执行驱动）：checkedTimeouts=本 tick
+  // checkTimeouts 扫描条数、timedOutCount=经 transition 迁移条数；executedCount/rejectedCount/
+  // expiredCount=本 tick checkAndExecute 执行/驳回/过期的 proposal 条数。注意与下方 timedOut
+  // (布尔，sweep 2s 信封超时标志)语义不同，勿混用；仅新增字段，既有字段语义不变。
   checkedTimeouts?: number;
   durationMs?: number;
+  executedCount?: number;
+  expiredCount?: number;
   promotedCount: number;
   promotedIds: string[];
   reason?: string;
+  rejectedCount?: number;
   skipped: boolean;
   timedOut?: boolean;
   timedOutCount?: number;
@@ -128,13 +144,25 @@ async function runSweep(
     const lifecycle = container.get('lifecycleStateMachine') as LifecycleStateMachineLike;
     const timeoutResult = await lifecycle.checkTimeouts(cap);
     const timedOut = Array.isArray(timeoutResult.timedOut) ? timeoutResult.timedOut : [];
+    // P3 轨②（有界兜底）：checkTimeouts 之后、同一 tick / 同一信封内，以同一共享 cap 驱动 observing
+    // proposal 执行（observing→update/deprecate、到期 pending GC）。轨①（KnowledgeModule init 的
+    // subscribeToSignals）接即时信号；本兜底处理信号错过的到期 proposal。判定门禁全在 Core，此处仅
+    // 接线驱动、不碰判定、不绕 transition Guard；checkAndExecute 抛错则整 sweep 走下方 skipped 兜底。
+    const proposalExecutor = container.get('proposalExecutor') as ProposalExecutorLike;
+    const executionResult = await proposalExecutor.checkAndExecute(cap);
+    const executed = Array.isArray(executionResult.executed) ? executionResult.executed : [];
+    const expired = Array.isArray(executionResult.expired) ? executionResult.expired : [];
+    const rejected = Array.isArray(executionResult.rejected) ? executionResult.rejected : [];
     const promoted = Array.isArray(result.promoted) ? result.promoted : [];
     const waiting = Array.isArray(result.waiting) ? result.waiting : [];
     return {
       checkedTimeouts: typeof timeoutResult.checked === 'number' ? timeoutResult.checked : 0,
       durationMs: Date.now() - startedAt,
+      executedCount: executed.length,
+      expiredCount: expired.length,
       promotedCount: promoted.length,
       promotedIds: promoted.map((entry) => entry.id).filter(isString),
+      rejectedCount: rejected.length,
       skipped: false,
       timedOutCount: timedOut.length,
       toolName: input.toolName,
@@ -243,10 +271,13 @@ function logSweepResult(
   const meta = {
     checkedTimeouts: result.checkedTimeouts ?? null,
     durationMs: result.durationMs ?? null,
+    executedCount: result.executedCount ?? null,
+    expiredCount: result.expiredCount ?? null,
     projectRoot,
     promotedCount: result.promotedCount,
     promotedIds: result.promotedIds,
     reason: result.reason ?? null,
+    rejectedCount: result.rejectedCount ?? null,
     timedOut: result.timedOut === true,
     timedOutCount: result.timedOutCount ?? null,
     toolName: result.toolName,

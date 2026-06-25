@@ -15,9 +15,15 @@ const ORIGINAL_CAP = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP;
 // 导致 checkTimeouts 抛错 → 整 sweep 误入 skipped 兜底。
 function makeSweepContainer(opts: {
   checked?: number;
+  executed?: unknown[];
+  expired?: unknown[];
+  onCheckAndExecute?: (cap?: number) => void;
   onCheckTimeouts?: (cap?: number) => void;
   onPromote?: (cap?: number) => void;
   promoted?: Array<{ id?: string; title?: string }>;
+  rejected?: unknown[];
+  skipped?: unknown[];
+  throwOnCheckAndExecute?: Error;
   throwOnCheckTimeouts?: Error;
   timedOut?: Array<{ age?: number; fromState?: string; recipeId?: string; toState?: string }>;
 }) {
@@ -31,6 +37,22 @@ function makeSweepContainer(opts: {
               throw opts.throwOnCheckTimeouts;
             }
             return { checked: opts.checked ?? 0, timedOut: opts.timedOut ?? [] };
+          },
+        };
+      }
+      if (name === 'proposalExecutor') {
+        return {
+          async checkAndExecute(cap?: number) {
+            opts.onCheckAndExecute?.(cap);
+            if (opts.throwOnCheckAndExecute) {
+              throw opts.throwOnCheckAndExecute;
+            }
+            return {
+              executed: opts.executed ?? [],
+              expired: opts.expired ?? [],
+              rejected: opts.rejected ?? [],
+              skipped: opts.skipped ?? [],
+            };
           },
         };
       }
@@ -86,6 +108,13 @@ describe('StagingAccessSweep', () => {
           return {
             async checkTimeouts() {
               return { checked: 0, timedOut: [] };
+            },
+          };
+        }
+        if (name === 'proposalExecutor') {
+          return {
+            async checkAndExecute() {
+              return { executed: [], expired: [], rejected: [], skipped: [] };
             },
           };
         }
@@ -266,5 +295,65 @@ describe('StagingAccessSweep', () => {
     // checkTimeouts 抛错 → 整 sweep 走既有 try/catch skipped 兜底（inFlight/throttle/2s 信封不变）。
     expect(result.skipped).toBe(true);
     expect(result.reason).toBe('checkTimeouts boom');
+  });
+
+  test('drives proposalExecutor.checkAndExecute with the shared cap after checkTimeouts', async () => {
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP = '9';
+    const order: string[] = [];
+    let executeCap: number | undefined = -1;
+    const getContainer = makeSweepContainer({
+      executed: [{ id: 'e1' }, { id: 'e2' }, { id: 'e3' }],
+      expired: [{ id: 'x1' }],
+      onCheckAndExecute: (cap) => {
+        order.push('checkAndExecute');
+        executeCap = cap;
+      },
+      onCheckTimeouts: () => {
+        order.push('checkTimeouts');
+      },
+      onPromote: () => {
+        order.push('checkAndPromote');
+      },
+      rejected: [{ id: 'r1' }, { id: 'r2' }],
+    });
+
+    const result = await maybeRunStagingAccessSweep({
+      getContainer,
+      now: 50_000,
+      projectRoot: '/tmp/project-checkandexecute',
+      toolName: 'alembic_status',
+    });
+
+    expect(result.skipped).toBe(false);
+    // 同一共享 cap(env=9) 驱动兜底 checkAndExecute。
+    expect(executeCap).toBe(9);
+    // 顺序：promote → checkTimeouts → checkAndExecute（同一 tick / 同一信封）。
+    expect(order).toEqual(['checkAndPromote', 'checkTimeouts', 'checkAndExecute']);
+    // additive proposal 执行计数（不改既有字段语义）。
+    expect(result.executedCount).toBe(3);
+    expect(result.rejectedCount).toBe(2);
+    expect(result.expiredCount).toBe(1);
+  });
+
+  test('falls back to skipped when checkAndExecute throws, leaving the sweep envelope intact', async () => {
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = '0';
+    delete process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP;
+    const getContainer = makeSweepContainer({
+      throwOnCheckAndExecute: new Error('checkAndExecute boom'),
+    });
+
+    const result = await maybeRunStagingAccessSweep({
+      getContainer,
+      now: 60_000,
+      projectRoot: '/tmp/project-checkandexecute-throw',
+      toolName: 'alembic_status',
+    });
+
+    // checkAndExecute 抛错 → 整 sweep 走既有 try/catch skipped 兜底（信封不变）。
+    expect(result.skipped).toBe(true);
+    expect(result.reason).toBe('checkAndExecute boom');
   });
 });
