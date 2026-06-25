@@ -10,10 +10,6 @@ import type {
   ImpactLevel,
   ReactiveEvolutionReport,
 } from '@alembic/core/types';
-import {
-  buildHostAgentProjectContextAnalysis,
-  type HostAgentProjectContextAnalysis,
-} from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
 
 type SourceRefRow = {
   recipeId: string;
@@ -62,24 +58,15 @@ interface SignalBusLike {
 
 export interface FileChangeHandlerOptions {
   evolutionGateway?: Pick<EvolutionGateway, 'submit'> | null;
-  moduleMiningAnalyzer?: ModuleMiningAnalyzer;
   projectRoot?: string;
   recipeFreshnessService?: Pick<RecipeFreshnessService, 'refreshRecipes'> | null;
   renameAutoRepairThreshold?: number;
   signalBus?: SignalBusLike | null;
 }
 
-export interface ModuleMiningAnalyzerInput {
-  event: FileChangeEvent;
-  moduleId: string;
-  moduleScope: string[];
-  projectRoot: string;
-}
-
-export type ModuleMiningAnalyzer = (
-  input: ModuleMiningAnalyzerInput
-) => Promise<HostAgentProjectContextAnalysis>;
-
+// UM#1：created→moduleMining 生成已退役。保留 UnifiedEvolutionModuleMiningRoute 类型与 report 上
+// 恒空的 moduleMiningRoutes 字段，纯为 surface/output/routing 消费方的向后兼容（schema 不变、恒空）；
+// 不再有任何代码向其写入路由。生成型模块挖掘分析器接口与入参类型已随退役一并删除。
 export interface UnifiedEvolutionModuleMiningRoute {
   fileCount: number;
   moduleId: string;
@@ -121,12 +108,15 @@ export interface UnifiedEvolutionReport extends ReactiveEvolutionReport {
     created: number;
     deleted: number;
     deprecationProposals: number;
+    // moduleMiningRoutes：UM#1 退役后恒为 0（无生成路由）；保留为向后兼容字段。
     moduleMiningRoutes: number;
     modified: number;
     proposed: number;
     renamed: number;
     repaired: number;
     skipped: number;
+    // UM#5（⑤b）：未被 recipe_source_refs 覆盖的新建文件计数（生成已退役，纯诊断、非生成）。
+    uncoveredCreated: number;
   };
   generationChangeLog: UnifiedEvolutionChangeLogEntry[];
   freshness?: {
@@ -150,7 +140,6 @@ const FILE_CHANGE_PROPOSAL_SOURCE = 'file-change';
 export class FileChangeHandler {
   readonly #evolutionGateway: Pick<EvolutionGateway, 'submit'> | null;
   readonly #knowledgeRepo: KnowledgeRepositoryLike;
-  readonly #moduleMiningAnalyzer: ModuleMiningAnalyzer;
   readonly #projectRoot: string;
   readonly #recipeFreshnessService: Pick<RecipeFreshnessService, 'refreshRecipes'> | null;
   readonly #renameAutoRepairThreshold: number;
@@ -166,7 +155,6 @@ export class FileChangeHandler {
     this.#sourceRefRepo = sourceRefRepo;
     this.#knowledgeRepo = knowledgeRepo;
     this.#evolutionGateway = options.evolutionGateway ?? null;
-    this.#moduleMiningAnalyzer = options.moduleMiningAnalyzer ?? defaultModuleMiningAnalyzer;
     this.#projectRoot = options.projectRoot ?? process.cwd();
     this.#recipeFreshnessService = options.recipeFreshnessService ?? null;
     this.#renameAutoRepairThreshold =
@@ -198,11 +186,8 @@ export class FileChangeHandler {
 
     await this.#refreshAffectedRecipes(report, [...freshnessIds], freshnessEntries);
     report.classificationCounts.skipped = report.skipped;
-    report.suggestReview =
-      report.needsReview > 0 ||
-      report.deprecated > 0 ||
-      report.moduleMiningRoutes.length > 0 ||
-      report.classificationCounts.moduleMiningRoutes > 0;
+    // UM#1：moduleMining 生成已退役（moduleMiningRoutes 恒空），suggestReview 只取决于真实的待审/弃用。
+    report.suggestReview = report.needsReview > 0 || report.deprecated > 0;
     return report;
   }
 
@@ -290,34 +275,20 @@ export class FileChangeHandler {
       const impact = assessFileImpact(this.#projectRoot, event.path, tokens);
       if (!impact) {
         if (event.eventSource === 'git-head') {
-          const proposal = await this.#submitUpdateProposal(entry, event.path, {
-            currentCode: '',
-            impactLevel: 'reference',
-            matchedTokens: [],
-            reason:
-              'Committed git-head event modified covered source; working-tree diff content is no longer available, so a Recipe update proposal must preserve review evidence.',
-          });
-          report.pendingProposals.push(proposal);
-          report.needsReview++;
-          report.classificationCounts.proposed++;
+          // LP7（CG-5）：committed git-head 事件命中覆盖源，但 assessFileImpact 零 token 命中
+          // （工作树 diff 内容已不可得，无法判定真实影响）。不再无条件提 reference 更新提案——
+          // 那会对每个 commit 的覆盖文件刷一条无证据噪音提案、污染 needsReview。降级为
+          // generationChangeLog 记录 + skipped++（可观测、非提案），不进 pendingProposals/needsReview。
+          // 真实有 token 命中（impact 非空）的修改仍走下方正常 update 提案路径，维护 advance 不受影响。
           report.generationChangeLog.push({
-            action: 'source-modified-review-needed',
+            action: 'source-modified-git-head-no-impact',
             createdAt: Date.now(),
             eventSource: event.eventSource,
             filePath: event.path,
             reason:
-              'Committed git-head event modified covered source; working-tree diff content is no longer available, so a Recipe update proposal was routed.',
+              'Committed git-head event modified covered source but no Recipe-relevant tokens matched (zero-impact); recorded for observability without routing a review proposal.',
             recipeId: entry.id,
           });
-          report.details.push({
-            action: 'needs-review',
-            impactLevel: 'reference',
-            modifiedPath: event.path,
-            reason: 'Committed git-head modification touched a covered sourceRef',
-            recipeId: entry.id,
-            recipeTitle: entry.title ?? entry.id,
-          });
-          continue;
         }
         report.skipped++;
         continue;
@@ -415,81 +386,20 @@ export class FileChangeHandler {
       return;
     }
 
+    // 命中既有 recipe_source_refs 覆盖 = 维护范畴（既有 Recipe 的演进由 modified/deleted 路径处理），
+    // 不在此生成；仅计数。
     if (this.#activeRefsForPath(event.path).length > 0) {
       report.classificationCounts.coveredCreated++;
       return;
     }
 
-    const route = await this.#routeNewModuleToModuleMining(event, moduleId);
-    report.moduleMiningRoutes.push(route);
-    report.generationChangeLog.push({
-      action:
-        route.status === 'routed'
-          ? 'new-module-module-mining-routed'
-          : 'new-module-module-mining-failed',
-      createdAt: Date.now(),
-      eventSource: event.eventSource,
-      filePath: event.path,
-      reason: route.reason,
-    });
-    if (route.status === 'routed') {
-      report.classificationCounts.moduleMiningRoutes++;
-    } else {
-      report.needsReview++;
-    }
-    this.#signalBus?.send(
-      'quality',
-      'PluginUnifiedEvolution',
-      route.status === 'routed' ? 0.7 : 0.5,
-      {
-        metadata: {
-          reason: 'new-module-module-mining-route',
-          moduleId,
-          moduleScope: route.moduleScope,
-          path: event.path,
-          status: route.status,
-        },
-      }
-    );
-  }
-
-  async #routeNewModuleToModuleMining(
-    event: FileChangeEvent,
-    moduleId: string
-  ): Promise<UnifiedEvolutionModuleMiningRoute> {
-    const moduleScope = [event.path];
-    try {
-      const analysis = await this.#moduleMiningAnalyzer({
-        event,
-        moduleId,
-        moduleScope,
-        projectRoot: this.#projectRoot,
-      });
-      return {
-        fileCount: analysis.fileCount,
-        moduleCount: analysis.moduleCount,
-        moduleId,
-        moduleScope,
-        moduleSeedCount: analysis.moduleSeeds.length,
-        path: event.path,
-        reason:
-          'Created path has no exact recipe_source_refs coverage; routed to scoped moduleMining ProjectContext analysis without Plan state writes.',
-        requestKinds: [...analysis.requestKinds],
-        status: 'routed',
-      };
-    } catch (err: unknown) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        fileCount: 0,
-        moduleId,
-        moduleScope,
-        path: event.path,
-        reason:
-          'Created path has no exact recipe_source_refs coverage, but scoped moduleMining ProjectContext analysis failed.',
-        requestKinds: [],
-        status: 'failed',
-      };
-    }
+    // UM#1/#5：退役 created→moduleMining 生成路径。未被任何 recipe_source_refs 覆盖的新文件不再调
+    // moduleMiningAnalyzer 种新 Recipe（不写 plan/生成 state、不发生成质量信号、不提任何提案、不进
+    // moduleMiningRoutes）。commit-driven 维护链只对既有 Recipe 建/更新/弃用 proposal；新文件的首次
+    // 覆盖由 coldStart/deepMining 等专职生成链负责（另需求），不属本维护链。此处仅留纯计数诊断
+    // （⑤b：可观测、非生成、不触发任何生成/分析）。
+    report.classificationCounts.uncoveredCreated++;
+    report.skipped++;
   }
 
   #activeRefsForPath(path: string): SourceRefRow[] {
@@ -683,6 +593,7 @@ function createReport(events: readonly FileChangeEvent[]): UnifiedEvolutionRepor
       renamed: 0,
       repaired: 0,
       skipped: 0,
+      uncoveredCreated: 0,
     },
     deprecated: 0,
     details: [],
@@ -702,26 +613,9 @@ function createReport(events: readonly FileChangeEvent[]): UnifiedEvolutionRepor
   };
 }
 
-async function defaultModuleMiningAnalyzer(
-  input: ModuleMiningAnalyzerInput
-): Promise<HostAgentProjectContextAnalysis> {
-  void input.event;
-  void input.moduleId;
-  return await buildHostAgentProjectContextAnalysis({
-    maxFileDetails: 4,
-    maxModuleDetails: 1,
-    maxModuleSeeds: 1,
-    moduleScope: input.moduleScope,
-    projectRoot: input.projectRoot,
-    source: 'codex-host-rescan',
-  });
-}
-
 export function isUnifiedEvolutionReportRouteComplete(report: UnifiedEvolutionReport): boolean {
-  return (
-    report.pendingProposals.every((proposal) => proposal.status === 'submitted') &&
-    report.moduleMiningRoutes.every((route) => route.status === 'routed')
-  );
+  // UM#1：moduleMining 生成已退役（moduleMiningRoutes 恒空），路由完整性只取决于提案是否落库。
+  return report.pendingProposals.every((proposal) => proposal.status === 'submitted');
 }
 
 export function describeUnifiedEvolutionRouteIncomplete(
@@ -732,12 +626,6 @@ export function describeUnifiedEvolutionRouteIncomplete(
   );
   if (unavailableProposal) {
     return `Update/deprecation proposal for ${unavailableProposal.recipeId} was not submitted.`;
-  }
-  const failedModuleMining = report.moduleMiningRoutes.find((route) => route.status !== 'routed');
-  if (failedModuleMining) {
-    return `ModuleMining route for ${failedModuleMining.path} failed${
-      failedModuleMining.error ? `: ${failedModuleMining.error}` : ''
-    }.`;
   }
   return null;
 }

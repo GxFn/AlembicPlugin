@@ -427,11 +427,12 @@ async function runRescanUnifiedEvolution(
     projectRoot: input.projectRoot,
     scan,
     serviceGate: {
-      mainServiceCanHandleProjectScope: false,
-      residentProjectScopeAvailable: false,
       reason: routeError
         ? `${serviceGateReason} Routing did not complete: ${routeError}.`
         : serviceGateReason,
+      residentProjectScopeAvailable: false,
+      // UM#3：rescan public workflow 自己拥有 commit-driven 维护路由，从不去抖给 resident。
+      residentSearchEnhancementReady: false,
     },
     toolOutcome: {
       reason: 'alembic_rescan completed',

@@ -8,9 +8,9 @@ import {
 import { attachPluginOpportunisticEvolutionSurface } from '../../lib/runtime/mcp/host/opportunistic-evolution-presenter.js';
 
 const fallbackGate = {
-  mainServiceCanHandleProjectScope: false,
   reason: 'resident unavailable',
   residentProjectScopeAvailable: false,
+  residentSearchEnhancementReady: false,
 };
 
 function makeScan(overrides: Partial<GitDiffScanResult> = {}): GitDiffScanResult {
@@ -49,9 +49,9 @@ describe('Plugin opportunistic evolution surface', () => {
         },
       },
       serviceGate: {
-        mainServiceCanHandleProjectScope: true,
         reason: 'resident ready',
         residentProjectScopeAvailable: true,
+        residentSearchEnhancementReady: true,
       },
       toolOutcome: { success: true, tool: 'alembic_task' },
     });

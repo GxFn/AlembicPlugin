@@ -89,11 +89,12 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
     projectRoot: input.projectRoot,
     scan,
     serviceGate: {
-      mainServiceCanHandleProjectScope: input.executionContext.residentProjectScopeAvailable,
-      residentProjectScopeAvailable: input.executionContext.residentProjectScopeAvailable,
       reason: routeError
         ? `${serviceGateReason} Plugin unified evolution routing did not complete: ${routeError}.`
         : serviceGateReason,
+      residentProjectScopeAvailable: input.executionContext.residentProjectScopeAvailable,
+      // UM#3：resident 检索增强就绪位（改名自旧服务门字段）；仅驱动 surface 去抖，非维护对端。
+      residentSearchEnhancementReady: input.executionContext.residentProjectScopeAvailable,
     },
     toolOutcome,
     checkpoint,
