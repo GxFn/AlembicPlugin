@@ -162,7 +162,12 @@ export class FileChangeHandler {
     this.#signalBus = options.signalBus ?? null;
   }
 
-  async handleFileChanges(events: FileChangeEvent[]): Promise<UnifiedEvolutionReport> {
+  async handleFileChanges(
+    events: FileChangeEvent[],
+    // maint-fix-plugin：commit-range（如 `mergeBase..HEAD`，来自 scanner 的 scan.range）。仅 git-head
+    // （committed）事件用它走 commit-range diff；工作树事件不传=默认 `git diff HEAD`（向后兼容、字节不变）。
+    commitRange?: string
+  ): Promise<UnifiedEvolutionReport> {
     const report = createReport(events);
     const freshnessIds = new Set<string>();
     const freshnessEntries = new Map<string, KnowledgeEntryLike>();
@@ -173,7 +178,7 @@ export class FileChangeHandler {
           await this.#handleRenamed(event, report, freshnessIds, freshnessEntries);
           break;
         case 'modified':
-          await this.#handleModified(event, report);
+          await this.#handleModified(event, report, commitRange);
           break;
         case 'deleted':
           await this.#handleDeleted(event, report);
@@ -256,7 +261,11 @@ export class FileChangeHandler {
     }
   }
 
-  async #handleModified(event: FileChangeEvent, report: UnifiedEvolutionReport): Promise<void> {
+  async #handleModified(
+    event: FileChangeEvent,
+    report: UnifiedEvolutionReport,
+    commitRange?: string
+  ): Promise<void> {
     report.classificationCounts.modified++;
     const refs = this.#activeRefsForPath(event.path);
     if (refs.length === 0) {
@@ -272,14 +281,19 @@ export class FileChangeHandler {
       }
 
       const tokens = extractRecipeTokens(entry);
-      const impact = assessFileImpact(this.#projectRoot, event.path, tokens);
+      // maint-fix-plugin：git-head（committed）事件用 commit-range diff——工作树在 commit 后已为空，必须用
+      // scanner 算出的 commit-range（scan.range）才能拿到真实改动做影响评估，否则恒零命中被 LP7 误 skip。
+      // 非 git-head（工作树）事件传 undefined=默认 `git diff HEAD`，与改前逐字节一致（向后兼容）。
+      const revisionRange = event.eventSource === 'git-head' ? commitRange : undefined;
+      const impact = assessFileImpact(this.#projectRoot, event.path, tokens, revisionRange);
       if (!impact) {
         if (event.eventSource === 'git-head') {
-          // LP7（CG-5）：committed git-head 事件命中覆盖源，但 assessFileImpact 零 token 命中
-          // （工作树 diff 内容已不可得，无法判定真实影响）。不再无条件提 reference 更新提案——
-          // 那会对每个 commit 的覆盖文件刷一条无证据噪音提案、污染 needsReview。降级为
-          // generationChangeLog 记录 + skipped++（可观测、非提案），不进 pendingProposals/needsReview。
-          // 真实有 token 命中（impact 非空）的修改仍走下方正常 update 提案路径，维护 advance 不受影响。
+          // LP7（CG-5）+ maint-fix-plugin：git-head 事件现在用 commit-range diff（scan.range）做影响评估，
+          // 故 committed-impactful 改动能拿到真实 token 命中（不再误零命中——订正旧注释「工作树 diff 已不可得」）。
+          // 此处只剩「commit-range 内零 token 命中」= trivial committed 改动（无 Recipe 相关变更）。LP7 精确抑制：
+          // 不提无证据 reference 提案，降级为 generationChangeLog 记录 + skipped++（可观测、非提案），
+          // 不进 pendingProposals/needsReview。有 token 命中（impact 非空）的改动走下方正常 update 提案——
+          // 这正是 committed→propose 收口。
           report.generationChangeLog.push({
             action: 'source-modified-git-head-no-impact',
             createdAt: Date.now(),

@@ -79,7 +79,11 @@ export async function runCommitDrivenMaintenance(
     const handler = input.buildHandler(input.projectRoot);
     if (handler) {
       try {
-        report = await handler.handleFileChanges(scan.events);
+        // maint-fix-plugin：把 scanner 已算的 commit-range（mergeBase..HEAD）透传给 handler，供 git-head
+        // （committed）事件走 commit-range diff 做影响评估（committed→propose 收口）。range 直接取自
+        // scanner 返回的 scan.range，不另查 checkpoint 游标表；工作树无 range 时为 undefined=默认 git diff HEAD。
+        const commitRange = scan.range ? `${scan.range.from}..${scan.range.to}` : undefined;
+        report = await handler.handleFileChanges(scan.events, commitRange);
         if (!isUnifiedEvolutionReportRouteComplete(report)) {
           routeError = describeUnifiedEvolutionRouteIncomplete(report);
         }

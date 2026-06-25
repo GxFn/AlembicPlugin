@@ -319,6 +319,69 @@ describe('FileChangeHandler', () => {
     });
   });
 
+  /* ─── maint-fix-plugin: git-head commit-range 传递 + LP7 精确抑制 ─── */
+
+  describe('committed→propose（maint-fix-plugin: git-head commit-range）', () => {
+    test('git-head 事件以 commit-range 调 assessFileImpact；工作树事件不传（默认）', async () => {
+      const { handler, sourceRefRepo, knowledgeRepo } = createHandler();
+      sourceRefRepo._seed('r1', 'Sources/Committed.swift');
+      knowledgeRepo._seed('r1', { title: 'Recipe', coreCode: '' });
+
+      await handler.handleFileChanges(
+        [{ eventSource: 'git-head', type: 'modified', path: 'Sources/Committed.swift' }],
+        'base..HEAD'
+      );
+      // git-head（committed）事件：assessFileImpact 第 4 参=透传来的 commit-range。
+      expect(mockAssessFileImpact).toHaveBeenLastCalledWith(
+        expect.any(String),
+        'Sources/Committed.swift',
+        expect.anything(),
+        'base..HEAD'
+      );
+
+      mockAssessFileImpact.mockClear();
+      await handler.handleFileChanges(
+        [{ eventSource: 'git-worktree', type: 'modified', path: 'Sources/Committed.swift' }],
+        'base..HEAD'
+      );
+      // 非 git-head（工作树）事件：不传 commit-range（第 4 参 undefined）=默认 git diff HEAD（向后兼容）。
+      expect(mockAssessFileImpact).toHaveBeenLastCalledWith(
+        expect.any(String),
+        'Sources/Committed.swift',
+        expect.anything(),
+        undefined
+      );
+    });
+
+    test('impactful committed（commit-range 有真 token 命中）→ update proposal（不再被 LP7 误 skip）', async () => {
+      mockAssessFileImpact.mockReturnValue({
+        level: 'pattern',
+        score: 0.6,
+        matchedTokens: ['RouterModule'],
+      });
+      const { handler, sourceRefRepo, knowledgeRepo, gateway } = createHandler();
+      sourceRefRepo._seed('r1', 'Sources/Committed.swift');
+      knowledgeRepo._seed('r1', { title: 'Recipe', coreCode: '' });
+
+      const report = await handler.handleFileChanges(
+        [{ eventSource: 'git-head', type: 'modified', path: 'Sources/Committed.swift' }],
+        'base..HEAD'
+      );
+
+      // committed→propose 收口：impactful committed 改动得到真 impact → 产 update proposal（非 LP7 skip）。
+      expect(report.needsReview).toBe(1);
+      expect(report.classificationCounts.proposed).toBe(1);
+      expect(report.pendingProposals).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ action: 'update', recipeId: 'r1', status: 'submitted' }),
+        ])
+      );
+      expect(gateway.submit).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'update', recipeId: 'r1', source: 'file-change' })
+      );
+    });
+  });
+
   /* ─── suggestReview 策略 ─── */
 
   describe('suggestReview（Strategy C 验证）', () => {
