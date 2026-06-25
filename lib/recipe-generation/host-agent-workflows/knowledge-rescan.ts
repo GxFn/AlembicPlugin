@@ -20,6 +20,7 @@ import {
   buildRescanPrescreen,
   createHostAgentKnowledgeRescanIntent,
   type DimensionDef,
+  type ModuleCellBinding,
   presentHostAgentKnowledgeRescanEmptyProject,
   presentHostAgentKnowledgeRescanResponse,
   projectHostAgentRescanEvidencePlan,
@@ -47,6 +48,7 @@ import {
   applyPlanGateToProjectAnalysisIntent,
   attachPlanGenerationGateData,
   type PlanGenerationGateReady,
+  type PlanSelectionModuleBinding,
   resolvePlanGenerationGate,
 } from '#recipe-generation/plan-generation-gate.js';
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
@@ -278,11 +280,19 @@ async function buildRescanPlanning(
     projectRoot: state.projectRoot,
   });
 
+  // U1 #2：把 gate.moduleBindings（per-模块意图，含 dimensions/targetRecipes）拍扁成 Core 的 per-cell
+  // ModuleCellBinding[]，透传给 buildKnowledgeRescanPlan 驱动 per-(模块×维度) gap。canonical moduleCount
+  // 取自 presenterInput.map.modules.length（ProjectMap 权威模块列表），用于 Core perCellTarget tier 回退；
+  // map 不可用时传 undefined，Core 退回「本批去重模块数」（零回归）。flat moduleScope 出口不受影响。
+  const moduleCellBindings = flattenModuleBindingsToCells(state.planGate.moduleBindings);
+  const canonicalModuleCount = state.projectContextAnalysis.presenterInput.map?.modules.length;
   const knowledgeRescanPlan = buildKnowledgeRescanPlan({
     recipeEntries: state.recipeSnapshot.entries,
     auditSummary,
     dimensions: state.projectContextAnalysis.dimensions as DimensionDef[],
     requestedDimensionIds: state.intent.dimensionIds,
+    ...(moduleCellBindings.length > 0 ? { moduleBindings: moduleCellBindings } : {}),
+    ...(canonicalModuleCount !== undefined ? { moduleCount: canonicalModuleCount } : {}),
   });
   const dimensions = selectProjectContextDimensions(
     knowledgeRescanPlan.executionDimensions,
@@ -584,4 +594,51 @@ function projectContextFilesForRescanAudit(files: readonly ProjectContextAuditFi
     path: file.filePath,
     relativePath: file.filePath,
   }));
+}
+
+// U1 #2：per-模块 → per-cell 拍扁。
+// Plugin 的 PlanSelectionModuleBinding 是「一个模块 + 一组 dimensions」的意图；Core 的 ModuleCellBinding
+// 是「单个 模块×维度 cell」。这里对每个 binding 的每个 dimension 各产出一条 cell（dimensionId=该维度），
+// moduleId/moduleName 从模块派生，targetRecipes 作为 per-cell 目标透传（缺省由 Core 用 tier 默认补齐）。
+// perCellCoverage 在 per-模块意图里没有，故不透传（Core 缺省按 0 处理；per-cell 覆盖账本=后续 U2a）。
+// 维度去重，避免同一 (模块×维度) 被重复计入 gap。
+export function flattenModuleBindingsToCells(
+  moduleBindings: readonly PlanSelectionModuleBinding[]
+): ModuleCellBinding[] {
+  const cells: ModuleCellBinding[] = [];
+  for (const binding of moduleBindings) {
+    const moduleName = canonicalModuleNameFromBinding(binding);
+    const seenDimensions = new Set<string>();
+    for (const rawDimension of binding.dimensions ?? []) {
+      const dimensionId = rawDimension.trim();
+      if (dimensionId.length === 0 || seenDimensions.has(dimensionId)) {
+        continue;
+      }
+      seenDimensions.add(dimensionId);
+      cells.push({
+        dimensionId,
+        ...(binding.moduleId ? { moduleId: binding.moduleId } : {}),
+        ...(moduleName ? { moduleName } : {}),
+        // per-cell 目标：per-模块 binding 的 targetRecipes 落到该模块下每个 cell（plan 显式目标）。
+        ...(typeof binding.targetRecipes === 'number'
+          ? { targetRecipes: binding.targetRecipes }
+          : {}),
+      });
+    }
+  }
+  return cells;
+}
+
+// 从 per-模块 binding 取一个稳定的 moduleName：优先 modulePath 末段，其次 moduleId。
+// 仅用于 Core per-cell gap 的模块标识，不改变 flat moduleScope（仍是 modulePath 原值）。
+function canonicalModuleNameFromBinding(binding: PlanSelectionModuleBinding): string | undefined {
+  const fromPath = binding.modulePath
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .pop()
+    ?.replace(/\.[^.]+$/, '');
+  if (fromPath && fromPath.length > 0) {
+    return fromPath;
+  }
+  return binding.moduleId && binding.moduleId.length > 0 ? binding.moduleId : undefined;
 }

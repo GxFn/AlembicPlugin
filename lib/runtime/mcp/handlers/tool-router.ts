@@ -14,6 +14,10 @@ import type { CreateRecipeItem, CreateRecipeResult } from '@alembic/core/knowled
 import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
+import {
+  buildKnownModuleNames,
+  buildResolveModuleFromSourceRefs,
+} from '#recipe-generation/canonical-module-axis.js';
 import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
@@ -304,6 +308,11 @@ async function createSubmitKnowledgeGateway(ctx: McpContext, dataRoot: string) {
   const { RecipeProductionGateway } = await import('@alembic/core/knowledge');
   const { findSimilarRecipes } = await import('@alembic/core/service/candidate');
   type GatewayOptions = ConstructorParameters<typeof RecipeProductionGateway>[0];
+  // U1 #5：从 canonical ProjectMap.modules（ModuleService 已加载的内存投影）构造模块轴依赖，
+  // 让 Core #deriveModuleName 按 canonical 轴校验显式 moduleName / 反查 sourceRefs 落点。
+  // submit 是 async 路径，可安全 await moduleService；取不到模块轴时两个 dep 为 undefined，
+  // Core 退回原 passthrough（加性、向后兼容）。
+  const moduleAxis = await resolveSubmitKnowledgeModuleAxis(ctx);
   return new RecipeProductionGateway({
     knowledgeService: ctx.container.get('knowledgeService'),
     projectRoot: dataRoot,
@@ -320,7 +329,52 @@ async function createSubmitKnowledgeGateway(ctx: McpContext, dataRoot: string) {
       'evolutionGateway'
     ) as GatewayOptions['evolutionGateway'],
     findSimilarRecipes,
+    ...(moduleAxis.knownModuleNames ? { knownModuleNames: moduleAxis.knownModuleNames } : {}),
+    ...(moduleAxis.resolveModuleFromSourceRefs
+      ? { resolveModuleFromSourceRefs: moduleAxis.resolveModuleFromSourceRefs }
+      : {}),
   });
+}
+
+/**
+ * U1 #5：解析 submit-knowledge 路径的 canonical 模块轴依赖。
+ * best-effort：moduleService 不可取 / 未加载出模块 / 加载抛错 → 返回空，让 Core 退回 passthrough。
+ */
+async function resolveSubmitKnowledgeModuleAxis(ctx: McpContext): Promise<{
+  knownModuleNames?: string[];
+  resolveModuleFromSourceRefs?: (sourceRefs: string[]) => string | undefined;
+}> {
+  try {
+    const moduleService = optionalContainerService(ctx, 'moduleService') as {
+      listCanonicalModules?: () => Promise<Array<{ id?: string; name: string; path?: string }>>;
+    } | null;
+    if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
+      return {};
+    }
+    const modules = await moduleService.listCanonicalModules();
+    if (!Array.isArray(modules) || modules.length === 0) {
+      return {};
+    }
+    return {
+      knownModuleNames: buildKnownModuleNames(modules),
+      resolveModuleFromSourceRefs: buildResolveModuleFromSourceRefs(modules),
+    };
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    // ctx.logger 在 McpContext 上是 index-signature（unknown），做类型守卫再调用。
+    const logger = ctx.logger;
+    if (
+      logger &&
+      typeof logger === 'object' &&
+      typeof (logger as { warn?: unknown }).warn === 'function'
+    ) {
+      (logger as { warn: (msg: string, meta?: Record<string, unknown>) => void }).warn(
+        '[SubmitKnowledge] canonical module axis unavailable — Core passthrough',
+        { reason }
+      );
+    }
+    return {};
+  }
 }
 
 function optionalContainerService(ctx: McpContext, name: string): unknown {

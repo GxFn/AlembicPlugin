@@ -370,6 +370,11 @@ function registerRecipeProductionServices(c: ServiceContainer) {
     } catch {
       /* optional */
     }
+    // U1 #5：此处是同步 DI singleton 工厂，无法 await moduleService.load() 取 canonical 模块轴
+    // （强行同步扫 ProjectContext 不符合 DI 工厂语义）。故本入口不注入 knownModuleNames /
+    // resolveModuleFromSourceRefs，Core #deriveModuleName 退回原 passthrough（加性、向后兼容）。
+    // 需要 canonical 模块轴的 submit 链路走 tool-router 的 async createSubmitKnowledgeGateway，
+    // 在那里按 canonical ProjectMap.modules 注入这两个 dep。
     return new RecipeProductionGateway({
       knowledgeService: knowledgeService as unknown as ConstructorParameters<
         typeof RecipeProductionGateway

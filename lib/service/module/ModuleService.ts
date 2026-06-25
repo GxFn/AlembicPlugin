@@ -286,6 +286,22 @@ export class ModuleService {
     };
   }
 
+  /**
+   * U1 #5：canonical 模块轴只读投影。把已加载的 ProjectMap.modules 投成 {id,name,path}，
+   * 供 RecipeProductionGateway 注入 knownModuleNames / resolveModuleFromSourceRefs。
+   * path 取自 module.ref.scope.filePath（ProjectMap 权威坐标），无 ref 的模块 path 留空。
+   * 这是对「已在内存里的 #mapContext」的投影，不触发新的 ProjectContext 扫描语义。
+   */
+  async listCanonicalModules(): Promise<Array<{ id?: string; name: string; path?: string }>> {
+    await this.#ensureLoaded();
+    const modules = this.#mapContext?.modules ?? [];
+    return modules.map((module) => ({
+      id: module.id,
+      name: module.name,
+      ...(module.ref?.scope.filePath ? { path: module.ref.scope.filePath } : {}),
+    }));
+  }
+
   getProjectInfo() {
     const repo = this.#repoContext;
     const languages = (repo?.languages ?? []).map((language) => language.language);

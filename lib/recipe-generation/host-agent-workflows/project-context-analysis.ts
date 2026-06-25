@@ -36,9 +36,11 @@ interface BuildHostAgentProjectContextAnalysisInput {
   maxFileDetails?: number;
 }
 
-interface ProjectContextModuleSeed {
+export interface ProjectContextModuleSeed {
   configLayer?: string;
   kind?: string;
+  // U1 #6：canonical ProjectMap 模块 id（命中 canonical 时回填；派生 seed 默认无）。additive。
+  moduleId?: string;
   moduleName: string;
   modulePath?: string;
   ownedFiles?: string[];
@@ -200,6 +202,10 @@ export async function buildHostAgentProjectContextAnalysis(
   const primaryLang = inferProjectContextPrimaryLanguage(presenterInput);
   const secondaryLanguages = inferProjectContextSecondaryLanguages(presenterInput, primaryLang);
   const dimensions = resolveProjectContextDimensions(primaryLang);
+  // U1 #6（方案A）：保留派生出的 moduleSeeds（仍用于 map 查询），但把对外返回的 seed 的 name/id
+  // 统一对齐到 canonical ProjectMap.modules（按归一化 path 匹配；命中则覆盖为 canonical name+id，
+  // 未命中保留 seed 自身派生名）。不退役 seed（退役=方案B，属另一需求）。map 不可用时原样返回。
+  const canonicalModuleSeeds = canonicalizeModuleSeedRefs(moduleSeeds, presenterInput.map?.modules);
   return {
     dimensions,
     envelopes,
@@ -215,7 +221,7 @@ export async function buildHostAgentProjectContextAnalysis(
       presenterInput.map?.modules.length ?? 0,
       discoveredModuleSeeds.length
     ),
-    moduleSeeds,
+    moduleSeeds: canonicalModuleSeeds,
     presenterInput,
     primaryLang,
     projectType: inferProjectContextProjectType(presenterInput),
@@ -324,6 +330,50 @@ function createModuleScopeFallbackSeeds(
       modulePath: scope,
       role: 'module-scope',
     }));
+}
+
+// U1 #6（方案A）：把派生 seed 的 name/id 对齐 canonical ProjectMap.modules。
+// 对每个 seed，用其归一化 modulePath（或 ownedFiles 首项）匹配 canonical 模块的归一化路径
+// （path = module.ref.scope.filePath）；命中则覆盖 moduleName=canonical.name、moduleId=canonical.id。
+// 多候选取最长路径（最具体模块）。未命中保留 seed 原派生名（不丢失 seed）。canonical 列表为空时原样返回。
+export function canonicalizeModuleSeedRefs(
+  seeds: readonly ProjectContextModuleSeed[],
+  canonicalModules: ProjectMap['modules'] | undefined
+): ProjectContextModuleSeed[] {
+  if (!canonicalModules || canonicalModules.length === 0) {
+    return [...seeds];
+  }
+  // 预计算 (归一化 canonical path → {name,id})，按 path 长度降序。
+  const canonicalByPath = canonicalModules
+    .map((module) => ({
+      id: module.id,
+      name: module.name,
+      path: normalizeModulePath(module.ref?.scope.filePath),
+    }))
+    .filter((entry): entry is { id: string; name: string; path: string } => isPresent(entry.path))
+    .sort((left, right) => right.path.length - left.path.length);
+  if (canonicalByPath.length === 0) {
+    return [...seeds];
+  }
+  return seeds.map((seed) => {
+    const seedPaths = [
+      normalizeModulePath(seed.modulePath),
+      ...(seed.ownedFiles ?? []).map(normalizeModulePath),
+    ].filter(isPresent);
+    const match = canonicalByPath.find((entry) =>
+      seedPaths.some(
+        (seedPath) =>
+          seedPath === entry.path ||
+          seedPath.startsWith(`${entry.path}/`) ||
+          entry.path.startsWith(`${seedPath}/`)
+      )
+    );
+    if (!match) {
+      return seed;
+    }
+    // 命中 canonical：把 seed 的 name/id 对齐到 ProjectMap 权威值（modulePath/ownedFiles 等其余字段不变）。
+    return { ...seed, moduleId: match.id, moduleName: match.name };
+  });
 }
 
 function seedFromFileRef(
