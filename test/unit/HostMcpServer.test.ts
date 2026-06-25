@@ -1886,6 +1886,12 @@ describe('HostMcpServer', () => {
     for (const dimension of inlineFullDimensions) {
       expect(dimension.analysisGuide).toBeTruthy();
       expect(dimension.submissionSpec).toBeTruthy();
+      const submissionSpec = dimension.submissionSpec as {
+        preSubmitChecklist?: { rejectIf?: string[]; required?: string[] };
+      };
+      expect(submissionSpec.preSubmitChecklist?.required).toEqual(
+        expect.arrayContaining([expect.stringContaining('P5: EN do/dont + ✅/❌')])
+      );
     }
     expect(result.data?.currentDimensionGuidance?.dimensions).toEqual(
       expect.arrayContaining([
@@ -1975,7 +1981,9 @@ describe('HostMcpServer', () => {
         ]),
         fieldFloors: expect.objectContaining({
           category: expect.stringContaining('View/Service/Tool'),
-          contentMarkdown: expect.stringContaining('>=200 chars'),
+          contentMarkdown: expect.stringContaining('✅ correct / ❌ forbidden contrast'),
+          doClause: expect.stringContaining('English imperative'),
+          dontClause: expect.stringContaining('English negative imperative'),
         }),
         purpose: expect.stringContaining('before the first submit call'),
         sourceRefCardinality: expect.objectContaining({

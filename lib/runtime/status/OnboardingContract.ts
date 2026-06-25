@@ -373,6 +373,7 @@ function buildHostAgentContract(
       'Check ProjectContext matrix/graph orientation first.',
       'Collect exact source facts with file paths, symbols, and relationship evidence from ProjectContext detail refs or raw source reads.',
       'Draft candidates against submitKnowledgeContract before calling alembic_submit_knowledge; do not rely on tool rejection to discover missing fields.',
+      'Before submit, verify EN do/dont and ✅/❌ contrast.',
       'Compare with existing Recipes before submitting a new candidate.',
       'Submit only project-specific, reusable guidance.',
       'Complete the dimension only after candidates, no-op reasons, and validation notes are recorded.',
@@ -382,6 +383,8 @@ function buildHostAgentContract(
       'No generic advice without project-specific source evidence.',
       'No bare filename claims without symbol or snippet context.',
       'No relationship claim without ProjectContext relation/detail refs or raw source fallback.',
+      'No non-English or non-imperative doClause/dontClause in new Recipe submissions.',
+      'No project close-up content without both ✅ correct and ❌ forbidden examples.',
       'No acceptance from ProjectContext output alone; run matching repository validation.',
     ],
     repairPrompts: [
@@ -496,8 +499,9 @@ function buildSubmitKnowledgeContract(): Record<string, unknown> {
       description: 'Concise project-specific summary, <=80 chars.',
       trigger: '@kebab-case unique trigger.',
       category: 'Use one of View/Service/Tool/Model/Network/Storage/UI/Utility.',
-      contentMarkdown:
-        '>=200 chars; include project-specific context, a code block when code behavior is claimed, and source labels.',
+      contentMarkdown: '>=200 chars; ✅ correct / ❌ forbidden contrast.',
+      doClause: 'English imperative verb-led.',
+      dontClause: 'English negative imperative.',
       coreCode:
         '3-8 syntactically complete lines copied or tightly adapted from cited source when code behavior is claimed.',
       usageGuide: 'Markdown with ### When to Use / Key Points / When Not to Use sections.',
@@ -514,6 +518,8 @@ function buildSubmitKnowledgeContract(): Record<string, unknown> {
     requiredBeforeSubmit: [
       'source evidence',
       'content.markdown >= 200 chars',
+      'content.markdown includes both ✅ correct and ❌ forbidden project examples',
+      'doClause and dontClause are English imperative verb-leading clauses',
       'standard category',
       'specific reusable guidance',
       'when and when-not notes',
@@ -926,7 +932,9 @@ function buildRecipeGuidanceFloor(): Record<string, unknown> {
       markdownMinimumChars: 200,
       coreCodeLines: '3-8 syntactically complete lines when code skeleton is needed',
       coreCodeMustMatchSourceRefs: true,
+      contentContrast: 'content.markdown must include both ✅ correct and ❌ forbidden examples',
       requiresDoDontWhenClauses: true,
+      requiresEnglishImperativeDoDont: true,
       confidenceFloorBeforeSubmit: 0.85,
       requiredFieldsBeforeFirstSubmit: [
         'title',

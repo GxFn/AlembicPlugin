@@ -567,7 +567,6 @@ function compactDimensionGuide(value: unknown): unknown {
     focus: guide.focus ?? guide.focusAreas ?? guide.keyQuestions ?? null,
     steps: readRecordArray(guide.steps).slice(0, 4),
     evidence: guide.evidence ?? guide.requiredEvidence ?? null,
-    fullGuideRef: 'meta.fullBriefingRef.path',
   };
 }
 
@@ -577,17 +576,23 @@ function compactDimensionSubmissionSpec(value: unknown): unknown {
     return value ?? null;
   }
   const checklist = readRecord(spec.preSubmitChecklist);
+  const required = appendChecklistItems(checklist?.required ?? checklist?.MUST ?? checklist?.must, [
+    'P5: EN do/dont + ✅/❌.',
+  ]);
+  const rejectIf = appendChecklistItems(
+    checklist?.rejectIf ?? checklist?.FAIL ?? checklist?.fail,
+    []
+  );
   return {
     knowledgeTypes: spec.knowledgeTypes,
     requiredFields: spec.requiredFields,
     sourceRefRequirements: spec.sourceRefRequirements ?? spec.sourceRefs,
     preSubmitChecklist: checklist
       ? {
-          required: checklist.required ?? checklist.MUST ?? checklist.must,
-          rejectIf: checklist.rejectIf ?? checklist.FAIL ?? checklist.fail,
+          required,
+          ...(rejectIf.length > 0 ? { rejectIf } : {}),
         }
-      : undefined,
-    fullSubmissionSpecRef: 'meta.fullBriefingRef.path',
+      : { required },
   };
 }
 
@@ -842,6 +847,8 @@ function compactHostAgentContract(value: unknown): unknown {
           fieldFloors: {
             category: fieldFloors?.category,
             contentMarkdown: fieldFloors?.contentMarkdown,
+            doClause: fieldFloors?.doClause,
+            dontClause: fieldFloors?.dontClause,
           },
           purpose: submitKnowledgeContract.purpose,
           sourceRefCardinality: {
@@ -1382,6 +1389,12 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.length > 0)
     : [];
+}
+
+function appendChecklistItems(value: unknown, additions: string[]): string[] {
+  const current =
+    typeof value === 'string' && value.trim().length > 0 ? [value] : readStringArray(value);
+  return uniqueStrings([...current, ...additions]);
 }
 
 function isTransientTransportRef(value: unknown): value is TransientTransportRef {

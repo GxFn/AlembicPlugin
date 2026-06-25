@@ -16,9 +16,9 @@ import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
 import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
-  type RecipeEvidenceGateResult,
   buildEvidenceGateFailureData,
   primaryEvidenceGateCode,
+  type RecipeEvidenceGateResult,
   resolveBootstrapSession,
   shouldRunRecipeEvidenceGate,
   validateRecipeProductionEvidenceGate,
@@ -26,6 +26,10 @@ import {
 import { routePlanTool as routePlanToolImpl } from '#recipe-generation/plan-tool.js';
 import { assessProjectContextRelationshipGrounding } from '#recipe-generation/project-context-anchoring.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
+import {
+  type RecipeContentQualityGateResult,
+  validateSubmitKnowledgeContentQuality,
+} from '../../../runtime/mcp/handlers/recipe-content-quality-gate.js';
 import * as recipeMapHandlers from '../../../runtime/mcp/handlers/recipe-map.js';
 import * as searchHandlers from '../../../runtime/mcp/handlers/search.js';
 import * as skillHandlers from '../../../runtime/mcp/handlers/skill.js';
@@ -152,6 +156,10 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   }
 
   preprocessSubmitKnowledgeItems(itemsResult.items, options);
+  const contentQualityGate = validateSubmitKnowledgeContentQuality(itemsResult.items);
+  if (!contentQualityGate.ok) {
+    return buildSubmitKnowledgeContentQualityResponse(contentQualityGate);
+  }
   const bootstrapSession = resolveBootstrapSession(ctx.container, options.bootstrapSessionId);
   const dataRoot = resolveHostAgentDataRoot(
     ctx.container,
@@ -646,6 +654,47 @@ function buildAllRejectedSubmitResponse(
   });
 }
 
+function buildSubmitKnowledgeContentQualityResponse(qualityGate: RecipeContentQualityGateResult) {
+  return envelope({
+    success: false,
+    errorCode: 'QUALITY_GATE_FAILED',
+    message: buildSubmitKnowledgeContentQualitySummary(qualityGate),
+    data: {
+      commonErrors: [...new Set(qualityGate.violations.map((violation) => violation.code))],
+      problem: {
+        type: 'alembic.recipe-content-quality.rebuild-required',
+        status: 'rebuild-required',
+        title: 'Recipe content quality did not meet P5 authoring constraints',
+        nextAction:
+          qualityGate.violations[0]?.nextAction ||
+          'Rewrite the candidate so doClause/dontClause and content.markdown meet the Recipe quality contract.',
+      },
+      rejectedItems: qualityGate.violations.map((violation) => ({
+        code: violation.code,
+        field: violation.field,
+        index: violation.itemIndex,
+        message: violation.message,
+        nextAction: violation.nextAction,
+      })),
+      requiredFields: getRequiredFieldsDescription(),
+    },
+    meta: { tool: 'alembic_submit_knowledge' },
+  });
+}
+
+function buildSubmitKnowledgeContentQualitySummary(
+  qualityGate: RecipeContentQualityGateResult
+): string {
+  const violationCount = qualityGate.violations.length;
+  const violationWord = violationCount === 1 ? 'violation' : 'violations';
+  const actionableItems = qualityGate.violations
+    .map((violation) => `#${violation.itemIndex} ${violation.code} → ${violation.nextAction}`)
+    .join(' | ');
+  return actionableItems
+    ? `Recipe content quality gate failed (${violationCount} ${violationWord}): ${actionableItems}`
+    : 'Recipe content quality gate failed (0 violations): rebuild candidates with English imperative do/dont clauses and ✅/❌ contrast.';
+}
+
 function buildSubmitKnowledgeEvidenceGateResponse({
   args,
   bootstrapSession,
@@ -705,8 +754,7 @@ function buildSubmitKnowledgeEvidenceGateSummary(evidenceGate: RecipeEvidenceGat
   const violationWord = violationCount === 1 ? 'violation' : 'violations';
   const actionableItems = evidenceGate.violations
     .map((violation) => {
-      const itemIndex =
-        typeof violation.itemIndex === 'number' ? `#${violation.itemIndex}` : '#-';
+      const itemIndex = typeof violation.itemIndex === 'number' ? `#${violation.itemIndex}` : '#-';
       return `${itemIndex} ${violation.code} \u2192 ${violation.nextAction}`;
     })
     .join(' | ');

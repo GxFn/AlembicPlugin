@@ -460,6 +460,11 @@ describe('Codex status service', () => {
     expect(onboarding.hostAgentContract?.dimensionCompletionContract).toMatchObject({
       completionGate: true,
     });
+    expect(onboarding.hostAgentContract?.submitKnowledgeContract?.fieldFloors).toMatchObject({
+      contentMarkdown: expect.stringContaining('✅ correct / ❌ forbidden contrast'),
+      doClause: expect.stringContaining('English imperative'),
+      dontClause: expect.stringContaining('English negative imperative'),
+    });
     expect(onboarding.progress?.remainingDimensionIds).toEqual(
       onboarding.currentDimensionGuidance?.dimensionIds
     );

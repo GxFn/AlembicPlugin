@@ -640,11 +640,17 @@ export const SubmitKnowledgeItemSchema = z.object({
   title: TitleField.describe('知识标题，简洁明确'),
   language: LanguageField.describe('编程语言，如 typescript/swift/python'),
   content: ContentSchema.describe(
-    '内容对象: { pattern?: "代码片段", markdown?: "正文", rationale: "设计原理" }。pattern/markdown 至少提供一个，rationale 必填'
+    '内容对象: { pattern?: "代码片段", markdown?: "正文", rationale: "设计原理" }。content.markdown 必须提供项目特写，并包含 ✅ 正确示例 与 ❌ 禁止示例对比；rationale 必填'
   ),
   kind: StrictKindEnum.describe('rule=规范约束 | pattern=代码模式 | fact=项目事实'),
-  doClause: z.string().min(1, 'doClause is required').describe('✅ 应该怎么做（插件适配字段）'),
-  dontClause: z.string().min(1, 'dontClause is required').describe('❌ 不应该怎么做'),
+  doClause: z
+    .string()
+    .min(1, 'doClause is required')
+    .describe('✅ 英文祈使句，以动词开头，如 Use/Prefer/Validate/Keep/Require'),
+  dontClause: z
+    .string()
+    .min(1, 'dontClause is required')
+    .describe('❌ 英文反向祈使句，以 Do not/Avoid/Prevent/Reject 等开头'),
   whenClause: z.string().min(1, 'whenClause is required').describe('何时适用'),
   coreCode: z.string().min(1, 'coreCode is required').describe('核心代码片段'),
   category: z
@@ -725,6 +731,7 @@ export const SubmitKnowledgeInput = z.object({
     .describe(
       '知识条目数组（1~N 条）。单条与批量统一处理，所有条目严格校验 + 融合分析。' +
         '每条字段: title, language, content(对象), kind, doClause, dontClause, whenClause, coreCode, category(业务/组件分类), trigger, description, headers, usageGuide, knowledgeType(知识类型), reasoning(对象), dimensionId(维度归属)。' +
+        'doClause/dontClause 必须是英文动词开头的祈使句，content.markdown 必须含项目特写 ✅/❌ 对比。' +
         '可选 unitId / analysisUnitIds / sourceRefs 用于 IDE Agent packet linkage；关系型声明应附 sourceGraphRefs/graphRefs；sourceRefs 可引用 package.json:1 等根文件；rule/pattern 的单文件正当例外请显式传 scope: "narrow" 或 "file-local"。'
     ),
   target_name: z.string().optional().describe('来源标识，如 network-module-scan'),

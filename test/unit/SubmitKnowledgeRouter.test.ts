@@ -205,7 +205,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
 
   it('uses Core-provided newRecipeId for alembic_consolidate decisions', async () => {
     const result = await routeSubmitKnowledgeTool(makeContext(), {
-      items: [{ title: 'Codex Recipe Interaction' }],
+      items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
     });
 
     expect(result.success).toBe(true);
@@ -249,7 +249,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     ];
 
     const result = await routeSubmitKnowledgeTool(makeContext(), {
-      items: [{ title: 'Codex Recipe Interaction' }],
+      items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
     });
 
     expect(result.data).toMatchObject({
@@ -282,7 +282,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     ];
 
     const result = await routeSubmitKnowledgeTool(makeContext(), {
-      items: [{ title: 'Codex Recipe Interaction' }],
+      items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
     });
 
     expect(result.success).toBe(true);
@@ -302,6 +302,65 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
   });
 
+  it('blocks non-English do/dont clauses and missing project contrast before Core create', async () => {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      skipConsolidation: true,
+      items: [
+        {
+          title: 'Non English Quality',
+          doClause: '使用项目级网络封装',
+          dontClause: '不要直接调用底层 HTTP 客户端',
+          content: {
+            markdown: 'This candidate explains the project route but has no contrast markers.',
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('QUALITY_GATE_FAILED');
+    expect(result.message).toContain('Recipe content quality gate failed (3 violations)');
+    expect(result.message).toContain('DO_CLAUSE_NON_ENGLISH');
+    expect(result.message).toContain('DONT_CLAUSE_NON_ENGLISH');
+    expect(result.message).toContain('CONTENT_CONTRAST_MISSING');
+    expect(result.data).toMatchObject({
+      problem: {
+        status: 'rebuild-required',
+        type: 'alembic.recipe-content-quality.rebuild-required',
+      },
+      commonErrors: expect.arrayContaining([
+        'DO_CLAUSE_NON_ENGLISH',
+        'DONT_CLAUSE_NON_ENGLISH',
+        'CONTENT_CONTRAST_MISSING',
+      ]),
+      rejectedItems: expect.arrayContaining([
+        expect.objectContaining({ code: 'DO_CLAUSE_NON_ENGLISH', field: 'doClause' }),
+        expect.objectContaining({ code: 'DONT_CLAUSE_NON_ENGLISH', field: 'dontClause' }),
+        expect.objectContaining({ code: 'CONTENT_CONTRAST_MISSING', field: 'content.markdown' }),
+      ]),
+    });
+    expect(gatewayState.createCalls).toHaveLength(0);
+  });
+
+  it('blocks English but non-imperative do/dont clauses before Core create', async () => {
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      skipConsolidation: true,
+      items: [
+        makeValidSubmitItem({
+          title: 'Non Imperative Quality',
+          doClause: 'The service should use the shared retry helper',
+          dontClause: 'Callbacks are not allowed in feature modules',
+        }),
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('QUALITY_GATE_FAILED');
+    expect(result.message).toContain('DO_CLAUSE_NON_IMPERATIVE');
+    expect(result.message).toContain('DONT_CLAUSE_NON_IMPERATIVE');
+    expect(gatewayState.createCalls).toHaveLength(0);
+  });
+
   it('blocks bootstrap Recipe submissions with actionable snippet mismatch details', async () => {
     const projectRoot = makeProjectRoot();
     gatewayState.projectRoot = projectRoot;
@@ -315,19 +374,19 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
       sessionId: 'session-1',
       skipConsolidation: true,
       items: [
-        {
+        makeValidSubmitItem({
           title: 'Mismatched Evidence',
           kind: 'fact',
           sourceRefs: ['src/source.ts:1-3'],
           coreCode: 'export function realSource() {\n  return "polished";\n}',
           content: {
             markdown:
-              'This candidate cites src/source.ts:1-3 but the submitted snippet was rewritten instead of copied from that exact source range.',
+              'This candidate cites src/source.ts:1-3 but the submitted snippet was rewritten instead of copied from that exact source range.\n✅ Use source text copied from the cited range.\n❌ Do not rewrite the source text while keeping the same citation.',
           },
           reasoning: {
             sources: ['src/source.ts:1-3'],
           },
-        },
+        }),
       ],
     });
 
@@ -379,20 +438,20 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
       requireProductionSession: true,
       skipConsolidation: true,
       items: [
-        {
+        makeValidSubmitItem({
           title: 'Production Session Required',
           kind: 'fact',
           sourceRefs: ['src/source.ts:1-3'],
           coreCode: 'export function sourceBoundRoute() {\n  return "production-session";\n}',
           content: {
             markdown:
-              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production session requirement.',
+              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production session requirement.\n✅ Use the production bootstrap session before submitting this Recipe.\n❌ Do not submit controller production evidence without a session.',
           },
           reasoning: {
             sources: ['src/source.ts:1-3'],
             confidence: 0.9,
           },
-        },
+        }),
       ],
     });
 
@@ -415,20 +474,20 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
       sessionId: 'session-1',
       skipConsolidation: true,
       items: [
-        {
+        makeValidSubmitItem({
           title: 'Source Bound Fact',
           kind: 'fact',
           sourceRefs: ['src/source.ts:1-3'],
           coreCode: 'export function realSource() {\n  return "source-bound";\n}',
           content: {
             markdown:
-              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production bootstrap context.',
+              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production bootstrap context.\n✅ Use the exact source-bound route when writing this Recipe.\n❌ Do not submit a generic fact without the cited source.',
           },
           reasoning: {
             sources: ['src/source.ts:1-3'],
             confidence: 0.9,
           },
-        },
+        }),
       ],
     });
 
@@ -458,7 +517,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     ];
 
     const result = await routeSubmitKnowledgeTool(makeContext(), {
-      items: [{ title: 'Codex Recipe Interaction' }],
+      items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
       skipConsolidation: true,
     });
 
@@ -575,7 +634,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     };
 
     const result = await routeSubmitKnowledgeTool(makeContext(), {
-      items: [{ title: 'Codex Recipe Interaction' }],
+      items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
       skipConsolidation: true,
     });
 
@@ -606,7 +665,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     const result = await routeSubmitKnowledgeTool(
       makeContext({ freshnessServiceAvailable: false }),
       {
-        items: [{ title: 'Codex Recipe Interaction' }],
+        items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
         skipConsolidation: true,
       }
     );
@@ -641,18 +700,18 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     const result = await routeSubmitKnowledgeTool(makeContext(), {
       skipConsolidation: true,
       items: [
-        {
+        makeValidSubmitItem({
           title: 'Relationship Claim Needs Graph',
           relationshipClaim: true,
           description: 'The API client call chain depends on the React app entrypoint.',
           content: {
             markdown:
-              'The caller/callee relationship should be grounded before this Recipe is final.',
+              'The caller/callee relationship should be grounded before this Recipe is final.\n✅ Use graph refs and source refs when claiming the API client call chain.\n❌ Do not claim caller/callee relationships from prose alone.',
           },
           reasoning: {
             whyStandard: 'This relationship affects dependency and impact claims.',
           },
-        },
+        }),
       ],
     });
 
@@ -688,13 +747,16 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     const result = await routeSubmitKnowledgeTool(makeContext(), {
       skipConsolidation: true,
       items: [
-        {
+        makeValidSubmitItem({
           title: 'Relationship Claim With Graph',
           relationshipClaim: true,
           sourceRefs: ['src/api/client.ts:1-3'],
           sourceGraphRefs: ['pc:module:src/api:call-chain'],
           description: 'The graph ref grounds the caller/callee relationship.',
-        },
+          reasoning: {
+            whyStandard: 'The graph ref and source ref ground the relationship claim.',
+          },
+        }),
       ],
     });
 
@@ -715,12 +777,15 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     const result = await routeSubmitKnowledgeTool(makeContext(), {
       skipConsolidation: true,
       items: [
-        {
+        makeValidSubmitItem({
           title: 'Relationship Claim Missing Source',
           relationshipClaim: true,
           sourceGraphRefs: ['pc:module:src/api:call-chain'],
           description: 'The graph ref alone is not enough for a source-anchored Recipe.',
-        },
+          reasoning: {
+            whyStandard: 'This intentionally omits source refs to keep the warning path visible.',
+          },
+        }),
       ],
     });
 
@@ -752,20 +817,20 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
       requireProductionSession: true,
       skipConsolidation: true,
       items: [
-        {
+        makeValidSubmitItem({
           title: 'Source Bound Fact',
           kind: 'fact',
           sourceRefs: ['src/source.ts:1-3'],
           coreCode: 'export function realSource() {\n  return "source-bound";\n}',
           content: {
             markdown:
-              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production bootstrap context.',
+              'Source-bound fact with concrete evidence from src/source.ts:1-3 and production bootstrap context.\n✅ Use the exact source-bound route when writing this Recipe.\n❌ Do not submit a generic fact without the cited source.',
           },
           reasoning: {
             sources: ['src/source.ts:1-3'],
             confidence: 0.9,
           },
-        },
+        }),
       ],
     });
 
@@ -778,6 +843,41 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
   });
 });
+
+function makeValidSubmitItem(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const baseContent = {
+    markdown:
+      'Project-specific close-up for the Alembic submit route.\n✅ Use source-grounded Recipe candidates with exact project references.\n❌ Do not submit generic guidance without a project counterexample.',
+    rationale: 'The quality gate needs visible project contrast before Core create runs.',
+  };
+  const overrideContent = isRecord(overrides.content) ? overrides.content : {};
+  return {
+    title: 'Codex Recipe Interaction',
+    description: 'Use source-grounded Recipe candidates for the current project.',
+    trigger: '@codex-recipe-interaction',
+    language: 'typescript',
+    kind: 'pattern',
+    category: 'Tool',
+    knowledgeType: 'code-pattern',
+    doClause: 'Use source-grounded Recipe candidates for project-specific guidance',
+    dontClause: 'Do not submit generic guidance without source evidence',
+    whenClause: 'When submitting Alembic Recipe candidates from a Codex session',
+    coreCode: 'routeSubmitKnowledgeTool(ctx, args)\nvalidateSubmitKnowledgeContentQuality(items)',
+    headers: ['import { routeSubmitKnowledgeTool } from "#runtime/mcp/handlers/tool-router"'],
+    usageGuide:
+      '### When to Use\n- Source-grounded Recipe submission\n\n### When Not to Use\n- Generic advice\n\n### Steps\n1. Collect source refs.\n2. Submit validated candidates.\n\n### Key Points\n- Keep candidates project-specific.',
+    reasoning: {
+      whyStandard: 'The plugin submit route requires source-grounded, reusable guidance.',
+      sources: ['lib/runtime/mcp/handlers/tool-router.ts:143-180'],
+      confidence: 0.9,
+    },
+    ...overrides,
+    content: {
+      ...baseContent,
+      ...overrideContent,
+    },
+  };
+}
 
 function makeContext({
   freshnessServiceAvailable = true,
@@ -831,4 +931,8 @@ function makeContext({
 
 function makeProjectRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-submit-gate-'));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
