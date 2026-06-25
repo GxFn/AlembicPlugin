@@ -396,6 +396,24 @@ function summarizeOnboarding(value: unknown): Record<string, unknown> {
     notes: Array.isArray(onboarding.notes)
       ? onboarding.notes.filter((note): note is string => typeof note === 'string').slice(0, 6)
       : [],
+    currentDimensionGuidance: summarizeCurrentDimensionGuidance(
+      onboarding.currentDimensionGuidance
+    ),
+    currentDimensionNextActions: Array.isArray(onboarding.currentDimensionNextActions)
+      ? onboarding.currentDimensionNextActions
+          .map(summarizeCurrentDimensionAction)
+          .filter((action): action is Record<string, unknown> => action !== null)
+      : [],
+    progress: summarizeStringRecord(onboarding.progress, [
+      'stage',
+      'currentDimensionIds',
+      'completedDimensionIds',
+      'pendingDimensionIds',
+      'remainingDimensionIds',
+      'dimensionCount',
+      'nextRequiredTools',
+    ]),
+    hostAgentContract: summarizeHostAgentContract(onboarding.hostAgentContract),
   };
 }
 
@@ -411,6 +429,55 @@ function summarizeRecommendedAction(value: unknown): Record<string, unknown> | n
     reason: action.reason ?? null,
     ...(asPlainRecord(action.arguments) ? { arguments: action.arguments } : {}),
   };
+}
+
+function summarizeCurrentDimensionGuidance(value: unknown): Record<string, unknown> {
+  const guidance = asPlainRecord(value);
+  if (!guidance) {
+    return {};
+  }
+  return summarizeStringRecord(guidance, [
+    'contractVersion',
+    'source',
+    'currentTier',
+    'dimensionIds',
+    'remainingDimensionIds',
+    'dimensions',
+    'completionRule',
+    'note',
+    'requiredEvidenceFields',
+    'invalidConclusions',
+  ]);
+}
+
+function summarizeCurrentDimensionAction(value: unknown): Record<string, unknown> | null {
+  const action = summarizeRecommendedAction(value);
+  const original = asPlainRecord(value);
+  if (!action || !original) {
+    return action;
+  }
+  return {
+    ...action,
+    required: original.required === true,
+    ...(typeof original.afterTool === 'string' ? { afterTool: original.afterTool } : {}),
+    ...(original.completionGate === true ? { completionGate: true } : {}),
+  };
+}
+
+function summarizeHostAgentContract(value: unknown): Record<string, unknown> {
+  const contract = asPlainRecord(value);
+  if (!contract) {
+    return {};
+  }
+  return summarizeStringRecord(contract, [
+    'contractVersion',
+    'source',
+    'scopeBrief',
+    'stagedProtocol',
+    'submitKnowledgeContract',
+    'dimensionCompletionContract',
+    'stopConditions',
+  ]);
 }
 
 function summarizeStringRecord(value: unknown, keys: readonly string[]): Record<string, unknown> {

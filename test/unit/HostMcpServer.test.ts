@@ -1733,14 +1733,18 @@ describe('HostMcpServer', () => {
         };
         currentDimensionGuidance?: {
           currentTier?: { dimensions?: string[]; tier?: number };
+          completionRule?: {
+            requiredClosingTool?: string;
+          };
           dimensionIds?: string[];
           dimensions?: Array<{
             analysisGuide?: unknown;
             dimensionId?: string;
             submissionSpec?: unknown;
           }>;
+          remainingDimensionIds?: string[];
         };
-        currentDimensionNextActions?: Array<{ tool?: string }>;
+        currentDimensionNextActions?: Array<{ required?: boolean; tool?: string }>;
         currentDomainSop?: unknown;
         domainQueue?: unknown;
         dimensions?: unknown;
@@ -1749,6 +1753,7 @@ describe('HostMcpServer', () => {
         hostAgentContract?: {
           dimensionCompletionContract?: {
             firstCallExample?: Record<string, unknown>;
+            completionGate?: boolean;
             requiredFields?: string[];
             sessionField?: string;
           };
@@ -1839,6 +1844,12 @@ describe('HostMcpServer', () => {
       currentTierDimensionIds
     );
     expect(result.data?.currentDimensionGuidance?.dimensionIds).toEqual(currentTierDimensionIds);
+    expect(result.data?.currentDimensionGuidance?.remainingDimensionIds).toEqual(
+      currentTierDimensionIds
+    );
+    expect(result.data?.currentDimensionGuidance?.completionRule).toMatchObject({
+      requiredClosingTool: 'alembic_dimension_complete',
+    });
     expect(
       result.data?.currentDimensionGuidance?.dimensions?.map((dimension) => dimension.dimensionId)
     ).toEqual(currentTierDimensionIds);
@@ -1853,6 +1864,15 @@ describe('HostMcpServer', () => {
     expect(result.data?.currentDimensionNextActions?.map((action) => action.tool)).toEqual(
       expect.arrayContaining(['alembic_recipe_map', 'alembic_graph'])
     );
+    expect(result.data?.currentDimensionNextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ required: true, tool: 'alembic_submit_knowledge' }),
+        expect.objectContaining({ required: true, tool: 'alembic_dimension_complete' }),
+      ])
+    );
+    expect(result.data?.hostAgentContract?.dimensionCompletionContract).toMatchObject({
+      completionGate: true,
+    });
     expect(result.data?.currentDomainSop).toBeUndefined();
     expect(result.data?.domainQueue).toBeUndefined();
     expect(result.data?.sopPack).toBeUndefined();

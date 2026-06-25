@@ -1,9 +1,23 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathGuard } from '@alembic/core/io';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { inspectKnowledge } from '#codex/KnowledgeState.js';
 import {
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,
   runHostAgentDimensionCompletionWorkflow,
 } from '#recipe-generation/host-agent-workflows/dimension-completion.js';
+
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  pathGuard._reset();
+  for (const root of tempRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 describe('HostAgentDimensionCompletionWorkflow', () => {
   it('returns validation envelopes before touching session state', async () => {
@@ -202,6 +216,72 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     expect(generated[0]).toContain('const recipe_a = true;');
   });
 
+  it('writes a non-empty Project Skill and exposes it through real skillCount', async () => {
+    const projectRoot = createInitializedProjectRoot();
+    const session = createSession({ skillWorthy: true });
+    const context = createContext(
+      {
+        get: (name: string) => {
+          if (name === 'knowledgeService') {
+            return {
+              get: async (recipeId: string) => ({
+                title: `Recipe ${recipeId}`,
+                description: `Description for ${recipeId}`,
+                whenClause: `Use ${recipeId} after reading verified source evidence.`,
+                doClause: `Apply ${recipeId} with session-bound Recipe ids and sourceRefs.`,
+                dontClause: `Do not apply ${recipeId} without alembic_dimension_complete evidence.`,
+                coreCode: `const ${recipeId.replaceAll('-', '_')} = true;`,
+                tags: ['existing'],
+              }),
+              update: async () => undefined,
+            };
+          }
+          return null;
+        },
+      },
+      projectRoot
+    );
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      context,
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as { skillCreated?: boolean }).skillCreated).toBe(true);
+    const skillPath = path.join(
+      projectRoot,
+      'Alembic',
+      'skills',
+      'project-architecture',
+      'SKILL.md'
+    );
+    expect(fs.existsSync(skillPath)).toBe(true);
+    const skillContent = fs.readFileSync(skillPath, 'utf8');
+    expect(skillContent.length).toBeGreaterThan(100);
+    expect(skillContent).toContain('### Recipe recipe-a');
+    expect(skillContent).toContain('## Referenced Files');
+    const knowledgeState = inspectKnowledge(projectRoot);
+    expect(knowledgeState.skillCount).toBe(1);
+    expect(knowledgeState.hasKnowledge).toBe(true);
+  });
+
   it('does not synthesize Recipe guidance when no submitted Recipes are bound', async () => {
     const generated: string[] = [];
     const session = createSession({ skillWorthy: true, submissions: [] });
@@ -271,14 +351,28 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
   });
 });
 
-function createContext(overrides: Partial<HostAgentDimensionCompletionContext['container']> = {}) {
+function createContext(
+  overrides: Partial<HostAgentDimensionCompletionContext['container']> = {},
+  projectRoot = '/tmp/alembic-test-project'
+) {
   return {
     container: {
-      singletons: { _projectRoot: '/tmp/alembic-test-project' },
+      singletons: { _projectRoot: projectRoot, _dataRoot: projectRoot },
       get: () => null,
       ...overrides,
     },
   } as HostAgentDimensionCompletionContext;
+}
+
+function createInitializedProjectRoot(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-dimension-complete-skill-'));
+  tempRoots.push(root);
+  pathGuard.configure({ projectRoot: root });
+  fs.mkdirSync(path.join(root, '.asd'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'Alembic', 'recipes'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.asd', 'config.json'), '{}\n');
+  fs.writeFileSync(path.join(root, '.asd', 'alembic.db'), '');
+  return root;
 }
 
 function createSession({

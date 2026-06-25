@@ -311,12 +311,15 @@ function summarizeToolGroup(
     }));
 }
 
-function buildPlanNeutralDimensionGuidance(dimensions: DimensionSummary[]): Record<string, unknown> {
+function buildPlanNeutralDimensionGuidance(
+  dimensions: DimensionSummary[]
+): Record<string, unknown> {
   return {
     contractVersion: ONBOARDING_CONTRACT_VERSION,
     source: 'plan-selection-dimensions',
     currentTier: null,
     dimensionIds: dimensions.map((dimension) => dimension.id),
+    remainingDimensionIds: dimensions.map((dimension) => dimension.id),
     dimensions: dimensions.map((dimension) => ({
       dimensionId: dimension.id,
       title: dimension.title,
@@ -324,12 +327,18 @@ function buildPlanNeutralDimensionGuidance(dimensions: DimensionSummary[]): Reco
       analysisGuide: null,
       submissionSpec: null,
     })),
-    note:
-      'Bootstrap replaces this status-level summary with executionPlan current-tier guidance from the Mission Briefing; no static task-decomposition playbook is used.',
+    completionRule: {
+      afterTool: 'alembic_submit_knowledge',
+      completionGate: true,
+      requiredClosingTool: 'alembic_dimension_complete',
+      rule: 'Every visible dimension remains unfinished until alembic_dimension_complete succeeds after session-bound Recipe ids are submitted.',
+    },
+    note: 'Bootstrap replaces this status-level summary with executionPlan current-tier guidance from the Mission Briefing; no static task-decomposition playbook is used.',
     requiredEvidenceFields: buildRequiredEvidenceFields(),
     invalidConclusions: [
       'do not infer current work from retired static task queues',
       'do not submit Recipes without the current plan dimension analysisGuide/submissionSpec',
+      'do not mark a dimension complete before alembic_dimension_complete succeeds',
     ],
   };
 }
@@ -347,7 +356,7 @@ function buildHostAgentContract(
       'Read bootstrapState and confirm project identity, runtime route, ProjectContext readiness, and current plan tier.',
       'Use currentDimensionGuidance for the executionPlan tier and keep source evidence tied to file paths or symbols.',
       'Before submit, draft against submitKnowledgeContract so the first alembic_submit_knowledge call is already schema-complete and source-grounded.',
-      'Complete only the current plan dimensions after session-bound Recipe ids and analysis evidence are recorded.',
+      'After alembic_submit_knowledge returns session-bound Recipe ids, call alembic_dimension_complete for that dimension; only then is the dimension complete.',
     ],
     languageOverlayContract: context.languageProfile,
     recipeGuidanceFloor: buildRecipeGuidanceFloor(),
@@ -546,6 +555,8 @@ function buildDimensionCompletionContract(): Record<string, unknown> {
     tool: 'alembic_dimension_complete',
     sessionField:
       'Use sessionId: bootstrapState.session.id. Do not send bootstrapSessionRef to alembic_dimension_complete; bootstrapSessionRef is accepted by alembic_submit_knowledge only.',
+    completionGate: true,
+    requiredAfterTool: 'alembic_submit_knowledge',
     requiredBeforeComplete: [
       'session-bound Recipe ids returned by alembic_submit_knowledge',
       'current dimension evidence summary tied to submitted sourceRefs',
@@ -1019,6 +1030,7 @@ function buildProgress(dimensions: DimensionSummary[]): Record<string, unknown> 
     currentDimensionIds: dimensions.map((dimension) => dimension.id),
     completedDimensionIds: [],
     pendingDimensionIds: dimensions.map((dimension) => dimension.id),
+    remainingDimensionIds: dimensions.map((dimension) => dimension.id),
     dimensionCount: dimensions.length,
     nextRequiredTools: [
       'alembic_recipe_map',
@@ -1092,14 +1104,27 @@ function buildCurrentDimensionNextActions(
     })),
     {
       label: 'Complete only after current dimension evidence and session-bound Recipe ids exist',
+      afterTool: 'alembic_submit_knowledge',
+      completionGate: true,
+      required: true,
       tool: 'alembic_dimension_complete',
     },
   ];
   return actions.map((action, index) => ({
     ...action,
     order: index + 1,
-    required: index < 2,
+    required: isRequiredCurrentDimensionAction(action, index),
   }));
+}
+
+function isRequiredCurrentDimensionAction(action: Record<string, unknown>, index: number): boolean {
+  const tool = readString(action.tool);
+  return (
+    action.required === true ||
+    index < 2 ||
+    tool === 'alembic_submit_knowledge' ||
+    tool === 'alembic_dimension_complete'
+  );
 }
 
 function summarizeDimensions(value: unknown): DimensionSummary[] {
@@ -1117,8 +1142,7 @@ function summarizeDimension(value: unknown, index: number): DimensionSummary {
     readString(record.key) ||
     `dimension-${index + 1}`;
   const title = readString(record.title) || readString(record.name) || id;
-  const tier =
-    typeof record.tier === 'number' && Number.isFinite(record.tier) ? record.tier : null;
+  const tier = typeof record.tier === 'number' && Number.isFinite(record.tier) ? record.tier : null;
   return { id, tier, title };
 }
 

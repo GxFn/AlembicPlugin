@@ -19,6 +19,9 @@ describe('MissionBriefing profiles', () => {
       'alembic_submit_knowledge({ items: [{ dimensionId: 当前维度ID, ... }] })'
     );
     expect((briefing.executionPlan as { workflow: string }).workflow).toContain(
+      'alembic_dimension_complete 完成维度'
+    );
+    expect((briefing.executionPlan as { workflow: string }).workflow).toContain(
       'item.category 只填业务/组件分类'
     );
   });

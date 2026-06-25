@@ -381,13 +381,16 @@ describe('Codex status service', () => {
     const onboarding = status.onboarding as {
       bootstrapState?: { singleWriterLease?: { status?: string }; status?: string };
       currentDimensionGuidance?: {
+        completionRule?: { requiredClosingTool?: string };
         dimensionIds?: string[];
         dimensions?: Array<{ analysisGuide?: unknown; submissionSpec?: unknown }>;
+        remainingDimensionIds?: string[];
       };
-      currentDimensionNextActions?: Array<{ tool?: string }>;
+      currentDimensionNextActions?: Array<{ required?: boolean; tool?: string }>;
       gates?: Record<string, unknown>;
       hostAgentContract?: {
         dimensionCompletionContract?: {
+          completionGate?: boolean;
           firstCallExample?: Record<string, unknown>;
           requiredFields?: string[];
           sessionField?: string;
@@ -405,6 +408,10 @@ describe('Codex status service', () => {
           sourceRefCardinality?: Record<string, unknown>;
         };
         toolCapabilityMatrix?: Array<{ name?: string; outputTrustLevel?: string }>;
+      };
+      progress?: {
+        nextRequiredTools?: string[];
+        remainingDimensionIds?: string[];
       };
       initialToolBriefing?: {
         agentDecisionChecklist?: Array<Record<string, unknown>>;
@@ -438,6 +445,27 @@ describe('Codex status service', () => {
       state: 'needs_bootstrap',
       primaryAction: { tool: 'alembic_bootstrap' },
     });
+    expect(onboarding.currentDimensionGuidance?.remainingDimensionIds).toEqual(
+      onboarding.currentDimensionGuidance?.dimensionIds
+    );
+    expect(onboarding.currentDimensionGuidance?.completionRule).toMatchObject({
+      requiredClosingTool: 'alembic_dimension_complete',
+    });
+    expect(onboarding.currentDimensionNextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ required: true, tool: 'alembic_submit_knowledge' }),
+        expect.objectContaining({ required: true, tool: 'alembic_dimension_complete' }),
+      ])
+    );
+    expect(onboarding.hostAgentContract?.dimensionCompletionContract).toMatchObject({
+      completionGate: true,
+    });
+    expect(onboarding.progress?.remainingDimensionIds).toEqual(
+      onboarding.currentDimensionGuidance?.dimensionIds
+    );
+    expect(onboarding.progress?.nextRequiredTools).toEqual(
+      expect.arrayContaining(['alembic_submit_knowledge', 'alembic_dimension_complete'])
+    );
     expect(serialized).not.toContain('secret-token');
   });
 

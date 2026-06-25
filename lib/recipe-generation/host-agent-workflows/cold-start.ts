@@ -43,13 +43,13 @@ import {
 } from '#recipe-generation/plan-generation-gate.js';
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
+import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 import {
   jsonByteLength,
   removeTransientTransportIfPresent,
   type TransientTransportRef,
   writeTransientTransport,
 } from '#shared/transient-transport.js';
-import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 
 interface McpContext {
   container: ServiceContainer;
@@ -81,7 +81,7 @@ type ColdStartOnboardingContractWithGuidance = ColdStartOnboardingContract & {
   currentDimensionNextActions: Array<Record<string, unknown>>;
 };
 
-const COLD_START_BRIEFING_INLINE_BUDGET_BYTES = 20 * 1024;
+const COLD_START_BRIEFING_INLINE_BUDGET_BYTES = 18 * 1024;
 const MAX_INLINE_CURRENT_DIMENSION_GUIDES = 2;
 
 // ── 主入口 ─────────────────────────────────────────────────────
@@ -409,10 +409,7 @@ function normalizeProjectScopePath(value: string | undefined): string | undefine
 }
 
 function moduleNameFromProjectScope(scope: string): string {
-  return scope
-    .split('/')
-    .filter(Boolean)
-    .at(-1) ?? scope;
+  return scope.split('/').filter(Boolean).at(-1) ?? scope;
 }
 
 function readNumber(value: unknown): number | null {
@@ -423,10 +420,13 @@ function isString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
-async function budgetColdStartResponseData(input: Record<string, unknown>, context: {
-  dataRoot: string;
-  projectRoot: string;
-}): Promise<void> {
+async function budgetColdStartResponseData(
+  input: Record<string, unknown>,
+  context: {
+    dataRoot: string;
+    projectRoot: string;
+  }
+): Promise<void> {
   const data = readRecord(input.data) ?? {};
   const fullInline = attachFullBriefingRef(data, null);
   if (jsonByteLength(fullInline) <= COLD_START_BRIEFING_INLINE_BUDGET_BYTES) {
@@ -469,9 +469,7 @@ function compactColdStartBriefing<T extends { meta?: Record<string, unknown> }>(
   const currentDimensionIds = readGuidanceDimensionIds(
     readRecord(record.currentDimensionGuidance) ?? {}
   );
-  const inlineFullIds = new Set(
-    currentDimensionIds.slice(0, MAX_INLINE_CURRENT_DIMENSION_GUIDES)
-  );
+  const inlineFullIds = new Set(currentDimensionIds.slice(0, MAX_INLINE_CURRENT_DIMENSION_GUIDES));
   return {
     ...briefing,
     dimensions: readRecordArray(record.dimensions).map((dimension, index) =>
@@ -503,9 +501,7 @@ function compactBriefingDimension(
       readString(dimension.name) ||
       dimensionId,
     tier:
-      typeof dimension.tier === 'number' && Number.isFinite(dimension.tier)
-        ? dimension.tier
-        : null,
+      typeof dimension.tier === 'number' && Number.isFinite(dimension.tier) ? dimension.tier : null,
   };
   if (!currentIds.has(dimensionId)) {
     return summary;
@@ -739,29 +735,19 @@ function minimalColdStartInlineData<T extends { meta?: Record<string, unknown> }
   const out: Record<string, unknown> = {};
   for (const key of [
     'bootstrapState',
-    'cleanup',
-    'cleanupPolicy',
     'currentDimensionGuidance',
     'currentDimensionNextActions',
     'dimensions',
     'executionPlan',
     'fileCount',
     'gates',
-    'generationStage',
     'hostAgentContract',
-    'initialToolBriefing',
     'meta',
-    'moduleScope',
-    'planGate',
     'progress',
-    'projectContextCreationGuide',
     'projectRoot',
-    'recipeCreationNextActions',
     'repairState',
     'serviceBoundary',
     'session',
-    'targets',
-    'testMode',
     'toolCapabilities',
   ]) {
     if (key in record) {
@@ -788,6 +774,8 @@ function compactHostAgentContract(value: unknown): unknown {
     contractVersion: contract.contractVersion,
     dimensionCompletionContract: dimensionCompletionContract
       ? {
+          completionGate: dimensionCompletionContract.completionGate,
+          requiredAfterTool: dimensionCompletionContract.requiredAfterTool,
           sessionField: dimensionCompletionContract.sessionField,
           requiredFields: dimensionCompletionContract.requiredFields,
           firstCallExample: dimensionCompletionContract.firstCallExample,
@@ -1105,9 +1093,8 @@ function attachColdStartOnboardingSurface<T extends { meta?: Record<string, unkn
   return attachOnboardingContract(input.briefing, {
     ...onboardingContract,
     currentDimensionGuidance,
-    currentDimensionNextActions: buildCurrentDimensionNextActionsFromGuidance(
-      currentDimensionGuidance
-    ),
+    currentDimensionNextActions:
+      buildCurrentDimensionNextActionsFromGuidance(currentDimensionGuidance),
   });
 }
 
@@ -1141,21 +1128,31 @@ function buildCurrentDimensionGuidanceFromBriefing(
   const executionPlan = isRecord(briefing.executionPlan) ? briefing.executionPlan : {};
   const currentTier = selectCurrentExecutionTier(executionPlan);
   const tierDimensionIds = currentTier ? readTierDimensionIds(currentTier) : [];
-  const fallbackDimensionIds = dimensions.map((dimension, index) => readDimensionId(dimension, index));
-  const dimensionIds = uniqueStrings(tierDimensionIds.length > 0 ? tierDimensionIds : fallbackDimensionIds);
+  const fallbackDimensionIds = dimensions.map((dimension, index) =>
+    readDimensionId(dimension, index)
+  );
+  const dimensionIds = uniqueStrings(
+    tierDimensionIds.length > 0 ? tierDimensionIds : fallbackDimensionIds
+  );
   const guidanceDimensions = dimensionIds.map((dimensionId) => {
     const dimension = dimensionById.get(dimensionId) || {};
     return {
       dimensionId,
-      title: readString(dimension.label) || readString(dimension.title) || readString(dimension.name) || dimensionId,
+      title:
+        readString(dimension.label) ||
+        readString(dimension.title) ||
+        readString(dimension.name) ||
+        dimensionId,
       tier:
         typeof dimension.tier === 'number' && Number.isFinite(dimension.tier)
           ? dimension.tier
           : null,
-      analysisGuide: isRecord(dimension.analysisGuide) ? dimension.analysisGuide : dimension.analysisGuide ?? null,
+      analysisGuide: isRecord(dimension.analysisGuide)
+        ? dimension.analysisGuide
+        : (dimension.analysisGuide ?? null),
       submissionSpec: isRecord(dimension.submissionSpec)
         ? dimension.submissionSpec
-        : dimension.submissionSpec ?? null,
+        : (dimension.submissionSpec ?? null),
     };
   });
 
@@ -1171,12 +1168,20 @@ function buildCurrentDimensionGuidanceFromBriefing(
         }
       : null,
     dimensionIds,
+    remainingDimensionIds: dimensionIds,
     dimensions: guidanceDimensions,
+    completionRule: {
+      afterTool: 'alembic_submit_knowledge',
+      completionGate: true,
+      requiredClosingTool: 'alembic_dimension_complete',
+      rule: 'For every dimension in dimensionIds, submit session-bound Recipe ids first, then call alembic_dimension_complete before treating that dimension as complete.',
+    },
     nextActions: buildCurrentDimensionActionTemplates(),
     invalidConclusions: [
       'do not infer current work from retired static task queues',
       'do not submit Recipes without exact sourceRefs and graph/detail evidence',
       'do not complete a dimension before session-bound Recipe ids are returned',
+      'do not treat a dimension as complete until alembic_dimension_complete succeeds for that dimension',
     ],
     note:
       currentTier && tierDimensionIds.length > 0
@@ -1205,17 +1210,23 @@ function buildCurrentDimensionActionTemplates(): Array<Record<string, unknown>> 
     },
     {
       label: 'Collect source and relationship evidence',
-      reason: 'Use graph/detail refs for caller/callee/ownership/impact claims, then raw-read gaps.',
+      reason:
+        'Use graph/detail refs for caller/callee/ownership/impact claims, then raw-read gaps.',
       tool: 'alembic_graph',
     },
     {
       label: 'Submit source-grounded Recipe candidates',
       reason: 'Submit only after candidates satisfy hostAgentContract.submitKnowledgeContract.',
+      required: true,
       tool: 'alembic_submit_knowledge',
     },
     {
       label: 'Complete current dimensions',
-      reason: 'Use session-bound Recipe ids and analysis evidence for alembic_dimension_complete.',
+      afterTool: 'alembic_submit_knowledge',
+      completionGate: true,
+      reason:
+        'Required per-dimension closing step: use session-bound Recipe ids and analysis evidence for alembic_dimension_complete before marking the dimension complete.',
+      required: true,
       tool: 'alembic_dimension_complete',
     },
   ];
@@ -1230,8 +1241,18 @@ function buildCurrentDimensionNextActionsFromGuidance(
     .map((action, index) => ({
       ...action,
       order: index + 1,
-      required: index < 2,
+      required: isRequiredCurrentDimensionAction(action, index),
     }));
+}
+
+function isRequiredCurrentDimensionAction(action: Record<string, unknown>, index: number): boolean {
+  const tool = readString(action.tool);
+  return (
+    action.required === true ||
+    index < 2 ||
+    tool === 'alembic_submit_knowledge' ||
+    tool === 'alembic_dimension_complete'
+  );
 }
 
 function readTierDimensionIds(tier: Record<string, unknown>): string[] {
@@ -1243,11 +1264,7 @@ function readTierDimensionIds(tier: Record<string, unknown>): string[] {
   return uniqueStrings(
     dimensionValues
       .map((value, index) =>
-        typeof value === 'string'
-          ? value
-          : isRecord(value)
-            ? readDimensionId(value, index)
-            : ''
+        typeof value === 'string' ? value : isRecord(value) ? readDimensionId(value, index) : ''
       )
       .filter((value) => value.length > 0)
   );
@@ -1264,16 +1281,22 @@ function readDimensionId(dimension: Record<string, unknown>, index: number): str
 
 function readGuidanceDimensionIds(guidance: Record<string, unknown>): string[] {
   return Array.isArray(guidance.dimensionIds)
-    ? uniqueStrings(guidance.dimensionIds.filter((value): value is string => typeof value === 'string'))
+    ? uniqueStrings(
+        guidance.dimensionIds.filter((value): value is string => typeof value === 'string')
+      )
     : [];
 }
 
-function readGuidanceCurrentTier(guidance: Record<string, unknown>): Record<string, unknown> | null {
+function readGuidanceCurrentTier(
+  guidance: Record<string, unknown>
+): Record<string, unknown> | null {
   return isRecord(guidance.currentTier) ? guidance.currentTier : null;
 }
 
 function readRecordArray(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => isRecord(item)) : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => isRecord(item))
+    : [];
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
