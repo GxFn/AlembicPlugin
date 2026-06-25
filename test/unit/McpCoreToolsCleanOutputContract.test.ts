@@ -137,6 +137,12 @@ describe('MCP core tools clean output contract', () => {
           path: '/tmp/full-bootstrap.json',
         });
       }
+      if (toolName === 'alembic_dimension_complete') {
+        expect(structured.completenessCritic).toMatchObject({
+          targetGate: 'advisory',
+          shouldBlockCompletion: false,
+        });
+      }
     }
   });
 
@@ -192,8 +198,7 @@ describe('MCP core tools clean output contract', () => {
   });
 
   test('preserves actionable submit_knowledge evidence gate refusal details', () => {
-    const nextAction =
-      'Cite the exact source line range that contains the submitted code snippet.';
+    const nextAction = 'Cite the exact source line range that contains the submitted code snippet.';
     const summary = `Recipe evidence gate failed (1 violation): #0 SNIPPET_MISMATCH → ${nextAction}`;
     const result = serializeMcpToolResult(
       'alembic_submit_knowledge',
@@ -437,7 +442,17 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
     case 'alembic_consolidate':
       return { kept: 1, merged: 0, processed: 1, rejected: 0 };
     case 'alembic_dimension_complete':
-      return { completed: true, dimensionId: 'architecture' };
+      return {
+        completed: true,
+        completenessCritic: {
+          dimensionId: 'architecture',
+          hints: [{ pattern: 'Missing local package coverage' }],
+          shouldBlockCompletion: false,
+          status: 'has-grounded-hints',
+          targetGate: 'advisory',
+        },
+        dimensionId: 'architecture',
+      };
     case 'alembic_knowledge_lifecycle':
       return { action: 'reactivate', updated: 1 };
   }

@@ -1861,6 +1861,16 @@ describe('HostMcpServer', () => {
       expect(dimension.analysisGuide).toBeTruthy();
       expect(dimension.submissionSpec).toBeTruthy();
     }
+    expect(result.data?.currentDimensionGuidance?.dimensions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          completenessCritic: expect.objectContaining({
+            shouldBlockCompletion: false,
+            targetGate: 'advisory',
+          }),
+        }),
+      ])
+    );
     expect(result.data?.currentDimensionNextActions?.map((action) => action.tool)).toEqual(
       expect.arrayContaining(['alembic_recipe_map', 'alembic_graph'])
     );

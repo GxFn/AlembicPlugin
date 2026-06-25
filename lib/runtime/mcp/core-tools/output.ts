@@ -149,6 +149,7 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'accumulatedHints',
     'businessStatus',
     'candidateCount',
+    'completenessCritic',
     'completed',
     'completedDimensions',
     'dimensionId',

@@ -8,6 +8,11 @@ import Logger from '@alembic/core/logging';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import { BootstrapEventEmitter } from '#recipe-generation/bootstrap/BootstrapEventEmitter.js';
+import {
+  buildDimensionCompletionCompletenessCritic,
+  buildSubmittedRecipesForCompletenessCritic,
+  projectCompletenessCriticForAgent,
+} from '#recipe-generation/host-agent-workflows/completeness-critic.js';
 import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
@@ -40,6 +45,8 @@ export interface HostAgentDimensionCompleteArgs {
   keyFindings?: unknown;
   candidateCount?: unknown;
   crossDimensionHints?: unknown;
+  exhaustedReason?: unknown;
+  noPadding?: unknown;
   [key: string]: unknown;
 }
 
@@ -125,7 +132,14 @@ export interface HostAgentWorkflowSession {
     getDimensionReport(dimId: string): unknown;
   };
   getSnapshotCache?(): {
-    localPackageModules?: Array<{ packageName: string; name: string }>;
+    allFiles?: Array<{
+      filePath?: string;
+      language?: string;
+      path?: string;
+      relativePath?: string;
+    }>;
+    localPackageModules?: Array<{ packageName?: string; name?: string; path?: string }>;
+    targetsSummary?: Array<{ name?: string; path?: string; type?: string }>;
   } | null;
   getProgress(): {
     completed: number;
@@ -229,10 +243,13 @@ interface CompletionInput {
   keyFindings: string[];
   candidateCount?: number;
   crossDimensionHints?: Record<string, unknown>;
+  exhaustedReason?: string;
+  noPadding?: boolean;
 }
 
 interface DimensionCompletionSideEffectResult {
   accumulatedHints: Record<string, unknown> | undefined;
+  completenessCritic: Record<string, unknown> | undefined;
   evidenceHints: Record<string, unknown> | undefined;
   ideAgentAnalysisProgress: ReturnType<typeof buildIDEAgentAnalysisProgressBackfill>;
   isComplete: boolean;
@@ -527,9 +544,17 @@ async function persistAndBroadcastDimensionCompletion({
     dimensionId: input.dimensionId,
     referencedFiles,
   });
+  const completenessCritic = buildCompletionCompletenessCritic({
+    dimension,
+    input,
+    referencedFiles,
+    session,
+    submittedRecipeIds,
+  });
 
   return {
     accumulatedHints,
+    completenessCritic,
     evidenceHints,
     ideAgentAnalysisProgress,
     isComplete,
@@ -575,6 +600,7 @@ function buildDimensionCompletionSuccessResponse({
       isBootstrapComplete: result.isComplete,
       accumulatedHints,
       qualityFeedback: result.qualityFeedback,
+      completenessCritic: result.completenessCritic,
       evidenceHints: result.evidenceHints,
       ideAgentAnalysisProgress: result.ideAgentAnalysisProgress,
       subpackageCoverageWarning: result.subpackageCoverageWarning,
@@ -693,6 +719,8 @@ function normalizeCompletionInput(
       referencedFiles: stringArray(args.referencedFiles),
       keyFindings: stringArray(args.keyFindings),
       candidateCount: typeof args.candidateCount === 'number' ? args.candidateCount : undefined,
+      exhaustedReason: typeof args.exhaustedReason === 'string' ? args.exhaustedReason : undefined,
+      noPadding: args.noPadding === true,
       crossDimensionHints:
         args.crossDimensionHints && typeof args.crossDimensionHints === 'object'
           ? (args.crossDimensionHints as Record<string, unknown>)
@@ -1152,6 +1180,48 @@ function buildQualityFeedback({
   return qualityFeedback;
 }
 
+function buildCompletionCompletenessCritic({
+  dimension,
+  input,
+  referencedFiles,
+  session,
+  submittedRecipeIds,
+}: {
+  dimension: DimensionDef;
+  input: CompletionInput;
+  referencedFiles: string[];
+  session: HostAgentWorkflowSession;
+  submittedRecipeIds: string[];
+}): Record<string, unknown> | undefined {
+  try {
+    const trackerSubmissions = session.submissionTracker.getSubmissions(input.dimensionId);
+    const result = buildDimensionCompletionCompletenessCritic({
+      dimension: {
+        id: dimension.id,
+        label: dimension.label,
+        guide: (dimension as { guide?: string }).guide,
+        knowledgeTypes: (dimension as { knowledgeTypes?: readonly string[] }).knowledgeTypes,
+      },
+      exhaustedReason: input.exhaustedReason,
+      noPadding: input.noPadding,
+      referencedFiles,
+      sessionSnapshot: session.getSnapshotCache?.(),
+      submittedRecipeCount: input.candidateCount || submittedRecipeIds.length,
+      submittedRecipes: buildSubmittedRecipesForCompletenessCritic({
+        dimensionId: input.dimensionId,
+        submittedRecipeIds,
+        trackerSubmissions,
+      }),
+    });
+    return projectCompletenessCriticForAgent(result);
+  } catch (err: unknown) {
+    logger.debug(
+      `[DimensionComplete] Completeness critic skipped for "${input.dimensionId}": ${err instanceof Error ? err.message : String(err)}`
+    );
+    return undefined;
+  }
+}
+
 function buildSubpackageCoverageWarning({
   session,
   dimensionId,
@@ -1168,12 +1238,21 @@ function buildSubpackageCoverageWarning({
     }
     const uncoveredPackages: string[] = [];
     for (const localPackage of localPackages) {
-      const packagePrefix = localPackage.packageName.replace(/\/$/, '');
+      const packagePrefix = (localPackage.packageName ?? localPackage.path ?? '').replace(
+        /\/$/,
+        ''
+      );
+      const packageName = localPackage.name ?? packagePrefix;
+      if (!packagePrefix && !packageName) {
+        continue;
+      }
       const covered = referencedFiles.some(
-        (file) => file.includes(packagePrefix) || file.includes(localPackage.name)
+        (file) =>
+          (packagePrefix.length > 0 && file.includes(packagePrefix)) ||
+          (packageName.length > 0 && file.includes(packageName))
       );
       if (!covered) {
-        uncoveredPackages.push(localPackage.name);
+        uncoveredPackages.push(packageName);
       }
     }
     if (uncoveredPackages.length === 0) {

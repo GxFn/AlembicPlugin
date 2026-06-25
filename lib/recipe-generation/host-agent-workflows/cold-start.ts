@@ -27,6 +27,10 @@ import { type HostKnowledgeState, inspectKnowledge } from '#codex/KnowledgeState
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
+  buildColdStartCompletenessCriticByDimension,
+  projectCompletenessCriticForAgent,
+} from '#recipe-generation/host-agent-workflows/completeness-critic.js';
+import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
   selectProjectContextDimensions,
@@ -320,12 +324,19 @@ async function buildColdStartMissionBriefing(
     secondaryLanguages: input.projectContextAnalysis.secondaryLanguages,
     session,
   });
-  briefingWithOnboardingContract.meta.projectContextDirectSwitch = {
+  const briefingWithCompletenessCritic = attachColdStartCompletenessCriticSurface(
+    briefingWithOnboardingContract,
+    {
+      dimensions: input.briefingDimensions,
+      projectContextAnalysis: input.projectContextAnalysis,
+    }
+  );
+  briefingWithCompletenessCritic.meta.projectContextDirectSwitch = {
     moduleSeedCount: input.projectContextAnalysis.moduleSeeds.length,
     requestKinds: input.projectContextAnalysis.requestKinds,
   };
   const briefingWithProjectContextGuide = attachProjectContextCreationGuide(
-    briefingWithOnboardingContract,
+    briefingWithCompletenessCritic,
     {
       dimensionIds: input.briefingDimensions.map((dimension) => dimension.id),
       generationStage: input.planGate.generationStage,
@@ -503,20 +514,46 @@ function compactBriefingDimension(
     tier:
       typeof dimension.tier === 'number' && Number.isFinite(dimension.tier) ? dimension.tier : null,
   };
+  const completenessCritic = compactDimensionCompletenessCritic(
+    dimension.completenessCritic,
+    detailMode
+  );
   if (!currentIds.has(dimensionId)) {
-    return summary;
+    return detailMode === 'compact' ? summary : { ...summary, ...completenessCritic };
   }
   if (detailMode === 'full') {
     return {
       ...summary,
       analysisGuide: dimension.analysisGuide ?? null,
+      ...completenessCritic,
       submissionSpec: dimension.submissionSpec ?? null,
     };
   }
   return {
     ...summary,
     analysisGuide: compactDimensionGuide(dimension.analysisGuide),
+    ...completenessCritic,
     submissionSpec: compactDimensionSubmissionSpec(dimension.submissionSpec),
+  };
+}
+
+function compactDimensionCompletenessCritic(
+  value: unknown,
+  detailMode: CurrentDimensionDetailMode
+): Record<string, unknown> {
+  const critic = readRecord(value);
+  if (!critic) {
+    return {};
+  }
+  if (detailMode === 'full') {
+    return { completenessCritic: critic };
+  }
+  return {
+    completenessCritic: {
+      status: critic.status,
+      targetGate: critic.targetGate,
+      shouldBlockCompletion: critic.shouldBlockCompletion,
+    },
   };
 }
 
@@ -1112,6 +1149,44 @@ function attachOnboardingContract<T extends { meta?: Record<string, unknown> }>(
         currentDimensionIds: readGuidanceDimensionIds(onboardingContract.currentDimensionGuidance),
         currentTier: readGuidanceCurrentTier(onboardingContract.currentDimensionGuidance),
       },
+    },
+  };
+}
+
+function attachColdStartCompletenessCriticSurface<
+  T extends { currentDimensionGuidance?: unknown; meta?: Record<string, unknown> },
+>(
+  briefing: T,
+  input: {
+    dimensions: ReturnType<typeof selectProjectContextDimensions>;
+    projectContextAnalysis: Awaited<ReturnType<typeof buildHostAgentProjectContextAnalysis>>;
+  }
+): T {
+  const guidance = readRecord(briefing.currentDimensionGuidance);
+  if (!guidance) {
+    return briefing;
+  }
+  const criticByDimension = buildColdStartCompletenessCriticByDimension(input);
+  const dimensions = readRecordArray(guidance.dimensions).map((dimension, index) => {
+    const dimensionId = readDimensionId(dimension, index);
+    const critic = criticByDimension.get(dimensionId);
+    return critic
+      ? {
+          ...dimension,
+          completenessCritic: projectCompletenessCriticForAgent(critic, {
+            maxGuidance: 1,
+            maxHints: 1,
+            maxNotes: 1,
+            maxSourceRefsPerItem: 2,
+          }),
+        }
+      : dimension;
+  });
+  return {
+    ...briefing,
+    currentDimensionGuidance: {
+      ...guidance,
+      dimensions,
     },
   };
 }

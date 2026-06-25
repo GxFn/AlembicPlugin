@@ -1206,6 +1206,14 @@ export const DimensionCompleteInput = z.object({
   referencedFiles: z.array(z.string()).optional(),
   keyFindings: z.array(z.string()).optional(),
   candidateCount: z.number().int().min(0).optional(),
+  noPadding: z
+    .boolean()
+    .optional()
+    .describe('若该维度已无更多真实核心 pattern，可设为 true，禁止为凑 target 生成虚假 Recipe'),
+  exhaustedReason: z
+    .string()
+    .optional()
+    .describe('noPadding=true 时说明已穷尽的真实项目证据与为什么不再补 Recipe'),
   crossDimensionHints: z.record(z.string(), z.string()).optional(),
 });
 export type DimensionCompleteInput = z.infer<typeof DimensionCompleteInput>;

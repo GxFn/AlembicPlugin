@@ -94,6 +94,14 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     expect(data.progress).toBe('1/2');
     expect(data.isBootstrapComplete).toBe(false);
     expect(data.subpackageCoverageWarning).toContain('internal-lib');
+    expect(data.completenessCritic).toMatchObject({
+      dimensionId: 'architecture',
+      status: 'has-grounded-hints',
+      shouldBlockCompletion: false,
+      targetGate: 'advisory',
+      targetPerDimension: 5,
+    });
+    expect(JSON.stringify(data.completenessCritic)).toContain('internal-lib');
     expect(updates).toEqual([
       {
         recipeId: 'recipe-a',
@@ -349,6 +357,86 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     expect(checkpoint).not.toHaveBeenCalled();
     expect(emitted).not.toHaveBeenCalled();
   });
+
+  it('does not repeat completeness critic hints for refs already covered by submitted recipes', async () => {
+    const session = createSession({
+      localPackageModules: [{ packageName: 'packages/internal-lib', name: 'internal-lib' }],
+      submissions: [
+        { recipeId: 'recipe-a', sources: ['packages/internal-lib'], title: 'A' },
+        { recipeId: 'recipe-b', sources: ['packages/internal-lib'], title: 'B' },
+        { recipeId: 'recipe-c', sources: ['packages/internal-lib'], title: 'C' },
+      ],
+    });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      createContext(),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The internal package evidence covers the module boundary with direct source refs.',
+          'The local package references demonstrate ownership without inventing extra patterns.',
+          'The submitted Recipe ids all point to the same grounded package surface.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    const critic = (result.data as { completenessCritic?: Record<string, unknown> })
+      .completenessCritic;
+    expect(critic).toMatchObject({
+      shouldBlockCompletion: false,
+      targetGate: 'advisory',
+    });
+    expect(JSON.stringify(critic?.hints ?? [])).not.toContain('internal-lib');
+  });
+
+  it('honors noPadding exhausted reason without turning target five into a hard gate', async () => {
+    const session = createSession({ localPackageModules: [] });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      createContext(),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        exhaustedReason:
+          'Reviewed every source file in the current module and found only three grounded architecture patterns.',
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+        noPadding: true,
+      },
+      {
+        getActiveSession: () => session,
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as { progress?: string }).progress).toBe('1/2');
+    expect(
+      (result.data as { completenessCritic?: Record<string, unknown> }).completenessCritic
+    ).toMatchObject({
+      status: 'exhausted',
+      targetGate: 'advisory',
+      shouldBlockCompletion: false,
+      exhaustedReason: expect.stringContaining('only three grounded architecture patterns'),
+    });
+  });
 });
 
 function createContext(
@@ -376,6 +464,7 @@ function createInitializedProjectRoot(): string {
 }
 
 function createSession({
+  localPackageModules = [{ packageName: 'packages/internal-lib', name: 'internal-lib' }],
   skillWorthy = false,
   submissions = [
     { recipeId: 'recipe-a', sources: ['src/a.ts:10-20'], title: 'A' },
@@ -383,6 +472,7 @@ function createSession({
     { recipeId: 'recipe-c', sources: ['lib/c.ts:1-12'], title: 'C' },
   ],
 }: {
+  localPackageModules?: Array<{ packageName: string; name: string }>;
   skillWorthy?: boolean;
   submissions?: Array<{ recipeId: string; sources: string[]; title?: string }>;
 } = {}): HostAgentWorkflowSession {
@@ -415,7 +505,7 @@ function createSession({
       getDimensionReport: () => undefined,
     },
     getSnapshotCache: () => ({
-      localPackageModules: [{ packageName: 'packages/internal-lib', name: 'internal-lib' }],
+      localPackageModules,
     }),
     getProgress: () => ({
       completed: completed ? 1 : 0,
