@@ -2,6 +2,10 @@ import type { McpServiceContainer } from '../handlers/types.js';
 
 const DEFAULT_MIN_INTERVAL_MS = 15_000;
 const DEFAULT_TIMEOUT_MS = 2_000;
+// P1 有界化：单次 staging access sweep 的默认晋级上限（cap）。删 daemon 后 sweep 由
+// tick-on-access 驱动，一次大冷扫可能含远超该值的到期项；cap 让单次只晋级 ≤cap 条、
+// 跨多次工具调用排空，避免单 tick 长时间占用。可经 ALEMBIC_STAGING_ACCESS_SWEEP_CAP 覆盖。
+const DEFAULT_STAGING_ACCESS_SWEEP_CAP = 50;
 
 export const STAGING_ACCESS_SWEEP_TOOL_NAMES = new Set([
   'alembic_submit_knowledge',
@@ -11,7 +15,9 @@ export const STAGING_ACCESS_SWEEP_TOOL_NAMES = new Set([
 ]);
 
 interface StagingManagerLike {
-  checkAndPromote(): Promise<{
+  // cap 可选，对齐 Core StagingManager.checkAndPromote(cap?: number) 新签名：
+  // 不传=无界（今日字节一致行为），传=单次最多晋级 cap 条（Core 侧最旧优先、跨 tick 排空）。
+  checkAndPromote(cap?: number): Promise<{
     promoted?: Array<{ id?: string; title?: string }>;
     rolledBack?: Array<{ id?: string; title?: string }>;
     waiting?: Array<{ id?: string; title?: string }>;
@@ -96,7 +102,11 @@ async function runSweep(
   try {
     const container = await input.getContainer();
     const stagingManager = container.get('stagingManager') as StagingManagerLike;
-    const result = await stagingManager.checkAndPromote();
+    // P1 有界化：以共享 cap 上限调用 checkAndPromote，单次 sweep 只晋级 ≤cap 条。
+    // 同一 resolveStagingAccessSweepCap() 将被 P2 checkTimeouts(cap) / P3 checkAndExecute(cap)
+    // 复用；本次（P1）只接线 promote，不接线 P2/P3 的驱动。
+    const cap = resolveStagingAccessSweepCap();
+    const result = await stagingManager.checkAndPromote(cap);
     const promoted = Array.isArray(result.promoted) ? result.promoted : [];
     const waiting = Array.isArray(result.waiting) ? result.waiting : [];
     return {
@@ -178,6 +188,28 @@ function readDurationMs(envName: string, fallback: number): number {
   }
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/**
+ * 解析单次 staging access sweep 的晋级上限（cap）；设计为共享 sweep 上限。
+ *
+ * 默认 DEFAULT_STAGING_ACCESS_SWEEP_CAP(50)，可经 ALEMBIC_STAGING_ACCESS_SWEEP_CAP
+ * 覆盖（与 MIN_INTERVAL/TIMEOUT 同属 sweep env 家族）。守卫：仅接受有限正整数(>=1)，
+ * 否则回退默认——避免两个 foot-gun：cap=0(晋级 0 条＝静默禁用 promote)、负值(传到
+ * Core 的 SQL LIMIT 后＝无界，反破坏有界语义)；非整数向下取整（LIMIT 需整数）。
+ * 导出以便 P2 checkTimeouts / P3 checkAndExecute 接线时复用同一上限与解析逻辑；
+ * 本次（P1）只用于 promote，不接线 P2/P3 的驱动。
+ */
+export function resolveStagingAccessSweepCap(): number {
+  const raw = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP;
+  if (!raw) {
+    return DEFAULT_STAGING_ACCESS_SWEEP_CAP;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_STAGING_ACCESS_SWEEP_CAP;
+  }
+  return Math.floor(parsed);
 }
 
 function logSweepResult(
