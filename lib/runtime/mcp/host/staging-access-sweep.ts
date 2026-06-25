@@ -24,6 +24,16 @@ interface StagingManagerLike {
   }>;
 }
 
+interface LifecycleStateMachineLike {
+  // cap 可选，对齐 Core LifecycleStateMachine.checkTimeouts(cap?: number): Promise<TimeoutCheckResult>。
+  // 仅 duck-type 出本 sweep 需要的字段：timedOut（本 tick 经 transition 迁移的条目）+ checked（扫描计数）。
+  // 不传=无界（字节一致），传=单 tick 跨超时状态共享 ≤cap 预算（Core 侧最旧优先、跨 tick 排空）。
+  checkTimeouts(cap?: number): Promise<{
+    timedOut?: Array<{ recipeId?: string; fromState?: string; toState?: string; age?: number }>;
+    checked?: number;
+  }>;
+}
+
 interface LoggerLike {
   debug?(message: string, meta?: Record<string, unknown>): void;
   info?(message: string, meta?: Record<string, unknown>): void;
@@ -44,12 +54,17 @@ export interface StagingAccessSweepInput {
 }
 
 export interface StagingAccessSweepResult {
+  // P2 additive 可观测计数（lifecycle 超时驱动）：checkedTimeouts=本 tick checkTimeouts 扫描的条数、
+  // timedOutCount=经 transition 实际迁移的条数。注意与下方 timedOut(布尔，sweep 2s 信封超时标志)
+  // 语义不同，勿混用；仅新增字段，既有字段语义不变。
+  checkedTimeouts?: number;
   durationMs?: number;
   promotedCount: number;
   promotedIds: string[];
   reason?: string;
   skipped: boolean;
   timedOut?: boolean;
+  timedOutCount?: number;
   toolName: string;
   waitingCount: number;
 }
@@ -102,18 +117,26 @@ async function runSweep(
   try {
     const container = await input.getContainer();
     const stagingManager = container.get('stagingManager') as StagingManagerLike;
-    // P1 有界化：以共享 cap 上限调用 checkAndPromote，单次 sweep 只晋级 ≤cap 条。
-    // 同一 resolveStagingAccessSweepCap() 将被 P2 checkTimeouts(cap) / P3 checkAndExecute(cap)
-    // 复用；本次（P1）只接线 promote，不接线 P2/P3 的驱动。
+    // 共享 sweep 上限：P1 promote 与 P2 lifecycle 超时驱动复用同一 cap（resolveStagingAccessSweepCap）。
+    // 各驱动各自 ≤cap，单 tick 总量 ≤ 驱动数×cap，仍有界；P3（checkAndExecute/subscribe）本次不接线。
     const cap = resolveStagingAccessSweepCap();
+    // P1：以共享 cap 调 checkAndPromote，单次只晋级 ≤cap 条。
     const result = await stagingManager.checkAndPromote(cap);
+    // P2：promote 之后、同一 tick / 同一 try-catch 信封内，以同一共享 cap 驱动 lifecycle 超时迁移
+    // （evolving→active / pending·decaying→deprecated）。与 checkAndPromote 不相交（staging 不在
+    // TIMEOUT_TARGET、从不被 checkTimeouts 查询）；checkTimeouts 抛错则整 sweep 走下方 skipped 兜底。
+    const lifecycle = container.get('lifecycleStateMachine') as LifecycleStateMachineLike;
+    const timeoutResult = await lifecycle.checkTimeouts(cap);
+    const timedOut = Array.isArray(timeoutResult.timedOut) ? timeoutResult.timedOut : [];
     const promoted = Array.isArray(result.promoted) ? result.promoted : [];
     const waiting = Array.isArray(result.waiting) ? result.waiting : [];
     return {
+      checkedTimeouts: typeof timeoutResult.checked === 'number' ? timeoutResult.checked : 0,
       durationMs: Date.now() - startedAt,
       promotedCount: promoted.length,
       promotedIds: promoted.map((entry) => entry.id).filter(isString),
       skipped: false,
+      timedOutCount: timedOut.length,
       toolName: input.toolName,
       waitingCount: waiting.length,
     };
@@ -197,8 +220,8 @@ function readDurationMs(envName: string, fallback: number): number {
  * 覆盖（与 MIN_INTERVAL/TIMEOUT 同属 sweep env 家族）。守卫：仅接受有限正整数(>=1)，
  * 否则回退默认——避免两个 foot-gun：cap=0(晋级 0 条＝静默禁用 promote)、负值(传到
  * Core 的 SQL LIMIT 后＝无界，反破坏有界语义)；非整数向下取整（LIMIT 需整数）。
- * 导出以便 P2 checkTimeouts / P3 checkAndExecute 接线时复用同一上限与解析逻辑；
- * 本次（P1）只用于 promote，不接线 P2/P3 的驱动。
+ * 导出以便 promote 与各超时/执行驱动复用同一上限与解析逻辑：P1 promote 与 P2
+ * checkTimeouts 已在本文件 runSweep 复用它；P3 checkAndExecute 驱动暂未接线。
  */
 export function resolveStagingAccessSweepCap(): number {
   const raw = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP;
@@ -218,12 +241,14 @@ function logSweepResult(
   projectRoot: string
 ): void {
   const meta = {
+    checkedTimeouts: result.checkedTimeouts ?? null,
     durationMs: result.durationMs ?? null,
     projectRoot,
     promotedCount: result.promotedCount,
     promotedIds: result.promotedIds,
     reason: result.reason ?? null,
     timedOut: result.timedOut === true,
+    timedOutCount: result.timedOutCount ?? null,
     toolName: result.toolName,
     waitingCount: result.waitingCount,
   };
