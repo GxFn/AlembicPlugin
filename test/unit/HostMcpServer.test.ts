@@ -941,6 +941,18 @@ describe('HostMcpServer', () => {
       data: {
         initialized: boolean;
         daemon: { ready: boolean };
+        localEmbedding: {
+          enabled: boolean;
+          endpoint: string;
+          model: string;
+          provider: string;
+          setup: {
+            enableConfig: string;
+            enableEnv: string;
+            guidance: string[];
+            pullCommand: string;
+          };
+        };
         nextActions: string[];
         onboarding: {
           primaryAction: { startsDaemon: boolean; tool: string };
@@ -952,6 +964,20 @@ describe('HostMcpServer', () => {
     expect(result.success).toBe(true);
     expect(result.data.initialized).toBe(false);
     expect(result.data.daemon.ready).toBe(false);
+    expect(result.data.localEmbedding).toMatchObject({
+      enabled: false,
+      endpoint: 'http://127.0.0.1:11434',
+      model: 'qwen3-embedding',
+      provider: 'ollama',
+      setup: {
+        enableConfig: 'vector.localEmbedding.enabled=true',
+        enableEnv: 'ALEMBIC_LOCAL_EMBEDDING_ENABLED=1',
+        pullCommand: 'ollama pull qwen3-embedding',
+      },
+    });
+    expect(result.data.localEmbedding.setup.guidance.join('\n')).toContain(
+      'ALEMBIC_LOCAL_EMBEDDING_ENABLED=1'
+    );
     expect(result.data.onboarding).toMatchObject({
       state: 'needs_init',
       primaryAction: { startsDaemon: false, tool: 'alembic_init' },

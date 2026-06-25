@@ -307,8 +307,8 @@ export class SetupService {
           paths: ['Sources', 'src'],
           extensions: ['.swift', '.m', '.h'],
         },
-        // GMAP-L3: optional local semantic embeddings via a user-run Ollama daemon
-        // (Claude Code). Disabled by default; clean keyword fallback when off/absent.
+        // GMAP-L3: optional local semantic embeddings via a user-run Ollama daemon.
+        // Disabled by default; clean keyword fallback when off/absent.
         vector: {
           localEmbedding: {
             enabled: false,
@@ -787,10 +787,14 @@ export class SetupService {
 
       // embedded runtime 通常不注入第三方 embedding provider，语义检索由 resident service 增强。
       if (!vectorAvailability.available) {
+        const localConfig = resolveLocalEmbeddingConfig({});
         return {
           status: 'skipped',
           reason: `本地 embedding provider 不可用 (${vectorAvailability.reason})`,
-          hint: 'baseline/hybrid search 可继续使用；语义检索由 Alembic resident service / resident search 增强提供',
+          hint:
+            `baseline/hybrid search 可继续使用；如需本地语义检索，请先执行 "ollama pull ${localConfig.model}"，` +
+            '再设置 ALEMBIC_LOCAL_EMBEDDING_ENABLED=1 或 .asd/config.json 的 vector.localEmbedding.enabled=true。',
+          localEmbeddingGuidance: localEmbeddingSetupGuidance(localConfig),
           vectorAvailability: compactVectorAvailability(vectorAvailability),
         };
       }

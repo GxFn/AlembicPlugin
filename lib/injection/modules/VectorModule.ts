@@ -9,7 +9,7 @@
  * 依赖 InfraModule 先注册: eventBus, database
  */
 
-import type { EmbedLaneSelection } from '@alembic/core/vector';
+import type { EmbedLaneSelection, FetchLike } from '@alembic/core/vector';
 import { VectorService } from '@alembic/core/vector';
 import type { ContextualEnricher } from '#recipe-generation/vector/ContextualEnricher.js';
 import {
@@ -116,7 +116,10 @@ export async function initializeVectorService(c: ServiceContainer): Promise<void
  * absent/disabled Ollama cleanly degrades to the keyword baseline with honest logs.
  * The actual index rebuild with the selected provider is GMAP-L4/L5 (controller).
  */
-export async function prepareLocalEmbedProvider(c: ServiceContainer): Promise<void> {
+export async function prepareLocalEmbedProvider(
+  c: ServiceContainer,
+  opts: { fetchImpl?: FetchLike } = {}
+): Promise<void> {
   const vectorConfig = (c.singletons._config as Record<string, unknown> | undefined)?.vector;
   const localConfig = resolveLocalEmbeddingConfig(vectorConfig);
   const logger =
@@ -132,7 +135,9 @@ export async function prepareLocalEmbedProvider(c: ServiceContainer): Promise<vo
   }
 
   try {
-    const selection = await selectLocalEmbedLane(localConfig);
+    const selection = await selectLocalEmbedLane(localConfig, {
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    });
     singletons[LOCAL_EMBED_SELECTION_KEY] = selection;
     if (selection.provider) {
       logger.info?.(

@@ -512,6 +512,96 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
   });
 
+  it('surfaces ready local Ollama semantic indexing without embed-provider-missing degradation', async () => {
+    gatewayState.result.created = [
+      {
+        index: 0,
+        id: 'recipe-semantic-001',
+        title: 'Codex Recipe Interaction',
+        lifecycle: 'candidate',
+        raw: {
+          id: 'recipe-semantic-001',
+          title: 'Codex Recipe Interaction',
+          content: { markdown: 'Fresh recipe content.' },
+          reasoning: { sources: ['src/current.ts:1-3'] },
+        },
+      },
+    ];
+    gatewayState.result.pendingSemanticReview = [];
+    gatewayState.freshnessResult = {
+      errors: [],
+      processed: 1,
+      recipes: [
+        {
+          errors: [],
+          recipeId: 'recipe-semantic-001',
+          retrievalMayBeStale: false,
+          sourceRefs: {
+            activeRefs: ['src/current.ts:1-3'],
+            active: 1,
+            allRefs: ['src/current.ts:1-3'],
+            cleaned: 0,
+            errors: [],
+            inserted: 1,
+            recipesProcessed: 1,
+            skipped: 0,
+            staleRefs: [],
+            stale: 0,
+            status: 'completed',
+          },
+          sourceRefsBridge: {
+            refs: ['src/current.ts:1-3'],
+            status: 'active',
+          },
+          vector: {
+            availability: {
+              available: true,
+              embedProviderConfigured: true,
+              probeStatus: 'available',
+              reason: 'embed-provider-ready',
+              status: 'available',
+            },
+            degradedReason: null,
+            entrySyncStatus: 'synced',
+            errors: [],
+            regionSyncStatus: 'synced',
+            status: 'completed',
+          },
+        },
+      ],
+      requested: 1,
+      retrievalMayBeStale: false,
+      status: 'completed',
+    };
+
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      items: [{ title: 'Codex Recipe Interaction' }],
+      skipConsolidation: true,
+    });
+
+    const degradedReasons = Array.isArray(result.data.degradedReasons)
+      ? result.data.degradedReasons
+      : [];
+    expect(result.data).toMatchObject({
+      freshness: {
+        status: 'completed',
+        recipes: [
+          {
+            recipeId: 'recipe-semantic-001',
+            vector: {
+              status: 'completed',
+              availabilityStatus: 'available',
+              availabilityReason: 'embed-provider-ready',
+              regionSyncStatus: 'synced',
+            },
+          },
+        ],
+      },
+    });
+    expect(degradedReasons).not.toContain('vector:recipe-semantic-001:embed-provider-missing');
+    expect(degradedReasons).not.toContain('vector:recipe-semantic-001:embed-provider-unavailable');
+  });
+
   it('keeps created Recipes visible as degraded and non-final when freshness is unavailable', async () => {
     const result = await routeSubmitKnowledgeTool(
       makeContext({ freshnessServiceAvailable: false }),

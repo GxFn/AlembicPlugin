@@ -191,6 +191,34 @@ describe('VectorModule injection (GMAP-L3)', () => {
     expect((c.singletons as Record<string, unknown>)._localEmbedSelection).toBeUndefined();
   });
 
+  test('enabled config + pulled Ollama model injects a provider that reports embed-provider-ready', async () => {
+    const c = vectorModuleContainer({
+      vector: {
+        localEmbedding: {
+          enabled: true,
+          endpoint: DEFAULT_OLLAMA_ENDPOINT,
+          model: DEFAULT_OLLAMA_EMBED_MODEL,
+        },
+      },
+    });
+    registerVectorModule(c as unknown as Parameters<typeof registerVectorModule>[0]);
+    await prepareLocalEmbedProvider(
+      c as unknown as Parameters<typeof prepareLocalEmbedProvider>[0],
+      {
+        fetchImpl: fakeFetch([DEFAULT_OLLAMA_EMBED_MODEL]),
+      }
+    );
+
+    const vectorService = c.get('vectorService') as {
+      getAvailability(): Promise<Record<string, unknown>>;
+    };
+    await expect(vectorService.getAvailability()).resolves.toMatchObject({
+      available: true,
+      reason: 'embed-provider-ready',
+      status: 'available',
+    });
+  });
+
   test('register wires the vectorService factory without throwing', () => {
     const c = fakeContainer({});
     expect(() =>
@@ -207,3 +235,48 @@ describe('VectorModule injection (GMAP-L3)', () => {
     expect(joined.toLowerCase()).toContain('keyword');
   });
 });
+
+function vectorModuleContainer(config: Record<string, unknown>) {
+  const singletons: Record<string, unknown> = {
+    _config: config,
+    logger: { info() {}, warn() {} },
+  };
+  const vectorStore = {
+    batchUpsert: vi.fn(),
+    clear: vi.fn(),
+    getById: vi.fn(),
+    getStats: vi.fn(async () => ({ count: 0, dimension: 0, indexSize: 0 })),
+    listIds: vi.fn(async () => []),
+    remove: vi.fn(),
+    searchVector: vi.fn(async () => []),
+    upsert: vi.fn(),
+  };
+  const indexingPipeline = { run: vi.fn(), setAiProvider: vi.fn() };
+  const services: Record<string, () => unknown> = {
+    indexingPipeline: () => indexingPipeline,
+    vectorStore: () => vectorStore,
+  };
+  const container = {
+    singletons,
+    services,
+    get(name: string) {
+      const factory = services[name];
+      if (!factory) {
+        throw new Error(`missing service ${name}`);
+      }
+      return factory();
+    },
+    register(name: string, factory: () => unknown) {
+      services[name] = factory;
+    },
+    singleton(name: string, factory: (ct: unknown) => unknown) {
+      services[name] = () => {
+        if (!(name in singletons)) {
+          singletons[name] = factory(container);
+        }
+        return singletons[name];
+      };
+    },
+  };
+  return container;
+}

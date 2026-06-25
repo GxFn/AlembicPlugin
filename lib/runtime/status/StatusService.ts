@@ -1,7 +1,11 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { WorkspaceResolver } from '@alembic/core/workspace';
+import {
+  localEmbeddingSetupGuidance,
+  resolveLocalEmbeddingConfig,
+} from '../../recipe-generation/vector/LocalEmbedding.js';
 import { buildRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
 import {
   buildHostEnhancementRouteChoice,
@@ -79,6 +83,21 @@ export interface StatusData {
     status: string | null;
     usable: boolean;
   };
+  localEmbedding: {
+    configExists: boolean;
+    configPath: string;
+    enabled: boolean;
+    endpoint: string;
+    model: string;
+    provider: 'ollama';
+    setup: {
+      enableConfig: string;
+      enableEnv: string;
+      guidance: string[];
+      pullCommand: string;
+    };
+    status: 'disabled' | 'enabled-needs-runtime-probe';
+  };
   nextActions: string[];
   ok: boolean;
   onboarding: Record<string, unknown>;
@@ -133,6 +152,7 @@ export async function buildStatus(
   const resolver = WorkspaceResolver.fromProject(projectRoot);
   const settingsStore = new WorkspaceSettingsStore(resolver);
   const facts = resolver.toFacts();
+  const localEmbedding = buildLocalEmbeddingStatus(resolver);
   // PDR-3: the embedded daemon carrier is removed. Status no longer probes a
   // daemon process; it reports a synthetic daemon-less "stopped" status so the
   // downstream consumers (enhancement-route, host-project-alignment, resident
@@ -254,10 +274,43 @@ export async function buildStatus(
       pidExists: existsSync(daemonPidPath),
     },
     knowledge: summarizeHostKnowledgeState(knowledge),
+    localEmbedding,
     autoInit: summarizeAutoInitStatus(autoInit),
     onboarding: summarizeOnboarding(onboarding),
     nextActions: buildActionLabels(onboarding.nextActions),
   };
+}
+
+function buildLocalEmbeddingStatus(resolver: WorkspaceResolver): StatusData['localEmbedding'] {
+  const config = readRuntimeConfig(resolver.configPath);
+  const vectorConfig = asPlainRecord(config?.vector) ?? {};
+  const localConfig = resolveLocalEmbeddingConfig(vectorConfig);
+  return {
+    configExists: existsSync(resolver.configPath),
+    configPath: resolver.configPath,
+    enabled: localConfig.enabled,
+    endpoint: localConfig.endpoint,
+    model: localConfig.model,
+    provider: 'ollama',
+    setup: {
+      enableConfig: 'vector.localEmbedding.enabled=true',
+      enableEnv: 'ALEMBIC_LOCAL_EMBEDDING_ENABLED=1',
+      guidance: localEmbeddingSetupGuidance(localConfig),
+      pullCommand: `ollama pull ${localConfig.model}`,
+    },
+    status: localConfig.enabled ? 'enabled-needs-runtime-probe' : 'disabled',
+  };
+}
+
+function readRuntimeConfig(configPath: string): Record<string, unknown> | null {
+  if (!existsSync(configPath)) {
+    return null;
+  }
+  try {
+    return asPlainRecord(JSON.parse(readFileSync(configPath, 'utf8')));
+  } catch {
+    return null;
+  }
 }
 
 function buildAutoInitStatus(

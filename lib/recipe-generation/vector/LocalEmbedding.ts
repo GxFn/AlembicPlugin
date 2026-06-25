@@ -4,12 +4,11 @@
  * Consumes the accepted Core L1 surface (@alembic/core/vector: OllamaEmbedProvider +
  * EmbedProviderSelector). This module owns ONLY the Plugin concerns: resolving the
  * localEmbedding config (config.json + host env), detecting a local Ollama daemon,
- * and selecting a local-first EmbedProvider lane. The actual index rebuild with the
- * selected provider (migrateDimension) and the real local-lane run are GMAP-L4/L5
- * (controller, on a Claude Code shell with a ready Ollama) and are NOT done here.
+ * and selecting a local-first EmbedProvider lane. The plugin never downloads or
+ * packages an embedding model; users opt in by running Ollama locally.
  *
- * Scope adjustment (2026-06-17): validation is Claude Code only; no Codex wiring.
- * The plugin never downloads or packages an embedding model.
+ * The plugin exposes the same setup path to every host surface that loads this
+ * runtime; no alternate embedding provider is hidden behind this module.
  */
 import {
   buildLocalFirstEmbedLanes,
@@ -126,7 +125,7 @@ export function selectLocalEmbedLane(
  */
 export function localEmbeddingSetupGuidance(config: LocalEmbeddingConfig): string[] {
   return [
-    'Local semantic embeddings are optional and run through your own Ollama daemon (Claude Code).',
+    'Local semantic embeddings are optional and run through your own Ollama daemon.',
     '  1. Install Ollama: https://ollama.com/download',
     `  2. Pull an embedding model: ollama pull ${config.model}`,
     `  3. Make sure the daemon is reachable at ${config.endpoint} (GET /api/tags).`,
