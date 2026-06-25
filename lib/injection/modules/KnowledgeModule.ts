@@ -266,7 +266,9 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
 
   c.singleton('stagingManager', (ct: ServiceContainer) => {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
+    const lifecycle = ct.get('lifecycleStateMachine') as LifecycleStateMachine;
     return new StagingManager(knowledgeRepo, {
+      lifecycle,
       signalBus:
         (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
         undefined,

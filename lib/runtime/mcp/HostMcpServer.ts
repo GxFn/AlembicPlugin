@@ -57,6 +57,10 @@ import {
   failureResult,
   isErrorResult,
 } from '../../runtime/mcp/host/results.js';
+import {
+  maybeRunStagingAccessSweep,
+  STAGING_ACCESS_SWEEP_TOOL_NAMES,
+} from '../../runtime/mcp/host/staging-access-sweep.js';
 import { getVisibleTools } from '../../runtime/mcp/host/tool-visibility.js';
 import {
   createCleanMcpErrorResponse,
@@ -309,6 +313,10 @@ export class HostMcpServer {
       return executePreflight.failure;
     }
 
+    const stagingAccessSweep = this.shouldRunStagingAccessSweep(name, args, knowledge)
+      ? await this.runStagingAccessSweep(name, executionContext)
+      : null;
+
     const localDispatch = dispatchLocalTool(name, args, {
       buildColdStartKnowledgeStatus: () => this.buildColdStartKnowledgeStatus(),
       buildDiagnostics: () => this.buildDiagnostics(),
@@ -331,7 +339,19 @@ export class HostMcpServer {
     }
 
     const serviceBoundary = resolveServiceRequestBoundary(name, args);
-    return this.callPluginOwnedTool(name, args, serviceBoundary, executionContext, options);
+    const result = await this.callPluginOwnedTool(
+      name,
+      args,
+      serviceBoundary,
+      executionContext,
+      options
+    );
+    if (stagingAccessSweep?.timedOut) {
+      process.stderr.write(
+        `[StagingAccessSweep] ${name} returned before staging sweep finished for ${this.projectRoot}\n`
+      );
+    }
+    return result;
   }
 
   async buildStatus(): Promise<Record<string, unknown>> {
@@ -935,6 +955,42 @@ export class HostMcpServer {
     } catch {
       return false;
     }
+  }
+
+  private async runStagingAccessSweep(
+    toolName: string,
+    executionContext: ToolExecutionContext
+  ): Promise<Awaited<ReturnType<typeof maybeRunStagingAccessSweep>> | null> {
+    const scopedExecutionContext = executionContext.projectRuntime
+      ? executionContext
+      : {
+          ...executionContext,
+          projectRuntime: await this.buildPluginOwnedProjectRuntimeContext(executionContext),
+        };
+    return maybeRunStagingAccessSweep({
+      getContainer: () =>
+        this.embeddedToolExecutor().withPluginOwnedContainer(
+          scopedExecutionContext,
+          async (c) => c
+        ),
+      logger: Logger.getInstance(),
+      projectRoot: scopedExecutionContext.projectRoot,
+      toolName,
+    });
+  }
+
+  private shouldRunStagingAccessSweep(
+    toolName: string,
+    args: Record<string, unknown>,
+    knowledge: HostKnowledgeState
+  ): boolean {
+    if (!knowledge.initialized || !STAGING_ACCESS_SWEEP_TOOL_NAMES.has(toolName)) {
+      return false;
+    }
+    if (toolName === 'alembic_status' && args.aspect === 'runtime') {
+      return false;
+    }
+    return true;
   }
 
   private async resolveToolExecutionContext(toolName: string): Promise<ToolExecutionContext> {

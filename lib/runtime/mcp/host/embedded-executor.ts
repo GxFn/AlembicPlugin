@@ -1,6 +1,7 @@
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
 import type { ServiceBoundaryDecision } from '../../../runtime/index.js';
+import type { McpServiceContainer } from '../../../runtime/mcp/handlers/types.js';
 import { safeProjectRootFallback } from '../../../runtime/mcp/host/project-root.js';
 import { attachServiceBoundary, failureResult } from '../../../runtime/mcp/host/results.js';
 import { McpServer as EmbeddedMcpServer } from '../../../runtime/mcp/McpServer.js';
@@ -98,6 +99,17 @@ export class EmbeddedToolExecutor {
         this.#hostProjectRoot
       );
     }
+  }
+
+  async withPluginOwnedContainer<T>(
+    executionContext: ToolExecutionContext,
+    callback: (container: McpServiceContainer) => Promise<T>
+  ): Promise<T> {
+    const localMcp = await this.#getPluginOwnedMcpServer(executionContext);
+    if (!localMcp.container) {
+      throw new Error('Plugin-owned MCP container is not initialized');
+    }
+    return callback(localMcp.container);
   }
 
   async #getPluginOwnedMcpServer(

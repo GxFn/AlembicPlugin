@@ -17,6 +17,7 @@ import {
   getProjectRegistryDir,
   ProjectRegistry,
 } from '@alembic/core/workspace';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
@@ -25,6 +26,7 @@ import {
   resetPluginOwnedMcpServerForTests,
 } from '../../lib/runtime/mcp/HostMcpServer.js';
 import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
+import { resetStagingAccessSweepStateForTests } from '../../lib/runtime/mcp/host/staging-access-sweep.js';
 import { serializeMcpToolResult } from '../../lib/runtime/mcp/output-contract.js';
 import { getSavedProjectRootPath, readInitMarker } from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
@@ -38,6 +40,9 @@ const ORIGINAL_CODEX_PROJECT_SCOPE_SUMMARY = process.env.ALEMBIC_CODEX_PROJECT_S
 const ORIGINAL_INIT_CWD = process.env.INIT_CWD;
 const ORIGINAL_MCP_TIER = process.env.ALEMBIC_MCP_TIER;
 const ORIGINAL_PWD = process.env.PWD;
+const ORIGINAL_STAGING_SWEEP_MIN_INTERVAL_MS =
+  process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS;
+const ORIGINAL_STAGING_SWEEP_TIMEOUT_MS = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS;
 const CODEX_HOST_AGENT_TOOL_NAMES = [
   'alembic_submit_knowledge',
   'alembic_bootstrap',
@@ -102,6 +107,108 @@ function writePlanFixtureSource(projectRoot: string, label = 'fixture'): void {
   fs.writeFileSync(path.join(projectRoot, 'src', 'index.ts'), `export const ${label} = 1;\n`);
 }
 
+function seedStagingRecipeRows(projectRoot: string, now: number): void {
+  const db = new Database(path.join(projectRoot, '.asd', 'alembic.db'));
+  try {
+    const insert = db.prepare(
+      `INSERT INTO knowledge_entries
+        (id, title, description, lifecycle, autoApprovable, language, dimensionId,
+         category, kind, knowledgeType, content, reasoning, quality, createdAt,
+         updatedAt, staging_deadline)
+       VALUES
+        (?, ?, ?, 'staging', ?, 'typescript', 'architecture',
+         'architecture', 'fact', 'code-pattern', '{}', ?, ?, ?, ?, ?)`
+    );
+    insert.run(
+      'p1-due-auto',
+      'Due Auto Recipe',
+      'Due auto-approvable staging Recipe.',
+      1,
+      JSON.stringify({ sources: ['src/index.ts'], confidence: 0.95 }),
+      JSON.stringify({ overall: 0.95 }),
+      now - 10_000,
+      now - 10_000,
+      now - 1_000
+    );
+    insert.run(
+      'p1-future-auto',
+      'Future Auto Recipe',
+      'Future auto-approvable staging Recipe.',
+      1,
+      JSON.stringify({ sources: ['src/index.ts'], confidence: 0.95 }),
+      JSON.stringify({ overall: 0.95 }),
+      now - 10_000,
+      now - 10_000,
+      now + 60_000
+    );
+    insert.run(
+      'p1-due-manual',
+      'Due Manual Recipe',
+      'Due non-auto staging Recipe.',
+      0,
+      JSON.stringify({ sources: ['src/index.ts'], confidence: 0.95 }),
+      JSON.stringify({ overall: 0.95 }),
+      now - 10_000,
+      now - 10_000,
+      now - 1_000
+    );
+  } finally {
+    db.close();
+  }
+}
+
+function readStagingSweepRows(projectRoot: string): {
+  events: Array<{
+    from_state: string;
+    operator_id: string;
+    recipe_id: string;
+    to_state: string;
+    trigger: string;
+  }>;
+  recipes: Array<{
+    autoApprovable: number;
+    id: string;
+    lifecycle: string;
+    publishedBy: string | null;
+    staging_deadline: number | null;
+  }>;
+} {
+  const db = new Database(path.join(projectRoot, '.asd', 'alembic.db'), { readonly: true });
+  try {
+    return {
+      recipes: db
+        .prepare(
+          `SELECT id, lifecycle, autoApprovable, publishedBy, staging_deadline
+             FROM knowledge_entries
+            WHERE id LIKE 'p1-%'
+            ORDER BY id`
+        )
+        .all() as Array<{
+        autoApprovable: number;
+        id: string;
+        lifecycle: string;
+        publishedBy: string | null;
+        staging_deadline: number | null;
+      }>,
+      events: db
+        .prepare(
+          `SELECT recipe_id, from_state, to_state, trigger, operator_id
+             FROM lifecycle_transition_events
+            ORDER BY created_at`
+        )
+        .all() as Array<{
+        from_state: string;
+        operator_id: string;
+        recipe_id: string;
+        to_state: string;
+        trigger: string;
+      }>,
+    };
+  } finally {
+    db.close();
+  }
+}
+
 async function confirmPlanForHostBootstrap(
   server: HostMcpServer,
   projectRoot: string
@@ -152,7 +259,9 @@ async function confirmPlanForHostBootstrap(
       maxFiles: 8,
       contentMaxLines: 24,
     },
-    moduleBindings: [{ modulePath: 'src', dimensions: dimensionIds, targetRecipes: 1, priority: 1 }],
+    moduleBindings: [
+      { modulePath: 'src', dimensions: dimensionIds, targetRecipes: 1, priority: 1 },
+    ],
     plannedNextActions: [{ tool: 'alembic_bootstrap', reason: 'Run Plan-gated bootstrap.' }],
     evidenceRefs: [
       {
@@ -342,6 +451,7 @@ afterEach(async () => {
   // Codex-facing tools now execute in the Plugin process, so tests must clear
   // per-project globals between temporary workspaces.
   await resetPluginOwnedMcpServerForTests();
+  resetStagingAccessSweepStateForTests();
   resetServiceContainer();
   pathGuard._reset();
   if (ORIGINAL_ALEMBIC_HOME === undefined) {
@@ -388,6 +498,17 @@ afterEach(async () => {
     delete process.env.PWD;
   } else {
     process.env.PWD = ORIGINAL_PWD;
+  }
+  if (ORIGINAL_STAGING_SWEEP_MIN_INTERVAL_MS === undefined) {
+    delete process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS;
+  } else {
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS =
+      ORIGINAL_STAGING_SWEEP_MIN_INTERVAL_MS;
+  }
+  if (ORIGINAL_STAGING_SWEEP_TIMEOUT_MS === undefined) {
+    delete process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS;
+  } else {
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = ORIGINAL_STAGING_SWEEP_TIMEOUT_MS;
   }
   vi.restoreAllMocks();
 });
@@ -973,6 +1094,61 @@ describe('HostMcpServer', () => {
       state: 'needs_bootstrap',
       primaryAction: { tool: 'alembic_bootstrap' },
     });
+  });
+
+  test('status access runs daemon-less staging sweep and records lifecycle events', async () => {
+    useTempAlembicHome();
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = '0';
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    writePlanFixtureSource(projectRoot, 'stagingSweep');
+    const server = new HostMcpServer({ projectRoot });
+
+    const initStatus = (await server.handleToolCall('alembic_status', {})) as {
+      data: { workspace?: { dataRoot?: string } };
+      success: boolean;
+    };
+    expect(initStatus.success).toBe(true);
+    const dataRoot = initStatus.data.workspace?.dataRoot ?? projectRoot;
+
+    const now = Date.now();
+    seedStagingRecipeRows(dataRoot, now);
+
+    const result = (await server.handleToolCall('alembic_status', {})) as {
+      success: boolean;
+    };
+    expect(result.success).toBe(true);
+
+    await resetPluginOwnedMcpServerForTests();
+    const rows = readStagingSweepRows(dataRoot);
+    expect(rows.recipes).toEqual([
+      expect.objectContaining({
+        id: 'p1-due-auto',
+        lifecycle: 'active',
+        publishedBy: 'StagingManager',
+        staging_deadline: null,
+      }),
+      expect.objectContaining({
+        id: 'p1-due-manual',
+        lifecycle: 'staging',
+        staging_deadline: now - 1_000,
+      }),
+      expect.objectContaining({
+        id: 'p1-future-auto',
+        lifecycle: 'staging',
+        staging_deadline: now + 60_000,
+      }),
+    ]);
+    expect(rows.events).toEqual([
+      {
+        recipe_id: 'p1-due-auto',
+        from_state: 'staging',
+        to_state: 'active',
+        trigger: 'grace-period-expire',
+        operator_id: 'StagingManager',
+      },
+    ]);
   });
 
   test('explicit Codex init creates a Ghost workspace marker without starting daemon', async () => {
@@ -1610,9 +1786,7 @@ describe('HostMcpServer', () => {
     expect(result.success).toBe(true);
     const mcpResult = serializeMcpToolResult('alembic_bootstrap', result, {
       isErrorResult: (value) =>
-        !!value &&
-        typeof value === 'object' &&
-        (value as { success?: unknown }).success === false,
+        !!value && typeof value === 'object' && (value as { success?: unknown }).success === false,
     });
     const structured = mcpResult.structuredContent as Record<string, unknown>;
     expect(Buffer.byteLength(JSON.stringify(structured), 'utf8')).toBeLessThanOrEqual(20 * 1024);
@@ -1629,7 +1803,9 @@ describe('HostMcpServer', () => {
     const fullBriefing = JSON.parse(fs.readFileSync(fullBriefingPath || '', 'utf8')) as {
       dimensions?: unknown[];
     };
-    expect(readArray(fullBriefing.dimensions).length).toBe(readArray(result.data?.dimensions).length);
+    expect(readArray(fullBriefing.dimensions).length).toBe(
+      readArray(result.data?.dimensions).length
+    );
     expect(Buffer.byteLength(JSON.stringify(fullBriefing.dimensions), 'utf8')).toBeGreaterThan(
       Buffer.byteLength(JSON.stringify(result.data?.dimensions), 'utf8')
     );
@@ -1662,9 +1838,7 @@ describe('HostMcpServer', () => {
     expect(result.data?.currentDimensionGuidance?.currentTier?.dimensions).toEqual(
       currentTierDimensionIds
     );
-    expect(result.data?.currentDimensionGuidance?.dimensionIds).toEqual(
-      currentTierDimensionIds
-    );
+    expect(result.data?.currentDimensionGuidance?.dimensionIds).toEqual(currentTierDimensionIds);
     expect(
       result.data?.currentDimensionGuidance?.dimensions?.map((dimension) => dimension.dimensionId)
     ).toEqual(currentTierDimensionIds);
