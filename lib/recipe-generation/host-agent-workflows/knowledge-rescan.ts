@@ -31,19 +31,11 @@ import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
-  describeUnifiedEvolutionRouteIncomplete,
   FileChangeHandler,
-  isUnifiedEvolutionReportRouteComplete,
   type UnifiedEvolutionReport,
 } from '#recipe-generation/evolution/FileChangeHandler.js';
-import {
-  createPluginGitDiffCheckpointRuntime,
-  recordPluginGitDiffCheckpointRouteOutcome,
-} from '#recipe-generation/evolution/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
-import {
-  GitDiffScanner,
-  type GitDiffScanResult,
-} from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
+import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
+import type { GitDiffScanResult } from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
 import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/evolution/PluginOpportunisticEvolution.js';
 import {
   buildHostAgentProjectContextAnalysis,
@@ -384,42 +376,16 @@ async function runRescanUnifiedEvolution(
     projectRoot: string;
   }
 ): Promise<RescanUnifiedEvolutionResult> {
-  const checkpointRuntime = createPluginGitDiffCheckpointRuntime(ctx.container, {
+  // UM#2：单一 commit-driven 维护编排（与 presenter 入口共享）。rescan 拥有自己的路由、从不去抖
+  // （不传 residentSearchEnhancementReady）；prepareRescanState 的 cleanup + rebuildLocalKnowledgeIndexes
+  // 已在本函数调用点之前执行，顺序不变（不在本编排内）。
+  const { checkpoint, report, routeError, scan } = await runCommitDrivenMaintenance({
+    buildHandler: (projectRoot) => createRescanUnifiedEvolutionHandler(ctx, projectRoot),
+    container: ctx.container,
+    handlerUnavailableReason:
+      'Core unified evolution services are unavailable in the rescan MCP container',
     projectRoot: input.projectRoot,
   });
-  const previousHead = checkpointRuntime?.checkpointCommit ?? null;
-  const scanner = new GitDiffScanner({ projectRoot: input.projectRoot });
-  const scan = await scanner.scanOnce(Date.now(), { previousHead });
-  let report: UnifiedEvolutionReport | null = null;
-  let routeError: string | null = null;
-  let routeAttempted = false;
-
-  if (shouldRouteRescanUnifiedEvolution(scan)) {
-    routeAttempted = true;
-    const handler = createRescanUnifiedEvolutionHandler(ctx, input.projectRoot);
-    if (handler) {
-      try {
-        report = await handler.handleFileChanges(scan.events);
-        if (!isUnifiedEvolutionReportRouteComplete(report)) {
-          routeError = describeUnifiedEvolutionRouteIncomplete(report);
-        }
-      } catch (error: unknown) {
-        routeError = error instanceof Error ? error.message : String(error);
-      }
-    } else {
-      routeError = 'Core unified evolution services are unavailable in the rescan MCP container';
-    }
-  }
-
-  const checkpoint = checkpointRuntime
-    ? recordPluginGitDiffCheckpointRouteOutcome({
-        report,
-        routeAttempted,
-        routeError,
-        runtime: checkpointRuntime,
-        scan,
-      })
-    : undefined;
 
   const serviceGateReason =
     'alembic_rescan public workflow owns Plugin commit-driven unified evolution routing for this rescan response.';
@@ -472,19 +438,6 @@ function attachRescanUnifiedEvolution(
   };
   attach(response);
   attach(data);
-}
-
-function shouldRouteRescanUnifiedEvolution(scan: GitDiffScanResult): boolean {
-  if (!scan.scanned || scan.events.length === 0 || scan.truncated) {
-    return false;
-  }
-  if (scan.headChanged && scan.headRangeStatus === 'unavailable') {
-    return false;
-  }
-  if (scan.headChanged && scan.headRangeStatus === 'non-ancestor' && !scan.mergeBase) {
-    return false;
-  }
-  return true;
 }
 
 function createRescanUnifiedEvolutionHandler(

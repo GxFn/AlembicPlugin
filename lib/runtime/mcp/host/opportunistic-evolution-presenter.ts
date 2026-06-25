@@ -1,18 +1,6 @@
 import { getServiceContainer } from '#inject/ServiceContainer.js';
-import {
-  describeUnifiedEvolutionRouteIncomplete,
-  FileChangeHandler,
-  isUnifiedEvolutionReportRouteComplete,
-  type UnifiedEvolutionReport,
-} from '#recipe-generation/evolution/FileChangeHandler.js';
-import {
-  createPluginGitDiffCheckpointRuntime,
-  recordPluginGitDiffCheckpointRouteOutcome,
-} from '#recipe-generation/evolution/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
-import {
-  GitDiffScanner,
-  type GitDiffScanResult,
-} from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
+import { FileChangeHandler } from '#recipe-generation/evolution/FileChangeHandler.js';
+import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractPluginToolOutcome,
@@ -38,48 +26,25 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
   if (!toolOutcome) {
     return input.result;
   }
-  const container = getServiceContainer();
-  const checkpointRuntime = createPluginGitDiffCheckpointRuntime(container, {
-    currentFolderId: input.executionContext.projectScopeIdentity?.currentFolderId ?? null,
+  // UM#2：单一 commit-driven 维护编排（与 rescan 入口共享）。presenter 传入自己的 handler 工厂、
+  // 容器与 projectScope，并以 residentSearchEnhancementReady 复刻原 resident 去抖。
+  const {
+    checkpoint,
+    report: unifiedEvolution,
+    routeError,
+    scan,
+  } = await runCommitDrivenMaintenance({
+    buildHandler: createUnifiedEvolutionHandler,
+    container: getServiceContainer(),
+    handlerUnavailableReason:
+      'Core unified evolution services are unavailable in the plugin container',
     projectRoot: input.projectRoot,
-    projectScopeId: input.executionContext.projectScopeIdentity?.projectScopeId ?? null,
+    residentSearchEnhancementReady: input.executionContext.residentProjectScopeAvailable,
+    runtimeScope: {
+      currentFolderId: input.executionContext.projectScopeIdentity?.currentFolderId ?? null,
+      projectScopeId: input.executionContext.projectScopeIdentity?.projectScopeId ?? null,
+    },
   });
-  const scanner = new GitDiffScanner({ projectRoot: input.projectRoot });
-  const scan = await scanner.scanOnce(Date.now(), {
-    previousHead: checkpointRuntime?.checkpointCommit ?? null,
-  });
-  let unifiedEvolution: UnifiedEvolutionReport | null = null;
-  let routeError: string | null = null;
-  let routeAttempted = false;
-  const shouldDeferToResident =
-    input.executionContext.residentProjectScopeAvailable && !scan.headChanged;
-
-  if (!shouldDeferToResident && shouldRouteUnifiedEvolution(scan)) {
-    routeAttempted = true;
-    const handler = createUnifiedEvolutionHandler(input.projectRoot);
-    if (handler) {
-      try {
-        unifiedEvolution = await handler.handleFileChanges(scan.events);
-        if (!isUnifiedEvolutionReportRouteComplete(unifiedEvolution)) {
-          routeError = describeUnifiedEvolutionRouteIncomplete(unifiedEvolution);
-        }
-      } catch (error: unknown) {
-        routeError = error instanceof Error ? error.message : String(error);
-      }
-    } else {
-      routeError = 'Core unified evolution services are unavailable in the plugin container';
-    }
-  }
-
-  const checkpoint = checkpointRuntime
-    ? recordPluginGitDiffCheckpointRouteOutcome({
-        report: unifiedEvolution,
-        routeAttempted,
-        routeError,
-        runtime: checkpointRuntime,
-        scan,
-      })
-    : undefined;
 
   const serviceGateReason = input.executionContext.residentProjectScopeAvailable
     ? 'Alembic resident ProjectScope is ready for this source folder.'
@@ -134,19 +99,6 @@ function hasEmbeddedUnifiedEvolutionSurface(result: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function shouldRouteUnifiedEvolution(scan: GitDiffScanResult): boolean {
-  if (!scan.scanned || scan.events.length === 0 || scan.truncated) {
-    return false;
-  }
-  if (scan.headChanged && scan.headRangeStatus === 'unavailable') {
-    return false;
-  }
-  if (scan.headChanged && scan.headRangeStatus === 'non-ancestor' && !scan.mergeBase) {
-    return false;
-  }
-  return true;
 }
 
 function createUnifiedEvolutionHandler(projectRoot: string): FileChangeHandler | null {
