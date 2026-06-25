@@ -1552,9 +1552,45 @@ function projectNameFromProjectContextFacts(
   projectRoot: string
 ): string {
   return (
-    facts.repos.flatMap((repo) => repo.localPackages)[0]?.name ??
+    rootLocalPackageNameFromRepos(facts.repos) ??
     facts.repos[0]?.repo.name ??
-    projectNameFromRoot(projectRoot)
+    projectNameFromRoot(projectRoot) ??
+    'project'
+  );
+}
+
+function rootLocalPackageNameFromRepos(repos: readonly RepoContext[]): string | undefined {
+  for (const repo of repos) {
+    const repoRoot = normalizeRelativePath(repo.repo.root || '.');
+    if (repoRoot !== '.') {
+      continue;
+    }
+    const rootPackage = repo.localPackages.find((localPackage) =>
+      isRootPackageManifestPath(localPackage.path)
+    );
+    if (rootPackage?.name) {
+      return rootPackage.name;
+    }
+  }
+  return undefined;
+}
+
+function isRootPackageManifestPath(packagePath: string | undefined): boolean {
+  const normalized = normalizeRelativePath(packagePath ?? '');
+  if (normalized === '.') {
+    return true;
+  }
+  return [
+    'Package.swift',
+    'package.json',
+    'pyproject.toml',
+    'Cargo.toml',
+    'go.mod',
+    '*.csproj',
+  ].some((manifestPath) =>
+    manifestPath.startsWith('*.')
+      ? normalized.endsWith(manifestPath.slice(1)) && !normalized.includes('/')
+      : normalized === manifestPath
   );
 }
 

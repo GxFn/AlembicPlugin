@@ -83,6 +83,15 @@ export const PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES = new Set([
   'alembic_graph',
 ]);
 
+// These read routes are useful before the first Recipe exists: alembic_graph and
+// recipe_map provide ProjectContext/source refs for strict Recipe submission, and
+// alembic_search can return a clean zero-result envelope with follow-up guidance.
+export const INITIALIZED_PUBLIC_READ_TOOL_NAMES = new Set([
+  'alembic_recipe_map',
+  'alembic_search',
+  'alembic_graph',
+]);
+
 // MTC-1: CODEX_LEGACY_PUBLIC_KNOWLEDGE_TOOL_NAMES + CODEX_RETIRED_TOOL_NAMES removed.
 // alembic_knowledge/structure/call_context/panorama/task are retired and their handlers
 // deleted, so the retirement filter is obsolete — they are simply not registered tools.
@@ -272,6 +281,7 @@ export function resolveToolPolicy<T extends ToolDefinition>(
       !localToolNameSet.has(tool.name) &&
       (input.knowledge.usable ||
         TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES.has(tool.name) ||
+        (input.knowledge.initialized && INITIALIZED_PUBLIC_READ_TOOL_NAMES.has(tool.name)) ||
         (input.residentProjectScopeAvailable === true &&
           RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(tool.name)) ||
         HOST_AGENT_WORKFLOW_TOOL_NAMES.has(tool.name) ||
@@ -301,6 +311,7 @@ export function allowedToolNames(knowledge: HostKnowledgeState): Set<string> {
     return new Set([
       ...COLD_START_TOOL_NAMES,
       ...TASK_LIFECYCLE_TOOL_NAMES,
+      ...INITIALIZED_PUBLIC_READ_TOOL_NAMES,
       ...PROJECT_SKILL_DELIVERY_TOOL_NAMES,
     ]);
   }

@@ -48,6 +48,9 @@ const TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES = ['alembic_prime', 'alembic_work', 'a
 const CODEX_SOURCE_GRAPH_TOOL_NAMES: string[] = [];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
   ...TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
+  'alembic_recipe_map',
+  'alembic_search',
+  'alembic_graph',
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -1407,14 +1410,11 @@ describe('HostMcpServer', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  test('blocks project-knowledge tools when no usable knowledge base exists', async () => {
+  test('blocks public read tools before initialization', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
-    makeInitializedWorkspace(projectRoot);
     const server = new HostMcpServer({ projectRoot });
 
-    // MTC-4: alembic_status is the always-available cold-start tool (not knowledge-
-    // gated). Use a resident-project-scope knowledge tool to exercise the gate.
     const result = (await server.handleToolCall('alembic_graph', {})) as {
       data: { errorCode?: string };
       success: boolean;
@@ -1422,6 +1422,33 @@ describe('HostMcpServer', () => {
 
     expect(result.success).toBe(false);
     expect(result.data.errorCode).toBe('CODEX_ALEMBIC_KNOWLEDGE_REQUIRED');
+  });
+
+  test('allows public graph reads after initialization even before Recipes exist', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    writePlanFixtureSource(projectRoot, 'initializedEmptyGraph');
+    const server = new HostMcpServer({ projectRoot });
+
+    const result = (await server.handleToolCall('alembic_graph', {
+      queryKind: 'space',
+    })) as {
+      structuredContent?: {
+        diagnostics?: Array<{ code?: string }>;
+        ok?: boolean;
+        project?: { projectRoot?: string };
+        refs?: unknown[];
+        status?: string;
+      };
+    };
+
+    expect(result.structuredContent?.project?.projectRoot).toBe(projectRoot);
+    expect(result.structuredContent?.diagnostics?.map((item) => item.code)).not.toContain(
+      'alembic-graph-output-contract-mismatch'
+    );
+    expect(result.structuredContent?.ok).toBe(true);
+    expect(result.structuredContent?.refs?.length).toBeGreaterThan(0);
   });
 
   test('blocks retired task close before Plugin evidence/evolution execution', async () => {

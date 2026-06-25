@@ -30,6 +30,12 @@ const coreTools = [
     description: name,
     inputSchema: { type: 'object' },
   })),
+  ...publicKnowledgeNavigationToolNames.map((name) => ({
+    name,
+    tier: 'agent',
+    description: `public read ${name}`,
+    inputSchema: { type: 'object' },
+  })),
   {
     name: 'alembic_project_skill',
     tier: 'agent',
@@ -52,12 +58,6 @@ const coreTools = [
 
 const residentCoreTools = [
   ...coreTools,
-  ...publicKnowledgeNavigationToolNames.map((name) => ({
-    name,
-    tier: 'agent',
-    description: `resident ${name}`,
-    inputSchema: { type: 'object' },
-  })),
 ];
 
 const notInitialized: HostKnowledgeState = {
@@ -128,10 +128,11 @@ describe('Codex tool policy', () => {
       'alembic_init',
       'alembic_job',
       ...hostWorkflowToolNames,
+      'alembic_prime',
     ]);
   });
 
-  test('exposes Codex host-agent workflow tools after initialization and before usable knowledge', () => {
+  test('exposes Codex host-agent workflow and public read tools after initialization and before usable knowledge', () => {
     const result = resolveToolPolicy({
       coreTools,
       knowledge: initializedEmpty,
@@ -146,6 +147,7 @@ describe('Codex tool policy', () => {
       'alembic_init',
       'alembic_job',
       ...hostWorkflowToolNames,
+      ...publicKnowledgeNavigationToolNames,
       'alembic_project_skill',
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');
@@ -192,6 +194,7 @@ describe('Codex tool policy', () => {
     expect(names).toEqual([
       ...LOCAL_TOOLS.map((tool) => tool.name),
       ...hostWorkflowToolNames,
+      ...publicKnowledgeNavigationToolNames,
       'alembic_project_skill',
     ]);
     expect(names).not.toContain('alembic_task');
@@ -266,6 +269,7 @@ describe('Codex tool policy', () => {
       'alembic_init',
       'alembic_job',
       ...hostWorkflowToolNames,
+      ...publicKnowledgeNavigationToolNames,
       'alembic_project_skill',
     ]);
     expect(result.visibleTools.map((tool) => tool.name)).not.toContain('alembic_skill');

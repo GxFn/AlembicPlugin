@@ -170,7 +170,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     schema: 'RecipeMapInput',
     annotations: readOnlyTool('Map Alembic Recipes Onto ProjectContext'),
     gateway: null,
-    knowledgeGate: 'resident-project-scope',
+    knowledgeGate: 'initialized',
     residentRoutePolicy: 'resident-project-scope',
   }),
   alembic_search: catalogEntry({
@@ -181,7 +181,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     schema: 'SearchInput',
     annotations: readOnlyTool('Search Or Expand Alembic Knowledge'),
     gateway: null,
-    knowledgeGate: 'resident-project-scope',
+    knowledgeGate: 'initialized',
     residentRoutePolicy: 'explicit-resident-search',
   }),
   alembic_graph: catalogEntry({
@@ -192,7 +192,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     schema: 'GraphInput',
     annotations: readOnlyTool('Query Alembic Project Graph'),
     gateway: null,
-    knowledgeGate: 'resident-project-scope',
+    knowledgeGate: 'initialized',
     residentRoutePolicy: 'none',
   }),
   alembic_plan: catalogEntry({
