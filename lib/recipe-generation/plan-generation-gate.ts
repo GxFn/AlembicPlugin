@@ -51,6 +51,11 @@ export interface PlanGenerationGateReady {
   currentProjectContextSignature?: string;
   dimensionIds: string[];
   generationStage: PlanGenerationStage;
+  // U1 #1（additive）：直接 surface 既有 planSelection.moduleBindings（per-(模块×维度) 意图，含
+  // dimensions/targetRecipes），供 #2 透传给 Core buildKnowledgeRescanPlan 驱动 per-cell gap。
+  // 零新派生；flat moduleScope 出口保持不变（lease key / attachPlanGenerationGateData / creationGuide
+  // 仍只依赖 flat moduleScope:string[]），新字段不拍扁、不替换 flat 出口。
+  moduleBindings: NormalizedPlanSelection['moduleBindings'];
   moduleScope: string[];
   planGate: Record<string, unknown>;
   planSelection: NormalizedPlanSelection;
@@ -296,6 +301,8 @@ function buildPlanGenerationGateReady(input: {
     cleanupPolicy,
     dimensionIds: dimensions,
     generationStage,
+    // U1 #1：直接复用既有 planSelection.moduleBindings（零派生）；flat moduleScope 不变。
+    moduleBindings: planSelection.moduleBindings,
     moduleScope,
     planGate,
     planSelection,
