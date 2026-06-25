@@ -12,6 +12,7 @@
  */
 
 import { groupByKind, slimSearchResult } from '@alembic/core/search';
+import { RECIPE_SEMANTIC_REGION_METADATA_TYPE } from '@alembic/core/vector';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
   ALEMBIC_SEARCH_OUTPUT_CONTRACT_VERSION,
@@ -47,6 +48,7 @@ import { buildRetrievalCheckpointPosture } from './retrieval-checkpoint-diagnost
 const KEYWORD_MATCH_THRESHOLD = 0.5;
 const SEMANTIC_MATCH_THRESHOLD = 0.55;
 const INTERNAL_SEARCH_ROUTES_KEY = '__alembicSearchRoutes';
+const LOCAL_RECIPE_REGION_VECTOR_ROUTE = 'local-recipe-region-vector';
 
 // ─── 工具函数 ────────────────────────────────────────────────
 
@@ -314,9 +316,13 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
         tags: readStringArray(args.tags),
       })
     : null;
+  const localRegionAttempt =
+    hasTextQuery && shouldQueryLocalRecipeRegionVectors(mode)
+      ? await tryLocalRecipeRegionVectorSearch(ctx, query, execution)
+      : null;
 
   const result = hasTextQuery
-    ? await resolveSearchResult(engine, residentAttempt, query, mode, execution)
+    ? await resolveSearchResult(engine, residentAttempt, localRegionAttempt, query, mode, execution)
     : {
         items: [],
         mode,
@@ -353,6 +359,7 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
     ...(result.searchMeta || {}),
     ...(residentAttempt ? { residentSearch: residentAttempt.meta } : {}),
     ...(residentAttempt ? { residentVector: residentAttempt.meta.residentVector } : {}),
+    ...(localRegionAttempt ? { localRecipeRegionVector: localRegionAttempt.meta } : {}),
   };
 
   return {
@@ -368,6 +375,7 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
     query,
     rawItems: items,
     requestedMode: mode,
+    localRegionAttempt,
     residentAttempt,
     searchMeta,
     slimItems,
@@ -379,6 +387,28 @@ interface SearchExecutionOptions {
   engineLimit: number;
   limit: number;
   rank: boolean;
+}
+
+interface LocalRecipeRegionVectorAttempt {
+  items: SearchResultItem[];
+  meta: {
+    attempted: boolean;
+    available: boolean;
+    reason?: string;
+    resultCount: number;
+    route: typeof LOCAL_RECIPE_REGION_VECTOR_ROUTE;
+    scoreBreakdown: Record<string, unknown>[];
+    used: boolean;
+    vectorAvailability?: Record<string, unknown>;
+  };
+}
+
+interface LocalRecipeRegionVectorService {
+  getAvailability?: () => Promise<Record<string, unknown>>;
+  hybridSearch?: (
+    query: string,
+    opts?: { filter?: Record<string, unknown>; topK?: number }
+  ) => Promise<Record<string, unknown>[]>;
 }
 
 function createSearchExecutionOptions(
@@ -395,39 +425,291 @@ function createSearchExecutionOptions(
   };
 }
 
+function shouldQueryLocalRecipeRegionVectors(mode: string): boolean {
+  return mode === 'auto' || mode === 'semantic';
+}
+
+async function tryLocalRecipeRegionVectorSearch(
+  ctx: McpContext,
+  query: string,
+  execution: SearchExecutionOptions
+): Promise<LocalRecipeRegionVectorAttempt> {
+  const baseMeta: LocalRecipeRegionVectorAttempt['meta'] = {
+    attempted: true,
+    available: false,
+    resultCount: 0,
+    route: LOCAL_RECIPE_REGION_VECTOR_ROUTE,
+    scoreBreakdown: [],
+    used: false,
+  };
+  const vectorService = safeContainerGet(
+    ctx,
+    'vectorService'
+  ) as LocalRecipeRegionVectorService | null;
+  if (!vectorService || typeof vectorService.hybridSearch !== 'function') {
+    return { items: [], meta: { ...baseMeta, reason: 'vectorService-unavailable' } };
+  }
+
+  let vectorAvailability: Record<string, unknown> | undefined;
+  try {
+    vectorAvailability =
+      typeof vectorService.getAvailability === 'function'
+        ? await vectorService.getAvailability()
+        : undefined;
+  } catch (err: unknown) {
+    return {
+      items: [],
+      meta: {
+        ...baseMeta,
+        reason: `vector-availability-failed:${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
+  if (readBoolean(vectorAvailability?.available) === false) {
+    return {
+      items: [],
+      meta: {
+        ...baseMeta,
+        reason: readString(vectorAvailability?.reason) ?? 'vector-provider-unavailable',
+        vectorAvailability,
+      },
+    };
+  }
+
+  try {
+    const hits = await vectorService.hybridSearch(query, {
+      filter: { type: RECIPE_SEMANTIC_REGION_METADATA_TYPE },
+      topK: execution.engineLimit,
+    });
+    const projected = localRecipeRegionHitsToSearchItems(hits);
+    const used = projected.items.length > 0;
+    return {
+      items: projected.items,
+      meta: {
+        ...baseMeta,
+        available: used || readBoolean(vectorAvailability?.available) === true,
+        reason: used ? undefined : 'no-local-recipe-region-vector-match',
+        resultCount: projected.items.length,
+        scoreBreakdown: projected.scoreBreakdown,
+        used,
+        vectorAvailability,
+      },
+    };
+  } catch (err: unknown) {
+    return {
+      items: [],
+      meta: {
+        ...baseMeta,
+        reason: `local-recipe-region-vector-search-failed:${err instanceof Error ? err.message : String(err)}`,
+        vectorAvailability,
+      },
+    };
+  }
+}
+
+function localRecipeRegionHitsToSearchItems(hits: readonly Record<string, unknown>[]): {
+  items: SearchResultItem[];
+  scoreBreakdown: Record<string, unknown>[];
+} {
+  const grouped = new Map<
+    string,
+    {
+      item: SearchResultItem;
+      regionClasses: string[];
+      regionVectorIds: string[];
+      score: number;
+      sourceRefs: string[];
+    }
+  >();
+
+  for (const hit of hits) {
+    if (readBoolean(hit.vectorUsed) === false || readBoolean(hit.semanticUsed) === false) {
+      continue;
+    }
+    const containers = localRecipeRegionHitContainers(hit);
+    const recipeId = firstStringFromRecords(containers, 'recipeId');
+    if (!recipeId) {
+      continue;
+    }
+    const vectorId = firstStringFromRecords(containers, 'id') ?? recipeId;
+    const regionClass = firstStringFromRecords(containers, 'regionClass');
+    const sourceRefs = firstStringArrayFromRecords(containers, 'sourceRefs');
+    const score =
+      clampConfidence(
+        Math.max(
+          readNumber(hit.score) ?? 0,
+          firstNumberFromRecords(containers, 'score') ?? 0,
+          firstNumberFromRecords(containers, 'rrfScore') ?? 0
+        )
+      ) ?? 0;
+    const content =
+      firstStringFromRecords(containers, 'content') ??
+      firstStringFromRecords(containers, 'description') ??
+      firstStringFromRecords(containers, 'title') ??
+      recipeId;
+    const metadata = compactCandidateMetadata({
+      category:
+        firstStringFromRecords(containers, 'category') ??
+        firstStringFromRecords(containers, 'weakCategory'),
+      dimensionId: firstStringFromRecords(containers, 'dimensionId'),
+      knowledgeType: firstStringFromRecords(containers, 'knowledgeType'),
+      lifecycle: firstStringFromRecords(containers, 'lifecycle'),
+      regionClasses: regionClass ? [regionClass] : [],
+      regionVectorIds: [vectorId],
+      scope: firstStringFromRecords(containers, 'scope'),
+      sourceRefs,
+      tags: firstStringArrayFromRecords(containers, 'tags'),
+      type: RECIPE_SEMANTIC_REGION_METADATA_TYPE,
+      [INTERNAL_SEARCH_ROUTES_KEY]: ['semantic'],
+    });
+    const nextItem: SearchResultItem = {
+      category:
+        firstStringFromRecords(containers, 'category') ??
+        firstStringFromRecords(containers, 'weakCategory'),
+      description: content.slice(0, 1200),
+      id: recipeId,
+      kind: firstStringFromRecords(containers, 'kind') ?? 'pattern',
+      language: firstStringFromRecords(containers, 'language'),
+      metadata,
+      score,
+      sourceRefs,
+      title: firstStringFromRecords(containers, 'title') ?? recipeId,
+      trigger: firstStringFromRecords(containers, 'trigger'),
+    };
+    const existing = grouped.get(recipeId);
+    if (!existing || score > existing.score) {
+      grouped.set(recipeId, {
+        item: nextItem,
+        regionClasses: uniqueStrings([...(existing?.regionClasses ?? []), regionClass]),
+        regionVectorIds: uniqueStrings([...(existing?.regionVectorIds ?? []), vectorId]),
+        score,
+        sourceRefs: uniqueStrings([...(existing?.sourceRefs ?? []), ...sourceRefs]),
+      });
+    } else {
+      existing.regionClasses = uniqueStrings([...existing.regionClasses, regionClass]);
+      existing.regionVectorIds = uniqueStrings([...existing.regionVectorIds, vectorId]);
+      existing.sourceRefs = uniqueStrings([...existing.sourceRefs, ...sourceRefs]);
+    }
+  }
+
+  const items = [...grouped.values()]
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => ({
+      ...entry.item,
+      metadata: compactCandidateMetadata({
+        ...(readRecord(entry.item.metadata) ?? {}),
+        regionClasses: entry.regionClasses,
+        regionVectorIds: entry.regionVectorIds,
+        sourceRefs: entry.sourceRefs,
+      }),
+      sourceRefs: entry.sourceRefs,
+    }));
+  const scoreBreakdown = [...grouped.entries()].map(([itemId, entry], index) => ({
+    finalScore: entry.score,
+    itemId,
+    laneRoutes: ['semantic'],
+    rank: index + 1,
+    regionClasses: entry.regionClasses,
+    regionVectorIds: entry.regionVectorIds,
+    semanticScore: entry.score,
+    signals: [LOCAL_RECIPE_REGION_VECTOR_ROUTE],
+    vectorScore: entry.score,
+  }));
+  return { items, scoreBreakdown };
+}
+
+function localRecipeRegionHitContainers(hit: Record<string, unknown>): Record<string, unknown>[] {
+  const data = readRecord(hit.data);
+  const item = readRecord(hit.item) ?? readRecord(data?.item);
+  return [hit, readRecord(hit.metadata), data, item, readRecord(item?.metadata)].filter(
+    (record): record is Record<string, unknown> => record !== undefined
+  );
+}
+
+function firstStringFromRecords(
+  records: readonly Record<string, unknown>[],
+  key: string
+): string | undefined {
+  for (const record of records) {
+    const value = readString(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function firstNumberFromRecords(
+  records: readonly Record<string, unknown>[],
+  key: string
+): number | undefined {
+  for (const record of records) {
+    const value = readNumber(record[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function firstStringArrayFromRecords(
+  records: readonly Record<string, unknown>[],
+  key: string
+): string[] {
+  for (const record of records) {
+    const value = readStringArray(record[key]);
+    if (value.length > 0) {
+      return value;
+    }
+  }
+  return [];
+}
+
 async function resolveSearchResult(
   engine: {
     search: (query: string, options: Record<string, unknown>) => Promise<Record<string, unknown>>;
   },
   residentAttempt: { items: SearchResultItem[]; meta: ResidentSearchAttemptMeta } | null,
+  localRegionAttempt: LocalRecipeRegionVectorAttempt | null,
   query: string,
   mode: string,
   execution: SearchExecutionOptions
 ): Promise<SearchEnginePipelineResult> {
-  if (residentAttempt?.meta.available && residentAttempt.items.length > 0) {
-    const residentItems = residentAttempt.items.map((item) => markSearchRoute(item, 'semantic'));
+  const residentItems =
+    residentAttempt?.meta.available && residentAttempt.items.length > 0
+      ? residentAttempt.items.map((item) => markSearchRoute(item, 'semantic'))
+      : [];
+  const localRegionItems =
+    localRegionAttempt?.meta.available && localRegionAttempt.items.length > 0
+      ? localRegionAttempt.items.map((item) => markSearchRoute(item, 'semantic'))
+      : [];
+  const semanticItems = mergeSearchResultItems([...residentItems, ...localRegionItems]);
+  const localSemanticUsed = localRegionItems.length > 0;
+  if (semanticItems.length > 0) {
     if (mode === 'auto') {
       const embedded = await tryEmbeddedSearch(engine, query, mode, execution);
       if (embedded.items.length > 0) {
         return {
           items: mergeSearchResultItems([
             ...embedded.items.map((item) => markSearchRoute(item, 'keyword')),
-            ...residentItems,
+            ...semanticItems,
           ]),
-          mode: residentAttempt.meta.actualMode || embedded.mode || mode,
+          mode: localSemanticUsed
+            ? 'semantic'
+            : residentAttempt?.meta.actualMode || embedded.mode || mode,
           ranked: embedded.ranked,
           searchMeta: {
             ...(embedded.searchMeta ?? {}),
-            residentSearchMeta: readRecord(residentAttempt.meta.searchMeta),
+            ...semanticSearchMeta(residentAttempt, localRegionAttempt, mode),
           },
         };
       }
     }
     return {
-      items: residentItems,
-      mode: residentAttempt.meta.actualMode || mode,
+      items: semanticItems,
+      mode: localSemanticUsed ? 'semantic' : residentAttempt?.meta.actualMode || mode,
       ranked: false,
-      searchMeta: readRecord(residentAttempt.meta.searchMeta),
+      searchMeta: semanticSearchMeta(residentAttempt, localRegionAttempt, mode),
     };
   }
   if (mode === 'semantic') {
@@ -436,7 +718,7 @@ async function resolveSearchResult(
       mode,
       ranked: false,
       searchMeta: {
-        residentSearchMeta: readRecord(residentAttempt?.meta),
+        ...semanticSearchMeta(residentAttempt, localRegionAttempt, mode),
         route: 'resident-semantic-unavailable',
         semanticUsed: false,
         vectorUsed: false,
@@ -444,6 +726,32 @@ async function resolveSearchResult(
     };
   }
   return tryEmbeddedSearch(engine, query, mode, execution);
+}
+
+function semanticSearchMeta(
+  residentAttempt: { items: SearchResultItem[]; meta: ResidentSearchAttemptMeta } | null,
+  localRegionAttempt: LocalRecipeRegionVectorAttempt | null,
+  mode: string
+): Record<string, unknown> {
+  const localMeta = localRegionAttempt?.meta;
+  const residentMeta = residentAttempt?.meta;
+  const scoreBreakdown = [
+    ...(readRecordArray(readRecord(residentMeta?.searchMeta)?.scoreBreakdown ?? []) ?? []),
+    ...(localMeta?.scoreBreakdown ?? []),
+  ];
+  const localUsed = localMeta?.used === true && (localMeta.resultCount ?? 0) > 0;
+  const residentUsed = residentMeta?.used === true || residentMeta?.vectorUsed === true;
+  return {
+    ...(readRecord(residentMeta?.searchMeta) ?? {}),
+    ...(scoreBreakdown.length === 0 ? {} : { scoreBreakdown }),
+    actualMode: localUsed || residentUsed ? 'semantic' : readString(residentMeta?.actualMode),
+    localRecipeRegionVector: localMeta,
+    requestedMode: mode,
+    residentSearchMeta: residentMeta ? readRecord(residentMeta) : undefined,
+    route: localUsed ? LOCAL_RECIPE_REGION_VECTOR_ROUTE : readString(residentMeta?.route),
+    semanticUsed: localUsed || residentMeta?.semanticUsed === true,
+    vectorUsed: localUsed || residentMeta?.vectorUsed === true,
+  };
 }
 
 async function tryEmbeddedSearch(
@@ -553,6 +861,7 @@ interface SearchPipelineResult {
   elapsed: number;
   kind: string;
   kindCounts: Record<string, number>;
+  localRegionAttempt: LocalRecipeRegionVectorAttempt | null;
   query: string;
   rawItems: SearchResultItem[];
   requestedMode: string;
@@ -986,13 +1295,13 @@ function directSearchDegradedReason(input: {
     return 'Low-information search lacked exact id/ref/title/trigger, explicit keywords, or metadata filters; no fallback candidates were returned.';
   }
   if (input.semanticMode && !input.semanticEvidenceAvailable) {
-    return `Semantic search requires resident semantic/vector evidence; Plugin keyword/filter fallback was withheld${input.residentUnavailableReason ? ` (${input.residentUnavailableReason})` : ''}.`;
+    return `Semantic search requires resident or local semantic/vector evidence; Plugin keyword/filter fallback was withheld${input.residentUnavailableReason ? ` (${input.residentUnavailableReason})` : ''}.`;
   }
   if (input.candidateCount === 0) {
     return 'Search returned no candidate items.';
   }
   if (input.semanticMode && input.zeroMatch) {
-    return 'No resident semantic candidate met direct semantic admission threshold.';
+    return 'No semantic candidate met direct semantic admission threshold.';
   }
   if (input.zeroMatch) {
     return 'No candidate met exact, metadata-filter, keyword threshold, or semantic threshold admission rules.';
@@ -1025,9 +1334,13 @@ function buildDirectSearchLaneEvidence(
       threshold: KEYWORD_MATCH_THRESHOLD,
     },
     semantic: {
-      attempted: pipeline.residentAttempt?.meta.attempted === true,
+      attempted:
+        pipeline.residentAttempt?.meta.attempted === true ||
+        pipeline.localRegionAttempt?.meta.attempted === true,
       available: hasSemanticSearchEvidence(pipeline),
       candidateCount: countCandidatesWithLane(candidates, 'semantic'),
+      localAvailable: pipeline.localRegionAttempt?.meta.available === true,
+      localReturnedCount: pipeline.localRegionAttempt?.meta.resultCount ?? 0,
       residentAvailable: pipeline.residentAttempt?.meta.available === true,
       returnedCount: countCandidatesWithRoute(returned, 'semantic'),
       threshold: SEMANTIC_MATCH_THRESHOLD,
@@ -1054,6 +1367,14 @@ function countCandidatesWithLane(
 }
 
 function hasSemanticSearchEvidence(pipeline: SearchPipelineResult): boolean {
+  const localVector = readRecord(pipeline.searchMeta.localRecipeRegionVector);
+  if (
+    readBoolean(localVector?.available) === true &&
+    (readBoolean(localVector?.used) === true ||
+      (pipeline.localRegionAttempt?.items.length ?? 0) > 0)
+  ) {
+    return true;
+  }
   const residentVector = readRecord(pipeline.searchMeta.residentVector);
   if (!residentVector || residentVectorUnavailableForSemantic(residentVector)) {
     return false;
@@ -1675,6 +1996,7 @@ function searchQueryLabel(
 function candidateSourcesForPipeline(pipeline: SearchPipelineResult): string[] {
   return uniqueStrings([
     pipeline.residentAttempt?.meta.available === true ? 'resident-search' : undefined,
+    pipeline.localRegionAttempt?.meta.used === true ? LOCAL_RECIPE_REGION_VECTOR_ROUTE : undefined,
     pipeline.source === 'metadata-filter-only' ? undefined : 'embedded-search',
     'knowledge-service',
   ]);
@@ -1738,15 +2060,30 @@ function contentCharLimit(args: SearchArgs): number {
 
 function vectorRerankEvidence(searchMeta: Record<string, unknown>): VectorRerankEvidence {
   const residentVector = normalizeResidentVectorTelemetry(readRecord(searchMeta.residentVector));
+  const localVector = readRecord(searchMeta.localRecipeRegionVector);
+  const localVectorAvailable = readBoolean(localVector?.available) === true;
+  const localVectorUsed = readBoolean(localVector?.used) === true;
   const vectorSuppressed = residentVectorUnavailableForSemantic(residentVector);
   return {
     residentVector,
     scoreBreakdown:
       readRecordArray(searchMeta.scoreBreakdown) ??
       readRecordArray(readRecord(searchMeta.searchMeta)?.scoreBreakdown),
-    semanticUsed: vectorSuppressed ? false : readBoolean(searchMeta.semanticUsed),
-    vectorAvailable: vectorSuppressed ? false : readBoolean(residentVector?.available),
-    vectorUsed: vectorSuppressed ? false : readBoolean(searchMeta.vectorUsed),
+    semanticUsed: localVectorUsed
+      ? true
+      : vectorSuppressed
+        ? false
+        : readBoolean(searchMeta.semanticUsed),
+    vectorAvailable: localVectorAvailable
+      ? true
+      : vectorSuppressed
+        ? false
+        : readBoolean(residentVector?.available),
+    vectorUsed: localVectorUsed
+      ? true
+      : vectorSuppressed
+        ? false
+        : readBoolean(searchMeta.vectorUsed),
   };
 }
 
@@ -1880,8 +2217,13 @@ function residentVectorAvailableSignal(
 }
 
 function residentSemanticUnavailableReason(pipeline: SearchPipelineResult): string | undefined {
+  const localVector = readRecord(pipeline.searchMeta.localRecipeRegionVector);
+  if (readBoolean(localVector?.available) === true && readBoolean(localVector?.used) === true) {
+    return undefined;
+  }
   return (
     residentVectorUnavailableReason(readRecord(pipeline.searchMeta.residentVector)) ??
+    readString(localVector?.reason) ??
     (pipeline.residentAttempt?.meta.available === false
       ? pipeline.residentAttempt.meta.reason
       : undefined)

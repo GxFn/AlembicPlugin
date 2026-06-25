@@ -133,6 +133,7 @@ function context(input: {
   engineSearch?: ReturnType<typeof vi.fn>;
   knowledgeService?: Record<string, unknown>;
   residentSearch?: ReturnType<typeof vi.fn>;
+  vectorService?: Record<string, unknown>;
 }): McpContext {
   return {
     container: {
@@ -145,6 +146,9 @@ function context(input: {
         }
         if (name === 'knowledgeService' && input.knowledgeService) {
           return input.knowledgeService;
+        }
+        if (name === 'vectorService' && input.vectorService) {
+          return input.vectorService;
         }
         throw new Error(`Unexpected service: ${name}`);
       }),
@@ -724,6 +728,108 @@ describe('alembic_search resident search enhancement', () => {
     expect(result.structuredContent.result.searchQuality).toMatchObject({
       degradedReason: expect.stringContaining('Plugin keyword/filter fallback was withheld'),
       zeroMatch: true,
+    });
+    expectPublicSearchJsonToOmitRelationAndPrimeMaterial(result.structuredContent);
+  });
+
+  it('uses local Recipe region vectors for semantic requests without falling back to keyword search', async () => {
+    const engineSearch = vi.fn(async () => {
+      throw new Error(
+        'embedded search should not run when local region vector evidence is available'
+      );
+    });
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        items: [],
+        meta: {
+          attempted: true,
+          available: false,
+          durationMs: 0,
+          reason: 'empty-vector-index',
+          requestedMode: 'semantic',
+          residentVector: { available: false, reason: 'empty-vector-index' },
+          resultCount: 0,
+          route: 'alembic-resident-service',
+          used: false,
+        },
+      })
+    );
+    const vectorService = {
+      getAvailability: vi.fn(async () => ({
+        available: true,
+        embedProviderConfigured: true,
+        probeStatus: 'available',
+        reason: 'embed-provider-ready',
+        status: 'available',
+      })),
+      hybridSearch: vi.fn(async () => [
+        {
+          data: {
+            item: {
+              content:
+                'Recipe title: AOXFoundationKit module startup\nBridge refs: Packages/AOXFoundationKit/Sources/ModuleManager.swift:18-20',
+              metadata: {
+                dimensionId: 'swift-objc-idiom',
+                kind: 'pattern',
+                language: 'swift',
+                recipeId: 'local-region-recipe',
+                regionClass: 'evidence',
+                sourceRefs: ['Packages/AOXFoundationKit/Sources/ModuleManager.swift:18-20'],
+                title: 'AOXFoundationKit module startup',
+                trigger: '@aox-module-startup',
+                type: 'recipe-semantic-region',
+              },
+            },
+            score: 0.82,
+          },
+          id: 'recipe_region_local-region-recipe_evidence_a1',
+          score: 0.82,
+          semanticUsed: true,
+          vectorUsed: true,
+        },
+      ]),
+    };
+
+    const result = (await search(context({ engineSearch, residentSearch, vectorService }), {
+      limit: 3,
+      mode: 'semantic',
+      query: 'Swift module startup AOXFoundationKit',
+    })) as {
+      structuredContent: {
+        inventory: Record<string, unknown>;
+        items: Array<Record<string, unknown>>;
+        result: Record<string, unknown>;
+        status: string;
+      };
+    };
+
+    expect(engineSearch).not.toHaveBeenCalled();
+    expect(vectorService.hybridSearch).toHaveBeenCalledWith(
+      'Swift module startup AOXFoundationKit',
+      expect.objectContaining({ filter: { type: 'recipe-semantic-region' } })
+    );
+    expect(result.structuredContent.status).toBe('ready');
+    expect(result.structuredContent.items).toHaveLength(1);
+    expect(result.structuredContent.items[0]).toMatchObject({
+      id: 'local-region-recipe',
+      matchRoutes: ['semantic'],
+      semanticMatchRate: 0.82,
+      title: 'AOXFoundationKit module startup',
+      vector: { available: true, used: true },
+    });
+    expect(result.structuredContent.inventory).toMatchObject({
+      candidateSources: expect.arrayContaining(['local-recipe-region-vector']),
+      laneEvidence: {
+        semantic: expect.objectContaining({
+          available: true,
+          localAvailable: true,
+          localReturnedCount: 1,
+          returnedCount: 1,
+          used: true,
+        }),
+      },
+      matchedCount: 1,
+      returnedCount: 1,
     });
     expectPublicSearchJsonToOmitRelationAndPrimeMaterial(result.structuredContent);
   });

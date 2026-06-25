@@ -6,11 +6,12 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
   it('uses VectorService availability instead of stats embedProviderAvailable', async () => {
     const syncRecipeSemanticRegions = vi.fn(async () => ({
       degradedReason: null,
-      errors: 0,
+      errors: [],
       generated: 1,
+      generatedMetadata: [],
       removed: 0,
       scanned: 1,
-      status: 'synced',
+      status: 'completed',
       upserted: 1,
     }));
     const vectorService = {
@@ -24,6 +25,7 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
       })),
       syncRecipeSemanticRegions,
     };
+    const memoryRepository = createMemoryRepository();
     const container = createContainer({
       vectorService,
       knowledgeService: {
@@ -31,16 +33,26 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
           data: [
             {
               toJSON: () => ({
+                category: 'runtime',
                 content: 'Use structured vector availability.',
+                description: 'DI availability should reach the real vector service.',
+                dimensionId: 'architecture',
                 id: 'recipe-1',
+                lifecycle: 'active',
+                reasoning: { sources: ['Sources/App.swift'], whyStandard: 'Runtime proof' },
+                tags: ['vector'],
                 title: 'Vector availability recipe',
+                trigger: 'when vector availability looks stale',
               }),
             },
           ],
         })),
       },
+      memoryRepository,
       recipeSourceRefRepository: {
-        findActiveByRecipeIds: vi.fn(() => []),
+        findActiveByRecipeIds: vi.fn(() => [
+          { recipeId: 'recipe-1', sourcePath: 'Sources/App.swift', status: 'active' },
+        ]),
       },
       vectorStore: {
         flush: vi.fn(async () => undefined),
@@ -54,7 +66,21 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
     });
 
     expect(syncRecipeSemanticRegions).toHaveBeenCalledTimes(1);
+    expect(memoryRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'recipe-region-memory:recipe-1',
+        relatedEntities: ['Sources/App.swift'],
+        source: 'recipe-region-vector',
+        sourceDimension: 'architecture',
+        type: 'recipe',
+      })
+    );
     expect(report).toMatchObject({
+      semanticMemories: {
+        created: 1,
+        status: 'synced',
+        total: 1,
+      },
       status: 'synced',
       vectorAvailability: {
         available: true,
@@ -125,6 +151,23 @@ function createContainer(services: Record<string, unknown>): ServiceContainer {
       return services[name];
     },
   } as unknown as ServiceContainer;
+}
+
+function createMemoryRepository() {
+  const rows = new Map<string, unknown>();
+  return {
+    create: vi.fn(async (data: { id: string }) => {
+      rows.set(data.id, data);
+      return data;
+    }),
+    delete: vi.fn(async (id: string) => rows.delete(id)),
+    findById: vi.fn(async (id: string) => rows.get(id) ?? null),
+    getAllActive: vi.fn(async () => [...rows.values()] as Array<{ id: string }>),
+    update: vi.fn(async (id: string, updates: Record<string, unknown>) => {
+      rows.set(id, { ...(rows.get(id) as Record<string, unknown>), ...updates });
+      return true;
+    }),
+  };
 }
 
 function vectorAvailability(

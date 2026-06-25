@@ -2,6 +2,7 @@
 
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { HnswVectorAdapter, RECIPE_REGION_VECTOR_ID_PREFIX } from '@alembic/core/vector';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
@@ -24,35 +25,89 @@ process.env.ALEMBIC_QUIET ??= '1';
 const report = {
   ok: false,
   generatedAt: new Date().toISOString(),
-  mode: 'local-host-dispatcher',
+  mode: 'local-derived-index-rebuild',
   projectRoot,
-  rescan: null,
+  indexRebuild: null,
   sourceRefs: null,
   vectorIndex: null,
 };
 
-let server = null;
-let resetPluginOwnedMcpServerForTests = null;
+let bootstrap = null;
+let resetServiceContainer = null;
+const previousProjectDir = process.env.ALEMBIC_PROJECT_DIR;
+const previousCwd = process.cwd();
 
 try {
-  const hostMcpServerPath = join(repoRoot, 'dist/lib/runtime/mcp/HostMcpServer.js');
-  if (!existsSync(hostMcpServerPath)) {
+  const bootstrapPath = join(repoRoot, 'dist/lib/bootstrap.js');
+  const serviceContainerPath = join(repoRoot, 'dist/lib/injection/ServiceContainer.js');
+  const indexRebuildPath = join(
+    repoRoot,
+    'dist/lib/recipe-generation/host-agent-workflows/knowledge-index-rebuild.js'
+  );
+  for (const requiredPath of [bootstrapPath, serviceContainerPath, indexRebuildPath]) {
+    if (!existsSync(requiredPath)) {
+      throw new Error(
+        `dist runtime is missing required file: ${requiredPath}; run npm run build first.`
+      );
+    }
+  }
+
+  process.env.ALEMBIC_PROJECT_DIR = projectRoot;
+  if (process.cwd() !== projectRoot) {
+    process.chdir(projectRoot);
+  }
+
+  const bootstrapModule = await import(pathToFileURL(bootstrapPath).href);
+  const serviceModule = await import(pathToFileURL(serviceContainerPath).href);
+  const indexRebuildModule = await import(pathToFileURL(indexRebuildPath).href);
+  const Bootstrap = bootstrapModule.default ?? bootstrapModule.Bootstrap;
+  const getServiceContainer = serviceModule.getServiceContainer;
+  resetServiceContainer = serviceModule.resetServiceContainer;
+  const rebuildLocalKnowledgeIndexes = indexRebuildModule.rebuildLocalKnowledgeIndexes;
+
+  if (
+    !Bootstrap ||
+    typeof getServiceContainer !== 'function' ||
+    typeof rebuildLocalKnowledgeIndexes !== 'function'
+  ) {
     throw new Error('dist runtime is missing; run npm run build first.');
   }
 
-  const hostModule = await import(`file://${hostMcpServerPath}`);
-  const HostMcpServer = hostModule.HostMcpServer;
-  resetPluginOwnedMcpServerForTests = hostModule.resetPluginOwnedMcpServerForTests;
-  server = new HostMcpServer({ projectRoot, waitUntilReadyMs: options.timeoutMs });
+  Bootstrap.configurePathGuard(projectRoot);
+  bootstrap = new Bootstrap();
+  const components = await bootstrap.initialize();
+  const container = getServiceContainer();
+  await container.initialize({
+    auditLogger: components.auditLogger,
+    config: components.config,
+    db: components.db,
+    projectRoot,
+    skillHooks: components.skillHooks,
+    workspaceResolver: components.workspaceResolver,
+  });
 
-  const rescan = await withTimeout(
-    server.handleToolCall('alembic_rescan', {
-      reason: 'rebuild local Recipe source refs and semantic-region vectors',
+  const logger = components.logger ?? {
+    info(message, meta) {
+      if (!options.json) {
+        process.stdout.write(`${message}${meta ? ` ${JSON.stringify(meta)}` : ''}\n`);
+      }
+    },
+    warn(message, meta) {
+      process.stderr.write(`${message}${meta ? ` ${JSON.stringify(meta)}` : ''}\n`);
+    },
+  };
+
+  const indexRebuild = await withTimeout(
+    rebuildLocalKnowledgeIndexes({
+      container,
+      db: components.db,
+      logger,
+      logPrefix: 'RebuildLocalKnowledgeIndexes',
     }),
     options.timeoutMs,
-    `alembic_rescan timed out after ${options.timeoutMs}ms`
+    `local knowledge index rebuild timed out after ${options.timeoutMs}ms`
   );
-  report.rescan = summarizeRescan(rescan);
+  report.indexRebuild = summarizeIndexRebuild(indexRebuild);
 
   const dataRoot = WorkspaceResolver.fromProject(projectRoot).dataRoot;
   const dbPath = join(dataRoot, '.asd/alembic.db');
@@ -62,6 +117,8 @@ try {
   report.ok =
     report.sourceRefs.total > 0 &&
     report.sourceRefs.active > 0 &&
+    report.sourceRefs.semanticMemories > 0 &&
+    report.sourceRefs.recipeRegionSemanticMemories > 0 &&
     report.vectorIndex.recipeRegionIds > 0 &&
     report.vectorIndex.recipeRegionRecipeIds > 0;
 } catch (err) {
@@ -69,14 +126,22 @@ try {
   report.ok = false;
 } finally {
   try {
-    await server?.shutdown?.();
+    await bootstrap?.shutdown?.();
   } catch (err) {
     report.shutdownError = err instanceof Error ? err.message : String(err);
   }
   try {
-    await resetPluginOwnedMcpServerForTests?.();
+    await resetServiceContainer?.();
   } catch (err) {
     report.resetError = err instanceof Error ? err.message : String(err);
+  }
+  if (previousProjectDir === undefined) {
+    delete process.env.ALEMBIC_PROJECT_DIR;
+  } else {
+    process.env.ALEMBIC_PROJECT_DIR = previousProjectDir;
+  }
+  if (process.cwd() !== previousCwd) {
+    process.chdir(previousCwd);
   }
 }
 
@@ -101,6 +166,11 @@ function inspectSourceRefs(dbPath) {
     const stale = scalar(db, "SELECT count(*) FROM recipe_source_refs WHERE status = 'stale'");
     const renamed = scalar(db, "SELECT count(*) FROM recipe_source_refs WHERE status = 'renamed'");
     const recipeCount = scalar(db, 'SELECT count(DISTINCT recipe_id) FROM recipe_source_refs');
+    const semanticMemories = scalar(db, 'SELECT count(*) FROM semantic_memories');
+    const recipeRegionSemanticMemories = scalar(
+      db,
+      "SELECT count(*) FROM semantic_memories WHERE source = 'recipe-region-vector' AND type = 'recipe'"
+    );
     const sourceBackedRecipes = scalar(
       db,
       "SELECT count(*) FROM knowledge_entries WHERE json_array_length(json_extract(reasoning, '$.sources')) > 0"
@@ -109,7 +179,9 @@ function inspectSourceRefs(dbPath) {
       active,
       databasePath: dbPath,
       recipeCount,
+      recipeRegionSemanticMemories,
       renamed,
+      semanticMemories,
       sourceBackedRecipes,
       stale,
       total,
@@ -158,15 +230,76 @@ async function inspectVectorIndex(dataRoot) {
   }
 }
 
-function summarizeRescan(value) {
+function summarizeIndexRebuild(value) {
   if (!value || typeof value !== 'object') {
     return { status: 'unknown' };
   }
-  const data = value.data && typeof value.data === 'object' ? value.data : value;
   return {
-    ok: value.ok ?? value.success ?? null,
-    status: value.status ?? data.status ?? null,
-    summary: value.summary ?? data.summary ?? null,
+    knowledgeSync: value.knowledgeSync
+      ? {
+          created: value.knowledgeSync.created,
+          skipped: value.knowledgeSync.skipped,
+          synced: value.knowledgeSync.synced,
+          updated: value.knowledgeSync.updated,
+          violations: value.knowledgeSync.violations?.length ?? 0,
+        }
+      : null,
+    recipeRegionVectors: value.recipeRegionVectors
+      ? {
+          bridgeRecipeCount: value.recipeRegionVectors.bridgeRecipeCount,
+          bridgeRefCount: value.recipeRegionVectors.bridgeRefCount,
+          entries: value.recipeRegionVectors.entries,
+          reason: value.recipeRegionVectors.reason,
+          status: value.recipeRegionVectors.status,
+          syncResult: value.recipeRegionVectors.syncResult
+            ? {
+                degradedReason: value.recipeRegionVectors.syncResult.degradedReason ?? null,
+                embedded: value.recipeRegionVectors.syncResult.embedded,
+                errors: value.recipeRegionVectors.syncResult.errors ?? [],
+                generated: value.recipeRegionVectors.syncResult.generated,
+                removed: value.recipeRegionVectors.syncResult.removed,
+                scanned: value.recipeRegionVectors.syncResult.scanned,
+                skipped: value.recipeRegionVectors.syncResult.skipped,
+                status: value.recipeRegionVectors.syncResult.status,
+                upserted: value.recipeRegionVectors.syncResult.upserted,
+              }
+            : null,
+          semanticMemories: value.recipeRegionVectors.semanticMemories
+            ? {
+                created: value.recipeRegionVectors.semanticMemories.created,
+                deleted: value.recipeRegionVectors.semanticMemories.deleted,
+                reason: value.recipeRegionVectors.semanticMemories.reason ?? null,
+                skipped: value.recipeRegionVectors.semanticMemories.skipped,
+                status: value.recipeRegionVectors.semanticMemories.status,
+                total: value.recipeRegionVectors.semanticMemories.total,
+                updated: value.recipeRegionVectors.semanticMemories.updated,
+              }
+            : null,
+          vectorAvailability: value.recipeRegionVectors.vectorAvailability
+            ? {
+                available: value.recipeRegionVectors.vectorAvailability.available,
+                detail: value.recipeRegionVectors.vectorAvailability.detail ?? null,
+                embedProviderConfigured:
+                  value.recipeRegionVectors.vectorAvailability.embedProviderConfigured,
+                probeStatus: value.recipeRegionVectors.vectorAvailability.probeStatus,
+                reason: value.recipeRegionVectors.vectorAvailability.reason,
+                status: value.recipeRegionVectors.vectorAvailability.status,
+              }
+            : null,
+          vectorStatsAfter: value.recipeRegionVectors.vectorStatsAfter,
+          vectorStatsBefore: value.recipeRegionVectors.vectorStatsBefore,
+        }
+      : null,
+    sourceRefs: value.sourceRefs
+      ? {
+          active: value.sourceRefs.active,
+          cleaned: value.sourceRefs.cleaned ?? 0,
+          inserted: value.sourceRefs.inserted,
+          recipesProcessed: value.sourceRefs.recipesProcessed,
+          skipped: value.sourceRefs.skipped,
+          stale: value.sourceRefs.stale,
+        }
+      : null,
   };
 }
 

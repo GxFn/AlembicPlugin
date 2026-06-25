@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 // ─── v3.1: Multi-Language Discovery + Enhancement ────────
 import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
 // ─── P3: Infrastructure ──────────────────────────────
@@ -12,6 +13,131 @@ import * as SignalModule from './modules/SignalModule.js';
 import * as SkillHooksModule from './modules/SkillHooksModule.js';
 import * as VectorModule from './modules/VectorModule.js';
 import type { ServiceMap } from './ServiceMap.js';
+
+type ConfigLoaderLike = {
+  get: (key: string) => unknown;
+};
+
+const CONFIG_LOADER_TOP_LEVEL_KEYS = [
+  'database',
+  'server',
+  'cache',
+  'monitoring',
+  'logging',
+  'constitution',
+  'paths',
+  'features',
+  'vector',
+  'qualityGate',
+  'guard',
+  'taskGraph',
+] as const;
+
+const WORKSPACE_RUNTIME_CONFIG_SECTIONS = ['vector', 'guard'] as const;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasConfigGetter(value: unknown): value is ConfigLoaderLike {
+  return (
+    (typeof value === 'object' || typeof value === 'function') &&
+    value !== null &&
+    typeof (value as { get?: unknown }).get === 'function'
+  );
+}
+
+function cloneConfigValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneConfigValue(item));
+  }
+  if (isPlainRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, cloneConfigValue(entry)])
+    );
+  }
+  return value;
+}
+
+function deepMergeConfig(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const current = merged[key];
+    merged[key] =
+      isPlainRecord(current) && isPlainRecord(value)
+        ? deepMergeConfig(current, value)
+        : cloneConfigValue(value);
+  }
+  return merged;
+}
+
+function readConfigLoaderSnapshot(config: unknown): Record<string, unknown> {
+  if (hasConfigGetter(config)) {
+    const snapshot: Record<string, unknown> = {};
+    for (const key of CONFIG_LOADER_TOP_LEVEL_KEYS) {
+      try {
+        snapshot[key] = cloneConfigValue(config.get(key));
+      } catch {
+        // Missing optional sections stay absent; ConfigLoader.get throws by design.
+      }
+    }
+    return snapshot;
+  }
+  return isPlainRecord(config) ? (cloneConfigValue(config) as Record<string, unknown>) : {};
+}
+
+function getWorkspaceConfigPath(workspaceResolver: unknown): string | null {
+  if (!isPlainRecord(workspaceResolver)) {
+    return null;
+  }
+  const configPath = workspaceResolver.configPath;
+  return typeof configPath === 'string' && configPath.length > 0 ? configPath : null;
+}
+
+function readWorkspaceRuntimeConfig(workspaceResolver: unknown): Record<string, unknown> {
+  const configPath = getWorkspaceConfigPath(workspaceResolver);
+  if (!configPath || !existsSync(configPath)) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    return isPlainRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Builds the plain runtime config consumed by DI modules.
+ *
+ * AppConfigLoader is a static loader, while project runtime config lives in the
+ * WorkspaceResolver data root. The vector path must see the same localEmbedding
+ * settings surfaced by alembic_status, otherwise status can report enabled while
+ * VectorService still initializes with a disabled provider.
+ */
+export function buildServiceContainerRuntimeConfig(
+  config: unknown,
+  workspaceResolver?: unknown
+): Record<string, unknown> {
+  let merged = readConfigLoaderSnapshot(config);
+  const workspaceConfig = readWorkspaceRuntimeConfig(workspaceResolver);
+  for (const section of WORKSPACE_RUNTIME_CONFIG_SECTIONS) {
+    const override = workspaceConfig[section];
+    if (isPlainRecord(override)) {
+      const baseSection = isPlainRecord(merged[section])
+        ? (merged[section] as Record<string, unknown>)
+        : {};
+      merged = {
+        ...merged,
+        [section]: deepMergeConfig(baseSection, override),
+      };
+    }
+  }
+  return merged;
+}
 /**
  * DependencyInjection 容器
  * 管理所有应用层的仓储、服务和基础设施依赖的创建和注入
@@ -86,7 +212,10 @@ export class ServiceContainer {
       }
 
       if (bootstrapComponents.config) {
-        this.singletons._config = bootstrapComponents.config;
+        this.singletons._config = buildServiceContainerRuntimeConfig(
+          bootstrapComponents.config,
+          bootstrapComponents.workspaceResolver
+        );
       }
 
       if (bootstrapComponents.skillHooks) {
