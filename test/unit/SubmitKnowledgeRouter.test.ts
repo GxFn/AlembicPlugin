@@ -511,6 +511,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
           id: 'recipe-semantic-001',
           title: 'Codex Recipe Interaction',
           content: { markdown: 'Fresh recipe content.' },
+          dimensionId: 'architecture',
           reasoning: { sources: ['src/current.ts:1-3'] },
         },
       },
@@ -572,6 +573,16 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
   });
 
   it('surfaces ready local Ollama semantic indexing without embed-provider-missing degradation', async () => {
+    const memoryRepository = createMemoryRepository();
+    const recipeSourceRefRepository = {
+      findActiveByRecipeIds: vi.fn(() => [
+        {
+          recipeId: 'recipe-semantic-001',
+          sourcePath: 'src/current.ts:1-3',
+          status: 'active',
+        },
+      ]),
+    };
     gatewayState.result.created = [
       {
         index: 0,
@@ -582,6 +593,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
           id: 'recipe-semantic-001',
           title: 'Codex Recipe Interaction',
           content: { markdown: 'Fresh recipe content.' },
+          dimensionId: 'architecture',
           reasoning: { sources: ['src/current.ts:1-3'] },
         },
       },
@@ -633,14 +645,27 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
       status: 'completed',
     };
 
-    const result = await routeSubmitKnowledgeTool(makeContext(), {
-      items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
-      skipConsolidation: true,
-    });
+    const result = await routeSubmitKnowledgeTool(
+      makeContext({ memoryRepository, recipeSourceRefRepository }),
+      {
+        items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
+        skipConsolidation: true,
+      }
+    );
 
     const degradedReasons = Array.isArray(result.data.degradedReasons)
       ? result.data.degradedReasons
       : [];
+    expect(memoryRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'recipe-region-memory:recipe-semantic-001',
+        relatedEntities: ['src/current.ts:1-3'],
+        source: 'recipe-region-vector',
+        sourceDimension: 'architecture',
+        type: 'recipe',
+      })
+    );
+    expect(memoryRepository.delete).not.toHaveBeenCalled();
     expect(result.data).toMatchObject({
       freshness: {
         status: 'completed',
@@ -881,10 +906,14 @@ function makeValidSubmitItem(overrides: Record<string, unknown> = {}): Record<st
 
 function makeContext({
   freshnessServiceAvailable = true,
+  memoryRepository,
   projectRoot,
+  recipeSourceRefRepository,
 }: {
   freshnessServiceAvailable?: boolean;
+  memoryRepository?: unknown;
   projectRoot?: string;
+  recipeSourceRefRepository?: unknown;
 } = {}): McpContext {
   const session = projectRoot
     ? {
@@ -917,6 +946,12 @@ function makeContext({
             },
           };
         }
+        if (name === 'memoryRepository') {
+          return memoryRepository ?? null;
+        }
+        if (name === 'recipeSourceRefRepository') {
+          return recipeSourceRefRepository ?? null;
+        }
         if (name === 'bootstrapSessionManager') {
           return {
             getSession: (sessionId?: string) =>
@@ -931,6 +966,23 @@ function makeContext({
 
 function makeProjectRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-submit-gate-'));
+}
+
+function createMemoryRepository() {
+  const rows = new Map<string, unknown>();
+  return {
+    create: vi.fn(async (data: { id: string }) => {
+      rows.set(data.id, data);
+      return data;
+    }),
+    delete: vi.fn(async (id: string) => rows.delete(id)),
+    findById: vi.fn(async (id: string) => rows.get(id) ?? null),
+    getAllActive: vi.fn(async () => [...rows.values()] as Array<{ id: string }>),
+    update: vi.fn(async (id: string, updates: Record<string, unknown>) => {
+      rows.set(id, { ...(rows.get(id) as Record<string, unknown>), ...updates });
+      return true;
+    }),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

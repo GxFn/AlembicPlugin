@@ -6,6 +6,10 @@ import type {
   RecipeFreshnessVectorSummary,
 } from '@alembic/core/knowledge';
 import type { KnowledgeRepository } from '@alembic/core/repositories';
+import {
+  syncRecipeSemanticMemoriesForEntries,
+  type RecipeSemanticMemoryEntry,
+} from '#recipe-generation/host-agent-workflows/recipe-region-vector.js';
 
 export interface RecipeFreshnessContainer {
   get(name: string): unknown;
@@ -125,7 +129,7 @@ export async function refreshCreatedRecipeFreshness(
     skipped.push(skippedRecipe(item.id, 'saved-entry-unavailable'));
   }
 
-  return refreshRecipeFreshnessEntries(service, entries, {
+  return refreshRecipeFreshnessEntries(container, service, entries, {
     requested: created.length,
     skipped,
   });
@@ -156,7 +160,7 @@ export async function refreshRecipeFreshnessByIds(
     }
   }
 
-  return refreshRecipeFreshnessEntries(service, entries, {
+  return refreshRecipeFreshnessEntries(container, service, entries, {
     requested: ids.length,
     skipped,
   });
@@ -228,6 +232,7 @@ export function skippedRecipe(recipeId: string, reason: string): RecipeFreshness
 }
 
 async function refreshRecipeFreshnessEntries(
+  container: RecipeFreshnessContainer,
   service: RecipeFreshnessService,
   entries: readonly RecipeFreshnessEntry[],
   options: { requested: number; skipped?: RecipeFreshnessPublicRecipe[] }
@@ -250,6 +255,7 @@ async function refreshRecipeFreshnessEntries(
       maxRecipes: Math.max(entries.length, 1),
     });
     const publicResult = summarizeRefreshResult(result, options.requested);
+    await syncSemanticMemoriesForFreshRecipes(container, entries, publicResult);
     return mergeFreshnessOutputs([publicResult], skipped) ?? publicResult;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -267,6 +273,38 @@ async function refreshRecipeFreshnessEntries(
       errors: [message],
     };
   }
+}
+
+async function syncSemanticMemoriesForFreshRecipes(
+  container: RecipeFreshnessContainer,
+  entries: readonly RecipeFreshnessEntry[],
+  freshness: RecipeFreshnessPublicOutput
+): Promise<void> {
+  const freshRecipeIds = new Set(
+    freshness.recipes
+      .filter((recipe) => recipeVectorRefreshWasRunnable(recipe))
+      .map((recipe) => recipe.recipeId)
+  );
+  const freshEntries = entries.filter((entry) => freshRecipeIds.has(entry.id));
+  if (freshEntries.length === 0) {
+    return;
+  }
+
+  await syncRecipeSemanticMemoriesForEntries({
+    container: container as import('#inject/ServiceContainer.js').ServiceContainer,
+    deleteStale: false,
+    entries: freshEntries as readonly RecipeSemanticMemoryEntry[],
+    logPrefix: 'recipe-freshness',
+  });
+}
+
+function recipeVectorRefreshWasRunnable(recipe: RecipeFreshnessPublicRecipe): boolean {
+  return (
+    recipe.vector.status !== 'failed' &&
+    recipe.vector.status !== 'skipped' &&
+    recipe.vector.regionSyncStatus !== 'failed' &&
+    recipe.vector.regionSyncStatus !== 'skipped'
+  );
 }
 
 function summarizeRefreshResult(

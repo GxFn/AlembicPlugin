@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ServiceContainer } from '../../lib/injection/ServiceContainer.js';
-import { buildRecipeSemanticRegionVectors } from '../../lib/recipe-generation/host-agent-workflows/recipe-region-vector.js';
+import {
+  buildRecipeSemanticRegionVectors,
+  syncRecipeSemanticMemoriesForEntries,
+} from '../../lib/recipe-generation/host-agent-workflows/recipe-region-vector.js';
 
 describe('buildRecipeSemanticRegionVectors availability gate', () => {
   it('uses VectorService availability instead of stats embedProviderAvailable', async () => {
@@ -140,6 +143,59 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
       },
     });
   });
+
+  it('keeps existing semantic memories when syncing a partial fresh-run Recipe batch', async () => {
+    const memoryRepository = createMemoryRepository([
+      {
+        id: 'recipe-region-memory:recipe-existing',
+        source: 'recipe-region-vector',
+        type: 'recipe',
+      },
+    ]);
+    const container = createContainer({
+      memoryRepository,
+      recipeSourceRefRepository: {
+        findActiveByRecipeIds: vi.fn(() => [
+          { recipeId: 'recipe-new', sourcePath: 'Sources/New.swift', status: 'active' },
+        ]),
+      },
+    });
+
+    const report = await syncRecipeSemanticMemoriesForEntries({
+      container,
+      deleteStale: false,
+      entries: [
+        {
+          content: { markdown: 'Fresh run Recipe body.' },
+          dimensionId: 'architecture',
+          id: 'recipe-new',
+          lifecycle: 'active',
+          reasoning: { sources: ['Sources/New.swift'] },
+          title: 'Fresh run recipe',
+        },
+      ],
+      logger: { info: vi.fn() },
+      logPrefix: 'test',
+    });
+
+    expect(report).toMatchObject({
+      created: 1,
+      deleted: 0,
+      status: 'synced',
+      total: 1,
+    });
+    expect(memoryRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'recipe-region-memory:recipe-new',
+        relatedEntities: ['Sources/New.swift'],
+        source: 'recipe-region-vector',
+        sourceDimension: 'architecture',
+        type: 'recipe',
+      })
+    );
+    expect(memoryRepository.delete).not.toHaveBeenCalled();
+    expect(await memoryRepository.findById('recipe-region-memory:recipe-existing')).toBeTruthy();
+  });
 });
 
 function createContainer(services: Record<string, unknown>): ServiceContainer {
@@ -153,8 +209,8 @@ function createContainer(services: Record<string, unknown>): ServiceContainer {
   } as unknown as ServiceContainer;
 }
 
-function createMemoryRepository() {
-  const rows = new Map<string, unknown>();
+function createMemoryRepository(seed: Array<{ id: string; [key: string]: unknown }> = []) {
+  const rows = new Map<string, unknown>(seed.map((row) => [row.id, row]));
   return {
     create: vi.fn(async (data: { id: string }) => {
       rows.set(data.id, data);

@@ -41,6 +41,15 @@ export interface RecipeSemanticMemorySyncReport {
   updated: number;
 }
 
+export interface RecipeSemanticMemorySyncContext {
+  bridgeByRecipeId?: Record<string, RecipeSourceRefsBridge>;
+  container: ServiceContainer;
+  deleteStale?: boolean;
+  entries: readonly RecipeSemanticMemoryEntry[];
+  logger?: { info(message: string, meta?: Record<string, unknown>): void };
+  logPrefix?: string;
+}
+
 interface RecipeSourceRefRepositoryLike {
   findActiveByRecipeIds?: (ids: string[]) => Array<{
     newPath?: string | null;
@@ -143,9 +152,10 @@ export async function buildRecipeSemanticRegionVectors(
       entries,
       bridge.byRecipeId
     );
-    semanticMemories = await syncRecipeSemanticMemories({
+    semanticMemories = await syncRecipeSemanticMemoriesForEntries({
       bridgeByRecipeId: bridge.byRecipeId,
       container,
+      deleteStale: true,
       entries,
       logger,
       logPrefix,
@@ -187,9 +197,10 @@ export async function buildRecipeSemanticRegionVectors(
       reason: err instanceof Error ? err.message : String(err),
       semanticMemories:
         semanticMemories ??
-        (await syncRecipeSemanticMemories({
+        (await syncRecipeSemanticMemoriesForEntries({
           bridgeByRecipeId: bridge.byRecipeId,
           container,
+          deleteStale: true,
           entries,
           logger,
           logPrefix,
@@ -215,6 +226,9 @@ function buildSourceRefsBridgeByRecipeId(
   try {
     repo = container.get('recipeSourceRefRepository') as RecipeSourceRefRepositoryLike;
   } catch {
+    return { byRecipeId: {}, recipeCount: 0, refCount: 0 };
+  }
+  if (!repo) {
     return { byRecipeId: {}, recipeCount: 0, refCount: 0 };
   }
 
@@ -360,7 +374,7 @@ interface RecipeSemanticMemoryRepositoryLike {
   ): Promise<boolean> | boolean;
 }
 
-type RecipeSemanticMemoryEntry = Parameters<
+export type RecipeSemanticMemoryEntry = Parameters<
   ServiceMap['vectorService']['syncRecipeSemanticRegions']
 >[0][number];
 type RecipeRegionSyncResult = Awaited<
@@ -371,19 +385,21 @@ const RECIPE_SEMANTIC_MEMORY_ID_PREFIX = 'recipe-region-memory:';
 const RECIPE_SEMANTIC_MEMORY_SOURCE = 'recipe-region-vector';
 const RECIPE_REGION_SYNC_BATCH_SIZE = 6;
 
-async function syncRecipeSemanticMemories({
+export async function syncRecipeSemanticMemoriesForEntries({
   bridgeByRecipeId,
   container,
+  deleteStale = false,
   entries,
-  logger,
-  logPrefix,
-}: {
-  bridgeByRecipeId: Record<string, RecipeSourceRefsBridge>;
-  container: ServiceContainer;
-  entries: readonly RecipeSemanticMemoryEntry[];
-  logger: { info(message: string, meta?: Record<string, unknown>): void };
-  logPrefix: string;
-}): Promise<RecipeSemanticMemorySyncReport> {
+  logger = { info: () => undefined },
+  logPrefix = 'recipe-freshness',
+}: RecipeSemanticMemorySyncContext): Promise<RecipeSemanticMemorySyncReport> {
+  const effectiveBridge =
+    bridgeByRecipeId ??
+    buildSourceRefsBridgeByRecipeId(
+      container,
+      entries.map((entry) => entry.id)
+    ).byRecipeId;
+
   let memoryRepository: RecipeSemanticMemoryRepositoryLike;
   try {
     memoryRepository = container.get('memoryRepository') as RecipeSemanticMemoryRepositoryLike;
@@ -394,10 +410,16 @@ async function syncRecipeSemanticMemories({
     });
     return emptySemanticMemoryReport('skipped', `memory-repository-unavailable:${reason}`);
   }
+  if (!memoryRepository) {
+    logger.info(`[${logPrefix}] Recipe semantic memory sync skipped`, {
+      reason: 'memory-repository-unavailable',
+    });
+    return emptySemanticMemoryReport('skipped', 'memory-repository-unavailable');
+  }
 
   const memories = entries
     .filter((entry) => !isDeprecatedRecipeEntry(entry))
-    .map((entry) => buildRecipeSemanticMemory(entry, bridgeByRecipeId[entry.id]))
+    .map((entry) => buildRecipeSemanticMemory(entry, effectiveBridge[entry.id]))
     .filter((memory) => memory.content.length > 0);
   if (memories.length === 0) {
     return emptySemanticMemoryReport('skipped', 'no-recipe-memory-entries');
@@ -431,19 +453,21 @@ async function syncRecipeSemanticMemories({
       }
     }
 
-    const active = await memoryRepository.getAllActive({
-      source: RECIPE_SEMANTIC_MEMORY_SOURCE,
-    });
-    for (const row of active) {
-      if (!row.id.startsWith(RECIPE_SEMANTIC_MEMORY_ID_PREFIX)) {
-        continue;
-      }
-      if (expectedIds.has(row.id)) {
-        continue;
-      }
-      const deleted = await memoryRepository.delete(row.id);
-      if (deleted) {
-        report.deleted++;
+    if (deleteStale) {
+      const active = await memoryRepository.getAllActive({
+        source: RECIPE_SEMANTIC_MEMORY_SOURCE,
+      });
+      for (const row of active) {
+        if (!row.id.startsWith(RECIPE_SEMANTIC_MEMORY_ID_PREFIX)) {
+          continue;
+        }
+        if (expectedIds.has(row.id)) {
+          continue;
+        }
+        const deleted = await memoryRepository.delete(row.id);
+        if (deleted) {
+          report.deleted++;
+        }
       }
     }
 
