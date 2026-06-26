@@ -5,9 +5,9 @@
 // 复用 #shared/transient-transport.ts 原语；本模块不持有任何 stage 专属压缩判定。
 
 import {
-  type TransientTransportRef,
   jsonByteLength,
   removeTransientTransportIfPresent,
+  type TransientTransportRef,
   writeTransientTransport,
 } from '#shared/transient-transport.js';
 

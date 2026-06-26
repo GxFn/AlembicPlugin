@@ -95,7 +95,7 @@ export interface StagingAccessSweepResult {
   waitingCount: number;
 }
 
-const sweepStateByProjectRoot = new Map<string, SweepState>();
+let sweepStateByProjectRoot: Map<string, SweepState> | null = null;
 
 export async function maybeRunStagingAccessSweep(
   input: StagingAccessSweepInput
@@ -133,7 +133,7 @@ export async function maybeRunStagingAccessSweep(
 }
 
 export function resetStagingAccessSweepStateForTests(): void {
-  sweepStateByProjectRoot.clear();
+  sweepStateByProjectRoot = null;
 }
 
 async function runSweep(
@@ -207,13 +207,21 @@ async function runSweep(
 }
 
 function resolveSweepState(projectRoot: string): SweepState {
-  const existing = sweepStateByProjectRoot.get(projectRoot);
+  const states = resolveSweepStateStore();
+  const existing = states.get(projectRoot);
   if (existing) {
     return existing;
   }
   const state: SweepState = { inFlight: null, lastStartedAt: 0 };
-  sweepStateByProjectRoot.set(projectRoot, state);
+  states.set(projectRoot, state);
   return state;
+}
+
+function resolveSweepStateStore(): Map<string, SweepState> {
+  if (!sweepStateByProjectRoot) {
+    sweepStateByProjectRoot = new Map<string, SweepState>();
+  }
+  return sweepStateByProjectRoot;
 }
 
 async function withTimeout(

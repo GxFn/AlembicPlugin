@@ -5,6 +5,13 @@
  * deterministic engine is unit-testable without a DB or the MCP tool surface; the
  * handler wires the real region + RecipeContext. It never calls another MCP tool.
  */
+
+import {
+  jsonByteLength,
+  removeTransientTransportIfPresent,
+  type TransientTransportRef,
+  writeTransientTransport,
+} from '#shared/transient-transport.js';
 import {
   ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION,
   type AlembicRecipeMapOutput,
@@ -21,12 +28,6 @@ import {
   type RegionFocus,
   type RegionNode,
 } from '../contracts/index.js';
-import {
-  jsonByteLength,
-  removeTransientTransportIfPresent,
-  type TransientTransportRef,
-  writeTransientTransport,
-} from '#shared/transient-transport.js';
 import {
   buildRegionIndex,
   compareMounts,

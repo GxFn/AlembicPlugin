@@ -31,7 +31,10 @@ export async function collectProjectSourceFileFacts(
   projectRoot: string,
   options: { maxFiles?: number } = {}
 ): Promise<ProjectSourceFileFact[]> {
-  const maxFiles = normalizePositiveInteger(options.maxFiles, DEFAULT_PROJECT_SOURCE_SCAN_MAX_FILES);
+  const maxFiles = normalizePositiveInteger(
+    options.maxFiles,
+    DEFAULT_PROJECT_SOURCE_SCAN_MAX_FILES
+  );
   const facts: ProjectSourceFileFact[] = [];
   const absoluteRoot = path.resolve(projectRoot);
   const pending = [absoluteRoot];

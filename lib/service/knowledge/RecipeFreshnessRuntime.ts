@@ -7,8 +7,8 @@ import type {
 } from '@alembic/core/knowledge';
 import type { KnowledgeRepository } from '@alembic/core/repositories';
 import {
-  syncRecipeSemanticMemoriesForEntries,
   type RecipeSemanticMemoryEntry,
+  syncRecipeSemanticMemoriesForEntries,
 } from '#recipe-generation/host-agent-workflows/recipe-region-vector.js';
 
 export interface RecipeFreshnessContainer {

@@ -27,6 +27,10 @@ import { type HostKnowledgeState, inspectKnowledge } from '#codex/KnowledgeState
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
+  attachFullBriefingRef,
+  budgetBriefingResponseData,
+} from '#recipe-generation/host-agent-workflows/briefing-budget.js';
+import {
   buildColdStartCompletenessCriticByDimension,
   projectCompletenessCriticForAgent,
 } from '#recipe-generation/host-agent-workflows/completeness-critic.js';
@@ -48,10 +52,6 @@ import {
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
-import {
-  attachFullBriefingRef,
-  budgetBriefingResponseData,
-} from '#recipe-generation/host-agent-workflows/briefing-budget.js';
 import { jsonByteLength, type TransientTransportRef } from '#shared/transient-transport.js';
 
 interface McpContext {
