@@ -280,8 +280,17 @@ describe('ContentPatcher', () => {
     });
   });
 
-  describe('applyProposal — fallback text patch', () => {
-    it('falls back to content.markdown replacement for non-JSON text', async () => {
+  describe('applyProposal — unstructured (non-JSON) suggestion', () => {
+    // U5 #5：退役「纯文本≥20 → content.markdown 全量替换」破坏式降级。
+    // 新契约：非结构化（非合法 StructuredPatch JSON）的自然语言 suggestedChanges
+    // → ContentPatcher.#parsePatch 返回 null → skipResult({ skipped:true, skipReason })，
+    // recipe content 字节不变（不再静默整段覆盖 markdown）。
+    it('skips destructive non-JSON natural-language patch and leaves content byte-unchanged', async () => {
+      const repo = createMockRepo();
+      const patcherLocal = new ContentPatcher(repo as never, createMockSourceRefRepo() as never);
+      // 替代 patcher 用本地 repo 以便核对内容字节不变（≥20 字符自然语言，旧路径会破坏式覆盖 markdown）。
+      const beforeMarkdown = repo.entryData.content.markdown;
+
       const proposal = {
         id: 'ep-fallback',
         type: 'enhance',
@@ -294,10 +303,15 @@ describe('ContentPatcher', () => {
         ],
       };
 
-      const result = await patcher.applyProposal(proposal, 'agent-suggestion');
+      const result = await patcherLocal.applyProposal(proposal, 'agent-suggestion');
 
-      expect(result.success).toBe(true);
-      expect(result.fieldsPatched).toContain('content.markdown');
+      // 新契约：被跳过、给出 skipReason、不写库、内容字节不变。
+      expect(result.success).toBe(false);
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toContain('unstructured');
+      expect(result.fieldsPatched).toEqual([]);
+      expect(repo.updates).toHaveLength(0);
+      expect(repo.entryData.content.markdown).toBe(beforeMarkdown);
     });
   });
 
