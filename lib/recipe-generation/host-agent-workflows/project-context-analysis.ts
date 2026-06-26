@@ -73,6 +73,10 @@ export function createProjectContextHostAgentSession(input: {
   projectRoot: string;
 }): ReturnType<ReturnType<typeof getOrCreateSessionManager>['createSession']> {
   const sessionManager = getOrCreateSessionManager(input.container);
+  releaseEmptyHostAgentSessionLease({
+    projectRoot: input.projectRoot,
+    sessionManager,
+  });
   return sessionManager.createSession({
     dimensions: input.dimensions.map((dimension) => ({
       ...dimension,
@@ -87,6 +91,29 @@ export function createProjectContextHostAgentSession(input: {
     },
     projectRoot: input.projectRoot,
   });
+}
+
+export function releaseEmptyHostAgentSessionLease(input: {
+  projectRoot: string;
+  sessionManager: {
+    clearSession?: (sessionId?: string) => void;
+    getSession?: (sessionId?: string, options?: { projectRoot?: string }) => unknown;
+  };
+  now?: number;
+  staleAfterMs?: number;
+}): { released: boolean; sessionId?: string } {
+  const staleAfterMs = input.staleAfterMs ?? 5 * 60 * 1000;
+  const session = readProjectSession(input.sessionManager, input.projectRoot);
+  if (!session || !isEmptyStaleHostAgentSession(session, input.now ?? Date.now(), staleAfterMs)) {
+    return { released: false };
+  }
+
+  const sessionId = readStringValue((session as Record<string, unknown>).id);
+  if (!sessionId || typeof input.sessionManager.clearSession !== 'function') {
+    return { released: false };
+  }
+  input.sessionManager.clearSession(sessionId);
+  return { released: true, sessionId };
 }
 
 export async function buildHostAgentProjectContextAnalysis(
@@ -259,6 +286,146 @@ async function executeProjectContextRequest(
       projectRoot,
     },
   });
+}
+
+function readProjectSession(
+  sessionManager: {
+    getSession?: (sessionId?: string, options?: { projectRoot?: string }) => unknown;
+  },
+  projectRoot: string
+): unknown {
+  if (typeof sessionManager.getSession !== 'function') {
+    return null;
+  }
+  try {
+    return sessionManager.getSession(undefined, { projectRoot });
+  } catch {
+    try {
+      const session = sessionManager.getSession();
+      return sessionBelongsToProject(session, projectRoot) ? session : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function isEmptyStaleHostAgentSession(
+  session: unknown,
+  now: number,
+  staleAfterMs: number
+): boolean {
+  if (!isRecord(session)) {
+    return false;
+  }
+  const startedAt = readNumberValue(session.startedAt);
+  if (!startedAt || now - startedAt < staleAfterMs) {
+    return false;
+  }
+  if (readCompletedDimensionCount(session.completedDimensions) > 0) {
+    return false;
+  }
+  const progress = readCallableRecord(session, 'getProgress');
+  if ((readNumberValue(progress?.completed) ?? 0) > 0) {
+    return false;
+  }
+  return (
+    !sessionStoreHasEvidence(session.sessionStore) &&
+    !submissionTrackerHasEvidence(session.submissionTracker)
+  );
+}
+
+function sessionBelongsToProject(session: unknown, projectRoot: string): boolean {
+  return isRecord(session) && readStringValue(session.projectRoot) === projectRoot;
+}
+
+function sessionStoreHasEvidence(value: unknown): boolean {
+  const snapshot = readJsonLike(value);
+  if (!snapshot) {
+    return false;
+  }
+  return (
+    recordHasValues(snapshot.dimensionReports) ||
+    recordHasCandidateValues(snapshot.submittedCandidates) ||
+    arrayHasValues(snapshot.crossReferences) ||
+    arrayHasValues(snapshot.tierReflections)
+  );
+}
+
+function submissionTrackerHasEvidence(value: unknown): boolean {
+  const snapshot = readJsonLike(value);
+  if (!snapshot) {
+    return false;
+  }
+  return (
+    recordHasCandidateValues(snapshot.dimensionSubmissions) ||
+    recordHasCandidateValues(snapshot.fileEvidenceMap) ||
+    recordHasCandidateValues(snapshot.rejections) ||
+    arrayHasValues(snapshot.negativeSignals) ||
+    arrayHasValues(snapshot.usedTriggers)
+  );
+}
+
+function readJsonLike(value: unknown): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  if (isRecord(value) && typeof value.toJSON === 'function') {
+    const snapshot = value.toJSON();
+    return isRecord(snapshot) ? snapshot : null;
+  }
+  return isRecord(value) ? value : null;
+}
+
+function readCallableRecord(
+  value: Record<string, unknown>,
+  key: string
+): Record<string, unknown> | null {
+  const fn = value[key];
+  if (typeof fn !== 'function') {
+    return null;
+  }
+  try {
+    const result = fn.call(value);
+    return isRecord(result) ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCompletedDimensionCount(value: unknown): number {
+  if (value instanceof Map) {
+    return value.size;
+  }
+  return isRecord(value) ? Object.keys(value).length : 0;
+}
+
+function recordHasValues(value: unknown): boolean {
+  return isRecord(value) && Object.keys(value).length > 0;
+}
+
+function recordHasCandidateValues(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Object.values(value).some((entry) =>
+    Array.isArray(entry) ? entry.length > 0 : Boolean(entry)
+  );
+}
+
+function arrayHasValues(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readNumberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function selectProjectContextModuleSeeds(

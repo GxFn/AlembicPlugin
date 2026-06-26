@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ModuleService } from '../../lib/service/module/ModuleService.js';
@@ -29,6 +29,39 @@ describe('ModuleService host-managed scan boundary', () => {
       expect(result.capabilityBoundary.owner).toBe('codex-host-agent');
       expect(result).not.toHaveProperty(removedLegacyManagedField);
       expect(result).not.toHaveProperty(legacyBoundaryField);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('derives canonical modules from repo source paths when ProjectContext map is unavailable', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'alembic-plugin-module-axis-'));
+    mkdirSync(join(projectRoot, 'Sources', 'App'), { recursive: true });
+    mkdirSync(join(projectRoot, 'app'), { recursive: true });
+    writeFileSync(
+      join(projectRoot, 'Package.swift'),
+      'let package = Package(name: "Fixture")\n',
+      'utf8'
+    );
+    writeFileSync(
+      join(projectRoot, 'Sources', 'App', 'NetworkModule.swift'),
+      'public final class NetworkModule {}\n',
+      'utf8'
+    );
+    writeFileSync(join(projectRoot, 'app', 'AppDelegate.swift'), 'final class AppDelegate {}\n');
+
+    try {
+      const service = new ModuleService(projectRoot);
+      const modules = await service.listCanonicalModules();
+      const paths = modules.map((module) => module.path);
+
+      expect(paths).toEqual(expect.arrayContaining(['Sources', 'app']));
+      expect(modules.find((module) => module.path === 'Sources')?.ownedFiles).toContain(
+        'Sources/App/NetworkModule.swift'
+      );
+      expect(modules.find((module) => module.path === 'app')?.ownedFiles).toContain(
+        'app/AppDelegate.swift'
+      );
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

@@ -187,7 +187,19 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
           updatedAt: 0,
         };
       }),
-      listRoundsByProjectRoot: vi.fn(() => []),
+      listRoundsByProjectRoot: vi.fn(() => [
+        {
+          projectRoot: '/tmp/alembic-test-project',
+          roundIndex: 2,
+          startedAt: 100,
+          completedAt: null,
+          newRecipesThisRound: 0,
+          triggerActor: 'host-agent-rescan',
+          createdAt: 100,
+          updatedAt: 100,
+        },
+      ]),
+      upsertRound: vi.fn((input: Record<string, unknown>) => input),
     };
     const moduleService = {
       listCanonicalModules: vi.fn(async () => [
@@ -246,6 +258,13 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     expect(authCell?.coveredCount).toBeGreaterThan(0);
     expect(JSON.stringify(authCell)).toContain('src/auth/login.ts');
     expect(JSON.stringify(authCell)).not.toContain('src/auth/ignored.ts');
+    expect(coverageLedgerRepository.upsertRound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRoot: '/tmp/alembic-test-project',
+        roundIndex: 2,
+        newRecipesThisRound: 3,
+      })
+    );
   });
 
   it('enriches generated project skills with submitted Recipe guidance even for long analysis', async () => {

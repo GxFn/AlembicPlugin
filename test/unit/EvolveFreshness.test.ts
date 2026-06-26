@@ -96,6 +96,20 @@ describe('evolveForHostAgent freshness wiring', () => {
       ],
     });
 
+    const submitPayload = submit.mock.calls[0]?.[0] as {
+      evidence: Array<{ suggestedChanges: string }>;
+    };
+    const suggestedChanges = JSON.parse(submitPayload.evidence[0]?.suggestedChanges ?? '{}') as {
+      changes: Array<{ action: string; field: string; newValue?: string }>;
+      patchVersion: number;
+      reasoning: string;
+    };
+    expect(suggestedChanges).toMatchObject({
+      patchVersion: 1,
+      changes: [{ field: 'content.markdown', action: 'append' }],
+      reasoning: 'Update the Recipe after review.',
+    });
+    expect(suggestedChanges.changes[0]?.newValue).toContain('src/current.ts');
     expect(refreshRecipes).not.toHaveBeenCalled();
     expect(result.data).toMatchObject({
       proposed: 1,

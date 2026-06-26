@@ -7,7 +7,7 @@
  * facts now come from `ProjectContextCapabilities.execute(...)`.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import {
   basename as _pathBasename,
   dirname as _pathDirname,
@@ -302,6 +302,9 @@ export class ModuleService {
   async listCanonicalModules(): Promise<CanonicalModuleInfo[]> {
     await this.#ensureLoaded();
     const modules = this.#mapContext?.modules ?? [];
+    if (modules.length === 0) {
+      return this.#fallbackCanonicalModulesFromRepo();
+    }
     return await Promise.all(
       modules.map(async (module) => {
         const ownedFiles = await this.#ownedFilesForCanonicalModule(module);
@@ -313,6 +316,78 @@ export class ModuleService {
         };
       })
     );
+  }
+
+  #fallbackCanonicalModulesFromRepo(): CanonicalModuleInfo[] {
+    if (!this.#repoContext) {
+      return [];
+    }
+    const seeds = dedupeSeeds([
+      ...this.#repoContext.localPackages.map((pkg) => ({
+        kind: 'local-package',
+        moduleName: pkg.name,
+        modulePath: pkg.path ?? pkg.ref?.scope.filePath,
+        ref: pkg.ref,
+        role: 'local-package',
+      })),
+      ...this.#repoContext.sourceRoots.map((root) => ({
+        kind: 'source-root',
+        moduleName: moduleNameFromPath(root.path, root.role ?? 'source'),
+        modulePath: root.path,
+        ref: root.ref,
+        role: root.role ?? 'source-root',
+      })),
+      ...this.#repoContext.topAreas
+        .filter((area) => area.role === 'source-root' || area.role === 'top-directory')
+        .map((area) => ({
+          kind: 'project-area',
+          moduleName: moduleNameFromPath(area.path, area.role ?? 'area'),
+          modulePath: area.path,
+          ref: area.ref,
+          role: area.role ?? 'project-area',
+        })),
+    ]).filter((seed) => Boolean(normalizeProjectPath(this.#projectRoot, seed.modulePath)));
+
+    const modules: CanonicalModuleInfo[] = [];
+    const seenPaths = new Set<string>();
+    const seenRealPaths = new Set<string>();
+    for (const seed of seeds) {
+      const modulePath = normalizeProjectPath(this.#projectRoot, seed.modulePath);
+      const modulePathKey = moduleIdentityKey(modulePath);
+      if (
+        !modulePath ||
+        !modulePathKey ||
+        seenPaths.has(modulePathKey) ||
+        hasMoreSpecificModulePath(seenPaths, modulePathKey)
+      ) {
+        continue;
+      }
+      const realPath = safeRealPath(_pathJoin(this.#projectRoot, modulePath));
+      if (realPath && seenRealPaths.has(realPath)) {
+        continue;
+      }
+      const ownedFiles = this.#collectProjectRelativeSourceFiles(modulePath);
+      if (ownedFiles.length === 0) {
+        continue;
+      }
+      seenPaths.add(modulePathKey);
+      if (realPath) {
+        seenRealPaths.add(realPath);
+      }
+      modules.push({
+        id: modulePath,
+        name: seed.moduleName,
+        path: modulePath,
+        ownedFiles,
+      });
+    }
+
+    if (modules.length > 0) {
+      this.#logger.info(
+        `[ModuleService] ProjectContext map unavailable; using ${modules.length} repo-derived canonical modules`
+      );
+    }
+    return modules;
   }
 
   getProjectInfo() {
@@ -939,6 +1014,49 @@ export class ModuleService {
     return files;
   }
 
+  #collectProjectRelativeSourceFiles(modulePath: string, maxDepth = 15): string[] {
+    const absolutePath = _pathJoin(this.#projectRoot, modulePath);
+    if (isExistingSourceFile(absolutePath)) {
+      return [modulePath];
+    }
+    const files: string[] = [];
+    this.#walkCollectProjectRelativeSourceFiles(absolutePath, files, 0, maxDepth);
+    return uniqueStrings(files);
+  }
+
+  #walkCollectProjectRelativeSourceFiles(
+    dir: string,
+    files: string[],
+    depth: number,
+    maxDepth: number
+  ): void {
+    if (depth > maxDepth || files.length > 500) {
+      return;
+    }
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || SCAN_EXCLUDE_DIRS.has(entry.name)) {
+          continue;
+        }
+        const fullPath = _pathJoin(dir, entry.name);
+        if (entry.isDirectory()) {
+          this.#walkCollectProjectRelativeSourceFiles(fullPath, files, depth + 1, maxDepth);
+          continue;
+        }
+        if (!entry.isFile() || !SOURCE_CODE_EXTS.has(_pathExtname(entry.name).toLowerCase())) {
+          continue;
+        }
+        const relativePath = relative(this.#projectRoot, fullPath);
+        if (!relativePath.startsWith('..')) {
+          files.push(relativePath);
+        }
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
   #walkCollectSourceFiles(
     dir: string,
     rootDir: string,
@@ -1158,6 +1276,27 @@ function isExistingSourceFile(pathValue: string | undefined): boolean {
     return stat.isFile() && SOURCE_CODE_EXTS.has(_pathExtname(pathValue).toLowerCase());
   } catch {
     return false;
+  }
+}
+
+function moduleIdentityKey(modulePath: string | undefined): string | undefined {
+  return modulePath?.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function hasMoreSpecificModulePath(seenPaths: ReadonlySet<string>, modulePathKey: string): boolean {
+  for (const seen of seenPaths) {
+    if (seen.startsWith(`${modulePathKey}/`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function safeRealPath(pathValue: string): string | undefined {
+  try {
+    return realpathSync.native(pathValue);
+  } catch {
+    return undefined;
   }
 }
 

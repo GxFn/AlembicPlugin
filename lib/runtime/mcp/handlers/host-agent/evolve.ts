@@ -11,6 +11,7 @@
 
 import type { EvolutionGateway } from '@alembic/core/evolution';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
+import type { StructuredPatch } from '@alembic/core/types';
 import { envelope } from '#codex/mcp/envelope.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { EvolveInput } from '#shared/schemas/mcp-tools.js';
@@ -173,6 +174,7 @@ async function handleProposeEvolution(
     recordEvolveError(result, decision, 'evidence is required for propose_evolution');
     return;
   }
+  const structuredSuggestedChanges = normalizeSuggestedChangesPatch(decision.evidence);
 
   const gatewayResult = await gateway.submit({
     recipeId: decision.recipeId,
@@ -185,7 +187,7 @@ async function handleProposeEvolution(
         sourceStatus: 'modified',
         currentCode: decision.evidence.codeSnippet,
         filePath: decision.evidence.filePath,
-        suggestedChanges: decision.evidence.suggestedChanges,
+        suggestedChanges: structuredSuggestedChanges,
         verifiedBy: HOST_AGENT_SOURCE,
         verifiedAt: Date.now(),
       },
@@ -211,6 +213,52 @@ async function handleProposeEvolution(
     decision,
     gatewayResult.error ?? `Unexpected outcome: ${gatewayResult.outcome}`
   );
+}
+
+function normalizeSuggestedChangesPatch(evidence: NonNullable<EvolveDecision['evidence']>): string {
+  const raw = evidence.suggestedChanges.trim();
+  if (isStructuredPatchJson(raw)) {
+    return raw;
+  }
+  const patch: StructuredPatch = {
+    patchVersion: 1,
+    changes: [
+      {
+        field: 'content.markdown',
+        action: 'append',
+        newValue: buildHostAgentEvolutionEvidenceBlock(evidence),
+      },
+    ],
+    reasoning: raw,
+  };
+  return JSON.stringify(patch);
+}
+
+function isStructuredPatchJson(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return parsed.patchVersion === 1 && Array.isArray(parsed.changes);
+  } catch {
+    return false;
+  }
+}
+
+function buildHostAgentEvolutionEvidenceBlock(
+  evidence: NonNullable<EvolveDecision['evidence']>
+): string {
+  const codeSnippet = evidence.codeSnippet.trim();
+  return [
+    '### Host-agent evolution evidence',
+    '',
+    `- Source: ${evidence.filePath}`,
+    `- Type: ${evidence.type}`,
+    `- Suggested change: ${evidence.suggestedChanges.trim()}`,
+    '',
+    'Current code excerpt:',
+    '```',
+    codeSnippet.length > 0 ? codeSnippet.slice(0, 2000) : '(empty or unreadable source excerpt)',
+    '```',
+  ].join('\n');
 }
 
 async function handleConfirmDeprecation(
