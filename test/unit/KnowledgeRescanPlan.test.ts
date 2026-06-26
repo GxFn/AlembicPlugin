@@ -9,7 +9,7 @@ import {
   type RelevanceAuditSummary,
 } from '@alembic/core/host-agent-workflows';
 import type { DimensionDef } from '@alembic/core/test-fixtures';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import type { RecipeSnapshotEntry } from '#service/cleanup/CleanupService.js';
 
 const dimensions: DimensionDef[] = [
@@ -373,6 +373,64 @@ describe('KnowledgeRescanPlan', () => {
         codeFilesExist: 1,
       }),
     });
+  });
+
+  // U6 gateway injection：auditRecipesForRescan 内部从 container 解析 evolutionGateway，
+  // 对 dead recipe 产 deprecate 提案。注入 stub gateway（仅 submit）→ 记录到 submit、proposalsCreated 递增。
+  // RefHealth 层（层 2）：getStaleCountsByRecipe 报全 stale（active=total-stale=0）→ score 15 → dead。
+  // 这是「dead recipe」最真实的来源——其 SourceRef 桥接全部失效。
+  const allStaleSourceRefRepo = {
+    getStaleCountsByRecipe: () => [{ recipeId: 'dead-recipe', staleCount: 2, totalCount: 2 }],
+    findByRecipeId: () => [],
+  };
+
+  test('audit produces a deprecate proposal for a dead recipe when evolutionGateway is injected', async () => {
+    const submit = vi.fn(async () => ({ outcome: 'proposal-created' as const }));
+    const auditSummary = await auditRecipesForRescan({
+      container: {
+        get(name: string) {
+          if (name === 'evolutionGateway') {
+            return { submit };
+          }
+          if (name === 'recipeSourceRefRepository') {
+            return allStaleSourceRefRepo;
+          }
+          throw new Error(`no service ${name}`);
+        },
+      },
+      logger: { info: () => {}, warn: () => {} },
+      projectRoot: '/repo',
+      recipeEntries: [recipe({ id: 'dead-recipe', sourceRefs: ['Sources/Gone/Removed.swift'] })],
+      allFiles: [],
+    });
+
+    expect(auditSummary.results[0]).toMatchObject({ recipeId: 'dead-recipe', verdict: 'dead' });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({ recipeId: 'dead-recipe', action: 'deprecate' })
+    );
+    expect(auditSummary.proposalsCreated).toBe(1);
+  });
+
+  // U6 gateway degrade：gateway / 其依赖都不可用 → dead→deprecate 跳过、proposalsCreated=0、不抛。
+  test('audit degrades to proposalsCreated=0 without throwing when no gateway is available', async () => {
+    const auditSummary = await auditRecipesForRescan({
+      container: {
+        get(name: string) {
+          if (name === 'recipeSourceRefRepository') {
+            return allStaleSourceRefRepo;
+          }
+          throw new Error(`no service ${name}`);
+        },
+      },
+      logger: { info: () => {}, warn: () => {} },
+      projectRoot: '/repo',
+      recipeEntries: [recipe({ id: 'dead-recipe', sourceRefs: ['Sources/Gone/Removed.swift'] })],
+      allFiles: [],
+    });
+
+    expect(auditSummary.results[0]).toMatchObject({ recipeId: 'dead-recipe', verdict: 'dead' });
+    expect(auditSummary.proposalsCreated).toBe(0);
   });
 });
 

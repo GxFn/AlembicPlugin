@@ -54,7 +54,10 @@ import {
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
-import { rebuildLocalKnowledgeIndexes } from './knowledge-index-rebuild.js';
+import {
+  type KnowledgeIndexRebuildReport,
+  rebuildLocalKnowledgeIndexes,
+} from './knowledge-index-rebuild.js';
 
 /** MCP handler context */
 interface McpContext {
@@ -152,8 +155,10 @@ async function prepareRescanState(
     coverageByDimension: recipeSnapshot.coverageByDimension,
   });
 
+  // U6 P5：捕获 rebuild 报告（cleanupPolicy='none' 时不重建 → 无报告，置 null）。
+  let indexRebuild: KnowledgeIndexRebuildReport | null = null;
   if (intent.cleanupPolicy !== 'none') {
-    await rebuildRescanIndexes(ctx, db);
+    indexRebuild = await rebuildRescanIndexes(ctx, db);
   }
 
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
@@ -170,6 +175,7 @@ async function prepareRescanState(
     cleanResult,
     dataRoot,
     db,
+    indexRebuild,
     intent,
     plan,
     planGate,
@@ -224,11 +230,16 @@ async function runRescanCleanup(input: {
   };
 }
 
-async function rebuildRescanIndexes(ctx: McpContext, db: unknown) {
+async function rebuildRescanIndexes(
+  ctx: McpContext,
+  db: unknown
+): Promise<KnowledgeIndexRebuildReport> {
   // 恢复 Recipe 文件 ↔ DB ↔ source-ref 桥接 ↔ semantic-region vectors。
   // rescanClean 保留 recipes/ 和 active/published/staging/evolving DB 记录，
   // 但可能清除派生桥接表；这里显式 reconcile source refs，再重建 region vectors。
-  await rebuildLocalKnowledgeIndexes({
+  // U6 P5：返回 rebuild 报告（含 P4 renamed/applied + region-vector status）让 prepareRescanState
+  // 把它带进 state，供 rescan 运维/响应感知 source-ref 修复与 region 信任证据缺口（之前被丢弃）。
+  return rebuildLocalKnowledgeIndexes({
     container: ctx.container,
     db,
     logger: ctx.logger,
