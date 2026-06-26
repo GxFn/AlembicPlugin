@@ -179,10 +179,11 @@ export function reflowDeepMiningRoundOnCompletion(input: {
     const latest = rounds[rounds.length - 1];
     const increment = Number.isFinite(input.newRecipeCount) ? Math.max(0, input.newRecipeCount) : 0;
     const accumulated = latest.newRecipesThisRound + increment;
-    // 仅传 newRecipesThisRound + completedAt；startedAt/triggerActor 由 Core upsertRound 的 `?? existing` 保留。
+    // 仅传 newRecipesThisRound + completedAt + rescanId；startedAt/triggerActor 由 Core upsertRound 的 `?? existing` 保留。
     input.repository.upsertRound({
       projectRoot: input.projectRoot,
       roundIndex: latest.roundIndex,
+      rescanId: latest.rescanId,
       newRecipesThisRound: accumulated,
       completedAt: input.now ?? Date.now(),
     });

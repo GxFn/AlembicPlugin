@@ -191,6 +191,7 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
         {
           projectRoot: '/tmp/alembic-test-project',
           roundIndex: 2,
+          rescanId: 'round-rescan-2',
           startedAt: 100,
           completedAt: null,
           newRecipesThisRound: 0,
@@ -262,6 +263,7 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
       expect.objectContaining({
         projectRoot: '/tmp/alembic-test-project',
         roundIndex: 2,
+        rescanId: 'round-rescan-2',
         newRecipesThisRound: 3,
       })
     );

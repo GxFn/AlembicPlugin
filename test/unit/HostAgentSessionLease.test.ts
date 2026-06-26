@@ -219,6 +219,70 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('opens deepMining rounds with rescanId and keeps same-rescan fake upserts idempotent', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'empty',
+          moduleId: 'src',
+          dimensionId: 'architecture',
+          coveredCount: 0,
+          totalCandidateCount: 1,
+          valueScore: 90,
+        }),
+      ],
+      ignoreCellUpserts: true,
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const ctx = createRescanContext(fixture, runtime, repositories, {
+        coverageLedgerRepository: coverageLedger.repository,
+      });
+      const args = {
+        generationStage: 'deepMining' as const,
+        planSelection: deepMiningPlanSelection(),
+        reason: 'deepMining rescanId round idempotency regression',
+        rescanId: 'deep-round-rescan-1',
+        testMode: true,
+      };
+
+      const first = (await runHostAgentKnowledgeRescanWorkflow(ctx, args)) as { success?: boolean };
+      expect(first.success).toBe(true);
+      expect(coverageLedger.roundUpserts).toHaveLength(1);
+      expect(coverageLedger.roundUpserts[0]).toEqual(
+        expect.objectContaining({
+          roundIndex: 1,
+          rescanId: 'deep-round-rescan-1',
+          triggerActor: 'host-agent-rescan',
+        })
+      );
+      const repeated = coverageLedger.repository.upsertRound({
+        projectRoot: fixture.projectRoot,
+        roundIndex: 2,
+        rescanId: 'deep-round-rescan-1',
+        startedAt: 999,
+        triggerActor: 'host-agent-rescan',
+      });
+
+      expect(repeated.roundIndex).toBe(1);
+      expect(coverageLedger.roundUpserts).toHaveLength(2);
+      const matchingRounds = coverageLedger.rounds.filter(
+        (round) => round.rescanId === 'deep-round-rescan-1'
+      );
+      expect(matchingRounds).toHaveLength(1);
+      expect(matchingRounds[0]?.roundIndex).toBe(1);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('seeds coverage ledger from existing recipe source refs before deepMining planning', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
@@ -567,13 +631,17 @@ function createStatefulCoverageLedgerRepository(
     },
     upsertRound(input: UpsertDeepMiningRoundInput): DeepMiningRoundRecord {
       roundUpserts.push(input);
+      const hasRescanId = input.rescanId !== undefined && input.rescanId !== null;
       const existingIndex = rounds.findIndex(
-        (round) => round.projectRoot === input.projectRoot && round.roundIndex === input.roundIndex
+        (round) =>
+          round.projectRoot === input.projectRoot &&
+          (hasRescanId ? round.rescanId === input.rescanId : round.roundIndex === input.roundIndex)
       );
       const existing = existingIndex >= 0 ? rounds[existingIndex] : null;
       const saved: DeepMiningRoundRecord = {
         projectRoot: input.projectRoot,
-        roundIndex: input.roundIndex,
+        roundIndex: existing?.roundIndex ?? input.roundIndex,
+        rescanId: input.rescanId ?? existing?.rescanId ?? null,
         startedAt: input.startedAt ?? existing?.startedAt ?? null,
         completedAt: input.completedAt ?? existing?.completedAt ?? null,
         newRecipesThisRound: input.newRecipesThisRound ?? existing?.newRecipesThisRound ?? 0,

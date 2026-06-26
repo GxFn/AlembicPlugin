@@ -230,6 +230,8 @@ async function prepareRescanState(
   const unifiedEvolution = await runRescanUnifiedEvolution(ctx, {
     projectRoot,
   });
+  const rescanId =
+    typeof args.rescanId === 'string' && args.rescanId.length > 0 ? args.rescanId : null;
 
   return {
     cleanResult,
@@ -242,6 +244,7 @@ async function prepareRescanState(
     planGate,
     projectContextAnalysis,
     projectRoot,
+    rescanId,
     recipeSnapshot,
     unifiedEvolution,
   };
@@ -598,7 +601,7 @@ async function buildRescanResponse(
   // 供随后的 dimension_complete 回流累计 new_recipes_this_round / completedAt（轮次边界=plan-confirm 到该轮全部回流）。
   // coldStart/moduleMining rescan 不是 deepMining 轮次，用 stage 守卫排除。best-effort、不阻断。
   if (state.planGate.generationStage === 'deepMining' && !noActionableRescanWork) {
-    openDeepMiningRound(ctx, state.projectRoot);
+    openDeepMiningRound(ctx, state.projectRoot, state.rescanId);
   }
   // U3 item3：在所有 attach*（unifiedEvolution/trashArchive/projectSelectionMismatch）之后，对完整
   // response.data 做内联预算化（与 cold-start 共享同一步骤/口径）。≤18KB 内联并清理遗留 transient；
@@ -660,11 +663,11 @@ function loadLedgerCoverageByDimension(
  *
  * 轮次边界 = plan-confirm 到该轮所有 dimension_complete 回流。这里只「开轮」（startedAt + triggerActor），
  * new_recipes_this_round / completedAt 由后续 dimension_complete 回流更新（本卡不强求，缺省 0）。
- * 轮号 = (现有最大轮号 + 1)，仅在 rescan 起点计算一次。round 表无 rescanId 列（有意设计），故对同一 rescanId
- * 重复调用会再开 index+1——本卡接受该折中（保持简单，避免引入跨调用幂等状态）。
+ * 有 rescanId 时沿用 Core 的 rescan-aware 幂等语义：同一 rescanId 重复进入 deepMining 只复用原轮号。
+ * 无 rescanId 时维持旧行为：轮号 = (现有最大轮号 + 1)。
  * best-effort：repo 不可用 / 写失败都吞掉，绝不阻断 rescan。D3：只写 coverage 账本侧的 round 表，不碰 git-diff checkpoint。
  */
-function openDeepMiningRound(ctx: McpContext, projectRoot: string): void {
+function openDeepMiningRound(ctx: McpContext, projectRoot: string, rescanId?: string | null): void {
   try {
     const repo = ctx.container.get('coverageLedgerRepository') as
       | EvolutionCoverageLedgerRepository
@@ -673,17 +676,25 @@ function openDeepMiningRound(ctx: McpContext, projectRoot: string): void {
       return;
     }
     const existing = repo.listRoundsByProjectRoot(projectRoot);
-    // listRoundsByProjectRoot 升序，末元素为当前最大轮号；无轮次则首轮 = 1。
-    const nextIndex = existing.length > 0 ? existing[existing.length - 1].roundIndex + 1 : 1;
+    const existingForRescanId =
+      rescanId === null || rescanId === undefined
+        ? null
+        : (existing.find((round) => round.rescanId === rescanId) ?? null);
+    // listRoundsByProjectRoot 升序，末元素为当前最大轮号；有 rescanId 命中则复用原轮号，否则无轮次首轮 = 1。
+    const nextIndex =
+      existingForRescanId?.roundIndex ??
+      (existing.length > 0 ? existing[existing.length - 1].roundIndex + 1 : 1);
     repo.upsertRound({
       projectRoot,
       roundIndex: nextIndex,
+      ...(rescanId ? { rescanId } : {}),
       startedAt: Date.now(),
       triggerActor: 'host-agent-rescan',
     });
     ctx.logger.info('[Rescan] Opened deepMining round (advisory round boundary)', {
       projectRoot,
       roundIndex: nextIndex,
+      rescanId,
     });
   } catch (_err: unknown) {
     // 开轮失败绝不阻断 rescan：吞掉异常（advisory 轮次记录缺失只影响后续收敛建议精度）。

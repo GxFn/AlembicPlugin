@@ -245,6 +245,7 @@ function createFakeRoundRepository(seedRounds: DeepMiningRoundRecord[]): {
   rounds: DeepMiningRoundRecord[];
   roundUpserts: Array<{
     roundIndex: number;
+    rescanId?: string | null;
     newRecipesThisRound?: number | null;
     completedAt?: number | null;
     startedAt?: number | null;
@@ -256,6 +257,7 @@ function createFakeRoundRepository(seedRounds: DeepMiningRoundRecord[]): {
   const rounds = [...seedRounds];
   const roundUpserts: Array<{
     roundIndex: number;
+    rescanId?: string | null;
     newRecipesThisRound?: number | null;
     completedAt?: number | null;
     startedAt?: number | null;
@@ -268,6 +270,7 @@ function createFakeRoundRepository(seedRounds: DeepMiningRoundRecord[]): {
     upsertRound(input: {
       projectRoot: string;
       roundIndex: number;
+      rescanId?: string | null;
       newRecipesThisRound?: number | null;
       completedAt?: number | null;
       startedAt?: number | null;
@@ -275,15 +278,23 @@ function createFakeRoundRepository(seedRounds: DeepMiningRoundRecord[]): {
     }): DeepMiningRoundRecord {
       roundUpserts.push({
         roundIndex: input.roundIndex,
+        rescanId: input.rescanId,
         newRecipesThisRound: input.newRecipesThisRound,
         completedAt: input.completedAt,
         startedAt: input.startedAt,
         triggerActor: input.triggerActor,
       });
-      const existing = rounds.find((r) => r.roundIndex === input.roundIndex) ?? null;
+      const hasRescanId = input.rescanId !== undefined && input.rescanId !== null;
+      const existingIndex = rounds.findIndex(
+        (r) =>
+          r.projectRoot === input.projectRoot &&
+          (hasRescanId ? r.rescanId === input.rescanId : r.roundIndex === input.roundIndex)
+      );
+      const existing = existingIndex >= 0 ? rounds[existingIndex] : null;
       const merged: DeepMiningRoundRecord = {
         projectRoot: input.projectRoot,
-        roundIndex: input.roundIndex,
+        roundIndex: existing?.roundIndex ?? input.roundIndex,
+        rescanId: input.rescanId ?? existing?.rescanId ?? null,
         // 复刻 Core upsertRound 合并：缺省字段保留 existing（startedAt/triggerActor）。
         startedAt: input.startedAt ?? existing?.startedAt ?? null,
         completedAt: input.completedAt ?? existing?.completedAt ?? null,
@@ -292,9 +303,8 @@ function createFakeRoundRepository(seedRounds: DeepMiningRoundRecord[]): {
         createdAt: existing?.createdAt ?? 0,
         updatedAt: 0,
       };
-      const idx = rounds.findIndex((r) => r.roundIndex === input.roundIndex);
-      if (idx >= 0) {
-        rounds[idx] = merged;
+      if (existingIndex >= 0) {
+        rounds[existingIndex] = merged;
       } else {
         rounds.push(merged);
       }
@@ -312,6 +322,7 @@ describe('reflowDeepMiningRoundOnCompletion (U2d Part B — round marginal outpu
       {
         projectRoot: '/proj',
         roundIndex: 1,
+        rescanId: 'rescan-round-1',
         startedAt: 100,
         completedAt: null,
         newRecipesThisRound: 0,
@@ -344,6 +355,7 @@ describe('reflowDeepMiningRoundOnCompletion (U2d Part B — round marginal outpu
 
     // 两次 upsertRound：第二次 newRecipes=3、completedAt=300（轮末=最后一次完成）；startedAt/triggerActor 未被传入（由合并保留）。
     expect(roundUpserts).toHaveLength(2);
+    expect(roundUpserts[1]?.rescanId).toBe('rescan-round-1');
     expect(roundUpserts[1]?.newRecipesThisRound).toBe(3);
     expect(roundUpserts[1]?.completedAt).toBe(300);
     expect(roundUpserts[1]?.startedAt).toBeUndefined();
@@ -564,6 +576,7 @@ describe('adviseCoverageLedger advisory (U2d) — 3 stops + continue, non-blocki
     const latestRound: DeepMiningRoundRecord = {
       projectRoot: '/proj',
       roundIndex: 2,
+      rescanId: null,
       startedAt: 1,
       completedAt: 2,
       newRecipesThisRound: 1, // < K=5 → 收益递减
@@ -591,6 +604,7 @@ describe('adviseCoverageLedger advisory (U2d) — 3 stops + continue, non-blocki
     const latestRound: DeepMiningRoundRecord = {
       projectRoot: '/proj',
       roundIndex: 1,
+      rescanId: null,
       startedAt: 1,
       completedAt: 2,
       newRecipesThisRound: 999,
@@ -619,6 +633,7 @@ describe('adviseCoverageLedger advisory (U2d) — 3 stops + continue, non-blocki
     const latestRound: DeepMiningRoundRecord = {
       projectRoot: '/proj',
       roundIndex: 0,
+      rescanId: null,
       startedAt: 1,
       completedAt: 2,
       newRecipesThisRound: 999,
