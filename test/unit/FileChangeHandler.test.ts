@@ -379,6 +379,24 @@ describe('FileChangeHandler', () => {
       expect(gateway.submit).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'update', recipeId: 'r1', source: 'file-change' })
       );
+      const payload = gateway.submit.mock.calls[0]?.[0] as Record<string, unknown>;
+      const evidence = (payload.evidence as Array<Record<string, unknown>>)[0];
+      const suggestedChanges = JSON.parse(String(evidence.suggestedChanges)) as {
+        changes: Array<{ action: string; field: string; newValue?: string }>;
+        patchVersion: number;
+        reasoning: string;
+      };
+      expect(suggestedChanges).toMatchObject({
+        patchVersion: 1,
+        changes: [
+          {
+            field: 'content.markdown',
+            action: 'append',
+          },
+        ],
+      });
+      expect(suggestedChanges.changes[0]?.newValue).toContain('Sources/Committed.swift');
+      expect(suggestedChanges.changes[0]?.newValue).toContain('RouterModule');
     });
   });
 

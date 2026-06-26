@@ -121,6 +121,13 @@ interface ProjectContextModuleSeed {
   role?: string;
 }
 
+interface CanonicalModuleInfo {
+  id?: string;
+  name: string;
+  path?: string;
+  ownedFiles?: string[];
+}
+
 type ProjectContextTargetSummary = RepoContext['targets'][number];
 type ProjectContextFileSummary = ModuleContext['ownedFiles'][number];
 
@@ -287,19 +294,25 @@ export class ModuleService {
   }
 
   /**
-   * U1 #5：canonical 模块轴只读投影。把已加载的 ProjectMap.modules 投成 {id,name,path}，
-   * 供 RecipeProductionGateway 注入 knownModuleNames / resolveModuleFromSourceRefs。
+   * U1 #5 / RF-9：canonical 模块轴只读投影。把已加载的 ProjectMap.modules 投成
+   * {id,name,path,ownedFiles}，供 RecipeProductionGateway 与覆盖账本使用。
    * path 取自 module.ref.scope.filePath（ProjectMap 权威坐标），无 ref 的模块 path 留空。
-   * 这是对「已在内存里的 #mapContext」的投影，不触发新的 ProjectContext 扫描语义。
+   * ownedFiles 来自 ProjectContext module 查询；查不到时调用方才可用 path 做 Core segment-safe 目录兜底。
    */
-  async listCanonicalModules(): Promise<Array<{ id?: string; name: string; path?: string }>> {
+  async listCanonicalModules(): Promise<CanonicalModuleInfo[]> {
     await this.#ensureLoaded();
     const modules = this.#mapContext?.modules ?? [];
-    return modules.map((module) => ({
-      id: module.id,
-      name: module.name,
-      ...(module.ref?.scope.filePath ? { path: module.ref.scope.filePath } : {}),
-    }));
+    return await Promise.all(
+      modules.map(async (module) => {
+        const ownedFiles = await this.#ownedFilesForCanonicalModule(module);
+        return {
+          id: module.id,
+          name: module.name,
+          ...(module.ref?.scope.filePath ? { path: module.ref.scope.filePath } : {}),
+          ...(ownedFiles.length > 0 ? { ownedFiles } : {}),
+        };
+      })
+    );
   }
 
   getProjectInfo() {
@@ -775,6 +788,37 @@ export class ModuleService {
     };
   }
 
+  #moduleSeedFromModuleSummary(
+    module: ProjectMap['modules'][number]
+  ): ProjectContextModuleSeed | null {
+    const modulePath = readString(module.ref?.scope.filePath);
+    if (!modulePath) {
+      return null;
+    }
+    return {
+      kind: module.kind ?? 'module',
+      moduleName: module.name,
+      modulePath,
+      ref: module.ref,
+      role: module.role ?? module.kind ?? 'module',
+    };
+  }
+
+  async #ownedFilesForCanonicalModule(module: ProjectMap['modules'][number]): Promise<string[]> {
+    const seed = this.#moduleSeedFromModuleSummary(module);
+    if (!seed) {
+      return [];
+    }
+    const cacheKey = `canonical:${module.id}:${JSON.stringify(seed)}`;
+    const cached = this.#moduleFileCache.get(cacheKey);
+    if (cached) {
+      return uniqueStrings(cached.map((file) => file.relativePath));
+    }
+    const files = await this.#queryModuleFiles(seed);
+    this.#moduleFileCache.set(cacheKey, files);
+    return uniqueStrings(files.map((file) => file.relativePath));
+  }
+
   async #queryModuleFiles(seed: ProjectContextModuleSeed): Promise<FileInfo[]> {
     try {
       const envelope = await this.#executeProjectContext('module', {
@@ -1069,6 +1113,10 @@ function readString(value: unknown): string | undefined {
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
 function readRefArray(value: unknown): ProjectContextRef[] {

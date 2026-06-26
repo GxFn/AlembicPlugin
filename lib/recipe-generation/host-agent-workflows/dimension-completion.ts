@@ -589,15 +589,17 @@ async function persistAndBroadcastDimensionCompletion({
   };
 }
 
-/** ModuleService 的最小投影：只取 canonical 模块的 id/name/path（不触发新扫描）。 */
+/** ModuleService 的最小投影：canonical 模块与 ProjectContext 真实 ownedFiles。 */
 interface CanonicalModuleServiceLike {
-  listCanonicalModules(): Promise<Array<{ id?: string; name: string; path?: string }>>;
+  listCanonicalModules(): Promise<
+    Array<{ id?: string; name: string; path?: string; ownedFiles?: string[] }>
+  >;
 }
 
 /**
  * U2a：维度完成时写覆盖账本（best-effort，绝不阻断完成）。
  *
- * module 轴来自 canonical ProjectMap（ModuleService.listCanonicalModules），ownedPaths=模块根路径前缀；
+ * module 轴来自 canonical ProjectMap（ModuleService.listCanonicalModules），优先 ownedFiles，缺失时才用模块根路径；
  * 候选 = referencedFiles（importance 60，已落点→覆盖）∪ 各模块 ownedPath（importance 50，未被引用→暴露 thin/blank 缺口）；
  * coveredPaths = referencedFiles 去行号；perCellTarget 由 canonical 模块数定 tier 后取 D2 默认值。
  * 维度只写本次完成的这一维（dimensionIds=[dimension.id]）；exhausted 仅在 Agent 显式 noPadding+reason 时按维落 agent-declared。
@@ -641,12 +643,16 @@ async function writeDimensionCompletionCoverageLedger(args: {
       return;
     }
 
-    // canonical 模块 → CoverageLedgerModuleAxis（模块根路径作为 ownedPath 前缀；Core pathsOverlap 据此判覆盖）。
-    const modules: CoverageLedgerModuleAxis[] = canonicalModules.map((module) => ({
-      moduleId: module.id ?? module.name,
-      moduleName: module.name,
-      ownedPaths: module.path ? [module.path] : [],
-    }));
+    // canonical 模块 → CoverageLedgerModuleAxis：真实 ownedFiles 优先；无 ownedFiles 时才用模块根路径兜底。
+    // Core pathsOverlap 已是 segment-safe 目录匹配，不会把 `src/auth` 误归到 `src/authentication`。
+    const modules: CoverageLedgerModuleAxis[] = canonicalModules.map((module) => {
+      const ownedFiles = uniqueStrings(module.ownedFiles ?? []);
+      return {
+        moduleId: module.id ?? module.name,
+        moduleName: module.name,
+        ownedPaths: ownedFiles.length > 0 ? ownedFiles : module.path ? [module.path] : [],
+      };
+    });
 
     // coveredPaths = 已引用文件去行号锚点（referencedFiles 形如 `path:10-20`，剥离末尾 `:行号`）。
     const coveredPaths = referencedFiles.map((ref) => ref.replace(/:\d+(?:-\d+)?$/, ''));

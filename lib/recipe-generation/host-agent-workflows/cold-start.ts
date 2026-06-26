@@ -27,6 +27,7 @@ import { type HostKnowledgeState, inspectKnowledge } from '#codex/KnowledgeState
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
+  attachBriefingTransportMeta,
   attachFullBriefingRef,
   budgetBriefingResponseData,
 } from '#recipe-generation/host-agent-workflows/briefing-budget.js';
@@ -52,7 +53,7 @@ import {
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
-import { jsonByteLength, type TransientTransportRef } from '#shared/transient-transport.js';
+import { jsonByteLength } from '#shared/transient-transport.js';
 
 interface McpContext {
   container: ServiceContainer;
@@ -689,19 +690,6 @@ function compactIDEAgentAnalysis(
       ),
       unitProgress: readRecordArray(progress.unitProgress).slice(0, limits.maxProgressUnits),
     },
-  };
-}
-
-function attachBriefingTransportMeta(
-  response: Record<string, unknown>,
-  briefing: Record<string, unknown>
-): void {
-  const briefingMeta = readRecord(briefing.meta);
-  const fullBriefingRef = briefingMeta?.fullBriefingRef;
-  const meta = readRecord(response.meta) ?? {};
-  response.meta = {
-    ...meta,
-    fullBriefingRef: isTransientTransportRef(fullBriefingRef) ? fullBriefingRef : null,
   };
 }
 
@@ -1378,17 +1366,6 @@ function appendChecklistItems(value: unknown, additions: string[]): string[] {
   const current =
     typeof value === 'string' && value.trim().length > 0 ? [value] : readStringArray(value);
   return uniqueStrings([...current, ...additions]);
-}
-
-function isTransientTransportRef(value: unknown): value is TransientTransportRef {
-  return (
-    isRecord(value) &&
-    typeof value.path === 'string' &&
-    value.path.length > 0 &&
-    typeof value.bytes === 'number' &&
-    Number.isFinite(value.bytes) &&
-    value.bytes >= 0
-  );
 }
 
 function uniqueStrings(values: string[]): string[] {

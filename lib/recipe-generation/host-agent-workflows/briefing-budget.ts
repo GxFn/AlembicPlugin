@@ -34,6 +34,26 @@ export function attachFullBriefingRef<T extends { meta?: Record<string, unknown>
   };
 }
 
+/**
+ * 把 briefing data 内的 transient 引用投影到 MCP clean output 会保留的顶层 `response.meta`。
+ *
+ * `budgetBriefingResponseData` 的 attachRef 写入 `data.meta.fullBriefingRef`；MCP clean output
+ * 只投影顶层 `meta`。cold-start 与 rescan 必须在预算化后调用本函数，避免 transport ref
+ * 被 data 清洗边界吞掉。
+ */
+export function attachBriefingTransportMeta(
+  response: Record<string, unknown>,
+  briefing: Record<string, unknown>
+): void {
+  const briefingMeta = readRecord(briefing.meta);
+  const fullBriefingRef = briefingMeta?.fullBriefingRef;
+  const meta = readRecord(response.meta) ?? {};
+  response.meta = {
+    ...meta,
+    fullBriefingRef: isTransientTransportRef(fullBriefingRef) ? fullBriefingRef : null,
+  };
+}
+
 export interface BudgetBriefingResponseDataOptions {
   // transient 落盘根目录；缺省时 writeTransientTransport/removeTransientTransportIfPresent
   // 经 WorkspaceResolver 从 projectRoot 解析（与 transient-transport 原语口径一致）。
@@ -95,4 +115,15 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function isTransientTransportRef(value: unknown): value is TransientTransportRef {
+  return (
+    readRecord(value) !== null &&
+    typeof (value as TransientTransportRef).path === 'string' &&
+    (value as TransientTransportRef).path.length > 0 &&
+    typeof (value as TransientTransportRef).bytes === 'number' &&
+    Number.isFinite((value as TransientTransportRef).bytes) &&
+    (value as TransientTransportRef).bytes >= 0
+  );
 }

@@ -137,6 +137,12 @@ describe('MCP core tools clean output contract', () => {
           path: '/tmp/full-bootstrap.json',
         });
       }
+      if (toolName === 'alembic_rescan') {
+        expect(readRecord(structured.meta).fullBriefingRef).toMatchObject({
+          bytes: 5678,
+          path: '/tmp/full-rescan.json',
+        });
+      }
       if (toolName === 'alembic_dimension_complete') {
         expect(structured.completenessCritic).toMatchObject({
           targetGate: 'advisory',
@@ -329,6 +335,9 @@ function sampleLegacyEnvelope(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[nu
     meta: {
       ...(toolName === 'alembic_bootstrap'
         ? { fullBriefingRef: { bytes: 1234, path: '/tmp/full-bootstrap.json' } }
+        : {}),
+      ...(toolName === 'alembic_rescan'
+        ? { fullBriefingRef: { bytes: 5678, path: '/tmp/full-rescan.json' } }
         : {}),
       responseTimeMs: 7,
       source: 'unit-sample',

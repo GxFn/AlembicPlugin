@@ -79,8 +79,7 @@ describe('writeCoverageLedgerForCompletion (U2 shared helper)', () => {
   test('writes covered cell + uncovered (thin) cell from candidates/coveredPaths', () => {
     const { repository, upserts } = createFakeRepository();
 
-    // Core pathsOverlap 是「后缀段」匹配（left===right || left.endsWith('/'+right) || 反向），不是前缀目录包含。
-    // 故 moduleOwns/isCovered 要候选 sourceRefPaths 与 ownedPaths/coveredPaths 后缀重叠或相等。
+    // Core pathsOverlap 是 segment-safe 目录/文件重叠匹配。
     // 这里 ownedPaths 直接用候选文件全路径（=U2a 把 referencedFiles 与 ownedPath 一起喂候选的等价最小形）：
     //   auth：候选=已覆盖路径 → covered；bill：候选=未覆盖路径 → uncovered（thin）。
     const result = writeCoverageLedgerForCompletion({
@@ -116,6 +115,47 @@ describe('writeCoverageLedgerForCompletion (U2 shared helper)', () => {
     expect(billCell?.coveredCount ?? 0).toBe(0);
     expect(billCell?.grade).toBe('thin');
     expect(billCell?.deferred).toBe(false);
+  });
+
+  test('directory fallback owns child files without matching pseudo-prefix siblings', () => {
+    const { repository, upserts } = createFakeRepository();
+
+    writeCoverageLedgerForCompletion({
+      repository,
+      projectRoot: '/proj',
+      modules: [
+        { moduleId: 'auth', moduleName: 'auth', ownedPaths: ['src/auth'] },
+        {
+          moduleId: 'authentication',
+          moduleName: 'authentication',
+          ownedPaths: ['src/authentication'],
+        },
+      ],
+      dimensionIds: ['security-auth'],
+      candidates: [
+        {
+          dimensionIds: ['security-auth'],
+          sourceRefPaths: ['src/auth/login.ts'],
+          importance: 60,
+        },
+        {
+          dimensionIds: ['security-auth'],
+          sourceRefPaths: ['src/authentication/session.ts'],
+          importance: 60,
+        },
+      ],
+      coveredPaths: ['src/auth/login.ts'],
+      perCellTarget: 3,
+    });
+
+    const authCell = upserts.find((u) => u.moduleId === 'auth');
+    const authenticationCell = upserts.find((u) => u.moduleId === 'authentication');
+    expect(authCell?.totalCandidateCount).toBe(1);
+    expect(authCell?.coveredCount).toBe(1);
+    expect(authCell?.coveredSourceRefs).toEqual(['src/auth/login.ts']);
+    expect(authenticationCell?.totalCandidateCount).toBe(1);
+    expect(authenticationCell?.coveredCount).toBe(0);
+    expect(authenticationCell?.uncoveredHints).toEqual(['src/authentication/session.ts']);
   });
 
   test('writes deferred blank rows (grade=empty, deferred=1) for cells not built', () => {

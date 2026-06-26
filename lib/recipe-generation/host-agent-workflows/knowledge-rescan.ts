@@ -58,6 +58,7 @@ import { attachProjectContextCreationGuide } from '#recipe-generation/project-co
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import {
+  attachBriefingTransportMeta,
   attachFullBriefingRef,
   BRIEFING_INLINE_BUDGET_BYTES,
   budgetBriefingResponseData,
@@ -306,8 +307,8 @@ async function buildRescanResponse(
   // U3 item3：在所有 attach*（unifiedEvolution/trashArchive/projectSelectionMismatch）之后，对完整
   // response.data 做内联预算化（与 cold-start 共享同一步骤/口径）。≤18KB 内联并清理遗留 transient；
   // >预算把完整 data 写入 'rescan-briefing' transient transport，再经 attachFullBriefingRef 把引用写进
-  // meta.fullBriefingRef（复用 output allowlist 既有键→零改 allowlist）。rescan 不提供 compact 回调，
-  // 故超预算只附 transient 引用、不瘦身内联（与 cold-start 的逐级压缩有意不对称——本卡范围）。
+  // data.meta.fullBriefingRef；随后把该 ref 投影到 clean output 会保留的顶层 response.meta.fullBriefingRef。
+  // rescan 不提供 compact 回调，故超预算只附 transient 引用、不瘦身内联（与 cold-start 的逐级压缩有意不对称）。
   await budgetBriefingResponseData(response, {
     dataRoot: state.dataRoot,
     projectRoot: state.projectRoot,
@@ -315,6 +316,7 @@ async function buildRescanResponse(
     inlineBudgetBytes: BRIEFING_INLINE_BUDGET_BYTES,
     attachRef: (data, ref) => attachFullBriefingRef(data, ref),
   });
+  attachBriefingTransportMeta(response, readRecord(response.data) ?? {});
   return response;
 }
 
@@ -811,6 +813,12 @@ function projectContextFilesForRescanAudit(files: readonly ProjectContextAuditFi
     path: file.filePath,
     relativePath: file.filePath,
   }));
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 // U1 #2：per-模块 → per-cell 拍扁。

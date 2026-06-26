@@ -9,6 +9,7 @@ import type {
   FileChangeEventSource,
   ImpactLevel,
   ReactiveEvolutionReport,
+  StructuredPatch,
 } from '@alembic/core/types';
 
 type SourceRefRow = {
@@ -494,7 +495,7 @@ export class FileChangeHandler {
           impactLevel: input.impactLevel,
           matchedTokens: input.matchedTokens,
           sourceStatus: 'modified',
-          suggestedChanges: input.reason,
+          suggestedChanges: buildUpdateSuggestedChangesPatch(filePath, input),
           verifiedAt: Date.now(),
           verifiedBy: 'commit-driven-unified-evolution',
         },
@@ -660,6 +661,55 @@ function readResultId(value: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function buildUpdateSuggestedChangesPatch(
+  filePath: string,
+  input: {
+    currentCode: string;
+    impactLevel: ImpactLevel;
+    matchedTokens: string[];
+    reason: string;
+  }
+): string {
+  const codeExcerpt = trimForPatchEvidence(input.currentCode);
+  const tokenLine =
+    input.matchedTokens.length > 0
+      ? input.matchedTokens.slice(0, 12).join(', ')
+      : 'no token match reported';
+  const evidenceBlock = [
+    '### Source change evidence',
+    '',
+    `- Source: ${filePath}`,
+    `- Impact: ${input.impactLevel}`,
+    `- Matched tokens: ${tokenLine}`,
+    `- Reason: ${input.reason}`,
+    '',
+    'Current code excerpt:',
+    '```',
+    codeExcerpt || '(empty or unreadable source excerpt)',
+    '```',
+  ].join('\n');
+  const patch: StructuredPatch = {
+    patchVersion: 1,
+    changes: [
+      {
+        field: 'content.markdown',
+        action: 'append',
+        newValue: evidenceBlock,
+      },
+    ],
+    reasoning: input.reason,
+  };
+  return JSON.stringify(patch);
+}
+
+function trimForPatchEvidence(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= 2000) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 2000)}\n...`;
 }
 
 function replaceReasoningSourcePath(
