@@ -591,7 +591,21 @@ async function buildRescanResponse(
   // U2d：附覆盖账本收敛建议（ADVISORY）。放在预算化之前 → 建议进 response.data 并一起被预算。
   // 严格非阻断：绝不设任何 blocking/gate 标志、绝不自动触发再扫一轮——是否再扫由用户/宿主决定。
   const coverageAdvisory = attachCoverageAdvisory(ctx, response, state);
-  const noActionableRescanWork = coverageAdvisory?.shouldStop === true;
+  const hasActionableProduceWork =
+    state.planGate.generationStage === 'deepMining' && planning.produceDimensionCount > 0;
+  const noActionableRescanWork =
+    coverageAdvisory?.shouldStop === true && !hasActionableProduceWork;
+  if (coverageAdvisory?.shouldStop === true && hasActionableProduceWork) {
+    ctx.logger.info(
+      '[Rescan] Keeping deepMining round/session open despite coverage advisory stop because produce dimensions exist',
+      {
+        executionDimensions: planning.executionDimensionCount,
+        produceDimensions: planning.produceDimensionCount,
+        rescanId: state.rescanId,
+        stopReason: coverageAdvisory.stopReason,
+      }
+    );
+  }
   if (noActionableRescanWork) {
     releaseNoWorkRescanSession(ctx, response, state, briefingResult.sessionId, coverageAdvisory);
   }
@@ -759,7 +773,9 @@ async function buildRescanPlanning(
     auditSummary,
     dimensions,
     evidencePlan,
+    executionDimensionCount: knowledgeRescanPlan.executionDimensions.length,
     prescreen,
+    produceDimensionCount: knowledgeRescanPlan.produceDimensions.length,
     requestedDimensions,
   };
 }

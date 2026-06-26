@@ -219,6 +219,66 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('opens a rescanId round when deepMining has produce dimensions even if coverage advisory converges', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'covered',
+          moduleId: 'src',
+          dimensionId: 'architecture',
+          coveredCount: 5,
+          totalCandidateCount: 5,
+          valueScore: 0,
+        }),
+      ],
+      ignoreCellUpserts: true,
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const ctx = createRescanContext(fixture, runtime, repositories, {
+        coverageLedgerRepository: coverageLedger.repository,
+      });
+
+      const response = (await runHostAgentKnowledgeRescanWorkflow(ctx, {
+        generationStage: 'deepMining',
+        planSelection: deepMiningPlanSelection({ targetRecipes: 6 }),
+        reason: 'deepMining produce dimensions must keep RF-3 round open',
+        rescanId: 'deep-round-produce-rescan-1',
+        testMode: true,
+      })) as {
+        meta?: {
+          coverageAdvisory?: { shouldStop?: boolean; stopReason?: string };
+          noActionableHostAgentWork?: unknown;
+        };
+        success?: boolean;
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.meta?.coverageAdvisory).toEqual(
+        expect.objectContaining({ shouldStop: true, stopReason: 'converged' })
+      );
+      expect(response.meta?.noActionableHostAgentWork).toBeUndefined();
+      expect(coverageLedger.roundUpserts).toHaveLength(1);
+      expect(coverageLedger.roundUpserts[0]).toEqual(
+        expect.objectContaining({
+          roundIndex: 1,
+          rescanId: 'deep-round-produce-rescan-1',
+          triggerActor: 'host-agent-rescan',
+        })
+      );
+      expect(readStoredSessionIds(fixture.dataRoot)).toHaveLength(1);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('opens deepMining rounds with rescanId and keeps same-rescan fake upserts idempotent', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
@@ -496,7 +556,7 @@ function moduleMiningPlanSelection() {
   };
 }
 
-function deepMiningPlanSelection() {
+function deepMiningPlanSelection(input: { targetRecipes?: number } = {}) {
   return {
     generationStage: 'deepMining' as const,
     dimensions: ['architecture'],
@@ -510,7 +570,7 @@ function deepMiningPlanSelection() {
       {
         modulePath: 'src',
         dimensions: ['architecture'],
-        targetRecipes: 1,
+        targetRecipes: input.targetRecipes ?? 1,
       },
     ],
   };
