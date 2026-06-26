@@ -61,6 +61,7 @@ import type { ContextualEnricher } from '#recipe-generation/vector/ContextualEnr
 // ── InfraModule Types ──
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
+import type { RecipeEmbeddingSimProviderHandle } from '../recipe-generation/vector/recipe-embedding-sim-provider.js';
 import type { ModuleService } from '../service/module/ModuleService.js';
 import type {
   AlembicResidentCapabilityClients,
@@ -132,6 +133,10 @@ export interface ServiceMap {
   // ═══ VectorModule ═══
   vectorService: VectorService;
   contextualEnricher: ContextualEnricher | null;
+
+  // U5 #1：VectorService-backed embedding 相似度 provider 句柄（无 vectorStore → null）。
+  // 供三处演化服务（RedundancyAnalyzer / ProposalExecutor / ConsolidationAdvisor）共用。
+  embeddingSimProvider: RecipeEmbeddingSimProviderHandle | null;
 
   // ═══ GuardModule ═══
   guardService: GuardService;

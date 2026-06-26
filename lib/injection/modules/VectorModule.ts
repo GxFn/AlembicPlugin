@@ -107,6 +107,25 @@ export async function initializeVectorService(c: ServiceContainer): Promise<void
       );
     }
   }
+
+  // U5 #1 closeout：在向量索引初始化完成后，一次性预热 embedding 相似度 provider
+  // （把已预计算的 recipe-semantic-region 向量加载进内存并按 recipeId 均值池化）。
+  // provider 函数本身同步；预热在此 awaited 钩子里完成，保证三处演化服务运行时可同步查表。
+  // 句柄为 null（无 vectorStore）→ 跳过；预热失败 → 内存为空 → Core 回退纯 Jaccard（非致命）。
+  try {
+    const embeddingSimProvider = c.services.embeddingSimProvider
+      ? c.get('embeddingSimProvider')
+      : null;
+    if (embeddingSimProvider) {
+      await embeddingSimProvider.preheat();
+    }
+  } catch (err: unknown) {
+    const logger = c.singletons.logger || console;
+    (logger as { warn?: (...args: unknown[]) => void }).warn?.(
+      '[VectorModule] embedding-sim provider preheat failed (non-blocking, Jaccard fallback)',
+      { error: err instanceof Error ? err.message : String(err) }
+    );
+  }
 }
 
 /**

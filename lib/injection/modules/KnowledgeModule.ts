@@ -49,6 +49,13 @@ import {
   resolveKnowledgeScanDirs,
   resolveProjectRoot,
 } from '@alembic/core/workspace';
+import {
+  createRecipeEmbeddingSimProvider,
+  type EmbeddingSimProvider,
+  type RecipeEmbeddingSimProviderHandle,
+  type RegionVectorStorePort,
+  type SimProviderLogger,
+} from '../../recipe-generation/vector/recipe-embedding-sim-provider.js';
 import { refreshRecipeFreshnessByIds } from '../../service/knowledge/RecipeFreshnessRuntime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -85,6 +92,15 @@ export function register(c: ServiceContainer) {
   registerSearchServices(c);
   registerSharedServices(c);
   registerEvolutionServices(c);
+}
+
+/**
+ * 解析共享的 embedding 相似度 provider 函数，喂给三处演化服务 ctor。
+ * 句柄为 null（无 vectorStore）→ 返回 undefined → Core ctor 保持缺省（纯 Jaccard）。
+ */
+function resolveEmbeddingSimProvider(ct: ServiceContainer): EmbeddingSimProvider | undefined {
+  const handle = ct.get('embeddingSimProvider') as RecipeEmbeddingSimProviderHandle | null;
+  return handle?.provider;
 }
 
 function registerKnowledgeServices(c: ServiceContainer) {
@@ -290,12 +306,28 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
     });
   });
 
+  // U5 #1 closeout：构建一次 VectorService-backed embedding 相似度 provider 句柄，
+  // 三处演化服务（RedundancyAnalyzer / ProposalExecutor / ConsolidationAdvisor）共用同一实例。
+  // 无 vectorStore → 句柄为 null → 三处保持缺省（Core 纯 Jaccard，向后兼容）。
+  // 预热（一次性加载预计算 region 向量）在 initializeKnowledgeServices 的 await 钩子里完成，
+  // provider 函数本身保持同步。
+  c.singleton('embeddingSimProvider', (ct: ServiceContainer) => {
+    const vectorStore = ct.services.vectorStore
+      ? (ct.get('vectorStore') as unknown as RegionVectorStorePort)
+      : null;
+    return createRecipeEmbeddingSimProvider({
+      vectorStore,
+      logger: (ct.singletons.logger as SimProviderLogger | undefined) ?? null,
+    });
+  });
+
   c.singleton('redundancyAnalyzer', (ct: ServiceContainer) => {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     return new RedundancyAnalyzer(knowledgeRepo, {
       signalBus:
         (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
         undefined,
+      embeddingSimProvider: resolveEmbeddingSimProvider(ct),
     });
   });
 
@@ -332,12 +364,19 @@ function registerEvolutionWorkflowServices(c: ServiceContainer) {
     const lifecycle = ct.get('lifecycleStateMachine') as LifecycleStateMachine;
     const contentPatcher = ct.get('contentPatcher') as ContentPatcher;
     const edgeRepo = ct.get('knowledgeEdgeRepository') as KnowledgeEdgeRepository;
-    return new ProposalExecutor(knowledgeRepo, proposalRepo, lifecycle, contentPatcher, edgeRepo);
+    return new ProposalExecutor(
+      knowledgeRepo,
+      proposalRepo,
+      lifecycle,
+      contentPatcher,
+      edgeRepo,
+      resolveEmbeddingSimProvider(ct)
+    );
   });
 
   c.singleton('consolidationAdvisor', (ct: ServiceContainer) => {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new ConsolidationAdvisor(knowledgeRepo);
+    return new ConsolidationAdvisor(knowledgeRepo, resolveEmbeddingSimProvider(ct));
   });
 
   c.singleton('evolutionGateway', (ct: ServiceContainer) => {
