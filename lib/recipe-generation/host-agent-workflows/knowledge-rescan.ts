@@ -19,6 +19,8 @@ import {
   buildKnowledgeRescanWorkflowPlan,
   buildProjectContextMissionBriefing,
   buildRescanPrescreen,
+  type CoverageLedgerCandidate,
+  type CoverageLedgerModuleAxis,
   createHostAgentKnowledgeRescanIntent,
   type DimensionDef,
   type ModuleCellBinding,
@@ -26,6 +28,8 @@ import {
   presentHostAgentKnowledgeRescanEmptyProject,
   presentHostAgentKnowledgeRescanResponse,
   projectHostAgentRescanEvidencePlan,
+  resolveModuleTier,
+  resolvePerCellTargetDefault,
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
 } from '@alembic/core/host-agent-workflows';
@@ -44,6 +48,8 @@ import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/evo
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
+  type HostAgentProjectContextAnalysis,
+  releaseEmptyHostAgentSessionLeaseById,
   releaseEmptyHostAgentSessionLeaseForProject,
   selectProjectContextDimensions,
 } from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
@@ -65,6 +71,7 @@ import {
   budgetBriefingResponseData,
 } from './briefing-budget.js';
 import { attachPlanScopeTargetCounts } from './cold-start.js';
+import { writeCoverageLedgerForCompletion } from './coverage-ledger-write.js';
 import {
   type KnowledgeIndexRebuildReport,
   rebuildLocalKnowledgeIndexes,
@@ -90,6 +97,22 @@ interface RescanUnifiedEvolutionResult {
   routeError: string | null;
   scan: GitDiffScanResult;
   surface: Awaited<ReturnType<typeof buildPluginOpportunisticEvolutionSurface>>;
+}
+
+interface RescanCoverageLedgerSeedReport {
+  status: 'skipped' | 'written';
+  reason?: string;
+  candidateCount: number;
+  coveredPathCount: number;
+  deferredCells: number;
+  dimensionIds: string[];
+  moduleCount: number;
+  writtenCells: number;
+}
+
+interface RescanBriefingBuildResult {
+  briefing: Record<string, unknown>;
+  sessionId: string;
 }
 
 // ── 主入口 ─────────────────────────────────────────────────
@@ -198,12 +221,19 @@ async function prepareRescanState(
     projectRoot: plan.projectAnalysis.projectRoot,
     source: 'codex-host-rescan',
   });
+  const coverageLedgerSeed = seedRescanCoverageLedgerFromSnapshot(ctx, {
+    planGate,
+    projectContextAnalysis,
+    projectRoot,
+    recipeEntries: recipeSnapshot.entries,
+  });
   const unifiedEvolution = await runRescanUnifiedEvolution(ctx, {
     projectRoot,
   });
 
   return {
     cleanResult,
+    coverageLedgerSeed,
     dataRoot,
     db,
     indexRebuild,
@@ -278,18 +308,272 @@ async function rebuildRescanIndexes(
   });
 }
 
+function seedRescanCoverageLedgerFromSnapshot(
+  ctx: McpContext,
+  input: {
+    planGate: PlanGenerationGateReady;
+    projectContextAnalysis: HostAgentProjectContextAnalysis;
+    projectRoot: string;
+    recipeEntries: ReadonlyArray<{
+      dimensionId?: string;
+      sourceFile?: string;
+      sourceRefs?: readonly string[];
+    }>;
+  }
+): RescanCoverageLedgerSeedReport {
+  const empty = (reason: string): RescanCoverageLedgerSeedReport => ({
+    status: 'skipped',
+    reason,
+    candidateCount: 0,
+    coveredPathCount: 0,
+    deferredCells: 0,
+    dimensionIds: [],
+    moduleCount: 0,
+    writtenCells: 0,
+  });
+
+  if (
+    input.planGate.generationStage !== 'deepMining' &&
+    input.planGate.generationStage !== 'moduleMining'
+  ) {
+    return empty('unsupported-generation-stage');
+  }
+
+  try {
+    const repository = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!repository) {
+      return empty('coverage-ledger-repository-unavailable');
+    }
+
+    const dimensionIds = uniqueStrings(input.planGate.dimensionIds);
+    if (dimensionIds.length === 0) {
+      return empty('no-selected-dimensions');
+    }
+
+    const modules = buildRescanCoverageModules(input.projectContextAnalysis, input.planGate);
+    if (modules.length === 0) {
+      return empty('no-project-context-modules');
+    }
+
+    const selectedDimensions = new Set(dimensionIds);
+    const coveredPaths = uniqueStrings(
+      input.recipeEntries.flatMap((entry) => {
+        if (!entry.dimensionId || !selectedDimensions.has(entry.dimensionId)) {
+          return [];
+        }
+        return collectRecipeSourcePaths(entry);
+      })
+    );
+
+    const candidates: CoverageLedgerCandidate[] = [
+      ...input.recipeEntries.flatMap((entry) => {
+        if (!entry.dimensionId || !selectedDimensions.has(entry.dimensionId)) {
+          return [];
+        }
+        const refs = collectRecipeSourcePaths(entry);
+        return refs.length > 0
+          ? [{ dimensionIds: [entry.dimensionId], sourceRefPaths: refs, importance: 70 }]
+          : [];
+      }),
+      ...modules.flatMap((module) =>
+        dimensionIds.map((dimensionId) => ({
+          dimensionIds: [dimensionId],
+          sourceRefPaths: [...module.ownedPaths],
+          importance: 50,
+        }))
+      ),
+    ];
+
+    if (candidates.length === 0) {
+      return empty('no-source-ref-or-module-candidates');
+    }
+
+    const latestRound = repository.listRoundsByProjectRoot(input.projectRoot).at(-1) ?? null;
+    const tier = resolveModuleTier(modules.length);
+    const perCellTarget = resolvePerCellTargetDefault(tier);
+    const result = writeCoverageLedgerForCompletion({
+      repository,
+      projectRoot: input.projectRoot,
+      modules,
+      dimensionIds,
+      candidates,
+      coveredPaths,
+      perCellTarget,
+      lastRound: latestRound?.roundIndex ?? 0,
+      logger: ctx.logger,
+    });
+
+    const report: RescanCoverageLedgerSeedReport = {
+      status: 'written',
+      candidateCount: candidates.length,
+      coveredPathCount: coveredPaths.length,
+      deferredCells: result.deferredCells,
+      dimensionIds,
+      moduleCount: modules.length,
+      writtenCells: result.writtenCells,
+    };
+    ctx.logger.info('[Rescan] Coverage ledger seeded from existing recipe evidence', {
+      ...report,
+      projectRoot: input.projectRoot,
+    });
+    return report;
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    ctx.logger.warn('[Rescan] coverage ledger seed skipped (advisory, non-blocking)', {
+      projectRoot: input.projectRoot,
+      reason,
+    });
+    return empty(reason);
+  }
+}
+
+function buildRescanCoverageModules(
+  analysis: HostAgentProjectContextAnalysis,
+  planGate: PlanGenerationGateReady
+): CoverageLedgerModuleAxis[] {
+  const modules = new Map<string, CoverageLedgerModuleAxis>();
+  const add = (input: {
+    moduleId?: string;
+    moduleName?: string;
+    modulePath?: string;
+    ownedPaths?: readonly string[];
+  }) => {
+    const moduleName = input.moduleName?.trim() || input.moduleId?.trim() || input.modulePath;
+    const moduleId = input.moduleId?.trim() || input.modulePath?.trim() || moduleName;
+    if (!moduleId) {
+      return;
+    }
+    const ownedPaths = uniqueStrings(
+      [...(input.ownedPaths ?? []), input.modulePath].flatMap((value) =>
+        value ? [normalizeCoverageSourcePath(value)] : []
+      )
+    );
+    if (ownedPaths.length === 0) {
+      return;
+    }
+    const existing = modules.get(moduleId);
+    modules.set(moduleId, {
+      moduleId,
+      ...(moduleName ? { moduleName } : {}),
+      ownedPaths: uniqueStrings([...(existing?.ownedPaths ?? []), ...ownedPaths]),
+    });
+  };
+
+  for (const seed of analysis.moduleSeeds) {
+    add({
+      moduleId: seed.moduleId,
+      moduleName: seed.moduleName,
+      modulePath: seed.modulePath,
+      ownedPaths: seed.ownedFiles,
+    });
+  }
+  for (const binding of planGate.moduleBindings) {
+    add({
+      moduleId: binding.moduleId,
+      moduleName: canonicalModuleNameFromBinding(binding),
+      modulePath: binding.modulePath,
+    });
+  }
+
+  return [...modules.values()];
+}
+
+function collectRecipeSourcePaths(entry: {
+  sourceFile?: string;
+  sourceRefs?: readonly string[];
+}): string[] {
+  return uniqueStrings(
+    [...(entry.sourceRefs ?? []), entry.sourceFile].flatMap((value) =>
+      value ? [normalizeCoverageSourcePath(value)] : []
+    )
+  );
+}
+
+function normalizeCoverageSourcePath(value: string): string {
+  return value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/:\d+(?:-\d+)?$/, '')
+    .replace(/^\.\//, '');
+}
+
+function attachCoverageLedgerSeedMeta(
+  response: Record<string, unknown> & { meta?: Record<string, unknown> },
+  seed: RescanCoverageLedgerSeedReport
+): void {
+  const meta =
+    response.meta && typeof response.meta === 'object' && !Array.isArray(response.meta)
+      ? (response.meta as Record<string, unknown>)
+      : {};
+  response.meta = meta;
+  meta.coverageLedgerSeed = {
+    status: seed.status,
+    ...(seed.reason ? { reason: seed.reason } : {}),
+    writtenCells: seed.writtenCells,
+    coveredPathCount: seed.coveredPathCount,
+    moduleCount: seed.moduleCount,
+    dimensionIds: seed.dimensionIds,
+  };
+}
+
+function releaseNoWorkRescanSession(
+  ctx: McpContext,
+  response: Record<string, unknown> & { message?: string; meta?: Record<string, unknown> },
+  state: Awaited<ReturnType<typeof prepareRescanState>>,
+  sessionId: string,
+  coverageAdvisory: {
+    highValueBlankCount: number;
+    shouldStop: boolean;
+    stopReason: string;
+    suggestion: string | null;
+  }
+): void {
+  const release = releaseEmptyHostAgentSessionLeaseById({
+    container: ctx.container,
+    logger: ctx.logger,
+    projectRoot: state.projectRoot,
+    reason: `${state.planGate.generationStage}-${coverageAdvisory.stopReason}`,
+    sessionId,
+    source: 'alembic_rescan',
+  });
+
+  const data = readRecord(response.data);
+  if (data) {
+    data.session = null;
+    data.noActionableHostAgentWork = {
+      generationStage: state.planGate.generationStage,
+      releasedEmptySession: release.released,
+      sessionId: release.released ? sessionId : null,
+      stopReason: coverageAdvisory.stopReason,
+    };
+  }
+  const meta =
+    response.meta && typeof response.meta === 'object' && !Array.isArray(response.meta)
+      ? (response.meta as Record<string, unknown>)
+      : {};
+  response.meta = meta;
+  meta.noActionableHostAgentWork = {
+    generationStage: state.planGate.generationStage,
+    releasedEmptySession: release.released,
+    stopReason: coverageAdvisory.stopReason,
+  };
+  response.message = `${response.message ?? ''} coverageAdvisory=${coverageAdvisory.stopReason}，本次 ${state.planGate.generationStage} 不保留空 host-agent session。`;
+}
+
 async function buildRescanResponse(
   ctx: McpContext,
   state: Awaited<ReturnType<typeof prepareRescanState>>,
   responseTimeMs: number
 ) {
   const planning = await buildRescanPlanning(ctx, state);
-  const briefing = buildRescanBriefing(ctx, state, planning);
+  const briefingResult = buildRescanBriefing(ctx, state, planning);
   const response = presentHostAgentKnowledgeRescanResponse({
     recipeSnapshot: state.recipeSnapshot,
     cleanResult: state.cleanResult,
     auditSummary: planning.auditSummary,
-    briefing,
+    briefing: briefingResult.briefing,
     evidencePlan: planning.evidencePlan,
     dimensions: planning.requestedDimensions,
     reason: state.intent.reason,
@@ -300,15 +584,20 @@ async function buildRescanResponse(
   attachRescanUnifiedEvolution(response, state.unifiedEvolution);
   attachTrashArchiveMessage(response, state.cleanResult);
   attachHostProjectSelectionMismatch(response, state.projectRoot);
+  attachCoverageLedgerSeedMeta(response, state.coverageLedgerSeed);
   // U2d：附覆盖账本收敛建议（ADVISORY）。放在预算化之前 → 建议进 response.data 并一起被预算。
   // 严格非阻断：绝不设任何 blocking/gate 标志、绝不自动触发再扫一轮——是否再扫由用户/宿主决定。
-  attachCoverageAdvisory(ctx, response, state);
+  const coverageAdvisory = attachCoverageAdvisory(ctx, response, state);
+  const noActionableRescanWork = coverageAdvisory?.shouldStop === true;
+  if (noActionableRescanWork) {
+    releaseNoWorkRescanSession(ctx, response, state, briefingResult.sessionId, coverageAdvisory);
+  }
   // U2d：收敛建议读完「上一已完成轮」之后，再为本次 deepMining rescan 开新一轮（startedAt+triggerActor）。
   // 顺序关键：必须在 attachCoverageAdvisory 之后开轮，否则 advisory 会把刚开的、产出尚为 0 的本轮当成「上一轮」，
   // 触发 new_recipes_this_round(0)<K 的收益递减误判，使多轮循环每轮立即停止。新轮在 rescan 返回前开好，
   // 供随后的 dimension_complete 回流累计 new_recipes_this_round / completedAt（轮次边界=plan-confirm 到该轮全部回流）。
   // coldStart/moduleMining rescan 不是 deepMining 轮次，用 stage 守卫排除。best-effort、不阻断。
-  if (state.planGate.generationStage === 'deepMining') {
+  if (state.planGate.generationStage === 'deepMining' && !noActionableRescanWork) {
     openDeepMiningRound(ctx, state.projectRoot);
   }
   // U3 item3：在所有 attach*（unifiedEvolution/trashArchive/projectSelectionMismatch）之后，对完整
@@ -468,7 +757,7 @@ function buildRescanBriefing(
   ctx: McpContext,
   state: Awaited<ReturnType<typeof prepareRescanState>>,
   planning: Awaited<ReturnType<typeof buildRescanPlanning>>
-) {
+): RescanBriefingBuildResult {
   const dimensions = planning.dimensions;
   const projectContextAnalysis = state.projectContextAnalysis;
   const session = createProjectContextHostAgentSession({
@@ -533,7 +822,7 @@ function buildRescanBriefing(
     }
   );
   logRescanBriefingReady(ctx, state, planning, session.id, ideAgentAnalysis.progress.totalUnits);
-  return briefingWithProjectContextGuide;
+  return { briefing: briefingWithProjectContextGuide, sessionId: session.id };
 }
 
 async function runRescanUnifiedEvolution(
@@ -621,13 +910,18 @@ function attachCoverageAdvisory(
   ctx: McpContext,
   response: Record<string, unknown> & { meta?: Record<string, unknown> },
   state: Awaited<ReturnType<typeof prepareRescanState>>
-): void {
+): {
+  highValueBlankCount: number;
+  shouldStop: boolean;
+  stopReason: string;
+  suggestion: string | null;
+} | null {
   try {
     const repo = ctx.container.get('coverageLedgerRepository') as
       | EvolutionCoverageLedgerRepository
       | undefined;
     if (!repo) {
-      return;
+      return null;
     }
     const cells = repo.listByProjectRoot(state.projectRoot);
     const rounds = repo.listRoundsByProjectRoot(state.projectRoot);
@@ -670,9 +964,16 @@ function attachCoverageAdvisory(
       highValueBlankCount: advisory.highValueBlankCount,
       suggestion: advisory.suggestion,
     };
+    return meta.coverageAdvisory as {
+      highValueBlankCount: number;
+      shouldStop: boolean;
+      stopReason: string;
+      suggestion: string | null;
+    };
   } catch (_err: unknown) {
     // advisory 计算/附加失败绝不破坏 rescan：吞掉异常继续（建议缺席只是少一条非阻断提示）。
     ctx.logger.warn('[Rescan] coverage advisory skipped (advisory, non-blocking)');
+    return null;
   }
 }
 
@@ -826,6 +1127,20 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (normalized.length === 0 || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
 }
 
 // U1 #2：per-模块 → per-cell 拍扁。

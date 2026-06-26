@@ -3,9 +3,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { type AlembicDatabaseRuntime, openAlembicDatabase } from '@alembic/core/database';
 import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
+import { KnowledgeEntry } from '@alembic/core/knowledge';
 import {
   type AlembicRepositoryBundle,
+  type CoverageLedgerRecord,
   createAlembicRepositories,
+  type DeepMiningRoundRecord,
+  type UpsertCoverageLedgerInput,
+  type UpsertDeepMiningRoundInput,
 } from '@alembic/core/repositories';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -150,6 +155,115 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('releases a no-work deepMining session so immediate moduleMining is not blocked', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'covered',
+          moduleId: 'src',
+          dimensionId: 'architecture',
+          coveredCount: 5,
+          totalCandidateCount: 5,
+          valueScore: 0,
+        }),
+      ],
+      ignoreCellUpserts: true,
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const ctx = createRescanContext(fixture, runtime, repositories, {
+        coverageLedgerRepository: coverageLedger.repository,
+      });
+
+      const deepMining = (await runHostAgentKnowledgeRescanWorkflow(ctx, {
+        generationStage: 'deepMining',
+        planSelection: deepMiningPlanSelection(),
+        reason: 'converged no-work session release regression',
+        testMode: true,
+      })) as {
+        errorCode?: string;
+        meta?: { noActionableHostAgentWork?: { releasedEmptySession?: boolean } };
+        success?: boolean;
+      };
+
+      expect(deepMining.success).toBe(true);
+      expect(deepMining.errorCode).not.toBe('BOOTSTRAP_IN_PROGRESS');
+      expect(deepMining.meta?.noActionableHostAgentWork?.releasedEmptySession).toBe(true);
+      expect(readStoredSessionIds(fixture.dataRoot)).toEqual([]);
+      expect(coverageLedger.roundUpserts).toHaveLength(0);
+
+      const moduleMining = (await runHostAgentKnowledgeRescanWorkflow(ctx, {
+        generationStage: 'moduleMining',
+        planSelection: moduleMiningPlanSelection(),
+        reason: 'moduleMining after no-work deepMining',
+        testMode: true,
+      })) as {
+        errorCode?: string;
+        meta?: { noActionableHostAgentWork?: { releasedEmptySession?: boolean } };
+        success?: boolean;
+      };
+
+      expect(moduleMining.success).toBe(true);
+      expect(moduleMining.errorCode).not.toBe('BOOTSTRAP_IN_PROGRESS');
+      expect(moduleMining.meta?.noActionableHostAgentWork?.releasedEmptySession).toBe(true);
+      expect(readStoredSessionIds(fixture.dataRoot)).toEqual([]);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('seeds coverage ledger from existing recipe source refs before deepMining planning', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository();
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      await insertRecipeWithSourceRef(repositories, {
+        dimensionId: 'architecture',
+        id: 'recipe-from-real-source-ref',
+        sourcePath: 'src/App.ts',
+      });
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories, {
+          coverageLedgerRepository: coverageLedger.repository,
+        }),
+        {
+          generationStage: 'deepMining',
+          planSelection: deepMiningPlanSelection(),
+          reason: 'coverage ledger seed regression',
+          testMode: true,
+        }
+      )) as {
+        meta?: { coverageLedgerSeed?: { status?: string; writtenCells?: number } };
+        success?: boolean;
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.meta?.coverageLedgerSeed?.status).toBe('written');
+      expect(response.meta?.coverageLedgerSeed?.writtenCells ?? 0).toBeGreaterThan(0);
+      expect(coverageLedger.cellUpserts.length).toBeGreaterThan(0);
+      expect(
+        coverageLedger.cells.some(
+          (cell) => cell.dimensionId === 'architecture' && cell.coveredSourceRefs.length > 0
+        )
+      ).toBe(true);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('keeps a stale file-backed session with submitted evidence as a blocking in-progress lease', () => {
     const fixture = createFileBackedSessionFixture({
       stale: true,
@@ -214,6 +328,7 @@ function emptySession(overrides: Record<string, unknown> = {}) {
 }
 
 function createFileBackedSessionFixture(input: {
+  initialSession?: boolean;
   stale: boolean;
   submissionTracker?: Record<string, unknown>;
 }) {
@@ -229,34 +344,37 @@ function createFileBackedSessionFixture(input: {
       {
         version: 1,
         savedAt: startedAt,
-        sessions: [
-          {
-            id: 'bs-file-empty',
-            projectRoot,
-            dimensions: [dimension()],
-            projectContext: {},
-            startedAt,
-            expiresAt: Date.now() + 60 * 60 * 1000,
-            completedDimensions: {},
-            crossDimensionHints: {},
-            snapshotCache: null,
-            sessionStore: {
-              dimensionReports: {},
-              crossReferences: [],
-              tierReflections: [],
-              submittedCandidates: {},
-              projectContext: {},
-            },
-            submissionTracker: input.submissionTracker ?? {
-              dimensionSubmissions: {},
-              fileEvidenceMap: {},
-              negativeSignals: [],
-              rejections: {},
-              usedTriggers: [],
-            },
-            savedAt: startedAt,
-          },
-        ],
+        sessions:
+          input.initialSession === false
+            ? []
+            : [
+                {
+                  id: 'bs-file-empty',
+                  projectRoot,
+                  dimensions: [dimension()],
+                  projectContext: {},
+                  startedAt,
+                  expiresAt: Date.now() + 60 * 60 * 1000,
+                  completedDimensions: {},
+                  crossDimensionHints: {},
+                  snapshotCache: null,
+                  sessionStore: {
+                    dimensionReports: {},
+                    crossReferences: [],
+                    tierReflections: [],
+                    submittedCandidates: {},
+                    projectContext: {},
+                  },
+                  submissionTracker: input.submissionTracker ?? {
+                    dimensionSubmissions: {},
+                    fileEvidenceMap: {},
+                    negativeSignals: [],
+                    rejections: {},
+                    usedTriggers: [],
+                  },
+                  savedAt: startedAt,
+                },
+              ],
       },
       null,
       2
@@ -314,10 +432,31 @@ function moduleMiningPlanSelection() {
   };
 }
 
+function deepMiningPlanSelection() {
+  return {
+    generationStage: 'deepMining' as const,
+    dimensions: ['architecture'],
+    scale: {
+      totalRecipeBudget: 1,
+      maxFiles: 8,
+      contentMaxLines: 20,
+      depthLevels: ['project', 'module'],
+    },
+    moduleBindings: [
+      {
+        modulePath: 'src',
+        dimensions: ['architecture'],
+        targetRecipes: 1,
+      },
+    ],
+  };
+}
+
 function createRescanContext(
   fixture: ReturnType<typeof createFileBackedSessionFixture>,
   runtime: AlembicDatabaseRuntime,
-  repositories: AlembicRepositoryBundle
+  repositories: AlembicRepositoryBundle,
+  extraServices: Record<string, unknown> = {}
 ) {
   const services: Record<string, unknown> = {
     database: runtime.connection,
@@ -330,6 +469,7 @@ function createRescanContext(
     planRepository: repositories.planRepository,
     proposalRepository: repositories.proposalRepository,
     recipeSourceRefRepository: repositories.recipeSourceRefRepository,
+    ...extraServices,
   };
   const registry: Record<string, unknown> = {};
   return {
@@ -354,4 +494,155 @@ function createRescanContext(
     },
     logger: silentLogger,
   };
+}
+
+function createStatefulCoverageLedgerRepository(
+  input: {
+    cells?: CoverageLedgerRecord[];
+    ignoreCellUpserts?: boolean;
+    rounds?: DeepMiningRoundRecord[];
+  } = {}
+) {
+  const cells = [...(input.cells ?? [])];
+  const ignoreCellUpserts = input.ignoreCellUpserts === true;
+  const rounds = [...(input.rounds ?? [])];
+  const cellUpserts: UpsertCoverageLedgerInput[] = [];
+  const roundUpserts: UpsertDeepMiningRoundInput[] = [];
+  const repository = {
+    listByProjectRoot(projectRoot: string): CoverageLedgerRecord[] {
+      return cells.filter(
+        (cell) => cell.projectRoot === projectRoot || cell.projectRoot === '/proj'
+      );
+    },
+    listRoundsByProjectRoot(projectRoot: string): DeepMiningRoundRecord[] {
+      return rounds
+        .filter((round) => round.projectRoot === projectRoot || round.projectRoot === '/proj')
+        .sort((a, b) => a.roundIndex - b.roundIndex);
+    },
+    upsertCell(cellInput: UpsertCoverageLedgerInput): CoverageLedgerRecord {
+      cellUpserts.push(cellInput);
+      if (ignoreCellUpserts) {
+        return (
+          cells.find(
+            (cell) =>
+              cell.moduleId === cellInput.moduleId && cell.dimensionId === cellInput.dimensionId
+          ) ??
+          coverageCell({
+            dimensionId: cellInput.dimensionId,
+            grade: cellInput.grade ?? 'empty',
+            moduleId: cellInput.moduleId,
+          })
+        );
+      }
+      const existingIndex = cells.findIndex(
+        (cell) =>
+          cell.projectRoot === cellInput.projectRoot &&
+          cell.moduleId === cellInput.moduleId &&
+          cell.dimensionId === cellInput.dimensionId
+      );
+      const existing = existingIndex >= 0 ? cells[existingIndex] : null;
+      const saved = coverageCell({
+        ...existing,
+        projectRoot: cellInput.projectRoot,
+        moduleId: cellInput.moduleId,
+        dimensionId: cellInput.dimensionId,
+        coveredCount: cellInput.coveredCount ?? 0,
+        totalCandidateCount: cellInput.totalCandidateCount ?? 0,
+        grade: cellInput.grade ?? 'empty',
+        exhausted: cellInput.exhausted ?? false,
+        exhaustedReason: cellInput.exhaustedReason ?? null,
+        exhaustedSource: cellInput.exhaustedSource ?? null,
+        coveredSourceRefs: cellInput.coveredSourceRefs ?? [],
+        uncoveredHints: cellInput.uncoveredHints ?? [],
+        valueScore: cellInput.valueScore ?? null,
+        lastRound: cellInput.lastRound ?? null,
+        deferred: cellInput.deferred ?? false,
+      });
+      if (existingIndex >= 0) {
+        cells[existingIndex] = saved;
+      } else {
+        cells.push(saved);
+      }
+      return saved;
+    },
+    upsertRound(input: UpsertDeepMiningRoundInput): DeepMiningRoundRecord {
+      roundUpserts.push(input);
+      const existingIndex = rounds.findIndex(
+        (round) => round.projectRoot === input.projectRoot && round.roundIndex === input.roundIndex
+      );
+      const existing = existingIndex >= 0 ? rounds[existingIndex] : null;
+      const saved: DeepMiningRoundRecord = {
+        projectRoot: input.projectRoot,
+        roundIndex: input.roundIndex,
+        startedAt: input.startedAt ?? existing?.startedAt ?? null,
+        completedAt: input.completedAt ?? existing?.completedAt ?? null,
+        newRecipesThisRound: input.newRecipesThisRound ?? existing?.newRecipesThisRound ?? 0,
+        triggerActor: input.triggerActor ?? existing?.triggerActor ?? null,
+        createdAt: existing?.createdAt ?? 0,
+        updatedAt: 0,
+      };
+      if (existingIndex >= 0) {
+        rounds[existingIndex] = saved;
+      } else {
+        rounds.push(saved);
+      }
+      return saved;
+    },
+  };
+  return { repository, cells, cellUpserts, rounds, roundUpserts };
+}
+
+function coverageCell(
+  input: Partial<CoverageLedgerRecord> &
+    Pick<CoverageLedgerRecord, 'dimensionId' | 'grade' | 'moduleId'>
+): CoverageLedgerRecord {
+  return {
+    projectRoot: '/proj',
+    coveredCount: 0,
+    totalCandidateCount: 0,
+    exhausted: false,
+    exhaustedReason: null,
+    exhaustedSource: null,
+    coveredSourceRefs: [],
+    uncoveredHints: [],
+    valueScore: 0,
+    lastRound: null,
+    deferred: false,
+    createdAt: 0,
+    updatedAt: 0,
+    ...input,
+  };
+}
+
+async function insertRecipeWithSourceRef(
+  repositories: AlembicRepositoryBundle,
+  input: { dimensionId: string; id: string; sourcePath: string }
+): Promise<void> {
+  const now = Date.now();
+  await repositories.knowledgeRepository.create(
+    new KnowledgeEntry({
+      id: input.id,
+      title: 'Recipe from real source ref',
+      lifecycle: 'active',
+      language: 'typescript',
+      dimensionId: input.dimensionId,
+      category: 'general',
+      kind: 'pattern',
+      knowledgeType: 'code-pattern',
+      trigger: `trigger-${input.id}`,
+      doClause: 'Use the source-backed pattern.',
+      content: { markdown: 'Source-backed recipe body.' },
+      reasoning: { sources: [input.sourcePath] },
+      sourceFile: input.sourcePath,
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+  repositories.recipeSourceRefRepository.upsert({
+    recipeId: input.id,
+    sourcePath: input.sourcePath,
+    status: 'active',
+    verifiedAt: now,
+    contentFp: `fp-${input.id}`,
+  });
 }

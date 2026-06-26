@@ -112,6 +112,32 @@ export function releaseEmptyHostAgentSessionLeaseForProject(input: {
   return release;
 }
 
+export function releaseEmptyHostAgentSessionLeaseById(input: {
+  container: HostAgentSessionContainer;
+  logger?: { info?(msg: string, meta?: Record<string, unknown>): void };
+  projectRoot: string;
+  reason: string;
+  sessionId: string;
+  source: 'alembic_bootstrap' | 'alembic_rescan';
+}): { released: boolean; sessionId?: string } {
+  const sessionManager = getOrCreateSessionManager(input.container);
+  const session = readProjectSessionById(sessionManager, input.sessionId, input.projectRoot);
+  if (!isRecord(session) || !isEmptyHostAgentSession(session)) {
+    return { released: false };
+  }
+  if (typeof sessionManager.clearSession !== 'function') {
+    return { released: false };
+  }
+  sessionManager.clearSession(input.sessionId);
+  input.logger?.info?.('[BootstrapSession] Released empty host-agent lease by id', {
+    projectRoot: input.projectRoot,
+    reason: input.reason,
+    sessionId: input.sessionId,
+    source: input.source,
+  });
+  return { released: true, sessionId: input.sessionId };
+}
+
 function createSession(
   input: {
     container: HostAgentSessionContainer;
@@ -367,6 +393,10 @@ function isEmptyStaleHostAgentSession(
   if (!startedAt || now - startedAt < staleAfterMs) {
     return false;
   }
+  return isEmptyHostAgentSession(session);
+}
+
+function isEmptyHostAgentSession(session: Record<string, unknown>): boolean {
   if (readCompletedDimensionCount(session.completedDimensions) > 0) {
     return false;
   }
@@ -378,6 +408,28 @@ function isEmptyStaleHostAgentSession(
     !sessionStoreHasEvidence(session.sessionStore) &&
     !submissionTrackerHasEvidence(session.submissionTracker)
   );
+}
+
+function readProjectSessionById(
+  sessionManager: {
+    getSession?: (sessionId?: string, options?: { projectRoot?: string }) => unknown;
+  },
+  sessionId: string,
+  projectRoot: string
+): unknown {
+  if (typeof sessionManager.getSession !== 'function') {
+    return null;
+  }
+  try {
+    return sessionManager.getSession(sessionId, { projectRoot });
+  } catch {
+    try {
+      const session = sessionManager.getSession(sessionId);
+      return sessionBelongsToProject(session, projectRoot) ? session : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 function sessionBelongsToProject(session: unknown, projectRoot: string): boolean {
