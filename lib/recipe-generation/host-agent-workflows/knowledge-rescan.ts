@@ -44,6 +44,7 @@ import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/evo
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
+  releaseEmptyHostAgentSessionLeaseForProject,
   selectProjectContextDimensions,
 } from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
 import {
@@ -102,6 +103,12 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
   if (!planGate.ok) {
     return planGate.response;
   }
+  releaseEmptyHostAgentSessionLeaseForProject({
+    container: ctx.container,
+    logger: ctx.logger,
+    projectRoot: planGate.value.projectRoot,
+    source: 'alembic_rescan',
+  });
   const lease = acquirePlanGenerationLease({
     gate: planGate.value,
     idempotencyKey: args.rescanId,

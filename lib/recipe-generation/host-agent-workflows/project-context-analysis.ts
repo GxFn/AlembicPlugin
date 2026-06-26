@@ -77,6 +77,52 @@ export function createProjectContextHostAgentSession(input: {
     projectRoot: input.projectRoot,
     sessionManager,
   });
+  try {
+    return createSession(input, sessionManager);
+  } catch (err: unknown) {
+    const release = releaseEmptyHostAgentSessionLease({
+      projectRoot: input.projectRoot,
+      sessionManager,
+    });
+    if (!release.released || !isBootstrapInProgressError(err)) {
+      throw err;
+    }
+    return createSession(input, sessionManager);
+  }
+}
+
+export function releaseEmptyHostAgentSessionLeaseForProject(input: {
+  container: HostAgentSessionContainer;
+  logger?: { info?(msg: string, meta?: Record<string, unknown>): void };
+  projectRoot: string;
+  source: 'alembic_bootstrap' | 'alembic_rescan';
+}): { released: boolean; sessionId?: string } {
+  const sessionManager = getOrCreateSessionManager(input.container);
+  const release = releaseEmptyHostAgentSessionLease({
+    projectRoot: input.projectRoot,
+    sessionManager,
+  });
+  if (release.released) {
+    input.logger?.info?.('[BootstrapSession] Released stale empty host-agent lease', {
+      projectRoot: input.projectRoot,
+      sessionId: release.sessionId,
+      source: input.source,
+    });
+  }
+  return release;
+}
+
+function createSession(
+  input: {
+    container: HostAgentSessionContainer;
+    dimensions: DimensionDef[];
+    fileCount: number;
+    moduleCount: number;
+    primaryLang: string | null;
+    projectRoot: string;
+  },
+  sessionManager: ReturnType<typeof getOrCreateSessionManager>
+) {
   return sessionManager.createSession({
     dimensions: input.dimensions.map((dimension) => ({
       ...dimension,
@@ -426,6 +472,13 @@ function readStringValue(value: unknown): string | undefined {
 
 function readNumberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function isBootstrapInProgressError(err: unknown): boolean {
+  return (
+    isRecord(err) &&
+    (err.code === 'BOOTSTRAP_IN_PROGRESS' || err.errorCode === 'BOOTSTRAP_IN_PROGRESS')
+  );
 }
 
 function selectProjectContextModuleSeeds(
