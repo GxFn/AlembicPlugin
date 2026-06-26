@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -118,6 +119,7 @@ async function probeInstalledTarget(targetRoot) {
   const marker = existsSync(join(targetRoot, '.alembic-dev-refresh.json'))
     ? readJson(join(targetRoot, '.alembic-dev-refresh.json'))
     : null;
+  const localProjection = assertLocalProjectionMarker(marker, targetRoot);
   const savedHome = join(tmpRoot, `home-${report.probes.length}`);
   const failedHome = join(tmpRoot, `failed-home-${report.probes.length}`);
   const first = await callMcpStatus(targetRoot, savedHome, { projectRoot: options.projectRoot });
@@ -149,6 +151,7 @@ async function probeInstalledTarget(targetRoot) {
     marker,
     explicit: summarizeStatus(first),
     diagnostics: summarizeDiagnostics(diagnostics),
+    localProjection,
     runtimeReadback,
     saved: summarizeStatus(savedData),
     failClosed: {
@@ -157,6 +160,118 @@ async function probeInstalledTarget(targetRoot) {
       ok: failClosed.ok,
     },
   };
+}
+
+function assertLocalProjectionMarker(marker, targetRoot) {
+  const markerRecord = objectFrom(marker);
+  const mode = markerRecord?.mode ?? report.mode;
+  if (mode !== 'local-mcp') {
+    return null;
+  }
+  assertProbe(markerRecord, `Missing local-mcp refresh marker for ${targetRoot}`);
+
+  const gitHead = readGitHead();
+  if (gitHead) {
+    assertProbe(
+      markerRecord.gitHead === gitHead,
+      `Installed cache marker gitHead is stale for ${targetRoot}: expected ${gitHead}, got ${markerRecord.gitHead}`
+    );
+  }
+
+  const projection = objectFrom(markerRecord.localProjection);
+  assertProbe(
+    projection,
+    `Missing localProjection proof in .alembic-dev-refresh.json for ${targetRoot}`
+  );
+  assertProbe(
+    projection.mode === 'local-dev-direct-dist',
+    `Unexpected local projection mode for ${targetRoot}: ${JSON.stringify(projection.mode)}`
+  );
+
+  const mcpEntry = objectFrom(projection.mcpEntry);
+  assertProbe(
+    mcpEntry?.path === markerRecord.localMcpEntry,
+    `localProjection mcpEntry does not match localMcpEntry for ${targetRoot}: ${JSON.stringify({
+      localMcpEntry: markerRecord.localMcpEntry,
+      mcpEntry,
+    })}`
+  );
+  assertProbe(
+    mcpEntry?.exists === true &&
+      typeof mcpEntry.path === 'string' &&
+      typeof mcpEntry.hash === 'string',
+    `localProjection mcpEntry is missing or unhashed for ${targetRoot}: ${JSON.stringify(mcpEntry)}`
+  );
+  assertProbe(
+    hashFile(mcpEntry.path) === mcpEntry.hash,
+    `localProjection mcpEntry hash no longer matches for ${targetRoot}: ${JSON.stringify(mcpEntry)}`
+  );
+
+  const requiredMarkerNames = Array.isArray(projection.requiredMarkerNames)
+    ? projection.requiredMarkerNames
+    : [];
+  for (const markerName of [
+    'releasedEmptySession',
+    'coverageLedgerSeed',
+    'noActionableHostAgentWork',
+  ]) {
+    assertProbe(
+      requiredMarkerNames.includes(markerName),
+      `localProjection marker list is missing ${markerName} for ${targetRoot}: ${JSON.stringify(requiredMarkerNames)}`
+    );
+  }
+  assertProbe(
+    projection.allRequiredMarkersPresent === true,
+    `localProjection required markers are not all present for ${targetRoot}: ${JSON.stringify(projection)}`
+  );
+
+  const files = Array.isArray(projection.files) ? projection.files : [];
+  const summaries = [];
+  for (const id of ['knowledge-rescan-runtime', 'knowledge-rescan-source']) {
+    const file = files.find((candidate) => candidate?.id === id);
+    assertProbe(file, `localProjection is missing ${id} proof for ${targetRoot}`);
+    assertProjectionFile(file, targetRoot);
+    summaries.push({
+      id: file.id,
+      kind: file.kind ?? null,
+      path: file.path,
+      hash: file.hash,
+      markers: file.markerStatus,
+    });
+  }
+
+  return {
+    allRequiredMarkersPresent: true,
+    gitHead: markerRecord.gitHead ?? null,
+    mcpEntry: { path: mcpEntry.path, hash: mcpEntry.hash },
+    files: summaries,
+  };
+}
+
+function assertProjectionFile(file, targetRoot) {
+  const markerStatus = objectFrom(file.markerStatus);
+  assertProbe(
+    file.exists === true && typeof file.hash === 'string',
+    `localProjection file is missing or unhashed for ${targetRoot}: ${JSON.stringify(file)}`
+  );
+  assertProbe(
+    hashFile(file.path) === file.hash,
+    `localProjection file hash no longer matches for ${targetRoot}: ${JSON.stringify(file)}`
+  );
+  for (const markerName of [
+    'releasedEmptySession',
+    'coverageLedgerSeed',
+    'noActionableHostAgentWork',
+  ]) {
+    assertProbe(
+      markerStatus?.[markerName] === true,
+      `localProjection file ${file.id} is missing marker ${markerName} for ${targetRoot}: ${JSON.stringify(file)}`
+    );
+  }
+  assertProbe(
+    file.allRequiredMarkersPresent === true,
+    `localProjection file ${file.id} does not have all required markers for ${targetRoot}: ${JSON.stringify(file)}`
+  );
 }
 
 async function callMcpStatus(targetRoot, alembicHome, args) {
@@ -563,6 +678,21 @@ function assertProbe(condition, message) {
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function hashFile(path) {
+  if (!existsSync(path)) {
+    return null;
+  }
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function readGitHead() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  return result.status === 0 ? result.stdout.trim() : null;
 }
 
 function printReport() {

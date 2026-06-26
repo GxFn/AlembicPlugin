@@ -60,6 +60,16 @@ describe('Codex plugin cache sync script', () => {
       entryMode: string;
       hashes: { mcp: string; startup: string };
       localMcpEntry: string;
+      localProjection: {
+        allRequiredMarkersPresent: boolean;
+        files: Array<{
+          allRequiredMarkersPresent: boolean;
+          id: string;
+          markerStatus: Record<string, boolean>;
+        }>;
+        mcpEntry: { exists: boolean; hash: string | null; path: string };
+        requiredMarkerNames: string[];
+      };
       mode: string;
       runtimeModeSeparation: {
         localDev: { cacheRewrite: boolean; entryMode: string; localMcpEntry: string };
@@ -94,6 +104,30 @@ describe('Codex plugin cache sync script', () => {
       },
     });
     expect(marker.runtimeModeSeparation.packaged.cacheIsolation).toContain('shell bootstrap');
+    expect(marker.localProjection.mcpEntry).toMatchObject({
+      exists: true,
+      path: localEntry,
+    });
+    expect(marker.localProjection.requiredMarkerNames).toEqual(
+      expect.arrayContaining([
+        'releasedEmptySession',
+        'coverageLedgerSeed',
+        'noActionableHostAgentWork',
+      ])
+    );
+    expect(marker.localProjection.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          allRequiredMarkersPresent: true,
+          id: 'knowledge-rescan-source',
+          markerStatus: expect.objectContaining({
+            coverageLedgerSeed: true,
+            noActionableHostAgentWork: true,
+            releasedEmptySession: true,
+          }),
+        }),
+      ])
+    );
     expect(marker.hashes.mcp).toMatch(/^[a-f0-9]{64}$/);
     expect(marker.hashes.startup).toMatch(/^[a-f0-9]{64}$/);
   }, 30_000);

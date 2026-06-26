@@ -43,6 +43,36 @@ if (!pluginVersion) {
 const localMcpEntry = resolve(
   options.localMcpEntry || join(projectRoot, 'dist', 'bin', 'host-mcp.js')
 );
+const localProjectionMarkerNames = [
+  'releasedEmptySession',
+  'coverageLedgerSeed',
+  'noActionableHostAgentWork',
+];
+const localProjectionFiles = [
+  {
+    id: 'knowledge-rescan-runtime',
+    kind: 'runtime-dist',
+    path: join(
+      projectRoot,
+      'dist',
+      'lib',
+      'recipe-generation',
+      'host-agent-workflows',
+      'knowledge-rescan.js'
+    ),
+  },
+  {
+    id: 'knowledge-rescan-source',
+    kind: 'source-lib',
+    path: join(
+      projectRoot,
+      'lib',
+      'recipe-generation',
+      'host-agent-workflows',
+      'knowledge-rescan.ts'
+    ),
+  },
+];
 const targetRoots = resolveTargetRoots();
 
 // 开发态 cache 同步只操作 Codex 插件缓存，不修改仓库内发布 manifest。
@@ -285,6 +315,7 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
         cacheIsolation: 'owned by the marketplace shell bootstrap path',
       },
     },
+    localProjection: options.localMcp ? buildLocalProjectionMarker() : null,
     hashes: {
       mcp: hashFile(join(cacheRoot, '.mcp.json')),
       manifest: hashFile(join(cacheRoot, '.codex-plugin', 'plugin.json')),
@@ -295,6 +326,36 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
     join(cacheRoot, '.alembic-dev-refresh.json'),
     `${JSON.stringify(marker, null, 2)}\n`
   );
+}
+
+function buildLocalProjectionMarker() {
+  const files = localProjectionFiles.map((file) => {
+    const content = existsSync(file.path) ? readFileSync(file.path, 'utf8') : '';
+    const markerStatus = Object.fromEntries(
+      localProjectionMarkerNames.map((marker) => [marker, content.includes(marker)])
+    );
+    const allRequiredMarkersPresent = Object.values(markerStatus).every(Boolean);
+    return {
+      ...file,
+      exists: existsSync(file.path),
+      bytes: existsSync(file.path) ? statSync(file.path).size : 0,
+      hash: hashFile(file.path),
+      requiredMarkers: localProjectionMarkerNames,
+      markerStatus,
+      allRequiredMarkersPresent,
+    };
+  });
+  return {
+    mode: 'local-dev-direct-dist',
+    mcpEntry: {
+      path: localMcpEntry,
+      exists: existsSync(localMcpEntry),
+      hash: hashFile(localMcpEntry),
+    },
+    requiredMarkerNames: localProjectionMarkerNames,
+    files,
+    allRequiredMarkersPresent: files.every((file) => file.allRequiredMarkersPresent),
+  };
 }
 
 function hashFile(path) {
