@@ -12,6 +12,7 @@
  */
 
 import {
+  adviseCoverageLedger,
   auditRecipesForRescan,
   buildIDEAgentAnalysisPacketFromProjectContext,
   buildKnowledgeRescanPlan,
@@ -21,12 +22,14 @@ import {
   createHostAgentKnowledgeRescanIntent,
   type DimensionDef,
   type ModuleCellBinding,
+  type ModuleDimensionTarget,
   presentHostAgentKnowledgeRescanEmptyProject,
   presentHostAgentKnowledgeRescanResponse,
   projectHostAgentRescanEvidencePlan,
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
 } from '@alembic/core/host-agent-workflows';
+import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
@@ -55,8 +58,8 @@ import { attachProjectContextCreationGuide } from '#recipe-generation/project-co
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import {
-  BRIEFING_INLINE_BUDGET_BYTES,
   attachFullBriefingRef,
+  BRIEFING_INLINE_BUDGET_BYTES,
   budgetBriefingResponseData,
 } from './briefing-budget.js';
 import { attachPlanScopeTargetCounts } from './cold-start.js';
@@ -144,6 +147,20 @@ async function prepareRescanState(
     maxFiles: planGate.scale.maxFiles,
   });
   applyPlanGateToProjectAnalysisIntent(intent, planGate);
+  // U2b chain：把 Agent 的 per-cell 目标（gate.moduleBindings）派生成意图侧 perDimensionTargets /
+  // moduleDimensionTargets。两字段是 KnowledgeRescanWorkflowIntent 的加性字段；非空才设，零回归。
+  // 这让「Agent confirm 的 per-(模块×维度) 目标 → intent → Core gap」链条显式且可在 buildRescanPlanning 直接读 state.intent。
+  const { perDimensionTargets, moduleDimensionTargets } = derivePerCellTargetsFromGate(
+    planGate.moduleBindings
+  );
+  if (Object.keys(perDimensionTargets).length > 0) {
+    intent.perDimensionTargets = perDimensionTargets;
+  }
+  if (moduleDimensionTargets.length > 0) {
+    intent.moduleDimensionTargets = moduleDimensionTargets;
+  }
+  // U2d：开新一轮 deep_mining_round 不在此处（prepareRescanState 早于 attachCoverageAdvisory）。
+  // 收敛建议必须读「上一已完成轮」，故开轮挪到 attachCoverageAdvisory 之后（见 buildRescanResponse）。
   intent.cleanupPolicy =
     planGate.cleanupPolicy === 'full-reset' ? 'rescan-clean' : planGate.cleanupPolicy;
   intent.analysisMode = planGate.cleanupPolicy === 'force-rescan' ? 'full' : 'incremental';
@@ -275,6 +292,17 @@ async function buildRescanResponse(
   attachRescanUnifiedEvolution(response, state.unifiedEvolution);
   attachTrashArchiveMessage(response, state.cleanResult);
   attachHostProjectSelectionMismatch(response, state.projectRoot);
+  // U2d：附覆盖账本收敛建议（ADVISORY）。放在预算化之前 → 建议进 response.data 并一起被预算。
+  // 严格非阻断：绝不设任何 blocking/gate 标志、绝不自动触发再扫一轮——是否再扫由用户/宿主决定。
+  attachCoverageAdvisory(ctx, response, state);
+  // U2d：收敛建议读完「上一已完成轮」之后，再为本次 deepMining rescan 开新一轮（startedAt+triggerActor）。
+  // 顺序关键：必须在 attachCoverageAdvisory 之后开轮，否则 advisory 会把刚开的、产出尚为 0 的本轮当成「上一轮」，
+  // 触发 new_recipes_this_round(0)<K 的收益递减误判，使多轮循环每轮立即停止。新轮在 rescan 返回前开好，
+  // 供随后的 dimension_complete 回流累计 new_recipes_this_round / completedAt（轮次边界=plan-confirm 到该轮全部回流）。
+  // coldStart/moduleMining rescan 不是 deepMining 轮次，用 stage 守卫排除。best-effort、不阻断。
+  if (state.planGate.generationStage === 'deepMining') {
+    openDeepMiningRound(ctx, state.projectRoot);
+  }
   // U3 item3：在所有 attach*（unifiedEvolution/trashArchive/projectSelectionMismatch）之后，对完整
   // response.data 做内联预算化（与 cold-start 共享同一步骤/口径）。≤18KB 内联并清理遗留 transient；
   // >预算把完整 data 写入 'rescan-briefing' transient transport，再经 attachFullBriefingRef 把引用写进
@@ -297,6 +325,73 @@ function resolveDefaultRescanGenerationStage(args: RescanInput): 'deepMining' | 
   return 'deepMining';
 }
 
+/**
+ * U2b chain：从覆盖账本读「每维已覆盖计数」（coveredCount 求和）。best-effort：
+ * 账本不可用 / 读失败 / 为空 → 返回空对象，Core 退回现算（零回归）。
+ * D3：只读 coverage_ledger，绝不触达 git_diff_checkpoints。
+ */
+function loadLedgerCoverageByDimension(
+  ctx: McpContext,
+  projectRoot: string
+): Record<string, number> {
+  try {
+    const repo = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!repo) {
+      return {};
+    }
+    const cells = repo.listByProjectRoot(projectRoot);
+    if (cells.length === 0) {
+      return {};
+    }
+    const coverageByDimension: Record<string, number> = {};
+    for (const cell of cells) {
+      coverageByDimension[cell.dimensionId] =
+        (coverageByDimension[cell.dimensionId] ?? 0) + cell.coveredCount;
+    }
+    return coverageByDimension;
+  } catch (_err: unknown) {
+    // 读账本失败绝不影响 rescan 规划：吞掉异常、返回空对象让 Core 现算覆盖。
+    return {};
+  }
+}
+
+/**
+ * U2d：在 deepMining rescan 起点开一轮 deep_mining_round。
+ *
+ * 轮次边界 = plan-confirm 到该轮所有 dimension_complete 回流。这里只「开轮」（startedAt + triggerActor），
+ * new_recipes_this_round / completedAt 由后续 dimension_complete 回流更新（本卡不强求，缺省 0）。
+ * 轮号 = (现有最大轮号 + 1)，仅在 rescan 起点计算一次。round 表无 rescanId 列（有意设计），故对同一 rescanId
+ * 重复调用会再开 index+1——本卡接受该折中（保持简单，避免引入跨调用幂等状态）。
+ * best-effort：repo 不可用 / 写失败都吞掉，绝不阻断 rescan。D3：只写 coverage 账本侧的 round 表，不碰 git-diff checkpoint。
+ */
+function openDeepMiningRound(ctx: McpContext, projectRoot: string): void {
+  try {
+    const repo = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!repo) {
+      return;
+    }
+    const existing = repo.listRoundsByProjectRoot(projectRoot);
+    // listRoundsByProjectRoot 升序，末元素为当前最大轮号；无轮次则首轮 = 1。
+    const nextIndex = existing.length > 0 ? existing[existing.length - 1].roundIndex + 1 : 1;
+    repo.upsertRound({
+      projectRoot,
+      roundIndex: nextIndex,
+      startedAt: Date.now(),
+      triggerActor: 'host-agent-rescan',
+    });
+    ctx.logger.info('[Rescan] Opened deepMining round (advisory round boundary)', {
+      projectRoot,
+      roundIndex: nextIndex,
+    });
+  } catch (_err: unknown) {
+    // 开轮失败绝不阻断 rescan：吞掉异常（advisory 轮次记录缺失只影响后续收敛建议精度）。
+  }
+}
+
 async function buildRescanPlanning(
   ctx: McpContext,
   state: Awaited<ReturnType<typeof prepareRescanState>>
@@ -315,6 +410,12 @@ async function buildRescanPlanning(
   // map 不可用时传 undefined，Core 退回「本批去重模块数」（零回归）。flat moduleScope 出口不受影响。
   const moduleCellBindings = flattenModuleBindingsToCells(state.planGate.moduleBindings);
   const canonicalModuleCount = state.projectContextAnalysis.presenterInput.map?.modules.length;
+  // U2b chain：perDimensionTargets 直接读意图（prepareRescanState 已从 gate.moduleBindings 派生并设上）；
+  // 它驱动 Core 每维 gap 用 Agent 目标替代硬编码 5/维。非空才透传（零回归）。
+  const intentPerDimensionTargets = state.intent.perDimensionTargets ?? {};
+  // U2b chain：ledgerCoverageByDimension 从覆盖账本读「每维已覆盖计数」，让 Core existingCount 优先用账本
+  // （比现算更准）。账本不可用/读失败/为空 → 留空对象，Core 退回现算 buildCoverageByDimension（零回归）。
+  const ledgerCoverageByDimension = loadLedgerCoverageByDimension(ctx, state.projectRoot);
   const knowledgeRescanPlan = buildKnowledgeRescanPlan({
     recipeEntries: state.recipeSnapshot.entries,
     auditSummary,
@@ -322,6 +423,10 @@ async function buildRescanPlanning(
     requestedDimensionIds: state.intent.dimensionIds,
     ...(moduleCellBindings.length > 0 ? { moduleBindings: moduleCellBindings } : {}),
     ...(canonicalModuleCount !== undefined ? { moduleCount: canonicalModuleCount } : {}),
+    ...(Object.keys(intentPerDimensionTargets).length > 0
+      ? { perDimensionTargets: intentPerDimensionTargets }
+      : {}),
+    ...(Object.keys(ledgerCoverageByDimension).length > 0 ? { ledgerCoverageByDimension } : {}),
   });
   const dimensions = selectProjectContextDimensions(
     knowledgeRescanPlan.executionDimensions,
@@ -475,9 +580,10 @@ function attachRescanUnifiedEvolution(
   response.data = data;
   const attach = (target: Record<string, unknown>) => {
     target.unifiedEvolution = unifiedEvolution.surface;
-    if (unifiedEvolution.surface.gitDiffEvidence) {
-      target.gitDiffEvidence = unifiedEvolution.surface.gitDiffEvidence;
-    }
+    // U2e：退役 git-diff 增量生成杂质——rescan 响应不再 surface gitDiffEvidence / moduleMiningRoutes
+    //（created→moduleMining 生成已在 750ef70 退役，moduleMiningRoutes 恒空；gitDiffEvidence 是 git-diff
+    // 增量扫描证据，属生成期杂质）。维护语义保留：evolution.pendingProposals / generationChangeLog 照常 attach。
+    // D3：覆盖账本收敛判定完全用账本字段，rescan 响应不再透出 git-diff 游标证据。
     if (!unifiedEvolution.surface.unifiedEvolution) {
       return;
     }
@@ -486,10 +592,79 @@ function attachRescanUnifiedEvolution(
     target.pendingProposals = evolution.pendingProposals;
     target.proposals = evolution.pendingProposals;
     target.generationChangeLog = evolution.generationChangeLog;
-    target.moduleMiningRoutes = evolution.moduleMiningRoutes;
   };
   attach(response);
   attach(data);
+}
+
+/**
+ * U2d：把覆盖账本收敛建议（adviseCoverageLedger）附到 response.data.coverageAdvisory（ADVISORY，非阻断）。
+ *
+ * 读账本 cells + deep_mining_rounds 最近一轮 → Core 纯函数算三类停止判定 + 价值排序缺口；moduleCount 取 canonical
+ * ProjectMap.modules.length（无则退 analysis.moduleCount，再退 0）。planK/planMaxRounds 不传 → Core 用 D2[tier]。
+ *
+ * **建议非自动调度**：只产出 suggestion 文案与 shouldStop/stopReason，**绝不设任何 blocking/gate 标志、绝不自动再扫一轮**——
+ * 是否再发一轮由用户/宿主决定。valueSortedGaps 截断 20 条防响应膨胀。
+ * best-effort：repo 不可用 / 读失败都吞掉并继续（advisory 缺席绝不破坏 rescan）。
+ * D3：只读 coverage_ledger + deep_mining_rounds，绝不触达 git_diff_checkpoints。
+ */
+function attachCoverageAdvisory(
+  ctx: McpContext,
+  response: Record<string, unknown> & { meta?: Record<string, unknown> },
+  state: Awaited<ReturnType<typeof prepareRescanState>>
+): void {
+  try {
+    const repo = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!repo) {
+      return;
+    }
+    const cells = repo.listByProjectRoot(state.projectRoot);
+    const rounds = repo.listRoundsByProjectRoot(state.projectRoot);
+    const latestRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
+    const moduleCount =
+      state.projectContextAnalysis.presenterInput.map?.modules.length ??
+      state.projectContextAnalysis.moduleCount ??
+      0;
+
+    const advisory = adviseCoverageLedger({ cells, latestRound, moduleCount });
+
+    // 仅保留 advisory 语义字段；不引入任何阻断/门禁键（no shouldBlock / gate / autoTrigger）。
+    const coverageAdvisory = {
+      shouldStop: advisory.shouldStop,
+      stopReason: advisory.stopReason,
+      highValueBlankCount: advisory.highValueBlankCount,
+      valueSortedGaps: advisory.valueSortedGaps.slice(0, 20),
+      suggestion: advisory.suggestion,
+      tier: advisory.tier,
+      k: advisory.k,
+      maxRounds: advisory.maxRounds,
+    };
+
+    const data =
+      response.data && typeof response.data === 'object' && !Array.isArray(response.data)
+        ? (response.data as Record<string, unknown>)
+        : {};
+    response.data = data;
+    data.coverageAdvisory = coverageAdvisory;
+
+    // meta 侧附一份紧凑摘要（仍是 advisory；output allowlist 已含 coverageAdvisory 键）。
+    const meta =
+      response.meta && typeof response.meta === 'object' && !Array.isArray(response.meta)
+        ? (response.meta as Record<string, unknown>)
+        : {};
+    response.meta = meta;
+    meta.coverageAdvisory = {
+      shouldStop: advisory.shouldStop,
+      stopReason: advisory.stopReason,
+      highValueBlankCount: advisory.highValueBlankCount,
+      suggestion: advisory.suggestion,
+    };
+  } catch (_err: unknown) {
+    // advisory 计算/附加失败绝不破坏 rescan：吞掉异常继续（建议缺席只是少一条非阻断提示）。
+    ctx.logger.warn('[Rescan] coverage advisory skipped (advisory, non-blocking)');
+  }
 }
 
 function createRescanUnifiedEvolutionHandler(
@@ -669,6 +844,58 @@ export function flattenModuleBindingsToCells(
     }
   }
   return cells;
+}
+
+/**
+ * U2b chain（纯函数，可独立单测）：从 gate.moduleBindings 派生意图侧的 per-cell 目标。
+ *
+ * 产出两份等价但用途不同的数据：
+ *   1. perDimensionTargets: Record<dim, number> —— 每维取该维下所有 binding targetRecipes 的 MAX（per-维度 Agent 目标，
+ *      驱动 Core gap 替代硬编码 5/维）；
+ *   2. moduleDimensionTargets: ModuleDimensionTarget[] —— 复用 flattenModuleBindingsToCells（per-cell 拍扁），
+ *      只保留带数值 targetRecipes 的 cell（让 Agent per-cell 目标 → intent → Core 的链条显式、可测）。
+ *
+ * 二者均为加性：为空时调用方不写入意图字段（零回归）。
+ */
+export function derivePerCellTargetsFromGate(
+  moduleBindings: readonly PlanSelectionModuleBinding[]
+): {
+  perDimensionTargets: Record<string, number>;
+  moduleDimensionTargets: ModuleDimensionTarget[];
+} {
+  // per-维度目标：同维多 binding 取 MAX（最激进的 Agent 目标胜出）。
+  const perDimensionTargets: Record<string, number> = {};
+  for (const binding of moduleBindings) {
+    if (typeof binding.targetRecipes !== 'number') {
+      continue;
+    }
+    for (const rawDimension of binding.dimensions ?? []) {
+      const dimensionId = rawDimension.trim();
+      if (dimensionId.length === 0) {
+        continue;
+      }
+      const previous = perDimensionTargets[dimensionId];
+      perDimensionTargets[dimensionId] =
+        previous === undefined ? binding.targetRecipes : Math.max(previous, binding.targetRecipes);
+    }
+  }
+
+  // per-cell 目标：复用拍扁结果，只取带数值 targetRecipes 的 cell 映射成 ModuleDimensionTarget。
+  const moduleDimensionTargets: ModuleDimensionTarget[] = flattenModuleBindingsToCells(
+    moduleBindings
+  )
+    .filter(
+      (cell): cell is ModuleCellBinding & { targetRecipes: number } =>
+        typeof cell.targetRecipes === 'number'
+    )
+    .map((cell) => ({
+      ...(cell.moduleId ? { moduleId: cell.moduleId } : {}),
+      ...(cell.moduleName ? { moduleName: cell.moduleName } : {}),
+      dimensionId: cell.dimensionId,
+      targetRecipes: cell.targetRecipes,
+    }));
+
+  return { perDimensionTargets, moduleDimensionTargets };
 }
 
 // 从 per-模块 binding 取一个稳定的 moduleName：优先 modulePath 末段，其次 moduleId。

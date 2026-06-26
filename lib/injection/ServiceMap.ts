@@ -36,6 +36,7 @@ import type { MemoryRepositoryImpl } from '@alembic/core/memory';
 import type {
   BootstrapRepository,
   CodeEntityRepository,
+  EvolutionCoverageLedgerRepository,
   EvolutionGitDiffCheckpointRepository,
   EvolutionLifecycleEventRepository,
   EvolutionProposalRepository,
@@ -98,6 +99,10 @@ export interface ServiceMap {
   warningRepository: EvolutionWarningRepository;
   lifecycleEventRepository: EvolutionLifecycleEventRepository;
   gitDiffCheckpointRepository: EvolutionGitDiffCheckpointRepository;
+  // U2a：deepMining 多轮覆盖账本仓（per module×dimension cell + deep_mining_rounds）。
+  // 与 gitDiffCheckpointRepository 并列注册，经 getCoreRepositories 桥接 Core repositories bundle；
+  // 覆盖账本（覆盖状态持久化）与 git-diff 维护游标（D3）严格分坐标系，互不读写。
+  coverageLedgerRepository: EvolutionCoverageLedgerRepository;
   recipeSourceRefRepository: SourceRefRepository;
   knowledgeFileWriter: KnowledgeFileWriter;
   knowledgeSyncService: KnowledgeSyncService;

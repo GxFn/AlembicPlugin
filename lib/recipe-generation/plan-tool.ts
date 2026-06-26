@@ -5,7 +5,12 @@ import {
   type ProjectLanguageFrameworkFacts,
   resolvePlanDimensionDefinitions,
 } from '@alembic/core/dimensions';
-import { baseDimensions, type DimensionDef } from '@alembic/core/host-agent-workflows';
+import {
+  baseDimensions,
+  type DimensionDef,
+  resolveModuleTier,
+  resolvePerCellTargetDefault,
+} from '@alembic/core/host-agent-workflows';
 import {
   normalizeConfirmedPlanIntent,
   type PlanIntent,
@@ -26,12 +31,16 @@ import {
   type RepoContext,
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
+import type {
+  CoverageLedgerRecord,
+  EvolutionCoverageLedgerRepository,
+} from '@alembic/core/repositories';
 import { resolveProjectRoot } from '@alembic/core/workspace';
+import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 import {
   removeTransientTransportIfPresent,
   writeTransientTransport,
 } from '#shared/transient-transport.js';
-import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 import {
   attachSourceFilesToProjectContextModuleSeeds,
   collectProjectSourceFileFacts,
@@ -164,11 +173,47 @@ interface ModuleSnapshot {
 
 type PlanArgs = PlanInput;
 
+/** U2b：deepMining 草稿向 Agent 暴露的覆盖账本「信号」（gap 候选 + 现存计数 + 评级 + 单轮上限）。 */
+interface CoverageSeedGapCandidate {
+  moduleId: string;
+  moduleName?: string;
+  dimensionId: string;
+  grade: CoverageLedgerRecord['grade'];
+  coveredCount: number;
+  totalCandidateCount: number;
+  valueScore: number;
+  /** 距 perCellTarget 的缺口（advisory，供 Agent 参考；非强制目标）。 */
+  suggestedDeficit: number;
+}
+
+interface CoverageSeedRatingByDimension {
+  empty: number;
+  thin: number;
+  partial: number;
+  covered: number;
+}
+
+interface CoverageSeed {
+  /** 价值降序的空白/单薄 cell（已排除 exhausted-with-reason 格），已按 D2 单轮上限截断。 */
+  gapCandidates: CoverageSeedGapCandidate[];
+  /** 每维已覆盖 recipe 计数（账本 coveredCount 求和）。 */
+  existingCountByDimension: Record<string, number>;
+  /** 每维 cell 评级分布（empty/thin/partial/covered 计数）。 */
+  ratingByDimension: Record<string, CoverageSeedRatingByDimension>;
+  /** D2 单轮 cell 上限（按 tier）。 */
+  perRoundCellBudget: number;
+  tier: 'S' | 'M' | 'L';
+}
+
 interface PlanDraftContext {
   analysis: PlanProjectContextAnalysis;
   projectRoot: string;
   projectInfoTree: ProjectInfoTreeRoot;
   candidateDimensions: CandidateDimension[];
+  // U2b：deepMining 草稿才有的覆盖账本信号；coldStart/moduleMining 留 undefined（coldStart 仍从零）。
+  coverageSeed?: CoverageSeed;
+  // U2b：把请求的 generationStage 透传进来，让 confirm next-action 不再硬编码 coldStart。
+  requestedStage?: PlanStageId;
 }
 
 type BuildConfirmIntentResult =
@@ -177,6 +222,74 @@ type BuildConfirmIntentResult =
 
 const PLAN_TOOL_NAME = 'alembic_plan';
 const DEFAULT_PROJECT_INFO_TREE_BUDGET_BYTES = 12 * 1024;
+
+// D2 perRoundCellBudget —— 单轮 cell 上限，防止 deepMining 单轮预算爆炸；
+// 这是 plan 编排侧的 cell 数上限，与 Core 的 K/maxRounds 停止条件正交（一个限「本轮喂多少格」，
+// 一个限「该不该再扫一轮」）。按 canonical 模块规模 tier 取值。
+const D2_PER_ROUND_CELL_BUDGET = { S: 50, M: 60, L: 80 } as const;
+
+/**
+ * U2b（纯函数，可独立单测）：从账本 cells 构建 deepMining 草稿的覆盖信号。
+ *
+ * gapCandidates = grade∈{empty,thin} 且非（exhausted && 有 reason）的 cell，按 valueScore 降序，
+ * 再按 D2[tier] 单轮上限截断。每项带 suggestedDeficit=max(0, perCellTarget−coveredCount)。
+ * 另产出 existingCountByDimension（每维 coveredCount 求和）与 ratingByDimension（每维评级分布）。
+ *
+ * no-guess：这些只是 SIGNAL，最终扫哪些 cell / 预算多少由 Agent confirm 决定。
+ */
+export function buildCoverageSeedFromCells(
+  cells: readonly CoverageLedgerRecord[],
+  options: { moduleCount: number }
+): CoverageSeed {
+  const tier = resolveModuleTier(options.moduleCount);
+  const perCellTarget = resolvePerCellTargetDefault(tier);
+  const perRoundCellBudget = D2_PER_ROUND_CELL_BUDGET[tier];
+
+  // 每维已覆盖计数 + 评级分布（遍历全量 cells，无论是否进 gapCandidates）。
+  const existingCountByDimension: Record<string, number> = {};
+  const ratingByDimension: Record<string, CoverageSeedRatingByDimension> = {};
+  for (const cell of cells) {
+    existingCountByDimension[cell.dimensionId] =
+      (existingCountByDimension[cell.dimensionId] ?? 0) + cell.coveredCount;
+    const rating =
+      ratingByDimension[cell.dimensionId] ??
+      (ratingByDimension[cell.dimensionId] = { empty: 0, thin: 0, partial: 0, covered: 0 });
+    rating[cell.grade] += 1;
+  }
+
+  // gap 候选：只取空白/单薄；排除 Agent 已声明尽力（exhausted+reason）的格——那是「已尽」不是「缺口」。
+  const gapCandidates: CoverageSeedGapCandidate[] = cells
+    .filter((cell) => {
+      const isGapGrade = cell.grade === 'empty' || cell.grade === 'thin';
+      const exhaustedWithReason =
+        cell.exhausted === true &&
+        typeof cell.exhaustedReason === 'string' &&
+        cell.exhaustedReason.trim().length > 0;
+      return isGapGrade && !exhaustedWithReason;
+    })
+    .map((cell) => ({
+      // CoverageLedgerRecord 不带 moduleName（只有 moduleId/dimensionId 轴），故 gap 候选只透传 moduleId。
+      moduleId: cell.moduleId,
+      dimensionId: cell.dimensionId,
+      grade: cell.grade,
+      coveredCount: cell.coveredCount,
+      totalCandidateCount: cell.totalCandidateCount,
+      valueScore: cell.valueScore ?? 0,
+      suggestedDeficit: Math.max(0, perCellTarget - cell.coveredCount),
+    }))
+    // 价值降序：高价值空白排前，供 Agent 优先考虑。
+    .sort((left, right) => right.valueScore - left.valueScore)
+    // D2 单轮上限截断（防预算爆炸）。
+    .slice(0, perRoundCellBudget);
+
+  return {
+    gapCandidates,
+    existingCountByDimension,
+    ratingByDimension,
+    perRoundCellBudget,
+    tier,
+  };
+}
 
 export async function routePlanTool(
   ctx: PlanToolContext,
@@ -212,7 +325,7 @@ async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTool
     return emptyProjectContextResponse(projectRoot);
   }
 
-  const draftContext = await buildPlanDraftContext(args, projectRoot, analysis);
+  const draftContext = await buildPlanDraftContext(ctx, args, projectRoot, analysis);
   return planDraftResponse(draftContext);
 }
 
@@ -235,7 +348,134 @@ async function confirmPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTo
       { operation: 'confirm', projectRoot }
     );
   }
+  // U2c：coldStart confirm 后，把「canonical 模块×已选维度」网格里 Agent 未绑定本轮扫的 cell 写成 deferred 空行。
+  // best-effort、纯副作用，绝不改 confirm 响应（intent 已校验通过才走到这）。RED LINE 6：deferred 行写出而非缺席。
+  if (intent.generationStage === 'coldStart') {
+    await writeColdStartDeferredCoverageRows(ctx, projectRoot, intent);
+  }
   return confirmedPlanResponse(projectRoot, intent, buildPlanSelection(intent));
+}
+
+/**
+ * U2c：coldStart confirm 写 deferred 空行（best-effort，绝不阻断 confirm）。
+ *
+ * scan-now vs deferred 完全由 Agent 的 selectedDimensions × moduleBindings 决定：
+ *   一个 (canonical 模块 × 维度) 算「本轮扫」当且仅当 —— 存在某个 moduleBinding，其 modulePath 与该模块 path 前缀重叠
+ *   且该 binding 的 dimensions 含此维度。否则该 cell = deferred（Agent 本轮没选它）。
+ * deferred cell 写 grade=empty,deferred=1,lastRound=0（round 0=coldStart 首扫），让 deepMining「空白格」语义无歧义。
+ *
+ * no-guess：Plugin 不臆造该扫哪些；deferred 纯由「网格 − Agent 已绑定」推导。
+ * D3：只写 coverage_ledger，绝不触达 git_diff_checkpoints。
+ */
+async function writeColdStartDeferredCoverageRows(
+  ctx: PlanToolContext,
+  projectRoot: string,
+  intent: PlanIntent
+): Promise<void> {
+  try {
+    const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!coverageLedgerRepository) {
+      return;
+    }
+    const moduleService = ctx.container.get('moduleService') as
+      | { listCanonicalModules(): Promise<Array<{ id?: string; name: string; path?: string }>> }
+      | undefined;
+    if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
+      return;
+    }
+    const canonicalModules = await moduleService.listCanonicalModules();
+    if (canonicalModules.length === 0) {
+      // no-guess：无 canonical 模块就没有可信网格，不写任何 deferred 行。
+      return;
+    }
+
+    const selectedDimensionIds = intent.dimensions.map((dimension) => dimension.dimensionId);
+    if (selectedDimensionIds.length === 0) {
+      return;
+    }
+
+    // 预归一化每个 binding 的 modulePath + 其覆盖的维度集合，供前缀重叠判定。
+    const normalizedBindings = intent.moduleBindings.map((binding) => ({
+      path: normalizeCoveragePath(binding.modulePath),
+      dimensions: new Set(binding.dimensions),
+    }));
+
+    let deferredWritten = 0;
+    for (const module of canonicalModules) {
+      const moduleId = module.id ?? module.name;
+      const modulePath = normalizeCoveragePath(module.path);
+      for (const dimensionId of selectedDimensionIds) {
+        // 该 (模块×维度) 是否被 Agent 绑定本轮扫：任一 binding 与模块 path 重叠且含此维度即算「扫」。
+        const scanned = normalizedBindings.some(
+          (binding) =>
+            binding.dimensions.has(dimensionId) && coveragePathsOverlap(binding.path, modulePath)
+        );
+        if (scanned) {
+          continue;
+        }
+        // 未被绑定 → deferred 空行（grade=empty,deferred=1）。
+        coverageLedgerRepository.upsertCell({
+          projectRoot,
+          moduleId,
+          dimensionId,
+          grade: 'empty',
+          deferred: true,
+          coveredCount: 0,
+          totalCandidateCount: 0,
+          valueScore: 0,
+          lastRound: 0,
+        });
+        deferredWritten += 1;
+      }
+    }
+
+    // info：deferred 行是 advisory 覆盖状态（标记「本轮选择不扫」），非门禁。
+    if (deferredWritten > 0) {
+      logCoverageInfo(ctx, '[PlanConfirm] coldStart deferred coverage rows written (advisory)', {
+        projectRoot,
+        deferredCells: deferredWritten,
+        selectedDimensions: selectedDimensionIds.length,
+      });
+    }
+  } catch (_err: unknown) {
+    // 吞掉任何异常：deferred 写入是 coldStart confirm 的旁路副作用，绝不改响应、不阻断 confirm。
+  }
+}
+
+/** 归一化覆盖路径：统一斜杠、去首尾分隔符，保证前缀匹配两侧坐标系一致（空路径返回空串）。 */
+function normalizeCoveragePath(value: string | undefined): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+}
+
+/**
+ * 路径前缀重叠：任一方是另一方的「路径段前缀」即视为重叠（与 canonical-module-axis / Core pathsOverlap 同语义）。
+ * 任一为空串视为不重叠（无路径的模块/绑定不参与覆盖归属）。
+ */
+function coveragePathsOverlap(left: string, right: string): boolean {
+  if (left.length === 0 || right.length === 0) {
+    return false;
+  }
+  if (left === right) {
+    return true;
+  }
+  return left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+/** plan-tool 容器没有强类型 logger，这里安全探测 ctx.logger 再打印（缺省静默）。 */
+function logCoverageInfo(
+  ctx: PlanToolContext,
+  message: string,
+  meta?: Record<string, unknown>
+): void {
+  const maybeLogger = (
+    ctx as { logger?: { info?(m: string, meta?: Record<string, unknown>): void } }
+  ).logger;
+  maybeLogger?.info?.(message, meta);
 }
 
 function emptyProjectContextResponse(projectRoot: string): PlanToolResponse {
@@ -257,6 +497,7 @@ function emptyProjectContextResponse(projectRoot: string): PlanToolResponse {
 }
 
 async function buildPlanDraftContext(
+  ctx: PlanToolContext,
   args: PlanArgs,
   projectRoot: string,
   analysis: PlanProjectContextAnalysis
@@ -267,12 +508,49 @@ async function buildPlanDraftContext(
     analysis,
     projectRoot,
   });
+  // U2b：deepMining 草稿每次都「重新读」账本生成覆盖信号；coldStart/moduleMining 不读（coldStart 仍从零）。
+  // RED LINE 1：plan 仍是无状态 draft→confirm，账本只是被读取的覆盖状态，绝不把 plan 持久化。
+  const coverageSeed =
+    args.generationStage === 'deepMining'
+      ? loadDeepMiningCoverageSeed(ctx, projectRoot, analysis.moduleCount)
+      : undefined;
   return {
     analysis,
     projectRoot,
     projectInfoTree,
     candidateDimensions: buildCandidateDimensions(analysis),
+    ...(coverageSeed ? { coverageSeed } : {}),
+    // requestedStage 透传：confirm next-action 据此回填 generationStage（不再硬编码 coldStart）。
+    ...(args.generationStage ? { requestedStage: args.generationStage } : {}),
   };
+}
+
+/**
+ * U2b：读账本 → 覆盖信号（best-effort）。账本不可用或读失败 → 返回 undefined（草稿仍可工作，只是没信号）。
+ * RED LINE 1：这是「每次草稿重新读」，无任何 plan/session 持久化。
+ */
+function loadDeepMiningCoverageSeed(
+  ctx: PlanToolContext,
+  projectRoot: string,
+  moduleCount: number
+): CoverageSeed | undefined {
+  try {
+    const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!coverageLedgerRepository) {
+      return undefined;
+    }
+    const cells = coverageLedgerRepository.listByProjectRoot(projectRoot);
+    if (cells.length === 0) {
+      // 账本空（尚未跑过 coldStart/dimension_complete）→ 无信号；deepMining 草稿照常返回项目事实。
+      return undefined;
+    }
+    return buildCoverageSeedFromCells(cells, { moduleCount });
+  } catch (_err: unknown) {
+    // 读账本失败绝不影响草稿：吞掉异常、返回 undefined（草稿仍输出 projectInfoTree/candidateDimensions）。
+    return undefined;
+  }
 }
 
 function buildCandidateDimensions(analysis: PlanProjectContextAnalysis): CandidateDimension[] {
@@ -312,6 +590,8 @@ function planDraftResponse(draftContext: PlanDraftContext): PlanToolResponse {
       projectInfoTree: draftContext.projectInfoTree,
       candidateDimensions: draftContext.candidateDimensions,
       agentDecisionChecklist: buildAgentDecisionChecklist(),
+      // U2b：deepMining 草稿带覆盖信号（gap 候选/现存计数/评级/单轮上限）。no-guess：是 SIGNAL，由 Agent 决定。
+      ...(draftContext.coverageSeed ? { coverageSeed: draftContext.coverageSeed } : {}),
       nextActions: [buildDraftConfirmNextAction(draftContext)],
     },
   };
@@ -334,7 +614,11 @@ function buildDraftConfirmNextAction(draftContext: PlanDraftContext): Record<str
     ],
     args: {
       operation: 'confirm',
-      generationStage: 'coldStart',
+      // U2b：generationStage 不再硬编码 coldStart。有覆盖信号 → deepMining；否则回退请求的 stage，再退 coldStart。
+      // （coverageSeed 仅 deepMining 草稿才有，故它在场即等价于 deepMining。）
+      generationStage: draftContext.coverageSeed
+        ? 'deepMining'
+        : (draftContext.requestedStage ?? 'coldStart'),
       projectProfile: buildProjectProfileFromAnalysis(draftContext.analysis),
     },
   };

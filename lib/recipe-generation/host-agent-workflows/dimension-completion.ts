@@ -1,10 +1,16 @@
 import { dimensionTags } from '@alembic/core/dimensions';
 import {
+  type CoverageLedgerCandidate,
+  type CoverageLedgerExhaustedDeclaration,
+  type CoverageLedgerModuleAxis,
   type DimensionDef,
   type ProjectSkillDeliveryReceipt,
+  resolveModuleTier,
+  resolvePerCellTargetDefault,
   saveDimensionCheckpoint,
 } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
+import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import { BootstrapEventEmitter } from '#recipe-generation/bootstrap/BootstrapEventEmitter.js';
@@ -13,6 +19,10 @@ import {
   buildSubmittedRecipesForCompletenessCritic,
   projectCompletenessCriticForAgent,
 } from '#recipe-generation/host-agent-workflows/completeness-critic.js';
+import {
+  reflowDeepMiningRoundOnCompletion,
+  writeCoverageLedgerForCompletion,
+} from '#recipe-generation/host-agent-workflows/coverage-ledger-write.js';
 import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
@@ -552,6 +562,18 @@ async function persistAndBroadcastDimensionCompletion({
     submittedRecipeIds,
   });
 
+  // U2a：维度完成后写 per-(module×dimension) 覆盖账本（advisory 覆盖状态，非门禁）。
+  // 放在 critic 之后、return 之前，且整段 best-effort：账本写失败不改响应、不阻断完成。
+  // submittedRecipeIds 透传给 U2d 轮次回流：本次维度完成新增的 recipe 数累计进当前轮 new_recipes_this_round。
+  await writeDimensionCompletionCoverageLedger({
+    ctx,
+    dimension,
+    input,
+    referencedFiles,
+    submittedRecipeIds,
+    projectRoot: session.projectRoot,
+  });
+
   return {
     accumulatedHints,
     completenessCritic,
@@ -565,6 +587,137 @@ async function persistAndBroadcastDimensionCompletion({
     subpackageCoverageWarning,
     updated,
   };
+}
+
+/** ModuleService 的最小投影：只取 canonical 模块的 id/name/path（不触发新扫描）。 */
+interface CanonicalModuleServiceLike {
+  listCanonicalModules(): Promise<Array<{ id?: string; name: string; path?: string }>>;
+}
+
+/**
+ * U2a：维度完成时写覆盖账本（best-effort，绝不阻断完成）。
+ *
+ * module 轴来自 canonical ProjectMap（ModuleService.listCanonicalModules），ownedPaths=模块根路径前缀；
+ * 候选 = referencedFiles（importance 60，已落点→覆盖）∪ 各模块 ownedPath（importance 50，未被引用→暴露 thin/blank 缺口）；
+ * coveredPaths = referencedFiles 去行号；perCellTarget 由 canonical 模块数定 tier 后取 D2 默认值。
+ * 维度只写本次完成的这一维（dimensionIds=[dimension.id]）；exhausted 仅在 Agent 显式 noPadding+reason 时按维落 agent-declared。
+ *
+ * no-guess：moduleService 不可用或无 canonical 模块 → 直接跳过（不臆造模块轴）。
+ * D3：本路径只写 coverage_ledger，绝不触达 git_diff_checkpoints。
+ */
+async function writeDimensionCompletionCoverageLedger(args: {
+  ctx: HostAgentDimensionCompletionContext;
+  dimension: DimensionDef;
+  input: CompletionInput;
+  referencedFiles: string[];
+  submittedRecipeIds: string[];
+  projectRoot: string;
+}): Promise<void> {
+  const { ctx, dimension, input, referencedFiles, submittedRecipeIds, projectRoot } = args;
+  const logger = ctx.logger;
+  try {
+    const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!coverageLedgerRepository) {
+      // DI 未注册账本仓（旧容器/部分启动）→ 跳过，advisory 写入缺席不影响完成。
+      logger?.debug?.('[DimensionComplete] coverage ledger write skipped: repository unavailable');
+      return;
+    }
+
+    const moduleService = ctx.container.get('moduleService') as
+      | CanonicalModuleServiceLike
+      | undefined;
+    if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
+      logger?.debug?.(
+        '[DimensionComplete] coverage ledger write skipped: moduleService unavailable'
+      );
+      return;
+    }
+    const canonicalModules = await moduleService.listCanonicalModules();
+    if (canonicalModules.length === 0) {
+      // no-guess：没有 canonical 模块就没有可信 module 轴，不臆造模块。
+      logger?.debug?.('[DimensionComplete] coverage ledger write skipped: no canonical modules');
+      return;
+    }
+
+    // canonical 模块 → CoverageLedgerModuleAxis（模块根路径作为 ownedPath 前缀；Core pathsOverlap 据此判覆盖）。
+    const modules: CoverageLedgerModuleAxis[] = canonicalModules.map((module) => ({
+      moduleId: module.id ?? module.name,
+      moduleName: module.name,
+      ownedPaths: module.path ? [module.path] : [],
+    }));
+
+    // coveredPaths = 已引用文件去行号锚点（referencedFiles 形如 `path:10-20`，剥离末尾 `:行号`）。
+    const coveredPaths = referencedFiles.map((ref) => ref.replace(/:\d+(?:-\d+)?$/, ''));
+    // 候选：referencedFiles 作高价值已覆盖候选（importance 60）；模块 ownedPath 作低价值候选（importance 50），
+    // 未被引用的模块 ownedPath → 候选未覆盖 → 该 (模块×维度) 落 thin/empty，正是 deepMining 想要的空白/单薄信号。
+    const candidates: CoverageLedgerCandidate[] = [
+      ...coveredPaths.map((path) => ({
+        dimensionIds: [dimension.id],
+        sourceRefPaths: [path],
+        importance: 60,
+      })),
+      ...modules
+        .filter((module) => module.ownedPaths.length > 0)
+        .map((module) => ({
+          dimensionIds: [dimension.id],
+          sourceRefPaths: [...module.ownedPaths],
+          importance: 50,
+        })),
+    ];
+
+    const tier = resolveModuleTier(modules.length);
+    const perCellTarget = resolvePerCellTargetDefault(tier);
+
+    // exhausted：仅当 Agent 显式 noPadding=true 且给了非空 reason，才按维度对每个模块落 agent-declared 尽力声明。
+    let exhaustedDeclarations: CoverageLedgerExhaustedDeclaration[] | undefined;
+    const exhaustedReason =
+      typeof input.exhaustedReason === 'string' ? input.exhaustedReason.trim() : '';
+    if (input.noPadding === true && exhaustedReason.length > 0) {
+      exhaustedDeclarations = modules.map((module) => ({
+        moduleId: module.moduleId,
+        dimensionId: dimension.id,
+        reason: exhaustedReason,
+      }));
+    }
+
+    // 轮号戳：取账本里最新一轮（升序末元素）的轮号，无轮次则 0；这批 cell 归属该轮（deepMining 多轮收敛用）。
+    // 轮次的 new_recipes_this_round 累加在下方 reflow 里完成（helper 内自取最新轮）。
+    const rounds = coverageLedgerRepository.listRoundsByProjectRoot(projectRoot);
+    const lastRound = rounds.length > 0 ? rounds[rounds.length - 1].roundIndex : 0;
+
+    writeCoverageLedgerForCompletion({
+      repository: coverageLedgerRepository,
+      projectRoot,
+      modules,
+      dimensionIds: [dimension.id],
+      candidates,
+      coveredPaths,
+      perCellTarget,
+      ...(exhaustedDeclarations ? { exhaustedDeclarations } : {}),
+      lastRound,
+      ...(logger ? { logger } : {}),
+    });
+
+    // U2d 轮次回流：本次维度完成把「新增 recipe 数」累计进当前已开轮（reflowDeepMiningRoundOnCompletion 内取最新轮、
+    // 累加 new_recipes_this_round、推进 completedAt；coldStart 无已开轮则自然跳过）。new_recipes 是收益递减判定的真实输入，
+    // 必须由回流写入，否则收敛建议会把刚开的、产出仍为 0 的本轮当「上一轮」误判递减、令多轮循环每轮立即停止。
+    const newRecipeCount =
+      typeof input.candidateCount === 'number' && input.candidateCount > 0
+        ? input.candidateCount
+        : submittedRecipeIds.length;
+    reflowDeepMiningRoundOnCompletion({
+      repository: coverageLedgerRepository,
+      projectRoot,
+      newRecipeCount,
+      ...(logger ? { logger } : {}),
+    });
+  } catch (err: unknown) {
+    // 任何异常都吞掉：账本写入是 advisory 旁路，绝不改变维度完成响应或阻断完成。
+    const reason = err instanceof Error ? err.message : String(err);
+    logger?.debug?.(`[DimensionComplete] coverage ledger write skipped: ${reason}`);
+  }
 }
 
 function buildDimensionCompletionSuccessResponse({

@@ -252,6 +252,8 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
   ],
   alembic_rescan: [
     'allRecipes',
+    // U2d：覆盖账本咨询（三停止 + 高价值空白 + 价值排序缺口 + 建议）；advisory 不阻断。
+    'coverageAdvisory',
     'dimensions',
     'cleanupPolicy',
     'evidencePlan',
@@ -260,9 +262,9 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'executionPlan',
     'generationStage',
     'generationChangeLog',
-    'gitDiffEvidence',
+    // U2e：退役 git-diff 增量生成杂质——gitDiffEvidence / moduleMiningRoutes 不再透出 rescan 业务输出
+    //（生成已于 750ef70 退役、moduleMiningRoutes 恒空）；维护 pendingProposals/generationChangeLog 保留。
     'moduleScope',
-    'moduleMiningRoutes',
     'pendingProposals',
     'planGate',
     'planState',

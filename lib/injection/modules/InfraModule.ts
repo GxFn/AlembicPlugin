@@ -147,6 +147,12 @@ function registerRepositories(c: ServiceContainer) {
     return getCoreRepositories(ct).gitDiffCheckpointRepository;
   });
 
+  // U2a：注册覆盖账本仓（Core repositories.ts 已构造 coverageLedgerRepository）。
+  // 复刻 gitDiffCheckpointRepository 的桥接形态；账本只持久化覆盖状态，不含 plan/session 字段。
+  c.singleton('coverageLedgerRepository', (ct: ServiceContainer) => {
+    return getCoreRepositories(ct).coverageLedgerRepository;
+  });
+
   c.singleton('recipeSourceRefRepository', (ct: ServiceContainer) => {
     return getCoreRepositories(ct).recipeSourceRefRepository;
   });
