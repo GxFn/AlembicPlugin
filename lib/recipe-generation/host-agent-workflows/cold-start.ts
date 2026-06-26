@@ -49,11 +49,10 @@ import { attachProjectContextCreationGuide } from '#recipe-generation/project-co
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
 import {
-  jsonByteLength,
-  removeTransientTransportIfPresent,
-  type TransientTransportRef,
-  writeTransientTransport,
-} from '#shared/transient-transport.js';
+  attachFullBriefingRef,
+  budgetBriefingResponseData,
+} from '#recipe-generation/host-agent-workflows/briefing-budget.js';
+import { jsonByteLength, type TransientTransportRef } from '#shared/transient-transport.js';
 
 interface McpContext {
   container: ServiceContainer;
@@ -438,39 +437,23 @@ async function budgetColdStartResponseData(
     projectRoot: string;
   }
 ): Promise<void> {
-  const data = readRecord(input.data) ?? {};
-  const fullInline = attachFullBriefingRef(data, null);
-  if (jsonByteLength(fullInline) <= COLD_START_BRIEFING_INLINE_BUDGET_BYTES) {
-    await removeTransientTransportIfPresent({
-      dataRoot: context.dataRoot,
-      name: 'bootstrap-briefing',
-      projectRoot: context.projectRoot,
-    });
-    input.data = fullInline;
-    return;
-  }
-
-  const fullBriefingRef = await writeTransientTransport({
+  // U3：委托共享预算步骤 budgetBriefingResponseData；cold-start 专属的瘦身阶梯
+  // （compactColdStartBriefing → attachFullBriefingRef(ref) → trimColdStartBriefingToBudget）
+  // 作为 compact 回调注入、**不下沉**到共享层。回调内字节顺序与历史逐字一致：trim 逐级测量的是
+  // 已附 ref 的体积，故 attachFullBriefingRef(ref) 必须在 trim 之前；inline 与 >预算两路行为前后
+  // 逐字段一致（行为快照硬验收）。
+  await budgetBriefingResponseData(input, {
     dataRoot: context.dataRoot,
-    name: 'bootstrap-briefing',
-    payload: fullInline,
     projectRoot: context.projectRoot,
+    transportName: 'bootstrap-briefing',
+    inlineBudgetBytes: COLD_START_BRIEFING_INLINE_BUDGET_BYTES,
+    attachRef: (data, ref) => attachFullBriefingRef(data, ref),
+    compact: (fullInline, ref) =>
+      trimColdStartBriefingToBudget(
+        attachFullBriefingRef(compactColdStartBriefing(fullInline), ref),
+        COLD_START_BRIEFING_INLINE_BUDGET_BYTES
+      ),
   });
-  const compact = attachFullBriefingRef(compactColdStartBriefing(fullInline), fullBriefingRef);
-  input.data = trimColdStartBriefingToBudget(compact, COLD_START_BRIEFING_INLINE_BUDGET_BYTES);
-}
-
-function attachFullBriefingRef<T extends { meta?: Record<string, unknown> }>(
-  briefing: T,
-  fullBriefingRef: TransientTransportRef | null
-): T & { meta: Record<string, unknown> } {
-  return {
-    ...briefing,
-    meta: {
-      ...(briefing.meta || {}),
-      fullBriefingRef,
-    },
-  };
 }
 
 function compactColdStartBriefing<T extends { meta?: Record<string, unknown> }>(

@@ -55,6 +55,12 @@ import { attachProjectContextCreationGuide } from '#recipe-generation/project-co
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import {
+  BRIEFING_INLINE_BUDGET_BYTES,
+  attachFullBriefingRef,
+  budgetBriefingResponseData,
+} from './briefing-budget.js';
+import { attachPlanScopeTargetCounts } from './cold-start.js';
+import {
   type KnowledgeIndexRebuildReport,
   rebuildLocalKnowledgeIndexes,
 } from './knowledge-index-rebuild.js';
@@ -269,6 +275,18 @@ async function buildRescanResponse(
   attachRescanUnifiedEvolution(response, state.unifiedEvolution);
   attachTrashArchiveMessage(response, state.cleanResult);
   attachHostProjectSelectionMismatch(response, state.projectRoot);
+  // U3 item3：在所有 attach*（unifiedEvolution/trashArchive/projectSelectionMismatch）之后，对完整
+  // response.data 做内联预算化（与 cold-start 共享同一步骤/口径）。≤18KB 内联并清理遗留 transient；
+  // >预算把完整 data 写入 'rescan-briefing' transient transport，再经 attachFullBriefingRef 把引用写进
+  // meta.fullBriefingRef（复用 output allowlist 既有键→零改 allowlist）。rescan 不提供 compact 回调，
+  // 故超预算只附 transient 引用、不瘦身内联（与 cold-start 的逐级压缩有意不对称——本卡范围）。
+  await budgetBriefingResponseData(response, {
+    dataRoot: state.dataRoot,
+    projectRoot: state.projectRoot,
+    transportName: 'rescan-briefing',
+    inlineBudgetBytes: BRIEFING_INLINE_BUDGET_BYTES,
+    attachRef: (data, ref) => attachFullBriefingRef(data, ref),
+  });
   return response;
 }
 
@@ -359,6 +377,19 @@ function buildRescanBriefing(
     rescan: { evidencePlan: planning.evidencePlan, prescreen: planning.prescreen },
     session,
   });
+  // U3 item4：moduleMining（planGate.moduleScope 非空 / generationStage==='moduleMining'）对称
+  // cold-start.ts:290——用 projectContext.sourceFileFacts（D1：模块轴唯一来源，不另造）给 plan moduleScope
+  // 补每模块目标文件计数。deepMining 不调用（moduleScope 空时 attachPlanScopeTargetCounts 本就是 no-op，
+  // 这里显式 stage 守卫使「moduleMining 调 / deepMining 不调」意图可测）。
+  const isModuleMiningStage =
+    state.planGate.generationStage === 'moduleMining' ||
+    (state.planGate.moduleScope?.length ?? 0) > 0;
+  const briefingWithModuleCounts = isModuleMiningStage
+    ? attachPlanScopeTargetCounts(briefing, {
+        moduleScope: state.planGate.moduleScope,
+        sourceFileFacts: projectContextAnalysis.sourceFileFacts,
+      })
+    : briefing;
   const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
     dimensions: Array.isArray(dimensions) ? dimensions : [],
     options: {
@@ -369,7 +400,7 @@ function buildRescanBriefing(
   });
   const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
   const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(
-    briefing as Record<string, unknown>,
+    briefingWithModuleCounts as Record<string, unknown>,
     ideAgentAnalysis
   );
   briefingWithIdeAgentSurface.meta.projectContextDirectSwitch = {

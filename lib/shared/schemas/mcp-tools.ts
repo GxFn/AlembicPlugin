@@ -1068,7 +1068,13 @@ export const BootstrapInput = z.object({
     .describe(
       'Required confirmation when a usable knowledge base already exists: pass true to archive ALL existing knowledge to .asd/.trash/<timestamp>/ and rebuild from zero. Without it, bootstrap refuses and recommends alembic_rescan instead.'
     ),
-  generationStage: z.literal('coldStart').optional(),
+  generationStage: z
+    .literal('coldStart')
+    .optional()
+    .describe(
+      'Bootstrap 生成阶段恒为 coldStart（首次全量冷启动）。bootstrap briefing 响应按 ~18KB 内联预算化：' +
+        '超预算时完整 briefing 落 transient transport、meta.fullBriefingRef 指向它，并内联回退压缩版（compact+trim 阶梯）。'
+    ),
   planSelection: ColdStartPlanSelectionInput.describe(
     'Required planSelection returned by alembic_plan confirm for the just-planned coldStart run.'
   ),
@@ -1146,7 +1152,14 @@ export const RescanInput = z.object({
     .optional()
     .describe('可选：produceSession.dimensions 的兼容顶层别名'),
   controllerAuthorized: z.boolean().optional().describe('可选：顶层 controller 授权标志'),
-  generationStage: z.enum(['deepMining', 'moduleMining']).optional(),
+  generationStage: z
+    .enum(['deepMining', 'moduleMining'])
+    .optional()
+    .describe(
+      'rescan 生成阶段：deepMining（全项目缺口挖掘）或 moduleMining（plan moduleScope 驱动每模块目标文件计数，' +
+        '来源 projectContext.sourceFileFacts）。rescan briefing 响应按 ~18KB 内联预算化：超预算时完整 briefing 落 ' +
+        'transient transport、meta.fullBriefingRef 指向它。'
+    ),
   planSelection: RescanPlanSelectionInput.describe(
     'Required planSelection returned by alembic_plan confirm for the just-planned deepMining or moduleMining run.'
   ),
