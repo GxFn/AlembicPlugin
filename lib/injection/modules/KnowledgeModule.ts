@@ -303,6 +303,11 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
       sourceRefRepo: ct.services.recipeSourceRefRepository
         ? (ct.get('recipeSourceRefRepository') as SourceRefRepository)
         : undefined,
+      // U4 消费侧 d2：注入 lifecycleStateMachine，使 staging sweep 第4 driver 调 scanAll(cap) 时，
+      // 命中的 active recipe 经 Core DecayDetector 内部直走 transition(trigger='decay-detection')→decaying
+      // 并记 lifecycle_transition_events（B1：不依赖信号订阅）。lifecycleStateMachine 单例 factory 不反向
+      // 依赖 decayDetector，无循环依赖；缺省（不注入）时 Core 仅打分不迁移（向后兼容）。
+      lifecycleStateMachine: ct.get('lifecycleStateMachine') as LifecycleStateMachine,
     });
   });
 

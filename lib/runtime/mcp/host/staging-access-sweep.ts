@@ -46,6 +46,13 @@ interface ProposalExecutorLike {
   }>;
 }
 
+interface DecayDetectorLike {
+  // cap 可选，对齐 Core DecayDetector.scanAll(cap?: number): Promise<DecayScoreResult[]>。
+  // 注入 lifecycleStateMachine 后（KnowledgeModule DI），scanAll 内部直走 transition(trigger='decay-detection')
+  // 驱动 active→decaying（B1：不依赖信号订阅）；不传=无界，传=单 tick 评估 ≤cap 条（最旧优先、跨 tick 排空）。
+  scanAll(cap?: number): Promise<unknown[]>;
+}
+
 interface LoggerLike {
   debug?(message: string, meta?: Record<string, unknown>): void;
   info?(message: string, meta?: Record<string, unknown>): void;
@@ -66,11 +73,14 @@ export interface StagingAccessSweepInput {
 }
 
 export interface StagingAccessSweepResult {
-  // P2/P3 additive 可观测计数（lifecycle 超时 + proposal 执行驱动）：checkedTimeouts=本 tick
+  // P2/P3/P4 additive 可观测计数（lifecycle 超时 + proposal 执行 + decay 驱动）：checkedTimeouts=本 tick
   // checkTimeouts 扫描条数、timedOutCount=经 transition 迁移条数；executedCount/rejectedCount/
-  // expiredCount=本 tick checkAndExecute 执行/驳回/过期的 proposal 条数。注意与下方 timedOut
-  // (布尔，sweep 2s 信封超时标志)语义不同，勿混用；仅新增字段，既有字段语义不变。
+  // expiredCount=本 tick checkAndExecute 执行/驳回/过期的 proposal 条数；decayScannedCount=本 tick
+  // DecayDetector.scanAll 评估的 recipe 条数（active→decaying 迁移在 Core 内部直走 transition、记
+  // lifecycle_transition_events）。注意与下方 timedOut(布尔，sweep 2s 信封超时标志)语义不同，勿混用；
+  // 仅新增字段，既有字段语义不变。
   checkedTimeouts?: number;
+  decayScannedCount?: number;
   durationMs?: number;
   executedCount?: number;
   expiredCount?: number;
@@ -133,8 +143,9 @@ async function runSweep(
   try {
     const container = await input.getContainer();
     const stagingManager = container.get('stagingManager') as StagingManagerLike;
-    // 共享 sweep 上限：P1 promote 与 P2 lifecycle 超时驱动复用同一 cap（resolveStagingAccessSweepCap）。
-    // 各驱动各自 ≤cap，单 tick 总量 ≤ 驱动数×cap，仍有界；P3（checkAndExecute/subscribe）本次不接线。
+    // 共享 sweep 上限：P1 promote / P2 checkTimeouts / P3 checkAndExecute / P4 decay 四个有界 driver
+    // 复用同一 cap（resolveStagingAccessSweepCap）。各驱动各自 ≤cap，单 tick 总量 ≤ 驱动数×cap，仍有界。
+    // （subscribeToSignals 即时信号订阅在 KnowledgeModule init 接线，不在本 sweep。）
     const cap = resolveStagingAccessSweepCap();
     // P1：以共享 cap 调 checkAndPromote，单次只晋级 ≤cap 条。
     const result = await stagingManager.checkAndPromote(cap);
@@ -153,10 +164,18 @@ async function runSweep(
     const executed = Array.isArray(executionResult.executed) ? executionResult.executed : [];
     const expired = Array.isArray(executionResult.expired) ? executionResult.expired : [];
     const rejected = Array.isArray(executionResult.rejected) ? executionResult.rejected : [];
+    // P4（decay 第4 driver）：checkAndExecute 之后、同一 tick / 同一 try-catch 信封内，以同一共享 cap 调
+    // DecayDetector.scanAll。注入 lifecycleStateMachine 后（KnowledgeModule DI），命中的 active recipe 经 tick
+    // 直走 transition(trigger='decay-detection')→decaying（B1：不依赖信号订阅；isValidTransition 幂等）；
+    // 此处仅接线驱动、不碰判定、不绕 transition Guard；scanAll 抛错则整 sweep 走下方 skipped 兜底。
+    const decayDetector = container.get('decayDetector') as DecayDetectorLike;
+    const decayResults = await decayDetector.scanAll(cap);
+    const decayScanned = Array.isArray(decayResults) ? decayResults : [];
     const promoted = Array.isArray(result.promoted) ? result.promoted : [];
     const waiting = Array.isArray(result.waiting) ? result.waiting : [];
     return {
       checkedTimeouts: typeof timeoutResult.checked === 'number' ? timeoutResult.checked : 0,
+      decayScannedCount: decayScanned.length,
       durationMs: Date.now() - startedAt,
       executedCount: executed.length,
       expiredCount: expired.length,
@@ -248,8 +267,9 @@ function readDurationMs(envName: string, fallback: number): number {
  * 覆盖（与 MIN_INTERVAL/TIMEOUT 同属 sweep env 家族）。守卫：仅接受有限正整数(>=1)，
  * 否则回退默认——避免两个 foot-gun：cap=0(晋级 0 条＝静默禁用 promote)、负值(传到
  * Core 的 SQL LIMIT 后＝无界，反破坏有界语义)；非整数向下取整（LIMIT 需整数）。
- * 导出以便 promote 与各超时/执行驱动复用同一上限与解析逻辑：P1 promote 与 P2
- * checkTimeouts 已在本文件 runSweep 复用它；P3 checkAndExecute 驱动暂未接线。
+ * 导出以便 promote 与各超时/执行/衰减驱动复用同一上限与解析逻辑：P1 promote / P2
+ * checkTimeouts / P3 checkAndExecute / P4 DecayDetector.scanAll 四个 driver 均在本文件
+ * runSweep 复用它（caller-limited 有界；详见 runSweep 内注释）。
  */
 export function resolveStagingAccessSweepCap(): number {
   const raw = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP;
@@ -270,6 +290,7 @@ function logSweepResult(
 ): void {
   const meta = {
     checkedTimeouts: result.checkedTimeouts ?? null,
+    decayScannedCount: result.decayScannedCount ?? null,
     durationMs: result.durationMs ?? null,
     executedCount: result.executedCount ?? null,
     expiredCount: result.expiredCount ?? null,

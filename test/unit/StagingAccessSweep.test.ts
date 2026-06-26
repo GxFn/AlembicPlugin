@@ -11,20 +11,24 @@ const ORIGINAL_TIMEOUT = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS;
 const ORIGINAL_CAP = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP;
 
 // runSweep 现在同一 tick 内先 get('stagingManager') 调 checkAndPromote、再
-// get('lifecycleStateMachine') 调 checkTimeouts。统一容器桩避免各测试漏配 lifecycle 键
-// 导致 checkTimeouts 抛错 → 整 sweep 误入 skipped 兜底。
+// get('lifecycleStateMachine') 调 checkTimeouts、get('proposalExecutor') 调 checkAndExecute、
+// get('decayDetector') 调 scanAll。统一容器桩避免各测试漏配某键导致对应 driver 抛错 → 整
+// sweep 误入 skipped 兜底。
 function makeSweepContainer(opts: {
   checked?: number;
+  decayScanned?: unknown[];
   executed?: unknown[];
   expired?: unknown[];
   onCheckAndExecute?: (cap?: number) => void;
   onCheckTimeouts?: (cap?: number) => void;
   onPromote?: (cap?: number) => void;
+  onScanAll?: (cap?: number) => void;
   promoted?: Array<{ id?: string; title?: string }>;
   rejected?: unknown[];
   skipped?: unknown[];
   throwOnCheckAndExecute?: Error;
   throwOnCheckTimeouts?: Error;
+  throwOnScanAll?: Error;
   timedOut?: Array<{ age?: number; fromState?: string; recipeId?: string; toState?: string }>;
 }) {
   return async () => ({
@@ -53,6 +57,17 @@ function makeSweepContainer(opts: {
               rejected: opts.rejected ?? [],
               skipped: opts.skipped ?? [],
             };
+          },
+        };
+      }
+      if (name === 'decayDetector') {
+        return {
+          async scanAll(cap?: number) {
+            opts.onScanAll?.(cap);
+            if (opts.throwOnScanAll) {
+              throw opts.throwOnScanAll;
+            }
+            return opts.decayScanned ?? [];
           },
         };
       }
@@ -115,6 +130,13 @@ describe('StagingAccessSweep', () => {
           return {
             async checkAndExecute() {
               return { executed: [], expired: [], rejected: [], skipped: [] };
+            },
+          };
+        }
+        if (name === 'decayDetector') {
+          return {
+            async scanAll() {
+              return [];
             },
           };
         }
@@ -355,5 +377,65 @@ describe('StagingAccessSweep', () => {
     // checkAndExecute 抛错 → 整 sweep 走既有 try/catch skipped 兜底（信封不变）。
     expect(result.skipped).toBe(true);
     expect(result.reason).toBe('checkAndExecute boom');
+  });
+
+  test('drives DecayDetector.scanAll with the shared cap as the 4th driver after checkAndExecute', async () => {
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP = '11';
+    const order: string[] = [];
+    let scanCap: number | undefined = -1;
+    const getContainer = makeSweepContainer({
+      // decay 命中 2 条（active→decaying 迁移在 Core DecayDetector 内部直走 transition，本桩只回条数）。
+      decayScanned: [{ recipeId: 'd1' }, { recipeId: 'd2' }],
+      onCheckAndExecute: () => {
+        order.push('checkAndExecute');
+      },
+      onCheckTimeouts: () => {
+        order.push('checkTimeouts');
+      },
+      onPromote: () => {
+        order.push('checkAndPromote');
+      },
+      onScanAll: (cap) => {
+        order.push('scanAll');
+        scanCap = cap;
+      },
+    });
+
+    const result = await maybeRunStagingAccessSweep({
+      getContainer,
+      now: 70_000,
+      projectRoot: '/tmp/project-decay',
+      toolName: 'alembic_status',
+    });
+
+    expect(result.skipped).toBe(false);
+    // 同一共享 cap(env=11) 驱动第4 decay driver（caller-limited 有界）。
+    expect(scanCap).toBe(11);
+    // 顺序：promote → checkTimeouts → checkAndExecute → scanAll（同一 tick / 同一信封）。
+    expect(order).toEqual(['checkAndPromote', 'checkTimeouts', 'checkAndExecute', 'scanAll']);
+    // additive decay 可观测计数（不改既有字段语义）。
+    expect(result.decayScannedCount).toBe(2);
+  });
+
+  test('falls back to skipped when DecayDetector.scanAll throws, leaving the sweep envelope intact', async () => {
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = '0';
+    delete process.env.ALEMBIC_STAGING_ACCESS_SWEEP_CAP;
+    const getContainer = makeSweepContainer({
+      throwOnScanAll: new Error('scanAll boom'),
+    });
+
+    const result = await maybeRunStagingAccessSweep({
+      getContainer,
+      now: 80_000,
+      projectRoot: '/tmp/project-decay-throw',
+      toolName: 'alembic_status',
+    });
+
+    // scanAll 抛错 → 整 sweep 走既有 try/catch skipped 兜底（inFlight/throttle/2s 信封不变）。
+    expect(result.skipped).toBe(true);
+    expect(result.reason).toBe('scanAll boom');
   });
 });
