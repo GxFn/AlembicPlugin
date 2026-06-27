@@ -96,11 +96,11 @@ describe('test-mode', () => {
       expect(cfg.terminal).toEqual({ enabled: true, toolset: 'terminal-run' });
     });
 
-    test('respects ALEMBIC_TERMINAL_TOOLSET override', async () => {
+    test('collapses legacy ALEMBIC_TERMINAL_TOOLSET override to terminal-run', async () => {
       process.env.ALEMBIC_TERMINAL_TOOLSET = 'terminal-shell';
       const { getTestModeConfig } = await loadModule();
       const cfg = getTestModeConfig();
-      expect(cfg.terminal).toEqual({ enabled: true, toolset: 'terminal-shell' });
+      expect(cfg.terminal).toEqual({ enabled: true, toolset: 'terminal-run' });
     });
 
     test('allows explicit baseline terminal toolset override', async () => {
