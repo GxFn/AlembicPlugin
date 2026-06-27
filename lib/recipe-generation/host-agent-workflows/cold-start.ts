@@ -748,19 +748,25 @@ function minimalColdStartInlineData<T extends { meta?: Record<string, unknown> }
   const out: Record<string, unknown> = {};
   for (const key of [
     'bootstrapState',
+    'cleanup',
+    'cleanupPolicy',
     'currentDimensionGuidance',
     'currentDimensionNextActions',
     'dimensions',
     'executionPlan',
     'fileCount',
+    'generationStage',
     'gates',
     'hostAgentContract',
     'meta',
+    'moduleScope',
+    'planGate',
     'progress',
     'projectRoot',
     'repairState',
     'serviceBoundary',
     'session',
+    'testMode',
     'toolCapabilities',
   ]) {
     if (key in record) {

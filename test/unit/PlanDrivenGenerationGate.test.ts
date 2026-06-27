@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { type AlembicDatabaseRuntime, openAlembicDatabase } from '@alembic/core/database';
 import { KnowledgeEntry } from '@alembic/core/knowledge';
+import { applyPlanSelection, type PlanSelection } from '@alembic/core/plans';
 import {
   type AlembicRepositoryBundle,
   createAlembicRepositories,
@@ -14,8 +15,8 @@ import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/host-
 import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import {
   acquirePlanGenerationLease,
-  type PlanGenerationStage,
   type PlanGenerationGateReady,
+  type PlanGenerationStage,
   type PlanSelectionInput,
   resolvePlanGenerationGate,
 } from '../../lib/recipe-generation/plan-generation-gate.js';
@@ -162,6 +163,81 @@ describe('Plan-driven generation gate', () => {
       selectedDimensions: [dimensionId],
       moduleScope: ['src/api', 'src/data'],
       testMode: false,
+    });
+  });
+
+  test('Plan gate projection matches Core applyPlanSelection for budget and module scope', async () => {
+    const planSelection = {
+      generationStage: 'moduleMining',
+      dimensions: ['architecture', 'swift-objc-idiom', 'architecture'],
+      scale: {
+        totalRecipeBudget: 1,
+        maxFiles: 32,
+        contentMaxLines: 80,
+        depthLevels: ['module'],
+      },
+      moduleBindings: [
+        {
+          modulePath: 'src/api',
+          dimensions: ['architecture'],
+          priority: 1,
+          targetRecipes: 1,
+        },
+        {
+          modulePath: 'src/data',
+          dimensions: ['swift-objc-idiom'],
+          priority: 2,
+          targetRecipes: 1,
+        },
+        {
+          modulePath: 'src/api',
+          dimensions: ['architecture'],
+          priority: 3,
+          targetRecipes: 1,
+        },
+      ],
+    } satisfies PlanSelection;
+    const projectionOptions = {
+      moduleScope: ['src/data', 'src/rogue'],
+      scaleOverride: {
+        contentMaxLines: 5000,
+        maxFiles: 999_999,
+        totalRecipeBudget: 99,
+      },
+      testMode: true,
+    };
+    const expectedProjection = applyPlanSelection(planSelection, projectionOptions);
+
+    const gate = await resolvePlanGenerationGate(
+      createContext(),
+      {
+        generationStage: 'moduleMining',
+        moduleScope: projectionOptions.moduleScope,
+        planSelection,
+        scaleOverride: projectionOptions.scaleOverride,
+        testMode: true,
+      },
+      { defaultStage: 'moduleMining', toolName: 'alembic_rescan' }
+    );
+
+    expect(gate.ok).toBe(true);
+    if (!gate.ok) {
+      throw new Error(`expected Plan gate ready: ${JSON.stringify(gate.response)}`);
+    }
+    expect(gate.value.dimensionIds).toEqual(expectedProjection.executionDimensions);
+    expect(gate.value.moduleScope).toEqual(expectedProjection.moduleScope);
+    expect(gate.value.scale).toEqual(expectedProjection.budget);
+    expect(gate.value.dimensionIds).toEqual(['architecture', 'swift-objc-idiom']);
+    expect(gate.value.moduleScope).toEqual(['src/data']);
+    expect(gate.value.scale).toEqual({
+      contentMaxLines: 2000,
+      maxFiles: 20000,
+      totalRecipeBudget: 4,
+    });
+    expect(gate.value.planGate).toMatchObject({
+      moduleScope: ['src/data'],
+      selectedDimensions: ['architecture', 'swift-objc-idiom'],
+      testMode: true,
     });
   });
 
@@ -473,7 +549,6 @@ describe('Plan-driven generation gate', () => {
       'src/RG10AcceptanceProbe',
     ]);
     const unifiedEvolutionSurface = asRecord(result.data?.unifiedEvolution);
-    const topLevelGitDiffEvidence = asRecord(result.data?.gitDiffEvidence);
     const nestedGitDiffEvidence = asRecord(unifiedEvolutionSurface.gitDiffEvidence);
     expect(unifiedEvolutionSurface.evidenceGate).toMatchObject({
       verdict: 'routed',
@@ -483,8 +558,8 @@ describe('Plan-driven generation gate', () => {
       checkpointCommit: changedHead,
       routeStatus: 'routed',
     });
-    expect(topLevelGitDiffEvidence).toEqual(nestedGitDiffEvidence);
-    expect(topLevelGitDiffEvidence).toMatchObject({
+    expect(result.data).not.toHaveProperty('gitDiffEvidence');
+    expect(nestedGitDiffEvidence).toMatchObject({
       dirtyPathCount: 3,
       eventCount: 3,
       headRangeStatus: 'ancestor',
@@ -493,7 +568,7 @@ describe('Plan-driven generation gate', () => {
     expect(asRecord(result.data?.evolution)).toMatchObject({
       classificationCounts: expect.objectContaining({
         modified: 1,
-        moduleMiningRoutes: 1,
+        moduleMiningRoutes: 0,
         renamed: 1,
         repaired: 1,
       }),
@@ -507,13 +582,9 @@ describe('Plan-driven generation gate', () => {
           recipeId: renameRecipe.id,
         }),
         expect.objectContaining({
-          action: 'source-modified-review-needed',
+          action: 'source-modified-reference',
           filePath: 'src/data/repository.ts',
           recipeId: modifiedRecipe.id,
-        }),
-        expect.objectContaining({
-          action: 'new-module-module-mining-routed',
-          filePath: 'src/RG10AcceptanceProbe/index.ts',
         }),
       ])
     );

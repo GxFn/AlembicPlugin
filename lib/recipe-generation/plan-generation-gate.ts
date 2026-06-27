@@ -1,3 +1,4 @@
+import { applyPlanSelection, type PlanSelection as CorePlanSelection } from '@alembic/core/plans';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 
 export type PlanGenerationStage = 'coldStart' | 'deepMining' | 'moduleMining';
@@ -90,11 +91,6 @@ interface ActivePlanGenerationLease {
   stage: PlanGenerationStage;
   toolName: string;
 }
-
-const TEST_MODE_DEFAULT_MAX_FILES = 80;
-const TEST_MODE_DEFAULT_CONTENT_MAX_LINES = 80;
-const DEFAULT_MAX_FILES = 500;
-const DEFAULT_CONTENT_MAX_LINES = 120;
 
 let activePlanGenerationLeases: Map<string, ActivePlanGenerationLease> | null = null;
 let nextLeaseEpoch: number | null = null;
@@ -265,21 +261,14 @@ function buildPlanGenerationGateReady(input: {
   toolName: string;
 }): PlanGenerationGateReady {
   const { generationStage, planSelection, projectRoot, toolName } = input;
-  const dimensions = selectPlanDimensions({
-    planSelection,
-  });
-  const moduleScope = selectPlanModuleScope({
-    generationStage,
-    moduleScope: normalizeStringArray(input.input?.moduleScope),
-    planSelection,
+  const projection = applyPlanSelection(toCorePlanSelection(planSelection), {
+    moduleScope: input.input?.moduleScope,
+    scaleOverride: input.input?.scaleOverride,
     testMode: input.input?.testMode === true,
   });
-  const scale = resolvePlanScale({
-    dimensions,
-    override: input.input?.scaleOverride,
-    planSelection,
-    testMode: input.input?.testMode === true,
-  });
+  const dimensions = projection.executionDimensions;
+  const moduleScope = projection.moduleScope;
+  const scale = projection.budget;
   const cleanupPolicy = resolvePlanCleanupPolicy({
     force: readBoolean(input.input, 'force'),
     generationStage,
@@ -498,59 +487,6 @@ function buildPlanGateNextActions(projectRoot: string): Record<string, unknown>[
   ];
 }
 
-function selectPlanDimensions(input: { planSelection: NormalizedPlanSelection }): string[] {
-  return uniqueStrings(input.planSelection.dimensions);
-}
-
-function selectPlanModuleScope(input: {
-  generationStage: PlanGenerationStage;
-  moduleScope: readonly string[];
-  planSelection: NormalizedPlanSelection;
-  testMode: boolean;
-}): string[] {
-  const plannedModulePaths = uniqueStrings(
-    input.planSelection.moduleBindings.map((binding) => binding.modulePath)
-  );
-  if (input.testMode && input.moduleScope.length > 0) {
-    const requested = new Set(input.moduleScope);
-    return plannedModulePaths.filter((modulePath) => requested.has(modulePath));
-  }
-  return plannedModulePaths;
-}
-
-function resolvePlanScale(input: {
-  dimensions: readonly string[];
-  override?: PlanScaleOverride;
-  planSelection: NormalizedPlanSelection;
-  testMode: boolean;
-}): PlanGenerationGateReady['scale'] {
-  const planScale = input.planSelection.scale;
-  const override = input.testMode ? input.override : undefined;
-  const totalRecipeBudget =
-    override?.totalRecipeBudget ??
-    planScale.totalRecipeBudget ??
-    Math.max(1, input.dimensions.length);
-  const maxFiles =
-    override?.maxFiles ??
-    planScale.maxFiles ??
-    (input.testMode ? TEST_MODE_DEFAULT_MAX_FILES : DEFAULT_MAX_FILES);
-  const contentMaxLines =
-    override?.contentMaxLines ??
-    planScale.contentMaxLines ??
-    (input.testMode ? TEST_MODE_DEFAULT_CONTENT_MAX_LINES : DEFAULT_CONTENT_MAX_LINES);
-  return {
-    contentMaxLines: clampPositiveInteger(contentMaxLines, DEFAULT_CONTENT_MAX_LINES, 2000),
-    maxFiles: clampPositiveInteger(maxFiles, DEFAULT_MAX_FILES, 20000),
-    totalRecipeBudget: clampPositiveInteger(
-      input.testMode
-        ? Math.min(totalRecipeBudget, Math.max(1, input.dimensions.length * 2))
-        : totalRecipeBudget,
-      Math.max(1, input.dimensions.length),
-      500
-    ),
-  };
-}
-
 function resolvePlanCleanupPolicy(input: {
   force?: boolean;
   generationStage: PlanGenerationStage;
@@ -572,14 +508,6 @@ function readRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function normalizeStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value
-        .map((item) => (typeof item === 'string' ? item.trim() : ''))
-        .filter((item) => item.length > 0)
-    : [];
-}
-
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
@@ -594,9 +522,36 @@ function readBoolean(record: unknown, key: string): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
-function clampPositiveInteger(value: number, fallback: number, max: number): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    return fallback;
+function toCorePlanSelection(selection: NormalizedPlanSelection): CorePlanSelection {
+  if (typeof selection.scale.totalRecipeBudget !== 'number') {
+    throw new Error(
+      'Validated planSelection.scale.totalRecipeBudget is required before projection.'
+    );
   }
-  return Math.min(max, Math.max(1, Math.floor(value)));
+  return {
+    dimensions: selection.dimensions,
+    generationStage: selection.generationStage,
+    moduleBindings: selection.moduleBindings.map((binding, index) => {
+      const dimensions = uniqueStrings(binding.dimensions ?? []);
+      return {
+        dimensions,
+        modulePath: binding.modulePath,
+        ...(binding.moduleId ? { moduleId: binding.moduleId } : {}),
+        priority: binding.priority ?? index + 1,
+        targetRecipes: binding.targetRecipes ?? Math.max(1, dimensions.length),
+      };
+    }),
+    scale: {
+      totalRecipeBudget: selection.scale.totalRecipeBudget,
+      ...(typeof selection.scale.contentMaxLines === 'number'
+        ? { contentMaxLines: selection.scale.contentMaxLines }
+        : {}),
+      ...(Array.isArray(selection.scale.depthLevels)
+        ? { depthLevels: selection.scale.depthLevels }
+        : {}),
+      ...(typeof selection.scale.maxFiles === 'number'
+        ? { maxFiles: selection.scale.maxFiles }
+        : {}),
+    },
+  };
 }
