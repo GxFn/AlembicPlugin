@@ -593,8 +593,7 @@ async function buildRescanResponse(
   const coverageAdvisory = attachCoverageAdvisory(ctx, response, state);
   const hasActionableProduceWork =
     state.planGate.generationStage === 'deepMining' && planning.produceDimensionCount > 0;
-  const noActionableRescanWork =
-    coverageAdvisory?.shouldStop === true && !hasActionableProduceWork;
+  const noActionableRescanWork = coverageAdvisory?.shouldStop === true && !hasActionableProduceWork;
   if (coverageAdvisory?.shouldStop === true && hasActionableProduceWork) {
     ctx.logger.info(
       '[Rescan] Keeping deepMining round/session open despite coverage advisory stop because produce dimensions exist',
