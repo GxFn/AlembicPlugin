@@ -18,7 +18,9 @@
 import {
   adviseCoverageLedger,
   buildKnowledgeRescanPlan,
+  reflowDeepMiningRoundOnCompletion as coreReflowDeepMiningRoundOnCompletion,
   type RelevanceAuditSummary,
+  writeCoverageLedgerForCompletion as coreWriteCoverageLedgerForCompletion,
 } from '@alembic/core/host-agent-workflows';
 import type {
   CoverageLedgerRecord,
@@ -76,6 +78,11 @@ function createFakeRepository(): {
 }
 
 describe('writeCoverageLedgerForCompletion (U2 shared helper)', () => {
+  test('plugin compatibility facade re-exports the Core host-agent workflow helpers', () => {
+    expect(writeCoverageLedgerForCompletion).toBe(coreWriteCoverageLedgerForCompletion);
+    expect(reflowDeepMiningRoundOnCompletion).toBe(coreReflowDeepMiningRoundOnCompletion);
+  });
+
   test('writes covered cell + uncovered (thin) cell from candidates/coveredPaths', () => {
     const { repository, upserts } = createFakeRepository();
 
