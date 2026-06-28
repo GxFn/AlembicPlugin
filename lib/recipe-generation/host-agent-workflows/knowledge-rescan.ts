@@ -516,12 +516,7 @@ function attachCoverageLedgerSeedMeta(
   response: Record<string, unknown> & { meta?: Record<string, unknown> },
   seed: RescanCoverageLedgerSeedReport
 ): void {
-  const meta =
-    response.meta && typeof response.meta === 'object' && !Array.isArray(response.meta)
-      ? (response.meta as Record<string, unknown>)
-      : {};
-  response.meta = meta;
-  meta.coverageLedgerSeed = {
+  const coverageLedgerSeed = {
     status: seed.status,
     ...(seed.reason ? { reason: seed.reason } : {}),
     writtenCells: seed.writtenCells,
@@ -529,6 +524,21 @@ function attachCoverageLedgerSeedMeta(
     moduleCount: seed.moduleCount,
     dimensionIds: seed.dimensionIds,
   };
+  const meta =
+    response.meta && typeof response.meta === 'object' && !Array.isArray(response.meta)
+      ? (response.meta as Record<string, unknown>)
+      : {};
+  response.meta = meta;
+  meta.coverageLedgerSeed = coverageLedgerSeed;
+
+  const data = readRecord(response.data);
+  if (data) {
+    const dataMeta = readRecord(data.meta) ?? {};
+    data.meta = {
+      ...dataMeta,
+      coverageLedgerSeed,
+    };
+  }
 }
 
 function releaseNoWorkRescanSession(

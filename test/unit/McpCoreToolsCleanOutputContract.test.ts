@@ -142,6 +142,16 @@ describe('MCP core tools clean output contract', () => {
           bytes: 5678,
           path: '/tmp/full-rescan.json',
         });
+        expect(readRecord(structured.meta).coverageLedgerSeed).toEqual({
+          status: 'written',
+          writtenCells: 4,
+          coveredPathCount: 2,
+          moduleCount: 1,
+          dimensionIds: ['architecture'],
+        });
+        expect(JSON.stringify(structured)).not.toContain('secretToken');
+        expect(JSON.stringify(structured)).not.toContain('rawCandidates');
+        expect(JSON.stringify(structured)).not.toContain('sourceRefPaths');
       }
       if (toolName === 'alembic_dimension_complete') {
         expect(structured.completenessCritic).toMatchObject({
@@ -337,7 +347,19 @@ function sampleLegacyEnvelope(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[nu
         ? { fullBriefingRef: { bytes: 1234, path: '/tmp/full-bootstrap.json' } }
         : {}),
       ...(toolName === 'alembic_rescan'
-        ? { fullBriefingRef: { bytes: 5678, path: '/tmp/full-rescan.json' } }
+        ? {
+            coverageLedgerSeed: {
+              status: 'written',
+              writtenCells: 4,
+              coveredPathCount: 2,
+              moduleCount: 1,
+              dimensionIds: ['architecture'],
+              rawCandidates: [{ sourceRefPaths: ['src/App.ts'] }],
+              secretToken: 'must-not-leak',
+              sourceRefPaths: ['src/App.ts'],
+            },
+            fullBriefingRef: { bytes: 5678, path: '/tmp/full-rescan.json' },
+          }
         : {}),
       responseTimeMs: 7,
       source: 'unit-sample',

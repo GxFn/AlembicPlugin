@@ -29,9 +29,21 @@ const CleanMcpTransientTransportRefSchema = z
   })
   .strict();
 
+const CleanMcpCoverageLedgerSeedSchema = z
+  .object({
+    status: z.string().min(1).max(80),
+    reason: z.string().min(1).max(240).optional(),
+    writtenCells: z.number().int().nonnegative().optional(),
+    coveredPathCount: z.number().int().nonnegative().optional(),
+    moduleCount: z.number().int().nonnegative().optional(),
+    dimensionIds: z.array(z.string().min(1).max(160)).optional(),
+  })
+  .strict();
+
 export const CleanMcpMetaSchema = z
   .object({
     contractVersion: z.literal(CLEAN_MCP_OUTPUT_CONTRACT_VERSION),
+    coverageLedgerSeed: CleanMcpCoverageLedgerSeedSchema.optional(),
     fullBriefingRef: CleanMcpTransientTransportRefSchema.nullable().optional(),
     fullMapRef: CleanMcpTransientTransportRefSchema.nullable().optional(),
     generatedAt: z.string().datetime({ offset: true }).optional(),

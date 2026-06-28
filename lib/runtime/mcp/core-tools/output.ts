@@ -91,6 +91,7 @@ const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
 };
 
 const ALLOWED_CLEAN_META_KEYS = new Set([
+  'coverageLedgerSeed',
   'fullBriefingRef',
   'fullMapRef',
   'responseTimeMs',
@@ -361,7 +362,7 @@ export function projectCoreToolOutput(
   const legacy = isRecord(input) ? input : {};
   const ok = typeof legacy.success === 'boolean' ? legacy.success : legacy.errorCode == null;
   const business = sanitizeBusinessFields(extractLegacyBusinessValue(legacy), toolName);
-  const cleanMeta = pickCleanMeta(legacy.meta);
+  const cleanMeta = pickCleanMeta(legacy.meta, toolName);
   const errorDetails = pickLegacyErrorDetails(legacy);
   const summary = buildCoreToolSummary(toolName, {
     business,
@@ -530,17 +531,77 @@ function pickAllowedBusinessFields(
   return out;
 }
 
-function pickCleanMeta(value: unknown): Record<string, unknown> | null {
+function pickCleanMeta(
+  value: unknown,
+  toolName: CoreCleanOutputToolName
+): Record<string, unknown> | null {
   if (!isRecord(value)) {
     return null;
   }
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
+    if (key === 'coverageLedgerSeed' && toolName !== 'alembic_rescan') {
+      continue;
+    }
     if (ALLOWED_CLEAN_META_KEYS.has(key)) {
-      out[key] = child;
+      const cleanChild = key === 'coverageLedgerSeed' ? sanitizeCoverageLedgerSeed(child) : child;
+      if (cleanChild !== undefined) {
+        out[key] = cleanChild;
+      }
     }
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+function sanitizeCoverageLedgerSeed(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const status = boundedString(value.status, 80);
+  if (!status) {
+    return undefined;
+  }
+  const out: Record<string, unknown> = { status };
+  const reason = boundedString(value.reason, 240);
+  if (reason) {
+    out.reason = reason;
+  }
+  for (const key of ['writtenCells', 'coveredPathCount', 'moduleCount']) {
+    const numericValue = nonnegativeInteger(value[key]);
+    if (numericValue !== undefined) {
+      out[key] = numericValue;
+    }
+  }
+  const dimensionIds = cleanStringArray(value.dimensionIds, 160);
+  if (dimensionIds !== undefined) {
+    out.dimensionIds = dimensionIds;
+  }
+  return out;
+}
+
+function boundedString(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed;
+}
+
+function nonnegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function cleanStringArray(value: unknown, itemMaxLength: number): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const cleaned = value
+    .map((item) => boundedString(item, itemMaxLength))
+    .filter((item): item is string => item !== undefined);
+  return cleaned.length > 0 ? cleaned : [];
 }
 
 function extractLegacyErrorCode(
