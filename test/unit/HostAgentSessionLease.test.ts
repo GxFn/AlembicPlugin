@@ -370,7 +370,10 @@ describe('releaseEmptyHostAgentSessionLease', () => {
           testMode: true,
         }
       )) as {
-        data?: { meta?: { coverageLedgerSeed?: { status?: string; writtenCells?: number } } };
+        data?: {
+          coverageLedgerSeed?: { status?: string; writtenCells?: number };
+          meta?: { coverageLedgerSeed?: { status?: string; writtenCells?: number } };
+        };
         meta?: { coverageLedgerSeed?: { status?: string; writtenCells?: number } };
         success?: boolean;
       };
@@ -378,6 +381,8 @@ describe('releaseEmptyHostAgentSessionLease', () => {
       expect(response.success).toBe(true);
       expect(response.meta?.coverageLedgerSeed?.status).toBe('written');
       expect(response.meta?.coverageLedgerSeed?.writtenCells ?? 0).toBeGreaterThan(0);
+      expect(response.data?.coverageLedgerSeed?.status).toBe('written');
+      expect(response.data?.coverageLedgerSeed?.writtenCells ?? 0).toBeGreaterThan(0);
       expect(response.data?.meta?.coverageLedgerSeed?.status).toBe('written');
       expect(response.data?.meta?.coverageLedgerSeed?.writtenCells ?? 0).toBeGreaterThan(0);
       expect(coverageLedger.cellUpserts.length).toBeGreaterThan(0);

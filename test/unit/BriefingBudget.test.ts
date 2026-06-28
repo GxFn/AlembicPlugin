@@ -2,12 +2,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { attachPlanScopeTargetCounts } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import {
-  BRIEFING_INLINE_BUDGET_BYTES,
+  attachBriefingTransportMeta,
   attachFullBriefingRef,
+  BRIEFING_INLINE_BUDGET_BYTES,
   budgetBriefingResponseData,
 } from '../../lib/recipe-generation/host-agent-workflows/briefing-budget.js';
+import { attachPlanScopeTargetCounts } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import {
   type TransientTransportRef,
   transientTransportPath,
@@ -110,9 +111,60 @@ describe('budgetBriefingResponseData', () => {
     expect(typeof ref.bytes).toBe('number');
     expect(data.big).toBe(big);
     // transient 落盘的是完整 inline（含 meta.fullBriefingRef=null 占位）。
-    const persisted = JSON.parse(await fs.readFile(transientPath, 'utf8')) as Record<string, unknown>;
+    const persisted = JSON.parse(await fs.readFile(transientPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect((persisted as { big?: string }).big).toBe(big);
     expect((persisted.meta as Record<string, unknown>).fullBriefingRef).toBeNull();
+  });
+
+  test('keeps coverage ledger seed through rescan budgeting and transport meta projection', async () => {
+    const big = 'seeded'.repeat(BRIEFING_INLINE_BUDGET_BYTES);
+    const coverageLedgerSeed = {
+      status: 'written',
+      writtenCells: 4,
+      coveredPathCount: 2,
+      moduleCount: 1,
+      dimensionIds: ['architecture'],
+    };
+    const response: Record<string, unknown> = {
+      meta: {},
+      data: {
+        big,
+        coverageLedgerSeed,
+        meta: { coverageLedgerSeed },
+      },
+    };
+
+    await budgetBriefingResponseData(response, {
+      dataRoot,
+      projectRoot: PROJECT_ROOT,
+      transportName: 'rescan-briefing',
+      inlineBudgetBytes: BRIEFING_INLINE_BUDGET_BYTES,
+      attachRef,
+    });
+    attachBriefingTransportMeta(response, response.data as Record<string, unknown>);
+
+    const data = response.data as Record<string, unknown>;
+    const meta = data.meta as Record<string, unknown>;
+    const transientPath = transientPathFor('rescan-briefing');
+    const persisted = JSON.parse(await fs.readFile(transientPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
+
+    expect(data.coverageLedgerSeed).toEqual(coverageLedgerSeed);
+    expect(meta.coverageLedgerSeed).toEqual(coverageLedgerSeed);
+    expect((response.meta as Record<string, unknown>).coverageLedgerSeed).toEqual(
+      coverageLedgerSeed
+    );
+    expect((persisted as { coverageLedgerSeed?: unknown }).coverageLedgerSeed).toEqual(
+      coverageLedgerSeed
+    );
+    expect((persisted.meta as Record<string, unknown>).coverageLedgerSeed).toEqual(
+      coverageLedgerSeed
+    );
   });
 
   test('over budget with compact (cold-start shape): compact callback receives the real ref and its result is used', async () => {
@@ -184,7 +236,9 @@ describe('attachPlanScopeTargetCounts (moduleMining symmetry backing)', () => {
       moduleScope: ['src/auth'],
       sourceFileFacts,
     });
-    const target = out.targets.find((t) => (t as { modulePath?: string }).modulePath === 'src/auth');
+    const target = out.targets.find(
+      (t) => (t as { modulePath?: string }).modulePath === 'src/auth'
+    );
     expect(target).toBeDefined();
     // src/auth 下两文件 → fileCount=2、source=plan-module-scope。
     expect((target as Record<string, unknown>).fileCount).toBe(2);

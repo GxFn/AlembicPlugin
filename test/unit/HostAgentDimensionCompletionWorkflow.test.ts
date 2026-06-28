@@ -464,6 +464,90 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     expect(emitted).not.toHaveBeenCalled();
   });
 
+  it('releases terminal noPadding rescan resources when candidate count remains insufficient', async () => {
+    const checkpoint = vi.fn(async () => undefined);
+    const emitted = vi.fn();
+    const clearSession = vi.fn();
+    const coverageLedgerRepository = {
+      listRoundsByProjectRoot: vi.fn(() => [
+        {
+          projectRoot: '/tmp/alembic-test-project',
+          roundIndex: 2,
+          rescanId: 'prior-rescan',
+          startedAt: 100,
+          completedAt: 200,
+          newRecipesThisRound: 3,
+          triggerActor: 'host-agent-rescan',
+          createdAt: 100,
+          updatedAt: 200,
+        },
+        {
+          projectRoot: '/tmp/alembic-test-project',
+          roundIndex: 3,
+          rescanId: null,
+          startedAt: 300,
+          completedAt: null,
+          newRecipesThisRound: 0,
+          triggerActor: 'host-agent-rescan',
+          createdAt: 300,
+          updatedAt: 300,
+        },
+      ]),
+      upsertRound: vi.fn((input: Record<string, unknown>) => input),
+    };
+    const session = createSession({
+      submissions: [{ recipeId: 'recipe-a', sources: ['src/a.ts:10-20'] }],
+    });
+    const context = createContext({
+      get: (name: string) => {
+        if (name === 'bootstrapSessionManager') {
+          return { clearSession };
+        }
+        if (name === 'coverageLedgerRepository') {
+          return coverageLedgerRepository;
+        }
+        return null;
+      },
+    });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      context,
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        exhaustedReason:
+          'Reviewed the one-budget host rescan scope and found only one source-grounded candidate.',
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+        noPadding: true,
+      },
+      {
+        getActiveSession: () => session,
+        now: () => 12_345,
+        saveCheckpoint: checkpoint,
+        createEmitter: () => ({
+          emitDimensionComplete: emitted,
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('DIMENSION_CANDIDATE_COUNT_INSUFFICIENT');
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(emitted).not.toHaveBeenCalled();
+    expect(clearSession).toHaveBeenCalledWith('session-1');
+    expect(coverageLedgerRepository.upsertRound).toHaveBeenCalledWith({
+      projectRoot: '/tmp/alembic-test-project',
+      roundIndex: 3,
+      completedAt: 12_345,
+      newRecipesThisRound: 0,
+    });
+  });
+
   it('does not repeat completeness critic hints for refs already covered by submitted recipes', async () => {
     const session = createSession({
       localPackageModules: [{ packageName: 'packages/internal-lib', name: 'internal-lib' }],

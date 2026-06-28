@@ -533,6 +533,7 @@ function attachCoverageLedgerSeedMeta(
 
   const data = readRecord(response.data);
   if (data) {
+    data.coverageLedgerSeed = coverageLedgerSeed;
     const dataMeta = readRecord(data.meta) ?? {};
     data.meta = {
       ...dataMeta,
@@ -636,6 +637,8 @@ async function buildRescanResponse(
   if (state.planGate.generationStage === 'deepMining' && !noActionableRescanWork) {
     openDeepMiningRound(ctx, state.projectRoot, state.rescanId);
   }
+  // Keep the seed in the final full-briefing body after advisory/session/round mutations.
+  attachCoverageLedgerSeedMeta(response, state.coverageLedgerSeed);
   // U3 item3：在所有 attach*（unifiedEvolution/trashArchive/projectSelectionMismatch）之后，对完整
   // response.data 做内联预算化（与 cold-start 共享同一步骤/口径）。≤18KB 内联并清理遗留 transient；
   // >预算把完整 data 写入 'rescan-briefing' transient transport，再经 attachFullBriefingRef 把引用写进

@@ -47,9 +47,13 @@ export function attachBriefingTransportMeta(
 ): void {
   const briefingMeta = readRecord(briefing.meta);
   const fullBriefingRef = briefingMeta?.fullBriefingRef;
+  const coverageLedgerSeed = readRecord(
+    briefingMeta?.coverageLedgerSeed ?? briefing.coverageLedgerSeed
+  );
   const meta = readRecord(response.meta) ?? {};
   response.meta = {
     ...meta,
+    ...(coverageLedgerSeed ? { coverageLedgerSeed } : {}),
     fullBriefingRef: isTransientTransportRef(fullBriefingRef) ? fullBriefingRef : null,
   };
 }

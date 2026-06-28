@@ -5,6 +5,7 @@ import {
   type CoverageLedgerExhaustedDeclaration,
   type CoverageLedgerModuleAxis,
   type DimensionDef,
+  getOrCreateSessionManager,
   type ProjectSkillDeliveryReceipt,
   resolveModuleTier,
   resolvePerCellTargetDefault,
@@ -322,6 +323,14 @@ export async function runHostAgentDimensionCompletionWorkflow(
     submittedRecipeIds,
   });
   if (evidenceGateResponse) {
+    releaseTerminalNoPaddingRescanResources({
+      ctx,
+      input: input.value,
+      now: dependencies.now?.() ?? Date.now(),
+      response: evidenceGateResponse,
+      session: session.value,
+      submittedRecipeIds,
+    });
     return evidenceGateResponse;
   }
 
@@ -724,6 +733,99 @@ async function writeDimensionCompletionCoverageLedger(args: {
     // 任何异常都吞掉：账本写入是 advisory 旁路，绝不改变维度完成响应或阻断完成。
     const reason = err instanceof Error ? err.message : String(err);
     logger?.debug?.(`[DimensionComplete] coverage ledger write skipped: ${reason}`);
+  }
+}
+
+function releaseTerminalNoPaddingRescanResources({
+  ctx,
+  input,
+  now,
+  response,
+  session,
+  submittedRecipeIds,
+}: {
+  ctx: HostAgentDimensionCompletionContext;
+  input: CompletionInput;
+  now: number;
+  response: HostAgentDimensionCompletionResponse;
+  session: HostAgentWorkflowSession;
+  submittedRecipeIds: string[];
+}): void {
+  if (
+    input.noPadding !== true ||
+    response.errorCode !== 'DIMENSION_CANDIDATE_COUNT_INSUFFICIENT' ||
+    submittedRecipeIds.length === 0
+  ) {
+    return;
+  }
+
+  const releasedSession = releaseHostAgentSessionById(ctx, session);
+  const closedRound = closeLatestOpenHostAgentRescanRound(ctx, session.projectRoot, now);
+  ctx.logger?.info('[DimensionComplete] Released terminal noPadding rescan resources', {
+    closedRound,
+    dimensionId: input.dimensionId,
+    projectRoot: session.projectRoot,
+    releasedSession,
+    sessionId: session.id,
+  });
+}
+
+function releaseHostAgentSessionById(
+  ctx: HostAgentDimensionCompletionContext,
+  session: HostAgentWorkflowSession
+): boolean {
+  try {
+    const sessionManager = getOrCreateSessionManager(ctx.container);
+    if (typeof sessionManager.clearSession !== 'function') {
+      return false;
+    }
+    sessionManager.clearSession(session.id);
+    return true;
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    ctx.logger?.warn('[DimensionComplete] host-agent session release skipped', {
+      projectRoot: session.projectRoot,
+      reason,
+      sessionId: session.id,
+    });
+    return false;
+  }
+}
+
+function closeLatestOpenHostAgentRescanRound(
+  ctx: HostAgentDimensionCompletionContext,
+  projectRoot: string,
+  now: number
+): boolean {
+  try {
+    const repository = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!repository) {
+      return false;
+    }
+    const rounds = repository.listRoundsByProjectRoot(projectRoot);
+    const latestOpenRound = [...rounds]
+      .reverse()
+      .find((round) => round.triggerActor === 'host-agent-rescan' && round.completedAt === null);
+    if (!latestOpenRound) {
+      return false;
+    }
+    repository.upsertRound({
+      projectRoot,
+      roundIndex: latestOpenRound.roundIndex,
+      ...(latestOpenRound.rescanId ? { rescanId: latestOpenRound.rescanId } : {}),
+      completedAt: now,
+      newRecipesThisRound: latestOpenRound.newRecipesThisRound,
+    });
+    return true;
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    ctx.logger?.warn('[DimensionComplete] host-agent rescan round close skipped', {
+      projectRoot,
+      reason,
+    });
+    return false;
   }
 }
 
