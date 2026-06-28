@@ -129,7 +129,7 @@ Before returning a `TargetResultEnvelope` or handoff, this child window must sel
 
 - 正式源码：`lib/`、`bin/`、`config/`。
 - 正式脚本：`scripts/`。
-- 正式文档：`docs/`；仓库内 `docs/` 仅放随源码长期维护的产品/发布文档，跨仓库迁移和验收文档写入 `../workspace-ledger/AlembicPlugin/`。
+- 正式文档：`docs/`；仓库内 `docs/` 仅放随源码长期维护的产品/发布文档，跨仓库迁移和验收文档写入 `../wakeflow-ledger/AlembicPlugin/`。
 - 开发临时文档：`docs-dev/`（不跟随 git）。
 - 临时测试脚本：`scratch/`（不跟随 git）。保留规则：已完成需求的
   `afapi-*` 验收/探针产物由 `scripts/clean-scratch.mjs` 回收（默认 dry-run，
@@ -146,14 +146,19 @@ Before returning a `TargetResultEnvelope` or handoff, this child window must sel
 ```text
 lib/
 ├── cli
-├── codex
-│   └── mcp
-├── daemon
-├── governance
-├── http
 ├── infrastructure
 ├── injection
+├── recipe-generation
+│   ├── bootstrap
+│   ├── evolution
+│   ├── host-agent-workflows
+│   └── vector
 ├── repository
+├── runtime
+│   ├── host-adapter
+│   ├── host-agent
+│   ├── ide-agent
+│   └── mcp
 ├── service
 ├── shared
 ├── types
@@ -164,7 +169,7 @@ lib/
 
 - 语言：TypeScript (ES2024, NodeNext)，Node.js >= 22。
 - 模块系统：ESM (`"type": "module"`)，import 路径必须带 `.js` 后缀。
-- 路径别名定义在 `package.json` imports 字段，包括 `#shared/*`、`#infra/*`、`#service/*`、`#inject/*`、`#governance/*`、`#http/*`、`#workflows/*`、`#codex/*`。
+- 路径别名以 `package.json` imports 字段为准，当前包括 `#shared/*`、`#infra/*`、`#service/*`、`#inject/*`、`#workflows/*`、`#recipe-generation/*`、`#codex/*`。`#codex/*` 是保留的兼容别名，当前解析到 `lib/runtime/*`，不要据此新增或记录旧 Codex 目录分层。
 - Lint / Format：Biome 2.x，不使用 Prettier/ESLint。
 - 测试框架：Vitest。
 - Dashboard 前端已迁出到 `AlembicDashboard`。
