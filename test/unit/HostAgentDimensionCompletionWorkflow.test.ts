@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  _resetBootstrapSessionManagersForTesting,
+  getOrCreateSessionManager,
+} from '@alembic/core/host-agent-workflows';
 import { pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { inspectKnowledge } from '#codex/KnowledgeState.js';
@@ -13,6 +17,7 @@ import {
 const tempRoots: string[] = [];
 
 afterEach(() => {
+  _resetBootstrapSessionManagersForTesting();
   pathGuard._reset();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -548,6 +553,70 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     });
   });
 
+  it('releases terminal noPadding sessions from the project dataRoot when the container manager is stale', async () => {
+    const checkpoint = vi.fn(async () => undefined);
+    const emitted = vi.fn();
+    const staleClearSession = vi.fn();
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-terminal-cleanup-'));
+    tempRoots.push(projectRoot);
+    const scopedContainer = createDataRootSessionContainer(projectRoot);
+    const fileBackedManager = getOrCreateSessionManager(scopedContainer);
+    const fileBackedSession = fileBackedManager.createSession({
+      projectRoot,
+      dimensions: [{ id: 'architecture', label: 'Architecture' }],
+      projectContext: { projectName: 'terminal-cleanup-real-route' },
+    });
+    const session = createSession({
+      id: fileBackedSession.id,
+      projectRoot,
+      submissions: [{ recipeId: 'recipe-a', sources: ['src/a.ts:10-20'] }],
+    });
+    const context = createContext(
+      {
+        get: (name: string) => {
+          if (name === 'bootstrapSessionManager') {
+            return { clearSession: staleClearSession };
+          }
+          return null;
+        },
+      },
+      projectRoot
+    );
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      context,
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        exhaustedReason:
+          'Reviewed the terminal host rescan scope and found only one source-grounded candidate.',
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+        noPadding: true,
+        submittedRecipeIds: ['recipe-a'],
+      },
+      {
+        getActiveSession: () => session,
+        saveCheckpoint: checkpoint,
+        createEmitter: () => ({
+          emitDimensionComplete: emitted,
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('DIMENSION_CANDIDATE_COUNT_INSUFFICIENT');
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(emitted).not.toHaveBeenCalled();
+    expect(staleClearSession).toHaveBeenCalledWith(fileBackedSession.id);
+    expect(fileBackedManager.getSession(fileBackedSession.id, { projectRoot })).toBeNull();
+    expect(fileBackedManager.getSession(undefined, { projectRoot })).toBeNull();
+  });
+
   it('does not repeat completeness critic hints for refs already covered by submitted recipes', async () => {
     const session = createSession({
       localPackageModules: [{ packageName: 'packages/internal-lib', name: 'internal-lib' }],
@@ -653,8 +722,24 @@ function createInitializedProjectRoot(): string {
   return root;
 }
 
+function createDataRootSessionContainer(projectRoot: string) {
+  const registry: Record<string, unknown> = {};
+  return {
+    get: (name: string) => registry[name],
+    register: (name: string, factory: () => unknown) => {
+      registry[name] = factory();
+    },
+    singletons: {
+      _projectRoot: projectRoot,
+      _workspaceResolver: { dataRoot: projectRoot },
+    },
+  };
+}
+
 function createSession({
+  id = 'session-1',
   localPackageModules = [{ packageName: 'packages/internal-lib', name: 'internal-lib' }],
+  projectRoot = '/tmp/alembic-test-project',
   skillWorthy = false,
   submissions = [
     { recipeId: 'recipe-a', sources: ['src/a.ts:10-20'], title: 'A' },
@@ -662,14 +747,16 @@ function createSession({
     { recipeId: 'recipe-c', sources: ['lib/c.ts:1-12'], title: 'C' },
   ],
 }: {
+  id?: string;
   localPackageModules?: Array<{ packageName: string; name: string }>;
+  projectRoot?: string;
   skillWorthy?: boolean;
   submissions?: Array<{ recipeId: string; sources: string[]; title?: string }>;
 } = {}): HostAgentWorkflowSession {
   let completed = false;
   const session = {
-    id: 'session-1',
-    projectRoot: '/tmp/alembic-test-project',
+    id,
+    projectRoot,
     expiresAt: Date.now(),
     dimensions: [
       { id: 'architecture', label: 'Architecture', skillWorthy },

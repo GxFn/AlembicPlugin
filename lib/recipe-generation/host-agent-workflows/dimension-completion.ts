@@ -325,6 +325,7 @@ export async function runHostAgentDimensionCompletionWorkflow(
   if (evidenceGateResponse) {
     releaseTerminalNoPaddingRescanResources({
       ctx,
+      dataRoot,
       input: input.value,
       now: dependencies.now?.() ?? Date.now(),
       response: evidenceGateResponse,
@@ -738,6 +739,7 @@ async function writeDimensionCompletionCoverageLedger(args: {
 
 function releaseTerminalNoPaddingRescanResources({
   ctx,
+  dataRoot,
   input,
   now,
   response,
@@ -745,6 +747,7 @@ function releaseTerminalNoPaddingRescanResources({
   submittedRecipeIds,
 }: {
   ctx: HostAgentDimensionCompletionContext;
+  dataRoot: string;
   input: CompletionInput;
   now: number;
   response: HostAgentDimensionCompletionResponse;
@@ -759,10 +762,11 @@ function releaseTerminalNoPaddingRescanResources({
     return;
   }
 
-  const releasedSession = releaseHostAgentSessionById(ctx, session);
+  const releasedSession = releaseHostAgentSessionById(ctx, session, dataRoot);
   const closedRound = closeLatestOpenHostAgentRescanRound(ctx, session.projectRoot, now);
   ctx.logger?.info('[DimensionComplete] Released terminal noPadding rescan resources', {
     closedRound,
+    dataRoot,
     dimensionId: input.dimensionId,
     projectRoot: session.projectRoot,
     releasedSession,
@@ -772,24 +776,128 @@ function releaseTerminalNoPaddingRescanResources({
 
 function releaseHostAgentSessionById(
   ctx: HostAgentDimensionCompletionContext,
-  session: HostAgentWorkflowSession
+  session: HostAgentWorkflowSession,
+  dataRoot: string
 ): boolean {
+  let released = false;
   try {
     const sessionManager = getOrCreateSessionManager(ctx.container);
-    if (typeof sessionManager.clearSession !== 'function') {
-      return false;
-    }
-    sessionManager.clearSession(session.id);
-    return true;
+    released =
+      releaseHostAgentSessionFromManager(sessionManager, session, { allowBlindClear: true }) ||
+      released;
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : String(err);
     ctx.logger?.warn('[DimensionComplete] host-agent session release skipped', {
+      dataRoot,
       projectRoot: session.projectRoot,
       reason,
       sessionId: session.id,
     });
+  }
+
+  try {
+    const scopedSessionManager = getOrCreateSessionManager(
+      createDataRootSessionContainer(ctx.container, dataRoot)
+    );
+    released =
+      releaseHostAgentSessionFromManager(scopedSessionManager, session, {
+        allowBlindClear: false,
+      }) || released;
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    ctx.logger?.warn('[DimensionComplete] data-root host-agent session release skipped', {
+      dataRoot,
+      projectRoot: session.projectRoot,
+      reason,
+      sessionId: session.id,
+    });
+  }
+
+  return released;
+}
+
+function createDataRootSessionContainer(
+  parent: HostAgentSessionContainer,
+  dataRoot: string
+): HostAgentSessionContainer & { register(name: string, factory: () => unknown): void } {
+  const registry: Record<string, unknown> = {};
+  return {
+    services: parent.services,
+    singletons: {
+      ...(parent.singletons ?? {}),
+      _workspaceResolver: { dataRoot },
+    },
+    get(name: string) {
+      if (name in registry) {
+        return registry[name];
+      }
+      if (name === 'bootstrapSessionManager') {
+        return null;
+      }
+      return parent.get(name);
+    },
+    register(name: string, factory: () => unknown) {
+      registry[name] = factory();
+    },
+  };
+}
+
+function releaseHostAgentSessionFromManager(
+  sessionManager: ReturnType<typeof getOrCreateSessionManager>,
+  session: HostAgentWorkflowSession,
+  options: { allowBlindClear: boolean }
+): boolean {
+  if (typeof sessionManager.clearSession !== 'function') {
     return false;
   }
+
+  const sessionById = getSessionById(sessionManager, session);
+  const projectSession = getProjectSession(sessionManager, session.projectRoot);
+  const hasKnownTarget = sessionById !== null || projectSession !== null;
+  if (!hasKnownTarget && !options.allowBlindClear) {
+    return false;
+  }
+
+  if (sessionById !== null || options.allowBlindClear) {
+    sessionManager.clearSession(session.id);
+  }
+
+  const remainingProjectSession = getProjectSession(sessionManager, session.projectRoot);
+  if (remainingProjectSession === null) {
+    return true;
+  }
+
+  if (
+    remainingProjectSession &&
+    typeof sessionManager.releaseProjectLease === 'function' &&
+    sessionManager.releaseProjectLease(session.projectRoot)
+  ) {
+    return getProjectSession(sessionManager, session.projectRoot) === null;
+  }
+
+  return options.allowBlindClear;
+}
+
+function getSessionById(
+  sessionManager: ReturnType<typeof getOrCreateSessionManager>,
+  session: HostAgentWorkflowSession
+): HostAgentWorkflowSession | null {
+  if (typeof sessionManager.getSession !== 'function') {
+    return null;
+  }
+  return sessionManager.getSession(session.id, {
+    projectRoot: session.projectRoot,
+  }) as HostAgentWorkflowSession | null;
+}
+
+function getProjectSession(
+  sessionManager: ReturnType<typeof getOrCreateSessionManager>,
+  projectRoot: string
+): HostAgentWorkflowSession | null {
+  if (typeof sessionManager.getSession !== 'function') {
+    return null;
+  }
+  return sessionManager.getSession(undefined, { projectRoot }) as HostAgentWorkflowSession | null;
 }
 
 function closeLatestOpenHostAgentRescanRound(
