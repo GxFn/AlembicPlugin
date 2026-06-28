@@ -219,26 +219,37 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
-  it('closes an open host-agent rescan round when releasing a no-work deepMining session', async () => {
+  it('closes every open host-agent rescan round when releasing a terminal deepMining session', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
     const coverageLedger = createStatefulCoverageLedgerRepository({
       cells: [
         coverageCell({
-          grade: 'covered',
+          grade: 'thin',
           moduleId: 'target:App:src',
           dimensionId: 'architecture',
-          coveredCount: 5,
-          totalCandidateCount: 5,
-          valueScore: 0,
+          coveredCount: 0,
+          totalCandidateCount: 1,
+          valueScore: 0.5,
         }),
       ],
       ignoreCellUpserts: true,
       rounds: [
         {
           projectRoot: fixture.projectRoot,
+          roundIndex: 3,
+          rescanId: 'stale-terminal-rescan-round',
+          startedAt: 90,
+          completedAt: null,
+          newRecipesThisRound: 0,
+          triggerActor: 'host-agent-rescan',
+          createdAt: 90,
+          updatedAt: 90,
+        },
+        {
+          projectRoot: fixture.projectRoot,
           roundIndex: 4,
-          rescanId: 'terminal-rescan-round',
+          rescanId: 'current-terminal-rescan-round',
           startedAt: 100,
           completedAt: null,
           newRecipesThisRound: 0,
@@ -269,6 +280,7 @@ describe('releaseEmptyHostAgentSessionLease', () => {
         meta?: {
           noActionableHostAgentWork?: {
             closedOpenRound?: boolean;
+            closedOpenRounds?: number;
             releasedEmptySession?: boolean;
           };
         };
@@ -278,16 +290,18 @@ describe('releaseEmptyHostAgentSessionLease', () => {
       expect(response.success).toBe(true);
       expect(response.meta?.noActionableHostAgentWork?.releasedEmptySession).toBe(true);
       expect(response.meta?.noActionableHostAgentWork?.closedOpenRound).toBe(true);
+      expect(response.meta?.noActionableHostAgentWork?.closedOpenRounds).toBe(2);
       expect(readStoredSessionIds(fixture.dataRoot)).toEqual([]);
-      expect(coverageLedger.roundUpserts).toHaveLength(1);
-      expect(coverageLedger.roundUpserts[0]).toEqual(
-        expect.objectContaining({
-          roundIndex: 4,
-          rescanId: 'terminal-rescan-round',
-          newRecipesThisRound: 0,
-        })
-      );
-      expect(typeof coverageLedger.roundUpserts[0]?.completedAt).toBe('number');
+      expect(coverageLedger.roundUpserts).toHaveLength(2);
+      expect(coverageLedger.roundUpserts.map((round) => round.roundIndex)).toEqual([3, 4]);
+      expect(coverageLedger.roundUpserts.map((round) => round.rescanId)).toEqual([
+        'stale-terminal-rescan-round',
+        'current-terminal-rescan-round',
+      ]);
+      for (const round of coverageLedger.roundUpserts) {
+        expect(round.newRecipesThisRound).toBe(0);
+        expect(typeof round.completedAt).toBe('number');
+      }
     } finally {
       runtime.close();
     }
@@ -465,6 +479,83 @@ describe('releaseEmptyHostAgentSessionLease', () => {
           (cell) => cell.dimensionId === 'architecture' && cell.coveredSourceRefs.length > 0
         )
       ).toBe(true);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('marks route-visible coverage seed inconsistent when persisted ledger still has aggregate root cells', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'thin',
+          moduleId: 'BiliDili',
+          dimensionId: 'architecture',
+          valueScore: 0.5,
+        }),
+        coverageCell({
+          grade: 'thin',
+          moduleId: 'module:root:BiliDili:BiliDili',
+          dimensionId: 'architecture',
+          valueScore: 0.5,
+        }),
+      ],
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories, {
+          coverageLedgerRepository: coverageLedger.repository,
+        }),
+        {
+          generationStage: 'deepMining',
+          planSelection: deepMiningPlanSelection(),
+          reason: 'coverage ledger seed persisted-state consistency regression',
+          testMode: true,
+        }
+      )) as {
+        data?: {
+          coverageLedgerSeed?: {
+            aggregateOrRootModuleIds?: string[];
+            measuredCells?: number;
+            reason?: string;
+            status?: string;
+            targetScopedCells?: number;
+            writtenCells?: number;
+          };
+        };
+        meta?: {
+          coverageLedgerSeed?: {
+            aggregateOrRootModuleIds?: string[];
+            measuredCells?: number;
+            reason?: string;
+            status?: string;
+            targetScopedCells?: number;
+            writtenCells?: number;
+          };
+        };
+        success?: boolean;
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.meta?.coverageLedgerSeed).toEqual(
+        expect.objectContaining({
+          aggregateOrRootModuleIds: ['BiliDili', 'module:root:BiliDili:BiliDili'],
+          measuredCells: 0,
+          reason: expect.stringContaining('persisted-aggregate-or-root-coverage-cells'),
+          status: 'inconsistent',
+          targetScopedCells: 1,
+          writtenCells: 3,
+        })
+      );
+      expect(response.data?.coverageLedgerSeed?.status).toBe('inconsistent');
     } finally {
       runtime.close();
     }

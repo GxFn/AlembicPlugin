@@ -109,7 +109,7 @@ interface RescanUnifiedEvolutionResult {
 
 interface RescanCoverageLedgerSeedReport {
   aggregateOrRootModuleIds: string[];
-  status: 'skipped' | 'written';
+  status: 'inconsistent' | 'skipped' | 'written';
   reason?: string;
   candidateCount: number;
   coveredPathCount: number;
@@ -496,6 +496,84 @@ function seedRescanCoverageLedgerFromSnapshot(
   }
 }
 
+function reconcileCoverageLedgerSeedWithPersistedState(
+  ctx: McpContext,
+  projectRoot: string,
+  seed: RescanCoverageLedgerSeedReport
+): RescanCoverageLedgerSeedReport {
+  try {
+    const repository = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!repository) {
+      return seed;
+    }
+    const persistedCells = repository.listByProjectRoot(projectRoot);
+    if (persistedCells.length === 0) {
+      return seed;
+    }
+    const persistedSummary = summarizeCoverageLedgerSeed(persistedCells);
+    const dimensionIds = uniqueStrings(persistedCells.map((cell) => cell.dimensionId));
+    const persistedSeed: RescanCoverageLedgerSeedReport = {
+      ...seed,
+      aggregateOrRootModuleIds: persistedSummary.aggregateOrRootModuleIds,
+      coveredPathCount: persistedSummary.coveredPathCount,
+      dimensionIds: dimensionIds.length > 0 ? dimensionIds : seed.dimensionIds,
+      measuredCells: persistedSummary.measuredCells,
+      moduleCount: persistedSummary.moduleCount,
+      targetScopedCells: persistedSummary.targetScopedCells,
+      usableCells: persistedSummary.usableCells,
+      writtenCells: persistedCells.length,
+    };
+    const inconsistentReasons = coverageLedgerSeedInconsistencyReasons(seed, persistedSeed);
+    if (inconsistentReasons.length === 0) {
+      return persistedSeed;
+    }
+    const reason = inconsistentReasons.join(',');
+    ctx.logger.warn('[Rescan] coverage ledger seed reconciled with persisted state', {
+      aggregateOrRootModuleIds: persistedSeed.aggregateOrRootModuleIds,
+      projectRoot,
+      reason,
+      routeMeasuredCells: seed.measuredCells,
+      routeWrittenCells: seed.writtenCells,
+      persistedMeasuredCells: persistedSeed.measuredCells,
+      persistedWrittenCells: persistedSeed.writtenCells,
+    });
+    return {
+      ...persistedSeed,
+      status: 'inconsistent',
+      reason,
+    };
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    ctx.logger.warn('[Rescan] coverage ledger seed persisted-state reconciliation skipped', {
+      projectRoot,
+      reason,
+    });
+    return seed;
+  }
+}
+
+function coverageLedgerSeedInconsistencyReasons(
+  routeSeed: RescanCoverageLedgerSeedReport,
+  persistedSeed: RescanCoverageLedgerSeedReport
+): string[] {
+  const reasons: string[] = [];
+  if (persistedSeed.aggregateOrRootModuleIds.length > 0) {
+    reasons.push('persisted-aggregate-or-root-coverage-cells');
+  }
+  if (routeSeed.writtenCells !== persistedSeed.writtenCells) {
+    reasons.push('persisted-written-cell-count-mismatch');
+  }
+  if (routeSeed.measuredCells !== persistedSeed.measuredCells) {
+    reasons.push('persisted-measured-cell-count-mismatch');
+  }
+  if (routeSeed.targetScopedCells !== persistedSeed.targetScopedCells) {
+    reasons.push('persisted-target-scoped-cell-count-mismatch');
+  }
+  return uniqueStrings(reasons);
+}
+
 type RescanCoverageModuleAxisSource = 'project-map' | 'rescan-snapshot';
 type RescanCoverageResolvedModuleAxisSource =
   | RescanCoverageModuleAxisSource
@@ -842,11 +920,7 @@ function summarizeCoverageLedgerSeed(
 > {
   const targetScopedCells = cells.filter((cell) => isTargetScopedCoverageModuleId(cell.moduleId));
   const measuredCells = targetScopedCells.filter(
-    (cell) =>
-      (cell.coveredCount ?? 0) > 0 ||
-      (cell.totalCandidateCount ?? 0) > 0 ||
-      (cell.coveredSourceRefs?.length ?? 0) > 0 ||
-      (cell.uncoveredHints?.length ?? 0) > 0
+    (cell) => (cell.coveredCount ?? 0) > 0 || (cell.coveredSourceRefs?.length ?? 0) > 0
   );
   return {
     aggregateOrRootModuleIds: uniqueStrings(
@@ -937,14 +1011,15 @@ function releaseNoWorkRescanSession(
     sessionId,
     source: 'alembic_rescan',
   });
-  const closedRound = closeLatestOpenHostAgentRescanRound(ctx, state.projectRoot, Date.now());
+  const closedRounds = closeOpenHostAgentRescanRounds(ctx, state.projectRoot, Date.now());
 
   const data = readRecord(response.data);
   if (data) {
     data.session = null;
     data.noActionableHostAgentWork = {
       generationStage: state.planGate.generationStage,
-      closedOpenRound: closedRound,
+      closedOpenRound: closedRounds.count > 0,
+      closedOpenRounds: closedRounds.count,
       releasedEmptySession: release.released,
       sessionId: release.released ? sessionId : null,
       stopReason: coverageAdvisory.stopReason,
@@ -957,7 +1032,8 @@ function releaseNoWorkRescanSession(
   response.meta = meta;
   meta.noActionableHostAgentWork = {
     generationStage: state.planGate.generationStage,
-    closedOpenRound: closedRound,
+    closedOpenRound: closedRounds.count > 0,
+    closedOpenRounds: closedRounds.count,
     releasedEmptySession: release.released,
     stopReason: coverageAdvisory.stopReason,
   };
@@ -992,8 +1068,16 @@ async function buildRescanResponse(
   const coverageAdvisory = attachCoverageAdvisory(ctx, response, state);
   const hasActionableProduceWork =
     state.planGate.generationStage === 'deepMining' && planning.produceDimensionCount > 0;
-  const noActionableRescanWork = coverageAdvisory?.shouldStop === true && !hasActionableProduceWork;
-  if (coverageAdvisory?.shouldStop === true && hasActionableProduceWork) {
+  const terminalCoverageAdvisory =
+    coverageAdvisory?.shouldStop === true && isTerminalCoverageAdvisory(coverageAdvisory);
+  const noActionableRescanWork =
+    coverageAdvisory?.shouldStop === true &&
+    (!hasActionableProduceWork || terminalCoverageAdvisory);
+  if (
+    coverageAdvisory?.shouldStop === true &&
+    hasActionableProduceWork &&
+    !terminalCoverageAdvisory
+  ) {
     ctx.logger.info(
       '[Rescan] Keeping deepMining round/session open despite coverage advisory stop because produce dimensions exist',
       {
@@ -1016,7 +1100,10 @@ async function buildRescanResponse(
     openDeepMiningRound(ctx, state.projectRoot, state.rescanId);
   }
   // Keep the seed in the final full-briefing body after advisory/session/round mutations.
-  attachCoverageLedgerSeedMeta(response, state.coverageLedgerSeed);
+  attachCoverageLedgerSeedMeta(
+    response,
+    reconcileCoverageLedgerSeedWithPersistedState(ctx, state.projectRoot, state.coverageLedgerSeed)
+  );
   // U3 item3：在所有 attach*（unifiedEvolution/trashArchive/projectSelectionMismatch）之后，对完整
   // response.data 做内联预算化（与 cold-start 共享同一步骤/口径）。≤18KB 内联并清理遗留 transient；
   // >预算把完整 data 写入 'rescan-briefing' transient transport，再经 attachFullBriefingRef 把引用写进
@@ -1033,36 +1120,42 @@ async function buildRescanResponse(
   return response;
 }
 
-function closeLatestOpenHostAgentRescanRound(
+function isTerminalCoverageAdvisory(input: { stopReason: string }): boolean {
+  return input.stopReason === 'diminishing-returns' || input.stopReason === 'round-cap';
+}
+
+function closeOpenHostAgentRescanRounds(
   ctx: McpContext,
   projectRoot: string,
   now: number
-): boolean {
+): { count: number; roundIndexes: number[] } {
   try {
     const repository = ctx.container.get('coverageLedgerRepository') as
       | EvolutionCoverageLedgerRepository
       | undefined;
     if (!repository) {
-      return false;
+      return { count: 0, roundIndexes: [] };
     }
-    const latestOpenRound = [...repository.listRoundsByProjectRoot(projectRoot)]
-      .reverse()
-      .find((round) => round.triggerActor === 'host-agent-rescan' && round.completedAt === null);
-    if (!latestOpenRound) {
-      return false;
+    const openRounds = repository
+      .listRoundsByProjectRoot(projectRoot)
+      .filter((round) => round.triggerActor === 'host-agent-rescan' && round.completedAt === null);
+    if (openRounds.length === 0) {
+      return { count: 0, roundIndexes: [] };
     }
-    repository.upsertRound({
-      projectRoot,
-      roundIndex: latestOpenRound.roundIndex,
-      ...(latestOpenRound.rescanId ? { rescanId: latestOpenRound.rescanId } : {}),
-      completedAt: now,
-      newRecipesThisRound: latestOpenRound.newRecipesThisRound,
-    });
-    return true;
+    for (const openRound of openRounds) {
+      repository.upsertRound({
+        projectRoot,
+        roundIndex: openRound.roundIndex,
+        ...(openRound.rescanId ? { rescanId: openRound.rescanId } : {}),
+        completedAt: now,
+        newRecipesThisRound: openRound.newRecipesThisRound,
+      });
+    }
+    return { count: openRounds.length, roundIndexes: openRounds.map((round) => round.roundIndex) };
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : String(err);
     ctx.logger.warn('[Rescan] host-agent rescan round close skipped', { projectRoot, reason });
-    return false;
+    return { count: 0, roundIndexes: [] };
   }
 }
 
