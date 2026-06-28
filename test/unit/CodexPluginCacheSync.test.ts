@@ -37,6 +37,31 @@ describe('Codex plugin cache sync script', () => {
     expect(existsSync(targetRoot)).toBe(false);
   });
 
+  test('canonicalizes enabled Codex config aliases to the manifest plugin name', () => {
+    const codexHome = tempDir();
+    const pluginManifest = JSON.parse(readFileSync(pluginManifestPath, 'utf8')) as {
+      version: string;
+    };
+    writeFileSync(
+      join(codexHome, 'config.toml'),
+      [
+        '[plugins."alembic-codex@gxfn"]',
+        'enabled = true',
+        '',
+        '[plugins."alembic@gxfn"]',
+        'enabled = false',
+        '',
+      ].join('\n')
+    );
+
+    const output = runSyncScript('--dry-run', '--all-installed', '--codex-home', codexHome);
+    const summary = JSON.parse(output) as { targetRoots: string[] };
+
+    expect(summary.targetRoots).toEqual([
+      join(codexHome, 'plugins', 'cache', 'gxfn', 'alembic', pluginManifest.version),
+    ]);
+  });
+
   test('copies the plugin and rewrites only the cached MCP config for local dist', () => {
     const codexHome = tempDir();
     const localEntry = join(tempDir(), 'host-mcp.js');

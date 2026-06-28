@@ -97,23 +97,47 @@ function resolveTargetRoots() {
       join(codexHome, 'plugins', 'cache', options.marketplaceName, pluginName, pluginVersion)
     );
   }
-  const defaultTarget = join(
-    codexHome,
-    'plugins',
-    'cache',
-    marketplaceName,
-    pluginName,
-    pluginVersion
-  );
-  explicit.push(defaultTarget);
 
   if (options.allInstalled) {
-    for (const installed of findInstalledPluginRoots()) {
+    const configuredRoots = findConfiguredEnabledPluginRoots();
+    const installedRoots =
+      configuredRoots.length > 0 ? configuredRoots : findInstalledPluginRoots();
+    for (const installed of installedRoots) {
       explicit.push(installed);
     }
   }
 
+  if (explicit.length === 0) {
+    explicit.push(join(codexHome, 'plugins', 'cache', marketplaceName, pluginName, pluginVersion));
+  }
+
   return [...new Set(explicit)];
+}
+
+function findConfiguredEnabledPluginRoots() {
+  const configPath = join(codexHome, 'config.toml');
+  if (!existsSync(configPath)) {
+    return [];
+  }
+  const config = readFileSync(configPath, 'utf8');
+  const roots = [];
+  const pluginTablePattern = /^\[plugins\."([^"@]+)@([^"]+)"\]\s*\n([\s\S]*?)(?=^\[|$)/gm;
+  for (const match of config.matchAll(pluginTablePattern)) {
+    const [, configuredPluginName, configuredMarketplace, body] = match;
+    if (configuredMarketplace !== marketplaceName) {
+      continue;
+    }
+    if (!pluginNameAliases.includes(configuredPluginName)) {
+      continue;
+    }
+    if (!/^\s*enabled\s*=\s*true\s*$/m.test(body)) {
+      continue;
+    }
+    roots.push(
+      join(codexHome, 'plugins', 'cache', configuredMarketplace, pluginName, pluginVersion)
+    );
+  }
+  return roots;
 }
 
 function findInstalledPluginRoots() {
