@@ -365,10 +365,16 @@ function seedRescanCoverageLedgerFromSnapshot(
       return empty('no-selected-dimensions');
     }
 
-    const modules = buildRescanCoverageModules(input.projectContextAnalysis, input.planGate);
+    const moduleAxis = buildRescanCoverageModuleAxis(input.projectContextAnalysis, input.planGate);
+    const modules = moduleAxis.modules;
     if (modules.length === 0) {
       return empty('no-project-context-modules');
     }
+    ctx.logger.info('[Rescan] Coverage ledger module axis resolved', {
+      moduleAxisSource: moduleAxis.source,
+      moduleCount: modules.length,
+      projectRoot: input.projectRoot,
+    });
 
     const selectedDimensions = new Set(dimensionIds);
     const coveredPaths = uniqueStrings(
@@ -442,7 +448,49 @@ function seedRescanCoverageLedgerFromSnapshot(
   }
 }
 
-function buildRescanCoverageModules(
+type RescanCoverageModuleAxisSource = 'project-map' | 'rescan-snapshot';
+
+export function buildRescanCoverageModuleAxis(
+  analysis: HostAgentProjectContextAnalysis,
+  planGate: PlanGenerationGateReady
+): { modules: CoverageLedgerModuleAxis[]; source: RescanCoverageModuleAxisSource } {
+  const projectMapModules = buildCoverageLedgerModuleAxisFromSummaries({
+    modules: buildProjectMapCoverageModuleSummaries(analysis),
+  });
+  if (projectMapModules.length > 0) {
+    return { modules: projectMapModules, source: 'project-map' };
+  }
+  return {
+    modules: buildRescanSnapshotCoverageModules(analysis, planGate),
+    source: 'rescan-snapshot',
+  };
+}
+
+function buildProjectMapCoverageModuleSummaries(
+  analysis: HostAgentProjectContextAnalysis
+): CoverageLedgerModuleSummary[] {
+  const modules = new Map<string, CoverageLedgerModuleSummary>();
+  for (const module of analysis.presenterInput.map?.modules ?? []) {
+    const moduleId = module.id.trim();
+    const moduleName = module.name.trim() || moduleId;
+    const modulePath = module.ref?.scope.filePath
+      ? normalizeCoverageSourcePath(module.ref.scope.filePath)
+      : undefined;
+    if (!moduleId || !moduleName || !modulePath) {
+      continue;
+    }
+    const existing = modules.get(moduleId);
+    modules.set(moduleId, {
+      moduleId,
+      moduleName,
+      modulePath,
+      ownedPaths: uniqueStrings([...(existing?.ownedPaths ?? []), modulePath]),
+    });
+  }
+  return [...modules.values()];
+}
+
+function buildRescanSnapshotCoverageModules(
   analysis: HostAgentProjectContextAnalysis,
   planGate: PlanGenerationGateReady
 ): CoverageLedgerModuleAxis[] {
