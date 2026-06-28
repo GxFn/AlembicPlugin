@@ -24,6 +24,7 @@ describe('buildRescanCoverageModuleAxis', () => {
       },
     ]);
     expect(result.modules.map((module) => module.moduleId)).not.toContain('Sources');
+    expect(result.modules.map((module) => module.moduleId)).not.toContain('target:Sources:Sources');
     expect(result.modules.map((module) => module.moduleId)).not.toContain('BiliDili');
   });
 
@@ -77,6 +78,18 @@ function analysisWithProjectMapTargets(): HostAgentProjectContextAnalysis {
     presenterInput: {
       map: {
         modules: [
+          {
+            id: 'Sources',
+            name: 'Sources',
+            ref: {
+              id: 'module-sources',
+              kind: 'module',
+              scope: {
+                projectRoot: '/project',
+                filePath: 'Sources',
+              },
+            },
+          },
           {
             id: 'target:Account:Sources/Infrastructure/Account',
             name: 'Account',

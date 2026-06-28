@@ -29,6 +29,7 @@ import {
   reflowDeepMiningRoundOnCompletion,
   writeCoverageLedgerForCompletion,
 } from '#recipe-generation/host-agent-workflows/coverage-ledger-write.js';
+import { filterGenericParentCoverageModules } from '#recipe-generation/host-agent-workflows/coverage-module-axis.js';
 import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
@@ -661,12 +662,14 @@ async function writeDimensionCompletionCoverageLedger(args: {
     // canonical 模块 → CoverageLedgerModuleAxis：真实 ownedFiles 优先；无 ownedFiles 时才用模块根路径兜底。
     // Core pathsOverlap 已是 segment-safe 目录匹配，不会把 `src/auth` 误归到 `src/authentication`。
     const rawModules: CoverageLedgerModuleAxis[] = buildCoverageLedgerModuleAxisFromSummaries({
-      modules: canonicalModules.map((module) => ({
-        moduleId: module.id ?? module.name,
-        moduleName: module.name,
-        modulePath: module.path,
-        ownedFiles: module.ownedFiles,
-      })),
+      modules: filterGenericParentCoverageModules(
+        canonicalModules.map((module) => ({
+          moduleId: module.id ?? module.name,
+          moduleName: module.name,
+          modulePath: module.path,
+          ownedFiles: module.ownedFiles,
+        }))
+      ),
     });
     const targetAxis = preferTargetScopedCoverageItems(rawModules);
     const existingTargetCellCount =

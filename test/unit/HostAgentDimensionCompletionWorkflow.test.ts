@@ -275,7 +275,7 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
 
     expect(result.success).toBe(true);
     expect(moduleService.listCanonicalModules).toHaveBeenCalledOnce();
-    const authCell = upserts.find((upsert) => upsert.moduleId === 'auth');
+    const authCell = upserts.find((upsert) => upsert.moduleId === 'target:Auth:src/auth');
     expect(authCell?.coveredCount).toBeGreaterThan(0);
     expect(JSON.stringify(authCell)).toContain('src/auth/login.ts');
     expect(JSON.stringify(authCell)).not.toContain('src/auth/ignored.ts');

@@ -80,6 +80,7 @@ import {
   uniqueTargetScopedCoverageModuleCount,
 } from './coverage-ledger-target-axis.js';
 import { writeCoverageLedgerForCompletion } from './coverage-ledger-write.js';
+import { filterGenericParentCoverageModules } from './coverage-module-axis.js';
 import {
   type KnowledgeIndexRebuildReport,
   rebuildLocalKnowledgeIndexes,
@@ -597,13 +598,17 @@ export function buildRescanCoverageModuleAxis(
   planGate: PlanGenerationGateReady
 ): { modules: CoverageLedgerModuleAxis[]; source: RescanCoverageResolvedModuleAxisSource } {
   const projectMapModules = buildCoverageLedgerModuleAxisFromSummaries({
-    modules: buildProjectMapCoverageModuleSummaries(analysis, planGate),
+    modules: filterGenericParentCoverageModules(
+      buildProjectMapCoverageModuleSummaries(analysis, planGate)
+    ),
   });
   if (projectMapModules.length > 0) {
     return { modules: projectMapModules, source: 'project-map' };
   }
   const projectContextTargetModules = buildCoverageLedgerModuleAxisFromSummaries({
-    modules: buildProjectContextTargetCoverageModuleSummaries(analysis, planGate),
+    modules: filterGenericParentCoverageModules(
+      buildProjectContextTargetCoverageModuleSummaries(analysis, planGate)
+    ),
   });
   if (projectContextTargetModules.length > 0) {
     return { modules: projectContextTargetModules, source: 'project-context-targets' };
@@ -620,22 +625,22 @@ function buildProjectMapCoverageModuleSummaries(
 ): CoverageLedgerModuleSummary[] {
   const modules = new Map<string, CoverageLedgerModuleSummary>();
   for (const module of analysis.presenterInput.map?.modules ?? []) {
-    const moduleId = normalizeTargetScopedCoverageModuleId({
-      moduleId: module.id,
-      moduleName: module.name,
-      modulePath: module.ref?.scope.filePath,
-      projectRoot: planGate.projectRoot,
-    });
-    const moduleName = module.name.trim() || moduleId;
+    const rawModuleId = module.id?.trim();
+    const moduleName = module.name.trim() || rawModuleId;
     const modulePath = module.ref?.scope.filePath
       ? normalizeCoverageSourcePath(module.ref.scope.filePath)
       : undefined;
-    if (!moduleId || !moduleName || !modulePath) {
+    if (
+      !moduleName ||
+      !modulePath ||
+      isAggregateProjectTarget(moduleName, modulePath, basenameFromPath(planGate.projectRoot))
+    ) {
       continue;
     }
-    const existing = modules.get(moduleId);
-    modules.set(moduleId, {
-      moduleId,
+    const moduleKey = rawModuleId ?? `${moduleName}:${modulePath}`;
+    const existing = modules.get(moduleKey);
+    modules.set(moduleKey, {
+      ...(rawModuleId ? { moduleId: rawModuleId } : {}),
       moduleName,
       modulePath,
       ownedPaths: uniqueStrings([...(existing?.ownedPaths ?? []), modulePath]),
@@ -784,20 +789,16 @@ function normalizeTargetScopedCoverageModuleId(input: {
   modulePath?: string;
   projectRoot?: string;
 }): string | undefined {
-  const existingId = input.moduleId?.trim();
-  if (isTargetScopedCoverageModuleId(existingId)) {
-    return existingId;
-  }
-  const modulePath = input.modulePath ? normalizeCoverageSourcePath(input.modulePath) : undefined;
-  const moduleName = input.moduleName?.trim() || basenameFromPath(modulePath);
-  if (
-    !moduleName ||
-    !modulePath ||
-    isAggregateProjectTarget(moduleName, modulePath, basenameFromPath(input.projectRoot))
-  ) {
-    return undefined;
-  }
-  return `target:${moduleName}:${modulePath}`;
+  return buildCoverageLedgerModuleAxisFromSummaries({
+    modules: [
+      {
+        moduleId: input.moduleId,
+        moduleName: input.moduleName,
+        modulePath: input.modulePath,
+        projectRoot: input.projectRoot,
+      },
+    ],
+  })[0]?.moduleId;
 }
 
 function isAggregateProjectTarget(
