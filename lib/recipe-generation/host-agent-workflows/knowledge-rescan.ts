@@ -14,6 +14,7 @@
 import {
   adviseCoverageLedger,
   auditRecipesForRescan,
+  buildCoverageLedgerModuleAxisFromSummaries,
   buildIDEAgentAnalysisPacketFromProjectContext,
   buildKnowledgeRescanPlan,
   buildKnowledgeRescanWorkflowPlan,
@@ -21,6 +22,7 @@ import {
   buildRescanPrescreen,
   type CoverageLedgerCandidate,
   type CoverageLedgerModuleAxis,
+  type CoverageLedgerModuleSummary,
   createHostAgentKnowledgeRescanIntent,
   type DimensionDef,
   type ModuleCellBinding,
@@ -436,7 +438,7 @@ function buildRescanCoverageModules(
   analysis: HostAgentProjectContextAnalysis,
   planGate: PlanGenerationGateReady
 ): CoverageLedgerModuleAxis[] {
-  const modules = new Map<string, CoverageLedgerModuleAxis>();
+  const modules = new Map<string, CoverageLedgerModuleSummary>();
   const add = (input: {
     moduleId?: string;
     moduleName?: string;
@@ -480,7 +482,7 @@ function buildRescanCoverageModules(
     });
   }
 
-  return [...modules.values()];
+  return buildCoverageLedgerModuleAxisFromSummaries({ modules: [...modules.values()] });
 }
 
 function collectRecipeSourcePaths(entry: {

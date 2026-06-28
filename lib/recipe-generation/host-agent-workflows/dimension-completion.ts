@@ -1,5 +1,6 @@
 import { dimensionTags } from '@alembic/core/dimensions';
 import {
+  buildCoverageLedgerModuleAxisFromSummaries,
   type CoverageLedgerCandidate,
   type CoverageLedgerExhaustedDeclaration,
   type CoverageLedgerModuleAxis,
@@ -645,13 +646,13 @@ async function writeDimensionCompletionCoverageLedger(args: {
 
     // canonical 模块 → CoverageLedgerModuleAxis：真实 ownedFiles 优先；无 ownedFiles 时才用模块根路径兜底。
     // Core pathsOverlap 已是 segment-safe 目录匹配，不会把 `src/auth` 误归到 `src/authentication`。
-    const modules: CoverageLedgerModuleAxis[] = canonicalModules.map((module) => {
-      const ownedFiles = uniqueStrings(module.ownedFiles ?? []);
-      return {
+    const modules: CoverageLedgerModuleAxis[] = buildCoverageLedgerModuleAxisFromSummaries({
+      modules: canonicalModules.map((module) => ({
         moduleId: module.id ?? module.name,
         moduleName: module.name,
-        ownedPaths: ownedFiles.length > 0 ? ownedFiles : module.path ? [module.path] : [],
-      };
+        modulePath: module.path,
+        ownedFiles: module.ownedFiles,
+      })),
     });
 
     // coveredPaths = 已引用文件去行号锚点（referencedFiles 形如 `path:10-20`，剥离末尾 `:行号`）。
