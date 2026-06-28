@@ -2,15 +2,15 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
-  buildIDEAgentAnalysisPacketFromProjectContext,
+  buildHostAgentAnalysisPacketFromProjectContext,
   buildProjectContextMissionBriefing,
 } from '@alembic/core/host-agent-workflows';
 import { afterEach, describe, expect, it } from 'vitest';
+import { attachPlanScopeTargetCounts } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import {
   buildHostAgentProjectContextAnalysis,
   selectProjectContextDimensions,
 } from '../../lib/recipe-generation/host-agent-workflows/project-context-analysis.js';
-import { attachPlanScopeTargetCounts } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 
 const tempRoots: string[] = [];
 
@@ -19,7 +19,7 @@ describe('Host Agent ProjectContext direct switch', () => {
     await Promise.all(tempRoots.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
   });
 
-  it('builds briefing and IDEAgentAnalysis from ProjectContext results directly', async () => {
+  it('builds briefing and HostAgentAnalysis from ProjectContext results directly', async () => {
     const projectRoot = await createTinyTypeScriptProject();
     const analysis = await buildHostAgentProjectContextAnalysis({
       maxFileDetails: 2,
@@ -46,7 +46,7 @@ describe('Host Agent ProjectContext direct switch', () => {
       projectContext: analysis.presenterInput,
       session,
     });
-    const packet = buildIDEAgentAnalysisPacketFromProjectContext({
+    const packet = buildHostAgentAnalysisPacketFromProjectContext({
       dimensions,
       options: { profile: 'cold-start', projectRoot },
       projectContext: analysis.presenterInput,
@@ -316,13 +316,9 @@ async function createBiliDiliLikeSwiftProject(): Promise<string> {
   await writeFixtureFile(
     root,
     'Packages/AOXNetworkKit/Sources/AOXNetworkKit/Endpoint.swift',
-    [
-      'import Foundation',
-      'public struct Endpoint {',
-      '  public let path: String',
-      '}',
-      '',
-    ].join('\n')
+    ['import Foundation', 'public struct Endpoint {', '  public let path: String', '}', ''].join(
+      '\n'
+    )
   );
   await writeFixtureFile(
     root,
@@ -365,18 +361,18 @@ async function createBiliDiliLikeSwiftProject(): Promise<string> {
   await writeFixtureFile(
     root,
     'Sources/Features/Home/HomeViewModel.swift',
-    [
-      'import Foundation',
-      'public final class HomeViewModel {',
-      '  public init() {}',
-      '}',
-      '',
-    ].join('\n')
+    ['import Foundation', 'public final class HomeViewModel {', '  public init() {}', '}', ''].join(
+      '\n'
+    )
   );
   return root;
 }
 
-async function writeFixtureFile(root: string, relativePath: string, content: string): Promise<void> {
+async function writeFixtureFile(
+  root: string,
+  relativePath: string,
+  content: string
+): Promise<void> {
   const filePath = join(root, relativePath);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, content);

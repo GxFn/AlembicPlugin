@@ -1,0 +1,361 @@
+import type {
+  HostAgentAnalysisPacket,
+  HostAgentAnalysisUnit,
+  HostAgentAnalysisUnitProgress,
+} from '@alembic/core/host-agent-workflows';
+
+type SourceRefWithIdentity = HostAgentAnalysisUnit['sourceRefs'][number] & {
+  projectScopeId?: string;
+  qualifiedPath?: string;
+  relativePath?: string;
+};
+
+export interface HostAgentSurfaceSourceRef {
+  alias?: string;
+  displayName?: string;
+  entityType?: string;
+  folderDisplayName?: string;
+  folderId?: string;
+  folderRelativeRoot?: string;
+  fqn?: string;
+  line?: number;
+  path: string;
+  projectScopeId?: string;
+  qualifiedPath?: string;
+  relativePath?: string;
+  role?: SourceRefWithIdentity['role'];
+  symbol?: string;
+}
+
+export type HostAgentSurfaceStructuralEvidenceRef = Omit<
+  HostAgentAnalysisPacket['structuralEvidenceRefs'][number],
+  'sourceRefs'
+> & {
+  sourceRefs?: HostAgentSurfaceSourceRef[];
+};
+
+export interface HostAgentAnalysisUnitSurface {
+  completionContract: HostAgentAnalysisUnit['completionContract'];
+  degraded: HostAgentAnalysisUnit['degraded'];
+  dimensionId: string;
+  moduleName?: string;
+  priority: number;
+  reason: string;
+  requiredReadSet: string[];
+  sourceRefs: HostAgentSurfaceSourceRef[];
+  targetName?: string;
+  unitId: string;
+  warnings: string[];
+}
+
+export interface HostAgentAnalysisSurface {
+  nextUnits: HostAgentAnalysisUnitSurface[];
+  packetSummary: {
+    budget: HostAgentAnalysisPacket['budget'];
+    generatedAt: string;
+    packetId: string;
+    profile: HostAgentAnalysisPacket['profile'];
+    projectRootHash: string;
+    projectSummary: HostAgentAnalysisPacket['projectSummary'];
+    unitCountsByDimension: Record<string, number>;
+  };
+  progress: {
+    checkpointKind: HostAgentAnalysisPacket['progressSeed']['checkpointKind'];
+    packetId: string;
+    remainingUnitIds: string[];
+    statusCounts: Record<HostAgentAnalysisUnitProgress['status'], number>;
+    totalUnits: number;
+    unitProgress: HostAgentAnalysisUnitProgress[];
+  };
+  retrieval: {
+    requiredReadSet: string[];
+    retrievalHints: HostAgentAnalysisPacket['retrievalHints'];
+    sourceRefs: HostAgentSurfaceSourceRef[];
+    structuralEvidenceRefs: HostAgentSurfaceStructuralEvidenceRef[];
+  };
+}
+
+export interface BuildHostAgentAnalysisSurfaceOptions {
+  maxNextUnits?: number;
+  progressOverrides?: readonly HostAgentAnalysisUnitProgress[];
+}
+
+const DEFAULT_NEXT_UNITS = 5;
+
+export function buildHostAgentAnalysisSurface(
+  packet: HostAgentAnalysisPacket,
+  options: BuildHostAgentAnalysisSurfaceOptions = {}
+): HostAgentAnalysisSurface {
+  const progress = mergeProgress(packet.progressSeed.unitProgress, options.progressOverrides ?? []);
+  const remainingUnitIds = progress
+    .filter((unit) => unit.status === 'pending' || unit.status === 'claimed')
+    .map((unit) => unit.unitId);
+  const nextUnitSet = new Set(remainingUnitIds);
+  const maxNextUnits = normalizePositiveInt(options.maxNextUnits, DEFAULT_NEXT_UNITS);
+
+  return {
+    packetSummary: {
+      budget: packet.budget,
+      generatedAt: packet.generatedAt,
+      packetId: packet.packetId,
+      profile: packet.profile,
+      projectRootHash: packet.projectRootHash,
+      projectSummary: packet.projectSummary,
+      unitCountsByDimension: countUnitsByDimension(packet.units),
+    },
+    nextUnits: packet.units
+      .filter((unit) => nextUnitSet.has(unit.unitId))
+      .slice(0, maxNextUnits)
+      .map(projectUnitSurface),
+    retrieval: {
+      requiredReadSet: projectRequiredReadSet(packet.requiredReadSet, packet.sourceRefs),
+      retrievalHints: packet.retrievalHints,
+      sourceRefs: projectSourceRefsForSurface(packet.sourceRefs),
+      structuralEvidenceRefs: projectStructuralEvidenceRefsForSurface(
+        packet.structuralEvidenceRefs
+      ),
+    },
+    progress: {
+      checkpointKind: packet.progressSeed.checkpointKind,
+      packetId: packet.packetId,
+      totalUnits: packet.progressSeed.totalUnits,
+      remainingUnitIds,
+      statusCounts: countProgressStatuses(progress),
+      unitProgress: progress,
+    },
+  };
+}
+
+export function buildHostAgentAnalysisProgressBackfill(input: {
+  analysisUnitIds?: readonly string[];
+  deviationReason?: string;
+  dimensionId: string;
+  rejectedAnalysisUnitIds?: readonly string[];
+  remainingAnalysisUnitIds?: readonly string[];
+  sessionId?: string;
+  skippedAnalysisUnitIds?: readonly string[];
+}): {
+  checkpointKind: 'ide-agent-analysis-unit-progress';
+  completedUnitIds: string[];
+  deviationReason?: string;
+  rejectedUnitIds: string[];
+  remainingUnitIds: string[];
+  skippedUnitIds: string[];
+  unitProgress: HostAgentAnalysisUnitProgress[];
+} {
+  const completedUnitIds = uniqueStrings(input.analysisUnitIds);
+  const skippedUnitIds = uniqueStrings(input.skippedAnalysisUnitIds);
+  const rejectedUnitIds = uniqueStrings(input.rejectedAnalysisUnitIds);
+  const remainingUnitIds = uniqueStrings(input.remainingAnalysisUnitIds);
+  const now = new Date().toISOString();
+  const baseCheckpoint = {
+    checkpointKind: 'dimension-checkpoint' as const,
+    dimensionId: input.dimensionId,
+    sessionId: input.sessionId,
+    updatedAt: now,
+  };
+
+  // Plugin 只回填宿主执行状态，不重建 Core 的 AST/callgraph/sourceRefs 投影。
+  const unitProgress: HostAgentAnalysisUnitProgress[] = [
+    ...completedUnitIds.map((unitId) => ({
+      unitId,
+      status: 'completed' as const,
+      completedAt: now,
+      submittedRecipeIds: [],
+      referencedFiles: [],
+      rejectedReasons: [],
+      checkpoint: baseCheckpoint,
+    })),
+    ...skippedUnitIds.map((unitId) => ({
+      unitId,
+      status: 'skipped' as const,
+      completedAt: now,
+      submittedRecipeIds: [],
+      referencedFiles: [],
+      rejectedReasons: [],
+      deviationReason: input.deviationReason,
+      checkpoint: baseCheckpoint,
+    })),
+    ...rejectedUnitIds.map((unitId) => ({
+      unitId,
+      status: 'rejected' as const,
+      completedAt: now,
+      submittedRecipeIds: [],
+      referencedFiles: [],
+      rejectedReasons: input.deviationReason ? [input.deviationReason] : [],
+      deviationReason: input.deviationReason,
+      checkpoint: baseCheckpoint,
+    })),
+    ...remainingUnitIds.map((unitId) => ({
+      unitId,
+      status: 'pending' as const,
+      submittedRecipeIds: [],
+      referencedFiles: [],
+      rejectedReasons: [],
+      checkpoint: baseCheckpoint,
+    })),
+  ];
+
+  return {
+    checkpointKind: 'ide-agent-analysis-unit-progress',
+    completedUnitIds,
+    skippedUnitIds,
+    rejectedUnitIds,
+    remainingUnitIds,
+    ...(input.deviationReason ? { deviationReason: input.deviationReason } : {}),
+    unitProgress,
+  };
+}
+
+function mergeProgress(
+  seed: readonly HostAgentAnalysisUnitProgress[],
+  overrides: readonly HostAgentAnalysisUnitProgress[]
+): HostAgentAnalysisUnitProgress[] {
+  const byUnit = new Map<string, HostAgentAnalysisUnitProgress>();
+  for (const unit of seed) {
+    byUnit.set(unit.unitId, { ...unit });
+  }
+  for (const unit of overrides) {
+    byUnit.set(unit.unitId, { ...byUnit.get(unit.unitId), ...unit });
+  }
+  return [...byUnit.values()];
+}
+
+function projectUnitSurface(unit: HostAgentAnalysisUnit): HostAgentAnalysisUnitSurface {
+  return {
+    unitId: unit.unitId,
+    dimensionId: unit.dimensionId,
+    targetName: unit.targetName,
+    moduleName: unit.moduleName,
+    priority: unit.priority,
+    reason: unit.reason,
+    sourceRefs: projectSourceRefsForSurface(unit.sourceRefs),
+    requiredReadSet: projectRequiredReadSet(unit.requiredReadSet, unit.sourceRefs),
+    completionContract: unit.completionContract,
+    degraded: unit.degraded,
+    warnings: unit.warnings,
+  };
+}
+
+function countUnitsByDimension(units: readonly HostAgentAnalysisUnit[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const unit of units) {
+    counts[unit.dimensionId] = (counts[unit.dimensionId] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function countProgressStatuses(
+  units: readonly HostAgentAnalysisUnitProgress[]
+): Record<HostAgentAnalysisUnitProgress['status'], number> {
+  const counts: Record<HostAgentAnalysisUnitProgress['status'], number> = {
+    blocked: 0,
+    claimed: 0,
+    completed: 0,
+    pending: 0,
+    rejected: 0,
+    skipped: 0,
+  };
+  for (const unit of units) {
+    counts[unit.status] += 1;
+  }
+  return counts;
+}
+
+function normalizePositiveInt(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return fallback;
+  }
+  return Math.floor(value);
+}
+
+function projectRequiredReadSet(
+  requiredReadSet: readonly string[],
+  sourceRefs: readonly SourceRefWithIdentity[]
+): string[] {
+  const projected: string[] = [];
+  const sourceRefsByPath = indexSourceRefsByComparablePath(sourceRefs);
+  for (const requiredPath of requiredReadSet) {
+    const matches = sourceRefsByPath.get(normalizeComparablePath(requiredPath));
+    if (matches?.length) {
+      projected.push(...matches.map(readableSourcePath));
+    } else {
+      projected.push(requiredPath);
+    }
+  }
+  return uniqueStrings(projected);
+}
+
+function indexSourceRefsByComparablePath(
+  sourceRefs: readonly SourceRefWithIdentity[]
+): Map<string, SourceRefWithIdentity[]> {
+  const index = new Map<string, SourceRefWithIdentity[]>();
+  for (const sourceRef of sourceRefs) {
+    for (const pathValue of comparableSourceRefPaths(sourceRef)) {
+      const key = normalizeComparablePath(pathValue);
+      const bucket = index.get(key) ?? [];
+      bucket.push(sourceRef);
+      index.set(key, bucket);
+    }
+  }
+  return index;
+}
+
+function comparableSourceRefPaths(sourceRef: SourceRefWithIdentity): string[] {
+  if (sourceRef.projectScopeId && sourceRef.qualifiedPath) {
+    return [sourceRef.qualifiedPath];
+  }
+  return uniqueStrings([sourceRef.qualifiedPath, sourceRef.path, sourceRef.relativePath]);
+}
+
+function readableSourcePath(sourceRef: SourceRefWithIdentity): string {
+  return sourceRef.qualifiedPath ?? sourceRef.path;
+}
+
+function projectStructuralEvidenceRefsForSurface(
+  refs: readonly HostAgentAnalysisPacket['structuralEvidenceRefs'][number][]
+): HostAgentSurfaceStructuralEvidenceRef[] {
+  return refs.map((ref) => ({
+    ...ref,
+    ...(ref.sourceRefs ? { sourceRefs: projectSourceRefsForSurface(ref.sourceRefs) } : {}),
+  }));
+}
+
+function projectSourceRefsForSurface(
+  sourceRefs: readonly SourceRefWithIdentity[]
+): HostAgentSurfaceSourceRef[] {
+  return sourceRefs.map(projectSourceRefForSurface);
+}
+
+function projectSourceRefForSurface(sourceRef: SourceRefWithIdentity): HostAgentSurfaceSourceRef {
+  return {
+    path: sourceRef.path,
+    ...(sourceRef.alias ? { alias: sourceRef.alias } : {}),
+    ...(sourceRef.displayName ? { displayName: sourceRef.displayName } : {}),
+    ...(sourceRef.entityType ? { entityType: sourceRef.entityType } : {}),
+    ...(sourceRef.folderDisplayName ? { folderDisplayName: sourceRef.folderDisplayName } : {}),
+    ...(sourceRef.folderId ? { folderId: sourceRef.folderId } : {}),
+    ...(sourceRef.folderRelativeRoot ? { folderRelativeRoot: sourceRef.folderRelativeRoot } : {}),
+    ...(sourceRef.fqn ? { fqn: sourceRef.fqn } : {}),
+    ...(typeof sourceRef.line === 'number' ? { line: sourceRef.line } : {}),
+    ...(sourceRef.projectScopeId ? { projectScopeId: sourceRef.projectScopeId } : {}),
+    ...(sourceRef.qualifiedPath ? { qualifiedPath: sourceRef.qualifiedPath } : {}),
+    ...(sourceRef.relativePath ? { relativePath: sourceRef.relativePath } : {}),
+    ...(sourceRef.role ? { role: sourceRef.role } : {}),
+    ...(sourceRef.symbol ? { symbol: sourceRef.symbol } : {}),
+  };
+}
+
+function normalizeComparablePath(pathValue: string): string {
+  return pathValue.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+/g, '/');
+}
+
+function uniqueStrings(values: readonly (string | null | undefined)[] | undefined): string[] {
+  return [
+    ...new Set(
+      (values ?? []).filter(
+        (value): value is string => typeof value === 'string' && value.trim().length > 0
+      )
+    ),
+  ];
+}

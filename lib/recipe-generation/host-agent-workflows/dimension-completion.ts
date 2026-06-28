@@ -14,7 +14,7 @@ import {
 import Logger from '@alembic/core/logging';
 import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import { buildIDEAgentAnalysisProgressBackfill } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import { buildHostAgentAnalysisProgressBackfill } from '#codex/host-agent/HostAgentAnalysisSurface.js';
 import { BootstrapEventEmitter } from '#recipe-generation/bootstrap/BootstrapEventEmitter.js';
 import {
   buildDimensionCompletionCompletenessCritic,
@@ -267,7 +267,7 @@ interface DimensionCompletionSideEffectResult {
   accumulatedHints: Record<string, unknown> | undefined;
   completenessCritic: Record<string, unknown> | undefined;
   evidenceHints: Record<string, unknown> | undefined;
-  ideAgentAnalysisProgress: ReturnType<typeof buildIDEAgentAnalysisProgressBackfill>;
+  hostAgentAnalysisProgress: ReturnType<typeof buildHostAgentAnalysisProgressBackfill>;
   isComplete: boolean;
   progress: ReturnType<HostAgentWorkflowSession['getProgress']>;
   qualityFeedback: Record<string, unknown> | undefined;
@@ -382,7 +382,7 @@ async function applyDimensionCompletionSideEffects({
   | { success: true; value: DimensionCompletionSideEffectResult }
   | { success: false; response: HostAgentDimensionCompletionResponse }
 > {
-  const ideAgentAnalysisProgress = buildIDEAgentAnalysisProgressBackfill({
+  const hostAgentAnalysisProgress = buildHostAgentAnalysisProgressBackfill({
     analysisUnitIds: input.analysisUnitIds,
     deviationReason: input.deviationReason,
     dimensionId: input.dimensionId,
@@ -425,7 +425,7 @@ async function applyDimensionCompletionSideEffects({
       dataRoot,
       dependencies,
       dimension,
-      ideAgentAnalysisProgress,
+      hostAgentAnalysisProgress,
       input,
       qualityReport: completion.qualityReport,
       recipesBound,
@@ -478,7 +478,7 @@ async function persistAndBroadcastDimensionCompletion({
   dataRoot,
   dependencies,
   dimension,
-  ideAgentAnalysisProgress,
+  hostAgentAnalysisProgress,
   input,
   qualityReport,
   recipesBound,
@@ -492,7 +492,7 @@ async function persistAndBroadcastDimensionCompletion({
   dataRoot: string;
   dependencies: HostAgentDimensionCompletionDependencies;
   dimension: DimensionDef;
-  ideAgentAnalysisProgress: ReturnType<typeof buildIDEAgentAnalysisProgressBackfill>;
+  hostAgentAnalysisProgress: ReturnType<typeof buildHostAgentAnalysisProgressBackfill>;
   input: CompletionInput;
   qualityReport: DimensionQualityReport;
   recipesBound: number;
@@ -511,7 +511,7 @@ async function persistAndBroadcastDimensionCompletion({
     referencedFiles,
     submittedRecipeIds,
     skillCreated: skillResult.success,
-    ideAgentAnalysisProgress,
+    hostAgentAnalysisProgress,
     dependencies,
   });
   await persistKeyFindings({
@@ -593,7 +593,7 @@ async function persistAndBroadcastDimensionCompletion({
     accumulatedHints,
     completenessCritic,
     evidenceHints,
-    ideAgentAnalysisProgress,
+    hostAgentAnalysisProgress,
     isComplete,
     progress,
     qualityFeedback,
@@ -1004,7 +1004,8 @@ function buildDimensionCompletionSuccessResponse({
       qualityFeedback: result.qualityFeedback,
       completenessCritic: result.completenessCritic,
       evidenceHints: result.evidenceHints,
-      ideAgentAnalysisProgress: result.ideAgentAnalysisProgress,
+      hostAgentAnalysisProgress: result.hostAgentAnalysisProgress,
+      ideAgentAnalysisProgress: result.hostAgentAnalysisProgress,
       subpackageCoverageWarning: result.subpackageCoverageWarning,
       nextActions: result.isComplete ? BOOTSTRAP_COMPLETE_ACTIONS : undefined,
     },
@@ -1448,7 +1449,7 @@ async function persistDimensionCheckpoint({
   referencedFiles,
   submittedRecipeIds,
   skillCreated,
-  ideAgentAnalysisProgress,
+  hostAgentAnalysisProgress,
   dependencies,
 }: {
   session: HostAgentWorkflowSession;
@@ -1459,7 +1460,7 @@ async function persistDimensionCheckpoint({
   referencedFiles: string[];
   submittedRecipeIds: string[];
   skillCreated: boolean;
-  ideAgentAnalysisProgress: ReturnType<typeof buildIDEAgentAnalysisProgressBackfill>;
+  hostAgentAnalysisProgress: ReturnType<typeof buildHostAgentAnalysisProgressBackfill>;
   dependencies: HostAgentDimensionCompletionDependencies;
 }): Promise<void> {
   try {
@@ -1470,7 +1471,8 @@ async function persistDimensionCheckpoint({
       referencedFiles: referencedFiles.length,
       recipeIds: submittedRecipeIds,
       skillCreated,
-      ideAgentAnalysisProgress,
+      hostAgentAnalysisProgress,
+      ideAgentAnalysisProgress: hostAgentAnalysisProgress,
     });
   } catch (err: unknown) {
     logger.warn(

@@ -263,7 +263,7 @@ export const TOOLS = [
       '• Overlap detected → evolution proposal created automatically (merge/enhance/reorganize); system auto-executes after observation window\n' +
       '• Set skipConsolidation: true to skip consolidation check. content and reasoning must be objects.\n' +
       '• Set supersedes: "old-recipe-id" to declare the new Recipe replaces an existing one (creates a supersede proposal with observation window).\n' +
-      '• Optional unitId / analysisUnitIds / sourceRefs link submissions to Core IDEAgentAnalysisUnit progress; omit them for legacy flows.\n' +
+      '• Optional unitId / analysisUnitIds / sourceRefs link submissions to Core HostAgentAnalysisUnit progress; omit them for legacy flows.\n' +
       '• Evidence refs may cite root-level files such as package.json:1; rule/pattern candidates normally need 3 distinct files, or scope: "narrow" / "file-local" for a legitimate local rule.\n' +
       '• P5 quality: EN verb-led do/dont; content.markdown needs ✅/❌ contrast.\n' +
       '⚠️ Batch rule: items in the array must NOT be cross-redundant — no highly overlapping doClause/coreCode/trigger within the same batch. ' +
@@ -294,7 +294,7 @@ export const TOOLS = [
       'Plan-selection-driven cold-start — requires planSelection from a just-run alembic_plan confirm before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded planSelection dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
       '• planSelection dimension task list and scale\n' +
-      '• ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
+      '• hostAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed (ideAgentAnalysis remains a compatibility alias)\n' +
       '• planGate/planState projection showing execution dimensions, gaps, cleanupPolicy, and module scope\n' +
       '• Execution plan and submission examples\n' +
       'After receiving the Briefing, complete all dimension analyses per the executionPlan.',
@@ -311,7 +311,7 @@ export const TOOLS = [
       '• moduleMining or testMode uses cleanupPolicy:none and scoped ProjectContext module analysis, preserving candidates/wiki/cache\n' +
       '• Runs relevance audit (evidence check, auto-decay stale Recipes)\n' +
       '\u2022 Returns Mission Briefing with allRecipes (full content + auditHint per recipe)\n' +
-      '\u2022 Includes ideAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed\n' +
+      '\u2022 Includes hostAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed (ideAgentAnalysis remains a compatibility alias)\n' +
       '\u2022 Includes planGate/planState projection with coverage gaps, execution dimensions, moduleScope, cleanupPolicy, and scale\n' +
       '\u2022 Per-dimension workflow: evolve (alembic_evolve) \u2192 gap-fill (submit_knowledge) \u2192 dimension_complete\n' +
       '\u2022 Optional: dimensions/reason/generationStage/moduleScope/testMode/scaleOverride plus controller-authorized produceSession fields for session-bound ASQ publication',

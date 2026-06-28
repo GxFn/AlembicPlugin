@@ -97,7 +97,12 @@ describe('Plan-driven generation gate', () => {
       enabled: true,
       dimensions: [dimensionId],
     });
-    expect(readFullBriefingFromResponse(result).projectContextCreationGuide).toMatchObject({
+    const bootstrapBriefing = readFullBriefingFromResponse(result);
+    expect(bootstrapBriefing.hostAgentAnalysis).toStrictEqual(bootstrapBriefing.ideAgentAnalysis);
+    expect(asRecord(bootstrapBriefing.meta).hostAgentAnalysis).toStrictEqual(
+      asRecord(bootstrapBriefing.meta).ideAgentAnalysis
+    );
+    expect(bootstrapBriefing.projectContextCreationGuide).toMatchObject({
       source: 'RG-5-project-context-anchored-creation',
       stage: 'bootstrap',
       confirmedPlanBoundary: {
@@ -106,9 +111,7 @@ describe('Plan-driven generation gate', () => {
         testMode: true,
       },
     });
-    expect(
-      actionTools(asArray(readFullBriefingFromResponse(result).recipeCreationNextActions))
-    ).toEqual(
+    expect(actionTools(asArray(bootstrapBriefing.recipeCreationNextActions))).toEqual(
       expect.arrayContaining([
         'alembic_recipe_map',
         'alembic_graph',
@@ -409,6 +412,10 @@ describe('Plan-driven generation gate', () => {
         testMode: true,
       },
     });
+    expect(result.data?.hostAgentAnalysis).toBe(result.data?.ideAgentAnalysis);
+    expect(asRecord(result.data?.meta).hostAgentAnalysis).toBe(
+      asRecord(result.data?.meta).ideAgentAnalysis
+    );
     expect(actionTools(asArray(result.data?.recipeCreationNextActions))).toEqual(
       expect.arrayContaining([
         'alembic_recipe_map',

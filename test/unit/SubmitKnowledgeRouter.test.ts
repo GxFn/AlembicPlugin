@@ -205,7 +205,13 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
 
   it('uses Core-provided newRecipeId for alembic_consolidate decisions', async () => {
     const result = await routeSubmitKnowledgeTool(makeContext(), {
-      items: [makeValidSubmitItem({ title: 'Codex Recipe Interaction' })],
+      items: [
+        makeValidSubmitItem({
+          title: 'Codex Recipe Interaction',
+          unitId: 'unit-architecture-1',
+          sourceRefs: ['lib/runtime/mcp/handlers/tool-router.ts:529-537'],
+        }),
+      ],
     });
 
     expect(result.success).toBe(true);
@@ -227,6 +233,18 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     const decisions = (result.data as { nextAction: { args: { decisions: unknown[] } } }).nextAction
       .args.decisions;
     expect(decisions).not.toContainEqual(expect.objectContaining({ newRecipeId: '' }));
+    const data = result.data as Record<string, unknown>;
+    expect(data.hostAgentAnalysisLinkage).toBe(data.ideAgentAnalysisLinkage);
+    expect(data.hostAgentAnalysisLinkage).toMatchObject({
+      links: [
+        {
+          analysisUnitIds: ['unit-architecture-1'],
+          recipeId: 'recipe-semantic-001',
+          sourceRefs: ['lib/runtime/mcp/handlers/tool-router.ts:529-537'],
+          title: 'Codex Recipe Interaction',
+        },
+      ],
+    });
   });
 
   it('falls back to createdRecipe.id without guessing candidate titles', async () => {

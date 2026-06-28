@@ -146,6 +146,14 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
       {
         candidateCount: 3,
         analysisChars: analysisText.length,
+        hostAgentAnalysisProgress: {
+          checkpointKind: 'ide-agent-analysis-unit-progress',
+          completedUnitIds: [],
+          rejectedUnitIds: [],
+          remainingUnitIds: [],
+          skippedUnitIds: [],
+          unitProgress: [],
+        },
         ideAgentAnalysisProgress: {
           checkpointKind: 'ide-agent-analysis-unit-progress',
           completedUnitIds: [],
@@ -159,6 +167,12 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
         skillCreated: false,
       }
     );
+    const checkpointPayload = checkpoint.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(checkpointPayload.ideAgentAnalysisProgress).toBe(
+      checkpointPayload.hostAgentAnalysisProgress
+    );
+    const responseData = result.data as Record<string, unknown>;
+    expect(responseData.ideAgentAnalysisProgress).toBe(responseData.hostAgentAnalysisProgress);
     expect(emitted).toHaveLength(1);
     expect(emitted[0]?.data).toMatchObject({
       extracted: 3,

@@ -526,13 +526,15 @@ function appendCreatedSubmitData(
   if (gatewayResult.created.length > 0) {
     data.ids = gatewayResult.created.map((c) => c.id);
   }
-  const ideAgentAnalysisLinkage = buildIDEAgentAnalysisLinkage(items, gatewayResult.created);
-  if (ideAgentAnalysisLinkage.length > 0) {
-    data.ideAgentAnalysisLinkage = {
-      links: ideAgentAnalysisLinkage,
+  const hostAgentAnalysisLinkage = buildHostAgentAnalysisLinkage(items, gatewayResult.created);
+  if (hostAgentAnalysisLinkage.length > 0) {
+    const linkage = {
+      links: hostAgentAnalysisLinkage,
       message:
-        'Optional IDEAgentAnalysisUnit linkage was accepted for host-agent progress backfill; submissions without unitId remain valid.',
+        'Optional HostAgentAnalysisUnit linkage was accepted for host-agent progress backfill; submissions without unitId remain valid.',
     };
+    data.hostAgentAnalysisLinkage = linkage;
+    data.ideAgentAnalysisLinkage = linkage;
   }
 }
 
@@ -900,7 +902,7 @@ function _buildPendingSemanticReviewDecision(
   };
 }
 
-function buildIDEAgentAnalysisLinkage(
+function buildHostAgentAnalysisLinkage(
   items: Record<string, unknown>[],
   created: CreateRecipeResult['created']
 ): Array<{

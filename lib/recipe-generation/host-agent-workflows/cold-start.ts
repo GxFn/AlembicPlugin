@@ -11,7 +11,7 @@
 
 import {
   buildColdStartWorkflowPlan,
-  buildIDEAgentAnalysisPacketFromProjectContext,
+  buildHostAgentAnalysisPacketFromProjectContext,
   buildProjectContextMissionBriefing,
   createHostAgentColdStartIntent,
   getActiveHostAgentWorkflowSession,
@@ -22,7 +22,7 @@ import {
 } from '@alembic/core/host-agent-workflows';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
-import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import { buildHostAgentAnalysisSurface } from '#codex/host-agent/HostAgentAnalysisSurface.js';
 import { type HostKnowledgeState, inspectKnowledge } from '#codex/KnowledgeState.js';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
@@ -308,17 +308,17 @@ async function buildColdStartMissionBriefing(
       sourceFileFacts: input.projectContextAnalysis.sourceFileFacts,
     }
   );
-  const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
+  const hostAgentPacket = buildHostAgentAnalysisPacketFromProjectContext({
     dimensions: input.briefingDimensions,
     options: { profile: 'cold-start', projectRoot: input.projectRoot },
     projectContext: input.projectContextAnalysis.presenterInput,
   });
-  const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(
+  const briefingWithHostAgentSurface = attachHostAgentAnalysisSurface(
     briefing,
-    buildIDEAgentAnalysisSurface(ideAgentPacket)
+    buildHostAgentAnalysisSurface(hostAgentPacket)
   );
   const briefingWithOnboardingContract = attachColdStartOnboardingSurface({
-    briefing: briefingWithIdeAgentSurface,
+    briefing: briefingWithHostAgentSurface,
     dataRoot: input.dataRoot,
     dimensions: input.briefingDimensions,
     fileCount: input.projectContextAnalysis.fileCount,
@@ -616,16 +616,19 @@ function trimColdStartBriefingToBudget<T extends { meta?: Record<string, unknown
   }
 
   const record = compact as Record<string, unknown>;
-  if (isRecord(record.ideAgentAnalysis)) {
+  const firstPassAnalysis = readAnalysisSurfaceAlias(record);
+  if (firstPassAnalysis) {
+    const compactAnalysis = compactHostAgentAnalysis(firstPassAnalysis, {
+      maxNextUnits: 3,
+      maxProgressUnits: 20,
+      maxReadSet: 20,
+      maxSourceRefs: 24,
+      maxStructuralRefs: 12,
+    });
     compact = {
       ...compact,
-      ideAgentAnalysis: compactIDEAgentAnalysis(record.ideAgentAnalysis, {
-        maxNextUnits: 3,
-        maxProgressUnits: 20,
-        maxReadSet: 20,
-        maxSourceRefs: 24,
-        maxStructuralRefs: 12,
-      }),
+      hostAgentAnalysis: compactAnalysis,
+      ideAgentAnalysis: compactAnalysis,
     };
   }
   if (jsonByteLength(compact) <= budgetBytes) {
@@ -633,19 +636,21 @@ function trimColdStartBriefingToBudget<T extends { meta?: Record<string, unknown
   }
 
   const compactRecord = compact as Record<string, unknown>;
-  const ideAgentAnalysis = compactRecord.ideAgentAnalysis;
-  compact = {
-    ...compact,
-    ideAgentAnalysis: isRecord(ideAgentAnalysis)
-      ? compactIDEAgentAnalysis(ideAgentAnalysis, {
-          maxNextUnits: 1,
-          maxProgressUnits: 8,
-          maxReadSet: 8,
-          maxSourceRefs: 8,
-          maxStructuralRefs: 4,
-        })
-      : ideAgentAnalysis,
-  };
+  const secondPassAnalysis = readAnalysisSurfaceAlias(compactRecord);
+  if (secondPassAnalysis) {
+    const compactAnalysis = compactHostAgentAnalysis(secondPassAnalysis, {
+      maxNextUnits: 1,
+      maxProgressUnits: 8,
+      maxReadSet: 8,
+      maxSourceRefs: 8,
+      maxStructuralRefs: 4,
+    });
+    compact = {
+      ...compact,
+      hostAgentAnalysis: compactAnalysis,
+      ideAgentAnalysis: compactAnalysis,
+    };
+  }
   if (jsonByteLength(compact) <= budgetBytes) {
     return compact;
   }
@@ -663,7 +668,7 @@ function trimColdStartBriefingToBudget<T extends { meta?: Record<string, unknown
   return minimalColdStartInlineData(compact);
 }
 
-function compactIDEAgentAnalysis(
+function compactHostAgentAnalysis(
   value: Record<string, unknown>,
   limits: {
     maxNextUnits: number;
@@ -696,6 +701,10 @@ function compactIDEAgentAnalysis(
       unitProgress: readRecordArray(progress.unitProgress).slice(0, limits.maxProgressUnits),
     },
   };
+}
+
+function readAnalysisSurfaceAlias(record: Record<string, unknown>): Record<string, unknown> | null {
+  return readRecord(record.hostAgentAnalysis) ?? readRecord(record.ideAgentAnalysis);
 }
 
 function compactColdStartLargeAnalysisFields<T extends { meta?: Record<string, unknown> }>(
@@ -1080,21 +1089,28 @@ function baseName(value: string): string {
  */
 export { getActiveHostAgentWorkflowSession as getActiveSession };
 
-function attachIDEAgentAnalysisSurface<T extends { meta?: Record<string, unknown> }>(
+function attachHostAgentAnalysisSurface<T extends { meta?: Record<string, unknown> }>(
   briefing: T,
-  ideAgentAnalysis: ReturnType<typeof buildIDEAgentAnalysisSurface>
-): T & { ideAgentAnalysis: typeof ideAgentAnalysis; meta: Record<string, unknown> } {
+  hostAgentAnalysis: ReturnType<typeof buildHostAgentAnalysisSurface>
+): T & {
+  hostAgentAnalysis: typeof hostAgentAnalysis;
+  ideAgentAnalysis: typeof hostAgentAnalysis;
+  meta: Record<string, unknown>;
+} {
+  const analysisSummary = {
+    packetId: hostAgentAnalysis.packetSummary.packetId,
+    profile: hostAgentAnalysis.packetSummary.profile,
+    totalUnits: hostAgentAnalysis.progress.totalUnits,
+    remainingUnits: hostAgentAnalysis.progress.remainingUnitIds.length,
+  };
   return {
     ...briefing,
-    ideAgentAnalysis,
+    hostAgentAnalysis,
+    ideAgentAnalysis: hostAgentAnalysis,
     meta: {
       ...(briefing.meta || {}),
-      ideAgentAnalysis: {
-        packetId: ideAgentAnalysis.packetSummary.packetId,
-        profile: ideAgentAnalysis.packetSummary.profile,
-        totalUnits: ideAgentAnalysis.progress.totalUnits,
-        remainingUnits: ideAgentAnalysis.progress.remainingUnitIds.length,
-      },
+      hostAgentAnalysis: analysisSummary,
+      ideAgentAnalysis: analysisSummary,
     },
   };
 }

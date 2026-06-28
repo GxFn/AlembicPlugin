@@ -15,7 +15,7 @@ import {
   adviseCoverageLedger,
   auditRecipesForRescan,
   buildCoverageLedgerModuleAxisFromSummaries,
-  buildIDEAgentAnalysisPacketFromProjectContext,
+  buildHostAgentAnalysisPacketFromProjectContext,
   buildKnowledgeRescanPlan,
   buildKnowledgeRescanWorkflowPlan,
   buildProjectContextMissionBriefing,
@@ -38,7 +38,7 @@ import {
 import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
-import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
+import { buildHostAgentAnalysisSurface } from '#codex/host-agent/HostAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
 import type { GitDiffScanResult } from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
@@ -925,7 +925,7 @@ function buildRescanBriefing(
         sourceFileFacts: projectContextAnalysis.sourceFileFacts,
       })
     : briefing;
-  const ideAgentPacket = buildIDEAgentAnalysisPacketFromProjectContext({
+  const hostAgentPacket = buildHostAgentAnalysisPacketFromProjectContext({
     dimensions: Array.isArray(dimensions) ? dimensions : [],
     options: {
       profile: 'rescan',
@@ -933,17 +933,17 @@ function buildRescanBriefing(
     },
     projectContext: projectContextAnalysis.presenterInput,
   });
-  const ideAgentAnalysis = buildIDEAgentAnalysisSurface(ideAgentPacket);
-  const briefingWithIdeAgentSurface = attachIDEAgentAnalysisSurface(
+  const hostAgentAnalysis = buildHostAgentAnalysisSurface(hostAgentPacket);
+  const briefingWithHostAgentSurface = attachHostAgentAnalysisSurface(
     briefingWithModuleCounts as Record<string, unknown>,
-    ideAgentAnalysis
+    hostAgentAnalysis
   );
-  briefingWithIdeAgentSurface.meta.projectContextDirectSwitch = {
+  briefingWithHostAgentSurface.meta.projectContextDirectSwitch = {
     moduleSeedCount: projectContextAnalysis.moduleSeeds.length,
     requestKinds: projectContextAnalysis.requestKinds,
   };
   const briefingWithProjectContextGuide = attachProjectContextCreationGuide(
-    briefingWithIdeAgentSurface,
+    briefingWithHostAgentSurface,
     {
       dimensionIds: (Array.isArray(dimensions) ? dimensions : []).map((dimension) => dimension.id),
       generationStage: state.planGate.generationStage,
@@ -953,7 +953,7 @@ function buildRescanBriefing(
       testMode: state.planGate.testMode,
     }
   );
-  logRescanBriefingReady(ctx, state, planning, session.id, ideAgentAnalysis.progress.totalUnits);
+  logRescanBriefingReady(ctx, state, planning, session.id, hostAgentAnalysis.progress.totalUnits);
   return { briefing: briefingWithProjectContextGuide, sessionId: session.id };
 }
 
@@ -1217,28 +1217,32 @@ function attachHostProjectSelectionMismatch(
   }
 }
 
-function attachIDEAgentAnalysisSurface(
+function attachHostAgentAnalysisSurface(
   briefing: Record<string, unknown>,
-  ideAgentAnalysis: ReturnType<typeof buildIDEAgentAnalysisSurface>
+  hostAgentAnalysis: ReturnType<typeof buildHostAgentAnalysisSurface>
 ): Record<string, unknown> & {
-  ideAgentAnalysis: ReturnType<typeof buildIDEAgentAnalysisSurface>;
+  hostAgentAnalysis: ReturnType<typeof buildHostAgentAnalysisSurface>;
+  ideAgentAnalysis: ReturnType<typeof buildHostAgentAnalysisSurface>;
   meta: Record<string, unknown>;
 } {
   const meta =
     briefing.meta && typeof briefing.meta === 'object' && !Array.isArray(briefing.meta)
       ? (briefing.meta as Record<string, unknown>)
       : {};
+  const analysisSummary = {
+    packetId: hostAgentAnalysis.packetSummary.packetId,
+    profile: hostAgentAnalysis.packetSummary.profile,
+    totalUnits: hostAgentAnalysis.progress.totalUnits,
+    remainingUnits: hostAgentAnalysis.progress.remainingUnitIds.length,
+  };
   return {
     ...briefing,
-    ideAgentAnalysis,
+    hostAgentAnalysis,
+    ideAgentAnalysis: hostAgentAnalysis,
     meta: {
       ...meta,
-      ideAgentAnalysis: {
-        packetId: ideAgentAnalysis.packetSummary.packetId,
-        profile: ideAgentAnalysis.packetSummary.profile,
-        totalUnits: ideAgentAnalysis.progress.totalUnits,
-        remainingUnits: ideAgentAnalysis.progress.remainingUnitIds.length,
-      },
+      hostAgentAnalysis: analysisSummary,
+      ideAgentAnalysis: analysisSummary,
     },
   };
 }

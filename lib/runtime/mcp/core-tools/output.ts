@@ -117,6 +117,8 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'gates',
     'guardAudit',
     'hostAgentContract',
+    'hostAgentAnalysis',
+    'ideAgentAnalysis',
     'dimensions',
     'cleanupPolicy',
     'executionPlan',
@@ -155,6 +157,7 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'completedDimensions',
     'dimensionId',
     'evidenceHints',
+    'hostAgentAnalysisProgress',
     'ideAgentAnalysisProgress',
     'isBootstrapComplete',
     'nextActions',
@@ -263,6 +266,8 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'executionPlan',
     'generationStage',
     'generationChangeLog',
+    'hostAgentAnalysis',
+    'ideAgentAnalysis',
     // U2e：退役 git-diff 增量生成杂质——gitDiffEvidence / moduleMiningRoutes 不再透出 rescan 业务输出
     //（生成已于 750ef70 退役、moduleMiningRoutes 恒空）；维护 pendingProposals/generationChangeLog 保留。
     'moduleScope',
@@ -315,6 +320,7 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'evidenceGate',
     'finality',
     'freshness',
+    'hostAgentAnalysisLinkage',
     'ideAgentAnalysisLinkage',
     'ids',
     'nextAction',
