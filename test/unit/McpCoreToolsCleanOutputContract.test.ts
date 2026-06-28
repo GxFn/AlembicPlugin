@@ -149,6 +149,11 @@ describe('MCP core tools clean output contract', () => {
           moduleCount: 1,
           dimensionIds: ['architecture'],
         });
+        expect(structured.hostAgentLifecycle).toMatchObject({
+          actionRequired: true,
+          state: 'action-required',
+          terminal: false,
+        });
         expect(JSON.stringify(structured)).not.toContain('secretToken');
         expect(JSON.stringify(structured)).not.toContain('rawCandidates');
         expect(JSON.stringify(structured)).not.toContain('sourceRefPaths');
@@ -456,6 +461,12 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
         allRecipes: [],
         dimensions: [],
         executionPlan: [],
+        hostAgentLifecycle: {
+          actionRequired: true,
+          state: 'action-required',
+          terminal: false,
+          terminalGate: { pass: false, reason: 'host-agent-action-required' },
+        },
         projectContextCreationGuide: {
           source: 'RG-5-project-context-anchored-creation',
           stage: 'rescan',

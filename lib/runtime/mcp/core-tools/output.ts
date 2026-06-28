@@ -267,6 +267,7 @@ export const CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'generationStage',
     'generationChangeLog',
     'hostAgentAnalysis',
+    'hostAgentLifecycle',
     'ideAgentAnalysis',
     // U2e：退役 git-diff 增量生成杂质——gitDiffEvidence / moduleMiningRoutes 不再透出 rescan 业务输出
     //（生成已于 750ef70 退役、moduleMiningRoutes 恒空）；维护 pendingProposals/generationChangeLog 保留。

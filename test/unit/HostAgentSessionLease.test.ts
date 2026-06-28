@@ -464,6 +464,91 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('surfaces action-required lifecycle while keeping productive deepMining session and round open', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'thin',
+          moduleId: 'target:App:src',
+          dimensionId: 'architecture',
+          coveredCount: 0,
+          totalCandidateCount: 1,
+          valueScore: 0.5,
+        }),
+      ],
+      ignoreCellUpserts: true,
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories, {
+          coverageLedgerRepository: coverageLedger.repository,
+        }),
+        {
+          generationStage: 'deepMining',
+          planSelection: deepMiningPlanSelection(),
+          reason: 'action-required lifecycle regression',
+          rescanId: 'deep-action-required-rescan-1',
+          testMode: true,
+        }
+      )) as {
+        data?: {
+          hostAgentLifecycle?: {
+            actionRequired?: boolean;
+            coverage?: { measuredCells?: number; shouldStop?: boolean };
+            round?: { open?: boolean; rescanId?: string; roundIndex?: number };
+            terminal?: boolean;
+            terminalGate?: { pass?: boolean; reason?: string };
+          };
+          noActionableHostAgentWork?: unknown;
+        };
+        meta?: { noActionableHostAgentWork?: unknown };
+        success?: boolean;
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.data?.noActionableHostAgentWork).toBeUndefined();
+      expect(response.meta?.noActionableHostAgentWork).toBeUndefined();
+      expect(response.data?.hostAgentLifecycle).toEqual(
+        expect.objectContaining({
+          actionRequired: true,
+          terminal: false,
+          terminalGate: expect.objectContaining({
+            pass: false,
+            reason: 'host-agent-action-required',
+          }),
+        })
+      );
+      expect(response.data?.hostAgentLifecycle?.coverage).toEqual(
+        expect.objectContaining({ measuredCells: 0, shouldStop: false })
+      );
+      expect(response.data?.hostAgentLifecycle?.round).toEqual(
+        expect.objectContaining({
+          open: true,
+          rescanId: 'deep-action-required-rescan-1',
+          roundIndex: 1,
+        })
+      );
+      expect(readStoredSessionIds(fixture.dataRoot)).toHaveLength(1);
+      expect(coverageLedger.roundUpserts).toHaveLength(1);
+      expect(coverageLedger.roundUpserts[0]).toEqual(
+        expect.objectContaining({
+          rescanId: 'deep-action-required-rescan-1',
+          triggerActor: 'host-agent-rescan',
+        })
+      );
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('seeds coverage ledger from existing recipe source refs before deepMining planning', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');

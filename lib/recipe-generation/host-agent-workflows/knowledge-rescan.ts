@@ -127,6 +127,12 @@ interface RescanBriefingBuildResult {
   sessionId: string;
 }
 
+interface OpenHostAgentRescanRoundResult {
+  openRound: boolean;
+  rescanId: string | null;
+  roundIndex: number | null;
+}
+
 // ── 主入口 ─────────────────────────────────────────────────
 
 export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args: RescanInput) {
@@ -1042,6 +1048,73 @@ function releaseNoWorkRescanSession(
   response.message = `${response.message ?? ''} coverageAdvisory=${coverageAdvisory.stopReason}，本次 ${state.planGate.generationStage} 不保留空 host-agent session。`;
 }
 
+function attachActionRequiredRescanLifecycle(
+  response: Record<string, unknown> & { message?: string; meta?: Record<string, unknown> },
+  input: {
+    coverageAdvisory: {
+      highValueBlankCount: number;
+      shouldStop: boolean;
+      stopReason: string;
+      suggestion: string | null;
+    } | null;
+    executionDimensionCount: number;
+    generationStage: string;
+    openRound: OpenHostAgentRescanRoundResult;
+    produceDimensionCount: number;
+    seed: RescanCoverageLedgerSeedReport;
+  }
+): void {
+  const actionReason =
+    input.coverageAdvisory?.shouldStop === false
+      ? 'coverage-advisory-continue'
+      : `coverage-advisory-${input.coverageAdvisory?.stopReason ?? 'missing'}-with-produce-dimensions`;
+  const hostAgentLifecycle = {
+    actionRequired: true,
+    actionReason,
+    coverage: {
+      highValueBlankCount: input.coverageAdvisory?.highValueBlankCount ?? null,
+      measuredCells: input.seed.measuredCells,
+      shouldStop: input.coverageAdvisory?.shouldStop ?? null,
+      stopReason: input.coverageAdvisory?.stopReason ?? null,
+      targetScopedCells: input.seed.targetScopedCells,
+    },
+    generationStage: input.generationStage,
+    nextExpectedTools: [
+      'alembic_recipe_map',
+      'alembic_graph',
+      'alembic_submit_knowledge',
+      'alembic_dimension_complete',
+    ],
+    planning: {
+      executionDimensionCount: input.executionDimensionCount,
+      produceDimensionCount: input.produceDimensionCount,
+    },
+    round: {
+      open: input.openRound.openRound,
+      rescanId: input.openRound.rescanId,
+      roundIndex: input.openRound.roundIndex,
+      triggerActor: 'host-agent-rescan',
+    },
+    session: {
+      active: true,
+      releasePolicy:
+        'keep until session-bound submit_knowledge + dimension_complete closes the dimension, or a terminal no-output advisory releases an empty session',
+    },
+    state: 'action-required',
+    terminal: false,
+    terminalGate: {
+      pass: false,
+      reason: 'host-agent-action-required',
+    },
+  };
+
+  const data = readRecord(response.data);
+  if (data) {
+    data.hostAgentLifecycle = hostAgentLifecycle;
+  }
+  response.message = `${response.message ?? ''} hostAgentLifecycle=action-required，${input.generationStage} 仍需 session-bound Recipe evidence；terminalGate=false。`;
+}
+
 async function buildRescanResponse(
   ctx: McpContext,
   state: Awaited<ReturnType<typeof prepareRescanState>>,
@@ -1098,8 +1171,27 @@ async function buildRescanResponse(
   // 触发 new_recipes_this_round(0)<K 的收益递减误判，使多轮循环每轮立即停止。新轮在 rescan 返回前开好，
   // 供随后的 dimension_complete 回流累计 new_recipes_this_round / completedAt（轮次边界=plan-confirm 到该轮全部回流）。
   // coldStart/moduleMining rescan 不是 deepMining 轮次，用 stage 守卫排除。best-effort、不阻断。
+  let openRound: OpenHostAgentRescanRoundResult = {
+    openRound: false,
+    rescanId: state.rescanId ?? null,
+    roundIndex: null,
+  };
   if (state.planGate.generationStage === 'deepMining' && !noActionableRescanWork) {
-    openDeepMiningRound(ctx, state.projectRoot, state.rescanId);
+    openRound = openDeepMiningRound(ctx, state.projectRoot, state.rescanId);
+  }
+  if (
+    state.planGate.generationStage === 'deepMining' &&
+    hasActionableProduceWork &&
+    !noActionableRescanWork
+  ) {
+    attachActionRequiredRescanLifecycle(response, {
+      coverageAdvisory,
+      executionDimensionCount: planning.executionDimensionCount,
+      generationStage: state.planGate.generationStage,
+      openRound,
+      produceDimensionCount: planning.produceDimensionCount,
+      seed: state.coverageLedgerSeed,
+    });
   }
   // Keep the seed in the final full-briefing body after advisory/session/round mutations.
   attachCoverageLedgerSeedMeta(
@@ -1209,13 +1301,17 @@ function loadLedgerCoverageByDimension(
  * 无 rescanId 时维持旧行为：轮号 = (现有最大轮号 + 1)。
  * best-effort：repo 不可用 / 写失败都吞掉，绝不阻断 rescan。D3：只写 coverage 账本侧的 round 表，不碰 git-diff checkpoint。
  */
-function openDeepMiningRound(ctx: McpContext, projectRoot: string, rescanId?: string | null): void {
+function openDeepMiningRound(
+  ctx: McpContext,
+  projectRoot: string,
+  rescanId?: string | null
+): OpenHostAgentRescanRoundResult {
   try {
     const repo = ctx.container.get('coverageLedgerRepository') as
       | EvolutionCoverageLedgerRepository
       | undefined;
     if (!repo) {
-      return;
+      return { openRound: false, rescanId: rescanId ?? null, roundIndex: null };
     }
     const existing = repo.listRoundsByProjectRoot(projectRoot);
     const existingForRescanId =
@@ -1226,7 +1322,7 @@ function openDeepMiningRound(ctx: McpContext, projectRoot: string, rescanId?: st
     const nextIndex =
       existingForRescanId?.roundIndex ??
       (existing.length > 0 ? existing[existing.length - 1].roundIndex + 1 : 1);
-    repo.upsertRound({
+    const round = repo.upsertRound({
       projectRoot,
       roundIndex: nextIndex,
       ...(rescanId ? { rescanId } : {}),
@@ -1238,8 +1334,14 @@ function openDeepMiningRound(ctx: McpContext, projectRoot: string, rescanId?: st
       roundIndex: nextIndex,
       rescanId,
     });
+    return {
+      openRound: true,
+      rescanId: round.rescanId ?? rescanId ?? null,
+      roundIndex: round.roundIndex,
+    };
   } catch (_err: unknown) {
     // 开轮失败绝不阻断 rescan：吞掉异常（advisory 轮次记录缺失只影响后续收敛建议精度）。
+    return { openRound: false, rescanId: rescanId ?? null, roundIndex: null };
   }
 }
 
