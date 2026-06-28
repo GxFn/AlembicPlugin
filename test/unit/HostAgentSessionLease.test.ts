@@ -219,6 +219,80 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('closes an open host-agent rescan round when releasing a no-work deepMining session', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'covered',
+          moduleId: 'target:App:src',
+          dimensionId: 'architecture',
+          coveredCount: 5,
+          totalCandidateCount: 5,
+          valueScore: 0,
+        }),
+      ],
+      ignoreCellUpserts: true,
+      rounds: [
+        {
+          projectRoot: fixture.projectRoot,
+          roundIndex: 4,
+          rescanId: 'terminal-rescan-round',
+          startedAt: 100,
+          completedAt: null,
+          newRecipesThisRound: 0,
+          triggerActor: 'host-agent-rescan',
+          createdAt: 100,
+          updatedAt: 100,
+        },
+      ],
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories, {
+          coverageLedgerRepository: coverageLedger.repository,
+        }),
+        {
+          generationStage: 'deepMining',
+          planSelection: deepMiningPlanSelection(),
+          reason: 'terminal no-work round close regression',
+          testMode: true,
+        }
+      )) as {
+        meta?: {
+          noActionableHostAgentWork?: {
+            closedOpenRound?: boolean;
+            releasedEmptySession?: boolean;
+          };
+        };
+        success?: boolean;
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.meta?.noActionableHostAgentWork?.releasedEmptySession).toBe(true);
+      expect(response.meta?.noActionableHostAgentWork?.closedOpenRound).toBe(true);
+      expect(readStoredSessionIds(fixture.dataRoot)).toEqual([]);
+      expect(coverageLedger.roundUpserts).toHaveLength(1);
+      expect(coverageLedger.roundUpserts[0]).toEqual(
+        expect.objectContaining({
+          roundIndex: 4,
+          rescanId: 'terminal-rescan-round',
+          newRecipesThisRound: 0,
+        })
+      );
+      expect(typeof coverageLedger.roundUpserts[0]?.completedAt).toBe('number');
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('opens a rescanId round when deepMining has produce dimensions even if coverage advisory converges', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');

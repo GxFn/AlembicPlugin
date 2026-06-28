@@ -108,13 +108,17 @@ interface RescanUnifiedEvolutionResult {
 }
 
 interface RescanCoverageLedgerSeedReport {
+  aggregateOrRootModuleIds: string[];
   status: 'skipped' | 'written';
   reason?: string;
   candidateCount: number;
   coveredPathCount: number;
   deferredCells: number;
   dimensionIds: string[];
+  measuredCells: number;
   moduleCount: number;
+  targetScopedCells: number;
+  usableCells: number;
   writtenCells: number;
 }
 
@@ -341,13 +345,17 @@ function seedRescanCoverageLedgerFromSnapshot(
   }
 ): RescanCoverageLedgerSeedReport {
   const empty = (reason: string): RescanCoverageLedgerSeedReport => ({
+    aggregateOrRootModuleIds: [],
     status: 'skipped',
     reason,
     candidateCount: 0,
     coveredPathCount: 0,
     deferredCells: 0,
     dimensionIds: [],
+    measuredCells: 0,
     moduleCount: 0,
+    targetScopedCells: 0,
+    usableCells: 0,
     writtenCells: 0,
   });
 
@@ -458,14 +466,19 @@ function seedRescanCoverageLedgerFromSnapshot(
       lastRound: latestRound?.roundIndex ?? 0,
       logger: ctx.logger,
     });
+    const seedSummary = summarizeCoverageLedgerSeed(result.cells);
 
     const report: RescanCoverageLedgerSeedReport = {
+      aggregateOrRootModuleIds: seedSummary.aggregateOrRootModuleIds,
       status: 'written',
       candidateCount: candidates.length,
-      coveredPathCount: coveredPaths.length,
+      coveredPathCount: seedSummary.coveredPathCount,
       deferredCells: result.deferredCells,
       dimensionIds,
-      moduleCount: modules.length,
+      measuredCells: seedSummary.measuredCells,
+      moduleCount: seedSummary.moduleCount,
+      targetScopedCells: seedSummary.targetScopedCells,
+      usableCells: seedSummary.usableCells,
       writtenCells: result.writtenCells,
     };
     ctx.logger.info('[Rescan] Coverage ledger seeded from existing recipe evidence', {
@@ -484,16 +497,25 @@ function seedRescanCoverageLedgerFromSnapshot(
 }
 
 type RescanCoverageModuleAxisSource = 'project-map' | 'rescan-snapshot';
+type RescanCoverageResolvedModuleAxisSource =
+  | RescanCoverageModuleAxisSource
+  | 'project-context-targets';
 
 export function buildRescanCoverageModuleAxis(
   analysis: HostAgentProjectContextAnalysis,
   planGate: PlanGenerationGateReady
-): { modules: CoverageLedgerModuleAxis[]; source: RescanCoverageModuleAxisSource } {
+): { modules: CoverageLedgerModuleAxis[]; source: RescanCoverageResolvedModuleAxisSource } {
   const projectMapModules = buildCoverageLedgerModuleAxisFromSummaries({
-    modules: buildProjectMapCoverageModuleSummaries(analysis),
+    modules: buildProjectMapCoverageModuleSummaries(analysis, planGate),
   });
   if (projectMapModules.length > 0) {
     return { modules: projectMapModules, source: 'project-map' };
+  }
+  const projectContextTargetModules = buildCoverageLedgerModuleAxisFromSummaries({
+    modules: buildProjectContextTargetCoverageModuleSummaries(analysis, planGate),
+  });
+  if (projectContextTargetModules.length > 0) {
+    return { modules: projectContextTargetModules, source: 'project-context-targets' };
   }
   return {
     modules: buildRescanSnapshotCoverageModules(analysis, planGate),
@@ -502,16 +524,22 @@ export function buildRescanCoverageModuleAxis(
 }
 
 function buildProjectMapCoverageModuleSummaries(
-  analysis: HostAgentProjectContextAnalysis
+  analysis: HostAgentProjectContextAnalysis,
+  planGate: PlanGenerationGateReady
 ): CoverageLedgerModuleSummary[] {
   const modules = new Map<string, CoverageLedgerModuleSummary>();
   for (const module of analysis.presenterInput.map?.modules ?? []) {
-    const moduleId = module.id.trim();
+    const moduleId = normalizeTargetScopedCoverageModuleId({
+      moduleId: module.id,
+      moduleName: module.name,
+      modulePath: module.ref?.scope.filePath,
+      projectRoot: planGate.projectRoot,
+    });
     const moduleName = module.name.trim() || moduleId;
     const modulePath = module.ref?.scope.filePath
       ? normalizeCoverageSourcePath(module.ref.scope.filePath)
       : undefined;
-    if (!isTargetScopedCoverageModuleId(moduleId) || !moduleName || !modulePath) {
+    if (!moduleId || !moduleName || !modulePath) {
       continue;
     }
     const existing = modules.get(moduleId);
@@ -523,6 +551,207 @@ function buildProjectMapCoverageModuleSummaries(
     });
   }
   return [...modules.values()];
+}
+
+function buildProjectContextTargetCoverageModuleSummaries(
+  analysis: HostAgentProjectContextAnalysis,
+  planGate: PlanGenerationGateReady
+): CoverageLedgerModuleSummary[] {
+  const targetNames = uniqueStrings(
+    (analysis.presenterInput.repo?.targets ?? []).map((target) => target.name)
+  );
+  if (targetNames.length === 0 || analysis.sourceFileFacts.length === 0) {
+    return [];
+  }
+
+  const requestedScopes = uniqueStrings(
+    [
+      ...(planGate.moduleScope ?? []),
+      ...(planGate.moduleBindings ?? []).flatMap((binding) => [
+        binding.modulePath,
+        binding.moduleId,
+        canonicalModuleNameFromBinding(binding),
+      ]),
+    ].filter((value): value is string => typeof value === 'string')
+  );
+  const projectRootName = basenameFromPath(planGate.projectRoot);
+  const modules = new Map<string, CoverageLedgerModuleSummary>();
+  for (const targetName of targetNames) {
+    const modulePath = inferTargetModulePathFromSourceFacts(targetName, analysis.sourceFileFacts);
+    if (!modulePath) {
+      continue;
+    }
+    const moduleId = normalizeTargetScopedCoverageModuleId({
+      moduleName: targetName,
+      modulePath,
+      projectRoot: planGate.projectRoot,
+    });
+    if (!moduleId || isAggregateProjectTarget(targetName, modulePath, projectRootName)) {
+      continue;
+    }
+    if (
+      requestedScopes.length > 0 &&
+      !requestedScopes.some((scope) => coverageScopeMatchesModule(scope, targetName, modulePath))
+    ) {
+      continue;
+    }
+    const ownedPaths = uniqueStrings(
+      analysis.sourceFileFacts
+        .map((file) => normalizeCoverageSourcePath(file.filePath))
+        .filter((filePath) => coveragePathWithin(filePath, modulePath))
+    );
+    if (ownedPaths.length === 0) {
+      continue;
+    }
+    modules.set(moduleId, {
+      moduleId,
+      moduleName: targetName,
+      modulePath,
+      ownedPaths,
+    });
+  }
+
+  if (modules.size > 0) {
+    return [...modules.values()];
+  }
+
+  return buildUnscopedProjectContextTargetCoverageModuleSummaries(
+    analysis,
+    planGate,
+    targetNames,
+    projectRootName
+  );
+}
+
+function buildUnscopedProjectContextTargetCoverageModuleSummaries(
+  analysis: HostAgentProjectContextAnalysis,
+  planGate: PlanGenerationGateReady,
+  targetNames: readonly string[],
+  projectRootName: string | undefined
+): CoverageLedgerModuleSummary[] {
+  const modules = new Map<string, CoverageLedgerModuleSummary>();
+  for (const targetName of targetNames) {
+    const modulePath = inferTargetModulePathFromSourceFacts(targetName, analysis.sourceFileFacts);
+    if (!modulePath || isAggregateProjectTarget(targetName, modulePath, projectRootName)) {
+      continue;
+    }
+    const moduleId = normalizeTargetScopedCoverageModuleId({
+      moduleName: targetName,
+      modulePath,
+      projectRoot: planGate.projectRoot,
+    });
+    if (!moduleId) {
+      continue;
+    }
+    const ownedPaths = uniqueStrings(
+      analysis.sourceFileFacts
+        .map((file) => normalizeCoverageSourcePath(file.filePath))
+        .filter((filePath) => coveragePathWithin(filePath, modulePath))
+    );
+    if (ownedPaths.length === 0) {
+      continue;
+    }
+    modules.set(moduleId, {
+      moduleId,
+      moduleName: targetName,
+      modulePath,
+      ownedPaths,
+    });
+  }
+  return [...modules.values()];
+}
+
+function inferTargetModulePathFromSourceFacts(
+  targetName: string,
+  sourceFileFacts: readonly HostAgentProjectContextAnalysis['sourceFileFacts'][number][]
+): string | undefined {
+  const normalizedTargetName = targetName.trim();
+  if (!normalizedTargetName) {
+    return undefined;
+  }
+  const modulePaths = sourceFileFacts
+    .flatMap((file) => inferTargetModulePathsFromSourcePath(normalizedTargetName, file.filePath))
+    .sort((left, right) => left.length - right.length || left.localeCompare(right));
+  return modulePaths[0];
+}
+
+function inferTargetModulePathsFromSourcePath(targetName: string, filePath: string): string[] {
+  const normalizedPath = normalizeCoverageSourcePath(filePath);
+  const parts = normalizedPath.split('/').filter(Boolean);
+  const paths: string[] = [];
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    if (parts[index] === targetName) {
+      paths.push(parts.slice(0, index + 1).join('/'));
+    }
+  }
+  return uniqueStrings(paths);
+}
+
+function normalizeTargetScopedCoverageModuleId(input: {
+  moduleId?: string;
+  moduleName?: string;
+  modulePath?: string;
+  projectRoot?: string;
+}): string | undefined {
+  const existingId = input.moduleId?.trim();
+  if (isTargetScopedCoverageModuleId(existingId)) {
+    return existingId;
+  }
+  const modulePath = input.modulePath ? normalizeCoverageSourcePath(input.modulePath) : undefined;
+  const moduleName = input.moduleName?.trim() || basenameFromPath(modulePath);
+  if (
+    !moduleName ||
+    !modulePath ||
+    isAggregateProjectTarget(moduleName, modulePath, basenameFromPath(input.projectRoot))
+  ) {
+    return undefined;
+  }
+  return `target:${moduleName}:${modulePath}`;
+}
+
+function isAggregateProjectTarget(
+  moduleName: string,
+  modulePath: string,
+  projectRootName: string | undefined
+): boolean {
+  const normalizedName = moduleName.trim();
+  const normalizedPath = normalizeCoverageSourcePath(modulePath);
+  if (!normalizedName || normalizedName === 'root' || normalizedPath === 'root') {
+    return true;
+  }
+  return Boolean(
+    projectRootName &&
+      normalizedName === projectRootName &&
+      (normalizedPath === projectRootName || normalizedPath === '.')
+  );
+}
+
+function coverageScopeMatchesModule(
+  scope: string,
+  moduleName: string,
+  modulePath: string
+): boolean {
+  const normalizedScope = normalizeCoverageSourcePath(scope);
+  if (!normalizedScope) {
+    return false;
+  }
+  const moduleAliases = uniqueStrings([
+    moduleName,
+    modulePath,
+    basenameFromPath(modulePath) ?? '',
+    `target:${moduleName}:${modulePath}`,
+  ]);
+  return moduleAliases.some(
+    (alias) =>
+      normalizedScope === alias ||
+      alias === normalizedScope ||
+      alias.startsWith(`${normalizedScope}/`) ||
+      normalizedScope.startsWith(`${alias}/`)
+  );
+}
+
+function coveragePathWithin(filePath: string, modulePath: string): boolean {
+  return filePath === modulePath || filePath.startsWith(`${modulePath}/`);
 }
 
 function buildRescanSnapshotCoverageModules(
@@ -595,6 +824,65 @@ function normalizeCoverageSourcePath(value: string): string {
     .replace(/^\.\//, '');
 }
 
+function basenameFromPath(value: string | undefined): string | undefined {
+  const normalized = value ? normalizeCoverageSourcePath(value) : '';
+  return normalized.split('/').filter(Boolean).at(-1);
+}
+
+function summarizeCoverageLedgerSeed(
+  cells: readonly CoverageLedgerCandidateCellLike[]
+): Pick<
+  RescanCoverageLedgerSeedReport,
+  | 'aggregateOrRootModuleIds'
+  | 'coveredPathCount'
+  | 'measuredCells'
+  | 'moduleCount'
+  | 'targetScopedCells'
+  | 'usableCells'
+> {
+  const targetScopedCells = cells.filter((cell) => isTargetScopedCoverageModuleId(cell.moduleId));
+  const measuredCells = targetScopedCells.filter(
+    (cell) =>
+      (cell.coveredCount ?? 0) > 0 ||
+      (cell.totalCandidateCount ?? 0) > 0 ||
+      (cell.coveredSourceRefs?.length ?? 0) > 0 ||
+      (cell.uncoveredHints?.length ?? 0) > 0
+  );
+  return {
+    aggregateOrRootModuleIds: uniqueStrings(
+      cells.map((cell) => cell.moduleId).filter(isAggregateOrRootCoverageModuleId)
+    ),
+    coveredPathCount: uniqueStrings(
+      targetScopedCells.flatMap((cell) => cell.coveredSourceRefs ?? [])
+    ).length,
+    measuredCells: measuredCells.length,
+    moduleCount: uniqueStrings(targetScopedCells.map((cell) => cell.moduleId)).length,
+    targetScopedCells: targetScopedCells.length,
+    usableCells: targetScopedCells.length,
+  };
+}
+
+interface CoverageLedgerCandidateCellLike {
+  coveredCount?: number;
+  coveredSourceRefs?: readonly string[];
+  moduleId: string;
+  totalCandidateCount?: number;
+  uncoveredHints?: readonly string[];
+}
+
+function isAggregateOrRootCoverageModuleId(moduleId: string | undefined): moduleId is string {
+  if (!moduleId) {
+    return false;
+  }
+  const normalized = moduleId.trim();
+  return (
+    normalized === 'root' ||
+    normalized === 'module:root' ||
+    normalized.startsWith('module:root:') ||
+    !isTargetScopedCoverageModuleId(normalized)
+  );
+}
+
 function attachCoverageLedgerSeedMeta(
   response: Record<string, unknown> & { meta?: Record<string, unknown> },
   seed: RescanCoverageLedgerSeedReport
@@ -602,9 +890,13 @@ function attachCoverageLedgerSeedMeta(
   const coverageLedgerSeed = {
     status: seed.status,
     ...(seed.reason ? { reason: seed.reason } : {}),
+    aggregateOrRootModuleIds: seed.aggregateOrRootModuleIds,
     writtenCells: seed.writtenCells,
     coveredPathCount: seed.coveredPathCount,
+    measuredCells: seed.measuredCells,
     moduleCount: seed.moduleCount,
+    targetScopedCells: seed.targetScopedCells,
+    usableCells: seed.usableCells,
     dimensionIds: seed.dimensionIds,
   };
   const meta =
@@ -645,12 +937,14 @@ function releaseNoWorkRescanSession(
     sessionId,
     source: 'alembic_rescan',
   });
+  const closedRound = closeLatestOpenHostAgentRescanRound(ctx, state.projectRoot, Date.now());
 
   const data = readRecord(response.data);
   if (data) {
     data.session = null;
     data.noActionableHostAgentWork = {
       generationStage: state.planGate.generationStage,
+      closedOpenRound: closedRound,
       releasedEmptySession: release.released,
       sessionId: release.released ? sessionId : null,
       stopReason: coverageAdvisory.stopReason,
@@ -663,6 +957,7 @@ function releaseNoWorkRescanSession(
   response.meta = meta;
   meta.noActionableHostAgentWork = {
     generationStage: state.planGate.generationStage,
+    closedOpenRound: closedRound,
     releasedEmptySession: release.released,
     stopReason: coverageAdvisory.stopReason,
   };
@@ -736,6 +1031,39 @@ async function buildRescanResponse(
   });
   attachBriefingTransportMeta(response, readRecord(response.data) ?? {});
   return response;
+}
+
+function closeLatestOpenHostAgentRescanRound(
+  ctx: McpContext,
+  projectRoot: string,
+  now: number
+): boolean {
+  try {
+    const repository = ctx.container.get('coverageLedgerRepository') as
+      | EvolutionCoverageLedgerRepository
+      | undefined;
+    if (!repository) {
+      return false;
+    }
+    const latestOpenRound = [...repository.listRoundsByProjectRoot(projectRoot)]
+      .reverse()
+      .find((round) => round.triggerActor === 'host-agent-rescan' && round.completedAt === null);
+    if (!latestOpenRound) {
+      return false;
+    }
+    repository.upsertRound({
+      projectRoot,
+      roundIndex: latestOpenRound.roundIndex,
+      ...(latestOpenRound.rescanId ? { rescanId: latestOpenRound.rescanId } : {}),
+      completedAt: now,
+      newRecipesThisRound: latestOpenRound.newRecipesThisRound,
+    });
+    return true;
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    ctx.logger.warn('[Rescan] host-agent rescan round close skipped', { projectRoot, reason });
+    return false;
+  }
 }
 
 function resolveDefaultRescanGenerationStage(args: RescanInput): 'deepMining' | 'moduleMining' {

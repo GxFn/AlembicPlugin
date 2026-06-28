@@ -43,6 +43,25 @@ describe('buildRescanCoverageModuleAxis', () => {
     expect(result.source).toBe('rescan-snapshot');
     expect(result.modules.map((module) => module.moduleId)).toEqual(['Sources', 'BiliDili']);
   });
+
+  test('uses ProjectContext target source facts instead of aggregate root modules', () => {
+    const result = buildRescanCoverageModuleAxis(
+      analysisWithAggregateMapAndSourceTargets(),
+      planGateWithAggregateBindings()
+    );
+
+    expect(result.source).toBe('project-context-targets');
+    expect(result.modules.map((module) => module.moduleId)).toEqual([
+      'target:Networking:Sources/Infrastructure/Networking',
+      'target:ServiceKit:Sources/Core/ServiceKit',
+    ]);
+    expect(result.modules.flatMap((module) => module.ownedPaths)).toEqual([
+      'Sources/Infrastructure/Networking/Client/NetworkClient.swift',
+      'Sources/Core/ServiceKit/ServiceRegistry.swift',
+    ]);
+    expect(result.modules.map((module) => module.moduleId)).not.toContain('BiliDili');
+    expect(result.modules.map((module) => module.moduleId).join('\n')).not.toContain('module:root');
+  });
 });
 
 function analysisWithProjectMapTargets(): HostAgentProjectContextAnalysis {
@@ -112,9 +131,71 @@ function analysisWithProjectMapTargets(): HostAgentProjectContextAnalysis {
   } as unknown as HostAgentProjectContextAnalysis;
 }
 
+function analysisWithAggregateMapAndSourceTargets(): HostAgentProjectContextAnalysis {
+  return {
+    moduleSeeds: [
+      {
+        moduleId: 'module:root:BiliDili:BiliDili',
+        moduleName: 'BiliDili',
+        modulePath: 'BiliDili',
+        ownedFiles: ['BiliDili/AppDelegate.swift'],
+      },
+    ],
+    presenterInput: {
+      project: {
+        displayName: 'BiliDili',
+        projectId: 'root:/project/BiliDili',
+        projectRoot: '/project/BiliDili',
+      },
+      repo: {
+        targets: [
+          { name: 'BiliDili', kind: 'target', refs: [] },
+          { name: 'Networking', kind: 'target', refs: [] },
+          { name: 'ServiceKit', kind: 'target', refs: [] },
+        ],
+      },
+      map: {
+        modules: [
+          {
+            id: 'module:root:BiliDili:BiliDili',
+            name: 'BiliDili',
+            ref: {
+              id: 'module-root',
+              kind: 'module',
+              scope: {
+                projectRoot: '/project/BiliDili',
+                filePath: 'BiliDili',
+              },
+            },
+          },
+        ],
+      },
+    },
+    sourceFileFacts: [
+      {
+        filePath: 'BiliDili/AppDelegate.swift',
+        language: 'swift',
+        sizeBytes: 100,
+      },
+      {
+        filePath: 'Sources/Infrastructure/Networking/Client/NetworkClient.swift',
+        language: 'swift',
+        sizeBytes: 100,
+      },
+      {
+        filePath: 'Sources/Core/ServiceKit/ServiceRegistry.swift',
+        language: 'swift',
+        sizeBytes: 100,
+      },
+    ],
+  } as unknown as HostAgentProjectContextAnalysis;
+}
+
 function planGateWithAggregateBindings(): PlanGenerationGateReady {
   return {
     generationStage: 'deepMining',
+    moduleScope: ['BiliDili'],
+    projectRoot: '/project/BiliDili',
     moduleBindings: [
       {
         moduleId: 'BiliDili',
