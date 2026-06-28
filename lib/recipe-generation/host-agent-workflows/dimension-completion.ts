@@ -22,6 +22,10 @@ import {
   projectCompletenessCriticForAgent,
 } from '#recipe-generation/host-agent-workflows/completeness-critic.js';
 import {
+  countTargetScopedCoverageItems,
+  preferTargetScopedCoverageItems,
+} from '#recipe-generation/host-agent-workflows/coverage-ledger-target-axis.js';
+import {
   reflowDeepMiningRoundOnCompletion,
   writeCoverageLedgerForCompletion,
 } from '#recipe-generation/host-agent-workflows/coverage-ledger-write.js';
@@ -656,7 +660,7 @@ async function writeDimensionCompletionCoverageLedger(args: {
 
     // canonical 模块 → CoverageLedgerModuleAxis：真实 ownedFiles 优先；无 ownedFiles 时才用模块根路径兜底。
     // Core pathsOverlap 已是 segment-safe 目录匹配，不会把 `src/auth` 误归到 `src/authentication`。
-    const modules: CoverageLedgerModuleAxis[] = buildCoverageLedgerModuleAxisFromSummaries({
+    const rawModules: CoverageLedgerModuleAxis[] = buildCoverageLedgerModuleAxisFromSummaries({
       modules: canonicalModules.map((module) => ({
         moduleId: module.id ?? module.name,
         moduleName: module.name,
@@ -664,6 +668,34 @@ async function writeDimensionCompletionCoverageLedger(args: {
         ownedFiles: module.ownedFiles,
       })),
     });
+    const targetAxis = preferTargetScopedCoverageItems(rawModules);
+    const existingTargetCellCount =
+      targetAxis.targetScopedCount === 0
+        ? countTargetScopedCoverageItems(coverageLedgerRepository.listByProjectRoot(projectRoot))
+        : 0;
+    if (targetAxis.filteredCount > 0) {
+      logger?.info?.('[DimensionComplete] coverage ledger module axis filtered to target scope', {
+        filteredModuleCount: targetAxis.filteredCount,
+        projectRoot,
+        targetScopedModuleCount: targetAxis.targetScopedCount,
+      });
+    }
+    if (targetAxis.targetScopedCount === 0 && existingTargetCellCount > 0) {
+      logger?.info?.(
+        '[DimensionComplete] coverage ledger write skipped: existing target axis would be polluted by aggregate modules',
+        {
+          existingTargetCellCount,
+          projectRoot,
+          rawModuleCount: rawModules.length,
+        }
+      );
+      return;
+    }
+    const modules = targetAxis.items;
+    if (modules.length === 0) {
+      logger?.debug?.('[DimensionComplete] coverage ledger write skipped: no usable modules');
+      return;
+    }
 
     // coveredPaths = 已引用文件去行号锚点（referencedFiles 形如 `path:10-20`，剥离末尾 `:行号`）。
     const coveredPaths = referencedFiles.map((ref) => ref.replace(/:\d+(?:-\d+)?$/, ''));

@@ -82,6 +82,30 @@ function analysisWithProjectMapTargets(): HostAgentProjectContextAnalysis {
               },
             },
           },
+          {
+            id: 'module:root:BiliDili:BiliDili',
+            name: 'BiliDili',
+            ref: {
+              id: 'module-root',
+              kind: 'module',
+              scope: {
+                projectRoot: '/project',
+                filePath: 'BiliDili',
+              },
+            },
+          },
+          {
+            id: 'root',
+            name: 'root',
+            ref: {
+              id: 'root',
+              kind: 'module',
+              scope: {
+                projectRoot: '/project',
+                filePath: '.',
+              },
+            },
+          },
         ],
       },
     },

@@ -171,6 +171,7 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
   it('writes coverage ledger from canonical module ownedFiles before directory fallback', async () => {
     const upserts: Array<Record<string, unknown>> = [];
     const coverageLedgerRepository = {
+      listByProjectRoot: vi.fn(() => []),
       upsertCell: vi.fn((input: Record<string, unknown>) => {
         upserts.push(input);
         return {
@@ -272,6 +273,103 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
         newRecipesThisRound: 3,
       })
     );
+  });
+
+  it('filters dimension-completion coverage ledger writes to target-scoped modules', async () => {
+    const upserts: Array<Record<string, unknown>> = [];
+    const coverageLedgerRepository = {
+      listByProjectRoot: vi.fn(() => []),
+      upsertCell: vi.fn((input: Record<string, unknown>) => {
+        upserts.push(input);
+        return {
+          projectRoot: input.projectRoot,
+          moduleId: input.moduleId,
+          dimensionId: input.dimensionId,
+          coveredCount: input.coveredCount ?? 0,
+          totalCandidateCount: input.totalCandidateCount ?? 0,
+          grade: input.grade ?? 'empty',
+          exhausted: false,
+          exhaustedReason: null,
+          exhaustedSource: null,
+          coveredSourceRefs: input.coveredSourceRefs ?? [],
+          uncoveredHints: input.uncoveredHints ?? [],
+          valueScore: input.valueScore ?? null,
+          lastRound: input.lastRound ?? null,
+          deferred: false,
+          createdAt: 0,
+          updatedAt: 0,
+        };
+      }),
+      listRoundsByProjectRoot: vi.fn(() => []),
+      upsertRound: vi.fn((input: Record<string, unknown>) => input),
+    };
+    const moduleService = {
+      listCanonicalModules: vi.fn(async () => [
+        {
+          id: 'target:Auth:src/auth',
+          name: 'Auth',
+          path: 'src/auth',
+          ownedFiles: ['src/auth/login.ts'],
+        },
+        {
+          id: 'Sources',
+          name: 'Sources',
+          path: 'src',
+          ownedFiles: ['src/aggregate.ts'],
+        },
+        {
+          id: 'module:root:Fixture:Fixture',
+          name: 'Fixture',
+          path: '.',
+          ownedFiles: ['root.ts'],
+        },
+      ]),
+    };
+    const session = createSession({
+      submissions: [
+        { recipeId: 'recipe-a', sources: ['src/auth/login.ts:10-20'] },
+        { recipeId: 'recipe-b', sources: ['src/auth/login.ts:30-40'] },
+        { recipeId: 'recipe-c', sources: ['src/auth/router.ts:1-5'] },
+      ],
+    });
+    const context = createContext({
+      get: (name: string) => {
+        if (name === 'coverageLedgerRepository') {
+          return coverageLedgerRepository;
+        }
+        if (name === 'moduleService') {
+          return moduleService;
+        }
+        return null;
+      },
+    });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      context,
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        submittedRecipeIds: ['recipe-a', 'recipe-b', 'recipe-c'],
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(upserts.map((upsert) => upsert.moduleId)).toEqual(['target:Auth:src/auth']);
+    expect(JSON.stringify(upserts)).not.toContain('Sources');
+    expect(JSON.stringify(upserts)).not.toContain('module:root');
   });
 
   it('enriches generated project skills with submitted Recipe guidance even for long analysis', async () => {

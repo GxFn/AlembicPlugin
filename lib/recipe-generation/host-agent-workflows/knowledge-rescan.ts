@@ -73,6 +73,12 @@ import {
   budgetBriefingResponseData,
 } from './briefing-budget.js';
 import { attachPlanScopeTargetCounts } from './cold-start.js';
+import {
+  countTargetScopedCoverageItems,
+  isTargetScopedCoverageModuleId,
+  preferTargetScopedCoverageItems,
+  uniqueTargetScopedCoverageModuleCount,
+} from './coverage-ledger-target-axis.js';
 import { writeCoverageLedgerForCompletion } from './coverage-ledger-write.js';
 import {
   type KnowledgeIndexRebuildReport,
@@ -366,7 +372,36 @@ function seedRescanCoverageLedgerFromSnapshot(
     }
 
     const moduleAxis = buildRescanCoverageModuleAxis(input.projectContextAnalysis, input.planGate);
-    const modules = moduleAxis.modules;
+    const targetAxis = preferTargetScopedCoverageItems(moduleAxis.modules);
+    const existingTargetCellCount =
+      targetAxis.targetScopedCount === 0
+        ? countTargetScopedCoverageItems(repository.listByProjectRoot(input.projectRoot))
+        : 0;
+    if (targetAxis.filteredCount > 0) {
+      ctx.logger.info('[Rescan] Coverage ledger module axis filtered to target scope', {
+        filteredModuleCount: targetAxis.filteredCount,
+        moduleAxisSource: moduleAxis.source,
+        projectRoot: input.projectRoot,
+        targetScopedModuleCount: targetAxis.targetScopedCount,
+      });
+    }
+    if (
+      moduleAxis.source === 'rescan-snapshot' &&
+      targetAxis.targetScopedCount === 0 &&
+      existingTargetCellCount > 0
+    ) {
+      ctx.logger.info(
+        '[Rescan] coverage ledger seed skipped: existing target axis would be polluted by aggregate modules',
+        {
+          existingTargetCellCount,
+          moduleAxisSource: moduleAxis.source,
+          projectRoot: input.projectRoot,
+          rawModuleCount: moduleAxis.modules.length,
+        }
+      );
+      return empty('target-axis-present-no-target-modules');
+    }
+    const modules = targetAxis.items;
     if (modules.length === 0) {
       return empty('no-project-context-modules');
     }
@@ -476,7 +511,7 @@ function buildProjectMapCoverageModuleSummaries(
     const modulePath = module.ref?.scope.filePath
       ? normalizeCoverageSourcePath(module.ref.scope.filePath)
       : undefined;
-    if (!moduleId || !moduleName || !modulePath) {
+    if (!isTargetScopedCoverageModuleId(moduleId) || !moduleName || !modulePath) {
       continue;
     }
     const existing = modules.get(moduleId);
@@ -1020,13 +1055,27 @@ function attachCoverageAdvisory(
     if (!repo) {
       return null;
     }
-    const cells = repo.listByProjectRoot(state.projectRoot);
+    const rawCells = repo.listByProjectRoot(state.projectRoot);
+    const targetCells = preferTargetScopedCoverageItems(rawCells);
+    if (targetCells.filteredCount > 0) {
+      ctx.logger.info('[Rescan] coverage advisory filtered to target-scoped cells', {
+        filteredCellCount: targetCells.filteredCount,
+        projectRoot: state.projectRoot,
+        targetScopedCellCount: targetCells.targetScopedCount,
+      });
+    }
+    const cells = targetCells.items;
     const rounds = repo.listRoundsByProjectRoot(state.projectRoot);
     const latestRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
+    const projectMapTargetModuleCount = (
+      state.projectContextAnalysis.presenterInput.map?.modules ?? []
+    ).filter((module) => isTargetScopedCoverageModuleId(module.id)).length;
     const moduleCount =
-      state.projectContextAnalysis.presenterInput.map?.modules.length ??
-      state.projectContextAnalysis.moduleCount ??
-      0;
+      projectMapTargetModuleCount > 0
+        ? projectMapTargetModuleCount
+        : uniqueTargetScopedCoverageModuleCount(cells) ||
+          state.projectContextAnalysis.moduleCount ||
+          0;
 
     const advisory = adviseCoverageLedger({ cells, latestRound, moduleCount });
 

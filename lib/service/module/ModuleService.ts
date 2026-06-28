@@ -322,6 +322,68 @@ export class ModuleService {
     if (!this.#repoContext) {
       return [];
     }
+    const buildModules = (
+      seeds: readonly ProjectContextModuleSeed[],
+      options: { idPrefix?: 'target' } = {}
+    ): CanonicalModuleInfo[] => {
+      const modules: CanonicalModuleInfo[] = [];
+      const seenPaths = new Set<string>();
+      const seenRealPaths = new Set<string>();
+      for (const seed of seeds) {
+        const modulePath = normalizeProjectPath(this.#projectRoot, seed.modulePath);
+        const modulePathKey = moduleIdentityKey(modulePath);
+        if (
+          !modulePath ||
+          !modulePathKey ||
+          seenPaths.has(modulePathKey) ||
+          hasMoreSpecificModulePath(seenPaths, modulePathKey)
+        ) {
+          continue;
+        }
+        const realPath = safeRealPath(_pathJoin(this.#projectRoot, modulePath));
+        if (realPath && seenRealPaths.has(realPath)) {
+          continue;
+        }
+        const ownedFiles = this.#collectProjectRelativeSourceFiles(modulePath);
+        if (ownedFiles.length === 0) {
+          continue;
+        }
+        seenPaths.add(modulePathKey);
+        if (realPath) {
+          seenRealPaths.add(realPath);
+        }
+        modules.push({
+          id:
+            options.idPrefix === 'target' ? `target:${seed.moduleName}:${modulePath}` : modulePath,
+          name: seed.moduleName,
+          path: modulePath,
+          ownedFiles,
+        });
+      }
+      return modules;
+    };
+
+    const targetModules = buildModules(
+      dedupeSeeds(
+        this.#repoContext.targets.flatMap((target) =>
+          target.refs.map((ref) => ({
+            kind: target.kind ?? 'target',
+            moduleName: target.name,
+            modulePath: ref.scope.filePath,
+            ref,
+            role: 'target',
+          }))
+        )
+      ).filter((seed) => Boolean(normalizeProjectPath(this.#projectRoot, seed.modulePath))),
+      { idPrefix: 'target' }
+    );
+    if (targetModules.length > 0) {
+      this.#logger.info(
+        `[ModuleService] ProjectContext map unavailable; using ${targetModules.length} target-derived canonical modules`
+      );
+      return targetModules;
+    }
+
     const seeds = dedupeSeeds([
       ...this.#repoContext.localPackages.map((pkg) => ({
         kind: 'local-package',
@@ -348,39 +410,7 @@ export class ModuleService {
         })),
     ]).filter((seed) => Boolean(normalizeProjectPath(this.#projectRoot, seed.modulePath)));
 
-    const modules: CanonicalModuleInfo[] = [];
-    const seenPaths = new Set<string>();
-    const seenRealPaths = new Set<string>();
-    for (const seed of seeds) {
-      const modulePath = normalizeProjectPath(this.#projectRoot, seed.modulePath);
-      const modulePathKey = moduleIdentityKey(modulePath);
-      if (
-        !modulePath ||
-        !modulePathKey ||
-        seenPaths.has(modulePathKey) ||
-        hasMoreSpecificModulePath(seenPaths, modulePathKey)
-      ) {
-        continue;
-      }
-      const realPath = safeRealPath(_pathJoin(this.#projectRoot, modulePath));
-      if (realPath && seenRealPaths.has(realPath)) {
-        continue;
-      }
-      const ownedFiles = this.#collectProjectRelativeSourceFiles(modulePath);
-      if (ownedFiles.length === 0) {
-        continue;
-      }
-      seenPaths.add(modulePathKey);
-      if (realPath) {
-        seenRealPaths.add(realPath);
-      }
-      modules.push({
-        id: modulePath,
-        name: seed.moduleName,
-        path: modulePath,
-        ownedFiles,
-      });
-    }
+    const modules = buildModules(seeds);
 
     if (modules.length > 0) {
       this.#logger.info(
