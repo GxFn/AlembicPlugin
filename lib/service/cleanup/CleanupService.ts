@@ -118,6 +118,7 @@ const DB_SNAPSHOT_FILE = 'db-snapshot.jsonl';
  *   evolution_proposals         → knowledge_entries
  *   recipe_source_refs          → knowledge_entries (CASCADE)
  *   bootstrap_dim_files         → bootstrap_snapshots (CASCADE)
+ *   source_graph_*              → deterministic ProjectContext/source graph cache
  */
 const ALL_DATA_TABLES = [
   // ── FK 子表先删 ──
@@ -126,16 +127,30 @@ const ALL_DATA_TABLES = [
   'evolution_proposals',
   'knowledge_edges',
   'bootstrap_dim_files',
+  // ── ProjectContext / source graph 派生索引 ──
+  'source_graph_edges',
+  'source_graph_symbols',
+  'source_graph_files',
+  'source_graph_generations',
   // ── 父表后删 ──
   'knowledge_entries',
   'bootstrap_snapshots',
   // ── 无 FK 依赖 ──
   'guard_violations',
+  'recipe_warnings',
   'audit_logs',
   'sessions',
+  'token_usage',
   'semantic_memories',
   'code_entities',
+  // ── P10 项目索引 / deepMining parity 状态 ──
+  'git_diff_checkpoints',
+  'coverage_ledger',
+  'deep_mining_rounds',
+  'project_context_file_snapshots',
 ];
+
+const TASK_DATA_TABLES = ['task_events', 'task_dependencies', 'tasks'];
 
 /** rescanClean 时清除的 DB 表（保留知识/进化/增量证据相关表） */
 const RESCAN_CLEAN_TABLES = [
@@ -252,12 +267,17 @@ export class CleanupService {
         this.#logger.warn(`[CleanupService] ${error}`);
       }
       // tasks 相关表（来自 migration 002，需先删子表）
-      result.clearedTables.push(
-        ...clearTables(this.#db, ['task_events', 'task_dependencies', 'tasks']).clearedTables
-      );
+      const clearedTasks = clearTables(this.#db, TASK_DATA_TABLES);
+      result.clearedTables.push(...clearedTasks.clearedTables);
+      result.errors.push(...clearedTasks.errors);
+      for (const error of clearedTasks.errors) {
+        this.#logger.warn(`[CleanupService] ${error}`);
+      }
+      this.#assertFullResetDatabaseClean(result.errors);
     } else {
       this.#logger.warn('[CleanupService] No database reference — DB tables NOT cleared!');
       result.errors.push('DB reference is null, database tables were not cleared');
+      this.#assertFullResetDatabaseClean(result.errors);
     }
 
     for (const { src } of dirsToTrash) {
@@ -655,6 +675,11 @@ export class CleanupService {
       'evolution_proposals',
       'recipe_source_refs',
       'guard_violations',
+      'recipe_warnings',
+      'git_diff_checkpoints',
+      'coverage_ledger',
+      'deep_mining_rounds',
+      'project_context_file_snapshots',
     ];
 
     const snapshotPath = path.join(trashFolder, DB_SNAPSHOT_FILE);
@@ -674,6 +699,21 @@ export class CleanupService {
     }
 
     return snapshot.totalRows;
+  }
+
+  #assertFullResetDatabaseClean(errors: readonly string[]): void {
+    if (errors.length === 0) {
+      return;
+    }
+    const message =
+      '[CleanupService] fullReset aborted: destructive rebuild could not clear critical database tables. ' +
+      'The host must stop before Recipe generation because stale knowledge_entries, coverage_ledger, ' +
+      `or deep_mining_rounds rows may survive reset. Errors: ${errors.join(' | ')}`;
+    this.#logger.warn(message, {
+      errorCount: errors.length,
+      resetMode: 'fail-closed',
+    });
+    throw new Error(message);
   }
 
   /** 清除过期垃圾桶文件夹 */

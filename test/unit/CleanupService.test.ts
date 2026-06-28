@@ -14,6 +14,77 @@ afterEach(() => {
 });
 
 describe('CleanupService', () => {
+  test('fullReset clears current project-index and deep-mining data tables', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-cleanup-'));
+    const executedSql: string[] = [];
+    const db = {
+      exec(sql: string) {
+        executedSql.push(sql);
+      },
+      prepare() {
+        return {
+          run() {},
+          all() {
+            return [];
+          },
+          get() {
+            return undefined;
+          },
+        };
+      },
+      close() {},
+    };
+
+    const service = new CleanupService({ projectRoot: '/project', dataRoot: tmpDir, db });
+    await service.fullReset();
+
+    expect(executedSql).toContain('DELETE FROM coverage_ledger');
+    expect(executedSql).toContain('DELETE FROM deep_mining_rounds');
+    expect(executedSql).toContain('DELETE FROM project_context_file_snapshots');
+    expect(executedSql).toContain('DELETE FROM git_diff_checkpoints');
+    expect(executedSql).toContain('DELETE FROM source_graph_edges');
+    expect(executedSql).toContain('DELETE FROM source_graph_generations');
+  });
+
+  test('fullReset fails closed on non-missing-table database clear errors', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-cleanup-'));
+    const warnings: string[] = [];
+    const db = {
+      exec(sql: string) {
+        if (sql === 'DELETE FROM knowledge_entries') {
+          throw new Error('database disk image is malformed');
+        }
+      },
+      prepare() {
+        return {
+          run() {},
+          all() {
+            return [];
+          },
+          get() {
+            return undefined;
+          },
+        };
+      },
+      close() {},
+    };
+    const logger = {
+      info() {},
+      warn(message: string) {
+        warnings.push(message);
+      },
+    };
+
+    const service = new CleanupService({ projectRoot: '/project', dataRoot: tmpDir, db, logger });
+
+    await expect(service.fullReset()).rejects.toThrow(
+      'fullReset aborted: destructive rebuild could not clear critical database tables'
+    );
+    expect(warnings.join('\n')).toContain(
+      'Failed to clear knowledge_entries: database disk image is malformed'
+    );
+  });
+
   test('rescanClean preserves incremental evidence tables', async () => {
     const executedSql: string[] = [];
     const db = {
