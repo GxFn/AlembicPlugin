@@ -5,4 +5,7 @@
  * this wrapper owns Plugin transport cleanup and MCP response shaping.
  */
 
-export { runHostAgentKnowledgeRescanWorkflow as rescanForHostAgent } from '#recipe-generation/host-agent-workflows/knowledge-rescan.js';
+export {
+  runHostAgentKnowledgeRescanWorkflow as rescanForHostAgent,
+  runProjectIndexWorkflow,
+} from '#recipe-generation/host-agent-workflows/project-index.js';

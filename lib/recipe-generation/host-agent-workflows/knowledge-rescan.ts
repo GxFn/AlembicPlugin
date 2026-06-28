@@ -120,6 +120,14 @@ interface RescanBriefingBuildResult {
 // ── 主入口 ─────────────────────────────────────────────────
 
 export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args: RescanInput) {
+  const { runProjectIndexWorkflow } = await import('./project-index.js');
+  return runProjectIndexWorkflow(ctx, args, { mode: 'incremental' });
+}
+
+export async function runHostAgentProjectIndexIncrementalWorkflow(
+  ctx: McpContext,
+  args: RescanInput
+) {
   const t0 = Date.now();
   const planGate = await resolvePlanGenerationGate(ctx, args, {
     defaultStage: resolveDefaultRescanGenerationStage(args),

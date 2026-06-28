@@ -100,6 +100,11 @@ const MAX_INLINE_CURRENT_DIMENSION_GUIDES = 2;
  * @returns envelope({ success, data: MissionBriefing })
  */
 export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: BootstrapInput) {
+  const { runProjectIndexWorkflow } = await import('./project-index.js');
+  return runProjectIndexWorkflow(ctx, args, { mode: 'full' });
+}
+
+export async function runHostAgentProjectIndexFullWorkflow(ctx: McpContext, args?: BootstrapInput) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);
