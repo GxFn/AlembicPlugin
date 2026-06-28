@@ -24,6 +24,17 @@ import {
 const tempRoots: string[] = [];
 const silentLogger = { info() {}, warn() {} };
 
+interface CoverageLedgerSeedOutput {
+  aggregateOrRootModuleIds?: string[];
+  measuredCells?: number;
+  moduleCount?: number;
+  reason?: string;
+  status?: string;
+  targetScopedCells?: number;
+  usableCells?: number;
+  writtenCells?: number;
+}
+
 describe('releaseEmptyHostAgentSessionLease', () => {
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
@@ -672,6 +683,64 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('projects coverage ledger seed counts from SQLite rows after writing the seed', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      await insertRecipeWithSourceRef(repositories, {
+        dimensionId: 'architecture',
+        id: 'recipe-from-sqlite-source-ref',
+        sourcePath: 'src/App.ts',
+      });
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories, {
+          coverageLedgerRepository: repositories.coverageLedgerRepository,
+        }),
+        {
+          generationStage: 'deepMining',
+          planSelection: deepMiningPlanSelection(),
+          reason: 'coverage ledger sqlite seed projection regression',
+          testMode: true,
+        }
+      )) as {
+        data?: {
+          coverageLedgerSeed?: CoverageLedgerSeedOutput;
+          meta?: { coverageLedgerSeed?: CoverageLedgerSeedOutput };
+        };
+        meta?: { coverageLedgerSeed?: CoverageLedgerSeedOutput };
+        success?: boolean;
+      };
+      const sqliteSummary = readCoverageLedgerSqliteSummary(runtime.sqlite, fixture.projectRoot);
+
+      expect(response.success).toBe(true);
+      expect(sqliteSummary.writtenCells).toBeGreaterThan(0);
+      expect(sqliteSummary.measuredCells).toBeGreaterThan(0);
+      expect(sqliteSummary.aggregateOrRootModuleIds).toEqual([]);
+      expect(response.meta?.coverageLedgerSeed).toEqual(
+        expect.objectContaining({
+          aggregateOrRootModuleIds: [],
+          measuredCells: sqliteSummary.measuredCells,
+          moduleCount: sqliteSummary.moduleCount,
+          status: 'written',
+          targetScopedCells: sqliteSummary.targetScopedCells,
+          usableCells: sqliteSummary.usableCells,
+          writtenCells: sqliteSummary.writtenCells,
+        })
+      );
+      expect(response.meta?.coverageLedgerSeed?.reason).toBeUndefined();
+      expect(response.data?.coverageLedgerSeed).toEqual(response.meta?.coverageLedgerSeed);
+      expect(response.data?.meta?.coverageLedgerSeed).toEqual(response.meta?.coverageLedgerSeed);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('projects clean persisted coverage seed instead of reporting count mismatch inconsistent', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
@@ -1217,6 +1286,79 @@ function coverageCell(
     updatedAt: 0,
     ...input,
   };
+}
+
+function readCoverageLedgerSqliteSummary(
+  sqlite: AlembicDatabaseRuntime['sqlite'],
+  projectRoot: string
+): Pick<
+  CoverageLedgerSeedOutput,
+  | 'aggregateOrRootModuleIds'
+  | 'measuredCells'
+  | 'moduleCount'
+  | 'targetScopedCells'
+  | 'usableCells'
+  | 'writtenCells'
+> {
+  const rows = sqlite
+    .prepare(
+      `
+        SELECT
+          module_id AS moduleId,
+          covered_count AS coveredCount,
+          covered_source_refs AS coveredSourceRefs
+        FROM coverage_ledger
+        WHERE project_root = ?
+      `
+    )
+    .all(projectRoot) as Array<{
+    coveredCount?: number;
+    coveredSourceRefs?: unknown;
+    moduleId?: string;
+  }>;
+  const targetScopedRows = rows.filter((row) => isTargetScopedSqliteModuleId(row.moduleId));
+  const measuredRows = targetScopedRows.filter(
+    (row) => (row.coveredCount ?? 0) > 0 || parseSqliteStringArray(row.coveredSourceRefs).length > 0
+  );
+  return {
+    aggregateOrRootModuleIds: uniqueTestStrings(
+      rows.map((row) => row.moduleId).filter(isAggregateOrRootSqliteModuleId)
+    ),
+    measuredCells: measuredRows.length,
+    moduleCount: uniqueTestStrings(targetScopedRows.map((row) => row.moduleId)).length,
+    targetScopedCells: targetScopedRows.length,
+    usableCells: targetScopedRows.length,
+    writtenCells: rows.length,
+  };
+}
+
+function parseSqliteStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : [];
+  } catch (_err: unknown) {
+    return [];
+  }
+}
+
+function uniqueTestStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function isTargetScopedSqliteModuleId(moduleId: string | undefined): moduleId is string {
+  return moduleId?.startsWith('target:') === true;
+}
+
+function isAggregateOrRootSqliteModuleId(moduleId: string | undefined): moduleId is string {
+  return Boolean(moduleId) && !isTargetScopedSqliteModuleId(moduleId);
 }
 
 async function insertRecipeWithSourceRef(
