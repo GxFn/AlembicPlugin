@@ -533,8 +533,23 @@ function reconcileCoverageLedgerSeedWithPersistedState(
       usableCells: persistedSummary.usableCells,
       writtenCells: persistedCells.length,
     };
-    const inconsistentReasons = coverageLedgerSeedInconsistencyReasons(seed, persistedSeed);
+    const inconsistentReasons = coverageLedgerSeedInconsistencyReasons(persistedSeed);
     if (inconsistentReasons.length === 0) {
+      if (
+        seed.writtenCells !== persistedSeed.writtenCells ||
+        seed.measuredCells !== persistedSeed.measuredCells ||
+        seed.targetScopedCells !== persistedSeed.targetScopedCells
+      ) {
+        ctx.logger.info('[Rescan] coverage ledger seed projected from clean persisted state', {
+          projectRoot,
+          routeMeasuredCells: seed.measuredCells,
+          routeTargetScopedCells: seed.targetScopedCells,
+          routeWrittenCells: seed.writtenCells,
+          persistedMeasuredCells: persistedSeed.measuredCells,
+          persistedTargetScopedCells: persistedSeed.targetScopedCells,
+          persistedWrittenCells: persistedSeed.writtenCells,
+        });
+      }
       return persistedSeed;
     }
     const reason = inconsistentReasons.join(',');
@@ -563,21 +578,11 @@ function reconcileCoverageLedgerSeedWithPersistedState(
 }
 
 function coverageLedgerSeedInconsistencyReasons(
-  routeSeed: RescanCoverageLedgerSeedReport,
   persistedSeed: RescanCoverageLedgerSeedReport
 ): string[] {
   const reasons: string[] = [];
   if (persistedSeed.aggregateOrRootModuleIds.length > 0) {
     reasons.push('persisted-aggregate-or-root-coverage-cells');
-  }
-  if (routeSeed.writtenCells !== persistedSeed.writtenCells) {
-    reasons.push('persisted-written-cell-count-mismatch');
-  }
-  if (routeSeed.measuredCells !== persistedSeed.measuredCells) {
-    reasons.push('persisted-measured-cell-count-mismatch');
-  }
-  if (routeSeed.targetScopedCells !== persistedSeed.targetScopedCells) {
-    reasons.push('persisted-target-scoped-cell-count-mismatch');
   }
   return uniqueStrings(reasons);
 }
@@ -1143,11 +1148,20 @@ async function buildRescanResponse(
   const coverageAdvisory = attachCoverageAdvisory(ctx, response, state);
   const hasActionableProduceWork =
     state.planGate.generationStage === 'deepMining' && planning.produceDimensionCount > 0;
+  const hasProduceWork = planning.produceDimensionCount > 0;
   const terminalCoverageAdvisory =
     coverageAdvisory?.shouldStop === true && isTerminalCoverageAdvisory(coverageAdvisory);
+  const noProduceDimensions = !hasProduceWork;
   const noActionableRescanWork =
-    coverageAdvisory?.shouldStop === true &&
-    (!hasActionableProduceWork || terminalCoverageAdvisory);
+    noProduceDimensions || (coverageAdvisory?.shouldStop === true && terminalCoverageAdvisory);
+  const noActionableReleaseDecision = noProduceDimensions
+    ? {
+        highValueBlankCount: coverageAdvisory?.highValueBlankCount ?? 0,
+        shouldStop: true,
+        suggestion: coverageAdvisory?.suggestion ?? null,
+        stopReason: 'no-produce-dimensions',
+      }
+    : coverageAdvisory;
   if (
     coverageAdvisory?.shouldStop === true &&
     hasActionableProduceWork &&
@@ -1163,8 +1177,14 @@ async function buildRescanResponse(
       }
     );
   }
-  if (noActionableRescanWork) {
-    releaseNoWorkRescanSession(ctx, response, state, briefingResult.sessionId, coverageAdvisory);
+  if (noActionableRescanWork && noActionableReleaseDecision) {
+    releaseNoWorkRescanSession(
+      ctx,
+      response,
+      state,
+      briefingResult.sessionId,
+      noActionableReleaseDecision
+    );
   }
   // U2d：收敛建议读完「上一已完成轮」之后，再为本次 deepMining rescan 开新一轮（startedAt+triggerActor）。
   // 顺序关键：必须在 attachCoverageAdvisory 之后开轮，否则 advisory 会把刚开的、产出尚为 0 的本轮当成「上一轮」，

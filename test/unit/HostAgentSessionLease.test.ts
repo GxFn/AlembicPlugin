@@ -549,6 +549,76 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('releases a no-produce deepMining session even when coverage advisory wants another round', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'thin',
+          moduleId: 'target:App:src',
+          dimensionId: 'architecture',
+          coveredCount: 0,
+          totalCandidateCount: 1,
+          valueScore: 0.5,
+        }),
+      ],
+      ignoreCellUpserts: true,
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories, {
+          coverageLedgerRepository: coverageLedger.repository,
+        }),
+        {
+          generationStage: 'deepMining',
+          planSelection: deepMiningPlanSelection({ targetRecipes: 0 }),
+          reason: 'terminal seed projection no-produce cleanup regression',
+          rescanId: 'deep-no-produce-cleanup-rescan-1',
+          testMode: true,
+        }
+      )) as {
+        data?: {
+          hostAgentLifecycle?: unknown;
+          noActionableHostAgentWork?: { stopReason?: string };
+        };
+        meta?: {
+          coverageAdvisory?: { shouldStop?: boolean; stopReason?: string };
+          noActionableHostAgentWork?: {
+            releasedEmptySession?: boolean;
+            stopReason?: string;
+          };
+        };
+        success?: boolean;
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.meta?.coverageAdvisory).toEqual(
+        expect.objectContaining({ shouldStop: false, stopReason: 'continue' })
+      );
+      expect(response.meta?.noActionableHostAgentWork).toEqual(
+        expect.objectContaining({
+          releasedEmptySession: true,
+          stopReason: 'no-produce-dimensions',
+        })
+      );
+      expect(response.data?.noActionableHostAgentWork).toEqual(
+        expect.objectContaining({ stopReason: 'no-produce-dimensions' })
+      );
+      expect(response.data?.hostAgentLifecycle).toBeUndefined();
+      expect(readStoredSessionIds(fixture.dataRoot)).toEqual([]);
+      expect(coverageLedger.roundUpserts).toHaveLength(0);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('seeds coverage ledger from existing recipe source refs before deepMining planning', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
@@ -597,6 +667,96 @@ describe('releaseEmptyHostAgentSessionLease', () => {
           (cell) => cell.dimensionId === 'architecture' && cell.coveredSourceRefs.length > 0
         )
       ).toBe(true);
+    } finally {
+      runtime.close();
+    }
+  });
+
+  it('projects clean persisted coverage seed instead of reporting count mismatch inconsistent', async () => {
+    const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const coverageLedger = createStatefulCoverageLedgerRepository({
+      cells: [
+        coverageCell({
+          grade: 'covered',
+          moduleId: 'target:App:src',
+          dimensionId: 'architecture',
+          coveredCount: 1,
+          coveredSourceRefs: ['src/App.ts'],
+          totalCandidateCount: 1,
+          valueScore: 1,
+        }),
+        coverageCell({
+          grade: 'thin',
+          moduleId: 'target:Util:src/Util',
+          dimensionId: 'architecture',
+          coveredCount: 0,
+          totalCandidateCount: 1,
+          valueScore: 0.5,
+        }),
+      ],
+      ignoreCellUpserts: true,
+    });
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories, {
+          coverageLedgerRepository: coverageLedger.repository,
+        }),
+        {
+          generationStage: 'deepMining',
+          planSelection: deepMiningPlanSelection(),
+          reason: 'coverage ledger clean persisted projection regression',
+          testMode: true,
+        }
+      )) as {
+        data?: {
+          coverageLedgerSeed?: {
+            reason?: string;
+            status?: string;
+            measuredCells?: number;
+            targetScopedCells?: number;
+            writtenCells?: number;
+          };
+          meta?: {
+            coverageLedgerSeed?: {
+              reason?: string;
+              status?: string;
+              measuredCells?: number;
+              targetScopedCells?: number;
+              writtenCells?: number;
+            };
+          };
+        };
+        meta?: {
+          coverageLedgerSeed?: {
+            reason?: string;
+            status?: string;
+            measuredCells?: number;
+            targetScopedCells?: number;
+            writtenCells?: number;
+          };
+        };
+        success?: boolean;
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.meta?.coverageLedgerSeed).toEqual(
+        expect.objectContaining({
+          measuredCells: 1,
+          status: 'written',
+          targetScopedCells: 2,
+          writtenCells: 2,
+        })
+      );
+      expect(response.meta?.coverageLedgerSeed?.reason).toBeUndefined();
+      expect(response.data?.coverageLedgerSeed?.status).toBe('written');
+      expect(response.data?.meta?.coverageLedgerSeed?.status).toBe('written');
     } finally {
       runtime.close();
     }
