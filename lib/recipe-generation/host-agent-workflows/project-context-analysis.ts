@@ -92,19 +92,24 @@ export function createProjectContextHostAgentSession(input: {
 }
 
 export function releaseEmptyHostAgentSessionLeaseForProject(input: {
+  allowFreshEmpty?: boolean;
   container: HostAgentSessionContainer;
   logger?: { info?(msg: string, meta?: Record<string, unknown>): void };
   projectRoot: string;
+  reason?: string;
   source: 'alembic_bootstrap' | 'alembic_rescan';
 }): { released: boolean; sessionId?: string } {
   const sessionManager = getOrCreateSessionManager(input.container);
   const release = releaseEmptyHostAgentSessionLease({
     projectRoot: input.projectRoot,
     sessionManager,
+    staleAfterMs: input.allowFreshEmpty === true ? 0 : undefined,
   });
   if (release.released) {
     input.logger?.info?.('[BootstrapSession] Released stale empty host-agent lease', {
+      allowFreshEmpty: input.allowFreshEmpty === true,
       projectRoot: input.projectRoot,
+      reason: input.reason ?? 'stale-empty-host-agent-session',
       sessionId: release.sessionId,
       source: input.source,
     });

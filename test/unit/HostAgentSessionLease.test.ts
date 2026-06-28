@@ -155,6 +155,39 @@ describe('releaseEmptyHostAgentSessionLease', () => {
     }
   });
 
+  it('lets rescan replace a fresh empty bootstrap rebuild-boundary session', async () => {
+    const fixture = createFileBackedSessionFixture({ stale: false });
+    writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
+    const manager = getOrCreateSessionManager(fixture.container);
+    expect(() =>
+      manager.createSession({ projectRoot: fixture.projectRoot, dimensions: [dimension()] })
+    ).toThrow(expect.objectContaining({ errorCode: 'BOOTSTRAP_IN_PROGRESS' }));
+
+    const runtime = await openAlembicDatabase(
+      { path: join(fixture.projectRoot, '.asd', 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(fixture.projectRoot) }
+    );
+    try {
+      const repositories = createAlembicRepositories(runtime.connection);
+      const response = (await runHostAgentKnowledgeRescanWorkflow(
+        createRescanContext(fixture, runtime, repositories),
+        {
+          generationStage: 'moduleMining',
+          planSelection: moduleMiningPlanSelection(),
+          reason: 'fresh empty bootstrap rebuild-boundary session regression',
+          testMode: true,
+        }
+      )) as { errorCode?: string; success?: boolean };
+
+      expect(response.success).toBe(true);
+      expect(response.errorCode).not.toBe('BOOTSTRAP_IN_PROGRESS');
+      expect(readStoredSessionIds(fixture.dataRoot)).not.toContain('bs-file-empty');
+      expect(readStoredSessionIds(fixture.dataRoot)).toHaveLength(1);
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('releases a no-work deepMining session so immediate moduleMining is not blocked', async () => {
     const fixture = createFileBackedSessionFixture({ initialSession: false, stale: false });
     writeProjectFile(fixture.projectRoot, 'src/App.ts', 'export const app = true;\n');
@@ -592,6 +625,32 @@ describe('releaseEmptyHostAgentSessionLease', () => {
         projectRoot: fixture.projectRoot,
       })
     ).toThrow(expect.objectContaining({ errorCode: 'BOOTSTRAP_IN_PROGRESS' }));
+    expect(readStoredSessionIds(fixture.dataRoot)).toEqual(['bs-file-empty']);
+  });
+
+  it('keeps a submitted session even when rescan allows fresh empty cleanup', () => {
+    const fixture = createFileBackedSessionFixture({
+      stale: false,
+      submissionTracker: {
+        dimensionSubmissions: {
+          architecture: [{ recipeId: 'r1' }],
+        },
+        fileEvidenceMap: {},
+        negativeSignals: [],
+        rejections: {},
+        usedTriggers: [],
+      },
+    });
+
+    const release = releaseEmptyHostAgentSessionLeaseForProject({
+      allowFreshEmpty: true,
+      container: fixture.container,
+      projectRoot: fixture.projectRoot,
+      reason: 'rescan-route-replaces-empty-bootstrap-session',
+      source: 'alembic_rescan',
+    });
+
+    expect(release.released).toBe(false);
     expect(readStoredSessionIds(fixture.dataRoot)).toEqual(['bs-file-empty']);
   });
 });

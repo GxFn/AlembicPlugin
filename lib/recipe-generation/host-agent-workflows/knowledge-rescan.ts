@@ -147,9 +147,11 @@ export async function runHostAgentProjectIndexIncrementalWorkflow(
     return planGate.response;
   }
   releaseEmptyHostAgentSessionLeaseForProject({
+    allowFreshEmpty: true,
     container: ctx.container,
     logger: ctx.logger,
     projectRoot: planGate.value.projectRoot,
+    reason: 'rescan-route-replaces-empty-bootstrap-session',
     source: 'alembic_rescan',
   });
   const lease = acquirePlanGenerationLease({
