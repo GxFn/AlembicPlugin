@@ -445,7 +445,7 @@ function registerRecipeProductionServices(c: ServiceContainer) {
 export function initializeKnowledgeServices(c: ServiceContainer): void {
   // 轨①（P3 daemon-less 自动化）：init 一次性接通 proposal 执行的信号驱动。best-effort：
   // proposalExecutor/signalBus 不可取时跳过（非致命）；subscribeToSignals 在 Core 侧已幂等
-  // （if(#unsubscribe)return），重复 init 不放大订阅。接通后真实信号（FileChangeHandler 的
+  // （if(#unsubscribe)return），重复 init 不放大订阅。接通后真实信号（HostAgentFileChangeHandler 的
   // quality/source_modified 等）即时驱动 observing proposal 执行；sweep 有界兜底见 staging-access-sweep。
   // 放在 eventBus 早 return 之前：proposal 信号订阅不应依赖 eventBus/searchEngine 是否就绪。
   try {

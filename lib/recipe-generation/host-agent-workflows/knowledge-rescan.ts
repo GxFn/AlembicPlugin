@@ -40,12 +40,12 @@ import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildIDEAgentAnalysisSurface } from '#codex/ide-agent/IDEAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
-import {
-  FileChangeHandler,
-  type UnifiedEvolutionReport,
-} from '#recipe-generation/evolution/FileChangeHandler.js';
 import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
 import type { GitDiffScanResult } from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
+import {
+  HostAgentFileChangeHandler,
+  type UnifiedEvolutionReport,
+} from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
 import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/evolution/PluginOpportunisticEvolution.js';
 import {
   buildHostAgentProjectContextAnalysis,
@@ -1126,7 +1126,7 @@ function attachCoverageAdvisory(
 function createRescanUnifiedEvolutionHandler(
   ctx: McpContext,
   projectRoot: string
-): FileChangeHandler | null {
+): HostAgentFileChangeHandler | null {
   const sourceRefRepository = safeContainerGet(ctx, 'recipeSourceRefRepository');
   const knowledgeRepository = safeContainerGet(ctx, 'knowledgeRepository');
   if (
@@ -1141,7 +1141,7 @@ function createRescanUnifiedEvolutionHandler(
   const evolutionGateway = safeContainerGet(ctx, 'evolutionGateway');
   const recipeFreshnessService = safeContainerGet(ctx, 'recipeFreshnessService');
   const signalBus = safeContainerGet(ctx, 'signalBus');
-  return new FileChangeHandler(
+  return new HostAgentFileChangeHandler(
     sourceRefRepository as never,
     knowledgeRepository as never,
     contentPatcher,

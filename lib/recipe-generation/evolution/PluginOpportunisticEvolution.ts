@@ -1,8 +1,8 @@
-import type { UnifiedEvolutionReport } from '#recipe-generation/evolution/FileChangeHandler.js';
 import type {
   GitDiffScanner,
   GitDiffScanResult,
 } from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
+import type { UnifiedEvolutionReport } from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
 
 type GitDiffScannerLike = Pick<GitDiffScanner, 'scanOnce'>;
 
@@ -21,7 +21,7 @@ export interface PluginOpportunisticEvolutionServiceGate {
   // UM#3：改名自旧的服务门「主服务可否接管 ProjectScope」位。语义固化为「resident 检索增强是否就绪」——
   // resident（常驻）ProjectScope 只做检索增强，没有活的 evolution、不是 commit-driven 维护的对端；
   // 该位仅用于 surface 的「无 HEAD 变化时把 Plugin fallback 去抖为 no-op」(resident 检索增强去抖)，
-  // 不代表 resident 会接管维护。commit-driven 维护始终由本链路（GitDiffCheckpoint→FileChangeHandler）执行。
+  // 不代表 resident 会接管维护。commit-driven 维护始终由本链路（GitDiffCheckpoint→HostAgentFileChangeHandler）执行。
   residentSearchEnhancementReady: boolean;
 }
 

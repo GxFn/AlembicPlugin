@@ -1,6 +1,6 @@
 import { getServiceContainer } from '#inject/ServiceContainer.js';
-import { FileChangeHandler } from '#recipe-generation/evolution/FileChangeHandler.js';
 import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
+import { HostAgentFileChangeHandler } from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractPluginToolOutcome,
@@ -101,7 +101,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function createUnifiedEvolutionHandler(projectRoot: string): FileChangeHandler | null {
+function createUnifiedEvolutionHandler(projectRoot: string): HostAgentFileChangeHandler | null {
   let container: ReturnType<typeof getServiceContainer>;
   try {
     container = getServiceContainer();
@@ -122,7 +122,7 @@ function createUnifiedEvolutionHandler(projectRoot: string): FileChangeHandler |
   const evolutionGateway = safeContainerGet(container, 'evolutionGateway');
   const recipeFreshnessService = safeContainerGet(container, 'recipeFreshnessService');
   const signalBus = safeContainerGet(container, 'signalBus');
-  return new FileChangeHandler(
+  return new HostAgentFileChangeHandler(
     sourceRefRepository as never,
     knowledgeRepository as never,
     contentPatcher,

@@ -564,7 +564,7 @@ describe('ProposalExecutor', () => {
 
       await emitAndFlush({
         type: 'quality',
-        source: 'FileChangeHandler',
+        source: 'HostAgentFileChangeHandler',
         value: 0.8,
         target: 'r-001',
         metadata: { reason: 'source_modified', impactLevel: 'direct', modifiedPath: 'A.swift' },
@@ -584,7 +584,7 @@ describe('ProposalExecutor', () => {
 
       await emitAndFlush({
         type: 'quality',
-        source: 'FileChangeHandler',
+        source: 'HostAgentFileChangeHandler',
         value: 0.6,
         target: 'r-001',
         metadata: { reason: 'source_modified', impactLevel: 'pattern', modifiedPath: 'B.swift' },
@@ -629,7 +629,7 @@ describe('ProposalExecutor', () => {
 
       await emitAndFlush({
         type: 'quality',
-        source: 'FileChangeHandler',
+        source: 'HostAgentFileChangeHandler',
         value: 0.3,
         target: 'r-001',
         metadata: { reason: 'source_modified', impactLevel: 'reference', modifiedPath: 'C.swift' },

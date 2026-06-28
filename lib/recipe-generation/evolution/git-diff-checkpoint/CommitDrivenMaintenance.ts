@@ -1,9 +1,9 @@
 import {
   describeUnifiedEvolutionRouteIncomplete,
-  type FileChangeHandler,
+  type HostAgentFileChangeHandler,
   isUnifiedEvolutionReportRouteComplete,
   type UnifiedEvolutionReport,
-} from '#recipe-generation/evolution/FileChangeHandler.js';
+} from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
 import {
   createPluginGitDiffCheckpointRuntime,
   type PluginGitDiffCheckpointContainer,
@@ -23,8 +23,8 @@ import { GitDiffScanner, type GitDiffScanResult } from './GitDiffScanner.js';
 // 不在本函数内。
 
 export interface CommitDrivenMaintenanceInput {
-  // 入口各自的 FileChangeHandler 工厂（presenter 与 rescan 经不同容器装配，故由入口提供）。
-  buildHandler: (projectRoot: string) => FileChangeHandler | null;
+  // 入口各自的 HostAgentFileChangeHandler 工厂（presenter 与 rescan 经不同容器装配，故由入口提供）。
+  buildHandler: (projectRoot: string) => HostAgentFileChangeHandler | null;
   container: PluginGitDiffCheckpointContainer;
   handlerUnavailableReason: string;
   now?: number;

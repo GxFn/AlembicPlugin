@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FileChangeHandler } from '../../lib/recipe-generation/evolution/FileChangeHandler.js';
+import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/evolution/HostAgentFileChangeHandler.js';
 
 // UM#7（CG-6）：固化「commit-driven 维护双入口（presenter↔rescan）对同一 recipe+type 重复 submit
 // 只落一条」。真实去重在 Core ProposalRepository.create 的 #hasDuplicate：按
@@ -60,7 +60,7 @@ describe('Commit-driven maintenance dual-entry dedup (UM#7 / CG-6)', () => {
 
     // 两入口经各自容器装配自己的 handler，但共享同一 evolutionGateway（→ 同一 ProposalRepository）。
     const buildHandler = () =>
-      new FileChangeHandler(sourceRefRepo as never, knowledgeRepo as never, undefined, {
+      new HostAgentFileChangeHandler(sourceRefRepo as never, knowledgeRepo as never, undefined, {
         evolutionGateway: gateway as never,
         projectRoot: '/repo',
       });

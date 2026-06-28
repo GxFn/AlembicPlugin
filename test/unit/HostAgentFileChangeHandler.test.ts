@@ -1,6 +1,7 @@
 import type { FileChangeEvent } from '@alembic/core/types';
 import { vi } from 'vitest';
-import { FileChangeHandler } from '../../lib/recipe-generation/evolution/FileChangeHandler.js';
+import { FileChangeHandler as LegacyFileChangeHandler } from '../../lib/recipe-generation/evolution/FileChangeHandler.js';
+import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/evolution/HostAgentFileChangeHandler.js';
 
 /* ════════════════════════════════════════════
  *  Mock ContentImpactAnalyzer — 控制 diff 返回
@@ -108,7 +109,7 @@ function createHandler(overrides: Record<string, unknown> = {}) {
   const gateway = (overrides.gateway as ReturnType<typeof mockGateway>) ?? mockGateway();
   const recipeFreshnessService = overrides.recipeFreshnessService ?? null;
 
-  const handler = new FileChangeHandler(
+  const handler = new HostAgentFileChangeHandler(
     sourceRefRepo as never,
     knowledgeRepo as never,
     contentPatcher as never,
@@ -134,13 +135,17 @@ function createHandler(overrides: Record<string, unknown> = {}) {
  *  Tests
  * ════════════════════════════════════════════ */
 
-describe('FileChangeHandler', () => {
+describe('HostAgentFileChangeHandler', () => {
   beforeEach(() => {
     mockAssessFileImpact.mockReset();
     mockExtractRecipeTokens.mockReset();
     mockExtractRecipeTokens.mockReturnValue({ tokens: new Set(), sources: new Map() });
     // 默认：diff 返回 reference 级别（模拟有 git 环境）
     mockAssessFileImpact.mockReturnValue({ level: 'reference', score: 0, matchedTokens: [] });
+  });
+
+  test('keeps FileChangeHandler as the R1 compatibility alias', () => {
+    expect(LegacyFileChangeHandler).toBe(HostAgentFileChangeHandler);
   });
 
   /* ─── #handleModified → impactLevel ─── */
@@ -166,7 +171,7 @@ describe('FileChangeHandler', () => {
       // 但信号仍然发射
       expect(signalBus.send).toHaveBeenCalledWith(
         'quality',
-        'FileChangeHandler',
+        'HostAgentFileChangeHandler',
         expect.any(Number),
         expect.objectContaining({ target: 'r1' })
       );
@@ -305,7 +310,7 @@ describe('FileChangeHandler', () => {
 
       expect(signalBus.send).toHaveBeenCalledWith(
         'quality',
-        'FileChangeHandler',
+        'HostAgentFileChangeHandler',
         0.3, // reference weight
         expect.objectContaining({
           target: 'r1',
@@ -817,7 +822,7 @@ describe('FileChangeHandler', () => {
       expect(report.details[0].reason).toContain('fetchPopular');
       expect(signalBus.send).toHaveBeenCalledWith(
         'quality',
-        'FileChangeHandler',
+        'HostAgentFileChangeHandler',
         expect.any(Number),
         expect.objectContaining({
           target: 'r1',
@@ -905,7 +910,7 @@ describe('FileChangeHandler', () => {
 
       expect(signalBus.send).toHaveBeenCalledWith(
         'quality',
-        'FileChangeHandler',
+        'HostAgentFileChangeHandler',
         expect.any(Number),
         expect.objectContaining({
           target: 'r1',

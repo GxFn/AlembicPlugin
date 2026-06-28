@@ -41,7 +41,7 @@ const rg9ImplementationPaths = [
   'lib/recipe-generation/bootstrap/BootstrapEventEmitter.ts',
   'lib/recipe-generation/bootstrap/BootstrapTaskManager.ts',
   'lib/recipe-generation/vector/LocalEmbedding.ts',
-  'lib/recipe-generation/evolution/FileChangeHandler.ts',
+  'lib/recipe-generation/evolution/HostAgentFileChangeHandler.ts',
   'lib/recipe-generation/evolution/PluginOpportunisticEvolution.ts',
   'lib/recipe-generation/evolution/git-diff-checkpoint/index.ts',
 ] as const;
