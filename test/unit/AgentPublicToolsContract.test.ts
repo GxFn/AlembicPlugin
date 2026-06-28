@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   getMcpOutputProjector,
+  serializeMcpToolResult,
   withMcpOutputSchema,
 } from '../../lib/runtime/mcp/output-contract.js';
 import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
@@ -130,6 +131,100 @@ describe('Agent-facing public tools contract foundation', () => {
     });
     expect(JSON.stringify(envelope)).not.toContain('legacyCompatibility');
     expect(JSON.stringify(envelope)).not.toContain('outputBudget');
+  });
+
+  test('accepts code_guard public opportunistic evolution data with readable verdict', () => {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'code-guard',
+      agentHost: 'codex',
+      inputSource: 'automation-envelope',
+      refs: { detailRefs: [] },
+      status: 'ready',
+      summary: 'Code Guard checked explicit files.',
+      toolName: 'alembic_code_guard',
+    });
+
+    const output = createAgentPublicToolOutput(result, {
+      data: {
+        unifiedEvolution: samplePluginOpportunisticEvolutionSurface(),
+      },
+    });
+
+    expect(AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.parse(output)).toMatchObject({
+      data: {
+        unifiedEvolution: {
+          evidenceGate: {
+            verdict: 'routed',
+          },
+        },
+      },
+      toolName: 'alembic_code_guard',
+    });
+  });
+
+  test('serializes code_guard public unified evolution data through the MCP output projector', () => {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'code-guard',
+      agentHost: 'codex',
+      inputSource: 'automation-envelope',
+      refs: { detailRefs: [] },
+      status: 'ready',
+      summary: 'Code Guard checked explicit files.',
+      toolName: 'alembic_code_guard',
+    });
+    const output = createAgentPublicToolOutput(result, {
+      data: {
+        unifiedEvolution: samplePluginOpportunisticEvolutionSurface(),
+      },
+    });
+
+    const serialized = serializeMcpToolResult('alembic_code_guard', output, {
+      isErrorResult: () => false,
+    });
+
+    expect(serialized.isError).toBeUndefined();
+    expect(serialized.content).toEqual([{ type: 'text', text: output.summary }]);
+    expect(serialized.structuredContent).toMatchObject({
+      data: {
+        unifiedEvolution: {
+          evidenceGate: {
+            verdict: 'routed',
+          },
+        },
+      },
+      meta: {
+        outputSchema: 'alembic_code_guard_clean_output',
+        projector: 'agent-public-clean-output-projector',
+      },
+      toolName: 'alembic_code_guard',
+    });
+  });
+
+  test('keeps code_guard public data strict while allowing unified evolution verdict', () => {
+    const parsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.safeParse({
+      actionKind: 'code-guard',
+      agentHost: 'codex',
+      data: {
+        unexpectedContractLeak: true,
+        unifiedEvolution: samplePluginOpportunisticEvolutionSurface(),
+      },
+      inputSource: 'automation-envelope',
+      ok: true,
+      refs: { detailRefs: [] },
+      status: 'ready',
+      summary: 'Code Guard checked explicit files.',
+      toolName: 'alembic_code_guard',
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.success ? [] : parsed.error.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'unrecognized_keys',
+          path: ['data'],
+        }),
+      ])
+    );
   });
 
   test('validates canonical prime public package projection', () => {
@@ -312,3 +407,88 @@ describe('Agent-facing public tools contract foundation', () => {
     }
   });
 });
+
+function samplePluginOpportunisticEvolutionSurface() {
+  return {
+    autoSubmit: false,
+    evidenceGate: {
+      reasons: [
+        'Alembic resident ProjectScope is unavailable; Plugin fallback used git diff evidence.',
+        'git diff surfaced 1 changed path(s)',
+        'tool outcome available from alembic_code_guard',
+      ],
+      verdict: 'routed',
+    },
+    gitDiffEvidence: {
+      dirtyPathCount: 1,
+      eventCount: 1,
+      events: [
+        {
+          eventSource: 'working-tree',
+          path: 'src/service.ts',
+          type: 'modified',
+        },
+      ],
+      head: 'abc123',
+      headChanged: true,
+      headRangeStatus: 'changed',
+      mergeBase: null,
+      previousHead: 'abc122',
+      scanned: true,
+      scannedAt: '2026-06-28T21:45:00.000Z',
+      signature: 'sig-1',
+      truncated: false,
+    },
+    producerBoundary: {
+      producerKind: 'plugin-opportunistic',
+      separatedFrom: 'daemon-file-change',
+    },
+    serviceGate: {
+      reason:
+        'Alembic resident ProjectScope is unavailable, disabled, or unable to accept this source folder.',
+      residentProjectScopeAvailable: false,
+      residentSearchEnhancementReady: false,
+    },
+    trigger: {
+      reason: 'commit-driven-unified-evolution',
+      tool: 'alembic_code_guard',
+    },
+    unifiedEvolution: {
+      classificationCounts: {
+        modified: 1,
+        proposed: 1,
+      },
+      deprecated: 0,
+      fixed: 0,
+      generationChangeLog: [
+        {
+          action: 'source-modified-review-needed',
+          createdAt: 1782675900000,
+          filePath: 'src/service.ts',
+          reason: 'changed service tokens',
+          recipeId: 'recipe-1',
+        },
+      ],
+      moduleMiningRoutes: [],
+      needsReview: 1,
+      pendingProposals: [
+        {
+          action: 'update',
+          confidence: 0.72,
+          description: 'changed service tokens',
+          filePath: 'src/service.ts',
+          recipeId: 'recipe-1',
+          source: 'file-change',
+          status: 'submitted',
+        },
+      ],
+      planBoundary: {
+        generationStateWrites: 0,
+        planIntentWrites: 0,
+        projectedFromExistingDbSources: true,
+      },
+      skipped: 0,
+      suggestReview: true,
+    },
+  };
+}

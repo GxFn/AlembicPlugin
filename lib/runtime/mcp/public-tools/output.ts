@@ -145,6 +145,205 @@ const GuardPublicResultSchema = z
   })
   .strict();
 
+const PluginOpportunisticEvolutionVerdictSchema = z.enum([
+  'defer-to-alembic-service',
+  'no-op',
+  'routed',
+]);
+
+// R-2：公共 code_guard 允许且只允许这个 commit-driven 维护 surface 进入 data，
+// 让 evidenceGate.verdict 可读，同时继续拒绝未知 data 字段。
+const PluginOpportunisticEvolutionSurfaceSchema = z
+  .object({
+    autoSubmit: z.literal(false),
+    checkpoint: z
+      .object({
+        advanced: z.boolean(),
+        checkpointCommit: z.string().max(1200).nullable(),
+        mergeBaseCommit: z.string().max(1200).nullable().optional(),
+        recorded: z.boolean(),
+        reason: PublicStringSchema,
+        routeStatus: OptionalPublicStringSchema,
+        scope: z
+          .object({
+            folderId: PublicStringSchema,
+            projectRoot: PublicStringSchema,
+            scopeId: PublicStringSchema,
+          })
+          .strict(),
+        unresolvedRange: z
+          .object({
+            fromCommit: z.string().max(1200).nullable(),
+            mergeBaseCommit: z.string().max(1200).nullable(),
+            toCommit: PublicStringSchema,
+          })
+          .strict()
+          .nullable()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    evidenceGate: z
+      .object({
+        reasons: PublicStringArraySchema,
+        verdict: PluginOpportunisticEvolutionVerdictSchema,
+      })
+      .strict(),
+    gitDiffEvidence: z
+      .object({
+        dirtyPathCount: z.number().int().min(0).max(10000),
+        eventCount: z.number().int().min(0).max(10000),
+        events: z
+          .array(
+            z
+              .object({
+                eventSource: OptionalPublicStringSchema,
+                oldPath: OptionalPublicStringSchema,
+                path: PublicStringSchema,
+                type: PublicStringSchema,
+              })
+              .strict()
+          )
+          .max(200),
+        fallbackReason: OptionalPublicStringSchema,
+        head: z.string().max(1200).nullable(),
+        headChanged: z.boolean(),
+        headRangeStatus: PublicStringSchema,
+        mergeBase: z.string().max(1200).nullable(),
+        previousHead: z.string().max(1200).nullable(),
+        range: z
+          .object({
+            from: PublicStringSchema,
+            to: PublicStringSchema,
+          })
+          .strict()
+          .optional(),
+        scanned: z.boolean(),
+        scannedAt: PublicStringSchema,
+        signature: z.string().max(1200).nullable(),
+        truncated: z.boolean(),
+      })
+      .strict()
+      .optional(),
+    producerBoundary: z
+      .object({
+        producerKind: z.literal('plugin-opportunistic'),
+        separatedFrom: z.literal('daemon-file-change'),
+      })
+      .strict(),
+    serviceGate: z
+      .object({
+        reason: PublicStringSchema,
+        residentProjectScopeAvailable: z.boolean(),
+        residentSearchEnhancementReady: z.boolean(),
+      })
+      .strict(),
+    trigger: z
+      .object({
+        reason: PublicStringSchema,
+        tool: z.string().max(1200).nullable(),
+      })
+      .strict(),
+    unifiedEvolution: z
+      .object({
+        classificationCounts: z
+          .object({
+            coveredCreated: z.number().int().min(0).max(10000).optional(),
+            created: z.number().int().min(0).max(10000).optional(),
+            deleted: z.number().int().min(0).max(10000).optional(),
+            deprecationProposals: z.number().int().min(0).max(10000).optional(),
+            modified: z.number().int().min(0).max(10000).optional(),
+            moduleMiningRoutes: z.number().int().min(0).max(10000).optional(),
+            proposed: z.number().int().min(0).max(10000).optional(),
+            renamed: z.number().int().min(0).max(10000).optional(),
+            repaired: z.number().int().min(0).max(10000).optional(),
+            skipped: z.number().int().min(0).max(10000).optional(),
+            uncoveredCreated: z.number().int().min(0).max(10000).optional(),
+          })
+          .strict(),
+        deprecated: z.number().int().min(0).max(10000),
+        fixed: z.number().int().min(0).max(10000),
+        freshness: z
+          .object({
+            processed: z.number().int().min(0).max(10000),
+            recipeIds: PublicStringArraySchema,
+            retrievalMayBeStale: z.boolean(),
+            status: PublicStringSchema,
+          })
+          .strict()
+          .optional(),
+        generationChangeLog: z
+          .array(
+            z
+              .object({
+                action: PublicStringSchema,
+                createdAt: z.number(),
+                eventSource: OptionalPublicStringSchema,
+                filePath: PublicStringSchema,
+                newPath: OptionalPublicStringSchema,
+                oldPath: OptionalPublicStringSchema,
+                reason: PublicStringSchema,
+                recipeId: OptionalPublicStringSchema,
+              })
+              .strict()
+          )
+          .max(200),
+        moduleMiningRoutes: z
+          .array(
+            z
+              .object({
+                error: OptionalPublicStringSchema,
+                fileCount: z.number().int().min(0).max(10000),
+                moduleCount: z.number().int().min(0).max(10000).optional(),
+                moduleId: PublicStringSchema,
+                moduleScope: PublicStringArraySchema,
+                moduleSeedCount: z.number().int().min(0).max(10000).optional(),
+                path: PublicStringSchema,
+                reason: PublicStringSchema,
+                requestKinds: PublicStringArraySchema,
+                status: z.enum(['routed', 'failed']),
+              })
+              .strict()
+          )
+          .max(200),
+        needsReview: z.number().int().min(0).max(10000),
+        pendingProposals: z
+          .array(
+            z
+              .object({
+                action: z.enum(['deprecate', 'update']),
+                confidence: z.number().min(0).max(1),
+                description: PublicStringSchema,
+                filePath: PublicStringSchema,
+                proposalId: OptionalPublicStringSchema,
+                recipeId: PublicStringSchema,
+                source: PublicStringSchema,
+                status: z.enum(['submitted', 'unavailable']),
+              })
+              .strict()
+          )
+          .max(200),
+        planBoundary: z
+          .object({
+            generationStateWrites: z.literal(0),
+            planIntentWrites: z.literal(0),
+            projectedFromExistingDbSources: z.literal(true),
+          })
+          .strict(),
+        skipped: z.number().int().min(0).max(10000),
+        suggestReview: z.boolean(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const AgentCodeGuardDataSchema = z
+  .object({
+    unifiedEvolution: PluginOpportunisticEvolutionSurfaceSchema.optional(),
+  })
+  .strict();
+
 export const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
   actionKind: AgentActionKindSchema,
   agentHost: AgentHostSchema,
@@ -245,6 +444,7 @@ export const AgentWorkOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend(
 });
 
 export const AgentCodeGuardOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend({
+  data: AgentCodeGuardDataSchema.optional(),
   detailRefs: z.array(AgentDetailRefSchema).max(40).optional(),
   explicitScope: ExplicitGuardScopeSchema.optional(),
   guard: GuardPublicResultSchema.optional(),
