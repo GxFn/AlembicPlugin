@@ -201,6 +201,7 @@ export async function buildHostAgentProjectContextAnalysis(
   const maxModuleDetails = input.maxModuleDetails ?? 3;
   const maxFileDetails = input.maxFileDetails ?? 8;
   const maxFiles = readPositiveInteger(input.maxFiles);
+  const sourceFolders = normalizeProjectContextSourceFolders(input.sourceFolders);
   const basePayload = {
     ...(maxFiles !== undefined ? { maxFiles } : {}),
   };
@@ -210,7 +211,7 @@ export async function buildHostAgentProjectContextAnalysis(
     input.source,
     {
       includeProjectTree: true,
-      ...(input.sourceFolders?.length ? { sourceFolders: input.sourceFolders } : {}),
+      ...(sourceFolders.length ? { sourceFolders } : {}),
     }
   );
   const firstRepoEnvelope = await executeProjectContextRequest(
@@ -220,11 +221,12 @@ export async function buildHostAgentProjectContextAnalysis(
     {
       ...basePayload,
       includeMapSummary: false,
+      ...buildScopedRepoPayload(sourceFolders),
     }
   );
   const repoData = isRepoContext(firstRepoEnvelope.data) ? firstRepoEnvelope.data : undefined;
   const sourceFileFacts = await collectProjectSourceFileFacts(input.projectRoot, {
-    sourceFolders: input.sourceFolders,
+    sourceFolders,
   });
   const selectedModuleSeeds = selectProjectContextModuleSeeds(repoData, input.moduleScope);
   const moduleScopeFallbackSeeds = createModuleScopeFallbackSeeds(
@@ -232,8 +234,18 @@ export async function buildHostAgentProjectContextAnalysis(
     selectedModuleSeeds,
     sourceFileFacts
   );
+  const sourceFolderFallbackSeeds = createSourceFolderFallbackSeeds(
+    sourceFolders,
+    selectedModuleSeeds,
+    moduleScopeFallbackSeeds,
+    sourceFileFacts
+  );
   const discoveredModuleSeeds = attachSourceFilesToProjectContextModuleSeeds(
-    dedupeModuleSeeds([...selectedModuleSeeds, ...moduleScopeFallbackSeeds]),
+    dedupeModuleSeeds([
+      ...selectedModuleSeeds,
+      ...moduleScopeFallbackSeeds,
+      ...sourceFolderFallbackSeeds,
+    ]),
     sourceFileFacts
   );
   const moduleSeeds = discoveredModuleSeeds.slice(0, maxModuleSeeds);
@@ -243,6 +255,7 @@ export async function buildHostAgentProjectContextAnalysis(
           ...basePayload,
           includeMapSummary: true,
           moduleSeeds,
+          ...buildScopedRepoPayload(sourceFolders),
         })
       : firstRepoEnvelope;
   const envelopes: ProjectContextEnvelope<ProjectContextResult>[] = [spaceEnvelope, repoEnvelope];
@@ -307,7 +320,7 @@ export async function buildHostAgentProjectContextAnalysis(
   }
 
   const presenterInput = buildProjectContextPresenterInput(envelopes);
-  const primaryLang = inferProjectContextPrimaryLanguage(presenterInput);
+  const primaryLang = inferProjectContextPrimaryLanguage(presenterInput, sourceFileFacts);
   const secondaryLanguages = inferProjectContextSecondaryLanguages(presenterInput, primaryLang);
   const dimensions = resolveProjectContextDimensions(primaryLang);
   // U1 #6（方案A）：保留派生出的 moduleSeeds（仍用于 map 查询），但把对外返回的 seed 的 name/id
@@ -367,6 +380,11 @@ async function executeProjectContextRequest(
       projectRoot,
     },
   });
+}
+
+function buildScopedRepoPayload(sourceFolders: readonly string[]): Record<string, unknown> {
+  const primarySourceFolder = sourceFolders[0];
+  return primarySourceFolder ? { repoRoot: primarySourceFolder } : {};
 }
 
 function readProjectSession(
@@ -613,6 +631,44 @@ function createModuleScopeFallbackSeeds(
     }));
 }
 
+function createSourceFolderFallbackSeeds(
+  sourceFolders: readonly string[],
+  selectedSeeds: readonly ProjectContextModuleSeed[],
+  moduleScopeFallbackSeeds: readonly ProjectContextModuleSeed[],
+  sourceFileFacts: readonly ProjectSourceFileFact[]
+): ProjectContextModuleSeed[] {
+  if (sourceFolders.length === 0) {
+    return [];
+  }
+  const existingSeeds = [...selectedSeeds, ...moduleScopeFallbackSeeds];
+  return sourceFolders
+    .filter((sourceFolder) =>
+      sourceFileFacts.some((file) => file.filePath.startsWith(`${sourceFolder}/`))
+    )
+    .filter(
+      (sourceFolder) => !existingSeeds.some((seed) => seedCoversSourceFolder(seed, sourceFolder))
+    )
+    .map((sourceFolder) => ({
+      kind: 'project-scope-folder',
+      moduleName: moduleNameFromPath(sourceFolder, 'project-scope-folder'),
+      modulePath: sourceFolder,
+      role: 'project-scope-folder',
+    }));
+}
+
+function seedCoversSourceFolder(seed: ProjectContextModuleSeed, sourceFolder: string): boolean {
+  const paths = [
+    normalizeModulePath(seed.modulePath),
+    ...(seed.ownedFiles ?? []).map(normalizeModulePath),
+  ].filter(isPresent);
+  return paths.some(
+    (pathValue) =>
+      pathValue === sourceFolder ||
+      pathValue.startsWith(`${sourceFolder}/`) ||
+      sourceFolder.startsWith(`${pathValue}/`)
+  );
+}
+
 // U1 #6（方案A）：把派生 seed 的 name/id 对齐 canonical ProjectMap.modules。
 // 对每个 seed，用其归一化 modulePath（或 ownedFiles 首项）匹配 canonical 模块的归一化路径
 // （path = module.ref.scope.filePath）；命中则覆盖 moduleName=canonical.name、moduleId=canonical.id。
@@ -698,7 +754,14 @@ function resolveProjectContextDimensions(_primaryLang: string): DimensionDef[] {
   return [...baseDimensions];
 }
 
-function inferProjectContextPrimaryLanguage(input: ProjectContextPresenterInput): string {
+function inferProjectContextPrimaryLanguage(
+  input: ProjectContextPresenterInput,
+  sourceFileFacts: readonly ProjectSourceFileFact[] = []
+): string {
+  const factLanguage = inferSourceFileFactPrimaryLanguage(sourceFileFacts);
+  if (factLanguage) {
+    return factLanguage;
+  }
   const languages = input.repo?.languages ?? [];
   return (
     [...languages].sort((left, right) => (right.fileCount ?? 0) - (left.fileCount ?? 0))[0]
@@ -808,6 +871,51 @@ function uniqueRequestKinds(
   values: readonly ProjectContextRequestKind[]
 ): ProjectContextRequestKind[] {
   return [...new Set(values)];
+}
+
+function inferSourceFileFactPrimaryLanguage(
+  sourceFileFacts: readonly ProjectSourceFileFact[]
+): string | undefined {
+  const counts = new Map<string, number>();
+  for (const file of sourceFileFacts) {
+    counts.set(file.language, (counts.get(file.language) ?? 0) + 1);
+  }
+  const codeLanguage = sortLanguageCounts(
+    [...counts.entries()].filter(([language]) => !isNonPrimaryCodeLanguage(language))
+  )[0]?.[0];
+  if (codeLanguage) {
+    return codeLanguage;
+  }
+  return sortLanguageCounts(
+    [...counts.entries()].filter(([language]) => language !== 'unknown')
+  )[0]?.[0];
+}
+
+function sortLanguageCounts(entries: Array<[string, number]>): Array<[string, number]> {
+  return entries.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+}
+
+function isNonPrimaryCodeLanguage(language: string): boolean {
+  return ['json', 'markdown', 'md', 'unknown', 'xml', 'yaml', 'yml'].includes(language);
+}
+
+function normalizeProjectContextSourceFolders(
+  sourceFolders: readonly string[] | undefined
+): string[] {
+  if (!sourceFolders?.length) {
+    return [];
+  }
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const sourceFolder of sourceFolders) {
+    const value = normalizeProjectContextPath(sourceFolder);
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
 }
 
 function readPositiveInteger(value: unknown): number | undefined {
