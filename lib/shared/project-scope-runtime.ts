@@ -1,10 +1,15 @@
 import path from 'node:path';
 import {
+  loadProjectScopeForFolder,
   normalizeProjectScopeSummary,
   type ProjectDescriptor,
   type ProjectFolderDescriptor,
   type ProjectScopeSummary,
+  readProjectScopeRegistryDocument,
+  resolveProjectScopeForFolder,
+  summarizeProjectScopeDescriptor,
 } from '@alembic/core/shared';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 
 export const ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV = 'ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY';
 
@@ -39,6 +44,26 @@ export function readProjectScopeRuntimeFromEnv(): ProjectScopeRuntime | null {
   } catch {
     return null;
   }
+}
+
+export function resolveProjectScopeRuntime(projectRoot: string): ProjectScopeRuntime | null {
+  const envRuntime = readProjectScopeRuntimeFromEnv();
+  if (envRuntime && isProjectScopeSummaryForFolder(envRuntime.summary, projectRoot)) {
+    return envRuntime;
+  }
+
+  const descriptor = loadProjectScopeForRuntimeProject(projectRoot);
+  if (!descriptor) {
+    return null;
+  }
+  const folderResolution = resolveProjectScopeForFolder(descriptor, projectRoot);
+  return {
+    descriptor,
+    summary: summarizeProjectScopeDescriptor(
+      descriptor,
+      folderResolution.matched ? folderResolution.currentFolderId : null
+    ),
+  };
 }
 
 export function isProjectScopeSummaryForFolder(
@@ -105,4 +130,30 @@ function samePath(left: string | null | undefined, right: string | null | undefi
     return false;
   }
   return path.resolve(left) === path.resolve(right);
+}
+
+function loadProjectScopeForRuntimeProject(projectRoot: string): ProjectDescriptor | null {
+  try {
+    const resolver = WorkspaceResolver.fromProjectScopeRegistry(projectRoot);
+    if (resolver.projectScope) {
+      return resolver.projectScope;
+    }
+  } catch {
+    /* registry loader failed — fall through to direct registry reads */
+  }
+
+  const folderScope = loadProjectScopeForFolder(projectRoot);
+  if (folderScope) {
+    return folderScope;
+  }
+  const normalizedProjectRoot = path.resolve(projectRoot);
+  try {
+    return (
+      Object.values(readProjectScopeRegistryDocument().scopes).find(
+        (scope) => path.resolve(scope.controlRoot.path) === normalizedProjectRoot
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
 }

@@ -30,6 +30,7 @@ import {
 } from '../../runtime/runtime/RuntimeContext.js';
 import { buildStatusOnboardingContract } from '../../runtime/status/OnboardingContract.js';
 import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
+import { resolveProjectScopeRuntime } from '../../shared/project-scope-runtime.js';
 import type { DaemonStatus } from '../daemon-status.js';
 
 export interface DaemonStatusProvider {
@@ -149,7 +150,10 @@ export async function buildStatus(
   options: StatusServiceOptions = {}
 ): Promise<StatusData> {
   const projectRoot = resolve(projectRootInput);
-  const resolver = WorkspaceResolver.fromProject(projectRoot);
+  const projectScopeRuntime = resolveProjectScopeRuntime(projectRoot);
+  const resolver = WorkspaceResolver.fromProject(projectRoot, {
+    projectScope: projectScopeRuntime?.descriptor ?? null,
+  });
   const settingsStore = new WorkspaceSettingsStore(resolver);
   const facts = resolver.toFacts();
   const localEmbedding = buildLocalEmbeddingStatus(resolver);

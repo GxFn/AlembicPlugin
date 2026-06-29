@@ -23,6 +23,7 @@ import type {
   AlembicResidentProjectScopeIdentity,
   ResidentSearchAttemptMeta,
 } from '../../service/resident/AlembicResidentServiceClient.js';
+import { resolveProjectScopeRuntime } from '../../shared/project-scope-runtime.js';
 import type { DaemonStatus } from '../daemon-status.js';
 
 const PROJECT_RUNTIME_CONTEXT_VERSION = 1;
@@ -41,7 +42,10 @@ export interface ProjectRuntimeContext {
   sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   sourcePolicy: {
     effectiveIdentitySource: 'codex-current-project';
-    projectScopeSource: 'resident-read-only' | 'single-folder-baseline';
+    projectScopeSource:
+      | 'native-project-scope-registry'
+      | 'resident-read-only'
+      | 'single-folder-baseline';
     runtimeControlSource: 'read-only-diagnostics';
     selectedOrActiveCanOverrideEffectiveIdentity: false;
   };
@@ -176,8 +180,10 @@ export function buildProjectRuntimeContext(
 ): ProjectRuntimeContext {
   const projectRoot = resolve(options.projectRoot);
   const runtime = options.runtime ?? resolveHostRuntimeContext();
+  const projectScopeRuntime = resolveProjectScopeRuntime(projectRoot);
   const resolver = WorkspaceResolver.fromProject(projectRoot, {
     currentFolderId: options.projectScopeIdentity?.currentFolderId ?? undefined,
+    projectScope: projectScopeRuntime?.descriptor ?? null,
   });
   const facts = resolver.toFacts();
   const identity = buildProjectRuntimeIdentity({
@@ -229,7 +235,9 @@ export function buildProjectRuntimeContext(
       effectiveIdentitySource: 'codex-current-project',
       projectScopeSource: options.projectScopeIdentity?.available
         ? 'resident-read-only'
-        : 'single-folder-baseline',
+        : facts.projectScope
+          ? 'native-project-scope-registry'
+          : 'single-folder-baseline',
       runtimeControlSource: 'read-only-diagnostics',
       selectedOrActiveCanOverrideEffectiveIdentity: false,
     },
@@ -367,7 +375,7 @@ function isServiceAvailable(
           (!input.projectRootResolution || input.projectRootResolution.trust === 'trusted')
       );
     case 'project-scope':
-      return input.projectScopeIdentity?.available === true;
+      return input.projectScopeIdentity?.available === true || input.identity.projectScope !== null;
     case 'daemon':
       return input.daemonStatus?.ready === true && input.daemonStatus.status === 'ready';
     case 'jobs':
@@ -399,12 +407,13 @@ function serviceFailureReason(
   input: {
     daemonStatus: DaemonStatus | null;
     hostProjectAlignment: HostProjectAlignment | null;
+    identity: ProjectRuntimeIdentityContract;
     projectRootResolution: ProjectRootResolution | null;
     projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
     sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   }
 ): ProjectRuntimeFailureReason | null {
-  if (isServiceAvailable(service, { ...input, enhancementRoute: null, identity: nullIdentity() })) {
+  if (isServiceAvailable(service, { ...input, enhancementRoute: null })) {
     return null;
   }
   switch (service) {
@@ -457,6 +466,7 @@ function serviceMessage(
 function serviceSource(
   service: ProjectRuntimeRequiredService,
   input: {
+    identity: ProjectRuntimeIdentityContract;
     projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
     sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
   }
@@ -465,7 +475,10 @@ function serviceSource(
     case 'project-identity':
       return 'codex-current-project';
     case 'project-scope':
-      return input.projectScopeIdentity?.source ?? 'single-folder-baseline';
+      return (
+        input.projectScopeIdentity?.source ??
+        (input.identity.projectScope ? 'native-project-scope-registry' : 'single-folder-baseline')
+      );
     case 'daemon':
     case 'jobs':
     case 'api-ai':
@@ -611,10 +624,6 @@ function extractAlembicRuntimeSourceOfTruth(
     targetProject: asRecord(raw.targetProject),
     writePolicy: asRecord(raw.writePolicy),
   };
-}
-
-function nullIdentity(): ProjectRuntimeIdentityContract {
-  return createProjectRuntimeIdentityContract();
 }
 
 function _readJsonFile(path: string): Record<string, unknown> | null {

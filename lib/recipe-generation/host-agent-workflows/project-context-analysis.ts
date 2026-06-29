@@ -34,6 +34,7 @@ interface BuildHostAgentProjectContextAnalysisInput {
   maxModuleSeeds?: number;
   maxModuleDetails?: number;
   maxFileDetails?: number;
+  sourceFolders?: readonly string[];
 }
 
 export interface ProjectContextModuleSeed {
@@ -209,6 +210,7 @@ export async function buildHostAgentProjectContextAnalysis(
     input.source,
     {
       includeProjectTree: true,
+      ...(input.sourceFolders?.length ? { sourceFolders: input.sourceFolders } : {}),
     }
   );
   const firstRepoEnvelope = await executeProjectContextRequest(
@@ -221,7 +223,9 @@ export async function buildHostAgentProjectContextAnalysis(
     }
   );
   const repoData = isRepoContext(firstRepoEnvelope.data) ? firstRepoEnvelope.data : undefined;
-  const sourceFileFacts = await collectProjectSourceFileFacts(input.projectRoot);
+  const sourceFileFacts = await collectProjectSourceFileFacts(input.projectRoot, {
+    sourceFolders: input.sourceFolders,
+  });
   const selectedModuleSeeds = selectProjectContextModuleSeeds(repoData, input.moduleScope);
   const moduleScopeFallbackSeeds = createModuleScopeFallbackSeeds(
     input.moduleScope,

@@ -42,7 +42,7 @@ import {
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../../runtime/mcp/tools.js';
 import {
   isProjectScopeSummaryForFolder,
-  readProjectScopeRuntimeFromEnv,
+  resolveProjectScopeRuntime,
 } from '../../shared/project-scope-runtime.js';
 
 // ─── TypeScript Interfaces ──────────────────────────────────
@@ -211,7 +211,7 @@ export class McpServer {
       const { ProjectRegistry } = await import('@alembic/core/workspace');
       const isGhost = ProjectRegistry.isGhost(projectRoot);
       const exclusion = isExcludedProject(projectRoot);
-      const projectScopeRuntime = readProjectScopeRuntimeFromEnv();
+      const projectScopeRuntime = resolveProjectScopeRuntime(projectRoot);
       const isProjectScopeGhostExecution =
         projectScopeRuntime?.summary.storageKind === 'ghost' &&
         isProjectScopeSummaryForFolder(projectScopeRuntime.summary, projectRoot);

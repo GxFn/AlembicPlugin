@@ -9,7 +9,7 @@ import AuditStore from './infrastructure/audit/AuditStore.js';
 import ConfigLoader from './infrastructure/config/AppConfigLoader.js';
 import { SkillHooks } from './service/skills/SkillHooks.js';
 import { PACKAGE_ROOT } from './shared/package-assets.js';
-import { readProjectScopeRuntimeFromEnv } from './shared/project-scope-runtime.js';
+import { resolveProjectScopeRuntime } from './shared/project-scope-runtime.js';
 
 /** Bootstrap - 应用程序启动器 */
 /** Bootstrap 初始化选项 */
@@ -188,7 +188,7 @@ export class Bootstrap {
     if (!projectRoot) {
       return; // PathGuard 未配置时跳过
     }
-    const projectScopeRuntime = readProjectScopeRuntimeFromEnv();
+    const projectScopeRuntime = resolveProjectScopeRuntime(projectRoot);
     const resolver = WorkspaceResolver.fromProject(projectRoot, {
       projectScope: projectScopeRuntime?.descriptor ?? null,
     });

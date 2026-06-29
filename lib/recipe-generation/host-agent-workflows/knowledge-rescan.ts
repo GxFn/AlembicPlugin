@@ -249,6 +249,7 @@ async function prepareRescanState(
     moduleScope: planGate.moduleScope,
     projectRoot: plan.projectAnalysis.projectRoot,
     source: 'codex-host-rescan',
+    sourceFolders: plan.projectAnalysis.scan.sourceFolders,
   });
   const coverageLedgerSeed = seedRescanCoverageLedgerFromSnapshot(ctx, {
     planGate,

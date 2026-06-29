@@ -180,6 +180,7 @@ async function runPlanGatedColdStart(
     moduleScope: input.planGate.moduleScope,
     projectRoot: plan.projectAnalysis.projectRoot,
     source: 'codex-host-bootstrap',
+    sourceFolders: plan.projectAnalysis.scan.sourceFolders,
   });
   if (projectContextAnalysis.isEmpty) {
     const response = attachPlanGenerationGateData(
