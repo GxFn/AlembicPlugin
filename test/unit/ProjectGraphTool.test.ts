@@ -1,13 +1,19 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, test } from 'vitest';
+import {
+  createProjectDescriptor,
+  createProjectScopeRegistryDocument,
+  PROJECT_SCOPE_REGISTRY_FILENAME,
+} from '@alembic/core/shared';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { routeGraphTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
 import { GRAPH_QUERY_KINDS, GraphInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 const tempRoots: string[] = [];
+let previousAlembicHome: string | undefined;
 
 // The 9 queryKinds that map 1:1 onto ProjectContext request classes.
 const PROJECT_CONTEXT_QUERY_KINDS = [
@@ -78,7 +84,16 @@ async function runGraph(projectRoot: string, args: Record<string, unknown>): Pro
 }
 
 describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', () => {
+  beforeEach(() => {
+    previousAlembicHome = process.env.ALEMBIC_HOME;
+  });
+
   afterEach(() => {
+    if (previousAlembicHome === undefined) {
+      delete process.env.ALEMBIC_HOME;
+    } else {
+      process.env.ALEMBIC_HOME = previousAlembicHome;
+    }
     for (const root of tempRoots.splice(0)) {
       fs.rmSync(root, { force: true, recursive: true });
     }
@@ -214,9 +229,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     });
     expect(output.status).toBe('ready');
     expect(output.nodes).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ nodeType: 'file', path: 'lib/index.ts' }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ nodeType: 'file', path: 'lib/index.ts' })])
     );
     expect(output.diagnostics).toEqual([]);
     expect(Array.isArray(output.slices)).toBe(true);
@@ -347,8 +360,8 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(handlerSource).toContain('createAlembicGraphMcpResult');
   });
 
-  test('uses workspace.config repoNames as the default graph boundary', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
+  test('uses native ProjectScope registry as the default graph boundary', async () => {
+    const projectRoot = createNativeScopeWorkspaceFixtureProject();
     const output = await runGraph(projectRoot, {
       queryKind: 'stats',
       budget: { itemLimit: 200, relationHopLimit: 10 },
@@ -356,13 +369,15 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     const serialized = JSON.stringify(output);
     expect(serialized).toContain('AlembicPlugin/lib/index.ts');
     expect(serialized).toContain('AlembicCore/src/index.ts');
+    expect(serialized).toContain('AlembicDashboard');
+    expect(serialized).toContain('AlembicAgent');
     expect(serialized).not.toContain('Test');
     expect(serialized).not.toContain('wakeflow-ledger');
     expect(serialized).not.toContain('legacy-docs-do-not-use');
   });
 
   test('answers workspace-root file queries for deep sub-repository files', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
+    const projectRoot = createNativeScopeWorkspaceFixtureProject();
     const filePath = 'AlembicPlugin/lib/runtime/mcp/handlers/agent-public-tools.ts';
 
     const symbols = await runGraph(projectRoot, {
@@ -378,9 +393,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
         expect.objectContaining({ nodeType: 'symbol', label: 'primeHandler', path: filePath }),
       ])
     );
-    expect(symbols.refs).toEqual(
-      expect.arrayContaining([expect.objectContaining({ filePath })])
-    );
+    expect(symbols.refs).toEqual(expect.arrayContaining([expect.objectContaining({ filePath })]));
     expect(JSON.stringify(symbols.diagnostics)).not.toContain('parser failed');
 
     const slice = await runGraph(projectRoot, {
@@ -480,7 +493,11 @@ function createFixtureProject(): string {
 function createLargeFixtureProject(): string {
   const root = createFixtureProject();
   for (let index = 0; index < 260; index += 1) {
-    writeFile(root, `lib/generated/noise-${String(index).padStart(3, '0')}.ts`, 'export const noise = true;\n');
+    writeFile(
+      root,
+      `lib/generated/noise-${String(index).padStart(3, '0')}.ts`,
+      'export const noise = true;\n'
+    );
   }
   return root;
 }
@@ -492,6 +509,20 @@ function createWorkspaceFixtureProject(): string {
   writeWorkspaceCoreFixture(root);
   writeWorkspacePluginFixture(root);
   writeWorkspaceNoiseBoundaryFixture(root);
+  return root;
+}
+
+function createNativeScopeWorkspaceFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-native-scope-fixture-'));
+  tempRoots.push(root);
+  process.env.ALEMBIC_HOME = root;
+  writeWorkspaceCoreFixture(root);
+  writeWorkspacePluginFixture(root);
+  writeNativeGraphMemberFixture(root, 'Alembic', 'src/index.ts');
+  writeNativeGraphMemberFixture(root, 'AlembicDashboard', 'src/dashboard.tsx');
+  writeNativeGraphMemberFixture(root, 'AlembicAgent', 'src/agent.ts');
+  writeWorkspaceNoiseBoundaryFixture(root);
+  writeNativeGraphProjectScope(root);
   return root;
 }
 
@@ -510,6 +541,45 @@ function writeWorkspaceFixtureConfig(root: string) {
       null,
       2
     )
+  );
+}
+
+function writeNativeGraphMemberFixture(root: string, memberName: string, entryPath: string) {
+  writeFile(
+    root,
+    `${memberName}/package.json`,
+    JSON.stringify({ name: `@fixture/${memberName.toLowerCase()}`, main: entryPath }, null, 2)
+  );
+  writeFile(root, `${memberName}/${entryPath}`, `export const ${memberName} = true;\n`);
+}
+
+function writeNativeGraphProjectScope(root: string) {
+  const memberNames = [
+    'Alembic',
+    'AlembicCore',
+    'AlembicPlugin',
+    'AlembicDashboard',
+    'AlembicAgent',
+  ];
+  const projectScope = createProjectDescriptor({
+    controlRoot: root,
+    dataRoot: path.join(root, '.asd', 'workspaces', 'alembic-graph-space'),
+    displayName: 'AlembicWorkspace',
+    folders: memberNames.map((memberName, index) => ({
+      displayName: memberName,
+      id: `folder-${memberName.toLowerCase()}`,
+      path: path.join(root, memberName),
+      repositoryId: memberName,
+      role: index === 0 ? ('primary-source' as const) : ('source' as const),
+    })),
+    projectId: 'alembic-graph-workspace',
+    projectScopeId: 'scope-alembic-graph-workspace',
+  });
+  const registryDir = path.join(root, '.asd');
+  fs.mkdirSync(registryDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(registryDir, PROJECT_SCOPE_REGISTRY_FILENAME),
+    JSON.stringify(createProjectScopeRegistryDocument([projectScope]), null, 2)
   );
 }
 

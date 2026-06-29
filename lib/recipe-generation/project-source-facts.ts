@@ -15,6 +15,11 @@ export interface ProjectModuleSeedLike {
   ownedFiles?: readonly string[];
 }
 
+export interface CollectProjectSourceFileFactsOptions {
+  maxFiles?: number;
+  sourceFolders?: readonly string[];
+}
+
 const DEFAULT_PROJECT_SOURCE_SCAN_MAX_FILES = 5000;
 const DEFAULT_MODULE_OWNED_FILE_LIMIT = 400;
 const PROJECT_SOURCE_SCAN_EXCLUDE_DIRS = new Set([
@@ -29,16 +34,54 @@ const PROJECT_SOURCE_SCAN_EXCLUDE_DIRS = new Set([
 
 export async function collectProjectSourceFileFacts(
   projectRoot: string,
-  options: { maxFiles?: number } = {}
+  options: CollectProjectSourceFileFactsOptions = {}
 ): Promise<ProjectSourceFileFact[]> {
   const maxFiles = normalizePositiveInteger(
     options.maxFiles,
     DEFAULT_PROJECT_SOURCE_SCAN_MAX_FILES
   );
-  const facts: ProjectSourceFileFact[] = [];
   const absoluteRoot = path.resolve(projectRoot);
-  const pending = [absoluteRoot];
-  while (pending.length > 0 && facts.length < maxFiles) {
+  const sourceFolders = normalizeProjectSourceFolders(options.sourceFolders, absoluteRoot);
+  if (sourceFolders.length === 0) {
+    return scanProjectSourceFolder({
+      absoluteRoot,
+      maxFiles,
+      scanRoot: absoluteRoot,
+    });
+  }
+
+  const facts: ProjectSourceFileFact[] = [];
+  const baseBudget = Math.floor(maxFiles / sourceFolders.length);
+  const remainder = maxFiles % sourceFolders.length;
+  for (const [index, sourceFolder] of sourceFolders.entries()) {
+    const budget = baseBudget + (index < remainder ? 1 : 0);
+    if (budget <= 0) {
+      continue;
+    }
+    facts.push(
+      ...(await scanProjectSourceFolder({
+        absoluteRoot,
+        maxFiles: budget,
+        scanRoot: path.join(absoluteRoot, sourceFolder),
+      }))
+    );
+    if (facts.length >= maxFiles) {
+      break;
+    }
+  }
+  return facts
+    .sort((left, right) => left.filePath.localeCompare(right.filePath))
+    .slice(0, maxFiles);
+}
+
+async function scanProjectSourceFolder(input: {
+  absoluteRoot: string;
+  maxFiles: number;
+  scanRoot: string;
+}): Promise<ProjectSourceFileFact[]> {
+  const facts: ProjectSourceFileFact[] = [];
+  const pending = [input.scanRoot];
+  while (pending.length > 0 && facts.length < input.maxFiles) {
     const current = pending.pop();
     if (!current) {
       continue;
@@ -46,7 +89,7 @@ export async function collectProjectSourceFileFacts(
     const entries = await safeReadDir(current);
     for (const entry of entries) {
       const absolutePath = path.join(current, entry.name);
-      const relativePath = toProjectContextPath(path.relative(absoluteRoot, absolutePath));
+      const relativePath = toProjectContextPath(path.relative(input.absoluteRoot, absolutePath));
       if (!relativePath || relativePath.startsWith('..')) {
         continue;
       }
@@ -69,7 +112,7 @@ export async function collectProjectSourceFileFacts(
         language,
         sizeBytes: stat?.size ?? 0,
       });
-      if (facts.length >= maxFiles) {
+      if (facts.length >= input.maxFiles) {
         break;
       }
     }
@@ -124,7 +167,9 @@ export function normalizeProjectContextPath(value: string | undefined): string |
 
 async function safeReadDir(directoryPath: string): Promise<Dirent[]> {
   try {
-    return await fs.readdir(directoryPath, { withFileTypes: true });
+    return (await fs.readdir(directoryPath, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name)
+    );
   } catch {
     return [];
   }
@@ -163,6 +208,42 @@ function hasUsableSeedScope(seed: ProjectModuleSeedLike): boolean {
 
 function toProjectContextPath(value: string): string {
   return value.split(path.sep).join('/');
+}
+
+function normalizeProjectSourceFolders(
+  sourceFolders: readonly string[] | undefined,
+  absoluteRoot: string
+): string[] {
+  if (!sourceFolders || sourceFolders.length === 0) {
+    return [];
+  }
+  return uniqueStrings(
+    sourceFolders
+      .map((sourceFolder) => normalizeProjectSourceFolder(sourceFolder, absoluteRoot))
+      .filter(isPresent)
+  );
+}
+
+function normalizeProjectSourceFolder(
+  sourceFolder: string,
+  absoluteRoot: string
+): string | undefined {
+  const normalized = normalizeProjectContextPath(sourceFolder);
+  if (!normalized) {
+    return undefined;
+  }
+  const relativePath = path.isAbsolute(normalized)
+    ? toProjectContextPath(path.relative(absoluteRoot, normalized))
+    : normalized;
+  if (
+    !relativePath ||
+    relativePath === '.' ||
+    relativePath.startsWith('../') ||
+    relativePath === '..'
+  ) {
+    return undefined;
+  }
+  return normalizeProjectContextPath(relativePath);
 }
 
 function normalizePositiveInteger(value: number | undefined, fallback: number): number {

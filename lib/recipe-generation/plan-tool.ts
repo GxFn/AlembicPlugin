@@ -1,4 +1,4 @@
-import { basename } from 'node:path';
+import path, { basename } from 'node:path';
 import {
   buildDimensionCatalogPayload,
   type DimensionCatalogPayloadItem,
@@ -25,6 +25,12 @@ import type {
   CoverageLedgerRecord,
   EvolutionCoverageLedgerRepository,
 } from '@alembic/core/repositories';
+import {
+  loadProjectScopeForFolder,
+  type ProjectDescriptor,
+  type ProjectFolderDescriptor,
+  readProjectScopeRegistryDocument,
+} from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 import {
@@ -77,6 +83,21 @@ interface PlanProjectContextAnalysis {
   secondaryLanguages: string[];
   sourceFileFacts: ProjectSourceFileFact[];
   understandingGaps: Record<string, unknown>[];
+}
+
+interface PlanProjectScopeContext {
+  displayName: string;
+  projectId?: string;
+  repoDisplayName: string;
+  repoProjectRoot: string;
+  repoSourceFolder?: string;
+  scanBase: string;
+  sourceFolders?: string[];
+}
+
+interface PlanProjectScopeFolderSelection {
+  folder: ProjectFolderDescriptor;
+  sourceFolder: string;
 }
 
 interface CandidateDimension {
@@ -1219,33 +1240,54 @@ function buildStatelessPlanNextActions(projectRoot: string): Record<string, unkn
 
 async function collectPlanProjectContext(
   projectRoot: string,
-  _hints: PlanArgs['hints']
+  hints: PlanArgs['hints']
 ): Promise<PlanProjectContextAnalysis> {
+  const scopeContext = resolvePlanProjectScopeContext(projectRoot, hints);
   const envelopes: ProjectContextEnvelope<ProjectContextResult>[] = [];
   const push = async (
     kind: ProjectContextRequestKind,
-    payload?: Record<string, unknown>
+    payload?: Record<string, unknown>,
+    options: {
+      displayName: string;
+      projectRoot: string;
+    } = {
+      displayName: scopeContext.displayName,
+      projectRoot: scopeContext.scanBase,
+    }
   ): Promise<ProjectContextEnvelope<ProjectContextResult>> => {
     const envelope = await ProjectContextCapabilities.execute({
       kind,
       payload,
       project: {
-        displayName: basename(projectRoot),
-        projectRoot,
+        displayName: options.displayName,
+        projectRoot: options.projectRoot,
         source: 'codex-host-plan',
       },
-      scope: { projectRoot },
+      scope: { projectRoot: options.projectRoot },
     });
     envelopes.push(envelope);
     return envelope;
   };
 
-  await push('space', { includeProjectTree: true });
-  const repoEnvelope = await push('repo', { includeMapSummary: true });
+  await push('space', {
+    includeProjectTree: true,
+    ...(scopeContext.projectId ? { projectId: scopeContext.projectId } : {}),
+    ...(scopeContext.sourceFolders ? { sourceFolders: scopeContext.sourceFolders } : {}),
+  });
+  const repoEnvelope = await push(
+    'repo',
+    { includeMapSummary: true },
+    {
+      displayName: scopeContext.repoDisplayName,
+      projectRoot: scopeContext.repoProjectRoot,
+    }
+  );
   const repo = isRepoContext(repoEnvelope.data) ? repoEnvelope.data : undefined;
-  const sourceFileFacts = await collectProjectSourceFileFacts(projectRoot);
+  const sourceFileFacts = await collectProjectSourceFileFacts(scopeContext.scanBase, {
+    sourceFolders: scopeContext.sourceFolders,
+  });
   const moduleSeeds = attachSourceFilesToProjectContextModuleSeeds(
-    selectPlanModuleSeeds(repo),
+    prefixPlanModuleSeeds(selectPlanModuleSeeds(repo), scopeContext.repoSourceFolder),
     sourceFileFacts
   );
   if (moduleSeeds.length > 0) {
@@ -1296,6 +1338,154 @@ async function collectPlanProjectContext(
     sourceFileFacts,
     understandingGaps,
   };
+}
+
+function resolvePlanProjectScopeContext(
+  projectRoot: string,
+  hints: PlanArgs['hints']
+): PlanProjectScopeContext {
+  const projectScope = loadPlanProjectScope(projectRoot);
+  if (!projectScope) {
+    return {
+      displayName: basename(projectRoot),
+      repoDisplayName: basename(projectRoot),
+      repoProjectRoot: projectRoot,
+      scanBase: projectRoot,
+    };
+  }
+
+  const scanBase = projectScope.controlRoot.path;
+  const activeFolders = projectScope.folders
+    .filter((folder) => folder.state === 'active')
+    .map((folder) => ({
+      folder,
+      sourceFolder: planProjectScopeFolderRelativePath(scanBase, folder),
+    }))
+    .filter((selection): selection is PlanProjectScopeFolderSelection =>
+      Boolean(selection.sourceFolder)
+    );
+  if (activeFolders.length === 0) {
+    return {
+      displayName: projectScope.displayName,
+      projectId: projectScope.projectId,
+      repoDisplayName: projectScope.displayName,
+      repoProjectRoot: scanBase,
+      scanBase,
+    };
+  }
+
+  const focusedFolders = selectFocusedProjectScopeFolders(activeFolders, hints?.focusModules);
+  const selectedFolders = focusedFolders.length > 0 ? focusedFolders : activeFolders;
+  const repoFolder =
+    selectedFolders.find((selection) => selection.folder.role === 'primary-source') ??
+    selectedFolders[0];
+
+  return {
+    displayName: projectScope.displayName,
+    projectId: projectScope.projectId,
+    repoDisplayName: repoFolder.folder.displayName,
+    repoProjectRoot: repoFolder.folder.path,
+    repoSourceFolder: repoFolder.sourceFolder,
+    scanBase,
+    sourceFolders: selectedFolders.map((selection) => selection.sourceFolder),
+  };
+}
+
+function loadPlanProjectScope(projectRoot: string): ProjectDescriptor | null {
+  const folderScope = loadProjectScopeForFolder(projectRoot);
+  if (folderScope) {
+    return folderScope;
+  }
+  const normalizedProjectRoot = path.resolve(projectRoot);
+  try {
+    return (
+      Object.values(readProjectScopeRegistryDocument().scopes).find(
+        (scope) => path.resolve(scope.controlRoot.path) === normalizedProjectRoot
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function planProjectScopeFolderRelativePath(
+  scanBase: string,
+  folder: ProjectFolderDescriptor
+): string | undefined {
+  const relativePath = normalizePath(path.relative(scanBase, folder.path));
+  if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) {
+    return undefined;
+  }
+  return relativePath;
+}
+
+function selectFocusedProjectScopeFolders(
+  folders: readonly PlanProjectScopeFolderSelection[],
+  focusModules: readonly string[] | undefined
+): PlanProjectScopeFolderSelection[] {
+  const focused = uniqueStrings((focusModules ?? []).map((value) => normalizePath(value) ?? ''));
+  if (focused.length === 0) {
+    return [];
+  }
+  return folders.filter((selection) =>
+    focused.some((focusModule) => projectScopeFolderMatchesFocus(selection, focusModule))
+  );
+}
+
+function projectScopeFolderMatchesFocus(
+  selection: PlanProjectScopeFolderSelection,
+  focusModule: string
+): boolean {
+  const candidates = [
+    selection.sourceFolder,
+    selection.folder.displayName,
+    selection.folder.id,
+    selection.folder.repositoryId ?? undefined,
+    normalizePath(path.basename(selection.folder.path)),
+  ]
+    .map((value) => normalizePath(value))
+    .filter(isPresent);
+  return candidates.some(
+    (candidate) =>
+      candidate === focusModule ||
+      focusModule.startsWith(`${candidate}/`) ||
+      candidate.startsWith(`${focusModule}/`)
+  );
+}
+
+function prefixPlanModuleSeeds(
+  seeds: readonly PlanModuleSeed[],
+  sourceFolder: string | undefined
+): PlanModuleSeed[] {
+  if (!sourceFolder) {
+    return [...seeds];
+  }
+  return seeds.map((seed) => {
+    const modulePath = prefixProjectContextPath(sourceFolder, seed.modulePath);
+    const ownedFiles = seed.ownedFiles
+      ?.map((filePath) => prefixProjectContextPath(sourceFolder, filePath))
+      .filter(isPresent);
+    return {
+      ...seed,
+      ...(modulePath ? { modulePath } : {}),
+      ...(ownedFiles && ownedFiles.length > 0 ? { ownedFiles } : {}),
+    };
+  });
+}
+
+function prefixProjectContextPath(
+  sourceFolder: string,
+  pathValue: string | undefined
+): string | undefined {
+  const normalizedPath = normalizePath(pathValue);
+  const normalizedSourceFolder = normalizePath(sourceFolder);
+  if (!normalizedPath || !normalizedSourceFolder) {
+    return normalizedPath;
+  }
+  return normalizedPath === normalizedSourceFolder ||
+    normalizedPath.startsWith(`${normalizedSourceFolder}/`)
+    ? normalizedPath
+    : `${normalizedSourceFolder}/${normalizedPath}`;
 }
 
 function mergePlanModuleSeeds(seeds: readonly PlanModuleSeed[]): PlanModuleSeed[] {
