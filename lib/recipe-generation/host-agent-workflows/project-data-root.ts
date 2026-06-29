@@ -7,9 +7,10 @@ import { resolveDataRoot, WorkspaceResolver } from '@alembic/core/workspace';
  */
 export function resolveHostAgentDataRoot(container: unknown, projectRoot: string): string {
   try {
-    return WorkspaceResolver.fromProject(projectRoot).dataRoot;
+    return WorkspaceResolver.fromProjectScopeRegistry(projectRoot).dataRoot;
   } catch {
     try {
+      // @scope-singleroot(temporary) - legacy container fallback when no native scope is available.
       return resolveDataRoot(container as never) || projectRoot;
     } catch {
       return projectRoot;

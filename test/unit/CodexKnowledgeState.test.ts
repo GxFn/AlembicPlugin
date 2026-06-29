@@ -2,14 +2,26 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import {
+  createProjectDescriptor,
+  createProjectScopeRegistryDocument,
+  PROJECT_SCOPE_REGISTRY_FILENAME,
+} from '@alembic/core/shared';
+import { getGhostWorkspaceDir, getProjectRegistryDir } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test } from 'vitest';
 import { inspectKnowledge } from '../../lib/runtime/index.js';
 
 const roots: string[] = [];
+const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { force: true, recursive: true });
+  }
+  if (ORIGINAL_ALEMBIC_HOME === undefined) {
+    delete process.env.ALEMBIC_HOME;
+  } else {
+    process.env.ALEMBIC_HOME = ORIGINAL_ALEMBIC_HOME;
   }
 });
 
@@ -184,12 +196,64 @@ describe('Codex knowledge state', () => {
       },
     });
   });
+
+  test('reads member project knowledge from the native project-scope data root', () => {
+    process.env.ALEMBIC_HOME = createProject();
+    const { dataRoot, projectRoot } = createProjectScopeFixture();
+    initializeWorkspace(dataRoot);
+    seedKnowledgeEntries(dataRoot);
+
+    const state = inspectKnowledge(projectRoot);
+
+    expect(state.status).toBe('knowledge_ready');
+    expect(state.usable).toBe(true);
+    expect(state.recipeCount).toBe(1);
+    expect(state.dbRecipeCount).toBe(1);
+    expect(state.databaseEntryCount).toBe(1);
+    expect(state.sourceRefs?.databasePath).toBe(join(dataRoot, '.asd', 'alembic.db'));
+    expect(state.sourceRefs?.databasePath).toBe(
+      join(process.env.ALEMBIC_HOME, '.asd', 'workspaces', 'ecf32806', '.asd', 'alembic.db')
+    );
+    expect(state.sourceRefs?.databasePath).not.toBe(join(projectRoot, '.asd', 'alembic.db'));
+  });
 });
 
 function createProject() {
   const root = mkdtempSync(join(tmpdir(), 'alembic-codex-knowledge-'));
   roots.push(root);
   return root;
+}
+
+function createProjectScopeFixture(): { dataRoot: string; projectRoot: string } {
+  const controlRoot = createProject();
+  const projectRoot = join(controlRoot, 'AlembicPlugin');
+  mkdirSync(projectRoot, { recursive: true });
+  const dataRoot = getGhostWorkspaceDir('ecf32806');
+  mkdirSync(dataRoot, { recursive: true });
+  const projectScope = createProjectDescriptor({
+    controlRoot,
+    currentFolderId: 'folder-plugin',
+    dataRoot,
+    displayName: 'Alembic Workspace',
+    folders: [
+      {
+        displayName: 'AlembicPlugin',
+        id: 'folder-plugin',
+        path: projectRoot,
+        repositoryId: 'alembic-plugin',
+        role: 'primary-source',
+      },
+    ],
+    projectId: 'ecf32806',
+    projectScopeId: 'scope-ecf32806',
+  });
+  const registryDir = getProjectRegistryDir();
+  mkdirSync(registryDir, { recursive: true });
+  writeFileSync(
+    join(registryDir, PROJECT_SCOPE_REGISTRY_FILENAME),
+    JSON.stringify(createProjectScopeRegistryDocument([projectScope]), null, 2)
+  );
+  return { dataRoot, projectRoot };
 }
 
 function initializeWorkspace(root: string) {

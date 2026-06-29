@@ -194,8 +194,9 @@ export const EMPTY_KNOWLEDGE_STATE: HostKnowledgeState = {
 export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
   let resolver: WorkspaceResolver;
   try {
-    resolver = WorkspaceResolver.fromProject(projectRoot);
+    resolver = WorkspaceResolver.fromProjectScopeRegistry(projectRoot);
   } catch {
+    // @scope-singleroot(temporary) - fallback for projects without native project-scope registry.
     resolver = new WorkspaceResolver({ projectRoot });
   }
   const initialized =
