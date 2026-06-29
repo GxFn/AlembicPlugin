@@ -1982,7 +1982,7 @@ function shouldSkipDefaultGraphExplorationPath(
 
   return (
     /(?:^|[.-])config\.[cm]?[jt]sx?$/.test(basename) ||
-    ['package.json', 'tsconfig.json', 'workspace.config.json'].includes(basename)
+    ['package.json', 'tsconfig.json'].includes(basename)
   );
 }
 
