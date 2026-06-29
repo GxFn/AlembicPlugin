@@ -417,7 +417,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
   });
 
   test('enriches real workspace file neighborhoods with ProjectContext ownership relations', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
+    const projectRoot = createNativeScopeWorkspaceFixtureProject();
     const output = await runGraph(projectRoot, {
       queryKind: 'neighborhood',
       refId: 'file:AlembicCore/src/index.ts',
@@ -444,7 +444,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
   });
 
   test('suppresses generated artifact paths in default ProjectContext graph probes', async () => {
-    const projectRoot = createWorkspaceFixtureProject();
+    const projectRoot = createNativeScopeWorkspaceFixtureProject();
     const output = await runGraph(projectRoot, {
       queryKind: 'map',
       query: 'ProjectContext generated artifact dist build declaration vendor file-flow',
@@ -502,16 +502,6 @@ function createLargeFixtureProject(): string {
   return root;
 }
 
-function createWorkspaceFixtureProject(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-workspace-fixture-'));
-  tempRoots.push(root);
-  writeWorkspaceFixtureConfig(root);
-  writeWorkspaceCoreFixture(root);
-  writeWorkspacePluginFixture(root);
-  writeWorkspaceNoiseBoundaryFixture(root);
-  return root;
-}
-
 function createNativeScopeWorkspaceFixtureProject(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-native-scope-fixture-'));
   tempRoots.push(root);
@@ -524,24 +514,6 @@ function createNativeScopeWorkspaceFixtureProject(): string {
   writeWorkspaceNoiseBoundaryFixture(root);
   writeNativeGraphProjectScope(root);
   return root;
-}
-
-function writeWorkspaceFixtureConfig(root: string) {
-  fs.writeFileSync(
-    path.join(root, 'workspace.config.json'),
-    JSON.stringify(
-      {
-        repoNames: ['AlembicCore', 'AlembicPlugin'],
-        repositories: [
-          { name: 'AlembicCore', mode: 'external', path: 'AlembicCore' },
-          { name: 'AlembicPlugin', mode: 'external', path: 'AlembicPlugin' },
-          { name: 'Test', mode: 'internal', path: 'Test' },
-        ],
-      },
-      null,
-      2
-    )
-  );
 }
 
 function writeNativeGraphMemberFixture(root: string, memberName: string, entryPath: string) {
