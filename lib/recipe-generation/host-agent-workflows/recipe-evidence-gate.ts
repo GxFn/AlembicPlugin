@@ -1,5 +1,25 @@
+// P1.2 re-point (CG-3, byte-identical):本 stage-2 cold-start 门禁的 submit-path 校验不再内联
+// 纯谓词（floor 表、snippet 算法、source-ref 格式 regex、placeholder 黑名单、relationship 关键词），
+// 改为委托 Core 的权威 RecipeAuthoringSpec —— validateAgainst(stage 2)。这些纯谓词是 P0 从本文件
+// 原样搬运到 Core 的副本（controller-verified byte-identical），「搬运而非重写」⇒ 输出逐字节一致。
+//
+// §C.1 split：两处运行时耦合仍留在 Plugin 侧并以 Core 的 typed port 注入：
+//   - sourceRefResolver：包装本文件原有的 fs 读取（existsSync/statSync/readFileSync），拥有
+//     SOURCE_REF_INVALID / SOURCE_REF_NOT_FOUND / SOURCE_REF_LINE_OUT_OF_RANGE。
+//   - sessionScope：包装 bootstrap-session 作用域校验（SESSION_NOT_FOUND / WRONG_SCOPE）。
+// 注意：live 的 validateRecipeProductionEvidenceGate 把违规拼成 [...所有 session 违规, ...所有 item
+// 违规]，且 session 检查可一次性产生两条 WRONG_SCOPE。为逐字节保持「session 全部在前」的顺序与
+// 双发场景，wrapper 仍由 validateRecipeSessionScope 在 Plugin 侧产出 session 违规并前置，
+// 而把 per-item evidence 委托给 validateAgainst（不向其传入 sessionScope，避免 per-item 交错/合并）。
+// sessionScope port 仍按 Core 契约构造并由 drift tripwire / 单条路径覆盖，保持端口契约真实可用。
 import fs from 'node:fs';
 import path from 'node:path';
+import { validateAgainst } from '@alembic/core/knowledge';
+import type {
+  RecipeAuthoringViolation,
+  RecipeSessionScope,
+  RecipeSourceRefResolver,
+} from '@alembic/core/knowledge';
 import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
 
 export type RecipeEvidenceViolationCode =
@@ -62,13 +82,6 @@ export interface DimensionQualityReportLike {
   totalScore?: number;
 }
 
-interface SourceRefEvidence {
-  filePath: string;
-  raw: string;
-  rangeText: string;
-  sourcePath: string;
-}
-
 export function resolveBootstrapSession(
   container: {
     get(name: string): unknown;
@@ -109,6 +122,110 @@ export function shouldRunRecipeEvidenceGate({
   return items.some((item) => typeof item.dimensionId === 'string');
 }
 
+/**
+ * §C.11 sourceRefResolver port — 包装本仓库原有的 on-disk source-ref 读取。
+ *
+ * Core 的 domain spec 纯解析 ref 形状（regex → {sourcePath, startLine, endLine}），把结果交给
+ * 此 host-injected resolver；resolver 拥有 node:path 归一化 + node:fs 读取，并产出
+ * SOURCE_REF_INVALID / SOURCE_REF_NOT_FOUND / SOURCE_REF_LINE_OUT_OF_RANGE，或返回校验后的
+ * { rangeText, sourcePath } 供纯 snippet/floor 谓词消费。逐字节复刻旧 validateSourceRef 的分支与文案。
+ */
+function createSourceRefResolver(): RecipeSourceRefResolver {
+  return ({ projectRoot, sourcePath: rawPath, startLine, endLine, sourceRef, itemIndex, title }) => {
+    const sourcePath = path.posix.normalize(rawPath.replaceAll('\\', '/'));
+    if (path.isAbsolute(sourcePath) || sourcePath.startsWith('..')) {
+      return {
+        violation: {
+          code: 'SOURCE_REF_INVALID',
+          itemIndex,
+          sourceRef,
+          title,
+          message: 'Source ref must stay inside the project source root.',
+          nextAction: 'Use a repo-relative source path under the current project.',
+        },
+      };
+    }
+
+    const absolutePath = path.resolve(projectRoot, sourcePath);
+    if (!isInsideRoot(projectRoot, absolutePath)) {
+      return {
+        violation: {
+          code: 'SOURCE_REF_INVALID',
+          itemIndex,
+          path: sourcePath,
+          sourceRef,
+          title,
+          message: 'Source ref resolves outside the project source root.',
+          nextAction: 'Use a source path under the current project root.',
+        },
+      };
+    }
+    if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+      return {
+        violation: {
+          code: 'SOURCE_REF_NOT_FOUND',
+          itemIndex,
+          path: sourcePath,
+          sourceRef,
+          title,
+          message: 'Source ref file does not exist.',
+          nextAction: 'Check the repo-relative path and cite an existing source file.',
+        },
+      };
+    }
+    const lines = fs.readFileSync(absolutePath, 'utf8').split(/\r?\n/);
+    if (startLine < 1 || endLine < startLine || endLine > lines.length) {
+      return {
+        violation: {
+          code: 'SOURCE_REF_LINE_OUT_OF_RANGE',
+          itemIndex,
+          path: sourcePath,
+          sourceRef,
+          title,
+          message: 'Source ref line range is outside the file.',
+          nextAction: 'Use a valid line range from the current source file.',
+        },
+      };
+    }
+
+    return {
+      evidence: {
+        filePath: absolutePath,
+        raw: sourceRef,
+        rangeText: lines.slice(startLine - 1, endLine).join('\n'),
+        sourcePath,
+      },
+    };
+  };
+}
+
+/**
+ * §C.11 sessionScope port — 包装 bootstrap-session 作用域校验（SESSION_NOT_FOUND / WRONG_SCOPE）。
+ *
+ * 注意：live wrapper 的 session 检查可一次性产出两条 WRONG_SCOPE（projectRoot 不符 + dimension 不符），
+ * 且必须整体排在所有 item 违规之前。Core 的单违规 port 无法表达「双发 + 全部前置」，因此 submit-path
+ * 仍由 validateRecipeSessionScope 在 wrapper 侧产出并前置；此 port 仅返回首个 session 违规，
+ * 用于满足 Core 端口契约与 drift tripwire 的真实可用性（不参与 submit-path 的逐字节排序）。
+ */
+function createSessionScope(args: {
+  dimensionId?: string;
+  projectRoot: string;
+  session: BootstrapSessionLike | null;
+}): RecipeSessionScope {
+  return () => {
+    const violations = validateRecipeSessionScope({
+      dimensionId: args.dimensionId,
+      projectRoot: args.projectRoot,
+      session: args.session,
+    });
+    const first = violations[0];
+    if (first) {
+      return { violation: first as unknown as RecipeAuthoringViolation };
+    }
+    return { ok: true };
+  };
+}
+
 export function validateRecipeProductionEvidenceGate({
   args,
   items,
@@ -123,14 +240,29 @@ export function validateRecipeProductionEvidenceGate({
   skipConsolidation: boolean;
 }): RecipeEvidenceGateResult {
   const dimensionId = firstString(args.dimensionId, ...items.map((item) => item.dimensionId));
-  const itemResults = items.map((item, index) =>
-    validateRecipeItemEvidence({ item: item ?? {}, itemIndex: index, projectRoot })
-  );
-  const violations = [
-    ...validateRecipeSessionScope({ dimensionId, projectRoot, session }),
-    ...itemResults.flatMap((result) => result.violations),
-  ];
-  const acceptedFiles = new Set(itemResults.flatMap((result) => result.sourcePaths));
+
+  // session 违规由 Plugin 侧产出并整体前置（保持 live 的「session 全部在前」顺序与双发 WRONG_SCOPE）。
+  const sessionViolations = validateRecipeSessionScope({ dimensionId, projectRoot, session });
+
+  // per-item 纯 evidence 谓词委托 Core 的 validateAgainst(stage 2)；fs 读取经注入的
+  // sourceRefResolver 完成。closure 捕获每个 ref 的 sourcePath，重建 acceptedEvidence.referencedFiles。
+  const acceptedFiles = new Set<string>();
+  const sourceRefResolver: RecipeSourceRefResolver = (input) => {
+    const resolved = createSourceRefResolver()(input);
+    if ('evidence' in resolved) {
+      acceptedFiles.add(resolved.evidence.sourcePath);
+    }
+    return resolved;
+  };
+
+  const itemViolations = validateAgainst(items, {
+    stage: 2,
+    path: 'host-cold-start',
+    sourceRefResolver,
+    projectRoot,
+  }) as unknown as RecipeEvidenceViolation[];
+
+  const violations = [...sessionViolations, ...itemViolations];
 
   return {
     ok: violations.length === 0,
@@ -186,137 +318,6 @@ function validateRecipeSessionScope({
     }
   }
   return violations;
-}
-
-function validateRecipeItemEvidence({
-  item,
-  itemIndex,
-  projectRoot,
-}: {
-  item: Record<string, unknown>;
-  itemIndex: number;
-  projectRoot: string;
-}): { sourcePaths: string[]; violations: RecipeEvidenceViolation[] } {
-  const title = stringValue(item.title) || '(untitled)';
-  const sourceRefs = collectSourceRefs(item);
-  const violations: RecipeEvidenceViolation[] = [];
-  const validRefs: SourceRefEvidence[] = [];
-
-  if (sourceRefs.length === 0) {
-    violations.push({
-      code: 'SOURCE_REFS_MISSING',
-      itemIndex,
-      title,
-      message: 'Recipe candidate has no concrete sourceRefs or reasoning.sources.',
-      nextAction: 'Add repo-relative source refs with line ranges for the cited source evidence.',
-    });
-  }
-
-  for (const sourceRef of sourceRefs) {
-    const parsed = validateSourceRef({ projectRoot, sourceRef, itemIndex, title });
-    if ('violation' in parsed) {
-      violations.push(parsed.violation);
-    } else {
-      validRefs.push(parsed.evidence);
-    }
-  }
-
-  violations.push(
-    ...validateCodeSnippets({ itemIndex, snippets: collectCodeEvidence(item), title, validRefs })
-  );
-  violations.push(...validateEvidenceFloor({ item, itemIndex, title, validRefs }));
-
-  const graphIssue = validateGraphEvidence(item);
-  if (graphIssue) {
-    violations.push({
-      ...graphIssue,
-      itemIndex,
-      title,
-    });
-  }
-
-  return {
-    sourcePaths: validRefs.map((ref) => ref.sourcePath),
-    violations,
-  };
-}
-
-function validateCodeSnippets({
-  itemIndex,
-  snippets,
-  title,
-  validRefs,
-}: {
-  itemIndex: number;
-  snippets: string[];
-  title: string;
-  validRefs: SourceRefEvidence[];
-}): RecipeEvidenceViolation[] {
-  const violations: RecipeEvidenceViolation[] = [];
-  for (const snippet of snippets) {
-    if (looksLikePlaceholder(snippet)) {
-      violations.push({
-        code: 'PLACEHOLDER_EVIDENCE',
-        itemIndex,
-        title,
-        message: 'Recipe candidate contains placeholder code instead of project source evidence.',
-        nextAction: 'Replace placeholder snippets with code copied from the cited source range.',
-      });
-      continue;
-    }
-    if (
-      validRefs.length > 0 &&
-      !validRefs.some((ref) => snippetMatchesSourceRange(snippet, ref.rangeText))
-    ) {
-      violations.push({
-        code: 'SNIPPET_MISMATCH',
-        itemIndex,
-        title,
-        message: 'Recipe code evidence does not match any cited source line range.',
-        nextAction: 'Cite the exact source line range that contains the submitted code snippet.',
-      });
-    }
-  }
-  return violations;
-}
-
-function validateEvidenceFloor({
-  item,
-  itemIndex,
-  title,
-  validRefs,
-}: {
-  item: Record<string, unknown>;
-  itemIndex: number;
-  title: string;
-  validRefs: SourceRefEvidence[];
-}): RecipeEvidenceViolation[] {
-  const distinctFiles = new Set(validRefs.map((ref) => ref.sourcePath));
-  if (requiresMultiFileEvidence(item) && distinctFiles.size < 3) {
-    return [
-      {
-        code: 'INSUFFICIENT_EVIDENCE',
-        itemIndex,
-        title,
-        message:
-          'Rule/pattern candidates require at least three distinct source files unless explicitly scoped narrower.',
-        nextAction:
-          'Add at least three distinct repo-relative file references, or declare scope: "narrow" / "file-local" for a legitimately local rule.',
-      },
-    ];
-  }
-  if (isFactCandidate(item) && distinctFiles.size < 1) {
-    return [
-      {
-        code: 'INSUFFICIENT_EVIDENCE',
-        itemIndex,
-        title,
-        message: 'Fact candidates require at least one precise source reference.',
-        nextAction: 'Add a repo-relative source reference with a valid line range.',
-      },
-    ];
-  }
-  return [];
 }
 
 export function previewDimensionQualityReport({
@@ -493,193 +494,6 @@ export function primaryEvidenceGateCode(result: RecipeEvidenceGateResult): strin
   return result.violations[0]?.code || 'QUALITY_GATE_FAILED';
 }
 
-function validateSourceRef({
-  itemIndex,
-  projectRoot,
-  sourceRef,
-  title,
-}:
-  | {
-      itemIndex: number;
-      projectRoot: string;
-      sourceRef: string;
-      title: string;
-    }
-  | never): { evidence: SourceRefEvidence } | { violation: RecipeEvidenceViolation } {
-  const cleaned = cleanSourceRef(sourceRef);
-  const match = cleaned.match(/^(.+?):(\d+)(?:-(\d+))?$/);
-  if (!match) {
-    return {
-      violation: {
-        code: 'SOURCE_REF_LINE_MISSING',
-        itemIndex,
-        sourceRef,
-        title,
-        message: 'Source ref must include a line or line range.',
-        nextAction: 'Use repo-relative refs such as lib/module/file.ts:10-18.',
-      },
-    };
-  }
-
-  const rawPath = match[1] ?? '';
-  const startLine = Number(match[2]);
-  const endLine = match[3] ? Number(match[3]) : startLine;
-  const sourcePath = path.posix.normalize(rawPath.replaceAll('\\', '/'));
-  if (path.isAbsolute(sourcePath) || sourcePath.startsWith('..')) {
-    return {
-      violation: {
-        code: 'SOURCE_REF_INVALID',
-        itemIndex,
-        sourceRef,
-        title,
-        message: 'Source ref must stay inside the project source root.',
-        nextAction: 'Use a repo-relative source path under the current project.',
-      },
-    };
-  }
-
-  const absolutePath = path.resolve(projectRoot, sourcePath);
-  if (!isInsideRoot(projectRoot, absolutePath)) {
-    return {
-      violation: {
-        code: 'SOURCE_REF_INVALID',
-        itemIndex,
-        path: sourcePath,
-        sourceRef,
-        title,
-        message: 'Source ref resolves outside the project source root.',
-        nextAction: 'Use a source path under the current project root.',
-      },
-    };
-  }
-  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
-    return {
-      violation: {
-        code: 'SOURCE_REF_NOT_FOUND',
-        itemIndex,
-        path: sourcePath,
-        sourceRef,
-        title,
-        message: 'Source ref file does not exist.',
-        nextAction: 'Check the repo-relative path and cite an existing source file.',
-      },
-    };
-  }
-  const lines = fs.readFileSync(absolutePath, 'utf8').split(/\r?\n/);
-  if (startLine < 1 || endLine < startLine || endLine > lines.length) {
-    return {
-      violation: {
-        code: 'SOURCE_REF_LINE_OUT_OF_RANGE',
-        itemIndex,
-        path: sourcePath,
-        sourceRef,
-        title,
-        message: 'Source ref line range is outside the file.',
-        nextAction: 'Use a valid line range from the current source file.',
-      },
-    };
-  }
-
-  return {
-    evidence: {
-      filePath: absolutePath,
-      raw: cleaned,
-      rangeText: lines.slice(startLine - 1, endLine).join('\n'),
-      sourcePath,
-    },
-  };
-}
-
-function collectSourceRefs(item: Record<string, unknown>): string[] {
-  const refs = [
-    ...stringArray(item.sourceRefs),
-    ...stringArray(asRecord(item.reasoning)?.sources),
-    ...stringArray(item.sourceRef),
-  ];
-  return uniqueStrings(refs.map(cleanSourceRef).filter(Boolean));
-}
-
-function collectCodeEvidence(item: Record<string, unknown>): string[] {
-  const content = asRecord(item.content);
-  const markdown = stringValue(content?.markdown) || '';
-  const fenced = markdown.match(/```(?:[a-zA-Z0-9_-]+)?\s*\n([\s\S]*?)```/);
-  return uniqueStrings(
-    [stringValue(item.coreCode), stringValue(content?.pattern), fenced?.[1]].filter(
-      (value): value is string => Boolean(value?.trim())
-    )
-  );
-}
-
-function validateGraphEvidence(
-  item: Record<string, unknown>
-): Omit<RecipeEvidenceViolation, 'itemIndex' | 'title'> | null {
-  if (!hasRelationshipClaim(item)) {
-    return null;
-  }
-  const refs = [
-    ...stringArray(item.graphRefs),
-    ...stringArray(item.sourceGraphRefs),
-    ...stringArray(asRecord(item.relations)?.graphRefs),
-    ...stringArray(asRecord(item.relationships)?.graphRefs),
-    ...stringArray(asRecord(item.reasoning)?.graphRefs),
-  ];
-  if (refs.length === 0) {
-    return {
-      code: 'GRAPH_REF_INVALID',
-      message: 'Relationship claims require graph-backed refs.',
-      nextAction:
-        'Attach sourceGraph refs from a fresh graph query or remove the relationship claim.',
-    };
-  }
-  if (refs.some((ref) => /\bstale\b|\bpartial\b|\bpending\b/i.test(ref))) {
-    return {
-      code: 'STALE_GRAPH',
-      message: 'Relationship evidence refers to stale or partial graph data.',
-      nextAction: 'Refresh the source graph and cite fresh graph refs before submitting.',
-    };
-  }
-  return null;
-}
-
-function hasRelationshipClaim(item: Record<string, unknown>): boolean {
-  if (
-    item.graphRefs ||
-    item.sourceGraphRefs ||
-    item.relations ||
-    item.relationships ||
-    item.relationshipClaim === true ||
-    item.requiresGraphEvidence === true ||
-    item.relationshipEvidenceRequired === true
-  ) {
-    return true;
-  }
-  const text = [
-    stringValue(item.description),
-    stringValue(asRecord(item.content)?.markdown),
-    stringValue(asRecord(item.reasoning)?.whyStandard),
-  ]
-    .filter(Boolean)
-    .join('\n');
-  return (
-    /\b(call chain|caller|callee|called by|depends on|impact path|relationship|invokes)\b/i.test(
-      text
-    ) || /调用链|调用方|被调用|依赖|影响路径|关系|上游|下游/.test(text)
-  );
-}
-
-function requiresMultiFileEvidence(item: Record<string, unknown>): boolean {
-  const kind = stringValue(item.kind)?.toLowerCase();
-  if (kind !== 'rule' && kind !== 'pattern') {
-    return false;
-  }
-  const scope = stringValue(item.scope)?.toLowerCase() || '';
-  return !/\b(single-file|file-local|local-only|narrow)\b/.test(scope);
-}
-
-function isFactCandidate(item: Record<string, unknown>): boolean {
-  return stringValue(item.kind)?.toLowerCase() === 'fact';
-}
-
 function safeGetSubmissions(
   session: BootstrapSessionLike,
   dimensionId: string
@@ -689,79 +503,6 @@ function safeGetSubmissions(
   } catch {
     return [];
   }
-}
-
-function looksLikePlaceholder(value: string): boolean {
-  return [
-    /\bawait\s+operation\s*\(/i,
-    /\boperation\s*\(/i,
-    /\bdoThing\b/,
-    /\bfoo\b/i,
-    /\bbar\b/i,
-    /\bTODO\b/,
-  ].some((pattern) => pattern.test(value));
-}
-
-function normalizedCode(value: string): string {
-  return value.replace(/\s+/g, '').trim();
-}
-
-function snippetMatchesSourceRange(snippet: string, rangeText: string): boolean {
-  const source = normalizedCode(rangeText);
-  const candidate = normalizedCode(snippet);
-  if (candidate.length > 0 && source.includes(candidate)) {
-    return true;
-  }
-  const sourceLines = rangeText.split(/\r?\n/).map(normalizedCode).filter(Boolean);
-  const significantSnippetLines = snippet
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*(?:\/\/|#)\s*/, '').trim())
-    .filter((line) => !/^(?:[{}()[\],;]|\.\.\.)*$/.test(line))
-    .map(normalizedCode)
-    .filter((line) => line.length >= 6);
-  if (significantSnippetLines.length === 0) {
-    return false;
-  }
-
-  let sourceCursor = 0;
-  for (const snippetLine of significantSnippetLines) {
-    const nextIndex = sourceLines.findIndex(
-      (line, index) =>
-        index >= sourceCursor && (line.includes(snippetLine) || snippetLine.includes(line))
-    );
-    if (nextIndex < 0) {
-      return false;
-    }
-    sourceCursor = nextIndex + 1;
-  }
-  return true;
-}
-
-function cleanSourceRef(value: string): string {
-  return value
-    .trim()
-    .replace(/^[`(["']+/, '')
-    .replace(/[`)!"',.;]+$/, '');
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
-}
-
-function stringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter(
-      (item): item is string => typeof item === 'string' && item.trim().length > 0
-    );
-  }
-  if (typeof value === 'string' && value.trim().length > 0) {
-    return [value];
-  }
-  return [];
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }
 
 function uniqueStrings(values: readonly string[]): string[] {
@@ -791,3 +532,6 @@ function isBootstrapSessionLike(value: unknown): value is BootstrapSessionLike {
     typeof (value as BootstrapSessionLike).projectRoot === 'string'
   );
 }
+
+// createSessionScope 端口暴露给 drift tripwire / 单条 cold-start 路径，保持端口契约真实可用。
+export { createSessionScope, createSourceRefResolver };

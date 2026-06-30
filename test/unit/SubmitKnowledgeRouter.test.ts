@@ -90,15 +90,21 @@ const gatewayState = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@alembic/core/knowledge', () => ({
-  getRequiredFieldsDescription: () => 'title, trigger, body',
-  RecipeProductionGateway: class RecipeProductionGateway {
-    async create(request: unknown) {
-      gatewayState.createCalls.push(request);
-      return gatewayState.result;
-    }
-  },
-}));
+vi.mock('@alembic/core/knowledge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@alembic/core/knowledge')>();
+  return {
+    getRequiredFieldsDescription: () => 'title, trigger, body',
+    RecipeProductionGateway: class RecipeProductionGateway {
+      async create(request: unknown) {
+        gatewayState.createCalls.push(request);
+        return gatewayState.result;
+      }
+    },
+    // P1.1：stage-1 门禁 re-point 后通过该 barrel 调用 validateAgainst，使用真实实现（权威规范），
+    // 保持 router 集成测试中内容质量门禁的真实行为，不削弱断言。
+    validateAgainst: actual.validateAgainst,
+  };
+});
 
 vi.mock('@alembic/core/service/candidate', () => ({
   findSimilarRecipes: vi.fn(),

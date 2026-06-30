@@ -1,0 +1,367 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/fail-clauses-required 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "DO_CLAUSE_REQUIRED",
+      "field": "doClause",
+      "itemIndex": 0,
+      "message": "doClause is required.",
+      "nextAction": "Rewrite doClause as an English imperative clause that starts with a command verb, e.g. "Use ...".",
+    },
+    {
+      "code": "DONT_CLAUSE_REQUIRED",
+      "field": "dontClause",
+      "itemIndex": 0,
+      "message": "dontClause is required.",
+      "nextAction": "Rewrite dontClause as an English negative imperative clause, e.g. "Do not ..." or "Avoid ...".",
+    },
+    {
+      "code": "CONTENT_MARKDOWN_REQUIRED",
+      "field": "content.markdown",
+      "itemIndex": 0,
+      "message": "content.markdown is required for project close-up guidance.",
+      "nextAction": "Provide content.markdown with project-specific guidance and a ✅ correct / ❌ forbidden contrast.",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/fail-content-contrast-missing 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "CONTENT_CONTRAST_MISSING",
+      "field": "content.markdown",
+      "itemIndex": 0,
+      "message": "content.markdown must include both ✅ and ❌ project-specific examples.",
+      "nextAction": "Add a consistent contrast in content.markdown: one ✅ correct project-specific example and one ❌ forbidden counterexample.",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/fail-content-markdown-required 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "CONTENT_MARKDOWN_REQUIRED",
+      "field": "content.markdown",
+      "itemIndex": 0,
+      "message": "content.markdown is required for project close-up guidance.",
+      "nextAction": "Provide content.markdown with project-specific guidance and a ✅ correct / ❌ forbidden contrast.",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/fail-do-non-english 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "DO_CLAUSE_NON_ENGLISH",
+      "field": "doClause",
+      "itemIndex": 0,
+      "message": "doClause contains non-English script.",
+      "nextAction": "Translate doClause into an English imperative clause that starts with a command verb.",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/fail-do-non-imperative 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "DO_CLAUSE_NON_IMPERATIVE",
+      "field": "doClause",
+      "itemIndex": 0,
+      "message": "doClause is not verb-leading imperative guidance.",
+      "nextAction": "Start doClause with an imperative verb such as Use, Prefer, Validate, Keep, or Require.",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/fail-dont-non-english 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "DONT_CLAUSE_NON_ENGLISH",
+      "field": "dontClause",
+      "itemIndex": 0,
+      "message": "dontClause contains non-English script.",
+      "nextAction": "Translate dontClause into an English negative imperative clause such as "Do not ..." or "Avoid ...".",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/fail-dont-non-imperative 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "DONT_CLAUSE_NON_IMPERATIVE",
+      "field": "dontClause",
+      "itemIndex": 0,
+      "message": "dontClause is not verb-leading imperative guidance.",
+      "nextAction": "Start dontClause with Do not, Avoid, Prevent, Reject, or another negative imperative verb.",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 1 content-quality > stage1/pass-clean-recipe 1`] = `
+{
+  "ok": true,
+  "violations": [],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-graph-ref-invalid 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "GRAPH_REF_INVALID",
+      "itemIndex": 0,
+      "message": "Relationship claims require graph-backed refs.",
+      "nextAction": "Attach sourceGraph refs from a fresh graph query or remove the relationship claim.",
+      "title": "Relationship claim",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-insufficient-evidence 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "INSUFFICIENT_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Rule/pattern candidates require at least three distinct source files unless explicitly scoped narrower.",
+      "nextAction": "Add at least three distinct repo-relative file references, or declare scope: "narrow" / "file-local" for a legitimately local rule.",
+      "title": "Thin rule",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-placeholder-evidence 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "PLACEHOLDER_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Recipe candidate contains placeholder code instead of project source evidence.",
+      "nextAction": "Replace placeholder snippets with code copied from the cited source range.",
+      "title": "Placeholder",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-session-not-found 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "SESSION_NOT_FOUND",
+      "message": "No active bootstrap session is bound to this host-agent Recipe submission.",
+      "nextAction": "Call alembic_bootstrap and resubmit with the active bootstrap session id.",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-snippet-mismatch 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "SNIPPET_MISMATCH",
+      "itemIndex": 0,
+      "message": "Recipe code evidence does not match any cited source line range.",
+      "nextAction": "Cite the exact source line range that contains the submitted code snippet.",
+      "title": "Snippet mismatch",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-source-ref-invalid 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "SOURCE_REF_INVALID",
+      "itemIndex": 0,
+      "message": "Source ref must stay inside the project source root.",
+      "nextAction": "Use a repo-relative source path under the current project.",
+      "sourceRef": "/etc/passwd:1",
+      "title": "Absolute ref",
+    },
+    {
+      "code": "INSUFFICIENT_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Fact candidates require at least one precise source reference.",
+      "nextAction": "Add a repo-relative source reference with a valid line range.",
+      "title": "Absolute ref",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-source-ref-line-missing 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "SOURCE_REF_LINE_MISSING",
+      "itemIndex": 0,
+      "message": "Source ref must include a line or line range.",
+      "nextAction": "Use repo-relative refs such as lib/module/file.ts:10-18.",
+      "sourceRef": "lib/a.ts",
+      "title": "Bare ref",
+    },
+    {
+      "code": "INSUFFICIENT_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Fact candidates require at least one precise source reference.",
+      "nextAction": "Add a repo-relative source reference with a valid line range.",
+      "title": "Bare ref",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-source-ref-line-out-of-range 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "SOURCE_REF_LINE_OUT_OF_RANGE",
+      "itemIndex": 0,
+      "message": "Source ref line range is outside the file.",
+      "nextAction": "Use a valid line range from the current source file.",
+      "path": "lib/a.ts",
+      "sourceRef": "lib/a.ts:1-999",
+      "title": "Out of range",
+    },
+    {
+      "code": "INSUFFICIENT_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Fact candidates require at least one precise source reference.",
+      "nextAction": "Add a repo-relative source reference with a valid line range.",
+      "title": "Out of range",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-source-ref-not-found 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "SOURCE_REF_NOT_FOUND",
+      "itemIndex": 0,
+      "message": "Source ref file does not exist.",
+      "nextAction": "Check the repo-relative path and cite an existing source file.",
+      "path": "lib/missing.ts",
+      "sourceRef": "lib/missing.ts:1",
+      "title": "Missing file",
+    },
+    {
+      "code": "INSUFFICIENT_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Fact candidates require at least one precise source reference.",
+      "nextAction": "Add a repo-relative source reference with a valid line range.",
+      "title": "Missing file",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-source-refs-missing 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "SOURCE_REFS_MISSING",
+      "itemIndex": 0,
+      "message": "Recipe candidate has no concrete sourceRefs or reasoning.sources.",
+      "nextAction": "Add repo-relative source refs with line ranges for the cited source evidence.",
+      "title": "No refs",
+    },
+    {
+      "code": "INSUFFICIENT_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Fact candidates require at least one precise source reference.",
+      "nextAction": "Add a repo-relative source reference with a valid line range.",
+      "title": "No refs",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-stale-graph 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "STALE_GRAPH",
+      "itemIndex": 0,
+      "message": "Relationship evidence refers to stale or partial graph data.",
+      "nextAction": "Refresh the source graph and cite fresh graph refs before submitting.",
+      "title": "Stale graph",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/fail-wrong-scope 1`] = `
+{
+  "ok": false,
+  "violations": [
+    {
+      "code": "WRONG_SCOPE",
+      "message": "Bootstrap session projectRoot does not match this MCP project root.",
+      "nextAction": "Restart bootstrap in the same project scope before submitting Recipe evidence.",
+    },
+    {
+      "code": "SOURCE_REF_NOT_FOUND",
+      "itemIndex": 0,
+      "message": "Source ref file does not exist.",
+      "nextAction": "Check the repo-relative path and cite an existing source file.",
+      "path": "lib/a.ts",
+      "sourceRef": "lib/a.ts:1-3",
+      "title": "Wrong scope",
+    },
+    {
+      "code": "INSUFFICIENT_EVIDENCE",
+      "itemIndex": 0,
+      "message": "Fact candidates require at least one precise source reference.",
+      "nextAction": "Add a repo-relative source reference with a valid line range.",
+      "title": "Wrong scope",
+    },
+  ],
+}
+`;
+
+exports[`recipe-gate golden corpus — stage 2 evidence > stage2/pass-fact-evidence 1`] = `
+{
+  "ok": true,
+  "violations": [],
+}
+`;
