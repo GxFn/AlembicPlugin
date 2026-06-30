@@ -1831,8 +1831,10 @@ describe('HostMcpServer', () => {
     });
     const fullBriefingPath = result.meta?.fullBriefingRef?.path;
     expect(fullBriefingPath ? fs.existsSync(fullBriefingPath) : false).toBe(true);
-    const fullBriefing = JSON.parse(fs.readFileSync(fullBriefingPath || '', 'utf8')) as {
+    const fullBriefingRaw = fs.readFileSync(fullBriefingPath || '', 'utf8');
+    const fullBriefing = JSON.parse(fullBriefingRaw) as {
       dimensions?: unknown[];
+      hostAgentContract?: { recipeAuthoringFrontLoad?: Record<string, unknown> };
     };
     expect(readArray(fullBriefing.dimensions).length).toBe(
       readArray(result.data?.dimensions).length
@@ -1840,6 +1842,32 @@ describe('HostMcpServer', () => {
     expect(Buffer.byteLength(JSON.stringify(fullBriefing.dimensions), 'utf8')).toBeGreaterThan(
       Buffer.byteLength(JSON.stringify(result.data?.dimensions), 'utf8')
     );
+    // P2.3 / 13.L / P2.4：超预算时完整 briefing（fullBriefingRef）必须携带从 @alembic/core/knowledge
+    // 渲染的 Recipe 创作前置契约——worked example 不被剥离、doClause 允许动词字面量、scope 证据逃逸、
+    // 失败模式目录、buildPreSubmitChecklist 清单都在场（guidance==gate）。
+    const frontLoad = fullBriefing.hostAgentContract?.recipeAuthoringFrontLoad as
+      | {
+          workedExample?: { candidate?: { content?: { markdown?: string } } };
+          guidanceText?: string;
+          imperativeVerbs?: { positive?: string[] };
+          failureModeCatalog?: Array<{ code?: string }>;
+          preSubmitChecklist?: string[];
+        }
+      | undefined;
+    expect(frontLoad).toBeTruthy();
+    // (a) worked example object present and NOT stripped
+    expect(frontLoad?.workedExample?.candidate?.content?.markdown).toContain('✅');
+    expect(frontLoad?.workedExample?.candidate?.content?.markdown).toContain('❌');
+    // (b) literal allowlisted verbs in the doClause guidance
+    expect(frontLoad?.imperativeVerbs?.positive).toEqual(
+      expect.arrayContaining(['use', 'validate', 'prefer'])
+    );
+    expect(frontLoad?.guidanceText).toContain('use, validate');
+    // (c) the scope: narrow (file-local) evidence-floor escape text
+    expect(frontLoad?.guidanceText).toContain('scope: narrow');
+    // P2.4：失败模式目录与 pre-submit 清单单源自规范模块（FAIL_EXAMPLES/checklist 不再压缩丢失）。
+    expect((frontLoad?.failureModeCatalog || []).length).toBeGreaterThan(0);
+    expect((frontLoad?.preSubmitChecklist || []).length).toBeGreaterThan(0);
     expect(result.data?.executionPlan).toBeTruthy();
     expect(result.data?.dimensions).toBeTruthy();
     expect(result.data?.serviceBoundary).toMatchObject({

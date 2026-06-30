@@ -9,6 +9,7 @@
  * @module shared/schemas/mcp-tools
  */
 
+import { describeSubmitToolFields } from '@alembic/core/knowledge';
 import {
   ComplexityEnum,
   ContentSchema,
@@ -20,6 +21,16 @@ import {
   TitleField,
 } from '@alembic/core/shared';
 import { z } from 'zod';
+
+// P2.5：submit-knowledge 字段描述从 @alembic/core/knowledge 规范表生成（V3_FIELD_SPEC 单源），
+// 使工具 schema 的 .describe() 与门禁/指南同源；规范表缺失的字段回退到本地原有描述串。
+const SUBMIT_KNOWLEDGE_FIELD_DESCRIPTIONS = describeSubmitToolFields();
+function describeSubmitField(fieldName: string, fallback: string): string {
+  const specDescription = SUBMIT_KNOWLEDGE_FIELD_DESCRIPTIONS[fieldName];
+  return typeof specDescription === 'string' && specDescription.trim().length > 0
+    ? specDescription
+    : fallback;
+}
 
 // ══════════════════════════════════════════════════════
 //  1. alembic_status — 可选 aspect(runtime/knowledge)
@@ -636,40 +647,78 @@ export type RecipeMapInput = z.infer<typeof RecipeMapInput>;
  * 用于文档/类型推导，实际 items 使用 z.record() 宽容接收后在 handler 层校验。
  */
 export const SubmitKnowledgeItemSchema = z.object({
-  // ── 必填字段 ──
-  title: TitleField.describe('知识标题，简洁明确'),
-  language: LanguageField.describe('编程语言，如 typescript/swift/python'),
-  content: ContentSchema.describe(
-    '内容对象: { pattern?: "代码片段", markdown?: "正文", rationale: "设计原理" }。content.markdown 必须提供项目特写，并包含 ✅ 正确示例 与 ❌ 禁止示例对比；rationale 必填'
+  // ── 必填字段 ── 描述串经 describeSubmitField 优先取规范表（V3_FIELD_SPEC），回退本地原串。
+  title: TitleField.describe(describeSubmitField('title', '知识标题，简洁明确')),
+  language: LanguageField.describe(
+    describeSubmitField('language', '编程语言，如 typescript/swift/python')
   ),
-  kind: StrictKindEnum.describe('rule=规范约束 | pattern=代码模式 | fact=项目事实'),
+  content: ContentSchema.describe(
+    describeSubmitField(
+      'content',
+      '内容对象: { pattern?: "代码片段", markdown?: "正文", rationale: "设计原理" }。content.markdown 必须提供项目特写，并包含 ✅ 正确示例 与 ❌ 禁止示例对比；rationale 必填'
+    )
+  ),
+  kind: StrictKindEnum.describe(
+    describeSubmitField('kind', 'rule=规范约束 | pattern=代码模式 | fact=项目事实')
+  ),
   doClause: z
     .string()
     .min(1, 'doClause is required')
-    .describe('✅ 英文祈使句，以动词开头，如 Use/Prefer/Validate/Keep/Require'),
+    .describe(
+      describeSubmitField(
+        'doClause',
+        '✅ 英文祈使句，以动词开头，如 Use/Prefer/Validate/Keep/Require'
+      )
+    ),
   dontClause: z
     .string()
     .min(1, 'dontClause is required')
-    .describe('❌ 英文反向祈使句，以 Do not/Avoid/Prevent/Reject 等开头'),
-  whenClause: z.string().min(1, 'whenClause is required').describe('何时适用'),
-  coreCode: z.string().min(1, 'coreCode is required').describe('核心代码片段'),
+    .describe(
+      describeSubmitField('dontClause', '❌ 英文反向祈使句，以 Do not/Avoid/Prevent/Reject 等开头')
+    ),
+  whenClause: z
+    .string()
+    .min(1, 'whenClause is required')
+    .describe(describeSubmitField('whenClause', '何时适用')),
+  coreCode: z
+    .string()
+    .min(1, 'coreCode is required')
+    .describe(describeSubmitField('coreCode', '核心代码片段')),
   category: z
     .string()
     .min(1, 'category is required')
-    .describe('View/Service/Tool/Model/Network/Storage/UI/Utility'),
-  trigger: z.string().min(1, 'trigger is required').describe('触发关键词，如 @NetworkMonitor'),
-  description: z.string().min(1, 'description is required').describe('一句话描述用途'),
-  headers: z.array(z.string()).describe('完整 import 语句列表'),
+    .describe(
+      describeSubmitField('category', 'View/Service/Tool/Model/Network/Storage/UI/Utility')
+    ),
+  trigger: z
+    .string()
+    .min(1, 'trigger is required')
+    .describe(describeSubmitField('trigger', '触发关键词，如 @NetworkMonitor')),
+  description: z
+    .string()
+    .min(1, 'description is required')
+    .describe(describeSubmitField('description', '一句话描述用途')),
+  headers: z.array(z.string()).describe(describeSubmitField('headers', '完整 import 语句列表')),
   usageGuide: z
     .string()
     .min(1, 'usageGuide is required')
-    .describe('使用指南（Markdown，用 ### 分节：何时用/关键点/何时不用）'),
+    .describe(
+      describeSubmitField('usageGuide', '使用指南（Markdown，用 ### 分节：何时用/关键点/何时不用）')
+    ),
   knowledgeType: z
     .string()
     .min(1, 'knowledgeType is required')
-    .describe('code-pattern/architecture/best-practice/code-standard 等'),
+    .describe(
+      describeSubmitField(
+        'knowledgeType',
+        'code-pattern/architecture/best-practice/code-standard 等'
+      )
+    ),
   reasoning: ReasoningSchema.describe(
-    '推理对象: { whyStandard: "原因", sources: ["来源"], confidence: 0.0-1.0 }'
+    describeSubmitField(
+      'reasoning',
+      '推理对象: { whyStandard: "原因", sources: ["来源"], confidence: 0.0-1.0 }'
+    )
   ),
   // ── 可选字段 ──
   dimensionId: z

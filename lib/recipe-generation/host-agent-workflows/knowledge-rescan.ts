@@ -72,7 +72,7 @@ import {
   BRIEFING_INLINE_BUDGET_BYTES,
   budgetBriefingResponseData,
 } from './briefing-budget.js';
-import { attachPlanScopeTargetCounts } from './cold-start.js';
+import { attachPlanScopeTargetCounts, attachRecipeAuthoringFrontLoad } from './cold-start.js';
 import {
   countTargetScopedCoverageItems,
   isTargetScopedCoverageModuleId,
@@ -1472,6 +1472,13 @@ function buildRescanBriefing(
         sourceFileFacts: projectContextAnalysis.sourceFileFacts,
       })
     : briefing;
+  // C.3 re-point：deepMining/moduleMining 复用 buildProjectContextMissionBriefing（同 cold-start），
+  // 再共用同一 attachRecipeAuthoringFrontLoad 渲染器，使 mining 路径拿到与冷启动逐字一致的每字段契约
+  // + worked example + 失败目录；rescan 不提供 compact 回调（不跑 summarizeSubmissionSchema 瘦身），
+  // 故创作契约从不被剥离（超预算时整份 briefing 落 fullBriefingRef，引用仍可取）。
+  const briefingWithFrontLoad = attachRecipeAuthoringFrontLoad(
+    briefingWithModuleCounts as Record<string, unknown>
+  );
   const hostAgentPacket = buildHostAgentAnalysisPacketFromProjectContext({
     dimensions: Array.isArray(dimensions) ? dimensions : [],
     options: {
@@ -1482,7 +1489,7 @@ function buildRescanBriefing(
   });
   const hostAgentAnalysis = buildHostAgentAnalysisSurface(hostAgentPacket);
   const briefingWithHostAgentSurface = attachHostAgentAnalysisSurface(
-    briefingWithModuleCounts as Record<string, unknown>,
+    briefingWithFrontLoad,
     hostAgentAnalysis
   );
   briefingWithHostAgentSurface.meta.projectContextDirectSwitch = {

@@ -20,6 +20,12 @@ import {
   runFullResetPolicy,
   type WorkflowLogger,
 } from '@alembic/core/host-agent-workflows';
+import {
+  buildPreSubmitChecklist,
+  describeSubmitToolFields,
+  failureModes,
+  renderGuidance,
+} from '@alembic/core/knowledge';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildHostAgentAnalysisSurface } from '#codex/host-agent/HostAgentAnalysisSurface.js';
@@ -87,6 +93,11 @@ type ColdStartOnboardingContractWithGuidance = ColdStartOnboardingContract & {
 
 const COLD_START_BRIEFING_INLINE_BUDGET_BYTES = 18 * 1024;
 const MAX_INLINE_CURRENT_DIMENSION_GUIDES = 2;
+
+// 13.L / P2.3：submissionSchema 下挂载的 Recipe 创作前置说明键名。
+// 该子对象由 @alembic/core/knowledge 规范模块渲染（指南==门禁），且在冷启动压缩阶梯中受保护
+// （worked example 是一次过门禁率的关键证据，不得被瘦身丢弃）。rescan/coldStart 共用此键。
+const RECIPE_AUTHORING_FRONT_LOAD_KEY = 'recipeAuthoringFrontLoad';
 
 // ── 主入口 ─────────────────────────────────────────────────────
 
@@ -330,8 +341,12 @@ async function buildColdStartMissionBriefing(
     secondaryLanguages: input.projectContextAnalysis.secondaryLanguages,
     session,
   });
+  // 13.L 前置契约展示点：在授权前（onboarding 契约已生成 hostAgentContract 之后）把规范模块渲染的
+  // 每字段契约 + worked example + 失败目录挂入 hostAgentContract（clean-output 可见），使冷启动 Agent
+  // 一开始就看到完整 V3 字段规则、当前 profile、gate-clean 范例与失败模式。
+  const briefingWithFrontLoad = attachRecipeAuthoringFrontLoad(briefingWithOnboardingContract);
   const briefingWithCompletenessCritic = attachColdStartCompletenessCriticSurface(
-    briefingWithOnboardingContract,
+    briefingWithFrontLoad,
     {
       dimensions: input.briefingDimensions,
       projectContextAnalysis: input.projectContextAnalysis,
@@ -404,6 +419,66 @@ export function attachPlanScopeTargetCounts<T extends { targets?: unknown }>(
   return {
     ...briefing,
     targets,
+  };
+}
+
+/**
+ * buildRecipeAuthoringFrontLoad — 13.L 前置：把每字段 {含义|生成规则|示例值} 契约 + 通过门禁的
+ * worked example + 失败模式目录，全部从 @alembic/core/knowledge 规范模块渲染，使 Agent 在生成第一个
+ * token 之前就看到完整契约（guidance==gate）。text 已渲染全部规则 + 45 个祈使动词 + scope 证据逃逸；
+ * example.candidate 是 gate-clean 的 ✅/❌ 范例；failureModeCatalog 是 reject-code → 规避指引。
+ */
+function buildRecipeAuthoringFrontLoad(): Record<string, unknown> {
+  const guidance = renderGuidance('host-cold-start');
+  return {
+    source:
+      '@alembic/core/knowledge renderGuidance(host-cold-start) — guidance matches the live gate',
+    profile: guidance.profile,
+    // 每字段契约：字段名 → {含义/生成规则}，来自 V3_FIELD_SPEC 单源。
+    perFieldContract: describeSubmitToolFields(),
+    requiredFields: guidance.requiredFields,
+    // 人类可读的契约全文：规则 + doClause 允许动词 + scope 证据逃逸 + 风格指南。
+    guidanceText: guidance.text,
+    imperativeVerbs: guidance.imperativeVerbs,
+    evidenceFloor: guidance.evidenceFloor,
+    contentContract: guidance.contentContract,
+    // 通过门禁的 worked example —— 一次过门禁率的关键证据，压缩阶梯必须保留。
+    workedExample: guidance.example,
+    failureModeCatalog: failureModes(),
+    preSubmitChecklist: buildPreSubmitChecklist(),
+  };
+}
+
+/**
+ * attachRecipeAuthoringFrontLoad — 把 Recipe 创作前置说明挂到 briefing.hostAgentContract 之下，
+ * 同时镜像一份到 submissionSchema（fullBriefingRef 完整体里可读）。hostAgentContract 是 bootstrap
+ * clean-output allowlist 内的字段，因此冷启动 Agent 在干净的 structuredContent 里就能看到前置契约；
+ * submissionSchema 不在 allowlist 内（截断时整份 briefing 仍写入 fullBriefingRef）。
+ * cold-start 与 rescan(deepMining/moduleMining) 共用本渲染器（C.3 re-point）。纯指南增强，不触碰任何门禁。
+ */
+export function attachRecipeAuthoringFrontLoad<T extends { meta?: Record<string, unknown> }>(
+  briefing: T
+): T {
+  const record = briefing as Record<string, unknown>;
+  const frontLoad = buildRecipeAuthoringFrontLoad();
+  const hostAgentContract = readRecord(record.hostAgentContract);
+  const submissionSchema = readRecord(record.submissionSchema);
+  return {
+    ...briefing,
+    // 主位：clean-output 可见的 hostAgentContract（rescan 无此字段时不创建，避免污染 rescan 业务面）。
+    ...(hostAgentContract
+      ? {
+          hostAgentContract: {
+            ...hostAgentContract,
+            [RECIPE_AUTHORING_FRONT_LOAD_KEY]: frontLoad,
+          },
+        }
+      : {}),
+    // 镜像：submissionSchema 总是携带完整前置契约，供 fullBriefingRef 完整体读取（两条路径一致）。
+    submissionSchema: {
+      ...(submissionSchema ?? {}),
+      [RECIPE_AUTHORING_FRONT_LOAD_KEY]: frontLoad,
+    },
   };
 }
 
@@ -566,6 +641,9 @@ function compactDimensionSubmissionSpec(value: unknown): unknown {
     return value ?? null;
   }
   const checklist = readRecord(spec.preSubmitChecklist);
+  // P2.4：保留原有 'P5: EN do/dont + ✅/❌.' 追加项；required 仍取 Core 的 required/MUST。
+  // 单源的 FAIL_EXAMPLES/失败规避不再在此紧凑投影里重复，改由 hostAgentContract.recipeAuthoringFrontLoad
+  // 的 failureModeCatalog（@alembic/core/knowledge failureModes()）单源透出，避免压缩态体积重复。
   const required = appendChecklistItems(checklist?.required ?? checklist?.MUST ?? checklist?.must, [
     'P5: EN do/dont + ✅/❌.',
   ]);
@@ -804,6 +882,10 @@ function compactHostAgentContract(value: unknown): unknown {
   const submitKnowledgeContract = readRecord(contract.submitKnowledgeContract);
   const fieldFloors = readRecord(submitKnowledgeContract?.fieldFloors);
   const sourceRefCardinality = readRecord(submitKnowledgeContract?.sourceRefCardinality);
+  // P2.3：在 ≤预算的内联路径（小项目，常见情形），hostAgentContract 携带完整前置契约（含 worked
+  // example），冷启动 Agent 直接可见，验收 grep 在此命中三要素。仅当 briefing 超过硬传输预算、进入本
+  // 压缩层（超大项目）时，前置契约整体随完整 briefing 落 meta.fullBriefingRef.path（worked example 仍
+  // 可经引用取回），此处不再内联，以守住 20KB clean-output 硬上限、不挤占其它必需字段（行为快照不回退）。
   return {
     contractVersion: contract.contractVersion,
     dimensionCompletionContract: dimensionCompletionContract
@@ -978,10 +1060,35 @@ function summarizeSubmissionSchema(value: unknown): unknown {
   if (!schema) {
     return value;
   }
+  // P2.3：worked example 是「一次过门禁」的关键证据，禁止在压缩中被丢弃。这里 CARRY 一个精简版前置说明
+  // ——保留 workedExample + 证据下限 + 祈使动词（gate-honoring 逃逸），丢弃体积大的 guidanceText/失败目录
+  //（其完整版仍在 meta.fullBriefingRef.path 可取）。即「其它分析字段先瘦身，example 保命」。
+  const frontLoad = readRecord(schema[RECIPE_AUTHORING_FRONT_LOAD_KEY]);
   return {
     requiredFields: schema.requiredFields,
     topLevelFields: schema.topLevelFields,
-    note: 'Full submission schema is available from meta.fullBriefingRef.path when this inline briefing is truncated.',
+    ...(frontLoad
+      ? { [RECIPE_AUTHORING_FRONT_LOAD_KEY]: compactRecipeAuthoringFrontLoad(frontLoad) }
+      : {}),
+    note: 'Full submission schema is available from meta.fullBriefingRef.path when this inline briefing is truncated; the recipe authoring worked example is kept inline as load-bearing one-pass evidence.',
+  };
+}
+
+/**
+ * compactRecipeAuthoringFrontLoad — 压缩态下保留前置说明的「保命」子集：仅保留 workedExample
+ * （gate-clean ✅/❌ 范例，一次过门禁的关键证据）+ 证据下限，丢弃体积大的 guidanceText /
+ * failureModeCatalog / perFieldContract / 祈使动词（动词与字段规则在 submitKnowledgeContract 已有，
+ * 完整前置契约仍在 fullBriefingRef）。即「其它分析字段先瘦身，example 保命」。
+ */
+function compactRecipeAuthoringFrontLoad(
+  frontLoad: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    profile: frontLoad.profile,
+    workedExample: frontLoad.workedExample,
+    evidenceFloor: frontLoad.evidenceFloor,
+    fullContractRef:
+      'meta.fullBriefingRef.path → recipeAuthoringFrontLoad (perFieldContract + guidanceText + failureModeCatalog + imperativeVerbs)',
   };
 }
 

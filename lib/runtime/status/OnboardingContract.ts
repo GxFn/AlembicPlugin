@@ -1,4 +1,12 @@
 import path from 'node:path';
+// P2.2：Recipe 创作契约从 @alembic/core/knowledge 规范模块渲染，使指南==门禁。
+// buildSubmitKnowledgeContract() 暴露真实 45 个祈使动词与 scope 证据下限逃逸；
+// getEvidenceFloorPolicy()/getImperativeVerbAllowlist() 直接读门禁同一张表。
+import {
+  buildSubmitKnowledgeContract as buildSpecSubmitKnowledgeContract,
+  getEvidenceFloorPolicy,
+  getImperativeVerbAllowlist,
+} from '@alembic/core/knowledge';
 import {
   buildProjectContextCreationGuide,
   buildProjectContextCreationNextActions,
@@ -466,11 +474,30 @@ function buildRecipeAuthoringRubric(): Record<string, unknown> {
 }
 
 function buildSubmitKnowledgeContract(): Record<string, unknown> {
+  // P2.2：从规范模块读取门禁同一张表，列出真实祈使动词与证据下限逃逸（旧实现只说 "verb-led"
+  // 并漏掉 scope:narrow|file-local 逃逸）。spec.imperativeVerbs/evidenceFloor 是 guidance==gate 的来源。
+  const spec = buildSpecSubmitKnowledgeContract();
+  const verbs = getImperativeVerbAllowlist();
+  const evidenceFloor = getEvidenceFloorPolicy();
   return {
     tool: 'alembic_submit_knowledge',
     contract: 'V3',
     purpose:
       'Prepare valid candidates before the first submit call; rejection remains a safety net, not the normal instruction path.',
+    // 规范模块投影：真实 allowlist 动词 + scope 逃逸 + 校验前清单（与门禁逐字一致）。
+    specRequiredFields: spec.requiredFields,
+    imperativeVerbs: {
+      positive: verbs.positive,
+      negative: verbs.negative,
+      rule: 'doClause must start with a positive allowlist verb; dontClause with a negative verb or "Do not …".',
+    },
+    evidenceFloor: {
+      ruleFiles: evidenceFloor.ruleFiles,
+      factFiles: evidenceFloor.factFiles,
+      scopeEscape: evidenceFloor.scopeEscape.source,
+      rule: 'Rule/pattern candidates need ≥3 distinct source files unless scope: narrow | file-local | local-only; fact candidates need ≥1.',
+    },
+    preSubmitChecklist: spec.checklist,
     exactFields: [
       'title',
       'description',
@@ -506,7 +533,9 @@ function buildSubmitKnowledgeContract(): Record<string, unknown> {
         '3-8 syntactically complete lines copied or tightly adapted from cited source when code behavior is claimed.',
       usageGuide: 'Markdown with ### When to Use / Key Points / When Not to Use sections.',
       reasoningSources: 'Non-empty repo-relative paths with line ranges matching sourceRefs.',
-      confidence: '>=0.85 for normal submit; otherwise narrow the candidate or keep analyzing.',
+      // D-A：门禁不强制 confidence，此处只作推荐，不得表述为强制阈值。
+      confidence:
+        'recommended >= 0.85 (guidance, not enforced); below it, narrow the candidate or keep analyzing.',
     },
     sourceRefCardinality: {
       universalRuleOrPattern:
@@ -894,9 +923,12 @@ function buildGenericOverlay(language: string | null): LanguageOverlaySummary {
 }
 
 function buildRecipeGuidanceFloor(): Record<string, unknown> {
+  // P2.2：证据下限与祈使动词从 @alembic/core/knowledge 规范表渲染，使指南==门禁。
+  const verbs = getImperativeVerbAllowlist();
+  const evidenceFloor = getEvidenceFloorPolicy();
   return {
     source:
-      'AlembicCore DimensionSop, PRE_SUBMIT_CHECKLIST, SHARED_SUBMIT_CHECKLIST, and MissionBriefingBuilder submission spec',
+      'AlembicCore recipe-authoring-spec (gateRules table) via @alembic/core/knowledge; rendered so guidance matches the live gate',
     candidateCounts: {
       minimumPerDimension: 3,
       targetPerDimension: 5,
@@ -904,10 +936,17 @@ function buildRecipeGuidanceFloor(): Record<string, unknown> {
       noPadding: true,
     },
     fileReferences: {
-      crossModuleClaimFloor: '>=3 distinct in-scope file refs when applicable',
+      // 规范模块的真实证据下限：rule/pattern ≥3 个不同文件，fact ≥1，scope 逃逸放行单文件。
+      crossModuleClaimFloor: `>=${evidenceFloor.ruleFiles} distinct in-scope file refs for rule/pattern unless scope is narrow | file-local | local-only`,
+      factFileFloor: `>=${evidenceFloor.factFiles} source ref for fact candidates`,
+      scopeEscape: evidenceFloor.scopeEscape.source,
       citationFormat: 'full repo-relative path plus line citation',
       bareFilenameForbidden: true,
       moduleAttributionRequired: true,
+    },
+    imperativeVerbs: {
+      positive: verbs.positive,
+      negative: verbs.negative,
     },
     projectContextAnchoring: {
       requiredBeforeRecipeCreation: true,
@@ -935,7 +974,8 @@ function buildRecipeGuidanceFloor(): Record<string, unknown> {
       contentContrast: 'content.markdown must include both ✅ correct and ❌ forbidden examples',
       requiresDoDontWhenClauses: true,
       requiresEnglishImperativeDoDont: true,
-      confidenceFloorBeforeSubmit: 0.85,
+      // D-A：门禁不强制 confidence，渲染为推荐值，不再表述为强制 floor。
+      confidenceRecommendation: 'recommended >= 0.85 (guidance, not enforced by the gate)',
       requiredFieldsBeforeFirstSubmit: [
         'title',
         'description',
