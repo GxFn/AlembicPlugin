@@ -14,13 +14,13 @@
 // sessionScope port 仍按 Core 契约构造并由 drift tripwire / 单条路径覆盖，保持端口契约真实可用。
 import fs from 'node:fs';
 import path from 'node:path';
-import { validateAgainst } from '@alembic/core/knowledge';
+import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
 import type {
   RecipeAuthoringViolation,
   RecipeSessionScope,
   RecipeSourceRefResolver,
 } from '@alembic/core/knowledge';
-import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
+import { validateAgainst } from '@alembic/core/knowledge';
 
 export type RecipeEvidenceViolationCode =
   | 'SESSION_NOT_FOUND'
@@ -131,7 +131,15 @@ export function shouldRunRecipeEvidenceGate({
  * { rangeText, sourcePath } 供纯 snippet/floor 谓词消费。逐字节复刻旧 validateSourceRef 的分支与文案。
  */
 function createSourceRefResolver(): RecipeSourceRefResolver {
-  return ({ projectRoot, sourcePath: rawPath, startLine, endLine, sourceRef, itemIndex, title }) => {
+  return ({
+    projectRoot,
+    sourcePath: rawPath,
+    startLine,
+    endLine,
+    sourceRef,
+    itemIndex,
+    title,
+  }) => {
     const sourcePath = path.posix.normalize(rawPath.replaceAll('\\', '/'));
     if (path.isAbsolute(sourcePath) || sourcePath.startsWith('..')) {
       return {
