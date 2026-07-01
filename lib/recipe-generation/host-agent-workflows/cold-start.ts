@@ -26,6 +26,7 @@ import {
   failureModes,
   renderGuidance,
 } from '@alembic/core/knowledge';
+import { jsonByteLength } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildHostAgentAnalysisSurface } from '#codex/host-agent/HostAgentAnalysisSurface.js';
@@ -59,7 +60,6 @@ import {
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
-import { jsonByteLength } from '@alembic/core/service/planFacts';
 
 interface McpContext {
   container: ServiceContainer;
