@@ -59,7 +59,7 @@ import {
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
-import { jsonByteLength } from '#shared/transient-transport.js';
+import { jsonByteLength } from '@alembic/core/service/planFacts';
 
 interface McpContext {
   container: ServiceContainer;

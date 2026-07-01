@@ -36,7 +36,7 @@ import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 import {
   removeTransientTransportIfPresent,
   writeTransientTransport,
-} from '#shared/transient-transport.js';
+} from '@alembic/core/service/planFacts';
 import { confirmPlan } from './plan-confirm.js';
 import {
   attachSourceFilesToProjectContextModuleSeeds,

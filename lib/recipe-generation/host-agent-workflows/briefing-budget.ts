@@ -2,14 +2,14 @@
 // stage-无关：测量 response.data 的 JSON 字节，≤预算→内联回填并清理可能遗留的 transient；
 // >预算→把完整 data 写入 transient transport，再经 attachRef 把引用写进 meta；各 stage 专属的瘦身
 // 阶梯（如 cold-start 的 compact→trim）作为可选 compact 回调注入，**不下沉**到本共享层。
-// 复用 #shared/transient-transport.ts 原语；本模块不持有任何 stage 专属压缩判定。
+// 复用 @alembic/core/service/planFacts 的 transient-transport 原语；本模块不持有任何 stage 专属压缩判定。
 
 import {
   jsonByteLength,
   removeTransientTransportIfPresent,
   type TransientTransportRef,
   writeTransientTransport,
-} from '#shared/transient-transport.js';
+} from '@alembic/core/service/planFacts';
 
 // 共享内联预算默认 18KB（沿用 cold-start 历史 COLD_START_BRIEFING_INLINE_BUDGET_BYTES 口径）。
 export const BRIEFING_INLINE_BUDGET_BYTES = 18 * 1024;

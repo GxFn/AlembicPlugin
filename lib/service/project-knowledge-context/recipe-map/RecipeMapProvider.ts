@@ -11,7 +11,7 @@ import {
   removeTransientTransportIfPresent,
   type TransientTransportRef,
   writeTransientTransport,
-} from '#shared/transient-transport.js';
+} from '@alembic/core/service/planFacts';
 import {
   ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION,
   type AlembicRecipeMapOutput,
