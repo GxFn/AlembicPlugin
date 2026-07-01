@@ -1,10 +1,5 @@
 import path, { basename } from 'node:path';
 import {
-  buildDimensionCatalogPayload,
-  type DimensionCatalogPayloadItem,
-  type ProjectLanguageFrameworkFacts,
-} from '@alembic/core/dimensions';
-import {
   baseDimensions,
   resolveModuleTier,
   resolvePerCellTargetDefault,
@@ -26,8 +21,10 @@ import type {
 import {
   attachFullProjectInfoTreeRefIfNeeded,
   attachSourceFilesToProjectContextModuleSeeds,
+  buildCandidateDimensions,
   buildProjectInfoTree,
   buildProjectProfileFromAnalysis,
+  type CandidateDimension,
   collectProjectSourceFileFacts,
   type PlanModuleSeed,
   type PlanProjectContextAnalysis,
@@ -71,14 +68,6 @@ interface PlanProjectScopeContext {
 interface PlanProjectScopeFolderSelection {
   folder: ProjectFolderDescriptor;
   sourceFolder: string;
-}
-
-interface CandidateDimension {
-  id: string;
-  label: string;
-  languageApplicable: boolean;
-  layer: DimensionCatalogPayloadItem['layer'];
-  miningGuidance: string;
 }
 
 type PlanArgs = PlanInput;
@@ -308,33 +297,6 @@ function loadDeepMiningCoverageSeed(
     // 读账本失败绝不影响草稿：吞掉异常、返回 undefined（草稿仍输出 projectInfoTree/candidateDimensions）。
     return undefined;
   }
-}
-
-function buildCandidateDimensions(analysis: PlanProjectContextAnalysis): CandidateDimension[] {
-  const facts = buildProjectLanguageFrameworkFacts(analysis);
-  return buildDimensionCatalogPayload(facts).map((dimension) => ({
-    id: dimension.id,
-    label: dimension.label,
-    languageApplicable: dimension.languageApplicable,
-    layer: dimension.layer,
-    miningGuidance: dimension.extractionGuide,
-  }));
-}
-
-function buildProjectLanguageFrameworkFacts(
-  analysis: PlanProjectContextAnalysis
-): ProjectLanguageFrameworkFacts {
-  const sourceLanguages = analysis.sourceFileFacts.map((file) => file.language);
-  const languages = uniqueStrings([
-    analysis.primaryLanguage,
-    ...analysis.secondaryLanguages,
-    ...sourceLanguages,
-  ]);
-  return {
-    frameworks: analysis.frameworks,
-    languages,
-    primaryLanguage: analysis.primaryLanguage,
-  };
 }
 
 function planDraftResponse(draftContext: PlanDraftContext): PlanToolResponse {
