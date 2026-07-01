@@ -27,10 +27,12 @@ import {
 import type { WriteZone } from '@alembic/core/io';
 import {
   ConfidenceRouter,
+  createFsSourceRefResolver,
   KnowledgeGraphService,
   KnowledgeService,
   RecipeFreshnessService,
   RecipeProductionGateway,
+  resolveGroundedSourcePaths,
   SourceRefReconciler,
 } from '@alembic/core/knowledge';
 import type {
@@ -131,6 +133,13 @@ function registerKnowledgeServices(c: ServiceContainer) {
           eventBus: ct.services.eventBus ? ct.get('eventBus') : null,
           edgeRepo: ct.get('knowledgeEdgeRepository'),
           proposalRepo: ct.get('proposalRepository'),
+          // P5/C8: 注入深度接地 port，激活 QualityScorer 的深度加权评分(未注入时评分退化为 legacy)。
+          // 两宿主共用 Core createFsSourceRefResolver 保证接地判定 parity。
+          groundedSourcePaths: (item: Record<string, unknown>) =>
+            resolveGroundedSourcePaths(item, {
+              sourceRefResolver: createFsSourceRefResolver(),
+              projectRoot: resolveProjectRoot(ct),
+            }),
         } as ConstructorParameters<typeof KnowledgeService>[4]
       )
   );
