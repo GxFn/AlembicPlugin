@@ -7,7 +7,7 @@ import {
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { collectProjectSourceFileFacts } from '../../lib/recipe-generation/project-source-facts.js';
+import { collectProjectSourceFileFacts } from '@alembic/core/service/planFacts';
 import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 

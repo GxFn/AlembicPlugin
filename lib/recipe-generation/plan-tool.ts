@@ -42,7 +42,7 @@ import {
   attachSourceFilesToProjectContextModuleSeeds,
   collectProjectSourceFileFacts,
   type ProjectSourceFileFact,
-} from './project-source-facts.js';
+} from '@alembic/core/service/planFacts';
 
 interface PlanToolContext {
   actor?: { role?: string; user?: string };

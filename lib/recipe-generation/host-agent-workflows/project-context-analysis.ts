@@ -24,7 +24,7 @@ import {
   collectProjectSourceFileFacts,
   normalizeProjectContextPath,
   type ProjectSourceFileFact,
-} from '#recipe-generation/project-source-facts.js';
+} from '@alembic/core/service/planFacts';
 
 interface BuildHostAgentProjectContextAnalysisInput {
   projectRoot: string;
