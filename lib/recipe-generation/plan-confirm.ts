@@ -9,7 +9,7 @@ import {
   type PlanStageId,
   validateCompletePlanIntent,
 } from '@alembic/core/plans';
-import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
+import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 
@@ -82,7 +82,7 @@ async function writeColdStartDeferredCoverageRows(
 ): Promise<void> {
   try {
     const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!coverageLedgerRepository) {
       return;

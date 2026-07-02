@@ -18,8 +18,8 @@
  *   - 任一侧向量缺失 / 维度不一致 / 非有限数 / 索引不可用 → 返回 `undefined`，让 Core
  *     回退到确定性 Jaccard（永不抛错，永不返回常量）。
  *
- * Core 调用约定（a96c4ee 实测）：三处站点把「带 .id 的 recipe 对象」作为 RecipeLike 传入
- * （RecipeLike 静态类型不含 id，但运行时对象携带 id，例如 RedundancyAnalyzer 用 a.id/b.id）。
+ * Core 调用约定（a96c4ee 实测）：三处站点把「带 .id 的 recipe 对象」作为 SimilarityRecipeLike 传入
+ * （SimilarityRecipeLike 静态类型不含 id，但运行时对象携带 id，例如 RedundancyAnalyzer 用 a.id/b.id）。
  * 因此本 provider 通过结构化读取 `(x as { id?: unknown }).id` 取 recipeId；某侧无 id
  * （如 ConsolidationAdvisor 的 candidateLike、ProposalExecutor 的 #toRecipeLike 投影）→
  * 找不到向量 → 返回 undefined → Jaccard 回退。这是预期内的优雅降级。
@@ -28,10 +28,10 @@
  */
 
 /**
- * Core `EmbeddingSimProvider` 的入参类型 `RecipeLike` 未从 `@alembic/core/evolution`
- * 导出（其定义在 `domain/evolution/RecipeSimilarity`，非导出子路径），所以这里从
- * `RedundancyAnalyzer.ctor` 的 options 结构里结构化派生 provider 函数类型，保证与 Core
- * a96c4ee 的三处消费站点签名逐字一致（结构化兼容，不依赖具名导出）。
+ * Core 已具名导出 `SimilarityRecipeLike`/`EmbeddingSimProvider`（W3 起，经
+ * `@alembic/core/sustain`，旧欠账已解）。本文件保留结构化派生（从
+ * `RedundancyAnalyzer.ctor` options 派生 provider 函数类型），使签名自动逐字跟随
+ * Core 消费站点；后续可评估切换具名导出。
  */
 import type { RedundancyAnalyzer } from '@alembic/core/evolution';
 import { cosineDistance } from '@alembic/core/vector';
@@ -41,7 +41,7 @@ export type EmbeddingSimProvider = NonNullable<
   NonNullable<ConstructorParameters<typeof RedundancyAnalyzer>[1]>['embeddingSimProvider']
 >;
 
-/** EmbeddingSimProvider 的入参（RecipeLike）——只取我们真正用到的字段（运行时还带 id）。 */
+/** EmbeddingSimProvider 的入参（SimilarityRecipeLike）——只取我们真正用到的字段（运行时还带 id）。 */
 type ProviderRecipeArg = Parameters<EmbeddingSimProvider>[0];
 
 /**

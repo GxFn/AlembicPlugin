@@ -1,9 +1,6 @@
 import { resolveModuleTier, resolvePerCellTargetDefault } from '@alembic/core/host-agent-workflows';
 import { type PlanStageId, renderPlanScaleChecklistEn } from '@alembic/core/plans';
-import type {
-  CoverageLedgerRecord,
-  EvolutionCoverageLedgerRepository,
-} from '@alembic/core/repositories';
+import type { CoverageLedgerRecord, CoverageLedgerRepository } from '@alembic/core/repositories';
 import {
   attachFullProjectInfoTreeRefIfNeeded,
   buildCandidateDimensions,
@@ -247,7 +244,7 @@ function loadDeepMiningCoverageSeed(
 ): CoverageSeed | undefined {
   try {
     const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!coverageLedgerRepository) {
       return undefined;

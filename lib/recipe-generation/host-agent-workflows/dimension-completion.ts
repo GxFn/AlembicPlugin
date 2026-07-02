@@ -12,7 +12,7 @@ import {
   saveDimensionCheckpoint,
 } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
-import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
+import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { buildHostAgentAnalysisProgressBackfill } from '#codex/host-agent/HostAgentAnalysisSurface.js';
 import { GenerateEventEmitter } from '#recipe-generation/generate/GenerateEventEmitter.js';
@@ -635,7 +635,7 @@ async function writeDimensionCompletionCoverageLedger(args: {
   const logger = ctx.logger;
   try {
     const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!coverageLedgerRepository) {
       // DI 未注册账本仓（旧容器/部分启动）→ 跳过，advisory 写入缺席不影响完成。
@@ -942,7 +942,7 @@ function closeLatestOpenHostAgentRescanRound(
 ): boolean {
   try {
     const repository = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!repository) {
       return false;

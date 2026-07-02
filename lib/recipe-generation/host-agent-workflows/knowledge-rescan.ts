@@ -35,7 +35,7 @@ import {
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
 } from '@alembic/core/host-agent-workflows';
-import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
+import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
 import { buildHostAgentAnalysisSurface } from '#codex/host-agent/HostAgentAnalysisSurface.js';
@@ -375,7 +375,7 @@ function seedRescanCoverageLedgerFromSnapshot(
 
   try {
     const repository = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!repository) {
       return empty('coverage-ledger-repository-unavailable');
@@ -510,7 +510,7 @@ function reconcileCoverageLedgerSeedWithPersistedState(
 ): RescanCoverageLedgerSeedReport {
   try {
     const repository = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!repository) {
       return seed;
@@ -1244,7 +1244,7 @@ function closeOpenHostAgentRescanRounds(
 ): { count: number; roundIndexes: number[] } {
   try {
     const repository = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!repository) {
       return { count: 0, roundIndexes: [] };
@@ -1290,7 +1290,7 @@ function loadLedgerCoverageByDimension(
 ): Record<string, number> {
   try {
     const repo = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!repo) {
       return {};
@@ -1327,7 +1327,7 @@ function openDeepMiningRound(
 ): OpenHostAgentRescanRoundResult {
   try {
     const repo = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!repo) {
       return { openRound: false, rescanId: rescanId ?? null, roundIndex: null };
@@ -1601,7 +1601,7 @@ function attachCoverageAdvisory(
 } | null {
   try {
     const repo = ctx.container.get('coverageLedgerRepository') as
-      | EvolutionCoverageLedgerRepository
+      | CoverageLedgerRepository
       | undefined;
     if (!repo) {
       return null;
