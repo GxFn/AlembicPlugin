@@ -166,7 +166,48 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   preprocessSubmitKnowledgeItems(itemsResult.items, options);
   const contentQualityGate = validateSubmitKnowledgeContentQuality(itemsResult.items);
   if (!contentQualityGate.ok) {
-    return buildSubmitKnowledgeContentQualityResponse(contentQualityGate);
+    // C-6 修正(审计缺陷②):软规则申辩接在本 stage-1 门——软违规(风格判断:祈使动词/
+    // 英文/对比示例)全部产自这里;此前误接在下游 evidence gate(其违规码全为接地/session
+    // 硬规则,与 soft 集合零交集,waiver 恒不生效,两宿主申辩语义分裂)。
+    // 语义与主体 in-process 一致:违规全软+≥20 字理由→放行,理由随 reasoning.styleWaiver
+    // 落库人审;宿主无会话计数(rate limit+全量人审兜底)。
+    const waiverJustification =
+      typeof args.waiverJustification === 'string' ? args.waiverJustification : undefined;
+    if (waiverJustification) {
+      let allWaived = true;
+      const waivedItems: Array<{ index: number; codes: string[] }> = [];
+      for (let index = 0; index < itemsResult.items.length; index += 1) {
+        const itemViolations = contentQualityGate.violations.filter(
+          (violation) => violation.itemIndex === index
+        );
+        if (itemViolations.length === 0) {
+          continue;
+        }
+        const waiver = applyStyleWaiver({
+          violations: itemViolations,
+          justification: waiverJustification,
+          sessionWaiverTotal: 0,
+          item: itemsResult.items[index] as Record<string, unknown>,
+        });
+        if (!waiver.waived) {
+          allWaived = false;
+          break;
+        }
+        waivedItems.push({ index, codes: waiver.waivedCodes });
+        itemsResult.items[index] = waiver.item;
+      }
+      if (allWaived && waivedItems.length > 0) {
+        console.error(
+          `[submit_knowledge] style waiver accepted (stage-1) for ${waivedItems.length} item(s): ${waivedItems
+            .map((entry) => `#${entry.index}[${entry.codes.join(',')}]`)
+            .join(' ')} — pending human review`
+        );
+      } else {
+        return buildSubmitKnowledgeContentQualityResponse(contentQualityGate);
+      }
+    } else {
+      return buildSubmitKnowledgeContentQualityResponse(contentQualityGate);
+    }
   }
   const bootstrapSession = resolveGenerateSession(ctx.container, options.bootstrapSessionId);
   const dataRoot = resolveHostAgentDataRoot(
@@ -715,10 +756,17 @@ function buildAllRejectedSubmitResponse(
 }
 
 function buildSubmitKnowledgeContentQualityResponse(qualityGate: RecipeContentQualityGateResult) {
+  // 申辩指引:全部违规都是软规则时告知申辩通道(硬违规在场时先修事实错误)。
+  const appealEligible =
+    qualityGate.violations.length > 0 &&
+    qualityGate.violations.every((violation) => isSoftAuthoringViolation(violation.code));
+  const appealHint = appealEligible
+    ? ' All violations are soft style rules: if you have a legitimate reason to keep your wording (e.g. project idiom), resubmit unchanged with waiverJustification (>=20 chars) — it will pass with your reason attached for human review.'
+    : '';
   return envelope({
     success: false,
     errorCode: 'QUALITY_GATE_FAILED',
-    message: buildSubmitKnowledgeContentQualitySummary(qualityGate),
+    message: `${buildSubmitKnowledgeContentQualitySummary(qualityGate)}${appealHint}`,
     data: {
       commonErrors: [...new Set(qualityGate.violations.map((violation) => violation.code))],
       problem: {
@@ -789,58 +837,13 @@ function buildSubmitKnowledgeEvidenceGateResponse({
     return null;
   }
 
-  // C-6(2026-07-02 统一重构)：软规则一次申辩制——与主体 in-process submit 同一 Core
-  // styleWaiver 语义。违规全为软规则(写作风格判断)且 host agent 带 ≥20 字理由重交时
-  // 放行,理由随 reasoning.styleWaiver 原位写进 items 落库,由 Dashboard 人工审核终裁。
-  // 宿主差异:MCP 调用间无会话计数(sessionWaiverTotal 恒 0,即无 5 次上限),防刷由
-  // rate limit + 全部 waiver 均落库人审兜底;硬规则(证据接地/伪造/结构)不受影响。
-  const waiverJustification =
-    typeof args.waiverJustification === 'string' ? args.waiverJustification : undefined;
-  if (waiverJustification) {
-    let allWaived = items.length > 0;
-    const waivedItems: Array<{ index: number; codes: string[] }> = [];
-    for (let index = 0; index < items.length; index += 1) {
-      const itemViolations = evidenceGate.violations.filter(
-        (violation) => (violation.itemIndex ?? 0) === index
-      );
-      if (itemViolations.length === 0) {
-        continue;
-      }
-      const waiver = applyStyleWaiver({
-        violations: itemViolations,
-        justification: waiverJustification,
-        sessionWaiverTotal: 0,
-        item: items[index] as Record<string, unknown>,
-      });
-      if (!waiver.waived) {
-        allWaived = false;
-        break;
-      }
-      waivedItems.push({ index, codes: waiver.waivedCodes });
-      items[index] = waiver.item;
-    }
-    if (allWaived && waivedItems.length > 0) {
-      console.error(
-        `[submit_knowledge] style waiver accepted for ${waivedItems.length} item(s): ${waivedItems
-          .map((entry) => `#${entry.index}[${entry.codes.join(',')}]`)
-          .join(' ')} — pending human review`
-      );
-      return null;
-    }
-  }
-
-  // 申辩指引:全部违规都是软规则时告知申辩通道(硬违规在场时先修事实错误,不提申辩)。
-  const appealEligible =
-    evidenceGate.violations.length > 0 &&
-    evidenceGate.violations.every((violation) => isSoftAuthoringViolation(violation.code));
-  const appealHint = appealEligible
-    ? ' All violations are soft style rules: if you have a legitimate reason to keep your wording (e.g. project idiom), resubmit unchanged with waiverJustification (>=20 chars) — it will pass with your reason attached for human review.'
-    : '';
+  // 注:evidence gate 的违规码全为接地/session 硬规则(与 styleWaiver soft 集合零交集),
+  // 软规则申辩接在上游 stage-1 content-quality gate(routeSubmitKnowledgeTool 内)。
 
   return envelope({
     success: false,
     errorCode: primaryEvidenceGateCode(evidenceGate),
-    message: `${buildSubmitKnowledgeEvidenceGateSummary(evidenceGate)}${appealHint}`,
+    message: buildSubmitKnowledgeEvidenceGateSummary(evidenceGate),
     data: {
       ...buildEvidenceGateFailureData(evidenceGate),
       problem: {

@@ -194,7 +194,7 @@ export class GenerateTaskManager {
     // ── 并发锁：如果上一个 session 还在运行，先中止 ──
     if (this.isRunning) {
       Logger.warn(
-        `[Bootstrap] Previous session ${this.#currentSession?.id} still running — aborting before starting new session`
+        `[Generate] Previous session ${this.#currentSession?.id} still running — aborting before starting new session`
       );
       this.abortSession('Superseded by new bootstrap request');
     }
@@ -218,7 +218,7 @@ export class GenerateTaskManager {
     }
 
     Logger.info(
-      `[Bootstrap] Session ${sessionId} started with ${taskDefs.length} tasks${testModePayload ? ' [TEST MODE]' : ''}`
+      `[Generate] Session ${sessionId} started with ${taskDefs.length} tasks${testModePayload ? ' [TEST MODE]' : ''}`
     );
     this.#emit('bootstrap:started', {
       sessionId,
@@ -273,7 +273,7 @@ export class GenerateTaskManager {
       reason,
     };
 
-    Logger.info(`[Bootstrap] Session ${session.id} aborted: ${reason}`);
+    Logger.info(`[Generate] Session ${session.id} aborted: ${reason}`);
     this.#emit('bootstrap:all-completed', {
       sessionId: session.id,
       summary: session.summary,
@@ -332,7 +332,7 @@ export class GenerateTaskManager {
     if (this.#currentSession) {
       this.#currentSession.userCancelled = true;
       this.#sessionAbortController?.abort('User cancelled');
-      Logger.info(`[Bootstrap] Session ${this.#currentSession.id} marked as user-cancelled`);
+      Logger.info(`[Generate] Session ${this.#currentSession.id} marked as user-cancelled`);
     }
   }
 
@@ -360,7 +360,7 @@ export class GenerateTaskManager {
     task.status = TaskStatus.FILLING;
     task.startedAt = Date.now();
 
-    Logger.info(`[Bootstrap] Task "${taskId}" filling started`);
+    Logger.info(`[Generate] Task "${taskId}" filling started`);
     this.#emit('bootstrap:task-started', {
       sessionId: session.id,
       taskId,
@@ -388,7 +388,7 @@ export class GenerateTaskManager {
     task.result = result;
 
     Logger.info(
-      `[Bootstrap] Task "${taskId}" completed (${session.completedTasks}/${session.totalTasks})`
+      `[Generate] Task "${taskId}" completed (${session.completedTasks}/${session.totalTasks})`
     );
     this.#emit('bootstrap:task-completed', {
       sessionId: session.id,
@@ -424,7 +424,7 @@ export class GenerateTaskManager {
     task.error =
       typeof error === 'string' ? error : error instanceof Error ? error.message : 'Unknown error';
 
-    Logger.warn(`[Bootstrap] Task "${taskId}" failed: ${task.error}`);
+    Logger.warn(`[Generate] Task "${taskId}" failed: ${task.error}`);
     this.#emit('bootstrap:task-failed', {
       sessionId: session.id,
       taskId,
@@ -494,7 +494,7 @@ export class GenerateTaskManager {
 
     const durationSec = ((session.completedAt - session.startedAt) / 1000).toFixed(1);
     Logger.info(
-      `[Bootstrap] Session ${session.id} finished: ${session.completedTasks} completed, ${session.failedTasks} failed (${durationSec}s)`
+      `[Generate] Session ${session.id} finished: ${session.completedTasks} completed, ${session.failedTasks} failed (${durationSec}s)`
     );
 
     this.#emit('bootstrap:all-completed', {
@@ -526,7 +526,7 @@ export class GenerateTaskManager {
         this.#eventBus.emit(eventName, data);
       } catch (e: unknown) {
         Logger.warn(
-          `[Bootstrap] EventBus emit failed: ${e instanceof Error ? e.message : String(e)}`
+          `[Generate] EventBus emit failed: ${e instanceof Error ? e.message : String(e)}`
         );
       }
     }

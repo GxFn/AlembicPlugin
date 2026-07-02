@@ -1,3 +1,4 @@
+import { PLAN_FACTS_PROJECTION_BUDGET_BYTES } from '@alembic/core/service/planFacts';
 import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
 import { describe, expect, test } from 'vitest';
 import {
@@ -394,7 +395,7 @@ function sampleBusinessData(toolName: (typeof CORE_CLEAN_OUTPUT_TOOL_NAMES)[numb
           fileCount: 2,
           children: [],
           meta: {
-            budgetBytes: 12288,
+            budgetBytes: PLAN_FACTS_PROJECTION_BUDGET_BYTES,
             deliveredDepth: 'modules',
             fullTreeRef: null,
             omitted: {},
