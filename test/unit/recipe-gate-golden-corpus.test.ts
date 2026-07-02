@@ -17,7 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  type BootstrapSessionLike,
+  type GenerateSessionLike,
   validateRecipeProductionEvidenceGate,
 } from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
 import { validateSubmitKnowledgeContentQuality } from '../../lib/runtime/mcp/handlers/recipe-content-quality-gate.js';
@@ -108,7 +108,7 @@ function makeStage2Root(): string {
   return root;
 }
 
-function stage2Session(projectRoot: string): BootstrapSessionLike {
+function stage2Session(projectRoot: string): GenerateSessionLike {
   return {
     id: 'session-corpus',
     projectRoot,
@@ -130,7 +130,7 @@ interface Stage2Case {
   name: string;
   args?: Record<string, unknown>;
   item: Record<string, unknown>;
-  session: (projectRoot: string) => BootstrapSessionLike | null;
+  session: (projectRoot: string) => GenerateSessionLike | null;
   // 部分 case 需要与 session 不同的 projectRoot（WRONG_SCOPE）。
   projectRootOverride?: 'other';
 }

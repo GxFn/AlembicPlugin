@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  _resetBootstrapSessionManagersForTesting,
+  _resetGenerateSessionManagersForTesting,
   getOrCreateSessionManager,
 } from '@alembic/core/host-agent-workflows';
 import { pathGuard } from '@alembic/core/io';
@@ -17,7 +17,7 @@ import {
 const tempRoots: string[] = [];
 
 afterEach(() => {
-  _resetBootstrapSessionManagersForTesting();
+  _resetGenerateSessionManagersForTesting();
   pathGuard._reset();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -617,7 +617,7 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     });
     const context = createContext({
       get: (name: string) => {
-        if (name === 'bootstrapSessionManager') {
+        if (name === 'generateSessionManager') {
           return { clearSession };
         }
         if (name === 'coverageLedgerRepository') {
@@ -686,7 +686,7 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     const context = createContext(
       {
         get: (name: string) => {
-          if (name === 'bootstrapSessionManager') {
+          if (name === 'generateSessionManager') {
             return { clearSession: staleClearSession };
           }
           return null;

@@ -243,7 +243,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     owner: 'plugin-embedded-core',
     handlerOwner: 'McpServer.host-agent-bootstrap',
     tier: 'agent',
-    schema: 'BootstrapInput',
+    schema: 'GenerateInput',
     annotations: aiBackedWriteTool('Run Codex Host-Agent Bootstrap'),
     gateway: null,
     knowledgeGate: 'initialized',

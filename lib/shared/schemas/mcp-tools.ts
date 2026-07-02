@@ -1112,7 +1112,7 @@ const GenerationScaleOverrideInput = z
   })
   .strict();
 
-export const BootstrapInput = z.object({
+export const GenerateInput = z.object({
   projectRoot: z.string().min(1).max(2000).optional(),
   // MT1 P1 数据丢失门禁：可用知识库存在时，bootstrap 会把全部现有知识
   // 移入 .asd/.trash/<ts>/ 并从零重建，必须显式 rebuild:true 确认。
@@ -1153,7 +1153,7 @@ export const BootstrapInput = z.object({
     .optional()
     .describe('Optional idempotency key for the Plan-driven generation lease.'),
 });
-export type BootstrapInput = z.infer<typeof BootstrapInput>;
+export type GenerateInput = z.infer<typeof GenerateInput>;
 
 // ══════════════════════════════════════════════════════
 //  11a. alembic_rescan — 增量知识更新
@@ -1470,7 +1470,7 @@ const ROUTED_TOOL_SCHEMAS: Record<string, z.ZodType> = {
   alembic_plan: PlanInput,
   alembic_submit_knowledge: SubmitKnowledgeInput,
   alembic_project_skill: ProjectSkillInput,
-  alembic_bootstrap: BootstrapInput,
+  alembic_bootstrap: GenerateInput,
   alembic_rescan: RescanInput,
   alembic_dimension_complete: DimensionCompleteInput,
   alembic_knowledge_lifecycle: KnowledgeLifecycleInput,

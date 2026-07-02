@@ -16,7 +16,7 @@ import {
 import type { RecipeSessionScope } from '@alembic/core/knowledge';
 import { attachRecipeAuthoringFrontLoad } from '#recipe-generation/host-agent-workflows/cold-start.js';
 import {
-  type BootstrapSessionLike,
+  type GenerateSessionLike,
   createSessionScope,
   createSourceRefResolver,
   validateRecipeProductionEvidenceGate,
@@ -65,7 +65,7 @@ describe('recipe-gate sessionScope port — Core contract', () => {
   });
 
   it('createSessionScope returns ok when the session matches scope', () => {
-    const session: BootstrapSessionLike = {
+    const session: GenerateSessionLike = {
       id: 'session-1',
       projectRoot: '/tmp/project',
       dimensions: [{ id: 'architecture' }],
@@ -227,7 +227,7 @@ describe('P4 §12.5 host-path parity tripwire (wrapper verdict == direct Core va
   it('stage-2 evidence wrapper (valid session) does not mutate the Core verdict', () => {
     const projectRoot = '/tmp/p4-parity-stage2';
     const dimensionId = 'architecture';
-    const session: BootstrapSessionLike = {
+    const session: GenerateSessionLike = {
       id: 'session-p4-parity',
       projectRoot,
       dimensions: [{ id: dimensionId }],

@@ -1,22 +1,22 @@
 /**
- * BootstrapEventEmitter.js — 统一的 Bootstrap 进度事件推送
+ * GenerateEventEmitter.js — 统一的 Bootstrap 进度事件推送
  *
  * 两端（内部 Agent / 宿主 Agent）使用相同的事件名和数据格式，
- * 同时兼容 EventBus 和 BootstrapTaskManager。
+ * 同时兼容 EventBus 和 GenerateTaskManager。
  *
- * @module shared/BootstrapEventEmitter
+ * @module shared/GenerateEventEmitter
  */
 
 // C-5(2026-07-02 统一重构)：事件名改用 Core wire 常量单源——发射端漂移自此编译期可见;
 // 消费端(Dashboard/TaskManager 字符串监听)随 S4 词族批次切换。
 import { RECIPE_PIPELINE_EVENTS } from '@alembic/core/knowledge';
-import type { DimensionCompletePayload, ProgressPayload } from './bootstrap-event-types.js';
+import type { DimensionCompletePayload, ProgressPayload } from './generate-event-types.js';
 
-export class BootstrapEventEmitter {
+export class GenerateEventEmitter {
   /** EventBus 实例 */
   #eventBus: Record<string, (...args: unknown[]) => void> | null;
 
-  /** BootstrapTaskManager 实例 */
+  /** GenerateTaskManager 实例 */
   #taskManager: Record<string, (...args: unknown[]) => void> | null;
 
   /** @param container DI Container */
@@ -34,7 +34,7 @@ export class BootstrapEventEmitter {
     }
 
     try {
-      this.#taskManager = (container.get?.('bootstrapTaskManager') ?? null) as Record<
+      this.#taskManager = (container.get?.('generateTaskManager') ?? null) as Record<
         string,
         (...args: unknown[]) => void
       > | null;
@@ -55,7 +55,7 @@ export class BootstrapEventEmitter {
    * @param [data.recipesBound] 关联的 recipe 数量
    */
   emitDimensionComplete(dimId: string, data: DimensionCompletePayload) {
-    // TaskManager 标记。与主仓库 BootstrapEventEmitter 同一容错口径(共享资产对齐,
+    // TaskManager 标记。与主仓库 GenerateEventEmitter 同一容错口径(共享资产对齐,
     // 2026-07-02)：非正常终态(error/timeout/blocked/degraded 等)必须标 failed——
     // 此前插件副本无差别 markTaskCompleted，宿主路径的失败维度会被误标为完成。
     // 注：主仓库版另有 emitProcessEvents(daemon job process 草稿推送)，为 daemon
@@ -157,7 +157,7 @@ export class BootstrapEventEmitter {
   }
 }
 
-// 与主仓库 BootstrapEventEmitter 同一判定(逐字对齐)：非正常终态不得标记为完成。
+// 与主仓库 GenerateEventEmitter 同一判定(逐字对齐)：非正常终态不得标记为完成。
 function isNonNormalDimensionPayload(data: DimensionCompletePayload): boolean {
   if (data.type === 'error') {
     return true;
@@ -185,4 +185,4 @@ function extractDimensionFailureReason(data: DimensionCompletePayload): string {
   return data.type === 'error' ? 'dimension-error' : 'non-normal-dimension-status';
 }
 
-export default BootstrapEventEmitter;
+export default GenerateEventEmitter;

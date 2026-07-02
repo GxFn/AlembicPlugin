@@ -19,7 +19,7 @@
 import { z } from 'zod';
 
 import {
-  BootstrapInput,
+  GenerateInput,
   CodeGuardInput,
   ConsolidateInput,
   DimensionCompleteInput,
@@ -298,7 +298,7 @@ export const TOOLS = [
       '• planGate/planState projection showing execution dimensions, gaps, cleanupPolicy, and module scope\n' +
       '• Execution plan and submission examples\n' +
       'After receiving the Briefing, complete all dimension analyses per the executionPlan.',
-    inputSchema: zodToMcpSchema(BootstrapInput),
+    inputSchema: zodToMcpSchema(GenerateInput),
   },
 
   // Incremental Rescan

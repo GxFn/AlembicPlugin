@@ -7,7 +7,7 @@ import {
   type GatewayDeps,
   RecipeProductionGateway,
 } from '@alembic/core/knowledge';
-import { BootstrapDedup } from '@alembic/core/service/bootstrap';
+import { GenerateDedup } from '@alembic/core/service/bootstrap';
 import { describe, expect, it, vi } from 'vitest';
 
 /* ═══════════════════ Mock Helpers ═══════════════════ */
@@ -242,7 +242,7 @@ describe('RecipeProductionGateway', () => {
     });
 
     it('bootstrap 会话去重命中后不应被后续相似度阶段重新放回创建队列', async () => {
-      const bootstrapDedup = new BootstrapDedup();
+      const bootstrapDedup = new GenerateDedup();
       const item = makeItem();
       bootstrapDedup.register({
         id: 'existing-session-recipe',

@@ -5,7 +5,7 @@
  * full/incremental 模式选择显式化。
  */
 
-import type { BootstrapInput, RescanInput } from '#shared/schemas/mcp-tools.js';
+import type { GenerateInput, RescanInput } from '#shared/schemas/mcp-tools.js';
 import { runHostAgentProjectIndexFullWorkflow } from './cold-start.js';
 import { runHostAgentProjectIndexIncrementalWorkflow } from './knowledge-rescan.js';
 
@@ -22,7 +22,7 @@ type IncrementalContext = Parameters<typeof runHostAgentProjectIndexIncrementalW
 
 export function runProjectIndexWorkflow(
   ctx: FullContext,
-  args: BootstrapInput | undefined,
+  args: GenerateInput | undefined,
   options: { mode: 'full' }
 ): ReturnType<typeof runHostAgentProjectIndexFullWorkflow>;
 export function runProjectIndexWorkflow(
@@ -32,11 +32,11 @@ export function runProjectIndexWorkflow(
 ): ReturnType<typeof runHostAgentProjectIndexIncrementalWorkflow>;
 export function runProjectIndexWorkflow(
   ctx: FullContext | IncrementalContext,
-  args: BootstrapInput | RescanInput | undefined,
+  args: GenerateInput | RescanInput | undefined,
   options: HostAgentProjectIndexOptions
 ) {
   if (options.mode === 'full') {
-    return runHostAgentProjectIndexFullWorkflow(ctx as FullContext, args as BootstrapInput);
+    return runHostAgentProjectIndexFullWorkflow(ctx as FullContext, args as GenerateInput);
   }
   return runHostAgentProjectIndexIncrementalWorkflow(
     ctx as IncrementalContext,
@@ -44,7 +44,7 @@ export function runProjectIndexWorkflow(
   );
 }
 
-export function runHostAgentColdStartWorkflow(ctx: FullContext, args?: BootstrapInput) {
+export function runHostAgentColdStartWorkflow(ctx: FullContext, args?: GenerateInput) {
   return runProjectIndexWorkflow(ctx, args, { mode: 'full' });
 }
 

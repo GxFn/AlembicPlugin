@@ -3,7 +3,7 @@
  *
  * 负责注册:
  *   - database, logger, auditStore, auditLogger
- *   - eventBus, bootstrapTaskManager
+ *   - eventBus, generateTaskManager
  *   - knowledgeRepository, knowledgeFileWriter, knowledgeSyncService
  */
 
@@ -24,7 +24,7 @@ import {
   createAlembicRepositories,
 } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { BootstrapTaskManager } from '#recipe-generation/bootstrap/BootstrapTaskManager.js';
+import { GenerateTaskManager } from '#recipe-generation/generate/GenerateTaskManager.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
@@ -68,13 +68,13 @@ function registerInfrastructure(c: ServiceContainer) {
   );
   c.singleton('eventBus', () => new EventBus({ maxListeners: 30 }));
 
-  c.singleton('bootstrapTaskManager', (ct: ServiceContainer) => {
+  c.singleton('generateTaskManager', (ct: ServiceContainer) => {
     const eventBus = ct.get('eventBus');
     // RIC-7: RealtimeService (WebSocket) is cut from the slimmed daemon; progress
-    // still flows via EventBus. BootstrapTaskManager's realtime getter is left unset.
-    return new BootstrapTaskManager({
+    // still flows via EventBus. GenerateTaskManager's realtime getter is left unset.
+    return new GenerateTaskManager({
       eventBus,
-    } as ConstructorParameters<typeof BootstrapTaskManager>[0]);
+    } as ConstructorParameters<typeof GenerateTaskManager>[0]);
   });
 
   c.singleton('jobStore', (ct: ServiceContainer) => {
@@ -111,8 +111,8 @@ function registerRepositories(c: ServiceContainer) {
     return getCoreRepositories(ct).codeEntityRepository;
   });
 
-  c.singleton('bootstrapRepository', (ct: ServiceContainer) => {
-    return getCoreRepositories(ct).bootstrapRepository;
+  c.singleton('generateRepository', (ct: ServiceContainer) => {
+    return getCoreRepositories(ct).generateRepository;
   });
 
   c.singleton('guardViolationRepository', (ct: ServiceContainer) => {

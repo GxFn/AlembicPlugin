@@ -107,7 +107,7 @@ export function releaseEmptyHostAgentSessionLeaseForProject(input: {
     staleAfterMs: input.allowFreshEmpty === true ? 0 : undefined,
   });
   if (release.released) {
-    input.logger?.info?.('[BootstrapSession] Released stale empty host-agent lease', {
+    input.logger?.info?.('[GenerateSession] Released stale empty host-agent lease', {
       allowFreshEmpty: input.allowFreshEmpty === true,
       projectRoot: input.projectRoot,
       reason: input.reason ?? 'stale-empty-host-agent-session',
@@ -135,7 +135,7 @@ export function releaseEmptyHostAgentSessionLeaseById(input: {
     return { released: false };
   }
   sessionManager.clearSession(input.sessionId);
-  input.logger?.info?.('[BootstrapSession] Released empty host-agent lease by id', {
+  input.logger?.info?.('[GenerateSession] Released empty host-agent lease by id', {
     projectRoot: input.projectRoot,
     reason: input.reason,
     sessionId: input.sessionId,

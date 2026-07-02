@@ -185,7 +185,7 @@ export const ScanProjectBody = z.object({
   options: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const ModuleBootstrapBody = z.object({
+export const ModuleGenerateBody = z.object({
   maxFiles: z.number().int().min(1).max(10000).default(500),
   skipGuard: z.boolean().default(false),
   contentMaxLines: z.number().int().min(1).max(10000).default(120),

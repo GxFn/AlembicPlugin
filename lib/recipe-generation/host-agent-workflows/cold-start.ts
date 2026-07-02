@@ -59,7 +59,7 @@ import {
 } from '#recipe-generation/plan-generation-gate.js';
 import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
-import type { BootstrapInput } from '#shared/schemas/mcp-tools.js';
+import type { GenerateInput } from '#shared/schemas/mcp-tools.js';
 
 interface McpContext {
   container: ServiceContainer;
@@ -102,7 +102,7 @@ const RECIPE_AUTHORING_FRONT_LOAD_KEY = 'recipeAuthoringFrontLoad';
 // ── 主入口 ─────────────────────────────────────────────────────
 
 /**
- * bootstrapForHostAgent — 宿主 Agent 驱动的一键冷启动
+ * generateForHostAgent — 宿主 Agent 驱动的一键冷启动
  *
  * 无参数调用，返回 Mission Briefing。
  * Phase 1-4 复用现有 bootstrap.js 逻辑，Phase 5 不启动。
@@ -110,12 +110,12 @@ const RECIPE_AUTHORING_FRONT_LOAD_KEY = 'recipeAuthoringFrontLoad';
  * @param ctx { container, logger, startedAt }
  * @returns envelope({ success, data: MissionBriefing })
  */
-export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: BootstrapInput) {
+export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: GenerateInput) {
   const { runProjectIndexWorkflow } = await import('./project-index.js');
   return runProjectIndexWorkflow(ctx, args, { mode: 'full' });
 }
 
-export async function runHostAgentProjectIndexFullWorkflow(ctx: McpContext, args?: BootstrapInput) {
+export async function runHostAgentProjectIndexFullWorkflow(ctx: McpContext, args?: GenerateInput) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);
@@ -138,7 +138,7 @@ export async function runHostAgentProjectIndexFullWorkflow(ctx: McpContext, args
 
 async function prepareColdStartPlanGate(
   ctx: McpContext,
-  args: BootstrapInput | undefined,
+  args: GenerateInput | undefined,
   projectRoot: string
 ): Promise<ColdStartPlanGatePreparation> {
   const planGate = await resolvePlanGenerationGate(ctx, args, {
@@ -161,7 +161,7 @@ async function prepareColdStartPlanGate(
 
 async function runPlanGatedColdStart(
   ctx: McpContext,
-  args: BootstrapInput | undefined,
+  args: GenerateInput | undefined,
   input: {
     dataRoot: string;
     planGate: PlanGenerationGateReady;
@@ -222,11 +222,11 @@ async function runPlanGatedColdStart(
 function buildColdStartDestructiveConfirmationBlock(
   projectRoot: string,
   planGate: PlanGenerationGateReady,
-  args: BootstrapInput | undefined
+  args: GenerateInput | undefined
 ): Record<string, unknown> | null {
   const knowledgeBefore = inspectKnowledge(projectRoot);
   return planGate.cleanupPolicy === 'full-reset'
-    ? buildBootstrapRebuildConfirmationBlock(knowledgeBefore, args)
+    ? buildGenerateRebuildConfirmationBlock(knowledgeBefore, args)
     : null;
 }
 
@@ -1120,9 +1120,9 @@ function attachColdStartTrashMessage(
 /**
  * 可用知识库 + 未确认 rebuild → 拒绝销毁（导出供单测直接验证门禁矩阵）。
  */
-export function buildBootstrapRebuildConfirmationBlock(
+export function buildGenerateRebuildConfirmationBlock(
   knowledge: HostKnowledgeState,
-  args?: BootstrapInput
+  args?: GenerateInput
 ): Record<string, unknown> | null {
   if (!knowledge.usable || args?.rebuild === true) {
     return null;

@@ -21,10 +21,10 @@ vi.mock('../../lib/recipe-generation/host-agent-workflows/project-index.js', () 
 import { runHostAgentColdStartWorkflow as legacyColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import { runHostAgentKnowledgeRescanWorkflow as legacyRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import {
-  bootstrapForHostAgent,
+  generateForHostAgent,
   runProjectIndexWorkflow as bootstrapProjectIndexWorkflow,
   getActiveSession,
-} from '../../lib/runtime/mcp/handlers/host-agent/bootstrap.js';
+} from '../../lib/runtime/mcp/handlers/host-agent/generate.js';
 import {
   rescanForHostAgent,
   runProjectIndexWorkflow as rescanProjectIndexWorkflow,
@@ -39,7 +39,7 @@ describe('host-agent project-index compatibility exports', () => {
   });
 
   test('keeps MCP handler re-exports attached to the unified project-index module', () => {
-    expect(bootstrapForHostAgent).toBe(projectIndexColdStartMock);
+    expect(generateForHostAgent).toBe(projectIndexColdStartMock);
     expect(rescanForHostAgent).toBe(projectIndexRescanMock);
     expect(bootstrapProjectIndexWorkflow).toBe(runProjectIndexWorkflowMock);
     expect(rescanProjectIndexWorkflow).toBe(runProjectIndexWorkflowMock);

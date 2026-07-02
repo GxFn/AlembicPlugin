@@ -23,6 +23,7 @@ const rg9AdapterPaths = [
   'lib/runtime/mcp/host-agent-workflows/recipe-evidence-gate.ts',
   'lib/runtime/mcp/host-agent-workflows/recipe-region-vector.ts',
   'lib/runtime/evolution/PluginOpportunisticEvolution.ts',
+  // RG9 shim 保留旧路径(存在意义=兜住旧 #service/bootstrap 导入),S4 批3 只改其转发目标
   'lib/service/bootstrap/BootstrapEventEmitter.ts',
   'lib/service/bootstrap/BootstrapTaskManager.ts',
   'lib/service/vector/LocalEmbedding.ts',
@@ -38,8 +39,8 @@ const rg9ImplementationPaths = [
   'lib/recipe-generation/host-agent-workflows/project-data-root.ts',
   'lib/recipe-generation/host-agent-workflows/recipe-evidence-gate.ts',
   'lib/recipe-generation/host-agent-workflows/recipe-region-vector.ts',
-  'lib/recipe-generation/bootstrap/BootstrapEventEmitter.ts',
-  'lib/recipe-generation/bootstrap/BootstrapTaskManager.ts',
+  'lib/recipe-generation/generate/GenerateEventEmitter.ts',
+  'lib/recipe-generation/generate/GenerateTaskManager.ts',
   'lib/recipe-generation/vector/LocalEmbedding.ts',
   'lib/recipe-generation/evolution/HostAgentFileChangeHandler.ts',
   'lib/recipe-generation/evolution/PluginOpportunisticEvolution.ts',

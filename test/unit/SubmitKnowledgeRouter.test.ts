@@ -979,7 +979,7 @@ function makeContext({
         if (name === 'recipeSourceRefRepository') {
           return recipeSourceRefRepository ?? null;
         }
-        if (name === 'bootstrapSessionManager') {
+        if (name === 'generateSessionManager') {
           return {
             getSession: (sessionId?: string) =>
               session && (!sessionId || sessionId === session.id) ? session : null,

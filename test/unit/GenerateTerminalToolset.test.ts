@@ -15,34 +15,34 @@ function mockTerminalToolset(toolset = 'terminal-run') {
   process.env.ALEMBIC_TERMINAL_TOOLSET = toolset;
 }
 
-describe('BootstrapTerminalToolset', () => {
+describe('GenerateTerminalToolset', () => {
   test('defaults to terminal-run', async () => {
     delete process.env.ALEMBIC_TERMINAL_TOOLSET;
     mockTerminalToolset();
 
-    const { resolveBootstrapTerminalToolset, getBootstrapStageTerminalTools } = await loadModule();
-    const config = resolveBootstrapTerminalToolset();
+    const { resolveGenerateTerminalToolset, getGenerateStageTerminalTools } = await loadModule();
+    const config = resolveGenerateTerminalToolset();
 
     expect(config).toEqual({
       enabled: true,
       toolset: 'terminal-run',
       modes: ['run'],
     });
-    expect(getBootstrapStageTerminalTools('analyze', config)).toEqual(['terminal']);
-    expect(getBootstrapStageTerminalTools('produce', config)).toEqual([]);
+    expect(getGenerateStageTerminalTools('analyze', config)).toEqual(['terminal']);
+    expect(getGenerateStageTerminalTools('produce', config)).toEqual([]);
   });
 
   test('allows explicit baseline to disable terminal tools', async () => {
     mockTerminalToolset('baseline');
-    const { resolveBootstrapTerminalToolset, getBootstrapStageTerminalTools } = await loadModule();
-    const config = resolveBootstrapTerminalToolset();
+    const { resolveGenerateTerminalToolset, getGenerateStageTerminalTools } = await loadModule();
+    const config = resolveGenerateTerminalToolset();
 
     expect(config).toEqual({
       enabled: false,
       toolset: 'baseline',
       modes: [],
     });
-    expect(getBootstrapStageTerminalTools('analyze', config)).toEqual([]);
+    expect(getGenerateStageTerminalTools('analyze', config)).toEqual([]);
   });
 
   test.each([
@@ -51,20 +51,20 @@ describe('BootstrapTerminalToolset', () => {
   ])('collapses legacy %s requests to live terminal-run', async (toolset) => {
     mockTerminalToolset(toolset);
     const {
-      buildBootstrapTerminalPolicyHints,
-      getBootstrapStageTerminalTools,
-      resolveBootstrapTerminalToolset,
+      buildGenerateTerminalPolicyHints,
+      getGenerateStageTerminalTools,
+      resolveGenerateTerminalToolset,
     } = await loadModule();
-    const config = resolveBootstrapTerminalToolset();
-    const hints = buildBootstrapTerminalPolicyHints(config);
+    const config = resolveGenerateTerminalToolset();
+    const hints = buildGenerateTerminalPolicyHints(config);
 
     expect(config).toEqual({
       enabled: true,
       toolset: 'terminal-run',
       modes: ['run'],
     });
-    expect(getBootstrapStageTerminalTools('analyze', config)).toEqual(['terminal']);
-    expect(getBootstrapStageTerminalTools('evolution', config)).toEqual(['terminal']);
+    expect(getGenerateStageTerminalTools('analyze', config)).toEqual(['terminal']);
+    expect(getGenerateStageTerminalTools('evolution', config)).toEqual(['terminal']);
     expect(JSON.stringify(hints)).not.toContain('terminal_shell');
     expect(JSON.stringify(hints)).not.toContain('terminal_pty');
   });

@@ -4,7 +4,7 @@
  */
 
 import type {
-  BootstrapFile,
+  GenerateFile,
   DimensionCheckpointResult,
   IncrementalPlan,
   LoggerLike,
@@ -275,7 +275,7 @@ export interface KnowledgeBaseStats {
 
 // ─── Bootstrap / Incremental ─────────────────────────────
 
-export type { BootstrapFile, IncrementalPlan, SaveSnapshotParams };
+export type { GenerateFile, IncrementalPlan, SaveSnapshotParams };
 
 // ─── Dimension checkpoint ────────────────────────────────
 

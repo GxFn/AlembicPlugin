@@ -11,9 +11,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { inspectKnowledge } from '#codex/KnowledgeState.js';
 import { buildHostProjectHandoffBlock } from '#codex/mcp/host/host-project-handoff.js';
-import { buildBootstrapRebuildConfirmationBlock } from '#recipe-generation/host-agent-workflows/cold-start.js';
+import { buildGenerateRebuildConfirmationBlock } from '#recipe-generation/host-agent-workflows/cold-start.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
-import { BootstrapInput } from '#shared/schemas/mcp-tools.js';
+import { GenerateInput } from '#shared/schemas/mcp-tools.js';
 
 function makeDataRoot(withProjections: boolean): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 't6-gates-'));
@@ -86,16 +86,16 @@ describe('P3-2: bootstrap rebuild confirmation gate', () => {
     return projectRoot;
   }
 
-  it('BootstrapInput accepts the rebuild confirmation argument', () => {
-    expect(BootstrapInput.parse({})).toEqual({});
-    expect(BootstrapInput.parse({ rebuild: true })).toEqual({ rebuild: true });
+  it('GenerateInput accepts the rebuild confirmation argument', () => {
+    expect(GenerateInput.parse({})).toEqual({});
+    expect(GenerateInput.parse({ rebuild: true })).toEqual({ rebuild: true });
   });
 
   it('blocks a bare bootstrap when the knowledge base is usable', () => {
     const knowledge = inspectKnowledge(makeUsableProject());
     expect(knowledge.usable).toBe(true);
 
-    const block = buildBootstrapRebuildConfirmationBlock(knowledge, {});
+    const block = buildGenerateRebuildConfirmationBlock(knowledge, {});
     expect(block).not.toBeNull();
     expect(block).toMatchObject({
       errorCode: 'CODEX_BOOTSTRAP_REBUILD_CONFIRMATION_REQUIRED',
@@ -110,14 +110,14 @@ describe('P3-2: bootstrap rebuild confirmation gate', () => {
 
   it('proceeds with explicit rebuild:true on a usable knowledge base', () => {
     const knowledge = inspectKnowledge(makeUsableProject());
-    expect(buildBootstrapRebuildConfirmationBlock(knowledge, { rebuild: true })).toBeNull();
+    expect(buildGenerateRebuildConfirmationBlock(knowledge, { rebuild: true })).toBeNull();
   });
 
   it('proceeds without confirmation on a non-usable knowledge base', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't6-fresh-'));
     const knowledge = inspectKnowledge(projectRoot);
     expect(knowledge.usable).toBe(false);
-    expect(buildBootstrapRebuildConfirmationBlock(knowledge, {})).toBeNull();
+    expect(buildGenerateRebuildConfirmationBlock(knowledge, {})).toBeNull();
   });
 });
 

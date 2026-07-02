@@ -1,5 +1,5 @@
 /**
- * BootstrapDedup 单元测试
+ * GenerateDedup 单元测试
  *
  * 验证冷启动期间的会话级去重缓存：
  *   - register / findDuplicate / findDuplicates / clear
@@ -7,7 +7,7 @@
  *   - 阈值拦截逻辑
  */
 
-import { BootstrapDedup, type CandidateSummary } from '@alembic/core/service/bootstrap';
+import { GenerateDedup, type CandidateSummary } from '@alembic/core/service/bootstrap';
 import { describe, expect, it } from 'vitest';
 
 function makeSummary(overrides: Partial<CandidateSummary> = {}): CandidateSummary {
@@ -23,10 +23,10 @@ function makeSummary(overrides: Partial<CandidateSummary> = {}): CandidateSummar
   };
 }
 
-describe('BootstrapDedup', () => {
+describe('GenerateDedup', () => {
   describe('register + count', () => {
     it('should track registered entries', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
       expect(dedup.count).toBe(0);
 
       dedup.register(makeSummary());
@@ -39,7 +39,7 @@ describe('BootstrapDedup', () => {
 
   describe('clear', () => {
     it('should reset all entries', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
       dedup.register(makeSummary());
       dedup.register(makeSummary({ id: 'r-002' }));
       expect(dedup.count).toBe(2);
@@ -51,7 +51,7 @@ describe('BootstrapDedup', () => {
 
   describe('findDuplicate — identical candidate', () => {
     it('should detect identical entry as duplicate', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
       const existing = makeSummary();
       dedup.register(existing);
 
@@ -65,7 +65,7 @@ describe('BootstrapDedup', () => {
 
   describe('findDuplicate — cross-dimension duplicate', () => {
     it('should detect cross-dimension duplicate with similar content but different category', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
 
       // code-pattern 维度注册
       dedup.register(
@@ -101,7 +101,7 @@ describe('BootstrapDedup', () => {
 
   describe('findDuplicate — genuinely different content', () => {
     it('should NOT flag genuinely different topics as duplicates', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
 
       dedup.register(
         makeSummary({
@@ -129,7 +129,7 @@ describe('BootstrapDedup', () => {
 
   describe('findDuplicate — threshold control', () => {
     it('should respect custom threshold', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
       dedup.register(makeSummary());
 
       // With very high threshold, moderate matches should pass
@@ -158,7 +158,7 @@ describe('BootstrapDedup', () => {
 
   describe('findDuplicate — empty cache', () => {
     it('should return null when cache is empty', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
       const match = dedup.findDuplicate(makeSummary());
       expect(match).toBeNull();
     });
@@ -166,7 +166,7 @@ describe('BootstrapDedup', () => {
 
   describe('findDuplicates — batch check', () => {
     it('should return matches for duplicate entries in batch', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
       dedup.register(makeSummary({ id: 'r-001' }));
 
       const candidates = [
@@ -189,7 +189,7 @@ describe('BootstrapDedup', () => {
 
   describe('guardPattern matching', () => {
     it('should boost similarity when guardPattern matches exactly', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
       dedup.register(
         makeSummary({
           id: 'r-guard',
@@ -238,7 +238,7 @@ describe('BootstrapDedup', () => {
 
   describe('multiple registered entries', () => {
     it('should return the best match among multiple entries', () => {
-      const dedup = new BootstrapDedup();
+      const dedup = new GenerateDedup();
 
       dedup.register(
         makeSummary({

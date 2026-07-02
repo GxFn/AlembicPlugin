@@ -59,7 +59,7 @@ export interface RecipeEvidenceGateResult {
   violations: RecipeEvidenceViolation[];
 }
 
-export interface BootstrapSessionLike {
+export interface GenerateSessionLike {
   id: string;
   projectRoot: string;
   dimensions?: Array<{ id: string }>;
@@ -82,13 +82,13 @@ export interface DimensionQualityReportLike {
   totalScore?: number;
 }
 
-export function resolveBootstrapSession(
+export function resolveGenerateSession(
   container: {
     get(name: string): unknown;
     register?: (name: string, factory: () => unknown) => void;
   },
   sessionId?: string
-): BootstrapSessionLike | null {
+): GenerateSessionLike | null {
   try {
     const sessionManager = getOrCreateSessionManager(container as never);
     const session = sessionManager.getSession(sessionId);
@@ -105,7 +105,7 @@ export function shouldRunRecipeEvidenceGate({
 }: {
   args: Record<string, unknown>;
   items: Array<Record<string, unknown>>;
-  session: BootstrapSessionLike | null;
+  session: GenerateSessionLike | null;
 }): boolean {
   if (session) {
     return true;
@@ -218,7 +218,7 @@ function createSourceRefResolver(): RecipeSourceRefResolver {
 function createSessionScope(args: {
   dimensionId?: string;
   projectRoot: string;
-  session: BootstrapSessionLike | null;
+  session: GenerateSessionLike | null;
 }): RecipeSessionScope {
   return () => {
     const violations = validateRecipeSessionScope({
@@ -244,7 +244,7 @@ export function validateRecipeProductionEvidenceGate({
   args: Record<string, unknown>;
   items: Array<Record<string, unknown>>;
   projectRoot: string;
-  session: BootstrapSessionLike | null;
+  session: GenerateSessionLike | null;
   skipConsolidation: boolean;
 }): RecipeEvidenceGateResult {
   const dimensionId = firstString(args.dimensionId, ...items.map((item) => item.dimensionId));
@@ -295,7 +295,7 @@ function validateRecipeSessionScope({
 }: {
   dimensionId?: string;
   projectRoot: string;
-  session: BootstrapSessionLike | null;
+  session: GenerateSessionLike | null;
 }): RecipeEvidenceViolation[] {
   const violations: RecipeEvidenceViolation[] = [];
   if (!session) {
@@ -337,7 +337,7 @@ export function previewDimensionQualityReport({
   analysisText: string;
   dimensionId: string;
   referencedFiles: string[];
-  session: BootstrapSessionLike;
+  session: GenerateSessionLike;
 }): DimensionQualityReportLike | undefined {
   try {
     return session.submissionTracker?.buildQualityReport?.(
@@ -366,7 +366,7 @@ export function validateDimensionCompletionEvidenceGate({
   keyFindings: string[];
   qualityReport?: DimensionQualityReportLike;
   referencedFiles: string[];
-  session: BootstrapSessionLike;
+  session: GenerateSessionLike;
   submittedRecipeIds: string[];
 }): RecipeEvidenceGateResult {
   const violations: RecipeEvidenceViolation[] = [];
@@ -507,7 +507,7 @@ export function primaryEvidenceGateCode(result: RecipeEvidenceGateResult): strin
 }
 
 function safeGetSubmissions(
-  session: BootstrapSessionLike,
+  session: GenerateSessionLike,
   dimensionId: string
 ): Array<{ recipeId?: string; sources?: string[] }> {
   try {
@@ -536,12 +536,12 @@ function isInsideRoot(root: string, target: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-function isBootstrapSessionLike(value: unknown): value is BootstrapSessionLike {
+function isBootstrapSessionLike(value: unknown): value is GenerateSessionLike {
   return (
     Boolean(value) &&
     typeof value === 'object' &&
-    typeof (value as BootstrapSessionLike).id === 'string' &&
-    typeof (value as BootstrapSessionLike).projectRoot === 'string'
+    typeof (value as GenerateSessionLike).id === 'string' &&
+    typeof (value as GenerateSessionLike).projectRoot === 'string'
   );
 }
 

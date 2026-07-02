@@ -24,8 +24,8 @@ const rescanForHostAgentMock = vi.hoisted(() =>
   }))
 );
 
-vi.mock('../../lib/runtime/mcp/handlers/host-agent/bootstrap.js', () => ({
-  bootstrapForHostAgent: bootstrapForHostAgentMock,
+vi.mock('../../lib/runtime/mcp/handlers/host-agent/generate.js', () => ({
+  generateForHostAgent: bootstrapForHostAgentMock,
   getActiveSession: getActiveSessionMock,
 }));
 

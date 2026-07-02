@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  type BootstrapSessionLike,
+  type GenerateSessionLike,
   validateDimensionCompletionEvidenceGate,
   validateRecipeProductionEvidenceGate,
 } from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
@@ -270,7 +270,7 @@ function makeProjectRoot(): string {
   return projectRoot;
 }
 
-function session(projectRoot: string): BootstrapSessionLike {
+function session(projectRoot: string): GenerateSessionLike {
   return {
     id: 'session-1',
     projectRoot,

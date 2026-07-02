@@ -15,7 +15,7 @@ import Logger from '@alembic/core/logging';
 import type { EvolutionCoverageLedgerRepository } from '@alembic/core/repositories';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { buildHostAgentAnalysisProgressBackfill } from '#codex/host-agent/HostAgentAnalysisSurface.js';
-import { BootstrapEventEmitter } from '#recipe-generation/bootstrap/BootstrapEventEmitter.js';
+import { GenerateEventEmitter } from '#recipe-generation/generate/GenerateEventEmitter.js';
 import {
   buildDimensionCompletionCompletenessCritic,
   buildSubmittedRecipesForCompletenessCritic,
@@ -190,7 +190,7 @@ export interface HostAgentWorkflowSession {
 interface HostAgentDimensionCompletionEmitter {
   emitDimensionComplete(
     dimId: string,
-    data: Parameters<BootstrapEventEmitter['emitDimensionComplete']>[1]
+    data: Parameters<GenerateEventEmitter['emitDimensionComplete']>[1]
   ): void;
   emitAllComplete(sessionId: string, total: number, source: string): void;
 }
@@ -866,7 +866,7 @@ function createDataRootSessionContainer(
       if (name in registry) {
         return registry[name];
       }
-      if (name === 'bootstrapSessionManager') {
+      if (name === 'generateSessionManager') {
         return null;
       }
       return parent.get(name);
@@ -1544,7 +1544,7 @@ function emitHostAgentCompletionProgress({
 }): void {
   const emitter = dependencies.createEmitter
     ? dependencies.createEmitter(ctx.container)
-    : new BootstrapEventEmitter(ctx.container);
+    : new GenerateEventEmitter(ctx.container);
   emitter.emitDimensionComplete(dimensionId, {
     type: dimension.skillWorthy ? 'skill' : 'candidate',
     extracted: candidateCount,

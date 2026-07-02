@@ -73,7 +73,7 @@ import {
   isResidentProjectScopeReady,
 } from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
-import type { BootstrapInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
+import type { GenerateInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
 import type { DaemonStatus } from '../daemon-status.js';
 import '../../runtime/mcp/local-tools/output.js';
 import { TIER_ORDER, TOOLS } from '../../runtime/mcp/tools.js';
@@ -785,8 +785,8 @@ export class HostMcpServer {
     try {
       let raw: unknown;
       if (kind === 'bootstrap') {
-        const { bootstrapForHostAgent } = await import('./handlers/host-agent/bootstrap.js');
-        raw = await bootstrapForHostAgent({ container, logger }, normalizeBootstrapJobArgs(args));
+        const { generateForHostAgent } = await import('./handlers/host-agent/generate.js');
+        raw = await generateForHostAgent({ container, logger }, normalizeBootstrapJobArgs(args));
       } else {
         const { rescanForHostAgent } = await import('./handlers/host-agent/rescan.js');
         raw = await rescanForHostAgent({ container, logger }, normalizeRescanJobArgs(args));
@@ -1058,11 +1058,11 @@ export class HostMcpServer {
   }
 }
 
-function normalizeBootstrapJobArgs(args: Record<string, unknown>): BootstrapInput {
+function normalizeBootstrapJobArgs(args: Record<string, unknown>): GenerateInput {
   return {
     rebuild: readOptionalBoolean(args.rebuild),
     generationStage: args.generationStage === 'coldStart' ? 'coldStart' : undefined,
-    planSelection: args.planSelection as BootstrapInput['planSelection'],
+    planSelection: args.planSelection as GenerateInput['planSelection'],
     testMode: readOptionalBoolean(args.testMode),
     dimensions: readStringArray(args.dimensions),
     scaleOverride: readScaleOverride(args.scaleOverride),
@@ -1127,7 +1127,7 @@ function readStringArray(value: unknown): string[] | undefined {
   return strings.length > 0 ? strings : undefined;
 }
 
-function readScaleOverride(value: unknown): BootstrapInput['scaleOverride'] {
+function readScaleOverride(value: unknown): GenerateInput['scaleOverride'] {
   const record = readOptionalRecord(value);
   if (!record) {
     return undefined;

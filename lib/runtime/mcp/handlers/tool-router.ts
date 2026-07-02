@@ -27,7 +27,7 @@ import {
   buildEvidenceGateFailureData,
   primaryEvidenceGateCode,
   type RecipeEvidenceGateResult,
-  resolveBootstrapSession,
+  resolveGenerateSession,
   shouldRunRecipeEvidenceGate,
   validateRecipeProductionEvidenceGate,
 } from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
@@ -54,7 +54,7 @@ import {
 } from '../../../service/knowledge/RecipeFreshnessRuntime.js';
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
-type BootstrapSession = ReturnType<typeof resolveBootstrapSession>;
+type GenerateSession = ReturnType<typeof resolveGenerateSession>;
 
 interface SubmitKnowledgeOptions {
   bootstrapSessionId?: string;
@@ -168,7 +168,7 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
   if (!contentQualityGate.ok) {
     return buildSubmitKnowledgeContentQualityResponse(contentQualityGate);
   }
-  const bootstrapSession = resolveBootstrapSession(ctx.container, options.bootstrapSessionId);
+  const bootstrapSession = resolveGenerateSession(ctx.container, options.bootstrapSessionId);
   const dataRoot = resolveHostAgentDataRoot(
     ctx.container,
     bootstrapSession?.projectRoot || projectContext.projectRoot
@@ -273,7 +273,7 @@ function preprocessSubmitKnowledgeItems(
   }
 }
 
-function readBootstrapSubmissionSets(bootstrapSession: BootstrapSession): {
+function readBootstrapSubmissionSets(bootstrapSession: GenerateSession): {
   existingTitles?: Set<string>;
   existingTriggers?: Set<string>;
 } {
@@ -763,7 +763,7 @@ function buildSubmitKnowledgeEvidenceGateResponse({
   skipConsolidation,
 }: {
   args: Record<string, unknown>;
-  bootstrapSession: ReturnType<typeof resolveBootstrapSession>;
+  bootstrapSession: ReturnType<typeof resolveGenerateSession>;
   items: Array<Record<string, unknown>>;
   projectRoot: string;
   skipConsolidation: boolean;
@@ -875,7 +875,7 @@ function normalizeBootstrapSessionRef(ref: string): string {
   return ref.startsWith('bootstrap-session:') ? ref.slice('bootstrap-session:'.length) : ref;
 }
 
-// ── BootstrapSession 提交追踪辅助函数 ───────────────────────
+// ── GenerateSession 提交追踪辅助函数 ───────────────────────
 
 interface SessionTrackerLike {
   submissionTracker?: {
@@ -888,7 +888,7 @@ interface SessionTrackerLike {
 
 function _getSession(ctx: McpContext): { session: SessionTrackerLike; dimId: string } | null {
   try {
-    const sessionManager = ctx.container.get('bootstrapSessionManager');
+    const sessionManager = ctx.container.get('generateSessionManager');
     const session: SessionTrackerLike | null = sessionManager?.getSession?.();
     if (!session?.submissionTracker) {
       return null;

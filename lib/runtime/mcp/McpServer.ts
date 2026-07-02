@@ -142,7 +142,7 @@ import * as toolRouter from '../../runtime/mcp/handlers/tool-router.js';
 // ─── Codex host-agent handlers ──────────────────────
 
 import { consolidateHandler } from '../../runtime/mcp/handlers/consolidate.js';
-import { bootstrapForHostAgent } from '../../runtime/mcp/handlers/host-agent/bootstrap.js';
+import { generateForHostAgent } from '../../runtime/mcp/handlers/host-agent/generate.js';
 import { dimensionComplete } from '../../runtime/mcp/handlers/host-agent/dimension-completion.js';
 import { evolveForHostAgent } from '../../runtime/mcp/handlers/host-agent/evolve.js';
 import { rescanForHostAgent } from '../../runtime/mcp/handlers/host-agent/rescan.js';
@@ -414,9 +414,9 @@ export class McpServer {
       alembic_project_skill: (ctx, args) => toolRouter.routeProjectSkillTool(ctx, args),
       // ── Host Agent Bootstrap (v3.1) ──
       alembic_bootstrap: (ctx, args) =>
-        bootstrapForHostAgent(
-          ctx as Parameters<typeof bootstrapForHostAgent>[0],
-          args as Parameters<typeof bootstrapForHostAgent>[1]
+        generateForHostAgent(
+          ctx as Parameters<typeof generateForHostAgent>[0],
+          args as Parameters<typeof generateForHostAgent>[1]
         ),
       alembic_rescan: (ctx, args) =>
         rescanForHostAgent(

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import { resolvePlanGenerationGate } from '../../lib/recipe-generation/plan-generation-gate.js';
-import { BootstrapInput, RescanInput } from '../../lib/shared/schemas/mcp-tools.js';
+import { GenerateInput, RescanInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 const fixtureRoots: string[] = [];
 
@@ -17,11 +17,11 @@ describe('stateless planSelection generation gate', () => {
   });
 
   test('executor schemas require planSelection on bootstrap and rescan', () => {
-    expect(BootstrapInput.safeParse({}).success).toBe(false);
+    expect(GenerateInput.safeParse({}).success).toBe(false);
     expect(RescanInput.safeParse({ reason: 'missing-planSelection' }).success).toBe(false);
-    expect(BootstrapInput.safeParse({ planSelection: coldStartSelection() }).success).toBe(true);
-    expect(BootstrapInput.safeParse({ planSelection: rescanSelection() }).success).toBe(false);
-    expect(BootstrapInput.safeParse({ planSelection: moduleMiningSelection() }).success).toBe(
+    expect(GenerateInput.safeParse({ planSelection: coldStartSelection() }).success).toBe(true);
+    expect(GenerateInput.safeParse({ planSelection: rescanSelection() }).success).toBe(false);
+    expect(GenerateInput.safeParse({ planSelection: moduleMiningSelection() }).success).toBe(
       false
     );
     expect(

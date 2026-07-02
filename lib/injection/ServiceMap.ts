@@ -34,7 +34,7 @@ import type Logger from '@alembic/core/logging';
 import type { MemoryRepositoryImpl } from '@alembic/core/memory';
 // ── Repository Types ──
 import type {
-  BootstrapRepository,
+  GenerateRepository,
   CodeEntityRepository,
   EvolutionCoverageLedgerRepository,
   EvolutionGitDiffCheckpointRepository,
@@ -55,7 +55,7 @@ import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/servi
 // ── Shared Types ──
 import type { LanguageService } from '@alembic/core/shared';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
-import type { BootstrapTaskManager } from '#recipe-generation/bootstrap/BootstrapTaskManager.js';
+import type { GenerateTaskManager } from '#recipe-generation/generate/GenerateTaskManager.js';
 import type { ContextualEnricher } from '#recipe-generation/vector/ContextualEnricher.js';
 // ── Domain Types ──
 // ── Core Types ──
@@ -86,12 +86,12 @@ export interface ServiceMap {
   auditStore: AuditStore;
   auditLogger: AuditLogger;
   eventBus: EventBus;
-  bootstrapTaskManager: BootstrapTaskManager;
+  generateTaskManager: GenerateTaskManager;
   jobStore: JobStore;
   knowledgeRepository: KnowledgeRepository;
   knowledgeEdgeRepository: KnowledgeEdgeRepository;
   codeEntityRepository: CodeEntityRepository;
-  bootstrapRepository: BootstrapRepository;
+  generateRepository: GenerateRepository;
   guardViolationRepository: GuardViolationRepository;
   memoryRepository: MemoryRepositoryImpl;
   sessionRepository: SessionRepository;
