@@ -1,73 +1,17 @@
 /**
- * Bootstrap Event Types — 事件 payload 类型化
- *
- * 替代 GenerateEventEmitter 中所有 `Record<string, unknown>` payload，
- * 通过 discriminated union（`type` 字段）实现编译期事件校验。
- *
- * @module recipe-generation/bootstrap/bootstrap-event-types
+ * W2(2026-07-02 全空间统一):事件 payload 基础契约收编 Core 单源
+ * (@alembic/core/knowledge pipelineEventPayloads,与事件名 RECIPE_PIPELINE_EVENTS 同域)。
+ * 旧异名 DimensionHostAgentCompletePayload 在 Core 保留为同类型别名。
  */
-
-// ── DimensionComplete payload variants ───────────────────────
-
-export interface DimensionSkippedPayload {
-  type: 'skipped';
-  reason: string;
-}
-
-export interface DimensionRestoredPayload {
-  type: 'incremental-restored';
-  reason: string;
-}
-
-export interface DimensionCheckpointRestoredPayload {
-  type: 'checkpoint-restored';
-  [key: string]: unknown;
-}
-
-export interface DimensionErrorPayload {
-  type: 'error';
-  reason: string;
-}
-
-export interface DimensionPipelineCompletePayload {
-  type: 'candidate' | 'skill';
-  extracted: number;
-  created: number;
-  status: string;
-  degraded: boolean;
-  durationMs: number;
-  toolCallCount: number;
-  source: string;
-}
-
-export interface DimensionSkillPayload {
-  type: 'skill';
-  skillName: string;
-  sourceCount: number;
-}
-
-export interface DimensionHostAgentCompletePayload {
-  type: 'skill' | 'candidate';
-  extracted: number;
-  skillCreated: boolean;
-  recipesBound: number;
-  progress: string;
-  isBootstrapComplete: boolean;
-  source: string;
-}
-
-/** Discriminated union — 通过 `type` 字段区分 */
-export type DimensionCompletePayload =
-  | DimensionSkippedPayload
-  | DimensionRestoredPayload
-  | DimensionCheckpointRestoredPayload
-  | DimensionErrorPayload
-  | DimensionPipelineCompletePayload
-  | DimensionSkillPayload
-  | DimensionHostAgentCompletePayload;
-
-// ── Other event payloads ─────────────────────────────────────
-
-export interface ProgressPayload {
-  [key: string]: unknown;
-}
+export type {
+  DimensionCheckpointRestoredPayload,
+  DimensionCompletePayload,
+  DimensionErrorPayload,
+  DimensionHostAgentCompletePayload,
+  DimensionHostCompletePayload,
+  DimensionPipelineCompletePayload,
+  DimensionRestoredPayload,
+  DimensionSkillPayload,
+  DimensionSkippedPayload,
+  ProgressPayload,
+} from '@alembic/core/knowledge';
