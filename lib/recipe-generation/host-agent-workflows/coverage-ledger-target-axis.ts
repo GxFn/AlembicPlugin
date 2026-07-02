@@ -2,9 +2,10 @@ interface CoverageLedgerAxisItem {
   moduleId?: string;
 }
 
-export function isTargetScopedCoverageModuleId(moduleId: string | undefined): moduleId is string {
-  return typeof moduleId === 'string' && moduleId.trim().startsWith('target:');
-}
+// W2(2026-07-02 全空间统一):谓词改用 Core 权威版——此前本地裸 startsWith 影子实现
+// 语义弱于 Core 版(缺 normalizeCoverageLedgerString 归一,大小写/空白差异会误判)。
+import { isTargetScopedCoverageModuleId } from '@alembic/core/host-agent-workflows';
+export { isTargetScopedCoverageModuleId };
 
 export function preferTargetScopedCoverageItems<T extends CoverageLedgerAxisItem>(
   items: readonly T[]
