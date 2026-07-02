@@ -7,5 +7,5 @@
 
 export {
   runHostAgentKnowledgeRescanWorkflow as rescanForHostAgent,
-  runProjectIndexWorkflow,
-} from '#recipe-generation/host-agent-workflows/project-index.js';
+  runGenerateWorkflow,
+} from '#recipe-generation/host-agent-workflows/generate-workflow.js';

@@ -111,11 +111,11 @@ const RECIPE_AUTHORING_FRONT_LOAD_KEY = 'recipeAuthoringFrontLoad';
  * @returns envelope({ success, data: MissionBriefing })
  */
 export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: GenerateInput) {
-  const { runProjectIndexWorkflow } = await import('./project-index.js');
-  return runProjectIndexWorkflow(ctx, args, { mode: 'full' });
+  const { runGenerateWorkflow } = await import('./generate-workflow.js');
+  return runGenerateWorkflow(ctx, args, { mode: 'full' });
 }
 
-export async function runHostAgentProjectIndexFullWorkflow(ctx: McpContext, args?: GenerateInput) {
+export async function runHostAgentGenerateFullWorkflow(ctx: McpContext, args?: GenerateInput) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
   const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);

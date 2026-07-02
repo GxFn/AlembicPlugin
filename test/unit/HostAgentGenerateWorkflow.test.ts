@@ -18,19 +18,19 @@ const getActiveSessionMock = vi.hoisted(() => vi.fn(() => null));
 
 vi.mock('../../lib/recipe-generation/host-agent-workflows/cold-start.js', () => ({
   getActiveSession: getActiveSessionMock,
-  runHostAgentProjectIndexFullWorkflow: fullWorkflowMock,
+  runHostAgentGenerateFullWorkflow: fullWorkflowMock,
 }));
 
 vi.mock('../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js', () => ({
-  runHostAgentProjectIndexIncrementalWorkflow: incrementalWorkflowMock,
+  runHostAgentGenerateIncrementalWorkflow: incrementalWorkflowMock,
 }));
 
 import {
   getActiveSession,
   runHostAgentColdStartWorkflow,
   runHostAgentKnowledgeRescanWorkflow,
-  runProjectIndexWorkflow,
-} from '../../lib/recipe-generation/host-agent-workflows/project-index.js';
+  runGenerateWorkflow,
+} from '../../lib/recipe-generation/host-agent-workflows/generate-workflow.js';
 
 describe('host-agent project-index workflow entry', () => {
   afterEach(() => {
@@ -45,7 +45,7 @@ describe('host-agent project-index workflow entry', () => {
       typeof runHostAgentColdStartWorkflow
     >[1];
 
-    const result = await runProjectIndexWorkflow(ctx, args, { mode: 'full' });
+    const result = await runGenerateWorkflow(ctx, args, { mode: 'full' });
 
     expect(result).toMatchObject({ success: true, data: { mode: 'full' } });
     expect(fullWorkflowMock).toHaveBeenCalledWith(ctx, args);
@@ -60,7 +60,7 @@ describe('host-agent project-index workflow entry', () => {
       typeof runHostAgentKnowledgeRescanWorkflow
     >[1];
 
-    const result = await runProjectIndexWorkflow(ctx, args, { mode: 'incremental' });
+    const result = await runGenerateWorkflow(ctx, args, { mode: 'incremental' });
 
     expect(result).toMatchObject({ success: true, data: { mode: 'incremental' } });
     expect(incrementalWorkflowMock).toHaveBeenCalledWith(ctx, args);

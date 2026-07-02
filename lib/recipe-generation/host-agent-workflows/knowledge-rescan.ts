@@ -137,11 +137,11 @@ interface OpenHostAgentRescanRoundResult {
 // ── 主入口 ─────────────────────────────────────────────────
 
 export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args: RescanInput) {
-  const { runProjectIndexWorkflow } = await import('./project-index.js');
-  return runProjectIndexWorkflow(ctx, args, { mode: 'incremental' });
+  const { runGenerateWorkflow } = await import('./generate-workflow.js');
+  return runGenerateWorkflow(ctx, args, { mode: 'incremental' });
 }
 
-export async function runHostAgentProjectIndexIncrementalWorkflow(
+export async function runHostAgentGenerateIncrementalWorkflow(
   ctx: McpContext,
   args: RescanInput
 ) {

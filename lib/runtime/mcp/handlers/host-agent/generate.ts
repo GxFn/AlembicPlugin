@@ -8,5 +8,5 @@
 export {
   getActiveSession,
   runHostAgentColdStartWorkflow as generateForHostAgent,
-  runProjectIndexWorkflow,
-} from '#recipe-generation/host-agent-workflows/project-index.js';
+  runGenerateWorkflow,
+} from '#recipe-generation/host-agent-workflows/generate-workflow.js';

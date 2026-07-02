@@ -11,23 +11,23 @@ const projectIndexColdStartMock = vi.hoisted(() => vi.fn());
 const projectIndexRescanMock = vi.hoisted(() => vi.fn());
 const getActiveSessionMock = vi.hoisted(() => vi.fn(() => null));
 
-vi.mock('../../lib/recipe-generation/host-agent-workflows/project-index.js', () => ({
+vi.mock('../../lib/recipe-generation/host-agent-workflows/generate-workflow.js', () => ({
   getActiveSession: getActiveSessionMock,
   runHostAgentColdStartWorkflow: projectIndexColdStartMock,
   runHostAgentKnowledgeRescanWorkflow: projectIndexRescanMock,
-  runProjectIndexWorkflow: runProjectIndexWorkflowMock,
+  runGenerateWorkflow: runProjectIndexWorkflowMock,
 }));
 
 import { runHostAgentColdStartWorkflow as legacyColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import { runHostAgentKnowledgeRescanWorkflow as legacyRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import {
   generateForHostAgent,
-  runProjectIndexWorkflow as bootstrapProjectIndexWorkflow,
+  runGenerateWorkflow as bootstrapProjectIndexWorkflow,
   getActiveSession,
 } from '../../lib/runtime/mcp/handlers/host-agent/generate.js';
 import {
   rescanForHostAgent,
-  runProjectIndexWorkflow as rescanProjectIndexWorkflow,
+  runGenerateWorkflow as rescanProjectIndexWorkflow,
 } from '../../lib/runtime/mcp/handlers/host-agent/rescan.js';
 
 describe('host-agent project-index compatibility exports', () => {
