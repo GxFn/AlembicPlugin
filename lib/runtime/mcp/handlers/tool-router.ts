@@ -11,7 +11,11 @@
 
 import { dimensionTags } from '@alembic/core/dimensions';
 import type { CreateRecipeItem, CreateRecipeResult } from '@alembic/core/knowledge';
-import { getRequiredFieldsDescription } from '@alembic/core/knowledge';
+import {
+  applyStyleWaiver,
+  getRequiredFieldsDescription,
+  isSoftAuthoringViolation,
+} from '@alembic/core/knowledge';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
 import {
@@ -785,10 +789,58 @@ function buildSubmitKnowledgeEvidenceGateResponse({
     return null;
   }
 
+  // C-6(2026-07-02 统一重构)：软规则一次申辩制——与主体 in-process submit 同一 Core
+  // styleWaiver 语义。违规全为软规则(写作风格判断)且 host agent 带 ≥20 字理由重交时
+  // 放行,理由随 reasoning.styleWaiver 原位写进 items 落库,由 Dashboard 人工审核终裁。
+  // 宿主差异:MCP 调用间无会话计数(sessionWaiverTotal 恒 0,即无 5 次上限),防刷由
+  // rate limit + 全部 waiver 均落库人审兜底;硬规则(证据接地/伪造/结构)不受影响。
+  const waiverJustification =
+    typeof args.waiverJustification === 'string' ? args.waiverJustification : undefined;
+  if (waiverJustification) {
+    let allWaived = items.length > 0;
+    const waivedItems: Array<{ index: number; codes: string[] }> = [];
+    for (let index = 0; index < items.length; index += 1) {
+      const itemViolations = evidenceGate.violations.filter(
+        (violation) => (violation.itemIndex ?? 0) === index
+      );
+      if (itemViolations.length === 0) {
+        continue;
+      }
+      const waiver = applyStyleWaiver({
+        violations: itemViolations,
+        justification: waiverJustification,
+        sessionWaiverTotal: 0,
+        item: items[index] as Record<string, unknown>,
+      });
+      if (!waiver.waived) {
+        allWaived = false;
+        break;
+      }
+      waivedItems.push({ index, codes: waiver.waivedCodes });
+      items[index] = waiver.item;
+    }
+    if (allWaived && waivedItems.length > 0) {
+      console.error(
+        `[submit_knowledge] style waiver accepted for ${waivedItems.length} item(s): ${waivedItems
+          .map((entry) => `#${entry.index}[${entry.codes.join(',')}]`)
+          .join(' ')} — pending human review`
+      );
+      return null;
+    }
+  }
+
+  // 申辩指引:全部违规都是软规则时告知申辩通道(硬违规在场时先修事实错误,不提申辩)。
+  const appealEligible =
+    evidenceGate.violations.length > 0 &&
+    evidenceGate.violations.every((violation) => isSoftAuthoringViolation(violation.code));
+  const appealHint = appealEligible
+    ? ' All violations are soft style rules: if you have a legitimate reason to keep your wording (e.g. project idiom), resubmit unchanged with waiverJustification (>=20 chars) — it will pass with your reason attached for human review.'
+    : '';
+
   return envelope({
     success: false,
     errorCode: primaryEvidenceGateCode(evidenceGate),
-    message: buildSubmitKnowledgeEvidenceGateSummary(evidenceGate),
+    message: `${buildSubmitKnowledgeEvidenceGateSummary(evidenceGate)}${appealHint}`,
     data: {
       ...buildEvidenceGateFailureData(evidenceGate),
       problem: {

@@ -790,6 +790,12 @@ export const SubmitKnowledgeInput = z.object({
     .default(false)
     .describe('跳过融合分析（当确认需要独立新建时设为 true）'),
   skipDuplicateCheck: z.boolean().default(false),
+  waiverJustification: z
+    .string()
+    .optional()
+    .describe(
+      'Style-rule appeal only: if the submit was rejected purely by soft style rules (imperative-verb whitelist, contrast example, title genericity, markdown length) and you have a legitimate reason to keep your wording, resubmit unchanged with a >=20-char justification. It passes with your reason attached (reasoning.styleWaiver) for human review. Never applicable to evidence/duplicate/required-structure rejections.'
+    ),
   client_id: z.string().optional(),
   dimensionId: z.string().optional().describe('冷启动/增量扫描关联维度 ID'),
   sessionId: z
