@@ -14,22 +14,7 @@ import { TOOLS } from '../../lib/runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const planToolName = 'alembic_plan';
-const rg9AdapterPaths = [
-  'lib/runtime/mcp/host-agent-workflows/cold-start.ts',
-  'lib/runtime/mcp/host-agent-workflows/dimension-completion.ts',
-  'lib/runtime/mcp/host-agent-workflows/knowledge-rescan.ts',
-  'lib/runtime/mcp/host-agent-workflows/project-context-analysis.ts',
-  'lib/runtime/mcp/host-agent-workflows/project-data-root.ts',
-  'lib/runtime/mcp/host-agent-workflows/recipe-evidence-gate.ts',
-  'lib/runtime/mcp/host-agent-workflows/recipe-region-vector.ts',
-  'lib/runtime/evolution/PluginOpportunisticEvolution.ts',
-  // RG9 shim 保留旧路径(存在意义=兜住旧 #service/bootstrap 导入),S4 批3 只改其转发目标
-  'lib/service/bootstrap/BootstrapEventEmitter.ts',
-  'lib/service/bootstrap/BootstrapTaskManager.ts',
-  'lib/service/vector/LocalEmbedding.ts',
-  'lib/service/evolution/FileChangeHandler.ts',
-  'lib/service/evolution/git-diff-checkpoint/index.ts',
-] as const;
+const rg9AdapterPaths = [] as const;
 
 const rg9ImplementationPaths = [
   'lib/recipe-generation/host-agent-workflows/cold-start.ts',

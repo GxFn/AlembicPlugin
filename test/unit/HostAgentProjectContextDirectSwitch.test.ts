@@ -380,7 +380,7 @@ async function writeFixtureFile(
 
 function readWorkflow(fileName: string): Promise<string> {
   return readFile(
-    join(process.cwd(), 'lib', 'runtime', 'mcp', 'host-agent-workflows', fileName),
+    join(process.cwd(), 'lib', 'recipe-generation', 'host-agent-workflows', fileName),
     'utf8'
   );
 }

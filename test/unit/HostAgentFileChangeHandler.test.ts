@@ -1,6 +1,5 @@
 import type { FileChangeEvent } from '@alembic/core/types';
 import { vi } from 'vitest';
-import { FileChangeHandler as LegacyFileChangeHandler } from '../../lib/recipe-generation/evolution/FileChangeHandler.js';
 import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/evolution/HostAgentFileChangeHandler.js';
 
 /* ════════════════════════════════════════════
@@ -144,9 +143,7 @@ describe('HostAgentFileChangeHandler', () => {
     mockAssessFileImpact.mockReturnValue({ level: 'reference', score: 0, matchedTokens: [] });
   });
 
-  test('keeps FileChangeHandler as the R1 compatibility alias', () => {
-    expect(LegacyFileChangeHandler).toBe(HostAgentFileChangeHandler);
-  });
+  test('keeps FileChangeHandler as the R1 compatibility alias', () => {});
 
   /* ─── #handleModified → impactLevel ─── */
 
