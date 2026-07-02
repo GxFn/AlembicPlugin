@@ -255,7 +255,6 @@ export interface SubmitKnowledgeArgs {
   content?: { pattern?: string; [key: string]: unknown };
   dimensionId?: string;
   knowledgeType?: string;
-  skipDuplicateCheck?: boolean;
   skipConsolidation?: boolean;
   [key: string]: unknown;
 }

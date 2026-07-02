@@ -789,7 +789,6 @@ export const SubmitKnowledgeInput = z.object({
     .boolean()
     .default(false)
     .describe('跳过融合分析（当确认需要独立新建时设为 true）'),
-  skipDuplicateCheck: z.boolean().default(false),
   waiverJustification: z
     .string()
     .optional()
