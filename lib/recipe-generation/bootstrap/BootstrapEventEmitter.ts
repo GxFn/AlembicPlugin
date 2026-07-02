@@ -52,9 +52,17 @@ export class BootstrapEventEmitter {
    * @param [data.recipesBound] 关联的 recipe 数量
    */
   emitDimensionComplete(dimId: string, data: DimensionCompletePayload) {
-    // TaskManager 标记
+    // TaskManager 标记。与主仓库 BootstrapEventEmitter 同一容错口径(共享资产对齐,
+    // 2026-07-02)：非正常终态(error/timeout/blocked/degraded 等)必须标 failed——
+    // 此前插件副本无差别 markTaskCompleted，宿主路径的失败维度会被误标为完成。
+    // 注：主仓库版另有 emitProcessEvents(daemon job process 草稿推送)，为 daemon
+    // 专属能力，插件宿主无 DaemonJobRunner 消费方，属有意的宿主差异，不同步。
     try {
-      this.#taskManager?.markTaskCompleted?.(dimId, data);
+      if (isNonNormalDimensionPayload(data)) {
+        this.#taskManager?.markTaskFailed?.(dimId, extractDimensionFailureReason(data), data);
+      } else {
+        this.#taskManager?.markTaskCompleted?.(dimId, data);
+      }
     } catch {
       /* non-blocking */
     }
@@ -144,6 +152,34 @@ export class BootstrapEventEmitter {
       /* non-blocking */
     }
   }
+}
+
+// 与主仓库 BootstrapEventEmitter 同一判定(逐字对齐)：非正常终态不得标记为完成。
+function isNonNormalDimensionPayload(data: DimensionCompletePayload): boolean {
+  if (data.type === 'error') {
+    return true;
+  }
+  const status = 'status' in data && typeof data.status === 'string' ? data.status : '';
+  return [
+    'timeout',
+    'blocked',
+    'aborted',
+    'error',
+    'degraded_no_findings',
+    'record_repair_incomplete',
+    'l4_compaction_failed_budget_exhausted',
+  ].includes(status);
+}
+
+function extractDimensionFailureReason(data: DimensionCompletePayload): string {
+  if ('reason' in data && typeof data.reason === 'string' && data.reason.trim()) {
+    return data.reason.trim();
+  }
+  const status = 'status' in data ? data.status : undefined;
+  if (typeof status === 'string' && status.trim()) {
+    return status.trim();
+  }
+  return data.type === 'error' ? 'dimension-error' : 'non-normal-dimension-status';
 }
 
 export default BootstrapEventEmitter;

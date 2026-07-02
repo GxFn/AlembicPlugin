@@ -11,6 +11,7 @@ import {
   buildProjectProfileFromAnalysis,
   type CandidateDimension,
   collectPlanProjectContext,
+  PLAN_FACTS_PROJECTION_BUDGET_BYTES,
   type PlanProjectContextAnalysis,
   type ProjectInfoTreeRoot,
 } from '@alembic/core/service/planFacts';
@@ -79,7 +80,8 @@ interface PlanDraftContext {
 }
 
 const PLAN_TOOL_NAME = 'alembic_plan';
-const DEFAULT_PROJECT_INFO_TREE_BUDGET_BYTES = 12 * 1024;
+// C-1(2026-07-02 统一重构)：投影预算改由 Core 单源常量提供，与主体 PlanSelectionGate 同一定义。
+const DEFAULT_PROJECT_INFO_TREE_BUDGET_BYTES = PLAN_FACTS_PROJECTION_BUDGET_BYTES;
 
 // D2 perRoundCellBudget —— 单轮 cell 上限，防止 deepMining 单轮预算爆炸；
 // 这是 plan 编排侧的 cell 数上限，与 Core 的 K/maxRounds 停止条件正交（一个限「本轮喂多少格」，
