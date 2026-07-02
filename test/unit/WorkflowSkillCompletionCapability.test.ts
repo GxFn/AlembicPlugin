@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathGuard, type WriteZone } from '@alembic/core/io';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { generateSkill } from '#workflows/capabilities/execution/WorkflowSkillCompletionCapability.js';
+import { generateSkill } from '#workflows/surfaces/execution/WorkflowSkillCompletionCapability.js';
 
 describe('WorkflowSkillCompletionCapability', () => {
   afterEach(() => {

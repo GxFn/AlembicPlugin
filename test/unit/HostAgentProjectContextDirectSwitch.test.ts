@@ -185,7 +185,7 @@ describe('Host Agent ProjectContext direct switch', () => {
     expect(combined).not.toContain('ProjectSnapshot');
     expect(combined).not.toContain('buildIDEAgentAnalysisPacketFromSnapshot');
     expect(combined).not.toContain('normalizePanoramaForIDEAgent');
-    expect(combined).not.toContain('@alembic/core/workflows/capabilities/project-intelligence');
+    expect(combined).not.toContain('@alembic/core/workflows/surfaces/project-intelligence');
   });
 });
 

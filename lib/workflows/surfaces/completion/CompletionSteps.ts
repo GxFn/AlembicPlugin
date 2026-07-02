@@ -13,7 +13,7 @@ import type {
   LoadServiceContainer,
   PersistentMemoryDb,
   WorkflowSemanticMemoryConsolidationResult,
-} from '#workflows/capabilities/completion/WorkflowCompletionTypes.js';
+} from '#workflows/surfaces/completion/WorkflowCompletionTypes.js';
 
 // ── ProjectContextCompletionStep ──
 

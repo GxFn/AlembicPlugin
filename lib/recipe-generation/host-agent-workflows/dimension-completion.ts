@@ -40,8 +40,8 @@ import {
 import {
   runWorkflowCompletionFinalizer,
   type WorkflowCompletionFinalizerDependencies,
-} from '#workflows/capabilities/completion/WorkflowCompletionFinalizer.js';
-import { generateSkill as generateWorkflowSkill } from '#workflows/capabilities/execution/WorkflowSkillCompletionCapability.js';
+} from '#workflows/surfaces/completion/WorkflowCompletionFinalizer.js';
+import { generateSkill as generateWorkflowSkill } from '#workflows/surfaces/execution/WorkflowSkillCompletionCapability.js';
 
 const logger = Logger.getInstance();
 

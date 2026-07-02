@@ -39,7 +39,7 @@ import type { PlanSelectionModuleBinding } from '#recipe-generation/plan-generat
 import { buildCoverageSeedFromCells } from '#recipe-generation/plan-tool.js';
 
 // ---- 假仓：只捕获 upsertCell 调用，其它方法最小实现 ----
-// CoverageLedgerWriteInput.repository 是 EvolutionCoverageLedgerRepository（含私有字段），结构无法直接构造，
+// CoverageLedgerWriteInput.repository 是 CoverageLedgerRepository（含私有字段），结构无法直接构造，
 // 故用 unknown 中转为最小测试替身（仅断言 writeCoverageLedgerForCompletion 真正调用的方法）。
 function createFakeRepository(): {
   repository: CoverageLedgerWriteInput['repository'];
