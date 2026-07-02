@@ -20,7 +20,7 @@ import type {
   RecipeSessionScope,
   RecipeSourceRefResolver,
 } from '@alembic/core/knowledge';
-import { validateAgainst } from '@alembic/core/knowledge';
+import { DIMENSION_COMPLETION_FLOOR, validateAgainst } from '@alembic/core/knowledge';
 
 export type RecipeEvidenceViolationCode =
   | 'SESSION_NOT_FOUND'
@@ -406,10 +406,12 @@ export function validateDimensionCompletionEvidenceGate({
   }
 
   const verifiedCandidateCount = effectiveRecipeIds.length;
-  if (verifiedCandidateCount < 3) {
+  // C-3(2026-07-02 统一重构)：完成阈值改用 Core DIMENSION_COMPLETION_FLOOR 单源——
+  // 与主体 in-process QualityGate/record_repair 同一组数字,改一处两宿主同步。
+  if (verifiedCandidateCount < DIMENSION_COMPLETION_FLOOR.minCandidates) {
     violations.push({
       code: 'DIMENSION_CANDIDATE_COUNT_INSUFFICIENT',
-      message: `Only ${verifiedCandidateCount} session-bound Recipes were verified; at least 3 are required.`,
+      message: `Only ${verifiedCandidateCount} session-bound Recipes were verified; at least ${DIMENSION_COMPLETION_FLOOR.minCandidates} are required.`,
       nextAction: 'Create more session-bound Recipes with concrete source evidence.',
     });
   }
@@ -440,15 +442,17 @@ export function validateDimensionCompletionEvidenceGate({
     });
   }
 
-  const concreteFindings = keyFindings.filter((finding) => finding.trim().length >= 20);
-  if (concreteFindings.length < 3) {
+  const concreteFindings = keyFindings.filter(
+    (finding) => finding.trim().length >= DIMENSION_COMPLETION_FLOOR.minFindingChars
+  );
+  if (concreteFindings.length < DIMENSION_COMPLETION_FLOOR.minKeyFindings) {
     violations.push({
       code: 'DIMENSION_KEY_FINDINGS_INSUFFICIENT',
       message: 'dimension_complete requires at least three concrete keyFindings.',
       nextAction: 'Summarize at least three source-grounded findings from the completed dimension.',
     });
   }
-  if (analysisText.trim().length < 500) {
+  if (analysisText.trim().length < DIMENSION_COMPLETION_FLOOR.minAnalysisChars) {
     violations.push({
       code: 'DIMENSION_ANALYSIS_TEXT_INSUFFICIENT',
       message: 'dimension_complete analysisText is too short for a production Recipe loop.',
