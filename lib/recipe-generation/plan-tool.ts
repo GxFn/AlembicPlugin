@@ -1,5 +1,5 @@
 import { resolveModuleTier, resolvePerCellTargetDefault } from '@alembic/core/host-agent-workflows';
-import type { PlanStageId } from '@alembic/core/plans';
+import { type PlanStageId, renderPlanScaleChecklistEn } from '@alembic/core/plans';
 import type {
   CoverageLedgerRecord,
   EvolutionCoverageLedgerRepository,
@@ -309,10 +309,15 @@ function buildDraftConfirmNextAction(draftContext: PlanDraftContext): Record<str
 }
 
 function buildAgentDecisionChecklist(): string[] {
+  // S2(2026-07-02 统一重构)：规模条目改由 Core PlanAuthoringSpec 单源 render——
+  // 此前 checklist 只说「Set scale from evidence」,缺主体 persona 已有的
+  // 密度→预算映射规则(B8 散乱),host agent 决策规模无据可依。两宿主自此共用
+  // PLAN_SCALE_RULES 同一份数据。
   return [
     'Pick dimensions from candidateDimensions; do not infer hidden recommended or skipped dimensions.',
     'Choose one generationStage for this run: coldStart, deepMining, or moduleMining.',
-    'Set scale.totalRecipeBudget, depthLevels, maxFiles, and contentMaxLines from the projectInfoTree evidence.',
+    ...renderPlanScaleChecklistEn(),
+    'Set depthLevels, maxFiles, and contentMaxLines from the projectInfoTree evidence.',
     'Bind selected dimensions to concrete module paths when moduleMining or scoped deepMining is needed.',
     'Call alembic_plan confirm with projectProfile from projectInfoTree L0 before bootstrap or rescan.',
   ];
