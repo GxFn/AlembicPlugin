@@ -328,10 +328,10 @@ async function createSubmitKnowledgeGateway(ctx: McpContext, dataRoot: string) {
       ctx,
       'proposalRepository'
     ) as GatewayOptions['proposalRepository'],
-    evolutionGateway: optionalContainerService(
+    proposalGateway: optionalContainerService(
       ctx,
-      'evolutionGateway'
-    ) as GatewayOptions['evolutionGateway'],
+      'proposalGateway'
+    ) as GatewayOptions['proposalGateway'],
     findSimilarRecipes,
     ...(moduleAxis.knownModuleNames ? { knownModuleNames: moduleAxis.knownModuleNames } : {}),
     ...(moduleAxis.resolveModuleFromSourceRefs

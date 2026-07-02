@@ -136,7 +136,7 @@ function makeContext(input: {
   return {
     container: {
       get(name: string) {
-        if (name === 'evolutionGateway') {
+        if (name === 'proposalGateway') {
           return { submit: input.submit };
         }
         if (name === 'knowledgeRepository') {

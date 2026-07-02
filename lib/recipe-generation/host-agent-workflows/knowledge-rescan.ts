@@ -1692,7 +1692,7 @@ function createRescanUnifiedEvolutionHandler(
     return null;
   }
   const contentPatcher = safeContainerGet(ctx, 'contentPatcher');
-  const evolutionGateway = safeContainerGet(ctx, 'evolutionGateway');
+  const proposalGateway = safeContainerGet(ctx, 'proposalGateway');
   const recipeFreshnessService = safeContainerGet(ctx, 'recipeFreshnessService');
   const signalBus = safeContainerGet(ctx, 'signalBus');
   return new HostAgentFileChangeHandler(
@@ -1700,8 +1700,8 @@ function createRescanUnifiedEvolutionHandler(
     knowledgeRepository as never,
     contentPatcher,
     {
-      evolutionGateway: hasFunctions(evolutionGateway, ['submit'])
-        ? (evolutionGateway as never)
+      proposalGateway: hasFunctions(proposalGateway, ['submit'])
+        ? (proposalGateway as never)
         : null,
       projectRoot,
       recipeFreshnessService: hasFunctions(recipeFreshnessService, ['refreshRecipes'])

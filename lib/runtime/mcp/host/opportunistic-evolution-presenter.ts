@@ -119,7 +119,7 @@ function createUnifiedEvolutionHandler(projectRoot: string): HostAgentFileChange
     return null;
   }
   const contentPatcher = safeContainerGet(container, 'contentPatcher');
-  const evolutionGateway = safeContainerGet(container, 'evolutionGateway');
+  const proposalGateway = safeContainerGet(container, 'proposalGateway');
   const recipeFreshnessService = safeContainerGet(container, 'recipeFreshnessService');
   const signalBus = safeContainerGet(container, 'signalBus');
   return new HostAgentFileChangeHandler(
@@ -127,8 +127,8 @@ function createUnifiedEvolutionHandler(projectRoot: string): HostAgentFileChange
     knowledgeRepository as never,
     contentPatcher,
     {
-      evolutionGateway: hasFunctions(evolutionGateway, ['submit'])
-        ? (evolutionGateway as never)
+      proposalGateway: hasFunctions(proposalGateway, ['submit'])
+        ? (proposalGateway as never)
         : null,
       projectRoot,
       recipeFreshnessService: hasFunctions(recipeFreshnessService, ['refreshRecipes'])

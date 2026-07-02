@@ -393,8 +393,8 @@ describe('RecipeProductionGateway', () => {
   });
 
   describe('create — supersede', () => {
-    it('应通过 EvolutionGateway 创建 deprecate 提案', async () => {
-      const evolutionGateway = {
+    it('应通过 ProposalGateway 创建 deprecate 提案', async () => {
+      const proposalGateway = {
         submit: vi.fn(async () => ({
           recipeId: 'old-recipe-id',
           action: 'deprecate',
@@ -403,7 +403,7 @@ describe('RecipeProductionGateway', () => {
         })),
       };
 
-      const gateway = new RecipeProductionGateway(makeDeps({ evolutionGateway }));
+      const gateway = new RecipeProductionGateway(makeDeps({ proposalGateway }));
 
       const result = await gateway.create({
         source: 'agent-tool',
@@ -418,7 +418,7 @@ describe('RecipeProductionGateway', () => {
       expect(result.created).toHaveLength(1);
       expect(result.supersedeProposal).not.toBeNull();
       expect(result.supersedeProposal?.proposalId).toBe('supersede-1');
-      expect(evolutionGateway.submit).toHaveBeenCalledWith(
+      expect(proposalGateway.submit).toHaveBeenCalledWith(
         expect.objectContaining({
           recipeId: 'old-recipe-id',
           action: 'deprecate',
@@ -427,7 +427,7 @@ describe('RecipeProductionGateway', () => {
       );
     });
 
-    it('降级到 ProposalRepo 当无 EvolutionGateway 时', async () => {
+    it('降级到 ProposalRepo 当无 ProposalGateway 时', async () => {
       const proposalRepo = {
         create: vi.fn(() => ({
           id: 'supersede-fallback',

@@ -5,7 +5,7 @@ import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/evolutio
 // 只落一条」。真实去重在 Core ProposalRepository.create 的 #hasDuplicate：按
 // (target_recipe_id, type, status∈pending/observing) 去重。evolution_proposals 无 source_path 列，
 // 故禁止声称按 sourcePath 去重——去重键是 (recipeId, type, status)。两入口经同一容器拿同一
-// evolutionGateway → 同一 ProposalRepository，故无论哪个入口触发，重复提案被 Core 去重。
+// proposalGateway → 同一 ProposalRepository，故无论哪个入口触发，重复提案被 Core 去重。
 // 本测试用忠实建模该 dedup 的 gateway 桩，跨两次 handleFileChanges（模拟两入口/两 tick 对同一被覆盖
 // 文件的同类变更）证明只落一条；不依赖真机/真 DB，不改 schema。
 
@@ -58,10 +58,10 @@ describe('Commit-driven maintenance dual-entry dedup (UM#7 / CG-6)', () => {
       })),
     };
 
-    // 两入口经各自容器装配自己的 handler，但共享同一 evolutionGateway（→ 同一 ProposalRepository）。
+    // 两入口经各自容器装配自己的 handler，但共享同一 proposalGateway（→ 同一 ProposalRepository）。
     const buildHandler = () =>
       new HostAgentFileChangeHandler(sourceRefRepo as never, knowledgeRepo as never, undefined, {
-        evolutionGateway: gateway as never,
+        proposalGateway: gateway as never,
         projectRoot: '/repo',
       });
 

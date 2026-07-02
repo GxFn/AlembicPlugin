@@ -1130,7 +1130,7 @@ function createRescanContext(
 ) {
   const services: Record<string, unknown> = {
     database: runtime.connection,
-    evolutionGateway: {
+    proposalGateway: {
       submit: async () => ({ id: 'proposal-session-lease-regression' }),
     },
     gitDiffCheckpointRepository: repositories.gitDiffCheckpointRepository,

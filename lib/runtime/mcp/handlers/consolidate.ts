@@ -3,13 +3,13 @@
  *
  * 处理 Agent 对 pendingSemanticReview 条目的决策：
  *   - keep    → 无操作（Recipe 保留原样）
- *   - merge   → EvolutionGateway.submit({ action: 'update' }) + deprecate 新 Recipe
- *   - reject  → EvolutionGateway.submit({ action: 'deprecate' })
+ *   - merge   → ProposalGateway.submit({ action: 'update' }) + deprecate 新 Recipe
+ *   - reject  → ProposalGateway.submit({ action: 'deprecate' })
  *
  * @module handlers/consolidate
  */
 
-import type { EvolutionGateway } from '@alembic/core/evolution';
+import type { ProposalGateway } from '@alembic/core/evolution';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import type { ConsolidateInput } from '#shared/schemas/mcp-tools.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
@@ -56,12 +56,12 @@ export async function consolidateHandler(ctx: McpContext, args: ConsolidateInput
     });
   }
 
-  const gateway = ctx.container.get('evolutionGateway') as EvolutionGateway | null;
+  const gateway = ctx.container.get('proposalGateway') as ProposalGateway | null;
   if (!gateway) {
     return envelope({
       success: false,
       errorCode: 'SERVICE_UNAVAILABLE',
-      message: 'EvolutionGateway 不可用，无法处理 consolidate 决策。',
+      message: 'ProposalGateway 不可用，无法处理 consolidate 决策。',
       data: { processed: 0, kept: 0, merged: 0, rejected: 0, errors: [] },
       meta: { tool: 'alembic_consolidate', responseTimeMs: Date.now() - t0 },
     });

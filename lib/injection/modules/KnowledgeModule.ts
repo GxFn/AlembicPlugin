@@ -18,7 +18,7 @@ import {
   ContentPatcher,
   DecayDetector,
   EnhancementSuggester,
-  EvolutionGateway,
+  ProposalGateway,
   LifecycleStateMachine,
   ProposalExecutor,
   RedundancyAnalyzer,
@@ -393,11 +393,11 @@ function registerEvolutionWorkflowServices(c: ServiceContainer) {
     return new ConsolidationAdvisor(knowledgeRepo, resolveEmbeddingSimProvider(ct));
   });
 
-  c.singleton('evolutionGateway', (ct: ServiceContainer) => {
+  c.singleton('proposalGateway', (ct: ServiceContainer) => {
     const proposalRepo = ct.get('proposalRepository') as EvolutionProposalRepository;
     const lifecycle = ct.get('lifecycleStateMachine') as LifecycleStateMachine;
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new EvolutionGateway(proposalRepo, lifecycle, knowledgeRepo);
+    return new ProposalGateway(proposalRepo, lifecycle, knowledgeRepo);
   });
 }
 
@@ -407,7 +407,7 @@ function registerRecipeProductionServices(c: ServiceContainer) {
     const dataRoot = resolveDataRoot(ct) as string;
     let consolidationAdvisor = null;
     let proposalRepository = null;
-    let evolutionGateway = null;
+    let proposalGateway = null;
     try {
       consolidationAdvisor = ct.get('consolidationAdvisor');
     } catch {
@@ -419,7 +419,7 @@ function registerRecipeProductionServices(c: ServiceContainer) {
       /* optional */
     }
     try {
-      evolutionGateway = ct.get('evolutionGateway');
+      proposalGateway = ct.get('proposalGateway');
     } catch {
       /* optional */
     }
@@ -439,9 +439,9 @@ function registerRecipeProductionServices(c: ServiceContainer) {
       proposalRepository: proposalRepository as unknown as ConstructorParameters<
         typeof RecipeProductionGateway
       >[0]['proposalRepository'],
-      evolutionGateway: evolutionGateway as unknown as ConstructorParameters<
+      proposalGateway: proposalGateway as unknown as ConstructorParameters<
         typeof RecipeProductionGateway
-      >[0]['evolutionGateway'],
+      >[0]['proposalGateway'],
       findSimilarRecipes,
     });
   });

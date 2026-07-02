@@ -1,6 +1,6 @@
 import {
   assessFileImpact,
-  type EvolutionGateway,
+  type ProposalGateway,
   extractRecipeTokens,
 } from '@alembic/core/evolution';
 import type { RecipeFreshnessEntry, RecipeFreshnessService } from '@alembic/core/knowledge';
@@ -58,7 +58,7 @@ interface SignalBusLike {
 }
 
 export interface HostAgentFileChangeHandlerOptions {
-  evolutionGateway?: Pick<EvolutionGateway, 'submit'> | null;
+  proposalGateway?: Pick<ProposalGateway, 'submit'> | null;
   projectRoot?: string;
   recipeFreshnessService?: Pick<RecipeFreshnessService, 'refreshRecipes'> | null;
   renameAutoRepairThreshold?: number;
@@ -139,7 +139,7 @@ const DEFAULT_RENAME_AUTO_REPAIR_THRESHOLD = 0.9;
 const FILE_CHANGE_PROPOSAL_SOURCE = 'file-change';
 
 export class HostAgentFileChangeHandler {
-  readonly #evolutionGateway: Pick<EvolutionGateway, 'submit'> | null;
+  readonly #proposalGateway: Pick<ProposalGateway, 'submit'> | null;
   readonly #knowledgeRepo: KnowledgeRepositoryLike;
   readonly #projectRoot: string;
   readonly #recipeFreshnessService: Pick<RecipeFreshnessService, 'refreshRecipes'> | null;
@@ -155,7 +155,7 @@ export class HostAgentFileChangeHandler {
   ) {
     this.#sourceRefRepo = sourceRefRepo;
     this.#knowledgeRepo = knowledgeRepo;
-    this.#evolutionGateway = options.evolutionGateway ?? null;
+    this.#proposalGateway = options.proposalGateway ?? null;
     this.#projectRoot = options.projectRoot ?? process.cwd();
     this.#recipeFreshnessService = options.recipeFreshnessService ?? null;
     this.#renameAutoRepairThreshold =
@@ -503,7 +503,7 @@ export class HostAgentFileChangeHandler {
       recipeId: entry.id,
       source: FILE_CHANGE_PROPOSAL_SOURCE as 'file-change',
     };
-    const result = await this.#evolutionGateway?.submit(payload);
+    const result = await this.#proposalGateway?.submit(payload);
     return {
       action: payload.action,
       confidence: payload.confidence,
@@ -512,7 +512,7 @@ export class HostAgentFileChangeHandler {
       ...(readResultId(result) ? { proposalId: readResultId(result) } : {}),
       recipeId: entry.id,
       source: FILE_CHANGE_PROPOSAL_SOURCE,
-      status: this.#evolutionGateway ? 'submitted' : 'unavailable',
+      status: this.#proposalGateway ? 'submitted' : 'unavailable',
     };
   }
 
@@ -536,7 +536,7 @@ export class HostAgentFileChangeHandler {
       reason: `Covered source was deleted: ${filePath}`,
       source: FILE_CHANGE_PROPOSAL_SOURCE as 'file-change',
     };
-    const result = await this.#evolutionGateway?.submit(payload);
+    const result = await this.#proposalGateway?.submit(payload);
     return {
       action: payload.action,
       confidence: payload.confidence,
@@ -545,7 +545,7 @@ export class HostAgentFileChangeHandler {
       ...(readResultId(result) ? { proposalId: readResultId(result) } : {}),
       recipeId: entry.id,
       source: FILE_CHANGE_PROPOSAL_SOURCE,
-      status: this.#evolutionGateway ? 'submitted' : 'unavailable',
+      status: this.#proposalGateway ? 'submitted' : 'unavailable',
     };
   }
 

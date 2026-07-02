@@ -831,7 +831,7 @@ async function replaceFixtureProject(nextProjectRoot: string): Promise<void> {
 function createContext(): McpContext {
   const services: Record<string, unknown> = {
     database: runtime.connection,
-    evolutionGateway: {
+    proposalGateway: {
       submit: async () => ({ id: 'proposal-rg10-route-complete' }),
     },
     gitDiffCheckpointRepository: repositories.gitDiffCheckpointRepository,

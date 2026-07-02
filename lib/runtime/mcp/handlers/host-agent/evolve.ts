@@ -1,7 +1,7 @@
 /**
  * MCP Handler — alembic_evolve (批量 Recipe 进化决策)
  *
- * 所有决策统一通过 EvolutionGateway 提交：
+ * 所有决策统一通过 ProposalGateway 提交：
  *   - propose_evolution → gateway.submit({ action: 'update' })
  *   - confirm_deprecation → gateway.submit({ action: 'deprecate' })
  *   - skip → gateway.submit({ action: 'valid' }) 或直接 skip
@@ -9,7 +9,7 @@
  * @module handlers/host-agent/evolve
  */
 
-import type { EvolutionGateway } from '@alembic/core/evolution';
+import type { ProposalGateway } from '@alembic/core/evolution';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import type { StructuredPatch } from '@alembic/core/types';
 import { envelope } from '#codex/mcp/envelope.js';
@@ -81,12 +81,12 @@ export async function evolveForHostAgent(ctx: McpContext, args: EvolveInput) {
   const result = createEvolveResult();
   const freshness = createFreshnessTracker();
 
-  const gateway = ctx.container.get('evolutionGateway') as EvolutionGateway | null;
+  const gateway = ctx.container.get('proposalGateway') as ProposalGateway | null;
   if (!gateway) {
     return envelope({
       success: false,
       data: result,
-      message: '❌ EvolutionGateway not available',
+      message: '❌ ProposalGateway not available',
       meta: { tool: 'alembic_evolve', responseTimeMs: Date.now() - t0 },
     });
   }
@@ -131,7 +131,7 @@ async function processEvolveDecision(input: {
   ctx: McpContext;
   decision: EvolveDecision;
   freshness: EvolveFreshnessTracker;
-  gateway: EvolutionGateway;
+  gateway: ProposalGateway;
   result: EvolveResult;
 }): Promise<void> {
   const { ctx, decision, freshness, gateway, result } = input;
@@ -162,7 +162,7 @@ async function processEvolveDecision(input: {
 
 async function handleProposeEvolution(
   ctx: McpContext,
-  gateway: EvolutionGateway,
+  gateway: ProposalGateway,
   decision: EvolveDecision,
   result: EvolveResult,
   freshness: EvolveFreshnessTracker
@@ -263,7 +263,7 @@ function buildHostAgentEvolutionEvidenceBlock(
 
 async function handleConfirmDeprecation(
   ctx: McpContext,
-  gateway: EvolutionGateway,
+  gateway: ProposalGateway,
   decision: EvolveDecision,
   result: EvolveResult,
   freshness: EvolveFreshnessTracker
@@ -304,7 +304,7 @@ async function handleConfirmDeprecation(
 
 async function handleSkipDecision(
   ctx: McpContext,
-  gateway: EvolutionGateway,
+  gateway: ProposalGateway,
   decision: EvolveDecision,
   result: EvolveResult,
   freshness: EvolveFreshnessTracker
