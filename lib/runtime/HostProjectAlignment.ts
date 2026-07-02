@@ -7,6 +7,7 @@ import {
 } from '@alembic/core/daemon';
 import {
   getProjectRegistryDir,
+  getProjectRuntimeControlStatePath,
   normalizeProjectPath,
   ProjectRegistry,
   type ProjectRegistryInspection,
@@ -158,9 +159,8 @@ export function buildHostProjectAlignment(input: {
   };
 }
 
-export function getProjectRuntimeControlStatePath(): string {
-  return join(getProjectRegistryDir(), 'runtime-control.json');
-}
+// W2(2026-07-02):路径拼装收编 Core 单源(此前与主体 ProjectRuntimeControl 双实现)。
+export { getProjectRuntimeControlStatePath };
 
 function readProjectRuntimeControlState(): RuntimeControlReadResult {
   const path = getProjectRuntimeControlStatePath();
