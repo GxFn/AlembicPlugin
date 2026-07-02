@@ -18,7 +18,9 @@ export const KnowledgeContextBudgetSchema = z
     itemLimit: z.number().int().min(1).max(500).default(20),
     detailLimit: z.number().int().min(0).max(200).default(20),
     relationHopLimit: z.number().int().min(1).max(10).default(2),
-    contentCharLimit: z.number().int().min(120).max(20000).default(1200),
+    // G3(2026-07-02)：detail 二跳是 markdown 特写的唯一机器消费通路，默认 1200 会把深度叙述
+    // 腰斩(特写典型 2000-3000 字符)——默认提到 4000，上限不变。
+    contentCharLimit: z.number().int().min(120).max(20000).default(4000),
     matrixNodeLimit: z.number().int().min(1).max(5000).default(500),
     nextActionLimit: z.number().int().min(0).max(20).default(5),
   })
