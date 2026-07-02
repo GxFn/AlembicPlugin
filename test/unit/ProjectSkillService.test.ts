@@ -5,10 +5,7 @@ import { pathGuard } from '@alembic/core/io';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createSkill, loadSkill } from '#codex/mcp/handlers/skill.js';
-import {
-  getProjectSkillRoot,
-  PROJECT_SKILL_MARKER_FILE,
-} from '#codex/ProjectSkillDelivery.js';
+import { getProjectSkillRoot, PROJECT_SKILL_MARKER_FILE } from '#codex/ProjectSkillDelivery.js';
 import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
 
 describe('ProjectSkillService', () => {
@@ -27,9 +24,9 @@ describe('ProjectSkillService', () => {
     expect(fs.existsSync(path.join(root, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md'))).toBe(
       false
     );
-    expect(
-      fs.existsSync(path.join(getProjectSkillRoot(root), 'alembic-recipes', 'SKILL.md'))
-    ).toBe(false);
+    expect(fs.existsSync(path.join(getProjectSkillRoot(root), 'alembic-recipes', 'SKILL.md'))).toBe(
+      false
+    );
     fs.rmSync(root, { recursive: true, force: true });
   });
 

@@ -21,9 +21,7 @@ describe('stateless planSelection generation gate', () => {
     expect(RescanInput.safeParse({ reason: 'missing-planSelection' }).success).toBe(false);
     expect(GenerateInput.safeParse({ planSelection: coldStartSelection() }).success).toBe(true);
     expect(GenerateInput.safeParse({ planSelection: rescanSelection() }).success).toBe(false);
-    expect(GenerateInput.safeParse({ planSelection: moduleMiningSelection() }).success).toBe(
-      false
-    );
+    expect(GenerateInput.safeParse({ planSelection: moduleMiningSelection() }).success).toBe(false);
     expect(
       RescanInput.safeParse({
         planSelection: coldStartSelection(),

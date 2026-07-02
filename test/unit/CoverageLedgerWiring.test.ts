@@ -19,8 +19,8 @@ import {
   adviseCoverageLedger,
   buildKnowledgeRescanPlan,
   reflowDeepMiningRoundOnCompletion as coreReflowDeepMiningRoundOnCompletion,
-  type RelevanceAuditSummary,
   writeCoverageLedgerForCompletion as coreWriteCoverageLedgerForCompletion,
+  type RelevanceAuditSummary,
 } from '@alembic/core/host-agent-workflows';
 import type {
   CoverageLedgerRecord,

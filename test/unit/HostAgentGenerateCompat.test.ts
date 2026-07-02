@@ -21,8 +21,8 @@ vi.mock('../../lib/recipe-generation/host-agent-workflows/generate-workflow.js',
 import { runHostAgentColdStartWorkflow as legacyColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
 import { runHostAgentKnowledgeRescanWorkflow as legacyRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
 import {
-  generateForHostAgent,
   runGenerateWorkflow as bootstrapProjectIndexWorkflow,
+  generateForHostAgent,
   getActiveSession,
 } from '../../lib/runtime/mcp/handlers/host-agent/generate.js';
 import {

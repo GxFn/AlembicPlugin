@@ -21,8 +21,8 @@ import { DimensionCopy } from '@alembic/core/dimensions';
 import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
 import { LanguageService } from '@alembic/core/shared';
 import {
-  analyzeProject,
   analyzeSourceFile as analyzeFile,
+  analyzeProject,
   getDiscovererRegistry,
   resetDiscovererRegistry,
 } from '@alembic/core/test-fixtures';

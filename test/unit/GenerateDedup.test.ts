@@ -7,7 +7,7 @@
  *   - 阈值拦截逻辑
  */
 
-import { GenerateDedup, type CandidateSummary } from '@alembic/core/service/bootstrap';
+import { type CandidateSummary, GenerateDedup } from '@alembic/core/service/bootstrap';
 import { describe, expect, it } from 'vitest';
 
 function makeSummary(overrides: Partial<CandidateSummary> = {}): CandidateSummary {

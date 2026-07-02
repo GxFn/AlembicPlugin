@@ -56,9 +56,7 @@ const coreTools = [
   },
 ];
 
-const residentCoreTools = [
-  ...coreTools,
-];
+const residentCoreTools = [...coreTools];
 
 const notInitialized: HostKnowledgeState = {
   hasKnowledge: false,

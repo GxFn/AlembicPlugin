@@ -48,7 +48,7 @@ import {
 // ─── TypeScript Interfaces ──────────────────────────────────
 
 /** MCP session tracking */
-interface McpSession {
+interface McpConnection {
   id: string;
   startedAt: number;
   toolCallCount: number;
@@ -142,9 +142,9 @@ import * as toolRouter from '../../runtime/mcp/handlers/tool-router.js';
 // ─── Codex host-agent handlers ──────────────────────
 
 import { consolidateHandler } from '../../runtime/mcp/handlers/consolidate.js';
-import { generateForHostAgent } from '../../runtime/mcp/handlers/host-agent/generate.js';
 import { dimensionComplete } from '../../runtime/mcp/handlers/host-agent/dimension-completion.js';
 import { evolveForHostAgent } from '../../runtime/mcp/handlers/host-agent/evolve.js';
+import { generateForHostAgent } from '../../runtime/mcp/handlers/host-agent/generate.js';
 import { rescanForHostAgent } from '../../runtime/mcp/handlers/host-agent/rescan.js';
 
 // ─── McpServer 类 ─────────────────────────────────────────────
@@ -155,7 +155,7 @@ export class McpServer {
   _defaultActorRole: string | null;
   _defaultSource: ToolCallSource;
   _defaultSurface: ToolSurface;
-  _session: McpSession;
+  _connection: McpConnection;
   _startedAt: number;
   bootstrap: BootstrapLike | null;
   sdkServer: SdkMcpServer | null;
@@ -171,7 +171,7 @@ export class McpServer {
     this._defaultSurface = options.surface || 'mcp';
 
     // ── Session 管理 ──
-    this._session = {
+    this._connection = {
       id: `ses-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -186,7 +186,7 @@ export class McpServer {
       container: this.container,
       logger: this.logger || Logger.getInstance(),
       startedAt: this._startedAt,
-      session: this._session,
+      connection: this._connection,
     };
   }
 
@@ -330,7 +330,7 @@ export class McpServer {
       actor: {
         role: actorRole,
         user: options.actor?.user || process.env.USER || undefined,
-        sessionId: options.actor?.sessionId || this._session.id,
+        sessionId: options.actor?.sessionId || this._connection.id,
       },
       source,
       surface,
@@ -385,9 +385,9 @@ export class McpServer {
    */
   _trackSession(toolName: string, _result: unknown): void {
     // ── Session stats (always) ──
-    this._session.toolCallCount++;
-    this._session.toolsUsed.add(toolName);
-    this._session.lastActivityAt = Date.now();
+    this._connection.toolCallCount++;
+    this._connection.toolsUsed.add(toolName);
+    this._connection.lastActivityAt = Date.now();
   }
 
   /**

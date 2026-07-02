@@ -113,13 +113,13 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
     checks,
     services: ctx.container.getServiceNames?.() ?? [],
     // P3: Session 信息
-    ...(ctx.session
+    ...(ctx.connection
       ? {
           session: {
-            id: ctx.session.id,
-            toolCallCount: ctx.session.toolCallCount,
-            toolsUsed: Array.from(ctx.session.toolsUsed),
-            durationMs: Date.now() - ctx.session.startedAt,
+            id: ctx.connection.id,
+            toolCallCount: ctx.connection.toolCallCount,
+            toolsUsed: Array.from(ctx.connection.toolsUsed),
+            durationMs: Date.now() - ctx.connection.startedAt,
           },
         }
       : {}),

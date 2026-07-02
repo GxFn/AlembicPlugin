@@ -123,7 +123,10 @@ describe('RC-7 cc host runtime — project root discovery', () => {
   test('cc resolveProjectRoot trusts CLAUDE_PROJECT_DIR (cc workspace no longer fail-closed)', () => {
     const projectDir = tempDir('alembic-cc-projroot-');
     const resolution = ccAdapter().resolveProjectRoot({
-      env: { CLAUDE_PROJECT_DIR: projectDir, [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot },
+      env: {
+        CLAUDE_PROJECT_DIR: projectDir,
+        [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot,
+      },
     });
     expect(resolution.source).toBe('CLAUDE_PROJECT_DIR');
     expect(resolution.trust).toBe('trusted');
@@ -134,7 +137,10 @@ describe('RC-7 cc host runtime — project root discovery', () => {
   test('cc resolveProjectRoot falls back (untrusted) without an explicit/host project source', () => {
     // No CLAUDE_PROJECT_DIR / ALEMBIC_PROJECT_DIR → only cwd/PWD fallback candidates.
     const resolution = ccAdapter().resolveProjectRoot({
-      env: { [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot, PWD: tempDir('alembic-cc-pwd-') },
+      env: {
+        [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot,
+        PWD: tempDir('alembic-cc-pwd-'),
+      },
     });
     expect(resolution.trust).not.toBe('trusted');
   });
@@ -232,7 +238,10 @@ describe('RC-7 cross-host parity — codex vs claude-code', () => {
 // a real tool dispatch through the cc path.
 type StatusResult = { success: boolean; data: { initialized: boolean; project: { root: string } } };
 
-async function dispatchStatusOnShell(shellRoot: string, projectRoot: string): Promise<StatusResult> {
+async function dispatchStatusOnShell(
+  shellRoot: string,
+  projectRoot: string
+): Promise<StatusResult> {
   process.env[CODEX_PLUGIN_ROOT_ENV] = shellRoot;
   await resetPluginOwnedMcpServerForTests();
   const server = new HostMcpServer({ projectRoot });
@@ -274,7 +283,11 @@ function minimalCtx(): McpContext {
 }
 
 function readAgentHost(out: unknown): unknown {
-  const record = out as { structuredContent?: { agentHost?: unknown }; data?: { agentHost?: unknown }; agentHost?: unknown } | null;
+  const record = out as {
+    structuredContent?: { agentHost?: unknown };
+    data?: { agentHost?: unknown };
+    agentHost?: unknown;
+  } | null;
   return record?.structuredContent?.agentHost ?? record?.data?.agentHost ?? record?.agentHost;
 }
 

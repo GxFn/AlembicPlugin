@@ -19,11 +19,11 @@
 import { z } from 'zod';
 
 import {
-  GenerateInput,
   CodeGuardInput,
   ConsolidateInput,
   DimensionCompleteInput,
   EvolveInput,
+  GenerateInput,
   GraphInput,
   KnowledgeLifecycleInput,
   PlanInput,

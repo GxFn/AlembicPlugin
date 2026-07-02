@@ -1,11 +1,11 @@
 import { CORE_D25_REQUIRED_FAILURE_KINDS, getCoreFailureTaxonomyEntry } from '@alembic/core/shared';
 import { describe, expect, test } from 'vitest';
 import {
+  findForbiddenLocalOutputField,
   LOCAL_BASE_OUTPUT_FIELD_NAMES,
   LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
   LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   LOCAL_TOOL_OUTPUT_SCHEMAS,
-  findForbiddenLocalOutputField,
 } from '../../lib/runtime/mcp/local-tools/output.js';
 import {
   getMcpOutputProjector,

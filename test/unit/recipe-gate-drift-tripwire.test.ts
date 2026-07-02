@@ -6,23 +6,24 @@
  * 变成可见的回归，而不是悄悄改变 Plugin 的拒绝行为。常量来源是 Core 的 @alembic/core/knowledge，
  * 即 Plugin gate re-point 后真正消费的同一张表。
  */
-import { describe, expect, it } from 'vitest';
+
+import type { RecipeSessionScope } from '@alembic/core/knowledge';
 import {
   describeSubmitToolFields,
   getEvidenceFloorPolicy,
   getImperativeVerbAllowlist,
   validateAgainst,
 } from '@alembic/core/knowledge';
-import type { RecipeSessionScope } from '@alembic/core/knowledge';
-import { attachRecipeAuthoringFrontLoad } from '#recipe-generation/host-agent-workflows/cold-start.js';
-import {
-  type GenerateSessionLike,
-  createSessionScope,
-  createSourceRefResolver,
-  validateRecipeProductionEvidenceGate,
-} from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
+import { describe, expect, it } from 'vitest';
 import { validateSubmitKnowledgeContentQuality } from '#codex/mcp/handlers/recipe-content-quality-gate.js';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
+import { attachRecipeAuthoringFrontLoad } from '#recipe-generation/host-agent-workflows/cold-start.js';
+import {
+  createSessionScope,
+  createSourceRefResolver,
+  type GenerateSessionLike,
+  validateRecipeProductionEvidenceGate,
+} from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
 import { SubmitKnowledgeItemSchema } from '#shared/schemas/mcp-tools.js';
 
 describe('recipe-gate drift tripwire — lifted gate constants', () => {
@@ -57,7 +58,12 @@ describe('recipe-gate sessionScope port — Core contract', () => {
       projectRoot: '/tmp/project',
       session: null,
     });
-    const result = port({ projectRoot: '/tmp/project', dimensionId: 'architecture', itemIndex: 0, title: 't' });
+    const result = port({
+      projectRoot: '/tmp/project',
+      dimensionId: 'architecture',
+      itemIndex: 0,
+      title: 't',
+    });
     expect('violation' in result).toBe(true);
     if ('violation' in result) {
       expect(result.violation.code).toBe('SESSION_NOT_FOUND');
@@ -75,7 +81,12 @@ describe('recipe-gate sessionScope port — Core contract', () => {
       projectRoot: '/tmp/project',
       session,
     });
-    const result = port({ projectRoot: '/tmp/project', dimensionId: 'architecture', itemIndex: 0, title: 't' });
+    const result = port({
+      projectRoot: '/tmp/project',
+      dimensionId: 'architecture',
+      itemIndex: 0,
+      title: 't',
+    });
     expect(result).toEqual({ ok: true });
   });
 

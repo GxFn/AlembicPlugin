@@ -1,6 +1,10 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  type TransientTransportRef,
+  transientTransportPath,
+} from '@alembic/core/service/planFacts';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
   attachBriefingTransportMeta,
@@ -9,10 +13,6 @@ import {
   budgetBriefingResponseData,
 } from '../../lib/recipe-generation/host-agent-workflows/briefing-budget.js';
 import { attachPlanScopeTargetCounts } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
-import {
-  type TransientTransportRef,
-  transientTransportPath,
-} from '@alembic/core/service/planFacts';
 
 // U3：共享预算步骤 budgetBriefingResponseData 单测。stage-无关：≤预算→内联+清理 transient /
 // >预算→writeTransientTransport+attachRef meta；compact 回调（cold-start 形态）被调、结果被采用；

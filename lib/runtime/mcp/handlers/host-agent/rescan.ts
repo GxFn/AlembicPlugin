@@ -6,6 +6,6 @@
  */
 
 export {
-  runHostAgentKnowledgeRescanWorkflow as rescanForHostAgent,
   runGenerateWorkflow,
+  runHostAgentKnowledgeRescanWorkflow as rescanForHostAgent,
 } from '#recipe-generation/host-agent-workflows/generate-workflow.js';

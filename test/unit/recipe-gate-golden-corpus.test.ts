@@ -30,9 +30,11 @@ const STAGE1_PASS = {
   doClause: 'Use the AlembicPlugin gateway for every submission',
   dontClause: 'Do not bypass the gateway with a direct write',
   content: {
-    markdown: ['Project guidance close-up.', '✅ create via the gateway', '❌ write straight to disk'].join(
-      '\n'
-    ),
+    markdown: [
+      'Project guidance close-up.',
+      '✅ create via the gateway',
+      '❌ write straight to disk',
+    ].join('\n'),
   },
 } as const;
 
@@ -103,7 +105,10 @@ function makeStage2Root(): string {
     ['export function alpha() {', '  return doRealThing(payload);', '}', ''].join('\n')
   );
   // b.ts / c.ts：让 rule/pattern 的 ≥3 distinct files 门槛可被满足或缺一。
-  fs.writeFileSync(path.join(root, 'lib', 'b.ts'), ['const beta = 1;', 'const gamma = 2;', ''].join('\n'));
+  fs.writeFileSync(
+    path.join(root, 'lib', 'b.ts'),
+    ['const beta = 1;', 'const gamma = 2;', ''].join('\n')
+  );
   fs.writeFileSync(path.join(root, 'lib', 'c.ts'), ['const delta = 3;', ''].join('\n'));
   return root;
 }
@@ -152,14 +157,24 @@ const stage2Cases: Stage2Case[] = [
   {
     name: 'fail-session-not-found',
     args: { dimensionId: 'architecture' },
-    item: { title: 'No session', kind: 'fact', sourceRefs: ['lib/a.ts:1-3'], coreCode: 'return doRealThing(payload);' },
+    item: {
+      title: 'No session',
+      kind: 'fact',
+      sourceRefs: ['lib/a.ts:1-3'],
+      coreCode: 'return doRealThing(payload);',
+    },
     session: () => null,
   },
   // WRONG_SCOPE — session projectRoot differs from the submission projectRoot.
   {
     name: 'fail-wrong-scope',
     args: { dimensionId: 'architecture' },
-    item: { title: 'Wrong scope', kind: 'fact', sourceRefs: ['lib/a.ts:1-3'], coreCode: 'return doRealThing(payload);' },
+    item: {
+      title: 'Wrong scope',
+      kind: 'fact',
+      sourceRefs: ['lib/a.ts:1-3'],
+      coreCode: 'return doRealThing(payload);',
+    },
     session: stage2Session,
     projectRootOverride: 'other',
   },
@@ -172,43 +187,78 @@ const stage2Cases: Stage2Case[] = [
   // SOURCE_REF_LINE_MISSING — ref without a line/range.
   {
     name: 'fail-source-ref-line-missing',
-    item: { title: 'Bare ref', kind: 'fact', sourceRefs: ['lib/a.ts'], coreCode: 'return doRealThing(payload);' },
+    item: {
+      title: 'Bare ref',
+      kind: 'fact',
+      sourceRefs: ['lib/a.ts'],
+      coreCode: 'return doRealThing(payload);',
+    },
     session: stage2Session,
   },
   // SOURCE_REF_INVALID — absolute path escapes the project root.
   {
     name: 'fail-source-ref-invalid',
-    item: { title: 'Absolute ref', kind: 'fact', sourceRefs: ['/etc/passwd:1'], coreCode: 'return doRealThing(payload);' },
+    item: {
+      title: 'Absolute ref',
+      kind: 'fact',
+      sourceRefs: ['/etc/passwd:1'],
+      coreCode: 'return doRealThing(payload);',
+    },
     session: stage2Session,
   },
   // SOURCE_REF_NOT_FOUND — repo-relative ref to a non-existent file.
   {
     name: 'fail-source-ref-not-found',
-    item: { title: 'Missing file', kind: 'fact', sourceRefs: ['lib/missing.ts:1'], coreCode: 'return doRealThing(payload);' },
+    item: {
+      title: 'Missing file',
+      kind: 'fact',
+      sourceRefs: ['lib/missing.ts:1'],
+      coreCode: 'return doRealThing(payload);',
+    },
     session: stage2Session,
   },
   // SOURCE_REF_LINE_OUT_OF_RANGE — line range beyond the file length.
   {
     name: 'fail-source-ref-line-out-of-range',
-    item: { title: 'Out of range', kind: 'fact', sourceRefs: ['lib/a.ts:1-999'], coreCode: 'return doRealThing(payload);' },
+    item: {
+      title: 'Out of range',
+      kind: 'fact',
+      sourceRefs: ['lib/a.ts:1-999'],
+      coreCode: 'return doRealThing(payload);',
+    },
     session: stage2Session,
   },
   // SNIPPET_MISMATCH — valid ref but the coreCode does not appear in the cited range.
   {
     name: 'fail-snippet-mismatch',
-    item: { title: 'Snippet mismatch', kind: 'fact', sourceRefs: ['lib/a.ts:1-3'], coreCode: 'const totallyUnrelated = neverAppearsHere();' },
+    item: {
+      title: 'Snippet mismatch',
+      kind: 'fact',
+      sourceRefs: ['lib/a.ts:1-3'],
+      coreCode: 'const totallyUnrelated = neverAppearsHere();',
+    },
     session: stage2Session,
   },
   // PLACEHOLDER_EVIDENCE — coreCode is placeholder text.
   {
     name: 'fail-placeholder-evidence',
-    item: { title: 'Placeholder', kind: 'fact', sourceRefs: ['lib/a.ts:1-3'], coreCode: 'await operation()' },
+    item: {
+      title: 'Placeholder',
+      kind: 'fact',
+      sourceRefs: ['lib/a.ts:1-3'],
+      coreCode: 'await operation()',
+    },
     session: stage2Session,
   },
   // INSUFFICIENT_EVIDENCE — rule candidate with only one distinct source file (<3).
   {
     name: 'fail-insufficient-evidence',
-    item: { title: 'Thin rule', kind: 'rule', sourceRefs: ['lib/a.ts:1-3'], coreCode: 'return doRealThing(payload);' },
+    item: {
+      title: 'Thin rule',
+      kind: 'rule',
+      sourceRefs: ['lib/a.ts:1-3'],
+      coreCode: 'return doRealThing(payload);',
+    },
     session: stage2Session,
   },
   // GRAPH_REF_INVALID — relationship claim without graph refs.

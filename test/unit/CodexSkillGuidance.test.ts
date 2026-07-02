@@ -42,9 +42,7 @@ describe('Codex skill ProjectContext guidance', () => {
 
   test('keeps host-agnostic workflow skill byte-identical across shell packages', () => {
     const codexSkill = readRepoFile('plugins/alembic-codex/skills/alembic/SKILL.md');
-    const claudeCodeSkill = readRepoFile(
-      'plugins/alembic-claude-code/skills/alembic/SKILL.md'
-    );
+    const claudeCodeSkill = readRepoFile('plugins/alembic-claude-code/skills/alembic/SKILL.md');
 
     expect(claudeCodeSkill).toBe(codexSkill);
   });

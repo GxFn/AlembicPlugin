@@ -34,13 +34,13 @@ import type Logger from '@alembic/core/logging';
 import type { MemoryRepositoryImpl } from '@alembic/core/memory';
 // ── Repository Types ──
 import type {
-  GenerateRepository,
   CodeEntityRepository,
   EvolutionCoverageLedgerRepository,
   EvolutionGitDiffCheckpointRepository,
   EvolutionLifecycleEventRepository,
   EvolutionProposalRepository,
   EvolutionWarningRepository,
+  GenerateRepository,
   GuardViolationRepository,
   KnowledgeEdgeRepository,
   KnowledgeRepository,

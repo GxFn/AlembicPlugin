@@ -27,9 +27,9 @@ vi.mock('../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js', 
 
 import {
   getActiveSession,
+  runGenerateWorkflow,
   runHostAgentColdStartWorkflow,
   runHostAgentKnowledgeRescanWorkflow,
-  runGenerateWorkflow,
 } from '../../lib/recipe-generation/host-agent-workflows/generate-workflow.js';
 
 describe('host-agent project-index workflow entry', () => {

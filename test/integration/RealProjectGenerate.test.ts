@@ -23,8 +23,8 @@ import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/c
 import { LanguageService } from '@alembic/core/shared';
 import {
   analyzeProject,
-  getDiscovererRegistry,
   isAvailable as astIsAvailable,
+  getDiscovererRegistry,
   resetDiscovererRegistry,
 } from '@alembic/core/test-fixtures';
 

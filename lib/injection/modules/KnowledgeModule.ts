@@ -18,9 +18,9 @@ import {
   ContentPatcher,
   DecayDetector,
   EnhancementSuggester,
-  ProposalGateway,
   LifecycleStateMachine,
   ProposalExecutor,
+  ProposalGateway,
   RedundancyAnalyzer,
   StagingManager,
 } from '@alembic/core/evolution';

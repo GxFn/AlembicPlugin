@@ -8,9 +8,9 @@ import {
   CODEX_PLUGIN_HOST,
   CODEX_PLUGIN_ROOT_ENV,
   CodexHostAdapter,
-  resolveProjectRootFromEnv,
   resolveHostAdapter,
   resolveHostRuntimeContext,
+  resolveProjectRootFromEnv,
 } from '../../lib/runtime/index.js';
 
 const tempRoots: string[] = [];

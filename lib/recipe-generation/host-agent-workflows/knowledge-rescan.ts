@@ -141,10 +141,7 @@ export async function runHostAgentKnowledgeRescanWorkflow(ctx: McpContext, args:
   return runGenerateWorkflow(ctx, args, { mode: 'incremental' });
 }
 
-export async function runHostAgentGenerateIncrementalWorkflow(
-  ctx: McpContext,
-  args: RescanInput
-) {
+export async function runHostAgentGenerateIncrementalWorkflow(ctx: McpContext, args: RescanInput) {
   const t0 = Date.now();
   const planGate = await resolvePlanGenerationGate(ctx, args, {
     defaultStage: resolveDefaultRescanGenerationStage(args),

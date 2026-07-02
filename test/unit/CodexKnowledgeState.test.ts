@@ -1,13 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'better-sqlite3';
 import {
   createProjectDescriptor,
   createProjectScopeRegistryDocument,
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
 import { getGhostWorkspaceDir, getProjectRegistryDir } from '@alembic/core/workspace';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 import { inspectKnowledge } from '../../lib/runtime/index.js';
 

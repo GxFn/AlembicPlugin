@@ -38,10 +38,7 @@ export function runGenerateWorkflow(
   if (options.mode === 'full') {
     return runHostAgentGenerateFullWorkflow(ctx as FullContext, args as GenerateInput);
   }
-  return runHostAgentGenerateIncrementalWorkflow(
-    ctx as IncrementalContext,
-    args as RescanInput
-  );
+  return runHostAgentGenerateIncrementalWorkflow(ctx as IncrementalContext, args as RescanInput);
 }
 
 export function runHostAgentColdStartWorkflow(ctx: FullContext, args?: GenerateInput) {

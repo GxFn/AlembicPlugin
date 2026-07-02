@@ -1,7 +1,7 @@
 import {
   assessFileImpact,
-  type ProposalGateway,
   extractRecipeTokens,
+  type ProposalGateway,
 } from '@alembic/core/evolution';
 import type { RecipeFreshnessEntry, RecipeFreshnessService } from '@alembic/core/knowledge';
 import type {

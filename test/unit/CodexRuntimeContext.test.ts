@@ -12,14 +12,14 @@ import {
   buildProjectRuntimeContext,
   buildRuntimeDiagnostics,
   CLAUDE_CODE_PLUGIN_HOST,
-  DEFAULT_MCP_TIER,
-  MCP_MODE_ENV,
   CODEX_MCP_SHIM_ENV,
-  MCP_TIER_ENV,
   CODEX_PLUGIN_HOST,
   CODEX_PLUGIN_ROOT_ENV,
+  DEFAULT_MCP_TIER,
   ensureRuntimeEnvironment,
   loadPluginRegistry,
+  MCP_MODE_ENV,
+  MCP_TIER_ENV,
   probeRuntimeCommand,
   resolveHostRuntimeContext,
 } from '../../lib/runtime/index.js';
@@ -161,18 +161,14 @@ describe('Codex runtime context', () => {
   });
 
   test('classifies uv_cwd failures as stale MCP cwd instead of missing npm', () => {
-    const diagnostics = buildRuntimeDiagnostics(
-      makeDaemonStatus(),
-      resolveHostRuntimeContext(),
-      {
-        commandProbeRunner() {
-          return {
-            status: 1,
-            stderr: 'Error: ENOENT: no such file or directory, uv_cwd',
-          };
-        },
-      }
-    ) as {
+    const diagnostics = buildRuntimeDiagnostics(makeDaemonStatus(), resolveHostRuntimeContext(), {
+      commandProbeRunner() {
+        return {
+          status: 1,
+          stderr: 'Error: ENOENT: no such file or directory, uv_cwd',
+        };
+      },
+    }) as {
       commands: {
         npm: { staleCwd: boolean };
         npx: { staleCwd: boolean };
