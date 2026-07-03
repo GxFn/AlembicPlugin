@@ -12,7 +12,7 @@ import {
   buildProjectContextCreationNextActions,
 } from '#recipe-generation/project-context-anchoring.js';
 import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
-import type { HostKnowledgeState } from '../../runtime/KnowledgeState.js';
+import type { HostKnowledgeState } from '#service/knowledge/KnowledgeState.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolSurfaceEntry,

@@ -5,7 +5,7 @@ import {
   type HostProjectAlignment,
   summarizeDaemonStatus,
 } from '../../../runtime/index.js';
-import { inspectKnowledge } from '../../../runtime/KnowledgeState.js';
+import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import { failureResult } from '../../../runtime/mcp/host/results.js';
 import type { DaemonStatus } from '../../daemon-status.js';
 

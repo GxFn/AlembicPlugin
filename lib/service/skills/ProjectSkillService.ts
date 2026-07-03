@@ -12,7 +12,7 @@ import {
   getProjectSkillRoot,
   PROJECT_SKILL_MARKER_FILE,
   type ProjectSkillRuntimeExportResult,
-} from '#codex/ProjectSkillDelivery.js';
+} from '#service/skills/ProjectSkillDelivery.js';
 import { PACKAGE_SKILLS_DIR } from '#shared/package-assets.js';
 import { countProjectSkillKnowledgeEntries } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 

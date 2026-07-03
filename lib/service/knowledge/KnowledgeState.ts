@@ -6,7 +6,7 @@ import { readSnapshotState, readSourceRefState } from '#infra/database/SqliteDat
 import {
   countProjectDatabaseRecipes,
   countProjectSkillKnowledgeEntries,
-} from '../repository/skills/ProjectSkillKnowledgeRepository.js';
+} from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 
 export type KnowledgeStatus =
   | 'not_initialized'

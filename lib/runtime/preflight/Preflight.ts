@@ -1,4 +1,4 @@
-import type { HostKnowledgeState } from '../../runtime/KnowledgeState.js';
+import type { HostKnowledgeState } from '#service/knowledge/KnowledgeState.js';
 import {
   buildProjectRootRequiredActions,
   buildProjectRootRequiredMessage,

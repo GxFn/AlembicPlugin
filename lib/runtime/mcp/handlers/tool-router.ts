@@ -51,7 +51,7 @@ import type {
 import {
   type RecipeFreshnessPublicOutput,
   refreshCreatedRecipeFreshness,
-} from '../../../service/knowledge/RecipeFreshnessRuntime.js';
+} from '#recipe-generation/evolution/RecipeFreshnessRuntime.js';
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
 type GenerateSession = ReturnType<typeof resolveGenerateSession>;

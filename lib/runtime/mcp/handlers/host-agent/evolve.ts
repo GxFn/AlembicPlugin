@@ -21,7 +21,7 @@ import {
   type RecipeFreshnessPublicRecipe,
   refreshRecipeFreshnessByIds,
   skippedRecipe,
-} from '../../../../service/knowledge/RecipeFreshnessRuntime.js';
+} from '#recipe-generation/evolution/RecipeFreshnessRuntime.js';
 
 /** MCP handler context */
 interface McpContext {

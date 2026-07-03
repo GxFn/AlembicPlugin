@@ -33,7 +33,7 @@ function toPosix(relativePath) {
 
 const GATED_DIRECTORIES = ['lib/recipe-generation/host-agent-workflows/'];
 
-const GATED_FILES = new Set(['lib/runtime/KnowledgeState.ts']);
+const GATED_FILES = new Set(['lib/service/knowledge/KnowledgeState.ts']);
 
 const FROM_PROJECT_CALL = /\b(?:WorkspaceResolver|WR)\s*\.\s*fromProject\s*\(/;
 const VALID_SINGLE_ROOT = /\/\/\s*@scope-singleroot\((?:permanent|temporary)\)\s+[—-]\s+\S/;

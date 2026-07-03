@@ -1,5 +1,5 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import type { HostKnowledgeState } from '../runtime/KnowledgeState.js';
+import type { HostKnowledgeState } from '#service/knowledge/KnowledgeState.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
   DEFAULT_MCP_TIER,

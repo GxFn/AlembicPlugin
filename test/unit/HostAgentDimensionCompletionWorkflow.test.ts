@@ -7,7 +7,7 @@ import {
 } from '@alembic/core/host-agent-workflows';
 import { pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { inspectKnowledge } from '#codex/KnowledgeState.js';
+import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import {
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,

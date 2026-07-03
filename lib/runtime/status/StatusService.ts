@@ -16,7 +16,7 @@ import {
   type HostProjectAlignment,
 } from '../../runtime/HostProjectAlignment.js';
 import { resolveHostAdapter } from '../../runtime/host-adapter/resolveHostAdapter.js';
-import { type HostKnowledgeState, inspectKnowledge } from '../../runtime/KnowledgeState.js';
+import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import { buildModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
 import {
   buildProjectRootRequiredActions,

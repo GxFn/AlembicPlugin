@@ -58,7 +58,7 @@ import {
   type RegionVectorStorePort,
   type SimProviderLogger,
 } from '../../recipe-generation/vector/recipe-embedding-sim-provider.js';
-import { refreshRecipeFreshnessByIds } from '../../service/knowledge/RecipeFreshnessRuntime.js';
+import { refreshRecipeFreshnessByIds } from '#recipe-generation/evolution/RecipeFreshnessRuntime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 interface VectorRuntimeRoot {

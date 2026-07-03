@@ -8,7 +8,7 @@ import {
   exportProjectSkillReceiptToRuntime,
   getProjectSkillRoot,
   PROJECT_SKILL_MARKER_FILE,
-} from '#codex/ProjectSkillDelivery.js';
+} from '#service/skills/ProjectSkillDelivery.js';
 
 describe('ProjectSkillDelivery', () => {
   afterEach(() => {

@@ -38,7 +38,7 @@ import {
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
-import { buildHostAgentAnalysisSurface } from '#codex/host-agent/HostAgentAnalysisSurface.js';
+import { buildHostAgentAnalysisSurface } from '#recipe-generation/host-agent-workflows/HostAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
 import type { GitDiffScanResult } from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';

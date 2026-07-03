@@ -4,7 +4,7 @@ import { inspect, isDeepStrictEqual } from 'node:util';
 import { JobStore } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
-import { inspectKnowledge } from '../../../lib/runtime/KnowledgeState.js';
+import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import {
   getSavedProjectRootPath,
   readInitMarker,

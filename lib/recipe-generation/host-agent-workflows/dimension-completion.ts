@@ -14,7 +14,7 @@ import {
 import Logger from '@alembic/core/logging';
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import { buildHostAgentAnalysisProgressBackfill } from '#codex/host-agent/HostAgentAnalysisSurface.js';
+import { buildHostAgentAnalysisProgressBackfill } from '#recipe-generation/host-agent-workflows/HostAgentAnalysisSurface.js';
 import { GenerateEventEmitter } from '#recipe-generation/generate/GenerateEventEmitter.js';
 import {
   buildDimensionCompletionCompletenessCritic,

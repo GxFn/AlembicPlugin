@@ -29,8 +29,8 @@ import {
 import { jsonByteLength } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
-import { buildHostAgentAnalysisSurface } from '#codex/host-agent/HostAgentAnalysisSurface.js';
-import { type HostKnowledgeState, inspectKnowledge } from '#codex/KnowledgeState.js';
+import { buildHostAgentAnalysisSurface } from '#recipe-generation/host-agent-workflows/HostAgentAnalysisSurface.js';
+import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
