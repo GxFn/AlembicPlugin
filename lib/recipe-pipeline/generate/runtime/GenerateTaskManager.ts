@@ -19,6 +19,7 @@
  */
 
 import type { EventBus, SignalBus } from '@alembic/core/events';
+import { RECIPE_PIPELINE_EVENTS } from '@alembic/core/knowledge';
 import Logger from '@alembic/core/logging';
 import { getTestModeConfig } from '@alembic/core/shared';
 
@@ -220,7 +221,7 @@ export class GenerateTaskManager {
     Logger.info(
       `[Generate] Session ${sessionId} started with ${taskDefs.length} tasks${testModePayload ? ' [TEST MODE]' : ''}`
     );
-    this.#emit('bootstrap:started', {
+    this.#emit(RECIPE_PIPELINE_EVENTS.started, {
       sessionId,
       tasks: taskDefs.map((t: TaskDef) => ({ id: t.id, ...t.meta })),
       total: taskDefs.length,
@@ -274,7 +275,7 @@ export class GenerateTaskManager {
     };
 
     Logger.info(`[Generate] Session ${session.id} aborted: ${reason}`);
-    this.#emit('bootstrap:all-completed', {
+    this.#emit(RECIPE_PIPELINE_EVENTS.allCompleted, {
       sessionId: session.id,
       summary: session.summary,
       tasks: [...session.tasks.values()].map((t) => ({
@@ -361,7 +362,7 @@ export class GenerateTaskManager {
     task.startedAt = Date.now();
 
     Logger.info(`[Generate] Task "${taskId}" filling started`);
-    this.#emit('bootstrap:task-started', {
+    this.#emit(RECIPE_PIPELINE_EVENTS.taskStarted, {
       sessionId: session.id,
       taskId,
       meta: task.meta,
@@ -390,7 +391,7 @@ export class GenerateTaskManager {
     Logger.info(
       `[Generate] Task "${taskId}" completed (${session.completedTasks}/${session.totalTasks})`
     );
-    this.#emit('bootstrap:task-completed', {
+    this.#emit(RECIPE_PIPELINE_EVENTS.taskCompleted, {
       sessionId: session.id,
       taskId,
       meta: task.meta,
@@ -425,7 +426,7 @@ export class GenerateTaskManager {
       typeof error === 'string' ? error : error instanceof Error ? error.message : 'Unknown error';
 
     Logger.warn(`[Generate] Task "${taskId}" failed: ${task.error}`);
-    this.#emit('bootstrap:task-failed', {
+    this.#emit(RECIPE_PIPELINE_EVENTS.taskFailed, {
       sessionId: session.id,
       taskId,
       meta: task.meta,
@@ -497,7 +498,7 @@ export class GenerateTaskManager {
       `[Generate] Session ${session.id} finished: ${session.completedTasks} completed, ${session.failedTasks} failed (${durationSec}s)`
     );
 
-    this.#emit('bootstrap:all-completed', {
+    this.#emit(RECIPE_PIPELINE_EVENTS.allCompleted, {
       sessionId: session.id,
       summary: session.summary,
       tasks: [...session.tasks.values()].map((t) => ({
