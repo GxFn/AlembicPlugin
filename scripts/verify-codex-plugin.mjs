@@ -314,8 +314,16 @@ expect(
   releasePlaybook.includes(expectedRuntime),
   `release playbook must mention ${expectedRuntime}`
 );
-expect(rootReadme.includes('## Codex 插件'), 'root README must document Codex plugin');
-expect(rootReadmeCn.includes('## Codex 插件'), 'Chinese README must document Codex plugin');
+const rootReadmeDocumentsCodexPlugin =
+  rootReadme.includes('## Codex 插件') ||
+  (rootReadme.includes('### The plugin — Codex / Claude Code (the entry point)') &&
+    rootReadme.includes('codex plugin marketplace add GxFn/AlembicCodex --ref main'));
+const rootReadmeCnDocumentsCodexPlugin =
+  rootReadmeCn.includes('## Codex 插件') ||
+  (rootReadmeCn.includes('### 插件——Codex / Claude Code（入口）') &&
+    rootReadmeCn.includes('codex plugin marketplace add GxFn/AlembicCodex --ref main'));
+expect(rootReadmeDocumentsCodexPlugin, 'root README must document Codex plugin');
+expect(rootReadmeCnDocumentsCodexPlugin, 'Chinese README must document Codex plugin');
 
 if (errors.length > 0) {
   console.error('Codex plugin verification failed:');
