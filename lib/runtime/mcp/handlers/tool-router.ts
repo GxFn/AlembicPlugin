@@ -22,7 +22,6 @@ import {
   buildKnownModuleNames,
   buildResolveModuleFromSourceRefs,
 } from '#recipe-generation/canonical-module-axis.js';
-import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
   primaryEvidenceGateCode,
@@ -30,9 +29,14 @@ import {
   resolveGenerateSession,
   shouldRunRecipeEvidenceGate,
   validateRecipeProductionEvidenceGate,
-} from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
-import { routePlanTool as routePlanToolImpl } from '#recipe-generation/plan-tool.js';
-import { assessProjectContextRelationshipGrounding } from '#recipe-generation/project-context-anchoring.js';
+} from '#recipe-generation/curate/recipe-evidence-gate.js';
+import { resolveHostAgentDataRoot } from '#recipe-generation/generate/project-data-root.js';
+import { routePlanTool as routePlanToolImpl } from '#recipe-generation/plan/plan-tool.js';
+import { assessProjectContextRelationshipGrounding } from '#recipe-generation/plan/project-context-anchoring.js';
+import {
+  type RecipeFreshnessPublicOutput,
+  refreshCreatedRecipeFreshness,
+} from '#recipe-generation/sustain/RecipeFreshnessRuntime.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import {
   type RecipeContentQualityGateResult,
@@ -48,10 +52,6 @@ import type {
   ToolRouterSearchArgs,
   ToolRouterSkillArgs,
 } from '../../../runtime/mcp/handlers/types.js';
-import {
-  type RecipeFreshnessPublicOutput,
-  refreshCreatedRecipeFreshness,
-} from '#recipe-generation/evolution/RecipeFreshnessRuntime.js';
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
 type GenerateSession = ReturnType<typeof resolveGenerateSession>;

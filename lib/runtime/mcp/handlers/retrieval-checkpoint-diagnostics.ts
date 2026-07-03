@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import {
   buildPluginGitDiffCheckpointScope,
   type PluginGitDiffCheckpointContainer,
-} from '#recipe-generation/evolution/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
+} from '#recipe-generation/sustain/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
 
 export interface RetrievalCheckpointDiagnostic {
   code: string;

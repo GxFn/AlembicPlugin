@@ -38,15 +38,8 @@ import {
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
-import { buildHostAgentAnalysisSurface } from '#recipe-generation/host-agent-workflows/HostAgentAnalysisSurface.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
-import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
-import type { GitDiffScanResult } from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
-import {
-  HostAgentFileChangeHandler,
-  type UnifiedEvolutionReport,
-} from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
-import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/evolution/PluginOpportunisticEvolution.js';
+import { buildHostAgentAnalysisSurface } from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
@@ -54,7 +47,7 @@ import {
   releaseEmptyHostAgentSessionLeaseById,
   releaseEmptyHostAgentSessionLeaseForProject,
   selectProjectContextDimensions,
-} from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
+} from '#recipe-generation/generate/project-context-analysis.js';
 import {
   acquirePlanGenerationLease,
   applyPlanGateToProjectAnalysisIntent,
@@ -62,8 +55,15 @@ import {
   type PlanGenerationGateReady,
   type PlanSelectionModuleBinding,
   resolvePlanGenerationGate,
-} from '#recipe-generation/plan-generation-gate.js';
-import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
+} from '#recipe-generation/plan/plan-generation-gate.js';
+import { attachProjectContextCreationGuide } from '#recipe-generation/plan/project-context-anchoring.js';
+import { runCommitDrivenMaintenance } from '#recipe-generation/sustain/git-diff-checkpoint/CommitDrivenMaintenance.js';
+import type { GitDiffScanResult } from '#recipe-generation/sustain/git-diff-checkpoint/GitDiffScanner.js';
+import {
+  HostAgentFileChangeHandler,
+  type UnifiedEvolutionReport,
+} from '#recipe-generation/sustain/HostAgentFileChangeHandler.js';
+import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/sustain/PluginOpportunisticEvolution.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import {

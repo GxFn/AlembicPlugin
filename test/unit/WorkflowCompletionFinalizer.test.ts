@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { runWorkflowCompletionFinalizer } from '#workflows/surfaces/completion/WorkflowCompletionFinalizer.js';
+import { runWorkflowCompletionFinalizer } from '#recipe-generation/generate/completion/WorkflowCompletionFinalizer.js';
 
 describe('WorkflowCompletionFinalizer', () => {
   test('keeps retired project refresh as a no-op before immediate semantic memory', async () => {
@@ -71,7 +71,10 @@ describe('WorkflowCompletionFinalizer', () => {
 
   test('keeps completion side effects in dedicated step modules', () => {
     const source = readFileSync(
-      join(process.cwd(), 'lib/workflows/surfaces/completion/WorkflowCompletionFinalizer.ts'),
+      join(
+        process.cwd(),
+        'lib/recipe-generation/generate/completion/WorkflowCompletionFinalizer.ts'
+      ),
       'utf8'
     );
 

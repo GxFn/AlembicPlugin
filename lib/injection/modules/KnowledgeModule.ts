@@ -51,6 +51,7 @@ import {
   resolveKnowledgeScanDirs,
   resolveProjectRoot,
 } from '@alembic/core/workspace';
+import { refreshRecipeFreshnessByIds } from '#recipe-generation/sustain/RecipeFreshnessRuntime.js';
 import {
   createRecipeEmbeddingSimProvider,
   type EmbeddingSimProvider,
@@ -58,7 +59,6 @@ import {
   type RegionVectorStorePort,
   type SimProviderLogger,
 } from '../../recipe-generation/vector/recipe-embedding-sim-provider.js';
-import { refreshRecipeFreshnessByIds } from '#recipe-generation/evolution/RecipeFreshnessRuntime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 interface VectorRuntimeRoot {

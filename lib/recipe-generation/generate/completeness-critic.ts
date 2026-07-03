@@ -10,7 +10,7 @@ import {
   type CompletenessSourceRefInput,
   type CompletenessSubmittedRecipe,
 } from '@alembic/core/host-agent-workflows';
-import type { HostAgentProjectContextAnalysis } from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
+import type { HostAgentProjectContextAnalysis } from '#recipe-generation/generate/project-context-analysis.js';
 
 interface DimensionLike {
   id: string;

@@ -5,7 +5,10 @@ import { pathGuard } from '@alembic/core/io';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createSkill, loadSkill } from '#codex/mcp/handlers/skill.js';
-import { getProjectSkillRoot, PROJECT_SKILL_MARKER_FILE } from '#service/skills/ProjectSkillDelivery.js';
+import {
+  getProjectSkillRoot,
+  PROJECT_SKILL_MARKER_FILE,
+} from '#service/skills/ProjectSkillDelivery.js';
 import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
 
 describe('ProjectSkillService', () => {

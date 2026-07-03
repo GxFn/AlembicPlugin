@@ -7,12 +7,12 @@ import {
 } from '@alembic/core/host-agent-workflows';
 import { pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import {
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,
   runHostAgentDimensionCompletionWorkflow,
-} from '#recipe-generation/host-agent-workflows/dimension-completion.js';
+} from '#recipe-generation/generate/dimension-completion.js';
+import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 
 const tempRoots: string[] = [];
 

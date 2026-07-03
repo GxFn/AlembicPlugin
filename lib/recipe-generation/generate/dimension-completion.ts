@@ -14,34 +14,34 @@ import {
 import Logger from '@alembic/core/logging';
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import { buildHostAgentAnalysisProgressBackfill } from '#recipe-generation/host-agent-workflows/HostAgentAnalysisSurface.js';
-import { GenerateEventEmitter } from '#recipe-generation/generate/GenerateEventEmitter.js';
-import {
-  buildDimensionCompletionCompletenessCritic,
-  buildSubmittedRecipesForCompletenessCritic,
-  projectCompletenessCriticForAgent,
-} from '#recipe-generation/host-agent-workflows/completeness-critic.js';
-import {
-  countTargetScopedCoverageItems,
-  preferTargetScopedCoverageItems,
-} from '#recipe-generation/host-agent-workflows/coverage-ledger-target-axis.js';
-import {
-  reflowDeepMiningRoundOnCompletion,
-  writeCoverageLedgerForCompletion,
-} from '#recipe-generation/host-agent-workflows/coverage-ledger-write.js';
-import { filterGenericParentCoverageModules } from '#recipe-generation/host-agent-workflows/coverage-module-axis.js';
-import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
 import {
   buildEvidenceGateFailureData,
   previewDimensionQualityReport,
   primaryEvidenceGateCode,
   validateDimensionCompletionEvidenceGate,
-} from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
+} from '#recipe-generation/curate/recipe-evidence-gate.js';
+import {
+  buildDimensionCompletionCompletenessCritic,
+  buildSubmittedRecipesForCompletenessCritic,
+  projectCompletenessCriticForAgent,
+} from '#recipe-generation/generate/completeness-critic.js';
 import {
   runWorkflowCompletionFinalizer,
   type WorkflowCompletionFinalizerDependencies,
-} from '#workflows/surfaces/completion/WorkflowCompletionFinalizer.js';
-import { generateSkill as generateWorkflowSkill } from '#workflows/surfaces/execution/WorkflowSkillCompletionCapability.js';
+} from '#recipe-generation/generate/completion/WorkflowCompletionFinalizer.js';
+import {
+  countTargetScopedCoverageItems,
+  preferTargetScopedCoverageItems,
+} from '#recipe-generation/generate/coverage-ledger-target-axis.js';
+import {
+  reflowDeepMiningRoundOnCompletion,
+  writeCoverageLedgerForCompletion,
+} from '#recipe-generation/generate/coverage-ledger-write.js';
+import { filterGenericParentCoverageModules } from '#recipe-generation/generate/coverage-module-axis.js';
+import { buildHostAgentAnalysisProgressBackfill } from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
+import { resolveHostAgentDataRoot } from '#recipe-generation/generate/project-data-root.js';
+import { GenerateEventEmitter } from '#recipe-generation/generate/runtime/GenerateEventEmitter.js';
+import { generateSkill as generateWorkflowSkill } from '#recipe-generation/generate/skill-delivery/WorkflowSkillCompletionCapability.js';
 
 const logger = Logger.getInstance();
 

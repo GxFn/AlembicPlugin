@@ -52,25 +52,12 @@ const localProjectionFiles = [
   {
     id: 'knowledge-rescan-runtime',
     kind: 'runtime-dist',
-    path: join(
-      projectRoot,
-      'dist',
-      'lib',
-      'recipe-generation',
-      'host-agent-workflows',
-      'knowledge-rescan.js'
-    ),
+    path: join(projectRoot, 'dist', 'lib', 'recipe-generation', 'generate', 'knowledge-rescan.js'),
   },
   {
     id: 'knowledge-rescan-source',
     kind: 'source-lib',
-    path: join(
-      projectRoot,
-      'lib',
-      'recipe-generation',
-      'host-agent-workflows',
-      'knowledge-rescan.ts'
-    ),
+    path: join(projectRoot, 'lib', 'recipe-generation', 'generate', 'knowledge-rescan.ts'),
   },
 ];
 const targetRoots = resolveTargetRoots();

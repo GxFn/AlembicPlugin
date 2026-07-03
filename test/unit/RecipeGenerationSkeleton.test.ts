@@ -17,19 +17,19 @@ const planToolName = 'alembic_plan';
 const rg9AdapterPaths = [] as const;
 
 const rg9ImplementationPaths = [
-  'lib/recipe-generation/host-agent-workflows/cold-start.ts',
-  'lib/recipe-generation/host-agent-workflows/dimension-completion.ts',
-  'lib/recipe-generation/host-agent-workflows/knowledge-rescan.ts',
-  'lib/recipe-generation/host-agent-workflows/project-context-analysis.ts',
-  'lib/recipe-generation/host-agent-workflows/project-data-root.ts',
-  'lib/recipe-generation/host-agent-workflows/recipe-evidence-gate.ts',
-  'lib/recipe-generation/host-agent-workflows/recipe-region-vector.ts',
-  'lib/recipe-generation/generate/GenerateEventEmitter.ts',
-  'lib/recipe-generation/generate/GenerateTaskManager.ts',
+  'lib/recipe-generation/generate/cold-start.ts',
+  'lib/recipe-generation/generate/dimension-completion.ts',
+  'lib/recipe-generation/generate/knowledge-rescan.ts',
+  'lib/recipe-generation/generate/project-context-analysis.ts',
+  'lib/recipe-generation/generate/project-data-root.ts',
+  'lib/recipe-generation/curate/recipe-evidence-gate.ts',
+  'lib/recipe-generation/generate/recipe-region-vector.ts',
+  'lib/recipe-generation/generate/runtime/GenerateEventEmitter.ts',
+  'lib/recipe-generation/generate/runtime/GenerateTaskManager.ts',
   'lib/recipe-generation/vector/LocalEmbedding.ts',
-  'lib/recipe-generation/evolution/HostAgentFileChangeHandler.ts',
-  'lib/recipe-generation/evolution/PluginOpportunisticEvolution.ts',
-  'lib/recipe-generation/evolution/git-diff-checkpoint/index.ts',
+  'lib/recipe-generation/sustain/HostAgentFileChangeHandler.ts',
+  'lib/recipe-generation/sustain/PluginOpportunisticEvolution.ts',
+  'lib/recipe-generation/sustain/git-diff-checkpoint/index.ts',
 ] as const;
 
 function sorted(values: Iterable<string>): string[] {

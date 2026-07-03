@@ -9,10 +9,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import { buildHostProjectHandoffBlock } from '#codex/mcp/host/host-project-handoff.js';
-import { buildGenerateRebuildConfirmationBlock } from '#recipe-generation/host-agent-workflows/cold-start.js';
+import { buildGenerateRebuildConfirmationBlock } from '#recipe-generation/generate/cold-start.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
+import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import { GenerateInput } from '#shared/schemas/mcp-tools.js';
 
 function makeDataRoot(withProjections: boolean): string {

@@ -1,4 +1,4 @@
-import { RECIPE_GENERATION_PROJECT_CONTEXT_TOOL_NAMES } from './contracts.js';
+import { RECIPE_GENERATION_PROJECT_CONTEXT_TOOL_NAMES } from '../contracts.js';
 
 export type ProjectContextCreationStage =
   | 'plan-draft'

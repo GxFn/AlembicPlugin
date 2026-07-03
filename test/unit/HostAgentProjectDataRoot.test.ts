@@ -12,7 +12,7 @@ import {
   ProjectRegistry,
 } from '@alembic/core/workspace';
 import { afterEach, describe, expect, test } from 'vitest';
-import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
+import { resolveHostAgentDataRoot } from '#recipe-generation/generate/project-data-root.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 const TEMP_ROOTS: string[] = [];

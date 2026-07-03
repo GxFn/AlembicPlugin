@@ -10,9 +10,9 @@ import {
 import {
   buildProjectContextCreationGuide,
   buildProjectContextCreationNextActions,
-} from '#recipe-generation/project-context-anchoring.js';
-import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
+} from '#recipe-generation/plan/project-context-anchoring.js';
 import type { HostKnowledgeState } from '#service/knowledge/KnowledgeState.js';
+import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolSurfaceEntry,

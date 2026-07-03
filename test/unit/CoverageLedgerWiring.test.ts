@@ -33,10 +33,10 @@ import {
   type CoverageLedgerWriteInput,
   reflowDeepMiningRoundOnCompletion,
   writeCoverageLedgerForCompletion,
-} from '#recipe-generation/host-agent-workflows/coverage-ledger-write.js';
-import { derivePerCellTargetsFromGate } from '#recipe-generation/host-agent-workflows/knowledge-rescan.js';
-import type { PlanSelectionModuleBinding } from '#recipe-generation/plan-generation-gate.js';
-import { buildCoverageSeedFromCells } from '#recipe-generation/plan-tool.js';
+} from '#recipe-generation/generate/coverage-ledger-write.js';
+import { derivePerCellTargetsFromGate } from '#recipe-generation/generate/knowledge-rescan.js';
+import type { PlanSelectionModuleBinding } from '#recipe-generation/plan/plan-generation-gate.js';
+import { buildCoverageSeedFromCells } from '#recipe-generation/plan/plan-tool.js';
 
 // ---- 假仓：只捕获 upsertCell 调用，其它方法最小实现 ----
 // CoverageLedgerWriteInput.repository 是 CoverageLedgerRepository（含私有字段），结构无法直接构造，

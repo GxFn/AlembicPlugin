@@ -8,7 +8,7 @@ import type {
   ProjectContextResult,
 } from '@alembic/core/project-context';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-generation/host-agent-workflows/project-context-analysis.js';
+import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-generation/generate/project-context-analysis.js';
 
 const projectContextExecuteMock = vi.hoisted(() => vi.fn());
 

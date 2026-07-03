@@ -3,7 +3,7 @@ import {
   type HostAgentFileChangeHandler,
   isUnifiedEvolutionReportRouteComplete,
   type UnifiedEvolutionReport,
-} from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
+} from '#recipe-generation/sustain/HostAgentFileChangeHandler.js';
 import {
   createPluginGitDiffCheckpointRuntime,
   type PluginGitDiffCheckpointContainer,

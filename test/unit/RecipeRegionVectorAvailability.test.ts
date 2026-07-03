@@ -3,7 +3,7 @@ import type { ServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
   buildRecipeSemanticRegionVectors,
   syncRecipeSemanticMemoriesForEntries,
-} from '../../lib/recipe-generation/host-agent-workflows/recipe-region-vector.js';
+} from '../../lib/recipe-generation/generate/recipe-region-vector.js';
 
 describe('buildRecipeSemanticRegionVectors availability gate', () => {
   it('uses VectorService availability instead of stats embedProviderAvailable', async () => {

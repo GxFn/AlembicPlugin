@@ -31,7 +31,7 @@ function toPosix(relativePath) {
   return relativePath.split(path.sep).join('/');
 }
 
-const GATED_DIRECTORIES = ['lib/recipe-generation/host-agent-workflows/'];
+const GATED_DIRECTORIES = ['lib/recipe-generation/generate/'];
 
 const GATED_FILES = new Set(['lib/service/knowledge/KnowledgeState.ts']);
 

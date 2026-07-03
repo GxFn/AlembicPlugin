@@ -1,12 +1,12 @@
 import { getServiceContainer } from '#inject/ServiceContainer.js';
-import { runCommitDrivenMaintenance } from '#recipe-generation/evolution/git-diff-checkpoint/CommitDrivenMaintenance.js';
-import { HostAgentFileChangeHandler } from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
+import { runCommitDrivenMaintenance } from '#recipe-generation/sustain/git-diff-checkpoint/CommitDrivenMaintenance.js';
+import { HostAgentFileChangeHandler } from '#recipe-generation/sustain/HostAgentFileChangeHandler.js';
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractPluginToolOutcome,
   extractTaskCloseGuardDecision,
   shouldAttachPluginOpportunisticEvolution,
-} from '#recipe-generation/evolution/PluginOpportunisticEvolution.js';
+} from '#recipe-generation/sustain/PluginOpportunisticEvolution.js';
 import type { ToolExecutionContext } from '../../../runtime/mcp/host/embedded-executor.js';
 
 export async function attachPluginOpportunisticEvolutionSurface(input: {

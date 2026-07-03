@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
-import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
-import { resolvePlanGenerationGate } from '../../lib/recipe-generation/plan-generation-gate.js';
+import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/generate/cold-start.js';
+import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/generate/knowledge-rescan.js';
+import { resolvePlanGenerationGate } from '../../lib/recipe-generation/plan/plan-generation-gate.js';
 import { GenerateInput, RescanInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 const fixtureRoots: string[] = [];

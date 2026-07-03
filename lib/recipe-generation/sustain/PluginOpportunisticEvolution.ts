@@ -1,8 +1,8 @@
 import type {
   GitDiffScanner,
   GitDiffScanResult,
-} from '#recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
-import type { UnifiedEvolutionReport } from '#recipe-generation/evolution/HostAgentFileChangeHandler.js';
+} from '#recipe-generation/sustain/git-diff-checkpoint/GitDiffScanner.js';
+import type { UnifiedEvolutionReport } from '#recipe-generation/sustain/HostAgentFileChangeHandler.js';
 
 type GitDiffScannerLike = Pick<GitDiffScanner, 'scanOnce'>;
 

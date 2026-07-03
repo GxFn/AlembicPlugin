@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { GitDiffScanResult } from '../../lib/recipe-generation/evolution/git-diff-checkpoint/GitDiffScanner.js';
+import type { GitDiffScanResult } from '../../lib/recipe-generation/sustain/git-diff-checkpoint/GitDiffScanner.js';
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractPluginToolOutcome,
   shouldAttachPluginOpportunisticEvolution,
-} from '../../lib/recipe-generation/evolution/PluginOpportunisticEvolution.js';
+} from '../../lib/recipe-generation/sustain/PluginOpportunisticEvolution.js';
 import { attachPluginOpportunisticEvolutionSurface } from '../../lib/runtime/mcp/host/opportunistic-evolution-presenter.js';
 
 const fallbackGate = {

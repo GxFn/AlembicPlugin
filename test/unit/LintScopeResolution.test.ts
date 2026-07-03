@@ -19,7 +19,7 @@ afterEach(() => {
 function createFixture(contents: string): string {
   const root = mkdtempSync(path.join(tmpdir(), 'alembic-plugin-scope-lint-'));
   tempRoots.push(root);
-  const workflowDir = path.join(root, 'lib', 'recipe-generation', 'host-agent-workflows');
+  const workflowDir = path.join(root, 'lib', 'recipe-generation', 'generate');
   mkdirSync(workflowDir, { recursive: true });
   writeFileSync(path.join(workflowDir, 'project-data-root.ts'), contents);
   return root;

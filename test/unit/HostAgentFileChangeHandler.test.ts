@@ -1,6 +1,6 @@
 import type { FileChangeEvent } from '@alembic/core/types';
 import { vi } from 'vitest';
-import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/evolution/HostAgentFileChangeHandler.js';
+import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/sustain/HostAgentFileChangeHandler.js';
 
 /* ════════════════════════════════════════════
  *  Mock ContentImpactAnalyzer — 控制 diff 返回

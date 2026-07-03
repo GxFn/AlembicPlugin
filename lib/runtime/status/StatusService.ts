@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
 import { WorkspaceResolver } from '@alembic/core/workspace';
+import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import {
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
@@ -16,7 +17,6 @@ import {
   type HostProjectAlignment,
 } from '../../runtime/HostProjectAlignment.js';
 import { resolveHostAdapter } from '../../runtime/host-adapter/resolveHostAdapter.js';
-import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import { buildModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
 import {
   buildProjectRootRequiredActions,

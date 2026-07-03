@@ -55,7 +55,7 @@ import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/servi
 // ── Shared Types ──
 import type { LanguageService } from '@alembic/core/shared';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
-import type { GenerateTaskManager } from '#recipe-generation/generate/GenerateTaskManager.js';
+import type { GenerateTaskManager } from '#recipe-generation/generate/runtime/GenerateTaskManager.js';
 import type { ContextualEnricher } from '#recipe-generation/vector/ContextualEnricher.js';
 // ── Domain Types ──
 // ── Core Types ──

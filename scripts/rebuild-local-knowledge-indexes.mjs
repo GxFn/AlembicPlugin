@@ -42,7 +42,7 @@ try {
   const serviceContainerPath = join(repoRoot, 'dist/lib/injection/ServiceContainer.js');
   const indexRebuildPath = join(
     repoRoot,
-    'dist/lib/recipe-generation/host-agent-workflows/knowledge-index-rebuild.js'
+    'dist/lib/recipe-generation/generate/knowledge-index-rebuild.js'
   );
   for (const requiredPath of [bootstrapPath, serviceContainerPath, indexRebuildPath]) {
     if (!existsSync(requiredPath)) {

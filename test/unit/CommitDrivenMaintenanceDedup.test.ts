@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/evolution/HostAgentFileChangeHandler.js';
+import { HostAgentFileChangeHandler } from '../../lib/recipe-generation/sustain/HostAgentFileChangeHandler.js';
 
 // UM#7（CG-6）：固化「commit-driven 维护双入口（presenter↔rescan）对同一 recipe+type 重复 submit
 // 只落一条」。真实去重在 Core ProposalRepository.create 的 #hasDuplicate：按

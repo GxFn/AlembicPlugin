@@ -1,3 +1,5 @@
+export * from '#service/knowledge/KnowledgeState.js';
+export * from '#service/skills/ProjectSkillDelivery.js';
 export * from '../runtime/diagnostics/Diagnostics.js';
 export * from '../runtime/EnhancementRoute.js';
 export * from '../runtime/HostProjectAlignment.js';
@@ -6,11 +8,9 @@ export * from '../runtime/host-adapter/CodexHostAdapter.js';
 export * from '../runtime/host-adapter/HostAdapter.js';
 export * from '../runtime/host-adapter/resolveHostAdapter.js';
 export * from '../runtime/JobContext.js';
-export * from '#service/knowledge/KnowledgeState.js';
 export * from '../runtime/ModuleBoundary.js';
 export * from '../runtime/PluginRegistry.js';
 export * from '../runtime/ProjectRootResolver.js';
-export * from '#service/skills/ProjectSkillDelivery.js';
 export * from '../runtime/preflight/Preflight.js';
 export * from '../runtime/runtime/ProjectRuntimeContext.js';
 export * from '../runtime/runtime/RuntimeContext.js';

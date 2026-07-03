@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 import {
   canonicalizeModuleSeedRefs,
   type ProjectContextModuleSeed,
-} from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
+} from '#recipe-generation/generate/project-context-analysis.js';
 
 // 构造最小 canonical ModuleSummary（path 经 ref.scope.filePath 提供）。
 function canonicalModules(

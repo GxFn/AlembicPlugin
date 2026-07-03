@@ -3,7 +3,7 @@ import type { ServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
   rebuildLocalKnowledgeIndexes,
   resolveRescanScanBatchCap,
-} from '../../lib/recipe-generation/host-agent-workflows/knowledge-index-rebuild.js';
+} from '../../lib/recipe-generation/generate/knowledge-index-rebuild.js';
 
 // U6 P4/P5/D2 consumer wiring tests:
 //  - P4: stale>0 → repairRenames+applyRepairs 激活、renamed/applied surface、幂等重跑不重复写。

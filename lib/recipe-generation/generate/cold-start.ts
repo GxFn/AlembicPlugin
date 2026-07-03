@@ -29,25 +29,24 @@ import {
 import { jsonByteLength } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/HostProjectAlignment.js';
-import { buildHostAgentAnalysisSurface } from '#recipe-generation/host-agent-workflows/HostAgentAnalysisSurface.js';
-import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
   attachBriefingTransportMeta,
   attachFullBriefingRef,
   budgetBriefingResponseData,
-} from '#recipe-generation/host-agent-workflows/briefing-budget.js';
+} from '#recipe-generation/generate/briefing-budget.js';
 import {
   buildColdStartCompletenessCriticByDimension,
   projectCompletenessCriticForAgent,
-} from '#recipe-generation/host-agent-workflows/completeness-critic.js';
+} from '#recipe-generation/generate/completeness-critic.js';
+import { buildHostAgentAnalysisSurface } from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
   selectProjectContextDimensions,
-} from '#recipe-generation/host-agent-workflows/project-context-analysis.js';
-import { resolveHostAgentDataRoot } from '#recipe-generation/host-agent-workflows/project-data-root.js';
+} from '#recipe-generation/generate/project-context-analysis.js';
+import { resolveHostAgentDataRoot } from '#recipe-generation/generate/project-data-root.js';
 import {
   acquirePlanGenerationLease,
   applyPlanGateToProjectAnalysisIntent,
@@ -56,9 +55,10 @@ import {
   type PlanGenerationLease,
   planGateNoCleanupResult,
   resolvePlanGenerationGate,
-} from '#recipe-generation/plan-generation-gate.js';
-import { attachProjectContextCreationGuide } from '#recipe-generation/project-context-anchoring.js';
+} from '#recipe-generation/plan/plan-generation-gate.js';
+import { attachProjectContextCreationGuide } from '#recipe-generation/plan/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
+import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import type { GenerateInput } from '#shared/schemas/mcp-tools.js';
 
 interface McpContext {

@@ -17,13 +17,13 @@ import {
 import { describe, expect, it } from 'vitest';
 import { validateSubmitKnowledgeContentQuality } from '#codex/mcp/handlers/recipe-content-quality-gate.js';
 import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
-import { attachRecipeAuthoringFrontLoad } from '#recipe-generation/host-agent-workflows/cold-start.js';
 import {
   createSessionScope,
   createSourceRefResolver,
   type GenerateSessionLike,
   validateRecipeProductionEvidenceGate,
-} from '#recipe-generation/host-agent-workflows/recipe-evidence-gate.js';
+} from '#recipe-generation/curate/recipe-evidence-gate.js';
+import { attachRecipeAuthoringFrontLoad } from '#recipe-generation/generate/cold-start.js';
 import { SubmitKnowledgeItemSchema } from '#shared/schemas/mcp-tools.js';
 
 describe('recipe-gate drift tripwire — lifted gate constants', () => {

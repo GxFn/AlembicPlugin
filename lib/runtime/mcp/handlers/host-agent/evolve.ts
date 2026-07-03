@@ -14,14 +14,14 @@ import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import type { StructuredPatch } from '@alembic/core/types';
 import { envelope } from '#codex/mcp/envelope.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
-import type { EvolveInput } from '#shared/schemas/mcp-tools.js';
 import {
   mergeFreshnessOutputs,
   type RecipeFreshnessPublicOutput,
   type RecipeFreshnessPublicRecipe,
   refreshRecipeFreshnessByIds,
   skippedRecipe,
-} from '#recipe-generation/evolution/RecipeFreshnessRuntime.js';
+} from '#recipe-generation/sustain/RecipeFreshnessRuntime.js';
+import type { EvolveInput } from '#shared/schemas/mcp-tools.js';
 
 /** MCP handler context */
 interface McpContext {

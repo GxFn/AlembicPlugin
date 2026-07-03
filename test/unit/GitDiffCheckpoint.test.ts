@@ -13,7 +13,7 @@ import {
   recordPluginGitDiffCheckpointRouteOutcome,
   shouldIgnoreProjectPath,
   toProjectRelativePath,
-} from '../../lib/recipe-generation/evolution/git-diff-checkpoint/index.js';
+} from '../../lib/recipe-generation/sustain/git-diff-checkpoint/index.js';
 
 const tempDirs: string[] = [];
 

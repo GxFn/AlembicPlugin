@@ -20,7 +20,6 @@ const sourceImportAliases = new Map([
   ['shared', 'shared'],
   ['tools', 'tools'],
   ['types', 'types'],
-  ['workflows', 'workflows'],
 ]);
 
 function resolveSourcePackageImport(source: string): string | null {

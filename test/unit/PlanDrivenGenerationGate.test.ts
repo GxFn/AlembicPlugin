@@ -11,15 +11,15 @@ import {
 } from '@alembic/core/repositories';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/host-agent-workflows/cold-start.js';
-import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/host-agent-workflows/knowledge-rescan.js';
+import { runHostAgentColdStartWorkflow } from '../../lib/recipe-generation/generate/cold-start.js';
+import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/generate/knowledge-rescan.js';
 import {
   acquirePlanGenerationLease,
   type PlanGenerationGateReady,
   type PlanGenerationStage,
   type PlanSelectionInput,
   resolvePlanGenerationGate,
-} from '../../lib/recipe-generation/plan-generation-gate.js';
+} from '../../lib/recipe-generation/plan/plan-generation-gate.js';
 import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 

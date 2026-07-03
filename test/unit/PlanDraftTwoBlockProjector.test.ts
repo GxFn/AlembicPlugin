@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ALL_DIMENSION_IDS } from '@alembic/core/dimensions';
 import { afterEach, describe, expect, test } from 'vitest';
-import { routePlanTool } from '../../lib/recipe-generation/plan-tool.js';
+import { routePlanTool } from '../../lib/recipe-generation/plan/plan-tool.js';
 
 interface PlanToolResponse {
   data?: Record<string, unknown>;
