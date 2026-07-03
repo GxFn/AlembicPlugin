@@ -2,23 +2,14 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 const sourceImportAliases = new Map([
-  ['agent', 'agent'],
   // The #codex import key is an identifier (kept per the SN5 files/dirs-only
   // scope); its source directory moved to lib/runtime in the SN5 rename.
   ['host-runtime', 'host-runtime'],
-  ['governance', 'governance'],
-  ['domain', 'domain'],
-  ['external', 'external'],
-  ['http', 'http'],
   ['infra', 'infrastructure'],
   ['inject', 'injection'],
-  ['platform', 'platform'],
-  ['repo', 'repository'],
   ['recipe-pipeline', 'recipe-pipeline'],
-  ['sandbox', 'sandbox'],
   ['service', 'service'],
   ['shared', 'shared'],
-  ['tools', 'tools'],
   ['types', 'types'],
 ]);
 

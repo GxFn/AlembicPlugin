@@ -21,10 +21,6 @@
       "alembic-dev": "./lib/injection/*",
       "default": "./dist/lib/injection/*"
     },
-    "#governance/*": {
-      "alembic-dev": "./lib/governance/*",
-      "default": "./dist/lib/governance/*"
-    },
     "#recipe-pipeline/*": {
       "alembic-dev": "./lib/recipe-pipeline/*",
       "default": "./dist/lib/recipe-pipeline/*"

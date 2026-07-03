@@ -24,14 +24,29 @@ import { execSync } from 'node:child_process';
 
 // L1 directories that must not reach into the L2 MCP surface.
 const L1_DIRS = ['lib/service', 'lib/recipe-pipeline'];
-// Import specifiers that resolve into lib/host-runtime/mcp.
-const PATTERN = "from '([^']*runtime/mcp/|#host-runtime/mcp/)";
+// Import specifiers that resolve into lib/host-runtime (W5-f: widened from mcp/-only to the
+// whole L2 host-runtime tree; the direction axiom L1 -> L2 is forbidden except the allowlist).
+const PATTERN = "from '([^']*lib/host-runtime/|#host-runtime/)";
+
+// W5-f P3 residual allowlist (decision (6)b): two host-facts builders consumed by generate
+// workflows at result-assembly time. They read host-global runtime-control state / weave the
+// plugin tool-surface catalog — genuinely host-runtime semantics, not movable into L1.
+// Follow-up route: inject as optional hostFacts ports from the mcp handler layer (DI).
+const ALLOWLIST = [
+  'lib/recipe-pipeline/generate/cold-start.ts:.*buildLocalSelectionMismatch',
+  'lib/recipe-pipeline/generate/cold-start.ts:.*buildColdStartOnboardingContract',
+  'lib/recipe-pipeline/generate/knowledge-rescan.ts:.*buildLocalSelectionMismatch',
+  // type-only bridge (no runtime coupling): resident client surfaces the host-runtime status
+  // shape in its API. Follow-up: sink HostRuntimeStatus into lib/types or a Core contract.
+  'lib/service/resident/AlembicResidentServiceClient.ts:.*import type \\{ HostRuntimeStatus \\}',
+];
 
 const result = execSync(
   `grep -rnE "${PATTERN}" ${L1_DIRS.join(' ')} --include='*.ts' 2>/dev/null || true`,
   { encoding: 'utf8' }
 );
 
+const allowRes = ALLOWLIST.map((p) => new RegExp(p));
 const violations = [];
 for (const line of result.trim().split('\n').filter(Boolean)) {
   // Skip matches inside line/block comments (mirror lint-repo-boundary.mjs).
@@ -41,12 +56,15 @@ for (const line of result.trim().split('\n').filter(Boolean)) {
   if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) {
     continue;
   }
+  if (allowRes.some((re) => re.test(line))) {
+    continue;
+  }
   violations.push(line);
 }
 
 if (violations.length > 0) {
   console.error(
-    '[layer-boundary] FAIL — L1 (lib/service, lib/workflows) must not import L2 (lib/host-runtime/mcp):'
+    '[layer-boundary] FAIL — L1 (lib/service, lib/recipe-pipeline) must not import L2 (lib/host-runtime) outside the allowlist:'
   );
   for (const v of violations) {
     console.error(`  ${v}`);

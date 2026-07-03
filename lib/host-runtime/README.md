@@ -1,24 +1,14 @@
-# lib/runtime
+# host-runtime — 宿主运行时层(L2)
 
-`lib/runtime` 集中维护 Alembic 面向 Codex 插件形态的运行约定。
+原 `lib/runtime`(W5-e 改名;`#codex/*` 别名同批退役为 `#host-runtime/*`——双宿主 cc/codex 后旧名名不副实)。分组(W5-c):
 
-这里管理的是插件入口需要共享的稳定事实和策略：通用插件运行时模式、Codex 插件宿主标识、插件名、runtime package/bin、MCP 默认 tier、admin gate、marketplace/plugin manifest 路径、插件资产与 Skill 校验、runtime diagnostics、workspace knowledge state、工具可见性策略、MCP status、Codex long-running job 来源上下文。
+| 组 | 职责 |
+|---|---|
+| `mcp/` | MCP 协议壳+工具 handlers(HostMcpServer 入口;handlers 按工具族一文件一族) |
+| `host-adapter/` | 宿主适配(codex/claude-code 判定与差异面) |
+| `context/` | 运行时身份/环境/对齐事实(RuntimeContext/ProjectRuntimeContext/ProjectRootResolver/HostProjectAlignment/PluginRegistry/ModuleBoundary/JobContext/EmbeddedRuntimeContract) |
+| `status/` | alembic_status 摘要面(StatusService/OnboardingContract/EnhancementRoute/host-runtime-status) |
+| `diagnostics/` | 诊断与预检(Diagnostics/Preflight) |
+| `policy/` | 工具可见性/写来源/请求边界策略(ToolPolicy/SourceBoundary/ServiceRequestBoundary) |
 
-当前阶段只维护 `alembic-codex` 这一个 Codex 插件 shell 和 `@gxfn/alembic-runtime` pinned runtime package，不在这里做多插件或多个非插件包的提前抽象。
-
-边界：
-
-- 不承载 Alembic core 能力本身；daemon、Guard、Recipes、bootstrap/rescan 仍在各自模块。
-- 不把插件化解释成削减能力；这里只统一入口和诊断，不替代成熟主链路。
-- 不从安装路径推断功能；通用插件判断使用 `ALEMBIC_RUNTIME_MODE=plugin`，Codex 宿主判断使用 `ALEMBIC_PLUGIN_HOST=codex`。
-- 不把 `.env` 当基础配置；Codex 入口只使用进程级 runtime overrides 和 workspace settings/secrets。
-
-主要入口：
-
-- `runtime/context/RuntimeContext.ts`：Codex 常量、MCP shim 默认环境、runtime context。
-- `PluginRegistry.ts`：读取 marketplace、plugin manifest、MCP 配置和插件 README。
-- `diagnostics/Diagnostics.ts`：生成 Codex runtime/plugin diagnostics，供 MCP 与插件验证脚本复用。
-- `KnowledgeState.ts`：检查 Codex workspace/Ghost data root 是否初始化、是否已有可用 Recipes 或 Project Skills，并只读汇总 bootstrap/rescan job、SourceRef stale、bootstrap snapshot、knowledge freshness 与 optional vector index 状态。
-- `ToolPolicy.ts`：维护当前 `alembic-codex` 插件的 local tools 与工具可见性策略，输出 needs-init、bootstrap-running、ready-stale、daemon-stale 等可解释状态；vector 缺失是 non-blocking 信号，不会隐藏已有知识工具。
-- `status/StatusService.ts`：构建 MCP 使用的 Codex status、onboarding、next actions 和 daemon 状态摘要。
-- `JobContext.ts`：构建 bootstrap/rescan job 的 Codex client、session、tool、actor 上下文。
+方向公理:L2(本层)→L1(service/recipe-pipeline) 单向;反向由 `scripts/lint-layer-boundary.mjs` 把门(白名单仅 host-facts 构建器 2 符号+1 条 type-only 桥,follow-up=DI 注入/类型下沉)。wire 冻结:MCP 工具名/载荷字段/`daemon` 载荷键/磁盘 daemon.json 族(见 AlembicCore/docs/wire-contract.md)。
