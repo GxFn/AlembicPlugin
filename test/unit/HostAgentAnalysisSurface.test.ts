@@ -1,13 +1,13 @@
 import type { HostAgentAnalysisPacket } from '@alembic/core/host-agent-workflows';
 import { describe, expect, it } from 'vitest';
 import {
+  buildIDEAgentAnalysisProgressBackfill,
+  buildIDEAgentAnalysisSurface,
+} from '../../lib/host-runtime/ide-agent/IDEAgentAnalysisSurface.js';
+import {
   buildHostAgentAnalysisProgressBackfill,
   buildHostAgentAnalysisSurface,
 } from '../../lib/recipe-pipeline/generate/HostAgentAnalysisSurface.js';
-import {
-  buildIDEAgentAnalysisProgressBackfill,
-  buildIDEAgentAnalysisSurface,
-} from '../../lib/runtime/ide-agent/IDEAgentAnalysisSurface.js';
 
 type TestSourceRef = HostAgentAnalysisPacket['sourceRefs'][number] & {
   folderDisplayName?: string;

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 
 const activeHostGuidanceFiles = [
   '../../README.md',

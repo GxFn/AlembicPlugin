@@ -15,8 +15,8 @@ import {
   validateAgainst,
 } from '@alembic/core/knowledge';
 import { describe, expect, it } from 'vitest';
-import { validateSubmitKnowledgeContentQuality } from '#codex/mcp/handlers/recipe-content-quality-gate.js';
-import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
+import { validateSubmitKnowledgeContentQuality } from '#host-runtime/mcp/handlers/recipe-content-quality-gate.js';
+import { buildColdStartOnboardingContract } from '#host-runtime/status/OnboardingContract.js';
 import {
   createSessionScope,
   createSourceRefResolver,

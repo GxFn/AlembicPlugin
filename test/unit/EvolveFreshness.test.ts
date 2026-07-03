@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { evolveForHostAgent } from '../../lib/runtime/mcp/handlers/host-agent/evolve.js';
+import { evolveForHostAgent } from '../../lib/host-runtime/mcp/handlers/host-agent/evolve.js';
 
 describe('evolveForHostAgent freshness wiring', () => {
   it('refreshes freshness after a still-valid verification updates the Recipe row', async () => {

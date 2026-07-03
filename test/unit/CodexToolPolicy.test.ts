@@ -4,12 +4,12 @@ import {
   LOCAL_TOOLS,
   PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
   resolveToolPolicy,
-} from '../../lib/runtime/index.js';
+} from '../../lib/host-runtime/index.js';
 import {
   getPluginToolSurfaceEntry,
   listPluginToolSurfaceCatalog,
-} from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+} from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 
 const tierOrder = { agent: 0, admin: 1 };
 const hostWorkflowToolNames = [

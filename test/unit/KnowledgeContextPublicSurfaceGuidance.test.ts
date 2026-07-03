@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/runtime/index.js';
-import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
-import { listPluginToolSurfaceCatalog } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/host-runtime/index.js';
+import { buildMcpGuidance } from '../../lib/host-runtime/mcp/host/guidance.js';
+import { listPluginToolSurfaceCatalog } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 
 const ROOT = process.cwd();
 

@@ -3,20 +3,20 @@
  * lint-layer-boundary.mjs — Plugin layer-contract boundary check (RC-6).
  *
  * Enforces the one-way layer contract around the MCP surface:
- *   - L2 (MCP surface)     = lib/runtime/mcp/**
- *   - L1 (host-agnostic)   = lib/service/**, lib/workflows/**, non-mcp lib/runtime/**
+ *   - L2 (MCP surface)     = lib/host-runtime/mcp/**
+ *   - L1 (host-agnostic)   = lib/service/**, lib/workflows/**, non-mcp lib/host-runtime/**
  *
  * The MCP surface (L2) may import services/workflows (L1) — that is the clean
  * dependency direction (L2 → L1). The reverse is forbidden: lib/service/** and
- * lib/workflows/** must NOT import back into lib/runtime/mcp/** (an L1 → L2
+ * lib/workflows/** must NOT import back into lib/host-runtime/mcp/** (an L1 → L2
  * backslip), which would turn the MCP boundary into a cycle instead of a thin
  * host adapter over host-agnostic services. Pull the underlying symbol from its
  * own source layer (e.g. @alembic/core, lib/shared) instead of reaching into the
  * MCP surface.
  *
  * Forbidden: an import in lib/service/** or lib/workflows/** whose specifier
- * targets lib/runtime/mcp — a relative path (…/runtime/mcp/…) or the
- * `#codex/mcp/…` alias (`#codex` → lib/runtime).
+ * targets lib/host-runtime/mcp — a relative path (…/runtime/mcp/…) or the
+ * `#host-runtime/mcp/…` alias (`#codex` → lib/runtime).
  *
  * Exit 0 = clean, Exit 1 = backslip found.
  */
@@ -24,8 +24,8 @@ import { execSync } from 'node:child_process';
 
 // L1 directories that must not reach into the L2 MCP surface.
 const L1_DIRS = ['lib/service', 'lib/recipe-pipeline'];
-// Import specifiers that resolve into lib/runtime/mcp.
-const PATTERN = "from '([^']*runtime/mcp/|#codex/mcp/)";
+// Import specifiers that resolve into lib/host-runtime/mcp.
+const PATTERN = "from '([^']*runtime/mcp/|#host-runtime/mcp/)";
 
 const result = execSync(
   `grep -rnE "${PATTERN}" ${L1_DIRS.join(' ')} --include='*.ts' 2>/dev/null || true`,
@@ -46,17 +46,17 @@ for (const line of result.trim().split('\n').filter(Boolean)) {
 
 if (violations.length > 0) {
   console.error(
-    '[layer-boundary] FAIL — L1 (lib/service, lib/workflows) must not import L2 (lib/runtime/mcp):'
+    '[layer-boundary] FAIL — L1 (lib/service, lib/workflows) must not import L2 (lib/host-runtime/mcp):'
   );
   for (const v of violations) {
     console.error(`  ${v}`);
   }
   console.error(
-    '\nFix: import the symbol from its own source layer (e.g. @alembic/core or lib/shared) instead of reaching back into lib/runtime/mcp. The clean direction is L2(mcp) → L1(service/workflows); L1 → L2 is a backslip.'
+    '\nFix: import the symbol from its own source layer (e.g. @alembic/core or lib/shared) instead of reaching back into lib/host-runtime/mcp. The clean direction is L2(mcp) → L1(service/workflows); L1 → L2 is a backslip.'
   );
   process.exit(1);
 }
 
 console.log(
-  '[layer-boundary] PASS — no L1 → L2 backslip; the MCP surface (lib/runtime/mcp) imports services/workflows one-way (L2 → L1).'
+  '[layer-boundary] PASS — no L1 → L2 backslip; the MCP surface (lib/host-runtime/mcp) imports services/workflows one-way (L2 → L1).'
 );

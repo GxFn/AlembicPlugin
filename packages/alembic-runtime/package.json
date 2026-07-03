@@ -29,9 +29,9 @@
       "alembic-dev": "./lib/recipe-pipeline/*",
       "default": "./dist/lib/recipe-pipeline/*"
     },
-    "#codex/*": {
-      "alembic-dev": "./lib/runtime/*",
-      "default": "./dist/lib/runtime/*"
+    "#host-runtime/*": {
+      "alembic-dev": "./lib/host-runtime/*",
+      "default": "./dist/lib/host-runtime/*"
     }
   },
   "bin": {

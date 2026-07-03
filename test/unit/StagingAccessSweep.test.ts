@@ -4,7 +4,7 @@ import {
   resetStagingAccessSweepStateForTests,
   resolveStagingAccessSweepCap,
   STAGING_ACCESS_SWEEP_TOOL_NAMES,
-} from '../../lib/runtime/mcp/host/staging-access-sweep.js';
+} from '../../lib/host-runtime/mcp/host/staging-access-sweep.js';
 
 const ORIGINAL_MIN_INTERVAL = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS;
 const ORIGINAL_TIMEOUT = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS;

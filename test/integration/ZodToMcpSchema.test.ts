@@ -11,7 +11,7 @@
  */
 
 import { z } from 'zod';
-import { zodToMcpSchema } from '../../lib/runtime/mcp/zodToMcpSchema.js';
+import { zodToMcpSchema } from '../../lib/host-runtime/mcp/zodToMcpSchema.js';
 import {
   GraphInput,
   HealthInput,

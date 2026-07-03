@@ -8,7 +8,7 @@ import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import {
   getSavedProjectRootPath,
   readInitMarker,
-} from '../../../lib/runtime/context/ProjectRootResolver.js';
+} from '../../../lib/host-runtime/context/ProjectRootResolver.js';
 import type { AlembicMcpHarness } from './McpHarness.js';
 import type {
   CodexScenarioRunFacts,

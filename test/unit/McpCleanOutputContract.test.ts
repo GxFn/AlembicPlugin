@@ -9,7 +9,7 @@ import {
   registerMcpOutputProjector,
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../../lib/runtime/mcp/output-contract.js';
+} from '../../lib/host-runtime/mcp/output-contract.js';
 
 describe('MCP clean output contract foundation', () => {
   test('creates structured tool results with summary-only visible text', () => {
@@ -292,8 +292,8 @@ describe('MCP clean output contract foundation', () => {
 // z.literal 必填）。CC3 现场证据：缺顶层 toolName 时 SDK 客户端以 -32602 拒收。
 describe('clean error responses satisfy the declared core-tools output schema (F1)', () => {
   it('carries the top-level toolName required by the per-tool literal schema', async () => {
-    const { createCleanMcpErrorResponse } = await import('#codex/mcp/output-contract.js');
-    const { CORE_TOOL_OUTPUT_SCHEMAS } = await import('#codex/mcp/core-tools/output.js');
+    const { createCleanMcpErrorResponse } = await import('#host-runtime/mcp/output-contract.js');
+    const { CORE_TOOL_OUTPUT_SCHEMAS } = await import('#host-runtime/mcp/core-tools/output.js');
     const response = createCleanMcpErrorResponse({
       code: 'VALIDATION_ERROR',
       message: '输入校验失败: dimensionId is required',

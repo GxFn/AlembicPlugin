@@ -5,7 +5,7 @@ const sourceImportAliases = new Map([
   ['agent', 'agent'],
   // The #codex import key is an identifier (kept per the SN5 files/dirs-only
   // scope); its source directory moved to lib/runtime in the SN5 rename.
-  ['codex', 'runtime'],
+  ['host-runtime', 'host-runtime'],
   ['governance', 'governance'],
   ['domain', 'domain'],
   ['external', 'external'],

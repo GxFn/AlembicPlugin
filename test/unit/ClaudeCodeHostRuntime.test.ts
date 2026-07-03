@@ -24,13 +24,13 @@ import {
   type HostAdapter,
   resolveHostAdapter,
   resolveHostRuntimeContext,
-} from '../../lib/runtime/index.js';
+} from '../../lib/host-runtime/index.js';
 import {
   HostMcpServer,
   resetPluginOwnedMcpServerForTests,
-} from '../../lib/runtime/mcp/HostMcpServer.js';
-import { workStartHandler } from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+} from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { workStartHandler } from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const tempRoots: string[] = [];

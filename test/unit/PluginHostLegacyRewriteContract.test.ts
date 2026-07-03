@@ -6,15 +6,15 @@ import {
   isTrustedProjectRoot,
   resolveProjectRootFromEnv,
   summarizeProjectRootResolution,
-} from '../../lib/runtime/context/ProjectRootResolver.js';
+} from '../../lib/host-runtime/context/ProjectRootResolver.js';
 import {
   PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES,
   summarizePluginHostMcpContracts,
-} from '../../lib/runtime/mcp/plugin-host-contracts.js';
+} from '../../lib/host-runtime/mcp/plugin-host-contracts.js';
 import {
   AgentPublicToolResultEnvelopeSchema,
   createAgentPublicToolResultEnvelope,
-} from '../../lib/runtime/mcp/public-tools/index.js';
+} from '../../lib/host-runtime/mcp/public-tools/index.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Plugin host legacy rewrite D12 contract', () => {

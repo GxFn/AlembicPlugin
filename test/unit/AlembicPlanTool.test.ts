@@ -10,8 +10,8 @@ import {
 } from '@alembic/core/repositories';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { routePlanTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { PlanInput as PlanInputSchema } from '../../lib/shared/schemas/mcp-tools.js';
 
 interface PlanToolResponse {

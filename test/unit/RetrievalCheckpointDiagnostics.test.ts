@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { primeHandler } from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
-import { recipeMap } from '../../lib/runtime/mcp/handlers/recipe-map.js';
-import { search } from '../../lib/runtime/mcp/handlers/search.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { primeHandler } from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
+import { recipeMap } from '../../lib/host-runtime/mcp/handlers/recipe-map.js';
+import { search } from '../../lib/host-runtime/mcp/handlers/search.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 
 const tempRoots: string[] = [];
 

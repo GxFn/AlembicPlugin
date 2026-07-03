@@ -1,4 +1,4 @@
-import { getVisibleTools, HostMcpServer } from '../../../lib/runtime/mcp/HostMcpServer.js';
+import { getVisibleTools, HostMcpServer } from '../../../lib/host-runtime/mcp/HostMcpServer.js';
 import type {
   CodexScenarioToolCallFact,
   CodexSessionHarnessMode,

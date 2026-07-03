@@ -37,7 +37,7 @@ import {
 } from '@alembic/core/host-agent-workflows';
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { buildLocalSelectionMismatch } from '#codex/context/HostProjectAlignment.js';
+import { buildLocalSelectionMismatch } from '#host-runtime/context/HostProjectAlignment.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { buildHostAgentAnalysisSurface } from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 import {

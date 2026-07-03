@@ -23,7 +23,7 @@ import {
 import type { SearchResponseMeta, SearchResultItem } from '@alembic/core/search';
 import { normalizeProjectScopeSummary, type ProjectScopeSummary } from '@alembic/core/shared';
 import { getProjectRegistryDir, WorkspaceResolver } from '@alembic/core/workspace';
-import type { HostRuntimeStatus } from '../../runtime/status/host-runtime-status.js';
+import type { HostRuntimeStatus } from '#host-runtime/status/host-runtime-status.js';
 
 type FetchLike = typeof fetch;
 

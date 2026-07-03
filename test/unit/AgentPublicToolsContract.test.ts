@@ -3,8 +3,8 @@ import {
   getMcpOutputProjector,
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../../lib/runtime/mcp/output-contract.js';
-import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
+} from '../../lib/host-runtime/mcp/output-contract.js';
+import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
 import {
   AGENT_ACTION_KINDS,
   AGENT_PUBLIC_TOOL_NAMES,
@@ -19,8 +19,8 @@ import {
   getAgentPublicToolDescriptionBase,
   listAgentPublicToolContractCatalog,
   PrimePublicPackageSchema,
-} from '../../lib/runtime/mcp/public-tools/index.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+} from '../../lib/host-runtime/mcp/public-tools/index.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Agent-facing public tools contract foundation', () => {
@@ -101,7 +101,7 @@ describe('Agent-facing public tools contract foundation', () => {
       id: 'contract:public-tools',
       kind: 'contract',
       summary: 'Public tools contract catalog and result envelope evidence',
-      uri: 'lib/runtime/mcp/public-tools/contract.ts',
+      uri: 'lib/host-runtime/mcp/public-tools/contract.ts',
       requiredForCompletion: true,
     });
 

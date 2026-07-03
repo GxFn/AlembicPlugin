@@ -28,8 +28,8 @@ import {
 } from '@alembic/core/knowledge';
 import { jsonByteLength } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { buildLocalSelectionMismatch } from '#codex/context/HostProjectAlignment.js';
-import { buildColdStartOnboardingContract } from '#codex/status/OnboardingContract.js';
+import { buildLocalSelectionMismatch } from '#host-runtime/context/HostProjectAlignment.js';
+import { buildColdStartOnboardingContract } from '#host-runtime/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
   attachBriefingTransportMeta,

@@ -7,8 +7,8 @@ import {
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { routeGraphTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
 import { GRAPH_QUERY_KINDS, GraphInput } from '../../lib/shared/schemas/mcp-tools.js';
 
@@ -351,7 +351,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(providerSource).not.toContain('fs.readFileSync');
 
     const handlerSource = fs.readFileSync(
-      path.join(process.cwd(), 'lib/runtime/mcp/handlers/structure.ts'),
+      path.join(process.cwd(), 'lib/host-runtime/mcp/handlers/structure.ts'),
       'utf8'
     );
     // graph output no longer routes through the KnowledgeContext middle layer.
@@ -378,7 +378,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
 
   test('answers workspace-root file queries for deep sub-repository files', async () => {
     const projectRoot = createNativeScopeWorkspaceFixtureProject();
-    const filePath = 'AlembicPlugin/lib/runtime/mcp/handlers/agent-public-tools.ts';
+    const filePath = 'AlembicPlugin/lib/host-runtime/mcp/handlers/agent-public-tools.ts';
 
     const symbols = await runGraph(projectRoot, {
       queryKind: 'file-symbols',
@@ -626,7 +626,7 @@ function writeWorkspacePluginFixture(root: string) {
   );
   writeFile(
     root,
-    'AlembicPlugin/lib/runtime/mcp/handlers/agent-public-tools.ts',
+    'AlembicPlugin/lib/host-runtime/mcp/handlers/agent-public-tools.ts',
     [
       'interface AgentPublicBaseArgs {',
       '  projectRoot?: string;',
@@ -644,7 +644,7 @@ function writeWorkspacePluginFixture(root: string) {
   );
   writeFile(
     root,
-    'AlembicPlugin/lib/runtime/mcp/handlers/structure.ts',
+    'AlembicPlugin/lib/host-runtime/mcp/handlers/structure.ts',
     'export const projectContextGraphHandler = true;\n'
   );
 }

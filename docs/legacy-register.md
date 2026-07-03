@@ -13,13 +13,13 @@ RC4 execution (2026-06-11).
 
 ### L1 — Legacy MCP error-code → failureKind mapping
 
-- **Where**: `lib/runtime/mcp/error-taxonomy.ts` —
+- **Where**: `lib/host-runtime/mcp/error-taxonomy.ts` —
   `LEGACY_ERROR_CODE_FAILURE_KINDS` table and
   `mapLegacyErrorCodeToFailureKind()` mapper.
 - **What**: fallback chain inside `createCleanMcpFailureTaxonomy` that derives
   the structured `failureKind` from legacy string error codes (e.g.
   `CODEX_DASHBOARD_HANDOFF_UNAVAILABLE`, emitted live at
-  `lib/runtime/mcp/CodexMcpServer.ts:768`) when a generation site does not pass
+  `lib/host-runtime/mcp/CodexMcpServer.ts:768`) when a generation site does not pass
   `failureKind` explicitly.
 - **Owner**: AlembicPlugin (MCP output contract).
 - **Status**: keep — live runtime fallback; behavior pinned by
@@ -33,7 +33,7 @@ RC4 execution (2026-06-11).
 
 - **Where defined**: AlembicCore `src/shared/source-contracts.ts:3`
   (mirrored read-only in `vendor/AlembicCore`).
-- **Where consumed here**: `lib/runtime/policy/SourceBoundary.ts:2,7` — the plugin only
+- **Where consumed here**: `lib/host-runtime/policy/SourceBoundary.ts:2,7` — the plugin only
   imports the constant into `LEGACY_HOST_AGENT_WRITE_SOURCES` so
   `normalizeCodexHostAgentWriteSource()` rewrites legacy `'ide-agent'` (and
   other legacy write sources) to `HOST_AGENT_SOURCE`; storage read expansion
@@ -48,7 +48,7 @@ RC4 execution (2026-06-11).
 
 ### L3 — `legacyEffectiveIdentityFallback` diagnostics field
 
-- **Where**: `lib/runtime/context/ProjectRuntimeContext.ts` —
+- **Where**: `lib/host-runtime/context/ProjectRuntimeContext.ts` —
   `CodexRuntimeFallbackIsolation.legacyEffectiveIdentityFallback` and the
   `CODEX_RUNTIME_FALLBACK_ISOLATION` table.
 - **What**: read-only diagnostics label naming the legacy effective-identity
@@ -67,7 +67,7 @@ RC4 execution (2026-06-11).
 
 ### D1 — `LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS` (removed in RC4, 2026-06-11)
 
-- **Was**: `lib/runtime/mcp/tools.ts` — an always-empty array (plus derived
+- **Was**: `lib/host-runtime/mcp/tools.ts` — an always-empty array (plus derived
   `LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES` Set) kept after the
   `alembic_task` direct-call retirement, gated by a release probe asserting it
   stayed empty.
@@ -78,7 +78,7 @@ RC4 execution (2026-06-11).
 
 ### D2 — Plugin twin `_slimSearchItem` re-export (removed in RC4, 2026-06-11)
 
-- **Was**: `lib/runtime/mcp/handlers/search.ts` — deprecated backward-compat
+- **Was**: `lib/host-runtime/mcp/handlers/search.ts` — deprecated backward-compat
   wrapper around `slimSearchResult` from `@alembic/core/search`.
 - **Disposition**: removed now — RC4 fresh 5-repo scan found zero consumers
   (the only remaining mention is a historical comment in Core

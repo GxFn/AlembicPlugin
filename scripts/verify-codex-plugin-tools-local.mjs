@@ -41,7 +41,7 @@ let resetPluginOwnedMcpServerForTests = null;
 
 try {
   assert(
-    existsSync(join(root, 'dist', 'lib', 'runtime', 'mcp', 'HostMcpServer.js')),
+    existsSync(join(root, 'dist', 'lib', 'host-runtime', 'mcp', 'HostMcpServer.js')),
     'dist runtime is missing; run npm run build before the fast local probe, or use npm run verify:codex-plugin:tools-local.'
   );
   assert(existsSync(projectRoot), `project root does not exist: ${projectRoot}`);
@@ -50,8 +50,8 @@ try {
 
   const [{ HostMcpServer, resetPluginOwnedMcpServerForTests: resetMcp }, outputContract] =
     await Promise.all([
-      importModule('dist/lib/runtime/mcp/HostMcpServer.js'),
-      importModule('dist/lib/runtime/mcp/output-contract.js'),
+      importModule('dist/lib/host-runtime/mcp/HostMcpServer.js'),
+      importModule('dist/lib/host-runtime/mcp/output-contract.js'),
     ]);
   resetPluginOwnedMcpServerForTests = resetMcp;
   const serializeMcpToolResult = outputContract.serializeMcpToolResult;
@@ -69,7 +69,9 @@ try {
   await runSearchAndMapCases(context);
   await runHostGraphCases(context, knowledge);
   if (!options.skipHandlerFixture) {
-    const { routeGraphTool } = await importModule('dist/lib/runtime/mcp/handlers/tool-router.js');
+    const { routeGraphTool } = await importModule(
+      'dist/lib/host-runtime/mcp/handlers/tool-router.js'
+    );
     await runGraphHandlerFixtureCases({ ...context, routeGraphTool });
   }
 
@@ -869,7 +871,7 @@ function defaultOptions() {
     allowKnowledgeSkip: false,
     alembicHome: '',
     caseIds: [],
-    graphFile: 'lib/runtime/mcp/HostMcpServer.ts',
+    graphFile: 'lib/host-runtime/mcp/HostMcpServer.ts',
     json: false,
     keepTmp: false,
     projectRoot: root,

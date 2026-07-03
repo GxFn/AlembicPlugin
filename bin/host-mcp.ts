@@ -7,7 +7,7 @@
 
 // DH-2（RC-2）：host env 初始化经 L3 HostAdapter（codex 单实现逐行委托现有
 // ensureRuntimeEnvironment，行为不变）；DH-3 起按物理 shell 形态选 codex / cc adapter。
-const { resolveHostAdapter } = await import('../lib/runtime/index.js');
+const { resolveHostAdapter } = await import('../lib/host-runtime/index.js');
 resolveHostAdapter().ensureRuntimeEnvironment();
 
 process.on('uncaughtException', (error) => {
@@ -31,7 +31,7 @@ shutdown.register(async () => {
   await timerRegistry.dispose();
 }, 'timer-registry');
 
-const { startHostMcpServer } = await import('../lib/runtime/mcp/HostMcpServer.js');
+const { startHostMcpServer } = await import('../lib/host-runtime/mcp/HostMcpServer.js');
 
 startHostMcpServer()
   .then((server) => {

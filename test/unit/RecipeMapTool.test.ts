@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { routeGraphTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
-import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
+import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 import { AlembicRecipeMapOutputSchema } from '../../lib/service/project-knowledge-context/contracts/AlembicRecipeMapOutput.js';
 import { defaultProjectGraphProvider } from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
 import {
@@ -271,7 +271,7 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
 
   test('alembic_project_matrix is wired as a retired tool pointing to alembic_recipe_map', () => {
     const serverSource = fs.readFileSync(
-      path.join(process.cwd(), 'lib/runtime/mcp/McpServer.ts'),
+      path.join(process.cwd(), 'lib/host-runtime/mcp/McpServer.ts'),
       'utf8'
     );
     // Retired-tool replacement map carries the retired matrix name + recipe_map pointer.
@@ -308,7 +308,7 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
       'utf8'
     );
     const handlerSource = fs.readFileSync(
-      path.join(process.cwd(), 'lib/runtime/mcp/handlers/recipe-map.ts'),
+      path.join(process.cwd(), 'lib/host-runtime/mcp/handlers/recipe-map.ts'),
       'utf8'
     );
     for (const source of [providerSource, handlerSource]) {

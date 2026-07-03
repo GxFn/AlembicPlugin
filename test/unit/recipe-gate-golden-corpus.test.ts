@@ -20,7 +20,7 @@ import {
   type GenerateSessionLike,
   validateRecipeProductionEvidenceGate,
 } from '#recipe-pipeline/curate/recipe-evidence-gate.js';
-import { validateSubmitKnowledgeContentQuality } from '../../lib/runtime/mcp/handlers/recipe-content-quality-gate.js';
+import { validateSubmitKnowledgeContentQuality } from '../../lib/host-runtime/mcp/handlers/recipe-content-quality-gate.js';
 
 // ════════════════════════════ Stage 1 corpus ════════════════════════════
 //

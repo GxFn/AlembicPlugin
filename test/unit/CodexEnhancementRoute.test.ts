@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildHostEnhancementRouteChoice,
   summarizeEnhancementDaemon,
-} from '../../lib/runtime/status/EnhancementRoute.js';
-import type { HostRuntimeStatus } from '../../lib/runtime/status/host-runtime-status.js';
+} from '../../lib/host-runtime/status/EnhancementRoute.js';
+import type { HostRuntimeStatus } from '../../lib/host-runtime/status/host-runtime-status.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const LOCAL_INSTALL_UNAVAILABLE = {

@@ -18,17 +18,17 @@ vi.mock('../../lib/recipe-pipeline/generate/generate-workflow.js', () => ({
   runGenerateWorkflow: runProjectIndexWorkflowMock,
 }));
 
-import { runHostAgentColdStartWorkflow as legacyColdStartWorkflow } from '../../lib/recipe-pipeline/generate/cold-start.js';
-import { runHostAgentKnowledgeRescanWorkflow as legacyRescanWorkflow } from '../../lib/recipe-pipeline/generate/knowledge-rescan.js';
 import {
   runGenerateWorkflow as bootstrapProjectIndexWorkflow,
   generateForHostAgent,
   getActiveSession,
-} from '../../lib/runtime/mcp/handlers/host-agent/generate.js';
+} from '../../lib/host-runtime/mcp/handlers/host-agent/generate.js';
 import {
   rescanForHostAgent,
   runGenerateWorkflow as rescanProjectIndexWorkflow,
-} from '../../lib/runtime/mcp/handlers/host-agent/rescan.js';
+} from '../../lib/host-runtime/mcp/handlers/host-agent/rescan.js';
+import { runHostAgentColdStartWorkflow as legacyColdStartWorkflow } from '../../lib/recipe-pipeline/generate/cold-start.js';
+import { runHostAgentKnowledgeRescanWorkflow as legacyRescanWorkflow } from '../../lib/recipe-pipeline/generate/knowledge-rescan.js';
 
 describe('host-agent project-index compatibility exports', () => {
   afterEach(() => {

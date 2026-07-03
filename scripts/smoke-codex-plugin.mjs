@@ -108,7 +108,7 @@ try {
   process.env.ALEMBIC_QUIET = '1';
 
   const { HostMcpServer } = await import(
-    pathToFileURL(join(packageRoot, 'dist', 'lib', 'runtime', 'mcp', 'HostMcpServer.js')).href
+    pathToFileURL(join(packageRoot, 'dist', 'lib', 'host-runtime', 'mcp', 'HostMcpServer.js')).href
   );
   server = new HostMcpServer({ projectRoot, waitUntilReadyMs: 10000 });
 
@@ -198,7 +198,7 @@ function requiredPackageFiles() {
   return [
     'package/.agents/plugins/marketplace.json',
     'package/dist/bin/host-mcp.js',
-    'package/dist/lib/runtime/mcp/HostMcpServer.js',
+    'package/dist/lib/host-runtime/mcp/HostMcpServer.js',
     'package/packages/alembic-runtime/package.json',
     'package/plugins/alembic-codex/.codex-plugin/plugin.json',
     'package/plugins/alembic-codex/.agents/plugins/marketplace.json',
@@ -222,7 +222,7 @@ function requiredPackageFiles() {
 function requiredRuntimePackageFiles() {
   return [
     'dist/bin/host-mcp.js',
-    'dist/lib/runtime/mcp/HostMcpServer.js',
+    'dist/lib/host-runtime/mcp/HostMcpServer.js',
     '.alembic-runtime-boundary.json',
   ];
 }

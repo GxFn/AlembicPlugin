@@ -8,9 +8,9 @@ import {
   RECIPE_GENERATION_STATE_PROJECTION_SOURCES,
   RECIPE_GENERATION_SUBSYSTEM_ROOT,
 } from '#recipe-pipeline/contracts.js';
-import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/runtime/index.js';
-import { listPluginToolSurfaceCatalog } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/host-runtime/index.js';
+import { listPluginToolSurfaceCatalog } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const planToolName = 'alembic_plan';
@@ -129,7 +129,7 @@ describe('RG-0 recipe generation skeleton', () => {
     for (const implementationPath of rg9ImplementationPaths) {
       const source = readWorkspaceFile(implementationPath);
 
-      expect(source).not.toContain('#codex/mcp/host-agent-workflows/');
+      expect(source).not.toContain('#host-runtime/mcp/host-agent-workflows/');
       expect(source).not.toContain('#service/bootstrap/');
       expect(source).not.toContain('#service/evolution/');
       expect(source).not.toContain('#service/vector/');

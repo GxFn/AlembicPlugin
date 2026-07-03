@@ -7,7 +7,7 @@ function readProjectFile(relativePath: string): string {
 
 describe('alembic_search and alembic_prime source boundary', () => {
   it('keeps public search independent from prime relation-chain providers', () => {
-    const source = readProjectFile('../../lib/runtime/mcp/handlers/search.ts');
+    const source = readProjectFile('../../lib/host-runtime/mcp/handlers/search.ts');
     const forbiddenTokens = [
       'RecipeRelationChainProvider',
       'DefaultRecipeRelationChainProvider',
@@ -31,8 +31,10 @@ describe('alembic_search and alembic_prime source boundary', () => {
   });
 
   it('keeps prime relation and Trust Receipt fields on the prime public surface', () => {
-    const primeHandler = readProjectFile('../../lib/runtime/mcp/handlers/agent-public-tools.ts');
-    const primeContract = readProjectFile('../../lib/runtime/mcp/public-tools/contract.ts');
+    const primeHandler = readProjectFile(
+      '../../lib/host-runtime/mcp/handlers/agent-public-tools.ts'
+    );
+    const primeContract = readProjectFile('../../lib/host-runtime/mcp/public-tools/contract.ts');
 
     expect(primeHandler).toContain('trustReceipt: input.primePackage.trustReceipt');
     expect(primeHandler).toContain('recipeRelationCount');

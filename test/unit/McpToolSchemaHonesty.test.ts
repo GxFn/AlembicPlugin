@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import type { z } from 'zod';
-import { HostMcpServer } from '../../lib/runtime/mcp/HostMcpServer.js';
+import { HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 let projectRoots: string[] = [];

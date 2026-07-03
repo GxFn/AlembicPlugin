@@ -11,7 +11,7 @@ import {
   resolveHostAdapter,
   resolveHostRuntimeContext,
   resolveProjectRootFromEnv,
-} from '../../lib/runtime/index.js';
+} from '../../lib/host-runtime/index.js';
 
 const tempRoots: string[] = [];
 

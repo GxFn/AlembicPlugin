@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { routeSubmitKnowledgeTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
+import { routeSubmitKnowledgeTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 
 const gatewayState = vi.hoisted(() => ({
   createCalls: [] as unknown[],
@@ -122,7 +122,7 @@ vi.mock('@alembic/core/workspace', async (importOriginal) => {
   };
 });
 
-vi.mock('../../lib/runtime/mcp/RateLimiter.js', () => ({
+vi.mock('../../lib/host-runtime/mcp/RateLimiter.js', () => ({
   checkRecipeSave: () => ({ allowed: true }),
 }));
 
@@ -218,7 +218,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
         makeValidSubmitItem({
           title: 'Codex Recipe Interaction',
           unitId: 'unit-architecture-1',
-          sourceRefs: ['lib/runtime/mcp/handlers/tool-router.ts:529-537'],
+          sourceRefs: ['lib/host-runtime/mcp/handlers/tool-router.ts:529-537'],
         }),
       ],
     });
@@ -249,7 +249,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
         {
           analysisUnitIds: ['unit-architecture-1'],
           recipeId: 'recipe-semantic-001',
-          sourceRefs: ['lib/runtime/mcp/handlers/tool-router.ts:529-537'],
+          sourceRefs: ['lib/host-runtime/mcp/handlers/tool-router.ts:529-537'],
           title: 'Codex Recipe Interaction',
         },
       ],
@@ -920,7 +920,7 @@ function makeValidSubmitItem(overrides: Record<string, unknown> = {}): Record<st
       '### When to Use\n- Source-grounded Recipe submission\n\n### When Not to Use\n- Generic advice\n\n### Steps\n1. Collect source refs.\n2. Submit validated candidates.\n\n### Key Points\n- Keep candidates project-specific.',
     reasoning: {
       whyStandard: 'The plugin submit route requires source-grounded, reusable guidance.',
-      sources: ['lib/runtime/mcp/handlers/tool-router.ts:143-180'],
+      sources: ['lib/host-runtime/mcp/handlers/tool-router.ts:143-180'],
       confidence: 0.9,
     },
     ...overrides,

@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
   HostMcpServer,
   resetPluginOwnedMcpServerForTests,
-} from '../../lib/runtime/mcp/HostMcpServer.js';
+} from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 
 const bootstrapForHostAgentMock = vi.hoisted(() =>
   vi.fn(async (_ctx: unknown, args: unknown) => ({
@@ -24,12 +24,12 @@ const rescanForHostAgentMock = vi.hoisted(() =>
   }))
 );
 
-vi.mock('../../lib/runtime/mcp/handlers/host-agent/generate.js', () => ({
+vi.mock('../../lib/host-runtime/mcp/handlers/host-agent/generate.js', () => ({
   generateForHostAgent: bootstrapForHostAgentMock,
   getActiveSession: getActiveSessionMock,
 }));
 
-vi.mock('../../lib/runtime/mcp/handlers/host-agent/rescan.js', () => ({
+vi.mock('../../lib/host-runtime/mcp/handlers/host-agent/rescan.js', () => ({
   rescanForHostAgent: rescanForHostAgentMock,
 }));
 

@@ -5,9 +5,9 @@ import {
   primeHandler,
   workFinishHandler,
   workStartHandler,
-} from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+} from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 import type { ResidentSearchResult } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import {
   PrimeSearchPipeline,
@@ -231,7 +231,7 @@ function deliveredGuardRules(): PrimeSearchResult['guardRules'] {
       kind: 'rule',
       language: 'typescript',
       score: 0.86,
-      sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts:42'],
+      sourceRefs: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts:42'],
       title: 'Keep public tools Plugin-owned',
       trigger: '@plugin-public-tools',
     },
@@ -756,7 +756,7 @@ describe('agent-facing active public tools', () => {
     expect(
       TOOL_SCHEMAS.alembic_work.safeParse({
         phase: 'finish',
-        changedFiles: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+        changedFiles: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
         workRef: 'work-public-1',
       }).success
     ).toBe(true);
@@ -1796,7 +1796,7 @@ describe('agent-facing active public tools', () => {
         inputSource: 'host-declared-intent',
         title: 'Implement Stage 4 active work tool',
         workScope: {
-          files: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+          files: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
           goal: 'Implement active work lifecycle',
         },
       })
@@ -1820,7 +1820,7 @@ describe('agent-facing active public tools', () => {
 
     const finish = publicToolLegacyTestView(
       await workFinishHandler(ctx, {
-        changedFiles: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+        changedFiles: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
         evidenceRefs: ['test/unit/AgentPublicToolsActive.test.ts'],
         inputSource: 'host-declared-intent',
         summary: 'Implemented Stage 4 active work tool.',
@@ -1847,7 +1847,7 @@ describe('agent-facing active public tools', () => {
       tool: 'alembic_code_guard',
     });
     expect(finish.data.guardRecommendation.input?.files).toEqual(
-      expect.arrayContaining(['lib/runtime/mcp/handlers/agent-public-tools.ts'])
+      expect.arrayContaining(['lib/host-runtime/mcp/handlers/agent-public-tools.ts'])
     );
   });
 
@@ -1983,7 +1983,7 @@ describe('agent-facing active public tools', () => {
       await workStartHandler(ctx, {
         inputSource: 'host-declared-intent',
         title: 'Implement scoped guard contract',
-        workScope: { files: ['lib/runtime/mcp/handlers/agent-public-tools.ts'] },
+        workScope: { files: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'] },
       })
     ) as {
       data: { workRef: string };
@@ -2007,12 +2007,12 @@ describe('agent-facing active public tools', () => {
     expect(start.success).toBe(true);
     expect(result.success).toBe(true);
     expect(result.data.explicitScope).toEqual({
-      files: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+      files: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
       kind: 'workRef',
       workRef: start.data.workRef,
     });
     expect(auditFile).toHaveBeenCalledWith(
-      expect.stringContaining('lib/runtime/mcp/handlers/agent-public-tools.ts'),
+      expect.stringContaining('lib/host-runtime/mcp/handlers/agent-public-tools.ts'),
       expect.any(String),
       { isTest: false }
     );
@@ -2021,7 +2021,7 @@ describe('agent-facing active public tools', () => {
 
   test('does not import or call the legacy task handler', () => {
     const source = readFileSync(
-      new URL('../../lib/runtime/mcp/handlers/agent-public-tools.ts', import.meta.url),
+      new URL('../../lib/host-runtime/mcp/handlers/agent-public-tools.ts', import.meta.url),
       'utf8'
     );
     expect(source).not.toContain('taskHandler');

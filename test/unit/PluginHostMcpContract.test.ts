@@ -1,18 +1,18 @@
 import { describe, expect, test } from 'vitest';
-import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/core-tools/output.js';
-import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
-import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
-import { RECIPE_MAP_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/recipe-map-output.js';
-import { SEARCH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/search-output.js';
-import { LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/local-tools/output.js';
+import { CORE_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/host-runtime/mcp/core-tools/output.js';
+import { GRAPH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/host-runtime/mcp/knowledge-context-tools/graph-output.js';
+import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/host-runtime/mcp/knowledge-context-tools/output.js';
+import { RECIPE_MAP_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/host-runtime/mcp/knowledge-context-tools/recipe-map-output.js';
+import { SEARCH_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/host-runtime/mcp/knowledge-context-tools/search-output.js';
+import { LOCAL_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/host-runtime/mcp/local-tools/output.js';
 import {
   getMcpOutputProjector,
   withMcpOutputSchema,
-} from '../../lib/runtime/mcp/output-contract.js';
+} from '../../lib/host-runtime/mcp/output-contract.js';
 import {
   listPluginToolSurfaceCatalog,
   PLUGIN_TOOL_SURFACE_CATALOG,
-} from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
+} from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
 import {
   PLUGIN_HOST_D24_CONSUMER_REPLAY_SCENARIOS,
   PLUGIN_HOST_MCP_ACTIVE_TOOL_NAMES,
@@ -22,9 +22,9 @@ import {
   PLUGIN_HOST_MCP_TOOL_FAMILY_CONTRACTS,
   PLUGIN_HOST_RESIDENT_PROVIDER_FIXTURE_REPLAY,
   summarizePluginHostMcpContracts,
-} from '../../lib/runtime/mcp/plugin-host-contracts.js';
-import { AGENT_PUBLIC_TOOL_NAMES } from '../../lib/runtime/mcp/public-tools/contract.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+} from '../../lib/host-runtime/mcp/plugin-host-contracts.js';
+import { AGENT_PUBLIC_TOOL_NAMES } from '../../lib/host-runtime/mcp/public-tools/contract.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 
 describe('Plugin host MCP D4 contract', () => {
   test('maps accepted D4 registry rows to executable Plugin tool families', () => {

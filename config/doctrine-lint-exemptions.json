@@ -3,61 +3,61 @@
   "description": "P2 AD6 side-effect doctrine lint exemptions (census 2026-06-12, 11 rows). Every row needs file+binding+owner+reason; scripts/lint-doctrine.mjs validates integrity and fails on unknown rows. Null-initialized lazy slots are idiom-allowed and not listed.",
   "exemptions": [
     {
-      "file": "lib/runtime/mcp/output-contract.ts",
+      "file": "lib/host-runtime/mcp/output-contract.ts",
       "binding": "outputProjectors",
       "owner": "AlembicPlugin",
       "reason": "Projector registry populated once at import by tool-family modules; bounded by the tool surface; duplicate registration throws."
     },
     {
-      "file": "lib/runtime/mcp/handlers/guard.ts",
+      "file": "lib/host-runtime/mcp/handlers/guard.ts",
       "binding": "_reviewRounds",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime guard review-round accumulator; process-scoped MCP session state."
     },
     {
-      "file": "lib/runtime/mcp/handlers/guard.ts",
+      "file": "lib/host-runtime/mcp/handlers/guard.ts",
       "binding": "_lastReviewPassed",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime guard verdict cache paired with _reviewRounds."
     },
     {
-      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/host-runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "primeCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (prime)."
     },
     {
-      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/host-runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "workCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (work-start)."
     },
     {
-      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/host-runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "finishCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (work-finish)."
     },
     {
-      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/host-runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "guardCounter",
       "owner": "AlembicPlugin",
       "reason": "Monotonic receipt counter (code-guard)."
     },
     {
-      "file": "lib/runtime/mcp/handlers/agent-public-tools.ts",
+      "file": "lib/host-runtime/mcp/handlers/agent-public-tools.ts",
       "binding": "WORK_RECORDS",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime work record store paired with INTENT_RECORDS."
     },
     {
-      "file": "lib/runtime/mcp/RateLimiter.ts",
+      "file": "lib/host-runtime/mcp/RateLimiter.ts",
       "binding": "_lastPrune",
       "owner": "AlembicPlugin",
       "reason": "Rate-limiter prune clock; paired with _buckets."
     },
     {
-      "file": "lib/runtime/mcp/RateLimiter.ts",
+      "file": "lib/host-runtime/mcp/RateLimiter.ts",
       "binding": "_buckets",
       "owner": "AlembicPlugin",
       "reason": "Rate-limiter token buckets, pruned on interval; process-scoped middleware state."

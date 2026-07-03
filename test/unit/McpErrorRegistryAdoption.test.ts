@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createCleanMcpError } from '#codex/mcp/output-contract.js';
+import { createCleanMcpError } from '#host-runtime/mcp/output-contract.js';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const registry = JSON.parse(

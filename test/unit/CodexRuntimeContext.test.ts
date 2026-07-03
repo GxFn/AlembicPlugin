@@ -21,8 +21,8 @@ import {
   MCP_TIER_ENV,
   probeRuntimeCommand,
   resolveHostRuntimeContext,
-} from '../../lib/runtime/index.js';
-import type { HostRuntimeStatus } from '../../lib/runtime/status/host-runtime-status.js';
+} from '../../lib/host-runtime/index.js';
+import type { HostRuntimeStatus } from '../../lib/host-runtime/status/host-runtime-status.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 
 const tempRoots: string[] = [];

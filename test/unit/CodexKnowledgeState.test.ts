@@ -9,7 +9,7 @@ import {
 import { getGhostWorkspaceDir, getProjectRegistryDir } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
-import { inspectKnowledge } from '../../lib/runtime/index.js';
+import { inspectKnowledge } from '../../lib/host-runtime/index.js';
 
 const roots: string[] = [];
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;

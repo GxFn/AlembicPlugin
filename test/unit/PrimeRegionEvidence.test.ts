@@ -3,7 +3,7 @@ import {
   buildPrimeRegionQuery,
   mapRegionHitsToPrimeEvidence,
   projectRecipeSourceRefLocatorEvidence,
-} from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
+} from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
 import { buildPrimeKnowledgeMaterial } from '../../lib/service/task/PrimeKnowledgeMaterial.js';
 
 type RecipeRecord = Parameters<typeof projectRecipeSourceRefLocatorEvidence>[0];

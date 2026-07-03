@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { attachPluginOpportunisticEvolutionSurface } from '../../lib/host-runtime/mcp/host/opportunistic-evolution-presenter.js';
 import type { GitDiffScanResult } from '../../lib/recipe-pipeline/sustain/git-diff-checkpoint/GitDiffScanner.js';
 import {
   buildPluginOpportunisticEvolutionSurface,
   extractPluginToolOutcome,
   shouldAttachPluginOpportunisticEvolution,
 } from '../../lib/recipe-pipeline/sustain/PluginOpportunisticEvolution.js';
-import { attachPluginOpportunisticEvolutionSurface } from '../../lib/runtime/mcp/host/opportunistic-evolution-presenter.js';
 
 const fallbackGate = {
   reason: 'resident unavailable',

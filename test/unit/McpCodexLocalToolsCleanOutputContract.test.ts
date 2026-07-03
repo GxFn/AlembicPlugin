@@ -6,12 +6,12 @@ import {
   LOCAL_CLEAN_OUTPUT_TOOL_NAMES,
   LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   LOCAL_TOOL_OUTPUT_SCHEMAS,
-} from '../../lib/runtime/mcp/local-tools/output.js';
+} from '../../lib/host-runtime/mcp/local-tools/output.js';
 import {
   getMcpOutputProjector,
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../../lib/runtime/mcp/output-contract.js';
+} from '../../lib/host-runtime/mcp/output-contract.js';
 
 const expectedCodexLocalToolNames = [
   'alembic_status',

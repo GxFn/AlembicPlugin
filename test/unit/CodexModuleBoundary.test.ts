@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildModuleBoundaryStatus } from '../../lib/runtime/context/ModuleBoundary.js';
+import { buildModuleBoundaryStatus } from '../../lib/host-runtime/context/ModuleBoundary.js';
 
 describe('Codex module boundary status', () => {
   it('keeps Codex plugin ownership separate from Alembic runtime ownership', () => {

@@ -71,10 +71,7 @@ describe('WorkflowCompletionFinalizer', () => {
 
   test('keeps completion side effects in dedicated step modules', () => {
     const source = readFileSync(
-      join(
-        process.cwd(),
-        'lib/recipe-pipeline/generate/completion/WorkflowCompletionFinalizer.ts'
-      ),
+      join(process.cwd(), 'lib/recipe-pipeline/generate/completion/WorkflowCompletionFinalizer.ts'),
       'utf8'
     );
 

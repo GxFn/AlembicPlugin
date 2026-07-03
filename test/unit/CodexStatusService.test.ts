@@ -11,9 +11,9 @@ import {
 import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { buildStatus } from '../../lib/runtime/index.js';
-import type { HostRuntimeStatus } from '../../lib/runtime/status/host-runtime-status.js';
-import { buildPostInitActions } from '../../lib/runtime/status/StatusService.js';
+import { buildStatus } from '../../lib/host-runtime/index.js';
+import type { HostRuntimeStatus } from '../../lib/host-runtime/status/host-runtime-status.js';
+import { buildPostInitActions } from '../../lib/host-runtime/status/StatusService.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;

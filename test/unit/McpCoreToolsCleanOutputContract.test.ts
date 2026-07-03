@@ -7,13 +7,13 @@ import {
   CORE_TOOL_ALLOWED_BUSINESS_FIELD_NAMES,
   CORE_TOOL_OUTPUT_SCHEMAS,
   findForbiddenCoreOutputField,
-} from '../../lib/runtime/mcp/core-tools/output.js';
+} from '../../lib/host-runtime/mcp/core-tools/output.js';
 import {
   getMcpOutputProjector,
   serializeMcpToolResult,
   withMcpOutputSchema,
-} from '../../lib/runtime/mcp/output-contract.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+} from '../../lib/host-runtime/mcp/output-contract.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 
 const expectedCoreToolNames = [
   'alembic_knowledge',

@@ -83,7 +83,7 @@ try {
   for (const required of [
     'package/package.json',
     'package/dist/bin/host-mcp.js',
-    'package/dist/lib/runtime/mcp/HostMcpServer.js',
+    'package/dist/lib/host-runtime/mcp/HostMcpServer.js',
     'package/resources/grammars/tree-sitter-typescript.wasm',
     'package/.alembic-runtime-boundary.json',
   ]) {
@@ -140,7 +140,7 @@ try {
       '--input-type=module',
       '--eval',
       `const mod = await import(${JSON.stringify(
-        join(installedRoot, 'dist', 'lib', 'runtime', 'mcp', 'HostMcpServer.js')
+        join(installedRoot, 'dist', 'lib', 'host-runtime', 'mcp', 'HostMcpServer.js')
       )}); if (typeof mod.startHostMcpServer !== 'function') throw new Error('missing startHostMcpServer');`,
     ],
     { cwd: installRoot, timeout: 15000 }

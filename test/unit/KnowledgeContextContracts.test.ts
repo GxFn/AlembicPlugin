@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import '../../lib/runtime/mcp/knowledge-context-tools/graph-output.js';
-import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/runtime/mcp/knowledge-context-tools/output.js';
-import { getMcpOutputProjector } from '../../lib/runtime/mcp/output-contract.js';
+import '../../lib/host-runtime/mcp/knowledge-context-tools/graph-output.js';
+import { KNOWLEDGE_CONTEXT_CLEAN_OUTPUT_TOOL_NAMES } from '../../lib/host-runtime/mcp/knowledge-context-tools/output.js';
+import { getMcpOutputProjector } from '../../lib/host-runtime/mcp/output-contract.js';
 import {
   KNOWLEDGE_CONTEXT_AGENT_HOSTS,
   KnowledgeContextBaseInputSchema,

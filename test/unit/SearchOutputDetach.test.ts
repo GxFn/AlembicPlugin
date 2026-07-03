@@ -1,19 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 import {
   AlembicSearchOutputSchema,
   createAlembicSearchMcpResult,
 } from '../../lib/service/project-knowledge-context/contracts/AlembicSearchOutput.js';
 
 const searchSource = fs.readFileSync(
-  path.join(process.cwd(), 'lib/runtime/mcp/handlers/search.ts'),
+  path.join(process.cwd(), 'lib/host-runtime/mcp/handlers/search.ts'),
   'utf8'
 );
 const serverSource = fs.readFileSync(
-  path.join(process.cwd(), 'lib/runtime/mcp/McpServer.ts'),
+  path.join(process.cwd(), 'lib/host-runtime/mcp/McpServer.ts'),
   'utf8'
 );
 

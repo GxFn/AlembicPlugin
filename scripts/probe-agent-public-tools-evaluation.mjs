@@ -341,7 +341,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
     client,
     'alembic_code_explore',
     {
-      filePath: 'lib/runtime/mcp/source-graph/status.ts',
+      filePath: 'lib/host-runtime/mcp/source-graph/status.ts',
       includeText: true,
       maxSectionLines: 8,
       now: nowBase + 3,
@@ -404,7 +404,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
     client,
     'alembic_validation_plan',
     {
-      changedFiles: ['lib/runtime/mcp/source-graph/status.ts'],
+      changedFiles: ['lib/host-runtime/mcp/source-graph/status.ts'],
       now: nowBase + 8,
       packageScripts: { test: 'vitest run test/unit/McpSourceGraphRuntime.test.ts' },
       projectRoot: workspaceRoot,
@@ -417,7 +417,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
     client,
     'alembic_code_impact',
     {
-      changedFiles: ['lib/runtime/mcp/source-graph/status.ts'],
+      changedFiles: ['lib/host-runtime/mcp/source-graph/status.ts'],
       now: nowBase + 9,
       projectRoot: workspaceRoot,
       projectScope: 'AlembicPlugin',
@@ -442,7 +442,7 @@ async function runLiveWorkspaceRuntimeAcceptance(client, stderr, workspaceRoot) 
       client,
       'alembic_code_explore',
       {
-        filePath: 'lib/runtime/mcp/source-graph/status.ts',
+        filePath: 'lib/host-runtime/mcp/source-graph/status.ts',
         includeText: true,
         maxSectionLines: 4,
         now: nowBase + 11,
@@ -1087,7 +1087,15 @@ async function loadSourceGraphIndexingModules() {
   if (sourceGraphIndexingModules) {
     return sourceGraphIndexingModules;
   }
-  const statusModulePath = join(root, 'dist', 'lib', 'runtime', 'mcp', 'source-graph', 'status.js');
+  const statusModulePath = join(
+    root,
+    'dist',
+    'lib',
+    'host-runtime',
+    'mcp',
+    'source-graph',
+    'status.js'
+  );
   if (!existsSync(statusModulePath)) {
     throw new Error(
       `Missing ${statusModulePath}; run npm run build before --fused-workflow probe execution.`

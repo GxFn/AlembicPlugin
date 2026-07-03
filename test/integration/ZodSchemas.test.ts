@@ -374,7 +374,7 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         items: [
           {
             title: 'ASQ production route fact',
-            sourceRefs: ['lib/runtime/mcp/handlers/tool-router.ts:240-250'],
+            sourceRefs: ['lib/host-runtime/mcp/handlers/tool-router.ts:240-250'],
           },
         ],
         requireProductionSession: true,
@@ -433,12 +433,12 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
         operation: 'close',
         id: 'asd-123',
         reason: 'done',
-        changedFiles: ['lib/runtime/mcp/handlers/task.ts'],
+        changedFiles: ['lib/host-runtime/mcp/handlers/task.ts'],
         sourceRefs: ['lib/service/task/TaskLifecyclePolicy.ts'],
       });
       expect(result.operation).toBe('close');
       expect(result.id).toBe('asd-123');
-      expect(result.changedFiles).toEqual(['lib/runtime/mcp/handlers/task.ts']);
+      expect(result.changedFiles).toEqual(['lib/host-runtime/mcp/handlers/task.ts']);
       expect(result.sourceRefs).toEqual(['lib/service/task/TaskLifecyclePolicy.ts']);
     });
 

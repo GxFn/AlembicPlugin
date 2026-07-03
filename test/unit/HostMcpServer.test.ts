@@ -19,19 +19,19 @@ import {
 } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
   getSavedProjectRootPath,
   readInitMarker,
-} from '../../lib/runtime/context/ProjectRootResolver.js';
+} from '../../lib/host-runtime/context/ProjectRootResolver.js';
 import {
   getVisibleTools,
   HostMcpServer,
   resetPluginOwnedMcpServerForTests,
-} from '../../lib/runtime/mcp/HostMcpServer.js';
-import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
-import { resetStagingAccessSweepStateForTests } from '../../lib/runtime/mcp/host/staging-access-sweep.js';
-import { serializeMcpToolResult } from '../../lib/runtime/mcp/output-contract.js';
+} from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { buildMcpGuidance } from '../../lib/host-runtime/mcp/host/guidance.js';
+import { resetStagingAccessSweepStateForTests } from '../../lib/host-runtime/mcp/host/staging-access-sweep.js';
+import { serializeMcpToolResult } from '../../lib/host-runtime/mcp/output-contract.js';
+import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { CORE_TOOL_OUTPUT_SCHEMAS } from '../../lib/host-runtime/mcp/core-tools/output.js';
 import { routePlanTool } from '../../lib/recipe-pipeline/plan/plan-tool.js';
-import { CORE_TOOL_OUTPUT_SCHEMAS } from '../../lib/runtime/mcp/core-tools/output.js';
 import { PlanInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 const projectContextExecuteMock = vi.hoisted(() =>

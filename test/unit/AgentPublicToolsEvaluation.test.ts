@@ -5,17 +5,17 @@ import {
   primeHandler,
   workFinishHandler,
   workStartHandler,
-} from '../../lib/runtime/mcp/handlers/agent-public-tools.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
-import type { AgentPublicToolName } from '../../lib/runtime/mcp/public-tools/contract.js';
+} from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
+import type { AgentPublicToolName } from '../../lib/host-runtime/mcp/public-tools/contract.js';
 import {
   AGENT_PUBLIC_TOOL_NAMES,
   AgentPublicToolResultEnvelopeSchema,
   buildAgentPublicCrossHostReadinessReport,
   getAgentPublicToolContractDefinition,
   getAgentPublicToolDescriptionBase,
-} from '../../lib/runtime/mcp/public-tools/index.js';
-import { TOOLS } from '../../lib/runtime/mcp/tools.js';
+} from '../../lib/host-runtime/mcp/public-tools/index.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 import type { PrimeSearchResult } from '../../lib/service/task/PrimeSearchPipeline.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
@@ -311,7 +311,7 @@ function deliveredSearchResult(): PrimeSearchResult {
         kind: 'pattern',
         language: 'typescript',
         score: 0.92,
-        sourceRefs: ['lib/runtime/mcp/handlers/agent-public-tools.ts'],
+        sourceRefs: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
         title: 'Agent public prime',
         trigger: '@agent-public-prime',
       },

@@ -11,6 +11,8 @@ import {
 } from '@alembic/core/repositories';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { routePlanTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { runHostAgentColdStartWorkflow } from '../../lib/recipe-pipeline/generate/cold-start.js';
 import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-pipeline/generate/knowledge-rescan.js';
 import {
@@ -20,8 +22,6 @@ import {
   type PlanSelectionInput,
   resolvePlanGenerationGate,
 } from '../../lib/recipe-pipeline/plan/plan-generation-gate.js';
-import { routePlanTool } from '../../lib/runtime/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/runtime/mcp/handlers/types.js';
 
 interface ToolResponse {
   data?: Record<string, unknown>;
