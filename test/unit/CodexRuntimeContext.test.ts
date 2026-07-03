@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PROJECT_SCOPE_CONTRACT_VERSION, type ProjectScopeSummary } from '@alembic/core/shared';
 import { afterEach, describe, expect, test } from 'vitest';
-import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
@@ -23,11 +22,12 @@ import {
   probeRuntimeCommand,
   resolveHostRuntimeContext,
 } from '../../lib/runtime/index.js';
+import type { HostRuntimeStatus } from '../../lib/runtime/status/host-runtime-status.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 
 const tempRoots: string[] = [];
 
-function makeDaemonStatus(): DaemonStatus {
+function makeDaemonStatus(): HostRuntimeStatus {
   return {
     dataRoot: process.cwd(),
     health: null,
@@ -284,7 +284,7 @@ describe('Codex runtime context', () => {
   test('preserves runtime-control mismatch diagnostics without identity fallback', () => {
     const projectRoot = tempDir('runtime-control-mismatch');
     const statePath = join(projectRoot, '.asd', 'runtime-control.json');
-    const daemonStatus: DaemonStatus = {
+    const daemonStatus: HostRuntimeStatus = {
       ...makeDaemonStatus(),
       dataRoot: projectRoot,
       health: {
@@ -470,7 +470,7 @@ describe('Codex runtime context', () => {
   test('preserves daemon-missing state cleanup diagnostics as source-of-truth evidence', () => {
     const projectRoot = tempDir('runtime-control-cleanup');
     const statePath = join(projectRoot, '.asd', 'runtime-control.json');
-    const daemonStatus: DaemonStatus = {
+    const daemonStatus: HostRuntimeStatus = {
       ...makeDaemonStatus(),
       dataRoot: projectRoot,
       health: {

@@ -5,7 +5,7 @@ import {
 } from '@alembic/core/recipe-context-capabilities';
 import { RECIPE_SEMANTIC_REGION_METADATA_TYPE } from '@alembic/core/vector';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { resolveHostRuntimeContext } from '#codex/runtime/RuntimeContext.js';
+import { resolveHostRuntimeContext } from '#codex/context/RuntimeContext.js';
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import {
   buildPrimeKnowledgeMaterial,

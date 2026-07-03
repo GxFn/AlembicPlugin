@@ -3,6 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
+  isTrustedProjectRoot,
+  resolveProjectRootFromEnv,
+  summarizeProjectRootResolution,
+} from '../../lib/runtime/context/ProjectRootResolver.js';
+import {
   PLUGIN_HOST_LEGACY_REWRITE_CANDIDATES,
   summarizePluginHostMcpContracts,
 } from '../../lib/runtime/mcp/plugin-host-contracts.js';
@@ -10,11 +15,6 @@ import {
   AgentPublicToolResultEnvelopeSchema,
   createAgentPublicToolResultEnvelope,
 } from '../../lib/runtime/mcp/public-tools/index.js';
-import {
-  isTrustedProjectRoot,
-  resolveProjectRootFromEnv,
-  summarizeProjectRootResolution,
-} from '../../lib/runtime/ProjectRootResolver.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 describe('Plugin host legacy rewrite D12 contract', () => {

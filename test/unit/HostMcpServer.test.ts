@@ -21,6 +21,10 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
 import {
+  getSavedProjectRootPath,
+  readInitMarker,
+} from '../../lib/runtime/context/ProjectRootResolver.js';
+import {
   getVisibleTools,
   HostMcpServer,
   resetPluginOwnedMcpServerForTests,
@@ -28,7 +32,6 @@ import {
 import { buildMcpGuidance } from '../../lib/runtime/mcp/host/guidance.js';
 import { resetStagingAccessSweepStateForTests } from '../../lib/runtime/mcp/host/staging-access-sweep.js';
 import { serializeMcpToolResult } from '../../lib/runtime/mcp/output-contract.js';
-import { getSavedProjectRootPath, readInitMarker } from '../../lib/runtime/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;

@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { hostAdapterForShape } from '../host-adapter/resolveHostAdapter.js';
 import {
   detectPluginHostShape,
   type HostRuntimeContext,
   resolveHostRuntimeContext,
-} from '../runtime/runtime/RuntimeContext.js';
-import { hostAdapterForShape } from './host-adapter/resolveHostAdapter.js';
+} from './RuntimeContext.js';
 
 export const REQUIRED_SKILLS = [
   'alembic',

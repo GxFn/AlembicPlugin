@@ -10,7 +10,7 @@ import {
   summarizeAlembicRuntimeCapabilities,
 } from '@alembic/core/daemon';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import type { DaemonStatus } from './daemon-status.js';
+import type { HostRuntimeStatus } from './host-runtime-status.js';
 
 export type EnhancementRequirement = 'dashboard' | 'jobs' | 'mcp' | 'status';
 
@@ -144,7 +144,7 @@ export interface HostEnhancementRouteChoice {
 }
 
 export function buildHostEnhancementRouteChoice(input: {
-  daemonStatus: DaemonStatus;
+  daemonStatus: HostRuntimeStatus;
   localInstall?: LocalAlembicInstallProbe;
   requirement?: EnhancementRequirement;
 }): HostEnhancementRouteChoice {
@@ -210,7 +210,7 @@ export function probeLocalAlembicInstall(command = 'alembic'): LocalAlembicInsta
   };
 }
 
-export function summarizeEnhancementDaemon(status: DaemonStatus): EnhancementDaemonProbe {
+export function summarizeEnhancementDaemon(status: HostRuntimeStatus): EnhancementDaemonProbe {
   const data = asRecord(status.health?.data);
   const enhancement = asRecord(data?.enhancement);
   const capabilities = asRecord(data?.capabilities);
@@ -528,7 +528,7 @@ function readConfigSource(
     : null;
 }
 
-function inferRouteFromReadyDaemon(_status: DaemonStatus): string | null {
+function inferRouteFromReadyDaemon(_status: HostRuntimeStatus): string | null {
   // PDR-3/PDR-5: the embedded plugin daemon was removed, so there is no daemon
   // self-reported route to infer here. The daemon's self-route (probe.route) is a
   // separate concept from the Plugin's enhancement-route choice and is now always

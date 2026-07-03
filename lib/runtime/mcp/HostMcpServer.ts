@@ -74,7 +74,7 @@ import {
 } from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
 import type { GenerateInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
-import type { DaemonStatus } from '../daemon-status.js';
+import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
 import '../../runtime/mcp/local-tools/output.js';
 import { TIER_ORDER, TOOLS } from '../../runtime/mcp/tools.js';
 
@@ -384,9 +384,9 @@ export class HostMcpServer {
 
   // PDR-3: the embedded daemon is removed. The runtime-diagnostics route still
   // feeds consumers (enhancement-route, host-project-alignment, runtime
-  // diagnostics) that are typed for a non-null DaemonStatus, so report a
+  // diagnostics) that are typed for a non-null HostRuntimeStatus, so report a
   // synthetic daemon-less "stopped" status instead of a live daemon probe.
-  private buildStoppedDaemonStatus(): DaemonStatus {
+  private buildStoppedDaemonStatus(): HostRuntimeStatus {
     const paths = resolveDaemonPaths(this.projectRoot);
     return {
       status: 'stopped',
@@ -406,7 +406,7 @@ export class HostMcpServer {
   }
 
   async buildDiagnostics(): Promise<Record<string, unknown>> {
-    const daemonStatus: DaemonStatus = this.buildStoppedDaemonStatus();
+    const daemonStatus: HostRuntimeStatus = this.buildStoppedDaemonStatus();
     const residentClients = this.residentClients();
     const residentService = await residentClients.probe.probe({ daemonStatus });
     const projectScopeIdentity = await residentClients.projectScope.resolveProjectScopeIdentity({
@@ -812,7 +812,7 @@ export class HostMcpServer {
   async readJob(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     // PDR-3: daemon removed → daemon status always null; readJob serves the
     // local JobStore fallback path below.
-    const daemon: DaemonStatus | null = null;
+    const daemon: HostRuntimeStatus | null = null;
     const projectScopeIdentity = daemon
       ? await this.residentClients().projectScope.resolveProjectScopeIdentity({
           daemonStatus: daemon,
@@ -888,7 +888,7 @@ export class HostMcpServer {
 
   async tryReadJobFromDaemon(
     _args: Record<string, unknown>,
-    _daemonInput?: DaemonStatus | null
+    _daemonInput?: HostRuntimeStatus | null
   ): Promise<Record<string, unknown> | null> {
     // PDR-3: the embedded daemon (and its resident job-read path) is removed.
     // There is no daemon to read jobs from; readJob always falls back to the
@@ -1028,7 +1028,7 @@ export class HostMcpServer {
   ): Promise<ReturnType<typeof buildProjectRuntimeContext>> {
     // PDR-3: daemon removed → daemon status always null. Downstream is guarded
     // by `daemonStatus ? ... : null`, so the four-tool live path stays valid.
-    const daemonStatus: DaemonStatus | null = null;
+    const daemonStatus: HostRuntimeStatus | null = null;
     const runtime = this.#hostAdapter.resolveRuntimeContext();
     const enhancementRoute = daemonStatus
       ? buildHostEnhancementRouteChoice({

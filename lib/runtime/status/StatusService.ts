@@ -7,34 +7,34 @@ import {
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
 } from '../../recipe-generation/vector/LocalEmbedding.js';
-import { buildRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
-import {
-  buildHostEnhancementRouteChoice,
-  type HostEnhancementRouteChoice,
-} from '../../runtime/EnhancementRoute.js';
 import {
   buildHostProjectAlignment,
   type HostProjectAlignment,
-} from '../../runtime/HostProjectAlignment.js';
-import { resolveHostAdapter } from '../../runtime/host-adapter/resolveHostAdapter.js';
-import { buildModuleBoundaryStatus } from '../../runtime/ModuleBoundary.js';
+} from '../../runtime/context/HostProjectAlignment.js';
+import { buildModuleBoundaryStatus } from '../../runtime/context/ModuleBoundary.js';
 import {
   buildProjectRootRequiredActions,
   buildProjectRootRequiredMessage,
   type ProjectRootResolution,
-} from '../../runtime/ProjectRootResolver.js';
-import { buildProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
+} from '../../runtime/context/ProjectRootResolver.js';
+import { buildProjectRuntimeContext } from '../../runtime/context/ProjectRuntimeContext.js';
 import {
   type HostRuntimeContext,
   resolveHostRuntimeContext,
-} from '../../runtime/runtime/RuntimeContext.js';
+} from '../../runtime/context/RuntimeContext.js';
+import { buildRuntimeDiagnostics } from '../../runtime/diagnostics/Diagnostics.js';
+import { resolveHostAdapter } from '../../runtime/host-adapter/resolveHostAdapter.js';
+import {
+  buildHostEnhancementRouteChoice,
+  type HostEnhancementRouteChoice,
+} from '../../runtime/status/EnhancementRoute.js';
 import { buildStatusOnboardingContract } from '../../runtime/status/OnboardingContract.js';
 import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
 import { resolveProjectScopeRuntime } from '../../shared/project-scope-runtime.js';
-import type { DaemonStatus } from '../daemon-status.js';
+import type { HostRuntimeStatus } from './host-runtime-status.js';
 
 export interface DaemonStatusProvider {
-  status(projectRoot: string): Promise<DaemonStatus>;
+  status(projectRoot: string): Promise<HostRuntimeStatus>;
 }
 
 export interface RecommendedAction {
@@ -132,7 +132,7 @@ export interface StatusData {
 }
 
 interface StatusOnboardingInput {
-  daemonStatus: DaemonStatus;
+  daemonStatus: HostRuntimeStatus;
   diagnostics: Record<string, unknown>;
   enhancementRoute?: HostEnhancementRouteChoice;
   hostProjectAlignment?: HostProjectAlignment;
@@ -161,9 +161,9 @@ export async function buildStatus(
   // daemon process; it reports a synthetic daemon-less "stopped" status so the
   // downstream consumers (enhancement-route, host-project-alignment, resident
   // probe, project-runtime-context, diagnostics, onboarding) keep their existing
-  // non-null DaemonStatus typing while reflecting the absent daemon. A caller may
+  // non-null HostRuntimeStatus typing while reflecting the absent daemon. A caller may
   // still inject a DaemonStatusProvider via options.supervisor.
-  const daemonStatus: DaemonStatus = options.supervisor
+  const daemonStatus: HostRuntimeStatus = options.supervisor
     ? await options.supervisor.status(projectRoot)
     : {
         status: 'stopped',
@@ -370,7 +370,7 @@ export interface DaemonSummary {
   status: string;
 }
 
-export function summarizeDaemonStatus(status: DaemonStatus): DaemonSummary {
+export function summarizeDaemonStatus(status: HostRuntimeStatus): DaemonSummary {
   return {
     status: status.status,
     ready: status.ready,
@@ -387,7 +387,7 @@ export function summarizeDaemonStatus(status: DaemonStatus): DaemonSummary {
 }
 
 function summarizeCompactDaemonStatus(
-  status: DaemonStatus
+  status: HostRuntimeStatus
 ): Pick<DaemonSummary, 'message' | 'pidAlive' | 'projectId' | 'ready' | 'status'> {
   return {
     status: status.status,

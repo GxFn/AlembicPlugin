@@ -4,22 +4,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
 import type { GitDiffCheckpointStatus } from '#recipe-generation/sustain/git-diff-checkpoint/index.js';
-import {
-  buildHostEnhancementRouteChoice,
-  type HostEnhancementRouteChoice,
-} from '../../runtime/EnhancementRoute.js';
-import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
+import type { HostProjectAlignment } from '../../runtime/context/HostProjectAlignment.js';
 import {
   buildModuleBoundaryStatus,
   type ModuleBoundaryStatus,
-} from '../../runtime/ModuleBoundary.js';
-import { asString, loadPluginRegistry, REQUIRED_SKILLS } from '../../runtime/PluginRegistry.js';
+} from '../../runtime/context/ModuleBoundary.js';
+import {
+  asString,
+  loadPluginRegistry,
+  REQUIRED_SKILLS,
+} from '../../runtime/context/PluginRegistry.js';
 import {
   buildProjectRootRequiredMessage,
   type ProjectRootResolution,
   summarizeProjectRootResolution,
-} from '../../runtime/ProjectRootResolver.js';
-import type { ProjectRuntimeContext } from '../../runtime/runtime/ProjectRuntimeContext.js';
+} from '../../runtime/context/ProjectRootResolver.js';
+import type { ProjectRuntimeContext } from '../../runtime/context/ProjectRuntimeContext.js';
 import {
   ALEMBIC_PLUGIN_HOST_ENV,
   ALEMBIC_RUNTIME_MODE_ENV,
@@ -32,10 +32,14 @@ import {
   type HostRuntimeContext,
   MCP_MODE_ENV,
   resolveHostRuntimeContext,
-} from '../../runtime/runtime/RuntimeContext.js';
+} from '../../runtime/context/RuntimeContext.js';
+import {
+  buildHostEnhancementRouteChoice,
+  type HostEnhancementRouteChoice,
+} from '../../runtime/status/EnhancementRoute.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../service/resident/AlembicResidentServiceClient.js';
-import type { DaemonStatus } from '../daemon-status.js';
 import { hostAdapterForShape } from '../host-adapter/resolveHostAdapter.js';
+import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
 
 export interface PluginDiagnostics {
   assets: { missing: string[]; ok: boolean; required: string[] };
@@ -189,7 +193,7 @@ interface McpEntryDiagnosticsInput {
 }
 
 export function buildRuntimeDiagnostics(
-  daemonStatus: DaemonStatus,
+  daemonStatus: HostRuntimeStatus,
   context: HostRuntimeContext = resolveHostRuntimeContext(),
   options: RuntimeDiagnosticsOptions = {}
 ): Record<string, unknown> {
@@ -329,7 +333,7 @@ function areKnowledgeWorkflowDiagnosticsOk(checks: RuntimeChecks): boolean {
 function buildRuntimeReportSections(input: {
   checks: RuntimeChecks;
   context: HostRuntimeContext;
-  daemonStatus: DaemonStatus;
+  daemonStatus: HostRuntimeStatus;
   enhancementRoute: HostEnhancementRouteChoice;
   moduleBoundary: ModuleBoundaryStatus;
   npm: CommandProbeResult;

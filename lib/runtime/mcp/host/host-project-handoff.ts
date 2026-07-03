@@ -7,7 +7,7 @@ import {
   summarizeDaemonStatus,
 } from '../../../runtime/index.js';
 import { failureResult } from '../../../runtime/mcp/host/results.js';
-import type { DaemonStatus } from '../../daemon-status.js';
+import type { HostRuntimeStatus } from '../../status/host-runtime-status.js';
 
 // Dashboard / job handoff 前先校验 Codex host project 与 Alembic runtime 项目关系。
 //
@@ -17,7 +17,7 @@ import type { DaemonStatus } from '../../daemon-status.js';
 // 只操作宿主项目自己的数据根，不读写共享运行时选择，是冷启动的法定入口。
 // 仅靠 "Switch from Alembic or Dashboard" 对 plugin-only 用户是环形死路。
 export function buildHostProjectHandoffBlock(input: {
-  daemon: DaemonStatus;
+  daemon: HostRuntimeStatus;
   enhancementRoute: HostEnhancementRouteChoice;
   hostProjectAlignment: HostProjectAlignment;
   projectRoot: string;

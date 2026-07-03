@@ -17,7 +17,7 @@ import {
   isSoftAuthoringViolation,
 } from '@alembic/core/knowledge';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import { normalizeHostAgentWriteSource } from '#codex/SourceBoundary.js';
+import { normalizeHostAgentWriteSource } from '#codex/policy/SourceBoundary.js';
 import {
   buildKnownModuleNames,
   buildResolveModuleFromSourceRefs,

@@ -1,10 +1,10 @@
 import { createAlembicResidentServiceStatus } from '@alembic/core/daemon';
 import { describe, expect, it } from 'vitest';
-import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import {
   buildHostEnhancementRouteChoice,
   summarizeEnhancementDaemon,
-} from '../../lib/runtime/EnhancementRoute.js';
+} from '../../lib/runtime/status/EnhancementRoute.js';
+import type { HostRuntimeStatus } from '../../lib/runtime/status/host-runtime-status.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const LOCAL_INSTALL_UNAVAILABLE = {
@@ -15,9 +15,9 @@ const LOCAL_INSTALL_UNAVAILABLE = {
 };
 
 function makeDaemonStatus(
-  overrides: Partial<DaemonStatus> = {},
+  overrides: Partial<HostRuntimeStatus> = {},
   healthData: Record<string, unknown> | null = null
-): DaemonStatus {
+): HostRuntimeStatus {
   return {
     status: 'ready',
     ready: true,

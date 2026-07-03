@@ -1,15 +1,15 @@
-import type { HostEnhancementRouteChoice } from '../runtime/EnhancementRoute.js';
-import type { HostProjectAlignment } from '../runtime/HostProjectAlignment.js';
+import type { HostEnhancementRouteChoice } from '../status/EnhancementRoute.js';
 import {
   EMBEDDED_RUNTIME_REQUIRED_FILES,
   EMBEDDED_RUNTIME_REQUIRED_ROUTES,
-} from '../runtime/runtime/EmbeddedRuntimeContract.js';
+} from './EmbeddedRuntimeContract.js';
+import type { HostProjectAlignment } from './HostProjectAlignment.js';
 import {
   CODEX_EMBEDDED_RUNTIME_SPECIFIER,
   CODEX_PLUGIN_SHELL_DIR,
   CODEX_RUNTIME_BIN,
   CODEX_RUNTIME_PACKAGE,
-} from '../runtime/runtime/RuntimeContext.js';
+} from './RuntimeContext.js';
 
 export type ModuleBoundaryOwner =
   | 'Alembic'
@@ -142,7 +142,7 @@ const PLUGIN_OWNED_BOUNDARIES: ModuleBoundaryEntry[] = [
     pluginRole:
       'Reads Core project/runtime state for Codex-visible mismatch guidance; never switches Alembic projects.',
     retainedInPlugin: true,
-    sourceOfTruth: 'lib/runtime/HostProjectAlignment.ts',
+    sourceOfTruth: 'lib/runtime/context/HostProjectAlignment.ts',
   },
 ];
 

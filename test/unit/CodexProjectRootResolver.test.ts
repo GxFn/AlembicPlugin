@@ -9,7 +9,7 @@ import {
   resolveProjectRootFromEnv,
   summarizeProjectRootResolution,
   writeSavedProjectRoot,
-} from '../../lib/runtime/ProjectRootResolver.js';
+} from '../../lib/runtime/context/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 function makeDir(prefix: string): string {

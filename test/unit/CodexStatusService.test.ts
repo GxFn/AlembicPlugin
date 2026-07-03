@@ -11,8 +11,8 @@ import {
 import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import type { DaemonStatus } from '../../lib/runtime/daemon-status.js';
 import { buildStatus } from '../../lib/runtime/index.js';
+import type { HostRuntimeStatus } from '../../lib/runtime/status/host-runtime-status.js';
 import { buildPostInitActions } from '../../lib/runtime/status/StatusService.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -110,7 +110,7 @@ function makeDaemonState(projectRoot: string): DaemonState {
   };
 }
 
-function makeDaemonStatus(projectRoot: string, ready = false): DaemonStatus {
+function makeDaemonStatus(projectRoot: string, ready = false): HostRuntimeStatus {
   const paths = resolveDaemonPaths(projectRoot);
   return {
     status: ready ? 'ready' : 'stopped',

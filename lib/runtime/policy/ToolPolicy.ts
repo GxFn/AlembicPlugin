@@ -5,7 +5,7 @@ import {
   DEFAULT_MCP_TIER,
   MCP_TIER_ENV,
   resolveEffectiveTier,
-} from '../runtime/runtime/RuntimeContext.js';
+} from '../context/RuntimeContext.js';
 
 export interface ToolDefinition {
   annotations?: ToolAnnotations;

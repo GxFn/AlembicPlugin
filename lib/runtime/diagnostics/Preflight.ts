@@ -5,20 +5,20 @@ import {
   isTrustedProjectRoot,
   type ProjectRootResolution,
   summarizeProjectRootResolution,
-} from '../../runtime/ProjectRootResolver.js';
+} from '../../runtime/context/ProjectRootResolver.js';
 import {
   CODEX_ADMIN_ENABLE_ENV,
   DEFAULT_MCP_TIER,
   MCP_TIER_ENV,
-} from '../../runtime/runtime/RuntimeContext.js';
-import { buildKnowledgeGateActions } from '../../runtime/status/StatusService.js';
+} from '../../runtime/context/RuntimeContext.js';
 import {
   allowedToolNames,
   INIT_ON_DEMAND_TOOL_NAMES,
   LOCAL_TOOLS,
   resolveToolPolicy,
   type ToolDefinition,
-} from '../../runtime/ToolPolicy.js';
+} from '../../runtime/policy/ToolPolicy.js';
+import { buildKnowledgeGateActions } from '../../runtime/status/StatusService.js';
 
 export type PreflightStage = 'before-auto-init' | 'execute';
 

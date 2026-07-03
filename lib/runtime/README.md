@@ -15,7 +15,7 @@
 
 主要入口：
 
-- `runtime/RuntimeContext.ts`：Codex 常量、MCP shim 默认环境、runtime context。
+- `runtime/context/RuntimeContext.ts`：Codex 常量、MCP shim 默认环境、runtime context。
 - `PluginRegistry.ts`：读取 marketplace、plugin manifest、MCP 配置和插件 README。
 - `diagnostics/Diagnostics.ts`：生成 Codex runtime/plugin diagnostics，供 MCP 与插件验证脚本复用。
 - `KnowledgeState.ts`：检查 Codex workspace/Ghost data root 是否初始化、是否已有可用 Recipes 或 Project Skills，并只读汇总 bootstrap/rescan job、SourceRef stale、bootstrap snapshot、knowledge freshness 与 optional vector index 状态。

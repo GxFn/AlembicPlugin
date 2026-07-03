@@ -23,7 +23,7 @@ import {
 import type { SearchResponseMeta, SearchResultItem } from '@alembic/core/search';
 import { normalizeProjectScopeSummary, type ProjectScopeSummary } from '@alembic/core/shared';
 import { getProjectRegistryDir, WorkspaceResolver } from '@alembic/core/workspace';
-import type { DaemonStatus } from '../../runtime/daemon-status.js';
+import type { HostRuntimeStatus } from '../../runtime/status/host-runtime-status.js';
 
 type FetchLike = typeof fetch;
 
@@ -220,7 +220,7 @@ export interface AlembicResidentServiceClientOptions {
 }
 
 export interface AlembicResidentProbeOptions {
-  daemonStatus?: DaemonStatus | null;
+  daemonStatus?: HostRuntimeStatus | null;
   projectRoot?: string | null;
 }
 
@@ -833,7 +833,7 @@ export class AlembicResidentServiceClient {
   }
 }
 
-function statusFromDaemonStatus(status: DaemonStatus): AlembicResidentServiceStatus {
+function statusFromDaemonStatus(status: HostRuntimeStatus): AlembicResidentServiceStatus {
   if (status.health) {
     return statusFromHealth(status.health, status.state);
   }

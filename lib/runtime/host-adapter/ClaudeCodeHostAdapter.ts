@@ -10,14 +10,14 @@ import {
   type SavedProjectRoot,
   writeInitMarker as writeInitMarkerImpl,
   writeSavedProjectRoot as writeSavedProjectRootImpl,
-} from '../ProjectRootResolver.js';
+} from '../context/ProjectRootResolver.js';
 import {
   CLAUDE_CODE_PLUGIN_HOST,
   CODEX_SETUP_PROFILE,
   ensureRuntimeEnvironment as ensureRuntimeEnvironmentImpl,
   type HostRuntimeContext,
   resolveHostRuntimeContext,
-} from '../runtime/RuntimeContext.js';
+} from '../context/RuntimeContext.js';
 import type { HostAdapter, HostInitMarkerInput } from './HostAdapter.js';
 
 /**

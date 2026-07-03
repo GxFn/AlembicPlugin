@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getProjectRuntimeControlStatePath } from '#codex/HostProjectAlignment.js';
+import { getProjectRuntimeControlStatePath } from '#codex/context/HostProjectAlignment.js';
 import HostMcpServer, { resetPluginOwnedMcpServerForTests } from '#codex/mcp/HostMcpServer.js';
 import { resetServiceContainer } from '#inject/ServiceContainer.js';
 

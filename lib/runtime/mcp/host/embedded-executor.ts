@@ -1,5 +1,6 @@
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
+import type { ProjectRuntimeContext } from '../../../runtime/context/ProjectRuntimeContext.js';
 import type { ServiceBoundaryDecision } from '../../../runtime/index.js';
 import type { McpServiceContainer } from '../../../runtime/mcp/handlers/types.js';
 import { safeProjectRootFallback } from '../../../runtime/mcp/host/project-root.js';
@@ -7,7 +8,6 @@ import { attachServiceBoundary, failureResult } from '../../../runtime/mcp/host/
 import { McpServer as EmbeddedMcpServer } from '../../../runtime/mcp/McpServer.js';
 import { isCleanMcpResponse } from '../../../runtime/mcp/output-contract.js';
 import { TOOLS } from '../../../runtime/mcp/tools.js';
-import type { ProjectRuntimeContext } from '../../../runtime/runtime/ProjectRuntimeContext.js';
 import type { AlembicResidentProjectScopeIdentity } from '../../../service/resident/AlembicResidentServiceClient.js';
 import {
   ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV,

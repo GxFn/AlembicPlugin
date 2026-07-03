@@ -6,10 +6,10 @@ import type { DaemonState } from '@alembic/core/daemon';
 // daemon-less (null / 'stopped') value at runtime. PDR-4 (resident slim) and PDR-5
 // (enhancement-route rewrite) own any further reduction of these consumers; PDR-3
 // only re-homes the type.
-export type DaemonStatusKind = 'ready' | 'starting' | 'stopped' | 'stale' | 'failed';
+export type HostRuntimeStatusKind = 'ready' | 'starting' | 'stopped' | 'stale' | 'failed';
 
-export interface DaemonStatus {
-  status: DaemonStatusKind;
+export interface HostRuntimeStatus {
+  status: HostRuntimeStatusKind;
   ready: boolean;
   projectRoot: string;
   dataRoot: string;

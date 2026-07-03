@@ -33,7 +33,7 @@ RC4 execution (2026-06-11).
 
 - **Where defined**: AlembicCore `src/shared/source-contracts.ts:3`
   (mirrored read-only in `vendor/AlembicCore`).
-- **Where consumed here**: `lib/runtime/SourceBoundary.ts:2,7` — the plugin only
+- **Where consumed here**: `lib/runtime/policy/SourceBoundary.ts:2,7` — the plugin only
   imports the constant into `LEGACY_HOST_AGENT_WRITE_SOURCES` so
   `normalizeCodexHostAgentWriteSource()` rewrites legacy `'ide-agent'` (and
   other legacy write sources) to `HOST_AGENT_SOURCE`; storage read expansion
@@ -48,7 +48,7 @@ RC4 execution (2026-06-11).
 
 ### L3 — `legacyEffectiveIdentityFallback` diagnostics field
 
-- **Where**: `lib/runtime/runtime/ProjectRuntimeContext.ts` —
+- **Where**: `lib/runtime/context/ProjectRuntimeContext.ts` —
   `CodexRuntimeFallbackIsolation.legacyEffectiveIdentityFallback` and the
   `CODEX_RUNTIME_FALLBACK_ISOLATION` table.
 - **What**: read-only diagnostics label naming the legacy effective-identity

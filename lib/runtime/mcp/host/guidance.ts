@@ -2,7 +2,7 @@ import {
   HOST_AGENT_WORKFLOW_TOOL_NAMES,
   PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
   TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
-} from '../../../runtime/ToolPolicy.js';
+} from '../../../runtime/policy/ToolPolicy.js';
 
 interface GuidanceToolLike {
   description?: string;

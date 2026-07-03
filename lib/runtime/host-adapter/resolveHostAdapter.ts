@@ -1,4 +1,4 @@
-import { CLAUDE_CODE_PLUGIN_HOST, resolveHostRuntimeContext } from '../runtime/RuntimeContext.js';
+import { CLAUDE_CODE_PLUGIN_HOST, resolveHostRuntimeContext } from '../context/RuntimeContext.js';
 import { CLAUDE_CODE_HOST_ADAPTER } from './ClaudeCodeHostAdapter.js';
 import { CODEX_HOST_ADAPTER } from './CodexHostAdapter.js';
 import type { HostAdapter } from './HostAdapter.js';

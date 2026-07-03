@@ -12,9 +12,9 @@ import {
   ProjectRegistry,
   type ProjectRegistryInspection,
 } from '@alembic/core/workspace';
-import type { HostEnhancementRouteChoice } from '../runtime/EnhancementRoute.js';
-import type { AlembicResidentProjectScopeIdentity } from '../service/resident/AlembicResidentServiceClient.js';
-import type { DaemonStatus } from './daemon-status.js';
+import type { AlembicResidentProjectScopeIdentity } from '../../service/resident/AlembicResidentServiceClient.js';
+import type { HostEnhancementRouteChoice } from '../status/EnhancementRoute.js';
+import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
 
 export type HostProjectConnectionState = 'connected' | 'mismatch' | 'disconnected' | 'unavailable';
 
@@ -83,7 +83,7 @@ interface RuntimeControlReadResult {
 }
 
 export function buildHostProjectAlignment(input: {
-  daemonStatus: DaemonStatus;
+  daemonStatus: HostRuntimeStatus;
   enhancementRoute?: HostEnhancementRouteChoice | null;
   projectScopeIdentity?: AlembicResidentProjectScopeIdentity | null;
   projectRoot: string;
@@ -348,7 +348,7 @@ function projectFromResidentServiceScope(
   });
 }
 
-function projectFromDaemonState(status: DaemonStatus): AlignedProjectSummary | null {
+function projectFromDaemonState(status: HostRuntimeStatus): AlignedProjectSummary | null {
   if (!status.ready || !status.state?.projectRoot) {
     return null;
   }

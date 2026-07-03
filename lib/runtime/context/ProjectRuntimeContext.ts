@@ -13,18 +13,18 @@ import {
   type ProjectRuntimeServiceReadiness,
 } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
-import type { HostEnhancementRouteChoice } from '../../runtime/EnhancementRoute.js';
-import type { HostProjectAlignment } from '../../runtime/HostProjectAlignment.js';
-import { readPluginMcpDeclaration } from '../../runtime/PluginRegistry.js';
-import type { ProjectRootResolution } from '../../runtime/ProjectRootResolver.js';
-import type { HostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
-import { resolveHostRuntimeContext } from '../../runtime/runtime/RuntimeContext.js';
+import type { HostProjectAlignment } from '../../runtime/context/HostProjectAlignment.js';
+import { readPluginMcpDeclaration } from '../../runtime/context/PluginRegistry.js';
+import type { ProjectRootResolution } from '../../runtime/context/ProjectRootResolver.js';
+import type { HostRuntimeContext } from '../../runtime/context/RuntimeContext.js';
+import { resolveHostRuntimeContext } from '../../runtime/context/RuntimeContext.js';
+import type { HostEnhancementRouteChoice } from '../../runtime/status/EnhancementRoute.js';
 import type {
   AlembicResidentProjectScopeIdentity,
   ResidentSearchAttemptMeta,
 } from '../../service/resident/AlembicResidentServiceClient.js';
 import { resolveProjectScopeRuntime } from '../../shared/project-scope-runtime.js';
-import type { DaemonStatus } from '../daemon-status.js';
+import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
 
 const PROJECT_RUNTIME_CONTEXT_VERSION = 1;
 
@@ -164,7 +164,7 @@ export interface AlembicRuntimeSourceOfTruth {
 }
 
 export interface BuildProjectRuntimeContextOptions {
-  daemonStatus?: DaemonStatus | null;
+  daemonStatus?: HostRuntimeStatus | null;
   enhancementRoute?: HostEnhancementRouteChoice | null;
   hostProjectAlignment?: HostProjectAlignment | null;
   includeOptionalServices?: boolean;
@@ -328,7 +328,7 @@ function buildProjectRuntimeIdentity(input: {
 }
 
 function buildRequiredServiceReadiness(input: {
-  daemonStatus: DaemonStatus | null;
+  daemonStatus: HostRuntimeStatus | null;
   enhancementRoute: HostEnhancementRouteChoice | null;
   hostProjectAlignment: HostProjectAlignment | null;
   identity: ProjectRuntimeIdentityContract;
@@ -357,7 +357,7 @@ function buildRequiredServiceReadiness(input: {
 function isServiceAvailable(
   service: ProjectRuntimeRequiredService,
   input: {
-    daemonStatus: DaemonStatus | null;
+    daemonStatus: HostRuntimeStatus | null;
     enhancementRoute: HostEnhancementRouteChoice | null;
     hostProjectAlignment: HostProjectAlignment | null;
     identity: ProjectRuntimeIdentityContract;
@@ -405,7 +405,7 @@ function isServiceAvailable(
 function serviceFailureReason(
   service: ProjectRuntimeRequiredService,
   input: {
-    daemonStatus: DaemonStatus | null;
+    daemonStatus: HostRuntimeStatus | null;
     hostProjectAlignment: HostProjectAlignment | null;
     identity: ProjectRuntimeIdentityContract;
     projectRootResolution: ProjectRootResolution | null;
@@ -441,7 +441,7 @@ function serviceFailureReason(
 function serviceMessage(
   service: ProjectRuntimeRequiredService,
   input: {
-    daemonStatus: DaemonStatus | null;
+    daemonStatus: HostRuntimeStatus | null;
     hostProjectAlignment: HostProjectAlignment | null;
     projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
     sourceOfTruth: AlembicRuntimeSourceOfTruth | null;
@@ -489,7 +489,7 @@ function serviceSource(
 }
 
 function daemonFailureReason(
-  status: DaemonStatus | null,
+  status: HostRuntimeStatus | null,
   sourceOfTruth: AlembicRuntimeSourceOfTruth | null
 ): ProjectRuntimeFailureReason {
   const sourceReason = sourceOfTruth?.readiness?.reasonCode;
@@ -573,7 +573,7 @@ function detectMcpEntryMode(runtime: HostRuntimeContext): ProjectRuntimeEntryMod
 }
 
 function extractAlembicRuntimeSourceOfTruth(
-  daemonStatus?: DaemonStatus | null
+  daemonStatus?: HostRuntimeStatus | null
 ): AlembicRuntimeSourceOfTruth | null {
   const data = asRecord(daemonStatus?.health?.data);
   const raw = asRecord(data?.projectRuntimeSourceOfTruth);

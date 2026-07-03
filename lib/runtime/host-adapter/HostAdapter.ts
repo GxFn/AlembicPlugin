@@ -3,8 +3,8 @@ import type {
   ProjectRootResolution,
   ResolveProjectRootOptions,
   SavedProjectRoot,
-} from '../ProjectRootResolver.js';
-import type { HostRuntimeContext } from '../runtime/RuntimeContext.js';
+} from '../context/ProjectRootResolver.js';
+import type { HostRuntimeContext } from '../context/RuntimeContext.js';
 
 /**
  * HostInitMarkerInput —— init-marker 写入的业务入参。系统字段（dataRoot / ghost /

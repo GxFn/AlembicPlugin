@@ -10,7 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import Bootstrap from '../../lib/bootstrap.js';
 import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-generation/generate/project-context-analysis.js';
-import { buildProjectRuntimeContext } from '../../lib/runtime/runtime/ProjectRuntimeContext.js';
+import { buildProjectRuntimeContext } from '../../lib/runtime/context/ProjectRuntimeContext.js';
 import { buildStatus } from '../../lib/runtime/status/StatusService.js';
 import {
   ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV,
