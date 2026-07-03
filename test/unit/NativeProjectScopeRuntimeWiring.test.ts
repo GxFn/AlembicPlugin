@@ -9,7 +9,7 @@ import {
 } from '@alembic/core/shared';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import Bootstrap from '../../lib/bootstrap.js';
-import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-generation/generate/project-context-analysis.js';
+import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-pipeline/generate/project-context-analysis.js';
 import { buildProjectRuntimeContext } from '../../lib/runtime/context/ProjectRuntimeContext.js';
 import { buildStatus } from '../../lib/runtime/status/StatusService.js';
 import {

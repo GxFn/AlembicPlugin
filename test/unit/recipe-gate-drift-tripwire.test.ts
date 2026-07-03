@@ -22,8 +22,8 @@ import {
   createSourceRefResolver,
   type GenerateSessionLike,
   validateRecipeProductionEvidenceGate,
-} from '#recipe-generation/curate/recipe-evidence-gate.js';
-import { attachRecipeAuthoringFrontLoad } from '#recipe-generation/generate/cold-start.js';
+} from '#recipe-pipeline/curate/recipe-evidence-gate.js';
+import { attachRecipeAuthoringFrontLoad } from '#recipe-pipeline/generate/cold-start.js';
 import { SubmitKnowledgeItemSchema } from '#shared/schemas/mcp-tools.js';
 
 describe('recipe-gate drift tripwire — lifted gate constants', () => {

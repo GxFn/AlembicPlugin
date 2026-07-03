@@ -11,7 +11,7 @@ import { buildServiceContainerRuntimeConfig } from '../../lib/injection/ServiceC
 import {
   DEFAULT_OLLAMA_EMBED_MODEL,
   DEFAULT_OLLAMA_ENDPOINT,
-} from '../../lib/recipe-generation/vector/LocalEmbedding.js';
+} from '../../lib/recipe-pipeline/vector/LocalEmbedding.js';
 
 const cleanupRoots: string[] = [];
 

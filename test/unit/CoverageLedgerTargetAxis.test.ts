@@ -3,7 +3,7 @@ import {
   isTargetScopedCoverageModuleId,
   preferTargetScopedCoverageItems,
   uniqueTargetScopedCoverageModuleCount,
-} from '#recipe-generation/generate/coverage-ledger-target-axis.js';
+} from '#recipe-pipeline/generate/coverage-ledger-target-axis.js';
 
 describe('coverage ledger target axis helpers', () => {
   test('recognizes only ProjectMap target-scoped module ids', () => {

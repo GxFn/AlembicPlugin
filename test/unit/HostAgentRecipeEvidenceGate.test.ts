@@ -6,7 +6,7 @@ import {
   type GenerateSessionLike,
   validateDimensionCompletionEvidenceGate,
   validateRecipeProductionEvidenceGate,
-} from '#recipe-generation/curate/recipe-evidence-gate.js';
+} from '#recipe-pipeline/curate/recipe-evidence-gate.js';
 
 describe('HostAgentRecipeEvidenceGate', () => {
   it.each([

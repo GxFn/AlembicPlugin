@@ -1,4 +1,4 @@
-export const RECIPE_GENERATION_SUBSYSTEM_ROOT = 'lib/recipe-generation' as const;
+export const RECIPE_GENERATION_SUBSYSTEM_ROOT = 'lib/recipe-pipeline' as const;
 
 export const RECIPE_GENERATION_PROJECT_CONTEXT_TOOL_NAMES = [
   'alembic_recipe_map',

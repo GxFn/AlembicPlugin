@@ -25,9 +25,9 @@
       "alembic-dev": "./lib/injection/*",
       "default": "./dist/lib/injection/*"
     },
-    "#recipe-generation/*": {
-      "alembic-dev": "./lib/recipe-generation/*",
-      "default": "./dist/lib/recipe-generation/*"
+    "#recipe-pipeline/*": {
+      "alembic-dev": "./lib/recipe-pipeline/*",
+      "default": "./dist/lib/recipe-pipeline/*"
     },
     "#codex/*": {
       "alembic-dev": "./lib/runtime/*",

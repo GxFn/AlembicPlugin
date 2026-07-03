@@ -6,11 +6,11 @@ import {
   buildProjectContextMissionBriefing,
 } from '@alembic/core/host-agent-workflows';
 import { afterEach, describe, expect, it } from 'vitest';
-import { attachPlanScopeTargetCounts } from '../../lib/recipe-generation/generate/cold-start.js';
+import { attachPlanScopeTargetCounts } from '../../lib/recipe-pipeline/generate/cold-start.js';
 import {
   buildHostAgentProjectContextAnalysis,
   selectProjectContextDimensions,
-} from '../../lib/recipe-generation/generate/project-context-analysis.js';
+} from '../../lib/recipe-pipeline/generate/project-context-analysis.js';
 
 const tempRoots: string[] = [];
 
@@ -379,5 +379,5 @@ async function writeFixtureFile(
 }
 
 function readWorkflow(fileName: string): Promise<string> {
-  return readFile(join(process.cwd(), 'lib', 'recipe-generation', 'generate', fileName), 'utf8');
+  return readFile(join(process.cwd(), 'lib', 'recipe-pipeline', 'generate', fileName), 'utf8');
 }

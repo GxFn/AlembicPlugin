@@ -7,11 +7,11 @@ export type {
   HostAgentAnalysisUnitSurface as IDEAgentAnalysisUnitSurface,
   HostAgentSurfaceSourceRef as IDEAgentSurfaceSourceRef,
   HostAgentSurfaceStructuralEvidenceRef as IDEAgentSurfaceStructuralEvidenceRef,
-} from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
+} from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 
-export * from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
+export * from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 
 export {
   buildHostAgentAnalysisProgressBackfill as buildIDEAgentAnalysisProgressBackfill,
   buildHostAgentAnalysisSurface as buildIDEAgentAnalysisSurface,
-} from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
+} from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';

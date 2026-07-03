@@ -14,12 +14,12 @@ import {
 } from '@alembic/core/repositories';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-generation/generate/knowledge-rescan.js';
+import { runHostAgentKnowledgeRescanWorkflow } from '../../lib/recipe-pipeline/generate/knowledge-rescan.js';
 import {
   createProjectContextHostAgentSession,
   releaseEmptyHostAgentSessionLease,
   releaseEmptyHostAgentSessionLeaseForProject,
-} from '../../lib/recipe-generation/generate/project-context-analysis.js';
+} from '../../lib/recipe-pipeline/generate/project-context-analysis.js';
 
 const tempRoots: string[] = [];
 const silentLogger = { info() {}, warn() {} };

@@ -1,6 +1,6 @@
 # recipe-generation — Recipe 生成维护全链(四环,宿主 Agent 皮)
 
-主体仓 `Alembic/lib/recipe-pipeline` 的宿主侧镜像(W5):同为 Plan/Generate/Curate/Sustain 四环,差异在执行体——本仓由**宿主 Agent(cc/codex)**执行分析与产出,主体由 in-process API Agent 执行。目录名 `recipe-generation` 将随 W5-d 终改名为 `recipe-pipeline`(`#recipe-generation/*` 别名同批)。
+主体仓 `Alembic/lib/recipe-pipeline` 的宿主侧镜像(W5):同为 Plan/Generate/Curate/Sustain 四环,差异在执行体——本仓由**宿主 Agent(cc/codex)**执行分析与产出,主体由 in-process API Agent 执行。目录与 `#recipe-pipeline/*` 别名已随 W5-d 定名(旧名 recipe-generation 退役)。
 
 | 环 | 目录 | 职责 | 主入口 |
 |---|---|---|---|

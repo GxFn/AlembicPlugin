@@ -66,7 +66,7 @@ import {
   DEFAULT_OLLAMA_ENDPOINT,
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
-} from '#recipe-generation/vector/LocalEmbedding.js';
+} from '#recipe-pipeline/vector/LocalEmbedding.js';
 import { PACKAGE_ROOT } from '../shared/package-assets.js';
 import { resolveProjectScopeRuntime } from '../shared/project-scope-runtime.js';
 

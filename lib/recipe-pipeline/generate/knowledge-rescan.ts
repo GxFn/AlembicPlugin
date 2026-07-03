@@ -39,7 +39,7 @@ import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { buildLocalSelectionMismatch } from '#codex/context/HostProjectAlignment.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
-import { buildHostAgentAnalysisSurface } from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
+import { buildHostAgentAnalysisSurface } from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
@@ -47,7 +47,7 @@ import {
   releaseEmptyHostAgentSessionLeaseById,
   releaseEmptyHostAgentSessionLeaseForProject,
   selectProjectContextDimensions,
-} from '#recipe-generation/generate/project-context-analysis.js';
+} from '#recipe-pipeline/generate/project-context-analysis.js';
 import {
   acquirePlanGenerationLease,
   applyPlanGateToProjectAnalysisIntent,
@@ -55,15 +55,15 @@ import {
   type PlanGenerationGateReady,
   type PlanSelectionModuleBinding,
   resolvePlanGenerationGate,
-} from '#recipe-generation/plan/plan-generation-gate.js';
-import { attachProjectContextCreationGuide } from '#recipe-generation/plan/project-context-anchoring.js';
-import { runCommitDrivenMaintenance } from '#recipe-generation/sustain/git-diff-checkpoint/CommitDrivenMaintenance.js';
-import type { GitDiffScanResult } from '#recipe-generation/sustain/git-diff-checkpoint/GitDiffScanner.js';
+} from '#recipe-pipeline/plan/plan-generation-gate.js';
+import { attachProjectContextCreationGuide } from '#recipe-pipeline/plan/project-context-anchoring.js';
+import { runCommitDrivenMaintenance } from '#recipe-pipeline/sustain/git-diff-checkpoint/CommitDrivenMaintenance.js';
+import type { GitDiffScanResult } from '#recipe-pipeline/sustain/git-diff-checkpoint/GitDiffScanner.js';
 import {
   HostAgentFileChangeHandler,
   type UnifiedEvolutionReport,
-} from '#recipe-generation/sustain/HostAgentFileChangeHandler.js';
-import { buildPluginOpportunisticEvolutionSurface } from '#recipe-generation/sustain/PluginOpportunisticEvolution.js';
+} from '#recipe-pipeline/sustain/HostAgentFileChangeHandler.js';
+import { buildPluginOpportunisticEvolutionSurface } from '#recipe-pipeline/sustain/PluginOpportunisticEvolution.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import {

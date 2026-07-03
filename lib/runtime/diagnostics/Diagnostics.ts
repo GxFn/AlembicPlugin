@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AlembicResidentServiceProbe } from '@alembic/core/daemon';
-import type { GitDiffCheckpointStatus } from '#recipe-generation/sustain/git-diff-checkpoint/index.js';
+import type { GitDiffCheckpointStatus } from '#recipe-pipeline/sustain/git-diff-checkpoint/index.js';
 import type { HostProjectAlignment } from '../../runtime/context/HostProjectAlignment.js';
 import {
   buildModuleBoundaryStatus,

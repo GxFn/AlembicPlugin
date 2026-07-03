@@ -55,14 +55,14 @@ import type { RecipeCandidateValidator, RecipeParser } from '@alembic/core/servi
 // ── Shared Types ──
 import type { LanguageService } from '@alembic/core/shared';
 import type { IndexingPipeline, VectorService, VectorStore } from '@alembic/core/vector';
-import type { GenerateTaskManager } from '#recipe-generation/generate/runtime/GenerateTaskManager.js';
-import type { ContextualEnricher } from '#recipe-generation/vector/ContextualEnricher.js';
+import type { GenerateTaskManager } from '#recipe-pipeline/generate/runtime/GenerateTaskManager.js';
+import type { ContextualEnricher } from '#recipe-pipeline/vector/ContextualEnricher.js';
 // ── Domain Types ──
 // ── Core Types ──
 // ── InfraModule Types ──
 import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
-import type { RecipeEmbeddingSimProviderHandle } from '../recipe-generation/vector/recipe-embedding-sim-provider.js';
+import type { RecipeEmbeddingSimProviderHandle } from '../recipe-pipeline/vector/recipe-embedding-sim-provider.js';
 import type { ModuleService } from '../service/module/ModuleService.js';
 import type {
   AlembicResidentCapabilityClients,

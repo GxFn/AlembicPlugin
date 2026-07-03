@@ -35,18 +35,18 @@ import {
   attachBriefingTransportMeta,
   attachFullBriefingRef,
   budgetBriefingResponseData,
-} from '#recipe-generation/generate/briefing-budget.js';
+} from '#recipe-pipeline/generate/briefing-budget.js';
 import {
   buildColdStartCompletenessCriticByDimension,
   projectCompletenessCriticForAgent,
-} from '#recipe-generation/generate/completeness-critic.js';
-import { buildHostAgentAnalysisSurface } from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
+} from '#recipe-pipeline/generate/completeness-critic.js';
+import { buildHostAgentAnalysisSurface } from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 import {
   buildHostAgentProjectContextAnalysis,
   createProjectContextHostAgentSession,
   selectProjectContextDimensions,
-} from '#recipe-generation/generate/project-context-analysis.js';
-import { resolveHostAgentDataRoot } from '#recipe-generation/generate/project-data-root.js';
+} from '#recipe-pipeline/generate/project-context-analysis.js';
+import { resolveHostAgentDataRoot } from '#recipe-pipeline/generate/project-data-root.js';
 import {
   acquirePlanGenerationLease,
   applyPlanGateToProjectAnalysisIntent,
@@ -55,8 +55,8 @@ import {
   type PlanGenerationLease,
   planGateNoCleanupResult,
   resolvePlanGenerationGate,
-} from '#recipe-generation/plan/plan-generation-gate.js';
-import { attachProjectContextCreationGuide } from '#recipe-generation/plan/project-context-anchoring.js';
+} from '#recipe-pipeline/plan/plan-generation-gate.js';
+import { attachProjectContextCreationGuide } from '#recipe-pipeline/plan/project-context-anchoring.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import type { GenerateInput } from '#shared/schemas/mcp-tools.js';

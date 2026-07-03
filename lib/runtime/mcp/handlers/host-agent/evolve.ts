@@ -20,7 +20,7 @@ import {
   type RecipeFreshnessPublicRecipe,
   refreshRecipeFreshnessByIds,
   skippedRecipe,
-} from '#recipe-generation/sustain/RecipeFreshnessRuntime.js';
+} from '#recipe-pipeline/sustain/RecipeFreshnessRuntime.js';
 import type { EvolveInput } from '#shared/schemas/mcp-tools.js';
 
 /** MCP handler context */

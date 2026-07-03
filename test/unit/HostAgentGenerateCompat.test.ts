@@ -11,15 +11,15 @@ const projectIndexColdStartMock = vi.hoisted(() => vi.fn());
 const projectIndexRescanMock = vi.hoisted(() => vi.fn());
 const getActiveSessionMock = vi.hoisted(() => vi.fn(() => null));
 
-vi.mock('../../lib/recipe-generation/generate/generate-workflow.js', () => ({
+vi.mock('../../lib/recipe-pipeline/generate/generate-workflow.js', () => ({
   getActiveSession: getActiveSessionMock,
   runHostAgentColdStartWorkflow: projectIndexColdStartMock,
   runHostAgentKnowledgeRescanWorkflow: projectIndexRescanMock,
   runGenerateWorkflow: runProjectIndexWorkflowMock,
 }));
 
-import { runHostAgentColdStartWorkflow as legacyColdStartWorkflow } from '../../lib/recipe-generation/generate/cold-start.js';
-import { runHostAgentKnowledgeRescanWorkflow as legacyRescanWorkflow } from '../../lib/recipe-generation/generate/knowledge-rescan.js';
+import { runHostAgentColdStartWorkflow as legacyColdStartWorkflow } from '../../lib/recipe-pipeline/generate/cold-start.js';
+import { runHostAgentKnowledgeRescanWorkflow as legacyRescanWorkflow } from '../../lib/recipe-pipeline/generate/knowledge-rescan.js';
 import {
   runGenerateWorkflow as bootstrapProjectIndexWorkflow,
   generateForHostAgent,

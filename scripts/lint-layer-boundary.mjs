@@ -23,7 +23,7 @@
 import { execSync } from 'node:child_process';
 
 // L1 directories that must not reach into the L2 MCP surface.
-const L1_DIRS = ['lib/service', 'lib/recipe-generation'];
+const L1_DIRS = ['lib/service', 'lib/recipe-pipeline'];
 // Import specifiers that resolve into lib/runtime/mcp.
 const PATTERN = "from '([^']*runtime/mcp/|#codex/mcp/)";
 

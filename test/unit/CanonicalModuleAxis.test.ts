@@ -13,7 +13,7 @@ import {
   buildKnownModuleNames,
   buildResolveModuleFromSourceRefs,
   type CanonicalModuleRef,
-} from '#recipe-generation/canonical-module-axis.js';
+} from '#recipe-pipeline/canonical-module-axis.js';
 
 const canonicalModules: CanonicalModuleRef[] = [
   { id: 'mod-auth', name: 'AuthModule', path: 'src/auth' },

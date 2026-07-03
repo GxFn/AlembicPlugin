@@ -9,4 +9,4 @@ export {
   getActiveSession,
   runGenerateWorkflow,
   runHostAgentColdStartWorkflow as generateForHostAgent,
-} from '#recipe-generation/generate/generate-workflow.js';
+} from '#recipe-pipeline/generate/generate-workflow.js';

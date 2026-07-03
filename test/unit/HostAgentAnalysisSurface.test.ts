@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildHostAgentAnalysisProgressBackfill,
   buildHostAgentAnalysisSurface,
-} from '../../lib/recipe-generation/generate/HostAgentAnalysisSurface.js';
+} from '../../lib/recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 import {
   buildIDEAgentAnalysisProgressBackfill,
   buildIDEAgentAnalysisSurface,

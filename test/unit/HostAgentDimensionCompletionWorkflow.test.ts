@@ -11,7 +11,7 @@ import {
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,
   runHostAgentDimensionCompletionWorkflow,
-} from '#recipe-generation/generate/dimension-completion.js';
+} from '#recipe-pipeline/generate/dimension-completion.js';
 import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 
 const tempRoots: string[] = [];

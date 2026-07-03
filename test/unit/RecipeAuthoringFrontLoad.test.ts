@@ -6,7 +6,7 @@
  * (c) scope: narrow（file-local）证据下限逃逸。clean-output 整体保留 hostAgentContract（不递归过滤）。
  */
 import { describe, expect, it } from 'vitest';
-import { attachRecipeAuthoringFrontLoad } from '../../lib/recipe-generation/generate/cold-start.js';
+import { attachRecipeAuthoringFrontLoad } from '../../lib/recipe-pipeline/generate/cold-start.js';
 
 describe('recipe authoring front-load (P2.3 / 13.L)', () => {
   it('renders the worked example + literal verbs + scope escape from @alembic/core/knowledge', () => {

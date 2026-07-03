@@ -82,7 +82,7 @@ describe('MissionBriefing profiles', () => {
 
   test('host-agent knowledge rescan workflow no longer patches executionPlan after briefing construction', () => {
     const source = readFileSync(
-      join(process.cwd(), 'lib/recipe-generation/generate/knowledge-rescan.ts'),
+      join(process.cwd(), 'lib/recipe-pipeline/generate/knowledge-rescan.ts'),
       'utf8'
     );
 

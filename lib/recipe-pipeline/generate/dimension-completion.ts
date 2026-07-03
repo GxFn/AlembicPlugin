@@ -19,29 +19,29 @@ import {
   previewDimensionQualityReport,
   primaryEvidenceGateCode,
   validateDimensionCompletionEvidenceGate,
-} from '#recipe-generation/curate/recipe-evidence-gate.js';
+} from '#recipe-pipeline/curate/recipe-evidence-gate.js';
 import {
   buildDimensionCompletionCompletenessCritic,
   buildSubmittedRecipesForCompletenessCritic,
   projectCompletenessCriticForAgent,
-} from '#recipe-generation/generate/completeness-critic.js';
+} from '#recipe-pipeline/generate/completeness-critic.js';
 import {
   runWorkflowCompletionFinalizer,
   type WorkflowCompletionFinalizerDependencies,
-} from '#recipe-generation/generate/completion/WorkflowCompletionFinalizer.js';
+} from '#recipe-pipeline/generate/completion/WorkflowCompletionFinalizer.js';
 import {
   countTargetScopedCoverageItems,
   preferTargetScopedCoverageItems,
-} from '#recipe-generation/generate/coverage-ledger-target-axis.js';
+} from '#recipe-pipeline/generate/coverage-ledger-target-axis.js';
 import {
   reflowDeepMiningRoundOnCompletion,
   writeCoverageLedgerForCompletion,
-} from '#recipe-generation/generate/coverage-ledger-write.js';
-import { filterGenericParentCoverageModules } from '#recipe-generation/generate/coverage-module-axis.js';
-import { buildHostAgentAnalysisProgressBackfill } from '#recipe-generation/generate/HostAgentAnalysisSurface.js';
-import { resolveHostAgentDataRoot } from '#recipe-generation/generate/project-data-root.js';
-import { GenerateEventEmitter } from '#recipe-generation/generate/runtime/GenerateEventEmitter.js';
-import { generateSkill as generateWorkflowSkill } from '#recipe-generation/generate/skill-delivery/WorkflowSkillCompletionCapability.js';
+} from '#recipe-pipeline/generate/coverage-ledger-write.js';
+import { filterGenericParentCoverageModules } from '#recipe-pipeline/generate/coverage-module-axis.js';
+import { buildHostAgentAnalysisProgressBackfill } from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
+import { resolveHostAgentDataRoot } from '#recipe-pipeline/generate/project-data-root.js';
+import { GenerateEventEmitter } from '#recipe-pipeline/generate/runtime/GenerateEventEmitter.js';
+import { generateSkill as generateWorkflowSkill } from '#recipe-pipeline/generate/skill-delivery/WorkflowSkillCompletionCapability.js';
 
 const logger = Logger.getInstance();
 

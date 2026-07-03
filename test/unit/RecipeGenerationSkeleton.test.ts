@@ -7,7 +7,7 @@ import {
   RECIPE_GENERATION_SKELETON_CONTRACT,
   RECIPE_GENERATION_STATE_PROJECTION_SOURCES,
   RECIPE_GENERATION_SUBSYSTEM_ROOT,
-} from '#recipe-generation/contracts.js';
+} from '#recipe-pipeline/contracts.js';
 import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/runtime/index.js';
 import { listPluginToolSurfaceCatalog } from '../../lib/runtime/mcp/PluginToolSurfaceCatalog.js';
 import { TOOLS } from '../../lib/runtime/mcp/tools.js';
@@ -17,19 +17,19 @@ const planToolName = 'alembic_plan';
 const rg9AdapterPaths = [] as const;
 
 const rg9ImplementationPaths = [
-  'lib/recipe-generation/generate/cold-start.ts',
-  'lib/recipe-generation/generate/dimension-completion.ts',
-  'lib/recipe-generation/generate/knowledge-rescan.ts',
-  'lib/recipe-generation/generate/project-context-analysis.ts',
-  'lib/recipe-generation/generate/project-data-root.ts',
-  'lib/recipe-generation/curate/recipe-evidence-gate.ts',
-  'lib/recipe-generation/generate/recipe-region-vector.ts',
-  'lib/recipe-generation/generate/runtime/GenerateEventEmitter.ts',
-  'lib/recipe-generation/generate/runtime/GenerateTaskManager.ts',
-  'lib/recipe-generation/vector/LocalEmbedding.ts',
-  'lib/recipe-generation/sustain/HostAgentFileChangeHandler.ts',
-  'lib/recipe-generation/sustain/PluginOpportunisticEvolution.ts',
-  'lib/recipe-generation/sustain/git-diff-checkpoint/index.ts',
+  'lib/recipe-pipeline/generate/cold-start.ts',
+  'lib/recipe-pipeline/generate/dimension-completion.ts',
+  'lib/recipe-pipeline/generate/knowledge-rescan.ts',
+  'lib/recipe-pipeline/generate/project-context-analysis.ts',
+  'lib/recipe-pipeline/generate/project-data-root.ts',
+  'lib/recipe-pipeline/curate/recipe-evidence-gate.ts',
+  'lib/recipe-pipeline/generate/recipe-region-vector.ts',
+  'lib/recipe-pipeline/generate/runtime/GenerateEventEmitter.ts',
+  'lib/recipe-pipeline/generate/runtime/GenerateTaskManager.ts',
+  'lib/recipe-pipeline/vector/LocalEmbedding.ts',
+  'lib/recipe-pipeline/sustain/HostAgentFileChangeHandler.ts',
+  'lib/recipe-pipeline/sustain/PluginOpportunisticEvolution.ts',
+  'lib/recipe-pipeline/sustain/git-diff-checkpoint/index.ts',
 ] as const;
 
 function sorted(values: Iterable<string>): string[] {
@@ -38,7 +38,7 @@ function sorted(values: Iterable<string>): string[] {
 
 describe('RG-0 recipe generation skeleton', () => {
   test('homes future Recipe generation contracts in the new internal subsystem', () => {
-    expect(RECIPE_GENERATION_SUBSYSTEM_ROOT).toBe('lib/recipe-generation');
+    expect(RECIPE_GENERATION_SUBSYSTEM_ROOT).toBe('lib/recipe-pipeline');
     expect(RECIPE_GENERATION_SKELETON_CONTRACT.subsystemRoot).toBe(
       RECIPE_GENERATION_SUBSYSTEM_ROOT
     );
@@ -120,7 +120,7 @@ describe('RG-0 recipe generation skeleton', () => {
       const executableSource = executableLines.join('\n');
 
       expect(source).toContain('RG9 兼容适配');
-      expect(source).toContain('#recipe-generation/');
+      expect(source).toContain('#recipe-pipeline/');
       expect(executableSource.match(/\bexport\b/g)).toHaveLength(1);
       expect(executableSource.trim()).toMatch(/^export /);
       expect(executableSource).not.toMatch(/\b(class|const|function|let|var)\b/);

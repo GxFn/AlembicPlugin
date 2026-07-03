@@ -9,7 +9,7 @@ import type { KnowledgeRepository } from '@alembic/core/repositories';
 import {
   type RecipeSemanticMemoryEntry,
   syncRecipeSemanticMemoriesForEntries,
-} from '#recipe-generation/generate/recipe-region-vector.js';
+} from '#recipe-pipeline/generate/recipe-region-vector.js';
 
 export interface RecipeFreshnessContainer {
   get(name: string): unknown;

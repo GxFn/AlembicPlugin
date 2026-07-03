@@ -8,4 +8,4 @@
 export {
   runGenerateWorkflow,
   runHostAgentKnowledgeRescanWorkflow as rescanForHostAgent,
-} from '#recipe-generation/generate/generate-workflow.js';
+} from '#recipe-pipeline/generate/generate-workflow.js';

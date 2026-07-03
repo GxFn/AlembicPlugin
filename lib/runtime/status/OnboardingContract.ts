@@ -10,7 +10,7 @@ import {
 import {
   buildProjectContextCreationGuide,
   buildProjectContextCreationNextActions,
-} from '#recipe-generation/plan/project-context-anchoring.js';
+} from '#recipe-pipeline/plan/project-context-anchoring.js';
 import type { HostKnowledgeState } from '#service/knowledge/KnowledgeState.js';
 import type { HostProjectAlignment } from '../../runtime/context/HostProjectAlignment.js';
 import {

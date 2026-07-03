@@ -21,7 +21,7 @@ import { normalizeHostAgentWriteSource } from '#codex/policy/SourceBoundary.js';
 import {
   buildKnownModuleNames,
   buildResolveModuleFromSourceRefs,
-} from '#recipe-generation/canonical-module-axis.js';
+} from '#recipe-pipeline/canonical-module-axis.js';
 import {
   buildEvidenceGateFailureData,
   primaryEvidenceGateCode,
@@ -29,14 +29,14 @@ import {
   resolveGenerateSession,
   shouldRunRecipeEvidenceGate,
   validateRecipeProductionEvidenceGate,
-} from '#recipe-generation/curate/recipe-evidence-gate.js';
-import { resolveHostAgentDataRoot } from '#recipe-generation/generate/project-data-root.js';
-import { routePlanTool as routePlanToolImpl } from '#recipe-generation/plan/plan-tool.js';
-import { assessProjectContextRelationshipGrounding } from '#recipe-generation/plan/project-context-anchoring.js';
+} from '#recipe-pipeline/curate/recipe-evidence-gate.js';
+import { resolveHostAgentDataRoot } from '#recipe-pipeline/generate/project-data-root.js';
+import { routePlanTool as routePlanToolImpl } from '#recipe-pipeline/plan/plan-tool.js';
+import { assessProjectContextRelationshipGrounding } from '#recipe-pipeline/plan/project-context-anchoring.js';
 import {
   type RecipeFreshnessPublicOutput,
   refreshCreatedRecipeFreshness,
-} from '#recipe-generation/sustain/RecipeFreshnessRuntime.js';
+} from '#recipe-pipeline/sustain/RecipeFreshnessRuntime.js';
 import { envelope } from '../../../runtime/mcp/envelope.js';
 import {
   type RecipeContentQualityGateResult,

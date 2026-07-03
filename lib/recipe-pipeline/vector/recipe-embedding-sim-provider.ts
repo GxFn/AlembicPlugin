@@ -24,7 +24,7 @@
  * （如 ConsolidationAdvisor 的 candidateLike、ProposalExecutor 的 #toRecipeLike 投影）→
  * 找不到向量 → 返回 undefined → Jaccard 回退。这是预期内的优雅降级。
  *
- * @module recipe-generation/vector/recipe-embedding-sim-provider
+ * @module recipe-pipeline/vector/recipe-embedding-sim-provider
  */
 
 /**

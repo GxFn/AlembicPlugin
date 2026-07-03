@@ -6,7 +6,7 @@ import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/Kn
 import {
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
-} from '../../recipe-generation/vector/LocalEmbedding.js';
+} from '../../recipe-pipeline/vector/LocalEmbedding.js';
 import {
   buildHostProjectAlignment,
   type HostProjectAlignment,

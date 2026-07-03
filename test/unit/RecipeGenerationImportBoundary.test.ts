@@ -4,11 +4,11 @@ import { describe, expect, test } from 'vitest';
 
 const RECIPE_GENERATION_ROOT = path.resolve(
   path.dirname(new URL(import.meta.url).pathname),
-  '../../lib/recipe-generation'
+  '../../lib/recipe-pipeline'
 );
 
 describe('recipe-generation import boundary', () => {
-  test('lib/recipe-generation does not import ProjectContext service modules', () => {
+  test('lib/recipe-pipeline does not import ProjectContext service modules', () => {
     const offenders: Array<{ file: string; specifier: string }> = [];
     for (const file of listTypeScriptFiles(RECIPE_GENERATION_ROOT)) {
       const source = readFileSync(file, 'utf8');

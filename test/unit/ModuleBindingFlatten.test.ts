@@ -14,8 +14,8 @@ import {
 } from '@alembic/core/host-agent-workflows';
 import type { DimensionDef } from '@alembic/core/test-fixtures';
 import { describe, expect, test } from 'vitest';
-import { flattenModuleBindingsToCells } from '#recipe-generation/generate/knowledge-rescan.js';
-import type { PlanSelectionModuleBinding } from '#recipe-generation/plan/plan-generation-gate.js';
+import { flattenModuleBindingsToCells } from '#recipe-pipeline/generate/knowledge-rescan.js';
+import type { PlanSelectionModuleBinding } from '#recipe-pipeline/plan/plan-generation-gate.js';
 
 const dimensions: DimensionDef[] = [
   { id: 'x', label: 'X' },

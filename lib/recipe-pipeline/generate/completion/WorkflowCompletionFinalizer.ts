@@ -2,7 +2,7 @@ import Logger from '@alembic/core/logging';
 import {
   consolidateSemanticMemory,
   refreshProjectContextReads,
-} from '#recipe-generation/generate/completion/CompletionSteps.js';
+} from '#recipe-pipeline/generate/completion/CompletionSteps.js';
 import type {
   CompletionContextLike,
   CompletionLogger,
@@ -13,7 +13,7 @@ import type {
   WorkflowCompletionFinalizerResult,
   WorkflowCompletionStepOptions,
   WorkflowSemanticMemoryMode,
-} from '#recipe-generation/generate/completion/WorkflowCompletionTypes.js';
+} from '#recipe-pipeline/generate/completion/WorkflowCompletionTypes.js';
 
 export type {
   WorkflowCompletionFinalizerDependencies,
@@ -22,7 +22,7 @@ export type {
   WorkflowCompletionSummary,
   WorkflowSemanticMemoryConsolidationResult,
   WorkflowSemanticMemoryMode,
-} from '#recipe-generation/generate/completion/WorkflowCompletionTypes.js';
+} from '#recipe-pipeline/generate/completion/WorkflowCompletionTypes.js';
 
 const logger = Logger.getInstance();
 

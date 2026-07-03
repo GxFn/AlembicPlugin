@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { buildRescanCoverageModuleAxis } from '#recipe-generation/generate/knowledge-rescan.js';
-import type { HostAgentProjectContextAnalysis } from '#recipe-generation/generate/project-context-analysis.js';
-import type { PlanGenerationGateReady } from '#recipe-generation/plan/plan-generation-gate.js';
+import { buildRescanCoverageModuleAxis } from '#recipe-pipeline/generate/knowledge-rescan.js';
+import type { HostAgentProjectContextAnalysis } from '#recipe-pipeline/generate/project-context-analysis.js';
+import type { PlanGenerationGateReady } from '#recipe-pipeline/plan/plan-generation-gate.js';
 
 describe('buildRescanCoverageModuleAxis', () => {
   test('prefers ProjectMap target modules over aggregate rescan seeds', () => {

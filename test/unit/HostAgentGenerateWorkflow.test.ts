@@ -16,12 +16,12 @@ const incrementalWorkflowMock = vi.hoisted(() =>
 
 const getActiveSessionMock = vi.hoisted(() => vi.fn(() => null));
 
-vi.mock('../../lib/recipe-generation/generate/cold-start.js', () => ({
+vi.mock('../../lib/recipe-pipeline/generate/cold-start.js', () => ({
   getActiveSession: getActiveSessionMock,
   runHostAgentGenerateFullWorkflow: fullWorkflowMock,
 }));
 
-vi.mock('../../lib/recipe-generation/generate/knowledge-rescan.js', () => ({
+vi.mock('../../lib/recipe-pipeline/generate/knowledge-rescan.js', () => ({
   runHostAgentGenerateIncrementalWorkflow: incrementalWorkflowMock,
 }));
 
@@ -30,7 +30,7 @@ import {
   runGenerateWorkflow,
   runHostAgentColdStartWorkflow,
   runHostAgentKnowledgeRescanWorkflow,
-} from '../../lib/recipe-generation/generate/generate-workflow.js';
+} from '../../lib/recipe-pipeline/generate/generate-workflow.js';
 
 describe('host-agent project-index workflow entry', () => {
   afterEach(() => {

@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createRecipeEmbeddingSimProvider,
   type RegionVectorStorePort,
-} from '../../lib/recipe-generation/vector/recipe-embedding-sim-provider.js';
+} from '../../lib/recipe-pipeline/vector/recipe-embedding-sim-provider.js';
 
 const REGION_TYPE = 'recipe-semantic-region';
 

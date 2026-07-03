@@ -24,7 +24,7 @@ import {
   createAlembicRepositories,
 } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { GenerateTaskManager } from '#recipe-generation/generate/runtime/GenerateTaskManager.js';
+import { GenerateTaskManager } from '#recipe-pipeline/generate/runtime/GenerateTaskManager.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
 import type { ServiceContainer } from '../ServiceContainer.js';

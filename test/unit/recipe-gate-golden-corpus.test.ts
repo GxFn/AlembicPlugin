@@ -19,7 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   type GenerateSessionLike,
   validateRecipeProductionEvidenceGate,
-} from '#recipe-generation/curate/recipe-evidence-gate.js';
+} from '#recipe-pipeline/curate/recipe-evidence-gate.js';
 import { validateSubmitKnowledgeContentQuality } from '../../lib/runtime/mcp/handlers/recipe-content-quality-gate.js';
 
 // ════════════════════════════ Stage 1 corpus ════════════════════════════
