@@ -160,6 +160,10 @@ const PluginOpportunisticEvolutionSurfaceSchema = z
       .object({
         advanced: z.boolean(),
         checkpointCommit: z.string().max(1200).nullable(),
+        // 产写面对齐（2026-07-06 guard 实测炸链修复）：DurableGitDiffCheckpointRouting 一直
+        // 写入 initializationSource，本严格 schema 未声明→凡带 checkpoint 的 guard 输出
+        // unrecognized_keys 全拒。声明为可选枚举（与 PluginGitDiffCheckpointRuntime 同源）。
+        initializationSource: z.enum(['existing-checkpoint', 'current-head', 'empty']).optional(),
         mergeBaseCommit: z.string().max(1200).nullable().optional(),
         recorded: z.boolean(),
         reason: PublicStringSchema,
