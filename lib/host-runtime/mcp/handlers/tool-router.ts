@@ -745,7 +745,8 @@ function buildAllRejectedSubmitResponse(
   // X1（2026-07-06 五 MCP 升级）：宿主的 MCP error 通道只透出 message，结构化 data
   // 会被吞——把具体拒因前 3 条内联进 message，避免宿主只看到"补齐所有字段"却不知缺哪个。
   const inlineReasons = commonErrors.slice(0, 3).join('；');
-  const overflow = commonErrors.length > 3 ? `（另 ${commonErrors.length - 3} 条见 data.commonErrors）` : '';
+  const overflow =
+    commonErrors.length > 3 ? `（另 ${commonErrors.length - 3} 条见 data.commonErrors）` : '';
   return envelope({
     success: false,
     errorCode: 'INCOMPLETE_SUBMISSION',
