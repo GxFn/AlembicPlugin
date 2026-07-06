@@ -8,8 +8,8 @@ import {
   countProjectRecipeLifecycles,
   countProjectSkillKnowledgeEntries,
   type GitDiffCheckpointSummary,
-  readGitDiffCheckpointSummary,
   type RecipeLifecycleCounts,
+  readGitDiffCheckpointSummary,
 } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 
 export type KnowledgeStatus =

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "P2 AD6 side-effect doctrine lint exemptions (census 2026-06-12, 11 rows). Every row needs file+binding+owner+reason; scripts/lint-doctrine.mjs validates integrity and fails on unknown rows. Null-initialized lazy slots are idiom-allowed and not listed.",
+  "description": "P2 AD6 side-effect doctrine lint exemptions (census 2026-06-12, 13 rows). Every row needs file+binding+owner+reason; scripts/lint-doctrine.mjs validates integrity and fails on unknown rows. Null-initialized lazy slots are idiom-allowed and not listed.",
   "exemptions": [
     {
       "file": "lib/host-runtime/mcp/output-contract.ts",
@@ -49,6 +49,12 @@
       "binding": "WORK_RECORDS",
       "owner": "AlembicPlugin",
       "reason": "Session-lifetime work record store paired with INTENT_RECORDS."
+    },
+    {
+      "file": "lib/host-runtime/mcp/handlers/agent-public-tools.ts",
+      "binding": "PRIME_RECORDS",
+      "owner": "AlembicPlugin",
+      "reason": "Session-lifetime prime delivery record store capped to 50 with FIFO eviction; observe-only guard alignment metadata keyed by primeRef."
     },
     {
       "file": "lib/host-runtime/mcp/RateLimiter.ts",
