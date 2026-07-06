@@ -136,12 +136,61 @@ const GuardResultSummarySchema = z
   })
   .strict();
 
+// G2 应用规则摘要（2026-07-06）：guard 内层 data.appliedRules 此前在本投影层被
+// 静默丢弃（projectGuardPublicResult 只折叠 resultSummary 计数），宿主无法回答
+// "0 violations 是没有适用规则还是检查通过"。公开面透传 total/bySource/sample。
+const GuardAppliedRulesSchema = z
+  .object({
+    total: z.number().int().min(0).max(100000),
+    bySource: z.record(z.string().max(240), z.number().int().min(0).max(100000)),
+    sample: z
+      .array(
+        z
+          .object({
+            id: z.string().max(240),
+            name: z.string().max(1200),
+            severity: z.string().max(80),
+            source: z.string().max(240),
+          })
+          .strict()
+      )
+      .max(10),
+  })
+  .strict();
+
 const GuardPublicResultSchema = z
   .object({
+    appliedRules: GuardAppliedRulesSchema.optional(),
     guardErrorCode: OptionalPublicStringSchema,
     ok: z.boolean(),
     resultSummary: GuardResultSummarySchema,
     summary: OptionalPublicStringSchema,
+  })
+  .strict();
+
+// prime→guard step1 observe-only 观测面（2026-07-06 真机炸链修复）：handler 注入
+// primeAlignment 但本严格输出 schema 未声明 → 凡带 primeRef 的 guard 调用在
+// 输出 parse 处 unrecognized_keys 整体失败（与 initializationSource 同型事故）。
+// 两形态：observed（命中本会话 prime 交付记录）/ prime-ref-unknown（跨会话诚实降级）。
+const GuardPrimeAlignmentSchema = z
+  .object({
+    primeRef: z.string().min(1).max(240),
+    status: z.enum(['observed', 'prime-ref-unknown']),
+    note: OptionalPublicStringSchema,
+    deliveredKnowledgeCount: z.number().int().min(0).max(1000).optional(),
+    overlappedKnowledgeCount: z.number().int().min(0).max(1000).optional(),
+    overlappedKnowledge: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(240),
+            title: z.string().min(1).max(1200),
+            matchedFiles: z.array(z.string().min(1).max(1200)).max(80),
+          })
+          .strict()
+      )
+      .max(5)
+      .optional(),
   })
   .strict();
 
@@ -453,6 +502,7 @@ export const AgentCodeGuardOutputSchema = AgentPublicToolOutputBaseSchema.safeEx
   explicitScope: ExplicitGuardScopeSchema.optional(),
   guard: GuardPublicResultSchema.optional(),
   guardResultRef: z.string().min(1).max(240).optional(),
+  primeAlignment: GuardPrimeAlignmentSchema.optional(),
   toolName: z.literal('alembic_code_guard'),
   unsupportedScopeFields: z.array(z.string()).max(20).optional(),
 });
@@ -599,7 +649,9 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
   const errorCount = numberFrom(summary.errors);
   const totalViolationCount = numberFrom(summary.total);
   const warningCount = numberFrom(summary.warnings);
+  const appliedRules = projectGuardAppliedRules(guardResult.appliedRules);
   return {
+    ...(appliedRules ? { appliedRules } : {}),
     ...(stringFrom(record.guardErrorCode)
       ? { guardErrorCode: stringFrom(record.guardErrorCode) }
       : {}),
@@ -620,6 +672,36 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
     },
     ...(stringFrom(record.summary) ? { summary: stringFrom(record.summary) } : {}),
   };
+}
+
+/** G2：从内层 guardResult.appliedRules 提取公开摘要；形态不符时返回 null（不破坏 guard 输出）。 */
+function projectGuardAppliedRules(value: unknown): z.infer<typeof GuardAppliedRulesSchema> | null {
+  const record = asRecord(value);
+  const total = numberFrom(record.total);
+  if (total === null) {
+    return null;
+  }
+  const bySourceRaw = asRecord(record.bySource);
+  const bySource: Record<string, number> = {};
+  for (const [source, count] of Object.entries(bySourceRaw)) {
+    const parsed = numberFrom(count);
+    if (parsed !== null) {
+      bySource[source.slice(0, 240)] = parsed;
+    }
+  }
+  const sample = (Array.isArray(record.sample) ? record.sample : [])
+    .slice(0, 10)
+    .map((entry) => {
+      const rule = asRecord(entry);
+      return {
+        id: String(rule.id ?? '').slice(0, 240),
+        name: String(rule.name ?? '').slice(0, 1200),
+        severity: String(rule.severity ?? 'warning').slice(0, 80),
+        source: String(rule.source ?? 'unknown').slice(0, 240),
+      };
+    })
+    .filter((rule) => rule.id.length > 0);
+  return { total, bySource, sample };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

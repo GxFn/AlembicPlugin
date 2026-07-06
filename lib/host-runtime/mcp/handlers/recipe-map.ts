@@ -35,6 +35,7 @@ import {
 import {
   buildRetrievalCheckpointPosture,
   type RetrievalCheckpointPosture,
+  resolveRetrievalCheckpointPostureInput,
 } from './retrieval-checkpoint-diagnostics.js';
 import type { McpContext } from './types.js';
 
@@ -103,7 +104,10 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
   const request = normalizeRecipeMapRequest(args, projectRoot);
   const deps = buildRecipeMapDeps(ctx);
   const output = await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
-  const checkpointPosture = buildRetrievalCheckpointPosture(ctx.container, { projectRoot });
+  const checkpointPosture = buildRetrievalCheckpointPosture(
+    ctx.container,
+    resolveRetrievalCheckpointPostureInput(projectRoot)
+  );
   return createAlembicRecipeMapMcpResult(
     attachRecipeMapCheckpointPosture(output, checkpointPosture)
   );

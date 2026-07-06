@@ -215,10 +215,24 @@ function trimRecipeMapOutputToBudget(output: AlembicRecipeMapOutput): AlembicRec
     }
   }
 
-  const refFree = compactRecipeMapOutput(output, 0);
+  // 真机修正（2026-07-06）：体积大头常在 nodes/rollups/representativeRecipeIds 而非
+  // refs（每 mount 往往仅 1 条），上面三档等效全超 → 旧实现直落 refFree 把行级证据
+  // 第一个牺牲，保底承诺失效。caps 阶梯先配 refsPerMount=1 裁结构面；refs=0 只作
+  // 为最后一级兜底（完整数据始终有 meta.fullMapRef 落盘）。
+  const refFloor = compactRecipeMapOutput(output, 1);
   for (const caps of [
     { diagnostics: 80, nodes: 120, refs: 40, rollups: 100 },
     { diagnostics: 40, nodes: 60, refs: 20, rollups: 60 },
+    { diagnostics: 20, nodes: 24, refs: 8, rollups: 24 },
+    { diagnostics: 10, nodes: 10, refs: 4, rollups: 10 },
+  ]) {
+    const compact = trimRecipeMapArrays(refFloor, caps);
+    if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
+      return compact;
+    }
+  }
+  const refFree = compactRecipeMapOutput(output, 0);
+  for (const caps of [
     { diagnostics: 20, nodes: 24, refs: 8, rollups: 24 },
     { diagnostics: 10, nodes: 10, refs: 4, rollups: 10 },
   ]) {

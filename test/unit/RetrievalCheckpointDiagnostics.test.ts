@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { primeHandler } from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
 import { recipeMap } from '../../lib/host-runtime/mcp/handlers/recipe-map.js';
+import { buildRetrievalCheckpointPosture } from '../../lib/host-runtime/mcp/handlers/retrieval-checkpoint-diagnostics.js';
 import { search } from '../../lib/host-runtime/mcp/handlers/search.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 
@@ -15,6 +16,37 @@ describe('retrieval checkpoint diagnostics', () => {
     for (const root of tempRoots.splice(0)) {
       fs.rmSync(root, { force: true, recursive: true });
     }
+  });
+
+  test('incomplete route literal does not degrade posture when baseline equals HEAD', () => {
+    // 真机形态（2026-07-06）：resetBaseline 把基线推进到 folder HEAD，但行上残留
+    // unresolved 字面；skipped 轮不落库 → 字面要等下个真实 commit 才翻转。基线已
+    // 到位时不应再把检索判为 stale。
+    const { projectRoot } = createGitFixture();
+    const currentHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    }).trim();
+    const repository = {
+      get() {
+        return {
+          checkpointCommit: currentHead,
+          folderId: 'root',
+          lastRouteStatus: 'unresolved',
+          mergeBaseCommit: null,
+          projectRoot,
+          scopeId: 'single-folder',
+          targetCommit: currentHead,
+        };
+      },
+    };
+    const posture = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      { projectRoot }
+    );
+    expect(posture.status).toBe('current');
+    expect(posture.retrievalMayBeStale).toBe(false);
+    expect(posture.diagnostics).toEqual([]);
   });
 
   test('search, prime, and recipe_map expose stale durable checkpoint catch-up posture', async () => {

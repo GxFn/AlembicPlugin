@@ -124,12 +124,16 @@ export function recordPluginGitDiffCheckpointRouteOutcome(input: {
   // workspace 切到 folder 后 scanner 探明 previousHead 在本仓不存在）→ 显式基线
   // 重置推进到 folder HEAD，否则每轮 merge-base-unavailable 死循环、路由永不收口。
   const resetBaseline = routeStatus === 'unresolved' && input.scan.previousHeadMissing === true;
+  // 基线重置即完成追赶：落库 catch-up-routed（ADVANCING 集成员）而非 unresolved 字面。
+  // 否则 prime/search 新鲜度姿态把行上残留的 unresolved 判为 INCOMPLETE，检索持续
+  // 降级到下一个真实 commit 覆盖该行才解除（2026-07-06 真机实测）。
+  const persistedRouteStatus = resetBaseline ? 'catch-up-routed' : routeStatus;
   const result = input.runtime.service.recordRouteOutcome({
     ...input.runtime.scope,
     routeReason: resetBaseline
       ? `Checkpoint baseline reset: previous commit ${input.scan.previousHead ?? '(unknown)'} does not exist in the folder repository; re-baselined at current HEAD.`
       : buildRouteReason(routeStatus, input),
-    routeStatus,
+    routeStatus: persistedRouteStatus,
     scannedAt: Date.parse(input.scan.scannedAt),
     mergeBaseCommit: input.scan.mergeBase,
     targetCommit: input.scan.head,
@@ -142,7 +146,7 @@ export function recordPluginGitDiffCheckpointRouteOutcome(input: {
     mergeBaseCommit: result.checkpoint.mergeBaseCommit,
     recorded: true,
     reason: result.reason,
-    routeStatus,
+    routeStatus: persistedRouteStatus,
     scope: input.runtime.scope,
     ...(result.unresolvedRange ? { unresolvedRange: result.unresolvedRange } : {}),
   };

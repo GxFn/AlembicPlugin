@@ -37,7 +37,10 @@ import type {
   ResidentSearchAttemptMeta,
   ResidentSearchRequest,
 } from '#service/resident/AlembicResidentServiceClient.js';
-import { buildRetrievalCheckpointPosture } from './retrieval-checkpoint-diagnostics.js';
+import {
+  buildRetrievalCheckpointPosture,
+  resolveRetrievalCheckpointPostureInput,
+} from './retrieval-checkpoint-diagnostics.js';
 import type { KnowledgeEntryJSON, McpContext, SearchArgs, SearchResultItem } from './types.js';
 
 const KEYWORD_MATCH_THRESHOLD = 0.5;
@@ -177,7 +180,10 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   }
   const pipeline = await runSearchPipeline(ctx, args);
   const projectRoot = readString(args.projectRoot) ?? resolveProjectRoot(ctx.container);
-  const checkpointPosture = buildRetrievalCheckpointPosture(ctx.container, { projectRoot });
+  const checkpointPosture = buildRetrievalCheckpointPosture(
+    ctx.container,
+    resolveRetrievalCheckpointPostureInput(projectRoot)
+  );
   const candidateItems = await buildKnowledgeCandidates(ctx, args, pipeline);
   const relevance = assessSearchRelevance(candidateItems, args, pipeline);
   const knowledgeItems = relevance.items;

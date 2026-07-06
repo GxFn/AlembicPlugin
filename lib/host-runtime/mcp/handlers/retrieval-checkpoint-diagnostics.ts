@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process';
+import { isAbsolute, relative } from 'node:path';
 import {
   buildPluginGitDiffCheckpointScope,
   type PluginGitDiffCheckpointContainer,
 } from '#recipe-pipeline/sustain/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
+import { resolveProjectScopeRuntime } from '#shared/project-scope-runtime.js';
 
 export interface RetrievalCheckpointDiagnostic {
   code: string;
@@ -44,12 +46,46 @@ type CheckpointRepository = {
 
 const INCOMPLETE_ROUTE_STATUSES = new Set(['failed', 'truncated', 'non-ancestor', 'unresolved']);
 
+/**
+ * posture 空间解析（2026-07-06 空间根修配套）：漂移维护 tick 已按 ProjectScope
+ * folder 键控 checkpoint 行；prime/search/recipe_map 的新鲜度读取此前只传
+ * projectRoot → scope 恒落 single-folder/root 死行（旧空间模型残留，永远不再被
+ * tick 更新），truncated/unresolved 字面把检索永久钉在 degraded。这里与 tick 同源
+ * 解析 folder identity，并把 HEAD 比较空间切到 folder 仓（workspace 根是 Wakeflow
+ * 协作区仓，不是知识源）。无 ProjectScope 的单仓项目保持原行为。
+ */
+export function resolveRetrievalCheckpointPostureInput(projectRoot: string): {
+  currentFolderId?: string | null;
+  projectRoot: string;
+  projectScopeId?: string | null;
+  scanRoot?: string | null;
+} {
+  const runtime = resolveProjectScopeRuntime(projectRoot);
+  if (!runtime) {
+    return { projectRoot };
+  }
+  const summary = runtime.summary;
+  const folderPath = summary.currentFolderPath ?? null;
+  const within =
+    typeof folderPath === 'string' &&
+    isAbsolute(folderPath) &&
+    !relative(projectRoot, folderPath).startsWith('..');
+  return {
+    currentFolderId: summary.currentFolderId ?? null,
+    projectRoot,
+    projectScopeId: summary.projectScopeId ?? null,
+    scanRoot: within ? folderPath : null,
+  };
+}
+
 export function buildRetrievalCheckpointPosture(
   container: PluginGitDiffCheckpointContainer,
   input: {
     currentFolderId?: string | null;
     projectRoot: string;
     projectScopeId?: string | null;
+    /** folder 仓路径：HEAD 比较空间与 checkpoint 行同仓；缺省回退 projectRoot。 */
+    scanRoot?: string | null;
   }
 ): RetrievalCheckpointPosture {
   const checkpointRepository = safeContainerGet(container, 'gitDiffCheckpointRepository');
@@ -88,7 +124,7 @@ export function buildRetrievalCheckpointPosture(
   const lastRouteStatus = readString(row.lastRouteStatus);
   const mergeBaseCommit = readString(row.mergeBaseCommit);
   const targetCommit = readString(row.targetCommit);
-  const head = readCurrentGitHead(input.projectRoot);
+  const head = readCurrentGitHead(input.scanRoot ?? input.projectRoot);
   const diagnostics: RetrievalCheckpointDiagnostic[] = [];
   let retrievalMayBeStale = false;
 
@@ -123,7 +159,11 @@ export function buildRetrievalCheckpointPosture(
     });
   }
 
-  if (lastRouteStatus && INCOMPLETE_ROUTE_STATUSES.has(lastRouteStatus)) {
+  // 基线已推进到当前 HEAD 时，行上残留的 INCOMPLETE 字面（如 resetBaseline 前落库的
+  // unresolved/truncated）不再代表检索过期——skipped 轮不写库，字面要等下个真实
+  // commit 才被覆盖；只有基线落后时该字面才有降级意义。
+  const baselineCurrent = head.ok && checkpointCommit === head.head;
+  if (lastRouteStatus && INCOMPLETE_ROUTE_STATUSES.has(lastRouteStatus) && !baselineCurrent) {
     retrievalMayBeStale = true;
     diagnostics.push({
       code: 'retrieval-checkpoint-route-incomplete',

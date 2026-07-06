@@ -162,6 +162,70 @@ describe('Agent-facing public tools contract foundation', () => {
     });
   });
 
+  test('accepts code_guard primeAlignment and projects guardResult.appliedRules (2026-07-06 炸链钉)', () => {
+    // C：primeAlignment 未进输出 schema 时，凡带 primeRef 的 guard 调用在输出
+    // parse 处 unrecognized_keys 整体失败；D：appliedRules 在投影层被静默丢弃。
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'code-guard',
+      agentHost: 'claude-code',
+      inputSource: 'user-message',
+      refs: { detailRefs: [] },
+      status: 'ready',
+      summary: 'Code Guard checked explicit files.',
+      toolName: 'alembic_code_guard',
+    });
+
+    const output = createAgentPublicToolOutput(result, {
+      guard: {
+        success: true,
+        guardResult: {
+          appliedRules: {
+            total: 12,
+            bySource: { recipe: 9, builtin: 3 },
+            sample: [
+              { id: 'r1', name: 'errorHandler 单咽喉', severity: 'warning', source: 'recipe' },
+            ],
+          },
+          files: [{ language: 'typescript' }],
+          summary: { total: 0, errors: 0, warnings: 0 },
+        },
+      },
+      primeAlignment: {
+        primeRef: 'prime-public-test-1',
+        status: 'observed',
+        deliveredKnowledgeCount: 6,
+        overlappedKnowledgeCount: 1,
+        overlappedKnowledge: [
+          {
+            id: 'k1',
+            title: 'errorHandler 集中式错误处理中间件',
+            matchedFiles: ['lib/http/middleware/errorHandler.ts'],
+          },
+        ],
+      },
+    });
+
+    const parsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.parse(output);
+    expect(parsed).toMatchObject({
+      guard: {
+        appliedRules: { total: 12, bySource: { recipe: 9 } },
+      },
+      primeAlignment: { status: 'observed', overlappedKnowledgeCount: 1 },
+      toolName: 'alembic_code_guard',
+    });
+
+    const unknownOutput = createAgentPublicToolOutput(result, {
+      primeAlignment: {
+        primeRef: 'prime-public-other-session',
+        status: 'prime-ref-unknown',
+        note: 'No prime delivery record in this MCP session (expired, capped, or from another session).',
+      },
+    });
+    expect(
+      AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.parse(unknownOutput).primeAlignment
+    ).toMatchObject({ status: 'prime-ref-unknown' });
+  });
+
   test('serializes code_guard public unified evolution data through the MCP output projector', () => {
     const result = createAgentPublicToolResultEnvelope({
       actionKind: 'code-guard',

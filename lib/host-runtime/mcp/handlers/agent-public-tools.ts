@@ -36,6 +36,7 @@ import * as guardHandlers from './guard.js';
 import {
   buildRetrievalCheckpointPosture,
   type RetrievalCheckpointPosture,
+  resolveRetrievalCheckpointPostureInput,
 } from './retrieval-checkpoint-diagnostics.js';
 import type { McpContext, McpServiceContainer } from './types.js';
 
@@ -330,9 +331,10 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     buildStandalonePrimeRequirementFrame(input.args),
     input.args
   );
-  const checkpointPosture = buildRetrievalCheckpointPosture(input.ctx.container, {
-    projectRoot: input.effectiveProjectRoot,
-  });
+  const checkpointPosture = buildRetrievalCheckpointPosture(
+    input.ctx.container,
+    resolveRetrievalCheckpointPostureInput(input.effectiveProjectRoot)
+  );
   const baseSearchDegraded =
     input.primeSearch.searchDegraded || material.primeKnowledgeMaterial.status === 'degraded';
   const effectiveSearchDegraded = baseSearchDegraded || checkpointPosture.retrievalMayBeStale;
