@@ -35,6 +35,17 @@ describe('Git diff checkpoint', () => {
     expect(shouldIgnoreProjectPath('packages/app/src/vendor/client.ts')).toBe(false);
   });
 
+  test('ignores wakeflow controller workspace ledger but keeps repo design docs detectable (G1)', () => {
+    // 运行台账（状态机归档，写后不变、refs 零引用）→ 忽略
+    expect(shouldIgnoreProjectPath('wakeflow-ledger/workspace/archive/2026-06/x/demand.json')).toBe(
+      true
+    );
+    expect(shouldIgnoreProjectPath('wakeflow-ledger/workspace/task-packages/p1.json')).toBe(true);
+    // 仓级设计文档（recipe_source_refs 真实引用面）→ 保持可检测
+    expect(shouldIgnoreProjectPath('wakeflow-ledger/Alembic/design-2026-07-02.md')).toBe(false);
+    expect(shouldIgnoreProjectPath('wakeflow-ledger/README.md')).toBe(false);
+  });
+
   test('normalizes absolute paths relative to the project root', () => {
     const projectRoot = join('/tmp', 'alembic-project');
     expect(toProjectRelativePath(join(projectRoot, 'src', 'index.ts'), projectRoot)).toBe(
