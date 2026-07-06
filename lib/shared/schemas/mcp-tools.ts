@@ -780,6 +780,7 @@ export const SubmitKnowledgeInput = z.object({
     .describe(
       '知识条目数组（1~N 条）。单条与批量统一处理，所有条目严格校验 + 融合分析。' +
         '每条字段: title, language, content(对象), kind, doClause, dontClause, whenClause, coreCode, category(业务/组件分类), trigger, description, headers, usageGuide, knowledgeType(知识类型), reasoning(对象), dimensionId(维度归属)。' +
+        '硬必填易漏项：content 对象必须含 markdown 与 rationale(设计原理说明)；headers 必填（无 import 时传 []）；reasoning 对象必须含 whyStandard 与 sources。' +
         'doClause/dontClause 必须是英文动词开头的祈使句，content.markdown 必须含项目特写 ✅/❌ 对比。' +
         '可选 unitId / analysisUnitIds / sourceRefs 用于 Host Agent analysis linkage；关系型声明应附 sourceGraphRefs/graphRefs；sourceRefs 可引用 package.json:1 等根文件；rule/pattern 的单文件正当例外请显式传 scope: "narrow" 或 "file-local"。'
     ),
@@ -1195,7 +1196,8 @@ export const RescanInput = z.object({
     .optional()
     .describe('强制全量重扫（清会话态缓存 + 全量 Phase 1-4，但保留增量快照）'),
   produceSession: ProduceSessionRouteInput.optional().describe(
-    '可选：打开或返回 controller 授权的非破坏性 produce session，供 alembic_submit_knowledge 绑定 sessionId/bootstrapSessionRef 使用'
+    '保留字段（当前未接线，2026-07-06 核验：下游无消费者，不会产生独立 produce session 或回执）。' +
+      'rescan 成功后其自身的 generate 会话就是 alembic_submit_knowledge 的提交凭证——直接提交即可，无需此参数。'
   ),
   controllerAuthorizedGaps: z
     .array(ProduceSessionGapInput)

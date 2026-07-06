@@ -10,6 +10,7 @@ import {
   type HostTurnMetaInput,
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/host-turn-meta.js';
+import { ensureResidentDaemonRunning } from '../../service/resident/DaemonAutostart.js';
 import { SetupService } from '../../cli/SetupService.js';
 import {
   type AlembicResidentCapabilityClients,
@@ -188,6 +189,21 @@ export class HostMcpServer {
     process.stderr.write(
       `Alembic Codex MCP ready — ${getVisibleTools(undefined, this.projectRoot).length} tools\n`
     );
+    // X2 方案 A：MCP 会话启动即 fire-and-forget 确保 resident daemon 在跑（主体在场形态）。
+    // 仅插件形态解析不到 daemon 入口时诚实降级 unavailable——不阻塞启动、不报错；
+    // already-running/unavailable 之外的分支（started/超时/失败/冷却）留痕供核验。
+    void ensureResidentDaemonRunning({
+      projectRoot: this.projectRoot,
+      logger: Logger.getInstance(),
+    }).then((result) => {
+      if (result.status !== 'already-running' && result.status !== 'unavailable') {
+        Logger.getInstance().info('[HostMcpServer] resident daemon autostart result', {
+          entrypoint: result.entrypoint ?? null,
+          reason: result.reason ?? null,
+          status: result.status,
+        });
+      }
+    });
   }
 
   async shutdown(): Promise<void> {

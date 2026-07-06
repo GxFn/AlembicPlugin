@@ -741,14 +741,19 @@ function buildAllRejectedSubmitResponse(
   gatewayResult: CreateRecipeResult,
   itemCount: number
 ) {
+  const commonErrors = [...new Set(gatewayResult.rejected.flatMap((it) => it.errors))];
+  // X1（2026-07-06 五 MCP 升级）：宿主的 MCP error 通道只透出 message，结构化 data
+  // 会被吞——把具体拒因前 3 条内联进 message，避免宿主只看到"补齐所有字段"却不知缺哪个。
+  const inlineReasons = commonErrors.slice(0, 3).join('；');
+  const overflow = commonErrors.length > 3 ? `（另 ${commonErrors.length - 3} 条见 data.commonErrors）` : '';
   return envelope({
     success: false,
     errorCode: 'INCOMPLETE_SUBMISSION',
-    message: `全部 ${itemCount} 条知识条目被拒绝。请在单次调用中补齐所有字段后重新提交。`,
+    message: `全部 ${itemCount} 条知识条目被拒绝${inlineReasons ? `：${inlineReasons}${overflow}` : ''}。请在单次调用中补齐后重新提交。`,
     data: {
       rejectedItems: data.rejectedItems,
       requiredFields: getRequiredFieldsDescription(),
-      commonErrors: [...new Set(gatewayResult.rejected.flatMap((it) => it.errors))],
+      commonErrors,
       ...(data.relationshipGrounding ? { relationshipGrounding: data.relationshipGrounding } : {}),
     },
     meta: { tool: 'alembic_submit_knowledge' },

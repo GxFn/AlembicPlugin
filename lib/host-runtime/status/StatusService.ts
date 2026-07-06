@@ -75,6 +75,8 @@ export interface StatusData {
     hasKnowledge: boolean;
     initialized: boolean;
     jobs: Record<string, unknown>;
+    /** S2（2026-07-06）：staging/active/deprecated/other 分布；查询不可用为 null */
+    lifecycle: Record<string, number> | null;
     materializedRecipeCount: number | null;
     recipeCount: number | null;
     skillCount: number | null;
@@ -411,6 +413,7 @@ function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): StatusData[
     skillCount: typeof knowledge.skillCount === 'number' ? knowledge.skillCount : null,
     databaseEntryCount:
       typeof knowledge.databaseEntryCount === 'number' ? knowledge.databaseEntryCount : null,
+    lifecycle: knowledge.lifecycle ? { ...knowledge.lifecycle } : null,
     freshness: summarizeStringRecord(knowledge.freshness, [
       'status',
       'stale',

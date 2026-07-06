@@ -5,7 +5,9 @@ import { WorkspaceResolver } from '@alembic/core/workspace';
 import { readSnapshotState, readSourceRefState } from '#infra/database/SqliteDatabaseAccess.js';
 import {
   countProjectDatabaseRecipes,
+  countProjectRecipeLifecycles,
   countProjectSkillKnowledgeEntries,
+  type RecipeLifecycleCounts,
 } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 
 export type KnowledgeStatus =
@@ -119,6 +121,8 @@ export interface HostKnowledgeState {
   hasKnowledge: boolean;
   initialized: boolean;
   jobs?: JobActivityState;
+  /** S2（2026-07-06）：lifecycle 分布（staging/active/deprecated/other）；查询失败为 null 容缺 */
+  lifecycle?: RecipeLifecycleCounts | null;
   materializedRecipeCount?: number;
   recipeCount: number;
   skillCount: number;
@@ -212,6 +216,7 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
   const skillCount = skillScan.count;
   const databaseEntryCount = countProjectSkillKnowledgeEntries(resolver.dataRoot);
   const dbRecipeCount = countProjectDatabaseRecipes(resolver.dataRoot);
+  const lifecycle = countProjectRecipeLifecycles(resolver.dataRoot);
   const recipeCount = dbRecipeCount;
   const hasKnowledge =
     recipeCount > 0 || materializedRecipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;
@@ -247,6 +252,7 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
     initialized,
     jobs,
     materializedRecipeCount,
+    lifecycle,
     recipeCount,
     skillCount,
     status,
