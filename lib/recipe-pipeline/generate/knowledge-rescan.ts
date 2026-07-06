@@ -65,6 +65,7 @@ import {
 } from '#recipe-pipeline/sustain/HostAgentFileChangeHandler.js';
 import { buildPluginOpportunisticEvolutionSurface } from '#recipe-pipeline/sustain/PluginOpportunisticEvolution.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
+import { resolveProjectScopeRuntime } from '#shared/project-scope-runtime.js';
 import type { RescanInput } from '#shared/schemas/mcp-tools.js';
 import {
   attachBriefingTransportMeta,
@@ -1517,13 +1518,49 @@ async function runRescanUnifiedEvolution(
   // UM#2：单一 commit-driven 维护编排（与 presenter 入口共享）。rescan 拥有自己的路由、从不去抖
   // （不传 residentSearchEnhancementReady）；prepareRescanState 的 cleanup + rebuildLocalKnowledgeIndexes
   // 已在本函数调用点之前执行，顺序不变（不在本编排内）。
-  const { checkpoint, report, routeError, scan } = await runCommitDrivenMaintenance({
-    buildHandler: (projectRoot) => createRescanUnifiedEvolutionHandler(ctx, projectRoot),
-    container: ctx.container,
-    handlerUnavailableReason:
-      'Core unified evolution services are unavailable in the rescan MCP container',
-    projectRoot: input.projectRoot,
-  });
+  //
+  // 空间根修收口（2026-07-06）：rescan 是整空间语义——按 ProjectScope 注册的
+  // folders 逐仓扫描各自的 git 仓（每 folder 独立 checkpoint 行），而不是对
+  // workspace 根（Wakeflow 协作区仓）整仓扫。无 ProjectScope（单仓项目）时
+  // 退回 projectRoot 单轮（既有行为）。主展示取首个有事件的 folder 结果，
+  // 其余以 folderOutcomes 摘要附带（additive，不改既有 surface 契约）。
+  const scopeRuntime = resolveProjectScopeRuntime(input.projectRoot);
+  const folders = (scopeRuntime?.descriptor.folders ?? [])
+    .filter((folder) => typeof folder.path === 'string' && folder.path.length > 0)
+    .map((folder) => ({ id: folder.id, path: folder.path }));
+  const rounds =
+    folders.length > 0
+      ? folders.map((folder) => ({
+          folderId: folder.id as string | null,
+          folderPath: folder.path as string | null,
+        }))
+      : [{ folderId: null, folderPath: null }];
+
+  const outcomes: Array<{
+    folderId: string | null;
+    outcome: Awaited<ReturnType<typeof runCommitDrivenMaintenance>>;
+  }> = [];
+  for (const round of rounds) {
+    const outcome = await runCommitDrivenMaintenance({
+      buildHandler: (projectRoot) => createRescanUnifiedEvolutionHandler(ctx, projectRoot),
+      container: ctx.container,
+      handlerUnavailableReason:
+        'Core unified evolution services are unavailable in the rescan MCP container',
+      projectRoot: input.projectRoot,
+      ...(round.folderPath
+        ? {
+            runtimeScope: {
+              currentFolderId: round.folderId,
+              projectScopeId: scopeRuntime?.descriptor.projectScopeId ?? null,
+              currentFolderPath: round.folderPath,
+            },
+          }
+        : {}),
+    });
+    outcomes.push({ folderId: round.folderId, outcome });
+  }
+  const primary = outcomes.find((entry) => entry.outcome.scan.events.length > 0) ?? outcomes[0];
+  const { checkpoint, report, routeError, scan } = primary.outcome;
 
   const serviceGateReason =
     'alembic_rescan public workflow owns Plugin commit-driven unified evolution routing for this rescan response.';
@@ -1547,6 +1584,18 @@ async function runRescanUnifiedEvolution(
     unifiedEvolution: report,
   });
 
+  if (outcomes.length > 1) {
+    // additive：逐 folder 路由结果摘要（主展示之外的 folder 也要可核验）。
+    (surface as unknown as Record<string, unknown>).folderOutcomes = outcomes.map((entry) => ({
+      folderId: entry.folderId,
+      dirtyPathCount: entry.outcome.scan.dirtyPathCount,
+      eventCount: entry.outcome.scan.events.length,
+      routeAttempted: entry.outcome.routeAttempted,
+      routeError: entry.outcome.routeError,
+      checkpointStatus: entry.outcome.checkpoint?.routeStatus ?? null,
+      checkpointAdvanced: entry.outcome.checkpoint?.advanced ?? false,
+    }));
+  }
   return { report, routeError, scan, surface };
 }
 
