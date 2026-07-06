@@ -7,6 +7,8 @@ import {
   countProjectDatabaseRecipes,
   countProjectRecipeLifecycles,
   countProjectSkillKnowledgeEntries,
+  type GitDiffCheckpointSummary,
+  readGitDiffCheckpointSummary,
   type RecipeLifecycleCounts,
 } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 
@@ -123,6 +125,8 @@ export interface HostKnowledgeState {
   jobs?: JobActivityState;
   /** S2（2026-07-06）：lifecycle 分布（staging/active/deprecated/other）；查询失败为 null 容缺 */
   lifecycle?: RecipeLifecycleCounts | null;
+  /** S1（2026-07-06）：代码漂移参考——durable git-diff checkpoint 只读摘要；缺失为 null */
+  codeDrift?: GitDiffCheckpointSummary | null;
   materializedRecipeCount?: number;
   recipeCount: number;
   skillCount: number;
@@ -217,6 +221,7 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
   const databaseEntryCount = countProjectSkillKnowledgeEntries(resolver.dataRoot);
   const dbRecipeCount = countProjectDatabaseRecipes(resolver.dataRoot);
   const lifecycle = countProjectRecipeLifecycles(resolver.dataRoot);
+  const codeDrift = readGitDiffCheckpointSummary(resolver.dataRoot);
   const recipeCount = dbRecipeCount;
   const hasKnowledge =
     recipeCount > 0 || materializedRecipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;
@@ -253,6 +258,7 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
     jobs,
     materializedRecipeCount,
     lifecycle,
+    codeDrift,
     recipeCount,
     skillCount,
     status,

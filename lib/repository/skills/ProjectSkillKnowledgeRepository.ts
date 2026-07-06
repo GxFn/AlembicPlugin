@@ -67,6 +67,68 @@ export function countProjectRecipeLifecycles(dataRoot: string): RecipeLifecycleC
   return null;
 }
 
+/** S1 双新鲜度（2026-07-06）：durable git-diff checkpoint 的只读摘要。 */
+export interface GitDiffCheckpointSummary {
+  checkpointCommit: string | null;
+  targetCommit: string | null;
+  lastRouteStatus: string;
+  lastScannedAt: number | null;
+  /** truncated/failed 路由态 → 建议 rescan 收口；complete → none */
+  recommendation: 'none' | 'rescan-suggested';
+}
+
+/**
+ * 读取最近一次 git-diff checkpoint（按 last_scanned_at 最新行）。表/DB 缺失
+ * 返回 null 容缺——status 只作参考投影，不承担 guard 的路由职责。
+ */
+export function readGitDiffCheckpointSummary(dataRoot: string): GitDiffCheckpointSummary | null {
+  const candidates = [path.join(dataRoot, '.asd', 'alembic.db'), path.join(dataRoot, 'alembic.db')];
+  for (const dbPath of candidates) {
+    if (!fs.existsSync(dbPath)) {
+      continue;
+    }
+    try {
+      const db = new Database(dbPath, { fileMustExist: true, readonly: true });
+      try {
+        const table = db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'git_diff_checkpoints'"
+          )
+          .get();
+        if (!table) {
+          continue;
+        }
+        const row = db
+          .prepare(
+            'SELECT checkpoint_commit, target_commit, last_route_status, last_scanned_at FROM git_diff_checkpoints ORDER BY last_scanned_at DESC LIMIT 1'
+          )
+          .get() as
+          | {
+              checkpoint_commit?: string | null;
+              target_commit?: string | null;
+              last_route_status?: string | null;
+              last_scanned_at?: number | null;
+            }
+          | undefined;
+        if (!row) {
+          return null;
+        }
+        const lastRouteStatus = row.last_route_status ?? 'unknown';
+        return {
+          checkpointCommit: row.checkpoint_commit ?? null,
+          targetCommit: row.target_commit ?? null,
+          lastRouteStatus,
+          lastScannedAt: row.last_scanned_at ?? null,
+          recommendation: lastRouteStatus === 'complete' ? 'none' : 'rescan-suggested',
+        };
+      } finally {
+        db.close();
+      }
+    } catch {}
+  }
+  return null;
+}
+
 function countKnowledgeEntries(dataRoot: string): number {
   const candidates = [path.join(dataRoot, '.asd', 'alembic.db'), path.join(dataRoot, 'alembic.db')];
   for (const dbPath of candidates) {
