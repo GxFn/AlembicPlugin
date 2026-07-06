@@ -215,16 +215,17 @@ function trimRecipeMapOutputToBudget(output: AlembicRecipeMapOutput): AlembicRec
     }
   }
 
-  // 真机修正（2026-07-06）：体积大头常在 nodes/rollups/representativeRecipeIds 而非
-  // refs（每 mount 往往仅 1 条），上面三档等效全超 → 旧实现直落 refFree 把行级证据
-  // 第一个牺牲，保底承诺失效。caps 阶梯先配 refsPerMount=1 裁结构面；refs=0 只作
-  // 为最后一级兜底（完整数据始终有 meta.fullMapRef 落盘）。
+  // 真机修正二轮（2026-07-06）：实测体积大头是 representativeRecipeIds——每个
+  // node/breadcrumb/rollup 带 10 个 UUID，19 处 ≈7KB，而全部行级 refs 才 ~1KB；
+  // 旧 caps 只裁数组条数碰不到它 → refFloor 各档差 ~1KB 挤不进预算，恒落 refFree
+  // 把行级证据第一个牺牲。价值排序应反过来：代表样本砍到 3 个足够导航，
+  // sourceRefs 行级区间是本工具核心证据（refs=0 只留最后一级兜底）。
   const refFloor = compactRecipeMapOutput(output, 1);
   for (const caps of [
-    { diagnostics: 80, nodes: 120, refs: 40, rollups: 100 },
-    { diagnostics: 40, nodes: 60, refs: 20, rollups: 60 },
-    { diagnostics: 20, nodes: 24, refs: 8, rollups: 24 },
-    { diagnostics: 10, nodes: 10, refs: 4, rollups: 10 },
+    { diagnostics: 80, nodes: 120, refs: 40, repIds: 5, rollups: 100 },
+    { diagnostics: 40, nodes: 60, refs: 20, repIds: 3, rollups: 60 },
+    { diagnostics: 20, nodes: 24, refs: 8, repIds: 3, rollups: 24 },
+    { diagnostics: 10, nodes: 10, refs: 4, repIds: 2, rollups: 10 },
   ]) {
     const compact = trimRecipeMapArrays(refFloor, caps);
     if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
@@ -233,31 +234,37 @@ function trimRecipeMapOutputToBudget(output: AlembicRecipeMapOutput): AlembicRec
   }
   const refFree = compactRecipeMapOutput(output, 0);
   for (const caps of [
-    { diagnostics: 20, nodes: 24, refs: 8, rollups: 24 },
-    { diagnostics: 10, nodes: 10, refs: 4, rollups: 10 },
+    { diagnostics: 20, nodes: 24, refs: 8, repIds: 2, rollups: 24 },
+    { diagnostics: 10, nodes: 10, refs: 4, repIds: 2, rollups: 10 },
   ]) {
     const compact = trimRecipeMapArrays(refFree, caps);
     if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
       return compact;
     }
   }
-  return trimRecipeMapArrays(refFree, { diagnostics: 5, nodes: 5, refs: 2, rollups: 5 });
+  return trimRecipeMapArrays(refFree, { diagnostics: 5, nodes: 5, refs: 2, repIds: 1, rollups: 5 });
 }
 
 function trimRecipeMapArrays(
   output: AlembicRecipeMapOutput,
-  caps: { diagnostics: number; nodes: number; refs: number; rollups: number }
+  caps: { diagnostics: number; nodes: number; refs: number; repIds: number; rollups: number }
 ): AlembicRecipeMapOutput {
-  const nodes = output.region.nodes.slice(0, caps.nodes);
+  const trimRepIds = <T extends { representativeRecipeIds: string[] }>(node: T): T => ({
+    ...node,
+    representativeRecipeIds: node.representativeRecipeIds.slice(0, caps.repIds),
+  });
+  const nodes = output.region.nodes.slice(0, caps.nodes).map(trimRepIds);
   return {
     ...output,
     refs: output.refs.slice(0, caps.refs),
     region: {
       ...output.region,
+      rootNode: trimRepIds(output.region.rootNode),
+      breadcrumb: output.region.breadcrumb.map(trimRepIds),
       nodes,
       truncated: output.region.truncated || output.region.nodes.length > nodes.length,
     },
-    recipeRollups: output.recipeRollups.slice(0, caps.rollups),
+    recipeRollups: output.recipeRollups.slice(0, caps.rollups).map(trimRepIds),
     diagnostics: output.diagnostics.slice(0, caps.diagnostics),
   };
 }
