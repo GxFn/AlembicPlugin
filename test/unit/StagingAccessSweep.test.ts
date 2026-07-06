@@ -30,6 +30,7 @@ function makeSweepContainer(opts: {
   throwOnCheckTimeouts?: Error;
   throwOnScanAll?: Error;
   timedOut?: Array<{ age?: number; fromState?: string; recipeId?: string; toState?: string }>;
+  waiting?: Array<{ id?: string; title?: string; reviewOutcome?: string | null }>;
 }) {
   return async () => ({
     get(name: string) {
@@ -75,7 +76,7 @@ function makeSweepContainer(opts: {
         return {
           async checkAndPromote(cap?: number) {
             opts.onPromote?.(cap);
-            return { promoted: opts.promoted ?? [], rolledBack: [], waiting: [] };
+            return { promoted: opts.promoted ?? [], rolledBack: [], waiting: opts.waiting ?? [] };
           },
         };
       }
@@ -216,6 +217,30 @@ describe('StagingAccessSweep', () => {
 
     expect(result.skipped).toBe(false);
     expect(observedCap).toBe(50);
+  });
+
+  test('reports pendingReviewCount as waiting entries without a pass/fail review', async () => {
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS = '0';
+    process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = '0';
+    const getContainer = makeSweepContainer({
+      // pass/fail 已有结论不进队列；null 与缺失字段都算待复核。
+      waiting: [
+        { id: 'a', reviewOutcome: 'pass' },
+        { id: 'b', reviewOutcome: 'fail' },
+        { id: 'c', reviewOutcome: null },
+        { id: 'd' },
+      ],
+    });
+
+    const result = await maybeRunStagingAccessSweep({
+      getContainer,
+      now: 10_000,
+      projectRoot: '/tmp/project-pending-review',
+      toolName: 'alembic_status',
+    });
+
+    expect(result.skipped).toBe(false);
+    expect(result.pendingReviewCount).toBe(2);
   });
 
   test('threads an env-overridden cap into checkAndPromote', async () => {

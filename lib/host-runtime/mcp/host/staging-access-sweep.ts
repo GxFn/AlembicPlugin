@@ -21,7 +21,7 @@ interface StagingManagerLike {
   checkAndPromote(cap?: number): Promise<{
     promoted?: Array<{ id?: string; title?: string }>;
     rolledBack?: Array<{ id?: string; title?: string }>;
-    waiting?: Array<{ id?: string; title?: string }>;
+    waiting?: Array<{ id?: string; title?: string; reviewOutcome?: string | null }>;
   }>;
 }
 
@@ -97,6 +97,8 @@ export interface StagingAccessSweepResult {
   decayScannedCount?: number;
   vectorOrphansRemoved?: number;
   vectorMissingSynced?: number;
+  /** 复核期观测：waiting 中尚无复核结论的条目数（复核执行者的工作队列信号）。 */
+  pendingReviewCount?: number;
   durationMs?: number;
   executedCount?: number;
   expiredCount?: number;
@@ -216,8 +218,12 @@ async function runSweep(
     }
     const promoted = Array.isArray(result.promoted) ? result.promoted : [];
     const waiting = Array.isArray(result.waiting) ? result.waiting : [];
+    const pendingReviewCount = waiting.filter(
+      (entry) => entry.reviewOutcome !== 'pass' && entry.reviewOutcome !== 'fail'
+    ).length;
     return {
       checkedTimeouts: typeof timeoutResult.checked === 'number' ? timeoutResult.checked : 0,
+      ...(waiting.length > 0 ? { pendingReviewCount } : {}),
       decayScannedCount: decayScanned.length,
       ...(vectorOrphansRemoved === undefined ? {} : { vectorOrphansRemoved }),
       ...(vectorMissingSynced === undefined ? {} : { vectorMissingSynced }),
