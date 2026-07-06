@@ -188,7 +188,11 @@ function compactRecipeMapOutput(
 }
 
 function trimRecipeMapOutputToBudget(output: AlembicRecipeMapOutput): AlembicRecipeMapOutput {
-  for (const refsPerMount of [8, 2, 0]) {
+  // P2 M1（2026-07-06）：refs 阶梯保底 1 条——sourceRefs 行级区间是本工具的核心
+  // 证据价值，此前 [8,2,0] 在 space 级 50 mounts 场景恒被砍到 0（宿主看到空数组，
+  // 刚回填的行级数据在输出面全损）。超预算仍有后续 caps 阶梯与 meta.fullMapRef
+  // 完整落盘兜底，refs=0 只作为最后一级留在 caps 分支。
+  for (const refsPerMount of [8, 3, 1]) {
     const compact = compactRecipeMapOutput(output, refsPerMount);
     if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
       return compact;
