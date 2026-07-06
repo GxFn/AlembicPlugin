@@ -172,6 +172,30 @@ const GuardApplicableRecipeRuleSchema = z
   })
   .strict();
 
+// V-1（2026-07-06 多场景终测）：此前公开面只折叠计数——宿主拿到"2 个违规"却不知
+// 在哪行、违反了什么、怎么修（明细被投影层丢弃，同族第五例）。守门工具的修复
+// 闭环必须交付明细：行号/规则/消息/片段/修复建议 + Recipe 修复指南（review 路径
+// _loadRuleRecipes 内联的 doClause/dontClause）。cap 50 防爆，字符串按 schema 上限钳制。
+const GuardPublicViolationSchema = z
+  .object({
+    filePath: z.string().max(1200).optional(),
+    line: z.number().int().min(0).max(1000000).optional(),
+    ruleId: z.string().max(240),
+    severity: z.string().max(80),
+    message: z.string().max(1200),
+    snippet: z.string().max(240).optional(),
+    fixSuggestion: z.string().max(1200).optional(),
+    recipe: z
+      .object({
+        title: z.string().max(1200),
+        doClause: z.string().max(2000).optional(),
+        dontClause: z.string().max(2000).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 const GuardPublicResultSchema = z
   .object({
     appliedRules: GuardAppliedRulesSchema.optional(),
@@ -180,6 +204,8 @@ const GuardPublicResultSchema = z
     ok: z.boolean(),
     resultSummary: GuardResultSummarySchema,
     summary: OptionalPublicStringSchema,
+    violations: z.array(GuardPublicViolationSchema).max(50).optional(),
+    violationsTruncated: z.boolean().optional(),
   })
   .strict();
 
@@ -412,7 +438,16 @@ const AgentCodeGuardDataSchema = z
   })
   .strict();
 
-export const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
+export const PrimeDiagnosticSchema = z
+  .object({
+    code: z.string().min(1).max(160),
+    severity: z.enum(['info', 'warning', 'error']),
+    message: z.string().min(1).max(800),
+    retryable: z.boolean().default(false),
+  })
+  .strict();
+
+const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend({
   actionKind: AgentActionKindSchema,
   agentHost: AgentHostSchema,
   inputSource: AgentInputSourceSchema,
@@ -420,6 +455,9 @@ export const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend
   refs: AgentPublicToolRefsSchema,
   status: AgentResultStatusSchema,
   toolName: AgentPublicToolNameSchema,
+  // 诊断通道提升为三工具通用面（2026-07-06 投影防崩配套）：output-projection-rejected
+  // 等边界降级诊断必须能出现在任何公开工具的信封上，而不是 prime 独有。
+  diagnostics: z.array(PrimeDiagnosticSchema).max(200).optional(),
 }).superRefine((output, ctx) => {
   const expectedAction = AGENT_PUBLIC_TOOL_ACTION_BY_NAME[output.toolName];
   if (output.actionKind !== expectedAction) {
@@ -451,15 +489,6 @@ export const AgentPublicToolOutputBaseSchema = CleanMcpResponseBaseSchema.extend
 // or the middle layer. The valuable payload is the prime-native primePackage plus
 // bounded detailRefs/diagnostics/nextActions; matrix/graph/relation/interaction
 // fields are gone.
-const PrimeDiagnosticSchema = z
-  .object({
-    code: z.string().min(1).max(160),
-    severity: z.enum(['info', 'warning', 'error']),
-    message: z.string().min(1).max(800),
-    retryable: z.boolean().default(false),
-  })
-  .strict();
-
 const PrimeNextActionSchema = z
   .object({
     tool: z.string().min(1).max(120),
@@ -560,11 +589,53 @@ export function createAgentPublicToolOutput(
   if (result.toolName === 'alembic_prime') {
     response = scrubPrimeOutputRelationSurface(response) as typeof response;
   }
-  const parsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[result.toolName].parse(response);
-  if (result.toolName === 'alembic_prime') {
-    return scrubPrimeOutputRelationSurface(parsed) as AgentPublicToolOutput;
+  // 投影边界防崩（2026-07-06 架构化，五连 schema 事故根治）：strict schema 仍是
+  // 公开契约门，但 parse 失败不再让整个工具输出崩掉（primeAlignment/actionHint
+  // 两次真机整体拒绝的教训）。降级路径：剥掉业务 payload，保留结果元数据 + 显式
+  // output-projection-rejected 诊断——工具可用性保住，缺陷可见不被掩盖。
+  const parsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[result.toolName].safeParse(response);
+  if (parsed.success) {
+    if (result.toolName === 'alembic_prime') {
+      return scrubPrimeOutputRelationSurface(parsed.data) as AgentPublicToolOutput;
+    }
+    return parsed.data;
   }
-  return parsed;
+  const issueSummary = parsed.error.issues
+    .slice(0, 5)
+    .map((issue) => `${issue.path.join('.')}: ${issue.code}`)
+    .join('; ')
+    .slice(0, 600);
+  process.stderr.write(
+    `[MCP/PublicTools] ${result.toolName} output projection rejected; degraded to base envelope: ${issueSummary}\n`
+  );
+  const fallback = createCleanMcpResponse(
+    {
+      actionKind: result.actionKind,
+      agentHost: result.agentHost,
+      inputSource: result.inputSource,
+      ok,
+      refs: result.refs,
+      status: result.status,
+      summary: result.summary,
+      toolName: result.toolName,
+      ...(result.reason ? { reason: result.reason } : {}),
+      diagnostics: [
+        {
+          code: 'output-projection-rejected',
+          severity: 'error',
+          message: `Business payload was withheld because it violated the public output schema (${issueSummary}). The tool ran; fix the projection.`,
+          retryable: false,
+        },
+      ],
+    },
+    result.toolName
+  );
+  const reparsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[result.toolName].safeParse(fallback);
+  if (reparsed.success) {
+    return reparsed.data;
+  }
+  // base envelope 也不过 schema = 契约本身坏了，保留旧的硬失败语义暴露问题。
+  throw parsed.error;
 }
 
 function scrubPrimeOutputRelationSurface(value: unknown): unknown {
@@ -668,9 +739,16 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
   const applicableRecipeRules = projectGuardApplicableRecipeRules(
     guardResult.applicableRecipeRules
   );
+  const projectedViolations = projectGuardViolations(guardResult);
   return {
     ...(appliedRules ? { appliedRules } : {}),
     ...(applicableRecipeRules.length > 0 ? { applicableRecipeRules } : {}),
+    ...(projectedViolations.violations.length > 0
+      ? {
+          violations: projectedViolations.violations,
+          ...(projectedViolations.truncated ? { violationsTruncated: true } : {}),
+        }
+      : {}),
     ...(stringFrom(record.guardErrorCode)
       ? { guardErrorCode: stringFrom(record.guardErrorCode) }
       : {}),
@@ -721,6 +799,72 @@ function projectGuardAppliedRules(value: unknown): z.infer<typeof GuardAppliedRu
     })
     .filter((rule) => rule.id.length > 0);
   return { total, bySource, sample };
+}
+
+const GUARD_PUBLIC_VIOLATION_LIMIT = 50;
+
+/**
+ * V-1：内层违规明细的公开投影。check 路径明细在 guardResult.violations；review
+ * 路径在 guardResult.files[].violations（含 _loadRuleRecipes 内联的 recipe 修复
+ * 指南）。扁平化统一，字符串按公开 schema 上限钳制，cap 50 超限置 truncated。
+ */
+function projectGuardViolations(guardResult: Record<string, unknown>): {
+  violations: Array<z.infer<typeof GuardPublicViolationSchema>>;
+  truncated: boolean;
+} {
+  const raw: Array<{ violation: Record<string, unknown>; filePath?: string }> = [];
+  for (const entry of Array.isArray(guardResult.violations) ? guardResult.violations : []) {
+    raw.push({ violation: asRecord(entry) });
+  }
+  for (const file of Array.isArray(guardResult.files) ? guardResult.files : []) {
+    const fileRecord = asRecord(file);
+    const filePath = stringFrom(fileRecord.filePath, 1200);
+    for (const entry of Array.isArray(fileRecord.violations) ? fileRecord.violations : []) {
+      raw.push({ violation: asRecord(entry), ...(filePath ? { filePath } : {}) });
+    }
+  }
+  const truncated = raw.length > GUARD_PUBLIC_VIOLATION_LIMIT;
+  const violations = raw
+    .slice(0, GUARD_PUBLIC_VIOLATION_LIMIT)
+    .flatMap(({ violation, filePath }) => {
+      const ruleId = stringFrom(violation.ruleId, 240);
+      const message = stringFrom(violation.message, 1200);
+      if (!ruleId || !message) {
+        return [];
+      }
+      const line = numberFrom(violation.line);
+      const recipeRecord = asRecord(violation.recipe);
+      const recipeTitle = stringFrom(recipeRecord.title, 1200);
+      return [
+        {
+          ...(filePath ? { filePath } : {}),
+          ...(line !== null && line >= 0 ? { line } : {}),
+          ruleId,
+          severity: stringFrom(violation.severity, 80) ?? 'warning',
+          message,
+          ...(stringFrom(violation.snippet, 240)
+            ? { snippet: stringFrom(violation.snippet, 240) }
+            : {}),
+          ...(stringFrom(violation.fixSuggestion, 1200)
+            ? { fixSuggestion: stringFrom(violation.fixSuggestion, 1200) }
+            : {}),
+          ...(recipeTitle
+            ? {
+                recipe: {
+                  title: recipeTitle,
+                  ...(stringFrom(recipeRecord.doClause, 2000)
+                    ? { doClause: stringFrom(recipeRecord.doClause, 2000) }
+                    : {}),
+                  ...(stringFrom(recipeRecord.dontClause, 2000)
+                    ? { dontClause: stringFrom(recipeRecord.dontClause, 2000) }
+                    : {}),
+                },
+              }
+            : {}),
+        },
+      ];
+    });
+  return { violations, truncated };
 }
 
 /** G-B：内层 guardResult.applicableRecipeRules 的公开投影；形态不符逐条丢弃。 */

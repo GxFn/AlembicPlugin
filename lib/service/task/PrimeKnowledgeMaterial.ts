@@ -85,7 +85,8 @@ export interface PrimeTrustPostureItem {
     | 'intent-evidence'
     | 'prime-injection-package'
     | 'prime-status'
-    | 'search-context';
+    | 'search-context'
+    | 'weak-search-match';
   reason: string;
   status?: string;
   evidenceRefs?: PrimeEvidenceRef[];
@@ -123,6 +124,8 @@ export interface PrimeKnowledgeMaterial {
     queries: string[];
   };
   acceptedKnowledge: AcceptedPrimeKnowledge[];
+  /** 有 locator 证据但检索分低于信任地板的弱相关候选——requires-verification 语义。 */
+  weakMatches: AcceptedPrimeKnowledge[];
   acceptedGuards: AcceptedPrimeGuard[];
   trustPosture: PrimeTrustPosture;
   shoutInstruction: string;
@@ -170,6 +173,7 @@ interface PrimeKnowledgeMaterialInput {
 interface PrimeTrustPostureInput {
   acceptedGuards: AcceptedPrimeGuard[];
   acceptedKnowledge: AcceptedPrimeKnowledge[];
+  weakMatches: AcceptedPrimeKnowledge[];
   degradedReason?: PrimeKnowledgeMaterialDegradedReason;
   intent: PrimeKnowledgeMaterial['intent'];
   searchResult: PrimeSearchResult | null;
@@ -207,6 +211,8 @@ const LOW_INFORMATION_PRIME_QUERY_PATTERNS = [
   /^\s*(从哪里|哪里|怎么|如何)(开始|下手|继续)\s*[?？。!！]*\s*$/u,
 ];
 
+const PRIME_TRUSTED_SCORE_FLOOR = 0.45;
+
 export function buildPrimeKnowledgeMaterial(
   input: PrimeKnowledgeMaterialInput
 ): PrimeKnowledgeMaterial {
@@ -228,10 +234,23 @@ export function buildPrimeKnowledgeMaterial(
       input.regionEvidence
     ),
   ];
-  const trustedKnowledge = trustedKnowledgeCandidates.flatMap(({ item, selectedKnowledge }) =>
+  const evidencedKnowledge = trustedKnowledgeCandidates.flatMap(({ item, selectedKnowledge }) =>
     hasTrustedRecipeEvidence(item, selectedKnowledge)
       ? [projectAcceptedKnowledge(item, selectedKnowledge)]
       : []
+  );
+  // 质量分层（2026-07-06，"确定性标记+概率性消解"）：locator 证据只证明"这条
+  // Recipe 有真实源锚"，不证明与当前任务相关；KB 无对应主题时检索会放行 0.3x 分
+  // 的弱相关候选（真机 fix-daemon 场景 0.37 的 test 命名知识）。分数是确定性标
+  // 记——低于地板的候选降到 weakMatches（requires-verification 语义），不再冒充
+  // trusted-to-use；采信判断交给宿主。地板取值依据：真机相关带 ≥0.58，弱相关带
+  // ≤0.40，0.45 分界；证据升级项（selectedKnowledge score=1 的 region/locator
+  // 单证候选）不受影响。
+  const trustedKnowledge = evidencedKnowledge.filter(
+    (knowledge) => knowledge.score >= PRIME_TRUSTED_SCORE_FLOOR
+  );
+  const weakKnowledgeMatches = evidencedKnowledge.filter(
+    (knowledge) => knowledge.score < PRIME_TRUSTED_SCORE_FLOOR
   );
   const trustedMaterialGate = assessPrimeTrustedMaterialGate(input, {
     guardRuleCount: rawGuardRules.length,
@@ -241,6 +260,7 @@ export function buildPrimeKnowledgeMaterial(
   const effectiveDegraded = searchDegraded || trustedMaterialBlocked;
   const guardRules = effectiveDegraded ? [] : rawGuardRules;
   const acceptedKnowledge = effectiveDegraded ? [] : trustedKnowledge;
+  const weakMatches = effectiveDegraded ? [] : weakKnowledgeMatches;
   const acceptedGuards = guardRules.map(projectAcceptedGuard);
   const hasDeliveredKnowledge = acceptedKnowledge.length > 0 || acceptedGuards.length > 0;
   const status: PrimeKnowledgeMaterialStatus = effectiveDegraded
@@ -275,6 +295,7 @@ export function buildPrimeKnowledgeMaterial(
   const trustPosture = buildPrimeTrustPosture({
     acceptedGuards,
     acceptedKnowledge,
+    weakMatches,
     degradedReason,
     intent,
     searchResult: input.searchResult,
@@ -287,6 +308,7 @@ export function buildPrimeKnowledgeMaterial(
     receiptId,
     intent,
     acceptedKnowledge,
+    weakMatches,
     acceptedGuards,
     trustPosture,
     shoutInstruction: buildPrimeShoutInstruction(status, trustPosture),
@@ -469,9 +491,21 @@ function buildRequiresVerificationItems(
 ): PrimeTrustPostureItem[] {
   return [
     ...acceptedMaterialVerificationItems(input),
+    ...weakMatchVerificationItems(input),
     ...primePackageVerificationItems(input, packageNeedsVerification),
     ...degradedSearchCandidateItems(input),
   ];
+}
+
+/** 质量分层：低于信任地板的弱相关候选进 requires-verification 层（逐条列出便于宿主复核）。 */
+function weakMatchVerificationItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
+  return input.weakMatches.slice(0, 5).map((knowledge) => ({
+    id: `weak-match:${knowledge.id}`,
+    title: `Weak match (score ${knowledge.score.toFixed(2)}): ${knowledge.title}`,
+    source: 'weak-search-match',
+    reason:
+      'Retrieval score is below the trusted-to-use floor; treat as a lead to verify against real source, not as project guidance.',
+  }));
 }
 
 function acceptedMaterialVerificationItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {

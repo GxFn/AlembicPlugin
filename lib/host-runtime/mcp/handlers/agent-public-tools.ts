@@ -2214,6 +2214,12 @@ function buildPrimePublicPackage(input: {
           title: item.title,
           trigger: item.trigger,
         })),
+      weakMatches: (input.primeKnowledgeMaterial?.weakMatches ?? []).slice(0, 5).map((item) => ({
+        id: item.id,
+        score: item.score,
+        title: item.title,
+        ...(item.trigger ? { trigger: item.trigger } : {}),
+      })),
       acceptedKnowledge: (input.primeKnowledgeMaterial?.acceptedKnowledge ?? [])
         .slice(0, 8)
         .map((item) => ({

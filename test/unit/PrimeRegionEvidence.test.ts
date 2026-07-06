@@ -144,6 +144,64 @@ describe('regionEvidence → prime trust gate (PDR-1d interim un-defer)', () => 
     expect(accepted?.trustEvidence.source).toBe('source-ref-locator-fallback');
   });
 
+  test('weak matches below the trust floor drop to requires-verification, not trusted-to-use (Wave 3)', () => {
+    const mk = (id: string, score: number) => ({
+      evidenceRefs: [`recipe-locator:${id}`],
+      injectionStatus: 'selected',
+      itemId: id,
+      kind: 'pattern',
+      recipeId: id,
+      score: 1,
+      sourceRefs: [`Alembic/lib/x/${id}.ts:1-10`],
+      title: `recipe ${id}`,
+      trustEvidenceSource: 'source-ref-locator-fallback',
+      whySelected: ['recipe-locator:search-hit-source-ref-backfill'],
+    });
+    // item 检索分决定信任层：0.9 相关 / 0.37 弱相关（真机 fix-daemon 形态）
+    const searchResult = {
+      relatedKnowledge: [
+        {
+          id: 'strong',
+          title: 'strong',
+          content: '',
+          kind: 'pattern',
+          language: 'typescript',
+          score: 0.9,
+          sourceRefs: [],
+        },
+        {
+          id: 'weak',
+          title: 'weak',
+          content: '',
+          kind: 'pattern',
+          language: 'typescript',
+          score: 0.37,
+          sourceRefs: [],
+        },
+      ],
+      guardRules: [],
+      searchMeta: {
+        queries: ['q'],
+        scenario: 'prime',
+        language: null,
+        module: null,
+        resultCount: 2,
+        filteredCount: 2,
+      },
+    };
+    const material = buildPrimeKnowledgeMaterial({
+      ...baseInput,
+      searchResult: searchResult as never,
+      regionEvidence: [mk('strong', 0.9), mk('weak', 0.37)],
+    });
+    expect(material.acceptedKnowledge.map((k) => k.id)).toEqual(['strong']);
+    expect(material.weakMatches.map((k) => k.id)).toEqual(['weak']);
+    const verification = material.trustPosture.receiptChecklist.find(
+      (layer) => layer.layer === 'requires-verification'
+    );
+    expect(verification?.items.some((item) => item.id === 'weak-match:weak')).toBe(true);
+  });
+
   test('source-ref locator evidence promotes exact Recipe source matches without vector evidence', () => {
     const recipe = makeRecipeRecord({
       id: 'r-source',

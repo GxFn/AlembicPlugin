@@ -254,6 +254,72 @@ describe('Agent-facing public tools contract foundation', () => {
     ).toMatchObject({ status: 'prime-ref-unknown' });
   });
 
+  test('projects guard violation details with recipe fix guidance (V-1) and degrades honestly on schema rejection (Wave 2)', () => {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'code-guard',
+      agentHost: 'claude-code',
+      inputSource: 'user-message',
+      refs: { detailRefs: [] },
+      status: 'ready',
+      summary: 'Code Guard checked explicit files.',
+      toolName: 'alembic_code_guard',
+    });
+
+    // V-1：check 路径（顶层 violations）+ review 路径（files[].violations 含 recipe）统一扁平化
+    const output = createAgentPublicToolOutput(result, {
+      guard: {
+        success: true,
+        guardResult: {
+          violations: [
+            {
+              ruleId: 'js-no-var',
+              severity: 'warning',
+              line: 2,
+              message: '禁止 var',
+              snippet: 'var x = 1;',
+            },
+          ],
+          files: [
+            {
+              filePath: 'Alembic/lib/http/routes/demo.ts',
+              violations: [
+                {
+                  ruleId: 'custom-no-todo',
+                  severity: 'warning',
+                  line: 7,
+                  message: 'TODO 未处理',
+                  recipe: {
+                    title: 'No TODO',
+                    doClause: 'Resolve TODOs before commit.',
+                    dontClause: 'Do not commit TODO comments.',
+                  },
+                },
+              ],
+            },
+          ],
+          summary: { total: 2, errors: 0, warnings: 2 },
+        },
+      },
+    });
+    const parsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.parse(output);
+    expect(parsed.guard?.violations).toHaveLength(2);
+    expect(parsed.guard?.violations?.[0]).toMatchObject({ ruleId: 'js-no-var', line: 2 });
+    expect(parsed.guard?.violations?.[1]).toMatchObject({
+      filePath: 'Alembic/lib/http/routes/demo.ts',
+      recipe: { title: 'No TODO', dontClause: 'Do not commit TODO comments.' },
+    });
+
+    // Wave 2：非法 payload（primeAlignment 非法枚举）不再崩整个工具——降级 base envelope+诊断
+    const degraded = createAgentPublicToolOutput(result, {
+      primeAlignment: { primeRef: 'p-1', status: 'not-a-valid-status' },
+    }) as Record<string, unknown>;
+    expect(degraded.ok).toBe(true);
+    expect(degraded.summary).toBe('Code Guard checked explicit files.');
+    const diagnostics = degraded.diagnostics as Array<Record<string, unknown>>;
+    expect(diagnostics?.[0]?.code).toBe('output-projection-rejected');
+    expect(degraded.primeAlignment).toBeUndefined();
+  });
+
   test('serializes code_guard public unified evolution data through the MCP output projector', () => {
     const result = createAgentPublicToolResultEnvelope({
       actionKind: 'code-guard',

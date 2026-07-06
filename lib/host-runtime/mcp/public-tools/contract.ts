@@ -283,6 +283,19 @@ export const PrimePublicPackageSchema = z
       })
       .nullable(),
     compactPackage: z.object({
+      // Wave 3 质量分层（2026-07-06）：locator 证据但检索分低于信任地板的弱相关
+      // 候选——requires-verification 语义，紧凑投影（不带 actionHint 全文）。
+      weakMatches: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(240),
+            score: z.number(),
+            title: z.string().min(1).max(1200),
+            trigger: z.string().max(240).optional(),
+          })
+        )
+        .max(5)
+        .optional(),
       acceptedGuards: z
         .array(
           z.object({
