@@ -85,6 +85,22 @@ export class RecipeMapProvider {
       mounts = collected.mounts;
       deferred = collected.deferredRecipeIds;
       usedRecordSourceFallback = collected.usedRecordSourceFallback;
+      if (collected.uncoveredRecipes.length > 0) {
+        const sample = collected.uncoveredRecipes
+          .slice(0, 5)
+          .map((recipe) => recipe.title)
+          .join(', ');
+        const overflow =
+          collected.uncoveredRecipes.length > 5
+            ? ` (+${collected.uncoveredRecipes.length - 5} more)`
+            : '';
+        diagnostics.push({
+          code: 'recipes-outside-region',
+          severity: 'info',
+          message: `${collected.uncoveredRecipes.length} recipe(s) have no mount in this region: ${sample}${overflow}. Focus a repo/module/file, or read meta.fullMapRef for the complete map.`,
+          retryable: false,
+        });
+      }
     }
     mounts = mounts.sort(compareMounts).slice(0, request.recipeMountLimit);
     if (usedRecordSourceFallback && mounts.length + deferred.length > 0) {
@@ -240,6 +256,7 @@ async function collectRecipeMounts(
 ): Promise<{
   deferredRecipeIds: string[];
   mounts: RecipeMountSummary[];
+  uncoveredRecipes: Array<{ id: string; title: string }>;
   usedRecordSourceFallback: boolean;
 }> {
   const scopePrefix = regionScopePrefix(region);
@@ -311,7 +328,16 @@ async function collectRecipeMounts(
       detailRef: `recipe:${record.id}`,
     });
   }
-  return { mounts, deferredRecipeIds, usedRecordSourceFallback };
+  // M2 未入区诊断（2026-07-06）：库内 recipe 在本 region 既无 mount 也未进
+  // deferred rollup 的清单——space 级 rollup 61≠75 这类差值的可解释面。
+  const coveredIds = new Set<string>([
+    ...mounts.map((mount) => mount.recipeId),
+    ...deferredRecipeIds,
+  ]);
+  const uncoveredRecipes = [...recordById.values()]
+    .filter((record) => !coveredIds.has(record.id))
+    .map((record) => ({ id: record.id, title: record.title }));
+  return { mounts, deferredRecipeIds, uncoveredRecipes, usedRecordSourceFallback };
 }
 
 function normalizeRecipeRefs(
