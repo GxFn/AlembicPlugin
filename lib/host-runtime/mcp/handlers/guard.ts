@@ -86,6 +86,8 @@ interface RecipeEntry {
 
 interface GuardEngineLike {
   checkCode(code: string, language: string, opts?: Record<string, unknown>): GuardViolation[];
+  /** G2：与检查同源的规则装配面（数据库 Recipe 规则 + 内置）；旧引擎可缺席 */
+  getRules?(language: string | null): Array<Record<string, unknown>>;
   auditFile(
     filePath: string,
     code: string,
@@ -472,6 +474,11 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
 
   const passed = totalViolations === 0;
 
+  // G2 守门正面清单（2026-07-06）：0 violations 时宿主无法区分"检查了且干净"与
+  // "没什么可检查"——按被检文件语言集合枚举引擎实际装载的规则（数据库 Recipe
+  // 规则 + 内置），投影计数与样本。engine.getRules 是引擎检查同源的规则装配面。
+  const appliedRules = summarizeAppliedGuardRules(engine, results);
+
   // 5. 更新共享状态
   if (passed) {
     _reviewRounds.delete(projectRoot);
@@ -528,6 +535,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       fileSource,
       files: results,
       totalViolations,
+      appliedRules,
       summary: {
         total: totalViolations,
         errors: totalErrors,
@@ -834,5 +842,59 @@ async function _injectEnhancementGuardRules(
     engine.markEpInjected?.();
   } catch {
     /* Enhancement rules unavailable — non-critical */
+  }
+}
+
+/**
+ * G2（2026-07-06）：按被检文件的语言集合枚举引擎实际装载的规则，产出守门
+ * 正面清单摘要。规则来源与检查同源（engine.getRules：数据库 Recipe 规则 +
+ * 内置规则）；异常容缺返回 null（诊断面缺席不影响守门结果本体）。
+ */
+function summarizeAppliedGuardRules(
+  engine: GuardEngineLike,
+  results: ReviewFileResult[]
+): {
+  total: number;
+  bySource: Record<string, number>;
+  sample: Array<{ id: string; name: string; severity: string; source: string }>;
+} | null {
+  if (typeof engine.getRules !== 'function') {
+    return null;
+  }
+  try {
+    const languages = [
+      ...new Set(
+        results
+          .map((result) => (typeof result.language === 'string' ? result.language : null))
+          .filter((language): language is string => Boolean(language))
+      ),
+    ];
+    const byId = new Map<string, { id: string; name: string; severity: string; source: string }>();
+    for (const language of languages.length > 0 ? languages : [null]) {
+      for (const rule of engine.getRules(language)) {
+        const id = String(rule.id ?? rule.name ?? '');
+        if (!id || byId.has(id)) {
+          continue;
+        }
+        byId.set(id, {
+          id,
+          name: String(rule.name ?? id),
+          severity: String(rule.severity ?? 'warning'),
+          source: String(rule.source ?? 'unknown'),
+        });
+      }
+    }
+    const all = [...byId.values()];
+    const bySource: Record<string, number> = {};
+    for (const rule of all) {
+      bySource[rule.source] = (bySource[rule.source] ?? 0) + 1;
+    }
+    return {
+      total: all.length,
+      bySource,
+      sample: all.slice(0, 10),
+    };
+  } catch {
+    return null;
   }
 }
