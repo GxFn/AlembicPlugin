@@ -6,6 +6,7 @@ const DEFAULT_TIMEOUT_MS = 2_000;
 // tick-on-access 驱动，一次大冷扫可能含远超该值的到期项；cap 让单次只晋级 ≤cap 条、
 // 跨多次工具调用排空，避免单 tick 长时间占用。可经 ALEMBIC_STAGING_ACCESS_SWEEP_CAP 覆盖。
 const DEFAULT_STAGING_ACCESS_SWEEP_CAP = 50;
+const DEFAULT_VECTOR_RECONCILE_MIN_INTERVAL_MS = 300_000;
 
 export const STAGING_ACCESS_SWEEP_TOOL_NAMES = new Set([
   'alembic_submit_knowledge',
@@ -46,6 +47,16 @@ interface ProposalExecutorLike {
   }>;
 }
 
+interface VectorServiceLike {
+  // R3（2026-07-06 闭环审查落地）：向量索引对账公开面。Core 内部自行处理
+  // coordinator/embed 缺席（返回 null），孤儿清理 + 缺失 entry 向量补索引。
+  reconcileIndex(): Promise<{
+    orphansRemoved: number;
+    missingSynced: number;
+    errors: string[];
+  } | null>;
+}
+
 interface DecayDetectorLike {
   // cap 可选，对齐 Core DecayDetector.scanAll(cap?: number): Promise<DecayScoreResult[]>。
   // 注入 lifecycleStateMachine 后（KnowledgeModule DI），scanAll 内部直走 transition(trigger='decay-detection')
@@ -62,6 +73,9 @@ interface LoggerLike {
 interface SweepState {
   inFlight: Promise<StagingAccessSweepResult> | null;
   lastStartedAt: number;
+  // P5 向量对账独立节流：embed 补索引是网络调用（Ollama），比生命周期驱动重，
+  // 不随 15s tick 高频跑；默认 5 分钟一次（ALEMBIC_VECTOR_RECONCILE_MIN_INTERVAL_MS 覆盖）。
+  lastVectorReconcileAt: number;
 }
 
 export interface StagingAccessSweepInput {
@@ -81,6 +95,8 @@ export interface StagingAccessSweepResult {
   // 仅新增字段，既有字段语义不变。
   checkedTimeouts?: number;
   decayScannedCount?: number;
+  vectorOrphansRemoved?: number;
+  vectorMissingSynced?: number;
   durationMs?: number;
   executedCount?: number;
   expiredCount?: number;
@@ -171,11 +187,40 @@ async function runSweep(
     const decayDetector = container.get('decayDetector') as DecayDetectorLike;
     const decayResults = await decayDetector.scanAll(cap);
     const decayScanned = Array.isArray(decayResults) ? decayResults : [];
+    // P5（R3 闭环审查落地，2026-07-06）：向量索引对账——孤儿清理 + 缺失 entry 向量
+    // 补索引（Ollama enabled 之前积压/跨进程错过事件的条目在此补齐）。Core
+    // reconcileIndex 自行处理 coordinator/embed 缺席（返回 null=可降级能力）；embed
+    // 是网络调用，独立 5 分钟节流，不随 15s tick 高频跑；抛错不掀翻整个 sweep。
+    let vectorOrphansRemoved: number | undefined;
+    let vectorMissingSynced: number | undefined;
+    const sweepState = resolveSweepState(input.projectRoot);
+    const vectorReconcileIntervalMs = readDurationMs(
+      'ALEMBIC_VECTOR_RECONCILE_MIN_INTERVAL_MS',
+      DEFAULT_VECTOR_RECONCILE_MIN_INTERVAL_MS
+    );
+    if (startedAt - sweepState.lastVectorReconcileAt >= vectorReconcileIntervalMs) {
+      sweepState.lastVectorReconcileAt = startedAt;
+      try {
+        const vectorService = container.get('vectorService') as VectorServiceLike | null;
+        const reconcile = vectorService ? await vectorService.reconcileIndex() : null;
+        if (reconcile) {
+          vectorOrphansRemoved = reconcile.orphansRemoved;
+          vectorMissingSynced = reconcile.missingSynced;
+        }
+      } catch (err: unknown) {
+        input.logger?.warn?.('[StagingAccessSweep] vector reconcile failed (non-blocking)', {
+          error: err instanceof Error ? err.message : String(err),
+          projectRoot: input.projectRoot,
+        });
+      }
+    }
     const promoted = Array.isArray(result.promoted) ? result.promoted : [];
     const waiting = Array.isArray(result.waiting) ? result.waiting : [];
     return {
       checkedTimeouts: typeof timeoutResult.checked === 'number' ? timeoutResult.checked : 0,
       decayScannedCount: decayScanned.length,
+      ...(vectorOrphansRemoved === undefined ? {} : { vectorOrphansRemoved }),
+      ...(vectorMissingSynced === undefined ? {} : { vectorMissingSynced }),
       durationMs: Date.now() - startedAt,
       executedCount: executed.length,
       expiredCount: expired.length,
@@ -212,7 +257,7 @@ function resolveSweepState(projectRoot: string): SweepState {
   if (existing) {
     return existing;
   }
-  const state: SweepState = { inFlight: null, lastStartedAt: 0 };
+  const state: SweepState = { inFlight: null, lastStartedAt: 0, lastVectorReconcileAt: 0 };
   states.set(projectRoot, state);
   return state;
 }
