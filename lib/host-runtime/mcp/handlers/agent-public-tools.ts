@@ -735,7 +735,7 @@ export async function codeGuardHandler(ctx: McpContext, args: AgentCodeGuardArgs
 
   try {
     const guardEnvelope = await executeScopedCodeGuard(ctx, args, scope);
-    return buildCodeGuardReadyOutput({ args, detailRefs, guardEnvelope, intake, scope });
+    return buildCodeGuardReadyOutput({ args, ctx, detailRefs, guardEnvelope, intake, scope });
   } catch (err: unknown) {
     return buildCodeGuardFailureOutput({ args, detailRefs, err, intake });
   }
@@ -906,12 +906,13 @@ async function executeScopedCodeGuard(
 
 function buildCodeGuardReadyOutput(input: {
   args: AgentCodeGuardArgs;
+  ctx: McpContext;
   detailRefs: AgentDetailRef[];
   guardEnvelope: unknown;
   intake: ReturnType<typeof buildAgentToolContext>;
   scope: CodeGuardScopeResolution;
 }) {
-  const { args, detailRefs, guardEnvelope, intake, scope } = input;
+  const { args, ctx, detailRefs, guardEnvelope, intake, scope } = input;
   const guardResultRef = nextGuardResultRef();
   // prime→guard step1（2026-07-06，observe-only）：primeRef 显式传入或从 workRef
   // 记录继承，命中本会话 PRIME_RECORDS 时报告"prime 交付知识与被检文件的重叠"。
@@ -920,6 +921,10 @@ function buildCodeGuardReadyOutput(input: {
   const primeAlignment = effectivePrimeRef
     ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files)
     : null;
+  // 采纳信号回流（2026-07-06 闭环审查落地）：observed 且有真实重叠 = "prime 交付的
+  // 知识用在了对的文件上"——递增 stats.primeAdoptions（observe-first，decay/排序
+  // 消费另行调参）。失败静默：回流是观测面副作用，绝不破坏 guard 主链。
+  recordPrimeAdoptionSignals(ctx, primeAlignment);
   const result = createAgentPublicToolResultEnvelope({
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
@@ -956,6 +961,38 @@ function buildCodeGuardReadyOutput(input: {
  * sources（workspace 相对，去行号）与被检文件（绝对路径）的后缀重叠。
  * 未命中记录 → status: 'prime-ref-unknown'（跨会话/进程重启后的诚实降级）。
  */
+function recordPrimeAdoptionSignals(
+  ctx: McpContext,
+  primeAlignment: Record<string, unknown> | null
+): void {
+  if (!primeAlignment || primeAlignment.status !== 'observed') {
+    return;
+  }
+  const overlapped = Array.isArray(primeAlignment.overlappedKnowledge)
+    ? (primeAlignment.overlappedKnowledge as Array<{ id?: string }>)
+    : [];
+  if (overlapped.length === 0) {
+    return;
+  }
+  try {
+    const repo = ctx.container.get('knowledgeRepository') as {
+      incrementPrimeAdoptionsSync?(id: string, count: number): void;
+    } | null;
+    if (!repo || typeof repo.incrementPrimeAdoptionsSync !== 'function') {
+      return;
+    }
+    for (const knowledge of overlapped) {
+      if (typeof knowledge.id === 'string' && knowledge.id) {
+        repo.incrementPrimeAdoptionsSync(knowledge.id, 1);
+      }
+    }
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[MCP/AgentPublicTools] prime adoption signal degraded: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+}
+
 function buildGuardPrimeAlignment(
   primeRef: string,
   checkedFiles: string[]
