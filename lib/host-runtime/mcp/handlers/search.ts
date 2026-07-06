@@ -1526,7 +1526,17 @@ async function listKnowledgeEntries(
   try {
     const result = await service.list(filters, { page: 1, pageSize: limit });
     const resultRecord = readRecord(result);
-    return Array.isArray(resultRecord?.data) ? resultRecord.data.map(toKnowledgeEntryJson) : [];
+    // deprecated 排除（2026-07-06 KB 手术复验暴露）：KnowledgeService.list 无 lifecycle
+    // 过滤时返回全部生命周期——embedded 索引走 findNonDeprecatedSync 已排除，本
+    // knowledge-service 候选源却把 deprecated 条目送回检索结果（重启后仍在=非缓存）。
+    // 消费侧对齐同一语义：active+staging 可见，deprecated 不进候选。
+    return Array.isArray(resultRecord?.data)
+      ? resultRecord.data
+          .map(toKnowledgeEntryJson)
+          .filter(
+            (entry) => readString((entry as Record<string, unknown>).lifecycle) !== 'deprecated'
+          )
+      : [];
   } catch {
     return [];
   }
