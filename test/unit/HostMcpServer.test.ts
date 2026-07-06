@@ -46,7 +46,11 @@ const ORIGINAL_PWD = process.env.PWD;
 const ORIGINAL_STAGING_SWEEP_MIN_INTERVAL_MS =
   process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS;
 const ORIGINAL_STAGING_SWEEP_TIMEOUT_MS = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS;
+// 钉更新（2026-07-06）：alembic_plan 进 HOST_AGENT_WORKFLOW 可见面（plan→bootstrap
+// 是冷启动必经）后本清单未同步——9 个既有失败中 3 个的根因；recipe_map 实际注册
+// 顺序紧随 prime（同为知识消费首跳）。按 getVisibleTools 真实顺序对齐。
 const CODEX_HOST_AGENT_TOOL_NAMES = [
+  'alembic_plan',
   'alembic_submit_knowledge',
   'alembic_bootstrap',
   'alembic_rescan',
@@ -55,10 +59,13 @@ const CODEX_HOST_AGENT_TOOL_NAMES = [
 const TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES = ['alembic_prime', 'alembic_work', 'alembic_code_guard'];
 const CODEX_SOURCE_GRAPH_TOOL_NAMES: string[] = [];
 const CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES = [
-  ...TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
+  'alembic_prime',
   'alembic_recipe_map',
+  'alembic_work',
+  'alembic_code_guard',
   'alembic_search',
   'alembic_graph',
+  'alembic_plan',
   'alembic_submit_knowledge',
   'alembic_project_skill',
   'alembic_bootstrap',
@@ -639,7 +646,7 @@ describe('HostMcpServer', () => {
       ...CODEX_INITIALIZED_NO_KNOWLEDGE_TOOL_NAMES,
     ]);
     expect(names).not.toContain('alembic_health');
-    expect(names).not.toContain('alembic_search');
+    // alembic_search 在无知识阶段有意可见（INITIALIZED_PUBLIC_READ：零结果信封+引导有价值）
     expect(names).not.toContain('alembic_guard');
     expect(names).not.toContain('alembic_skill');
   });
@@ -753,10 +760,11 @@ describe('HostMcpServer', () => {
       };
     };
     const primeResult = (await server.handleToolCall('alembic_prime', {
-      hostDeclaredIntent: {
-        action: 'implement',
-        query: 'Use ProjectScope recipe',
-      },
+      // 钉更新（2026-07-06）：GMAP-8 后 prime 为 standalone 形态（taskAction+
+      // requirementGoal 必填），旧 hostDeclaredIntent intent-route 输入已退役。
+      taskAction: 'implement',
+      requirementGoal: 'Use ProjectScope recipe',
+      capability: 'project scope recipes',
       inputSource: 'host-declared-intent',
       language: 'typescript',
     })) as {
