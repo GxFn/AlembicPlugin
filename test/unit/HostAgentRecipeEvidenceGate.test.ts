@@ -259,6 +259,58 @@ describe('HostAgentRecipeEvidenceGate', () => {
     expect(result.ok).toBe(false);
     expect(codes(result)).toContain('QUALITY_GATE_FAILED');
   });
+
+  it('waives the candidate floor for an honest noPadding exhausted declaration (X4)', () => {
+    const projectRoot = makeProjectRoot();
+    const base = {
+      analysisText: longAnalysisText(),
+      dimensionId: 'data-event-flow',
+      keyFindings: ['Single genuine pattern was extracted with concrete evidence.'],
+      referencedFiles: ['src/a.ts', 'src/b.ts'],
+      session: {
+        ...session(projectRoot),
+        submissionTracker: {
+          getSubmissions: () => [{ recipeId: 'recipe-a', sources: ['src/a.ts:1'] }],
+        },
+      },
+      submittedRecipeIds: ['recipe-a'],
+    };
+
+    // 无 noPadding：1 条 < 地板 → 拒
+    const blocked = validateDimensionCompletionEvidenceGate(base);
+    expect(codes(blocked)).toContain('DIMENSION_CANDIDATE_COUNT_INSUFFICIENT');
+
+    // noPadding + 有实据的 exhaustedReason（≥50 字 + ≥2 referencedFiles）→ 放行
+    const waived = validateDimensionCompletionEvidenceGate({
+      ...base,
+      noPadding: true,
+      exhaustedReason:
+        '模块内其余完成事件模式（事件总线解耦、SSE 双通道）已在既有 active KB 覆盖，本维度仅存在一条未收录的真实收尾同步模式，不为凑数生成。',
+    });
+    expect(codes(waived)).not.toContain('DIMENSION_CANDIDATE_COUNT_INSUFFICIENT');
+
+    // noPadding 但理由过短 → 仍拒（诚实收尾需要可复核实据）
+    const thinReason = validateDimensionCompletionEvidenceGate({
+      ...base,
+      noPadding: true,
+      exhaustedReason: '没有更多了。',
+    });
+    expect(codes(thinReason)).toContain('DIMENSION_CANDIDATE_COUNT_INSUFFICIENT');
+
+    // noPadding 但 0 条真实产出 → 仍拒（什么都没产不构成诚实收尾）
+    const zeroOutput = validateDimensionCompletionEvidenceGate({
+      ...base,
+      noPadding: true,
+      exhaustedReason:
+        '模块内其余完成事件模式（事件总线解耦、SSE 双通道）已在既有 active KB 覆盖，本维度仅存在一条未收录的真实收尾同步模式，不为凑数生成。',
+      session: {
+        ...session(projectRoot),
+        submissionTracker: { getSubmissions: () => [] },
+      },
+      submittedRecipeIds: [],
+    });
+    expect(codes(zeroOutput)).toContain('DIMENSION_RECIPE_ID_NOT_BOUND');
+  });
 });
 
 function makeProjectRoot(): string {

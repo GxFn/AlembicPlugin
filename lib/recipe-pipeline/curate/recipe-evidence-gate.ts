@@ -354,7 +354,9 @@ export function validateDimensionCompletionEvidenceGate({
   analysisText,
   candidateCount,
   dimensionId,
+  exhaustedReason,
   keyFindings,
+  noPadding,
   qualityReport,
   referencedFiles,
   session,
@@ -363,7 +365,11 @@ export function validateDimensionCompletionEvidenceGate({
   analysisText: string;
   candidateCount?: number;
   dimensionId: string;
+  /** X4（2026-07-06）：noPadding 诚实收尾申明的配套证据 */
+  exhaustedReason?: string;
   keyFindings: string[];
+  /** X4：Agent 显式申明"无更多真实 pattern，拒绝凑数"（schema 的反注水语义） */
+  noPadding?: boolean;
   qualityReport?: DimensionQualityReportLike;
   referencedFiles: string[];
   session: GenerateSessionLike;
@@ -408,11 +414,21 @@ export function validateDimensionCompletionEvidenceGate({
   const verifiedCandidateCount = effectiveRecipeIds.length;
   // C-3(2026-07-02 统一重构)：完成阈值改用 Core DIMENSION_COMPLETION_FLOOR 单源——
   // 与主体 in-process QualityGate/record_repair 同一组数字,改一处两宿主同步。
-  if (verifiedCandidateCount < DIMENSION_COMPLETION_FLOOR.minCandidates) {
+  // X4（2026-07-06 noPadding 放行）：地板的本意是防敷衍，不是逼注水——Agent 显式
+  // noPadding=true 且给出有实据的 exhaustedReason（≥50 字 + ≥2 个 referencedFiles）
+  // 时豁免 minCandidates；凑数条目对 KB 的伤害大于少产。仅当至少有 1 条真实
+  // session-bound Recipe 时可豁免（0 条仍拒——"什么都没产"不构成诚实收尾）。
+  const honestExhaustedWaiver =
+    noPadding === true &&
+    verifiedCandidateCount >= 1 &&
+    (exhaustedReason?.trim().length ?? 0) >= 50 &&
+    effectiveReferencedFiles.length >= 2;
+  if (verifiedCandidateCount < DIMENSION_COMPLETION_FLOOR.minCandidates && !honestExhaustedWaiver) {
     violations.push({
       code: 'DIMENSION_CANDIDATE_COUNT_INSUFFICIENT',
       message: `Only ${verifiedCandidateCount} session-bound Recipes were verified; at least ${DIMENSION_COMPLETION_FLOOR.minCandidates} are required.`,
-      nextAction: 'Create more session-bound Recipes with concrete source evidence.',
+      nextAction:
+        'Create more session-bound Recipes with concrete source evidence, or declare noPadding=true with an evidence-backed exhaustedReason (>=50 chars, >=2 referencedFiles).',
     });
   }
   if (typeof candidateCount === 'number' && candidateCount > verifiedCandidateCount) {
