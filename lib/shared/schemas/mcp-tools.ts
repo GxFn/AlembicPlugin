@@ -308,6 +308,9 @@ export const WorkInput = AgentPublicToolBaseInput.extend({
 export type WorkInput = z.infer<typeof WorkInput>;
 
 export const CodeGuardInput = AgentPublicToolBaseInput.extend({
+  primeRef: AgentRefIdInput.optional().describe(
+    'Observe-only (step1, 2026-07-06): primeRef returned by alembic_prime in this session. Guard reports delivered-knowledge overlap with the checked files (primeAlignment); it never changes the guard verdict. Falls back to the workRef record primeRef when omitted.'
+  ),
   workRef: AgentRefIdInput.optional().describe(
     'workRef returned by alembic_work phase=start. When files/code are omitted, the current session work record supplies scoped files; missing or unscoped work returns a structured blocker/skip.'
   ),

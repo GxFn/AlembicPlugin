@@ -115,6 +115,8 @@ interface AgentCodeGuardArgs extends AgentPublicBaseArgs {
   intentRef?: string;
   language?: string;
   operation?: 'check' | 'review';
+  /** prime→guard step1（observe-only）：本会话 alembic_prime 返回的 primeRef */
+  primeRef?: string;
   workRef?: string;
 }
 
@@ -179,6 +181,30 @@ const PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT = 10;
 let finishCounter = 0;
 let guardCounter = 0;
 const WORK_RECORDS = new Map<string, WorkRecord>();
+
+/**
+ * prime→guard 闭环 step1（2026-07-06，observe-only）：按 primeRef 留存本次
+ * prime 交付的知识摘要（id/title/sources），供 guard 观测"交付知识与被检文件
+ * 的重叠度"。进程态、FIFO 上限 50——与 WORK_RECORDS 同款会话内闭环模型。
+ */
+interface PrimeDeliveryRecord {
+  createdAt: string;
+  knowledge: Array<{ id: string; title: string; sources: string[] }>;
+  primeRef: string;
+}
+const PRIME_RECORDS = new Map<string, PrimeDeliveryRecord>();
+const PRIME_RECORDS_CAP = 50;
+
+function rememberPrimeDelivery(record: PrimeDeliveryRecord): void {
+  PRIME_RECORDS.set(record.primeRef, record);
+  while (PRIME_RECORDS.size > PRIME_RECORDS_CAP) {
+    const oldest = PRIME_RECORDS.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    PRIME_RECORDS.delete(oldest);
+  }
+}
 
 interface PrimeRecipeRecord {
   id: string;
@@ -328,6 +354,16 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
     result,
     searchDegraded: effectiveSearchDegraded,
     searchResult: input.primeSearch.searchResult,
+  });
+  // prime→guard step1：留存交付知识摘要供 guard 观测重叠（observe-only）。
+  rememberPrimeDelivery({
+    createdAt: new Date().toISOString(),
+    knowledge: material.primeKnowledgeMaterial.acceptedKnowledge.map((item) => ({
+      id: item.id,
+      title: item.title ?? item.id,
+      sources: (item.evidenceRefs ?? []).map((ref) => ref.path).filter(Boolean),
+    })),
+    primeRef: input.primeRef,
   });
   // GMAP-8: prime returns its own prime-native output (primePackage + bounded
   // detailRefs/diagnostics), assembled from the resident search material — never
@@ -875,6 +911,13 @@ function buildCodeGuardReadyOutput(input: {
 }) {
   const { args, detailRefs, guardEnvelope, intake, scope } = input;
   const guardResultRef = nextGuardResultRef();
+  // prime→guard step1（2026-07-06，observe-only）：primeRef 显式传入或从 workRef
+  // 记录继承，命中本会话 PRIME_RECORDS 时报告"prime 交付知识与被检文件的重叠"。
+  // 纯观测面：不改变守门判定，不新增硬门；未命中/无 primeRef 时字段缺席。
+  const effectivePrimeRef = args.primeRef ?? scope.workRecord?.primeRef;
+  const primeAlignment = effectivePrimeRef
+    ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files)
+    : null;
   const result = createAgentPublicToolResultEnvelope({
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
@@ -901,8 +944,47 @@ function buildCodeGuardReadyOutput(input: {
     explicitScope: buildCodeGuardExplicitScope(args, scope),
     guard: projectGuardBusinessPayload(guardEnvelope),
     guardResultRef,
+    ...(primeAlignment ? { primeAlignment } : {}),
     unsupportedScopeFields: scope.unsupportedScopeFields,
   });
+}
+
+/**
+ * prime→guard step1 观测面：primeRef 命中本会话交付记录时，统计交付知识的
+ * sources（workspace 相对，去行号）与被检文件（绝对路径）的后缀重叠。
+ * 未命中记录 → status: 'prime-ref-unknown'（跨会话/进程重启后的诚实降级）。
+ */
+function buildGuardPrimeAlignment(
+  primeRef: string,
+  checkedFiles: string[]
+): Record<string, unknown> {
+  const record = PRIME_RECORDS.get(primeRef);
+  if (!record) {
+    return {
+      primeRef,
+      status: 'prime-ref-unknown',
+      note: 'No prime delivery record in this MCP session (expired, capped, or from another session).',
+    };
+  }
+  const overlapped: Array<{ id: string; title: string; matchedFiles: string[] }> = [];
+  for (const knowledge of record.knowledge) {
+    const matchedFiles = checkedFiles.filter((file) =>
+      knowledge.sources.some((source) => {
+        const bare = source.split(':')[0];
+        return bare.length > 0 && file.replaceAll('\\', '/').endsWith(bare);
+      })
+    );
+    if (matchedFiles.length > 0) {
+      overlapped.push({ id: knowledge.id, title: knowledge.title, matchedFiles });
+    }
+  }
+  return {
+    primeRef,
+    status: 'observed',
+    deliveredKnowledgeCount: record.knowledge.length,
+    overlappedKnowledgeCount: overlapped.length,
+    overlappedKnowledge: overlapped.slice(0, 5),
+  };
 }
 
 function buildCodeGuardFailureOutput(input: {
@@ -1929,9 +2011,10 @@ function projectGuardBusinessPayload(guardEnvelope: unknown) {
   };
 }
 
+// prime→guard step1（2026-07-06）：primeRef 以 observe-only 身份从非公开清单开闸
+// （primeAlignment 观测面），其余三个 scope 字段维持非公开边界。
 const UNSUPPORTED_CODE_GUARD_SCOPE_FIELDS = [
   'diffRef',
-  'primeRef',
   'acceptedGuards',
   'applicableRecipe',
 ] as const;

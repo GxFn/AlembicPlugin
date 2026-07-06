@@ -766,13 +766,12 @@ describe('agent-facing active public tools', () => {
     );
     const codeGuardTool = TOOLS.find((tool) => tool.name === 'alembic_code_guard');
     const codeGuardProperties = Object.keys(codeGuardTool?.inputSchema?.properties ?? {});
-    expect(codeGuardProperties).toEqual(expect.arrayContaining(['code', 'files', 'workRef']));
-    for (const unsupportedScopeField of [
-      'diffRef',
-      'primeRef',
-      'acceptedGuards',
-      'applicableRecipe',
-    ]) {
+    // prime→guard step1（2026-07-06）：primeRef 以 observe-only 身份开闸（primeAlignment
+    // 观测面，永不改判定）；其余三个 scope 字段维持非公开边界。
+    expect(codeGuardProperties).toEqual(
+      expect.arrayContaining(['code', 'files', 'workRef', 'primeRef'])
+    );
+    for (const unsupportedScopeField of ['diffRef', 'acceptedGuards', 'applicableRecipe']) {
       expect(codeGuardProperties).not.toContain(unsupportedScopeField);
     }
   });
