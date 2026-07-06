@@ -41,6 +41,8 @@ export interface GitDiffScanResult {
   maxEvents: number;
   mergeBase: string | null;
   previousHead: string | null;
+  /** previousHead 在本仓不存在（checkpoint 残留自另一 git 仓）——维护层据此触发基线重置 */
+  previousHeadMissing?: boolean;
   range?: {
     from: string;
     to: string;
@@ -107,6 +109,7 @@ export class GitDiffScanner {
         options.previousHead !== currentHead;
       let headRangeStatus: GitDiffHeadRangeStatus = headChanged ? 'unavailable' : 'none';
       let fallbackReason: string | undefined;
+      let previousHeadMissing: boolean | undefined;
       let mergeBase: string | null = null;
       let range: GitDiffScanResult['range'];
 
@@ -115,6 +118,7 @@ export class GitDiffScanner {
         headRangeStatus = headRange.status;
         fallbackReason = headRange.fallbackReason;
         mergeBase = headRange.mergeBase;
+        previousHeadMissing = headRange.previousHeadMissing;
         range = headRange.range;
         if (headRange.output) {
           addNameStatusEvents(snapshot.eventsByKey, headRange.output, 'git-head');
@@ -153,6 +157,7 @@ export class GitDiffScanner {
         maxEvents: this.#maxEvents,
         mergeBase,
         previousHead: options.previousHead ?? null,
+        ...(previousHeadMissing === undefined ? {} : { previousHeadMissing }),
         ...(range ? { range } : {}),
         scanned: true,
         scannedAt,
@@ -208,6 +213,7 @@ export class GitDiffScanner {
     fallbackReason?: string;
     mergeBase: string | null;
     output?: string;
+    previousHeadMissing?: boolean;
     range?: GitDiffScanResult['range'];
     status: GitDiffHeadRangeStatus;
   }> {
@@ -215,9 +221,19 @@ export class GitDiffScanner {
       await this.#execGit(['merge-base', previousHead, currentHead], this.#projectRoot)
     );
     if (!mergeBase) {
+      // 空间根修配套（2026-07-06）：区分"previousHead 在本仓不存在"（checkpoint
+      // 残留自另一个 git 仓——扫描根从 workspace 切到 folder 后的一次性形态）
+      // 与"存在但无共同祖先"。前者由维护层触发基线重置，否则死循环 unresolved。
+      const previousHeadExists =
+        (
+          await this.#execGit(['cat-file', '-t', `${previousHead}^{commit}`], this.#projectRoot)
+        ).trim() === 'commit';
       return {
-        fallbackReason: 'merge-base-unavailable',
+        fallbackReason: previousHeadExists
+          ? 'merge-base-unavailable'
+          : 'merge-base-unavailable:previous-head-foreign',
         mergeBase: null,
+        previousHeadMissing: !previousHeadExists,
         range: { from: previousHead, to: currentHead },
         status: 'unavailable',
       };

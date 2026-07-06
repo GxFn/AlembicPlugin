@@ -83,6 +83,21 @@ describe('commit-driven maintenance scan root (project-scope folder)', () => {
     expect(paths).toContain('ws-note.md');
   });
 
+  it('flags previousHeadMissing when checkpoint commit is foreign to the folder repo', async () => {
+    const { ws, folder } = makeWorkspaceWithFolder();
+    // workspace 根仓的 HEAD 对 folder 仓而言是外来 commit（真机切换后的残留形态）
+    const wsHead = execSync('git rev-parse HEAD', { cwd: ws, encoding: 'utf8' }).trim();
+    const { GitDiffScanner } = await import(
+      '../../lib/recipe-pipeline/sustain/git-diff-checkpoint/GitDiffScanner.js'
+    );
+    const scanner = new GitDiffScanner({ projectRoot: folder });
+    const scan = await scanner.scanOnce(Date.now(), { previousHead: wsHead });
+    expect(scan.headChanged).toBe(true);
+    expect(scan.headRangeStatus).toBe('unavailable');
+    expect(scan.previousHeadMissing).toBe(true);
+    expect(scan.fallbackReason).toBe('merge-base-unavailable:previous-head-foreign');
+  });
+
   it('rejects out-of-workspace folder paths and falls back safely', async () => {
     const { ws } = makeWorkspaceWithFolder();
     const outside = mkdtempSync(join(tmpdir(), 'alembic-scanroot-outside-'));

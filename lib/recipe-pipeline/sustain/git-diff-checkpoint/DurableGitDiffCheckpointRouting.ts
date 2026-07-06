@@ -120,13 +120,20 @@ export function recordPluginGitDiffCheckpointRouteOutcome(input: {
     };
   }
 
+  // 空间根修配套（2026-07-06）：checkpointCommit 残留自另一 git 仓（扫描根从
+  // workspace 切到 folder 后 scanner 探明 previousHead 在本仓不存在）→ 显式基线
+  // 重置推进到 folder HEAD，否则每轮 merge-base-unavailable 死循环、路由永不收口。
+  const resetBaseline = routeStatus === 'unresolved' && input.scan.previousHeadMissing === true;
   const result = input.runtime.service.recordRouteOutcome({
     ...input.runtime.scope,
-    routeReason: buildRouteReason(routeStatus, input),
+    routeReason: resetBaseline
+      ? `Checkpoint baseline reset: previous commit ${input.scan.previousHead ?? '(unknown)'} does not exist in the folder repository; re-baselined at current HEAD.`
+      : buildRouteReason(routeStatus, input),
     routeStatus,
     scannedAt: Date.parse(input.scan.scannedAt),
     mergeBaseCommit: input.scan.mergeBase,
     targetCommit: input.scan.head,
+    ...(resetBaseline ? { resetBaseline } : {}),
   });
   return {
     advanced: result.advanced,
