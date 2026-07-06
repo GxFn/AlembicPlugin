@@ -536,6 +536,8 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       files: results,
       totalViolations,
       appliedRules,
+      // G-B：适用 Recipe 规矩清单（refs 精确文件匹配），无论 violation 与否都交付
+      applicableRecipeRules: collectApplicableRecipeRules(ctx, filePaths),
       summary: {
         total: totalViolations,
         errors: totalErrors,
@@ -565,6 +567,85 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
  * 预加载所有 rule 类型 recipe 的修复字段
  * 构建 guardId → recipe 映射
  */
+/**
+ * G-B（2026-07-06）：Recipe 规矩清单交付——按被检文件从 recipe_source_refs
+ * 确定性取适用 Recipe（refs 精确文件匹配，与 recipe_map 挂载同源判据，非语义
+ * 猜测），交付 doClause/dontClause 给宿主 agent 判断。Recipe 是自然语言规则
+ * （constraints.guards 机械 matcher 由生产端另行补充），"规则判断者"是宿主
+ * LLM，guard 是确定性交付者；无论有无 violation 都交付，回答"这个文件适用
+ * 哪些项目规矩"。失败容错返回 []（不破坏 guard 主链）。
+ */
+const APPLICABLE_RECIPE_RULES_LIMIT = 20;
+
+function collectApplicableRecipeRules(
+  ctx: McpContext,
+  filePaths: string[]
+): Array<Record<string, unknown>> {
+  if (filePaths.length === 0) {
+    return [];
+  }
+  try {
+    const refRepo = ctx.container.get('recipeSourceRefRepository') as {
+      findAll(): Array<{ recipeId: string; sourcePath: string; status: string }>;
+    };
+    const knowledgeRepo = ctx.container.get('knowledgeRepository') as {
+      findByIdsDetailSync(ids: string[]): Array<Record<string, unknown>>;
+    };
+    const checked = new Set(
+      filePaths.map((file) => file.replaceAll('\\', '/').replace(/^\.\//, ''))
+    );
+    const matchedRefByRecipe = new Map<string, string>();
+    for (const ref of refRepo.findAll()) {
+      if (ref.status !== 'active') {
+        continue;
+      }
+      const refFile = ref.sourcePath.split(':')[0];
+      if (!refFile) {
+        continue;
+      }
+      const hit =
+        checked.has(refFile) ||
+        [...checked].some((file) => refFile.endsWith(`/${file}`) || file.endsWith(`/${refFile}`));
+      if (hit && !matchedRefByRecipe.has(ref.recipeId)) {
+        matchedRefByRecipe.set(ref.recipeId, ref.sourcePath);
+      }
+    }
+    if (matchedRefByRecipe.size === 0) {
+      return [];
+    }
+    const ids = [...matchedRefByRecipe.keys()].slice(0, APPLICABLE_RECIPE_RULES_LIMIT);
+    const details = knowledgeRepo.findByIdsDetailSync(ids);
+    const detailById = new Map(details.map((row) => [String(row.id), row]));
+    return ids.flatMap((recipeId) => {
+      const row = detailById.get(recipeId);
+      if (!row) {
+        return [];
+      }
+      const doClause = typeof row.doClause === 'string' ? row.doClause : '';
+      const dontClause = typeof row.dontClause === 'string' ? row.dontClause : '';
+      if (!doClause && !dontClause) {
+        return [];
+      }
+      return [
+        {
+          recipeId,
+          title: String(row.title ?? row.description ?? recipeId),
+          ...(typeof row.trigger === 'string' && row.trigger ? { trigger: row.trigger } : {}),
+          ...(typeof row.kind === 'string' && row.kind ? { kind: row.kind } : {}),
+          ...(doClause ? { doClause } : {}),
+          ...(dontClause ? { dontClause } : {}),
+          sourceRef: matchedRefByRecipe.get(recipeId) as string,
+        },
+      ];
+    });
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[MCP/Guard] applicable recipe rules degraded: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return [];
+  }
+}
+
 async function _loadRuleRecipes(ctx: McpContext): Promise<Map<string, RecipeEntry>> {
   const map = new Map<string, RecipeEntry>();
   try {

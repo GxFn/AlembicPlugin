@@ -214,6 +214,34 @@ describe('Agent-facing public tools contract foundation', () => {
       toolName: 'alembic_code_guard',
     });
 
+    // G-B：applicableRecipeRules（适用 Recipe 规矩清单）经投影层保留
+    const withRecipeRules = createAgentPublicToolOutput(result, {
+      guard: {
+        success: true,
+        guardResult: {
+          applicableRecipeRules: [
+            {
+              recipeId: 'r1',
+              title: 'errorHandler 单咽喉',
+              trigger: '@error-handler',
+              kind: 'pattern',
+              doClause: 'Route all HTTP errors through errorHandler.',
+              dontClause: 'Do not send raw error responses from route handlers.',
+              sourceRef: 'Alembic/lib/http/middleware/errorHandler.ts:1-12',
+            },
+          ],
+          summary: { total: 0, errors: 0, warnings: 0 },
+        },
+      },
+    });
+    const parsedRules = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.parse(withRecipeRules);
+    expect(parsedRules.guard?.applicableRecipeRules).toHaveLength(1);
+    expect(parsedRules.guard?.applicableRecipeRules?.[0]).toMatchObject({
+      recipeId: 'r1',
+      dontClause: 'Do not send raw error responses from route handlers.',
+      sourceRef: 'Alembic/lib/http/middleware/errorHandler.ts:1-12',
+    });
+
     const unknownOutput = createAgentPublicToolOutput(result, {
       primeAlignment: {
         primeRef: 'prime-public-other-session',

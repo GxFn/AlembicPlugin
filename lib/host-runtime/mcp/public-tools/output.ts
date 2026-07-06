@@ -158,9 +158,24 @@ const GuardAppliedRulesSchema = z
   })
   .strict();
 
+// G-B（2026-07-06）：适用 Recipe 规矩清单——refs 精确文件匹配的确定性交付，
+// 宿主 agent 据 doClause/dontClause 判断（Recipe 是自然语言规则，判断者=宿主 LLM）。
+const GuardApplicableRecipeRuleSchema = z
+  .object({
+    recipeId: z.string().min(1).max(240),
+    title: z.string().min(1).max(1200),
+    trigger: z.string().max(240).optional(),
+    kind: z.string().max(80).optional(),
+    doClause: z.string().max(2000).optional(),
+    dontClause: z.string().max(2000).optional(),
+    sourceRef: z.string().min(1).max(1200),
+  })
+  .strict();
+
 const GuardPublicResultSchema = z
   .object({
     appliedRules: GuardAppliedRulesSchema.optional(),
+    applicableRecipeRules: z.array(GuardApplicableRecipeRuleSchema).max(20).optional(),
     guardErrorCode: OptionalPublicStringSchema,
     ok: z.boolean(),
     resultSummary: GuardResultSummarySchema,
@@ -650,8 +665,12 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
   const totalViolationCount = numberFrom(summary.total);
   const warningCount = numberFrom(summary.warnings);
   const appliedRules = projectGuardAppliedRules(guardResult.appliedRules);
+  const applicableRecipeRules = projectGuardApplicableRecipeRules(
+    guardResult.applicableRecipeRules
+  );
   return {
     ...(appliedRules ? { appliedRules } : {}),
+    ...(applicableRecipeRules.length > 0 ? { applicableRecipeRules } : {}),
     ...(stringFrom(record.guardErrorCode)
       ? { guardErrorCode: stringFrom(record.guardErrorCode) }
       : {}),
@@ -702,6 +721,37 @@ function projectGuardAppliedRules(value: unknown): z.infer<typeof GuardAppliedRu
     })
     .filter((rule) => rule.id.length > 0);
   return { total, bySource, sample };
+}
+
+/** G-B：内层 guardResult.applicableRecipeRules 的公开投影；形态不符逐条丢弃。 */
+function projectGuardApplicableRecipeRules(
+  value: unknown
+): Array<z.infer<typeof GuardApplicableRecipeRuleSchema>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.slice(0, 20).flatMap((entry) => {
+    const row = asRecord(entry);
+    const recipeId = stringFrom(row.recipeId, 240);
+    const title = stringFrom(row.title, 1200);
+    const sourceRef = stringFrom(row.sourceRef, 1200);
+    if (!recipeId || !title || !sourceRef) {
+      return [];
+    }
+    return [
+      {
+        recipeId,
+        title,
+        ...(stringFrom(row.trigger, 240) ? { trigger: stringFrom(row.trigger, 240) } : {}),
+        ...(stringFrom(row.kind, 80) ? { kind: stringFrom(row.kind, 80) } : {}),
+        ...(stringFrom(row.doClause, 2000) ? { doClause: stringFrom(row.doClause, 2000) } : {}),
+        ...(stringFrom(row.dontClause, 2000)
+          ? { dontClause: stringFrom(row.dontClause, 2000) }
+          : {}),
+        sourceRef,
+      },
+    ];
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

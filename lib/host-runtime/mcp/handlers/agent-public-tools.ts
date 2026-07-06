@@ -1273,8 +1273,19 @@ async function runPrimeSearch(
       language: args.language ?? null,
     });
     const regionEvidence = await queryPrimeRegionEvidence(ctx, frame);
-    const sourceRefEvidence =
+    let sourceRefEvidence =
       regionEvidence.length > 0 ? [] : await queryPrimeSourceRefLocatorEvidence(ctx, args, intake);
+    // P-1（2026-07-06 pure-local 自足）：无文件锚点、无向量证据时，本地检索命中的
+    // Recipe 用 recipe_source_refs 行级区间回填 locator 证据——refs 数据就在本地
+    // SQLite，信任门不必依赖 daemon（resident injection package）才能放行。检索
+    // 质量门（quality filter）已在 pipeline 层把关；whySelected 标记 backfill 来源
+    // 与 exact-match 区分，审计可辨。
+    if (regionEvidence.length === 0 && sourceRefEvidence.length === 0 && searchResult) {
+      const hitRecipeIds = uniqueStrings(
+        [...searchResult.relatedKnowledge, ...searchResult.guardRules].map((item) => item.id)
+      );
+      sourceRefEvidence = await queryPrimeHitRecipeLocatorEvidence(ctx, hitRecipeIds);
+    }
     return {
       searchDegraded: false,
       searchResult,
@@ -1326,6 +1337,66 @@ async function queryPrimeSourceRefLocatorEvidence(
   } catch (err: unknown) {
     process.stderr.write(
       `[MCP/AgentPublicTools] alembic_prime source-ref locator fallback degraded: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return [];
+  }
+}
+
+/**
+ * P-1 第二锚源：文件锚点缺席的纯本地 prime。本地统一检索命中的 recipe，若在
+ * recipe_source_refs 有真实源引用，则以行级区间回填 recipe-locator 信任证据。
+ * 与 exact-match fallback 的差异仅在锚源（检索命中 vs host 文件锚），证据形态
+ * 同构；whySelected 用 search-hit-source-ref-backfill 标记以便审计区分。
+ */
+async function queryPrimeHitRecipeLocatorEvidence(
+  ctx: McpContext,
+  hitRecipeIds: string[]
+): Promise<Record<string, unknown>[]> {
+  if (hitRecipeIds.length === 0) {
+    return [];
+  }
+  const recipeContext = buildPrimeRecipeContextService(ctx);
+  if (!recipeContext) {
+    return [];
+  }
+  try {
+    const envelope = await recipeContext.execute({
+      kind: 'list',
+      payload: { filter: {}, pageSize: 200 },
+    } as RecipeContextRequest);
+    const data = envelope.data as PrimeRecipeListData;
+    const hitSet = new Set(hitRecipeIds);
+    return (data.recipes ?? [])
+      .filter((recipe) => hitSet.has(recipe.id))
+      .flatMap((recipe) => {
+        const refs = uniqueStrings([
+          ...(recipe.sources ?? []),
+          ...(recipe.sourceFile ? [recipe.sourceFile] : []),
+        ]);
+        if (refs.length === 0) {
+          return [];
+        }
+        return [
+          {
+            evidenceRefs: [`recipe-locator:${recipe.id}`],
+            injectionStatus: 'selected',
+            itemId: recipe.id,
+            kind: recipe.kind ?? 'pattern',
+            recipeId: recipe.id,
+            score: 1,
+            sourceRefs: refs.slice(0, 5),
+            trustEvidenceSource: 'source-ref-locator-fallback',
+            ...(recipe.title ? { title: recipe.title } : {}),
+            ...(recipe.trigger ? { trigger: recipe.trigger } : {}),
+            ...(recipe.summary ? { summary: recipe.summary } : {}),
+            whySelected: ['recipe-locator:search-hit-source-ref-backfill'],
+          },
+        ];
+      })
+      .slice(0, PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT);
+  } catch (err: unknown) {
+    process.stderr.write(
+      `[MCP/AgentPublicTools] alembic_prime hit-recipe locator backfill degraded: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return [];
   }

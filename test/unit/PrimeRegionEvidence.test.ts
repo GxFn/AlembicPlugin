@@ -119,6 +119,31 @@ describe('regionEvidence → prime trust gate (PDR-1d interim un-defer)', () => 
     expect(material.acceptedKnowledge).toHaveLength(0);
   });
 
+  test('search-hit source-ref backfill earns recipe-locator trust for subject-less pure-local prime (P-1)', () => {
+    // P-1（2026-07-06）：无文件锚点、无向量证据时，本地检索命中的 Recipe 用
+    // refs 表回填的证据形态必须过信任门——否则 pure-local prime 永远 knowledge-empty。
+    const backfill = [
+      {
+        evidenceRefs: ['recipe-locator:r-hit'],
+        injectionStatus: 'selected',
+        itemId: 'r-hit',
+        kind: 'pattern',
+        recipeId: 'r-hit',
+        score: 1,
+        sourceRefs: ['Alembic/lib/http/middleware/errorHandler.ts:1-12'],
+        title: 'errorHandler 集中式错误处理中间件',
+        trustEvidenceSource: 'source-ref-locator-fallback',
+        whySelected: ['recipe-locator:search-hit-source-ref-backfill'],
+      },
+    ];
+    const material = buildPrimeKnowledgeMaterial({ ...baseInput, regionEvidence: backfill });
+
+    const accepted = material.acceptedKnowledge.find((item) => item.id === 'r-hit');
+    expect(accepted).toBeDefined();
+    expect(accepted?.trustEvidence.kind).toBe('recipe-locator');
+    expect(accepted?.trustEvidence.source).toBe('source-ref-locator-fallback');
+  });
+
   test('source-ref locator evidence promotes exact Recipe source matches without vector evidence', () => {
     const recipe = makeRecipeRecord({
       id: 'r-source',

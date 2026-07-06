@@ -1296,7 +1296,12 @@ function directSearchDegradedReason(input: {
     return 'Low-information search lacked exact id/ref/title/trigger, explicit keywords, or metadata filters; no fallback candidates were returned.';
   }
   if (input.semanticMode && !input.semanticEvidenceAvailable) {
-    return `Semantic search requires resident or local semantic/vector evidence; Plugin keyword/filter fallback was withheld${input.residentUnavailableReason ? ` (${input.residentUnavailableReason})` : ''}.`;
+    // P-3（2026-07-06）：resident 语义道失败几乎总是 daemon 未运行——把两条真实
+    // 恢复路径写进降级消息（daemon 自启 / 本地 Ollama embedding），而不是只让用户换词。
+    const recovery = input.residentUnavailableReason
+      ? ' Recover semantic search by starting the Alembic daemon (`alembic daemon start`; enable login autostart via `alembic daemon autostart --install`) or enabling local Ollama embeddings (ALEMBIC_LOCAL_EMBEDDING_ENABLED=1 with an Ollama daemon running).'
+      : '';
+    return `Semantic search requires resident or local semantic/vector evidence; Plugin keyword/filter fallback was withheld${input.residentUnavailableReason ? ` (${input.residentUnavailableReason})` : ''}.${recovery}`;
   }
   if (input.candidateCount === 0) {
     return 'Search returned no candidate items.';
