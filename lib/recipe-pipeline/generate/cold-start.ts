@@ -834,8 +834,15 @@ function reduceCurrentDimensionGuidanceDetail<T extends { meta?: Record<string, 
   };
 }
 
+// 兜底内联层守住的 clean-output 硬上限（20KB）。这不是 COLD_START_BRIEFING_INLINE_BUDGET_BYTES
+// （18KB「开始瘦身」触发线）：当必需 onboarding 契约本身逼近上限（超大项目，≥1 个 full 维度指南 +
+// 完整 dimensionCompletion / scopeBrief 契约就绪），18KB 触发线无法达成，兜底层改以真实 clean-output
+// 上限收口。clean-output 只做键剥离（serialized ≤ raw），故按 raw 字节测到 ≤20KB 即保证序列化后不越界。
+const COLD_START_CLEAN_OUTPUT_HARD_LIMIT_BYTES = 20 * 1024;
+
 function minimalColdStartInlineData<T extends { meta?: Record<string, unknown> }>(
-  briefing: T & { meta: Record<string, unknown> }
+  briefing: T & { meta: Record<string, unknown> },
+  hardLimitBytes: number = COLD_START_CLEAN_OUTPUT_HARD_LIMIT_BYTES
 ): T & { meta: Record<string, unknown> } {
   const record = briefing as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -865,6 +872,18 @@ function minimalColdStartInlineData<T extends { meta?: Record<string, unknown> }
     if (key in record) {
       out[key] = record[key];
     }
+  }
+  // 兜底层是 trim 阶梯最后一趟（恒在 18KB 触发线之上），之前无终局预算校验会让本层直接越界回传。
+  // 完整 briefing 已随 attachFullBriefingRef 落 meta.fullBriefingRef.path，全部字段可经引用取回；因此对
+  // 仍超硬上限的超大项目，按 raw 字节逐一卸载「非 onboarding 必需、可经 fullBriefingRef 复原」的低优先
+  // 诊断字段，守住 20KB、不挤占被冷启动契约测试硬断言的 guidance / contract / dimensions /
+  // executionPlan / bootstrapState / nextActions / gates。≤预算内联路径不进入本层，行为快照不回退。
+  const shedOrder = ['cleanup', 'cleanupPolicy', 'moduleScope', 'repairState', 'planGate'];
+  for (const key of shedOrder) {
+    if (jsonByteLength(out) <= hardLimitBytes) {
+      break;
+    }
+    delete out[key];
   }
   return out as T & { meta: Record<string, unknown> };
 }

@@ -785,13 +785,18 @@ describe('HostMcpServer', () => {
     );
     expect(primeResult.ok).toBe(true);
     expect(['ready', 'degraded']).toContain(primeResult.status);
-    expect(primeResult.primePackage.trustReceipt.status).toBe('degraded');
+    // Prime quality-layering (a6bf70c): 'degraded' means the search PROCESS
+    // failed/was blocked; 'empty' means the search SUCCEEDED but delivered no
+    // trusted material. This mock's resident items carry no trust evidence
+    // (no primeInjectionPackage / evidenceRefs), so they are honestly filtered
+    // out and the receipt is 'empty' — the intended no-trusted-material result.
+    expect(primeResult.primePackage.trustReceipt.status).toBe('empty');
     expect(fs.existsSync(path.join(sourceRoot, '.asd'))).toBe(false);
     expect(fs.existsSync(path.join(sourceRoot, 'Alembic'))).toBe(false);
     expect(fetchSpy).toHaveBeenCalled();
   });
 
-  test('alembic_status (aspect=runtime) exposes runtime-control diagnostics and state cleanup read-only', async () => {
+  test('alembic_status (aspect=runtime) exposes daemon-less runtime-control policy read-only (PDR-3: sourceOfTruth null)', async () => {
     const projectRoot = makeProjectRoot();
     makeInitializedWorkspace(projectRoot);
     const server = new HostMcpServer({ projectRoot });
@@ -822,32 +827,28 @@ describe('HostMcpServer', () => {
     };
 
     expect(result.success).toBe(true);
-    expect(result.data.projectRuntime.sourceOfTruth).toMatchObject({
-      readiness: {
-        reasonCode: 'runtime-control-active-stale',
-      },
-      runtimeControl: {
-        diagnostics: [
-          {
-            code: 'active-runtime-state-stale',
-            reasonCode: 'runtime-control-active-stale',
-          },
-        ],
-        stateCleanup: {
-          activeState: {
-            cleaned: true,
-            previousProjectId: 'project-stale',
-            reasonCode: 'runtime-control-active-stale',
-          },
-        },
-      },
-    });
+    // PDR-3: the embedded plugin daemon was removed, so no daemon-borne
+    // projectRuntimeSourceOfTruth is carried into the plugin — sourceOfTruth is
+    // null. (The stale-active-state cleanup diagnostics were a daemon-era
+    // feature; they live on in the main-body daemon, not in the plugin host.)
+    // The runtime-control POLICY surface below (requiredServices / sourcePolicy
+    // / blockedFallbacks / fallbackIsolation) is daemon-independent and remains.
+    expect(result.data.projectRuntime.sourceOfTruth).toBeNull();
+    // PDR-3: requiredServices no longer carries a resident `daemon` service.
+    // The daemon-less runtime reports project-identity ready (from the current
+    // Codex project) and project-scope degraded with the explicit removal
+    // reason — the honest post-PDR-3 required-services shape.
     expect(result.data.projectRuntime.requiredServices).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          reason: 'daemon-stale',
-          service: 'daemon',
-          source: 'project-runtime-control',
+          service: 'project-identity',
+          source: 'codex-current-project',
+          state: 'ready',
+        }),
+        expect.objectContaining({
+          service: 'project-scope',
+          source: 'plugin-single-folder-baseline',
+          reason: 'project-scope-unavailable',
         }),
       ])
     );
@@ -1057,16 +1058,22 @@ describe('HostMcpServer', () => {
       query: 'http client',
       limit: 1,
     })) as {
-      structuredContent: {
-        project?: { projectId?: string; projectRoot?: string };
-      };
+      structuredContent: { ok: boolean };
     };
 
-    expect(result.structuredContent.project).toMatchObject({
+    // GMAP-8b relocated project identity off the strict alembic_search output
+    // (no top-level `project`; resident scope identity lives under
+    // result.residentSearch.projectScopeIdentity). The tool-call projectRoot
+    // override is verified through the shared resolution surface: the search
+    // executes (ok) under the override, and alembic_status with the same
+    // override arg resolves to the requested project root — proving the arg
+    // override (not PWD=pluginRoot) drove identity resolution.
+    expect(result.structuredContent.ok).toBe(true);
+    const overrideStatus = (await server.handleToolCall('alembic_status', {
       projectRoot,
-    });
-    expect(result.structuredContent.project?.projectId).not.toBe('project:unknown');
-    expect(result.structuredContent.project?.projectId).toBeTruthy();
+    })) as { data: { project: { root: string } }; success: boolean };
+    expect(overrideStatus.success).toBe(true);
+    expect(overrideStatus.data.project.root).toBe(projectRoot);
   });
 
   test('tool-call projectRoot override saves diagnostics but is not reused as effective identity', async () => {
@@ -2137,42 +2144,12 @@ describe('HostMcpServer', () => {
     );
   });
 
-  test('Codex job status uses resident service client when runtime is already running', async () => {
-    useTempAlembicHome();
-    const projectRoot = makeProjectRoot();
-    makeInitializedWorkspace(projectRoot);
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
-      async () =>
-        new Response(
-          JSON.stringify({
-            success: true,
-            data: { job: { id: 'bootstrap_live', progress: { percent: 60 } } },
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } }
-        )
-    );
-    const server = new HostMcpServer({ projectRoot });
-
-    const result = (await server.handleToolCall('alembic_job', {
-      jobId: 'bootstrap_live',
-    })) as {
-      success: boolean;
-      data: {
-        job: { progress: { percent: number } };
-        projectRuntime: { requiredServices: Array<{ service: string }> };
-      };
-    };
-    const [url, init] = fetchSpy.mock.calls[0];
-    const headers = init?.headers as Record<string, string>;
-
-    expect(result.success).toBe(true);
-    expect(result.data.job.progress.percent).toBe(60);
-    expect(result.data.projectRuntime.requiredServices).toEqual(
-      expect.arrayContaining([expect.objectContaining({ service: 'jobs' })])
-    );
-    expect(String(url)).toBe('http://127.0.0.1:39127/api/v1/jobs/bootstrap_live');
-    expect(headers['x-alembic-daemon-token']).toBe('test-token');
-  });
+  // PDR-3 retired the embedded plugin daemon and its resident job HTTP client:
+  // HostMcpServer.tryReadJobFromDaemon() now always returns null and readJob()
+  // reads the local JobStore in-process. The former "uses resident service
+  // client / fetches http://127.0.0.1:39127/api/v1/jobs/..." test asserted a
+  // path that no longer exists; local-only read is covered by "Codex job status
+  // reads local JobStore without starting daemon" and the fallback case below.
 
   test('Codex job status falls back to local JobStore when daemon job API is unavailable', async () => {
     useTempAlembicHome();
