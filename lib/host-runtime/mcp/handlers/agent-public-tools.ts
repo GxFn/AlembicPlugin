@@ -2217,7 +2217,14 @@ function buildPrimePublicPackage(input: {
       acceptedKnowledge: (input.primeKnowledgeMaterial?.acceptedKnowledge ?? [])
         .slice(0, 8)
         .map((item) => ({
-          ...(item.actionHint ? { actionHint: item.actionHint } : {}),
+          ...(item.actionHint
+            ? {
+                actionHint:
+                  item.actionHint.length > 500
+                    ? `${item.actionHint.slice(0, 497)}…`
+                    : item.actionHint,
+              }
+            : {}),
           evidenceRefCount: item.evidenceRefs.length,
           id: item.id,
           kind: item.kind,

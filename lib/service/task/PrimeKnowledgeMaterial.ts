@@ -851,8 +851,8 @@ function projectSelectedKnowledgeSearchResult(
     title,
     trigger,
     description,
-    ...(recordString(selectedKnowledge, 'actionHint')
-      ? { actionHint: recordString(selectedKnowledge, 'actionHint') }
+    ...(clampActionHint(recordString(selectedKnowledge, 'actionHint'))
+      ? { actionHint: clampActionHint(recordString(selectedKnowledge, 'actionHint')) }
       : {}),
     sourceRefs: collectSelectedKnowledgeSourceRefs(selectedKnowledge),
   };
@@ -1177,7 +1177,7 @@ function projectAcceptedKnowledge(
     kind: item.kind || 'pattern',
     title: item.title,
     trigger: item.trigger,
-    ...(item.actionHint ? { actionHint: item.actionHint } : {}),
+    ...(clampActionHint(item.actionHint) ? { actionHint: clampActionHint(item.actionHint) } : {}),
     summary: summarizePrimeItem(item),
     score: item.score,
     evidenceRefs,
@@ -1192,7 +1192,7 @@ function projectAcceptedGuard(item: SlimSearchResult): AcceptedPrimeGuard {
     id: item.id,
     title: item.title,
     trigger: item.trigger,
-    ...(item.actionHint ? { actionHint: item.actionHint } : {}),
+    ...(clampActionHint(item.actionHint) ? { actionHint: clampActionHint(item.actionHint) } : {}),
     score: item.score,
     evidenceRefs: extractEvidenceRefs(item.sourceRefs),
   };
@@ -1344,4 +1344,14 @@ function redactVisiblePath(value: string): string {
     return normalized;
   }
   return parts.slice(-3).join('/');
+}
+
+/** 公开面 actionHint 上限（compactPackage schema <=500）：G3 的 when→do⚠️dont 拼接
+ * 在本地直读完整 doClause/dontClause 后可能超限——resident 路径历史被 daemon 截断
+ * 掩盖，P-1 本地路径首次暴露（2026-07-06 真机 schema 拒绝）。消费侧统一钳制。 */
+function clampActionHint(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.length > 500 ? `${value.slice(0, 497)}…` : value;
 }
