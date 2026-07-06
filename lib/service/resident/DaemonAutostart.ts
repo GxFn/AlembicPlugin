@@ -206,7 +206,11 @@ export async function ensureResidentDaemonRunning(
 
   const state = readState(options.projectRoot);
   if (state && (await probeHealth(state))) {
-    return { status: 'already-running', pid: state.pid ?? null, entrypoint: state.entrypoint ?? null };
+    return {
+      status: 'already-running',
+      pid: state.pid ?? null,
+      entrypoint: state.entrypoint ?? null,
+    };
   }
 
   const registry = readRegistry(options.projectRoot);
@@ -296,5 +300,10 @@ export async function ensureResidentDaemonRunning(
     waitBudgetMs,
     waitedMs,
   });
-  return { status: 'spawn-timeout', reason: `not healthy after ${waitedMs}ms`, entrypoint: resolved.entrypoint, waitedMs };
+  return {
+    status: 'spawn-timeout',
+    reason: `not healthy after ${waitedMs}ms`,
+    entrypoint: resolved.entrypoint,
+    waitedMs,
+  };
 }

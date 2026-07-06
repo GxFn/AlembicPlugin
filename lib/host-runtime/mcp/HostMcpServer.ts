@@ -10,13 +10,13 @@ import {
   type HostTurnMetaInput,
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/host-turn-meta.js';
-import { ensureResidentDaemonRunning } from '../../service/resident/DaemonAutostart.js';
 import { SetupService } from '../../cli/SetupService.js';
 import {
   type AlembicResidentCapabilityClients,
   createAlembicResidentCapabilityClients,
   isResidentProjectScopeReady,
 } from '../../service/resident/AlembicResidentCapabilityClients.js';
+import { ensureResidentDaemonRunning } from '../../service/resident/DaemonAutostart.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
 import type { GenerateInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
 import {
