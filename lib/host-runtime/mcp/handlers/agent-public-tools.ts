@@ -432,7 +432,12 @@ function hasSemanticRegionVectorEvidence(regionEvidence: Record<string, unknown>
 function evidenceRefToUri(
   ref: PrimeKnowledgeMaterial['acceptedKnowledge'][number]['evidenceRefs'][number]
 ) {
-  return ref.line === null ? ref.path : `${ref.path}:${ref.line}`;
+  if (ref.line === null) {
+    return ref.path;
+  }
+  // P2 行级 locator（2026-07-06）：refs 表存 path:start-end，带区间尾时输出完整
+  // 区间，宿主可一跳直达证据行段（此前恒截成 :start 单行、常见形态是误导性的 :1）。
+  return ref.endLine ? `${ref.path}:${ref.line}-${ref.endLine}` : `${ref.path}:${ref.line}`;
 }
 
 function _resolveString(value: unknown): string | undefined {

@@ -16,6 +16,9 @@ export type PrimeTrustLayer =
 export interface PrimeEvidenceRef {
   path: string;
   line: number | null;
+  /** 行区间尾（P2 行级 locator，2026-07-06）：refs 表存 path:start-end 形态，
+   *  此前解析丢尾只剩起始行，宿主收到 file:1 无法直达证据区间。容缺（单行/无行号为 null）。 */
+  endLine?: number | null;
 }
 
 export interface PrimeUsefulSlice {
@@ -1222,14 +1225,20 @@ function extractEvidenceRefs(sourceRefs?: string[]): PrimeEvidenceRef[] {
 }
 
 function parseEvidenceRef(ref: string): PrimeEvidenceRef {
-  const match = ref.match(/^(.*?)(?::(?:L|line-?|#L)?(\d+))(?:[:,-]\d+)?$/i);
+  const match = ref.match(/^(.*?)(?::(?:L|line-?|#L)?(\d+))(?:[:,-](\d+))?$/i);
   if (!match?.[1] || !match[2]) {
     return { path: ref, line: null };
   }
   const line = Number.parseInt(match[2], 10);
+  const endRaw = match[3] ? Number.parseInt(match[3], 10) : null;
+  const start = Number.isFinite(line) && line > 0 ? line : null;
+  // 区间尾仅在合法且不小于起始行时保留（path:12-8 之类脏数据降级为单行）。
+  const endLine =
+    start !== null && endRaw !== null && Number.isFinite(endRaw) && endRaw >= start ? endRaw : null;
   return {
     path: match[1],
-    line: Number.isFinite(line) && line > 0 ? line : null,
+    line: start,
+    endLine,
   };
 }
 
