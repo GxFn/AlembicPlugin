@@ -65,13 +65,21 @@ export function resolveRetrievalCheckpointPostureInput(projectRoot: string): {
     return { projectRoot };
   }
   const summary = runtime.summary;
-  const folderPath = summary.currentFolderPath ?? null;
+  // summary.currentFolderId 由"projectRoot 是否匹配某个 folder 路径"决定——控制器
+  // workspace 根不是任何 folder，匹配恒空；tick（HostMcpServer executionContext）用的
+  // 是 scope 注册的 currentFolderId 指针。此处同源回退到 descriptor 指针，否则 scope
+  // 落到不存在的 checkpoint 行（真机 2026-07-06：posture 恒 unavailable，读不到 folder 行）。
+  const folderId = summary.currentFolderId ?? runtime.descriptor.currentFolderId ?? null;
+  const folderPath =
+    summary.currentFolderPath ??
+    summary.folders.find((folder) => folder.folderId === folderId)?.path ??
+    null;
   const within =
     typeof folderPath === 'string' &&
     isAbsolute(folderPath) &&
     !relative(projectRoot, folderPath).startsWith('..');
   return {
-    currentFolderId: summary.currentFolderId ?? null,
+    currentFolderId: folderId,
     projectRoot,
     projectScopeId: summary.projectScopeId ?? null,
     scanRoot: within ? folderPath : null,
