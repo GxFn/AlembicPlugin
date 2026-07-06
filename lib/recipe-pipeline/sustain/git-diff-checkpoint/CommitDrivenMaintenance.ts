@@ -1,3 +1,4 @@
+import { isAbsolute, relative } from 'node:path';
 import {
   describeUnifiedEvolutionRouteIncomplete,
   type HostAgentFileChangeHandler,
@@ -31,7 +32,18 @@ export interface CommitDrivenMaintenanceInput {
   projectRoot: string;
   // presenter 去抖：resident 检索增强就绪且本次无 HEAD 变化时不路由（无新提交需维护）。rescan 省略=false。
   residentSearchEnhancementReady?: boolean;
-  runtimeScope?: { currentFolderId?: string | null; projectScopeId?: string | null };
+  runtimeScope?: {
+    currentFolderId?: string | null;
+    projectScopeId?: string | null;
+    /**
+     * 当前 folder 的绝对路径（ProjectScope folderIndex 的注册路径）。
+     * 传入时代码漂移扫描以该 folder 自己的 git 仓为对象（Alembic 空间只关注
+     * 注册的子仓库；workspace 根是 Wakeflow 协作区 git 仓，不是知识源）——
+     * scan 结果的事件路径会回映射为 workspace 相对（refs 表的路径空间）。
+     * 省略/非法时退回 projectRoot 扫描（单仓项目模式的既有行为）。
+     */
+    currentFolderPath?: string | null;
+  };
 }
 
 export interface CommitDrivenMaintenanceResult {
@@ -65,8 +77,15 @@ export async function runCommitDrivenMaintenance(
     projectScopeId: input.runtimeScope?.projectScopeId ?? null,
   });
   const previousHead = runtime?.checkpointCommit ?? null;
-  const scanner = new GitDiffScanner({ projectRoot: input.projectRoot });
-  const scan = await scanner.scanOnce(input.now ?? Date.now(), { previousHead });
+  // 空间根修（2026-07-06）：漂移扫描对象 = 当前 folder 自己的 git 仓（Alembic 空间
+  // 只关注 ProjectScope 注册的子仓库）。workspace 根是 Wakeflow 协作区仓，其 untracked
+  // 台账曾把事件预算挤爆（scale-guard:503>200）。首轮切换时 checkpoint 里残留的
+  // workspace 根仓 commit 在 folder 仓中解析不到 merge-base → headRangeStatus
+  // unavailable → 本轮不路由、checkpoint 前进为 folder 仓 HEAD——一次性自愈。
+  const scanRoot = resolveMaintenanceScanRoot(input);
+  const scanner = new GitDiffScanner({ projectRoot: scanRoot });
+  const rawScan = await scanner.scanOnce(input.now ?? Date.now(), { previousHead });
+  const scan = remapScanToProjectSpace(rawScan, scanRoot, input.projectRoot);
 
   let report: UnifiedEvolutionReport | null = null;
   let routeError: string | null = null;
@@ -106,4 +125,48 @@ export async function runCommitDrivenMaintenance(
     : undefined;
 
   return { checkpoint, report, routeAttempted, routeError, scan };
+}
+
+/**
+ * 解析漂移扫描根：runtimeScope.currentFolderPath 合法（绝对路径、位于 projectRoot
+ * 之内且不是 projectRoot 本身）→ 扫 folder 仓；否则退回 projectRoot（单仓模式）。
+ * 越界/相对路径一律拒收并退回，防止 scope 数据把扫描带出工作区。
+ */
+function resolveMaintenanceScanRoot(input: CommitDrivenMaintenanceInput): string {
+  const folderPath = input.runtimeScope?.currentFolderPath;
+  if (!folderPath || !isAbsolute(folderPath)) {
+    return input.projectRoot;
+  }
+  const rel = relative(input.projectRoot, folderPath);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    return input.projectRoot;
+  }
+  return folderPath;
+}
+
+/**
+ * 把 folder 仓扫出的事件路径回映射为 workspace 相对（`<folder>/…`）——
+ * recipe_source_refs 与下游影响匹配全部使用该路径空间。scanRoot 即 projectRoot
+ * 时原样返回（单仓模式零开销）。
+ */
+function remapScanToProjectSpace(
+  scan: GitDiffScanResult,
+  scanRoot: string,
+  projectRoot: string
+): GitDiffScanResult {
+  if (scanRoot === projectRoot) {
+    return scan;
+  }
+  const prefix = relative(projectRoot, scanRoot).replaceAll('\\', '/');
+  if (!prefix) {
+    return scan;
+  }
+  return {
+    ...scan,
+    events: scan.events.map((event) => ({
+      ...event,
+      path: `${prefix}/${event.path}`,
+      ...(event.oldPath ? { oldPath: `${prefix}/${event.oldPath}` } : {}),
+    })),
+  };
 }

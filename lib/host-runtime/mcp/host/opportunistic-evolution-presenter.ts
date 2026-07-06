@@ -43,6 +43,9 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
     runtimeScope: {
       currentFolderId: input.executionContext.projectScopeIdentity?.currentFolderId ?? null,
       projectScopeId: input.executionContext.projectScopeIdentity?.projectScopeId ?? null,
+      // 空间根修（2026-07-06）：漂移扫描切到当前 folder 自己的 git 仓——Alembic
+      // 空间只关注 ProjectScope 注册的子仓库，workspace 根（Wakeflow 协作区仓）不是知识源。
+      currentFolderPath: input.executionContext.projectScopeIdentity?.currentFolderPath ?? null,
     },
   });
 
