@@ -21,7 +21,13 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { type DaemonState, readDaemonState, resolveDaemonPaths } from '@alembic/core/daemon';
+import {
+  type DaemonEntrypointRegistry,
+  type DaemonState,
+  readDaemonEntrypointRegistry,
+  readDaemonState,
+  resolveDaemonPaths,
+} from '@alembic/core/daemon';
 
 export type DaemonAutostartStatus =
   | 'already-running'
@@ -55,6 +61,8 @@ export interface EnsureResidentDaemonOptions {
   env?: NodeJS.ProcessEnv;
   /** 测试注入：读取 daemon.json 状态 */
   readState?: (projectRoot: string) => DaemonState | null;
+  /** 测试注入：读取入口注册表（daemon-entrypoint.json，优雅退出后仍在的"最后已知入口"） */
+  readEntrypointRegistry?: (projectRoot: string) => DaemonEntrypointRegistry | null;
   /** 测试注入：health 探测（默认 fetch state.url 的无认证 health 端点） */
   probeHealth?: (state: DaemonState) => Promise<boolean>;
   /** 测试注入：spawn 实现 */
@@ -72,7 +80,9 @@ export interface EnsureResidentDaemonOptions {
 /** health 端点刻意无认证（KB: @health-endpoint-no-auth），探测不带 token。 */
 const HEALTH_PATH = '/api/v1/daemon/health';
 const HEALTH_TIMEOUT_MS = 1500;
-const DEFAULT_WAIT_BUDGET_MS = 8000;
+// 真机实测（2026-07-06）：daemon 完整就绪（含 dashboard mount + UiStartupTasks）约 8.1s，
+// 8s 预算贴线——留 50% 余量取 12s。
+const DEFAULT_WAIT_BUDGET_MS = 12_000;
 const WAIT_STEP_MS = 400;
 const COOLDOWN_MS = 60_000;
 
@@ -107,20 +117,27 @@ function defaultReadState(projectRoot: string): DaemonState | null {
   return readDaemonState(paths.statePath);
 }
 
+function defaultReadEntrypointRegistry(projectRoot: string): DaemonEntrypointRegistry | null {
+  const paths = resolveDaemonPaths(projectRoot);
+  return readDaemonEntrypointRegistry(paths.runtimeDir);
+}
+
 /**
- * 解析 daemon 入口：env 显式指定 > daemon.json 自注册（上次运行留下）。
- * 两者都不可用 → null（形态 2「仅插件」或从未跑过 daemon 的形态 1 首次）。
+ * 解析 daemon 入口：env 显式指定 > daemon.json 自注册（在跑/崩溃残留）>
+ * 入口注册表 daemon-entrypoint.json（优雅退出后 daemon.json 被清理时的 fallback）。
+ * 三者都不可用 → null（形态 2「仅插件」或从未跑过 daemon 的形态 1 首次）。
  */
 function resolveEntrypoint(
   env: NodeJS.ProcessEnv,
   state: DaemonState | null,
+  registry: DaemonEntrypointRegistry | null,
   existsImpl: (path: string) => boolean
 ): { entrypoint: string | null; execPath: string; source: string } {
   const envEntry = env.ALEMBIC_DAEMON_ENTRYPOINT;
   if (envEntry && existsImpl(envEntry)) {
     return {
       entrypoint: envEntry,
-      execPath: resolveExecPath(env, state, existsImpl),
+      execPath: resolveExecPath(env, state, registry, existsImpl),
       source: 'env',
     };
   }
@@ -128,8 +145,16 @@ function resolveEntrypoint(
   if (stateEntry && existsImpl(stateEntry)) {
     return {
       entrypoint: stateEntry,
-      execPath: resolveExecPath(env, state, existsImpl),
+      execPath: resolveExecPath(env, state, registry, existsImpl),
       source: 'daemon-state',
+    };
+  }
+  const registryEntry = registry?.entrypoint;
+  if (registryEntry && existsImpl(registryEntry)) {
+    return {
+      entrypoint: registryEntry,
+      execPath: resolveExecPath(env, state, registry, existsImpl),
+      source: 'entrypoint-registry',
     };
   }
   return { entrypoint: null, execPath: process.execPath, source: 'none' };
@@ -138,6 +163,7 @@ function resolveEntrypoint(
 function resolveExecPath(
   env: NodeJS.ProcessEnv,
   state: DaemonState | null,
+  registry: DaemonEntrypointRegistry | null,
   existsImpl: (path: string) => boolean
 ): string {
   const envExec = env.ALEMBIC_DAEMON_EXEC_PATH;
@@ -148,6 +174,10 @@ function resolveExecPath(
   const stateExec = state?.execPath;
   if (stateExec && existsImpl(stateExec)) {
     return stateExec;
+  }
+  const registryExec = registry?.execPath;
+  if (registryExec && existsImpl(registryExec)) {
+    return registryExec;
   }
   return process.execPath;
 }
@@ -162,6 +192,7 @@ export async function ensureResidentDaemonRunning(
   const env = options.env ?? process.env;
   const logger = options.logger;
   const readState = options.readState ?? defaultReadState;
+  const readRegistry = options.readEntrypointRegistry ?? defaultReadEntrypointRegistry;
   const probeHealth = options.probeHealth ?? defaultProbeHealth;
   const spawnImpl = options.spawnImpl ?? spawn;
   const existsImpl = options.existsImpl ?? existsSync;
@@ -178,18 +209,20 @@ export async function ensureResidentDaemonRunning(
     return { status: 'already-running', pid: state.pid ?? null, entrypoint: state.entrypoint ?? null };
   }
 
-  const resolved = resolveEntrypoint(env, state, existsImpl);
+  const registry = readRegistry(options.projectRoot);
+  const resolved = resolveEntrypoint(env, state, registry, existsImpl);
   if (!resolved.entrypoint) {
     // 形态 2「仅插件」/首次：没有可用入口——诚实降级，不视为错误。
     logger?.info('[DaemonAutostart] resident daemon unavailable: no known entrypoint', {
       projectRoot: options.projectRoot,
       hasStaleState: Boolean(state),
+      hasEntrypointRegistry: Boolean(registry),
       reason: 'no-daemon-entrypoint',
     });
     return {
       status: 'unavailable',
       reason:
-        'No daemon entrypoint is known (set ALEMBIC_DAEMON_ENTRYPOINT, or run the Alembic main-package daemon once so it self-registers in daemon.json).',
+        'No daemon entrypoint is known (set ALEMBIC_DAEMON_ENTRYPOINT, or run the Alembic main-package daemon once so it self-registers its entrypoint).',
       entrypoint: null,
     };
   }

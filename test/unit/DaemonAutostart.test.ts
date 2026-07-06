@@ -171,6 +171,45 @@ describe('ensureResidentDaemonRunning', () => {
     expect(logger.warn).toHaveBeenCalledWith('[DaemonAutostart] spawn failed', expect.anything());
   });
 
+  test('graceful-exit shape (no daemon.json) falls back to entrypoint registry and respawns', async () => {
+    const clock = makeClock();
+    const fresh = makeState({ pid: 333, startedAt: '2026-07-06T02:00:00.000Z' });
+    let spawned = false;
+    const spawnImpl = vi.fn(() => {
+      spawned = true;
+      return { unref: vi.fn() };
+    });
+
+    const result = await ensureResidentDaemonRunning({
+      projectRoot: '/ws',
+      env: {} as NodeJS.ProcessEnv,
+      // 优雅退出：daemon.json 已被清理，spawn 后新实例写回。
+      readState: () => (spawned ? fresh : null),
+      readEntrypointRegistry: () => ({
+        entrypoint: '/main/dist/bin/daemon-server.js',
+        execPath: '/nvm/node22/bin/node',
+        registeredAt: '2026-07-06T00:00:00.000Z',
+        version: '0.2.0',
+      }),
+      probeHealth: async () => spawned,
+      spawnImpl: spawnImpl as never,
+      existsImpl: (path) =>
+        path === '/main/dist/bin/daemon-server.js' || path === '/nvm/node22/bin/node',
+      nowImpl: clock.now,
+      sleepImpl: async (ms) => {
+        clock.advance(ms);
+      },
+    });
+
+    expect(result.status).toBe('started');
+    expect(result.pid).toBe(333);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      '/nvm/node22/bin/node',
+      ['/main/dist/bin/daemon-server.js'],
+      expect.anything()
+    );
+  });
+
   test('env ALEMBIC_DAEMON_ENTRYPOINT takes precedence over daemon-state entrypoint', async () => {
     const clock = makeClock();
     const spawnImpl = vi.fn(() => ({ unref: vi.fn() }));
