@@ -42,6 +42,10 @@ import { buildHostAgentAnalysisProgressBackfill } from '#recipe-pipeline/generat
 import { resolveHostAgentDataRoot } from '#recipe-pipeline/generate/project-data-root.js';
 import { GenerateEventEmitter } from '#recipe-pipeline/generate/runtime/GenerateEventEmitter.js';
 import { generateSkill as generateWorkflowSkill } from '#recipe-pipeline/generate/skill-delivery/WorkflowSkillCompletionCapability.js';
+import {
+  createProjectSkillService,
+  type ProjectSkillServiceResult,
+} from '#service/skills/ProjectSkillService.js';
 
 const logger = Logger.getInstance();
 
@@ -106,6 +110,9 @@ export interface HostAgentDimensionCompletionDependencies {
   saveCheckpoint?: typeof saveDimensionCheckpoint;
   createEmitter?: (container: HostAgentCompletionContainer) => HostAgentDimensionCompletionEmitter;
   now?: () => number;
+  refreshKnowledgeSkills?: (
+    ctx: HostAgentDimensionCompletionContext
+  ) => Promise<ProjectSkillServiceResult> | ProjectSkillServiceResult;
   runCompletionFinalizer?: typeof runWorkflowCompletionFinalizer;
   finalizerDependencies?: WorkflowCompletionFinalizerDependencies;
 }
@@ -270,6 +277,7 @@ interface DimensionCompletionSideEffectResult {
   evidenceHints: Record<string, unknown> | undefined;
   hostAgentAnalysisProgress: ReturnType<typeof buildHostAgentAnalysisProgressBackfill>;
   isComplete: boolean;
+  knowledgeSkillAutoSync: Record<string, unknown> | undefined;
   progress: ReturnType<HostAgentWorkflowSession['getProgress']>;
   qualityFeedback: Record<string, unknown> | undefined;
   recipesBound: number;
@@ -537,6 +545,7 @@ async function persistAndBroadcastDimensionCompletion({
     dependencies,
   });
 
+  let knowledgeSkillAutoSync: Record<string, unknown> | undefined;
   if (isComplete) {
     await (dependencies.runCompletionFinalizer ?? runWorkflowCompletionFinalizer)({
       ctx,
@@ -544,6 +553,11 @@ async function persistAndBroadcastDimensionCompletion({
       dataRoot,
       log: logger,
       dependencies: dependencies.finalizerDependencies,
+    });
+    knowledgeSkillAutoSync = await refreshKnowledgeSkillsAfterFinalCompletion({
+      ctx,
+      dependencies,
+      updated,
     });
   }
 
@@ -596,6 +610,7 @@ async function persistAndBroadcastDimensionCompletion({
     evidenceHints,
     hostAgentAnalysisProgress,
     isComplete,
+    knowledgeSkillAutoSync,
     progress,
     qualityFeedback,
     recipesBound,
@@ -606,10 +621,20 @@ async function persistAndBroadcastDimensionCompletion({
 }
 
 /** ModuleService 的最小投影：canonical 模块与 ProjectContext 真实 ownedFiles。 */
+interface CanonicalModuleSummary {
+  id?: string;
+  name: string;
+  ownedFiles?: string[];
+  path?: string;
+}
+
 interface CanonicalModuleServiceLike {
-  listCanonicalModules(): Promise<
-    Array<{ id?: string; name: string; path?: string; ownedFiles?: string[] }>
-  >;
+  listCanonicalModules(): Promise<CanonicalModuleSummary[]>;
+}
+
+interface CoverageLedgerWiring {
+  canonicalModules: CanonicalModuleSummary[];
+  coverageLedgerRepository: CoverageLedgerRepository;
 }
 
 /**
@@ -634,110 +659,37 @@ async function writeDimensionCompletionCoverageLedger(args: {
   const { ctx, dimension, input, referencedFiles, submittedRecipeIds, projectRoot } = args;
   const logger = ctx.logger;
   try {
-    const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
-      | CoverageLedgerRepository
-      | undefined;
-    if (!coverageLedgerRepository) {
-      // DI 未注册账本仓（旧容器/部分启动）→ 跳过，advisory 写入缺席不影响完成。
-      logger?.debug?.('[DimensionComplete] coverage ledger write skipped: repository unavailable');
+    const wiring = await resolveCoverageLedgerWiring(ctx);
+    if (!wiring) {
       return;
     }
-
-    const moduleService = ctx.container.get('moduleService') as
-      | CanonicalModuleServiceLike
-      | undefined;
-    if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
-      logger?.debug?.(
-        '[DimensionComplete] coverage ledger write skipped: moduleService unavailable'
-      );
-      return;
-    }
-    const canonicalModules = await moduleService.listCanonicalModules();
-    if (canonicalModules.length === 0) {
-      // no-guess：没有 canonical 模块就没有可信 module 轴，不臆造模块。
-      logger?.debug?.('[DimensionComplete] coverage ledger write skipped: no canonical modules');
-      return;
-    }
-
-    // canonical 模块 → CoverageLedgerModuleAxis：真实 ownedFiles 优先；无 ownedFiles 时才用模块根路径兜底。
-    // Core pathsOverlap 已是 segment-safe 目录匹配，不会把 `src/auth` 误归到 `src/authentication`。
-    const rawModules: CoverageLedgerModuleAxis[] = buildCoverageLedgerModuleAxisFromSummaries({
-      modules: filterGenericParentCoverageModules(
-        canonicalModules.map((module) => ({
-          moduleId: module.id ?? module.name,
-          moduleName: module.name,
-          modulePath: module.path,
-          ownedFiles: module.ownedFiles,
-        }))
-      ),
+    const { coverageLedgerRepository } = wiring;
+    const rawModules = buildCompletionCoverageModuleAxis(wiring.canonicalModules);
+    const modules = selectCompletionCoverageModules({
+      coverageLedgerRepository,
+      logger,
+      projectRoot,
+      rawModules,
     });
-    const targetAxis = preferTargetScopedCoverageItems(rawModules);
-    const existingTargetCellCount =
-      targetAxis.targetScopedCount === 0
-        ? countTargetScopedCoverageItems(coverageLedgerRepository.listByProjectRoot(projectRoot))
-        : 0;
-    if (targetAxis.filteredCount > 0) {
-      logger?.info?.('[DimensionComplete] coverage ledger module axis filtered to target scope', {
-        filteredModuleCount: targetAxis.filteredCount,
-        projectRoot,
-        targetScopedModuleCount: targetAxis.targetScopedCount,
-      });
-    }
-    if (targetAxis.targetScopedCount === 0 && existingTargetCellCount > 0) {
-      logger?.info?.(
-        '[DimensionComplete] coverage ledger write skipped: existing target axis would be polluted by aggregate modules',
-        {
-          existingTargetCellCount,
-          projectRoot,
-          rawModuleCount: rawModules.length,
-        }
-      );
-      return;
-    }
-    const modules = targetAxis.items;
-    if (modules.length === 0) {
-      logger?.debug?.('[DimensionComplete] coverage ledger write skipped: no usable modules');
+    if (!modules) {
       return;
     }
 
     // coveredPaths = 已引用文件去行号锚点（referencedFiles 形如 `path:10-20`，剥离末尾 `:行号`）。
     const coveredPaths = referencedFiles.map((ref) => ref.replace(/:\d+(?:-\d+)?$/, ''));
-    // 候选：referencedFiles 作高价值已覆盖候选（importance 60）；模块 ownedPath 作低价值候选（importance 50），
-    // 未被引用的模块 ownedPath → 候选未覆盖 → 该 (模块×维度) 落 thin/empty，正是 deepMining 想要的空白/单薄信号。
-    const candidates: CoverageLedgerCandidate[] = [
-      ...coveredPaths.map((path) => ({
-        dimensionIds: [dimension.id],
-        sourceRefPaths: [path],
-        importance: 60,
-      })),
-      ...modules
-        .filter((module) => module.ownedPaths.length > 0)
-        .map((module) => ({
-          dimensionIds: [dimension.id],
-          sourceRefPaths: [...module.ownedPaths],
-          importance: 50,
-        })),
-    ];
+    const candidates = buildCompletionCoverageCandidates({
+      coveredPaths,
+      dimensionId: dimension.id,
+      modules,
+    });
 
     const tier = resolveModuleTier(modules.length);
     const perCellTarget = resolvePerCellTargetDefault(tier);
-
-    // exhausted：仅当 Agent 显式 noPadding=true 且给了非空 reason，才按维度对每个模块落 agent-declared 尽力声明。
-    let exhaustedDeclarations: CoverageLedgerExhaustedDeclaration[] | undefined;
-    const exhaustedReason =
-      typeof input.exhaustedReason === 'string' ? input.exhaustedReason.trim() : '';
-    if (input.noPadding === true && exhaustedReason.length > 0) {
-      exhaustedDeclarations = modules.map((module) => ({
-        moduleId: module.moduleId,
-        dimensionId: dimension.id,
-        reason: exhaustedReason,
-      }));
-    }
-
-    // 轮号戳：取账本里最新一轮（升序末元素）的轮号，无轮次则 0；这批 cell 归属该轮（deepMining 多轮收敛用）。
-    // 轮次的 new_recipes_this_round 累加在下方 reflow 里完成（helper 内自取最新轮）。
-    const rounds = coverageLedgerRepository.listRoundsByProjectRoot(projectRoot);
-    const lastRound = rounds.length > 0 ? rounds[rounds.length - 1].roundIndex : 0;
+    const exhaustedDeclarations = buildCompletionExhaustedDeclarations({
+      dimensionId: dimension.id,
+      input,
+      modules,
+    });
 
     writeCoverageLedgerForCompletion({
       repository: coverageLedgerRepository,
@@ -748,21 +700,14 @@ async function writeDimensionCompletionCoverageLedger(args: {
       coveredPaths,
       perCellTarget,
       ...(exhaustedDeclarations ? { exhaustedDeclarations } : {}),
-      lastRound,
+      lastRound: resolveLastCoverageLedgerRound(coverageLedgerRepository, projectRoot),
       ...(logger ? { logger } : {}),
     });
 
-    // U2d 轮次回流：本次维度完成把「新增 recipe 数」累计进当前已开轮（reflowDeepMiningRoundOnCompletion 内取最新轮、
-    // 累加 new_recipes_this_round、推进 completedAt；coldStart 无已开轮则自然跳过）。new_recipes 是收益递减判定的真实输入，
-    // 必须由回流写入，否则收敛建议会把刚开的、产出仍为 0 的本轮当「上一轮」误判递减、令多轮循环每轮立即停止。
-    const newRecipeCount =
-      typeof input.candidateCount === 'number' && input.candidateCount > 0
-        ? input.candidateCount
-        : submittedRecipeIds.length;
     reflowDeepMiningRoundOnCompletion({
       repository: coverageLedgerRepository,
       projectRoot,
-      newRecipeCount,
+      newRecipeCount: resolveNewRecipeCount(input, submittedRecipeIds),
       ...(logger ? { logger } : {}),
     });
   } catch (err: unknown) {
@@ -770,6 +715,159 @@ async function writeDimensionCompletionCoverageLedger(args: {
     const reason = err instanceof Error ? err.message : String(err);
     logger?.debug?.(`[DimensionComplete] coverage ledger write skipped: ${reason}`);
   }
+}
+
+async function resolveCoverageLedgerWiring(
+  ctx: HostAgentDimensionCompletionContext
+): Promise<CoverageLedgerWiring | null> {
+  const logger = ctx.logger;
+  const coverageLedgerRepository = ctx.container.get('coverageLedgerRepository') as
+    | CoverageLedgerRepository
+    | undefined;
+  if (!coverageLedgerRepository) {
+    // DI 未注册账本仓（旧容器/部分启动）→ 跳过，advisory 写入缺席不影响完成。
+    logger?.debug?.('[DimensionComplete] coverage ledger write skipped: repository unavailable');
+    return null;
+  }
+
+  const moduleService = ctx.container.get('moduleService') as
+    | CanonicalModuleServiceLike
+    | undefined;
+  if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
+    logger?.debug?.('[DimensionComplete] coverage ledger write skipped: moduleService unavailable');
+    return null;
+  }
+
+  const canonicalModules = await moduleService.listCanonicalModules();
+  if (canonicalModules.length === 0) {
+    // no-guess：没有 canonical 模块就没有可信 module 轴，不臆造模块。
+    logger?.debug?.('[DimensionComplete] coverage ledger write skipped: no canonical modules');
+    return null;
+  }
+  return { canonicalModules, coverageLedgerRepository };
+}
+
+function buildCompletionCoverageModuleAxis(
+  canonicalModules: CanonicalModuleSummary[]
+): CoverageLedgerModuleAxis[] {
+  // canonical 模块 → CoverageLedgerModuleAxis：真实 ownedFiles 优先；无 ownedFiles 时才用模块根路径兜底。
+  // Core pathsOverlap 已是 segment-safe 目录匹配，不会把 `src/auth` 误归到 `src/authentication`。
+  return buildCoverageLedgerModuleAxisFromSummaries({
+    modules: filterGenericParentCoverageModules(
+      canonicalModules.map((module) => ({
+        moduleId: module.id ?? module.name,
+        moduleName: module.name,
+        modulePath: module.path,
+        ownedFiles: module.ownedFiles,
+      }))
+    ),
+  });
+}
+
+function selectCompletionCoverageModules({
+  coverageLedgerRepository,
+  logger,
+  projectRoot,
+  rawModules,
+}: {
+  coverageLedgerRepository: CoverageLedgerRepository;
+  logger: HostAgentCompletionLogger | undefined;
+  projectRoot: string;
+  rawModules: CoverageLedgerModuleAxis[];
+}): CoverageLedgerModuleAxis[] | null {
+  const targetAxis = preferTargetScopedCoverageItems(rawModules);
+  const existingTargetCellCount =
+    targetAxis.targetScopedCount === 0
+      ? countTargetScopedCoverageItems(coverageLedgerRepository.listByProjectRoot(projectRoot))
+      : 0;
+  if (targetAxis.filteredCount > 0) {
+    logger?.info?.('[DimensionComplete] coverage ledger module axis filtered to target scope', {
+      filteredModuleCount: targetAxis.filteredCount,
+      projectRoot,
+      targetScopedModuleCount: targetAxis.targetScopedCount,
+    });
+  }
+  if (targetAxis.targetScopedCount === 0 && existingTargetCellCount > 0) {
+    logger?.info?.(
+      '[DimensionComplete] coverage ledger write skipped: existing target axis would be polluted by aggregate modules',
+      {
+        existingTargetCellCount,
+        projectRoot,
+        rawModuleCount: rawModules.length,
+      }
+    );
+    return null;
+  }
+  if (targetAxis.items.length === 0) {
+    logger?.debug?.('[DimensionComplete] coverage ledger write skipped: no usable modules');
+    return null;
+  }
+  return targetAxis.items;
+}
+
+function buildCompletionCoverageCandidates({
+  coveredPaths,
+  dimensionId,
+  modules,
+}: {
+  coveredPaths: string[];
+  dimensionId: string;
+  modules: CoverageLedgerModuleAxis[];
+}): CoverageLedgerCandidate[] {
+  // 候选：referencedFiles 作高价值已覆盖候选（importance 60）；模块 ownedPath 作低价值候选（importance 50），
+  // 未被引用的模块 ownedPath → 候选未覆盖 → 该 (模块×维度) 落 thin/empty，正是 deepMining 想要的空白/单薄信号。
+  return [
+    ...coveredPaths.map((path) => ({
+      dimensionIds: [dimensionId],
+      sourceRefPaths: [path],
+      importance: 60,
+    })),
+    ...modules
+      .filter((module) => module.ownedPaths.length > 0)
+      .map((module) => ({
+        dimensionIds: [dimensionId],
+        sourceRefPaths: [...module.ownedPaths],
+        importance: 50,
+      })),
+  ];
+}
+
+function buildCompletionExhaustedDeclarations({
+  dimensionId,
+  input,
+  modules,
+}: {
+  dimensionId: string;
+  input: CompletionInput;
+  modules: CoverageLedgerModuleAxis[];
+}): CoverageLedgerExhaustedDeclaration[] | undefined {
+  // exhausted：仅当 Agent 显式 noPadding=true 且给了非空 reason，才按维度对每个模块落 agent-declared 尽力声明。
+  const exhaustedReason =
+    typeof input.exhaustedReason === 'string' ? input.exhaustedReason.trim() : '';
+  if (input.noPadding !== true || exhaustedReason.length === 0) {
+    return undefined;
+  }
+  return modules.map((module) => ({
+    moduleId: module.moduleId,
+    dimensionId,
+    reason: exhaustedReason,
+  }));
+}
+
+function resolveLastCoverageLedgerRound(
+  coverageLedgerRepository: CoverageLedgerRepository,
+  projectRoot: string
+): number {
+  // 轮号戳：取账本里最新一轮（升序末元素）的轮号，无轮次则 0；这批 cell 归属该轮（deepMining 多轮收敛用）。
+  const rounds = coverageLedgerRepository.listRoundsByProjectRoot(projectRoot);
+  return rounds.length > 0 ? rounds[rounds.length - 1].roundIndex : 0;
+}
+
+function resolveNewRecipeCount(input: CompletionInput, submittedRecipeIds: string[]): number {
+  // U2d 轮次回流：本次维度完成把「新增 recipe 数」累计进当前已开轮；new_recipes 是收益递减判定的真实输入。
+  return typeof input.candidateCount === 'number' && input.candidateCount > 0
+    ? input.candidateCount
+    : submittedRecipeIds.length;
 }
 
 function releaseTerminalNoPaddingRescanResources({
@@ -1009,6 +1107,7 @@ function buildDimensionCompletionSuccessResponse({
       evidenceHints: result.evidenceHints,
       hostAgentAnalysisProgress: result.hostAgentAnalysisProgress,
       ideAgentAnalysisProgress: result.hostAgentAnalysisProgress,
+      knowledgeSkillAutoSync: result.knowledgeSkillAutoSync,
       subpackageCoverageWarning: result.subpackageCoverageWarning,
       nextActions: result.isComplete ? BOOTSTRAP_COMPLETE_ACTIONS : undefined,
     },
@@ -1016,6 +1115,86 @@ function buildDimensionCompletionSuccessResponse({
       tool: 'alembic_dimension_complete',
       responseTimeMs,
     },
+  };
+}
+
+async function refreshKnowledgeSkillsAfterFinalCompletion({
+  ctx,
+  dependencies,
+  updated,
+}: {
+  ctx: HostAgentDimensionCompletionContext;
+  dependencies: HostAgentDimensionCompletionDependencies;
+  updated: boolean;
+}): Promise<Record<string, unknown>> {
+  if (!updated) {
+    logger.info(
+      '[DimensionComplete] Knowledge skill auto-sync skipped: final completion was already persisted'
+    );
+    return {
+      attempted: false,
+      reason: 'already-complete',
+    };
+  }
+
+  try {
+    const refresh = dependencies.refreshKnowledgeSkills ?? defaultRefreshKnowledgeSkills;
+    const result = await refresh(ctx);
+    const summary = summarizeKnowledgeSkillRefresh(result);
+    if (result.success) {
+      logger.info('[DimensionComplete] Knowledge skill auto-sync completed after final dimension', {
+        hasKnowledgeBase: summary.hasKnowledgeBase,
+        hostGuidance: summary.hostGuidance,
+        refreshedCount: summary.refreshedCount,
+        removedCount: summary.removedCount,
+      });
+    } else {
+      logger.warn('[DimensionComplete] Knowledge skill auto-sync failed after final dimension', {
+        errorCode: summary.errorCode,
+        hostGuidance: summary.hostGuidance,
+        message: summary.message,
+      });
+    }
+    return {
+      attempted: true,
+      ...summary,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn(
+      `[DimensionComplete] Knowledge skill auto-sync threw after final dimension: ${message}`
+    );
+    return {
+      attempted: true,
+      success: false,
+      errorCode: 'AUTO_SKILL_REFRESH_FAILED',
+      message,
+    };
+  }
+}
+
+function defaultRefreshKnowledgeSkills(
+  ctx: HostAgentDimensionCompletionContext
+): ProjectSkillServiceResult {
+  return createProjectSkillService(ctx).refreshKnowledgeSkills({
+    authorizeProjectSkillExport: true,
+  });
+}
+
+function summarizeKnowledgeSkillRefresh(
+  result: ProjectSkillServiceResult
+): Record<string, unknown> {
+  const data = result.data ?? {};
+  const refreshed = Array.isArray(data.refreshed) ? data.refreshed : [];
+  const removed = Array.isArray(data.removed) ? data.removed : [];
+  return {
+    success: result.success,
+    errorCode: result.errorCode ?? result.error?.code ?? null,
+    message: result.message ?? result.error?.message ?? null,
+    hasKnowledgeBase: data.hasKnowledgeBase ?? null,
+    hostGuidance: data.hostGuidance ?? null,
+    refreshedCount: refreshed.length,
+    removedCount: removed.length,
   };
 }
 

@@ -5,8 +5,12 @@ import {
   _resetGenerateSessionManagersForTesting,
   getOrCreateSessionManager,
 } from '@alembic/core/host-agent-workflows';
-import { pathGuard } from '@alembic/core/io';
+import { ALEMBIC_MANAGED_GUIDANCE_BEGIN, pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  CODEX_PLUGIN_ROOT_ENV,
+  resolveHostRuntimeContext,
+} from '../../lib/host-runtime/context/RuntimeContext.js';
 import {
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,
@@ -15,9 +19,12 @@ import {
 import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 
 const tempRoots: string[] = [];
+const ORIGINAL_PLUGIN_HOST = process.env.ALEMBIC_PLUGIN_HOST;
+const ORIGINAL_PLUGIN_ROOT_ENV = process.env[CODEX_PLUGIN_ROOT_ENV];
 
 afterEach(() => {
   _resetGenerateSessionManagersForTesting();
+  restoreHostEnv();
   pathGuard._reset();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -547,6 +554,294 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     expect(generated).toHaveLength(0);
   });
 
+  it('auto-syncs knowledge skills once after the final dimension completes', async () => {
+    const callOrder: string[] = [];
+    const refreshKnowledgeSkills = vi.fn(() => {
+      callOrder.push('refresh');
+      return {
+        success: true,
+        message: 'Knowledge-dependent Project Skills refreshed from local Alembic knowledge scope.',
+        data: {
+          hasKnowledgeBase: true,
+          hostGuidance: { hostFileName: 'AGENTS.md', operation: 'upsert' },
+          refreshed: [{ skillName: 'alembic-recipes', success: true }],
+        },
+      };
+    });
+    const session = createSession({ completeAfterMark: true });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      createContext(),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The final source evidence completes the last bootstrap dimension with grounded recipes.',
+          'The completion path can now publish project guidance without a manual refresh command.',
+          'The persisted session state proves this is the terminal cold-start completion step.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        refreshKnowledgeSkills,
+        runCompletionFinalizer: async () => {
+          callOrder.push('finalizer');
+        },
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(callOrder).toEqual(['finalizer', 'refresh']);
+    expect(refreshKnowledgeSkills).toHaveBeenCalledOnce();
+    expect((result.data as Record<string, unknown>).isBootstrapComplete).toBe(true);
+    expect((result.data as Record<string, unknown>).knowledgeSkillAutoSync).toMatchObject({
+      attempted: true,
+      success: true,
+      hasKnowledgeBase: true,
+      refreshedCount: 1,
+      hostGuidance: { hostFileName: 'AGENTS.md', operation: 'upsert' },
+    });
+  });
+
+  it('does not auto-sync knowledge skills for partial dimension completion', async () => {
+    const refreshKnowledgeSkills = vi.fn(() => ({ success: true }));
+    const session = createSession();
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      createContext(),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The source files expose the shared module boundary through architecture evidence.',
+          'The package references show how runtime ownership is separated from plugin code.',
+          'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        refreshKnowledgeSkills,
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).isBootstrapComplete).toBe(false);
+    expect((result.data as Record<string, unknown>).knowledgeSkillAutoSync).toBeUndefined();
+    expect(refreshKnowledgeSkills).not.toHaveBeenCalled();
+  });
+
+  it('skips auto-sync on repeated final completion submissions', async () => {
+    const refreshKnowledgeSkills = vi.fn(() => ({
+      success: true,
+      data: { hasKnowledgeBase: true, refreshed: [] },
+    }));
+    const session = createSession({ completeAfterMark: true });
+    const dependencies = {
+      getActiveSession: () => session,
+      refreshKnowledgeSkills,
+      saveCheckpoint: async () => undefined,
+      createEmitter: () => ({
+        emitDimensionComplete: vi.fn(),
+        emitAllComplete: vi.fn(),
+      }),
+    };
+    const args = {
+      dimensionId: 'architecture',
+      analysisText: longAnalysisText(),
+      keyFindings: [
+        'The source files expose the shared module boundary through architecture evidence.',
+        'The package references show how runtime ownership is separated from plugin code.',
+        'The completion path keeps checkpoint writes tied to verified recipe identifiers.',
+      ],
+    };
+
+    const first = await runHostAgentDimensionCompletionWorkflow(createContext(), args, dependencies);
+    const second = await runHostAgentDimensionCompletionWorkflow(
+      createContext(),
+      args,
+      dependencies
+    );
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(refreshKnowledgeSkills).toHaveBeenCalledOnce();
+    expect((second.data as Record<string, unknown>).knowledgeSkillAutoSync).toMatchObject({
+      attempted: false,
+      reason: 'already-complete',
+    });
+  });
+
+  it('refreshes Codex project skills and host guidance after final completion without manual refresh', async () => {
+    const projectRoot = createKnowledgeProjectRoot();
+    const session = createSession({ completeAfterMark: true, projectRoot });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      createContext({}, projectRoot),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The final bootstrap evidence should publish Codex-visible project skill guidance.',
+          'The project knowledge base is already local, grounded, and ready for host consumption.',
+          'The completion call itself must perform the refresh without requiring a follow-up tool.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    const agentGuidance = fs.readFileSync(path.join(projectRoot, 'AGENTS.md'), 'utf8');
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).knowledgeSkillAutoSync).toMatchObject({
+      attempted: true,
+      success: true,
+      hasKnowledgeBase: true,
+      refreshedCount: 4,
+    });
+    expect(agentGuidance).toContain(ALEMBIC_MANAGED_GUIDANCE_BEGIN);
+    expect(agentGuidance).toContain("grounded in THIS project's own code");
+    expect(
+      fs.lstatSync(path.join(projectRoot, '.agents', 'skills', 'alembic-recipes', 'SKILL.md'))
+        .isSymbolicLink()
+    ).toBe(true);
+    expect(fs.existsSync(path.join(projectRoot, '.claude', 'skills', 'alembic-recipes'))).toBe(
+      false
+    );
+  });
+
+  it('refreshes Claude Code project skills through the host-aware skill root', async () => {
+    const projectRoot = createKnowledgeProjectRoot();
+    useClaudeCodeHost();
+    const session = createSession({ completeAfterMark: true, projectRoot });
+
+    const result = await runHostAgentDimensionCompletionWorkflow(
+      createContext({}, projectRoot),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The final bootstrap evidence should publish Claude Code visible project skill guidance.',
+          'The project knowledge base is already local, grounded, and ready for host consumption.',
+          'The completion call itself must perform the refresh without requiring a follow-up tool.',
+        ],
+      },
+      {
+        getActiveSession: () => session,
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(fs.readFileSync(path.join(projectRoot, 'CLAUDE.md'), 'utf8')).toContain(
+      ALEMBIC_MANAGED_GUIDANCE_BEGIN
+    );
+    expect(
+      fs.lstatSync(path.join(projectRoot, '.claude', 'skills', 'alembic-recipes', 'SKILL.md'))
+        .isSymbolicLink()
+    ).toBe(true);
+    expect(fs.existsSync(path.join(projectRoot, '.agents', 'skills', 'alembic-recipes'))).toBe(
+      false
+    );
+    expect(fs.existsSync(path.join(projectRoot, 'AGENTS.md'))).toBe(false);
+  });
+
+  it('keeps no-knowledge and ghost project-root host guidance silent during auto-sync', async () => {
+    const emptyRoot = makeProjectRoot('alembic-dimension-complete-empty-');
+    const emptyResult = await runHostAgentDimensionCompletionWorkflow(
+      createContext({}, emptyRoot),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The final bootstrap path has no local knowledge base to publish yet.',
+          'The refresh should stay quiet rather than creating empty host guidance.',
+          'The completion result must still surface the no-knowledge auto-sync outcome.',
+        ],
+      },
+      {
+        getActiveSession: () => createSession({ completeAfterMark: true, projectRoot: emptyRoot }),
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(emptyResult.success).toBe(true);
+    expect((emptyResult.data as Record<string, unknown>).knowledgeSkillAutoSync).toMatchObject({
+      attempted: true,
+      success: true,
+      hasKnowledgeBase: false,
+      refreshedCount: 0,
+    });
+    expect(fs.existsSync(path.join(emptyRoot, 'AGENTS.md'))).toBe(false);
+    expect(fs.existsSync(path.join(emptyRoot, '.agents', 'skills', 'alembic-recipes'))).toBe(false);
+
+    const ghostProjectRoot = makeProjectRoot('alembic-dimension-complete-ghost-');
+    const ghostDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-dimension-data-root-'));
+    tempRoots.push(ghostDataRoot);
+    pathGuard.addAllowPath(ghostDataRoot);
+    writeCandidateKnowledge(ghostDataRoot);
+
+    const ghostResult = await runHostAgentDimensionCompletionWorkflow(
+      createContext({}, ghostProjectRoot, ghostDataRoot),
+      {
+        dimensionId: 'architecture',
+        analysisText: longAnalysisText(),
+        keyFindings: [
+          'The final bootstrap path uses an external dataRoot for project knowledge storage.',
+          'The refresh should export skills while keeping project-root host guidance silent.',
+          'The completion result must preserve the ghost-data-root host guidance decision.',
+        ],
+      },
+      {
+        getActiveSession: () =>
+          createSession({ completeAfterMark: true, projectRoot: ghostProjectRoot }),
+        saveCheckpoint: async () => undefined,
+        createEmitter: () => ({
+          emitDimensionComplete: vi.fn(),
+          emitAllComplete: vi.fn(),
+        }),
+      }
+    );
+
+    expect(ghostResult.success).toBe(true);
+    expect((ghostResult.data as Record<string, unknown>).knowledgeSkillAutoSync).toMatchObject({
+      attempted: true,
+      success: true,
+      hasKnowledgeBase: true,
+      hostGuidance: {
+        operation: 'skip',
+        reason: 'non-standard-or-ghost-data-root',
+      },
+    });
+    expect(fs.existsSync(path.join(ghostProjectRoot, 'AGENTS.md'))).toBe(false);
+    expect(
+      fs.existsSync(path.join(ghostDataRoot, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md'))
+    ).toBe(true);
+  });
+
   it('blocks completion before checkpoint when session-bound recipe ids are insufficient', async () => {
     const checkpoint = vi.fn(async () => undefined);
     const emitted = vi.fn();
@@ -812,26 +1107,47 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
 
 function createContext(
   overrides: Partial<HostAgentDimensionCompletionContext['container']> = {},
-  projectRoot = '/tmp/alembic-test-project'
+  projectRoot = '/tmp/alembic-test-project',
+  dataRoot = projectRoot
 ) {
   return {
     container: {
-      singletons: { _projectRoot: projectRoot, _dataRoot: projectRoot },
+      singletons: {
+        _projectRoot: projectRoot,
+        _dataRoot: dataRoot,
+        _workspaceResolver: { dataRoot },
+      },
       get: () => null,
       ...overrides,
     },
   } as HostAgentDimensionCompletionContext;
 }
 
-function createInitializedProjectRoot(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-dimension-complete-skill-'));
+function makeProjectRoot(prefix = 'alembic-dimension-complete-'): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempRoots.push(root);
   pathGuard.configure({ projectRoot: root });
+  return root;
+}
+
+function createKnowledgeProjectRoot(): string {
+  const root = makeProjectRoot('alembic-dimension-complete-knowledge-');
+  writeCandidateKnowledge(root);
+  return root;
+}
+
+function createInitializedProjectRoot(): string {
+  const root = makeProjectRoot('alembic-dimension-complete-skill-');
   fs.mkdirSync(path.join(root, '.asd'), { recursive: true });
   fs.mkdirSync(path.join(root, 'Alembic', 'recipes'), { recursive: true });
   fs.writeFileSync(path.join(root, '.asd', 'config.json'), '{}\n');
   fs.writeFileSync(path.join(root, '.asd', 'alembic.db'), '');
   return root;
+}
+
+function writeCandidateKnowledge(root: string): void {
+  fs.mkdirSync(path.join(root, 'Alembic', 'candidates'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'Alembic', 'candidates', 'candidate.md'), '# Candidate\n');
 }
 
 function createDataRootSessionContainer(projectRoot: string) {
@@ -849,6 +1165,7 @@ function createDataRootSessionContainer(projectRoot: string) {
 }
 
 function createSession({
+  completeAfterMark = false,
   id = 'session-1',
   localPackageModules = [{ packageName: 'packages/internal-lib', name: 'internal-lib' }],
   projectRoot = '/tmp/alembic-test-project',
@@ -859,6 +1176,7 @@ function createSession({
     { recipeId: 'recipe-c', sources: ['lib/c.ts:1-12'], title: 'C' },
   ],
 }: {
+  completeAfterMark?: boolean;
   id?: string;
   localPackageModules?: Array<{ packageName: string; name: string }>;
   projectRoot?: string;
@@ -866,14 +1184,17 @@ function createSession({
   submissions?: Array<{ recipeId: string; sources: string[]; title?: string }>;
 } = {}): HostAgentWorkflowSession {
   let completed = false;
+  const dimensions = completeAfterMark
+    ? [{ id: 'architecture', label: 'Architecture', skillWorthy }]
+    : [
+        { id: 'architecture', label: 'Architecture', skillWorthy },
+        { id: 'tooling', label: 'Tooling', skillWorthy: false },
+      ];
   const session = {
     id,
     projectRoot,
     expiresAt: Date.now(),
-    dimensions: [
-      { id: 'architecture', label: 'Architecture', skillWorthy },
-      { id: 'tooling', label: 'Tooling', skillWorthy: false },
-    ],
+    dimensions,
     submissionTracker: {
       getSubmissions: (dimId: string) =>
         dimId === 'architecture'
@@ -898,17 +1219,20 @@ function createSession({
     }),
     getProgress: () => ({
       completed: completed ? 1 : 0,
-      total: 2,
+      total: dimensions.length,
       completedDimIds: completed ? ['architecture'] : [],
-      remainingDimIds: completed ? ['tooling'] : ['architecture', 'tooling'],
+      remainingDimIds: completed
+        ? dimensions.filter((dim) => dim.id !== 'architecture').map((dim) => dim.id)
+        : dimensions.map((dim) => dim.id),
     }),
     get isComplete() {
-      return false;
+      return completeAfterMark ? completed : false;
     },
     markDimensionComplete: () => {
+      const wasCompleted = completed;
       completed = true;
       return {
-        updated: true,
+        updated: !wasCompleted,
         qualityReport: {
           totalScore: 72,
           pass: true,
@@ -927,6 +1251,25 @@ function createSession({
   };
 
   return session as unknown as HostAgentWorkflowSession;
+}
+
+function useClaudeCodeHost(): void {
+  const codexShellRoot = resolveHostRuntimeContext().pluginRoot;
+  process.env.ALEMBIC_PLUGIN_HOST = 'claude-code';
+  process.env[CODEX_PLUGIN_ROOT_ENV] = path.join(codexShellRoot, '..', 'alembic-claude-code');
+}
+
+function restoreHostEnv(): void {
+  if (ORIGINAL_PLUGIN_HOST === undefined) {
+    delete process.env.ALEMBIC_PLUGIN_HOST;
+  } else {
+    process.env.ALEMBIC_PLUGIN_HOST = ORIGINAL_PLUGIN_HOST;
+  }
+  if (ORIGINAL_PLUGIN_ROOT_ENV === undefined) {
+    delete process.env[CODEX_PLUGIN_ROOT_ENV];
+  } else {
+    process.env[CODEX_PLUGIN_ROOT_ENV] = ORIGINAL_PLUGIN_ROOT_ENV;
+  }
 }
 
 function longAnalysisText(): string {
