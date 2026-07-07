@@ -40,8 +40,8 @@ try {
     'runtime package must expose bin.alembic-codex-mcp -> dist/bin/host-mcp.js'
   );
   expect(
-    generatedManifest.dependencies?.['@alembic/core'] === '0.2.0',
-    'runtime package must pin @alembic/core to exact 0.2.0'
+    generatedManifest.dependencies?.['@alembic/core'] === '0.3.0',
+    'runtime package must pin @alembic/core to exact 0.3.0'
   );
   expectNoFileDependencies(generatedManifest, 'generated runtime package');
   expectNoFileDependencies(sourceManifest, 'source runtime manifest');

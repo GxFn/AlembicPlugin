@@ -124,7 +124,7 @@ describe('Codex plugin cache sync script', () => {
         },
         packaged: {
           entryMode: 'marketplace-shell',
-          runtimeSpecifier: '@gxfn/alembic-runtime@0.2.0',
+          runtimeSpecifier: '@gxfn/alembic-runtime@0.3.0',
         },
       },
     });
