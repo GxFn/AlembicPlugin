@@ -11,6 +11,7 @@ import type {
   SaveSnapshotParams,
 } from '@alembic/core/types';
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
+import type { McpToolUsageMap } from '../session-usage.js';
 
 // ─── DI Container (minimal shape) ────────────────────────
 
@@ -29,6 +30,7 @@ export interface McpConnection {
   startedAt: number;
   toolCallCount: number;
   toolsUsed: Set<string>;
+  toolUsage: McpToolUsageMap;
   lastActivityAt: number;
 }
 

@@ -154,6 +154,7 @@ export const LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'session',
     'summary',
     'uptime',
+    'usage',
     'version',
     'workspace',
   ],

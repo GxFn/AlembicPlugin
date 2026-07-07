@@ -11,7 +11,10 @@ import path from 'node:path';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { PACKAGE_ROOT } from '#shared/package-assets.js';
 import { envelope } from '../envelope.js';
+import { buildMcpToolUsageView } from '../session-usage.js';
 import type { KnowledgeBaseStats, McpContext } from './types.js';
+
+type RuntimeChecks = { database: boolean; vectorStore: boolean };
 
 export async function status(ctx: McpContext, args: Record<string, unknown> = {}) {
   const aspect = typeof args.aspect === 'string' ? args.aspect : undefined;
@@ -74,21 +77,40 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
     issues.push(`vectorStore: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // 5) 版本号（从 Alembic 包自身的 package.json 读取，不依赖 cwd）
-  if (!_pkgVersion) {
-    try {
-      const pkgPath = path.resolve(PACKAGE_ROOT, 'package.json');
-      _pkgVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || '2.0.0';
-    } catch {
-      _pkgVersion = '2.0.0';
-    }
-  }
-
   // 6) 综合状态
   const allCritical = checks.database; // DB 是唯一硬性依赖
   const overallStatus = allCritical ? 'ok' : 'degraded';
+  const version = readPackageVersion();
+  const actionHints = buildActionHints(checks, knowledgeBase);
+  const runtimeView = buildRuntimeView({
+    ctx,
+    overallStatus,
+    version,
+    aiInfo,
+    checks,
+    issues,
+    actionHints,
+  });
+  // aspect narrows the merged status view; omitting it returns the full status
+  // (runtime + knowledge), preserving the legacy alembic_health output shape.
+  const data = selectStatusData(aspect, runtimeView, {
+    status: overallStatus,
+    version,
+    knowledgeBase,
+    ...(actionHints.length ? { actionHints } : {}),
+  });
 
-  // 如果 DB 不可用但冷启动仍可执行，附加提示避免 Agent 浪费时间修复 DB
+  return envelope({
+    success: true,
+    data,
+    meta: { tool: 'alembic_status' },
+  });
+}
+
+function buildActionHints(
+  checks: RuntimeChecks,
+  knowledgeBase: KnowledgeBaseStats | null
+): string[] {
   const actionHints: string[] = [];
   if (!checks.database) {
     actionHints.push(
@@ -103,10 +125,22 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
       '💡 冷启动指引：调用 alembic_bootstrap 获取 Mission Briefing → 按维度分析代码 → 调用 alembic_dimension_complete 完成每个维度'
     );
   }
+  return actionHints;
+}
 
-  const runtimeView = {
+function buildRuntimeView(input: {
+  actionHints: string[];
+  aiInfo: Record<string, unknown>;
+  checks: RuntimeChecks;
+  ctx: McpContext;
+  issues: string[];
+  overallStatus: string;
+  version: string;
+}): Record<string, unknown> {
+  const { actionHints, aiInfo, checks, ctx, issues, overallStatus, version } = input;
+  return {
     status: overallStatus,
-    version: _pkgVersion,
+    version,
     uptime: Math.floor((Date.now() - (ctx.startedAt ?? Date.now())) / 1000),
     projectRoot: resolveProjectRoot(ctx.container),
     ai: aiInfo,
@@ -121,35 +155,44 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
             toolsUsed: Array.from(ctx.connection.toolsUsed),
             durationMs: Date.now() - ctx.connection.startedAt,
           },
+          usage: buildMcpToolUsageView(ctx.connection.toolUsage),
         }
       : {}),
     ...(issues.length ? { issues } : {}),
     ...(actionHints.length ? { actionHints } : {}),
   };
-  // aspect narrows the merged status view; omitting it returns the full status
-  // (runtime + knowledge), preserving the legacy alembic_health output shape.
-  const data =
-    aspect === 'knowledge'
-      ? {
-          status: overallStatus,
-          version: _pkgVersion,
-          knowledgeBase,
-          ...(actionHints.length ? { actionHints } : {}),
-        }
-      : aspect === 'runtime'
-        ? runtimeView
-        : { ...runtimeView, knowledgeBase };
+}
 
-  return envelope({
-    success: true,
-    data,
-    meta: { tool: 'alembic_status' },
-  });
+function selectStatusData(
+  aspect: string | undefined,
+  runtimeView: Record<string, unknown>,
+  knowledgeView: Record<string, unknown>
+): Record<string, unknown> {
+  if (aspect === 'knowledge') {
+    return knowledgeView;
+  }
+  if (aspect === 'runtime') {
+    return runtimeView;
+  }
+  return { ...runtimeView, knowledgeBase: knowledgeView.knowledgeBase };
 }
 
 function resolveVectorDocumentCount(stats: Record<string, unknown>): number {
   const value = stats.documentCount ?? stats.totalDocuments ?? stats.count;
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function readPackageVersion(): string {
+  if (_pkgVersion) {
+    return _pkgVersion;
+  }
+  try {
+    const pkgPath = path.resolve(PACKAGE_ROOT, 'package.json');
+    _pkgVersion = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || '2.0.0';
+  } catch {
+    _pkgVersion = '2.0.0';
+  }
+  return _pkgVersion ?? '2.0.0';
 }
 
 let _pkgVersion: string | null = null;

@@ -72,6 +72,7 @@ import {
   createMcpStructuredToolResult,
   serializeMcpToolResult,
 } from './output-contract.js';
+import { buildMcpToolUsageView, type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
 import './local-tools/output.js';
 import { TIER_ORDER, TOOLS } from './tools.js';
 
@@ -145,11 +146,17 @@ function resolveWorkspaceModeConflict(
   return { existingMode, projectId: entry.id, requestedMode };
 }
 
+type WorkspaceModeConflict = NonNullable<ReturnType<typeof resolveWorkspaceModeConflict>>;
+
 export class HostMcpServer {
   readonly projectRoot: string;
   readonly projectRootResolution: ProjectRootResolution;
   readonly waitUntilReadyMs: number;
   readonly sessionId: string;
+  readonly #sessionStartedAt = Date.now();
+  #toolCallCount = 0;
+  readonly #toolsUsed = new Set<string>();
+  readonly #toolUsage: McpToolUsageMap = new Map();
   sdkServer: SdkMcpServer | null = null;
   #embeddedToolExecutor: EmbeddedToolExecutor | null = null;
   #residentCapabilityClients: AlembicResidentCapabilityClients | null = null;
@@ -347,7 +354,9 @@ export class HostMcpServer {
         ) as Record<string, unknown>,
     });
     if (localDispatch.handled) {
-      return localDispatch.result;
+      const result = await localDispatch.result;
+      this.trackSession(name);
+      return result;
     }
 
     const serviceBoundary = resolveServiceRequestBoundary(name, args);
@@ -363,16 +372,37 @@ export class HostMcpServer {
         `[StagingAccessSweep] ${name} returned before staging sweep finished for ${this.projectRoot}\n`
       );
     }
+    this.trackSession(name);
     return result;
   }
 
   async buildStatus(): Promise<Record<string, unknown>> {
+    const data = await buildStatus(this.projectRoot, {
+      autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
+      projectRootResolution: this.projectRootResolution,
+    });
     return {
       success: true,
-      data: await buildStatus(this.projectRoot, {
-        autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
-        projectRootResolution: this.projectRootResolution,
-      }),
+      data: {
+        ...data,
+        session: this.buildSessionView(),
+        usage: buildMcpToolUsageView(this.#toolUsage),
+      },
+    };
+  }
+
+  private trackSession(toolName: string): void {
+    this.#toolCallCount++;
+    this.#toolsUsed.add(toolName);
+    trackMcpToolUsage(this.#toolUsage, toolName);
+  }
+
+  private buildSessionView(): Record<string, unknown> {
+    return {
+      id: this.sessionId,
+      toolCallCount: this.#toolCallCount,
+      toolsUsed: Array.from(this.#toolsUsed),
+      durationMs: Date.now() - this.#sessionStartedAt,
     };
   }
 
@@ -588,31 +618,7 @@ export class HostMcpServer {
 
     const modeConflict = resolveWorkspaceModeConflict(this.projectRoot, input.requestedMode);
     if (modeConflict) {
-      const message = `Alembic Codex initialization requested ${modeConflict.requestedMode} mode, but this project is already registered as ${modeConflict.existingMode}.`;
-      this.#initRuntimeState = {
-        ...this.#initRuntimeState,
-        lastError: message,
-        ok: false,
-      };
-      return failureResult(
-        input.requestedTool || 'alembic_init',
-        `${message} Ordinary Codex init will not switch workspace mode automatically.`,
-        {
-          errorCode: 'CODEX_WORKSPACE_MODE_CONFLICT',
-          existingMode: modeConflict.existingMode,
-          needsUserInput: true,
-          projectId: modeConflict.projectId,
-          requestedMode: modeConflict.requestedMode,
-          nextActions: [
-            buildRecommendedAction({
-              label: 'Check workspace status',
-              reason: 'Inspect the registered Alembic workspace mode before retrying init.',
-              startsDaemon: false,
-              tool: 'alembic_status',
-            }),
-          ],
-        }
-      );
+      return this.buildWorkspaceModeConflictResult(input, modeConflict);
     }
 
     if (
@@ -704,6 +710,37 @@ export class HostMcpServer {
         }
       );
     }
+  }
+
+  private buildWorkspaceModeConflictResult(
+    input: WorkspaceInitializationInput,
+    modeConflict: WorkspaceModeConflict
+  ): Record<string, unknown> {
+    const message = `Alembic Codex initialization requested ${modeConflict.requestedMode} mode, but this project is already registered as ${modeConflict.existingMode}.`;
+    this.#initRuntimeState = {
+      ...this.#initRuntimeState,
+      lastError: message,
+      ok: false,
+    };
+    return failureResult(
+      input.requestedTool || 'alembic_init',
+      `${message} Ordinary Codex init will not switch workspace mode automatically.`,
+      {
+        errorCode: 'CODEX_WORKSPACE_MODE_CONFLICT',
+        existingMode: modeConflict.existingMode,
+        needsUserInput: true,
+        projectId: modeConflict.projectId,
+        requestedMode: modeConflict.requestedMode,
+        nextActions: [
+          buildRecommendedAction({
+            label: 'Check workspace status',
+            reason: 'Inspect the registered Alembic workspace mode before retrying init.',
+            startsDaemon: false,
+            tool: 'alembic_status',
+          }),
+        ],
+      }
+    );
   }
 
   async cleanupRuntime(args: Record<string, unknown>): Promise<Record<string, unknown>> {

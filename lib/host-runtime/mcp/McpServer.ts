@@ -43,6 +43,7 @@ import {
   serializeMcpToolResult,
   withMcpOutputSchema,
 } from './output-contract.js';
+import { type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
 import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from './tools.js';
 
 // ─── TypeScript Interfaces ──────────────────────────────────
@@ -53,6 +54,7 @@ interface McpConnection {
   startedAt: number;
   toolCallCount: number;
   toolsUsed: Set<string>;
+  toolUsage: McpToolUsageMap;
   lastActivityAt: number;
 }
 
@@ -176,6 +178,7 @@ export class McpServer {
       startedAt: Date.now(),
       toolCallCount: 0,
       toolsUsed: new Set(),
+      toolUsage: new Map(),
       lastActivityAt: Date.now(),
     };
   }
@@ -387,6 +390,7 @@ export class McpServer {
     // ── Session stats (always) ──
     this._connection.toolCallCount++;
     this._connection.toolsUsed.add(toolName);
+    trackMcpToolUsage(this._connection.toolUsage, toolName);
     this._connection.lastActivityAt = Date.now();
   }
 

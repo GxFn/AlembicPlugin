@@ -224,6 +224,7 @@ function sampleBusinessData(toolName: (typeof LOCAL_CLEAN_OUTPUT_TOOL_NAMES)[num
         package: { pinnedSpecifier: 'alembic-ai@0.0.0' },
         primaryAction: { tool: 'alembic_status' },
         summary: 'runtime checks passed',
+        usage: { byTool: { prime: { count: 1, lastCalledAt: 1_700_000_000_000 } } },
       };
     case 'alembic_init':
       return {

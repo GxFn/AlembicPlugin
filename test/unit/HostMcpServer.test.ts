@@ -997,6 +997,52 @@ describe('HostMcpServer', () => {
     expect(result.data.nextActions).toContain('Initialize Ghost workspace: call alembic_init');
   });
 
+  test('status exposes session-level per-tool usage counts', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(projectRoot);
+    const server = new HostMcpServer({ projectRoot });
+
+    await server.handleToolCall('alembic_prime', {
+      taskAction: 'implement',
+      requirementGoal: 'Use project Recipe context before editing',
+      capability: 'project knowledge',
+      inputSource: 'host-declared-intent',
+      language: 'typescript',
+    });
+    await server.handleToolCall('alembic_search', { query: 'HTTP Client', limit: 1 });
+    await server.handleToolCall('alembic_search', { query: 'project HTTP client', limit: 1 });
+
+    const result = (await server.handleToolCall('alembic_status', {})) as {
+      success: boolean;
+      data: {
+        session: { toolCallCount: number; toolsUsed: string[] };
+        usage: {
+          byTool: {
+            graph: { count: number; lastCalledAt: number | null };
+            prime: { count: number; lastCalledAt: number | null };
+            recipeMap: { count: number; lastCalledAt: number | null };
+            search: { count: number; lastCalledAt: number | null };
+          };
+        };
+      };
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.session.toolCallCount).toBe(3);
+    expect(result.data.session.toolsUsed).toEqual(['alembic_prime', 'alembic_search']);
+    expect(result.data.usage.byTool.prime).toMatchObject({
+      count: 1,
+      lastCalledAt: expect.any(Number),
+    });
+    expect(result.data.usage.byTool.search).toMatchObject({
+      count: 2,
+      lastCalledAt: expect.any(Number),
+    });
+    expect(result.data.usage.byTool.recipeMap).toEqual({ count: 0, lastCalledAt: null });
+    expect(result.data.usage.byTool.graph).toEqual({ count: 0, lastCalledAt: null });
+  });
+
   test('tool-call projectRoot override scopes status to the requested project', async () => {
     useTempAlembicHome();
     delete process.env.ALEMBIC_PROJECT_DIR;
