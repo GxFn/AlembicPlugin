@@ -21,18 +21,20 @@ describe('Codex session scenario runner', () => {
     expect(scenarios.length).toBeGreaterThan(0);
   });
 
-  test('cold-start Plan-gate scenarios read dimensions from the draft confirmation boundary', () => {
+  test('cold-start Plan-gate scenarios derive dimensions from the stateless draft and confirm a planSelection', () => {
     expect(coldStartPlanGateScenarios.map((scenario) => scenario.id).sort()).toEqual(
       [...coldStartPlanGateScenarioIds].sort()
     );
 
     const serializedScenarios = JSON.stringify(coldStartPlanGateScenarios);
-    expect(serializedScenarios).toContain(
-      'projectContextCreationGuide.confirmedPlanBoundary.dimensionIds'
-    );
-    expect(serializedScenarios).not.toContain('sourceReports.planningAids.selection');
+    // Stateless plan contract (Core be212051): scenarios read the cold-start
+    // dimension from the draft's candidateDimensions projection, then hand the
+    // confirmed planSelection to bootstrap. No stateful plan identity, no
+    // multi-stage residue, no removed draft-boundary shapes.
+    expect(serializedScenarios).toContain('data.candidateDimensions.0.id');
+    expect(serializedScenarios).toContain('data.planSelection');
     expect(serializedScenarios).not.toMatch(
-      /activeDimensionIds|skippedDimensionIds|lowConfidenceDimensions/
+      /confirmedPlanBoundary|projectContextSignature|basePlanId|baseVersion|perStage|sourceReports\.planningAids\.selection|activeDimensionIds|skippedDimensionIds|lowConfidenceDimensions/
     );
   });
 

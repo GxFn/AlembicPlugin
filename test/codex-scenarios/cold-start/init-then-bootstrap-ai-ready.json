@@ -1,6 +1,6 @@
 {
   "id": "init-then-codex-host-bootstrap",
-  "description": "用户先初始化再要求知识挖掘，Codex 默认应启动 host-agent bootstrap workflow，不依赖 provider-backed daemon job 配置，也不创建 daemon job。",
+  "description": "用户先初始化再要求知识挖掘，Codex 冷启动走无状态 Plan（draft→confirm）后再启动 host-agent bootstrap workflow，不依赖 provider-backed daemon job 配置，也不创建 daemon job。",
   "fixture": {
     "daemon": "stopped",
     "initialized": false,
@@ -38,21 +38,6 @@
         }
       },
       {
-        "name": "alembic_bootstrap",
-        "arguments": {
-          "projectRoot": "$projectRoot"
-        },
-        "result": {
-          "success": false,
-          "errorCode": "PLAN_REQUIRED",
-          "data.needsUserInput": true,
-          "data.planGate.status": "blocked",
-          "data.nextActions.0.tool": "alembic_plan",
-          "data.nextActions.0.operation": "draft",
-          "data.nextActions.1.operation": "confirm"
-        }
-      },
-      {
         "name": "alembic_plan",
         "arguments": {
           "operation": "draft",
@@ -66,53 +51,12 @@
         "name": "alembic_plan",
         "arguments": {
           "operation": "confirm",
-          "projectRoot": "$projectRoot",
-          "basePlanId": "$toolResult:4:data.plan.planId",
-          "baseVersion": "$toolResult:4:data.plan.version",
-          "projectContextSignature": "$toolResult:4:data.projectContextSignature",
-          "selectedDimensions": [
-            {
-              "id": "$toolResult:4:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0",
-              "rationale": "Codex session init-then-bootstrap Plan gate scenario",
-              "stage": "coldStart",
-              "targetRecipes": 1
-            }
-          ],
-          "scale": {
-            "totalRecipeBudget": 1,
-            "depthLevels": ["project"],
-            "perStage": {
-              "coldStart": 1,
-              "deepMining": 0,
-              "module": 0
-            }
-          },
-          "moduleBindings": [
-            {
-              "modulePath": "src",
-              "dimensions": [
-                "$toolResult:4:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0"
-              ],
-              "targetRecipes": 1
-            }
-          ],
-          "plannedNextActions": [
-            {
-              "tool": "alembic_bootstrap",
-              "reason": "Run confirmed Plan-gated host-agent bootstrap."
-            }
-          ],
-          "evidenceRefs": [
-            {
-              "kind": "project-context",
-              "ref": "$toolResult:4:data.projectContextSignature",
-              "detail": "draft fact package signature"
-            }
-          ],
-          "rationale": "Codex session init-then-bootstrap Plan gate scenario"
+          "projectRoot": "$projectRoot"
         },
         "result": {
-          "success": true
+          "success": true,
+          "data.operation": "confirm",
+          "data.planSelection.generationStage": "coldStart"
         }
       },
       {
@@ -161,13 +105,6 @@
       }
     },
     {
-      "name": "alembic_bootstrap",
-      "arguments": {
-        "projectRoot": "$projectRoot"
-      },
-      "assistantFinalText": "Alembic bootstrap 需要先确认 Plan：请调用 alembic_plan draft，再 confirm；这不需要 Alembic AI Provider，也不会启动 daemon job。"
-    },
-    {
       "name": "alembic_plan",
       "arguments": {
         "operation": "draft",
@@ -182,46 +119,47 @@
       "arguments": {
         "operation": "confirm",
         "projectRoot": "$projectRoot",
-        "basePlanId": "$toolResult:4:data.plan.planId",
-        "baseVersion": "$toolResult:4:data.plan.version",
-        "projectContextSignature": "$toolResult:4:data.projectContextSignature",
+        "generationStage": "coldStart",
+        "projectProfile": {
+          "projectType": "node-app",
+          "primaryLanguage": "javascript",
+          "secondaryLanguages": [],
+          "frameworks": [],
+          "moduleCount": 1,
+          "fileCount": 2
+        },
         "selectedDimensions": [
           {
-            "id": "$toolResult:4:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0",
+            "dimensionId": "$toolResult:3:data.candidateDimensions.0.id",
+            "priority": 1,
             "rationale": "Codex session init-then-bootstrap Plan gate scenario",
-            "stage": "coldStart",
             "targetRecipes": 1
           }
         ],
         "scale": {
           "totalRecipeBudget": 1,
-          "depthLevels": ["project"],
-          "perStage": {
-            "coldStart": 1,
-            "deepMining": 0,
-            "module": 0
-          }
+          "depthLevels": ["project"]
         },
         "moduleBindings": [
           {
             "modulePath": "src",
-            "dimensions": [
-              "$toolResult:4:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0"
-            ],
-            "targetRecipes": 1
+            "dimensions": ["$toolResult:3:data.candidateDimensions.0.id"],
+            "targetRecipes": 1,
+            "priority": 1
           }
         ],
         "plannedNextActions": [
           {
             "tool": "alembic_bootstrap",
-            "reason": "Run confirmed Plan-gated host-agent bootstrap."
+            "order": 1,
+            "reason": "Run the confirmed Plan-gated host-agent bootstrap."
           }
         ],
         "evidenceRefs": [
           {
             "kind": "project-context",
-            "ref": "$toolResult:4:data.projectContextSignature",
-            "detail": "draft fact package signature"
+            "ref": "projectInfoTree:L0",
+            "detail": "draft projectInfoTree root"
           }
         ],
         "rationale": "Codex session init-then-bootstrap Plan gate scenario"
@@ -230,7 +168,8 @@
     {
       "name": "alembic_bootstrap",
       "arguments": {
-        "projectRoot": "$projectRoot"
+        "projectRoot": "$projectRoot",
+        "planSelection": "$toolResult:4:data.planSelection"
       }
     }
   ]

@@ -1,6 +1,6 @@
 {
   "id": "bootstrap-missing-ai-uses-host-agent",
-  "description": "已初始化但缺 daemon job provider 时，Codex 默认 bootstrap 走宿主 Agent workflow，不能因 provider-backed daemon job 配置缺失而失败。",
+  "description": "已初始化但缺 daemon job provider 时，Codex 冷启动走无状态 Plan（draft→confirm）后再 bootstrap 宿主 Agent workflow，不能因 provider-backed daemon job 配置缺失而失败，也不创建 daemon job。",
   "fixture": {
     "daemon": "stopped",
     "initialized": true,
@@ -25,21 +25,6 @@
         }
       },
       {
-        "name": "alembic_bootstrap",
-        "arguments": {
-          "projectRoot": "$projectRoot"
-        },
-        "result": {
-          "success": false,
-          "errorCode": "PLAN_REQUIRED",
-          "data.needsUserInput": true,
-          "data.planGate.status": "blocked",
-          "data.nextActions.0.tool": "alembic_plan",
-          "data.nextActions.0.operation": "draft",
-          "data.nextActions.1.operation": "confirm"
-        }
-      },
-      {
         "name": "alembic_plan",
         "arguments": {
           "operation": "draft",
@@ -53,53 +38,12 @@
         "name": "alembic_plan",
         "arguments": {
           "operation": "confirm",
-          "projectRoot": "$projectRoot",
-          "basePlanId": "$toolResult:3:data.plan.planId",
-          "baseVersion": "$toolResult:3:data.plan.version",
-          "projectContextSignature": "$toolResult:3:data.projectContextSignature",
-          "selectedDimensions": [
-            {
-              "id": "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0",
-              "rationale": "Codex session first-use Plan gate scenario",
-              "stage": "coldStart",
-              "targetRecipes": 1
-            }
-          ],
-          "scale": {
-            "totalRecipeBudget": 1,
-            "depthLevels": ["project"],
-            "perStage": {
-              "coldStart": 1,
-              "deepMining": 0,
-              "module": 0
-            }
-          },
-          "moduleBindings": [
-            {
-              "modulePath": "src",
-              "dimensions": [
-                "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0"
-              ],
-              "targetRecipes": 1
-            }
-          ],
-          "plannedNextActions": [
-            {
-              "tool": "alembic_bootstrap",
-              "reason": "Run confirmed Plan-gated host-agent bootstrap."
-            }
-          ],
-          "evidenceRefs": [
-            {
-              "kind": "project-context",
-              "ref": "$toolResult:3:data.projectContextSignature",
-              "detail": "draft fact package signature"
-            }
-          ],
-          "rationale": "Codex session first-use Plan gate scenario"
+          "projectRoot": "$projectRoot"
         },
         "result": {
-          "success": true
+          "success": true,
+          "data.operation": "confirm",
+          "data.planSelection.generationStage": "coldStart"
         }
       },
       {
@@ -133,13 +77,6 @@
       }
     },
     {
-      "name": "alembic_bootstrap",
-      "arguments": {
-        "projectRoot": "$projectRoot"
-      },
-      "assistantFinalText": "Alembic bootstrap 需要先确认 Plan：请调用 alembic_plan draft，再 confirm；这不需要 Alembic AI Provider，也不会启动 daemon job。"
-    },
-    {
       "name": "alembic_plan",
       "arguments": {
         "operation": "draft",
@@ -154,55 +91,57 @@
       "arguments": {
         "operation": "confirm",
         "projectRoot": "$projectRoot",
-        "basePlanId": "$toolResult:3:data.plan.planId",
-        "baseVersion": "$toolResult:3:data.plan.version",
-        "projectContextSignature": "$toolResult:3:data.projectContextSignature",
+        "generationStage": "coldStart",
+        "projectProfile": {
+          "projectType": "node-app",
+          "primaryLanguage": "javascript",
+          "secondaryLanguages": [],
+          "frameworks": [],
+          "moduleCount": 1,
+          "fileCount": 2
+        },
         "selectedDimensions": [
           {
-            "id": "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0",
-            "rationale": "Codex session first-use Plan gate scenario",
-            "stage": "coldStart",
+            "dimensionId": "$toolResult:2:data.candidateDimensions.0.id",
+            "priority": 1,
+            "rationale": "Codex session cold-start Plan gate scenario",
             "targetRecipes": 1
           }
         ],
         "scale": {
           "totalRecipeBudget": 1,
-          "depthLevels": ["project"],
-          "perStage": {
-            "coldStart": 1,
-            "deepMining": 0,
-            "module": 0
-          }
+          "depthLevels": ["project"]
         },
         "moduleBindings": [
           {
             "modulePath": "src",
-            "dimensions": [
-              "$toolResult:3:data.projectContextCreationGuide.confirmedPlanBoundary.dimensionIds.0"
-            ],
-            "targetRecipes": 1
+            "dimensions": ["$toolResult:2:data.candidateDimensions.0.id"],
+            "targetRecipes": 1,
+            "priority": 1
           }
         ],
         "plannedNextActions": [
           {
             "tool": "alembic_bootstrap",
-            "reason": "Run confirmed Plan-gated host-agent bootstrap."
+            "order": 1,
+            "reason": "Run the confirmed Plan-gated host-agent bootstrap."
           }
         ],
         "evidenceRefs": [
           {
             "kind": "project-context",
-            "ref": "$toolResult:3:data.projectContextSignature",
-            "detail": "draft fact package signature"
+            "ref": "projectInfoTree:L0",
+            "detail": "draft projectInfoTree root"
           }
         ],
-        "rationale": "Codex session first-use Plan gate scenario"
+        "rationale": "Codex session cold-start Plan gate scenario"
       }
     },
     {
       "name": "alembic_bootstrap",
       "arguments": {
-        "projectRoot": "$projectRoot"
+        "projectRoot": "$projectRoot",
+        "planSelection": "$toolResult:3:data.planSelection"
       }
     }
   ]
