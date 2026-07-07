@@ -77,6 +77,8 @@ export interface HostAdapter {
 
   // —— per-host 插件 shell 清单布局（L4 产物路径 / arg 归一化；host-name 分支收口于本契约，
   //    上层经 adapter 取路径/归一化、不再自带 hostShape 分支）——
+  /** 当前宿主实际加载的项目级 Skill runtime 根目录。 */
+  projectSkillRoot(projectRoot: string): string;
   /** MCP 声明清单路径（codex shell：.mcp.json；claude-code shell：内联于 .claude-plugin/plugin.json）。 */
   pluginMcpManifestPath(pluginRoot: string): string;
   /** 插件清单路径（codex：.codex-plugin/plugin.json；claude-code：.claude-plugin/plugin.json）。 */

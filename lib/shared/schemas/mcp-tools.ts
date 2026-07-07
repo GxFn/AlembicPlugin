@@ -1081,7 +1081,7 @@ export const ProjectSkillInput = z.object({
   operation: z
     .enum(['list', 'load', 'export', 'create', 'update', 'upsert', 'delete', 'refresh'])
     .describe(
-      'list=列表 | load=从 Codex runtime 或 source 加载 | upsert/create/update=写入 dataRoot source + receipt | refresh=有知识库时刷新知识 skill 并维护标准模式宿主上下文文件中的 Alembic 托管指针 | export=导出 .agents/skills symlink | delete=删除 Alembic-managed source/runtime'
+      'list=列表 | load=从当前宿主 project skill runtime 或 source 加载 | upsert/create/update=写入 dataRoot source + receipt | refresh=有知识库时刷新知识 skill 并维护标准模式宿主上下文文件中的 Alembic 托管指针 | export=导出当前宿主 project skill symlink | delete=删除 Alembic-managed source/runtime'
     ),
   name: z.string().optional().describe('Project Skill 名称（kebab-case）'),
   skillName: z.string().optional().describe('name 的别名，与 name 等价'),
@@ -1097,7 +1097,7 @@ export const ProjectSkillInput = z.object({
   authorizeProjectSkillExport: z
     .boolean()
     .default(false)
-    .describe('显式项目级授权；true 时允许写入当前项目 .agents/skills'),
+    .describe('显式项目级授权；true 时允许写入当前宿主的项目级 skill runtime'),
   createdBy: z
     .enum(['manual', 'user-ai', 'system-ai', 'external-ai', 'host-agent'])
     .default('host-agent'),

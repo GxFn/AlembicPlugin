@@ -223,7 +223,7 @@ export const PLUGIN_TOOL_SURFACE_CATALOG = {
     handlerOwner: 'McpServer.tool-router',
     tier: 'agent',
     schema: 'ProjectSkillInput',
-    annotations: localWriteTool('Deliver Alembic Project Skills To Codex'),
+    annotations: localWriteTool('Deliver Alembic Project Skills To Host Runtime'),
     gateway: {
       resolver: (args: Record<string, unknown>) =>
         (

@@ -74,6 +74,10 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
     return getInitMarkerPath(projectRoot);
   }
 
+  projectSkillRoot(projectRoot: string): string {
+    return join(projectRoot, '.claude', 'skills');
+  }
+
   pluginMcpManifestPath(pluginRoot: string): string {
     return join(pluginRoot, '.claude-plugin', 'plugin.json');
   }

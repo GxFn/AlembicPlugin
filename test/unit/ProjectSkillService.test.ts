@@ -8,6 +8,10 @@ import {
 } from '@alembic/core/io';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import {
+  CODEX_PLUGIN_ROOT_ENV,
+  resolveHostRuntimeContext,
+} from '../../lib/host-runtime/context/RuntimeContext.js';
 import { createSkill, loadSkill } from '#host-runtime/mcp/handlers/skill.js';
 import {
   getProjectSkillRoot,
@@ -16,6 +20,7 @@ import {
 import { createProjectSkillService } from '#service/skills/ProjectSkillService.js';
 
 const ORIGINAL_PLUGIN_HOST = process.env.ALEMBIC_PLUGIN_HOST;
+const ORIGINAL_PLUGIN_ROOT_ENV = process.env[CODEX_PLUGIN_ROOT_ENV];
 
 describe('ProjectSkillService', () => {
   afterEach(() => {
@@ -23,6 +28,11 @@ describe('ProjectSkillService', () => {
       delete process.env.ALEMBIC_PLUGIN_HOST;
     } else {
       process.env.ALEMBIC_PLUGIN_HOST = ORIGINAL_PLUGIN_HOST;
+    }
+    if (ORIGINAL_PLUGIN_ROOT_ENV === undefined) {
+      delete process.env[CODEX_PLUGIN_ROOT_ENV];
+    } else {
+      process.env[CODEX_PLUGIN_ROOT_ENV] = ORIGINAL_PLUGIN_ROOT_ENV;
     }
     pathGuard._reset();
   });
@@ -141,7 +151,7 @@ describe('ProjectSkillService', () => {
 
   test('selects the Claude Code host file and leaves the Codex host file untouched', () => {
     const root = makeRoot();
-    process.env.ALEMBIC_PLUGIN_HOST = 'claude-code';
+    useClaudeCodeHost();
     writeCandidate(root);
     fs.writeFileSync(path.join(root, 'AGENTS.md'), '# Existing Codex Instructions\n');
     const service = createProjectSkillService(createContext(root));
@@ -161,6 +171,31 @@ describe('ProjectSkillService', () => {
     );
     expect(pathGuard.isProjectWriteSafe(path.join(root, 'CLAUDE.md'))).toBe(true);
     expect(pathGuard.isProjectWriteSafe(path.join(root, 'AGENTS.md'))).toBe(false);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  test('refresh exports Claude Code project skills to .claude/skills via HostAdapter', () => {
+    const root = makeRoot();
+    useClaudeCodeHost();
+    writeCandidate(root);
+    const service = createProjectSkillService(createContext(root));
+
+    const result = service.refreshKnowledgeSkills({ authorizeProjectSkillExport: true });
+
+    const sourcePath = path.join(root, 'Alembic', 'skills', 'alembic-recipes', 'SKILL.md');
+    const runtimePath = path.join(root, '.claude', 'skills', 'alembic-recipes', 'SKILL.md');
+    expect(result.success).toBe(true);
+    expect(result.data?.hostGuidance).toMatchObject({
+      hostFileName: 'CLAUDE.md',
+      operation: 'upsert',
+    });
+    expect(fs.lstatSync(runtimePath).isSymbolicLink()).toBe(true);
+    expect(path.resolve(fs.readlinkSync(runtimePath))).toBe(path.resolve(sourcePath));
+    expect(fs.existsSync(path.join(root, '.agents', 'skills', 'alembic-recipes'))).toBe(false);
+    expect(pathGuard.isProjectWriteSafe(runtimePath)).toBe(true);
+    expect(
+      pathGuard.isProjectWriteSafe(path.join(root, '.agents', 'skills', 'alembic-recipes'))
+    ).toBe(false);
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -365,4 +400,10 @@ function createContext(root: string, hooks?: unknown, dataRoot = root) {
       get: () => hooks,
     },
   };
+}
+
+function useClaudeCodeHost(): void {
+  const codexShellRoot = resolveHostRuntimeContext().pluginRoot;
+  process.env.ALEMBIC_PLUGIN_HOST = 'claude-code';
+  process.env[CODEX_PLUGIN_ROOT_ENV] = path.join(codexShellRoot, '..', 'alembic-claude-code');
 }

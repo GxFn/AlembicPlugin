@@ -273,12 +273,12 @@ export const TOOLS = [
     name: 'alembic_project_skill',
     tier: 'agent',
     description:
-      'Codex Project Skill delivery and runtime export.\n' +
-      '• list — list built-in skills, dataRoot source skills, Codex runtime exports, and effective winners\n' +
-      '• load — load a skill, preferring Codex project runtime `.agents/skills/<name>/SKILL.md`, then dataRoot source, then built-in\n' +
+      'Host-aware Project Skill delivery and runtime export.\n' +
+      '• list — list built-in skills, dataRoot source skills, selected host runtime exports, and effective winners\n' +
+      '• load — load a skill, preferring the selected host project runtime (`.agents/skills/<name>/SKILL.md` for Codex, `.claude/skills/<name>/SKILL.md` for Claude Code), then dataRoot source, then built-in\n' +
       '• upsert/create/update — write source to `dataRoot/Alembic/skills/<name>/`, produce a Plugin route receipt, and optionally export\n' +
       '• refresh — only when the current dataRoot has knowledge_entries, candidates, or recipes, refresh knowledge-dependent same-name Project Skills and maintain the Alembic managed-guidance block in the selected standard-mode host context file\n' +
-      '• export — symlink source SKILL.md into `.agents/skills` after authorizeProjectSkillExport=true\n' +
+      '• export — symlink source SKILL.md into the selected host project skill root after authorizeProjectSkillExport=true\n' +
       '• delete — delete Alembic-managed source/runtime projection; built-in plugin skills remain read-only',
     inputSchema: zodToMcpSchema(ProjectSkillInput),
   },

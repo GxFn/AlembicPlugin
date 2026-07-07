@@ -66,6 +66,10 @@ export class CodexHostAdapter implements HostAdapter {
     return getInitMarkerPath(projectRoot);
   }
 
+  projectSkillRoot(projectRoot: string): string {
+    return join(projectRoot, '.agents', 'skills');
+  }
+
   pluginMcpManifestPath(pluginRoot: string): string {
     return join(pluginRoot, '.mcp.json');
   }

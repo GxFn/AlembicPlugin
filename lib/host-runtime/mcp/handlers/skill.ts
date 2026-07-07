@@ -3,7 +3,7 @@
  *
  * AP-KS-1 后，skill 写入面统一交给 ProjectSkillService：
  * - source: dataRoot/Alembic/skills/<name>/
- * - runtime: projectRoot/.agents/skills/<name>/SKILL.md symlink
+ * - runtime: HostAdapter project skill root symlink（Codex=.agents/skills, Claude Code=.claude/skills）
  * - same-name project skill 覆盖内建 skill 是目标能力，不再是 built-in conflict。
  *
  * 本 handler 只做 MCP/HTTP 兼容转接，不接 SkillHooks，也不改 tool visibility/gate。

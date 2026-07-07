@@ -85,4 +85,13 @@ describe('DH-3① host-aware HostAdapter selection', () => {
     );
     expect(cc.normalizePluginMcpArg('${CLAUDE_PLUGIN_ROOT}/bin')).toBe('./bin');
   });
+
+  test('resolves project Skill roots per host without moving host branching above L3', () => {
+    const { codexShellRoot, claudeShellRoot } = shellRoots();
+    const codex = resolveHostAdapter({ [CODEX_PLUGIN_ROOT_ENV]: codexShellRoot });
+    const cc = resolveHostAdapter({ [CODEX_PLUGIN_ROOT_ENV]: claudeShellRoot });
+
+    expect(codex.projectSkillRoot('/p')).toBe(join('/p', '.agents', 'skills'));
+    expect(cc.projectSkillRoot('/p')).toBe(join('/p', '.claude', 'skills'));
+  });
 });

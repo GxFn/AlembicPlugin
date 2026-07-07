@@ -106,8 +106,9 @@ const CLAUDE_CODE_PLUGIN_HOST = 'claude-code';
 
 /**
  * ProjectSkillService 是 AP-KS-1 后唯一的 skill 写入面：
- * source 永远写到 dataRoot/Alembic/skills，Codex runtime 永远通过
- * .agents/skills symlink 投影。这里不接 SkillHooks，也不改 tool visibility。
+ * source 永远写到 dataRoot/Alembic/skills，runtime 通过 HostAdapter 选择宿主实际
+ * project skill 目录（Codex=.agents/skills，Claude Code=.claude/skills）再 symlink 投影。
+ * 这里不接 SkillHooks，也不改 tool visibility。
  */
 export class ProjectSkillService {
   constructor(private readonly ctx: ProjectSkillContext | null) {}
@@ -147,7 +148,7 @@ export class ProjectSkillService {
           total: runtimeExports.length,
         },
         sourceRoot,
-        hint: 'Project Skills use dataRoot/Alembic/skills as source and .agents/skills symlinks as Codex runtime projection. Same-name project skills intentionally override built-in skills.',
+        hint: 'Project Skills use dataRoot/Alembic/skills as source and host-selected runtime symlinks (.agents/skills for Codex, .claude/skills for Claude Code). Same-name project skills intentionally override built-in skills.',
       },
     };
   }
@@ -590,7 +591,7 @@ export class ProjectSkillService {
       if (marker.managedBy !== 'alembic') {
         return false;
       }
-      pathGuard.addProjectWritePrefix('.agents');
+      addProjectSkillRootWritePrefix(this.projectRoot(), location.path);
       pathGuard.assertProjectWriteSafe(location.path);
       fs.rmSync(location.path, { recursive: true, force: true });
       return true;
@@ -665,6 +666,11 @@ export class ProjectSkillService {
       operation: 'upsert',
     };
   }
+}
+
+function addProjectSkillRootWritePrefix(projectRoot: string, hostSkillRoot: string): void {
+  const relativeRoot = path.relative(path.resolve(projectRoot), path.resolve(hostSkillRoot));
+  pathGuard.addProjectWritePrefix(relativeRoot);
 }
 
 export function createProjectSkillService(ctx: ProjectSkillContext | null): ProjectSkillService {

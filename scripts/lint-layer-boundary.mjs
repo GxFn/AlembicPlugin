@@ -36,6 +36,9 @@ const ALLOWLIST = [
   'lib/recipe-pipeline/generate/cold-start.ts:.*buildLocalSelectionMismatch',
   'lib/recipe-pipeline/generate/cold-start.ts:.*buildColdStartOnboardingContract',
   'lib/recipe-pipeline/generate/knowledge-rescan.ts:.*buildLocalSelectionMismatch',
+  // P2 WS-2: Project Skill export must resolve the per-host runtime root via L3
+  // HostAdapter while keeping the actual host-name split inside adapter implementations.
+  'lib/service/skills/ProjectSkillDelivery.ts:.*#host-runtime/host-adapter/resolveHostAdapter',
   // type-only bridge (no runtime coupling): resident client surfaces the host-runtime status
   // shape in its API. Follow-up: sink HostRuntimeStatus into lib/types or a Core contract.
   'lib/service/resident/AlembicResidentServiceClient.ts:.*import type \\{ HostRuntimeStatus \\}',
