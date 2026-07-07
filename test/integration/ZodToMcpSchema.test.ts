@@ -14,10 +14,10 @@ import { z } from 'zod';
 import { zodToMcpSchema } from '../../lib/host-runtime/mcp/zodToMcpSchema.js';
 import {
   GraphInput,
-  HealthInput,
   RecipeMapInput,
   RescanInput,
   SearchInput,
+  StatusInput,
   SubmitKnowledgeInput,
   TaskInput,
 } from '../../lib/shared/schemas/mcp-tools.js';
@@ -153,7 +153,7 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.properties['refId']).toBeDefined();
       expect(result.properties['hostDeclaredIntent']).toBeUndefined();
       expect(result.properties['hostTurnMeta']).toBeUndefined();
-      expect(result.properties['activeFile']).toBeUndefined();
+      expect(result.properties['activeFile']).toBeDefined();
       expect(result.properties['sourceRefs']).toBeUndefined();
       expect(JSON.stringify(result.properties['budget'])).not.toContain('relationHopLimit');
       expect(JSON.stringify(result.properties['mode'])).toContain('auto');
@@ -165,8 +165,8 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.required).not.toContain('limit');
     });
 
-    test('HealthInput should produce valid MCP schema', () => {
-      const result = zodToMcpSchema(HealthInput);
+    test('StatusInput should produce valid MCP schema', () => {
+      const result = zodToMcpSchema(StatusInput);
       expect(result.type).toBe('object');
       // All fields optional → required should be empty
       expect(result.required).toEqual([]);
@@ -217,7 +217,7 @@ describe('Integration: zodToMcpSchema', () => {
     });
 
     test('all schemas should not contain $schema', () => {
-      for (const schema of [SearchInput, HealthInput, TaskInput]) {
+      for (const schema of [SearchInput, StatusInput, TaskInput]) {
         const result = zodToMcpSchema(schema);
         expect(result['$schema']).toBeUndefined();
       }

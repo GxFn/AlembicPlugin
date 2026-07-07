@@ -2358,6 +2358,11 @@ function buildPrimeProjectContextGuidance(input: {
   const recommendedQueries = [
     {
       ...(query ? { query } : {}),
+      ...(focus && !query ? { focus } : {}),
+      tool: 'alembic_search',
+    },
+    {
+      ...(query ? { query } : {}),
       ...(focus ? { focus } : {}),
       tool: 'alembic_recipe_map',
     },
@@ -2374,7 +2379,7 @@ function buildPrimeProjectContextGuidance(input: {
     boundary:
       'ProjectContext guidance is compact project orientation only; it does not backfill Recipe provenance or replace raw source reads, Guard, repository tests, controller acceptance, or Test-window validation.',
     recommendedQueries,
-    recommendedTools: ['alembic_recipe_map', 'alembic_graph'],
+    recommendedTools: ['alembic_search', 'alembic_recipe_map', 'alembic_graph'],
     projectContextRefs,
     sourceEvidenceRefs,
     status: projectContextRefs.length > 0 ? ('ready-evidence' as const) : ('recommended' as const),

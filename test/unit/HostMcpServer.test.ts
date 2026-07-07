@@ -557,6 +557,8 @@ describe('HostMcpServer', () => {
     expect(instructions).not.toContain('`currentDomainSop`');
     expect(instructions).not.toContain('`domainQueue`');
     expect(instructions).not.toContain('`sopPack`');
+    expect(instructions).toContain('Project knowledge consumption');
+    expect(instructions).toContain('call `alembic_search` first');
     expect(instructions).toContain('raw file reads/search');
     expect(instructions).toContain('Validation is still required');
   });

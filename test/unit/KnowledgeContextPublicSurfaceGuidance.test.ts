@@ -5,6 +5,14 @@ import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/host-runtime/i
 import { buildMcpGuidance } from '../../lib/host-runtime/mcp/host/guidance.js';
 import { listPluginToolSurfaceCatalog } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
 import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
+import { zodToMcpSchema } from '../../lib/host-runtime/mcp/zodToMcpSchema.js';
+import { buildStatusOnboardingContract } from '../../lib/host-runtime/status/OnboardingContract.js';
+import {
+  GraphInput,
+  PrimeInput,
+  RecipeMapInput,
+  SearchInput,
+} from '../../lib/shared/schemas/mcp-tools.js';
 
 const ROOT = process.cwd();
 
@@ -66,16 +74,69 @@ describe('public knowledge context surface guidance', () => {
     );
   });
 
+  test('describes knowledge tools with user-intent wording while preserving contracts', () => {
+    const byName = new Map(TOOLS.map((tool) => [tool.name, tool]));
+
+    expect(byName.get('alembic_prime')?.description).toContain(
+      'Prime code-development Recipe context.'
+    );
+    expect(firstLine(byName.get('alembic_recipe_map')?.description)).toBe(
+      'Use when the user asks which Recipes govern a code region, file, or module before editing; map Recipes onto a bounded ProjectContext region (replaces alembic_project_matrix). Pick a focus {kind: space|repo|map|module|file|symbol|anchor, refId/filePath/line}:'
+    );
+    expect(firstLine(byName.get('alembic_search')?.description)).toBe(
+      'Use to pull exact Recipe/knowledge detail when the user asks about a project standard, convention, prior decision, or known rule; search, get, or expand compact Recipe / knowledge context.'
+    );
+    expect(firstLine(byName.get('alembic_graph')?.description)).toBe(
+      'Use before changing code when the user asks for imports, dependencies, impact, structure, call paths, files, symbols, or project relations; run pure ProjectContext graph queries over project structure, packages, modules, source files, symbols, and stable refs. Select a queryKind:'
+    );
+
+    expect(byName.get('alembic_recipe_map')?.description).toContain(
+      '• recipeMounts — Recipes mounted deterministically onto nodes via recipe_source_refs + explicit metadata only (never semantic/keyword); full mountType enum + reason'
+    );
+    expect(byName.get('alembic_search')?.description).toContain(
+      '• expand — expand one detailRef without broad search fallback'
+    );
+    expect(byName.get('alembic_search')?.description).toContain(
+      'Non-goal: no host-intent relevance, relation-chain traversal, prime context material, usage-confirmation operations, lifecycle mutation, or full Recipe browsing.'
+    );
+    expect(byName.get('alembic_graph')?.description).toContain(
+      'Returns a Recipe-free AlembicGraphOutput (nodes, relations, ProjectContext refs, optional slices, diagnostics). Non-goal: no Recipe ids/summaries/mounts/relation-chains, no search scores, no semantic prime, no knowledge categories.'
+    );
+
+    const schemaInputs = {
+      alembic_prime: PrimeInput,
+      alembic_recipe_map: RecipeMapInput,
+      alembic_search: SearchInput,
+      alembic_graph: GraphInput,
+    } as const;
+    for (const [name, schema] of Object.entries(schemaInputs)) {
+      expect(byName.get(name)?.inputSchema).toEqual(zodToMcpSchema(schema));
+    }
+  });
+
   test('builds initialize guidance from the four public knowledge context tools', () => {
     const guidance = buildMcpGuidance(TOOLS);
 
     expect(guidance.knowledgeTools.sort()).toEqual(publicKnowledgeNavigationToolNames.sort());
     expect(guidance.instructions).toContain('recipe_map');
     expect(guidance.instructions).toContain('alembic_graph for ProjectContext-backed');
+    expect(guidance.instructions).toContain('Project knowledge consumption');
+    expect(guidance.instructions).toContain('call `alembic_search` first');
     for (const toolName of legacyPublicKnowledgeToolNames) {
       expect(guidance.instructions).not.toContain(toolName);
     }
     expect(guidance.instructions).not.toContain('Recipe graph');
+  });
+
+  test('stages prime recommendedQueries consumption through search before coding', () => {
+    const contract = buildStatusOnboardingContract({ projectRoot: '/tmp/alembic-plugin' });
+    const hostAgentContract = contract.hostAgentContract as { stagedProtocol?: string[] };
+
+    expect(hostAgentContract.stagedProtocol).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('consume them with alembic_search before coding'),
+      ])
+    );
   });
 
   test('keeps active skill and template guidance off legacy public knowledge tools', () => {
@@ -96,3 +157,7 @@ describe('public knowledge context surface guidance', () => {
     }
   });
 });
+
+function firstLine(value: string | undefined): string {
+  return value?.split('\n')[0] ?? '';
+}

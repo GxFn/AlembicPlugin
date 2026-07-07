@@ -363,6 +363,7 @@ function buildHostAgentContract(
     stagedProtocol: [
       'Read bootstrapState and confirm project identity, runtime route, ProjectContext readiness, and current plan tier.',
       'Use currentDimensionGuidance for the executionPlan tier and keep source evidence tied to file paths or symbols.',
+      'If alembic_prime returns recommendedQueries or detailRefs, consume them with alembic_search before coding; use alembic_recipe_map and alembic_graph for ProjectContext navigation and relation evidence.',
       'Before submit, draft against submitKnowledgeContract so the first alembic_submit_knowledge call is already schema-complete and source-grounded.',
       'After alembic_submit_knowledge returns session-bound Recipe ids, call alembic_dimension_complete for that dimension; only then is the dimension complete.',
     ],

@@ -48,6 +48,7 @@ export function buildMcpGuidance(tools: readonly GuidanceToolLike[]): McpGuidanc
     buildOnboardingPlaybookLine(visibleToolNameSet),
     buildProjectContextPlaybookLine(knowledgeTools),
     buildKnowledgePlaybookLine(knowledgeTools),
+    buildConsumptionLoopPlaybookLine(knowledgeTools),
     buildGuardPlaybookLine(guardTools),
     buildLifecyclePlaybookLine(lifecycleTools),
     buildFallbackPlaybookLine(visibleToolNameSet),
@@ -96,6 +97,18 @@ function buildKnowledgePlaybookLine(knowledgeTools: string[]): string {
   return `Project knowledge/context: use visible tools ${formatToolList(
     knowledgeTools
   )}; use search/prime for standards and prior decisions, recipe_map for navigation, and alembic_graph for ProjectContext-backed structure/source/dependency relations.`;
+}
+
+function buildConsumptionLoopPlaybookLine(knowledgeTools: string[]): string {
+  const hasPrime = knowledgeTools.includes('alembic_prime');
+  const hasSearch = knowledgeTools.includes('alembic_search');
+  if (hasPrime && hasSearch) {
+    return 'Project knowledge consumption: after `alembic_prime` returns recommendedQueries or detailRefs, call `alembic_search` first for exact Recipe detail, project standards, conventions, or prior decisions before treating guidance as consumed.';
+  }
+  if (hasSearch) {
+    return 'Project knowledge consumption: call `alembic_search` for exact Recipe detail, project standards, conventions, or prior decisions before treating guidance as consumed.';
+  }
+  return 'Project knowledge consumption: no prime/search pair is visible; use available ProjectContext tools plus raw reads before treating guidance as consumed.';
 }
 
 function buildGuardPlaybookLine(guardTools: string[]): string {

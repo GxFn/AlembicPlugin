@@ -171,7 +171,7 @@ export const TOOLS = [
     name: 'alembic_recipe_map',
     tier: 'agent',
     description:
-      'Map Recipes onto a bounded ProjectContext region (replaces alembic_project_matrix). Pick a focus {kind: space|repo|map|module|file|symbol|anchor, refId/filePath/line}:\n' +
+      'Use when the user asks which Recipes govern a code region, file, or module before editing; map Recipes onto a bounded ProjectContext region (replaces alembic_project_matrix). Pick a focus {kind: space|repo|map|module|file|symbol|anchor, refId/filePath/line}:\n' +
       '• region — rootNode, breadcrumb, and bounded child nodes (shares ref ids with alembic_graph)\n' +
       '• recipeMounts — Recipes mounted deterministically onto nodes via recipe_source_refs + explicit metadata only (never semantic/keyword); full mountType enum + reason\n' +
       '• recipeRollups — direct/descendant Recipe counts + representative ids per node\n' +
@@ -214,7 +214,7 @@ export const TOOLS = [
     name: 'alembic_search',
     tier: 'agent',
     description:
-      'Search, get, or expand compact Recipe / knowledge context.\n' +
+      'Use to pull exact Recipe/knowledge detail when the user asks about a project standard, convention, prior decision, or known rule; search, get, or expand compact Recipe / knowledge context.\n' +
       '• search — direct lookup by explicit query, keywords, mode, and Recipe metadata filters\n' +
       '• get — retrieve one result by refId/id/detailRefId as a bounded clean output\n' +
       '• expand — expand one detailRef without broad search fallback\n' +
@@ -227,7 +227,7 @@ export const TOOLS = [
     name: 'alembic_graph',
     tier: 'agent',
     description:
-      'Pure ProjectContext graph queries over project structure, packages, modules, source files, symbols, and stable refs. Select a queryKind:\n' +
+      'Use before changing code when the user asks for imports, dependencies, impact, structure, call paths, files, symbols, or project relations; run pure ProjectContext graph queries over project structure, packages, modules, source files, symbols, and stable refs. Select a queryKind:\n' +
       '• space / repo / map — project, repo, and architecture-map overviews\n' +
       '• module / module-layers — module detail and layered file groups\n' +
       '• file-flow / file-symbols / source-slice — file imports/exports, file symbols, and bounded source slices (filePath)\n' +

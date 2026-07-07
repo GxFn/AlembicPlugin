@@ -1379,11 +1379,18 @@ describe('agent-facing active public tools', () => {
     const primePackage = asRecord(cleanPrime.primePackage);
     const projectContextGuidance = asRecord(primePackage.projectContextGuidance);
     const recommendedQueries = arrayValue(projectContextGuidance.recommendedQueries).map(asRecord);
+    const recommendedTools = arrayValue(projectContextGuidance.recommendedTools);
 
     expect(cleanPrime.ok).toBe(true);
     expect(search).toHaveBeenCalledTimes(1);
+    expect(recommendedTools).toEqual(['alembic_search', 'alembic_recipe_map', 'alembic_graph']);
+    expect(recommendedQueries[0]).toMatchObject({
+      query: expect.any(String),
+      tool: 'alembic_search',
+    });
     expect(recommendedQueries[0]?.query).toEqual(expect.any(String));
     expect(String(recommendedQueries[0]?.query).length).toBeLessThanOrEqual(240);
+    expect(recommendedQueries[1]?.tool).toBe('alembic_recipe_map');
   });
 
   test.each([
