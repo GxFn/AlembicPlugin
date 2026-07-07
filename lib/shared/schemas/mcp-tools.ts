@@ -1081,7 +1081,7 @@ export const ProjectSkillInput = z.object({
   operation: z
     .enum(['list', 'load', 'export', 'create', 'update', 'upsert', 'delete', 'refresh'])
     .describe(
-      'list=列表 | load=从 Codex runtime 或 source 加载 | upsert/create/update=写入 dataRoot source + receipt | refresh=有知识库时刷新知识 skill | export=导出 .agents/skills symlink | delete=删除 Alembic-managed source/runtime'
+      'list=列表 | load=从 Codex runtime 或 source 加载 | upsert/create/update=写入 dataRoot source + receipt | refresh=有知识库时刷新知识 skill 并维护标准模式宿主上下文文件中的 Alembic 托管指针 | export=导出 .agents/skills symlink | delete=删除 Alembic-managed source/runtime'
     ),
   name: z.string().optional().describe('Project Skill 名称（kebab-case）'),
   skillName: z.string().optional().describe('name 的别名，与 name 等价'),

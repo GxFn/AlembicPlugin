@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getProjectSkillsPath } from '@alembic/core/config';
 import type { ProjectSkillDeliveryReceipt } from '@alembic/core/host-agent-workflows';
-import { pathGuard, type WriteZone } from '@alembic/core/io';
+import {
+  type AlembicManagedBlockFileResult,
+  pathGuard,
+  removeAlembicManagedBlock,
+  upsertAlembicManagedBlock,
+  type WriteZone,
+} from '@alembic/core/io';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import {
@@ -74,12 +80,29 @@ interface KnowledgeScope {
   reasons: string[];
 }
 
+interface HostGuidanceSyncResult {
+  blockFound?: boolean;
+  changed?: boolean;
+  configSource: 'default' | 'workspace-config';
+  created?: boolean;
+  enabled: boolean;
+  hostFileName: 'AGENTS.md' | 'CLAUDE.md';
+  hostFilePath: string;
+  operation: 'remove' | 'skip' | 'upsert';
+  reason?: string;
+  wrote?: boolean;
+}
+
 const KNOWLEDGE_DEPENDENT_SKILLS = [
   'alembic-recipes',
   'alembic-guard',
   'alembic-structure',
   'alembic-create',
 ] as const;
+
+const ALEMBIC_PLUGIN_HOST_ENV = 'ALEMBIC_PLUGIN_HOST';
+const CODEX_PLUGIN_HOST = 'codex';
+const CLAUDE_CODE_PLUGIN_HOST = 'claude-code';
 
 /**
  * ProjectSkillService 是 AP-KS-1 后唯一的 skill 写入面：
@@ -323,6 +346,25 @@ export class ProjectSkillService {
     const scope = this.collectKnowledgeScope();
     const refreshed: Record<string, unknown>[] = [];
     const removed: Record<string, unknown>[] = [];
+    let hostGuidance: HostGuidanceSyncResult;
+    try {
+      hostGuidance = this.syncManagedHostGuidanceBlock(scope);
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: {
+          code: 'HOST_GUIDANCE_SYNC_FAILED',
+          message: `Failed to sync Alembic managed host guidance block: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        errorCode: 'HOST_GUIDANCE_SYNC_FAILED',
+        message: 'Failed to sync Alembic managed host guidance block.',
+        data: {
+          hasKnowledgeBase: scope.hasKnowledgeBase,
+          knowledgeScope: scope,
+          hostGuidance: this.describeHostGuidanceTarget(scope),
+        },
+      };
+    }
 
     if (!scope.hasKnowledgeBase) {
       for (const name of KNOWLEDGE_DEPENDENT_SKILLS) {
@@ -340,6 +382,7 @@ export class ProjectSkillService {
           knowledgeScope: scope,
           refreshed,
           removed,
+          hostGuidance,
         },
       };
     }
@@ -376,6 +419,7 @@ export class ProjectSkillService {
         hasKnowledgeBase: true,
         knowledgeScope: scope,
         refreshed,
+        hostGuidance,
       },
     };
   }
@@ -566,6 +610,61 @@ export class ProjectSkillService {
   private sourceRoot(): string {
     return getProjectSkillsPath(this.dataRoot());
   }
+
+  private describeHostGuidanceTarget(scope: KnowledgeScope): HostGuidanceSyncResult {
+    const hostFileName = hostGuidanceFileName(resolvePluginHost(this.ctx));
+    const config = readHostGuidanceConfig(scope.dataRoot);
+    return {
+      configSource: config.source,
+      enabled: config.enabled,
+      hostFileName,
+      hostFilePath: path.join(scope.projectRoot, hostFileName),
+      operation: 'skip',
+      reason: 'sync-failed',
+    };
+  }
+
+  private syncManagedHostGuidanceBlock(scope: KnowledgeScope): HostGuidanceSyncResult {
+    const hostFileName = hostGuidanceFileName(resolvePluginHost(this.ctx));
+    const hostFilePath = path.join(scope.projectRoot, hostFileName);
+    const config = readHostGuidanceConfig(scope.dataRoot);
+    const baseResult = {
+      configSource: config.source,
+      enabled: config.enabled,
+      hostFileName,
+      hostFilePath,
+    } satisfies Pick<
+      HostGuidanceSyncResult,
+      'configSource' | 'enabled' | 'hostFileName' | 'hostFilePath'
+    >;
+
+    if (!isStandardProjectStorage(scope)) {
+      return {
+        ...baseResult,
+        operation: 'skip',
+        reason: 'non-standard-or-ghost-data-root',
+      };
+    }
+
+    pathGuard.addProjectWritableFile(hostFileName);
+
+    if (!scope.hasKnowledgeBase || !config.enabled) {
+      const result = removeAlembicManagedBlock(hostFilePath);
+      return {
+        ...baseResult,
+        ...summarizeManagedBlockFileResult(result),
+        operation: 'remove',
+        reason: scope.hasKnowledgeBase ? 'host-guidance-disabled' : 'no-knowledge-base',
+      };
+    }
+
+    const result = upsertAlembicManagedBlock(hostFilePath, buildHostGuidanceBlockBody(scope));
+    return {
+      ...baseResult,
+      ...summarizeManagedBlockFileResult(result),
+      operation: 'upsert',
+    };
+  }
 }
 
 export function createProjectSkillService(ctx: ProjectSkillContext | null): ProjectSkillService {
@@ -633,6 +732,7 @@ function buildKnowledgeScopedSkill(
     `# ${parsed.title ?? name}`,
     '',
     '> This project has a local Alembic knowledge base. Use Alembic Recipes, Guard, structure, and knowledge search proactively for this project when coding or answering project-standard questions.',
+    '> Alembic knowledge is grounded in THIS project\'s own code; for example, before editing AuthService, call `alembic_prime` then `alembic_search "error handling"` and consult `alembic_recipe_map`/`alembic_graph` for affected files.',
     '',
     '## Current Project Knowledge Scope',
     '',
@@ -791,4 +891,67 @@ function normalizeReceiptInput(receipt: unknown): ProjectSkillDeliveryReceipt | 
     return null;
   }
   return receipt as ProjectSkillDeliveryReceipt;
+}
+
+function buildHostGuidanceBlockBody(scope: KnowledgeScope): string {
+  const evidence = scope.reasons.length > 0 ? scope.reasons.join(', ') : 'local Alembic files';
+  return [
+    "- Alembic knowledge is grounded in THIS project's own code. Before coding here, call `alembic_prime`, then `alembic_search` for the relevant standard, and use `alembic_recipe_map`/`alembic_graph` for files you will edit.",
+    '- Example: before editing AuthService, run `alembic_prime` -> `alembic_search "error handling"` -> `alembic_recipe_map`/`alembic_graph`.',
+    `- Local Alembic knowledge evidence: ${evidence}; database entries: ${scope.databaseEntries}; markdown files: ${scope.markdownFiles.length}.`,
+  ].join('\n');
+}
+
+function summarizeManagedBlockFileResult(
+  result: AlembicManagedBlockFileResult
+): Pick<HostGuidanceSyncResult, 'blockFound' | 'changed' | 'created' | 'wrote'> {
+  return {
+    blockFound: result.blockFound,
+    changed: result.changed,
+    created: result.created,
+    wrote: result.wrote,
+  };
+}
+
+function isStandardProjectStorage(scope: KnowledgeScope): boolean {
+  return path.resolve(scope.dataRoot) === path.resolve(scope.projectRoot);
+}
+
+function resolvePluginHost(ctx: ProjectSkillContext | null): string {
+  const singletonHost = ctx?.container?.singletons?._pluginHost;
+  return normalizePluginHost(
+    typeof singletonHost === 'string' ? singletonHost : process.env[ALEMBIC_PLUGIN_HOST_ENV]
+  );
+}
+
+function normalizePluginHost(value: string | undefined): string {
+  const normalized = (value || '').trim().toLowerCase();
+  return normalized || CODEX_PLUGIN_HOST;
+}
+
+function hostGuidanceFileName(pluginHost: string): 'AGENTS.md' | 'CLAUDE.md' {
+  return pluginHost === CLAUDE_CODE_PLUGIN_HOST ? 'CLAUDE.md' : 'AGENTS.md';
+}
+
+function readHostGuidanceConfig(dataRoot: string): {
+  enabled: boolean;
+  source: HostGuidanceSyncResult['configSource'];
+} {
+  const configPath = path.join(dataRoot, '.asd', 'config.json');
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as unknown;
+    const projectSkills = isRecord(parsed) ? parsed.projectSkills : null;
+    const hostGuidance = isRecord(projectSkills) ? projectSkills.hostGuidance : null;
+    const enabled = isRecord(hostGuidance) ? hostGuidance.enabled : undefined;
+    if (typeof enabled === 'boolean') {
+      return { enabled, source: 'workspace-config' };
+    }
+  } catch {
+    /* Missing or unreadable config keeps the standard default enabled. */
+  }
+  return { enabled: true, source: 'default' };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
