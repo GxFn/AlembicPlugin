@@ -29,6 +29,7 @@ import {
 } from './EnhancementRoute.js';
 import type { HostRuntimeStatus } from './host-runtime-status.js';
 import { buildStatusOnboardingContract } from './OnboardingContract.js';
+import { probeSourcePresence, type SourcePresence } from './SourcePresenceProbe.js';
 
 export interface DaemonStatusProvider {
   status(projectRoot: string): Promise<HostRuntimeStatus>;
@@ -139,12 +140,21 @@ interface StatusOnboardingInput {
   hostProjectAlignment?: HostProjectAlignment;
   knowledge: HostKnowledgeState;
   projectRootResolution?: ProjectRootResolution;
+  sourcePresence?: SourcePresence;
   workspace?: {
     ghost: boolean;
     mode: string;
     registered: boolean;
   };
 }
+
+interface StatusOnboardingContext {
+  alignmentNotes: string[];
+  boundaryNotes: string[];
+  onboardingContract: ReturnType<typeof buildStatusOnboardingContract>;
+}
+
+type WorkspaceFacts = ReturnType<WorkspaceResolver['toFacts']>;
 
 export async function buildStatus(
   projectRootInput: string,
@@ -158,29 +168,14 @@ export async function buildStatus(
   const settingsStore = new WorkspaceSettingsStore(resolver);
   const facts = resolver.toFacts();
   const localEmbedding = buildLocalEmbeddingStatus(resolver);
-  // PDR-3: the embedded daemon carrier is removed. Status no longer probes a
-  // daemon process; it reports a synthetic daemon-less "stopped" status so the
-  // downstream consumers (enhancement-route, host-project-alignment, resident
-  // probe, project-runtime-context, diagnostics, onboarding) keep their existing
-  // non-null HostRuntimeStatus typing while reflecting the absent daemon. A caller may
-  // still inject a DaemonStatusProvider via options.supervisor.
   const daemonStatus: HostRuntimeStatus = options.supervisor
     ? await options.supervisor.status(projectRoot)
-    : {
-        status: 'stopped',
-        ready: false,
-        projectRoot,
+    : buildRemovedDaemonStatus({
         dataRoot: facts.dataRoot,
         projectId: facts.projectId ?? null,
-        statePath: join(resolver.runtimeDir, 'daemon.json'),
-        pidPath: join(resolver.runtimeDir, 'daemon.pid'),
-        lockDir: join(resolver.runtimeDir, 'daemon.lock'),
-        logPath: join(resolver.runtimeDir, 'daemon.log'),
-        state: null,
-        pidAlive: false,
-        health: null,
-        message: 'daemon removed (PDR-3)',
-      };
+        projectRoot,
+        runtimeDir: resolver.runtimeDir,
+      });
   const knowledge = inspectKnowledge(projectRoot);
   const runtime = options.runtime || resolveHostRuntimeContext();
   const residentClient = new AlembicResidentServiceClient({ projectRoot });
@@ -226,6 +221,7 @@ export async function buildStatus(
     projectScopeIdentity,
     residentService,
   });
+  const sourcePresence = knowledge.initialized ? undefined : probeSourcePresence(projectRoot);
   const onboarding = buildStatusOnboarding({
     daemonStatus,
     diagnostics,
@@ -233,6 +229,7 @@ export async function buildStatus(
     hostProjectAlignment,
     knowledge,
     projectRootResolution,
+    sourcePresence,
     workspace: {
       ghost: facts.ghost,
       mode: facts.mode,
@@ -256,22 +253,7 @@ export async function buildStatus(
       hostConnectionState: hostProjectAlignment.connectionState,
       handoffAllowed: hostProjectAlignment.handoffAllowed,
     },
-    workspace: {
-      mode: facts.mode,
-      ghost: facts.ghost,
-      dataRootSource: facts.dataRootSource,
-      workspaceExists: facts.workspaceExists,
-      runtimeExists: existsSync(resolver.runtimeDir),
-      configExists: existsSync(resolver.configPath),
-      databaseExists: existsSync(resolver.databasePath),
-      knowledgeExists: existsSync(resolver.knowledgeDir),
-      recipesExists: existsSync(resolver.recipesDir),
-      candidatesExists: existsSync(resolver.candidatesDir),
-      skillsExists: existsSync(resolver.skillsDir),
-      wikiExists: existsSync(resolver.wikiDir),
-      settingsExists: existsSync(settingsStore.settingsPath),
-      secretsExists: existsSync(settingsStore.secretsPath),
-    },
+    workspace: summarizeWorkspaceStatus(facts, resolver, settingsStore),
     daemon: {
       ...summarizeCompactDaemonStatus(daemonStatus),
       implemented: true,
@@ -283,6 +265,54 @@ export async function buildStatus(
     autoInit: summarizeAutoInitStatus(autoInit),
     onboarding: summarizeOnboarding(onboarding),
     nextActions: buildActionLabels(onboarding.nextActions),
+  };
+}
+
+function summarizeWorkspaceStatus(
+  facts: WorkspaceFacts,
+  resolver: WorkspaceResolver,
+  settingsStore: WorkspaceSettingsStore
+): StatusData['workspace'] {
+  return {
+    mode: facts.mode,
+    ghost: facts.ghost,
+    dataRootSource: facts.dataRootSource,
+    workspaceExists: facts.workspaceExists,
+    runtimeExists: existsSync(resolver.runtimeDir),
+    configExists: existsSync(resolver.configPath),
+    databaseExists: existsSync(resolver.databasePath),
+    knowledgeExists: existsSync(resolver.knowledgeDir),
+    recipesExists: existsSync(resolver.recipesDir),
+    candidatesExists: existsSync(resolver.candidatesDir),
+    skillsExists: existsSync(resolver.skillsDir),
+    wikiExists: existsSync(resolver.wikiDir),
+    settingsExists: existsSync(settingsStore.settingsPath),
+    secretsExists: existsSync(settingsStore.secretsPath),
+  };
+}
+
+function buildRemovedDaemonStatus(input: {
+  dataRoot: string;
+  projectId: string | null;
+  projectRoot: string;
+  runtimeDir: string;
+}): HostRuntimeStatus {
+  // PDR-3: status reports a synthetic daemon-less state so downstream consumers
+  // keep a non-null HostRuntimeStatus while reflecting the absent daemon.
+  return {
+    status: 'stopped',
+    ready: false,
+    projectRoot: input.projectRoot,
+    dataRoot: input.dataRoot,
+    projectId: input.projectId,
+    statePath: join(input.runtimeDir, 'daemon.json'),
+    pidPath: join(input.runtimeDir, 'daemon.pid'),
+    lockDir: join(input.runtimeDir, 'daemon.lock'),
+    logPath: join(input.runtimeDir, 'daemon.log'),
+    state: null,
+    pidAlive: false,
+    health: null,
+    message: 'daemon removed (PDR-3)',
   };
 }
 
@@ -456,6 +486,7 @@ function summarizeOnboarding(value: unknown): Record<string, unknown> {
     notes: Array.isArray(onboarding.notes)
       ? onboarding.notes.filter((note): note is string => typeof note === 'string').slice(0, 6)
       : [],
+    sourcePresence: summarizeSourcePresence(onboarding.sourcePresence),
     currentDimensionGuidance: summarizeCurrentDimensionGuidance(
       onboarding.currentDimensionGuidance
     ),
@@ -489,6 +520,21 @@ function summarizeRecommendedAction(value: unknown): Record<string, unknown> | n
     reason: action.reason ?? null,
     ...(asPlainRecord(action.arguments) ? { arguments: action.arguments } : {}),
   };
+}
+
+function summarizeSourcePresence(value: unknown): Record<string, unknown> | null {
+  const presence = asPlainRecord(value);
+  if (!presence) {
+    return null;
+  }
+  return summarizeStringRecord(presence, [
+    'hasSource',
+    'sourceFileCount',
+    'sourceFileLimit',
+    'capped',
+    'maxDepth',
+    'unreadableDirectoryCount',
+  ]);
 }
 
 function summarizeCurrentDimensionGuidance(value: unknown): Record<string, unknown> {
@@ -661,206 +707,287 @@ export function buildKnowledgeGateActions(knowledge: HostKnowledgeState): Recomm
 }
 
 export function buildStatusOnboarding(input: StatusOnboardingInput): Record<string, unknown> {
-  const boundaryNotes = buildRouteBoundaryNotes(input.enhancementRoute);
-  const alignmentNotes = buildHostProjectAlignmentNotes(input.hostProjectAlignment);
-  const diagnosticsOk = input.diagnostics.ok !== false;
-  const onboardingContract = composeStatusOnboardingContract(input, diagnosticsOk);
-  if (input.projectRootResolution && input.projectRootResolution.trust !== 'trusted') {
-    return {
-      state: 'project_root_unresolved',
-      summary:
-        'Alembic Codex cannot determine the target project directory, so project workflows cannot be used yet.',
-      primaryAction: buildRecommendedAction({
-        label: 'Run diagnostics',
-        reason:
-          'Show why the project root is unavailable and which absolute path must be provided.',
-        startsDaemon: false,
-        tool: 'alembic_status',
-      }),
-      nextActions: [
-        buildRecommendedAction({
-          label: 'Run diagnostics',
-          reason: 'Show the rejected or fallback project root and required environment variables.',
-          startsDaemon: false,
-          tool: 'alembic_status',
-        }),
-      ],
-      notes: [
-        buildProjectRootRequiredMessage(input.projectRootResolution),
-        ...buildProjectRootRequiredActions(),
-        'Initialization and init-on-demand tools fail closed until the project root is trusted.',
-        ...alignmentNotes,
-        ...boundaryNotes,
-      ],
-      ...onboardingContract,
-    };
+  const context = buildStatusOnboardingContext(input);
+  const projectRootResolution = input.projectRootResolution;
+  if (projectRootResolution && projectRootResolution.trust !== 'trusted') {
+    return buildProjectRootUnresolvedOnboarding(projectRootResolution, context);
   }
-
-  if (!diagnosticsOk) {
-    return {
-      state: 'runtime_issue',
-      summary:
-        'Alembic Codex is installed, but runtime diagnostics need attention before project knowledge is reliable.',
-      primaryAction: buildRecommendedAction({
-        label: 'Run diagnostics',
-        reason: 'Resolve Node, npm, embedded runtime, or plugin metadata issues first.',
-        startsDaemon: false,
-        tool: 'alembic_status',
-      }),
-      nextActions: [
-        buildRecommendedAction({
-          label: 'Run diagnostics',
-          reason: 'Inspect structured issues and repair guidance.',
-          startsDaemon: false,
-          tool: 'alembic_status',
-        }),
-      ],
-      notes: ['Status checks do not start the daemon.', ...alignmentNotes, ...boundaryNotes],
-      ...onboardingContract,
-    };
+  if (input.diagnostics.ok === false) {
+    return buildRuntimeIssueOnboarding(context);
   }
-
   if (!input.knowledge.initialized) {
-    const registeredStandard =
-      input.workspace?.registered === true && input.workspace.mode === 'standard';
-    const initLabel = registeredStandard
-      ? 'Attach Standard workspace'
-      : 'Initialize Ghost workspace';
-    const initReason = registeredStandard
-      ? 'Attach Codex to the existing Standard Alembic workspace without changing its mode.'
-      : input.knowledge.hasKnowledge
-        ? 'Connect Codex to the existing Alembic knowledge base without writing IDE MCP files into the project.'
-        : 'Create Alembic Codex data roots without writing IDE MCP files into the project.';
-    return {
-      state: input.knowledge.hasKnowledge ? 'needs_init_existing_knowledge' : 'needs_init',
-      summary: input.knowledge.hasKnowledge
-        ? 'Alembic knowledge files exist for this project, but the Codex workspace runtime has not been initialized yet.'
-        : 'Alembic Codex is installed and the runtime is healthy, but this workspace has not been initialized yet.',
-      primaryAction: buildRecommendedAction({
-        label: initLabel,
-        reason: initReason,
-        startsDaemon: false,
-        tool: 'alembic_init',
-      }),
-      nextActions: [
-        buildRecommendedAction({
-          label: initLabel,
-          reason: registeredStandard
-            ? 'Set up Codex runtime files in the registered Standard data root.'
-            : 'Set up local Alembic config, database, knowledge, and Recipe directories.',
-          startsDaemon: false,
-          tool: 'alembic_init',
-        }),
-      ],
-      notes: [
-        input.knowledge.hasKnowledge
-          ? 'Only cold-start initialization tools are exposed until setup completes.'
-          : 'Only cold-start initialization tools are exposed until Alembic knowledge exists.',
-        registeredStandard
-          ? 'This project is already registered as Standard; Codex init inherits that mode unless the user explicitly migrates it.'
-          : 'Ghost mode keeps Alembic data outside the repository by default for unregistered projects.',
-        ...alignmentNotes,
-        ...boundaryNotes,
-      ],
-      ...onboardingContract,
-    };
+    return buildNeedsInitOnboarding(input, context);
   }
-
   if (input.knowledge.jobs?.bootstrapRunning) {
-    return {
-      state: 'bootstrap_in_progress',
-      summary:
-        'Alembic Codex bootstrap is already running for this project; a second writer must not be started.',
-      primaryAction: buildRecommendedAction({
-        label: 'Check bootstrap progress',
-        reason:
-          'Read the single-writer bootstrap lease and wait for the existing Codex-owned bootstrap route to finish.',
+    return buildBootstrapInProgressOnboarding(context);
+  }
+  if (!input.knowledge.usable) {
+    return buildNeedsBootstrapOnboarding(context);
+  }
+  if (input.hostProjectAlignment && !input.hostProjectAlignment.handoffAllowed) {
+    return buildProjectHandoffOnboarding(input.hostProjectAlignment, context);
+  }
+  return buildReadyOnboarding(input, context);
+}
+
+function buildStatusOnboardingContext(input: StatusOnboardingInput): StatusOnboardingContext {
+  const diagnosticsOk = input.diagnostics.ok !== false;
+  return {
+    alignmentNotes: buildHostProjectAlignmentNotes(input.hostProjectAlignment),
+    boundaryNotes: buildRouteBoundaryNotes(input.enhancementRoute),
+    onboardingContract: composeStatusOnboardingContract(input, diagnosticsOk),
+  };
+}
+
+function buildProjectRootUnresolvedOnboarding(
+  projectRootResolution: ProjectRootResolution,
+  context: StatusOnboardingContext
+): Record<string, unknown> {
+  return {
+    state: 'project_root_unresolved',
+    summary:
+      'Alembic Codex cannot determine the target project directory, so project workflows cannot be used yet.',
+    primaryAction: buildRecommendedAction({
+      label: 'Run diagnostics',
+      reason: 'Show why the project root is unavailable and which absolute path must be provided.',
+      startsDaemon: false,
+      tool: 'alembic_status',
+    }),
+    nextActions: [
+      buildRecommendedAction({
+        label: 'Run diagnostics',
+        reason: 'Show the rejected or fallback project root and required environment variables.',
         startsDaemon: false,
         tool: 'alembic_status',
       }),
-      nextActions: [
-        buildRecommendedAction({
-          label: 'Check bootstrap progress',
-          reason:
-            'Read bootstrapState.singleWriterLease and current progress without starting work.',
-          startsDaemon: false,
-          tool: 'alembic_status',
-        }),
-        buildRecommendedAction({
-          label: 'Inspect bootstrap job',
-          reason: 'Inspect Codex bootstrap job state when job tools are available.',
-          startsDaemon: false,
-          tool: 'alembic_job',
-        }),
-      ],
-      notes: [
-        'bootstrap_in_progress is a visibility state; hard lease enforcement and takeover are handled by the lease-enforcement route.',
-        'Do not start another host-agent bootstrap while the lease holder is visible.',
-        ...alignmentNotes,
-        ...boundaryNotes,
-      ],
-      ...onboardingContract,
-    };
-  }
+    ],
+    notes: [
+      buildProjectRootRequiredMessage(projectRootResolution),
+      ...buildProjectRootRequiredActions(),
+      'Initialization and init-on-demand tools fail closed until the project root is trusted.',
+      ...context.alignmentNotes,
+      ...context.boundaryNotes,
+    ],
+    ...context.onboardingContract,
+  };
+}
 
-  if (!input.knowledge.usable) {
-    return {
-      state: 'needs_bootstrap',
-      summary:
-        'Alembic Codex is initialized, but this project does not have usable Alembic Recipes or Project Skills yet.',
-      primaryAction: buildHostAgentBootstrapAction({
+function buildRuntimeIssueOnboarding(context: StatusOnboardingContext): Record<string, unknown> {
+  return {
+    state: 'runtime_issue',
+    summary:
+      'Alembic Codex is installed, but runtime diagnostics need attention before project knowledge is reliable.',
+    primaryAction: buildRecommendedAction({
+      label: 'Run diagnostics',
+      reason: 'Resolve Node, npm, embedded runtime, or plugin metadata issues first.',
+      startsDaemon: false,
+      tool: 'alembic_status',
+    }),
+    nextActions: [
+      buildRecommendedAction({
+        label: 'Run diagnostics',
+        reason: 'Inspect structured issues and repair guidance.',
+        startsDaemon: false,
+        tool: 'alembic_status',
+      }),
+    ],
+    notes: [
+      'Status checks do not start the daemon.',
+      ...context.alignmentNotes,
+      ...context.boundaryNotes,
+    ],
+    ...context.onboardingContract,
+  };
+}
+
+function buildNeedsInitOnboarding(
+  input: StatusOnboardingInput,
+  context: StatusOnboardingContext
+): Record<string, unknown> {
+  const registeredStandard =
+    input.workspace?.registered === true && input.workspace.mode === 'standard';
+  const hasSource = input.sourcePresence?.hasSource === true;
+  const initLabel = registeredStandard ? 'Attach Standard workspace' : 'Initialize Ghost workspace';
+  const baseInitReason = registeredStandard
+    ? 'Attach Codex to the existing Standard Alembic workspace without changing its mode.'
+    : input.knowledge.hasKnowledge
+      ? 'Connect Codex to the existing Alembic knowledge base without writing IDE MCP files into the project.'
+      : 'Create Alembic Codex data roots without writing IDE MCP files into the project.';
+  const initReason = hasSource
+    ? `${baseInitReason} Source files are present, so initialization enables a later alembic_bootstrap cold-start guidance step; this status check only recommends that step and does not run it.`
+    : baseInitReason;
+  return {
+    state: input.knowledge.hasKnowledge ? 'needs_init_existing_knowledge' : 'needs_init',
+    summary: input.knowledge.hasKnowledge
+      ? 'Alembic knowledge files exist for this project, but the Codex workspace runtime has not been initialized yet.'
+      : 'Alembic Codex is installed and the runtime is healthy, but this workspace has not been initialized yet.',
+    sourcePresence: input.sourcePresence,
+    primaryAction: buildRecommendedAction({
+      label: initLabel,
+      reason: initReason,
+      startsDaemon: false,
+      tool: 'alembic_init',
+    }),
+    nextActions: buildNeedsInitNextActions(initLabel, registeredStandard, hasSource),
+    notes: buildNeedsInitNotes(input, context, registeredStandard, hasSource),
+    ...context.onboardingContract,
+  };
+}
+
+function buildNeedsInitNextActions(
+  initLabel: string,
+  registeredStandard: boolean,
+  hasSource: boolean
+): RecommendedAction[] {
+  const nextActions = [
+    buildRecommendedAction({
+      label: initLabel,
+      reason: registeredStandard
+        ? 'Set up Codex runtime files in the registered Standard data root.'
+        : 'Set up local Alembic config, database, knowledge, and Recipe directories.',
+      startsDaemon: false,
+      tool: 'alembic_init',
+    }),
+  ];
+  if (hasSource) {
+    nextActions.push(
+      buildHostAgentBootstrapAction({
+        label: 'Plan cold-start after init',
         reason:
-          'Build the first Alembic project knowledge through Codex host-agent analysis; no Alembic AI Provider is required.',
+          'After alembic_init succeeds, call alembic_bootstrap to build the first cold-start guidance from the detected source tree; this status check does not start bootstrap or create jobs.',
+        startsDaemon: false,
+      })
+    );
+  }
+  return nextActions;
+}
+
+function buildNeedsInitNotes(
+  input: StatusOnboardingInput,
+  context: StatusOnboardingContext,
+  registeredStandard: boolean,
+  hasSource: boolean
+): string[] {
+  return [
+    ...buildNeedsInitSourcePresenceNotes({
+      hasSource,
+      sourcePresence: input.sourcePresence,
+      workspaceGhost: input.workspace?.ghost === true,
+    }),
+    input.knowledge.hasKnowledge
+      ? 'Only cold-start initialization tools are exposed until setup completes.'
+      : 'Only cold-start initialization tools are exposed until Alembic knowledge exists.',
+    registeredStandard
+      ? 'This project is already registered as Standard; Codex init inherits that mode unless the user explicitly migrates it.'
+      : 'Ghost mode keeps Alembic data outside the repository by default for unregistered projects.',
+    ...context.alignmentNotes,
+    ...context.boundaryNotes,
+  ];
+}
+
+function buildBootstrapInProgressOnboarding(
+  context: StatusOnboardingContext
+): Record<string, unknown> {
+  return {
+    state: 'bootstrap_in_progress',
+    summary:
+      'Alembic Codex bootstrap is already running for this project; a second writer must not be started.',
+    primaryAction: buildRecommendedAction({
+      label: 'Check bootstrap progress',
+      reason:
+        'Read the single-writer bootstrap lease and wait for the existing Codex-owned bootstrap route to finish.',
+      startsDaemon: false,
+      tool: 'alembic_status',
+    }),
+    nextActions: [
+      buildRecommendedAction({
+        label: 'Check bootstrap progress',
+        reason: 'Read bootstrapState.singleWriterLease and current progress without starting work.',
+        startsDaemon: false,
+        tool: 'alembic_status',
+      }),
+      buildRecommendedAction({
+        label: 'Inspect bootstrap job',
+        reason: 'Inspect Codex bootstrap job state when job tools are available.',
+        startsDaemon: false,
+        tool: 'alembic_job',
+      }),
+    ],
+    notes: [
+      'bootstrap_in_progress is a visibility state; hard lease enforcement and takeover are handled by the lease-enforcement route.',
+      'Do not start another host-agent bootstrap while the lease holder is visible.',
+      ...context.alignmentNotes,
+      ...context.boundaryNotes,
+    ],
+    ...context.onboardingContract,
+  };
+}
+
+function buildNeedsBootstrapOnboarding(context: StatusOnboardingContext): Record<string, unknown> {
+  return {
+    state: 'needs_bootstrap',
+    summary:
+      'Alembic Codex is initialized, but this project does not have usable Alembic Recipes or Project Skills yet.',
+    primaryAction: buildHostAgentBootstrapAction({
+      reason:
+        'Build the first Alembic project knowledge through Codex host-agent analysis; no Alembic AI Provider is required.',
+      startsDaemon: true,
+    }),
+    nextActions: [
+      buildHostAgentBootstrapAction({
+        reason:
+          'Create the initial Alembic knowledge base by following the Mission Briefing from Codex.',
         startsDaemon: true,
       }),
-      nextActions: [
-        buildHostAgentBootstrapAction({
-          reason:
-            'Create the initial Alembic knowledge base by following the Mission Briefing from Codex.',
-          startsDaemon: true,
-        }),
-      ],
-      notes: [
-        'Codex host-agent bootstrap does not require an Alembic AI Provider.',
-        'Prime, Guard, search, and lifecycle tools are available after the knowledge base is usable.',
-        ...alignmentNotes,
-        ...boundaryNotes,
-      ],
-      ...onboardingContract,
-    };
-  }
+    ],
+    notes: [
+      'Codex host-agent bootstrap does not require an Alembic AI Provider.',
+      'Prime, Guard, search, and lifecycle tools are available after the knowledge base is usable.',
+      ...context.alignmentNotes,
+      ...context.boundaryNotes,
+    ],
+    ...context.onboardingContract,
+  };
+}
 
-  if (input.hostProjectAlignment && !input.hostProjectAlignment.handoffAllowed) {
-    return {
-      state: `project_handoff_${input.hostProjectAlignment.connectionState}`,
-      summary:
-        input.hostProjectAlignment.connectionState === 'mismatch'
-          ? 'Alembic Codex is initialized, but the Codex host project differs from the Alembic selected or active project.'
-          : 'Alembic Codex is initialized, but this Codex host project is not connected to an active Alembic runtime project yet.',
-      primaryAction: buildRecommendedAction({
-        label: 'Check workspace status',
-        reason:
-          'Inspect the Codex host project, Alembic selected project, and active runtime project before Dashboard handoff.',
+function buildProjectHandoffOnboarding(
+  alignment: HostProjectAlignment,
+  context: StatusOnboardingContext
+): Record<string, unknown> {
+  return {
+    state: `project_handoff_${alignment.connectionState}`,
+    summary:
+      alignment.connectionState === 'mismatch'
+        ? 'Alembic Codex is initialized, but the Codex host project differs from the Alembic selected or active project.'
+        : 'Alembic Codex is initialized, but this Codex host project is not connected to an active Alembic runtime project yet.',
+    primaryAction: buildRecommendedAction({
+      label: 'Check workspace status',
+      reason:
+        'Inspect the Codex host project, Alembic selected project, and active runtime project before Dashboard handoff.',
+      startsDaemon: false,
+      tool: 'alembic_status',
+    }),
+    nextActions: [
+      buildRecommendedAction({
+        label: 'Run diagnostics',
+        reason: 'Review plugin runtime status and project handoff mismatch details.',
         startsDaemon: false,
         tool: 'alembic_status',
       }),
-      nextActions: [
-        buildRecommendedAction({
-          label: 'Run diagnostics',
-          reason: 'Review plugin runtime status and project handoff mismatch details.',
-          startsDaemon: false,
-          tool: 'alembic_status',
-        }),
-      ],
-      notes: [
-        ...alignmentNotes,
-        'Plugin does not switch Alembic projects or start an embedded runtime to cover a different selected project.',
-        ...boundaryNotes,
-      ],
-      ...onboardingContract,
-    };
-  }
+    ],
+    notes: [
+      ...context.alignmentNotes,
+      'Plugin does not switch Alembic projects or start an embedded runtime to cover a different selected project.',
+      ...context.boundaryNotes,
+    ],
+    ...context.onboardingContract,
+  };
+}
 
+function buildReadyOnboarding(
+  input: StatusOnboardingInput,
+  context: StatusOnboardingContext
+): Record<string, unknown> {
   const daemonReady = input.daemonStatus.ready === true;
   return {
     state: daemonReady ? 'ready_daemon_running' : 'ready',
@@ -884,14 +1011,40 @@ export function buildStatusOnboarding(input: StatusOnboardingInput): Record<stri
       }),
     ],
     notes: daemonReady
-      ? ['Dashboard and job APIs are available now.', ...alignmentNotes, ...boundaryNotes]
+      ? [
+          'Dashboard and job APIs are available now.',
+          ...context.alignmentNotes,
+          ...context.boundaryNotes,
+        ]
       : [
           'Status checks stay light; project-knowledge tools wake the daemon only when needed.',
-          ...alignmentNotes,
-          ...boundaryNotes,
+          ...context.alignmentNotes,
+          ...context.boundaryNotes,
         ],
-    ...onboardingContract,
+    ...context.onboardingContract,
   };
+}
+
+function buildNeedsInitSourcePresenceNotes(input: {
+  hasSource: boolean;
+  sourcePresence?: SourcePresence;
+  workspaceGhost: boolean;
+}): string[] {
+  if (!input.sourcePresence) {
+    return [];
+  }
+  if (input.hasSource) {
+    return [
+      input.workspaceGhost
+        ? 'Source files were detected in the project tree; Ghost mode keeps Alembic data outside the repository, but host-visible bootstrap guidance is still useful after init.'
+        : 'Source files were detected in the project tree; after init, alembic_bootstrap can build cold-start guidance, but this status check did not start it.',
+    ];
+  }
+  return [
+    input.workspaceGhost
+      ? 'No source files were detected by the bounded status probe; Ghost mode remains quiet and does not suggest bootstrap yet.'
+      : 'No source files were detected by the bounded status probe, so bootstrap guidance stays quiet until the project contains source code.',
+  ];
 }
 
 function composeStatusOnboardingContract(

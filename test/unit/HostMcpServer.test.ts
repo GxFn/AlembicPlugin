@@ -997,6 +997,49 @@ describe('HostMcpServer', () => {
       primaryAction: { startsDaemon: false, tool: 'alembic_init' },
     });
     expect(result.data.nextActions).toContain('Initialize Ghost workspace: call alembic_init');
+    expect(result.data.nextActions).not.toContain(
+      'Plan cold-start after init: call alembic_bootstrap'
+    );
+  });
+
+  test('status shows bootstrap guidance for sourceful uninitialized projects without creating jobs', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    writePlanFixtureSource(projectRoot, 'statusSourceful');
+    const server = new HostMcpServer({ projectRoot });
+
+    const result = (await server.handleToolCall('alembic_status', {})) as {
+      success: boolean;
+      data: {
+        nextActions: string[];
+        onboarding: {
+          nextActions: Array<{ startsDaemon: boolean; tool: string }>;
+          primaryAction: { reason: string; startsDaemon: boolean; tool: string };
+          sourcePresence: { hasSource: boolean; sourceFileCount: number };
+          state: string;
+        };
+      };
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.onboarding).toMatchObject({
+      state: 'needs_init',
+      primaryAction: { startsDaemon: false, tool: 'alembic_init' },
+      sourcePresence: { hasSource: true },
+    });
+    expect(result.data.onboarding.primaryAction.reason).toContain('does not run it');
+    expect(result.data.onboarding.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          startsDaemon: false,
+          tool: 'alembic_bootstrap',
+        }),
+      ])
+    );
+    expect(result.data.nextActions).toContain(
+      'Plan cold-start after init: call alembic_bootstrap'
+    );
+    expect(fs.existsSync(path.join(projectRoot, '.asd', 'jobs'))).toBe(false);
   });
 
   test('status exposes session-level per-tool usage counts', async () => {

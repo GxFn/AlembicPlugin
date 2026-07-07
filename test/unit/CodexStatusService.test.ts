@@ -8,7 +8,11 @@ import {
   type DaemonState,
   resolveDaemonPaths,
 } from '@alembic/core/daemon';
-import { getProjectRegistryDir, ProjectRegistry } from '@alembic/core/workspace';
+import {
+  getGhostWorkspaceDir,
+  getProjectRegistryDir,
+  ProjectRegistry,
+} from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildStatus } from '../../lib/host-runtime/index.js';
@@ -24,6 +28,12 @@ function useTempAlembicHome(): void {
 
 function makeProjectRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-status-project-'));
+}
+
+function writeSourceFile(projectRoot: string, relativePath = 'src/index.ts'): void {
+  const filePath = path.join(projectRoot, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, 'export const alembicStatusSource = true;\n');
 }
 
 function makeInitializedWorkspace(projectRoot: string): void {
@@ -128,7 +138,9 @@ function makeDaemonStatus(projectRoot: string, ready = false): HostRuntimeStatus
   };
 }
 
-function makeProjectScopeHealth(projectRoot: string): Record<string, unknown> {
+type ProjectScopeFixture = ReturnType<typeof makeProjectScopeFixture>;
+
+function makeProjectScopeFixture(projectRoot: string) {
   const paths = resolveDaemonPaths(projectRoot);
   const projectScope = {
     contractVersion: 1,
@@ -155,123 +167,131 @@ function makeProjectScopeHealth(projectRoot: string): Record<string, unknown> {
     standardWriteAllowed: false,
     storageKind: 'ghost',
   };
+  return { paths, projectScope };
+}
+
+function makeProjectScopeHealth(projectRoot: string): Record<string, unknown> {
+  const fixture = makeProjectScopeFixture(projectRoot);
   return {
     success: true,
     data: {
-      residentService: createAlembicResidentServiceStatus({
-        apiBaseUrl: 'http://127.0.0.1:39127',
-        owner: 'alembic',
-        route: 'local-alembic-daemon',
-        serviceScope: {
-          diagnosticPaths: {
-            controlRoot: projectScope.controlRoot,
-            databasePath: paths.databasePath,
-            dataRoot: paths.dataRoot,
-            projectRoot,
-            runtimeDir: paths.runtimeDir,
-            statePath: paths.statePath,
-          },
-          displayName: projectScope.displayName,
-          kind: 'current-project',
-          projectIdentity: {
-            dataRootSource: 'ghost-registry',
-            projectId: projectScope.projectId,
-            projectScope,
-            projectScopeId: projectScope.projectScopeId,
-            schemaMigrationVersion: null,
-            workspaceMode: 'ghost',
-          },
-          scopeId: `project-scope:${projectScope.projectScopeId}`,
-        },
-      }),
-      projectRuntimeSourceOfTruth: {
-        contractVersion: 1,
-        diagnostics: [],
-        failure: null,
-        operation: {
-          explicitRuntimeActionRequired: true,
-          implicitRuntimeActionAllowed: false,
-          mode: 'diagnostics-read',
-          readOnly: true,
-        },
-        owner: 'alembic',
-        readiness: {
-          ready: true,
-          reasonCode: 'ready',
-          stale: false,
-          status: 'ready',
-        },
-        requiredService: {
-          kind: 'local-alembic-daemon',
-          owner: 'alembic',
-          route: 'local-alembic-daemon',
-        },
-        route: 'daemon-health',
-        runtimeControl: {
-          activeMatchesCurrentProject: true,
-          activeProject: {
-            projectId: projectScope.projectId,
-            projectRoot,
-            projectScopeId: projectScope.projectScopeId,
-            ready: true,
-            status: 'ready',
-          },
-          activeReadyProject: {
-            projectId: projectScope.projectId,
-            projectRoot,
-            projectScopeId: projectScope.projectScopeId,
-            ready: true,
-            status: 'ready',
-          },
-          activeStateTrusted: true,
-          diagnostics: [],
-          projects: { missing: 0, ready: 1, stale: 0, total: 1, unavailable: 0 },
-          readOnly: true,
-          selectedMatchesCurrentProject: true,
-          selectedProject: {
-            projectId: projectScope.projectId,
-            projectRoot,
-            projectScopeId: projectScope.projectScopeId,
-            ready: true,
-            status: 'ready',
-          },
-          state: {
-            activeProjectId: projectScope.projectId,
-            activeProjectRoot: projectRoot,
-            schemaVersion: 1,
-            selectedAt: '2026-06-05T08:00:00.000Z',
-            selectedProjectId: projectScope.projectId,
-            selectedProjectRoot: projectRoot,
-            updatedAt: '2026-06-05T08:00:00.000Z',
-          },
-          stateCleanup: {
-            activeState: {
-              cleaned: false,
-              message: null,
-              previousProjectId: projectScope.projectId,
-              previousProjectRoot: projectRoot,
-              reasonCode: null,
-            },
-          },
-          statePath: path.join(getProjectRegistryDir(), 'runtime-control.json'),
-        },
-        targetProject: {
-          projectId: projectScope.projectId,
-          projectRoot,
-          projectScopeId: projectScope.projectScopeId,
-          ready: true,
-          status: 'ready',
-        },
-        writePolicy: {
-          activeStateWriteAllowed: false,
-          daemonLifecycleWriteAllowed: false,
-          jobStoreWriteAllowed: false,
-          projectScopeRegistryWriteAllowed: false,
-          selectedStateWriteAllowed: false,
-          writeOwner: 'alembic',
-        },
+      residentService: makeProjectScopeResidentService(projectRoot, fixture),
+      projectRuntimeSourceOfTruth: makeProjectRuntimeSourceOfTruth(projectRoot, fixture),
+    },
+  };
+}
+
+function makeProjectScopeResidentService(projectRoot: string, fixture: ProjectScopeFixture) {
+  const { paths, projectScope } = fixture;
+  return createAlembicResidentServiceStatus({
+    apiBaseUrl: 'http://127.0.0.1:39127',
+    owner: 'alembic',
+    route: 'local-alembic-daemon',
+    serviceScope: {
+      diagnosticPaths: {
+        controlRoot: projectScope.controlRoot,
+        databasePath: paths.databasePath,
+        dataRoot: paths.dataRoot,
+        projectRoot,
+        runtimeDir: paths.runtimeDir,
+        statePath: paths.statePath,
+      },
+      displayName: projectScope.displayName,
+      kind: 'current-project',
+      projectIdentity: {
+        dataRootSource: 'ghost-registry',
+        projectId: projectScope.projectId,
+        projectScope,
+        projectScopeId: projectScope.projectScopeId,
+        schemaMigrationVersion: null,
+        workspaceMode: 'ghost',
+      },
+      scopeId: `project-scope:${projectScope.projectScopeId}`,
+    },
+  });
+}
+
+function makeProjectRuntimeSourceOfTruth(
+  projectRoot: string,
+  fixture: ProjectScopeFixture
+): Record<string, unknown> {
+  return {
+    contractVersion: 1,
+    diagnostics: [],
+    failure: null,
+    operation: {
+      explicitRuntimeActionRequired: true,
+      implicitRuntimeActionAllowed: false,
+      mode: 'diagnostics-read',
+      readOnly: true,
+    },
+    owner: 'alembic',
+    readiness: {
+      ready: true,
+      reasonCode: 'ready',
+      stale: false,
+      status: 'ready',
+    },
+    requiredService: {
+      kind: 'local-alembic-daemon',
+      owner: 'alembic',
+      route: 'local-alembic-daemon',
+    },
+    route: 'daemon-health',
+    runtimeControl: makeProjectRuntimeControl(projectRoot, fixture),
+    targetProject: makeReadyProjectRuntime(projectRoot, fixture),
+    writePolicy: {
+      activeStateWriteAllowed: false,
+      daemonLifecycleWriteAllowed: false,
+      jobStoreWriteAllowed: false,
+      projectScopeRegistryWriteAllowed: false,
+      selectedStateWriteAllowed: false,
+      writeOwner: 'alembic',
+    },
+  };
+}
+
+function makeProjectRuntimeControl(projectRoot: string, fixture: ProjectScopeFixture) {
+  const { projectScope } = fixture;
+  return {
+    activeMatchesCurrentProject: true,
+    activeProject: makeReadyProjectRuntime(projectRoot, fixture),
+    activeReadyProject: makeReadyProjectRuntime(projectRoot, fixture),
+    activeStateTrusted: true,
+    diagnostics: [],
+    projects: { missing: 0, ready: 1, stale: 0, total: 1, unavailable: 0 },
+    readOnly: true,
+    selectedMatchesCurrentProject: true,
+    selectedProject: makeReadyProjectRuntime(projectRoot, fixture),
+    state: {
+      activeProjectId: projectScope.projectId,
+      activeProjectRoot: projectRoot,
+      schemaVersion: 1,
+      selectedAt: '2026-06-05T08:00:00.000Z',
+      selectedProjectId: projectScope.projectId,
+      selectedProjectRoot: projectRoot,
+      updatedAt: '2026-06-05T08:00:00.000Z',
+    },
+    stateCleanup: {
+      activeState: {
+        cleaned: false,
+        message: null,
+        previousProjectId: projectScope.projectId,
+        previousProjectRoot: projectRoot,
+        reasonCode: null,
       },
     },
+    statePath: path.join(getProjectRegistryDir(), 'runtime-control.json'),
+  };
+}
+
+function makeReadyProjectRuntime(projectRoot: string, fixture: ProjectScopeFixture) {
+  return {
+    projectId: fixture.projectScope.projectId,
+    projectRoot,
+    projectScopeId: fixture.projectScope.projectScopeId,
+    ready: true,
+    status: 'ready',
   };
 }
 
@@ -333,7 +353,121 @@ describe('Codex status service', () => {
       primaryAction: { tool: 'alembic_init' },
     });
     expect(status.nextActions).toContain('Initialize Ghost workspace: call alembic_init');
+    expect(status.nextActions).not.toContain('Plan cold-start after init: call alembic_bootstrap');
     expect(supervisor.status).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(path.join(projectRoot, '.asd', 'jobs'))).toBe(false);
+  });
+
+  test('recommends bootstrap after init only when uninitialized projects contain source', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    writeSourceFile(projectRoot);
+    const supervisor = {
+      status: vi.fn(async () => makeDaemonStatus(projectRoot, false)),
+    };
+
+    const status = await buildStatus(projectRoot, { supervisor });
+    const onboarding = status.onboarding as {
+      nextActions: Array<{ startsDaemon: boolean; tool: string }>;
+      notes: string[];
+      primaryAction: { reason: string; startsDaemon: boolean; tool: string };
+      sourcePresence: { hasSource: boolean; sourceFileCount: number };
+      state: string;
+    };
+
+    expect(onboarding).toMatchObject({
+      state: 'needs_init',
+      primaryAction: {
+        startsDaemon: false,
+        tool: 'alembic_init',
+      },
+      sourcePresence: {
+        hasSource: true,
+        sourceFileCount: 1,
+      },
+    });
+    expect(onboarding.primaryAction.reason).toContain('does not run it');
+    expect(onboarding.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          startsDaemon: false,
+          tool: 'alembic_bootstrap',
+        }),
+      ])
+    );
+    expect(status.nextActions).toContain('Plan cold-start after init: call alembic_bootstrap');
+    expect(onboarding.notes[0]).toContain('Source files were detected');
+    expect(fs.existsSync(path.join(projectRoot, '.asd', 'jobs'))).toBe(false);
+  });
+
+  test('keeps empty ghost projects quiet while ghost projects with source still suggest bootstrap', async () => {
+    useTempAlembicHome();
+    const emptyGhostRoot = makeProjectRoot();
+    const emptyEntry = ProjectRegistry.register(emptyGhostRoot, true);
+    const emptySupervisor = {
+      status: vi.fn(async () => makeDaemonStatus(emptyGhostRoot, false)),
+    };
+
+    const emptyStatus = await buildStatus(emptyGhostRoot, { supervisor: emptySupervisor });
+    const emptyOnboarding = emptyStatus.onboarding as {
+      notes: string[];
+      sourcePresence: { hasSource: boolean };
+    };
+
+    expect(emptyStatus.workspace).toMatchObject({
+      ghost: true,
+      mode: 'ghost',
+    });
+    expect(emptyStatus.nextActions).not.toContain(
+      'Plan cold-start after init: call alembic_bootstrap'
+    );
+    expect(emptyOnboarding).toMatchObject({
+      sourcePresence: { hasSource: false },
+    });
+    expect(emptyOnboarding.notes[0]).toContain('Ghost mode remains quiet');
+    expect(fs.existsSync(path.join(emptyGhostRoot, '.asd', 'jobs'))).toBe(false);
+    expect(fs.existsSync(path.join(getGhostWorkspaceDir(emptyEntry.id), '.asd', 'jobs'))).toBe(
+      false
+    );
+
+    const sourceGhostRoot = makeProjectRoot();
+    const sourceEntry = ProjectRegistry.register(sourceGhostRoot, true);
+    writeSourceFile(sourceGhostRoot);
+    const sourceSupervisor = {
+      status: vi.fn(async () => makeDaemonStatus(sourceGhostRoot, false)),
+    };
+
+    const sourceStatus = await buildStatus(sourceGhostRoot, { supervisor: sourceSupervisor });
+    const sourceOnboarding = sourceStatus.onboarding as {
+      nextActions: Array<{ startsDaemon: boolean; tool: string }>;
+      notes: string[];
+      sourcePresence: { hasSource: boolean; sourceFileCount: number };
+    };
+
+    expect(sourceStatus.workspace).toMatchObject({
+      ghost: true,
+      mode: 'ghost',
+    });
+    expect(sourceOnboarding).toMatchObject({
+      sourcePresence: {
+        hasSource: true,
+        sourceFileCount: 1,
+      },
+    });
+    expect(sourceOnboarding.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          startsDaemon: false,
+          tool: 'alembic_bootstrap',
+        }),
+      ])
+    );
+    expect(sourceStatus.nextActions).toContain('Plan cold-start after init: call alembic_bootstrap');
+    expect(sourceOnboarding.notes[0]).toContain('Ghost mode keeps Alembic data outside');
+    expect(fs.existsSync(path.join(sourceGhostRoot, '.asd', 'jobs'))).toBe(false);
+    expect(fs.existsSync(path.join(getGhostWorkspaceDir(sourceEntry.id), '.asd', 'jobs'))).toBe(
+      false
+    );
   });
 
   test('reports registered Standard projects as attach targets instead of Ghost defaults', async () => {
