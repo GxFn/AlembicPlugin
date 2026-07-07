@@ -1,6 +1,6 @@
 {
   "name": "@gxfn/alembic-runtime",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pinned Alembic Codex MCP runtime package for Codex marketplace plugin startup.",
   "type": "module",
   "main": "dist/lib/bootstrap.js",
@@ -41,7 +41,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@alembic/core": "0.2.0",
+    "@alembic/core": "0.3.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.20.0",
     "better-sqlite3": "^12.6.2",
