@@ -33,8 +33,10 @@ describe('recipe authoring front-load (P2.3 / 13.L)', () => {
 
     // grep 整份 briefing JSON（含 hostAgentContract + submissionSchema 镜像）——三要素必须同时在场。
     const json = JSON.stringify(withFrontLoad);
-    // (a) worked example object present and NOT stripped
-    expect(json).toContain('OrderRepository');
+    // (a) worked example object present and NOT stripped. Core d2c14f5 upgraded
+    // the injected worked example (OrderRepository → grounded exemplars); the
+    // cold-start profile now renders the UserService @Injectable exemplar.
+    expect(json).toContain('UserService');
     expect(json).toContain('✅');
     expect(json).toContain('❌');
     expect(frontLoad.workedExample?.candidate?.content?.markdown).toContain('✅');

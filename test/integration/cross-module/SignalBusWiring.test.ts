@@ -43,11 +43,9 @@ describe('Cross-module: Signal Bus DI wiring', () => {
     expect(typeof bus.send).toBe('function');
   });
 
-  it('should resolve hitRecorder singleton', () => {
-    const recorder = container.get('hitRecorder');
-    expect(recorder).toBeDefined();
-    expect(typeof recorder.record).toBe('function');
-  });
+  // hitRecorder singleton test removed: the plugin's HitRecorder service
+  // (lib/service/signal/HitRecorder.ts) and its DI registration were retired;
+  // the signalBus wiring below remains the live cross-module contract.
 
   it('signalBus should be same instance across container', () => {
     const bus1 = container.get('signalBus');
