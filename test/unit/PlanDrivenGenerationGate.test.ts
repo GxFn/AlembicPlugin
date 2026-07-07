@@ -159,7 +159,8 @@ describe('Plan-driven generation gate', () => {
     expect(gate.value.scale).toMatchObject({
       contentMaxLines: 80,
       maxFiles: 32,
-      totalRecipeBudget: 2,
+      // Core P-4 raised the per-dimension floor ×1→×3; 1 dimension → floor 3.
+      totalRecipeBudget: 3,
     });
     expect(gate.value.testMode).toBe(false);
     expect(gate.value.planGate).toMatchObject({
@@ -274,7 +275,8 @@ describe('Plan-driven generation gate', () => {
     expect(gate.value.scale).toMatchObject({
       contentMaxLines: 9,
       maxFiles: 8,
-      totalRecipeBudget: 1,
+      // Core P-4 floor ×3 (=3) capped by testMode upper bound (1 dim ×2 = 2) → 2.
+      totalRecipeBudget: 2,
     });
     expect(gate.value.planGate).toMatchObject({
       moduleScope: ['src/api'],

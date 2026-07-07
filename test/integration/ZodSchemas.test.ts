@@ -388,6 +388,15 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
   describe('RescanInput', () => {
     test('should accept controller-authorized produce session route input', () => {
       const result = RescanInput.parse({
+        // Core be212051 (2026-06-24) made planSelection required on RescanInput
+        // (stateless plan: alembic_plan confirm produces planSelection for the
+        // deepMining/moduleMining run). Provide the minimal valid one.
+        planSelection: {
+          generationStage: 'deepMining',
+          dimensions: ['asq-publication'],
+          scale: { totalRecipeBudget: 2 },
+          moduleBindings: [{ modulePath: 'src' }],
+        },
         controllerAuthorized: true,
         controllerAuthorizedGaps: [
           {

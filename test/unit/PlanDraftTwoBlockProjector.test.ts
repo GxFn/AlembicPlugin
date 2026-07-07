@@ -66,7 +66,8 @@ describe('alembic_plan draft two-block projector', () => {
     expectProjectInfoTreeModulesDeduped(tree);
 
     const candidateDimensions = asArray(draft.data?.candidateDimensions).map(asRecord);
-    expect(candidateDimensions).toHaveLength(25);
+    // 26 dimensions since Core 3fc499d (M4 cross-dimension-synthesis registered).
+    expect(candidateDimensions).toHaveLength(26);
     expect(candidateDimensions.map((dimension) => String(dimension.id))).toEqual([
       ...ALL_DIMENSION_IDS,
     ]);

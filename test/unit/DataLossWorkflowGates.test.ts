@@ -87,8 +87,20 @@ describe('P3-2: bootstrap rebuild confirmation gate', () => {
   }
 
   it('GenerateInput accepts the rebuild confirmation argument', () => {
-    expect(GenerateInput.parse({})).toEqual({});
-    expect(GenerateInput.parse({ rebuild: true })).toEqual({ rebuild: true });
+    // Core be212051 (2026-06-24) made planSelection required on GenerateInput
+    // (stateless plan: draft→confirm produces planSelection, then bootstrap
+    // consumes it). Inject the minimal valid ColdStartPlanSelectionInput.
+    const planSelection = {
+      generationStage: 'coldStart' as const,
+      dimensions: ['architecture'],
+      scale: { totalRecipeBudget: 1 },
+      moduleBindings: [{ modulePath: 'src' }],
+    };
+    expect(GenerateInput.parse({ planSelection })).toEqual({ planSelection });
+    expect(GenerateInput.parse({ planSelection, rebuild: true })).toEqual({
+      planSelection,
+      rebuild: true,
+    });
   });
 
   it('blocks a bare bootstrap when the knowledge base is usable', () => {

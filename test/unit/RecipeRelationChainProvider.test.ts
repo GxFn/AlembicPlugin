@@ -61,7 +61,9 @@ describe('DefaultRecipeRelationChainProvider', () => {
             'knowledge:ranking-provider',
             'detail-ref-canonicalizer',
           ],
-          relationType: 'implements',
+          // The chain is tagged by its extending (last) edge's relationType
+          // (RecipeRelationChainProvider.ts): last hop → 'supports'.
+          relationType: 'supports',
         }),
       ])
     );
