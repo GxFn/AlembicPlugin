@@ -5,12 +5,16 @@
  *   插件 MCP 的 resident 增强（语义检索/向量/进化 sweep）依赖 Alembic 主体的
  *   daemon 常驻进程。daemon 入口 dist/bin/daemon-server.js 属于主体仓构建产物，
  *   runtime 包（alembic-runtime = 插件仓 dist + @alembic/core）不携带它，
- *   因此存在三种形态：
- *     形态 1「主体在场」— daemon 曾运行过并在 daemon.json 自注册了 entrypoint/execPath
- *       （主体 bin/daemon-server.ts 写入），本模块可按同款入口+同款 Node 重新拉起；
- *     形态 2「仅插件」— 无主体安装、无历史 daemon.json 入口 → 显式 unavailable，
- *       resident 增强诚实降级（不是错误）；
- *     形态 3「主体在但 daemon 死」— health 探测失败 → 自动重拉（崩溃自愈）。
+ *   因此本模块按 daemon 入口能否解析 + health 分三种运行态。注意：这里区分的是
+ *   "daemon 是否跑过 / 是否在跑"，不是"主体是否安装"——二者不是一回事（见形态 2）：
+ *     形态 1「入口可解析且 health OK」— daemon 曾运行过并在 daemon.json 自注册了
+ *       entrypoint/execPath（主体 bin/daemon-server.ts 写入），在跑则直接复用；
+ *     形态 2「入口不可解析」— 无 env 覆盖、无 daemon.json、无入口注册表 → 显式 unavailable，
+ *       resident 增强诚实降级（不是错误）。它同时覆盖「主体未安装」和「主体已安装但从未在本
+ *       项目启动过」两种——本模块不区分二者（无入口就无法自启，结果都是 unavailable）。"装
+ *       vs 启动"的区分属于 status/onboarding 层，由那里直接查 `npm ls -g alembic-ai` 判定，
+ *       不靠本信号推断；
+ *     形态 3「入口可解析但 health 失败」— daemon 曾跑过但当前死了 → 自动重拉（崩溃自愈）。
  *
  * 边界：
  *   - 只负责"拉起"，不负责杀死/替换在跑的 daemon（那是用户/主体 CLI 的职责）；
@@ -125,7 +129,7 @@ function defaultReadEntrypointRegistry(projectRoot: string): DaemonEntrypointReg
 /**
  * 解析 daemon 入口：env 显式指定 > daemon.json 自注册（在跑/崩溃残留）>
  * 入口注册表 daemon-entrypoint.json（优雅退出后 daemon.json 被清理时的 fallback）。
- * 三者都不可用 → null（形态 2「仅插件」或从未跑过 daemon 的形态 1 首次）。
+ * 三者都不可用 → null（即形态 2「入口不可解析」：主体未安装，或已安装但从未在本项目启动过）。
  */
 function resolveEntrypoint(
   env: NodeJS.ProcessEnv,
@@ -216,7 +220,7 @@ export async function ensureResidentDaemonRunning(
   const registry = readRegistry(options.projectRoot);
   const resolved = resolveEntrypoint(env, state, registry, existsImpl);
   if (!resolved.entrypoint) {
-    // 形态 2「仅插件」/首次：没有可用入口——诚实降级，不视为错误。
+    // 形态 2「入口不可解析」（主体未安装，或已安装但从未启动过）：没有可用入口——诚实降级，不视为错误。
     logger?.info('[DaemonAutostart] resident daemon unavailable: no known entrypoint', {
       projectRoot: options.projectRoot,
       hasStaleState: Boolean(state),

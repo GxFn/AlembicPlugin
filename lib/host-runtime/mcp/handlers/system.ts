@@ -6,13 +6,17 @@
  * stats block, omitted returns the full status.)
  */
 
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import { PACKAGE_ROOT } from '#shared/package-assets.js';
 import { envelope } from '../envelope.js';
 import { buildMcpToolUsageView } from '../session-usage.js';
 import type { KnowledgeBaseStats, McpContext } from './types.js';
+
+const execFileAsync = promisify(execFile);
 
 type RuntimeChecks = { database: boolean; vectorStore: boolean };
 
@@ -82,6 +86,8 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
   const overallStatus = allCritical ? 'ok' : 'degraded';
   const version = readPackageVersion();
   const actionHints = buildActionHints(checks, knowledgeBase);
+  // 主体 app（alembic-ai）安装态：直接问 npm，未装才引导安装（详见 buildMainBodyAppDescriptor）。
+  const mainBodyApp = await buildMainBodyAppDescriptor();
   const runtimeView = buildRuntimeView({
     ctx,
     overallStatus,
@@ -90,6 +96,7 @@ export async function status(ctx: McpContext, args: Record<string, unknown> = {}
     checks,
     issues,
     actionHints,
+    mainBodyApp,
   });
   // aspect narrows the merged status view; omitting it returns the full status
   // (runtime + knowledge), preserving the legacy alembic_health output shape.
@@ -128,22 +135,81 @@ function buildActionHints(
   return actionHints;
 }
 
+/** 供测试注入的命令执行器：默认真跑命令并返回 stdout。 */
+type CommandRunner = (command: string, args: string[]) => Promise<string>;
+
+const defaultCommandRunner: CommandRunner = async (command, args) => {
+  const { stdout } = await execFileAsync(command, args, { timeout: 5000, windowsHide: true });
+  return stdout;
+};
+
+/**
+ * 直接问 npm：alembic-ai 是否已全局安装。这是"该不该推荐安装主体 app"的正确信号——
+ * 不拿"daemon 是否跑过"去间接推断（那会把「没装」和「装了但从未启动」混为一谈：daemon 入口
+ * 只有 daemon 真跑过一次才写入）。未装时 `npm ls -g` 以非 0 退出 → reject；spawn 失败/超时
+ * 同样 reject，都收敛为 false（安装始终需用户同意，误判偏保守无害）。
+ */
+export async function isMainBodyInstalledGlobally(
+  run: CommandRunner = defaultCommandRunner
+): Promise<boolean> {
+  try {
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const stdout = await run(npm, ['ls', '-g', 'alembic-ai', '--depth=0']);
+    return /alembic-ai@/.test(stdout);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 主体 app（alembic-ai）能力描述符。主体提供 Dashboard 与常驻 daemon 后台任务；插件核心
+ * （bootstrap/rescan/search/guard/知识库）不依赖它（Ghost 模式）。installed 由直接的 npm 全局
+ * 安装查询得出——只有确认「未安装」才给出安装引导；命令由宿主 agent 在征得用户同意后自行执行，
+ * 不擅自装、不把命令当作待办甩给用户。这是冷静的能力元数据，不是每次 status 都催促的 hint。
+ */
+async function buildMainBodyAppDescriptor(): Promise<Record<string, unknown>> {
+  const installed = await isMainBodyInstalledGlobally();
+  const descriptor: Record<string, unknown> = {
+    installed,
+    optional: true,
+    provides: ['dashboard', 'background-daemon-jobs'],
+    note: 'Plugin core features (bootstrap, rescan, search, guard, knowledge base) work without it (Ghost mode).',
+  };
+  if (!installed) {
+    descriptor.install = {
+      package: 'alembic-ai',
+      command: 'npm install -g alembic-ai',
+      cli: 'alembic',
+      requiresUserConsent: true,
+      hostAgentGuidance:
+        '主体 app（alembic-ai）未全局安装。它提供 Dashboard 和后台 daemon 任务，是可选增强——' +
+        '插件其余能力无需它即可工作。若用户想要 Dashboard 或后台任务，可主动询问是否安装；征得同意后由宿主 ' +
+        'agent 直接运行 command 字段的命令，不要在未经用户同意时安装，也不要把命令当作手动待办甩给用户。',
+    };
+  }
+  return descriptor;
+}
+
 function buildRuntimeView(input: {
   actionHints: string[];
   aiInfo: Record<string, unknown>;
   checks: RuntimeChecks;
   ctx: McpContext;
   issues: string[];
+  mainBodyApp: Record<string, unknown>;
   overallStatus: string;
   version: string;
 }): Record<string, unknown> {
-  const { actionHints, aiInfo, checks, ctx, issues, overallStatus, version } = input;
+  const { actionHints, aiInfo, checks, ctx, issues, mainBodyApp, overallStatus, version } = input;
   return {
     status: overallStatus,
     version,
     uptime: Math.floor((Date.now() - (ctx.startedAt ?? Date.now())) / 1000),
     projectRoot: resolveProjectRoot(ctx.container),
     ai: aiInfo,
+    // 主体 app（可选增强：Dashboard + 常驻 daemon 后台任务）安装态与安装引导；未装时据此
+    // 引导宿主 agent 征得用户同意后安装 alembic-ai，不改变 Ghost 默认。
+    mainBodyApp,
     checks,
     services: ctx.container.getServiceNames?.() ?? [],
     // P3: Session 信息
