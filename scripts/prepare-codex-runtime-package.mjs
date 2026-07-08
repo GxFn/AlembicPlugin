@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { computeDistContentHash, computeSourceHash } from './lib/runtime-pack-freshness.mjs';
@@ -53,6 +54,7 @@ copyFile('README.md', 'README.md', { optional: true });
 copyFile('README_CN.md', 'README_CN.md', { optional: true });
 copyFile('packages/alembic-runtime/README.md', 'README.md');
 copyCoreGrammars();
+bundleCoreDependency();
 writeRuntimeBoundaryMetadata();
 
 process.stdout.write(
@@ -77,6 +79,11 @@ function writeRuntimePackageJson() {
     version: rootPackage.version,
     imports: sourceManifest.imports || rootPackage.imports,
     dependencies: normalizeRuntimeDependencies(sourceManifest.dependencies || {}),
+    // Path B（自足 npm runtime）：@alembic/core 私有、不在公共 registry，故 vendored 进
+    // node_modules/@alembic/core，随本包 tarball 一起发布（bundledDependencies）。安装时
+    // npm 直接用 bundle 的副本，不去 registry 拉 @alembic/core；其余依赖（better-sqlite3
+    // /web-tree-sitter 等）都是公共 npm 包，按平台正常解析（含原生预编译）。
+    bundledDependencies: ['@alembic/core'],
   };
   delete runtimePackage.private;
   writeFileSync(join(outputRoot, 'package.json'), `${JSON.stringify(runtimePackage, null, 2)}\n`);
@@ -126,6 +133,51 @@ function copyFile(sourceRelative, destinationRelative, options = {}) {
   cpSync(source, destination, { force: true });
 }
 
+function bundleCoreDependency() {
+  // Path B：把私有 @alembic/core vendored 进 node_modules/@alembic/core，使其随
+  // runtime tarball 一起发布（bundledDependencies）。用 `npm pack` 取 Core 的“已发布形态”
+  // （尊重 Core package.json 的 `files` 白名单），再解压到位。Core 自身的依赖不 bundle——
+  // 它们已声明在本 runtime 包的 dependencies 里，安装时从顶层 node_modules 解析。
+  const destination = join(outputRoot, 'node_modules', '@alembic', 'core');
+  const packDir = join(outputRoot, '.core-pack');
+  mkdirSync(packDir, { recursive: true });
+  const packed = spawnSync(
+    'npm',
+    ['pack', coreSource.path, '--pack-destination', packDir, '--silent'],
+    { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }
+  );
+  assert(
+    !packed.error && packed.status === 0,
+    `Failed to npm pack @alembic/core from ${coreSource.path}: ${packed.error?.message || packed.stderr}`
+  );
+  const tarball = packed.stdout.trim().split('\n').pop().trim();
+  const tarballPath = join(packDir, tarball);
+  assert(existsSync(tarballPath), `npm pack did not produce a Core tarball at ${tarballPath}`);
+  const extractDir = join(packDir, 'extract');
+  mkdirSync(extractDir, { recursive: true });
+  // npm tarballs 顶层是 `package/`。
+  const extracted = spawnSync('tar', ['-xzf', tarballPath, '-C', extractDir], {
+    encoding: 'utf8',
+  });
+  assert(
+    !extracted.error && extracted.status === 0,
+    `Failed to extract Core tarball ${tarballPath}: ${extracted.error?.message || extracted.stderr}`
+  );
+  mkdirSync(dirname(destination), { recursive: true });
+  rmSync(destination, { force: true, recursive: true });
+  cpSync(join(extractDir, 'package'), destination, { force: true, recursive: true });
+  rmSync(packDir, { force: true, recursive: true });
+  assert(
+    existsSync(join(destination, 'package.json')) && existsSync(join(destination, 'dist')),
+    'Bundled @alembic/core is missing package.json or dist after vendoring.'
+  );
+  const bundledCore = readJson(join(destination, 'package.json'));
+  assert(
+    bundledCore.version === corePackage.version,
+    `Bundled @alembic/core version ${bundledCore.version} does not match ${corePackage.version}.`
+  );
+}
+
 function copyCoreGrammars() {
   const { path: source } = resolveCoreGrammarSource();
   assert(
@@ -153,7 +205,8 @@ function writeRuntimeBoundaryMetadata() {
         coreSource: coreSource.label,
         coreCommit: coreSource.commit,
         dependencyStrategy:
-          'Runtime package manifest pins @alembic/core to an exact npm package version. MPB1 verifies pack/install with a matching Core tarball that simulates the published Core package; no production file: dependency escapes the runtime package boundary.',
+          'Path B self-contained runtime: private @alembic/core is vendored into node_modules/@alembic/core and shipped via bundledDependencies, so the runtime installs from npm without @alembic/core being published to any registry. All other dependencies are public npm packages resolved normally at install (native prebuilds per-platform). The lightweight marketplace shell stays runtime-free; forbiddenShellArtifacts applies to the shell, not this runtime package.',
+        bundledDependencies: ['@alembic/core'],
         forbiddenShellArtifacts: ['runtime.tgz', 'runtime/', 'node_modules/'],
       },
       null,
