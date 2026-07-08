@@ -203,7 +203,7 @@ Alembic is developed as five repositories with a one-way dependency spine — a 
 | **AlembicCore** | `@alembic/core` | The shared deterministic kernel: knowledge lifecycle, Guard engine, hybrid search and vectors, project intelligence, plan facts, coverage ledger, file-first persistence. No agent, no UI, no provider — enforced by boundary tests |
 | **AlembicAgent** | `@alembic/agent` | The embedded intelligence: one ReAct execution engine, an AI provider stack for five vendors with reliability control, a contract-first tool system, layered memory |
 | **AlembicDashboard** | `alembic-dashboard` | The review surface: a React SPA with nine views, command palette, bilingual UI, realtime progress — built and shipped inside `alembic-ai` |
-| **AlembicPlugin** | `@gxfn/alembic-runtime` | The agent-native delivery: click-install plugin shells for Codex and Claude Code, one identical MCP tool surface on both hosts, built-in skills, Ghost-first, daemon-less |
+| **AlembicPlugin** | `alembic-runtime` | The agent-native delivery: click-install plugin shells for Codex and Claude Code, one identical MCP tool surface on both hosts, built-in skills, Ghost-first, daemon-less |
 
 The knowledge store is **file-first**: Markdown Recipes are the source of truth, SQLite is a rebuildable read cache (`alembic sync`), and divergence surfaces as a typed error with a documented reconcile path.
 

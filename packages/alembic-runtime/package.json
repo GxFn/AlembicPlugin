@@ -1,5 +1,5 @@
 {
-  "name": "@gxfn/alembic-runtime",
+  "name": "alembic-runtime",
   "version": "0.3.0",
   "description": "Pinned Alembic Codex MCP runtime package for Codex marketplace plugin startup.",
   "type": "module",

@@ -9,10 +9,7 @@ import path from 'node:path';
 import { DEFAULT_FOLDER_NAMES } from '@alembic/core/workspace';
 
 const __dirname = import.meta.dirname;
-const PLUGIN_RUNTIME_PACKAGE_NAMES = new Set([
-  '@gxfn/alembic-runtime',
-  'alembic-codex-plugin-runtime',
-]);
+const PLUGIN_RUNTIME_PACKAGE_NAMES = new Set(['alembic-runtime', 'alembic-codex-plugin-runtime']);
 
 function findPackageRoot(): string {
   let dir = __dirname;

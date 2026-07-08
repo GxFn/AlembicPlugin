@@ -112,8 +112,8 @@ describe('Codex runtime context', () => {
     const registry = loadPluginRegistry(context);
 
     expect(context.runtimeBin).toBe('alembic-codex-mcp');
-    expect(context.runtimePackage).toBe('@gxfn/alembic-runtime');
-    expect(context.pinnedRuntimeSpecifier).toBe(`@gxfn/alembic-runtime@${context.packageVersion}`);
+    expect(context.runtimePackage).toBe('alembic-runtime');
+    expect(context.pinnedRuntimeSpecifier).toBe(`alembic-runtime@${context.packageVersion}`);
     expect(registry.marketplace.value?.name).toBe('gxfn');
     expect(registry.plugin.manifest.value?.name).toBe('alembic');
     expect(registry.mcp.server?.command).toBe('node');

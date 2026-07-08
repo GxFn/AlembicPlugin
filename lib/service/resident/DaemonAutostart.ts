@@ -4,7 +4,7 @@
  * 背景（2026-07-06 五 MCP 升级设计）：
  *   插件 MCP 的 resident 增强（语义检索/向量/进化 sweep）依赖 Alembic 主体的
  *   daemon 常驻进程。daemon 入口 dist/bin/daemon-server.js 属于主体仓构建产物，
- *   runtime 包（@gxfn/alembic-runtime = 插件仓 dist + @alembic/core）不携带它，
+ *   runtime 包（alembic-runtime = 插件仓 dist + @alembic/core）不携带它，
  *   因此存在三种形态：
  *     形态 1「主体在场」— daemon 曾运行过并在 daemon.json 自注册了 entrypoint/execPath
  *       （主体 bin/daemon-server.ts 写入），本模块可按同款入口+同款 Node 重新拉起；

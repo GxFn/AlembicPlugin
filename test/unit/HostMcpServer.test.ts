@@ -1612,7 +1612,7 @@ describe('HostMcpServer', () => {
 
     expect(result.success).toBe(true);
     expect(result.data.package.pinnedSpecifier).toBe(
-      `@gxfn/alembic-runtime@${getPackageVersion()}`
+      `alembic-runtime@${getPackageVersion()}`
     );
     expect(result.data.checks).toMatchObject({
       packagePin: true,
@@ -1631,7 +1631,7 @@ describe('HostMcpServer', () => {
     expect(result.data.primaryAction.tool).toBe('alembic_status');
     expect(result.data.summary).toContain('runtime checks passed');
     expect(result.data.offlineFallback).toMatchObject({
-      localPackage: `@gxfn/alembic-runtime@${getPackageVersion()}`,
+      localPackage: `alembic-runtime@${getPackageVersion()}`,
       registryPackageFallback: false,
     });
     expect(result.data.cleanup).toMatchObject({
@@ -2342,7 +2342,7 @@ describe('HostMcpServer', () => {
     expect(
       fs
         .readFileSync(path.resolve('plugins/alembic-codex/bin/alembic-start.mjs'), 'utf8')
-        .includes(`@gxfn/alembic-runtime@${getPackageVersion()}`)
+        .includes(`alembic-runtime@${getPackageVersion()}`)
     ).toBe(true);
     expect(pluginMcp.mcpServers.alembic.cwd).toBe('.');
     expect(pluginMcp.mcpServers.alembic.env.ALEMBIC_RUNTIME_MODE).toBe('plugin');

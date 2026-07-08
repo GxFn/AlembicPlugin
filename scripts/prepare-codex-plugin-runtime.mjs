@@ -21,7 +21,7 @@ for (const forbidden of ['runtime', 'runtime.tgz', 'node_modules']) {
 if (!existsSync(startupPath)) {
   throw new Error('Public Codex plugin shell is missing bin/alembic-start.mjs');
 }
-if (runtimePackage.name !== '@gxfn/alembic-runtime') {
+if (runtimePackage.name !== 'alembic-runtime') {
   throw new Error(`Unexpected runtime package name: ${runtimePackage.name}`);
 }
 if (runtimePackage.version !== packageJson.version) {

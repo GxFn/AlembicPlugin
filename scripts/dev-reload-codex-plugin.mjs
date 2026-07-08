@@ -168,7 +168,7 @@ function buildRuntimeModeSeparation() {
     packaged: {
       command: 'plugins/alembic-codex/bin/alembic-start.mjs',
       entryMode: 'marketplace-shell',
-      runtimeSpecifier: '@gxfn/alembic-runtime@0.3.0',
+      runtimeSpecifier: 'alembic-runtime@0.3.0',
       cacheIsolation: 'owned by the marketplace shell bootstrap path',
       usedByReload: false,
     },

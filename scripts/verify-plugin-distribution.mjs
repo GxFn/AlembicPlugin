@@ -45,10 +45,7 @@ if (pluginEntry?.source?.path) {
   });
 }
 
-expect(
-  runtimePackageJson.name === '@gxfn/alembic-runtime',
-  'runtime package must be @gxfn/alembic-runtime'
-);
+expect(runtimePackageJson.name === 'alembic-runtime', 'runtime package must be alembic-runtime');
 expect(
   runtimePackageJson.version === packageVersion,
   'runtime package version must match the root package version'
@@ -148,7 +145,7 @@ function verifyPlugin({ packageJson, pluginRoot, runtimePackageJson, runtimeSpec
     'plugin shell must not contain node_modules'
   );
   expect(
-    runtimePackageJson.name === '@gxfn/alembic-runtime',
+    runtimePackageJson.name === 'alembic-runtime',
     'plugin distribution must point at the host-neutral runtime package'
   );
 }

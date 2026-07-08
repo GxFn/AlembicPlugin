@@ -203,7 +203,7 @@ Alembic 以五个仓库开发，依赖脊柱单向——底部是确定性内核
 | **AlembicCore** | `@alembic/core` | 共享确定性内核：知识生命周期、Guard 引擎、混合搜索与向量、项目智能、plan facts、覆盖账本、文件优先持久化。不含智能体、UI、provider——由边界测试强制 |
 | **AlembicAgent** | `@alembic/agent` | 内嵌智能：一个 ReAct 执行引擎、覆盖五家厂商的 AI provider 栈（含可靠性控制）、契约先行的工具系统、分层记忆 |
 | **AlembicDashboard** | `alembic-dashboard` | 审核界面：React SPA，九个视图，命令面板，中英双语，实时进度——构建后随 `alembic-ai` 一起发布 |
-| **AlembicPlugin** | `@gxfn/alembic-runtime` | 面向智能体的交付：Codex 与 Claude Code 的点击安装插件壳，双宿主完全一致的 MCP 工具面，内置技能，Ghost 优先，无 daemon |
+| **AlembicPlugin** | `alembic-runtime` | 面向智能体的交付：Codex 与 Claude Code 的点击安装插件壳，双宿主完全一致的 MCP 工具面，内置技能，Ghost 优先，无 daemon |
 
 知识存储是**文件优先**的：Markdown Recipe 是唯一真源，SQLite 是可重建的读缓存（`alembic sync`），两者分歧会以带修复路径的类型化错误暴露。
 

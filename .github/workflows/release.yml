@@ -99,11 +99,11 @@ jobs:
       - name: Smoke Codex plugin package
         run: npm run smoke:codex-plugin
 
-      # Path B（自足 runtime）：把 @gxfn/alembic-runtime 发布到 npm，供 marketplace shell
+      # Path B（自足 runtime）：把 alembic-runtime 发布到 npm，供 marketplace shell
       # 首次 MCP 调用时 `npm install` 拉取。prepare 已把私有 @alembic/core bundle 进包
       # （bundledDependencies），所以 @alembic/core 不需要单独发布；其余依赖是公共 npm 包。
       # 守卫：未配置 NPM_TOKEN 时跳过（发布前不阻断）；版本已存在时幂等跳过。
-      - name: Publish @gxfn/alembic-runtime to npm (bundled Core)
+      - name: Publish alembic-runtime to npm (bundled Core)
         run: |
           if [ -z "${NODE_AUTH_TOKEN}" ]; then
             echo "NPM_TOKEN secret 未设置 — 跳过 runtime 发布（设置后即可支持公开 marketplace 安装）。"
