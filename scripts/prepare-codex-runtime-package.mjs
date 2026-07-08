@@ -141,9 +141,10 @@ function bundleCoreDependency() {
   const destination = join(outputRoot, 'node_modules', '@alembic', 'core');
   const packDir = join(outputRoot, '.core-pack');
   mkdirSync(packDir, { recursive: true });
+  // --ignore-scripts：只取 Core 的文件，不运行其 prepack/prepare lifecycle。
   const packed = spawnSync(
     'npm',
-    ['pack', coreSource.path, '--pack-destination', packDir, '--silent'],
+    ['pack', coreSource.path, '--pack-destination', packDir, '--silent', '--ignore-scripts'],
     { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }
   );
   assert(
