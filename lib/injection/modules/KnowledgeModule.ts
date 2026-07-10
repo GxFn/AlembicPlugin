@@ -44,7 +44,7 @@ import type {
 } from '@alembic/core/repositories';
 import { HybridRetriever, SearchEngine } from '@alembic/core/search';
 import { findSimilarRecipes } from '@alembic/core/service/candidate';
-import { isExcludedProject, LanguageService } from '@alembic/core/shared';
+import { isExcludedProject, LanguageService, readFileAtCommit } from '@alembic/core/shared';
 import { HnswVectorAdapter, IndexingPipeline, JsonVectorAdapter } from '@alembic/core/vector';
 import {
   resolveDataRoot,
@@ -270,6 +270,10 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
       signalBus:
         (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
         undefined,
+      // P3 observe-only 漂移精判:git 历史读取器,绑定本容器 projectRoot 的 git 仓。
+      // 多 folder ProjectScope 下 sourcePath 属其他 folder 仓时 git show 取不到 → null →
+      // 精判保守跳过(不误判);基线 commit 由 rescan 侧从 checkpoint 传入,缺则不精判。
+      gitReader: (commit, relPath) => readFileAtCommit(projectRoot, commit, relPath),
     });
   });
 

@@ -1,4 +1,7 @@
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
+import { buildPluginGitDiffCheckpointScope } from '#recipe-pipeline/sustain/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
+import { resolveProjectScopeRuntime } from '#shared/project-scope-runtime.js';
 import {
   buildRecipeSemanticRegionVectors,
   type RecipeRegionVectorBuildReport,
@@ -39,10 +42,12 @@ interface KnowledgeSyncServiceLike {
 }
 
 interface SourceRefReconcilerLike {
-  reconcile(opts?: { force?: boolean }): Promise<{
+  reconcile(opts?: { baselineCommit?: string; force?: boolean }): Promise<{
     active: number;
     cleaned?: number;
     drifted?: number;
+    driftContentChange?: number;
+    driftLineShift?: number;
     inserted: number;
     recipesProcessed: number;
     skipped: number;
@@ -148,11 +153,22 @@ async function reconcileSourceRefs(
 ): Promise<ReconcileReportWithRepair | null> {
   try {
     const reconciler = ctx.container.get('sourceRefReconciler') as SourceRefReconcilerLike;
-    const report: ReconcileReportWithRepair = await reconciler.reconcile({ force: true });
+    // P3 observe-only 漂移精判基线:本 scope 的 durable checkpoint commit。时序依据——
+    // rescan 里本 rebuild 先于 CommitDrivenMaintenance 推进 checkpoint 执行,此刻读到的是
+    // 上一轮已路由 commit,即 contentFp 最近一次被确认时点的近似("漂移前"版本)。
+    // 取不到(无 scope/无行/无 commit)→ 不传 → reconcile 不精判,行为与既有一致。
+    const baselineCommit = resolveDriftBaselineCommit(ctx);
+    const report: ReconcileReportWithRepair = await reconciler.reconcile({
+      force: true,
+      ...(baselineCommit ? { baselineCommit } : {}),
+    });
     ctx.logger.info(`[${ctx.logPrefix}] SourceRefReconciler reconcile complete`, {
       active: report.active,
       cleaned: report.cleaned ?? 0,
       drifted: report.drifted ?? 0,
+      driftContentChange: report.driftContentChange ?? 0,
+      driftLineShift: report.driftLineShift ?? 0,
+      driftBaseline: baselineCommit ? 'checkpoint' : 'unavailable',
       inserted: report.inserted,
       recipesProcessed: report.recipesProcessed,
       skipped: report.skipped,
@@ -170,6 +186,39 @@ async function reconcileSourceRefs(
     ctx.logger.warn(
       `[${ctx.logPrefix}] SourceRefReconciler reconcile failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`
     );
+    return null;
+  }
+}
+
+/**
+ * P3 observe-only:解析本 scope 的漂移精判基线 commit(git_diff_checkpoints.checkpointCommit)。
+ * 单仓项目 scope 退化为 {scopeId:'single-folder', folderId:'root'};多 folder ProjectScope 用
+ * 注册的 currentFolderId 指针(与 retrieval-checkpoint posture 同源口径)。
+ * 任何缺失/异常一律 null——精判是纯观测增强,绝不因它失败影响 rebuild 主流程。
+ */
+function resolveDriftBaselineCommit(ctx: KnowledgeIndexRebuildContext): string | null {
+  try {
+    const projectRoot = resolveProjectRoot(
+      ctx.container as Parameters<typeof resolveProjectRoot>[0]
+    );
+    if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+      return null;
+    }
+    const runtime = resolveProjectScopeRuntime(projectRoot);
+    const summary = runtime?.summary;
+    const scope = buildPluginGitDiffCheckpointScope({
+      currentFolderId: summary?.currentFolderId ?? runtime?.descriptor.currentFolderId ?? null,
+      projectRoot,
+      projectScopeId: summary?.projectScopeId ?? null,
+    });
+    const repository = ctx.container.get('gitDiffCheckpointRepository') as {
+      get(input: { folderId: string; projectRoot: string; scopeId: string }): {
+        checkpointCommit: string | null;
+      } | null;
+    };
+    const commit = repository.get(scope)?.checkpointCommit ?? null;
+    return typeof commit === 'string' && commit.length > 0 ? commit : null;
+  } catch {
     return null;
   }
 }
