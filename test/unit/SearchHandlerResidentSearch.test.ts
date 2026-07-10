@@ -289,6 +289,10 @@ function knowledgeServiceFixture() {
 
 function expectPublicSearchJsonToOmitRelationAndPrimeMaterial(value: unknown) {
   const serialized = JSON.stringify(value);
+  // G-C P1:`"sourceRefs":` 从禁项移除——per-item 源锚(带漂移标记)现在是合法的
+  // search 公开输出(与 prime 对称,交宿主现场判断)。原意"prime 注入包的 sourceRefs
+  // 不许泄漏"由下列对象级禁项(primeInjectionPackage/intentEvidence/trace 等)把守:
+  // prime 的 sourceRefs 嵌在这些对象内,对象被剔除则其嵌套 sourceRefs 一并消失。
   for (const forbidden of [
     '"relations"',
     'recipeRelation',
@@ -301,7 +305,6 @@ function expectPublicSearchJsonToOmitRelationAndPrimeMaterial(value: unknown) {
     'Trust Receipt',
     'DecisionRegister',
     'retrievalConsumer',
-    '"sourceRefs":',
   ]) {
     expect(serialized).not.toContain(forbidden);
   }
@@ -831,6 +834,64 @@ describe('alembic_search resident search enhancement', () => {
       matchedCount: 1,
       returnedCount: 1,
     });
+    expectPublicSearchJsonToOmitRelationAndPrimeMaterial(result.structuredContent);
+  });
+
+  it('surfaces per-item source-ref drift signal to the caller (G-C P1)', async () => {
+    // 命中的知识引用了一段已漂移的源码区间(文件在,被引区间内容变)。Core SearchEngine
+    // 在命中上打顶层 sourceRefStatus='drifted' + driftedSourceRefs;检索不排除它(漂移≠错误,
+    // 降级消费),但必须把漂移信号透给宿主自行判断是否采信——本用例锁该端到端透出。
+    const sourceRefs = [
+      'Sources/Features/VideoFeed/VideoFeedViewModel.swift:1-78',
+      'Sources/Infrastructure/Networking/Repository/FeedRepository.swift:1-69',
+    ];
+    const driftedRef = 'Sources/Features/VideoFeed/VideoFeedViewModel.swift:1-78';
+    const engineSearch = vi.fn(async () => ({
+      items: [
+        {
+          id: '553ae99c-602e-485b-a171-41cbae1df952',
+          title: '分页边界隔离',
+          trigger: '@pagination-boundary',
+          kind: 'pattern',
+          language: 'swift',
+          category: 'architecture',
+          dimensionId: 'architecture',
+          description: '源路径锚定的分页边界约束。',
+          score: 0.72,
+          sourceRefs,
+          // Core SearchEngine._supplementDetails 的产物(顶层字段)。
+          sourceRefStatus: 'drifted',
+          driftedSourceRefs: [driftedRef],
+        },
+      ],
+      mode: 'keyword',
+      searchMeta: {
+        actualMode: 'keyword',
+        requestedMode: 'keyword',
+        residentVector: { available: false, reason: 'embed-provider-missing' },
+        route: 'field-weighted',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    }));
+
+    const result = (await search(context({ engineSearch }), {
+      dimensionId: 'architecture',
+      limit: 3,
+      mode: 'keyword',
+      query: 'RG10 BiliDili FeedRepository VideoFeed pagination HomeCategory refresh',
+    })) as { structuredContent: { items: Array<Record<string, unknown>>; status: string } };
+
+    expect(result.structuredContent.status).toBe('ready');
+    expect(result.structuredContent.items).toHaveLength(1);
+    const hit = result.structuredContent.items[0];
+    // 漂移知识仍被返回(降级消费,不排除)。
+    expect(hit.id).toBe('553ae99c-602e-485b-a171-41cbae1df952');
+    // 漂移信号确定性透出:sourceStatus + 漂移锚点子集 + 全部锚点。
+    expect(hit.sourceStatus).toBe('drifted');
+    expect(hit.driftedSourceRefs).toEqual([driftedRef]);
+    expect(hit.sourceRefs).toEqual(sourceRefs);
+    // prime-only 材料仍不泄漏。
     expectPublicSearchJsonToOmitRelationAndPrimeMaterial(result.structuredContent);
   });
 
@@ -1959,9 +2020,10 @@ describe('alembic_search resident search enhancement', () => {
         id: '553ae99c-602e-485b-a171-41cbae1df952',
         matchRoutes: ['keyword'],
         routeEvidence: expect.arrayContaining([expect.stringMatching(/^keyword:/u)]),
+        // G-C P1:per-item 源锚现在透出(此前被丢弃,下游无从校验)。
+        sourceRefs,
       }),
     ]);
-    expect(JSON.stringify(result.structuredContent.items)).not.toContain('sourceRefs');
     expect(result.structuredContent.inventory).toMatchObject({
       candidateCount: 1,
       matchedCount: 1,

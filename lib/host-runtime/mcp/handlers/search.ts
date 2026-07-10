@@ -1635,6 +1635,14 @@ function searchItemCandidateMetadata(
       readString(slimItem?.scope),
     sourceFile: readString(rawItem.sourceFile) ?? readString(rawItem.metadata?.sourceFile),
     sourceRefs: sourceRefsFromSearchItem(rawItem, slimItem),
+    // G-C P1:携带 Core 算出的源锚漂移态,输出投影据此透出交宿主现场判断。
+    // 两处来源:embedded SearchEngine 走顶层字段;region-vector 路径走 metadata。
+    sourceRefStatus:
+      readString(rawItem.sourceRefStatus) ?? readString(rawItem.metadata?.sourceRefStatus),
+    driftedSourceRefs:
+      readStringArray(rawItem.driftedSourceRefs).length > 0
+        ? readStringArray(rawItem.driftedSourceRefs)
+        : readStringArray(rawItem.metadata?.driftedSourceRefs),
     tags:
       readStringArray(rawItem.tags).length > 0
         ? readStringArray(rawItem.tags)
@@ -1798,6 +1806,13 @@ function projectKnowledgeItem(
   options: { includeContentPreview?: boolean } = {}
 ): Record<string, unknown> {
   const scoreBreakdown = item.scoreBreakdown ?? {};
+  // G-C P1:从候选 metadata 取回源锚 + 漂移态(此前逐条命中的锚点被算出后又丢弃,
+  // 下游拿不到无从校验;现与 prime 对称输出)。sourceStatus='drifted' 是确定性信号
+  // (被引区间内容已变),交宿主 Agent 现场判断是否采信或去读新代码——不代替其判断。
+  const metadata = item.metadata ?? {};
+  const sourceRefs = readStringArray(metadata.sourceRefs);
+  const driftedSourceRefs = readStringArray(metadata.driftedSourceRefs);
+  const sourceStatus = readString(metadata.sourceRefStatus);
   return {
     id: item.id,
     refId: item.detailRefId ?? `knowledge:${item.id}`,
@@ -1818,6 +1833,9 @@ function projectKnowledgeItem(
     detailRefId: item.detailRefId,
     vector: item.vector,
     resident: item.resident,
+    ...(sourceRefs.length > 0 ? { sourceRefs } : {}),
+    ...(driftedSourceRefs.length > 0 ? { driftedSourceRefs } : {}),
+    ...(sourceStatus ? { sourceStatus } : {}),
     ...(options.includeContentPreview === false ? {} : { contentPreview: item.contentPreview }),
   };
 }
