@@ -4,7 +4,8 @@
  * 负责注册:
  *   - knowledgeService, knowledgeGraphService, confidenceRouter
  *   - searchEngine, vectorStore, indexingPipeline
- *   - discovererRegistry, enhancementRegistry, languageService, dimensionCopy
+ *   - enhancementRegistry, languageService, dimensionCopy
+ *     (discovery 走 Core 内部 getDiscovererRegistry 单例,不经 DI——2026-07-10 校准)
  *   - projectGraph
  */
 

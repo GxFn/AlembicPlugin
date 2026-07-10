@@ -905,21 +905,23 @@ async function _injectEnhancementGuardRules(
     return;
   }
   try {
-    // RIC-2d: consume the generic (framework-agnostic) enhancement Guard rules through the
-    // high-level @alembic/core/guard facade instead of the low-level core/enhancement registry.
-    // resolveEnhancementGuardRules({ frameworkAgnostic: true }) returns rules ONLY from packs
-    // with no framework conditions — verbatim-equivalent to the former
-    // registry.all().filter(p => !p.conditions?.frameworks?.length).flatMap(getGuardRules).
-    // Framework-conditioned packs (e.g. go-grpc) are still injected by Bootstrap Phase 4 via the
-    // precise language/framework resolve, so non-matching projects get no false-positive findings.
-    // (RIC-2a-2 verified every currently-registered enhancement pack carries framework conditions,
-    // so this generic-only set is presently empty — identical to the prior path. If a generic
-    // pack like go-web should ship rules, that is a separate product decision.)
-    const { resolveEnhancementGuardRules } = await import('@alembic/core/guard');
-    const guardRules = resolveEnhancementGuardRules({ frameworkAgnostic: true });
-    if (guardRules.length > 0) {
-      engine.injectExternalRules(guardRules);
+    // 2026-07-10 链路验通审计:此前这里走 frameworkAgnostic(generic-only),而 14 个
+    // 增强包全部带框架条件 → 恒空集;旧注释声称的"Bootstrap Phase 4 精确 resolve"
+    // 经全仓扫描证实从未存在。改走 Core 的项目级精确 resolve:从真实依赖清单
+    // (package.json/go.mod/Cargo.toml/pyproject/gradle)推导 languages+frameworks,
+    // 匹配项目(如 React)注入对应包规则,无对应生态(如纯 Swift)得空集——评估期
+    // 语言门(GuardCheckEngine 按文件语言过滤)仍是第二道网。失败静默降级为不注入。
+    const { resolveEnhancementGuardRulesForProject } = await import('@alembic/core/guard');
+    const projectRoot = resolveProjectRoot(ctx.container);
+    const { rules, packIds, detection } = await resolveEnhancementGuardRulesForProject(projectRoot);
+    if (rules.length > 0) {
+      engine.injectExternalRules(rules);
     }
+    const logger = ctx.logger as { info?: (...args: unknown[]) => void } | undefined;
+    logger?.info?.(
+      `[guard] enhancement rules resolved: packs=[${packIds.join(',')}] rules=${rules.length} ` +
+        `languages=[${detection.languages.join(',')}] frameworks=[${detection.frameworks.join(',')}]`
+    );
     engine.markEpInjected?.();
   } catch {
     /* Enhancement rules unavailable — non-critical */
