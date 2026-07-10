@@ -11,6 +11,9 @@
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+// readFileAtCommit 走 ROOT 门面(@alembic/core):Core 侧 ./shared 门面冻结在
+// shrink-only 预算 192,G-C P3 新增符号按 SD-5 B2=re-point 先例经根门面导出。
+import { readFileAtCommit } from '@alembic/core';
 import { DimensionCopy } from '@alembic/core/dimensions';
 import { getFrameworkEnhancements as getEnhancementRegistry } from '@alembic/core/enhancement';
 import {
@@ -44,7 +47,7 @@ import type {
 } from '@alembic/core/repositories';
 import { HybridRetriever, SearchEngine } from '@alembic/core/search';
 import { findSimilarRecipes } from '@alembic/core/service/candidate';
-import { isExcludedProject, LanguageService, readFileAtCommit } from '@alembic/core/shared';
+import { isExcludedProject, LanguageService } from '@alembic/core/shared';
 import { HnswVectorAdapter, IndexingPipeline, JsonVectorAdapter } from '@alembic/core/vector';
 import {
   resolveDataRoot,
