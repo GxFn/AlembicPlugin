@@ -1,6 +1,6 @@
+import { buildGitDiffCheckpointScope } from '@alembic/core/evolution';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
-import { buildPluginGitDiffCheckpointScope } from '#recipe-pipeline/sustain/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
 import { resolveProjectScopeRuntime } from '#shared/project-scope-runtime.js';
 import {
   buildRecipeSemanticRegionVectors,
@@ -206,7 +206,7 @@ function resolveDriftBaselineCommit(ctx: KnowledgeIndexRebuildContext): string |
     }
     const runtime = resolveProjectScopeRuntime(projectRoot);
     const summary = runtime?.summary;
-    const scope = buildPluginGitDiffCheckpointScope({
+    const scope = buildGitDiffCheckpointScope({
       currentFolderId: summary?.currentFolderId ?? runtime?.descriptor.currentFolderId ?? null,
       projectRoot,
       projectScopeId: summary?.projectScopeId ?? null,

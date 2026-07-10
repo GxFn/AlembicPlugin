@@ -1,5 +1,4 @@
 export {
-  buildPluginGitDiffCheckpointScope,
   createPluginGitDiffCheckpointRuntime,
   type PluginGitDiffCheckpointContainer,
   type PluginGitDiffCheckpointRuntime,

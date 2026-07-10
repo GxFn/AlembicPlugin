@@ -1,9 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { isAbsolute, relative } from 'node:path';
-import {
-  buildPluginGitDiffCheckpointScope,
-  type PluginGitDiffCheckpointContainer,
-} from '#recipe-pipeline/sustain/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
+import { buildGitDiffCheckpointScope } from '@alembic/core/evolution';
+import type { PluginGitDiffCheckpointContainer } from '#recipe-pipeline/sustain/git-diff-checkpoint/DurableGitDiffCheckpointRouting.js';
 import { resolveProjectScopeRuntime } from '#shared/project-scope-runtime.js';
 
 export interface RetrievalCheckpointDiagnostic {
@@ -101,7 +99,7 @@ export function buildRetrievalCheckpointPosture(
     return emptyPosture('unavailable', 'gitDiffCheckpointRepository is unavailable.');
   }
 
-  const scope = buildPluginGitDiffCheckpointScope(input);
+  const scope = buildGitDiffCheckpointScope(input);
   let row: Record<string, unknown> | null;
   try {
     row = (checkpointRepository as CheckpointRepository).get(scope);

@@ -1,4 +1,5 @@
 import {
+  buildGitDiffCheckpointScope,
   createCurrentGitHeadBaselineProvider,
   type GitDiffCheckpointRouteStatus,
   type GitDiffCheckpointScope,
@@ -60,25 +61,15 @@ export function createPluginGitDiffCheckpointRuntime(
       checkpointRepository as unknown as GitDiffCheckpointRepositories['checkpointRepository'],
     baselineProvider: createCurrentGitHeadBaselineProvider(),
   });
-  const scope = buildPluginGitDiffCheckpointScope(input);
+  // scope 归一走 Core 单源(2026-07-11 下沉):与主体 reconcile 基线读取同键,
+  // 本仓不再持有 buildPluginGitDiffCheckpointScope 双实现。
+  const scope = buildGitDiffCheckpointScope(input);
   const ensured = service.ensureCheckpoint(scope);
   return {
     checkpointCommit: ensured.checkpoint.checkpointCommit,
     initializationSource: ensured.source,
     scope,
     service,
-  };
-}
-
-export function buildPluginGitDiffCheckpointScope(input: {
-  currentFolderId?: string | null;
-  projectRoot: string;
-  projectScopeId?: string | null;
-}): GitDiffCheckpointScope {
-  return {
-    folderId: normalizeCheckpointScopeId(input.currentFolderId) ?? 'root',
-    projectRoot: input.projectRoot,
-    scopeId: normalizeCheckpointScopeId(input.projectScopeId) ?? 'single-folder',
   };
 }
 
@@ -263,9 +254,4 @@ function hasFunctions(value: unknown, names: readonly string[]): value is Record
     return false;
   }
   return names.every((name) => typeof (value as Record<string, unknown>)[name] === 'function');
-}
-
-function normalizeCheckpointScopeId(value: string | null | undefined): string | null {
-  const normalized = value?.trim();
-  return normalized ? normalized : null;
 }
