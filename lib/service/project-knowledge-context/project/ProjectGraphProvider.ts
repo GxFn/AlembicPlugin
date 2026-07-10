@@ -15,6 +15,7 @@ import type {
   SourceSliceContext,
   SpaceContext,
 } from '@alembic/core/project-context';
+import { EXTENSION_PARSER_LANGUAGE } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import type {
   AlembicGraphOutput,
@@ -123,6 +124,10 @@ const ALLOWED_RELATION_TYPES = [
 ] as const satisfies readonly KnowledgeContextProjectRelationType[];
 
 const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
+// P-D D6(2026-07-11 BiliDili 真机):此前这里是第 6 份 JS-only 私有白名单——
+// .swift 文件在 file-flow 目标选择层即被丢弃,alembic_graph file-flow 对 Swift
+// 项目恒 0 节点(而 Core 直探同文件出 9 imports)。改为 JS 家族 + Core 解析语言
+// 单源(EXTENSION_PARSER_LANGUAGE:swift/objc/kotlin/python/go/rust/dart…)。
 const PROJECT_CONTEXT_FLOW_SOURCE_EXTENSIONS = new Set([
   '.cjs',
   '.cts',
@@ -132,6 +137,7 @@ const PROJECT_CONTEXT_FLOW_SOURCE_EXTENSIONS = new Set([
   '.mts',
   '.ts',
   '.tsx',
+  ...Object.keys(EXTENSION_PARSER_LANGUAGE),
 ]);
 
 const GENERATED_ARTIFACT_DIRECTORY_NAMES = new Set([
@@ -1035,6 +1041,13 @@ function addProjectContextFileFlowEdges(
     for (const importRelation of flow.imports) {
       const targetPath = importRelation.to?.filePath ?? importRelation.targetRef?.scope.filePath;
       if (!targetPath) {
+        // P-D D6:模块名导入(Swift `import AOXFoundationKit`/ObjC 框架头)无
+        // filePath,此前整条丢弃。按 Track1 同语义对既有 target 节点 join:
+        // 命中则连 imports 边,未命中(UIKit 等外部框架)不建节点避免图污染。
+        const specifierLabel = importRelation.to?.label;
+        if (specifierLabel) {
+          relations.add(nodes, sourceFileId, 'imports', `target:${stableRefSegment(specifierLabel)}`);
+        }
         continue;
       }
       const targetFileId = fileNodeId(targetPath);
