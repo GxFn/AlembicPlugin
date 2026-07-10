@@ -365,7 +365,12 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
   c.singleton('contentPatcher', (ct: ServiceContainer) => {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
-    return new ContentPatcher(knowledgeRepo, sourceRefRepo);
+    // P-B(2026-07-11 落锚 parity):注入 projectRoot,update 提案执行后 refs
+    // 立即带 region 指纹落锚(此前重建 refs 全 NULL fp,漂移检测对刚更新的
+    // 知识失明直到下次 reconcile)。
+    return new ContentPatcher(knowledgeRepo, sourceRefRepo, {
+      projectRoot: resolveProjectRoot(ct),
+    });
   });
 }
 
