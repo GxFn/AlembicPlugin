@@ -895,6 +895,79 @@ describe('alembic_search resident search enhancement', () => {
     expectPublicSearchJsonToOmitRelationAndPrimeMaterial(result.structuredContent);
   });
 
+  it('dual-lane merge keeps the drift flag when the higher-scored lane lacks it (G-C P1 复审修复)', async () => {
+    // auto 模式:embedded keyword lane 带 drifted 标记(Core SearchEngine 供),
+    // resident semantic lane 同 id 命中但不带标记且分更高——merge 整体覆盖 metadata 曾把
+    // 漂移标记丢掉。漂移是确定性事实,不因另一条检索路径没看到而消失:合并须保守并集。
+    const driftedRef = 'Sources/Features/VideoFeed/VideoFeedViewModel.swift:1-78';
+    const engineSearch = vi.fn(async () => ({
+      items: [
+        {
+          id: 'dual-lane-recipe',
+          title: '分页边界隔离',
+          trigger: '@pagination-boundary',
+          kind: 'pattern',
+          language: 'swift',
+          category: 'architecture',
+          dimensionId: 'architecture',
+          description: '源路径锚定的分页边界约束。',
+          score: 0.72,
+          sourceRefs: [driftedRef],
+          sourceRefStatus: 'drifted',
+          driftedSourceRefs: [driftedRef],
+        },
+      ],
+      mode: 'keyword',
+      searchMeta: {
+        actualMode: 'keyword',
+        requestedMode: 'auto',
+        residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
+        route: 'field-weighted',
+        semanticUsed: false,
+        vectorUsed: false,
+      },
+    }));
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        // 同 id、更高分、无漂移标记(resident 面尚未透传该字段)。
+        items: [
+          {
+            ...item('dual-lane-recipe', '分页边界隔离', 0.95),
+            category: 'architecture',
+            dimensionId: 'architecture',
+          },
+        ],
+        meta: {
+          attempted: true,
+          available: true,
+          actualMode: 'semantic',
+          durationMs: 7,
+          requestedMode: 'auto',
+          residentRequestMode: 'semantic',
+          residentVector: { available: true, endpoint: '/api/v1/search', reason: null },
+          resultCount: 1,
+          route: 'alembic-resident-service',
+          semanticUsed: true,
+          used: true,
+          vectorUsed: true,
+        },
+      })
+    );
+
+    const result = (await search(context({ engineSearch, residentSearch }), {
+      dimensionId: 'architecture',
+      limit: 3,
+      mode: 'auto',
+      query: 'RG10 BiliDili FeedRepository VideoFeed pagination refresh 分页边界',
+    })) as { structuredContent: { items: Array<Record<string, unknown>> } };
+
+    const hit = result.structuredContent.items.find((entry) => entry.id === 'dual-lane-recipe');
+    expect(hit).toBeDefined();
+    // 高分 lane 覆盖其余 metadata,但漂移标记保守保留。
+    expect(hit?.sourceStatus).toBe('drifted');
+    expect(hit?.driftedSourceRefs).toEqual([driftedRef]);
+  });
+
   it('withholds direct search candidates that miss explicit admission evidence', async () => {
     const engineSearch = vi.fn(async () => ({
       items: [item('repo-boundary-ratchet', 'Repo Boundary Ratchet', 0.91)],

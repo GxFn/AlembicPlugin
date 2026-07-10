@@ -1766,6 +1766,7 @@ function mergeKnowledgeCandidates(
         ...existing,
         ...item,
         scoreBreakdown: mergedScoreBreakdown,
+        metadata: mergeDriftAwareMetadata(existing?.metadata, item.metadata),
         whyMatched: Array.from(
           new Set([...(existing?.whyMatched ?? []), ...(item.whyMatched ?? [])])
         ),
@@ -1774,6 +1775,7 @@ function mergeKnowledgeCandidates(
       byId.set(item.id, {
         ...existing,
         scoreBreakdown: mergeScoreBreakdowns(item.scoreBreakdown, existing.scoreBreakdown),
+        metadata: mergeDriftAwareMetadata(item.metadata, existing.metadata),
         whyMatched: Array.from(
           new Set([...(existing.whyMatched ?? []), ...(item.whyMatched ?? [])])
         ),
@@ -1781,6 +1783,44 @@ function mergeKnowledgeCandidates(
     }
   }
   return [...byId.values()];
+}
+
+/**
+ * G-C P1 复审修复:双 lane 命中同一 recipe 时,整体覆盖 metadata 会把低分 lane 携带的
+ * 漂移标记(sourceRefStatus/driftedSourceRefs)丢掉——embedded lane 带标记而 resident/
+ * region-vector lane 不带、且后者分更高时,漂移在输出里凭空消失。漂移语义字段做保守并集:
+ * 任一 lane 报 drifted 即 drifted(确定性事实不因另一条检索路径没看到而消失);锚点并集去重。
+ * 其余 metadata 键维持"高优先覆盖"语义不变。
+ */
+function mergeDriftAwareMetadata(
+  lowerPriority: Record<string, unknown> | undefined,
+  higherPriority: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!lowerPriority && !higherPriority) {
+    return undefined;
+  }
+  const merged: Record<string, unknown> = { ...(lowerPriority ?? {}), ...(higherPriority ?? {}) };
+  const sourceRefs = uniqueStrings([
+    ...readStringArray(lowerPriority?.sourceRefs),
+    ...readStringArray(higherPriority?.sourceRefs),
+  ]);
+  if (sourceRefs.length > 0) {
+    merged.sourceRefs = sourceRefs;
+  }
+  const driftedSourceRefs = uniqueStrings([
+    ...readStringArray(lowerPriority?.driftedSourceRefs),
+    ...readStringArray(higherPriority?.driftedSourceRefs),
+  ]);
+  if (driftedSourceRefs.length > 0) {
+    merged.driftedSourceRefs = driftedSourceRefs;
+    merged.sourceRefStatus = 'drifted';
+  } else if (
+    readString(lowerPriority?.sourceRefStatus) === 'drifted' ||
+    readString(higherPriority?.sourceRefStatus) === 'drifted'
+  ) {
+    merged.sourceRefStatus = 'drifted';
+  }
+  return merged;
 }
 
 function mergeScoreBreakdowns(

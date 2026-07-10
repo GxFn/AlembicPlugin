@@ -48,7 +48,9 @@ const beat = new BigInt64Array(heartbeat);
 const state = { reported: false };
 setInterval(() => {
   const now = BigInt(Date.now());
-  const last = beat[0];
+  // Atomics.load:跨线程读 64 位共享值必须原子——普通读在规范上允许撕裂/延迟可见,
+  // 撕裂出的垃圾时间戳会算出巨大 stalled → 假报警甚至假 exit(99)。看门狗自身绝不能是误杀源。
+  const last = Atomics.load(beat, 0);
   const stalled = Number(now - last);
   if (stalled < reportMs) {
     state.reported = false;
@@ -87,7 +89,8 @@ export function startEventLoopWatchdog(
 
   const heartbeat = new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT);
   const beat = new BigInt64Array(heartbeat);
-  beat[0] = BigInt(Date.now());
+  // 与 worker 侧 Atomics.load 配对:心跳写必须 Atomics.store(见 WORKER_SOURCE 内注释)。
+  Atomics.store(beat, 0, BigInt(Date.now()));
 
   const worker = new Worker(WORKER_SOURCE, {
     eval: true,
@@ -115,7 +118,7 @@ export function startEventLoopWatchdog(
   worker.on('error', () => {});
 
   const timer = setInterval(() => {
-    beat[0] = BigInt(Date.now());
+    Atomics.store(beat, 0, BigInt(Date.now()));
   }, options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
   timer.unref();
 
