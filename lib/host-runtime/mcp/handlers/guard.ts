@@ -210,6 +210,10 @@ export async function guardCheck(ctx: McpContext, args: GuardCheckArgs) {
     warnings.push('未能识别语言，部分语言相关规则可能未执行。建议提供 language 或 filePath 参数。');
   }
 
+  // D4:code 模式补 appliedRules——engine.checkCode 同源规则装配面按本次语言枚举,
+  // 让 0 violations 可判读(与 review 模式 G2 摘要同形)。
+  const appliedRules = summarizeAppliedGuardRules(engine, [{ language }]);
+
   return envelope({
     success: true,
     data: {
@@ -220,6 +224,7 @@ export async function guardCheck(ctx: McpContext, args: GuardCheckArgs) {
         errors: violations.filter((v: GuardViolation) => v.severity === 'error').length,
         warnings: violations.filter((v: GuardViolation) => v.severity === 'warning').length,
       },
+      ...(appliedRules ? { appliedRules } : {}),
       ...(warnings.length ? { warnings } : {}),
     },
     meta: { tool: 'alembic_code_guard' },
@@ -284,10 +289,14 @@ export async function guardAuditFiles(ctx: McpContext, args: GuardAuditArgs) {
     /* ViolationsStore not available */
   }
 
+  // D4:audit 模式补 appliedRules(按被审文件语言集合枚举实际装载规则)。
+  const appliedRules = summarizeAppliedGuardRules(engine, result.files ?? []);
+
   return envelope({
     success: true,
     data: {
       summary: result.summary,
+      ...(appliedRules ? { appliedRules } : {}),
       files: result.files.map((f: GuardAuditFileResult) => ({
         filePath: f.filePath,
         language: f.language,
@@ -933,9 +942,12 @@ async function _injectEnhancementGuardRules(
  * 正面清单摘要。规则来源与检查同源（engine.getRules：数据库 Recipe 规则 +
  * 内置规则）；异常容缺返回 null（诊断面缺席不影响守门结果本体）。
  */
+// D4(2026-07-11):参数放宽为"带 language 字段的任意结果"——G2 原只接 review 模式,
+// code(guardCheck)/audit(guardAuditFiles)两模式此前缺 appliedRules,0 violations 时
+// 宿主无法区分"检查了且干净"与"没什么规则可查"(P-D 活体矩阵 BiliDili 实证)。
 function summarizeAppliedGuardRules(
   engine: GuardEngineLike,
-  results: ReviewFileResult[]
+  results: Array<{ language?: unknown }>
 ): {
   total: number;
   bySource: Record<string, number>;
