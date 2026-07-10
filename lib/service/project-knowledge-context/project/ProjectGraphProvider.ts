@@ -857,6 +857,19 @@ function addRepoContextNodes(
   nodes.add({ id: packageId, label: packageName, nodeType: 'package', path: packagePath });
   relations.add(nodes, packageId, 'partOf', projectId);
 
+  // P-D D2(2026-07-11 BiliDili 真机):本地包(SPM Packages/AOX* 等,Core (C) 修复后
+  // localPackages 携带非 node 生态包)此前不进图 → recipe_map 的 space 区域没有
+  // 包级挂载锚。根包(path '.')已由上方节点承担,这里跳过避免重复。
+  for (const localPackage of repo.localPackages.slice(0, 40)) {
+    const localPath = normalizeRelativePath(localPackage.path ?? '');
+    if (!localPath || localPath === '.') {
+      continue;
+    }
+    const localId = packageNodeId(localPackage.name);
+    nodes.add({ id: localId, label: localPackage.name, nodeType: 'package', path: localPath });
+    relations.add(nodes, localId, 'partOf', projectId);
+  }
+
   for (const command of repo.commands.slice(0, 40)) {
     const targetId = `target:script:${stableRefSegment(command.name)}`;
     nodes.add({
@@ -869,7 +882,10 @@ function addRepoContextNodes(
   }
   for (const target of repo.targets.slice(0, 40)) {
     const targetId = `target:${stableRefSegment(target.name)}`;
-    nodes.add({ id: targetId, label: target.name, nodeType: 'target', path: 'package.json' });
+    // D2:target 路径此前硬编码 'package.json'(node 时代遗留)——SPM/easybox 的
+    // target 挂载锚形同虚设。TargetSummary 的 path ref scope 携带真实目标路径。
+    const targetPath = target.refs?.[0]?.scope?.filePath ?? 'package.json';
+    nodes.add({ id: targetId, label: target.name, nodeType: 'target', path: targetPath });
     relations.add(nodes, targetId, 'partOf', packageId);
   }
   for (const entrypoint of repo.entrypoints) {
@@ -3940,7 +3956,10 @@ function overviewRegion(
 function overviewRegionPreferredTypes(kind: RegionFocusKind): Set<KnowledgeContextProjectNodeType> {
   switch (kind) {
     case 'space':
-      return new Set<KnowledgeContextProjectNodeType>(['project', 'package']);
+      // P-D D2:space 区域此前只收 project/package——非 node 项目(如 SPM)的真实
+      // 挂载锚是 target/module(sourceRoots/topAreas)节点,被排除导致 recipe_map
+      // 对 BiliDili 恒 0 mounts(75 条全悬 root descendant)。对齐 default 分支。
+      return new Set<KnowledgeContextProjectNodeType>(['project', 'package', 'target', 'module']);
     case 'repo':
       return new Set<KnowledgeContextProjectNodeType>(['project', 'package', 'target', 'file']);
     default:

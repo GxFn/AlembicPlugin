@@ -173,8 +173,12 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       expect.arrayContaining(['project:fixture-project'])
     );
     const space = await runGraph(projectRoot, { queryKind: 'space' });
+    // P-D D2(2026-07-11):space 区域扩容 target/module——非 node 项目(SPM)的真实
+    // 挂载锚在 target/module 节点,旧集只许 project/package 使 recipe_map 恒 0 mounts。
     expect(
-      space.nodes.every((node) => ['project', 'package'].includes(String(node.nodeType)))
+      space.nodes.every((node) =>
+        ['project', 'package', 'target', 'module'].includes(String(node.nodeType))
+      )
     ).toBe(true);
   });
 

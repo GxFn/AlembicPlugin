@@ -67,23 +67,29 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     }
   });
 
-  test('top-level focus surfaces global no-code mounts + rollups, not every file Recipe', async () => {
+  test('top-level focus surfaces global no-code mounts + rollups, code Recipes bucket below root', async () => {
     const projectRoot = createFixtureProject();
     const output = await recipeMap(projectRoot, 'space');
     expect(AlembicRecipeMapOutputSchema.parse(output)).toEqual(output);
 
     const mountIds = output.recipeMounts.map((mount) => mount.recipeId);
-    // Global no-code Recipe is a direct mount; deeper code Recipes are NOT dumped.
     expect(mountIds).toContain('r-global');
-    expect(mountIds).not.toContain('r-file');
-    expect(mountIds).not.toContain('r-multi');
     expect(output.recipeMounts.find((mount) => mount.recipeId === 'r-global')?.mountType).toBe(
       'global-no-code'
     );
-    // The deferred deeper Recipes appear as descendant rollups on the root.
-    const rootRollup = output.recipeRollups.find(
-      (rollup) => rollup.nodeId === output.region.rootNode.nodeId
-    );
+    // P-D D2(2026-07-11):space 区域扩容 target/module 后,代码 Recipe 允许出现在
+    // 顶层 mounts,但必须桶到 module/target 级锚点,绝不淹没 root——旧断言
+    // "not.toContain(r-file)" 写于 space 无 module 节点的年代(彼时文件 Recipe
+    // 根本无处可挂,BiliDili 真机 75 条恒 0 mounts)。
+    const rootNodeId = output.region.rootNode.nodeId;
+    for (const mount of output.recipeMounts) {
+      if (mount.recipeId === 'r-global') {
+        continue;
+      }
+      expect(mount.mountNodeId).not.toBe(rootNodeId);
+    }
+    // The deeper Recipes still appear as descendant rollups on the root.
+    const rootRollup = output.recipeRollups.find((rollup) => rollup.nodeId === rootNodeId);
     expect(rootRollup?.descendantRecipeCount ?? 0).toBeGreaterThanOrEqual(2);
   });
 
