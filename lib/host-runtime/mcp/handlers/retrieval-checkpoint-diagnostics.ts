@@ -233,6 +233,10 @@ function readCurrentGitHead(projectRoot: string): { ok: true; head: string } | {
       cwd: projectRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      // execFileSync 同步阻塞整个 MCP 事件循环——git 在损坏仓库/巨仓/网络盘上可能长挂;
+      // prime 的 ready 路径必经此处,无上限=整服务无限挂死(2026-07-10 事故排查发现的
+      // 第二个无界同步点)。5s 对 rev-parse 富余;超时抛错走 catch 降级 ok:false。
+      timeout: 5_000,
     }).trim();
     return head ? { ok: true, head } : { ok: false };
   } catch {

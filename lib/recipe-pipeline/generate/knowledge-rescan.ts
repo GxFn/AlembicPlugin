@@ -1177,6 +1177,21 @@ async function buildRescanResponse(
       }
     );
   }
+  // 矛盾显性化(2026-07-10 BiliDili 现场):覆盖计划明确给出 produce 维度与预算,
+  // 而【终局】advisory(diminishing-returns/round-cap)仍会丢弃该产出会话——缺口从此
+  // 无人再挖,且此前只有一条 info 级"Released empty lease"完全看不出计划被压掉。
+  // 本分支零行为变更,只把"计划 vs 停止策略"的冲突升为 warn 留痕:重开靠 rescan
+  // force:true(人工决定),原则性的缺口重开属知识失效传播(G-C)设计的职责。
+  if (terminalCoverageAdvisory && hasProduceWork) {
+    ctx.logger.warn(
+      '[Rescan] Terminal coverage advisory discards a produce plan — gaps stay unfilled until an explicit re-mining decision (rescan force:true)',
+      {
+        produceDimensions: planning.produceDimensionCount,
+        rescanId: state.rescanId,
+        stopReason: coverageAdvisory?.stopReason ?? null,
+      }
+    );
+  }
   if (noActionableRescanWork && noActionableReleaseDecision) {
     releaseNoWorkRescanSession(
       ctx,

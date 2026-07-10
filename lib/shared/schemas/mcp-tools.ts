@@ -349,7 +349,12 @@ const KnowledgeContextBudgetInput = z
     nextActionLimit: z.number().int().min(0).max(20).default(5),
   })
   .strict()
-  .describe('Budget limits for matrix nodes, refs, relations, text, and next actions.');
+  // 数值边界写进描述文本(加固):上限本就在 JSON schema 的 maximum 里,但 2026-07-10 真机
+  // 观察到宿主模型仍传 contentCharLimit>20000 吃 VALIDATION_ERROR 后直接放弃 graph——
+  // 描述明写数字,给 schema 阅读能力弱的模型第二次机会。
+  .describe(
+    'Budget limits for matrix nodes, refs, relations, text, and next actions. Numeric bounds: contentCharLimit 120-20000 (default 1200), itemLimit 1-500, detailLimit 0-200, relationHopLimit 1-10, matrixNodeLimit 1-5000; out-of-range values are rejected.'
+  );
 
 const SearchBudgetInput = KnowledgeContextBudgetInput.omit({
   relationHopLimit: true,

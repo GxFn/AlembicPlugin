@@ -47,6 +47,7 @@ import {
   summarizeProjectRootResolution,
 } from '../index.js';
 import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
+import { type EventLoopWatchdogHandle, startEventLoopWatchdog } from './EventLoopWatchdog.js';
 import {
   EmbeddedToolExecutor,
   resetPluginOwnedMcpServer,
@@ -73,6 +74,7 @@ import {
   serializeMcpToolResult,
 } from './output-contract.js';
 import { buildMcpToolUsageView, type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
+import { raceToolCallDeadline, ToolCallDeadlineError } from './tool-call-deadline.js';
 import './local-tools/output.js';
 import { TIER_ORDER, TOOLS } from './tools.js';
 
@@ -92,6 +94,23 @@ interface InitRuntimeState {
 
 interface ToolCallOptions {
   hostTurnMeta?: HostTurnMetaInput;
+}
+
+// 每调用软超时档位(async 挂死兜底;同步钉死归 EventLoopWatchdog)。
+// 轻档 120s 覆盖常规工具(真机 search/graph/prime 秒级);重档 600s 覆盖 bootstrap/rescan
+// (内含检索+账本重建,BiliDili 真机 2-5min 常态)。ALEMBIC_MCP_TOOL_DEADLINE_MS 统一覆盖。
+const DEFAULT_TOOL_DEADLINE_MS = 120_000;
+const HEAVY_TOOL_DEADLINE_MS = 600_000;
+const HEAVY_TOOL_DEADLINE_TOOLS = new Set([
+  'alembic_bootstrap',
+  'alembic_rescan',
+  'alembic_plan',
+  'alembic_submit_knowledge',
+]);
+
+function readPositiveIntEnv(name: string): number | undefined {
+  const parsed = Number(process.env[name]);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 interface WorkspaceInitializationInput {
@@ -158,6 +177,8 @@ export class HostMcpServer {
   readonly #toolsUsed = new Set<string>();
   readonly #toolUsage: McpToolUsageMap = new Map();
   sdkServer: SdkMcpServer | null = null;
+  /** 事件循环看门狗句柄(start 建、shutdown 停);null=未启动或被 env 关闭。 */
+  watchdog: EventLoopWatchdogHandle | null = null;
   #embeddedToolExecutor: EmbeddedToolExecutor | null = null;
   #residentCapabilityClients: AlembicResidentCapabilityClients | null = null;
   #initPromise: Promise<Record<string, unknown>> | null = null;
@@ -192,6 +213,13 @@ export class HostMcpServer {
       }
     );
     this.registerHandlers();
+    // 事件循环看门狗:同步钉死(正则回溯/无界同步 IO)时软超时救不了(计时器不触发),
+    // worker 线程从旁路报告并按阈值退出让宿主重生——2026-07-10 事故的最后防线。
+    this.watchdog = startEventLoopWatchdog({
+      onStallReport: (stalledMs) => {
+        Logger.getInstance().warn('[HostMcpServer] event loop stall recovered', { stalledMs });
+      },
+    });
     await this.sdkServer.connect(new StdioServerTransport());
     process.stderr.write(
       `Alembic Codex MCP ready — ${getVisibleTools(undefined, this.projectRoot).length} tools\n`
@@ -214,6 +242,8 @@ export class HostMcpServer {
   }
 
   async shutdown(): Promise<void> {
+    this.watchdog?.stop();
+    this.watchdog = null;
     if (this.sdkServer) {
       await this.sdkServer.close();
     }
@@ -234,21 +264,48 @@ export class HostMcpServer {
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+      const startedAt = Date.now();
+      // 统一观测(2026-07-10 事故补课):每次调用必有 start/done 两行——
+      // "有 start 无 done"即挂死/进程死亡的取证锚点。此前只有校验错误留痕,
+      // 事件循环被钉死时服务端完全不可见,破案全靠进程恰好还活着可采样。
+      Logger.getInstance().info(`[MCP] ${name} start`);
       try {
-        const result = await this.handleToolCall(name, args || {}, {
-          hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
+        const result = await this.#withToolCallDeadline(
+          name,
+          this.handleToolCall(name, args || {}, {
+            hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
+          })
+        );
+        Logger.getInstance().info(`[MCP] ${name} done`, {
+          durationMs: Date.now() - startedAt,
+          ok: !isErrorResult(result),
         });
         return serializeMcpToolResult(name, result, { isErrorResult });
       } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        const timedOut = err instanceof ToolCallDeadlineError;
+        Logger.getInstance().warn(`[MCP] ${name} ${timedOut ? 'timeout' : 'error'}`, {
+          durationMs: Date.now() - startedAt,
+          message,
+        });
         return createMcpStructuredToolResult(
           createCleanMcpErrorResponse({
-            code: 'CODEX_MCP_ERROR',
-            message: err instanceof Error ? err.message : String(err),
+            code: timedOut ? 'TOOL_TIMEOUT' : 'CODEX_MCP_ERROR',
+            message,
             toolName: name,
           })
         );
       }
     });
+  }
+
+  /** 按工具档位计算软超时并委托 raceToolCallDeadline(逻辑在 tool-call-deadline.ts,可直测)。 */
+  #withToolCallDeadline<T>(name: string, work: Promise<T>): Promise<T> {
+    const heavy = HEAVY_TOOL_DEADLINE_TOOLS.has(name);
+    const deadlineMs =
+      readPositiveIntEnv('ALEMBIC_MCP_TOOL_DEADLINE_MS') ??
+      (heavy ? HEAVY_TOOL_DEADLINE_MS : DEFAULT_TOOL_DEADLINE_MS);
+    return raceToolCallDeadline(work, deadlineMs);
   }
 
   getInitializeInstructions(): string {
