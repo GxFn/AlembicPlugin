@@ -302,6 +302,8 @@ export const PrimePublicPackageSchema = z
             evidenceRefCount: z.number().int().min(0).max(500),
             id: z.string().min(1).max(240),
             score: z.number(),
+            // D5(2026-07-11):源锚漂移聚合态(search 面同源)——drifted 提示引用前重核锚点。
+            sourceRefStatus: z.enum(['active', 'drifted']).optional(),
             title: z.string().min(1).max(240),
             trigger: z.string().min(0).max(240),
           })
@@ -316,6 +318,8 @@ export const PrimePublicPackageSchema = z
             kind: z.string().min(1).max(80),
             matchedRegionClasses: z.array(z.string().min(1).max(80)).max(8),
             score: z.number(),
+            // D5:同 acceptedGuards.sourceRefStatus。
+            sourceRefStatus: z.enum(['active', 'drifted']).optional(),
             title: z.string().min(1).max(240),
             trustEvidence: z.object({
               kind: z.enum(['recipe-locator', 'recipe-semantic-region']),

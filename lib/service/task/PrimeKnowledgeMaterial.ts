@@ -19,6 +19,9 @@ export interface PrimeEvidenceRef {
   /** 行区间尾（P2 行级 locator，2026-07-06）：refs 表存 path:start-end 形态，
    *  此前解析丢尾只剩起始行，宿主收到 file:1 无法直达证据区间。容缺（单行/无行号为 null）。 */
   endLine?: number | null;
+  /** D5(2026-07-11):该锚点被引区间自挖掘后已漂移——引用前须重核 file:line。
+   *  漂移≠错误(可能只是行号动了),仅标注不排除;缺省(active)不带此字段。 */
+  drifted?: boolean;
 }
 
 export interface PrimeUsefulSlice {
@@ -47,6 +50,9 @@ export interface AcceptedPrimeKnowledge {
   matchedRegionClasses: string[];
   trustEvidence: PrimeAcceptedKnowledgeTrustEvidence;
   usefulSlices: PrimeUsefulSlice[];
+  /** D5:item 级源锚聚合态(search 面 P1 同源)——任一锚点漂移即 'drifted'。
+   *  仅标注透传,不改信任分层与分数;采信判断交给宿主使用现场。 */
+  sourceRefStatus?: 'active' | 'drifted';
 }
 
 export interface AcceptedPrimeGuard {
@@ -56,6 +62,8 @@ export interface AcceptedPrimeGuard {
   actionHint?: string;
   score: number;
   evidenceRefs: PrimeEvidenceRef[];
+  /** D5:同 AcceptedPrimeKnowledge.sourceRefStatus。 */
+  sourceRefStatus?: 'active' | 'drifted';
 }
 
 export interface PrimeHostResponseInstruction {
@@ -467,7 +475,12 @@ function buildTrustedToUse(
     id: `knowledge:${item.id}`,
     title: item.trigger || item.title,
     source: 'accepted-knowledge',
-    reason: `Use this Recipe or pattern as project knowledge; accepted through ${item.trustEvidence.summary}.`,
+    // D5:drifted item 在 trusted-to-use 层保留(漂移≠错误),但 reason 提醒重核锚点
+    // ——引用 file:line 前先读现文件,不照抄可能已移动的行号。
+    reason:
+      item.sourceRefStatus === 'drifted'
+        ? `Use this Recipe or pattern as project knowledge; accepted through ${item.trustEvidence.summary}. Source anchors drifted since mining — re-verify file:line before quoting.`
+        : `Use this Recipe or pattern as project knowledge; accepted through ${item.trustEvidence.summary}.`,
     evidenceRefs: item.evidenceRefs,
   }));
   return trustedToUse;
@@ -1203,7 +1216,7 @@ function projectAcceptedKnowledge(
     } satisfies PrimeAcceptedKnowledgeTrustEvidence);
   const usefulSlices = collectUsefulSlices(selectedKnowledge);
   const evidenceRefs = uniquePrimeEvidenceRefs([
-    ...extractEvidenceRefs(item.sourceRefs),
+    ...extractEvidenceRefs(item.sourceRefs, item.driftedSourceRefs),
     ...usefulSlices.flatMap((slice) => slice.evidenceRefs),
   ]);
   return {
@@ -1218,6 +1231,8 @@ function projectAcceptedKnowledge(
     matchedRegionClasses: collectMatchedRegionClasses(selectedKnowledge),
     trustEvidence,
     usefulSlices,
+    // D5:drift 标注透传(search 面 P1 同源聚合态)——不改信任分层,宿主自判。
+    ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
   };
 }
 
@@ -1228,7 +1243,8 @@ function projectAcceptedGuard(item: SlimSearchResult): AcceptedPrimeGuard {
     trigger: item.trigger,
     ...(clampActionHint(item.actionHint) ? { actionHint: clampActionHint(item.actionHint) } : {}),
     score: item.score,
-    evidenceRefs: extractEvidenceRefs(item.sourceRefs),
+    evidenceRefs: extractEvidenceRefs(item.sourceRefs, item.driftedSourceRefs),
+    ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
   };
 }
 
@@ -1236,10 +1252,16 @@ function summarizePrimeItem(item: SlimSearchResult): string {
   return item.description || item.actionHint || item.trigger || item.title;
 }
 
-function extractEvidenceRefs(sourceRefs?: string[]): PrimeEvidenceRef[] {
+function extractEvidenceRefs(
+  sourceRefs?: string[],
+  // D5:drifted 原串子集(与 sourceRefs 同一 refPath 形态)——解析前按原串匹配,
+  // 命中则给解析后的 evidenceRef 打 drifted 标(仅标注,不排除)。
+  driftedSourceRefs?: string[]
+): PrimeEvidenceRef[] {
   if (!sourceRefs?.length) {
     return [];
   }
+  const driftedSet = new Set((driftedSourceRefs ?? []).map((ref) => ref.trim()));
   const refs: PrimeEvidenceRef[] = [];
   const seen = new Set<string>();
   for (const rawRef of sourceRefs) {
@@ -1252,7 +1274,7 @@ function extractEvidenceRefs(sourceRefs?: string[]): PrimeEvidenceRef[] {
     if (seen.has(key)) {
       continue;
     }
-    refs.push(evidence);
+    refs.push(driftedSet.has(ref) ? { ...evidence, drifted: true } : evidence);
     seen.add(key);
   }
   return refs;

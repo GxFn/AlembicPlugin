@@ -2248,6 +2248,8 @@ function buildPrimePublicPackage(input: {
           evidenceRefCount: item.evidenceRefs.length,
           id: item.id,
           score: item.score,
+          // D5:drift 聚合态进紧凑公开面(schema 已同步),宿主引用锚点前自判。
+          ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
           title: item.title,
           trigger: item.trigger,
         })),
@@ -2273,6 +2275,7 @@ function buildPrimePublicPackage(input: {
           kind: item.kind,
           matchedRegionClasses: item.matchedRegionClasses,
           score: item.score,
+          ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
           title: item.title,
           trustEvidence: item.trustEvidence,
           trigger: item.trigger,
