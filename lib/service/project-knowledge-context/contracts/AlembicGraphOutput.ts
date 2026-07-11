@@ -161,6 +161,7 @@ export const AlembicGraphProjectContextMetaSchema = z
     requestKinds: z.array(AlembicGraphQueryKindSchema).max(20),
     refCount: z.number().int().nonnegative(),
     errorCount: z.number().int().nonnegative(),
+    suppressedErrorCount: z.number().int().nonnegative(),
     partial: z.boolean(),
   })
   .strict();
@@ -209,6 +210,8 @@ export const AlembicGraphOutputSchema = z
         generatedAt: z.string().datetime({ offset: true }).optional(),
         producer: z.string().min(1).max(160).optional(),
         projectContext: AlembicGraphProjectContextMetaSchema.optional(),
+        sourceOfTruth: z.literal(false),
+        callClaimsRequireSourceVerification: z.literal(true),
       })
       .strict(),
   })

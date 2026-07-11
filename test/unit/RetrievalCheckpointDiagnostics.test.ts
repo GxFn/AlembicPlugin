@@ -106,6 +106,23 @@ describe('retrieval checkpoint diagnostics', () => {
       expect.arrayContaining([expect.objectContaining({ tool: 'alembic_rescan', required: true })])
     );
 
+    for (const operation of ['get', 'expand'] as const) {
+      const detailOutput = (await search(
+        searchContext(projectRoot, gitDiffCheckpointRepository),
+        {
+          operation,
+          projectRoot,
+          refId: 'recipe-checkpoint',
+        }
+      )) as { structuredContent: Record<string, unknown> };
+      expect(detailOutput.structuredContent.status).toBe('degraded');
+      expect(diagnosticCodes(detailOutput.structuredContent)).toContain('retrieval-catch-up-needed');
+      expect(asRecord(detailOutput.structuredContent.result).gitDiffCheckpoint).toMatchObject({
+        retrievalMayBeStale: true,
+        status: 'stale',
+      });
+    }
+
     const primeOutput = (await primeHandler(
       primeContext(projectRoot, gitDiffCheckpointRepository),
       {
@@ -167,6 +184,23 @@ function searchContext(projectRoot: string, gitDiffCheckpointRepository: unknown
         }
         if (name === 'gitDiffCheckpointRepository') {
           return gitDiffCheckpointRepository;
+        }
+        if (name === 'knowledgeService') {
+          const entry = {
+            id: 'recipe-checkpoint',
+            title: 'Checkpoint recipe',
+            trigger: '@checkpoint',
+            kind: 'pattern',
+            language: 'typescript',
+            description: 'Fixture recipe for checkpoint diagnostics.',
+            toJSON() {
+              return this;
+            },
+          };
+          return {
+            get: vi.fn(async () => entry),
+            list: vi.fn(async () => ({ data: [entry], pagination: { total: 1 } })),
+          };
         }
         throw new Error(`Unexpected service: ${name}`);
       }),

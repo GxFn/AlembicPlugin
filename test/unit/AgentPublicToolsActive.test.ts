@@ -968,6 +968,94 @@ describe('agent-facing active public tools', () => {
     expect(result.data.primePackage.trustReceipt.receiptId).toMatch(/^prime-/);
   });
 
+  test('Prime receipt separates delivered, overlapped, applied, and violated Guard evidence idempotently', async () => {
+    const incrementPrimeAdoptionsSync = vi.fn();
+    const auditFiles = vi.fn((files: Array<{ path: string }>) => ({
+      appliedRules: {
+        total: 1,
+        bySource: { recipe: 1 },
+        sample: [
+          {
+            id: 'guard-public-api',
+            name: 'Keep public tools Plugin-owned',
+            severity: 'error',
+            source: 'recipe',
+          },
+        ],
+      },
+      files: files.map((file) => ({
+        filePath: file.path,
+        language: 'typescript',
+        uncertainResults: [],
+        violations: [
+          {
+            ruleId: 'guard-public-api',
+            message: 'fixture violation',
+            severity: 'error',
+            line: 1,
+          },
+        ],
+        summary: { total: 1, errors: 1, warnings: 0, uncertain: 0 },
+      })),
+      crossFileViolations: [],
+      summary: { total: 1, errors: 1, warnings: 0 },
+    }));
+    const ctx = makeContext(vi.fn(async () => deliveredSearchResult()), {
+      guardCheckEngine: {
+        auditFile: vi.fn(),
+        auditFiles,
+        checkCode: vi.fn(),
+        getRules: vi.fn(() => [
+          {
+            id: 'guard-public-api',
+            name: 'Keep public tools Plugin-owned',
+            severity: 'error',
+            source: 'recipe',
+          },
+        ]),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+      knowledgeRepository: { incrementPrimeAdoptionsSync },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+    const prime = asRecord(
+      await primeHandler(ctx, {
+        agentHost: 'codex',
+        capability: 'Codex MCP public tools',
+        integrationBoundary: 'MCP tool handler',
+        inputSource: 'host-declared-intent',
+        projectRoot: process.cwd(),
+        requirementGoal: 'Verify Prime Guard receipt feedback',
+        taskAction: 'implement',
+      })
+    );
+    const primeRef = String(asRecord(prime.primePackage).primeRef);
+    const guardArgs = {
+      files: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
+      inputSource: 'host-declared-intent' as const,
+      operation: 'review' as const,
+      primeRef,
+    };
+    const first = asRecord(await codeGuardHandler(ctx, guardArgs));
+    const second = asRecord(await codeGuardHandler(ctx, guardArgs));
+    expect(asRecord(first.primeAlignment)).toMatchObject({
+      deliveredGuardCount: 1,
+      overlappedGuardIds: ['guard-public-api'],
+      appliedGuardIds: ['guard-public-api'],
+      violatedGuardIds: ['guard-public-api'],
+      feedbackGuardIds: ['guard-public-api'],
+      feedbackRecorded: true,
+      coverageComplete: true,
+    });
+    expect(asRecord(second.primeAlignment)).toMatchObject({
+      feedbackGuardIds: [],
+      feedbackRecorded: false,
+    });
+    expect(incrementPrimeAdoptionsSync).toHaveBeenCalledTimes(1);
+    expect(incrementPrimeAdoptionsSync).toHaveBeenCalledWith('guard-public-api', 1);
+  });
+
   test('reports selected-only accepted resident material as ready public prime output', async () => {
     const search = vi.fn(async () => selectedOnlySearchResult());
     const ctx = makeContext(search);
@@ -1265,6 +1353,34 @@ describe('agent-facing active public tools', () => {
     expect(JSON.stringify(primeOutput)).not.toContain('FULL_RECIPE_BODY_MARKER_SHOULD_NOT_LEAK');
     expect(JSON.stringify(primeOutput)).not.toContain('recipeRelation');
     expect(JSON.stringify(primeOutput)).not.toContain('relationHops');
+  });
+
+  test('PrimeSearchPipeline calibrates lexical, semantic, and RRF score bands consistently', async () => {
+    const cases = [
+      { id: 'lexical', score: 4.2, scoreBreakdown: { route: 'field-weighted' } },
+      { id: 'semantic', score: 0.72, scoreBreakdown: { semanticScore: 0.72 } },
+      { id: 'rrf', score: 0.02, scoreBreakdown: { rrfScore: 0.02 } },
+    ];
+    for (const candidate of cases) {
+      const pipeline = new PrimeSearchPipeline({
+        search: vi.fn(async () => ({
+          items: [
+            {
+              ...candidate,
+              title: candidate.id,
+              trigger: `@${candidate.id}`,
+              kind: 'pattern',
+              language: 'typescript',
+              description: `${candidate.id} evidence`,
+              sourceRefs: [`lib/${candidate.id}.ts:1`],
+            },
+          ],
+        })),
+      });
+      const result = await pipeline.search({ query: `${candidate.id} evidence` });
+      expect(result?.relatedKnowledge[0]).toMatchObject({ id: candidate.id });
+      expect(result?.relatedKnowledge[0]?.score).toBeGreaterThanOrEqual(0.45);
+    }
   });
 
   test('does not skip a complete standalone code frame when the requirement mentions status output', async () => {

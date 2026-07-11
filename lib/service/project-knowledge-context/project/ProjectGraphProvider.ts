@@ -90,6 +90,7 @@ interface GraphBuild {
 
 interface ProjectGraphProjectContextTrace {
   errorCount: number;
+  suppressedErrorCount: number;
   explicitFileTraversalFocused: boolean;
   fileFlowTargetCount: number;
   fileFlowTargetLimit: number;
@@ -413,6 +414,7 @@ function emptyGraphBuild(projectRoot: string): GraphBuild {
     nodes: [],
     projectContext: {
       errorCount: 0,
+      suppressedErrorCount: 0,
       explicitFileTraversalFocused: false,
       fileFlowTargetCount: 0,
       fileFlowTargetLimit: 0,
@@ -461,6 +463,7 @@ async function buildProjectContextGraphFacts(
     sources: [],
     trace: {
       errorCount: 0,
+      suppressedErrorCount: 0,
       explicitFileTraversalFocused: isExplicitFileGraphTraversal(input),
       fileFlowTargetCount: 0,
       fileFlowTargetLimit: graphFileFlowTargetLimit(input),
@@ -1004,7 +1007,12 @@ function includeProjectContextError(
   if (!includeGeneratedArtifactPath(error.path, input, trace)) {
     return false;
   }
-  return !shouldSuppressDefaultProjectContextError(error, input);
+  if (shouldSuppressDefaultProjectContextError(error, input)) {
+    trace.suppressedErrorCount += 1;
+    trace.partial = true;
+    return false;
+  }
+  return true;
 }
 
 function includeGeneratedArtifactPath(
@@ -2246,10 +2254,7 @@ function shouldIncludeDefaultFileFlowTarget(filePath: string, input: ProjectGrap
   const searchText = filePath.toLowerCase();
   const compactText = compactGraphQueryText(searchText);
   if (isProjectContextWeightedGraphQuery(input.query, queryTerms)) {
-    if (
-      !isProjectContextRuntimeCorePath(filePath) &&
-      !queryExplicitlyAsksForRepoPath(filePath, queryTerms)
-    ) {
+    if (!queryExplicitlyAsksForRepoPath(filePath, queryTerms)) {
       return false;
     }
     return (
@@ -2297,23 +2302,10 @@ function isBroadRepoScanLimitDiagnostic(message: string): boolean {
   return message.includes('repo source file collection was truncated');
 }
 
-function isProjectContextRuntimeCorePath(filePath: string): boolean {
-  const normalized = normalizeRelativePath(filePath).toLowerCase();
-  return (
-    normalized === 'alembiccore/src/project-context.ts' ||
-    normalized.startsWith('alembiccore/src/domain/project-context/') ||
-    normalized.startsWith('alembiccore/src/service/project-context/')
-  );
-}
-
 function queryExplicitlyAsksForRepoPath(filePath: string, queryTerms: readonly string[]): boolean {
-  const pathSegments = normalizeRelativePath(filePath)
-    .toLowerCase()
-    .split('/')
-    .filter((segment) => segment.length > 0);
-  return pathSegments.some(
-    (segment) => queryTerms.includes(segment) || queryTerms.includes(compactGraphQueryText(segment))
-  );
+  const normalizedPath = normalizeRelativePath(filePath).toLowerCase();
+  const compactPath = compactGraphQueryText(normalizedPath);
+  return queryTerms.some((term) => scoreGraphModuleSeedTerm(term, normalizedPath, compactPath) > 0);
 }
 
 function scopeFromRepoContext(repo: RepoContext): { repoId?: string; sourceFolder?: string } {
@@ -3741,6 +3733,8 @@ function projectAlembicGraphOutput(args: {
       outputSchema: 'AlembicGraphOutput',
       producer: 'ProjectContextProjectGraphProvider',
       projectContext: graphProjectContextMeta(build.projectContext),
+      sourceOfTruth: false,
+      callClaimsRequireSourceVerification: true,
     },
   });
 }
@@ -3750,6 +3744,7 @@ function graphProjectContextMeta(trace: ProjectGraphProjectContextTrace) {
     requestKinds: trace.requestKinds,
     refCount: trace.refCount,
     errorCount: trace.errorCount,
+    suppressedErrorCount: trace.suppressedErrorCount,
     partial: trace.partial,
   };
 }
@@ -3886,6 +3881,20 @@ function deriveGraphNextActions(
       required: false,
     });
   }
+  if (
+    queryKind === 'file-flow' ||
+    selection.relations.some(
+      (relation) => relation.relationType === 'calls' || relation.relationType === 'calledBy'
+    )
+  ) {
+    actions.push({
+      tool: 'alembic_graph',
+      queryKind: 'source-slice',
+      reason:
+        'Verify call claims against a focused source slice; broad ProjectContext relations are orientation evidence, not source truth.',
+      required: true,
+    });
+  }
   return dedupeGraphNextActions(actions).slice(0, input.budget?.nextActionLimit ?? 5);
 }
 
@@ -3946,8 +3955,11 @@ function failedAlembicGraphOutput(
         requestKinds: [],
         refCount: 0,
         errorCount: 1,
+        suppressedErrorCount: 0,
         partial: true,
       },
+      sourceOfTruth: false,
+      callClaimsRequireSourceVerification: true,
     },
   });
 }

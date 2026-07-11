@@ -65,12 +65,9 @@ interface SearchEngineLike {
 
 // ── Constants ───────────────────────────────────────
 
-/** Absolute minimum score — items below this are definitely noise */
-const MIN_SCORE_THRESHOLD = 0.3;
-/** Relative threshold — items scoring below this fraction of the best result are dropped */
-const RELATIVE_SCORE_RATIO = 0.15;
-/** Gap ratio — if score drops by more than this factor from the previous item, truncate */
-const GAP_DROP_RATIO = 0.25;
+/** Route-calibrated relevance floor shared by lexical, semantic, and RRF evidence. */
+const MIN_SCORE_THRESHOLD = 0.45;
+const RELATIVE_SCORE_RATIO = 0.5;
 
 // ── PrimeSearchPipeline ─────────────────────────────
 
@@ -90,14 +87,15 @@ export class PrimeSearchPipeline {
     if (!query) {
       return null;
     }
-    // rank: false preserves raw lexical/FWS score magnitude for the quality filter
-    // (CoarseRanker's max-normalization would cluster scores and defeat it).
     const response = await this.#search
       .search(query, { mode: 'auto', limit: 8, rank: false })
       .catch(() => ({ items: [] }));
     const items = ((response.items || []) as SearchResultItem[])
-      .map(slimSearchResult)
-      .sort((a, b) => b.score - a.score);
+      .map((item) => ({
+        ...slimSearchResult(item),
+        score: calibratePrimeSearchScore(item),
+      }))
+      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
     const filtered = this.#qualityFilter(items);
     if (filtered.length === 0) {
       return null;
@@ -114,8 +112,7 @@ export class PrimeSearchPipeline {
   // ── Private ───────────────────────────────────────
 
   /**
-   * Quality filter: absolute threshold + relative-to-best + score gap detection.
-   * Expects items sorted by score descending.
+   * Quality filter over route-calibrated scores. Expects items sorted descending.
    */
   #qualityFilter(items: SlimSearchResult[]): SlimSearchResult[] {
     if (items.length === 0) {
@@ -124,18 +121,12 @@ export class PrimeSearchPipeline {
     const maxScore = items[0]?.score ?? 0;
     const effectiveThreshold = Math.max(MIN_SCORE_THRESHOLD, maxScore * RELATIVE_SCORE_RATIO);
     const result: SlimSearchResult[] = [];
-    let prevScore = maxScore;
     for (const item of items) {
       const score = item.score;
       if (score < effectiveThreshold) {
         break;
       }
-      // Gap detection: if score drops sharply from previous item, stop
-      if (result.length > 0 && score < prevScore * GAP_DROP_RATIO) {
-        break;
-      }
       result.push(item);
-      prevScore = score;
     }
     return result;
   }
@@ -154,4 +145,43 @@ export class PrimeSearchPipeline {
       filteredCount,
     };
   }
+}
+
+function calibratePrimeSearchScore(item: SearchResultItem): number {
+  const record = item as unknown as Record<string, unknown>;
+  const breakdown =
+    readRecord(record.scoreBreakdown) ?? readRecord(readRecord(record.metadata)?.scoreBreakdown);
+  const raw = typeof item.score === 'number' && Number.isFinite(item.score) ? item.score : 0;
+  const rrf = readNumber(breakdown?.rrfScore);
+  if (rrf !== undefined) {
+    return clamp01(rrf / 0.03);
+  }
+  const semantic =
+    readNumber(breakdown?.semanticScore) ??
+    readNumber(breakdown?.vectorScore) ??
+    (readStringArray(breakdown?.matchRoutes).includes('semantic') ? raw : undefined);
+  if (semantic !== undefined) {
+    return clamp01(semantic);
+  }
+  return raw > 1 ? clamp01(1 - Math.exp(-raw / 2)) : clamp01(raw);
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+}
+
+function clamp01(value: number): number {
+  return Number(Math.max(0, Math.min(1, value)).toFixed(6));
 }

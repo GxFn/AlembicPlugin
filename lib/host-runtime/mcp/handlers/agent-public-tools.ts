@@ -190,6 +190,8 @@ const WORK_RECORDS = new Map<string, WorkRecord>();
  */
 interface PrimeDeliveryRecord {
   createdAt: string;
+  feedbackRuleIds: Set<string>;
+  guards: Array<{ id: string; title: string; sources: string[] }>;
   knowledge: Array<{ id: string; title: string; sources: string[] }>;
   primeRef: string;
 }
@@ -364,6 +366,12 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
   // prime→guard step1：留存交付知识摘要供 guard 观测重叠（observe-only）。
   rememberPrimeDelivery({
     createdAt: new Date().toISOString(),
+    feedbackRuleIds: new Set(),
+    guards: material.primeKnowledgeMaterial.acceptedGuards.map((item) => ({
+      id: item.id,
+      title: item.title ?? item.id,
+      sources: (item.evidenceRefs ?? []).map((ref) => ref.path).filter(Boolean),
+    })),
     knowledge: material.primeKnowledgeMaterial.acceptedKnowledge.map((item) => ({
       id: item.id,
       title: item.title ?? item.id,
@@ -452,7 +460,8 @@ function buildPrimeReadyDiagnostics(
     diagnostics.push({
       code: 'prime-vector-evidence-unavailable',
       severity: 'info',
-      message: 'Resident vector/rerank evidence was unavailable or unused.',
+      message:
+        'The local Recipe semantic-region vector lane was unavailable or unused; PrimeSearchPipeline lexical/FWS evidence remains independently reported.',
       retryable: false,
     });
   }
@@ -930,7 +939,7 @@ function buildCodeGuardReadyOutput(input: {
   // 纯观测面：不改变守门判定，不新增硬门；未命中/无 primeRef 时字段缺席。
   const effectivePrimeRef = args.primeRef ?? scope.workRecord?.primeRef;
   const primeAlignment = effectivePrimeRef
-    ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files)
+    ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files, guardResult)
     : null;
   // 采纳信号回流（2026-07-06 闭环审查落地）：observed 且有真实重叠 = "prime 交付的
   // 知识用在了对的文件上"——递增 stats.primeAdoptions（observe-first，decay/排序
@@ -1001,10 +1010,10 @@ function recordPrimeAdoptionSignals(
   if (!primeAlignment || primeAlignment.status !== 'observed') {
     return;
   }
-  const overlapped = Array.isArray(primeAlignment.overlappedKnowledge)
-    ? (primeAlignment.overlappedKnowledge as Array<{ id?: string }>)
+  const feedbackGuardIds = Array.isArray(primeAlignment.feedbackGuardIds)
+    ? (primeAlignment.feedbackGuardIds as string[])
     : [];
-  if (overlapped.length === 0) {
+  if (feedbackGuardIds.length === 0) {
     return;
   }
   try {
@@ -1014,10 +1023,8 @@ function recordPrimeAdoptionSignals(
     if (!repo || typeof repo.incrementPrimeAdoptionsSync !== 'function') {
       return;
     }
-    for (const knowledge of overlapped) {
-      if (typeof knowledge.id === 'string' && knowledge.id) {
-        repo.incrementPrimeAdoptionsSync(knowledge.id, 1);
-      }
+    for (const guardId of feedbackGuardIds) {
+      repo.incrementPrimeAdoptionsSync(guardId, 1);
     }
   } catch (err: unknown) {
     process.stderr.write(
@@ -1028,7 +1035,8 @@ function recordPrimeAdoptionSignals(
 
 function buildGuardPrimeAlignment(
   primeRef: string,
-  checkedFiles: string[]
+  checkedFiles: string[],
+  guardResult: Record<string, unknown>
 ): Record<string, unknown> {
   const record = PRIME_RECORDS.get(primeRef);
   if (!record) {
@@ -1050,13 +1058,81 @@ function buildGuardPrimeAlignment(
       overlapped.push({ id: knowledge.id, title: knowledge.title, matchedFiles });
     }
   }
+  const overlappedGuards = matchPrimeDeliveryItems(record.guards, checkedFiles);
+  const coverage = isRecord(guardResult.coverage) ? guardResult.coverage : {};
+  const coverageComplete = coverage.completeness === 'complete';
+  const deliveredGuardIds = new Set(record.guards.map((guard) => guard.id));
+  const appliedGuardIds = coverageComplete
+    ? collectAppliedGuardIds(guardResult).filter((id) => deliveredGuardIds.has(id))
+    : [];
+  const violatedGuardIds = coverageComplete
+    ? collectViolatedGuardIds(guardResult).filter((id) => deliveredGuardIds.has(id))
+    : [];
+  const feedbackGuardIds = uniqueStrings([...appliedGuardIds, ...violatedGuardIds]).filter(
+    (id) => !record.feedbackRuleIds.has(id)
+  );
+  for (const id of feedbackGuardIds) {
+    record.feedbackRuleIds.add(id);
+  }
   return {
     primeRef,
     status: 'observed',
     deliveredKnowledgeCount: record.knowledge.length,
+    deliveredGuardCount: record.guards.length,
     overlappedKnowledgeCount: overlapped.length,
     overlappedKnowledge: overlapped.slice(0, 5),
+    overlappedGuardIds: overlappedGuards.map((guard) => guard.id).slice(0, 20),
+    appliedGuardIds,
+    violatedGuardIds,
+    feedbackGuardIds,
+    feedbackRecorded: feedbackGuardIds.length > 0,
+    coverageComplete,
   };
+}
+
+function matchPrimeDeliveryItems(
+  items: Array<{ id: string; title: string; sources: string[] }>,
+  checkedFiles: string[]
+): Array<{ id: string; title: string; matchedFiles: string[] }> {
+  return items.flatMap((item) => {
+    const matchedFiles = checkedFiles.filter((file) =>
+      item.sources.some((source) => {
+        const bare = source.split(':')[0];
+        return bare.length > 0 && file.replaceAll('\\', '/').endsWith(bare);
+      })
+    );
+    return matchedFiles.length > 0 ? [{ id: item.id, title: item.title, matchedFiles }] : [];
+  });
+}
+
+function collectAppliedGuardIds(guardResult: Record<string, unknown>): string[] {
+  const appliedRules = isRecord(guardResult.appliedRules) ? guardResult.appliedRules : {};
+  const sampleIds = (Array.isArray(appliedRules.sample) ? appliedRules.sample : [])
+    .filter(isRecord)
+    .map((item) => firstString(item.id));
+  const applicableIds = (
+    Array.isArray(guardResult.applicableRecipeRules) ? guardResult.applicableRecipeRules : []
+  )
+    .filter(isRecord)
+    .map((item) => firstString(item.recipeId));
+  return uniqueStrings([...sampleIds, ...applicableIds].filter((id): id is string => Boolean(id)));
+}
+
+function collectViolatedGuardIds(guardResult: Record<string, unknown>): string[] {
+  const violations = [
+    ...(Array.isArray(guardResult.violations) ? guardResult.violations : []),
+    ...(Array.isArray(guardResult.crossFileViolations) ? guardResult.crossFileViolations : []),
+    ...(Array.isArray(guardResult.files) ? guardResult.files : []).flatMap((file) => {
+      const record = isRecord(file) ? file : {};
+      return Array.isArray(record.violations) ? record.violations : [];
+    }),
+  ];
+  return uniqueStrings(
+    violations
+      .filter(isRecord)
+      .map((violation) => firstString(violation.ruleId))
+      .filter((id): id is string => Boolean(id))
+  );
 }
 
 function buildCodeGuardFailureOutput(input: {
@@ -1943,7 +2019,7 @@ function resolvePrimeStatus(input: {
         kind: 'degraded',
         code: 'resident-unavailable',
         message:
-          'Prime search degraded because the search pipeline or resident route was unavailable.',
+          'Prime search degraded because the local PrimeSearchPipeline retrieval lane failed or was unavailable.',
         retryable: true,
       },
       status: 'degraded',
@@ -1984,7 +2060,7 @@ function resolvePrimeStatus(input: {
         kind: 'degraded',
         code: 'knowledge-empty',
         message:
-          'Prime completed structure-first retrieval but found no matching Recipe or Guard knowledge.',
+          'Prime completed the attempted local SearchEngine and Recipe-region lanes but found no matching Recipe or Guard knowledge.',
         retryable: true,
       },
       status: 'degraded',

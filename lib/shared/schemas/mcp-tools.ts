@@ -356,7 +356,7 @@ export const CodeGuardInput = AgentPublicToolBaseInput.extend({
     }
   })
   .describe(
-    'Agent-facing scoped code guard. Supported public scopes are explicit files, inline code, or workRef-derived scoped files. diffRef, primeRef, acceptedGuards, and applicableRecipe are intentionally not public until schema, handler, tests, and runtime evidence exist. No-args whole-diff behavior is intentionally blocked.'
+    'Agent-facing scoped code guard. Supported public scopes are explicit files, inline code, or workRef-derived scoped files; primeRef is the supported session receipt for delivered/applied/violated Guard evidence. diffRef, acceptedGuards, and applicableRecipe are intentionally not public. No-args whole-diff behavior is intentionally blocked.'
   );
 export type CodeGuardInput = z.infer<typeof CodeGuardInput>;
 
@@ -384,9 +384,7 @@ const KnowledgeContextBudgetInput = z
 
 const SearchBudgetInput = KnowledgeContextBudgetInput.omit({
   relationHopLimit: true,
-})
-  .passthrough()
-  .describe('Budget limits for search items, detail refs, text, and next actions.');
+}).describe('Budget limits for search items, detail refs, text, and next actions.');
 
 const GraphBudgetInput = KnowledgeContextBudgetInput.pick({
   itemLimit: true,

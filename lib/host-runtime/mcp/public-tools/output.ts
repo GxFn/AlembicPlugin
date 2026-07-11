@@ -249,7 +249,14 @@ const GuardPrimeAlignmentSchema = z
     status: z.enum(['observed', 'prime-ref-unknown']),
     note: OptionalPublicStringSchema,
     deliveredKnowledgeCount: z.number().int().min(0).max(1000).optional(),
+    deliveredGuardCount: z.number().int().min(0).max(1000).optional(),
     overlappedKnowledgeCount: z.number().int().min(0).max(1000).optional(),
+    overlappedGuardIds: PublicStringArraySchema.optional(),
+    appliedGuardIds: PublicStringArraySchema.optional(),
+    violatedGuardIds: PublicStringArraySchema.optional(),
+    feedbackGuardIds: PublicStringArraySchema.optional(),
+    feedbackRecorded: z.boolean().optional(),
+    coverageComplete: z.boolean().optional(),
     overlappedKnowledge: z
       .array(
         z

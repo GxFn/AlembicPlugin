@@ -92,6 +92,12 @@ describe('QD2 routed tool schemas reject unknown top-level keys', () => {
     expect(graph.safeParse({ budget: { contentCharLimit: 1000 } }).success).toBe(false);
     expect(graph.safeParse({ budget: { matrixNodeLimit: 100 } }).success).toBe(false);
   });
+
+  test('search canonical schema rejects unknown nested budget fields', () => {
+    const search = TOOL_SCHEMAS.alembic_search as z.ZodType;
+    expect(search.safeParse({ query: 'quality', budget: { itemLimit: 5 } }).success).toBe(true);
+    expect(search.safeParse({ query: 'quality', budget: { futureBudget: 5 } }).success).toBe(false);
+  });
 });
 
 describe('QD2 / PCI-2 retired source-graph public-surface honesty', () => {

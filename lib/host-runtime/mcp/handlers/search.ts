@@ -340,7 +340,6 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
 
   // ── Kind 过滤 + 截断 ──
   items = filterByKind(items, kind);
-  items = items.slice(0, execution.limit);
 
   // ── 统一投影: slimSearchResult() ──
   const slimItems = items.map(slimSearchResult);
@@ -691,10 +690,10 @@ async function resolveSearchResult(
       const embedded = await tryEmbeddedSearch(engine, query, mode, execution);
       if (embedded.items.length > 0) {
         return {
-          items: mergeSearchResultItems([
-            ...embedded.items.map((item) => markSearchRoute(item, 'keyword')),
-            ...semanticItems,
-          ]),
+          items: fuseSearchLanes(
+            embedded.items.map((item) => markSearchRoute(item, 'keyword')),
+            semanticItems
+          ),
           mode: localSemanticUsed
             ? 'semantic'
             : residentAttempt?.meta.actualMode || embedded.mode || mode,
@@ -800,7 +799,58 @@ function mergeSearchResultItems(items: readonly SearchResultItem[]): SearchResul
       byId.set(item.id, mergeSearchResultItem(item, existing));
     }
   }
-  return [...byId.values()];
+  return [...byId.values()].sort(
+    (left, right) =>
+      (right.score ?? 0) - (left.score ?? 0) ||
+      semanticLanePriority(right) - semanticLanePriority(left) ||
+      left.id.localeCompare(right.id)
+  );
+}
+
+function fuseSearchLanes(
+  keywordItems: readonly SearchResultItem[],
+  semanticItems: readonly SearchResultItem[]
+): SearchResultItem[] {
+  const fused = mergeSearchResultItems([...keywordItems, ...semanticItems]);
+  const keywordRanks = new Map(keywordItems.map((item, index) => [item.id, index + 1]));
+  const semanticRanks = new Map(semanticItems.map((item, index) => [item.id, index + 1]));
+  return fused
+    .map((item) => {
+      const keywordRank = keywordRanks.get(item.id);
+      const semanticRank = semanticRanks.get(item.id);
+      const rrfScore =
+        (keywordRank ? 1 / (60 + keywordRank) : 0) +
+        (semanticRank ? 1.05 / (60 + semanticRank) : 0);
+      const metadata = readRecord(item.metadata) ?? {};
+      return {
+        ...item,
+        metadata: {
+          ...metadata,
+          fusion: {
+            method: 'weighted-rrf',
+            keywordRank: keywordRank ?? null,
+            semanticRank: semanticRank ?? null,
+            score: Number(rrfScore.toFixed(8)),
+          },
+          retrievalScore: item.score ?? null,
+        },
+        score: Number((rrfScore * 61).toFixed(8)),
+      };
+    })
+    .sort(
+      (left, right) =>
+        (right.score ?? 0) - (left.score ?? 0) ||
+        semanticLanePriority(right) - semanticLanePriority(left) ||
+        left.id.localeCompare(right.id)
+    );
+}
+
+function semanticLanePriority(item: SearchResultItem): number {
+  return readStringArray(readRecord(item.metadata)?.[INTERNAL_SEARCH_ROUTES_KEY]).includes(
+    'semantic'
+  )
+    ? 1
+    : 0;
 }
 
 function mergeSearchResultItem(
@@ -877,6 +927,11 @@ async function projectDetailOperation(
   args: SearchArgs,
   operation: 'get' | 'expand'
 ) {
+  const projectRoot = readString(args.projectRoot) ?? resolveProjectRoot(ctx.container);
+  const checkpointPosture = buildRetrievalCheckpointPosture(
+    ctx.container,
+    resolveRetrievalCheckpointPostureInput(projectRoot)
+  );
   const refId = resolveDetailRef(args);
   const entries = await listKnowledgeEntries(ctx, args, Math.max(args.limit ?? 10, 20));
   const directEntry = refId ? await getKnowledgeEntry(ctx, refId) : null;
@@ -912,6 +967,12 @@ async function projectDetailOperation(
     inventory: {
       candidateCount: candidates.length,
       found: detail !== null,
+      gitDiffCheckpoint: {
+        available: checkpointPosture.available,
+        checkpoint: checkpointPosture.checkpoint,
+        retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
+        status: checkpointPosture.status,
+      },
       operation,
     },
     items: selectedItem ? [projectKnowledgeItem(selectedItem)] : [],
@@ -922,6 +983,13 @@ async function projectDetailOperation(
       found: detail !== null,
       refId,
       requestedOperation: operation,
+      gitDiffCheckpoint: {
+        available: checkpointPosture.available,
+        checkpoint: checkpointPosture.checkpoint,
+        reason: checkpointPosture.reason,
+        retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
+        status: checkpointPosture.status,
+      },
       residentSearch: {
         attempted: false,
         available: false,
@@ -946,7 +1014,8 @@ async function projectDetailOperation(
         : `Knowledge ${operation} resolved ${detail.title ?? detail.id}.`,
   };
 
-  const status: AlembicSearchStatus = detail === null ? 'degraded' : 'ready';
+  const status: AlembicSearchStatus =
+    detail === null || checkpointPosture.retrievalMayBeStale ? 'degraded' : 'ready';
   const diagnostics: SearchDiagnostic[] =
     detail === null
       ? [
@@ -959,6 +1028,16 @@ async function projectDetailOperation(
           },
         ]
       : [];
+  diagnostics.push(
+    ...checkpointPosture.diagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      severity: diagnostic.severity,
+      message: diagnostic.message,
+      domain: diagnostic.domain,
+      retryable: diagnostic.retryable,
+    }))
+  );
+  payload.nextActions.unshift(...checkpointPosture.nextActions);
   return projectAlembicSearchOutput(payload, { operation, status, diagnostics });
 }
 
@@ -1437,7 +1516,7 @@ function hasMcpToolQualityIntent(query: string, args: SearchArgs): boolean {
       text
     );
   const mentionsPublicToolName =
-    /\balembic_(search|prime|recipe_map|graph)\b/u.test(text) ||
+    /\balembic_[a-z][a-z0-9_]*\b/u.test(text) ||
     /\b(graph\/search|projectcontext|projectgraphprovider)\b/u.test(text) ||
     /public[-\s]?tools?|agent-public-tools|knowledge-context/u.test(text);
   const mentionsSearchOrGraphQuality =

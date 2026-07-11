@@ -1185,6 +1185,45 @@ describe('alembic_search resident search enhancement', () => {
     expect(result.structuredContent.inventory.returnedCount).toBeGreaterThanOrEqual(2);
   });
 
+  it('globally ranks all lanes before applying limit and keeps deterministic provenance', async () => {
+    const engineSearch = vi.fn(async () => ({
+      items: Array.from({ length: 5 }, (_, index) =>
+        item(`keyword-${index + 1}`, `Semantic decisive candidate distractor ${index + 1}`, 0.8)
+      ),
+      mode: 'weighted',
+      searchMeta: { route: 'field-weighted', semanticUsed: false, vectorUsed: false },
+    }));
+    const residentSearch = vi.fn(async (): Promise<ResidentSearchResult> => ({
+      items: [item('semantic-top', 'Semantic decisive candidate', 0.99)],
+      meta: {
+        attempted: true,
+        available: true,
+        actualMode: 'semantic',
+        durationMs: 1,
+        requestedMode: 'auto',
+        residentRequestMode: 'semantic',
+        residentVector: { available: true, reason: null },
+        resultCount: 1,
+        route: 'alembic-resident-service',
+        semanticUsed: true,
+        used: true,
+        vectorUsed: true,
+      },
+    }));
+    const args = { limit: 1, mode: 'auto' as const, query: 'Semantic decisive candidate' };
+    const first = (await search(context({ engineSearch, residentSearch }), args)) as {
+      structuredContent: { items: Array<{ id: string; matchRoutes: string[] }> };
+    };
+    const second = (await search(context({ engineSearch, residentSearch }), args)) as {
+      structuredContent: { items: Array<{ id: string; matchRoutes: string[] }> };
+    };
+    expect(first.structuredContent.items).toEqual(second.structuredContent.items);
+    expect(first.structuredContent.items[0]).toMatchObject({
+      id: 'semantic-top',
+      matchRoutes: expect.arrayContaining(['semantic']),
+    });
+  });
+
   it('keeps semantic mode consistent with auto semantic lane evidence', async () => {
     const serviceContainerItem = item(
       'service-container',

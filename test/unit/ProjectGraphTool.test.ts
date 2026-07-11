@@ -133,7 +133,12 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
         tool: 'alembic_graph',
         toolName: 'alembic_graph',
         queryKind,
-        meta: { outputSchema: 'AlembicGraphOutput', contractVersion: 1 },
+        meta: {
+          outputSchema: 'AlembicGraphOutput',
+          contractVersion: 1,
+          sourceOfTruth: false,
+          callClaimsRequireSourceVerification: true,
+        },
       });
       expect(['ready', 'partial', 'degraded']).toContain(output.status);
 
@@ -205,6 +210,24 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(JSON.stringify(output)).not.toContain('recipe');
   });
 
+  test('file-flow keeps call claims verification-bound to focused source', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'file-flow',
+      filePath: 'lib/index.ts',
+    });
+    expect(output.meta).toMatchObject({
+      sourceOfTruth: false,
+      callClaimsRequireSourceVerification: true,
+      projectContext: { suppressedErrorCount: expect.any(Number) },
+    });
+    expect(output.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ queryKind: 'source-slice', required: true }),
+      ])
+    );
+  });
+
   test('symbolName narrows file-symbols without silently returning sibling symbols', async () => {
     const projectRoot = createFixtureProject();
     const output = await runGraph(projectRoot, {
@@ -243,7 +266,8 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       budget: { itemLimit: 40, relationHopLimit: 4 },
     });
     expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
-    expect(output.status).toBe('ready');
+    expect(output.status).toBe('partial');
+    expect(output.meta.projectContext?.suppressedErrorCount ?? 0).toBeGreaterThan(0);
     expect(JSON.stringify(output.diagnostics)).not.toContain('repo source file collection');
   });
 
