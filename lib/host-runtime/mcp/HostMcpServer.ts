@@ -1287,11 +1287,7 @@ function verifyPostInitConsistency(input: {
 }
 
 function sameResolvedPath(left: unknown, right: unknown): boolean {
-  return (
-    typeof left === 'string' &&
-    typeof right === 'string' &&
-    resolve(left) === resolve(right)
-  );
+  return typeof left === 'string' && typeof right === 'string' && resolve(left) === resolve(right);
 }
 
 function readRecordArray(value: unknown): Record<string, unknown>[] | undefined {

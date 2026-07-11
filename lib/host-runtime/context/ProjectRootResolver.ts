@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
-import { WorkspaceResolver } from '@alembic/core/workspace';
+import type { WorkspaceResolver } from '@alembic/core/workspace';
 import { getPackageVersion, PACKAGE_ROOT } from '../../shared/package-assets.js';
 import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
 import { CODEX_PLUGIN_ROOT_ENV, CODEX_SETUP_PROFILE } from './RuntimeContext.js';

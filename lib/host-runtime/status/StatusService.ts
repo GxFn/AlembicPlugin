@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorkspaceSettingsStore } from '@alembic/core/shared';
-import { WorkspaceResolver } from '@alembic/core/workspace';
+import type { WorkspaceResolver } from '@alembic/core/workspace';
 import { type HostKnowledgeState, inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
 import {
   localEmbeddingSetupGuidance,

@@ -1,8 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DaemonJobKind, DaemonJobRecord, DaemonJobStatus } from '@alembic/core/daemon';
-import { WorkspaceResolver } from '@alembic/core/workspace';
-import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
+import type { WorkspaceResolver } from '@alembic/core/workspace';
 import { readSnapshotState, readSourceRefState } from '#infra/database/SqliteDatabaseAccess.js';
 import {
   countProjectDatabaseRecipes,
@@ -12,6 +11,7 @@ import {
   type RecipeLifecycleCounts,
   readGitDiffCheckpointSummary,
 } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
+import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
 
 export type KnowledgeStatus =
   | 'not_initialized'

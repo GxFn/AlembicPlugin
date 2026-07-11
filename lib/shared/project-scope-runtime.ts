@@ -87,7 +87,9 @@ export function resolveNativeProjectScopeWorkspace(projectRoot: string): Workspa
  * 优先；否则保留 Core ProjectRegistry / 单根 workspace 的既有解析语义。
  */
 export function resolveScopeAwareWorkspace(projectRoot: string): WorkspaceResolver {
-  return resolveNativeProjectScopeWorkspace(projectRoot) ?? WorkspaceResolver.fromProject(projectRoot);
+  return (
+    resolveNativeProjectScopeWorkspace(projectRoot) ?? WorkspaceResolver.fromProject(projectRoot)
+  );
 }
 
 export function isProjectScopeSummaryForFolder(
