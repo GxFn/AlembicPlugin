@@ -9,7 +9,7 @@ import {
 } from '../../recipe-pipeline/vector/LocalEmbedding.js';
 import { createReadOnlyGitDiffCheckpointReader } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
-import { resolveProjectScopeRuntime } from '../../shared/project-scope-runtime.js';
+import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
 import {
   buildHostProjectAlignment,
   type HostProjectAlignment,
@@ -177,10 +177,7 @@ export async function buildStatus(
   options: StatusServiceOptions = {}
 ): Promise<StatusData> {
   const projectRoot = resolve(projectRootInput);
-  const projectScopeRuntime = resolveProjectScopeRuntime(projectRoot);
-  const resolver = WorkspaceResolver.fromProject(projectRoot, {
-    projectScope: projectScopeRuntime?.descriptor ?? null,
-  });
+  const resolver = resolveScopeAwareWorkspace(projectRoot);
   const settingsStore = new WorkspaceSettingsStore(resolver);
   const facts = resolver.toFacts();
   const localEmbedding = buildLocalEmbeddingStatus(resolver);

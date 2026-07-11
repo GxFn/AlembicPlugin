@@ -68,7 +68,7 @@ import {
   resolveLocalEmbeddingConfig,
 } from '#recipe-pipeline/vector/LocalEmbedding.js';
 import { PACKAGE_ROOT } from '../shared/package-assets.js';
-import { resolveProjectScopeRuntime } from '../shared/project-scope-runtime.js';
+import { resolveNativeProjectScopeWorkspace } from '../shared/project-scope-runtime.js';
 
 /** Alembic 源码仓库根目录（定位 templates/ 等资源） */
 const REPO_ROOT = PACKAGE_ROOT;
@@ -859,18 +859,6 @@ function compactVectorAvailability(availability: VectorAvailability): Record<str
 }
 
 export default SetupService;
-
-function resolveNativeProjectScopeWorkspace(projectRoot: string): WorkspaceResolver | null {
-  const runtime = resolveProjectScopeRuntime(projectRoot);
-  if (!runtime) {
-    return null;
-  }
-  return new WorkspaceResolver({
-    projectRoot,
-    projectScope: runtime.descriptor,
-    currentFolderId: runtime.summary.currentFolderId,
-  });
-}
 
 function assertNativeScopeBeforeMultiRepoInit(projectRoot: string): void {
   if (!looksLikeMultiRepoCheckout(projectRoot)) {

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DaemonJobKind, DaemonJobRecord, DaemonJobStatus } from '@alembic/core/daemon';
 import { WorkspaceResolver } from '@alembic/core/workspace';
+import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
 import { readSnapshotState, readSourceRefState } from '#infra/database/SqliteDatabaseAccess.js';
 import {
   countProjectDatabaseRecipes,
@@ -200,13 +201,7 @@ export const EMPTY_KNOWLEDGE_STATE: HostKnowledgeState = {
 };
 
 export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
-  let resolver: WorkspaceResolver;
-  try {
-    resolver = WorkspaceResolver.fromProjectScopeRegistry(projectRoot);
-  } catch {
-    // @scope-singleroot(temporary) - fallback for projects without native project-scope registry.
-    resolver = new WorkspaceResolver({ projectRoot });
-  }
+  const resolver = resolveScopeAwareWorkspace(projectRoot);
   const initialized =
     existsSync(resolver.configPath) &&
     existsSync(resolver.databasePath) &&

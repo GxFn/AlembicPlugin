@@ -10,6 +10,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import { getPackageVersion, PACKAGE_ROOT } from '../../shared/package-assets.js';
+import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
 import { CODEX_PLUGIN_ROOT_ENV, CODEX_SETUP_PROFILE } from './RuntimeContext.js';
 
 export type ProjectRootSource =
@@ -215,7 +216,7 @@ export function summarizeProjectRootResolution(
 }
 
 export function getInitMarkerPath(projectRoot: string): string {
-  const resolver = WorkspaceResolver.fromProject(projectRoot);
+  const resolver = resolveInitWorkspace(projectRoot);
   return resolve(resolver.runtimeDir, 'codex-init.json');
 }
 
@@ -250,7 +251,7 @@ export function writeInitMarker(
     | 'schemaVersion'
   >
 ): InitMarker {
-  const resolver = WorkspaceResolver.fromProject(projectRoot);
+  const resolver = resolveInitWorkspace(projectRoot);
   const marker: InitMarker = {
     schemaVersion: 1,
     initializedAt: new Date().toISOString(),
@@ -268,6 +269,14 @@ export function writeInitMarker(
   mkdirSync(dirname(markerPath), { recursive: true });
   writeFileSync(markerPath, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o600 });
   return marker;
+}
+
+/**
+ * 初始化 marker 必须与 SetupService / KnowledgeState / Status 使用同一个原生
+ * ProjectScope 数据根。无 scope 时保留既有单根 ProjectRegistry 解析语义。
+ */
+function resolveInitWorkspace(projectRoot: string): WorkspaceResolver {
+  return resolveScopeAwareWorkspace(projectRoot);
 }
 
 function buildProjectRootCandidates(
