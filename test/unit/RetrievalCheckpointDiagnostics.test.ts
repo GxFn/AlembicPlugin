@@ -87,6 +87,82 @@ describe('retrieval checkpoint diagnostics', () => {
     );
   });
 
+  test('complete repository revision vectors require every row clean and checkpoint-aligned', () => {
+    const first = createGitFixture();
+    const second = createGitFixture();
+    const heads = new Map([
+      ['folder-first', gitOutput(first.projectRoot, ['rev-parse', 'HEAD'])],
+      ['folder-second', gitOutput(second.projectRoot, ['rev-parse', 'HEAD'])],
+    ]);
+    const repository = {
+      get(scope: { folderId: string }) {
+        const commit = heads.get(scope.folderId);
+        return commit
+          ? {
+              checkpointCommit: commit,
+              folderId: scope.folderId,
+              lastRouteStatus: 'skipped',
+              mergeBaseCommit: commit,
+              scopeId: 'project-scope:vector',
+              targetCommit: commit,
+            }
+          : null;
+      },
+    };
+    const input = {
+      currentFolderId: 'folder-first',
+      projectRoot: first.projectRoot,
+      projectScopeFolderCount: 2,
+      projectScopeFolders: [
+        { folderId: 'folder-first', path: first.projectRoot, repositoryId: 'first' },
+        { folderId: 'folder-second', path: second.projectRoot, repositoryId: 'second' },
+      ],
+      projectScopeId: 'vector',
+      scanRoot: first.projectRoot,
+    };
+    const current = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      input
+    );
+    expect(current.status).toBe('current');
+    expect(current.sourceRevisionManifest).toMatchObject({
+      alignment: 'current',
+      completeness: 'complete',
+      rows: [
+        expect.objectContaining({ repositoryId: 'first', status: 'current' }),
+        expect.objectContaining({ repositoryId: 'second', status: 'current' }),
+      ],
+    });
+
+    fs.writeFileSync(path.join(second.projectRoot, 'src/index.ts'), 'export const value = 3;\n');
+    const dirty = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      input
+    );
+    expect(dirty.status).toBe('stale');
+    expect(dirty.sourceRevisionManifest?.rows[1]).toMatchObject({
+      repositoryId: 'second',
+      dirty: true,
+      status: 'dirty',
+    });
+    expect(dirty.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      'source-revision-row-misaligned'
+    );
+
+    fs.writeFileSync(path.join(second.projectRoot, 'src/index.ts'), 'export const value = 2;\n');
+    heads.delete('folder-second');
+    const missing = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      input
+    );
+    expect(missing.status).toBe('stale');
+    expect(missing.sourceRevisionManifest?.rows[1]).toMatchObject({
+      checkpointCommit: null,
+      repositoryId: 'second',
+      status: 'missing-checkpoint',
+    });
+  });
+
   test('search, prime, and recipe_map expose stale durable checkpoint catch-up posture', async () => {
     const { baselineHead, projectRoot } = createGitFixture();
     const gitDiffCheckpointRepository = createCheckpointRepository(projectRoot, baselineHead);
@@ -107,16 +183,15 @@ describe('retrieval checkpoint diagnostics', () => {
     );
 
     for (const operation of ['get', 'expand'] as const) {
-      const detailOutput = (await search(
-        searchContext(projectRoot, gitDiffCheckpointRepository),
-        {
-          operation,
-          projectRoot,
-          refId: 'recipe-checkpoint',
-        }
-      )) as { structuredContent: Record<string, unknown> };
+      const detailOutput = (await search(searchContext(projectRoot, gitDiffCheckpointRepository), {
+        operation,
+        projectRoot,
+        refId: 'recipe-checkpoint',
+      })) as { structuredContent: Record<string, unknown> };
       expect(detailOutput.structuredContent.status).toBe('degraded');
-      expect(diagnosticCodes(detailOutput.structuredContent)).toContain('retrieval-catch-up-needed');
+      expect(diagnosticCodes(detailOutput.structuredContent)).toContain(
+        'retrieval-catch-up-needed'
+      );
       expect(asRecord(detailOutput.structuredContent.result).gitDiffCheckpoint).toMatchObject({
         retrievalMayBeStale: true,
         status: 'stale',

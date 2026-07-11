@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -64,8 +65,29 @@ describe('Codex plugin cache sync script', () => {
 
   test('copies the plugin and rewrites only the cached MCP config for local dist', () => {
     const codexHome = tempDir();
-    const localEntry = join(tempDir(), 'host-mcp.js');
+    const localDist = join(tempDir(), 'dist');
+    const localEntry = join(localDist, 'bin', 'host-mcp.js');
+    mkdirSync(join(localDist, 'bin'), { recursive: true });
     writeFileSync(localEntry, '#!/usr/bin/env node\n');
+    const entryHash = createHash('sha256').update(readFileSync(localEntry)).digest('hex');
+    const pluginCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    }).trim();
+    writeFileSync(
+      join(localDist, '.build-manifest.json'),
+      `${JSON.stringify({
+        kind: 'AlembicDistBuildManifest',
+        version: 2,
+        pluginCommit,
+        coreCommit: 'core-fixture',
+        sourceHash: 'source-fixture',
+        distContentHash: 'dist-fixture',
+        builtAt: '2026-07-11T00:00:00.000Z',
+        publicEntry: 'dist/bin/host-mcp.js',
+        publicEntryHash: entryHash,
+      })}\n`
+    );
 
     const output = runSyncScript(
       '--codex-home',
@@ -82,6 +104,12 @@ describe('Codex plugin cache sync script', () => {
     const cachedMcp = JSON.parse(readFileSync(cachedMcpPath, 'utf8'));
     const marker = JSON.parse(readFileSync(markerPath, 'utf8')) as {
       canonicalLocalDevCommand: string;
+      buildProvenance: {
+        available: boolean;
+        entryHashMatches: boolean;
+        pluginCommitMatches: boolean;
+        valid: boolean;
+      };
       entryMode: string;
       hashes: { mcp: string; startup: string };
       localMcpEntry: string;
@@ -129,6 +157,12 @@ describe('Codex plugin cache sync script', () => {
       },
     });
     expect(marker.runtimeModeSeparation.packaged.cacheIsolation).toContain('shell bootstrap');
+    expect(marker.buildProvenance).toMatchObject({
+      available: true,
+      entryHashMatches: true,
+      pluginCommitMatches: true,
+      valid: true,
+    });
     expect(marker.localProjection.mcpEntry).toMatchObject({
       exists: true,
       path: localEntry,

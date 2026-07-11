@@ -211,6 +211,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       gitDiffCheckpoint: {
         available: checkpointPosture.available,
         checkpoint: checkpointPosture.checkpoint,
+        sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
         retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
         status: checkpointPosture.status,
       },
@@ -246,6 +247,7 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       gitDiffCheckpoint: {
         available: checkpointPosture.available,
         checkpoint: checkpointPosture.checkpoint,
+        sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
         reason: checkpointPosture.reason,
         retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
         status: checkpointPosture.status,
@@ -970,6 +972,7 @@ async function projectDetailOperation(
       gitDiffCheckpoint: {
         available: checkpointPosture.available,
         checkpoint: checkpointPosture.checkpoint,
+        sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
         retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
         status: checkpointPosture.status,
       },
@@ -986,6 +989,7 @@ async function projectDetailOperation(
       gitDiffCheckpoint: {
         available: checkpointPosture.available,
         checkpoint: checkpointPosture.checkpoint,
+        sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
         reason: checkpointPosture.reason,
         retrievalMayBeStale: checkpointPosture.retrievalMayBeStale,
         status: checkpointPosture.status,

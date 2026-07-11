@@ -1,16 +1,26 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { resolveCoreSource } from './local-source-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const tmpRoot = mkdtempSync(join(tmpdir(), 'alembic-runtime-boundary-'));
+const verificationTmpRoot = join(root, '.tmp');
+mkdirSync(verificationTmpRoot, { recursive: true });
+const tmpRoot = mkdtempSync(join(verificationTmpRoot, 'alembic-runtime-boundary-'));
 const packageRoot = join(tmpRoot, 'package-root');
 const packDir = join(tmpRoot, 'pack');
-const installRoot = join(tmpRoot, 'install');
+const installRoot = mkdtempSync(join(tmpdir(), 'alembic-runtime-install-'));
 const npmCache = join(tmpRoot, 'npm-cache');
 const sourceManifestPath = join(root, 'packages', 'alembic-runtime', 'package.json');
 const sourceManifest = readJson(sourceManifestPath);
@@ -102,27 +112,34 @@ try {
     'runtime tarball must not embed the old public plugin runtime/ directory'
   );
 
-  run(
-    'npm',
-    [
-      'install',
-      tarball,
-      coreTarball,
-      '--ignore-scripts',
-      '--omit=dev',
-      '--package-lock=false',
-      '--fetch-retries=0',
-      '--fetch-timeout=20000',
-      '--no-audit',
-      '--no-fund',
-    ],
-    {
-      cwd: installRoot,
-      env: { ...process.env, HUSKY: '0', npm_config_cache: npmCache },
-      maxBuffer: 80 * 1024 * 1024,
-      timeout: 300000,
+  const installArgs = [
+    'install',
+    tarball,
+    coreTarball,
+    '--ignore-scripts',
+    '--omit=dev',
+    '--package-lock=false',
+    '--fetch-retries=0',
+    '--fetch-timeout=20000',
+    '--no-audit',
+    '--no-fund',
+  ];
+  const installResult = spawnSync('npm', installArgs, {
+    cwd: installRoot,
+    encoding: 'utf8',
+    env: { ...process.env, HUSKY: '0', npm_config_cache: npmCache },
+    maxBuffer: 80 * 1024 * 1024,
+    timeout: 300000,
+  });
+  let installMode = 'npm-install';
+  if (installResult.status !== 0) {
+    const installError = `${installResult.stdout || ''}${installResult.stderr || ''}`;
+    if (!/ENOTFOUND|EAI_AGAIN|network request to/u.test(installError)) {
+      throw new Error(`npm ${installArgs.join(' ')} failed\n${installError}`);
     }
-  );
+    installOfflineFromTarball(tarball, generatedManifest);
+    installMode = 'offline-tarball-load-with-workspace-dependencies';
+  }
   const installedRoot = join(installRoot, 'node_modules', sourceManifest.name);
   const installedManifest = readJson(join(installedRoot, 'package.json'));
   expect(installedManifest.name === sourceManifest.name, 'installed package name mismatch');
@@ -131,7 +148,10 @@ try {
     'installed runtime MCP entrypoint missing'
   );
   expect(
-    existsSync(join(installRoot, 'node_modules', '@alembic', 'core', 'package.json')),
+    [
+      join(installRoot, 'node_modules', '@alembic', 'core', 'package.json'),
+      join(installedRoot, 'node_modules', '@alembic', 'core', 'package.json'),
+    ].some((candidate) => existsSync(candidate)),
     'installed @alembic/core package missing'
   );
   const entrypointProbe = run(
@@ -163,7 +183,7 @@ try {
         packFileCount: packInfo.entryCount,
         noFileDependencies: true,
         forbiddenOldShapeRejected: true,
-        install: 'passed',
+        install: installMode,
         entrypointProbe: 'passed',
         coreDependency: installedManifest.dependencies?.['@alembic/core'],
       },
@@ -176,6 +196,30 @@ try {
     console.error(`Runtime package boundary temp kept at ${tmpRoot}`);
   } else {
     rmSync(tmpRoot, { force: true, recursive: true });
+    rmSync(installRoot, { force: true, recursive: true });
+  }
+}
+
+function installOfflineFromTarball(tarball, manifest) {
+  const extractRoot = join(tmpRoot, 'offline-extract');
+  mkdirSync(extractRoot, { recursive: true });
+  run('tar', ['-xzf', tarball, '-C', extractRoot], { maxBuffer: 80 * 1024 * 1024 });
+  const installedRoot = join(installRoot, 'node_modules', sourceManifest.name);
+  mkdirSync(join(installRoot, 'node_modules'), { recursive: true });
+  cpSync(join(extractRoot, 'package'), installedRoot, { force: true, recursive: true });
+  for (const dependency of Object.keys(manifest.dependencies || {})) {
+    if (dependency === '@alembic/core') {
+      continue;
+    }
+    const source = join(root, 'node_modules', dependency);
+    const destination = join(installRoot, 'node_modules', dependency);
+    if (!existsSync(source)) {
+      throw new Error(
+        `Offline runtime verification is missing workspace dependency ${dependency}.`
+      );
+    }
+    mkdirSync(dirname(destination), { recursive: true });
+    symlinkSync(source, destination, 'junction');
   }
 }
 

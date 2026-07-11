@@ -183,6 +183,7 @@ function buildReadbackProofSummary() {
     expectedEntryMode: 'local-dev-direct-dist',
     proves: [
       'fresh installed-cache MCP startup',
+      'loaded artifact build manifest and public entry hash readback',
       'projectRuntime.identity projectRoot/dataRoot/runtimeDir/databasePath',
       'projectRuntime.sourcePolicy keeps Codex current project as effective identity',
       'fallback isolation blocks saved, selected/active, local JobStore, and embedded runtime identity fallbacks',

@@ -7,6 +7,7 @@ import {
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
 } from '../../recipe-pipeline/vector/LocalEmbedding.js';
+import { createReadOnlyGitDiffCheckpointReader } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
 import { AlembicResidentServiceClient } from '../../service/resident/AlembicResidentServiceClient.js';
 import { resolveProjectScopeRuntime } from '../../shared/project-scope-runtime.js';
 import {
@@ -21,8 +22,17 @@ import {
 } from '../context/ProjectRootResolver.js';
 import { buildProjectRuntimeContext } from '../context/ProjectRuntimeContext.js';
 import { type HostRuntimeContext, resolveHostRuntimeContext } from '../context/RuntimeContext.js';
+import {
+  type LoadedBuildProvenance,
+  readLoadedBuildProvenance,
+} from '../diagnostics/BuildProvenance.js';
 import { buildRuntimeDiagnostics } from '../diagnostics/Diagnostics.js';
 import { resolveHostAdapter } from '../host-adapter/resolveHostAdapter.js';
+import {
+  buildRetrievalCheckpointPosture,
+  type RetrievalCheckpointPosture,
+  resolveRetrievalCheckpointPostureInput,
+} from '../mcp/handlers/retrieval-checkpoint-diagnostics.js';
 import {
   buildHostEnhancementRouteChoice,
   type HostEnhancementRouteChoice,
@@ -45,6 +55,7 @@ export interface RecommendedAction {
 
 export interface StatusServiceOptions {
   autoInit?: Record<string, unknown>;
+  buildProvenance?: LoadedBuildProvenance;
   projectRootResolution?: ProjectRootResolution;
   runtime?: HostRuntimeContext;
   supervisor?: DaemonStatusProvider;
@@ -84,6 +95,8 @@ export interface StatusData {
     recipeCount: number | null;
     skillCount: number | null;
     status: string | null;
+    sourceRevisionManifest: RetrievalCheckpointPosture['sourceRevisionManifest'];
+    sourceRevisionStatus: RetrievalCheckpointPosture['status'] | null;
     usable: boolean;
   };
   localEmbedding: {
@@ -114,6 +127,9 @@ export interface StatusData {
     root: string;
     trusted: boolean;
     trust: string | null;
+  };
+  runtime: {
+    buildProvenance: LoadedBuildProvenance;
   };
   workspace: {
     candidatesExists: boolean;
@@ -178,6 +194,7 @@ export async function buildStatus(
       });
   const knowledge = inspectKnowledge(projectRoot);
   const runtime = options.runtime || resolveHostRuntimeContext();
+  const buildProvenance = options.buildProvenance ?? readLoadedBuildProvenance();
   const residentClient = new AlembicResidentServiceClient({ projectRoot });
   const residentService = await residentClient.probe({ daemonStatus });
   const projectScopeIdentity = await residentClient.resolveProjectScopeIdentity({ daemonStatus });
@@ -191,6 +208,11 @@ export async function buildStatus(
     projectScopeIdentity,
     projectRoot,
   });
+  const retrievalCheckpointPosture = readStatusRetrievalCheckpointPosture(
+    projectRoot,
+    resolver.databasePath,
+    hostProjectAlignment
+  );
   const projectRootResolution =
     options.projectRootResolution ||
     resolveHostAdapter().resolveProjectRoot({ projectRoot: projectRootInput });
@@ -213,6 +235,7 @@ export async function buildStatus(
   });
   const diagnostics = buildRuntimeDiagnostics(daemonStatus, runtime, {
     autoInit,
+    buildProvenance,
     enhancementRoute,
     hostProjectAlignment,
     moduleBoundary,
@@ -253,6 +276,7 @@ export async function buildStatus(
       hostConnectionState: hostProjectAlignment.connectionState,
       handoffAllowed: hostProjectAlignment.handoffAllowed,
     },
+    runtime: { buildProvenance },
     workspace: summarizeWorkspaceStatus(facts, resolver, settingsStore),
     daemon: {
       ...summarizeCompactDaemonStatus(daemonStatus),
@@ -260,7 +284,7 @@ export async function buildStatus(
       stateExists: existsSync(daemonStatePath),
       pidExists: existsSync(daemonPidPath),
     },
-    knowledge: summarizeHostKnowledgeState(knowledge),
+    knowledge: summarizeHostKnowledgeState(knowledge, retrievalCheckpointPosture),
     localEmbedding,
     autoInit: summarizeAutoInitStatus(autoInit),
     onboarding: summarizeOnboarding(onboarding),
@@ -429,7 +453,10 @@ function summarizeCompactDaemonStatus(
   };
 }
 
-function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): StatusData['knowledge'] {
+function summarizeHostKnowledgeState(
+  knowledge: HostKnowledgeState,
+  checkpointPosture: RetrievalCheckpointPosture | null
+): StatusData['knowledge'] {
   const jobs = asPlainRecord(knowledge.jobs) || {};
   return {
     initialized: knowledge.initialized,
@@ -447,6 +474,8 @@ function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): StatusData[
       typeof knowledge.databaseEntryCount === 'number' ? knowledge.databaseEntryCount : null,
     lifecycle: knowledge.lifecycle ? { ...knowledge.lifecycle } : null,
     codeDrift: knowledge.codeDrift ? { ...knowledge.codeDrift } : null,
+    sourceRevisionManifest: checkpointPosture?.sourceRevisionManifest ?? null,
+    sourceRevisionStatus: checkpointPosture?.status ?? null,
     freshness: summarizeStringRecord(knowledge.freshness, [
       'status',
       'stale',
@@ -458,6 +487,51 @@ function summarizeHostKnowledgeState(knowledge: HostKnowledgeState): StatusData[
     bootstrapRunning: jobs.bootstrapRunning === true,
     jobs: summarizeStringRecord(jobs, ['running', 'bootstrapRunning', 'rescanRunning', 'total']),
   };
+}
+
+function readStatusRetrievalCheckpointPosture(
+  projectRoot: string,
+  databasePath: string,
+  hostProjectAlignment: HostProjectAlignment
+): RetrievalCheckpointPosture | null {
+  if (!existsSync(databasePath)) {
+    return null;
+  }
+  try {
+    const repository = createReadOnlyGitDiffCheckpointReader(databasePath);
+    const posture = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      resolveRetrievalCheckpointPostureInput(projectRoot)
+    );
+    if (!posture.sourceRevisionManifest) {
+      return posture;
+    }
+    const identityAlignment =
+      hostProjectAlignment.handoffAllowed === true
+        ? 'current'
+        : hostProjectAlignment.handoffAllowed === false
+          ? 'mismatch'
+          : 'unknown';
+    const sourceAlignment = posture.sourceRevisionManifest.alignment;
+    const alignment =
+      identityAlignment === 'mismatch'
+        ? ('stale' as const)
+        : identityAlignment === 'unknown' && sourceAlignment === 'current'
+          ? ('unknown' as const)
+          : sourceAlignment;
+    return {
+      ...posture,
+      retrievalMayBeStale: alignment !== 'current',
+      sourceRevisionManifest: {
+        ...posture.sourceRevisionManifest,
+        alignment,
+        identityAlignment,
+      },
+      status: alignment,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function summarizeAutoInitStatus(value: Record<string, unknown>): StatusData['autoInit'] {

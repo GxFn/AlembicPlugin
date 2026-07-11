@@ -33,6 +33,7 @@ import {
   type HostEnhancementRouteChoice,
 } from '../status/EnhancementRoute.js';
 import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
+import { type LoadedBuildProvenance, readLoadedBuildProvenance } from './BuildProvenance.js';
 
 export interface PluginDiagnostics {
   assets: { missing: string[]; ok: boolean; required: string[] };
@@ -121,6 +122,7 @@ export interface WrapperStartupLockDiagnostics {
 
 export interface RuntimeDiagnosticsOptions {
   autoInit?: Record<string, unknown>;
+  buildProvenance?: LoadedBuildProvenance;
   commandProbeRunner?: CommandProbeRunner;
   enhancementRoute?: HostEnhancementRouteChoice;
   hostProjectAlignment?: HostProjectAlignment;
@@ -355,6 +357,7 @@ function buildRuntimeReportSections(input: {
       pinnedSpecifier: input.context.pinnedRuntimeSpecifier,
       mcpBinary: input.context.runtimeBin,
     },
+    buildProvenance: input.options.buildProvenance ?? readLoadedBuildProvenance(),
     projectRootResolution: input.options.projectRootResolution
       ? summarizeProjectRootResolution(input.options.projectRootResolution)
       : null,

@@ -14,7 +14,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   computeDistContentHash,
+  computeFileHash,
   computeSourceHash,
+  validateBuildProvenance,
 } from '../../scripts/lib/runtime-pack-freshness.mjs';
 
 let roots: string[] = [];
@@ -24,6 +26,48 @@ afterEach(() => {
     rmSync(root, { force: true, recursive: true });
   }
   roots = [];
+});
+
+describe('P3 build provenance', () => {
+  test('hashes the exact public entry bytes', () => {
+    const dist = makeDist();
+    const entry = join(dist, 'lib', 'a.js');
+    const before = computeFileHash(entry);
+    expect(computeFileHash(entry)).toBe(before);
+    writeFileSync(entry, 'export const a = 2;\n');
+    expect(computeFileHash(entry)).not.toBe(before);
+  });
+
+  test('rejects a build after source HEAD moves even when source bytes are unchanged', () => {
+    const manifest = {
+      kind: 'AlembicDistBuildManifest',
+      version: 2,
+      pluginCommit: 'plugin-before-build',
+      coreCommit: 'core-build',
+      sourceHash: 'source-hash',
+      distContentHash: 'dist-hash',
+      builtAt: '2026-07-11T00:00:00.000Z',
+      publicEntry: 'dist/bin/host-mcp.js',
+      publicEntryHash: 'entry-hash',
+    };
+    const expected = {
+      ...manifest,
+      pluginCommit: 'plugin-after-build',
+    };
+
+    const result = validateBuildProvenance(manifest, expected);
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual([expect.stringContaining('pluginCommit mismatch')]);
+  });
+
+  test('requires commit, source, dist, time and public-entry identities together', () => {
+    const result = validateBuildProvenance({ kind: 'AlembicDistBuildManifest', version: 2 }, {});
+    expect(result.ok).toBe(false);
+    expect(result.failures.join('\n')).toContain('pluginCommit');
+    expect(result.failures.join('\n')).toContain('coreCommit');
+    expect(result.failures.join('\n')).toContain('publicEntryHash');
+  });
 });
 
 function makeRepo(): string {
@@ -79,8 +123,8 @@ describe('QD1 computeDistContentHash', () => {
   test('excludes declarations and build metadata from the shipped hash', () => {
     const dist = makeDist();
     const before = computeDistContentHash(dist);
-    // Declarations are skipped by prepare (skipDeclarations) and build metadata
-    // is local-only — neither may move the shipped-content hash.
+    // Declarations are skipped by prepare and provenance metadata is excluded
+    // from the code-content hash to avoid self-referential hashing.
     writeFileSync(join(dist, 'lib', 'a.d.ts'), 'export declare const a: number;\n');
     writeFileSync(join(dist, '.build-manifest.json'), '{"sourceHash":"deadbeef"}\n');
     writeFileSync(join(dist, '.alembic-runtime-boundary.json'), '{"distContentHash":"x"}\n');

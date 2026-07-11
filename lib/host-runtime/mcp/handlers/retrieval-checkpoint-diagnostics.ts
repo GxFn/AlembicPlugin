@@ -31,7 +31,31 @@ export interface RetrievalCheckpointPosture {
   nextActions: RetrievalCheckpointNextAction[];
   reason: string | null;
   retrievalMayBeStale: boolean;
+  sourceRevisionManifest: SourceRevisionManifest | null;
   status: 'current' | 'stale' | 'unavailable' | 'unknown';
+}
+
+export interface SourceRevisionManifest {
+  alignment: 'current' | 'stale' | 'unknown';
+  completeness: 'complete' | 'incomplete';
+  identityAlignment: 'current' | 'mismatch' | 'unknown';
+  projectId: string | null;
+  projectScopeId: string | null;
+  rows: Array<{
+    checkpointCommit: string | null;
+    currentCommit: string | null;
+    dirty: boolean | null;
+    folderId: string;
+    repositoryId: string | null;
+    scannedAt: string | null;
+    status: 'current' | 'dirty' | 'missing-checkpoint' | 'stale' | 'unknown';
+  }>;
+}
+
+interface SourceRevisionFolder {
+  folderId: string;
+  path: string;
+  repositoryId: string | null;
 }
 
 type CheckpointRepository = {
@@ -56,6 +80,8 @@ export function resolveRetrievalCheckpointPostureInput(projectRoot: string): {
   currentFolderId?: string | null;
   projectRoot: string;
   projectScopeFolderCount?: number;
+  projectScopeFolders?: SourceRevisionFolder[];
+  projectId?: string | null;
   projectScopeId?: string | null;
   scanRoot?: string | null;
 } {
@@ -81,6 +107,12 @@ export function resolveRetrievalCheckpointPostureInput(projectRoot: string): {
     currentFolderId: folderId,
     projectRoot,
     projectScopeFolderCount: summary.folders.length,
+    projectScopeFolders: summary.folders.map((folder) => ({
+      folderId: folder.folderId,
+      path: folder.path,
+      repositoryId: folder.repositoryId,
+    })),
+    projectId: runtime.descriptor.projectId ?? null,
     projectScopeId: summary.projectScopeId ?? null,
     scanRoot: within ? folderPath : null,
   };
@@ -93,6 +125,8 @@ export function buildRetrievalCheckpointPosture(
     projectRoot: string;
     /** 多仓 scope 在 P3 revision vector 落地前不能由任意单行 checkpoint 证明 current。 */
     projectScopeFolderCount?: number;
+    projectScopeFolders?: SourceRevisionFolder[];
+    projectId?: string | null;
     projectScopeId?: string | null;
     /** folder 仓路径：HEAD 比较空间与 checkpoint 行同仓；缺省回退 projectRoot。 */
     scanRoot?: string | null;
@@ -104,6 +138,10 @@ export function buildRetrievalCheckpointPosture(
   }
 
   const scope = buildGitDiffCheckpointScope(input);
+  const sourceRevisionManifest = buildSourceRevisionManifest(
+    checkpointRepository as CheckpointRepository,
+    input
+  );
   let row: Record<string, unknown> | null;
   try {
     row = (checkpointRepository as CheckpointRepository).get(scope);
@@ -127,6 +165,35 @@ export function buildRetrievalCheckpointPosture(
     };
   }
   if (!row) {
+    if (sourceRevisionManifest) {
+      const diagnostics = sourceRevisionManifest.rows
+        .filter((item) => item.status !== 'current')
+        .map(
+          (manifestRow): RetrievalCheckpointDiagnostic => ({
+            code: 'source-revision-row-misaligned',
+            domain: 'runtime',
+            message: `Source revision row ${manifestRow.repositoryId ?? manifestRow.folderId} is ${manifestRow.status}; retrieval cannot be current until every repository row is clean and checkpoint-aligned.`,
+            retryable: true,
+            severity: 'warning',
+          })
+        );
+      return {
+        available: false,
+        checkpoint: null,
+        diagnostics,
+        nextActions: [
+          {
+            tool: 'alembic_rescan',
+            reason: 'Run alembic_rescan to record every missing source revision checkpoint row.',
+            required: true,
+          },
+        ],
+        reason: 'The current source revision row is missing from the project manifest.',
+        retrievalMayBeStale: true,
+        sourceRevisionManifest,
+        status: sourceRevisionManifest.alignment === 'unknown' ? 'unknown' : 'stale',
+      };
+    }
     return emptyPosture('unavailable', 'No durable git diff checkpoint exists for this scope.');
   }
 
@@ -137,7 +204,21 @@ export function buildRetrievalCheckpointPosture(
   const head = readCurrentGitHead(input.scanRoot ?? input.projectRoot);
   const diagnostics: RetrievalCheckpointDiagnostic[] = [];
   let retrievalMayBeStale = false;
-  const scalarMultiRepoCheckpoint = (input.projectScopeFolderCount ?? 0) > 1;
+  const scalarMultiRepoCheckpoint =
+    (input.projectScopeFolderCount ?? 0) > 1 && !sourceRevisionManifest;
+
+  if (sourceRevisionManifest && sourceRevisionManifest.alignment !== 'current') {
+    retrievalMayBeStale = true;
+    for (const row of sourceRevisionManifest.rows.filter((item) => item.status !== 'current')) {
+      diagnostics.push({
+        code: 'source-revision-row-misaligned',
+        domain: 'runtime',
+        message: `Source revision row ${row.repositoryId ?? row.folderId} is ${row.status}; retrieval cannot be current until every repository row is clean and checkpoint-aligned.`,
+        retryable: true,
+        severity: 'warning',
+      });
+    }
+  }
 
   if (scalarMultiRepoCheckpoint) {
     retrievalMayBeStale = true;
@@ -224,7 +305,14 @@ export function buildRetrievalCheckpointPosture(
         ? 'Durable git diff checkpoint indicates retrieval may be stale.'
         : 'Durable git diff checkpoint is current for this scope.',
     retrievalMayBeStale,
-    status: scalarMultiRepoCheckpoint ? 'unknown' : retrievalMayBeStale ? 'stale' : 'current',
+    sourceRevisionManifest,
+    status: scalarMultiRepoCheckpoint
+      ? 'unknown'
+      : sourceRevisionManifest?.alignment === 'unknown'
+        ? 'unknown'
+        : retrievalMayBeStale
+          ? 'stale'
+          : 'current',
   };
 }
 
@@ -239,7 +327,72 @@ function emptyPosture(
     nextActions: [],
     reason,
     retrievalMayBeStale: false,
+    sourceRevisionManifest: null,
     status,
+  };
+}
+
+function buildSourceRevisionManifest(
+  repository: CheckpointRepository,
+  input: {
+    projectRoot: string;
+    projectScopeFolders?: SourceRevisionFolder[];
+    projectId?: string | null;
+    projectScopeId?: string | null;
+  }
+): SourceRevisionManifest | null {
+  const folders = input.projectScopeFolders ?? [];
+  if (folders.length === 0) {
+    return null;
+  }
+  const rows = folders.map((folder) => {
+    let checkpoint: Record<string, unknown> | null = null;
+    try {
+      checkpoint = repository.get(
+        buildGitDiffCheckpointScope({
+          currentFolderId: folder.folderId,
+          projectRoot: input.projectRoot,
+          projectScopeId: input.projectScopeId,
+        })
+      );
+    } catch {
+      checkpoint = null;
+    }
+    const current = readCurrentGitState(folder.path);
+    const checkpointCommit = readString(checkpoint?.checkpointCommit) ?? null;
+    const status = !current.head
+      ? ('unknown' as const)
+      : current.dirty
+        ? ('dirty' as const)
+        : !checkpointCommit
+          ? ('missing-checkpoint' as const)
+          : checkpointCommit === current.head
+            ? ('current' as const)
+            : ('stale' as const);
+    return {
+      checkpointCommit,
+      currentCommit: current.head,
+      dirty: current.dirty,
+      folderId: folder.folderId,
+      repositoryId: folder.repositoryId,
+      scannedAt: readTimestamp(checkpoint?.lastScannedAt ?? checkpoint?.updatedAt),
+      status,
+    };
+  });
+  const complete = rows.every(
+    (row) => row.currentCommit !== null && row.checkpointCommit !== null && row.dirty !== null
+  );
+  return {
+    alignment: rows.every((row) => row.status === 'current')
+      ? 'current'
+      : rows.some((row) => row.status === 'unknown')
+        ? 'unknown'
+        : 'stale',
+    completeness: complete ? 'complete' : 'incomplete',
+    identityAlignment: 'unknown',
+    projectId: input.projectId ?? null,
+    projectScopeId: input.projectScopeId ?? null,
+    rows,
   };
 }
 
@@ -257,6 +410,27 @@ function readCurrentGitHead(projectRoot: string): { ok: true; head: string } | {
     return head ? { ok: true, head } : { ok: false };
   } catch {
     return { ok: false };
+  }
+}
+
+function readCurrentGitState(projectRoot: string): { dirty: boolean | null; head: string | null } {
+  try {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5_000,
+    }).trim();
+    const dirty =
+      execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5_000,
+      }).trim().length > 0;
+    return { dirty, head: head || null };
+  } catch {
+    return { dirty: null, head: null };
   }
 }
 
@@ -279,6 +453,14 @@ function hasGet(value: unknown): value is CheckpointRepository {
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readTimestamp(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+  const text = readString(value);
+  return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : null;
 }
 
 function shortCommit(value: string): string {

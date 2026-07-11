@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,7 +16,7 @@ import {
 } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { buildStatus } from '../../lib/host-runtime/index.js';
+import { buildStatus, readLoadedBuildProvenance } from '../../lib/host-runtime/index.js';
 import type { HostRuntimeStatus } from '../../lib/host-runtime/status/host-runtime-status.js';
 import { buildPostInitActions } from '../../lib/host-runtime/status/StatusService.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
@@ -306,6 +307,52 @@ afterEach(() => {
 });
 
 describe('Codex status service', () => {
+  test('reports provenance from the loaded artifact and invalidates an entry mismatch', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-loaded-runtime-'));
+    const dist = path.join(artifactRoot, 'dist');
+    const entry = path.join(dist, 'bin', 'host-mcp.js');
+    const modulePath = path.join(dist, 'lib', 'host-runtime', 'diagnostics', 'BuildProvenance.js');
+    fs.mkdirSync(path.dirname(entry), { recursive: true });
+    fs.mkdirSync(path.dirname(modulePath), { recursive: true });
+    fs.writeFileSync(entry, 'export const loaded = true;\n');
+    fs.writeFileSync(modulePath, '// fixture module\n');
+    const entryHash = createHash('sha256').update(fs.readFileSync(entry)).digest('hex');
+    fs.writeFileSync(
+      path.join(dist, '.build-manifest.json'),
+      `${JSON.stringify({
+        kind: 'AlembicDistBuildManifest',
+        version: 2,
+        pluginCommit: 'plugin-loaded',
+        coreCommit: 'core-loaded',
+        sourceHash: 'source-loaded',
+        distContentHash: 'dist-loaded',
+        builtAt: '2026-07-11T00:00:00.000Z',
+        publicEntry: 'dist/bin/host-mcp.js',
+        publicEntryHash: entryHash,
+      })}\n`
+    );
+    const loaded = readLoadedBuildProvenance(modulePath);
+    const supervisor = { status: vi.fn(async () => makeDaemonStatus(projectRoot, false)) };
+
+    const status = await buildStatus(projectRoot, { buildProvenance: loaded, supervisor });
+
+    expect(status.runtime.buildProvenance).toMatchObject({
+      available: true,
+      entryHashMatches: true,
+      valid: true,
+      manifest: { pluginCommit: 'plugin-loaded', coreCommit: 'core-loaded' },
+    });
+    fs.writeFileSync(entry, 'export const loaded = false;\n');
+    expect(readLoadedBuildProvenance(modulePath)).toMatchObject({
+      available: true,
+      entryHashMatches: false,
+      valid: false,
+    });
+    fs.rmSync(artifactRoot, { force: true, recursive: true });
+  });
+
   test('recommends agent-facing prime after init instead of legacy task operations', () => {
     const actions = buildPostInitActions({
       hasKnowledge: true,
@@ -462,7 +509,9 @@ describe('Codex status service', () => {
         }),
       ])
     );
-    expect(sourceStatus.nextActions).toContain('Plan cold-start after init: call alembic_bootstrap');
+    expect(sourceStatus.nextActions).toContain(
+      'Plan cold-start after init: call alembic_bootstrap'
+    );
     expect(sourceOnboarding.notes[0]).toContain('Ghost mode keeps Alembic data outside');
     expect(fs.existsSync(path.join(sourceGhostRoot, '.asd', 'jobs'))).toBe(false);
     expect(fs.existsSync(path.join(getGhostWorkspaceDir(sourceEntry.id), '.asd', 'jobs'))).toBe(

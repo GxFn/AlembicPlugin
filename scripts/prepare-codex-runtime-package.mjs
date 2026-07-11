@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { computeDistContentHash, computeSourceHash } from './lib/runtime-pack-freshness.mjs';
+import {
+  computeDistContentHash,
+  computeFileHash,
+  computeSourceHash,
+  validateBuildProvenance,
+} from './lib/runtime-pack-freshness.mjs';
 import { resolveCoreGrammarSource, resolveCoreSource } from './local-source-paths.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -27,13 +32,18 @@ for (const artifact of requiredBuildArtifacts) {
 // dist that is stale vs current source (TEST-INFRA-STALE-DIST-ALIAS). The
 // source hash recorded by postbuild must match the live source.
 const buildManifest = readJsonOptional(join(root, 'dist', '.build-manifest.json'));
+const publicEntry = 'dist/bin/host-mcp.js';
+const provenance = validateBuildProvenance(buildManifest, {
+  pluginCommit: gitHead(root),
+  coreCommit: coreSource.commit || gitHead(coreSource.path),
+  sourceHash: computeSourceHash(root),
+  distContentHash: computeDistContentHash(join(root, 'dist')),
+  publicEntry,
+  publicEntryHash: computeFileHash(join(root, publicEntry)),
+});
 assert(
-  buildManifest?.sourceHash,
-  'dist/.build-manifest.json is missing or has no sourceHash. Run npm run build before preparing the runtime package.'
-);
-assert(
-  buildManifest.sourceHash === computeSourceHash(root),
-  'dist is stale vs source (lib/bin/tsconfig changed since the last build). Run npm run build before preparing the runtime package.'
+  provenance.ok,
+  `dist build provenance is stale or incomplete: ${provenance.failures.join('; ')}. Run npm run build before preparing the runtime package.`
 );
 assert(
   sourceManifest.dependencies?.['@alembic/core'] === corePackage.version,
@@ -114,8 +124,7 @@ function copyTree(sourceRelative, destinationRelative, options = {}) {
       if (options.skipDeclarations && sourcePath.endsWith('.d.ts')) {
         return false;
       }
-      // QD1: the build manifest is local freshness metadata, not shipped code.
-      return !sourcePath.endsWith('/.build-manifest.json');
+      return true;
     },
   });
 }
@@ -196,15 +205,21 @@ function writeRuntimeBoundaryMetadata() {
     `${JSON.stringify(
       {
         kind: 'AlembicCodexRuntimePackageBoundary',
-        version: 1,
+        version: 2,
         packageName: sourceManifest.name,
         packageVersion: rootPackage.version,
         // QD1 .tmp freshness pin: the repo dist hash this package was prepared
         // from. check-runtime-pack-freshness fails if repo dist later diverges.
-        distContentHash: computeDistContentHash(join(root, 'dist')),
+        pluginCommit: buildManifest.pluginCommit,
+        coreCommit: buildManifest.coreCommit,
+        sourceHash: buildManifest.sourceHash,
+        distContentHash: buildManifest.distContentHash,
+        builtAt: buildManifest.builtAt,
+        publicEntry: buildManifest.publicEntry,
+        publicEntryHash: buildManifest.publicEntryHash,
+        buildManifestHash: computeFileHash(join(root, 'dist', '.build-manifest.json')),
         corePackage: `${corePackage.name}@${corePackage.version}`,
         coreSource: coreSource.label,
-        coreCommit: coreSource.commit,
         dependencyStrategy:
           'Path B self-contained runtime: private @alembic/core is vendored into node_modules/@alembic/core and shipped via bundledDependencies, so the runtime installs from npm without @alembic/core being published to any registry. All other dependencies are public npm packages resolved normally at install (native prebuilds per-platform). The lightweight marketplace shell stays runtime-free; forbiddenShellArtifacts applies to the shell, not this runtime package.',
         bundledDependencies: ['@alembic/core'],
@@ -241,4 +256,12 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function gitHead(cwd) {
+  return execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
 }

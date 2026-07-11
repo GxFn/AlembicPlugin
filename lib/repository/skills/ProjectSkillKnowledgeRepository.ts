@@ -77,6 +77,53 @@ export interface GitDiffCheckpointSummary {
   recommendation: 'none' | 'rescan-suggested';
 }
 
+export interface GitDiffCheckpointScopeReader {
+  get(scope: {
+    folderId: string;
+    projectRoot: string;
+    scopeId: string;
+  }): Record<string, unknown> | null;
+}
+
+/** Read-only scoped checkpoint reader for status/provenance projections. */
+export function createReadOnlyGitDiffCheckpointReader(
+  databasePath: string
+): GitDiffCheckpointScopeReader {
+  return {
+    get(scope) {
+      try {
+        const db = new Database(databasePath, { fileMustExist: true, readonly: true });
+        try {
+          return (
+            (db
+              .prepare(
+                `SELECT checkpoint_commit AS checkpointCommit,
+                        folder_id AS folderId,
+                        last_route_status AS lastRouteStatus,
+                        last_scanned_at AS lastScannedAt,
+                        merge_base_commit AS mergeBaseCommit,
+                        project_root AS projectRoot,
+                        scope_id AS scopeId,
+                        target_commit AS targetCommit,
+                        updated_at AS updatedAt
+                 FROM git_diff_checkpoints
+                 WHERE project_root = ? AND scope_id = ? AND folder_id = ?
+                 LIMIT 1`
+              )
+              .get(scope.projectRoot, scope.scopeId, scope.folderId) as
+              | Record<string, unknown>
+              | undefined) ?? null
+          );
+        } finally {
+          db.close();
+        }
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
 /**
  * 读取最近一次 git-diff checkpoint（按 last_scanned_at 最新行）。表/DB 缺失
  * 返回 null 容缺——status 只作参考投影，不承担 guard 的路由职责。

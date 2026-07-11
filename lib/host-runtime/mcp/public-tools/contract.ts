@@ -56,6 +56,7 @@ export const AGENT_DEGRADED_REASON_CODES = [
   'detail-budget-limited',
   'optional-service-unavailable',
   'guard-coverage-incomplete',
+  'guard-source-revision-untrusted',
 ] as const;
 
 export const AGENT_BLOCKED_REASON_CODES = [

@@ -21,9 +21,16 @@
  *
  *   node scripts/check-runtime-pack-freshness.mjs [--require-prepared] [--prepared <dir>]
  */
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { computeDistContentHash, computeSourceHash } from './lib/runtime-pack-freshness.mjs';
+import {
+  computeDistContentHash,
+  computeFileHash,
+  computeSourceHash,
+  validateBuildProvenance,
+} from './lib/runtime-pack-freshness.mjs';
+import { resolveCoreSource } from './local-source-paths.mjs';
 
 const repoRoot = resolve(import.meta.dirname, '..');
 const distDir = join(repoRoot, 'dist');
@@ -40,14 +47,25 @@ if (!existsSync(manifestPath)) {
     `dist/.build-manifest.json is missing — dist is unbuilt or built by an older toolchain. Run \`npm run build\` before packing.`
   );
 } else {
-  const recorded = readJson(manifestPath)?.sourceHash;
-  const live = computeSourceHash(repoRoot);
-  if (recorded !== live) {
+  const manifest = readJson(manifestPath);
+  const coreSource = resolveCoreSource({ requireDist: true });
+  const live = {
+    pluginCommit: gitHead(repoRoot),
+    coreCommit: coreSource.commit || gitHead(coreSource.path),
+    sourceHash: computeSourceHash(repoRoot),
+    distContentHash: computeDistContentHash(distDir),
+    publicEntry: 'dist/bin/host-mcp.js',
+    publicEntryHash: computeFileHash(join(repoRoot, 'dist', 'bin', 'host-mcp.js')),
+  };
+  const provenance = validateBuildProvenance(manifest, live);
+  if (!provenance.ok) {
     failures.push(
-      `dist is STALE vs source: build-manifest sourceHash ${short(recorded)} != current source ${short(live)}. lib/bin/tsconfig changed since the last build — run \`npm run build\` before packing.`
+      `dist build provenance is STALE or incomplete: ${provenance.failures.join('; ')}.`
     );
   } else {
-    notes.push(`clean-build gate: dist matches current source (${short(live)}).`);
+    notes.push(
+      `clean-build gate: source, commits and loaded entry agree (${short(live.publicEntryHash)}).`
+    );
   }
 }
 
@@ -61,7 +79,8 @@ if (!existsSync(preparedDir) || !existsSync(boundaryPath)) {
     notes.push(msg);
   }
 } else {
-  const pinned = readJson(boundaryPath)?.distContentHash;
+  const boundary = readJson(boundaryPath);
+  const pinned = boundary?.distContentHash;
   const liveDist = computeDistContentHash(distDir);
   if (!pinned) {
     failures.push(
@@ -73,6 +92,22 @@ if (!existsSync(preparedDir) || !existsSync(boundaryPath)) {
     );
   } else {
     notes.push(`.tmp freshness pin: prepared package matches repo dist (${short(liveDist)}).`);
+  }
+  const preparedManifestPath = join(preparedDir, 'dist', '.build-manifest.json');
+  if (!existsSync(preparedManifestPath)) {
+    failures.push('prepared package is missing dist/.build-manifest.json.');
+  } else if (readFileSync(preparedManifestPath, 'utf8') !== readFileSync(manifestPath, 'utf8')) {
+    failures.push('prepared package build manifest differs from repo dist manifest.');
+  } else if (boundary?.buildManifestHash !== computeFileHash(preparedManifestPath)) {
+    failures.push(
+      'prepared package boundary buildManifestHash does not match the loaded manifest.'
+    );
+  } else if (
+    boundary?.publicEntryHash !== computeFileHash(join(preparedDir, 'dist', 'bin', 'host-mcp.js'))
+  ) {
+    failures.push('prepared package public entry hash does not match the loaded entry.');
+  } else {
+    notes.push('prepared package copied the build manifest unchanged and its entry hash agrees.');
   }
 }
 
@@ -108,4 +143,11 @@ function resolveArg(name) {
   }
   const value = process.argv[index + 1];
   return value && !value.startsWith('--') ? resolve(value) : null;
+}
+function gitHead(cwd) {
+  return execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
 }

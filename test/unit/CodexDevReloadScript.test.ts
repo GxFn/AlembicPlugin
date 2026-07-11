@@ -40,6 +40,7 @@ describe('Codex plugin local-dev reload script', () => {
           expectedDiagnosticsTool: string;
           expectedToolCall: string;
           expectedToolCalls: string[];
+          proves: string[];
           requiresFreshProcess: boolean;
         };
         syncCommand: string[];
@@ -89,6 +90,9 @@ describe('Codex plugin local-dev reload script', () => {
       expectedToolCalls: ['alembic_status'],
       requiresFreshProcess: true,
     });
+    expect(report.plan.freshMcpReadback.proves).toContain(
+      'loaded artifact build manifest and public entry hash readback'
+    );
     expect(report.plan.syncCommand).toEqual(
       expect.arrayContaining([
         '--clean',

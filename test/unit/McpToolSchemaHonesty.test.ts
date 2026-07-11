@@ -17,6 +17,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import type { z } from 'zod';
 import { HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
+import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
+import { zodToMcpSchema } from '../../lib/host-runtime/mcp/zodToMcpSchema.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 let projectRoots: string[] = [];
@@ -37,6 +40,28 @@ function createProject(): string {
 }
 
 describe('QD2 routed tool schemas reject unknown top-level keys', () => {
+  test('five knowledge tools have one catalog/schema/wire field set', () => {
+    const table = [
+      ['alembic_search', 'SearchInput'],
+      ['alembic_recipe_map', 'RecipeMapInput'],
+      ['alembic_prime', 'PrimeInput'],
+      ['alembic_code_guard', 'CodeGuardInput'],
+      ['alembic_graph', 'GraphInput'],
+    ] as const;
+
+    for (const [toolName, catalogSchema] of table) {
+      const routed = TOOL_SCHEMAS[toolName] as z.ZodType;
+      const declared = TOOLS.find((tool) => tool.name === toolName);
+      expect(PLUGIN_TOOL_SURFACE_CATALOG[toolName].schema).toBe(catalogSchema);
+      expect(declared, `${toolName} must be declared once`).toBeDefined();
+      const routedFields = Object.keys(zodToMcpSchema(routed).properties ?? {}).sort();
+      const wireFields = Object.keys(declared?.inputSchema.properties ?? {}).sort();
+      expect(wireFields, `${toolName} wire fields must equal routed schema fields`).toEqual(
+        routedFields
+      );
+    }
+  });
+
   test('every routed TOOL_SCHEMAS object rejects an unrecognized key', () => {
     for (const [toolName, schema] of Object.entries(TOOL_SCHEMAS)) {
       const parsed = (schema as z.ZodType).safeParse({ __qd2_unknown_key__: 1 });

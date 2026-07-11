@@ -17,6 +17,7 @@ import { getProjectRuntimeControlStatePath } from '#host-runtime/context/HostPro
 import HostMcpServer, {
   resetPluginOwnedMcpServerForTests,
 } from '#host-runtime/mcp/HostMcpServer.js';
+import { PLUGIN_TOOL_SURFACE_CATALOG } from '#host-runtime/mcp/PluginToolSurfaceCatalog.js';
 import { resetServiceContainer } from '#inject/ServiceContainer.js';
 
 function listFiles(root: string): string[] {
@@ -44,6 +45,21 @@ afterEach(async () => {
 });
 
 describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
+  it.each([
+    ['alembic_search', true, 'McpServer.tool-router'],
+    ['alembic_recipe_map', true, 'McpServer.tool-router'],
+    ['alembic_prime', true, 'McpServer.agent-public-tools'],
+    ['alembic_code_guard', false, 'McpServer.agent-public-tools'],
+    ['alembic_graph', true, 'McpServer.tool-router'],
+  ] as const)('five-tool effect catalog: %s has the tested read/write owner', (toolName, readOnly, handlerOwner) => {
+    const entry = PLUGIN_TOOL_SURFACE_CATALOG[toolName];
+    expect(entry.annotations).toMatchObject({
+      destructiveHint: false,
+      readOnlyHint: readOnly,
+    });
+    expect(entry.handlerOwner).toBe(handlerOwner);
+  });
+
   it('read-only class: alembic_status writes nothing outside the data root', async () => {
     const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-probe-'));

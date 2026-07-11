@@ -332,7 +332,13 @@ function attachRecipeMapCheckpointPosture(
   checkpointPosture: RetrievalCheckpointPosture
 ): AlembicRecipeMapOutput {
   if (!checkpointPosture.retrievalMayBeStale && checkpointPosture.diagnostics.length === 0) {
-    return output;
+    return {
+      ...output,
+      meta: {
+        ...output.meta,
+        sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
+      },
+    };
   }
   const diagnostics: MapDiagnostic[] = [
     ...output.diagnostics,
@@ -358,6 +364,10 @@ function attachRecipeMapCheckpointPosture(
 
   return {
     ...output,
+    meta: {
+      ...output.meta,
+      sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
+    },
     status: output.status === 'ready' ? 'partial' : output.status,
     summary: checkpointPosture.retrievalMayBeStale
       ? `${output.summary} Retrieval freshness requires git diff checkpoint catch-up.`

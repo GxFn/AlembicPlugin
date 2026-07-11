@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   CollectionCoverageSchema,
   ConclusionDispositionSchema,
+  SourceRevisionManifestSchema,
 } from '#service/project-knowledge-context/contracts/ToolOutputPrimitives.js';
 import {
   CleanMcpResponseBaseSchema,
@@ -257,6 +258,7 @@ const GuardPrimeAlignmentSchema = z
     feedbackGuardIds: PublicStringArraySchema.optional(),
     feedbackRecorded: z.boolean().optional(),
     coverageComplete: z.boolean().optional(),
+    sourceRevisionManifest: SourceRevisionManifestSchema.nullable().optional(),
     overlappedKnowledge: z
       .array(
         z
@@ -540,6 +542,7 @@ export const AgentPrimeOutputSchema = AgentPublicToolOutputBaseSchema.safeExtend
   diagnostics: z.array(PrimeDiagnosticSchema).max(200).default([]),
   nextActions: z.array(PrimeNextActionSchema).max(20).default([]),
   primePackage: PrimePublicPackageSchema,
+  sourceRevisionManifest: SourceRevisionManifestSchema.nullable().optional(),
   toolName: z.literal('alembic_prime'),
 }).superRefine((output, ctx) => {
   const expectedReasonKind =

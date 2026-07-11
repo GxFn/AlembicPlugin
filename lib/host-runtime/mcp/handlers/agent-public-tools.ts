@@ -194,6 +194,7 @@ interface PrimeDeliveryRecord {
   guards: Array<{ id: string; title: string; sources: string[] }>;
   knowledge: Array<{ id: string; title: string; sources: string[] }>;
   primeRef: string;
+  sourceRevisionManifest: RetrievalCheckpointPosture['sourceRevisionManifest'];
 }
 const PRIME_RECORDS = new Map<string, PrimeDeliveryRecord>();
 const PRIME_RECORDS_CAP = 50;
@@ -378,6 +379,7 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
       sources: (item.evidenceRefs ?? []).map((ref) => ref.path).filter(Boolean),
     })),
     primeRef: input.primeRef,
+    sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
   });
   // GMAP-8: prime returns its own prime-native output (primePackage + bounded
   // detailRefs/diagnostics), assembled from the resident search material — never
@@ -403,6 +405,7 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
       reason: action.reason,
       required: action.required,
     })),
+    sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
   });
 }
 
@@ -932,7 +935,7 @@ function buildCodeGuardReadyOutput(input: {
   const guardRecord = guard as Record<string, unknown>;
   const guardSummary = typeof guardRecord.summary === 'string' ? guardRecord.summary : '';
   const verdict = guardResult.verdict;
-  const status =
+  const baseStatus =
     verdict === 'blocked' ? 'blocked' : verdict === 'incomplete' ? 'degraded' : 'ready';
   // prime→guard step1（2026-07-06，observe-only）：primeRef 显式传入或从 workRef
   // 记录继承，命中本会话 PRIME_RECORDS 时报告"prime 交付知识与被检文件的重叠"。
@@ -941,6 +944,13 @@ function buildCodeGuardReadyOutput(input: {
   const primeAlignment = effectivePrimeRef
     ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files, guardResult)
     : null;
+  const sourceRevisionAlignment = isRecord(primeAlignment?.sourceRevisionManifest)
+    ? primeAlignment.sourceRevisionManifest.alignment
+    : null;
+  const status =
+    baseStatus === 'ready' && sourceRevisionAlignment && sourceRevisionAlignment !== 'current'
+      ? 'degraded'
+      : baseStatus;
   // 采纳信号回流（2026-07-06 闭环审查落地）：observed 且有真实重叠 = "prime 交付的
   // 知识用在了对的文件上"——递增 stats.primeAdoptions（observe-first，decay/排序
   // 消费另行调参）。失败静默：回流是观测面副作用，绝不破坏 guard 主链。
@@ -962,8 +972,14 @@ function buildCodeGuardReadyOutput(input: {
       ? {
           reason: {
             kind: 'degraded' as const,
-            code: 'guard-coverage-incomplete' as const,
-            message: 'Code Guard could not complete every requested file check.',
+            code:
+              sourceRevisionAlignment && sourceRevisionAlignment !== 'current'
+                ? ('guard-source-revision-untrusted' as const)
+                : ('guard-coverage-incomplete' as const),
+            message:
+              sourceRevisionAlignment && sourceRevisionAlignment !== 'current'
+                ? 'Code Guard used a Prime receipt whose source revision manifest is not current.'
+                : 'Code Guard could not complete every requested file check.',
             retryable: true,
           },
         }
@@ -1087,6 +1103,7 @@ function buildGuardPrimeAlignment(
     feedbackGuardIds,
     feedbackRecorded: feedbackGuardIds.length > 0,
     coverageComplete,
+    sourceRevisionManifest: record.sourceRevisionManifest,
   };
 }
 

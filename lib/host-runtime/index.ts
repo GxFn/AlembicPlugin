@@ -7,6 +7,7 @@ export * from './context/PluginRegistry.js';
 export * from './context/ProjectRootResolver.js';
 export * from './context/ProjectRuntimeContext.js';
 export * from './context/RuntimeContext.js';
+export * from './diagnostics/BuildProvenance.js';
 export * from './diagnostics/Diagnostics.js';
 export * from './diagnostics/Preflight.js';
 export * from './host-adapter/ClaudeCodeHostAdapter.js';

@@ -327,6 +327,7 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
       },
     },
     localProjection: options.localMcp ? buildLocalProjectionMarker() : null,
+    buildProvenance: options.localMcp ? buildLocalBuildProvenanceMarker() : null,
     hashes: {
       mcp: hashFile(join(cacheRoot, '.mcp.json')),
       manifest: hashFile(join(cacheRoot, '.codex-plugin', 'plugin.json')),
@@ -337,6 +338,33 @@ function writeRefreshMarker(cacheRoot, targetRoot) {
     join(cacheRoot, '.alembic-dev-refresh.json'),
     `${JSON.stringify(marker, null, 2)}\n`
   );
+}
+
+function buildLocalBuildProvenanceMarker() {
+  const manifestPath = join(dirname(dirname(localMcpEntry)), '.build-manifest.json');
+  if (!existsSync(manifestPath)) {
+    return {
+      available: false,
+      valid: false,
+      reason: 'loaded local dist has no .build-manifest.json',
+    };
+  }
+  const manifest = readJson(manifestPath);
+  const loadedEntryHash = hashFile(localMcpEntry);
+  const pluginCommitMatches = manifest.pluginCommit === readGitHead();
+  const entryHashMatches = manifest.publicEntryHash === loadedEntryHash;
+  return {
+    available: true,
+    valid: manifest.version === 2 && pluginCommitMatches && entryHashMatches,
+    pluginCommit: manifest.pluginCommit ?? null,
+    coreCommit: manifest.coreCommit ?? null,
+    builtAt: manifest.builtAt ?? null,
+    publicEntryHash: manifest.publicEntryHash ?? null,
+    loadedEntryHash,
+    entryHashMatches,
+    pluginCommitMatches,
+    buildManifestHash: hashFile(manifestPath),
+  };
 }
 
 function buildLocalProjectionMarker() {

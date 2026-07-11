@@ -12,6 +12,10 @@ import {
   type ProjectGraphInput,
   ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
+import {
+  buildRetrievalCheckpointPosture,
+  resolveRetrievalCheckpointPostureInput,
+} from './retrieval-checkpoint-diagnostics.js';
 import type { McpContext } from './types.js';
 
 // ─── Local Types ──────────────────────────────────────────
@@ -185,7 +189,33 @@ function _inferTargetRole(targetName: string): string {
 export async function graph(ctx: McpContext, args: GraphArgs = {}) {
   const input = normalizeProjectGraphInput(ctx, args);
   const output = await defaultProjectGraphProvider.resolveAlembicGraph(input);
-  return createAlembicGraphMcpResult(output);
+  const checkpointPosture = buildRetrievalCheckpointPosture(
+    ctx.container,
+    resolveRetrievalCheckpointPostureInput(output.project.projectRoot)
+  );
+  return createAlembicGraphMcpResult({
+    ...output,
+    status:
+      checkpointPosture.retrievalMayBeStale && output.status === 'ready'
+        ? 'degraded'
+        : output.status,
+    summary: checkpointPosture.retrievalMayBeStale
+      ? `${output.summary} Source revision alignment is not current.`
+      : output.summary,
+    diagnostics: [
+      ...output.diagnostics,
+      ...checkpointPosture.diagnostics.map((diagnostic) => ({
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        retryable: diagnostic.retryable,
+      })),
+    ],
+    meta: {
+      ...output.meta,
+      sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
+    },
+  });
 }
 
 // Deprecated operation-named entrypoints. Retained only as stale-input

@@ -88,6 +88,58 @@ export function computeDistContentHash(distDir) {
   return hashFileList(distDir, files);
 }
 
+/** Hash a single public artifact exactly as loaded from disk. */
+export function computeFileHash(filePath) {
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+/**
+ * Pure provenance gate shared by prepare/check/tests. A source commit is not a
+ * proxy for loaded bytes: all commit and content identities must agree.
+ */
+export function validateBuildProvenance(manifest, expected) {
+  const failures = [];
+  if (!manifest || manifest.kind !== 'AlembicDistBuildManifest' || manifest.version !== 2) {
+    failures.push('build manifest must be AlembicDistBuildManifest version 2');
+    return { failures, ok: false };
+  }
+  for (const field of [
+    'pluginCommit',
+    'coreCommit',
+    'sourceHash',
+    'distContentHash',
+    'builtAt',
+    'publicEntry',
+    'publicEntryHash',
+  ]) {
+    if (typeof manifest[field] !== 'string' || manifest[field].trim().length === 0) {
+      failures.push(`build manifest is missing ${field}`);
+    }
+  }
+  if (!Number.isFinite(Date.parse(manifest.builtAt ?? ''))) {
+    failures.push('build manifest builtAt is not an ISO timestamp');
+  }
+  for (const field of [
+    'pluginCommit',
+    'coreCommit',
+    'sourceHash',
+    'distContentHash',
+    'publicEntry',
+    'publicEntryHash',
+  ]) {
+    if (expected[field] !== undefined && manifest[field] !== expected[field]) {
+      failures.push(
+        `${field} mismatch: recorded ${short(manifest[field])}, expected ${short(expected[field])}`
+      );
+    }
+  }
+  return { failures, ok: failures.length === 0 };
+}
+
+function short(value) {
+  return typeof value === 'string' ? value.slice(0, 12) : String(value);
+}
+
 function statSafe(path) {
   try {
     return statSync(path);
