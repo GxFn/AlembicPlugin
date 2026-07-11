@@ -1251,14 +1251,16 @@ function verifyPostInitConsistency(input: {
   if (!sameResolvedPath(statusProject.root, input.projectRoot)) {
     return { ok: false, reason: 'post-status project root differs from the initialized root' };
   }
-  if (input.initData.alreadyInitialized === true) {
-    return { ok: true, reason: 'already-initialized status is consistent' };
-  }
-
-  const marker = readOptionalRecord(input.initData.marker);
   const statusAutoInit = readOptionalRecord(input.statusData.autoInit) ?? {};
   const markerReadback = readOptionalRecord(input.markerReadback);
-  if (statusAutoInit.markerExists !== true || !marker || !markerReadback) {
+  const initMarker = readOptionalRecord(input.initData.marker);
+  const marker = initMarker ?? markerReadback;
+  if (
+    statusAutoInit.markerExists !== true ||
+    !marker ||
+    !markerReadback ||
+    (!initMarker && input.initData.alreadyInitialized !== true)
+  ) {
     return { ok: false, reason: 'init marker was not readable after post-status' };
   }
   if (!sameResolvedPath(marker.projectRoot, input.projectRoot)) {

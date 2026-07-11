@@ -146,6 +146,14 @@ describe('native ProjectScope runtime wiring', () => {
       standard: false,
     });
     const publicInit = projectMcpToolOutput('alembic_init', rawInit) as Record<string, unknown>;
+    const markerBeforeReinit = readInitMarker(fixture.controlRoot);
+    const rawReinit = await server.handleToolCall('alembic_init', {
+      force: false,
+      seed: false,
+      standard: false,
+    });
+    expect(rawReinit.data).toMatchObject({ results: [] });
+    const publicReinit = projectMcpToolOutput('alembic_init', rawReinit) as Record<string, unknown>;
     const markerPath = getInitMarkerPath(fixture.controlRoot);
     const marker = readInitMarker(fixture.controlRoot);
     const rawStatus = await server.handleToolCall('alembic_status', {});
@@ -164,6 +172,7 @@ describe('native ProjectScope runtime wiring', () => {
       projectRoot: fixture.controlRoot,
       route: 'explicit',
     });
+    expect(marker).toEqual(markerBeforeReinit);
     expect(publicInit).toMatchObject({
       ok: true,
       status: 'ready',
@@ -192,6 +201,23 @@ describe('native ProjectScope runtime wiring', () => {
         dataRootSource: 'ghost-registry',
         ghost: true,
         mode: 'ghost',
+      },
+    });
+    expect(publicReinit).toMatchObject({
+      ok: true,
+      status: 'ready',
+      statusSnapshot: {
+        initialized: true,
+        project: {
+          dataRootSource: 'ghost-registry',
+          projectId: 'project-native-runtime',
+          root: fixture.controlRoot,
+        },
+        workspace: {
+          dataRootSource: 'ghost-registry',
+          ghost: true,
+          mode: 'ghost',
+        },
       },
     });
   });
