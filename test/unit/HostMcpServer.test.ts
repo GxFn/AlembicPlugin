@@ -1318,6 +1318,62 @@ describe('HostMcpServer', () => {
     expect(fs.existsSync(path.join(projectRoot, '.asd'))).toBe(false);
   });
 
+  test('public init blocks ready when post-init status contradicts the written marker identity', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    const server = new HostMcpServer({ projectRoot });
+    vi.spyOn(server, 'buildStatus').mockResolvedValue({
+      success: true,
+      data: {
+        initialized: false,
+        knowledge: {
+          initialized: false,
+          usable: false,
+        },
+        project: {
+          dataRootSource: 'project-root',
+          projectId: 'contradictory-project',
+          root: projectRoot,
+        },
+        workspace: {
+          dataRootSource: 'project-root',
+          ghost: false,
+          mode: 'standard',
+        },
+      },
+    });
+
+    const rawResult = await server.handleToolCall('alembic_init', { standard: false });
+    const publicResult = serializeMcpToolResult('alembic_init', rawResult, {
+      isErrorResult: (value) =>
+        !!value && typeof value === 'object' && (value as { success?: unknown }).success === false,
+    }).structuredContent as Record<string, unknown>;
+
+    expect(readInitMarker(projectRoot)).toMatchObject({
+      ghost: true,
+      initializedBy: 'alembic_init',
+      projectRoot,
+    });
+    expect(publicResult).toMatchObject({
+      ok: false,
+      status: 'blocked',
+      statusSnapshot: {
+        initialized: false,
+        project: {
+          dataRootSource: 'project-root',
+          projectId: 'contradictory-project',
+          root: projectRoot,
+        },
+        workspace: {
+          dataRootSource: 'project-root',
+          ghost: false,
+          mode: 'standard',
+        },
+      },
+    });
+    expect(publicResult.summary).toContain('post-initialization status');
+  });
+
   test('explicit Codex init inherits an existing Standard registry mode', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();
