@@ -1879,6 +1879,45 @@ describe('agent-facing active public tools', () => {
     });
   });
 
+  test('does not report ready or passed when an explicitly requested file is missing', async () => {
+    const auditFile = vi.fn();
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile,
+        auditFiles: vi.fn(),
+        checkCode: vi.fn(),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        files: ['test/fixtures/definitely-missing-guard-input.ts'],
+        inputSource: 'host-declared-intent',
+        operation: 'review',
+      })
+    ) as {
+      data: {
+        guard: {
+          coverage: { checked: number; missing: number; requested: number };
+          verdict: string;
+        };
+        result: { status: string };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.data.result.status).toBe('degraded');
+    expect(result.data.guard).toMatchObject({
+      coverage: { checked: 0, missing: 1, requested: 1 },
+      verdict: 'incomplete',
+    });
+    expect(auditFile).not.toHaveBeenCalled();
+  });
+
   test('blocks code guard when workRef scope is missing from the active session', async () => {
     const ctx = makeContext();
     const result = publicToolLegacyTestView(
@@ -2023,6 +2062,51 @@ describe('agent-facing active public tools', () => {
       { isTest: false }
     );
     expect(result.data.result.refs.guardResultRef.id).toBe(result.data.guardResultRef);
+  });
+
+  test('repeated reviews never force-pass unresolved violations at a project-wide round cap', async () => {
+    const auditFile = vi.fn(() => ({
+      language: 'typescript',
+      uncertainResults: [],
+      violations: [
+        {
+          ruleId: 'always-fails',
+          message: 'fixture violation',
+          severity: 'error',
+        },
+      ],
+    }));
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile,
+        auditFiles: vi.fn(),
+        checkCode: vi.fn(),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+
+    for (let call = 0; call < 7; call += 1) {
+      const result = publicToolLegacyTestView(
+        await codeGuardHandler(ctx, {
+          files: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
+          inputSource: 'host-declared-intent',
+          operation: 'review',
+        })
+      ) as {
+        data: {
+          guard: { maxRoundsReached: boolean; reviewRound: number; verdict: string };
+          result: { status: string };
+        };
+      };
+      expect(result.data.guard).toMatchObject({
+        maxRoundsReached: false,
+        reviewRound: 1,
+        verdict: 'failed',
+      });
+      expect(result.data.result.status).toBe('ready');
+    }
   });
 
   test('does not import or call the legacy task handler', () => {

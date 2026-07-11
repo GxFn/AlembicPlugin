@@ -14,6 +14,45 @@ export const TOOL_OUTPUT_STATUSES = ['ready', 'partial', 'degraded', 'blocked', 
 export const ToolStatusSchema = z.enum(TOOL_OUTPUT_STATUSES);
 export type ToolStatus = z.infer<typeof ToolStatusSchema>;
 
+/**
+ * 跨工具共享的收集完整度叶子。它只描述“要求检查多少、实际完成多少”，
+ * 不承载 Guard/Graph/Map 等工具的业务结果，避免重新形成统一大信封。
+ */
+export const COLLECTION_COMPLETENESS = ['complete', 'partial', 'unknown'] as const;
+export const CollectionCoverageSchema = z
+  .object({
+    scope: z.string().min(1).max(80),
+    requested: z.number().int().nonnegative(),
+    attempted: z.number().int().nonnegative(),
+    succeeded: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    omitted: z.number().int().nonnegative(),
+    completeness: z.enum(COLLECTION_COMPLETENESS),
+  })
+  .strict();
+export type CollectionCoverage = z.infer<typeof CollectionCoverageSchema>;
+
+export const CONCLUSION_DISPOSITIONS = ['passed', 'failed', 'incomplete', 'blocked'] as const;
+export const ConclusionDispositionSchema = z.enum(CONCLUSION_DISPOSITIONS);
+export type ConclusionDisposition = z.infer<typeof ConclusionDispositionSchema>;
+
+/**
+ * 结论强度只由完整度和真实失败事实决定；展示层不得自行把 partial 投影成 pass。
+ */
+export function deriveConclusionDisposition(input: {
+  blockingFailure?: boolean;
+  coverage: CollectionCoverage;
+  hasFailure?: boolean;
+}): ConclusionDisposition {
+  if (input.blockingFailure) {
+    return 'blocked';
+  }
+  if (input.coverage.completeness !== 'complete') {
+    return 'incomplete';
+  }
+  return input.hasFailure ? 'failed' : 'passed';
+}
+
 /** A bounded diagnostic emitted by any tool (stale/unresolved/degraded/etc.). */
 export const ToolDiagnosticSchema = z
   .object({

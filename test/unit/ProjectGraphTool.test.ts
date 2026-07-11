@@ -56,6 +56,17 @@ interface GraphOutput {
   queryKind: string;
   summary: string;
   project: Record<string, unknown>;
+  repoCoverage: {
+    discoveredRepoIds: string[];
+    failedRepoIds: string[];
+    omittedRepoIds: string[];
+    requested: number;
+    attempted: number;
+    succeeded: number;
+    failed: number;
+    omitted: number;
+    completeness: string;
+  };
   nodes: Array<Record<string, unknown>>;
   relations: Array<Record<string, unknown>>;
   refs: Array<Record<string, unknown>>;
@@ -378,6 +389,25 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(serialized).not.toContain('Test');
     expect(serialized).not.toContain('wakeflow-ledger');
     expect(serialized).not.toContain('legacy-docs-do-not-use');
+    expect(output.repoCoverage).toMatchObject({
+      requested: 5,
+      attempted: 5,
+      succeeded: 5,
+      failed: 0,
+      omitted: 0,
+      completeness: 'complete',
+      failedRepoIds: [],
+      omittedRepoIds: [],
+    });
+    expect(output.repoCoverage.discoveredRepoIds).toEqual(
+      expect.arrayContaining([
+        'Alembic',
+        'AlembicCore',
+        'AlembicPlugin',
+        'AlembicDashboard',
+        'AlembicAgent',
+      ])
+    );
   });
 
   test('answers workspace-root file queries for deep sub-repository files', async () => {

@@ -55,6 +55,7 @@ export const AGENT_DEGRADED_REASON_CODES = [
   'knowledge-empty',
   'detail-budget-limited',
   'optional-service-unavailable',
+  'guard-coverage-incomplete',
 ] as const;
 
 export const AGENT_BLOCKED_REASON_CODES = [
@@ -69,6 +70,7 @@ export const AGENT_BLOCKED_REASON_CODES = [
   'decision-register-capability-mismatch',
   'decision-register-unavailable',
   'shared-contract-required',
+  'guard-scope-invalid',
 ] as const;
 
 export const AGENT_FAILURE_REASON_CODES = [

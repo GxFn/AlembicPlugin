@@ -49,6 +49,44 @@ describe('retrieval checkpoint diagnostics', () => {
     expect(posture.diagnostics).toEqual([]);
   });
 
+  test('a matching scalar checkpoint cannot prove a multi-repo ProjectScope is current', () => {
+    const { projectRoot } = createGitFixture();
+    const currentHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    }).trim();
+    const repository = {
+      get() {
+        return {
+          checkpointCommit: currentHead,
+          folderId: 'folder-plugin',
+          lastRouteStatus: 'skipped',
+          mergeBaseCommit: currentHead,
+          projectRoot,
+          scopeId: 'project-scope:fixture',
+          targetCommit: currentHead,
+        };
+      },
+    };
+
+    const posture = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      {
+        currentFolderId: 'folder-plugin',
+        projectRoot,
+        projectScopeFolderCount: 5,
+        projectScopeId: 'fixture',
+        scanRoot: projectRoot,
+      }
+    );
+
+    expect(posture.status).toBe('unknown');
+    expect(posture.retrievalMayBeStale).toBe(true);
+    expect(posture.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      'retrieval-checkpoint-scalar-project-scope'
+    );
+  });
+
   test('search, prime, and recipe_map expose stale durable checkpoint catch-up posture', async () => {
     const { baselineHead, projectRoot } = createGitFixture();
     const gitDiffCheckpointRepository = createCheckpointRepository(projectRoot, baselineHead);

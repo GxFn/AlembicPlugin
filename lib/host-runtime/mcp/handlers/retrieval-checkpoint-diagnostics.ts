@@ -55,6 +55,7 @@ const INCOMPLETE_ROUTE_STATUSES = new Set(['failed', 'truncated', 'non-ancestor'
 export function resolveRetrievalCheckpointPostureInput(projectRoot: string): {
   currentFolderId?: string | null;
   projectRoot: string;
+  projectScopeFolderCount?: number;
   projectScopeId?: string | null;
   scanRoot?: string | null;
 } {
@@ -79,6 +80,7 @@ export function resolveRetrievalCheckpointPostureInput(projectRoot: string): {
   return {
     currentFolderId: folderId,
     projectRoot,
+    projectScopeFolderCount: summary.folders.length,
     projectScopeId: summary.projectScopeId ?? null,
     scanRoot: within ? folderPath : null,
   };
@@ -89,6 +91,8 @@ export function buildRetrievalCheckpointPosture(
   input: {
     currentFolderId?: string | null;
     projectRoot: string;
+    /** 多仓 scope 在 P3 revision vector 落地前不能由任意单行 checkpoint 证明 current。 */
+    projectScopeFolderCount?: number;
     projectScopeId?: string | null;
     /** folder 仓路径：HEAD 比较空间与 checkpoint 行同仓；缺省回退 projectRoot。 */
     scanRoot?: string | null;
@@ -133,6 +137,18 @@ export function buildRetrievalCheckpointPosture(
   const head = readCurrentGitHead(input.scanRoot ?? input.projectRoot);
   const diagnostics: RetrievalCheckpointDiagnostic[] = [];
   let retrievalMayBeStale = false;
+  const scalarMultiRepoCheckpoint = (input.projectScopeFolderCount ?? 0) > 1;
+
+  if (scalarMultiRepoCheckpoint) {
+    retrievalMayBeStale = true;
+    diagnostics.push({
+      code: 'retrieval-checkpoint-scalar-project-scope',
+      domain: 'runtime',
+      message: `A scalar checkpoint cannot prove freshness for a ProjectScope with ${input.projectScopeFolderCount} repositories; retrieval freshness remains unknown until a complete revision vector is recorded.`,
+      retryable: true,
+      severity: 'warning',
+    });
+  }
 
   if (!head.ok) {
     retrievalMayBeStale = true;
@@ -202,11 +218,13 @@ export function buildRetrievalCheckpointPosture(
     },
     diagnostics,
     nextActions,
-    reason: retrievalMayBeStale
-      ? 'Durable git diff checkpoint indicates retrieval may be stale.'
-      : 'Durable git diff checkpoint is current for this scope.',
+    reason: scalarMultiRepoCheckpoint
+      ? 'Multi-repo retrieval freshness is unknown because only a scalar checkpoint is available.'
+      : retrievalMayBeStale
+        ? 'Durable git diff checkpoint indicates retrieval may be stale.'
+        : 'Durable git diff checkpoint is current for this scope.',
     retrievalMayBeStale,
-    status: retrievalMayBeStale ? 'stale' : 'current',
+    status: scalarMultiRepoCheckpoint ? 'unknown' : retrievalMayBeStale ? 'stale' : 'current',
   };
 }
 

@@ -254,6 +254,75 @@ describe('Agent-facing public tools contract foundation', () => {
     ).toMatchObject({ status: 'prime-ref-unknown' });
   });
 
+  test('preserves incomplete guard verdict, coverage, file errors, uncertainty, and review cap facts', () => {
+    const result = createAgentPublicToolResultEnvelope({
+      actionKind: 'code-guard',
+      agentHost: 'codex',
+      inputSource: 'host-declared-intent',
+      refs: { detailRefs: [] },
+      reason: {
+        kind: 'degraded',
+        code: 'guard-coverage-incomplete',
+        message: 'One requested file could not be read.',
+        retryable: true,
+      },
+      status: 'degraded',
+      summary: 'Code Guard could not complete the requested review.',
+      toolName: 'alembic_code_guard',
+    });
+
+    const output = createAgentPublicToolOutput(result, {
+      guard: {
+        success: true,
+        guardResult: {
+          coverage: {
+            scope: 'files',
+            requested: 2,
+            attempted: 2,
+            succeeded: 1,
+            failed: 1,
+            omitted: 0,
+            completeness: 'partial',
+            checked: 1,
+            missing: 0,
+            unreadable: 1,
+            outOfRoot: 0,
+            unsupported: 0,
+          },
+          fileErrors: [
+            {
+              filePath: 'lib/unreadable.ts',
+              disposition: 'unreadable',
+              message: 'permission denied',
+            },
+          ],
+          maxRoundsReached: true,
+          reviewRound: 6,
+          uncertainSummary: { total: 1 },
+          verdict: 'incomplete',
+          summary: { total: 0, errors: 0, warnings: 0 },
+        },
+      },
+    });
+
+    expect(AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.parse(output)).toMatchObject({
+      guard: {
+        coverage: { requested: 2, checked: 1, unreadable: 1 },
+        fileErrors: [
+          {
+            filePath: 'lib/unreadable.ts',
+            disposition: 'unreadable',
+          },
+        ],
+        maxRoundsReached: true,
+        reviewRound: 6,
+        uncertain: { count: 1 },
+        verdict: 'incomplete',
+      },
+      status: 'degraded',
+    });
+  });
+
   test('projects guard violation details with recipe fix guidance (V-1) and degrades honestly on schema rejection (Wave 2)', () => {
     const result = createAgentPublicToolResultEnvelope({
       actionKind: 'code-guard',

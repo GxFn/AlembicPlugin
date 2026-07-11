@@ -25,6 +25,7 @@ import type {
   GraphNextAction,
   GraphNodeSummary,
   GraphRelationSummary,
+  GraphRepoCoverage,
   GraphSourceSliceSummary,
   KnowledgeContextDetailRef,
   KnowledgeContextProjectNodeType,
@@ -97,6 +98,7 @@ interface ProjectGraphProjectContextTrace {
   moduleRequestCount: number;
   partial: boolean;
   refCount: number;
+  repoCoverage: GraphRepoCoverage;
   requestKinds: ProjectContextRequestKind[];
 }
 
@@ -124,6 +126,8 @@ const ALLOWED_RELATION_TYPES = [
 ] as const satisfies readonly KnowledgeContextProjectRelationType[];
 
 const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
+const GRAPH_REPO_CONCURRENCY = 4;
+const GRAPH_REPO_TIMEOUT_MS = 10_000;
 // P-D D6(2026-07-11 BiliDili 真机):此前这里是第 6 份 JS-only 私有白名单——
 // .swift 文件在 file-flow 目标选择层即被丢弃,alembic_graph file-flow 对 Swift
 // 项目恒 0 节点(而 Core 直探同文件出 9 imports)。改为 JS 家族 + Core 解析语言
@@ -362,6 +366,23 @@ function missingPathEndpointSelection(input: ProjectGraphInput): GraphSelection 
   };
 }
 
+function emptyGraphRepoCoverage(): GraphRepoCoverage {
+  return {
+    scope: 'repositories',
+    requested: 0,
+    attempted: 0,
+    succeeded: 0,
+    failed: 0,
+    omitted: 0,
+    completeness: 'unknown',
+    discoveredRepoIds: [],
+    succeededRepoIds: [],
+    failedRepoIds: [],
+    omittedRepoIds: [],
+    timeoutCount: 0,
+  };
+}
+
 function emptyGraphBuild(projectRoot: string): GraphBuild {
   const projectName = projectNameFromRoot(projectRoot);
   const projectId = `project:${stableRefSegment(projectName) || 'project'}`;
@@ -390,6 +411,7 @@ function emptyGraphBuild(projectRoot: string): GraphBuild {
       moduleRequestCount: 0,
       partial: false,
       refCount: 0,
+      repoCoverage: emptyGraphRepoCoverage(),
       requestKinds: [],
     },
     projectContextRefs: [],
@@ -437,6 +459,7 @@ async function buildProjectContextGraphFacts(
       moduleRequestCount: 0,
       partial: false,
       refCount: 0,
+      repoCoverage: emptyGraphRepoCoverage(),
       requestKinds: [],
     },
   };
@@ -493,30 +516,163 @@ async function collectGraphRepoContexts(
     sourceRefs: input.sourceRefs,
   });
   collectGraphEnvelope(facts, spaceEnvelope, 'project-context-space', input);
-  const folders = isSpaceContext(spaceEnvelope.data)
+  const folders: GraphRepoFolder[] = isSpaceContext(spaceEnvelope.data)
     ? selectGraphRepoFolders(spaceEnvelope.data, projectRoot)
     : [{ repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }];
 
-  for (const folder of folders.slice(0, 4)) {
-    const repoEnvelope = await executeGraphProjectContextRequest(
-      'repo',
-      projectRoot,
-      {
-        includeCommands: true,
-        includeEntrypoints: true,
-        includeMapSummary: false,
-        includeTopAreas: true,
-        maxFiles: 240,
-        repoName: folder.repoName,
-        repoRoot: folder.sourceFolder,
-      },
-      { repoId: folder.repoId, sourceFolder: folder.sourceFolder }
-    );
-    collectGraphEnvelope(facts, repoEnvelope, 'project-context-repo', input);
-    if (isRepoContext(repoEnvelope.data)) {
-      facts.repos.push(repoEnvelope.data);
+  const discoveredRepoIds = folders.map(graphRepoCoverageId);
+  const outcomes = await mapWithBoundedConcurrency<GraphRepoFolder, GraphRepoCollectionOutcome>(
+    folders,
+    GRAPH_REPO_CONCURRENCY,
+    async (folder): Promise<GraphRepoCollectionOutcome> => {
+      try {
+        const envelope = await withGraphRepoTimeout(
+          executeGraphProjectContextRequest(
+            'repo',
+            projectRoot,
+            {
+              includeCommands: true,
+              includeEntrypoints: true,
+              includeMapSummary: false,
+              includeTopAreas: true,
+              maxFiles: 240,
+              repoName: folder.repoName,
+              repoRoot: folder.sourceFolder,
+            },
+            { repoId: folder.repoId, sourceFolder: folder.sourceFolder }
+          ),
+          graphRepoCoverageId(folder)
+        );
+        return { envelope, folder };
+      } catch (error: unknown) {
+        return { error, folder };
+      }
+    }
+  );
+
+  const succeededRepoIds: string[] = [];
+  const failedRepoIds: string[] = [];
+  let timeoutCount = 0;
+  for (const outcome of outcomes) {
+    const repoId = graphRepoCoverageId(outcome.folder);
+    if ('error' in outcome) {
+      failedRepoIds.push(repoId);
+      if (outcome.error instanceof GraphRepoTimeoutError) {
+        timeoutCount += 1;
+      }
+      facts.trace.errorCount += 1;
+      facts.trace.partial = true;
+      facts.diagnostics.push({
+        code:
+          outcome.error instanceof GraphRepoTimeoutError
+            ? 'project-context-repo-timeout'
+            : 'project-context-repo-failed',
+        domain: 'project',
+        message: `ProjectContext repo collection failed for ${repoId}: ${
+          outcome.error instanceof Error ? outcome.error.message : String(outcome.error)
+        }`,
+        retryable: true,
+        severity: 'warning',
+      });
+      continue;
+    }
+
+    const errorCountBeforeCollection = facts.trace.errorCount;
+    collectGraphEnvelope(facts, outcome.envelope, 'project-context-repo', input);
+    const relevantErrorCount = facts.trace.errorCount - errorCountBeforeCollection;
+    const completed = isRepoContext(outcome.envelope.data) && relevantErrorCount === 0;
+    if (completed && isRepoContext(outcome.envelope.data)) {
+      facts.repos.push(outcome.envelope.data);
+      succeededRepoIds.push(repoId);
+    } else {
+      failedRepoIds.push(repoId);
+      facts.trace.partial = true;
+      if (relevantErrorCount === 0) {
+        facts.trace.errorCount += 1;
+        facts.diagnostics.push({
+          code: 'project-context-repo-result-missing',
+          domain: 'project',
+          message: `ProjectContext repo collection returned no usable repo facts for ${repoId}.`,
+          retryable: true,
+          severity: 'warning',
+        });
+      }
     }
   }
+
+  facts.trace.repoCoverage = {
+    scope: 'repositories',
+    requested: folders.length,
+    attempted: folders.length,
+    succeeded: succeededRepoIds.length,
+    failed: failedRepoIds.length,
+    omitted: 0,
+    completeness: failedRepoIds.length === 0 ? 'complete' : 'partial',
+    discoveredRepoIds,
+    succeededRepoIds,
+    failedRepoIds,
+    omittedRepoIds: [],
+    timeoutCount,
+  };
+}
+
+interface GraphRepoFolder {
+  repoId?: string;
+  repoName: string;
+  sourceFolder: string;
+}
+
+type GraphRepoCollectionOutcome =
+  | { envelope: ProjectContextEnvelope<ProjectContextResult>; folder: GraphRepoFolder }
+  | { error: unknown; folder: GraphRepoFolder };
+
+function graphRepoCoverageId(folder: GraphRepoFolder): string {
+  return folder.repoId ?? folder.repoName ?? folder.sourceFolder;
+}
+
+class GraphRepoTimeoutError extends Error {
+  constructor(repoId: string) {
+    super(`repo request exceeded ${GRAPH_REPO_TIMEOUT_MS}ms for ${repoId}`);
+    this.name = 'GraphRepoTimeoutError';
+  }
+}
+
+async function withGraphRepoTimeout<T>(promise: Promise<T>, repoId: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new GraphRepoTimeoutError(repoId)),
+          GRAPH_REPO_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function mapWithBoundedConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]);
+    }
+  }
+  const workerCount = Math.min(Math.max(1, concurrency), Math.max(1, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 async function collectGraphMapContexts(
@@ -3515,6 +3671,7 @@ function projectAlembicGraphOutput(args: {
       displayName: build.projectName,
       projectId: `project:${stableRefSegment(build.projectName) || 'project'}`,
     },
+    repoCoverage: build.projectContext.repoCoverage,
     nodes,
     relations,
     refs,
@@ -3611,6 +3768,10 @@ function resultSignalGraphDiagnostics(selection: GraphSelection): GraphDiagnosti
 
 function deriveGraphStatus(build: GraphBuild, selection: GraphSelection): AlembicGraphStatus {
   const result = selection.result;
+  // ProjectContext 已报告执行错误时，不能被同一请求的 partial/no-match 标志遮蔽。
+  if (build.projectContext.errorCount > 0) {
+    return 'degraded';
+  }
   const partial =
     build.projectContext.partial ||
     result.projectContextPartial === true ||
@@ -3621,9 +3782,6 @@ function deriveGraphStatus(build: GraphBuild, selection: GraphSelection): Alembi
     typeof result.relationUnavailableReason === 'string';
   if (partial) {
     return 'partial';
-  }
-  if (build.projectContext.errorCount > 0) {
-    return 'degraded';
   }
   return 'ready';
 }
@@ -3707,6 +3865,7 @@ function failedAlembicGraphOutput(
     queryKind,
     summary: `alembic_graph ${queryKind} failed before ProjectContext facts could be projected.`,
     project: { projectRoot },
+    repoCoverage: emptyGraphRepoCoverage(),
     nodes: [],
     relations: [],
     refs: [],

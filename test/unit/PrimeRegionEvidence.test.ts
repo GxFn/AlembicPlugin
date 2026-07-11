@@ -202,6 +202,52 @@ describe('regionEvidence → prime trust gate (PDR-1d interim un-defer)', () => 
     expect(verification?.items.some((item) => item.id === 'weak-match:weak')).toBe(true);
   });
 
+  test('weak or unanchored Guard rules never become trusted-to-obey', () => {
+    const rule = (id: string, score: number, sourceRefs: string[]) => ({
+      id,
+      title: id,
+      trigger: `@${id}`,
+      content: '',
+      description: '',
+      kind: 'rule',
+      language: 'typescript',
+      score,
+      sourceRefs,
+    });
+    const material = buildPrimeKnowledgeMaterial({
+      ...baseInput,
+      searchResult: {
+        relatedKnowledge: [],
+        guardRules: [
+          rule('strong-rule', 0.86, ['lib/strong.ts:1-10']),
+          rule('weak-rule', 0.37, ['lib/weak.ts:1-10']),
+          rule('unanchored-rule', 0.91, []),
+        ],
+        searchMeta: {
+          queries: ['q'],
+          scenario: 'prime',
+          language: null,
+          module: null,
+          resultCount: 3,
+          filteredCount: 3,
+        },
+      } as never,
+      regionEvidence: [],
+    });
+
+    expect(material.acceptedGuards.map((guard) => guard.id)).toEqual(['strong-rule']);
+    const obey = material.trustPosture.receiptChecklist.find(
+      (layer) => layer.layer === 'trusted-to-obey'
+    );
+    expect(obey?.items.map((item) => item.id)).toEqual(['guard:strong-rule']);
+    const verification = material.trustPosture.receiptChecklist.find(
+      (layer) => layer.layer === 'requires-verification'
+    );
+    expect(verification?.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining(['weak-guard:weak-rule', 'weak-guard:unanchored-rule'])
+    );
+  });
+
   test('source-ref locator evidence promotes exact Recipe source matches without vector evidence', () => {
     const recipe = makeRecipeRecord({
       id: 'r-source',

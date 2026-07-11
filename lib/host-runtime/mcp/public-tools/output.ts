@@ -1,6 +1,10 @@
 import type { CoreFieldFailureKind } from '@alembic/core/shared';
 import { z } from 'zod';
 import {
+  CollectionCoverageSchema,
+  ConclusionDispositionSchema,
+} from '#service/project-knowledge-context/contracts/ToolOutputPrimitives.js';
+import {
   CleanMcpResponseBaseSchema,
   createCleanMcpError,
   createCleanMcpResponse,
@@ -196,14 +200,39 @@ const GuardPublicViolationSchema = z
   })
   .strict();
 
+const GuardCoverageSchema = CollectionCoverageSchema.extend({
+  checked: z.number().int().min(0).max(100000),
+  missing: z.number().int().min(0).max(100000),
+  unreadable: z.number().int().min(0).max(100000),
+  outOfRoot: z.number().int().min(0).max(100000),
+  unsupported: z.number().int().min(0).max(100000),
+}).strict();
+
+const GuardFileErrorSchema = z
+  .object({
+    filePath: z.string().min(1).max(1200),
+    requestedPath: z.string().max(1200).optional(),
+    disposition: z.enum(['missing', 'unreadable', 'out-of-root', 'unsupported']),
+    message: z.string().max(1200).optional(),
+  })
+  .strict();
+
+const GuardUncertainSchema = z.object({ count: z.number().int().min(0).max(100000) }).strict();
+
 const GuardPublicResultSchema = z
   .object({
     appliedRules: GuardAppliedRulesSchema.optional(),
     applicableRecipeRules: z.array(GuardApplicableRecipeRuleSchema).max(20).optional(),
+    coverage: GuardCoverageSchema.optional(),
+    fileErrors: z.array(GuardFileErrorSchema).max(1000).optional(),
     guardErrorCode: OptionalPublicStringSchema,
+    maxRoundsReached: z.boolean().optional(),
     ok: z.boolean(),
+    reviewRound: z.number().int().min(1).max(100000).optional(),
     resultSummary: GuardResultSummarySchema,
     summary: OptionalPublicStringSchema,
+    uncertain: GuardUncertainSchema.optional(),
+    verdict: ConclusionDispositionSchema.optional(),
     violations: z.array(GuardPublicViolationSchema).max(50).optional(),
     violationsTruncated: z.boolean().optional(),
   })
@@ -699,6 +728,8 @@ const AGENT_PUBLIC_REASON_FAILURE_KINDS: Readonly<Record<string, CoreFieldFailur
   'decision-register-unavailable': 'unavailable',
   'decision-scope-unconfirmed': 'needs-confirmation',
   'detail-budget-limited': 'partial',
+  'guard-coverage-incomplete': 'unavailable',
+  'guard-scope-invalid': 'permission-denied',
   'handler-error': 'internal-error',
   'knowledge-empty': 'unavailable',
   'low-confidence-intent': 'degraded',
@@ -740,9 +771,16 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
     guardResult.applicableRecipeRules
   );
   const projectedViolations = projectGuardViolations(guardResult);
+  const coverage = projectGuardCoverage(guardResult.coverage);
+  const fileErrors = projectGuardFileErrors(guardResult.fileErrors);
+  const reviewRound = numberFrom(guardResult.reviewRound);
+  const uncertainCount = numberFrom(asRecord(guardResult.uncertainSummary).total);
+  const verdict = ConclusionDispositionSchema.safeParse(guardResult.verdict);
   return {
     ...(appliedRules ? { appliedRules } : {}),
     ...(applicableRecipeRules.length > 0 ? { applicableRecipeRules } : {}),
+    ...(coverage ? { coverage } : {}),
+    ...(fileErrors.length > 0 ? { fileErrors } : {}),
     ...(projectedViolations.violations.length > 0
       ? {
           violations: projectedViolations.violations,
@@ -752,7 +790,11 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
     ...(stringFrom(record.guardErrorCode)
       ? { guardErrorCode: stringFrom(record.guardErrorCode) }
       : {}),
+    ...(typeof guardResult.maxRoundsReached === 'boolean'
+      ? { maxRoundsReached: guardResult.maxRoundsReached }
+      : {}),
     ok: record.ok !== false,
+    ...(reviewRound !== null ? { reviewRound } : {}),
     resultSummary: {
       ...(errorCount !== null ? { errorCount } : {}),
       ...(files.length ? { fileCount: Math.min(files.length, 1000) } : {}),
@@ -768,7 +810,28 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
       ...(warningCount !== null ? { warningCount } : {}),
     },
     ...(stringFrom(record.summary) ? { summary: stringFrom(record.summary) } : {}),
+    ...(uncertainCount !== null ? { uncertain: { count: uncertainCount } } : {}),
+    ...(verdict.success ? { verdict: verdict.data } : {}),
   };
+}
+
+function projectGuardCoverage(value: unknown): z.infer<typeof GuardCoverageSchema> | null {
+  const parsed = GuardCoverageSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function projectGuardFileErrors(value: unknown): Array<z.infer<typeof GuardFileErrorSchema>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const projected: Array<z.infer<typeof GuardFileErrorSchema>> = [];
+  for (const entry of value.slice(0, 1000)) {
+    const parsed = GuardFileErrorSchema.safeParse(entry);
+    if (parsed.success) {
+      projected.push(parsed.data);
+    }
+  }
+  return projected;
 }
 
 /** G2：从内层 guardResult.appliedRules 提取公开摘要；形态不符时返回 null（不破坏 guard 输出）。 */

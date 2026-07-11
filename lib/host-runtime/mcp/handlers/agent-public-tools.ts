@@ -914,6 +914,13 @@ function buildCodeGuardReadyOutput(input: {
 }) {
   const { args, ctx, detailRefs, guardEnvelope, intake, scope } = input;
   const guardResultRef = nextGuardResultRef();
+  const guard = projectGuardBusinessPayload(guardEnvelope);
+  const guardResult = isRecord(guard.guardResult) ? guard.guardResult : {};
+  const guardRecord = guard as Record<string, unknown>;
+  const guardSummary = typeof guardRecord.summary === 'string' ? guardRecord.summary : '';
+  const verdict = guardResult.verdict;
+  const status =
+    verdict === 'blocked' ? 'blocked' : verdict === 'incomplete' ? 'degraded' : 'ready';
   // prime→guard step1（2026-07-06，observe-only）：primeRef 显式传入或从 workRef
   // 记录继承，命中本会话 PRIME_RECORDS 时报告"prime 交付知识与被检文件的重叠"。
   // 纯观测面：不改变守门判定，不新增硬门；未命中/无 primeRef 时字段缺席。
@@ -938,18 +945,40 @@ function buildCodeGuardReadyOutput(input: {
         toolName: 'alembic_code_guard',
       },
     },
-    status: 'ready',
+    ...(status === 'degraded'
+      ? {
+          reason: {
+            kind: 'degraded' as const,
+            code: 'guard-coverage-incomplete' as const,
+            message: 'Code Guard could not complete every requested file check.',
+            retryable: true,
+          },
+        }
+      : {}),
+    ...(status === 'blocked'
+      ? {
+          reason: {
+            kind: 'blocked' as const,
+            code: 'guard-scope-invalid' as const,
+            message: 'Code Guard rejected one or more requested paths outside the project root.',
+            retryable: false,
+          },
+        }
+      : {}),
+    status,
     summary: buildResultSummary(
-      scope.hasCode
-        ? 'Code Guard checked explicit inline code.'
-        : `Code Guard checked ${scope.files.length} explicit file(s).`
+      guardSummary
+        ? guardSummary
+        : scope.hasCode
+          ? 'Code Guard checked explicit inline code.'
+          : `Code Guard checked ${scope.files.length} explicit file(s).`
     ),
     toolName: 'alembic_code_guard',
   });
   return createAgentPublicToolOutput(result, {
     detailRefs,
     explicitScope: buildCodeGuardExplicitScope(args, scope),
-    guard: projectGuardBusinessPayload(guardEnvelope),
+    guard,
     guardResultRef,
     ...(primeAlignment ? { primeAlignment } : {}),
     unsupportedScopeFields: scope.unsupportedScopeFields,

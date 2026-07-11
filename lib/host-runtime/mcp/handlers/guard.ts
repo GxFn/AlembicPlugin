@@ -7,11 +7,15 @@
  *   code: string    → 单文件内联检查
  */
 
-import fs from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { LanguageService } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
+import {
+  type CollectionCoverage,
+  type ConclusionDisposition,
+  deriveConclusionDisposition,
+} from '#service/project-knowledge-context/contracts/ToolOutputPrimitives.js';
 import { envelope } from '../envelope.js';
 import type { McpContext } from './types.js';
 
@@ -75,6 +79,23 @@ export interface ReviewFileResult {
   violations: GuardViolationEnriched[];
   summary: { total: number; errors: number; warnings: number };
   error?: string;
+}
+
+type GuardFileDisposition = 'checked' | 'missing' | 'unreadable' | 'out-of-root' | 'unsupported';
+
+interface GuardFileCoverageRow {
+  requestedPath: string;
+  filePath: string;
+  disposition: GuardFileDisposition;
+  message?: string;
+}
+
+interface GuardReviewCoverage extends CollectionCoverage {
+  checked: number;
+  missing: number;
+  unreadable: number;
+  outOfRoot: number;
+  unsupported: number;
 }
 
 interface RecipeEntry {
@@ -158,12 +179,6 @@ interface ModuleServiceLike {
     }>
   >;
 }
-
-// ═══ Review 轮次追踪（模块私有） ═══════════════════
-
-const _reviewRounds = new Map(); // projectRoot → round count
-const _lastReviewPassed = new Map(); // projectRoot → boolean
-const MAX_REVIEW_ROUNDS = 5;
 
 export async function guardCheck(ctx: McpContext, args: GuardCheckArgs) {
   const { GuardCheckEngine, detectLanguage } = await import('@alembic/core/guard');
@@ -332,7 +347,7 @@ export async function guardAuditFiles(ctx: McpContext, args: GuardAuditArgs) {
  *   1. 无参数 → 结构化阻塞，不再自动读取整个 git diff
  *   2. files: string[] → 指定文件路径（简化，不再要求对象数组）
  *   3. violations 内联 recipe 修复指南（doClause + coreCode）
- *   4. 防无限循环：reviewRound 计数 + MAX_REVIEW_ROUNDS 限制
+ *   4. Review 是无状态检查；不会用 projectRoot 共享轮次或在上限后强制通过
  *   5. 不绑定 task ID — 代码检查独立于任务系统
  *
  * @param ctx MCP context with container
@@ -366,47 +381,113 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
     });
   }
 
-  // 轮次追踪（基于 projectRoot，不绑定 task）
-  const round = (_reviewRounds.get(projectRoot) || 0) + 1;
-  _reviewRounds.set(projectRoot, round);
+  // Review 不携带可验证的 task/work/content identity 时，跨调用轮次会把无关请求
+  // 串在一起。保持无状态比 projectRoot 级计数更诚实；未来若要轮次限制，必须由
+  // 显式 receipt/workRef + content digest 驱动，且达到上限只能 blocked。
+  const round = 1;
+  const maxRoundsReached = false;
 
-  if (round > MAX_REVIEW_ROUNDS) {
-    _reviewRounds.delete(projectRoot);
-    _lastReviewPassed.set(projectRoot, true); // 强制通过
-    return envelope({
-      success: true,
-      data: {
-        passed: true,
-        files: [],
-        totalViolations: 0,
-        reviewRound: round,
-        maxRoundsReached: true,
-      },
-      message: `⚠️ Guard review round ${round} exceeds max ${MAX_REVIEW_ROUNDS}. Force-passing. Remaining issues should be tracked as follow-up.`,
-      meta: { tool: 'alembic_code_guard', mode: 'review' },
-    });
+  // 1. 每个请求路径都保留一行 coverage；禁止先过滤再假装“没有文件”。
+  const requestedFiles = args.files.map(
+    (file: string | { path?: string; [key: string]: unknown }) =>
+      typeof file === 'string' ? file : file.path || String(file)
+  );
+  const coverageRows: GuardFileCoverageRow[] = [];
+  const readableFiles: Array<{
+    code: string;
+    coverage: GuardFileCoverageRow;
+    filePath: string;
+  }> = [];
+  const results: ReviewFileResult[] = [];
+
+  for (const requestedPath of requestedFiles) {
+    const filePath = path.isAbsolute(requestedPath)
+      ? path.resolve(requestedPath)
+      : path.resolve(projectRoot, requestedPath);
+    const relative = path.relative(projectRoot, filePath);
+    if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
+      const row: GuardFileCoverageRow = {
+        requestedPath,
+        filePath,
+        disposition: 'out-of-root',
+        message: 'Requested path is outside the active project root.',
+      };
+      coverageRows.push(row);
+      results.push({
+        filePath,
+        error: row.message,
+        violations: [],
+        summary: { total: 0, errors: 0, warnings: 0 },
+      });
+      continue;
+    }
+
+    let fileStat: Awaited<ReturnType<typeof stat>>;
+    try {
+      fileStat = await stat(filePath);
+    } catch (err: unknown) {
+      const code = isNodeErrorWithCode(err) ? err.code : '';
+      const disposition: GuardFileDisposition = code === 'ENOENT' ? 'missing' : 'unreadable';
+      const row: GuardFileCoverageRow = {
+        requestedPath,
+        filePath,
+        disposition,
+        message:
+          disposition === 'missing' ? 'Requested file does not exist.' : guardErrorMessage(err),
+      };
+      coverageRows.push(row);
+      results.push({
+        filePath,
+        error: row.message,
+        violations: [],
+        summary: { total: 0, errors: 0, warnings: 0 },
+      });
+      continue;
+    }
+
+    if (!fileStat.isFile()) {
+      const row: GuardFileCoverageRow = {
+        requestedPath,
+        filePath,
+        disposition: 'unsupported',
+        message: 'Requested path is not a regular file.',
+      };
+      coverageRows.push(row);
+      results.push({
+        filePath,
+        error: row.message,
+        violations: [],
+        summary: { total: 0, errors: 0, warnings: 0 },
+      });
+      continue;
+    }
+
+    try {
+      const code = await readFile(filePath, 'utf8');
+      const row: GuardFileCoverageRow = {
+        requestedPath,
+        filePath,
+        disposition: 'checked',
+      };
+      coverageRows.push(row);
+      readableFiles.push({ code, coverage: row, filePath });
+    } catch (err: unknown) {
+      const row: GuardFileCoverageRow = {
+        requestedPath,
+        filePath,
+        disposition: 'unreadable',
+        message: guardErrorMessage(err),
+      };
+      coverageRows.push(row);
+      results.push({
+        filePath,
+        error: row.message,
+        violations: [],
+        summary: { total: 0, errors: 0, warnings: 0 },
+      });
+    }
   }
-
-  // 1. 确定待检查文件
-  // files 参数: string[] — 简化版，自动读取文件内容
-  const filePaths = args.files
-    .map((f: string | { path?: string; [key: string]: unknown }) =>
-      typeof f === 'string' ? f : f.path || String(f)
-    )
-    .map((f: string) => (path.isAbsolute(f) ? f : path.resolve(projectRoot, f)))
-    .filter((f: string) => fs.existsSync(f));
   const fileSource = 'explicit';
-
-  if (!filePaths.length) {
-    _reviewRounds.delete(projectRoot);
-    _lastReviewPassed.set(projectRoot, true);
-    return envelope({
-      success: true,
-      data: { passed: true, files: [], totalViolations: 0, reviewRound: round, fileSource },
-      message: '✅ No changed source files detected. Guard review passed.',
-      meta: { tool: 'alembic_code_guard', mode: 'review' },
-    });
-  }
 
   // 2. 预加载 rule recipe 缓存
   const recipeMap = await _loadRuleRecipes(ctx);
@@ -416,16 +497,17 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
   await _injectEnhancementGuardRules(engine, ctx);
 
   // 4. 逐文件检查（使用 auditFile 以捕获 uncertain）
-  const results: ReviewFileResult[] = [];
   let totalViolations = 0;
   let totalErrors = 0;
   let totalWarnings = 0;
   const allUncertainResults: unknown[] = [];
 
-  for (const fp of filePaths) {
+  for (const readable of readableFiles) {
+    const fp = readable.filePath;
     try {
-      const code = await readFile(fp, 'utf8');
-      const auditResult = engine.auditFile(fp, code, { isTest: LanguageService.isTestFile(fp) });
+      const auditResult = engine.auditFile(fp, readable.code, {
+        isTest: LanguageService.isTestFile(fp),
+      });
       const violations = auditResult.violations;
 
       // 收集 uncertain
@@ -472,31 +554,49 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
         summary: fileSummary,
       });
     } catch (err: unknown) {
+      readable.coverage.disposition = 'unsupported';
+      readable.coverage.message = guardErrorMessage(err);
       results.push({
         filePath: fp,
-        error: `Cannot read: ${err instanceof Error ? err.message : String(err)}`,
+        error: readable.coverage.message,
         violations: [],
         summary: { total: 0, errors: 0, warnings: 0 },
       });
     }
   }
 
-  const passed = totalViolations === 0;
+  const checked = coverageRows.filter((row) => row.disposition === 'checked').length;
+  const missing = coverageRows.filter((row) => row.disposition === 'missing').length;
+  const unreadable = coverageRows.filter((row) => row.disposition === 'unreadable').length;
+  const outOfRoot = coverageRows.filter((row) => row.disposition === 'out-of-root').length;
+  const unsupported = coverageRows.filter((row) => row.disposition === 'unsupported').length;
+  const coverage: GuardReviewCoverage = {
+    scope: 'files',
+    requested: coverageRows.length,
+    attempted: coverageRows.length - outOfRoot,
+    succeeded: checked,
+    failed: missing + unreadable + unsupported,
+    omitted: outOfRoot,
+    completeness: checked === coverageRows.length ? 'complete' : 'partial',
+    checked,
+    missing,
+    unreadable,
+    outOfRoot,
+    unsupported,
+  };
+  const verdict: ConclusionDisposition = deriveConclusionDisposition({
+    blockingFailure: outOfRoot > 0,
+    coverage,
+    hasFailure: totalViolations > 0 || allUncertainResults.length > 0,
+  });
+  const passed = verdict === 'passed';
 
   // G2 守门正面清单（2026-07-06）：0 violations 时宿主无法区分"检查了且干净"与
   // "没什么可检查"——按被检文件语言集合枚举引擎实际装载的规则（数据库 Recipe
   // 规则 + 内置），投影计数与样本。engine.getRules 是引擎检查同源的规则装配面。
   const appliedRules = summarizeAppliedGuardRules(engine, results);
 
-  // 5. 更新共享状态
-  if (passed) {
-    _reviewRounds.delete(projectRoot);
-    _lastReviewPassed.set(projectRoot, true);
-  } else {
-    _lastReviewPassed.set(projectRoot, false);
-  }
-
-  // 6. 写入 ViolationsStore
+  // 5. 写入 ViolationsStore
   try {
     const violationsStore = ctx.container.get('violationsStore');
     for (const r of results) {
@@ -512,11 +612,11 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
     /* optional */
   }
 
-  // 7. 构造消息
+  // 6. 构造消息
   let message: string;
   if (passed) {
-    message = `✅ Guard review passed (round ${round}). ${filePaths.length} file(s) checked, 0 violations.`;
-  } else {
+    message = `✅ Guard review passed. ${checked} file(s) checked, 0 violations.`;
+  } else if (verdict === 'failed') {
     const violatingFiles = results.filter((r) => r.violations.length > 0);
     const details = violatingFiles
       .map(
@@ -526,32 +626,50 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       .join('\n');
 
     message = [
-      `⚠️ Guard review round ${round}: ${totalViolations} violation(s) in ${violatingFiles.length} file(s).`,
+      `⚠️ Guard review failed: ${totalViolations} violation(s) in ${violatingFiles.length} file(s).`,
       details,
       '',
       'Each violation includes inline `recipe` with doClause + coreCode — apply fixes directly.',
-      round >= MAX_REVIEW_ROUNDS - 1
-        ? `⚠️ Next round is the last (max ${MAX_REVIEW_ROUNDS}). Unresolved issues will be force-passed.`
-        : `Fix and call alembic_code_guard again (round ${round + 1}).`,
+      'Fix the reported violations and run alembic_code_guard again with the same explicit scope.',
     ].join('\n');
+  } else {
+    message =
+      verdict === 'blocked'
+        ? '⛔ Guard review blocked because one or more requested paths are outside the project root.'
+        : `⚠️ Guard review incomplete: checked ${checked}/${coverage.requested} requested file(s).`;
   }
 
   return envelope({
     success: true,
     data: {
       passed,
+      verdict,
+      coverage,
+      fileCoverage: coverageRows,
+      fileErrors: coverageRows
+        .filter((row) => row.disposition !== 'checked')
+        .map((row) => ({
+          filePath: row.filePath,
+          requestedPath: row.requestedPath,
+          disposition: row.disposition,
+          ...(row.message ? { message: row.message } : {}),
+        })),
       reviewRound: round,
+      maxRoundsReached,
       fileSource,
       files: results,
       totalViolations,
       appliedRules,
       // G-B：适用 Recipe 规矩清单（refs 精确文件匹配），无论 violation 与否都交付
-      applicableRecipeRules: collectApplicableRecipeRules(ctx, filePaths),
+      applicableRecipeRules: collectApplicableRecipeRules(
+        ctx,
+        coverageRows.filter((row) => row.disposition === 'checked').map((row) => row.filePath)
+      ),
       summary: {
         total: totalViolations,
         errors: totalErrors,
         warnings: totalWarnings,
-        filesChecked: filePaths.length,
+        filesChecked: checked,
       },
       // uncertain 消费链路 — 结构化上抛给 Agent
       ...(allUncertainResults.length > 0
@@ -867,6 +985,16 @@ export async function scanProject(ctx: McpContext, args: ScanProjectArgs) {
 }
 
 // ─── 内部辅助 ─────────────────────────────────────────────
+
+function isNodeErrorWithCode(err: unknown): err is Error & { code: string } {
+  return (
+    err instanceof Error && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+  );
+}
+
+function guardErrorMessage(err: unknown): string {
+  return `Cannot inspect requested file: ${err instanceof Error ? err.message : String(err)}`;
+}
 
 /** 按字段值分组计数 */
 function _groupBy<T extends Record<string, unknown>>(

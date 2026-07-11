@@ -9,6 +9,7 @@
  */
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { CollectionCoverageSchema } from './ToolOutputPrimitives.js';
 
 export const ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION = 1 as const;
 
@@ -172,6 +173,15 @@ export const AlembicGraphProjectSchema = z
   })
   .strict();
 
+export const GraphRepoCoverageSchema = CollectionCoverageSchema.extend({
+  discoveredRepoIds: z.array(z.string().min(1).max(240)).max(1000),
+  succeededRepoIds: z.array(z.string().min(1).max(240)).max(1000),
+  failedRepoIds: z.array(z.string().min(1).max(240)).max(1000),
+  omittedRepoIds: z.array(z.string().min(1).max(240)).max(1000),
+  timeoutCount: z.number().int().nonnegative(),
+}).strict();
+export type GraphRepoCoverage = z.infer<typeof GraphRepoCoverageSchema>;
+
 export const AlembicGraphOutputSchema = z
   .object({
     ok: z.boolean(),
@@ -184,6 +194,7 @@ export const AlembicGraphOutputSchema = z
     queryKind: AlembicGraphQueryKindSchema,
     summary: z.string().min(1).max(2000),
     project: AlembicGraphProjectSchema,
+    repoCoverage: GraphRepoCoverageSchema,
     nodes: z.array(GraphNodeSummarySchema).max(500),
     relations: z.array(GraphRelationSummarySchema).max(500),
     refs: z.array(ProjectContextRefSummarySchema).max(200),

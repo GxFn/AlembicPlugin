@@ -94,6 +94,7 @@ export interface PrimeTrustPostureItem {
     | 'prime-injection-package'
     | 'prime-status'
     | 'search-context'
+    | 'weak-guard-rule'
     | 'weak-search-match';
   reason: string;
   status?: string;
@@ -135,6 +136,8 @@ export interface PrimeKnowledgeMaterial {
   /** 有 locator 证据但检索分低于信任地板的弱相关候选——requires-verification 语义。 */
   weakMatches: AcceptedPrimeKnowledge[];
   acceptedGuards: AcceptedPrimeGuard[];
+  /** 相关性、kind、源锚或 freshness 未过门的 Guard 候选，只能进入复核层。 */
+  verificationGuards: AcceptedPrimeGuard[];
   trustPosture: PrimeTrustPosture;
   shoutInstruction: string;
   hostResponse: PrimeHostResponseInstruction;
@@ -182,6 +185,7 @@ interface PrimeTrustPostureInput {
   acceptedGuards: AcceptedPrimeGuard[];
   acceptedKnowledge: AcceptedPrimeKnowledge[];
   weakMatches: AcceptedPrimeKnowledge[];
+  verificationGuards: AcceptedPrimeGuard[];
   degradedReason?: PrimeKnowledgeMaterialDegradedReason;
   intent: PrimeKnowledgeMaterial['intent'];
   searchResult: PrimeSearchResult | null;
@@ -227,6 +231,11 @@ export function buildPrimeKnowledgeMaterial(
   const searchDegraded = input.searchDegraded || isPrimeSearchResultDegraded(input.searchResult);
   const rawRelatedKnowledge = input.searchResult?.relatedKnowledge ?? [];
   const rawGuardRules = input.searchResult?.guardRules ?? [];
+  const projectedGuardRules = rawGuardRules.map(projectAcceptedGuard);
+  const trustedGuardRules = projectedGuardRules.filter(hasTrustedGuardEvidence);
+  const verificationGuardRules = projectedGuardRules.filter(
+    (guard) => !hasTrustedGuardEvidence(guard)
+  );
   const selectedKnowledgeByItemId = buildSelectedKnowledgeByItemId(
     input.searchResult,
     input.regionEvidence
@@ -261,15 +270,15 @@ export function buildPrimeKnowledgeMaterial(
     (knowledge) => knowledge.score < PRIME_TRUSTED_SCORE_FLOOR
   );
   const trustedMaterialGate = assessPrimeTrustedMaterialGate(input, {
-    guardRuleCount: rawGuardRules.length,
+    guardRuleCount: trustedGuardRules.length,
     trustedKnowledgeCount: trustedKnowledge.length,
   });
   const trustedMaterialBlocked = !searchDegraded && trustedMaterialGate.blockTrustedMaterial;
   const effectiveDegraded = searchDegraded || trustedMaterialBlocked;
-  const guardRules = effectiveDegraded ? [] : rawGuardRules;
   const acceptedKnowledge = effectiveDegraded ? [] : trustedKnowledge;
   const weakMatches = effectiveDegraded ? [] : weakKnowledgeMatches;
-  const acceptedGuards = guardRules.map(projectAcceptedGuard);
+  const acceptedGuards = effectiveDegraded ? [] : trustedGuardRules;
+  const verificationGuards = effectiveDegraded ? [] : verificationGuardRules;
   const hasDeliveredKnowledge = acceptedKnowledge.length > 0 || acceptedGuards.length > 0;
   const status: PrimeKnowledgeMaterialStatus = effectiveDegraded
     ? 'degraded'
@@ -304,6 +313,7 @@ export function buildPrimeKnowledgeMaterial(
     acceptedGuards,
     acceptedKnowledge,
     weakMatches,
+    verificationGuards,
     degradedReason,
     intent,
     searchResult: input.searchResult,
@@ -318,6 +328,7 @@ export function buildPrimeKnowledgeMaterial(
     acceptedKnowledge,
     weakMatches,
     acceptedGuards,
+    verificationGuards,
     trustPosture,
     shoutInstruction: buildPrimeShoutInstruction(status, trustPosture),
     hostResponse: buildPrimeHostResponseInstruction(status, receiptId, trustPosture),
@@ -505,9 +516,21 @@ function buildRequiresVerificationItems(
   return [
     ...acceptedMaterialVerificationItems(input),
     ...weakMatchVerificationItems(input),
+    ...weakGuardVerificationItems(input),
     ...primePackageVerificationItems(input, packageNeedsVerification),
     ...degradedSearchCandidateItems(input),
   ];
+}
+
+function weakGuardVerificationItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
+  return input.verificationGuards.slice(0, 10).map((guard) => ({
+    id: `weak-guard:${guard.id}`,
+    title: `Guard candidate (score ${guard.score.toFixed(2)}): ${guard.title}`,
+    source: 'weak-guard-rule',
+    reason:
+      'Guard candidate did not satisfy the trusted-to-obey relevance, kind, active-source, and freshness gate; verify it against current source before applying.',
+    evidenceRefs: guard.evidenceRefs,
+  }));
 }
 
 /** 质量分层：低于信任地板的弱相关候选进 requires-verification 层（逐条列出便于宿主复核）。 */
@@ -1246,6 +1269,14 @@ function projectAcceptedGuard(item: SlimSearchResult): AcceptedPrimeGuard {
     evidenceRefs: extractEvidenceRefs(item.sourceRefs, item.driftedSourceRefs),
     ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
   };
+}
+
+function hasTrustedGuardEvidence(guard: AcceptedPrimeGuard): boolean {
+  return (
+    guard.score >= PRIME_TRUSTED_SCORE_FLOOR &&
+    guard.evidenceRefs.length > 0 &&
+    guard.sourceRefStatus !== 'drifted'
+  );
 }
 
 function summarizePrimeItem(item: SlimSearchResult): string {
