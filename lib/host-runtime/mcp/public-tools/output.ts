@@ -746,6 +746,7 @@ const AGENT_PUBLIC_REASON_FAILURE_KINDS: Readonly<Record<string, CoreFieldFailur
   'low-confidence-intent': 'degraded',
   'optional-service-unavailable': 'unavailable',
   'project-root-untrusted': 'permission-denied',
+  'project-isolation-unconfirmed': 'conflict',
   'project-scope-unavailable': 'unavailable',
   'resident-unavailable': 'unavailable',
   'result-envelope-invalid': 'schema-drift',

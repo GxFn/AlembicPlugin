@@ -48,6 +48,7 @@ import {
 } from '../index.js';
 import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
 import { type EventLoopWatchdogHandle, startEventLoopWatchdog } from './EventLoopWatchdog.js';
+import { buildAgentPublicPreBootstrapBlock } from './host/agent-public-prebootstrap-gate.js';
 import {
   EmbeddedToolExecutor,
   resetPluginOwnedMcpServer,
@@ -387,6 +388,16 @@ export class HostMcpServer {
     });
     if (!executePreflight.ok) {
       return executePreflight.failure;
+    }
+
+    const agentPublicPreBootstrapBlock = buildAgentPublicPreBootstrapBlock({
+      args,
+      knowledge,
+      residentProjectScopeAvailable,
+      toolName: name,
+    });
+    if (agentPublicPreBootstrapBlock) {
+      return agentPublicPreBootstrapBlock;
     }
 
     const stagingAccessSweep = this.shouldRunStagingAccessSweep(name, args, knowledge)

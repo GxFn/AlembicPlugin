@@ -61,6 +61,7 @@ export const AGENT_DEGRADED_REASON_CODES = [
 
 export const AGENT_BLOCKED_REASON_CODES = [
   'project-root-untrusted',
+  'project-isolation-unconfirmed',
   'missing-required-intent',
   'missing-referenced-docs',
   'obsolete-prime-intent-input',
