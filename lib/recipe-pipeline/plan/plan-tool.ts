@@ -2,18 +2,24 @@ import { resolveModuleTier, resolvePerCellTargetDefault } from '@alembic/core/ho
 import { type PlanStageId, renderPlanScaleChecklistEn } from '@alembic/core/plans';
 import type { CoverageLedgerRecord, CoverageLedgerRepository } from '@alembic/core/repositories';
 import {
-  attachFullProjectInfoTreeRefIfNeeded,
   buildCandidateDimensions,
+  buildCompleteProjectInfoTree,
   buildProjectInfoTree,
   buildProjectProfileFromAnalysis,
   type CandidateDimension,
   collectPlanProjectContext,
+  countDeliveredProjectInfoNodes,
+  hasProjectInfoTreeOmissions,
   PLAN_FACTS_PROJECTION_BUDGET_BYTES,
   type PlanProjectContextAnalysis,
   type ProjectInfoTreeRoot,
+  pruneProjectInfoTreeToBudget,
+  removeTransientTransportIfPresent,
+  writeTransientTransport,
 } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
+import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
 import { confirmPlan } from './plan-confirm.js';
 
 interface PlanToolContext {
@@ -212,10 +218,7 @@ async function buildPlanDraftContext(
 ): Promise<PlanDraftContext> {
   const budgetBytes = resolveProjectInfoTreeBudgetBytes(args);
   const projectInfoTree = buildProjectInfoTree(analysis, budgetBytes);
-  await attachFullProjectInfoTreeRefIfNeeded(projectInfoTree, {
-    analysis,
-    projectRoot,
-  });
+  await attachScopeAwareFullProjectInfoTreeRefIfNeeded(projectInfoTree, analysis, projectRoot);
   // U2b：deepMining 草稿每次都「重新读」账本生成覆盖信号；coldStart/moduleMining 不读（coldStart 仍从零）。
   // RED LINE 1：plan 仍是无状态 draft→confirm，账本只是被读取的覆盖状态，绝不把 plan 持久化。
   const coverageSeed =
@@ -276,6 +279,31 @@ function planDraftResponse(draftContext: PlanDraftContext): PlanToolResponse {
       nextActions: [buildDraftConfirmNextAction(draftContext)],
     },
   };
+}
+
+async function attachScopeAwareFullProjectInfoTreeRefIfNeeded(
+  projectInfoTree: ProjectInfoTreeRoot,
+  analysis: PlanProjectContextAnalysis,
+  projectRoot: string
+): Promise<void> {
+  const dataRoot = resolveScopeAwareWorkspace(projectRoot).dataRoot;
+  const location = { dataRoot, name: 'plan-tree', projectRoot };
+  if (!hasProjectInfoTreeOmissions(projectInfoTree.meta)) {
+    await removeTransientTransportIfPresent(location);
+    projectInfoTree.meta = { ...projectInfoTree.meta, fullTreeRef: null };
+    return;
+  }
+
+  // Oversized Plan transport is project data even though draft/confirm remains stateless.
+  // Native ProjectScope/Ghost storage must never fall back to the source control root.
+  const fullTree = buildCompleteProjectInfoTree(analysis);
+  const fullTreeRef = await writeTransientTransport({ ...location, payload: fullTree });
+  projectInfoTree.meta = { ...projectInfoTree.meta, fullTreeRef };
+  pruneProjectInfoTreeToBudget(
+    projectInfoTree,
+    projectInfoTree.meta.budgetBytes,
+    countDeliveredProjectInfoNodes(fullTree)
+  );
 }
 
 function buildDraftConfirmNextAction(draftContext: PlanDraftContext): Record<string, unknown> {
