@@ -1078,9 +1078,10 @@ function buildGuardPrimeAlignment(
   const coverage = isRecord(guardResult.coverage) ? guardResult.coverage : {};
   const coverageComplete = coverage.completeness === 'complete';
   const deliveredGuardIds = new Set(record.guards.map((guard) => guard.id));
-  const appliedGuardIds = coverageComplete
-    ? collectAppliedGuardIds(guardResult).filter((id) => deliveredGuardIds.has(id))
-    : [];
+  // 当前公开 Guard 结果只提供“已装载规则摘要”和“适用 Recipe 清单”，两者都不
+  // 是规则已被宿主实际使用/应用的 receipt。没有显式 used/applied 证据时必须保留
+  // 空集；违规证据在 violatedGuardIds 中独立回流，不能借 loaded/applicable 冒充。
+  const appliedGuardIds: string[] = [];
   const violatedGuardIds = coverageComplete
     ? collectViolatedGuardIds(guardResult).filter((id) => deliveredGuardIds.has(id))
     : [];
@@ -1120,19 +1121,6 @@ function matchPrimeDeliveryItems(
     );
     return matchedFiles.length > 0 ? [{ id: item.id, title: item.title, matchedFiles }] : [];
   });
-}
-
-function collectAppliedGuardIds(guardResult: Record<string, unknown>): string[] {
-  const appliedRules = isRecord(guardResult.appliedRules) ? guardResult.appliedRules : {};
-  const sampleIds = (Array.isArray(appliedRules.sample) ? appliedRules.sample : [])
-    .filter(isRecord)
-    .map((item) => firstString(item.id));
-  const applicableIds = (
-    Array.isArray(guardResult.applicableRecipeRules) ? guardResult.applicableRecipeRules : []
-  )
-    .filter(isRecord)
-    .map((item) => firstString(item.recipeId));
-  return uniqueStrings([...sampleIds, ...applicableIds].filter((id): id is string => Boolean(id)));
 }
 
 function collectViolatedGuardIds(guardResult: Record<string, unknown>): string[] {

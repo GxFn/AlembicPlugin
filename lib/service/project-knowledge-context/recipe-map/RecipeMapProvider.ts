@@ -605,7 +605,7 @@ function dedupeMapDiagnostics(diagnostics: MapDiagnostic[]): MapDiagnostic[] {
   return [
     ...new Map(
       diagnostics.map((diagnostic) => [
-        `${diagnostic.code} ${diagnostic.recipeId ?? ''} ${diagnostic.message}`,
+        `${diagnostic.code}\u0000${diagnostic.recipeId ?? ''}\u0000${diagnostic.message}`,
         diagnostic,
       ])
     ).values(),

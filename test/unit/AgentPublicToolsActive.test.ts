@@ -1042,7 +1042,7 @@ describe('agent-facing active public tools', () => {
     expect(asRecord(first.primeAlignment)).toMatchObject({
       deliveredGuardCount: 1,
       overlappedGuardIds: ['guard-public-api'],
-      appliedGuardIds: ['guard-public-api'],
+      appliedGuardIds: [],
       violatedGuardIds: ['guard-public-api'],
       feedbackGuardIds: ['guard-public-api'],
       feedbackRecorded: true,
