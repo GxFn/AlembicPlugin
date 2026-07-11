@@ -11,6 +11,7 @@ import type {
   SaveSnapshotParams,
 } from '@alembic/core/types';
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
+import type { ProjectRuntimeContext } from '../../context/ProjectRuntimeContext.js';
 import type { McpToolUsageMap } from '../session-usage.js';
 
 // ─── DI Container (minimal shape) ────────────────────────
@@ -40,6 +41,7 @@ export interface McpContext {
   startedAt?: number;
   connection?: McpConnection;
   hostTurnMeta?: HostTurnMetaInput;
+  projectRuntime?: ProjectRuntimeContext | null;
   [key: string]: unknown;
 }
 

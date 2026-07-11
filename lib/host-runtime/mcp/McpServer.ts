@@ -34,6 +34,7 @@ import {
   isProjectScopeSummaryForFolder,
   resolveProjectScopeRuntime,
 } from '../../shared/project-scope-runtime.js';
+import type { ProjectRuntimeContext } from '../context/ProjectRuntimeContext.js';
 import { wrapHandler } from './errorHandler.js';
 import type { McpContext, McpServiceContainer } from './handlers/types.js';
 import {
@@ -69,6 +70,7 @@ interface McpServerOptions {
 
 export interface McpToolCallOptions {
   actor?: ToolActor;
+  projectRuntime?: ProjectRuntimeContext | null;
   source?: ToolCallSource;
   surface?: ToolSurface;
   hostTurnMeta?: HostTurnMetaInput;
@@ -335,6 +337,7 @@ export class McpServer {
         user: options.actor?.user || process.env.USER || undefined,
         sessionId: options.actor?.sessionId || this._connection.id,
       },
+      projectRuntime: options.projectRuntime,
       source,
       surface,
       hostTurnMeta: options.hostTurnMeta,
@@ -350,6 +353,7 @@ export class McpServer {
     args: Record<string, unknown>,
     runtime: {
       actor?: ToolActor;
+      projectRuntime?: ProjectRuntimeContext | null;
       source?: ToolCallSource;
       surface?: ToolSurface;
       hostTurnMeta?: HostTurnMetaInput;
@@ -358,6 +362,7 @@ export class McpServer {
     const ctx = this._ctx;
     Object.assign(ctx, {
       actor: runtime.actor,
+      projectRuntime: runtime.projectRuntime,
       source: runtime.source,
       surface: runtime.surface,
       hostTurnMeta: runtime.hostTurnMeta,

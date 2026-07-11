@@ -501,6 +501,7 @@ describe('alembic_search resident search enhancement', () => {
       limit: 3,
       rank: false,
       kind: 'all',
+      projectRoot: process.cwd(),
     });
     expect(engineSearch).toHaveBeenCalled();
     expect(result.structuredContent.result).toMatchObject({
@@ -579,6 +580,7 @@ describe('alembic_search resident search enhancement', () => {
       limit: 3,
       rank: false,
       kind: 'all',
+      projectRoot: process.cwd(),
     });
     const residentRequest = JSON.stringify(residentSearch.mock.calls[0]?.[0]);
     expect(residentRequest).not.toContain('hostDeclaredIntent');
@@ -625,6 +627,7 @@ describe('alembic_search resident search enhancement', () => {
       language: 'typescript',
       limit: 2,
       mode: 'auto',
+      projectRoot: process.cwd(),
       query: 'resident semantic vector truth',
       scope: 'workspace',
       tags: ['search', 'resident'],
@@ -644,6 +647,7 @@ describe('alembic_search resident search enhancement', () => {
       language: 'typescript',
       limit: 2,
       mode: 'auto',
+      projectRoot: process.cwd(),
       query: 'resident semantic vector truth',
       rank: false,
       scope: 'workspace',
@@ -1236,23 +1240,25 @@ describe('alembic_search resident search enhancement', () => {
       mode: 'weighted',
       searchMeta: { route: 'field-weighted', semanticUsed: false, vectorUsed: false },
     }));
-    const residentSearch = vi.fn(async (): Promise<ResidentSearchResult> => ({
-      items: [item('semantic-top', 'Semantic decisive candidate', 0.99)],
-      meta: {
-        attempted: true,
-        available: true,
-        actualMode: 'semantic',
-        durationMs: 1,
-        requestedMode: 'auto',
-        residentRequestMode: 'semantic',
-        residentVector: { available: true, reason: null },
-        resultCount: 1,
-        route: 'alembic-resident-service',
-        semanticUsed: true,
-        used: true,
-        vectorUsed: true,
-      },
-    }));
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        items: [item('semantic-top', 'Semantic decisive candidate', 0.99)],
+        meta: {
+          attempted: true,
+          available: true,
+          actualMode: 'semantic',
+          durationMs: 1,
+          requestedMode: 'auto',
+          residentRequestMode: 'semantic',
+          residentVector: { available: true, reason: null },
+          resultCount: 1,
+          route: 'alembic-resident-service',
+          semanticUsed: true,
+          used: true,
+          vectorUsed: true,
+        },
+      })
+    );
     const args = { limit: 1, mode: 'auto' as const, query: 'Semantic decisive candidate' };
     const first = (await search(context({ engineSearch, residentSearch }), args)) as {
       structuredContent: { items: Array<{ id: string; matchRoutes: string[] }> };

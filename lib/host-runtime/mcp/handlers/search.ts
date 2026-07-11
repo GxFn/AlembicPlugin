@@ -11,9 +11,10 @@
  * 3. 投影使用 SearchTypes.slimSearchResult()（消除 3 处重复投影）
  */
 
+import { resolve } from 'node:path';
 import { groupByKind, slimSearchResult } from '@alembic/core/search';
 import { RECIPE_SEMANTIC_REGION_METADATA_TYPE } from '@alembic/core/vector';
-import { resolveProjectRoot } from '@alembic/core/workspace';
+import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import {
   ALEMBIC_SEARCH_OUTPUT_CONTRACT_VERSION,
   type AlembicSearchOperation,
@@ -47,6 +48,17 @@ const KEYWORD_MATCH_THRESHOLD = 0.5;
 const SEMANTIC_MATCH_THRESHOLD = 0.55;
 const INTERNAL_SEARCH_ROUTES_KEY = '__alembicSearchRoutes';
 const LOCAL_RECIPE_REGION_VECTOR_ROUTE = 'local-recipe-region-vector';
+
+interface SearchRequestProjectContext {
+  dataRoot: string;
+  projectId: string | null;
+  projectRoot: string;
+  projectScope: Record<string, unknown> | null;
+  projectScopeId: string | null;
+  revision: unknown;
+}
+
+type SearchRequestProjectContextBase = Omit<SearchRequestProjectContext, 'revision'>;
 
 // ─── 工具函数 ────────────────────────────────────────────────
 
@@ -83,6 +95,71 @@ async function getFallbackEngine(ctx: McpContext) {
   const knowledgeRepo = ctx.container.get('knowledgeRepository');
   const sourceRefRepo = ctx.container.get('recipeSourceRefRepository');
   return new SearchEngine(db, { knowledgeRepo, sourceRefRepo } as Record<string, unknown>);
+}
+
+function resolveSearchRequestProjectContext(
+  ctx: McpContext,
+  args: SearchArgs
+): SearchRequestProjectContextBase {
+  const containerProjectRoot = resolveProjectRoot(ctx.container);
+  const runtimeIdentity = ctx.projectRuntime?.identity;
+  const projectRoot =
+    readString(args.projectRoot) ??
+    readString(runtimeIdentity?.projectRoot) ??
+    containerProjectRoot;
+  const containerDataRoot = resolveDataRoot(ctx.container);
+  const dataRoot = readString(runtimeIdentity?.dataRoot) ?? containerDataRoot;
+
+  // Search 的本地 keyword/vector/knowledge collectors 全部来自同一个 DI container。
+  // 若 container 与请求身份不同，继续执行会把长生命周期 singleton 的外项目事实融合进来。
+  if (!sameResolvedPath(projectRoot, containerProjectRoot)) {
+    throw new Error(
+      `Search request project identity mismatch: requested=${projectRoot}, container=${containerProjectRoot}.`
+    );
+  }
+  if (runtimeIdentity && !sameResolvedPath(dataRoot, containerDataRoot)) {
+    throw new Error(
+      `Search request data-root identity mismatch: requested=${dataRoot}, container=${containerDataRoot}.`
+    );
+  }
+
+  return {
+    dataRoot,
+    projectId: readString(runtimeIdentity?.projectId) ?? null,
+    projectRoot,
+    projectScope: readRecord(runtimeIdentity?.projectScope) ?? null,
+    projectScopeId: readString(runtimeIdentity?.projectScopeId) ?? null,
+  };
+}
+
+function projectSearchIdentitySummary(
+  context: SearchRequestProjectContext,
+  residentAttempt: { items: SearchResultItem[]; meta: ResidentSearchAttemptMeta } | null
+): Record<string, unknown> {
+  const residentIdentity = readRecord(residentAttempt?.meta.projectScopeIdentity);
+  return {
+    dataRoot: context.dataRoot,
+    projectId: context.projectId,
+    projectRoot: context.projectRoot,
+    projectScope: context.projectScope,
+    projectScopeId: context.projectScopeId,
+    residentEndpointIdentity: residentIdentity
+      ? {
+          currentFolderId: readString(residentIdentity.currentFolderId),
+          dataRoot: readString(residentIdentity.dataRoot),
+          projectId: readString(residentIdentity.projectId),
+          projectRoot: readString(residentIdentity.projectRoot),
+          projectScopeId: readString(residentIdentity.projectScopeId),
+          serviceScopeId: readString(residentIdentity.serviceScopeId),
+          source: readString(residentIdentity.source),
+        }
+      : null,
+    revision: context.revision,
+  };
+}
+
+function sameResolvedPath(left: string, right: string): boolean {
+  return resolve(left) === resolve(right);
 }
 
 /** 根据 kind 参数过滤 items */
@@ -178,12 +255,16 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   if (operation === 'get' || operation === 'expand') {
     return projectDetailOperation(ctx, args, operation);
   }
-  const pipeline = await runSearchPipeline(ctx, args);
-  const projectRoot = readString(args.projectRoot) ?? resolveProjectRoot(ctx.container);
+  const projectContextBase = resolveSearchRequestProjectContext(ctx, args);
   const checkpointPosture = buildRetrievalCheckpointPosture(
     ctx.container,
-    resolveRetrievalCheckpointPostureInput(projectRoot)
+    resolveRetrievalCheckpointPostureInput(projectContextBase.projectRoot)
   );
+  const projectContext: SearchRequestProjectContext = {
+    ...projectContextBase,
+    revision: checkpointPosture.sourceRevisionManifest ?? checkpointPosture.checkpoint ?? null,
+  };
+  const pipeline = await runSearchPipeline(ctx, args, projectContext);
   const candidateItems = await buildKnowledgeCandidates(ctx, args, pipeline);
   const relevance = assessSearchRelevance(candidateItems, args, pipeline);
   const knowledgeItems = relevance.items;
@@ -207,6 +288,10 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       normalizedFilters: relevance.normalizedFilters,
       omittedCount: relevance.omittedCount,
       operation: 'search',
+      requestProjectIdentity: projectSearchIdentitySummary(
+        projectContext,
+        pipeline.residentAttempt
+      ),
       returnedCount: relevance.returnedCount,
       gitDiffCheckpoint: {
         available: checkpointPosture.available,
@@ -230,6 +315,10 @@ export async function search(ctx: McpContext, args: SearchArgs) {
       mode: pipeline.requestedMode,
       query: pipeline.query.length === 0 ? undefined : pipeline.query,
       queryLabel,
+      requestProjectIdentity: projectSearchIdentitySummary(
+        projectContext,
+        pipeline.residentAttempt
+      ),
       residentSearch: sanitizeResidentSearchMeta(pipeline.residentAttempt?.meta),
       residentVector: sanitizeResidentVector(pipeline.searchMeta.residentVector),
       searchMeta: sanitizeSearchMeta(pipeline.searchMeta),
@@ -294,7 +383,11 @@ export async function search(ctx: McpContext, args: SearchArgs) {
   return projectAlembicSearchOutput(payload, { operation: 'search', status, diagnostics });
 }
 
-async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<SearchPipelineResult> {
+async function runSearchPipeline(
+  ctx: McpContext,
+  args: SearchArgs,
+  projectContext: SearchRequestProjectContext
+): Promise<SearchPipelineResult> {
   const t0 = Date.now();
   const engine = getSearchEngine(ctx) || (await getFallbackEngine(ctx));
   const residentSearchClient = getResidentSearchClient(ctx);
@@ -313,6 +406,7 @@ async function runSearchPipeline(ctx: McpContext, args: SearchArgs): Promise<Sea
         language: args.language,
         limit: execution.engineLimit,
         mode,
+        projectRoot: projectContext.projectRoot,
         query,
         rank: execution.rank,
         scope: readString(args.scope),
@@ -929,11 +1023,15 @@ async function projectDetailOperation(
   args: SearchArgs,
   operation: 'get' | 'expand'
 ) {
-  const projectRoot = readString(args.projectRoot) ?? resolveProjectRoot(ctx.container);
+  const projectContextBase = resolveSearchRequestProjectContext(ctx, args);
   const checkpointPosture = buildRetrievalCheckpointPosture(
     ctx.container,
-    resolveRetrievalCheckpointPostureInput(projectRoot)
+    resolveRetrievalCheckpointPostureInput(projectContextBase.projectRoot)
   );
+  const projectContext: SearchRequestProjectContext = {
+    ...projectContextBase,
+    revision: checkpointPosture.sourceRevisionManifest ?? checkpointPosture.checkpoint ?? null,
+  };
   const refId = resolveDetailRef(args);
   const entries = await listKnowledgeEntries(ctx, args, Math.max(args.limit ?? 10, 20));
   const directEntry = refId ? await getKnowledgeEntry(ctx, refId) : null;
@@ -977,6 +1075,7 @@ async function projectDetailOperation(
         status: checkpointPosture.status,
       },
       operation,
+      requestProjectIdentity: projectSearchIdentitySummary(projectContext, null),
     },
     items: selectedItem ? [projectKnowledgeItem(selectedItem)] : [],
     nextActions: selectedItem ? nextActionsForDetail(operation, refId, detailRefs[0]) : [],
@@ -986,6 +1085,7 @@ async function projectDetailOperation(
       found: detail !== null,
       refId,
       requestedOperation: operation,
+      requestProjectIdentity: projectSearchIdentitySummary(projectContext, null),
       gitDiffCheckpoint: {
         available: checkpointPosture.available,
         checkpoint: checkpointPosture.checkpoint,
@@ -2613,6 +2713,7 @@ async function tryResidentSearch(
       rank: request.rank,
       kind: request.kind,
       language: request.language,
+      projectRoot: request.projectRoot,
       ...(request.category ? { category: request.category } : {}),
       ...(request.dimensionId ? { dimensionId: request.dimensionId } : {}),
       ...(request.knowledgeType ? { knowledgeType: request.knowledgeType } : {}),

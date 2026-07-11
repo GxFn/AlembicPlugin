@@ -398,6 +398,7 @@ export class AlembicResidentServiceClient {
         status,
       });
       const workspaceMismatch = findResidentSearchWorkspaceMismatch({
+        explicitProjectRoot: normalizeFolderPath(request.projectRoot) !== null,
         meta,
         projectScopeIdentity,
         targetProjectRoot,
@@ -1179,13 +1180,20 @@ function residentSearchVectorAvailableSignal(
 }
 
 function findResidentSearchWorkspaceMismatch(input: {
+  explicitProjectRoot: boolean;
   meta: ResidentSearchAttemptMeta;
   projectScopeIdentity: AlembicResidentProjectScopeIdentity;
   targetProjectRoot: string;
 }): string | null {
   const workspace = isRecord(input.meta.workspace) ? input.meta.workspace : null;
   if (!workspace) {
-    return null;
+    return input.explicitProjectRoot
+      ? [
+          'Alembic resident search returned no workspace identity evidence for the explicit projectRoot.',
+          `requested=${input.targetProjectRoot}`,
+          'Resident results were ignored because their project membership could not be proven.',
+        ].join(' ')
+      : null;
   }
 
   const workspaceProjectScopeId = stringFrom(workspace.projectScopeId);

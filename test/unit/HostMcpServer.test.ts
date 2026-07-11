@@ -168,6 +168,29 @@ function seedStagingRecipeRows(projectRoot: string, now: number): void {
   }
 }
 
+function seedActiveSearchRecipe(projectRoot: string, id: string, title: string): void {
+  const db = new Database(path.join(projectRoot, '.asd', 'alembic.db'));
+  try {
+    db.prepare(
+      `INSERT INTO knowledge_entries
+        (id, title, description, lifecycle, autoApprovable, language, dimensionId,
+         category, kind, knowledgeType, content, reasoning, quality, createdAt, updatedAt)
+       VALUES
+        (?, ?, ?, 'active', 0, 'typescript', 'architecture',
+         'architecture', 'fact', 'code-pattern', '{}', '{}', ?, ?, ?)`
+    ).run(
+      id,
+      title,
+      `${title} project-scoped guidance.`,
+      JSON.stringify({ overall: 0.95 }),
+      Date.now(),
+      Date.now()
+    );
+  } finally {
+    db.close();
+  }
+}
+
 function readStagingSweepRows(projectRoot: string): {
   events: Array<{
     from_state: string;
@@ -1037,9 +1060,7 @@ describe('HostMcpServer', () => {
         }),
       ])
     );
-    expect(result.data.nextActions).toContain(
-      'Plan cold-start after init: call alembic_bootstrap'
-    );
+    expect(result.data.nextActions).toContain('Plan cold-start after init: call alembic_bootstrap');
     expect(fs.existsSync(path.join(projectRoot, '.asd', 'jobs'))).toBe(false);
   });
 
@@ -1166,6 +1187,88 @@ describe('HostMcpServer', () => {
     })) as { data: { project: { root: string } }; success: boolean };
     expect(overrideStatus.success).toBe(true);
     expect(overrideStatus.data.project.root).toBe(projectRoot);
+  });
+
+  test('one long-lived host server keeps sequential Search results inside each explicit projectRoot', async () => {
+    useTempAlembicHome();
+    delete process.env.ALEMBIC_PROJECT_DIR;
+    delete process.env.CODEX_WORKSPACE_DIR;
+    delete process.env.CODEX_WORKSPACE_ROOT;
+    const pluginRoot = path.join(
+      makeProjectRoot(),
+      '.codex',
+      'plugins',
+      'cache',
+      'gxfn',
+      'alembic',
+      getPackageVersion()
+    );
+    fs.mkdirSync(pluginRoot, { recursive: true });
+    process.env.PWD = pluginRoot;
+
+    const workspaceRoot = makeProjectRoot();
+    const bilidiliRoot = makeProjectRoot();
+    makeUsableKnowledgeBase(workspaceRoot);
+    makeUsableKnowledgeBase(bilidiliRoot);
+    const server = new HostMcpServer();
+
+    // Initialize each isolated temp knowledge store before inserting deterministic active rows.
+    await server.handleToolCall('alembic_search', {
+      projectRoot: workspaceRoot,
+      query: 'initialization probe',
+      mode: 'keyword',
+    });
+    await server.handleToolCall('alembic_search', {
+      projectRoot: bilidiliRoot,
+      query: 'initialization probe',
+      mode: 'keyword',
+    });
+    seedActiveSearchRecipe(workspaceRoot, 'workspace-only', 'Workspace Only Recipe');
+    seedActiveSearchRecipe(bilidiliRoot, 'bilidili-only', 'BiliDili Only Recipe');
+
+    const workspaceSearch = (await server.handleToolCall('alembic_search', {
+      projectRoot: workspaceRoot,
+      query: 'Workspace Only Recipe',
+      mode: 'keyword',
+      limit: 5,
+    })) as {
+      structuredContent: {
+        items: Array<{ id: string }>;
+        result: { requestProjectIdentity: { dataRoot: string; projectRoot: string } };
+      };
+    };
+    const bilidiliSearch = (await server.handleToolCall('alembic_search', {
+      projectRoot: bilidiliRoot,
+      query: 'BiliDili Only Recipe',
+      mode: 'keyword',
+      limit: 5,
+    })) as {
+      structuredContent: {
+        items: Array<{ id: string }>;
+        result: { requestProjectIdentity: { dataRoot: string; projectRoot: string } };
+      };
+    };
+
+    expect(workspaceSearch.structuredContent.items.map((item) => item.id)).toContain(
+      'workspace-only'
+    );
+    expect(workspaceSearch.structuredContent.items.map((item) => item.id)).not.toContain(
+      'bilidili-only'
+    );
+    expect(bilidiliSearch.structuredContent.items.map((item) => item.id)).toContain(
+      'bilidili-only'
+    );
+    expect(bilidiliSearch.structuredContent.items.map((item) => item.id)).not.toContain(
+      'workspace-only'
+    );
+    expect(workspaceSearch.structuredContent.result.requestProjectIdentity).toMatchObject({
+      dataRoot: workspaceRoot,
+      projectRoot: workspaceRoot,
+    });
+    expect(bilidiliSearch.structuredContent.result.requestProjectIdentity).toMatchObject({
+      dataRoot: bilidiliRoot,
+      projectRoot: bilidiliRoot,
+    });
   });
 
   test('read-only projectRoot override does not persist diagnostics or become effective identity', async () => {
@@ -1669,9 +1772,7 @@ describe('HostMcpServer', () => {
     };
 
     expect(result.success).toBe(true);
-    expect(result.data.package.pinnedSpecifier).toBe(
-      `alembic-runtime@${getPackageVersion()}`
-    );
+    expect(result.data.package.pinnedSpecifier).toBe(`alembic-runtime@${getPackageVersion()}`);
     expect(result.data.checks).toMatchObject({
       packagePin: true,
       pluginAssets: true,

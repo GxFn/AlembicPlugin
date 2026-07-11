@@ -79,6 +79,7 @@ export class EmbeddedToolExecutor {
           user: process.env.USER || undefined,
           sessionId: this.#getSessionId(),
         },
+        projectRuntime: executionContext.projectRuntime,
         source: { kind: 'codex', name: 'plugin-owned-codex-facing' },
         surface: 'codex',
         hostTurnMeta: options.hostTurnMeta,

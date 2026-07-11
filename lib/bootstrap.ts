@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { DatabaseConnection } from '@alembic/core/database';
 import { pathGuard } from '@alembic/core/io';
 import Logger from '@alembic/core/logging';
@@ -54,7 +55,9 @@ export class Bootstrap {
    * @param [knowledgeBaseDir] 知识库目录名（如 'Alembic'）
    */
   static configurePathGuard(projectRoot: string, knowledgeBaseDir?: string) {
-    if (!pathGuard.configured && projectRoot) {
+    // HostMcpServer 支持同一宿主进程按请求切换显式 projectRoot。PathGuard 是 Core
+    // 进程单例，若只配置一次，后续 Bootstrap 会继续从首个项目构造 WorkspaceResolver。
+    if (projectRoot && (!pathGuard.configured || pathGuard.projectRoot !== resolve(projectRoot))) {
       pathGuard.configure({ projectRoot, packageRoot: PACKAGE_ROOT, knowledgeBaseDir });
     } else if (knowledgeBaseDir) {
       // 已配置但知识库目录名可能后续才知道

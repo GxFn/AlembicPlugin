@@ -749,35 +749,33 @@ describe('AlembicResidentServiceClient', () => {
   });
 
   it('rejects explicit-project resident results when response membership is not proven', async () => {
-    const fetchImpl = vi.fn(
-      async (input: Parameters<typeof fetch>[0]) => {
-        const url = fetchInputUrl(input);
-        if (url.pathname === '/api/v1/daemon/health') {
-          return new Response(JSON.stringify(residentHealthPayload()), {
-            headers: { 'content-type': 'application/json' },
-            status: 200,
-          });
-        }
-        if (url.pathname === '/api/v1/search') {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              data: {
-                items: [{ id: 'foreign-unknown', title: 'Unscoped resident recipe', score: 0.99 }],
-                searchMeta: {
-                  actualMode: 'semantic',
-                  requestedMode: 'semantic',
-                  semanticUsed: true,
-                  vectorUsed: true,
-                },
-              },
-            }),
-            { headers: { 'content-type': 'application/json' }, status: 200 }
-          );
-        }
-        throw new Error(`Unexpected URL: ${url.pathname}`);
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = fetchInputUrl(input);
+      if (url.pathname === '/api/v1/daemon/health') {
+        return new Response(JSON.stringify(residentHealthPayload()), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        });
       }
-    ) as unknown as typeof fetch;
+      if (url.pathname === '/api/v1/search') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              items: [{ id: 'foreign-unknown', title: 'Unscoped resident recipe', score: 0.99 }],
+              searchMeta: {
+                actualMode: 'semantic',
+                requestedMode: 'semantic',
+                semanticUsed: true,
+                vectorUsed: true,
+              },
+            },
+          }),
+          { headers: { 'content-type': 'application/json' }, status: 200 }
+        );
+      }
+      throw new Error(`Unexpected URL: ${url.pathname}`);
+    }) as unknown as typeof fetch;
     const client = new AlembicResidentServiceClient({
       fetchImpl,
       projectRoot: '/tmp/plugin-host',
