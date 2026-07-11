@@ -178,6 +178,13 @@ describe('native ProjectScope runtime wiring', () => {
       status: 'ready',
       statusSnapshot: {
         initialized: true,
+        knowledge: {
+          freshness: {
+            stale: true,
+            status: 'stale',
+          },
+        },
+        ok: false,
         project: {
           dataRootSource: 'ghost-registry',
           projectId: 'project-native-runtime',
@@ -191,6 +198,7 @@ describe('native ProjectScope runtime wiring', () => {
       },
     });
     expect(publicStatus).toMatchObject({
+      businessOk: false,
       initialized: true,
       project: {
         dataRootSource: 'ghost-registry',
@@ -202,6 +210,16 @@ describe('native ProjectScope runtime wiring', () => {
         ghost: true,
         mode: 'ghost',
       },
+      knowledge: {
+        freshness: {
+          reason: expect.stringContaining('revision manifest'),
+          stale: true,
+          status: 'stale',
+        },
+        status: 'knowledge_stale',
+      },
+      ok: true,
+      status: 'degraded',
     });
     expect(publicReinit).toMatchObject({
       ok: true,

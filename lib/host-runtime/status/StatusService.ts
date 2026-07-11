@@ -450,7 +450,7 @@ function summarizeCompactDaemonStatus(
   };
 }
 
-function summarizeHostKnowledgeState(
+export function summarizeHostKnowledgeState(
   knowledge: HostKnowledgeState,
   checkpointPosture: RetrievalCheckpointPosture | null
 ): StatusData['knowledge'] {
