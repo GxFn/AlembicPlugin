@@ -1046,7 +1046,12 @@ function addProjectContextFileFlowEdges(
         // 命中则连 imports 边,未命中(UIKit 等外部框架)不建节点避免图污染。
         const specifierLabel = importRelation.to?.label;
         if (specifierLabel) {
-          relations.add(nodes, sourceFileId, 'imports', `target:${stableRefSegment(specifierLabel)}`);
+          relations.add(
+            nodes,
+            sourceFileId,
+            'imports',
+            `target:${stableRefSegment(specifierLabel)}`
+          );
         }
         continue;
       }
