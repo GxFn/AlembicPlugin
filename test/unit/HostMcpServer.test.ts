@@ -14,6 +14,12 @@ import {
 import { pathGuard } from '@alembic/core/io';
 import { PROJECT_SCOPE_CONTRACT_VERSION, type ProjectScopeSummary } from '@alembic/core/shared';
 import {
+  HnswVectorAdapter,
+  RECIPE_REGION_VECTOR_ID_PREFIX,
+  RECIPE_REGION_VECTOR_SCHEMA_VERSION,
+  RECIPE_SEMANTIC_REGION_METADATA_TYPE,
+} from '@alembic/core/vector';
+import {
   getGhostWorkspaceDir,
   getProjectRegistryDir,
   ProjectRegistry,
@@ -48,6 +54,9 @@ const ORIGINAL_PWD = process.env.PWD;
 const ORIGINAL_STAGING_SWEEP_MIN_INTERVAL_MS =
   process.env.ALEMBIC_STAGING_ACCESS_SWEEP_MIN_INTERVAL_MS;
 const ORIGINAL_STAGING_SWEEP_TIMEOUT_MS = process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS;
+const ORIGINAL_LOCAL_EMBEDDING_ENABLED = process.env.ALEMBIC_LOCAL_EMBEDDING_ENABLED;
+const ORIGINAL_OLLAMA_EMBED_MODEL = process.env.ALEMBIC_OLLAMA_EMBED_MODEL;
+const ORIGINAL_OLLAMA_ENDPOINT = process.env.ALEMBIC_OLLAMA_ENDPOINT;
 // 钉更新（2026-07-06）：alembic_plan 进 HOST_AGENT_WORKFLOW 可见面（plan→bootstrap
 // 是冷启动必经）后本清单未同步——9 个既有失败中 3 个的根因；recipe_map 实际注册
 // 顺序紧随 prime（同为知识消费首跳）。按 getVisibleTools 真实顺序对齐。
@@ -192,6 +201,37 @@ function seedActiveSearchRecipe(projectRoot: string, id: string, title: string):
   }
 }
 
+async function seedLocalSemanticRegion(
+  projectRoot: string,
+  input: { id: string; sourceRef: string; title: string; trigger: string }
+): Promise<void> {
+  const store = new HnswVectorAdapter(projectRoot, { walEnabled: false });
+  store.initSync();
+  await store.upsert({
+    id: `${RECIPE_REGION_VECTOR_ID_PREFIX}${input.id}_identity_test`,
+    content: `Recipe title: ${input.title}\nTrigger: ${input.trigger}\nSource refs: ${input.sourceRef}`,
+    vector: [1, 0, 0],
+    metadata: {
+      dimensionId: 'architecture',
+      generatedFrom: 'knowledge-entry-row',
+      generationScope: 'test-fixture',
+      kind: 'pattern',
+      language: 'typescript',
+      lifecycle: 'active',
+      recipeId: input.id,
+      regionClass: 'identity',
+      schemaVersion: RECIPE_REGION_VECTOR_SCHEMA_VERSION,
+      sourceRefs: [input.sourceRef],
+      sourceRefsBridge: 'active',
+      title: input.title,
+      trigger: input.trigger,
+      type: RECIPE_SEMANTIC_REGION_METADATA_TYPE,
+    },
+  });
+  await store.flush();
+  store.destroy();
+}
+
 function captureDatabaseFamily(
   dbPath: string
 ): Record<string, { exists: boolean; hash?: string; mtimeNs?: bigint; size?: number }> {
@@ -204,6 +244,31 @@ function captureDatabaseFamily(
       const stat = fs.statSync(filePath, { bigint: true });
       return [
         suffix || 'main',
+        {
+          exists: true,
+          hash: createHash('sha256').update(fs.readFileSync(filePath)).digest('hex'),
+          mtimeNs: stat.mtimeNs,
+          size: Number(stat.size),
+        },
+      ];
+    })
+  );
+}
+
+function captureReadOnlySearchInputs(
+  projectRoot: string
+): Record<string, { exists: boolean; hash?: string; mtimeNs?: bigint; size?: number }> {
+  return Object.fromEntries(
+    [
+      ['config', path.join(projectRoot, '.asd', 'config.json')],
+      ['vectorIndex', path.join(projectRoot, '.asd', 'context', 'index', 'vector_index.asvec')],
+    ].map(([label, filePath]) => {
+      if (!fs.existsSync(filePath)) {
+        return [label, { exists: false }];
+      }
+      const stat = fs.statSync(filePath, { bigint: true });
+      return [
+        label,
         {
           exists: true,
           hash: createHash('sha256').update(fs.readFileSync(filePath)).digest('hex'),
@@ -567,6 +632,21 @@ afterEach(async () => {
     delete process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS;
   } else {
     process.env.ALEMBIC_STAGING_ACCESS_SWEEP_TIMEOUT_MS = ORIGINAL_STAGING_SWEEP_TIMEOUT_MS;
+  }
+  if (ORIGINAL_LOCAL_EMBEDDING_ENABLED === undefined) {
+    delete process.env.ALEMBIC_LOCAL_EMBEDDING_ENABLED;
+  } else {
+    process.env.ALEMBIC_LOCAL_EMBEDDING_ENABLED = ORIGINAL_LOCAL_EMBEDDING_ENABLED;
+  }
+  if (ORIGINAL_OLLAMA_EMBED_MODEL === undefined) {
+    delete process.env.ALEMBIC_OLLAMA_EMBED_MODEL;
+  } else {
+    process.env.ALEMBIC_OLLAMA_EMBED_MODEL = ORIGINAL_OLLAMA_EMBED_MODEL;
+  }
+  if (ORIGINAL_OLLAMA_ENDPOINT === undefined) {
+    delete process.env.ALEMBIC_OLLAMA_ENDPOINT;
+  } else {
+    process.env.ALEMBIC_OLLAMA_ENDPOINT = ORIGINAL_OLLAMA_ENDPOINT;
   }
   vi.restoreAllMocks();
 });
@@ -1245,8 +1325,40 @@ describe('HostMcpServer', () => {
     });
     seedActiveSearchRecipe(workspaceRoot, 'workspace-only', 'Workspace Only Recipe');
     seedActiveSearchRecipe(bilidiliRoot, 'bilidili-only', 'BiliDili Only Recipe');
+    await seedLocalSemanticRegion(workspaceRoot, {
+      id: 'workspace-only',
+      sourceRef: 'Alembic/recipes/architecture/workspace-only.md',
+      title: 'Workspace Only Recipe',
+      trigger: '@workspace-only',
+    });
+    await seedLocalSemanticRegion(bilidiliRoot, {
+      id: 'bilidili-only',
+      sourceRef: 'Alembic/recipes/testing-quality/bilidili-only.md',
+      title: 'BiliDili Only Recipe',
+      trigger: '@bilidili-only',
+    });
 
     await resetPluginOwnedMcpServerForTests();
+    process.env.ALEMBIC_LOCAL_EMBEDDING_ENABLED = '1';
+    process.env.ALEMBIC_OLLAMA_EMBED_MODEL = 'qwen3-embedding:0.6b';
+    process.env.ALEMBIC_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === 'http://127.0.0.1:11434/api/tags') {
+        return new Response(JSON.stringify({ models: [{ name: 'qwen3-embedding:0.6b' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url === 'http://127.0.0.1:11434/api/embed') {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { input?: unknown[] };
+        return new Response(
+          JSON.stringify({ embeddings: (body.input ?? []).map(() => [1, 0, 0]) }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      throw new Error(`resident unavailable for ${url}`);
+    });
     const workspaceDbPath = path.join(workspaceRoot, '.asd', 'alembic.db');
     const bilidiliDbPath = path.join(bilidiliRoot, '.asd', 'alembic.db');
     // Keep both WAL families resident while the public host alternates projects, matching the
@@ -1260,6 +1372,10 @@ describe('HostMcpServer', () => {
     const databaseFamilyBefore = {
       bilidili: captureDatabaseFamily(bilidiliDbPath),
       workspace: captureDatabaseFamily(workspaceDbPath),
+    };
+    const searchInputsBefore = {
+      bilidili: captureReadOnlySearchInputs(bilidiliRoot),
+      workspace: captureReadOnlySearchInputs(workspaceRoot),
     };
 
     const workspaceRejectsBili = (await server.handleToolCall('alembic_search', {
@@ -1300,11 +1416,45 @@ describe('HostMcpServer', () => {
     })) as {
       structuredContent: { items: Array<{ id: string }> };
     };
+    const workspaceSemantic = (await server.handleToolCall('alembic_search', {
+      projectRoot: workspaceRoot,
+      query: 'distributed orchestration handoff',
+      mode: 'semantic',
+      limit: 5,
+    })) as {
+      structuredContent: {
+        inventory: { candidateSources: string[] };
+        items: Array<{ id: string; sourceRefs?: string[] }>;
+        result: { requestProjectIdentity: { dataRoot: string; projectRoot: string } };
+      };
+    };
+    const bilidiliSemantic = (await server.handleToolCall('alembic_search', {
+      projectRoot: bilidiliRoot,
+      query: 'swift cursor prefetch',
+      mode: 'semantic',
+      limit: 5,
+    })) as typeof workspaceSemantic;
+    const workspaceSemanticRepeat = (await server.handleToolCall('alembic_search', {
+      projectRoot: workspaceRoot,
+      query: 'distributed orchestration handoff',
+      mode: 'semantic',
+      limit: 5,
+    })) as typeof workspaceSemantic;
+    const bilidiliSemanticRepeat = (await server.handleToolCall('alembic_search', {
+      projectRoot: bilidiliRoot,
+      query: 'swift cursor prefetch',
+      mode: 'semantic',
+      limit: 5,
+    })) as typeof workspaceSemantic;
 
     await resetPluginOwnedMcpServerForTests();
     const databaseFamilyAfter = {
       bilidili: captureDatabaseFamily(bilidiliDbPath),
       workspace: captureDatabaseFamily(workspaceDbPath),
+    };
+    const searchInputsAfter = {
+      bilidili: captureReadOnlySearchInputs(bilidiliRoot),
+      workspace: captureReadOnlySearchInputs(workspaceRoot),
     };
     for (const anchor of anchors) {
       anchor.close();
@@ -1336,7 +1486,43 @@ describe('HostMcpServer', () => {
       dataRoot: bilidiliRoot,
       projectRoot: bilidiliRoot,
     });
+    expect(workspaceSemantic.structuredContent.items.map((item) => item.id)).toEqual([
+      'workspace-only',
+    ]);
+    expect(workspaceSemantic.structuredContent.items[0]?.sourceRefs).toContain(
+      'Alembic/recipes/architecture/workspace-only.md'
+    );
+    expect(
+      workspaceSemantic.structuredContent.items.flatMap((item) => item.sourceRefs ?? [])
+    ).not.toContain('Alembic/recipes/testing-quality/bilidili-only.md');
+    expect(workspaceSemantic.structuredContent.inventory.candidateSources).toContain(
+      'local-recipe-region-vector'
+    );
+    expect(bilidiliSemantic.structuredContent.items.map((item) => item.id)).toEqual([
+      'bilidili-only',
+    ]);
+    expect(bilidiliSemantic.structuredContent.items[0]?.sourceRefs).toContain(
+      'Alembic/recipes/testing-quality/bilidili-only.md'
+    );
+    expect(
+      bilidiliSemantic.structuredContent.items.flatMap((item) => item.sourceRefs ?? [])
+    ).not.toContain('Alembic/recipes/architecture/workspace-only.md');
+    expect(workspaceSemanticRepeat.structuredContent.items).toEqual(
+      workspaceSemantic.structuredContent.items
+    );
+    expect(bilidiliSemanticRepeat.structuredContent.items).toEqual(
+      bilidiliSemantic.structuredContent.items
+    );
+    expect(workspaceSemantic.structuredContent.result.requestProjectIdentity).toMatchObject({
+      dataRoot: workspaceRoot,
+      projectRoot: workspaceRoot,
+    });
+    expect(bilidiliSemantic.structuredContent.result.requestProjectIdentity).toMatchObject({
+      dataRoot: bilidiliRoot,
+      projectRoot: bilidiliRoot,
+    });
     expect(databaseFamilyAfter).toEqual(databaseFamilyBefore);
+    expect(searchInputsAfter).toEqual(searchInputsBefore);
   });
 
   test('read-only projectRoot override does not persist diagnostics or become effective identity', async () => {
