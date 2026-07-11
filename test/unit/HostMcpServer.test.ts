@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -189,6 +190,30 @@ function seedActiveSearchRecipe(projectRoot: string, id: string, title: string):
   } finally {
     db.close();
   }
+}
+
+function captureDatabaseFamily(dbPath: string): Record<
+  string,
+  { exists: boolean; hash?: string; mtimeNs?: bigint; size?: number }
+> {
+  return Object.fromEntries(
+    ['', '-wal', '-shm'].map((suffix) => {
+      const filePath = `${dbPath}${suffix}`;
+      if (!fs.existsSync(filePath)) {
+        return [suffix || 'main', { exists: false }];
+      }
+      const stat = fs.statSync(filePath, { bigint: true });
+      return [
+        suffix || 'main',
+        {
+          exists: true,
+          hash: createHash('sha256').update(fs.readFileSync(filePath)).digest('hex'),
+          mtimeNs: stat.mtimeNs,
+          size: Number(stat.size),
+        },
+      ];
+    })
+  );
 }
 
 function readStagingSweepRows(projectRoot: string): {
@@ -1189,7 +1214,7 @@ describe('HostMcpServer', () => {
     expect(overrideStatus.data.project.root).toBe(projectRoot);
   });
 
-  test('one long-lived host server keeps sequential Search results inside each explicit projectRoot', async () => {
+  test('one long-lived host server keeps sequential Search isolated without mutating database sidecars', async () => {
     useTempAlembicHome();
     delete process.env.ALEMBIC_PROJECT_DIR;
     delete process.env.CODEX_WORKSPACE_DIR;
@@ -1226,16 +1251,29 @@ describe('HostMcpServer', () => {
     seedActiveSearchRecipe(workspaceRoot, 'workspace-only', 'Workspace Only Recipe');
     seedActiveSearchRecipe(bilidiliRoot, 'bilidili-only', 'BiliDili Only Recipe');
 
-    const workspaceSearch = (await server.handleToolCall('alembic_search', {
+    await resetPluginOwnedMcpServerForTests();
+    const workspaceDbPath = path.join(workspaceRoot, '.asd', 'alembic.db');
+    const bilidiliDbPath = path.join(bilidiliRoot, '.asd', 'alembic.db');
+    // Keep both WAL families resident while the public host alternates projects, matching the
+    // real daemon-owned stores from the controller reproduction. Capture after anchor setup so
+    // only the four public Search calls are allowed to differ.
+    const anchors = [new Database(workspaceDbPath), new Database(bilidiliDbPath)];
+    for (const anchor of anchors) {
+      anchor.pragma('journal_mode = WAL');
+      anchor.prepare('SELECT COUNT(*) FROM knowledge_entries').get();
+    }
+    const databaseFamilyBefore = {
+      bilidili: captureDatabaseFamily(bilidiliDbPath),
+      workspace: captureDatabaseFamily(workspaceDbPath),
+    };
+
+    const workspaceRejectsBili = (await server.handleToolCall('alembic_search', {
       projectRoot: workspaceRoot,
-      query: 'Workspace Only Recipe',
+      query: 'BiliDili Only Recipe',
       mode: 'keyword',
       limit: 5,
     })) as {
-      structuredContent: {
-        items: Array<{ id: string }>;
-        result: { requestProjectIdentity: { dataRoot: string; projectRoot: string } };
-      };
+      structuredContent: { items: Array<{ id: string }> };
     };
     const bilidiliSearch = (await server.handleToolCall('alembic_search', {
       projectRoot: bilidiliRoot,
@@ -1248,7 +1286,38 @@ describe('HostMcpServer', () => {
         result: { requestProjectIdentity: { dataRoot: string; projectRoot: string } };
       };
     };
+    const workspaceSearch = (await server.handleToolCall('alembic_search', {
+      projectRoot: workspaceRoot,
+      query: 'Workspace Only Recipe',
+      mode: 'keyword',
+      limit: 5,
+    })) as {
+      structuredContent: {
+        items: Array<{ id: string }>;
+        result: { requestProjectIdentity: { dataRoot: string; projectRoot: string } };
+      };
+    };
+    const bilidiliRejectsWorkspace = (await server.handleToolCall('alembic_search', {
+      projectRoot: bilidiliRoot,
+      query: 'Workspace Only Recipe',
+      mode: 'keyword',
+      limit: 5,
+    })) as {
+      structuredContent: { items: Array<{ id: string }> };
+    };
 
+    await resetPluginOwnedMcpServerForTests();
+    const databaseFamilyAfter = {
+      bilidili: captureDatabaseFamily(bilidiliDbPath),
+      workspace: captureDatabaseFamily(workspaceDbPath),
+    };
+    for (const anchor of anchors) {
+      anchor.close();
+    }
+
+    expect(workspaceRejectsBili.structuredContent.items.map((item) => item.id)).not.toContain(
+      'bilidili-only'
+    );
     expect(workspaceSearch.structuredContent.items.map((item) => item.id)).toContain(
       'workspace-only'
     );
@@ -1261,6 +1330,9 @@ describe('HostMcpServer', () => {
     expect(bilidiliSearch.structuredContent.items.map((item) => item.id)).not.toContain(
       'workspace-only'
     );
+    expect(bilidiliRejectsWorkspace.structuredContent.items.map((item) => item.id)).not.toContain(
+      'workspace-only'
+    );
     expect(workspaceSearch.structuredContent.result.requestProjectIdentity).toMatchObject({
       dataRoot: workspaceRoot,
       projectRoot: workspaceRoot,
@@ -1269,6 +1341,7 @@ describe('HostMcpServer', () => {
       dataRoot: bilidiliRoot,
       projectRoot: bilidiliRoot,
     });
+    expect(databaseFamilyAfter).toEqual(databaseFamilyBefore);
   });
 
   test('read-only projectRoot override does not persist diagnostics or become effective identity', async () => {
