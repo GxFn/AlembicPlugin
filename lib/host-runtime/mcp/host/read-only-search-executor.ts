@@ -19,6 +19,9 @@ import {
 } from './read-only-search-snapshot.js';
 
 type ReadOnlyDatabase = InstanceType<typeof Database>;
+type ResidentSearchRoute = 'pure-local' | 'resident-enabled';
+
+const RESIDENT_SEARCH_ENABLED_ENV = 'ALEMBIC_RESIDENT_SEARCH_ENABLED';
 
 /**
  * Run public Search against a connection that SQLite itself opened read-only.
@@ -96,9 +99,14 @@ async function createReadOnlySearchContainer(
       : {}) as unknown as ConstructorParameters<typeof SearchEngine>[1]
   );
   const { checkpointRepository, knowledgeService } = createReadOnlySearchRepositories(db);
-  const residentSearchClient = new AlembicResidentServiceClient({
-    projectRoot: identity.projectRoot,
-  });
+  const residentSearchRoute = resolveResidentSearchRoute();
+  const residentSearchClient =
+    residentSearchRoute === 'resident-enabled'
+      ? new AlembicResidentServiceClient({ projectRoot: identity.projectRoot })
+      : null;
+  process.stderr.write(
+    `[MCP/Search] resident contribution route=${residentSearchRoute} selector=${RESIDENT_SEARCH_ENABLED_ENV}\n`
+  );
 
   return {
     container: {
@@ -130,6 +138,31 @@ async function createReadOnlySearchContainer(
     },
     dispose: () => vectorGraph?.dispose(),
   };
+}
+
+/**
+ * Select whether the optional resident lane may contribute to Search results.
+ *
+ * Resident fusion remains the compatibility default. Acceptance and other deterministic
+ * pure-local processes can explicitly set ALEMBIC_RESIDENT_SEARCH_ENABLED=0 without changing
+ * daemon lifecycle policy; ALEMBIC_DAEMON_AUTOSTART continues to govern startup only.
+ */
+function resolveResidentSearchRoute(env: NodeJS.ProcessEnv = process.env): ResidentSearchRoute {
+  const raw = env[RESIDENT_SEARCH_ENABLED_ENV];
+  if (raw === undefined) {
+    return 'resident-enabled';
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (['0', 'false', 'no', 'off', ''].includes(normalized)) {
+    return 'pure-local';
+  }
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return 'resident-enabled';
+  }
+  process.stderr.write(
+    `[MCP/Search] invalid ${RESIDENT_SEARCH_ENABLED_ENV}=${JSON.stringify(raw)}; defaulting to resident-enabled.\n`
+  );
+  return 'resident-enabled';
 }
 
 interface ReadOnlyVectorGraph {
