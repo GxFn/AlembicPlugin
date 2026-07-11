@@ -1167,7 +1167,7 @@ describe('HostMcpServer', () => {
     expect(overrideStatus.data.project.root).toBe(projectRoot);
   });
 
-  test('tool-call projectRoot override saves diagnostics but is not reused as effective identity', async () => {
+  test('read-only projectRoot override does not persist diagnostics or become effective identity', async () => {
     useTempAlembicHome();
     delete process.env.ALEMBIC_PROJECT_DIR;
     delete process.env.CODEX_WORKSPACE_DIR;
@@ -1198,7 +1198,7 @@ describe('HostMcpServer', () => {
       success: boolean;
     };
 
-    expect(fs.existsSync(getSavedProjectRootPath())).toBe(true);
+    expect(fs.existsSync(getSavedProjectRootPath())).toBe(false);
     expect(result.data.project?.root).not.toBe(projectRoot);
     if (!result.success) {
       expect(result.data.errorCode).toBe('CODEX_PROJECT_ROOT_REJECTED');

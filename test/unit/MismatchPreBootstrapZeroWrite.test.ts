@@ -8,6 +8,10 @@ import {
 } from '@alembic/core/shared';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
+  getSavedProjectRootPath,
+  writeSavedProjectRoot,
+} from '../../lib/host-runtime/context/ProjectRootResolver.js';
+import {
   HostMcpServer,
   resetPluginOwnedMcpServerForTests,
 } from '../../lib/host-runtime/mcp/HostMcpServer.js';
@@ -113,6 +117,58 @@ describe('agent-public mismatch pre-Bootstrap zero-write gate', () => {
         status: 'blocked',
         toolName,
       });
+    }
+  });
+
+  test.each([
+    'mr-host-sp-home',
+    'sp-host-mr-home',
+  ])('keeps the pre-existing foreign locator byte-stable for explicit-root status and blocked tools in %s', async (direction) => {
+    const fixture = createCrossHomeFixture(direction);
+    writeSavedProjectRoot(fixture.foreignRoot);
+    const locatorPath = getSavedProjectRootPath();
+    const homeBefore = snapshotTree(fixture.homeRoot);
+    const locatorBefore = fs.readFileSync(locatorPath);
+    const hostBefore = snapshotTree(fixture.hostRoot);
+    const foreignBefore = snapshotTree(fixture.foreignRoot);
+    const server = new HostMcpServer();
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ['alembic_status', {}],
+      [
+        'alembic_prime',
+        {
+          capability: 'ProjectScope isolation',
+          inputSource: 'user-message',
+          requirementGoal: 'Use only knowledge bound to this host source root.',
+          taskAction: 'implement',
+        },
+      ],
+      ['alembic_work', { inputSource: 'user-message', phase: 'start', title: 'Scoped work' }],
+      [
+        'alembic_code_guard',
+        {
+          code: 'export const scoped = true;',
+          inputSource: 'user-message',
+          language: 'typescript',
+        },
+      ],
+    ];
+
+    for (const [toolName, args] of calls) {
+      const result = (await server.handleToolCall(toolName, {
+        ...args,
+        projectRoot: fixture.hostRoot,
+      })) as { reason?: { code?: string }; status?: string };
+      if (toolName !== 'alembic_status') {
+        expect(result).toMatchObject({
+          reason: { code: 'project-isolation-unconfirmed' },
+          status: 'blocked',
+        });
+      }
+      expect(fs.readFileSync(locatorPath)).toEqual(locatorBefore);
+      expect(snapshotTree(fixture.homeRoot)).toEqual(homeBefore);
+      expect(snapshotTree(fixture.hostRoot)).toEqual(hostBefore);
+      expect(snapshotTree(fixture.foreignRoot)).toEqual(foreignBefore);
     }
   });
 });
