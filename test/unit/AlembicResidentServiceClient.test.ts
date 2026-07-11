@@ -748,6 +748,53 @@ describe('AlembicResidentServiceClient', () => {
     });
   });
 
+  it('rejects explicit-project resident results when response membership is not proven', async () => {
+    const fetchImpl = vi.fn(
+      async (input: Parameters<typeof fetch>[0]) => {
+        const url = fetchInputUrl(input);
+        if (url.pathname === '/api/v1/daemon/health') {
+          return new Response(JSON.stringify(residentHealthPayload()), {
+            headers: { 'content-type': 'application/json' },
+            status: 200,
+          });
+        }
+        if (url.pathname === '/api/v1/search') {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                items: [{ id: 'foreign-unknown', title: 'Unscoped resident recipe', score: 0.99 }],
+                searchMeta: {
+                  actualMode: 'semantic',
+                  requestedMode: 'semantic',
+                  semanticUsed: true,
+                  vectorUsed: true,
+                },
+              },
+            }),
+            { headers: { 'content-type': 'application/json' }, status: 200 }
+          );
+        }
+        throw new Error(`Unexpected URL: ${url.pathname}`);
+      }
+    ) as unknown as typeof fetch;
+    const client = new AlembicResidentServiceClient({
+      fetchImpl,
+      projectRoot: '/tmp/plugin-host',
+      readState: () => daemonState(),
+    });
+
+    const result = await client.search({
+      query: 'workspace-only-recipe',
+      mode: 'auto',
+      projectRoot: '/tmp/alembic-workspace',
+    });
+
+    expect(result.items).toEqual([]);
+    expect(result.meta.available).toBe(false);
+    expect(result.meta.reason).toContain('identity evidence');
+  });
+
   it('uses POST body for resident host intent handoff without leaking context into the URL', async () => {
     const requests: Array<{ init?: RequestInit; url: URL }> = [];
     const fetchImpl = vi.fn(

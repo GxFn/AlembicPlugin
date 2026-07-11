@@ -132,11 +132,13 @@ function primeInjectionPackageSummary() {
 function context(input: {
   engineSearch?: ReturnType<typeof vi.fn>;
   knowledgeService?: Record<string, unknown>;
+  projectRoot?: string;
   residentSearch?: ReturnType<typeof vi.fn>;
   vectorService?: Record<string, unknown>;
 }): McpContext {
   return {
     container: {
+      singletons: input.projectRoot ? { _projectRoot: input.projectRoot } : undefined,
       get: vi.fn((name: string) => {
         if (name === 'searchEngine') {
           return { search: input.engineSearch ?? vi.fn(async () => ({ items: [] })) };
@@ -326,6 +328,47 @@ describe('alembic_search resident search enhancement', () => {
 
     expect(engineSearch).not.toHaveBeenCalled();
     expect(residentSearch).not.toHaveBeenCalled();
+  });
+
+  it('propagates each explicit projectRoot to the resident collector across sequential searches', async () => {
+    const residentSearch = vi.fn(
+      async (): Promise<ResidentSearchResult> => ({
+        items: [],
+        meta: {
+          attempted: true,
+          available: false,
+          durationMs: 1,
+          reason: 'no-match',
+          requestedMode: 'auto',
+          residentVector: { available: false, reason: 'no-match' },
+          resultCount: 0,
+          route: 'alembic-resident-service',
+          used: false,
+        },
+      })
+    );
+    const workspaceRoot = '/workspace/alembic';
+    const bilidiliRoot = '/workspace/bilidili';
+
+    await search(context({ projectRoot: workspaceRoot, residentSearch }), {
+      projectRoot: workspaceRoot,
+      query: 'workspace-only-recipe',
+      mode: 'auto',
+    });
+    await search(context({ projectRoot: bilidiliRoot, residentSearch }), {
+      projectRoot: bilidiliRoot,
+      query: 'bilidili-only-recipe',
+      mode: 'auto',
+    });
+
+    expect(residentSearch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ projectRoot: workspaceRoot })
+    );
+    expect(residentSearch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ projectRoot: bilidiliRoot })
+    );
   });
 
   it('uses resident search results for semantic requests without exposing prime-only metadata', async () => {
