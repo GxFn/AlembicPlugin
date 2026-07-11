@@ -496,72 +496,69 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
   const engine = _getOrCreateEngine(ctx, GuardCheckEngine);
   await _injectEnhancementGuardRules(engine, ctx);
 
-  // 4. 逐文件检查（使用 auditFile 以捕获 uncertain）
+  // 4. 一次批量检查完整 covered file set，保留 Core cross-file 结论。
   let totalViolations = 0;
   let totalErrors = 0;
   let totalWarnings = 0;
   const allUncertainResults: unknown[] = [];
+  let crossFileViolations: GuardViolationEnriched[] = [];
 
-  for (const readable of readableFiles) {
-    const fp = readable.filePath;
+  if (readableFiles.length > 0) {
     try {
-      const auditResult = engine.auditFile(fp, readable.code, {
-        isTest: LanguageService.isTestFile(fp),
-      });
-      const violations = auditResult.violations;
+      const auditResult = engine.auditFiles(
+        readableFiles.map((file) => ({
+          path: file.filePath,
+          content: file.code,
+          isTest: LanguageService.isTestFile(file.filePath),
+        })),
+        { scope: 'project' }
+      );
 
-      // 收集 uncertain
-      if (auditResult.uncertainResults?.length) {
-        allUncertainResults.push(...auditResult.uncertainResults);
+      for (const fileResult of auditResult.files ?? []) {
+        const violations = fileResult.violations ?? [];
+        if (fileResult.uncertainResults?.length) {
+          allUncertainResults.push(...fileResult.uncertainResults);
+        }
+        const fileSummary = {
+          total: violations.length,
+          errors: violations.filter((violation) => violation.severity === 'error').length,
+          warnings: violations.filter((violation) => violation.severity === 'warning').length,
+        };
+        totalViolations += fileSummary.total;
+        totalErrors += fileSummary.errors;
+        totalWarnings += fileSummary.warnings;
+        results.push({
+          filePath: fileResult.filePath,
+          language: fileResult.language,
+          violations: violations.map((violation) => enrichGuardViolation(violation, recipeMap)),
+          summary: fileSummary,
+        });
       }
 
-      const fileSummary = {
-        total: violations.length,
-        errors: violations.filter((v: GuardViolation) => v.severity === 'error').length,
-        warnings: violations.filter((v: GuardViolation) => v.severity === 'warning').length,
-      };
-
-      totalViolations += violations.length;
-      totalErrors += fileSummary.errors;
-      totalWarnings += fileSummary.warnings;
-
-      // 内联 recipe 修复指南
-      const enriched = violations.map((v: GuardViolation) => {
-        const base: GuardViolationEnriched = {
-          ruleId: v.ruleId,
-          message: v.message,
-          severity: v.severity,
-          line: v.line,
-          snippet: v.snippet,
-          fixSuggestion: v.fixSuggestion || null,
-        };
-        const recipe = recipeMap.get(v.ruleId);
-        if (recipe) {
-          base.recipe = {
-            title: recipe.title,
-            doClause: recipe.doClause || null,
-            dontClause: recipe.dontClause || null,
-            coreCode: recipe.coreCode || null,
-          };
-        }
-        return base;
-      });
-
-      results.push({
-        filePath: fp,
-        language: auditResult.language,
-        violations: enriched,
-        summary: fileSummary,
-      });
+      crossFileViolations = (auditResult.crossFileViolations ?? []).map((violation) =>
+        enrichGuardViolation(violation as GuardViolation, recipeMap)
+      );
+      totalViolations += crossFileViolations.length;
+      totalErrors += crossFileViolations.filter(
+        (violation) => violation.severity === 'error'
+      ).length;
+      totalWarnings += crossFileViolations.filter(
+        (violation) => violation.severity === 'warning'
+      ).length;
+      if (auditResult.capabilityReport?.uncertainResults?.length) {
+        allUncertainResults.push(...auditResult.capabilityReport.uncertainResults);
+      }
     } catch (err: unknown) {
-      readable.coverage.disposition = 'unsupported';
-      readable.coverage.message = guardErrorMessage(err);
-      results.push({
-        filePath: fp,
-        error: readable.coverage.message,
-        violations: [],
-        summary: { total: 0, errors: 0, warnings: 0 },
-      });
+      for (const readable of readableFiles) {
+        readable.coverage.disposition = 'unsupported';
+        readable.coverage.message = guardErrorMessage(err);
+        results.push({
+          filePath: readable.filePath,
+          error: readable.coverage.message,
+          violations: [],
+          summary: { total: 0, errors: 0, warnings: 0 },
+        });
+      }
     }
   }
 
@@ -658,6 +655,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       maxRoundsReached,
       fileSource,
       files: results,
+      ...(crossFileViolations.length > 0 ? { crossFileViolations } : {}),
       totalViolations,
       appliedRules,
       // G-B：适用 Recipe 规矩清单（refs 精确文件匹配），无论 violation 与否都交付
@@ -994,6 +992,30 @@ function isNodeErrorWithCode(err: unknown): err is Error & { code: string } {
 
 function guardErrorMessage(err: unknown): string {
   return `Cannot inspect requested file: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+function enrichGuardViolation(
+  violation: GuardViolation,
+  recipeMap: Map<string, RecipeEntry>
+): GuardViolationEnriched {
+  const enriched: GuardViolationEnriched = {
+    ruleId: violation.ruleId,
+    message: violation.message,
+    severity: violation.severity,
+    line: violation.line,
+    snippet: violation.snippet,
+    fixSuggestion: violation.fixSuggestion || null,
+  };
+  const recipe = recipeMap.get(violation.ruleId);
+  if (recipe) {
+    enriched.recipe = {
+      title: recipe.title,
+      doClause: recipe.doClause || null,
+      dontClause: recipe.dontClause || null,
+      coreCode: recipe.coreCode || null,
+    };
+  }
+  return enriched;
 }
 
 /** 按字段值分组计数 */

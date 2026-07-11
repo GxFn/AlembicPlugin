@@ -6,12 +6,7 @@
  * handler wires the real region + RecipeContext. It never calls another MCP tool.
  */
 
-import {
-  jsonByteLength,
-  removeTransientTransportIfPresent,
-  type TransientTransportRef,
-  writeTransientTransport,
-} from '@alembic/core/service/planFacts';
+import { jsonByteLength } from '@alembic/core/service/planFacts';
 import {
   ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION,
   type AlembicRecipeMapOutput,
@@ -52,7 +47,11 @@ export interface RecipeMapRequest {
 }
 
 export interface RecipeMapDeps {
-  resolveRegion(focus: RegionFocus, projectRoot: string): Promise<ProjectContextRegion>;
+  resolveRegion(
+    focus: RegionFocus,
+    projectRoot: string,
+    radius: MapRadius
+  ): Promise<ProjectContextRegion>;
   querySourceRefs(query: {
     pathPrefix?: string;
   }): Promise<{ rows: RecipeSourceRefRow[]; diagnostics: MountDiagnostic[] }>;
@@ -69,7 +68,7 @@ export class RecipeMapProvider {
   ): Promise<AlembicRecipeMapOutput> {
     let region: ProjectContextRegion;
     try {
-      region = await deps.resolveRegion(request.focus, request.projectRoot);
+      region = await deps.resolveRegion(request.focus, request.projectRoot, request.radius);
     } catch (error) {
       return failedRecipeMapOutput(request, error);
     }
@@ -79,11 +78,15 @@ export class RecipeMapProvider {
 
     let mounts: RecipeMountSummary[] = [];
     let deferred: string[] = [];
+    let candidateRecipeCount = 0;
+    let uncoveredRecipeCount = 0;
     let usedRecordSourceFallback = false;
     if (request.includeRecipes) {
       const collected = await collectRecipeMounts(region, index, deps, diagnostics);
       mounts = collected.mounts;
       deferred = collected.deferredRecipeIds;
+      candidateRecipeCount = collected.candidateRecipeCount;
+      uncoveredRecipeCount = collected.uncoveredRecipes.length;
       usedRecordSourceFallback = collected.usedRecordSourceFallback;
       if (collected.uncoveredRecipes.length > 0) {
         const sample = collected.uncoveredRecipes
@@ -97,25 +100,29 @@ export class RecipeMapProvider {
         diagnostics.push({
           code: 'recipes-outside-region',
           severity: 'info',
-          message: `${collected.uncoveredRecipes.length} recipe(s) have no mount in this region: ${sample}${overflow}. Focus a repo/module/file, or read meta.fullMapRef for the complete map.`,
+          message: `${collected.uncoveredRecipes.length} recipe(s) have no mount in this region: ${sample}${overflow}. Focus a repo/module/file to inspect a narrower complete region.`,
           retryable: false,
         });
       }
     }
-    mounts = mounts.sort(compareMounts).slice(0, request.recipeMountLimit);
+    const allMounts = mounts.sort(compareMounts);
+    const displayedMounts = allMounts.slice(0, request.recipeMountLimit);
     if (usedRecordSourceFallback && mounts.length + deferred.length > 0) {
       diagnostics = suppressResolvedSourceRefMissDiagnostics(diagnostics);
     }
 
-    const rollups = request.includeRollups ? buildRollups(region, index, mounts, deferred) : [];
-    const nodes = projectRegionNodes(region, index, mounts, deferred).slice(0, request.nodeLimit);
-    const rootNode = mapNodeSummary(region.rootNode, index, mounts, deferred);
+    const rollups = request.includeRollups ? buildRollups(region, index, allMounts, deferred) : [];
+    const nodes = projectRegionNodes(region, index, allMounts, deferred).slice(
+      0,
+      request.nodeLimit
+    );
+    const rootNode = mapNodeSummary(region.rootNode, index, allMounts, deferred);
     const breadcrumb = region.breadcrumb.map((node) =>
-      mapNodeSummary(node, index, mounts, deferred)
+      mapNodeSummary(node, index, allMounts, deferred)
     );
 
-    const status = deriveStatus(region, diagnostics, mounts);
-    const summary = `alembic_recipe_map ${request.focus.kind} returned ${mounts.length} recipe mounts over ${nodes.length} region nodes (ProjectContext ${status}).`;
+    const status = deriveStatus(region, diagnostics, allMounts);
+    const summary = `alembic_recipe_map ${request.focus.kind} displayed ${displayedMounts.length} of ${allMounts.length} recipe mounts over ${nodes.length} region nodes (ProjectContext ${status}).`;
 
     const output = AlembicRecipeMapOutputSchema.parse({
       ok: status !== 'failed',
@@ -133,10 +140,19 @@ export class RecipeMapProvider {
         truncated: region.truncated || region.nodes.length > nodes.length,
       },
       refs: region.refs.slice(0, DEFAULT_REF_LIMIT),
-      recipeMounts: mounts,
+      recipeMounts: displayedMounts,
       recipeRollups: rollups,
+      conservation: {
+        candidateRecipes: candidateRecipeCount,
+        mountedTotal: allMounts.length,
+        deferredTotal: deferred.length,
+        uncoveredTotal: uncoveredRecipeCount,
+        displayedMounts: displayedMounts.length,
+        omittedMounts: allMounts.length - displayedMounts.length,
+        completeness: 'complete',
+      },
       diagnostics: dedupeMapDiagnostics(diagnostics).slice(0, 200),
-      nextActions: buildNextActions(request, mounts),
+      nextActions: buildNextActions(request, displayedMounts),
       limits: {
         nodeLimit: request.nodeLimit,
         recipeMountLimit: request.recipeMountLimit,
@@ -156,29 +172,19 @@ export class RecipeMapProvider {
 
 async function budgetRecipeMapOutput(
   output: AlembicRecipeMapOutput,
-  request: RecipeMapRequest
+  _request: RecipeMapRequest
 ): Promise<AlembicRecipeMapOutput> {
   const fullInline = attachFullMapRef(output, null);
   if (jsonByteLength(fullInline) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
-    await removeTransientTransportIfPresent({
-      name: 'recipe-map',
-      projectRoot: request.projectRoot,
-    });
     return fullInline;
   }
-
-  const fullMapRef = await writeTransientTransport({
-    name: 'recipe-map',
-    payload: fullInline,
-    projectRoot: request.projectRoot,
-  });
-  const compact = attachFullMapRef(compactRecipeMapOutput(fullInline, 8), fullMapRef);
+  const compact = attachFullMapRef(compactRecipeMapOutput(fullInline, 8), null);
   return AlembicRecipeMapOutputSchema.parse(trimRecipeMapOutputToBudget(compact));
 }
 
 function attachFullMapRef(
   output: AlembicRecipeMapOutput,
-  fullMapRef: TransientTransportRef | null
+  fullMapRef: null
 ): AlembicRecipeMapOutput {
   return {
     ...output,
@@ -275,6 +281,7 @@ async function collectRecipeMounts(
   deps: RecipeMapDeps,
   diagnostics: MapDiagnostic[]
 ): Promise<{
+  candidateRecipeCount: number;
   deferredRecipeIds: string[];
   mounts: RecipeMountSummary[];
   uncoveredRecipes: Array<{ id: string; title: string }>;
@@ -358,7 +365,13 @@ async function collectRecipeMounts(
   const uncoveredRecipes = [...recordById.values()]
     .filter((record) => !coveredIds.has(record.id))
     .map((record) => ({ id: record.id, title: record.title }));
-  return { mounts, deferredRecipeIds, uncoveredRecipes, usedRecordSourceFallback };
+  return {
+    candidateRecipeCount: records.length,
+    mounts,
+    deferredRecipeIds,
+    uncoveredRecipes,
+    usedRecordSourceFallback,
+  };
 }
 
 function normalizeRecipeRefs(
@@ -472,7 +485,7 @@ function recipeCountsForNode(
   return {
     direct: direct.length,
     descendant: descendant.length,
-    representatives: [...new Set([...direct, ...descendant])].slice(0, 10),
+    representatives: [...new Set([...direct, ...descendant])].slice(0, 2),
   };
 }
 
@@ -635,6 +648,15 @@ function failedRecipeMapOutput(request: RecipeMapRequest, error: unknown): Alemb
     refs: [],
     recipeMounts: [],
     recipeRollups: [],
+    conservation: {
+      candidateRecipes: 0,
+      mountedTotal: 0,
+      deferredTotal: 0,
+      uncoveredTotal: 0,
+      displayedMounts: 0,
+      omittedMounts: 0,
+      completeness: 'unknown',
+    },
     diagnostics: [
       {
         code: 'recipe-map-region-failed',

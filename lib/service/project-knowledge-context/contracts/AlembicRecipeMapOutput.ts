@@ -173,6 +173,35 @@ export const AlembicRecipeMapLimitsSchema = z
   })
   .strict();
 
+export const MapConservationSchema = z
+  .object({
+    candidateRecipes: z.number().int().nonnegative(),
+    mountedTotal: z.number().int().nonnegative(),
+    deferredTotal: z.number().int().nonnegative(),
+    uncoveredTotal: z.number().int().nonnegative(),
+    displayedMounts: z.number().int().nonnegative(),
+    omittedMounts: z.number().int().nonnegative(),
+    completeness: z.enum(['complete', 'incomplete', 'unknown']),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      value.completeness === 'complete' &&
+      value.candidateRecipes !== value.mountedTotal + value.deferredTotal + value.uncoveredTotal
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Complete recipe-map conservation must account for every candidate Recipe.',
+      });
+    }
+    if (value.displayedMounts + value.omittedMounts !== value.mountedTotal) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Displayed and omitted mounts must equal mountedTotal.',
+      });
+    }
+  });
+
 const TransientTransportRefSchema = z
   .object({
     bytes: z.number().int().nonnegative(),
@@ -196,6 +225,7 @@ export const AlembicRecipeMapOutputSchema = z
     refs: z.array(ProjectContextRefSummarySchema).max(200),
     recipeMounts: z.array(RecipeMountSummarySchema).max(200),
     recipeRollups: z.array(RecipeRollupSummarySchema).max(200),
+    conservation: MapConservationSchema,
     diagnostics: z.array(MapDiagnosticSchema).max(200),
     nextActions: z.array(MapNextActionSchema).max(20),
     limits: AlembicRecipeMapLimitsSchema,

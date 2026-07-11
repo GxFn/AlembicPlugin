@@ -60,6 +60,38 @@ describe('QD2 routed tool schemas reject unknown top-level keys', () => {
     // health takes no args; {} stays valid.
     expect((TOOL_SCHEMAS.alembic_status as z.ZodType).safeParse({}).success).toBe(true);
   });
+
+  test('code_guard operation and scope fields cannot select conflicting execution modes', () => {
+    const codeGuard = TOOL_SCHEMAS.alembic_code_guard as z.ZodType;
+    expect(codeGuard.safeParse({ operation: 'check', code: 'const value = 1;' }).success).toBe(
+      true
+    );
+    expect(codeGuard.safeParse({ operation: 'review', files: ['lib/value.ts'] }).success).toBe(
+      true
+    );
+    expect(codeGuard.safeParse({ operation: 'check', files: ['lib/value.ts'] }).success).toBe(
+      false
+    );
+    expect(codeGuard.safeParse({ operation: 'review', code: 'const value = 1;' }).success).toBe(
+      false
+    );
+    expect(codeGuard.safeParse({ code: 'const value = 1;', files: ['lib/value.ts'] }).success).toBe(
+      false
+    );
+  });
+
+  test('graph rejects accepted-but-ignored compatibility fields and unsupported budgets', () => {
+    const graph = TOOL_SCHEMAS.alembic_graph as z.ZodType;
+    expect(
+      graph.safeParse({ queryKind: 'file-symbols', filePath: 'index.ts', symbolName: 'greet' })
+        .success
+    ).toBe(true);
+    expect(graph.safeParse({ detailLevel: 'detailed' }).success).toBe(false);
+    expect(graph.safeParse({ freshnessPolicy: { maxAgeMs: 1000 } }).success).toBe(false);
+    expect(graph.safeParse({ budget: { tokenBudget: 1000 } }).success).toBe(false);
+    expect(graph.safeParse({ budget: { contentCharLimit: 1000 } }).success).toBe(false);
+    expect(graph.safeParse({ budget: { matrixNodeLimit: 100 } }).success).toBe(false);
+  });
 });
 
 describe('QD2 / PCI-2 retired source-graph public-surface honesty', () => {

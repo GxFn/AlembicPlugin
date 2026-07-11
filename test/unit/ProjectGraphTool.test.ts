@@ -205,6 +205,17 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(JSON.stringify(output)).not.toContain('recipe');
   });
 
+  test('symbolName narrows file-symbols without silently returning sibling symbols', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'file-symbols',
+      filePath: 'lib/index.ts',
+      symbolName: 'run',
+    });
+    const symbols = output.nodes.filter((node) => node.nodeType === 'symbol');
+    expect(symbols.map((node) => node.label)).toEqual(['run']);
+  });
+
   test('file-scoped queryKinds keep ProjectContext collection focused on the anchor', async () => {
     const projectRoot = createFixtureProject();
     const output = await runGraph(projectRoot, {
@@ -410,6 +421,34 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     );
   });
 
+  test('keeps duplicate package and target labels distinct across repositories', async () => {
+    const projectRoot = createDuplicateIdentityWorkspaceFixture();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'stats',
+      budget: { itemLimit: 200, relationHopLimit: 10 },
+    });
+    const duplicatePackages = output.nodes.filter(
+      (node) => node.nodeType === 'package' && node.label === '@fixture/duplicate'
+    );
+    const duplicateTargets = output.nodes.filter(
+      (node) => node.nodeType === 'target' && node.label === 'script:build'
+    );
+    expect(duplicatePackages).toHaveLength(2);
+    expect(new Set(duplicatePackages.map((node) => node.id)).size).toBe(2);
+    expect(duplicateTargets).toHaveLength(2);
+    expect(new Set(duplicateTargets.map((node) => node.id)).size).toBe(2);
+    for (const target of duplicateTargets) {
+      expect(
+        output.relations.some(
+          (relation) =>
+            relation.fromId === target.id &&
+            relation.relationType === 'partOf' &&
+            duplicatePackages.some((pkg) => pkg.id === relation.toId)
+        )
+      ).toBe(true);
+    }
+  });
+
   test('answers workspace-root file queries for deep sub-repository files', async () => {
     const projectRoot = createNativeScopeWorkspaceFixtureProject();
     const filePath = 'AlembicPlugin/lib/host-runtime/mcp/handlers/agent-public-tools.ts';
@@ -519,7 +558,7 @@ function createFixtureProject(): string {
   );
   fs.writeFileSync(
     path.join(root, 'lib', 'index.ts'),
-    'import { helper } from "./helper";\nexport function run() { return helper(); }\n'
+    'import { helper } from "./helper";\nexport const sibling = true;\nexport function run() { return helper(); }\n'
   );
   return root;
 }
@@ -547,6 +586,50 @@ function createNativeScopeWorkspaceFixtureProject(): string {
   writeNativeGraphMemberFixture(root, 'AlembicAgent', 'src/agent.ts');
   writeWorkspaceNoiseBoundaryFixture(root);
   writeNativeGraphProjectScope(root);
+  return root;
+}
+
+function createDuplicateIdentityWorkspaceFixture(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-duplicate-scope-fixture-'));
+  tempRoots.push(root);
+  process.env.ALEMBIC_HOME = root;
+  const memberNames = ['RepoA', 'RepoB'];
+  for (const memberName of memberNames) {
+    writeFile(
+      root,
+      `${memberName}/package.json`,
+      JSON.stringify(
+        {
+          name: '@fixture/duplicate',
+          main: 'src/index.ts',
+          scripts: { build: 'tsc --noEmit' },
+        },
+        null,
+        2
+      )
+    );
+    writeFile(root, `${memberName}/src/index.ts`, `export const ${memberName} = true;\n`);
+  }
+  const projectScope = createProjectDescriptor({
+    controlRoot: root,
+    dataRoot: path.join(root, '.asd', 'workspaces', 'duplicate-graph-space'),
+    displayName: 'DuplicateGraphWorkspace',
+    folders: memberNames.map((memberName, index) => ({
+      displayName: memberName,
+      id: `folder-${memberName.toLowerCase()}`,
+      path: path.join(root, memberName),
+      repositoryId: memberName,
+      role: index === 0 ? ('primary-source' as const) : ('source' as const),
+    })),
+    projectId: 'duplicate-graph-workspace',
+    projectScopeId: 'scope-duplicate-graph-workspace',
+  });
+  const registryDir = path.join(root, '.asd');
+  fs.mkdirSync(registryDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(registryDir, PROJECT_SCOPE_REGISTRY_FILENAME),
+    JSON.stringify(createProjectScopeRegistryDocument([projectScope]), null, 2)
+  );
   return root;
 }
 

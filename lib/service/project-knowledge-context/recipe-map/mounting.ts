@@ -77,16 +77,22 @@ export function normalizeRecipeRef(
   status?: string,
   newPath?: string | null
 ): NormalizedRecipeRef {
-  const normalizedStatus = normalizeRefStatus(status);
+  let normalizedStatus = normalizeRefStatus(status);
   const parsed = parseRefPath(raw);
+  const normalizedNewPath = newPath ? normalizeRefPathString(newPath) : undefined;
+  if (normalizedStatus === 'renamed' && !normalizedNewPath) {
+    normalizedStatus = 'unresolved';
+  }
+  const effectiveFilePath =
+    normalizedStatus === 'renamed' && normalizedNewPath ? normalizedNewPath : parsed.filePath;
   return {
     recipeId,
     raw,
-    ...(parsed.filePath ? { filePath: parsed.filePath } : {}),
+    ...(effectiveFilePath ? { filePath: effectiveFilePath } : {}),
     ...(parsed.startLine === undefined ? {} : { startLine: parsed.startLine }),
     ...(parsed.endLine === undefined ? {} : { endLine: parsed.endLine }),
-    status: parsed.filePath ? normalizedStatus : 'metadata-only',
-    ...(newPath ? { newPath: normalizeRefPathString(newPath) } : {}),
+    status: effectiveFilePath ? normalizedStatus : 'metadata-only',
+    ...(normalizedNewPath ? { newPath: normalizedNewPath } : {}),
   };
 }
 
@@ -94,7 +100,7 @@ function normalizeRefStatus(status?: string): RecipeRefStatus {
   if (status && REF_STATUS_VALUES.has(status as RecipeRefStatus)) {
     return status as RecipeRefStatus;
   }
-  return status ? 'active' : 'active';
+  return status ? 'unresolved' : 'active';
 }
 
 // Parse `path`, `path:10`, `path:L10`, `path:10-20`, `path:L10-L20`, `path#L10`.

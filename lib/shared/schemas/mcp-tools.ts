@@ -329,9 +329,35 @@ export const CodeGuardInput = AgentPublicToolBaseInput.extend({
     .enum(['check', 'review'])
     .optional()
     .describe('Explicit guard operation. check requires code; review requires files.'),
-}).describe(
-  'Agent-facing scoped code guard. Supported public scopes are explicit files, inline code, or workRef-derived scoped files. diffRef, primeRef, acceptedGuards, and applicableRecipe are intentionally not public until schema, handler, tests, and runtime evidence exist. No-args whole-diff behavior is intentionally blocked.'
-);
+})
+  .superRefine((value, ctx) => {
+    const hasCode = typeof value.code === 'string' && value.code.trim().length > 0;
+    const hasFiles = Array.isArray(value.files) && value.files.length > 0;
+    if (hasCode && hasFiles) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['operation'],
+        message: 'alembic_code_guard accepts inline code or files, not both.',
+      });
+    }
+    if (value.operation === 'check' && (!hasCode || hasFiles)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['operation'],
+        message: 'operation=check requires inline code and rejects files.',
+      });
+    }
+    if (value.operation === 'review' && (hasCode || (!hasFiles && !value.workRef))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['operation'],
+        message: 'operation=review requires explicit files or a scoped workRef and rejects code.',
+      });
+    }
+  })
+  .describe(
+    'Agent-facing scoped code guard. Supported public scopes are explicit files, inline code, or workRef-derived scoped files. diffRef, primeRef, acceptedGuards, and applicableRecipe are intentionally not public until schema, handler, tests, and runtime evidence exist. No-args whole-diff behavior is intentionally blocked.'
+  );
 export type CodeGuardInput = z.infer<typeof CodeGuardInput>;
 
 // ══════════════════════════════════════════════════════
@@ -361,6 +387,12 @@ const SearchBudgetInput = KnowledgeContextBudgetInput.omit({
 })
   .passthrough()
   .describe('Budget limits for search items, detail refs, text, and next actions.');
+
+const GraphBudgetInput = KnowledgeContextBudgetInput.pick({
+  itemLimit: true,
+  detailLimit: true,
+  relationHopLimit: true,
+}).describe('Supported graph projection limits for nodes, refs, and relation hops.');
 
 const KnowledgeContextFreshnessInput = z
   .object({
@@ -577,9 +609,7 @@ export const GraphInput = z
       .describe('Optional non-private ProjectContext source refs.'),
     sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
-    detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
-    budget: KnowledgeContextBudgetInput.optional(),
-    freshnessPolicy: KnowledgeContextFreshnessInput.optional(),
+    budget: GraphBudgetInput.optional(),
     // ── Deprecated stale-input aliases (handler-boundary normalization only) ──
     // Not the public contract; retained so cached host arguments still parse and
     // normalize onto queryKind without a second behavior branch.
@@ -637,7 +667,6 @@ export const RecipeMapInput = z
     includeRollups: z.boolean().default(true),
     recipeMountLimit: z.number().int().min(0).max(200).optional(),
     nodeLimit: z.number().int().min(1).max(500).optional(),
-    detailLevel: z.enum(['summary', 'standard', 'detailed']).default('summary'),
   })
   .strict();
 export type RecipeMapInput = z.infer<typeof RecipeMapInput>;

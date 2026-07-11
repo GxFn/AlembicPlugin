@@ -57,7 +57,6 @@ interface RecipeMapArgs {
   includeRollups?: boolean;
   recipeMountLimit?: number;
   nodeLimit?: number;
-  detailLevel?: 'summary' | 'standard' | 'detailed';
   [key: string]: unknown;
 }
 
@@ -77,7 +76,10 @@ interface RecipeContextRecipeRecord {
 }
 
 interface RecipeContextListData {
+  page?: number;
+  pageSize?: number;
   recipes?: RecipeContextRecipeRecord[];
+  total?: number;
 }
 
 interface RecipeContextSourceRefData {
@@ -114,9 +116,16 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
 }
 
 function normalizeRecipeMapRequest(args: RecipeMapArgs, projectRoot: string): RecipeMapRequest {
-  const focusKind = recipeMapFocusKind(args.focus?.kind);
-  const refId = args.focus?.refId ?? args.focus?.nodeId;
-  const filePath = args.focus?.filePath ?? args.activeFile;
+  const sourceRefPath = sourcePathFromRecipeMapRef(args.focus?.sourceRef);
+  const focusKind = recipeMapFocusKind(
+    args.focus?.kind,
+    Boolean(sourceRefPath),
+    Boolean(args.focus?.moduleName),
+    Boolean(args.focus?.repoId)
+  );
+  const refId = args.focus?.refId ?? args.focus?.nodeId ?? args.focus?.repoId;
+  const filePath =
+    args.focus?.filePath ?? args.activeFile ?? sourceRefPath ?? args.focus?.moduleName;
   const rawFocus: MapFocus = {
     kind: focusKind,
     ...(args.focus?.refId ? { refId: args.focus.refId } : {}),
@@ -142,15 +151,40 @@ function normalizeRecipeMapRequest(args: RecipeMapArgs, projectRoot: string): Re
     includeRollups: args.includeRollups !== false,
     recipeMountLimit: clampInt(args.recipeMountLimit, 50, 0, 200),
     nodeLimit: clampInt(args.nodeLimit, 60, 1, 500),
-    detailLevel: args.detailLevel ?? 'summary',
+    detailLevel: 'summary',
   };
 }
 
-function recipeMapFocusKind(kind: string | undefined): RegionFocusKind {
+function recipeMapFocusKind(
+  kind: string | undefined,
+  hasSourceRef: boolean,
+  hasModuleName: boolean,
+  hasRepoId: boolean
+): RegionFocusKind {
   if (kind && RECIPE_MAP_FOCUS_KINDS.has(kind as RegionFocusKind)) {
     return kind as RegionFocusKind;
   }
+  if (kind) {
+    throw new Error(`Unsupported recipe_map focus kind: ${kind}`);
+  }
+  if (hasSourceRef) {
+    return 'file';
+  }
+  if (hasModuleName) {
+    return 'module';
+  }
+  if (hasRepoId) {
+    return 'repo';
+  }
   return 'space';
+}
+
+function sourcePathFromRecipeMapRef(sourceRef: string | undefined): string | undefined {
+  const value = sourceRef?.trim();
+  if (!value) {
+    return undefined;
+  }
+  return value.replace(/#L?\d+(?:-L?\d+)?$/, '').replace(/:L?\d+(?:-L?\d+)?$/, '');
 }
 
 function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
@@ -161,8 +195,8 @@ function clampInt(value: number | undefined, fallback: number, min: number, max:
 }
 
 function buildRecipeMapDeps(ctx: McpContext): RecipeMapDeps {
-  const resolveRegion: RecipeMapDeps['resolveRegion'] = (focus, projectRoot) =>
-    defaultProjectGraphProvider.resolveProjectContextRegion({ focus, projectRoot });
+  const resolveRegion: RecipeMapDeps['resolveRegion'] = (focus, projectRoot, radius) =>
+    defaultProjectGraphProvider.resolveProjectContextRegion({ focus, projectRoot, radius });
 
   const recipeContext = buildRecipeContextService(ctx);
   if (!recipeContext) {
@@ -207,12 +241,22 @@ function buildRecipeMapDeps(ctx: McpContext): RecipeMapDeps {
       };
     },
     listRecipes: async () => {
-      const envelope = await recipeContext.execute({
-        kind: 'list',
-        payload: { filter: {}, pageSize: 200 },
-      } as RecipeContextRequest);
-      const data = envelope.data as RecipeContextListData;
-      return (data.recipes ?? []).map(toRecipeRecordLite);
+      const records: RecipeRecordLite[] = [];
+      const pageSize = 200;
+      for (let page = 1; page <= 10_000; page += 1) {
+        const envelope = await recipeContext.execute({
+          kind: 'list',
+          payload: { filter: {}, page, pageSize },
+        } as RecipeContextRequest);
+        const data = envelope.data as RecipeContextListData;
+        const pageRecords = (data.recipes ?? []).map(toRecipeRecordLite);
+        records.push(...pageRecords);
+        const total = data.total ?? records.length;
+        if (records.length >= total || pageRecords.length === 0) {
+          return records;
+        }
+      }
+      throw new Error('RecipeContext pagination exceeded the 10,000 page safety bound.');
     },
   };
 }

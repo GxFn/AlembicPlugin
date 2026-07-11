@@ -95,12 +95,24 @@ export const RegionFocusSchema = z
   .strict();
 export type RegionFocus = z.infer<typeof RegionFocusSchema>;
 
+export const RegionRadiusSchema = z
+  .object({
+    upLevels: z.number().int().min(0).max(10).optional(),
+    downLevels: z.number().int().min(0).max(10).optional(),
+    relationHops: z.number().int().min(0).max(10).optional(),
+    beforeLines: z.number().int().min(0).max(400).optional(),
+    afterLines: z.number().int().min(0).max(400).optional(),
+  })
+  .strict();
+export type RegionRadius = z.infer<typeof RegionRadiusSchema>;
+
 /** Focus-shaped request for the shared region (recipe_map's natural input);
  * distinct from alembic_graph's queryKind input. */
 export const ProjectContextRegionRequestSchema = z
   .object({
     focus: RegionFocusSchema,
     projectRoot: z.string().min(1).max(2000).optional(),
+    radius: RegionRadiusSchema.optional(),
   })
   .strict();
 export type ProjectContextRegionRequest = z.infer<typeof ProjectContextRegionRequestSchema>;

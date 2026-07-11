@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   buildPrimeRegionQuery,
+  collectPrimeRecipePages,
   mapRegionHitsToPrimeEvidence,
   projectRecipeSourceRefLocatorEvidence,
 } from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
@@ -19,7 +20,10 @@ describe('mapRegionHitsToPrimeEvidence', () => {
       { id: 'r1#core', recipeId: 'r1', regionClass: 'core-code', score: 0.9, content: 'core body' },
       { id: 'r1#when', recipeId: 'r1', regionClass: 'when-clause', score: 0.7, content: 'when X' },
       { id: 'r2#do', recipeId: 'r2', regionClass: 'do-clause', score: 0.5, content: 'do Y' },
-    ]);
+    ], new Map([
+      ['r1', makeRecipeRecord({ id: 'r1', kind: 'rule', sources: ['lib/r1.ts:1-5'], title: 'Rule one' })],
+      ['r2', makeRecipeRecord({ id: 'r2', kind: 'fact', sources: ['lib/r2.ts:1'], title: 'Fact two' })],
+    ]));
 
     expect(evidence).toHaveLength(2);
     const r1 = evidence.find((e) => e.recipeId === 'r1');
@@ -30,19 +34,46 @@ describe('mapRegionHitsToPrimeEvidence', () => {
       matchedRegionClasses: ['core-code', 'when-clause'],
       score: 0.9, // max across the recipe's region hits
       description: 'core body',
+      kind: 'rule',
+      sourceRefs: ['lib/r1.ts:1-5'],
+      title: 'Rule one',
     });
     expect(r1?.evidenceRefs).toEqual(['residentRegionRetrieval:r1']);
     expect(Array.isArray(r1?.matchedRegions)).toBe(true);
     expect((r1?.matchedRegions as unknown[]).length).toBe(2);
   });
 
-  test('drops hits with empty recipeId or regionClass (defective Core would emit these)', () => {
+  test('drops defective hits and keeps unhydrated hits verification-only', () => {
     const evidence = mapRegionHitsToPrimeEvidence([
       { id: 'x', recipeId: '', regionClass: 'core-code', score: 0.9 },
       { id: 'y', recipeId: 'r3', regionClass: '', score: 0.8 },
       { id: 'z', recipeId: 'r4', regionClass: 'core-code', score: 0.6 },
     ]);
     expect(evidence.map((e) => e.recipeId)).toEqual(['r4']);
+    expect(evidence[0]).toMatchObject({ injectionStatus: 'candidate', hydrationStatus: 'missing' });
+    expect(evidence[0]).not.toHaveProperty('matchedRegionClasses');
+  });
+
+  test('hydrates Recipe metadata after row 200 by exhausting list pagination', async () => {
+    const records = Array.from({ length: 205 }, (_, index) =>
+      makeRecipeRecord({
+        id: `r-${index + 1}`,
+        kind: index === 204 ? 'fact' : 'pattern',
+        sources: [`lib/r-${index + 1}.ts:1`],
+      })
+    );
+    const hydrated = await collectPrimeRecipePages(async (page, pageSize) => ({
+      page,
+      pageSize,
+      recipes: records.slice((page - 1) * pageSize, page * pageSize),
+      total: records.length,
+    }));
+    expect(hydrated).toHaveLength(205);
+    const evidence = mapRegionHitsToPrimeEvidence(
+      [{ id: 'r-205#core', recipeId: 'r-205', regionClass: 'core-code', score: 0.9 }],
+      new Map(hydrated.map((recipe) => [recipe.id, recipe]))
+    );
+    expect(evidence[0]).toMatchObject({ kind: 'fact', sourceRefs: ['lib/r-205.ts:1'] });
   });
 });
 
@@ -105,7 +136,9 @@ describe('regionEvidence → prime trust gate (PDR-1d interim un-defer)', () => 
         score: 0.88,
         content: 'snippet A',
       },
-    ]);
+    ], new Map([
+      ['rA', makeRecipeRecord({ id: 'rA', kind: 'pattern', sources: ['lib/a.ts:1'], title: 'A' })],
+    ]));
     const material = buildPrimeKnowledgeMaterial({ ...baseInput, regionEvidence });
 
     const accepted = material.acceptedKnowledge.find((k) => k.id === 'rA');

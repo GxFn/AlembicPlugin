@@ -2009,15 +2009,21 @@ describe('agent-facing active public tools', () => {
   });
 
   test('runs code guard from scoped workRef files without falling back to whole diff', async () => {
-    const auditFile = vi.fn(() => ({
-      language: 'typescript',
-      uncertainResults: [],
-      violations: [],
+    const auditFiles = vi.fn((files: Array<{ path: string }>) => ({
+      summary: { total: 0, errors: 0, warnings: 0 },
+      files: files.map((file) => ({
+        filePath: file.path,
+        language: 'typescript',
+        uncertainResults: [],
+        violations: [],
+        summary: { total: 0, errors: 0, warnings: 0, uncertain: 0 },
+      })),
+      crossFileViolations: [],
     }));
     const ctx = makeContext(undefined, {
       guardCheckEngine: {
-        auditFile,
-        auditFiles: vi.fn(),
+        auditFile: vi.fn(),
+        auditFiles,
         checkCode: vi.fn(),
         injectExternalRules: vi.fn(),
         isEpInjected: () => true,
@@ -2056,30 +2062,97 @@ describe('agent-facing active public tools', () => {
       kind: 'workRef',
       workRef: start.data.workRef,
     });
-    expect(auditFile).toHaveBeenCalledWith(
-      expect.stringContaining('lib/host-runtime/mcp/handlers/agent-public-tools.ts'),
-      expect.any(String),
-      { isTest: false }
+    expect(auditFiles).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            path: expect.stringContaining('lib/host-runtime/mcp/handlers/agent-public-tools.ts'),
+          content: expect.any(String),
+          isTest: false,
+        }),
+      ],
+      { scope: 'project' }
     );
     expect(result.data.result.refs.guardResultRef.id).toBe(result.data.guardResultRef);
   });
 
-  test('repeated reviews never force-pass unresolved violations at a project-wide round cap', async () => {
-    const auditFile = vi.fn(() => ({
-      language: 'typescript',
-      uncertainResults: [],
-      violations: [
+  test('reviews explicit files in one auditFiles call and preserves cross-file violations', async () => {
+    const auditFile = vi.fn();
+    const auditFiles = vi.fn((files: Array<{ path: string }>) => ({
+      summary: { total: 1, errors: 1, warnings: 0 },
+      files: files.map((file) => ({
+        filePath: file.path,
+        language: 'typescript',
+        violations: [],
+        uncertainResults: [],
+        summary: { total: 0, errors: 0, warnings: 0, uncertain: 0 },
+      })),
+      crossFileViolations: [
         {
-          ruleId: 'always-fails',
-          message: 'fixture violation',
+          ruleId: 'cross-file-cycle',
+          message: 'fixture cycle',
           severity: 'error',
+          line: 1,
+          snippet: 'a -> b -> a',
         },
       ],
     }));
     const ctx = makeContext(undefined, {
       guardCheckEngine: {
         auditFile,
-        auditFiles: vi.fn(),
+        auditFiles,
+        checkCode: vi.fn(),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        files: [
+          'lib/host-runtime/mcp/handlers/agent-public-tools.ts',
+          'lib/host-runtime/mcp/handlers/guard.ts',
+        ],
+        inputSource: 'host-declared-intent',
+        operation: 'review',
+      })
+    ) as {
+      data: {
+        guard: { crossFileViolations: Array<{ ruleId: string }>; verdict: string };
+      };
+    };
+
+    expect(auditFiles).toHaveBeenCalledTimes(1);
+    expect(auditFiles.mock.calls[0]?.[0]).toHaveLength(2);
+    expect(auditFile).not.toHaveBeenCalled();
+    expect(result.data.guard).toMatchObject({
+      crossFileViolations: [expect.objectContaining({ ruleId: 'cross-file-cycle' })],
+      verdict: 'failed',
+    });
+  });
+
+  test('repeated reviews never force-pass unresolved violations at a project-wide round cap', async () => {
+    const auditFiles = vi.fn((files: Array<{ path: string }>) => ({
+      summary: { total: 1, errors: 1, warnings: 0 },
+      files: files.map((file) => ({
+        filePath: file.path,
+        language: 'typescript',
+        uncertainResults: [],
+        violations: [
+          {
+            ruleId: 'always-fails',
+            message: 'fixture violation',
+            severity: 'error',
+          },
+        ],
+        summary: { total: 1, errors: 1, warnings: 0, uncertain: 0 },
+      })),
+      crossFileViolations: [],
+    }));
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile: vi.fn(),
+        auditFiles,
         checkCode: vi.fn(),
         injectExternalRules: vi.fn(),
         isEpInjected: () => true,

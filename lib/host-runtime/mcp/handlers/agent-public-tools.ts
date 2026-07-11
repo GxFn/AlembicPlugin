@@ -210,6 +210,7 @@ function rememberPrimeDelivery(record: PrimeDeliveryRecord): void {
 interface PrimeRecipeRecord {
   id: string;
   kind?: string;
+  lifecycle?: string;
   sourceFile?: string | null;
   sources?: string[];
   summary?: string;
@@ -218,7 +219,10 @@ interface PrimeRecipeRecord {
 }
 
 interface PrimeRecipeListData {
+  page?: number;
+  pageSize?: number;
   recipes?: PrimeRecipeRecord[];
+  total?: number;
 }
 
 interface PrimeRecipeRegionHit {
@@ -1391,13 +1395,9 @@ async function queryPrimeSourceRefLocatorEvidence(
     return [];
   }
   try {
-    const envelope = await recipeContext.execute({
-      kind: 'list',
-      payload: { filter: {}, pageSize: 200 },
-    } as RecipeContextRequest);
-    const data = envelope.data as PrimeRecipeListData;
+    const recipes = await listAllPrimeRecipeRecords(recipeContext);
     const anchorSet = new Set(anchors);
-    return (data.recipes ?? [])
+    return recipes
       .flatMap((recipe) => projectRecipeSourceRefLocatorEvidence(recipe, anchorSet, projectRoot))
       .slice(0, PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT);
   } catch (err: unknown) {
@@ -1426,13 +1426,9 @@ async function queryPrimeHitRecipeLocatorEvidence(
     return [];
   }
   try {
-    const envelope = await recipeContext.execute({
-      kind: 'list',
-      payload: { filter: {}, pageSize: 200 },
-    } as RecipeContextRequest);
-    const data = envelope.data as PrimeRecipeListData;
+    const recipes = await listAllPrimeRecipeRecords(recipeContext);
     const hitSet = new Set(hitRecipeIds);
-    return (data.recipes ?? [])
+    return recipes
       .filter((recipe) => hitSet.has(recipe.id))
       .flatMap((recipe) => {
         const refs = uniqueStrings([
@@ -1490,6 +1486,35 @@ function buildPrimeRecipeContextService(
   } catch {
     return null;
   }
+}
+
+export async function collectPrimeRecipePages(
+  readPage: (page: number, pageSize: number) => Promise<PrimeRecipeListData>
+): Promise<PrimeRecipeRecord[]> {
+  const records: PrimeRecipeRecord[] = [];
+  const pageSize = 200;
+  for (let page = 1; page <= 10_000; page += 1) {
+    const data = await readPage(page, pageSize);
+    const pageRecords = data.recipes ?? [];
+    records.push(...pageRecords);
+    const total = data.total ?? records.length;
+    if (records.length >= total || pageRecords.length === 0) {
+      return records;
+    }
+  }
+  throw new Error('Prime Recipe hydration exceeded the 10,000 page safety bound.');
+}
+
+async function listAllPrimeRecipeRecords(
+  recipeContext: ReturnType<typeof createRecipeContextServiceFromCore>
+): Promise<PrimeRecipeRecord[]> {
+  return collectPrimeRecipePages(async (page, pageSize) => {
+    const envelope = await recipeContext.execute({
+      kind: 'list',
+      payload: { filter: {}, page, pageSize },
+    } as RecipeContextRequest);
+    return envelope.data as PrimeRecipeListData;
+  });
 }
 
 function safeContainerGet(ctx: McpContext, name: string): unknown {
@@ -1564,7 +1589,12 @@ async function queryPrimeRegionEvidence(
     if (!hits.some((hit) => hit.vectorUsed === true)) {
       return []; // embed lane unavailable → no region evidence (documented degrade)
     }
-    return mapRegionHitsToPrimeEvidence(hits.map(regionHitFromVectorHit));
+    const recipeContext = buildPrimeRecipeContextService(ctx);
+    const recipes = recipeContext ? await listAllPrimeRecipeRecords(recipeContext) : [];
+    return mapRegionHitsToPrimeEvidence(
+      hits.map(regionHitFromVectorHit),
+      new Map(recipes.map((recipe) => [recipe.id, recipe]))
+    );
   } catch (err: unknown) {
     process.stderr.write(
       `[MCP/AgentPublicTools] alembic_prime region retrieval degraded: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1627,7 +1657,8 @@ function readVectorHitString(hit: Record<string, unknown>, key: string): string 
 // prime trust gate credits them as recipe-semantic-region evidence. Hits are
 // grouped by recipeId; hits without recipeId/regionClass are dropped.
 export function mapRegionHitsToPrimeEvidence(
-  hits: PrimeRecipeRegionHit[]
+  hits: PrimeRecipeRegionHit[],
+  recipesById: ReadonlyMap<string, PrimeRecipeRecord> = new Map()
 ): Record<string, unknown>[] {
   const byRecipe = new Map<
     string,
@@ -1667,19 +1698,33 @@ export function mapRegionHitsToPrimeEvidence(
     }
     byRecipe.set(recipeId, group);
   }
-  return [...byRecipe.values()].map((group) => ({
-    evidenceRefs: [`residentRegionRetrieval:${group.recipeId}`],
-    injectionStatus: 'selected',
-    itemId: group.recipeId,
-    kind: 'pattern',
-    matchedRegionClasses: group.regionClasses.slice(0, 8),
-    matchedRegions: group.matchedRegions,
-    recipeId: group.recipeId,
-    score: group.score,
-    sourceRefs: [],
-    ...(group.descriptions.length > 0 ? { description: group.descriptions[0] } : {}),
-    whySelected: ['resident-region-retrieval', 'local-region-vector'],
-  }));
+  return [...byRecipe.values()].map((group) => {
+    const recipe = recipesById.get(group.recipeId);
+    const sourceRefs = uniqueStrings([
+      ...(recipe?.sources ?? []),
+      ...(recipe?.sourceFile ? [recipe.sourceFile] : []),
+    ]);
+    const hydrated = Boolean(
+      recipe?.kind && recipe.title && sourceRefs.length > 0 && recipe.lifecycle === 'active'
+    );
+    return {
+      evidenceRefs: [`residentRegionRetrieval:${group.recipeId}`],
+      injectionStatus: hydrated ? 'selected' : 'candidate',
+      itemId: group.recipeId,
+      kind: recipe?.kind ?? 'unknown',
+      ...(hydrated ? { matchedRegionClasses: group.regionClasses.slice(0, 8) } : {}),
+      matchedRegions: group.matchedRegions,
+      recipeId: group.recipeId,
+      score: group.score,
+      sourceRefs,
+      ...(recipe?.title ? { title: recipe.title } : {}),
+      ...(recipe?.lifecycle ? { lifecycle: recipe.lifecycle } : {}),
+      hydrationStatus: hydrated ? 'complete' : 'missing',
+      ...(!hydrated ? { unverifiedRegionClasses: group.regionClasses.slice(0, 8) } : {}),
+      ...(group.descriptions.length > 0 ? { description: group.descriptions[0] } : {}),
+      whySelected: ['resident-region-retrieval', 'local-region-vector'],
+    };
+  });
 }
 
 function resolvePrimeSkipBeforeRetrieval(

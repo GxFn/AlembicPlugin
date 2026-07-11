@@ -39,6 +39,7 @@ import type {
   RegionFocusKind,
   RegionNode,
   RegionNodeKind,
+  RegionRadius,
   RegionRelation,
   ToolDiagnostic,
   ToolNextAction,
@@ -236,8 +237,11 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     const projectRoot = request.projectRoot ?? process.cwd();
     // Anchor the shared ProjectContext build on the focus so file/anchor focuses
     // collect the right facts — this never invokes the public alembic_graph tool.
-    const build = await this.buildGraph(projectRoot, regionBuildInput(focus, projectRoot));
-    const selection = selectRegionFromBuild(build, focus);
+    const build = await this.buildGraph(
+      projectRoot,
+      regionBuildInput(focus, projectRoot, request.radius)
+    );
+    const selection = applyRegionRadius(selectRegionFromBuild(build, focus), request.radius ?? {});
     return projectProjectContextRegion({ build, focus, projectRoot, selection });
   }
 
@@ -276,7 +280,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     }
 
     addProjectContextFileFlowEdges(projectContextFacts.fileFlows, nodes, relations);
-    addFileSymbolContextNodes(projectContextFacts.fileSymbols, nodes, relations);
+    addFileSymbolContextNodes(projectContextFacts.fileSymbols, nodes, relations, input.symbolName);
     addAnchorRangeContextNodes(projectContextFacts.anchorRanges, nodes, relations, projectId);
     addProjectContextPathOwnershipRelations(projectContextFacts, nodes, relations, projectId);
 
@@ -310,6 +314,13 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
 function normalizeGraphProviderInput(input: ProjectGraphInput): ProjectGraphInput {
   return ProjectGraphInputSchema.parse({
     ...input,
+    ...((input.sourceRefs?.length ?? 0) > 0 || (input.sourceEvidenceRefs?.length ?? 0) > 0
+      ? {
+          sourceRefs: [
+            ...new Set([...(input.sourceRefs ?? []), ...(input.sourceEvidenceRefs ?? [])]),
+          ],
+        }
+      : {}),
     ...(input.activeFile || !input.filePath ? {} : { activeFile: input.filePath }),
     ...(input.nodeId || !input.refId ? {} : { nodeId: input.refId }),
     ...(input.fromId || !input.fromRefId ? {} : { fromId: input.fromRefId }),
@@ -897,6 +908,7 @@ async function collectGraphFileSymbolsContexts(
   }
   const symbolsEnvelope = await executeGraphProjectContextRequest('file-symbols', projectRoot, {
     filePath,
+    ...(input.symbolName ? { symbolName: input.symbolName } : {}),
   });
   collectGraphEnvelope(facts, symbolsEnvelope, 'project-context-file-symbols', input);
   if (isFileSymbolContext(symbolsEnvelope.data)) {
@@ -1014,8 +1026,8 @@ function addRepoContextNodes(
   repo: RepoContext
 ) {
   const packageName = packageNameFromRepoContext(repo);
-  const packageId = packageNodeId(packageName);
   const packagePath = repoPackagePath(repo);
+  const packageId = repoScopedGraphNodeId('package', repo, `${packagePath}#${packageName}`);
   nodes.add({ id: packageId, label: packageName, nodeType: 'package', path: packagePath });
   relations.add(nodes, packageId, 'partOf', projectId);
 
@@ -1027,13 +1039,23 @@ function addRepoContextNodes(
     if (!localPath || localPath === '.') {
       continue;
     }
-    const localId = packageNodeId(localPackage.name);
-    nodes.add({ id: localId, label: localPackage.name, nodeType: 'package', path: localPath });
+    const projectLocalPath = projectPathFromRepoPath(repo, localPath);
+    const localId = repoScopedGraphNodeId(
+      'package',
+      repo,
+      `${projectLocalPath}#${localPackage.name}`
+    );
+    nodes.add({
+      id: localId,
+      label: localPackage.name,
+      nodeType: 'package',
+      path: projectLocalPath,
+    });
     relations.add(nodes, localId, 'partOf', projectId);
   }
 
   for (const command of repo.commands.slice(0, 40)) {
-    const targetId = `target:script:${stableRefSegment(command.name)}`;
+    const targetId = repoScopedGraphNodeId('target', repo, `script:${command.name}`);
     nodes.add({
       id: targetId,
       label: `script:${command.name}`,
@@ -1043,19 +1065,23 @@ function addRepoContextNodes(
     relations.add(nodes, targetId, 'partOf', packageId);
   }
   for (const target of repo.targets.slice(0, 40)) {
-    const targetId = `target:${stableRefSegment(target.name)}`;
     // D2:target 路径此前硬编码 'package.json'(node 时代遗留)——SPM/easybox 的
     // target 挂载锚形同虚设。TargetSummary 的 path ref scope 携带真实目标路径。
-    const targetPath = target.refs?.[0]?.scope?.filePath ?? 'package.json';
+    const targetPath = projectPathFromRepoPath(
+      repo,
+      target.refs?.[0]?.scope?.filePath ?? 'package.json'
+    );
+    const targetId = repoScopedGraphNodeId('target', repo, `${targetPath}#${target.name}`);
     nodes.add({ id: targetId, label: target.name, nodeType: 'target', path: targetPath });
     relations.add(nodes, targetId, 'partOf', packageId);
   }
   for (const entrypoint of repo.entrypoints) {
     for (const ref of entrypoint.refs) {
-      const filePath = ref.scope.filePath;
-      if (!filePath) {
+      const repoFilePath = ref.scope.filePath;
+      if (!repoFilePath) {
         continue;
       }
+      const filePath = projectPathFromRepoPath(repo, repoFilePath);
       const fileId = fileNodeId(filePath);
       nodes.add({
         id: fileId,
@@ -1067,11 +1093,11 @@ function addRepoContextNodes(
     }
   }
   for (const area of [...repo.sourceRoots, ...repo.topAreas]) {
-    const areaPath = normalizeRelativePath(area.path);
+    const areaPath = projectPathFromRepoPath(repo, area.path);
     if (!areaPath || areaPath === '.') {
       continue;
     }
-    const moduleId = `module:${stableRefSegment(areaPath)}`;
+    const moduleId = repoScopedGraphNodeId('module', repo, areaPath);
     nodes.add({
       id: moduleId,
       label: path.posix.basename(areaPath),
@@ -1091,7 +1117,11 @@ function addModuleContextNodes(
   const modulePath = normalizeRelativePath(
     context.module.ref?.scope.filePath ?? context.module.name
   );
-  const moduleId = `module:${stableRefSegment(modulePath || context.module.name)}`;
+  const moduleId = projectContextScopedGraphNodeId(
+    'module',
+    context.module.ref,
+    modulePath || context.module.name
+  );
   nodes.add({
     id: moduleId,
     label: context.module.name,
@@ -1125,7 +1155,11 @@ function addModuleLayerContextNodes(
   const modulePath = normalizeRelativePath(
     context.module.ref?.scope.filePath ?? context.module.name
   );
-  const moduleId = `module:${stableRefSegment(modulePath || context.module.name)}`;
+  const moduleId = projectContextScopedGraphNodeId(
+    'module',
+    context.module.ref,
+    modulePath || context.module.name
+  );
   for (const group of context.fileGroups) {
     const groupId = `directory:${stableRefSegment(group.ref?.scope.filePath ?? `${context.module.name}/${group.name}`)}`;
     nodes.add({
@@ -1159,7 +1193,11 @@ function addProjectMapContextNodes(
 ) {
   for (const moduleRecord of map.modules) {
     const modulePath = normalizeRelativePath(moduleRecord.ref?.scope.filePath ?? moduleRecord.name);
-    const moduleId = `module:${stableRefSegment(modulePath || moduleRecord.name)}`;
+    const moduleId = projectContextScopedGraphNodeId(
+      'module',
+      moduleRecord.ref,
+      modulePath || moduleRecord.name
+    );
     nodes.add({
       id: moduleId,
       label: moduleRecord.name,
@@ -1388,10 +1426,11 @@ function addDirectoryChain(
 function createPackageOwnerRecords(repos: readonly RepoContext[]): ProjectGraphPackageOwner[] {
   return repos.map((repo) => {
     const label = packageNameFromRepoContext(repo);
+    const packagePath = repoPackagePath(repo);
     return {
-      id: packageNodeId(label),
+      id: repoScopedGraphNodeId('package', repo, `${packagePath}#${label}`),
       label,
-      packagePath: repoPackagePath(repo),
+      packagePath,
       path: normalizeRelativePath(repo.repo.root || '.'),
     };
   });
@@ -1728,8 +1767,26 @@ function packageNameFromRepoContext(repo: RepoContext): string {
   return repo.localPackages[0]?.name ?? repo.repo.name;
 }
 
-function packageNodeId(packageName: string): string {
-  return `package:${stableRefSegment(packageName)}`;
+function repoScopedGraphNodeId(
+  nodeType: 'package' | 'target' | 'module',
+  repo: RepoContext,
+  localIdentity: string
+): string {
+  const scope = scopeFromRepoContext(repo);
+  const repoIdentity =
+    scope.repoId ?? scope.sourceFolder ?? repo.repo.id ?? repo.repo.root ?? repo.repo.name;
+  return `${nodeType}:${stableRefSegment(repoIdentity)}:${stableRefSegment(localIdentity)}`;
+}
+
+function projectContextScopedGraphNodeId(
+  nodeType: 'module',
+  ref: ProjectContextRef | undefined,
+  localIdentity: string
+): string {
+  const repoIdentity = ref?.scope.repoId ?? ref?.scope.sourceFolder;
+  return repoIdentity
+    ? `${nodeType}:${stableRefSegment(repoIdentity)}:${stableRefSegment(localIdentity)}`
+    : `${nodeType}:${stableRefSegment(localIdentity)}`;
 }
 
 function repoPackagePath(repo: RepoContext): string {
@@ -3928,7 +3985,8 @@ function toGraphSourceRange(range: {
 function addFileSymbolContextNodes(
   fileSymbols: readonly FileSymbolContext[],
   nodes: NodeStore,
-  relations: RelationStore
+  relations: RelationStore,
+  symbolName?: string
 ) {
   for (const context of fileSymbols) {
     const fileId = fileNodeId(context.file.filePath);
@@ -3939,6 +3997,9 @@ function addFileSymbolContextNodes(
       path: context.file.filePath,
     });
     for (const symbol of context.symbols) {
+      if (symbolName && symbol.name !== symbolName) {
+        continue;
+      }
       addSymbolNode(nodes, relations, symbol.filePath, symbol.name);
     }
   }
@@ -4060,13 +4121,29 @@ function regionFocusKindFromQueryKind(queryKind: AlembicGraphQueryKind): RegionF
 
 // Map a focus-shaped region request onto a ProjectGraph build input so the shared
 // ProjectContext build anchors on the focus file/ref and collects the right facts.
-function regionBuildInput(focus: RegionFocus, projectRoot: string): ProjectGraphInput {
+function regionBuildInput(
+  focus: RegionFocus,
+  projectRoot: string,
+  radius?: RegionRadius
+): ProjectGraphInput {
   return ProjectGraphInputSchema.parse({
     projectRoot,
     queryKind: queryKindForRegionFocus(focus.kind),
     ...(focus.filePath ? { activeFile: focus.filePath, filePath: focus.filePath } : {}),
     ...(focus.refId ? { refId: focus.refId, nodeId: focus.refId } : {}),
     ...(focus.line === undefined ? {} : { line: focus.line }),
+    ...(radius
+      ? {
+          radius: {
+            ...(radius.downLevels === undefined
+              ? {}
+              : { maxDepth: Math.max(radius.downLevels, 1) }),
+            ...(radius.beforeLines === undefined ? {} : { beforeLines: radius.beforeLines }),
+            ...(radius.afterLines === undefined ? {} : { afterLines: radius.afterLines }),
+            ...(radius.relationHops === undefined ? {} : { relationHops: radius.relationHops }),
+          },
+        }
+      : {}),
   });
 }
 
@@ -4102,18 +4179,37 @@ function selectRegionFromBuild(build: GraphBuild, focus: RegionFocus): RegionSel
   }
 }
 
+function applyRegionRadius(selection: RegionSelection, radius: RegionRadius): RegionSelection {
+  return {
+    ...selection,
+    ...(radius.downLevels === 0
+      ? { nodes: [], truncated: selection.truncated || selection.nodes.length > 0 }
+      : {}),
+    ...(radius.relationHops === 0 ? { relations: [] } : {}),
+    ...(radius.upLevels === 0 ? { breadcrumb: [selection.rootNode] } : {}),
+  };
+}
+
 function overviewRegion(
   build: GraphBuild,
   focus: RegionFocus,
   parentMap: Map<string, string>
 ): RegionSelection {
-  const rootNode = regionProjectRootNode(build);
+  const projectRootNode = regionProjectRootNode(build);
+  const focusAnchor = resolveOverviewRegionAnchor(build, focus);
+  const rootNode = focusAnchor ?? projectRootNode;
   const preferred = overviewRegionPreferredTypes(focus.kind);
-  const candidates = build.nodes
+  let candidates = build.nodes
     .filter((node) => preferred.has(node.nodeType))
     .sort(
       (a, b) => orientationNodeWeight(a) - orientationNodeWeight(b) || a.id.localeCompare(b.id)
     );
+  if (focusAnchor) {
+    candidates = candidates.filter(
+      (node) =>
+        node.id === focusAnchor.id || regionNodeIsDescendantOf(node.id, focusAnchor.id, parentMap)
+    );
+  }
   const nodes = candidates.slice(0, REGION_NODE_LIMIT);
   return {
     rootNode,
@@ -4128,6 +4224,39 @@ function overviewRegion(
     diagnostics: [],
     truncated: candidates.length > nodes.length,
   };
+}
+
+function resolveOverviewRegionAnchor(
+  build: GraphBuild,
+  focus: RegionFocus
+): ProjectGraphNode | undefined {
+  if (!focus.refId) {
+    return undefined;
+  }
+  const scopeSegment = stableRefSegment(focus.refId).toLowerCase();
+  return build.nodes.find(
+    (node) =>
+      node.id === focus.refId ||
+      node.label.toLowerCase() === focus.refId?.toLowerCase() ||
+      node.id.toLowerCase().includes(`:${scopeSegment}:`)
+  );
+}
+
+function regionNodeIsDescendantOf(
+  nodeId: string,
+  ancestorId: string,
+  parentMap: Map<string, string>
+): boolean {
+  const seen = new Set<string>();
+  let current = parentMap.get(nodeId);
+  while (current && !seen.has(current)) {
+    if (current === ancestorId) {
+      return true;
+    }
+    seen.add(current);
+    current = parentMap.get(current);
+  }
+  return false;
 }
 
 function overviewRegionPreferredTypes(kind: RegionFocusKind): Set<KnowledgeContextProjectNodeType> {

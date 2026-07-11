@@ -224,6 +224,7 @@ const GuardPublicResultSchema = z
     appliedRules: GuardAppliedRulesSchema.optional(),
     applicableRecipeRules: z.array(GuardApplicableRecipeRuleSchema).max(20).optional(),
     coverage: GuardCoverageSchema.optional(),
+    crossFileViolations: z.array(GuardPublicViolationSchema).max(50).optional(),
     fileErrors: z.array(GuardFileErrorSchema).max(1000).optional(),
     guardErrorCode: OptionalPublicStringSchema,
     maxRoundsReached: z.boolean().optional(),
@@ -772,6 +773,9 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
   );
   const projectedViolations = projectGuardViolations(guardResult);
   const coverage = projectGuardCoverage(guardResult.coverage);
+  const projectedCrossFileViolations = projectGuardViolations({
+    violations: guardResult.crossFileViolations,
+  });
   const fileErrors = projectGuardFileErrors(guardResult.fileErrors);
   const reviewRound = numberFrom(guardResult.reviewRound);
   const uncertainCount = numberFrom(asRecord(guardResult.uncertainSummary).total);
@@ -780,6 +784,9 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
     ...(appliedRules ? { appliedRules } : {}),
     ...(applicableRecipeRules.length > 0 ? { applicableRecipeRules } : {}),
     ...(coverage ? { coverage } : {}),
+    ...(projectedCrossFileViolations.violations.length > 0
+      ? { crossFileViolations: projectedCrossFileViolations.violations }
+      : {}),
     ...(fileErrors.length > 0 ? { fileErrors } : {}),
     ...(projectedViolations.violations.length > 0
       ? {

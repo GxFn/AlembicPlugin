@@ -2,14 +2,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
+import {
+  routeGraphTool,
+  routeRecipeMapTool,
+} from '../../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
 import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
-import { AlembicRecipeMapOutputSchema } from '../../lib/service/project-knowledge-context/contracts/AlembicRecipeMapOutput.js';
+import {
+  type AlembicRecipeMapOutput,
+  AlembicRecipeMapOutputSchema,
+} from '../../lib/service/project-knowledge-context/contracts/AlembicRecipeMapOutput.js';
 import { defaultProjectGraphProvider } from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
 import {
   defaultRecipeMapProvider,
+  normalizeRecipeRef,
   type RecipeMapDeps,
   type RecipeMapRequest,
 } from '../../lib/service/project-knowledge-context/recipe-map/index.js';
@@ -233,9 +240,49 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(JSON.stringify(b.recipeMounts)).toEqual(JSON.stringify(a.recipeMounts));
   });
 
-  test('large recipe_map source refs stay inline with a readable fullMapRef', async () => {
+  test('recipe mount display limits preserve complete truth totals and rollups', async () => {
+    const projectRoot = createFixtureProject();
+    const recipeIds = Array.from({ length: 205 }, (_, index) => `r-count-${index + 1}`);
+    const deps: RecipeMapDeps = {
+      ...fakeDeps(),
+      listRecipes: async () =>
+        recipeIds.map((id) => ({ id, sources: [], tags: [], title: `Count recipe ${id}` })),
+      querySourceRefs: async () => ({
+        diagnostics: [],
+        rows: recipeIds.map((recipeId) => ({
+          recipeId,
+          sourcePath: 'lib/index.ts:1',
+          status: 'active',
+        })),
+      }),
+    };
+    const lowRequest = { ...request(projectRoot, 'module'), recipeMountLimit: 1 };
+    const highRequest = { ...request(projectRoot, 'module'), recipeMountLimit: 50 };
+    const low = await defaultRecipeMapProvider.resolveRecipeMap(lowRequest, deps);
+    const high = await defaultRecipeMapProvider.resolveRecipeMap(highRequest, deps);
+
+    expect(low.conservation).toMatchObject({
+      candidateRecipes: 205,
+      mountedTotal: 205,
+      deferredTotal: 0,
+      uncoveredTotal: 0,
+      displayedMounts: 1,
+      omittedMounts: 204,
+      completeness: 'complete',
+    });
+    expect(high.conservation.mountedTotal).toBe(low.conservation.mountedTotal);
+    expect(high.recipeRollups).toEqual(low.recipeRollups);
+    expect(
+      low.conservation.mountedTotal +
+        low.conservation.deferredTotal +
+        low.conservation.uncoveredTotal
+    ).toBe(low.conservation.candidateRecipes);
+  });
+
+  test('large recipe_map reads remain inline and leave the project filesystem unchanged', async () => {
     const projectRoot = createFixtureProject();
     const recipeIds = Array.from({ length: 60 }, (_, index) => `r-large-${index + 1}`);
+    const before = filesystemManifest(projectRoot);
     const output = await defaultRecipeMapProvider.resolveRecipeMap(request(projectRoot, 'module'), {
       ...fakeDeps(),
       listRecipes: async () =>
@@ -253,17 +300,28 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     });
 
     expect(Buffer.byteLength(JSON.stringify(output), 'utf8')).toBeLessThanOrEqual(20 * 1024);
-    expect(output.meta.fullMapRef).toMatchObject({
-      bytes: expect.any(Number),
-      path: expect.any(String),
-    });
-    const fullMapPath = output.meta.fullMapRef?.path;
-    expect(fullMapPath ? fs.existsSync(fullMapPath) : false).toBe(true);
-    const fullMap = JSON.parse(fs.readFileSync(fullMapPath || '', 'utf8')) as {
-      recipeMounts?: Array<{ sourceRefs?: string[] }>;
-    };
-    expect(fullMap.recipeMounts?.[0]?.sourceRefs?.length).toBe(80);
+    expect(output.meta.fullMapRef ?? null).toBeNull();
     expect(output.recipeMounts.every((mount) => mount.sourceRefs.length <= 8)).toBe(true);
+    expect(filesystemManifest(projectRoot)).toEqual(before);
+    expect(output.meta).not.toHaveProperty('fullMapRef.path');
+  });
+
+  test('renamed refs use newPath and unknown statuses fail closed as unresolved', () => {
+    expect(normalizeRecipeRef('r-renamed', 'old/file.ts:10', 'renamed', 'new/file.ts')).toMatchObject(
+      {
+        raw: 'old/file.ts:10',
+        filePath: 'new/file.ts',
+        status: 'renamed',
+        newPath: 'new/file.ts',
+      }
+    );
+    expect(normalizeRecipeRef('r-missing', 'old/file.ts:10', 'renamed')).toMatchObject({
+      filePath: 'old/file.ts',
+      status: 'unresolved',
+    });
+    expect(normalizeRecipeRef('r-future', 'old/file.ts:10', 'future-status')).toMatchObject({
+      status: 'unresolved',
+    });
   });
 
   test('discovery shows alembic_recipe_map and not alembic_project_matrix (no alias)', () => {
@@ -305,6 +363,38 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(graph.structuredContent.nodes.some((node) => node.id === nodeId)).toBe(true);
   });
 
+  test('sourceRef, moduleName, repoId, and radius change the selected map region', async () => {
+    const projectRoot = createFixtureProject();
+    const context = createContext(projectRoot);
+    const sourceFocused = (await routeRecipeMapTool(context, {
+      focus: { sourceRef: 'lib/index.ts:2' },
+      projectRoot,
+    })) as { structuredContent: AlembicRecipeMapOutput };
+    expect(sourceFocused.structuredContent.focus.kind).toBe('file');
+    expect(sourceFocused.structuredContent.region.rootNode.path).toBe('lib/index.ts');
+
+    const moduleFocused = (await routeRecipeMapTool(context, {
+      focus: { moduleName: 'lib' },
+      projectRoot,
+    })) as { structuredContent: AlembicRecipeMapOutput };
+    expect(moduleFocused.structuredContent.focus.kind).toBe('module');
+    expect(moduleFocused.structuredContent.region.rootNode.path).toBe('lib');
+
+    const repoFocused = (await routeRecipeMapTool(context, {
+      focus: { repoId: 'fixture-project' },
+      projectRoot,
+    })) as { structuredContent: AlembicRecipeMapOutput };
+    expect(repoFocused.structuredContent.focus.kind).toBe('repo');
+    expect(repoFocused.structuredContent.region.rootNode.label).toBe('fixture-project');
+
+    const zeroRadius = (await routeRecipeMapTool(context, {
+      focus: { moduleName: 'lib' },
+      projectRoot,
+      radius: { downLevels: 0, relationHops: 0 },
+    })) as { structuredContent: AlembicRecipeMapOutput };
+    expect(zeroRadius.structuredContent.region.nodes).toEqual([]);
+  });
+
   test('recipe_map provider and handler never invoke another MCP tool', () => {
     const providerSource = fs.readFileSync(
       path.join(
@@ -329,6 +419,22 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(handlerSource).toContain('resolveProjectContextRegion');
   });
 });
+
+function filesystemManifest(root: string): string[] {
+  const values: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = path.relative(root, absolutePath);
+      values.push(`${entry.isDirectory() ? 'd' : 'f'}:${relativePath}`);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+      }
+    }
+  };
+  visit(root);
+  return values.sort();
+}
 
 function createFixtureProject(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-recipemap-fixture-'));
