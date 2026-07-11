@@ -9,7 +9,16 @@ import {
 } from '@alembic/core/shared';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import Bootstrap from '../../lib/bootstrap.js';
+import {
+  getInitMarkerPath,
+  readInitMarker,
+} from '../../lib/host-runtime/context/ProjectRootResolver.js';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
+import {
+  HostMcpServer,
+  resetPluginOwnedMcpServerForTests,
+} from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { projectMcpToolOutput } from '../../lib/host-runtime/mcp/output-contract.js';
 import { buildStatus } from '../../lib/host-runtime/status/StatusService.js';
 import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-pipeline/generate/project-context-analysis.js';
 import {
@@ -26,7 +35,8 @@ describe('native ProjectScope runtime wiring', () => {
     pathGuard._reset();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await resetPluginOwnedMcpServerForTests();
     pathGuard._reset();
     if (ORIGINAL_ALEMBIC_HOME === undefined) {
       delete process.env.ALEMBIC_HOME;
@@ -123,6 +133,66 @@ describe('native ProjectScope runtime wiring', () => {
       ghost: true,
       mode: 'ghost',
       workspaceExists: true,
+    });
+  });
+
+  test('public init confines a native multi-folder ProjectScope marker and status to its Ghost data root', async () => {
+    const fixture = createNativeProjectScopeFixture();
+    const server = new HostMcpServer({ projectRoot: fixture.controlRoot });
+
+    const rawInit = await server.handleToolCall('alembic_init', {
+      force: false,
+      seed: false,
+      standard: false,
+    });
+    const publicInit = projectMcpToolOutput('alembic_init', rawInit) as Record<string, unknown>;
+    const markerPath = getInitMarkerPath(fixture.controlRoot);
+    const marker = readInitMarker(fixture.controlRoot);
+    const rawStatus = await server.handleToolCall('alembic_status', {});
+    const publicStatus = projectMcpToolOutput('alembic_status', rawStatus) as Record<
+      string,
+      unknown
+    >;
+
+    expect(markerPath).toBe(path.join(fixture.dataRoot, '.asd', 'codex-init.json'));
+    expect(fs.existsSync(path.join(fixture.controlRoot, '.asd', 'codex-init.json'))).toBe(false);
+    expect(fs.existsSync(path.join(fixture.pluginRoot, '.asd'))).toBe(false);
+    expect(marker).toMatchObject({
+      dataRoot: fixture.dataRoot,
+      ghost: true,
+      initializedBy: 'alembic_init',
+      projectRoot: fixture.controlRoot,
+      route: 'explicit',
+    });
+    expect(publicInit).toMatchObject({
+      ok: true,
+      status: 'ready',
+      statusSnapshot: {
+        initialized: true,
+        project: {
+          dataRootSource: 'ghost-registry',
+          projectId: 'project-native-runtime',
+          root: fixture.controlRoot,
+        },
+        workspace: {
+          dataRootSource: 'ghost-registry',
+          ghost: true,
+          mode: 'ghost',
+        },
+      },
+    });
+    expect(publicStatus).toMatchObject({
+      initialized: true,
+      project: {
+        dataRootSource: 'ghost-registry',
+        projectId: 'project-native-runtime',
+        root: fixture.controlRoot,
+      },
+      workspace: {
+        dataRootSource: 'ghost-registry',
+        ghost: true,
+        mode: 'ghost',
+      },
     });
   });
 
