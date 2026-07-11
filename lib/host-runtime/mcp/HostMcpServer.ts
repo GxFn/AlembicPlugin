@@ -1,5 +1,5 @@
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { JobStore, resolveDaemonPaths } from '@alembic/core/daemon';
 import Logger from '@alembic/core/logging';
 import { ProjectRegistry } from '@alembic/core/workspace';
@@ -563,10 +563,30 @@ export class HostMcpServer {
       ? ((initResult.data as { results: Array<Record<string, unknown>> }).results ?? [])
       : [];
     const status = await this.buildStatus();
-    const ok = initResult.success !== false && results.every((result) => result.ok !== false);
+    const statusData = readOptionalRecord(status.data) ?? {};
+    const postInitConsistency = verifyPostInitConsistency({
+      initData: readOptionalRecord(initResult.data) ?? {},
+      markerReadback: this.#hostAdapter.readInitMarker(this.projectRoot),
+      projectRoot: this.projectRoot,
+      statusData,
+    });
+    const ok =
+      initResult.success !== false &&
+      results.every((result) => result.ok !== false) &&
+      postInitConsistency.ok;
     const knowledgeAfterInit =
-      (status as { data?: { knowledge?: HostKnowledgeState } }).data?.knowledge ??
+      (readOptionalRecord(statusData.knowledge) as HostKnowledgeState | undefined) ??
       EMPTY_KNOWLEDGE_STATE;
+    if (!postInitConsistency.ok) {
+      this.#initRuntimeState = {
+        ...this.#initRuntimeState,
+        lastError: postInitConsistency.reason,
+        ok: false,
+      };
+      process.stderr.write(
+        `[MCP/HostMcpServer] init post-status rejected for ${this.projectRoot}: ${postInitConsistency.reason}\n`
+      );
+    }
     return {
       success: ok,
       data: {
@@ -588,11 +608,13 @@ export class HostMcpServer {
             ],
         profile: CODEX_SETUP_PROFILE,
         results,
-        status: (status as { data?: unknown }).data,
+        status: statusData,
       },
       message: ok
         ? buildPostInitMessage(knowledgeAfterInit)
-        : 'Alembic Codex initialization failed. Run diagnostics before retrying.',
+        : postInitConsistency.ok
+          ? 'Alembic Codex initialization failed. Run diagnostics before retrying.'
+          : `Alembic Codex initialization artifacts were created, but post-initialization status could not verify the same initialized project identity: ${postInitConsistency.reason}`,
     };
   }
 
@@ -1212,6 +1234,64 @@ function readOptionalRecord(value: unknown): Record<string, unknown> | undefined
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function verifyPostInitConsistency(input: {
+  initData: Record<string, unknown>;
+  markerReadback: unknown;
+  projectRoot: string;
+  statusData: Record<string, unknown>;
+}): { ok: boolean; reason: string } {
+  const statusProject = readOptionalRecord(input.statusData.project) ?? {};
+  const statusWorkspace = readOptionalRecord(input.statusData.workspace) ?? {};
+  const statusKnowledge = readOptionalRecord(input.statusData.knowledge) ?? {};
+  if (input.statusData.initialized !== true || statusKnowledge.initialized !== true) {
+    return { ok: false, reason: 'post-status remained uninitialized' };
+  }
+  if (!sameResolvedPath(statusProject.root, input.projectRoot)) {
+    return { ok: false, reason: 'post-status project root differs from the initialized root' };
+  }
+  if (input.initData.alreadyInitialized === true) {
+    return { ok: true, reason: 'already-initialized status is consistent' };
+  }
+
+  const marker = readOptionalRecord(input.initData.marker);
+  const statusAutoInit = readOptionalRecord(input.statusData.autoInit) ?? {};
+  const markerReadback = readOptionalRecord(input.markerReadback);
+  if (statusAutoInit.markerExists !== true || !marker || !markerReadback) {
+    return { ok: false, reason: 'init marker was not readable after post-status' };
+  }
+  if (!sameResolvedPath(marker.projectRoot, input.projectRoot)) {
+    return { ok: false, reason: 'init marker project root differs from the initialized root' };
+  }
+  if (!sameResolvedPath(marker.projectRoot, markerReadback.projectRoot)) {
+    return { ok: false, reason: 'marker readback resolved a different project root' };
+  }
+  if (!sameResolvedPath(marker.dataRoot, markerReadback.dataRoot)) {
+    return { ok: false, reason: 'marker readback resolved a different data root' };
+  }
+  if (typeof marker.ghost !== 'boolean' || marker.ghost !== markerReadback.ghost) {
+    return { ok: false, reason: 'marker readback workspace mode contradicts init' };
+  }
+  if (statusWorkspace.ghost !== marker.ghost) {
+    return { ok: false, reason: 'post-status workspace mode contradicts the init marker' };
+  }
+  const expectedDataRootSource = marker.ghost ? 'ghost-registry' : 'project-root';
+  if (
+    statusProject.dataRootSource !== expectedDataRootSource ||
+    statusWorkspace.dataRootSource !== expectedDataRootSource
+  ) {
+    return { ok: false, reason: 'post-status data-root source contradicts the init marker' };
+  }
+  return { ok: true, reason: 'post-status and init marker are identity-consistent' };
+}
+
+function sameResolvedPath(left: unknown, right: unknown): boolean {
+  return (
+    typeof left === 'string' &&
+    typeof right === 'string' &&
+    resolve(left) === resolve(right)
+  );
 }
 
 function readRecordArray(value: unknown): Record<string, unknown>[] | undefined {
