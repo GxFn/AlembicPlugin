@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -192,10 +192,9 @@ function seedActiveSearchRecipe(projectRoot: string, id: string, title: string):
   }
 }
 
-function captureDatabaseFamily(dbPath: string): Record<
-  string,
-  { exists: boolean; hash?: string; mtimeNs?: bigint; size?: number }
-> {
+function captureDatabaseFamily(
+  dbPath: string
+): Record<string, { exists: boolean; hash?: string; mtimeNs?: bigint; size?: number }> {
   return Object.fromEntries(
     ['', '-wal', '-shm'].map((suffix) => {
       const filePath = `${dbPath}${suffix}`;
@@ -1238,15 +1237,11 @@ describe('HostMcpServer', () => {
     const server = new HostMcpServer();
 
     // Initialize each isolated temp knowledge store before inserting deterministic active rows.
-    await server.handleToolCall('alembic_search', {
+    await server.handleToolCall('alembic_status', {
       projectRoot: workspaceRoot,
-      query: 'initialization probe',
-      mode: 'keyword',
     });
-    await server.handleToolCall('alembic_search', {
+    await server.handleToolCall('alembic_status', {
       projectRoot: bilidiliRoot,
-      query: 'initialization probe',
-      mode: 'keyword',
     });
     seedActiveSearchRecipe(workspaceRoot, 'workspace-only', 'Workspace Only Recipe');
     seedActiveSearchRecipe(bilidiliRoot, 'bilidili-only', 'BiliDili Only Recipe');

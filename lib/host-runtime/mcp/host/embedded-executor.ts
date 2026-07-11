@@ -12,6 +12,7 @@ import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { isCleanMcpResponse } from '../output-contract.js';
 import { TOOLS } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
+import { executeReadOnlySearch } from './read-only-search-executor.js';
 import { attachServiceBoundary, failureResult } from './results.js';
 
 export interface ToolExecutionContext {
@@ -72,6 +73,14 @@ export class EmbeddedToolExecutor {
     }
 
     try {
+      if (name === 'alembic_search') {
+        const result = await executeReadOnlySearch(args, executionContext);
+        return attachExecutionContext(
+          attachServiceBoundary(result, serviceBoundary),
+          executionContext,
+          this.#hostProjectRoot
+        );
+      }
       const localMcp = await this.#getPluginOwnedMcpServer(executionContext);
       const result = await localMcp._executeMcpHandler(name, args, {
         actor: {
