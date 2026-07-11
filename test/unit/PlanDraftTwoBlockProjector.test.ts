@@ -106,6 +106,9 @@ describe('alembic_plan draft two-block projector', () => {
 
     const fullTreeRef = asRecord(meta.fullTreeRef);
     expect(typeof fullTreeRef.path).toBe('string');
+    expect(String(fullTreeRef.path).startsWith(`${projectRoot}${path.sep}.asd${path.sep}tmp`)).toBe(
+      true
+    );
     expect(Number(fullTreeRef.bytes)).toBeGreaterThan(8 * 1024);
     expect(fs.existsSync(String(fullTreeRef.path))).toBe(true);
     const fullTree = JSON.parse(fs.readFileSync(String(fullTreeRef.path), 'utf8')) as Record<

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -92,16 +93,51 @@ describe('plan draft native ProjectScope wiring', () => {
     expect(facts.every((file) => /^Large\/|^Small\//.test(file.filePath))).toBe(true);
     expect(facts.some((file) => file.filePath.startsWith('Noise/'))).toBe(false);
   });
+
+  test('oversized Ghost draft confines deterministic full-tree transport to the native dataRoot', async () => {
+    const fixture = createOversizedGhostScopeFixture();
+    const sourceBefore = snapshotTree(fixture.controlRoot);
+
+    const firstDraft = await draftPlan(fixture.controlRoot, { maxBudget: 1 }, 'moduleMining');
+    const firstTree = asRecord(asRecord(firstDraft.data).projectInfoTree);
+    const firstRef = asRecord(asRecord(firstTree.meta).fullTreeRef);
+    const firstPath = String(firstRef.path);
+    const firstHash = hashFile(firstPath);
+
+    expect(firstDraft).toMatchObject({ success: true });
+    expect(firstPath.startsWith(`${fixture.dataRoot}${path.sep}`)).toBe(true);
+    expect(fs.existsSync(path.join(fixture.controlRoot, '.asd'))).toBe(false);
+    expect(snapshotTree(fixture.controlRoot)).toEqual(sourceBefore);
+
+    const repeatedDraft = await draftPlan(fixture.controlRoot, { maxBudget: 1 }, 'moduleMining');
+    const repeatedTree = asRecord(asRecord(repeatedDraft.data).projectInfoTree);
+    const repeatedRef = asRecord(asRecord(repeatedTree.meta).fullTreeRef);
+    expect(repeatedRef.path).toBe(firstPath);
+    expect(hashFile(firstPath)).toBe(firstHash);
+    expect(snapshotTree(fixture.controlRoot)).toEqual(sourceBefore);
+
+    const untruncatedDraft = await draftPlan(
+      fixture.controlRoot,
+      { maxBudget: 512 },
+      'moduleMining'
+    );
+    const untruncatedTree = asRecord(asRecord(untruncatedDraft.data).projectInfoTree);
+    expect(asRecord(untruncatedTree.meta).fullTreeRef).toBeNull();
+    expect(fs.existsSync(firstPath)).toBe(false);
+    expect(snapshotTree(fixture.controlRoot)).toEqual(sourceBefore);
+  });
 });
 
 async function draftPlan(
   projectRoot: string,
-  hints: Record<string, unknown>
+  hints: Record<string, unknown>,
+  generationStage?: 'coldStart' | 'deepMining' | 'moduleMining'
 ): Promise<PlanToolResponse> {
   return (await routePlanTool(createContext(projectRoot), {
     hints,
     operation: 'draft',
     projectRoot,
+    ...(generationStage ? { generationStage } : {}),
   })) as PlanToolResponse;
 }
 
@@ -161,6 +197,53 @@ function writeNativeProjectScope(root: string) {
   );
 }
 
+function createOversizedGhostScopeFixture(): {
+  controlRoot: string;
+  dataRoot: string;
+} {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-ghost-transport-'));
+  tempRoots.push(fixtureRoot);
+  const controlRoot = path.join(fixtureRoot, 'control');
+  const homeRoot = path.join(fixtureRoot, 'home');
+  const dataRoot = path.join(homeRoot, '.asd', 'workspaces', 'ghost-plan');
+  process.env.ALEMBIC_HOME = homeRoot;
+  const folders = ['App', 'Core', 'Plugin', 'Agent', 'Dashboard'];
+  for (const [folderIndex, folder] of folders.entries()) {
+    writeFile(
+      controlRoot,
+      `${folder}/package.json`,
+      JSON.stringify({ name: `@fixture/${folder.toLowerCase()}`, main: 'src/index.ts' }, null, 2)
+    );
+    for (let fileIndex = 0; fileIndex < 20; fileIndex += 1) {
+      writeFile(
+        controlRoot,
+        `${folder}/src/feature-${fileIndex}.ts`,
+        `export const feature${folderIndex}_${fileIndex} = ${JSON.stringify(`${folder}-${fileIndex}`)};\n`
+      );
+    }
+  }
+  const projectScope = createProjectDescriptor({
+    controlRoot,
+    dataRoot,
+    displayName: 'Ghost Plan Scope',
+    folders: folders.map((folder, index) => ({
+      displayName: folder,
+      id: `folder-${folder.toLowerCase()}`,
+      path: path.join(controlRoot, folder),
+      repositoryId: folder,
+      role: index === 0 ? ('primary-source' as const) : ('source' as const),
+    })),
+    projectId: 'ghost-plan-project',
+    projectScopeId: 'ghost-plan-scope',
+  });
+  writeFile(
+    homeRoot,
+    `.asd/${PROJECT_SCOPE_REGISTRY_FILENAME}`,
+    JSON.stringify(createProjectScopeRegistryDocument([projectScope]), null, 2)
+  );
+  return { controlRoot, dataRoot };
+}
+
 function writeFile(root: string, relativePath: string, content: string) {
   const target = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -195,4 +278,25 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function hashFile(filePath: string): string {
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function snapshotTree(root: string): Array<{ content: string; path: string }> {
+  return walk(root)
+    .filter((entry) => fs.statSync(entry).isFile())
+    .map((entry) => ({
+      content: fs.readFileSync(entry).toString('base64'),
+      path: path.relative(root, entry).split(path.sep).join('/'),
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function walk(root: string): string[] {
+  return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(root, entry.name);
+    return entry.isDirectory() ? walk(target) : [target];
+  });
 }
