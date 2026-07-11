@@ -40,6 +40,7 @@ import { buildMcpGuidance } from '../../lib/host-runtime/mcp/host/guidance.js';
 import { resetStagingAccessSweepStateForTests } from '../../lib/host-runtime/mcp/host/staging-access-sweep.js';
 import { serializeMcpToolResult } from '../../lib/host-runtime/mcp/output-contract.js';
 import { resetServiceContainer } from '../../lib/injection/ServiceContainer.js';
+import { AlembicResidentServiceClient } from '../../lib/service/resident/AlembicResidentServiceClient.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
@@ -57,6 +58,7 @@ const ORIGINAL_STAGING_SWEEP_TIMEOUT_MS = process.env.ALEMBIC_STAGING_ACCESS_SWE
 const ORIGINAL_LOCAL_EMBEDDING_ENABLED = process.env.ALEMBIC_LOCAL_EMBEDDING_ENABLED;
 const ORIGINAL_OLLAMA_EMBED_MODEL = process.env.ALEMBIC_OLLAMA_EMBED_MODEL;
 const ORIGINAL_OLLAMA_ENDPOINT = process.env.ALEMBIC_OLLAMA_ENDPOINT;
+const ORIGINAL_RESIDENT_SEARCH_ENABLED = process.env.ALEMBIC_RESIDENT_SEARCH_ENABLED;
 // 钉更新（2026-07-06）：alembic_plan 进 HOST_AGENT_WORKFLOW 可见面（plan→bootstrap
 // 是冷启动必经）后本清单未同步——9 个既有失败中 3 个的根因；recipe_map 实际注册
 // 顺序紧随 prime（同为知识消费首跳）。按 getVisibleTools 真实顺序对齐。
@@ -647,6 +649,11 @@ afterEach(async () => {
     delete process.env.ALEMBIC_OLLAMA_ENDPOINT;
   } else {
     process.env.ALEMBIC_OLLAMA_ENDPOINT = ORIGINAL_OLLAMA_ENDPOINT;
+  }
+  if (ORIGINAL_RESIDENT_SEARCH_ENABLED === undefined) {
+    delete process.env.ALEMBIC_RESIDENT_SEARCH_ENABLED;
+  } else {
+    process.env.ALEMBIC_RESIDENT_SEARCH_ENABLED = ORIGINAL_RESIDENT_SEARCH_ENABLED;
   }
   vi.restoreAllMocks();
 });
@@ -1342,6 +1349,72 @@ describe('HostMcpServer', () => {
     process.env.ALEMBIC_LOCAL_EMBEDDING_ENABLED = '1';
     process.env.ALEMBIC_OLLAMA_EMBED_MODEL = 'qwen3-embedding:0.6b';
     process.env.ALEMBIC_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
+    process.env.ALEMBIC_RESIDENT_SEARCH_ENABLED = '0';
+    let workspaceResidentAttempts = 0;
+    const residentSearchSpy = vi
+      .spyOn(AlembicResidentServiceClient.prototype, 'search')
+      .mockImplementation(async (request) => {
+        if (request.projectRoot !== workspaceRoot) {
+          return {
+            items: [],
+            meta: {
+              attempted: true,
+              available: false,
+              durationMs: 0,
+              reason: 'resident-unavailable',
+              requestedMode: request.mode ?? 'auto',
+              residentVector: { available: false, reason: 'resident-unavailable' },
+              resultCount: 0,
+              route: 'alembic-resident-service',
+              used: false,
+            },
+          };
+        }
+        workspaceResidentAttempts += 1;
+        if (workspaceResidentAttempts === 1) {
+          return {
+            items: [],
+            meta: {
+              attempted: true,
+              available: false,
+              durationMs: 0,
+              reason: 'request-timeout',
+              requestedMode: request.mode ?? 'auto',
+              residentVector: { available: false, reason: 'request-timeout' },
+              resultCount: 0,
+              route: 'alembic-resident-service',
+              used: false,
+            },
+          };
+        }
+        return {
+          items: [
+            {
+              description: 'Result only contributed by the fluctuating resident lane.',
+              id: 'resident-only',
+              kind: 'pattern',
+              language: 'typescript',
+              metadata: { sourceRefs: ['resident-only.md'] },
+              score: 0.99,
+              sourceRefs: ['resident-only.md'],
+              title: 'Resident Only Recipe',
+            },
+          ],
+          meta: {
+            actualMode: 'semantic',
+            attempted: true,
+            available: true,
+            durationMs: 1,
+            requestedMode: request.mode ?? 'auto',
+            residentVector: { available: true, semanticUsed: true, vectorUsed: true },
+            resultCount: 1,
+            route: 'alembic-resident-service',
+            semanticUsed: true,
+            used: true,
+            vectorUsed: true,
+          },
+        };
+      });
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (url === 'http://127.0.0.1:11434/api/tags') {
@@ -1513,6 +1586,7 @@ describe('HostMcpServer', () => {
     expect(bilidiliSemanticRepeat.structuredContent.items).toEqual(
       bilidiliSemantic.structuredContent.items
     );
+    expect(residentSearchSpy).not.toHaveBeenCalled();
     expect(workspaceSemantic.structuredContent.result.requestProjectIdentity).toMatchObject({
       dataRoot: workspaceRoot,
       projectRoot: workspaceRoot,
