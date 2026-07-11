@@ -1056,6 +1056,103 @@ describe('agent-facing active public tools', () => {
     expect(incrementPrimeAdoptionsSync).toHaveBeenCalledWith('guard-public-api', 1);
   });
 
+  test('Prime receipt does not treat loaded or applicable zero-violation rules as applied', async () => {
+    const incrementPrimeAdoptionsSync = vi.fn();
+    const knowledgeRepository = {
+      findActiveGuardRecipes: vi.fn(async () => []),
+      findByIdsDetailSync: vi.fn(() => [
+        {
+          doClause: 'Keep public tools Plugin-owned.',
+          id: 'guard-public-api',
+          kind: 'rule',
+          title: 'Keep public tools Plugin-owned',
+        },
+      ]),
+      incrementPrimeAdoptionsSync,
+    };
+    const ctx = makeContext(vi.fn(async () => deliveredSearchResult()), {
+      guardCheckEngine: {
+        auditFile: vi.fn(),
+        auditFiles: vi.fn((files: Array<{ path: string }>) => ({
+          files: files.map((file) => ({
+            filePath: file.path,
+            language: 'typescript',
+            uncertainResults: [],
+            violations: [],
+          })),
+          crossFileViolations: [],
+          summary: { total: 0, errors: 0, warnings: 0 },
+        })),
+        checkCode: vi.fn(),
+        getRules: vi.fn(() => [
+          {
+            id: 'guard-public-api',
+            name: 'Keep public tools Plugin-owned',
+            severity: 'error',
+            source: 'recipe',
+          },
+        ]),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+      knowledgeRepository,
+      recipeSourceRefRepository: {
+        findAll: vi.fn(() => [
+          {
+            recipeId: 'guard-public-api',
+            sourcePath: 'lib/host-runtime/mcp/handlers/agent-public-tools.ts:42',
+            status: 'active',
+          },
+        ]),
+      },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+    const prime = asRecord(
+      await primeHandler(ctx, {
+        agentHost: 'codex',
+        capability: 'Codex MCP public tools',
+        integrationBoundary: 'MCP tool handler',
+        inputSource: 'host-declared-intent',
+        projectRoot: process.cwd(),
+        requirementGoal: 'Reject false Prime Guard adoption feedback',
+        taskAction: 'implement',
+      })
+    );
+    const primeRef = String(asRecord(prime.primePackage).primeRef);
+    const guardArgs = {
+      files: ['lib/host-runtime/mcp/handlers/agent-public-tools.ts'],
+      inputSource: 'host-declared-intent' as const,
+      operation: 'review' as const,
+      primeRef,
+    };
+    const first = asRecord(await codeGuardHandler(ctx, guardArgs));
+    const second = asRecord(await codeGuardHandler(ctx, guardArgs));
+    const guardResult = asRecord(first.guard);
+
+    expect(asRecord(guardResult.appliedRules).sample).toEqual([
+      expect.objectContaining({ id: 'guard-public-api' }),
+    ]);
+    expect(guardResult.applicableRecipeRules).toEqual([
+      expect.objectContaining({ recipeId: 'guard-public-api' }),
+    ]);
+    expect(asRecord(first.primeAlignment)).toMatchObject({
+      deliveredGuardCount: 1,
+      overlappedGuardIds: ['guard-public-api'],
+      appliedGuardIds: [],
+      violatedGuardIds: [],
+      feedbackGuardIds: [],
+      feedbackRecorded: false,
+      coverageComplete: true,
+    });
+    expect(asRecord(second.primeAlignment)).toMatchObject({
+      appliedGuardIds: [],
+      violatedGuardIds: [],
+      feedbackGuardIds: [],
+      feedbackRecorded: false,
+    });
+    expect(incrementPrimeAdoptionsSync).not.toHaveBeenCalled();
+  });
+
   test('reports selected-only accepted resident material as ready public prime output', async () => {
     const search = vi.fn(async () => selectedOnlySearchResult());
     const ctx = makeContext(search);
