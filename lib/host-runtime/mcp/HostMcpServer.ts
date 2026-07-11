@@ -60,7 +60,7 @@ import { dispatchLocalTool } from './host/local-tool-dispatcher.js';
 import { attachPluginOpportunisticEvolutionSurface } from './host/opportunistic-evolution-presenter.js';
 import { safeProjectRootFallback } from './host/project-root.js';
 import {
-  persistTrustedProjectRootScope,
+  persistAuthorizedProjectRootScope,
   resolveProjectRootScope,
 } from './host/project-root-scope.js';
 import { attachServiceBoundary, failureResult, isErrorResult } from './host/results.js';
@@ -336,13 +336,19 @@ export class HostMcpServer {
         projectRoot: scope.override.projectRoot,
         waitUntilReadyMs: this.waitUntilReadyMs,
       });
-      persistTrustedProjectRootScope({
+      const scopedOverride = {
         ...scope.override,
         projectRoot: scopedServer.projectRoot,
         resolution: scopedServer.projectRootResolution,
         trusted: scope.override.trusted,
-      });
-      return scopedServer.handleToolCallInCurrentProject(name, scope.override.args, options);
+      };
+      const result = await scopedServer.handleToolCallInCurrentProject(
+        name,
+        scope.override.args,
+        options
+      );
+      persistAuthorizedProjectRootScope(name, scopedOverride, result);
+      return result;
     }
     return this.handleToolCallInCurrentProject(name, scope.args, options);
   }

@@ -12,6 +12,7 @@ import {
   writeSavedProjectRoot,
 } from '../../lib/host-runtime/context/ProjectRootResolver.js';
 import {
+  getVisibleTools,
   HostMcpServer,
   resetPluginOwnedMcpServerForTests,
 } from '../../lib/host-runtime/mcp/HostMcpServer.js';
@@ -154,6 +155,9 @@ describe('agent-public mismatch pre-Bootstrap zero-write gate', () => {
       ],
     ];
 
+    getVisibleTools(undefined, fixture.hostRoot);
+    expect(fs.readFileSync(locatorPath)).toEqual(locatorBefore);
+    expect(snapshotTree(fixture.homeRoot)).toEqual(homeBefore);
     for (const [toolName, args] of calls) {
       const result = (await server.handleToolCall(toolName, {
         ...args,

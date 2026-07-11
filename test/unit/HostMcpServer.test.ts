@@ -22,6 +22,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   getSavedProjectRootPath,
   readInitMarker,
+  readSavedProjectRoot,
 } from '../../lib/host-runtime/context/ProjectRootResolver.js';
 import {
   getVisibleTools,
@@ -1511,6 +1512,7 @@ describe('HostMcpServer', () => {
       projectRoot,
       route: 'explicit',
     });
+    expect(readSavedProjectRoot()).toMatchObject({ projectRoot });
     expect(fs.existsSync(path.join(pluginRoot, '.asd'))).toBe(false);
   });
 

@@ -71,8 +71,30 @@ export function resolveProjectRootScope(
   };
 }
 
-export function persistTrustedProjectRootScope(scope: ProjectRootScopeOverride): void {
-  if (scope.trusted && scope.resolution.path) {
-    resolveHostAdapter().writeSavedProjectRoot(scope.resolution.path);
+export function persistAuthorizedProjectRootScope(
+  toolName: string,
+  scope: ProjectRootScopeOverride,
+  result: unknown
+): void {
+  if (toolName !== 'alembic_init' || !scope.trusted || !scope.resolution.path) {
+    return;
   }
+  const resultRecord = readRecord(result);
+  const data = readRecord(resultRecord?.data);
+  const status = readRecord(data?.status);
+  const project = readRecord(status?.project);
+  if (
+    resultRecord?.success !== true ||
+    status?.initialized !== true ||
+    project?.root !== scope.resolution.path
+  ) {
+    return;
+  }
+  resolveHostAdapter().writeSavedProjectRoot(scope.resolution.path);
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
