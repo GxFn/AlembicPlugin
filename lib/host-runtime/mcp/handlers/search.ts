@@ -688,19 +688,20 @@ function localRecipeRegionHitsToSearchItems(hits: readonly Record<string, unknow
     }
   }
 
-  const items = [...grouped.values()]
-    .sort((a, b) => b.score - a.score)
-    .map((entry) => ({
-      ...entry.item,
-      metadata: compactCandidateMetadata({
-        ...(readRecord(entry.item.metadata) ?? {}),
-        regionClasses: entry.regionClasses,
-        regionVectorIds: entry.regionVectorIds,
-        sourceRefs: entry.sourceRefs,
-      }),
+  const rankedEntries = [...grouped.entries()].sort(
+    ([leftId, left], [rightId, right]) => right.score - left.score || leftId.localeCompare(rightId)
+  );
+  const items = rankedEntries.map(([, entry]) => ({
+    ...entry.item,
+    metadata: compactCandidateMetadata({
+      ...(readRecord(entry.item.metadata) ?? {}),
+      regionClasses: entry.regionClasses,
+      regionVectorIds: entry.regionVectorIds,
       sourceRefs: entry.sourceRefs,
-    }));
-  const scoreBreakdown = [...grouped.entries()].map(([itemId, entry], index) => ({
+    }),
+    sourceRefs: entry.sourceRefs,
+  }));
+  const scoreBreakdown = rankedEntries.map(([itemId, entry], index) => ({
     finalScore: entry.score,
     itemId,
     laneRoutes: ['semantic'],
