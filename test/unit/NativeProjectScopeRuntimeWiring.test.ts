@@ -216,7 +216,6 @@ describe('native ProjectScope runtime wiring', () => {
           stale: true,
           status: 'stale',
         },
-        status: 'knowledge_stale',
       },
       ok: true,
       status: 'degraded',

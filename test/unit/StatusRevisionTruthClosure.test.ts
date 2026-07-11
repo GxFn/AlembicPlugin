@@ -122,7 +122,12 @@ function posture(input: {
       projectScopeId: 'scope-fixture',
       rows: [
         {
-          checkpointCommit: rowStatus === 'missing-checkpoint' ? null : 'checkpoint-commit',
+          checkpointCommit:
+            rowStatus === 'missing-checkpoint'
+              ? null
+              : rowStatus === 'current'
+                ? 'current-commit'
+                : 'checkpoint-commit',
           currentCommit: rowStatus === 'unknown' ? null : 'current-commit',
           dirty: rowStatus === 'unknown' ? null : rowStatus === 'dirty',
           folderId: 'folder-fixture',

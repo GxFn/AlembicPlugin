@@ -210,6 +210,7 @@ export async function buildStatus(
     resolver.databasePath,
     hostProjectAlignment
   );
+  const revisionTruth = resolveStatusRevisionTruth(retrievalCheckpointPosture);
   const projectRootResolution =
     options.projectRootResolution ||
     resolveHostAdapter().resolveProjectRoot({ projectRoot: projectRootInput });
@@ -260,7 +261,10 @@ export async function buildStatus(
   const daemonPidPath = join(resolver.runtimeDir, 'daemon.pid');
 
   return {
-    ok: knowledge.initialized,
+    // Status transport can succeed while knowledge truth is degraded. Public ready is
+    // reserved for a complete, identity-matching revision vector; init identity uses
+    // its own marker/post-status gate and intentionally does not depend on this flag.
+    ok: knowledge.initialized && revisionTruth.current,
     initialized: knowledge.initialized,
     project: {
       root: projectRoot,
@@ -455,11 +459,25 @@ export function summarizeHostKnowledgeState(
   checkpointPosture: RetrievalCheckpointPosture | null
 ): StatusData['knowledge'] {
   const jobs = asPlainRecord(knowledge.jobs) || {};
+  const revisionTruth = resolveStatusRevisionTruth(checkpointPosture);
+  const localFreshness = summarizeStringRecord(knowledge.freshness, [
+    'status',
+    'stale',
+    'reason',
+    'latestKnowledgeAt',
+    'latestJobAt',
+    'checkedAt',
+  ]);
   return {
     initialized: knowledge.initialized,
     hasKnowledge: knowledge.hasKnowledge,
     usable: knowledge.usable,
-    status: typeof knowledge.status === 'string' ? knowledge.status : null,
+    status:
+      !revisionTruth.current && knowledge.usable
+        ? 'knowledge_stale'
+        : typeof knowledge.status === 'string'
+          ? knowledge.status
+          : null,
     recipeCount: typeof knowledge.recipeCount === 'number' ? knowledge.recipeCount : null,
     dbRecipeCount: typeof knowledge.dbRecipeCount === 'number' ? knowledge.dbRecipeCount : null,
     materializedRecipeCount:
@@ -473,16 +491,93 @@ export function summarizeHostKnowledgeState(
     codeDrift: knowledge.codeDrift ? { ...knowledge.codeDrift } : null,
     sourceRevisionManifest: checkpointPosture?.sourceRevisionManifest ?? null,
     sourceRevisionStatus: checkpointPosture?.status ?? null,
-    freshness: summarizeStringRecord(knowledge.freshness, [
-      'status',
-      'stale',
-      'reason',
-      'latestKnowledgeAt',
-      'latestJobAt',
-      'checkedAt',
-    ]),
+    freshness: revisionTruth.current
+      ? localFreshness
+      : {
+          ...localFreshness,
+          reason: revisionTruth.reason,
+          stale: true,
+          status: revisionTruth.status,
+        },
     bootstrapRunning: jobs.bootstrapRunning === true,
     jobs: summarizeStringRecord(jobs, ['running', 'bootstrapRunning', 'rescanRunning', 'total']),
+  };
+}
+
+interface StatusRevisionTruth {
+  current: boolean;
+  reason: string | null;
+  status: 'current' | 'stale' | 'unknown';
+}
+
+/**
+ * KnowledgeState 只描述本地内容、SourceRef 与 job 新鲜度；完整项目 revision
+ * vector 在 status 层才可用。这里是两条真值链的唯一合并点，避免 clean-output
+ * 把“初始化成功”误投影为“知识 current”。
+ */
+function resolveStatusRevisionTruth(
+  posture: RetrievalCheckpointPosture | null
+): StatusRevisionTruth {
+  if (!posture) {
+    return {
+      current: false,
+      reason: 'Project revision manifest posture is unavailable.',
+      status: 'unknown',
+    };
+  }
+  const manifest = posture.sourceRevisionManifest;
+  if (!manifest) {
+    return {
+      current: false,
+      reason: `Project revision manifest is unavailable${posture.reason ? `: ${posture.reason}` : '.'}`,
+      status: 'unknown',
+    };
+  }
+
+  const rowIssues = manifest.rows.filter(
+    (row) =>
+      row.status !== 'current' ||
+      row.checkpointCommit === null ||
+      row.currentCommit === null ||
+      row.checkpointCommit !== row.currentCommit ||
+      row.dirty !== false
+  );
+  const current =
+    posture.available === true &&
+    posture.status === 'current' &&
+    posture.retrievalMayBeStale === false &&
+    manifest.alignment === 'current' &&
+    manifest.completeness === 'complete' &&
+    manifest.identityAlignment === 'current' &&
+    manifest.rows.length > 0 &&
+    rowIssues.length === 0;
+  if (current) {
+    return { current: true, reason: null, status: 'current' };
+  }
+
+  const stale =
+    posture.status === 'stale' ||
+    manifest.alignment === 'stale' ||
+    manifest.completeness === 'incomplete' ||
+    manifest.identityAlignment === 'mismatch' ||
+    rowIssues.some((row) => row.status !== 'unknown');
+  const issues = [
+    posture.available !== true ? 'checkpoint posture unavailable' : null,
+    posture.status !== 'current' ? `posture=${posture.status}` : null,
+    manifest.alignment !== 'current' ? `alignment=${manifest.alignment}` : null,
+    manifest.completeness !== 'complete' ? `completeness=${manifest.completeness}` : null,
+    manifest.identityAlignment !== 'current'
+      ? `identityAlignment=${manifest.identityAlignment}`
+      : null,
+    manifest.rows.length === 0 ? 'revision rows missing' : null,
+    rowIssues.length > 0
+      ? `non-current rows=${rowIssues.map((row) => row.repositoryId ?? row.folderId).join(',')}`
+      : null,
+  ].filter((issue): issue is string => issue !== null);
+  return {
+    current: false,
+    reason: `Project revision manifest is not current: ${issues.join('; ')}.`,
+    status: stale ? 'stale' : 'unknown',
   };
 }
 
