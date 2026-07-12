@@ -242,7 +242,8 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
         sourceRefRepository: repositories.sourceRefRepository,
       });
       const envelope = await recipeContext.execute({ kind: 'source-refs', payload: {} });
-      const refs = (envelope.data as { refs?: Array<{ recipeId: string; status: string }> }).refs ?? [];
+      const refs =
+        (envelope.data as { refs?: Array<{ recipeId: string; status: string }> }).refs ?? [];
 
       expect(refs.map((ref) => ref.recipeId)).toEqual([
         'r-active',
@@ -288,19 +289,19 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(JSON.stringify(b.recipeMounts)).toEqual(JSON.stringify(a.recipeMounts));
   });
 
-  test.each([199, 200, 201, 205])(
-    'recipe mount display limits preserve complete truth projection at %i candidates',
-    async (candidateCount) => {
+  test.each([
+    199, 200, 201, 205,
+  ])('recipe mount display limits preserve complete truth projection at %i candidates', async (candidateCount) => {
     const projectRoot = createFixtureProject();
     const sourcePaths = Array.from({ length: 80 }, (_, index) => {
       const relativePath = `lib/count-${String(index + 1).padStart(3, '0')}.ts`;
-      fs.writeFileSync(path.join(projectRoot, relativePath), `export const count${index + 1} = ${index + 1};\n`);
+      fs.writeFileSync(
+        path.join(projectRoot, relativePath),
+        `export const count${index + 1} = ${index + 1};\n`
+      );
       return relativePath;
     });
-    const recipeIds = Array.from(
-      { length: candidateCount },
-      (_, index) => `r-count-${index + 1}`
-    );
+    const recipeIds = Array.from({ length: candidateCount }, (_, index) => `r-count-${index + 1}`);
     const deps: RecipeMapDeps = {
       ...fakeDeps(),
       listRecipes: async () =>
@@ -345,8 +346,7 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     ).toBe(low.conservation.candidateRecipes);
     expect(Buffer.byteLength(JSON.stringify(low), 'utf8')).toBeLessThanOrEqual(20 * 1024);
     expect(Buffer.byteLength(JSON.stringify(high), 'utf8')).toBeLessThanOrEqual(20 * 1024);
-  }
-  );
+  });
 
   test('large recipe_map reads remain inline and leave the project filesystem unchanged', async () => {
     const projectRoot = createFixtureProject();
@@ -382,14 +382,14 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
   });
 
   test('renamed refs use newPath and unknown statuses fail closed as unresolved', () => {
-    expect(normalizeRecipeRef('r-renamed', 'old/file.ts:10', 'renamed', 'new/file.ts')).toMatchObject(
-      {
-        raw: 'old/file.ts:10',
-        filePath: 'new/file.ts',
-        status: 'renamed',
-        newPath: 'new/file.ts',
-      }
-    );
+    expect(
+      normalizeRecipeRef('r-renamed', 'old/file.ts:10', 'renamed', 'new/file.ts')
+    ).toMatchObject({
+      raw: 'old/file.ts:10',
+      filePath: 'new/file.ts',
+      status: 'renamed',
+      newPath: 'new/file.ts',
+    });
     expect(normalizeRecipeRef('r-missing', 'old/file.ts:10', 'renamed')).toMatchObject({
       filePath: 'old/file.ts',
       status: 'unresolved',

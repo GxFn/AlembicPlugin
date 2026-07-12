@@ -58,7 +58,14 @@ function buildAlembicRecipeMapProjectionFailure(): CleanMcpResponse {
       },
     ],
     nextActions: [],
-    limits: { nodeLimit: 0, recipeMountLimit: 0, refLimit: 0, detailLevel: 'summary' },
+    limits: {
+      nodeLimit: 0,
+      recipeMountLimit: 0,
+      appliedRecipeMountLimit: 0,
+      recipeMountLimitReason: 'requested-limit',
+      refLimit: 0,
+      detailLevel: 'summary',
+    },
     meta: {
       contractVersion: 1,
       outputSchema: 'AlembicRecipeMapOutput',

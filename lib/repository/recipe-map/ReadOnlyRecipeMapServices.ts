@@ -135,7 +135,12 @@ class ReadOnlyRecipeSourceRefRepository implements RecipeContextSourceRefService
   }
 
   findRenamed(): RecipeContextSourceRefRecord[] {
-    return this.findByStatus('renamed');
+    // Core's structural RecipeContext facade currently synthesizes listAll() from
+    // active + stale + renamed and has no findDrifted/listAll member. Carry drifted
+    // rows through the final compatibility partition without relabelling them, or
+    // request-scoped Recipe Map silently falls back to record sources and changes
+    // canonical mount/deferred truth.
+    return [...this.findByStatus('renamed'), ...this.findByStatus('drifted')];
   }
 
   #query(where: string, value: string): RecipeContextSourceRefRecord[] {

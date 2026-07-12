@@ -169,6 +169,8 @@ export const AlembicRecipeMapLimitsSchema = z
   .object({
     nodeLimit: z.number().int().nonnegative(),
     recipeMountLimit: z.number().int().nonnegative(),
+    appliedRecipeMountLimit: z.number().int().nonnegative(),
+    recipeMountLimitReason: z.enum(['requested-limit', 'available-mounts', 'inline-byte-budget']),
     refLimit: z.number().int().nonnegative(),
     detailLevel: z.enum(['summary', 'standard', 'detailed']),
   })
@@ -241,7 +243,33 @@ export const AlembicRecipeMapOutputSchema = z
       })
       .strict(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      value.limits.appliedRecipeMountLimit !== value.recipeMounts.length ||
+      value.limits.appliedRecipeMountLimit !== value.conservation.displayedMounts
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Applied Recipe mount limit must equal the displayed mount count.',
+        path: ['limits', 'appliedRecipeMountLimit'],
+      });
+    }
+    const expectedReason =
+      value.conservation.displayedMounts <
+      Math.min(value.limits.recipeMountLimit, value.conservation.mountedTotal)
+        ? 'inline-byte-budget'
+        : value.conservation.mountedTotal < value.limits.recipeMountLimit
+          ? 'available-mounts'
+          : 'requested-limit';
+    if (value.limits.recipeMountLimitReason !== expectedReason) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Recipe mount limit reason must be ${expectedReason} for this projection.`,
+        path: ['limits', 'recipeMountLimitReason'],
+      });
+    }
+  });
 export type AlembicRecipeMapOutput = z.infer<typeof AlembicRecipeMapOutputSchema>;
 
 export const AlembicRecipeMapMcpResultSchema = z

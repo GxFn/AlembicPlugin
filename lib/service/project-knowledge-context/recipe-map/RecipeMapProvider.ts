@@ -157,6 +157,12 @@ export class RecipeMapProvider {
       limits: {
         nodeLimit: request.nodeLimit,
         recipeMountLimit: request.recipeMountLimit,
+        appliedRecipeMountLimit: displayedMounts.length,
+        recipeMountLimitReason: recipeMountLimitReason(
+          request.recipeMountLimit,
+          allMounts.length,
+          displayedMounts.length
+        ),
         refLimit: DEFAULT_REF_LIMIT,
         detailLevel: request.detailLevel,
       },
@@ -264,7 +270,27 @@ function withRecipeMountPresentation(
       displayedMounts,
       omittedMounts: output.conservation.mountedTotal - displayedMounts,
     },
+    limits: {
+      ...output.limits,
+      appliedRecipeMountLimit: displayedMounts,
+      recipeMountLimitReason: recipeMountLimitReason(
+        output.limits.recipeMountLimit,
+        output.conservation.mountedTotal,
+        displayedMounts
+      ),
+    },
   };
+}
+
+function recipeMountLimitReason(
+  requestedLimit: number,
+  mountedTotal: number,
+  displayedMounts: number
+): AlembicRecipeMapOutput['limits']['recipeMountLimitReason'] {
+  if (displayedMounts < Math.min(requestedLimit, mountedTotal)) {
+    return 'inline-byte-budget';
+  }
+  return mountedTotal < requestedLimit ? 'available-mounts' : 'requested-limit';
 }
 
 function trimRecipeMapArrays(
@@ -687,6 +713,8 @@ function failedRecipeMapOutput(request: RecipeMapRequest, error: unknown): Alemb
     limits: {
       nodeLimit: request.nodeLimit,
       recipeMountLimit: request.recipeMountLimit,
+      appliedRecipeMountLimit: 0,
+      recipeMountLimitReason: recipeMountLimitReason(request.recipeMountLimit, 0, 0),
       refLimit: DEFAULT_REF_LIMIT,
       detailLevel: request.detailLevel,
     },
