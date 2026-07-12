@@ -5,12 +5,11 @@ import { GuardCheckEngine, ViolationsStore } from '@alembic/core/guard';
 import { createAlembicRepositories } from '@alembic/core/repositories';
 import Database from 'better-sqlite3';
 import ConfigLoader from '../../../infrastructure/config/AppConfigLoader.js';
+import { createReadOnlyCodeGuardRepositories } from '../../../repository/guard/ReadOnlyCodeGuardServices.js';
 import { codeGuardHandler } from '../handlers/agent-public-tools.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
 import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
-
-type SqliteDatabase = InstanceType<typeof Database>;
 
 interface GuardViolationRunEffect {
   filePath?: string;
@@ -61,8 +60,10 @@ export async function executeReadOnlyCodeGuard(
   };
   try {
     db.pragma('query_only = ON');
-    const knowledgeRepository = new ReadOnlyCodeGuardKnowledgeRepository(db, effects);
-    const sourceRefRepository = new ReadOnlyCodeGuardSourceRefRepository(db);
+    const { knowledgeRepository, sourceRefRepository } = createReadOnlyCodeGuardRepositories(db, {
+      recordGuardHits: (id, count) => incrementEffect(effects.guardHits, id, count),
+      recordPrimeAdoptions: (id, count) => incrementEffect(effects.primeAdoptions, id, count),
+    });
     const guardCheckEngine = new GuardCheckEngine(
       db as unknown as ConstructorParameters<typeof GuardCheckEngine>[0],
       {
@@ -145,93 +146,6 @@ async function flushGuardEffects(
   } finally {
     runtime?.close();
   }
-}
-
-class ReadOnlyCodeGuardKnowledgeRepository {
-  readonly #db: SqliteDatabase;
-  readonly #effects: GuardEffects;
-
-  constructor(db: SqliteDatabase, effects: GuardEffects) {
-    this.#db = db;
-    this.#effects = effects;
-  }
-
-  findGuardRulesSync(lifecycles: string[]): Array<Record<string, unknown>> {
-    if (!tableExists(this.#db, 'knowledge_entries') || lifecycles.length === 0) {
-      return [];
-    }
-    const placeholders = lifecycles.map(() => '?').join(',');
-    return this.#db
-      .prepare(
-        `SELECT id, title, description, language, scope, constraints, lifecycle
-           FROM knowledge_entries
-          WHERE (kind = 'rule' OR knowledgeType = 'boundary-constraint')
-            AND lifecycle IN (${placeholders})`
-      )
-      .all(...lifecycles) as Array<Record<string, unknown>>;
-  }
-
-  async findActiveGuardRecipes(): Promise<Array<Record<string, unknown>>> {
-    if (!tableExists(this.#db, 'knowledge_entries')) {
-      return [];
-    }
-    return this.#db
-      .prepare(
-        `SELECT * FROM knowledge_entries
-          WHERE lifecycle = 'active'
-            AND (kind = 'rule' OR knowledgeType = 'boundary-constraint')`
-      )
-      .all() as Array<Record<string, unknown>>;
-  }
-
-  findByIdsDetailSync(ids: string[]): Array<Record<string, unknown>> {
-    if (!tableExists(this.#db, 'knowledge_entries') || ids.length === 0) {
-      return [];
-    }
-    const placeholders = ids.map(() => '?').join(',');
-    return this.#db
-      .prepare(
-        `SELECT id, content, description, trigger, headers, moduleName, tags, language,
-                category, updatedAt, createdAt, quality, stats, difficulty,
-                whenClause, doClause, dontClause, title, kind
-           FROM knowledge_entries WHERE id IN (${placeholders})`
-      )
-      .all(...ids) as Array<Record<string, unknown>>;
-  }
-
-  incrementGuardHitsSync(id: string, count: number): void {
-    incrementEffect(this.#effects.guardHits, id, count);
-  }
-
-  incrementPrimeAdoptionsSync(id: string, count: number): void {
-    incrementEffect(this.#effects.primeAdoptions, id, count);
-  }
-}
-
-class ReadOnlyCodeGuardSourceRefRepository {
-  readonly #db: SqliteDatabase;
-
-  constructor(db: SqliteDatabase) {
-    this.#db = db;
-  }
-
-  findAll(): Array<{ recipeId: string; sourcePath: string; status: string }> {
-    if (!tableExists(this.#db, 'recipe_source_refs')) {
-      return [];
-    }
-    return this.#db
-      .prepare(
-        `SELECT recipe_id AS recipeId, source_path AS sourcePath, status
-           FROM recipe_source_refs ORDER BY recipe_id, source_path`
-      )
-      .all() as Array<{ recipeId: string; sourcePath: string; status: string }>;
-  }
-}
-
-function tableExists(db: SqliteDatabase, table: string): boolean {
-  return Boolean(
-    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1").get(table)
-  );
 }
 
 function incrementEffect(effects: Map<string, number>, id: string, count: number): void {

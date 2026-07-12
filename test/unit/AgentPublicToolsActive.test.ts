@@ -1000,24 +1000,27 @@ describe('agent-facing active public tools', () => {
       crossFileViolations: [],
       summary: { total: 1, errors: 1, warnings: 0 },
     }));
-    const ctx = makeContext(vi.fn(async () => deliveredSearchResult()), {
-      guardCheckEngine: {
-        auditFile: vi.fn(),
-        auditFiles,
-        checkCode: vi.fn(),
-        getRules: vi.fn(() => [
-          {
-            id: 'guard-public-api',
-            name: 'Keep public tools Plugin-owned',
-            severity: 'error',
-            source: 'recipe',
-          },
-        ]),
-        injectExternalRules: vi.fn(),
-        isEpInjected: () => true,
-      },
-      knowledgeRepository: { incrementPrimeAdoptionsSync },
-    });
+    const ctx = makeContext(
+      vi.fn(async () => deliveredSearchResult()),
+      {
+        guardCheckEngine: {
+          auditFile: vi.fn(),
+          auditFiles,
+          checkCode: vi.fn(),
+          getRules: vi.fn(() => [
+            {
+              id: 'guard-public-api',
+              name: 'Keep public tools Plugin-owned',
+              severity: 'error',
+              source: 'recipe',
+            },
+          ]),
+          injectExternalRules: vi.fn(),
+          isEpInjected: () => true,
+        },
+        knowledgeRepository: { incrementPrimeAdoptionsSync },
+      }
+    );
     ctx.container.singletons = { _projectRoot: process.cwd() };
     const prime = asRecord(
       await primeHandler(ctx, {
@@ -1070,42 +1073,45 @@ describe('agent-facing active public tools', () => {
       ]),
       incrementPrimeAdoptionsSync,
     };
-    const ctx = makeContext(vi.fn(async () => deliveredSearchResult()), {
-      guardCheckEngine: {
-        auditFile: vi.fn(),
-        auditFiles: vi.fn((files: Array<{ path: string }>) => ({
-          files: files.map((file) => ({
-            filePath: file.path,
-            language: 'typescript',
-            uncertainResults: [],
-            violations: [],
+    const ctx = makeContext(
+      vi.fn(async () => deliveredSearchResult()),
+      {
+        guardCheckEngine: {
+          auditFile: vi.fn(),
+          auditFiles: vi.fn((files: Array<{ path: string }>) => ({
+            files: files.map((file) => ({
+              filePath: file.path,
+              language: 'typescript',
+              uncertainResults: [],
+              violations: [],
+            })),
+            crossFileViolations: [],
+            summary: { total: 0, errors: 0, warnings: 0 },
           })),
-          crossFileViolations: [],
-          summary: { total: 0, errors: 0, warnings: 0 },
-        })),
-        checkCode: vi.fn(),
-        getRules: vi.fn(() => [
-          {
-            id: 'guard-public-api',
-            name: 'Keep public tools Plugin-owned',
-            severity: 'error',
-            source: 'recipe',
-          },
-        ]),
-        injectExternalRules: vi.fn(),
-        isEpInjected: () => true,
-      },
-      knowledgeRepository,
-      recipeSourceRefRepository: {
-        findAll: vi.fn(() => [
-          {
-            recipeId: 'guard-public-api',
-            sourcePath: 'lib/host-runtime/mcp/handlers/agent-public-tools.ts:42',
-            status: 'active',
-          },
-        ]),
-      },
-    });
+          checkCode: vi.fn(),
+          getRules: vi.fn(() => [
+            {
+              id: 'guard-public-api',
+              name: 'Keep public tools Plugin-owned',
+              severity: 'error',
+              source: 'recipe',
+            },
+          ]),
+          injectExternalRules: vi.fn(),
+          isEpInjected: () => true,
+        },
+        knowledgeRepository,
+        recipeSourceRefRepository: {
+          findAll: vi.fn(() => [
+            {
+              recipeId: 'guard-public-api',
+              sourcePath: 'lib/host-runtime/mcp/handlers/agent-public-tools.ts:42',
+              status: 'active',
+            },
+          ]),
+        },
+      }
+    );
     ctx.container.singletons = { _projectRoot: process.cwd() };
     const prime = asRecord(
       await primeHandler(ctx, {
@@ -2317,9 +2323,9 @@ describe('agent-facing active public tools', () => {
       workRef: start.data.workRef,
     });
     expect(auditFiles).toHaveBeenCalledWith(
-        [
-          expect.objectContaining({
-            path: expect.stringContaining('lib/host-runtime/mcp/handlers/agent-public-tools.ts'),
+      [
+        expect.objectContaining({
+          path: expect.stringContaining('lib/host-runtime/mcp/handlers/agent-public-tools.ts'),
           content: expect.any(String),
           isTest: false,
         }),
