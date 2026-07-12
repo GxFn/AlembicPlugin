@@ -247,6 +247,16 @@ export const PrimePublicPackageSchema = z
         .array(
           z.object({
             itemCount: z.number().int().min(0).max(500),
+            items: z
+              .array(
+                z.object({
+                  id: z.string().min(1).max(240),
+                  source: z.string().min(1).max(120),
+                  status: z.string().min(1).max(120).optional(),
+                  title: z.string().min(1).max(1200),
+                })
+              )
+              .max(10),
             label: z.string().min(1).max(160),
             layer: z.enum(PRIME_PUBLIC_TRUST_LAYERS),
             requiredInVisibleReceipt: z.boolean(),

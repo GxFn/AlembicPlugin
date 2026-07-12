@@ -116,6 +116,7 @@ function createBlockedPrimePackage(result: ReturnType<typeof createAgentPublicTo
       noTrustedClaimRequired: true,
       receiptChecklist: PRIME_PUBLIC_TRUST_LAYERS.map((layer) => ({
         itemCount: layer === 'not-available-or-degraded' ? 1 : 0,
+        items: [],
         label: `Prime trust layer: ${layer}`,
         layer,
         requiredInVisibleReceipt: layer === 'not-available-or-degraded',

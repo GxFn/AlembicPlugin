@@ -2586,6 +2586,12 @@ function buildPrimeTrustPostureProjection(
   const checklist = primeKnowledgeMaterial
     ? primeKnowledgeMaterial.trustPosture.receiptChecklist.map((layer) => ({
         itemCount: layer.items.length,
+        items: layer.items.slice(0, 10).map((item) => ({
+          id: publicPrimeTrustCandidateId(item.id),
+          source: item.source,
+          ...(item.status ? { status: item.status } : {}),
+          title: item.title,
+        })),
         label: layer.label,
         layer: layer.layer,
         requiredInVisibleReceipt: layer.requiredInVisibleReceipt,
@@ -2593,6 +2599,7 @@ function buildPrimeTrustPostureProjection(
       }))
     : PRIME_PUBLIC_TRUST_LAYERS.map((layer) => ({
         itemCount: layer === 'not-available-or-degraded' ? 1 : 0,
+        items: [],
         label: primeTrustLayerLabelForPublicPackage(layer),
         layer,
         requiredInVisibleReceipt: layer === 'not-available-or-degraded',
@@ -2609,6 +2616,20 @@ function buildPrimeTrustPostureProjection(
     receiptChecklist: checklist,
     status,
   };
+}
+
+function publicPrimeTrustCandidateId(id: string): string {
+  for (const prefix of [
+    'weak-guard:',
+    'weak-match:',
+    'weak-search-candidate:',
+    'source-status-candidate:',
+  ]) {
+    if (id.startsWith(prefix) && id.length > prefix.length) {
+      return id.slice(prefix.length);
+    }
+  }
+  return id;
 }
 
 function primeTrustStatusFromResult(
