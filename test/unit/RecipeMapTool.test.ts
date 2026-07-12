@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRecipeContextServiceFromCore } from '@alembic/core/recipe-context-capabilities';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   routeGraphTool,
@@ -9,6 +11,7 @@ import {
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { PLUGIN_TOOL_SURFACE_CATALOG } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
 import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
+import { createReadOnlyRecipeMapRepositories } from '../../lib/repository/recipe-map/ReadOnlyRecipeMapServices.js';
 import {
   type AlembicRecipeMapOutput,
   AlembicRecipeMapOutputSchema,
@@ -210,6 +213,51 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(output.status).toBe('partial');
   });
 
+  test('request-scoped read-only RecipeContext preserves drifted source refs in listAll', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-recipemap-db-'));
+    tempRoots.push(root);
+    const db = new Database(path.join(root, 'alembic.db'));
+    db.exec(`
+      CREATE TABLE recipe_source_refs (
+        recipe_id TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        new_path TEXT,
+        verified_at INTEGER,
+        PRIMARY KEY (recipe_id, source_path)
+      );
+      INSERT INTO recipe_source_refs VALUES
+        ('r-active', 'lib/active.ts:1', 'active', NULL, 1),
+        ('r-drift-1', 'lib/drift-1.ts:1', 'drifted', NULL, 2),
+        ('r-drift-2', 'lib/drift-2.ts:1', 'drifted', NULL, 3),
+        ('r-drift-3', 'lib/drift-3.ts:1', 'drifted', NULL, 4),
+        ('r-drift-4', 'lib/drift-4.ts:1', 'drifted', NULL, 5),
+        ('r-drift-5', 'lib/drift-5.ts:1', 'drifted', NULL, 6);
+    `);
+    try {
+      db.pragma('query_only = ON');
+      const repositories = createReadOnlyRecipeMapRepositories(db);
+      const recipeContext = createRecipeContextServiceFromCore({
+        knowledge: repositories.knowledgeService,
+        sourceRefRepository: repositories.sourceRefRepository,
+      });
+      const envelope = await recipeContext.execute({ kind: 'source-refs', payload: {} });
+      const refs = (envelope.data as { refs?: Array<{ recipeId: string; status: string }> }).refs ?? [];
+
+      expect(refs.map((ref) => ref.recipeId)).toEqual([
+        'r-active',
+        'r-drift-1',
+        'r-drift-2',
+        'r-drift-3',
+        'r-drift-4',
+        'r-drift-5',
+      ]);
+      expect(refs.filter((ref) => ref.status === 'drifted')).toHaveLength(5);
+    } finally {
+      db.close();
+    }
+  });
+
   test('mounts use only source refs + metadata, with no semantic markers or full Recipe body', async () => {
     const projectRoot = createFixtureProject();
     const output = await recipeMap(projectRoot, 'module');
@@ -280,6 +328,11 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
       omittedMounts: candidateCount - 1,
       completeness: 'complete',
     });
+    expect(low.limits).toMatchObject({
+      recipeMountLimit: 1,
+      appliedRecipeMountLimit: 1,
+      recipeMountLimitReason: 'requested-limit',
+    });
     expect(high.conservation.mountedTotal).toBe(low.conservation.mountedTotal);
     expect(high.region).toEqual(low.region);
     expect(high.recipeRollups).toEqual(low.recipeRollups);
@@ -318,6 +371,12 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(Buffer.byteLength(JSON.stringify(output), 'utf8')).toBeLessThanOrEqual(20 * 1024);
     expect(output.meta.fullMapRef ?? null).toBeNull();
     expect(output.recipeMounts.every((mount) => mount.sourceRefs.length <= 8)).toBe(true);
+    expect(output.conservation.displayedMounts).toBeLessThan(50);
+    expect(output.limits).toMatchObject({
+      recipeMountLimit: 50,
+      appliedRecipeMountLimit: output.recipeMounts.length,
+      recipeMountLimitReason: 'inline-byte-budget',
+    });
     expect(filesystemManifest(projectRoot)).toEqual(before);
     expect(output.meta).not.toHaveProperty('fullMapRef.path');
   });
