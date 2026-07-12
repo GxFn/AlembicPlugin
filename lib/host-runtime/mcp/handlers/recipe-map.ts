@@ -25,6 +25,7 @@ import {
   type RegionFocusKind,
 } from '#service/project-knowledge-context/index.js';
 import {
+  budgetRecipeMapOutput,
   defaultRecipeMapProvider,
   type MountDiagnostic,
   type RecipeMapDeps,
@@ -111,7 +112,7 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
     resolveRetrievalCheckpointPostureInput(projectRoot)
   );
   return createAlembicRecipeMapMcpResult(
-    attachRecipeMapCheckpointPosture(output, checkpointPosture)
+    budgetRecipeMapOutput(attachRecipeMapCheckpointPosture(output, checkpointPosture))
   );
 }
 

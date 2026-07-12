@@ -60,6 +60,7 @@ export interface RecipeMapDeps {
 
 const DEFAULT_REF_LIMIT = 80;
 const RECIPE_MAP_INLINE_BUDGET_BYTES = 20 * 1024;
+const RECIPE_MAP_TRUTH_BUDGET_BYTES = 14 * 1024;
 
 export class RecipeMapProvider {
   async resolveRecipeMap(
@@ -166,20 +167,16 @@ export class RecipeMapProvider {
         producer: 'RecipeMapProvider',
       },
     });
-    return budgetRecipeMapOutput(output, request);
+    return budgetRecipeMapOutput(output);
   }
 }
 
-async function budgetRecipeMapOutput(
-  output: AlembicRecipeMapOutput,
-  _request: RecipeMapRequest
-): Promise<AlembicRecipeMapOutput> {
+export function budgetRecipeMapOutput(output: AlembicRecipeMapOutput): AlembicRecipeMapOutput {
   const fullInline = attachFullMapRef(output, null);
-  if (jsonByteLength(fullInline) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
-    return fullInline;
-  }
-  const compact = attachFullMapRef(compactRecipeMapOutput(fullInline, 8), null);
-  return AlembicRecipeMapOutputSchema.parse(trimRecipeMapOutputToBudget(compact));
+  const truthProjection = projectRecipeMapTruth(fullInline);
+  return AlembicRecipeMapOutputSchema.parse(
+    fitRecipeMountPresentation(truthProjection, fullInline.recipeMounts)
+  );
 }
 
 function attachFullMapRef(
@@ -195,60 +192,79 @@ function attachFullMapRef(
   };
 }
 
-function compactRecipeMapOutput(
-  output: AlembicRecipeMapOutput,
-  refsPerMount: number
-): AlembicRecipeMapOutput {
-  return {
-    ...output,
-    recipeMounts: output.recipeMounts.map((mount) => ({
-      ...mount,
-      sourceRefs: mount.sourceRefs.slice(0, refsPerMount),
-      matchedRefs: mount.matchedRefs.slice(0, refsPerMount),
-    })),
-  };
-}
-
-function trimRecipeMapOutputToBudget(output: AlembicRecipeMapOutput): AlembicRecipeMapOutput {
-  // P2 M1（2026-07-06）：refs 阶梯保底 1 条——sourceRefs 行级区间是本工具的核心
-  // 证据价值，此前 [8,2,0] 在 space 级 50 mounts 场景恒被砍到 0（宿主看到空数组，
-  // 刚回填的行级数据在输出面全损）。超预算仍有后续 caps 阶梯与 meta.fullMapRef
-  // 完整落盘兜底，refs=0 只作为最后一级留在 caps 分支。
-  for (const refsPerMount of [8, 3, 1]) {
-    const compact = compactRecipeMapOutput(output, refsPerMount);
-    if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
-      return compact;
-    }
-  }
-
-  // 真机修正二轮（2026-07-06）：实测体积大头是 representativeRecipeIds——每个
-  // node/breadcrumb/rollup 带 10 个 UUID，19 处 ≈7KB，而全部行级 refs 才 ~1KB；
-  // 旧 caps 只裁数组条数碰不到它 → refFloor 各档差 ~1KB 挤不进预算，恒落 refFree
-  // 把行级证据第一个牺牲。价值排序应反过来：代表样本砍到 3 个足够导航，
-  // sourceRefs 行级区间是本工具核心证据（refs=0 只留最后一级兜底）。
-  const refFloor = compactRecipeMapOutput(output, 1);
-  for (const caps of [
+/**
+ * Select a deterministic truth-field projection without considering the requested mount limit.
+ * This prevents presentation bytes from changing region/rollup/diagnostic facts.
+ */
+function projectRecipeMapTruth(output: AlembicRecipeMapOutput): AlembicRecipeMapOutput {
+  const basis = withRecipeMountPresentation(output, []);
+  const caps = [
+    { diagnostics: 200, nodes: 500, refs: 200, repIds: 20, rollups: 200 },
     { diagnostics: 80, nodes: 120, refs: 40, repIds: 5, rollups: 100 },
     { diagnostics: 40, nodes: 60, refs: 20, repIds: 3, rollups: 60 },
     { diagnostics: 20, nodes: 24, refs: 8, repIds: 3, rollups: 24 },
     { diagnostics: 10, nodes: 10, refs: 4, repIds: 2, rollups: 10 },
-  ]) {
-    const compact = trimRecipeMapArrays(refFloor, caps);
-    if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
-      return compact;
+    { diagnostics: 5, nodes: 5, refs: 2, repIds: 1, rollups: 5 },
+  ];
+  const selected =
+    caps.find(
+      (candidate) =>
+        jsonByteLength(trimRecipeMapArrays(basis, candidate)) <= RECIPE_MAP_TRUTH_BUDGET_BYTES
+    ) ?? caps[5];
+  return trimRecipeMapArrays(output, selected);
+}
+
+/** Fit only the mount presentation into the bytes left after the stable truth projection. */
+function fitRecipeMountPresentation(
+  truthProjection: AlembicRecipeMapOutput,
+  requestedMounts: readonly RecipeMountSummary[]
+): AlembicRecipeMapOutput {
+  for (const refsPerMount of [8, 3, 1, 0]) {
+    const compactMounts = requestedMounts.map((mount) => ({
+      ...mount,
+      sourceRefs: mount.sourceRefs.slice(0, refsPerMount),
+      matchedRefs: mount.matchedRefs.slice(0, refsPerMount),
+    }));
+    const candidate = withRecipeMountPresentation(truthProjection, compactMounts);
+    if (jsonByteLength(candidate) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
+      return candidate;
     }
   }
-  const refFree = compactRecipeMapOutput(output, 0);
-  for (const caps of [
-    { diagnostics: 20, nodes: 24, refs: 8, repIds: 2, rollups: 24 },
-    { diagnostics: 10, nodes: 10, refs: 4, repIds: 2, rollups: 10 },
-  ]) {
-    const compact = trimRecipeMapArrays(refFree, caps);
-    if (jsonByteLength(compact) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
-      return compact;
+
+  const refFree = requestedMounts.map((mount) => ({
+    ...mount,
+    sourceRefs: [],
+    matchedRefs: [],
+  }));
+  let low = 0;
+  let high = refFree.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = withRecipeMountPresentation(truthProjection, refFree.slice(0, mid));
+    if (jsonByteLength(candidate) <= RECIPE_MAP_INLINE_BUDGET_BYTES) {
+      low = mid;
+    } else {
+      high = mid - 1;
     }
   }
-  return trimRecipeMapArrays(refFree, { diagnostics: 5, nodes: 5, refs: 2, repIds: 1, rollups: 5 });
+  return withRecipeMountPresentation(truthProjection, refFree.slice(0, low));
+}
+
+function withRecipeMountPresentation(
+  output: AlembicRecipeMapOutput,
+  mounts: readonly RecipeMountSummary[]
+): AlembicRecipeMapOutput {
+  const displayedMounts = mounts.length;
+  return {
+    ...output,
+    summary: `alembic_recipe_map ${output.focus.kind} displayed ${displayedMounts} of ${output.conservation.mountedTotal} recipe mounts over ${output.region.nodes.length} region nodes (ProjectContext ${output.status}).`,
+    recipeMounts: [...mounts],
+    conservation: {
+      ...output.conservation,
+      displayedMounts,
+      omittedMounts: output.conservation.mountedTotal - displayedMounts,
+    },
+  };
 }
 
 function trimRecipeMapArrays(

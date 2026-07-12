@@ -13,6 +13,7 @@ import { isCleanMcpResponse } from '../output-contract.js';
 import { TOOLS } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
 import { executeReadOnlyGraph } from './read-only-graph-executor.js';
+import { executeReadOnlyRecipeMap } from './read-only-recipe-map-executor.js';
 import { executeReadOnlySearch } from './read-only-search-executor.js';
 import { attachServiceBoundary, failureResult } from './results.js';
 
@@ -84,6 +85,14 @@ export class EmbeddedToolExecutor {
       }
       if (name === 'alembic_graph') {
         const result = await executeReadOnlyGraph(args, executionContext);
+        return attachExecutionContext(
+          attachServiceBoundary(result, serviceBoundary),
+          executionContext,
+          this.#hostProjectRoot
+        );
+      }
+      if (name === 'alembic_recipe_map') {
+        const result = await executeReadOnlyRecipeMap(args, executionContext);
         return attachExecutionContext(
           attachServiceBoundary(result, serviceBoundary),
           executionContext,
