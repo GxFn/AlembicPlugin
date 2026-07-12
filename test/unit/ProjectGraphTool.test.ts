@@ -658,12 +658,26 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     writeFile(
       projectRoot,
       hostPath,
-      'export class HostMcpServer { handleRequest() { return true; } }\n'
+      [
+        'import { ProjectLocationService } from "../context/ProjectLocationService";',
+        'export class HostMcpServer { handleRequest() { return true; } }',
+        'export const projectLocationServiceType = ProjectLocationService;',
+        ...Array.from(
+          { length: 28 },
+          (_, index) => `export function hostRequestHelper${index}() { return ${index}; }`
+        ),
+        '',
+      ].join('\n')
     );
     writeFile(
       projectRoot,
       locationPath,
-      'export class ProjectLocationService { resolveRequestRoot() { return "."; } }\n'
+      [
+        'import { HostMcpServer } from "../mcp/HostMcpServer";',
+        'export class ProjectLocationService { resolveRequestRoot() { return "."; } }',
+        'export const hostMcpServerType = HostMcpServer;',
+        '',
+      ].join('\n')
     );
     // These weak one-term candidates sort before the exact files lexically and exceed the
     // existing default file-flow cap. The cap must apply after query-quality ranking.
@@ -709,6 +723,45 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     );
     expect(
       output.nodes.filter((node) => String(node.path ?? '').includes('a-request-noise')).length
+    ).toBeLessThan(exactNodes.length);
+    expect(JSON.stringify(output.diagnostics)).not.toMatch(/cyclic|invalid-scope/i);
+  });
+
+  test('finds exact SwiftPM target files before weak app/module probes and reserves both identifiers', async () => {
+    const projectRoot = createSwiftPackageGraphFixtureProject();
+    const videoGatePath = 'Sources/BDVideoPlay/Generation/VideoPlayLoadGenerationGate.swift';
+    const homeGatePath = 'Sources/BDHome/Refresh/HomeRequestRefreshGate.swift';
+
+    const output = await runGraph(projectRoot, {
+      queryKind: 'map',
+      query: 'VideoPlayLoadGenerationGate HomeRequestRefreshGate request',
+      budget: { itemLimit: 18, relationHopLimit: 4 },
+    });
+    const exactNodes = output.nodes.filter((node) =>
+      [videoGatePath, homeGatePath].includes(String(node.path ?? ''))
+    );
+
+    expect(
+      exactNodes,
+      JSON.stringify({ meta: output.meta.projectContext, nodes: output.nodes }, null, 2)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeType: 'file', path: videoGatePath }),
+        expect.objectContaining({
+          nodeType: 'symbol',
+          path: videoGatePath,
+          label: 'VideoPlayLoadGenerationGate',
+        }),
+        expect.objectContaining({ nodeType: 'file', path: homeGatePath }),
+        expect.objectContaining({
+          nodeType: 'symbol',
+          path: homeGatePath,
+          label: 'HomeRequestRefreshGate',
+        }),
+      ])
+    );
+    expect(
+      output.nodes.filter((node) => String(node.path ?? '').includes('AOXPlayer')).length
     ).toBeLessThan(exactNodes.length);
     expect(JSON.stringify(output.diagnostics)).not.toMatch(/cyclic|invalid-scope/i);
   });
@@ -766,6 +819,58 @@ function createNativeScopeWorkspaceFixtureProject(): string {
   writeNativeGraphMemberFixture(root, 'AlembicAgent', 'src/agent.ts');
   writeWorkspaceNoiseBoundaryFixture(root);
   writeNativeGraphProjectScope(root);
+  return root;
+}
+
+function createSwiftPackageGraphFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-swift-package-fixture-'));
+  tempRoots.push(root);
+  writeFile(
+    root,
+    'Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(',
+      '  name: "BiliDili",',
+      '  products: [.library(name: "BiliDili", targets: ["BDVideoPlay", "BDHome"])],',
+      '  targets: [',
+      '    .target(name: "AOXPlayer", path: "Sources/AOXPlayer"),',
+      '    .target(name: "BDVideoPlay", path: "Sources/BDVideoPlay"),',
+      '    .target(name: "BDHome", path: "Sources/BDHome"),',
+      '  ]',
+      ')',
+      '',
+    ].join('\n')
+  );
+  writeFile(root, 'BiliDili/AppDelegate.swift', 'final class AppDelegate {}\n');
+  for (let index = 0; index < 36; index += 1) {
+    writeFile(
+      root,
+      `Sources/AOXPlayer/VideoPlayLoadRequest${String(index).padStart(2, '0')}.swift`,
+      `public struct VideoPlayLoadRequest${index} { public init() {} }\n`
+    );
+  }
+  writeFile(
+    root,
+    'Sources/BDVideoPlay/Generation/VideoPlayLoadGenerationGate.swift',
+    [
+      'public struct VideoPlayLoadGenerationGate {',
+      '  public init() {}',
+      '}',
+      ...Array.from(
+        { length: 28 },
+        (_, index) =>
+          `public struct VideoPlayLoadGenerationRequest${index} {\n  public init() {}\n}`
+      ),
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Sources/BDHome/Refresh/HomeRequestRefreshGate.swift',
+    'public struct HomeRequestRefreshGate {\n  public init() {}\n}\n'
+  );
   return root;
 }
 

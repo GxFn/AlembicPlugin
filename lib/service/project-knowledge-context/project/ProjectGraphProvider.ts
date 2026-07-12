@@ -132,6 +132,7 @@ const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
 const GRAPH_REPO_CONCURRENCY = 4;
 const GRAPH_REPO_TIMEOUT_MS = 10_000;
 const GRAPH_MODULE_QUERY_PROBE_LIMIT = 12;
+const GRAPH_MODULE_SCOPE_PROBE_WIDTH = 2;
 const GRAPH_STRONG_IDENTIFIER_SCORE = 40;
 // ProjectContext public repo schema allows 20k. A repository that exceeds this still returns
 // an explicit truncation diagnostic and fails coverage honestly; the old private 240 cap made
@@ -493,6 +494,9 @@ async function buildProjectContextGraphFacts(
     if (shouldCollectGraphFileFlowContexts(input)) {
       await collectGraphFileFlowContexts(facts, projectRoot, input);
     }
+    if (shouldCollectGraphStrongIdentifierFileSymbols(input)) {
+      await collectGraphStrongIdentifierFileSymbolContexts(facts, projectRoot, input);
+    }
     if (shouldCollectGraphFileSymbolsContexts(input)) {
       await collectGraphFileSymbolsContexts(facts, projectRoot, input);
     }
@@ -822,6 +826,14 @@ function shouldCollectGraphFileSymbolsContexts(input: ProjectGraphInput): boolea
   );
 }
 
+function shouldCollectGraphStrongIdentifierFileSymbols(input: ProjectGraphInput): boolean {
+  return (
+    !shouldCollectGraphFileSymbolsContexts(input) &&
+    shouldCollectGraphFileFlowContexts(input) &&
+    strongGraphQueryIdentifiers(input.query).length > 0
+  );
+}
+
 function shouldCollectGraphSourceSliceContexts(input: ProjectGraphInput): boolean {
   return resolveGraphQueryKind(input) === 'source-slice';
 }
@@ -857,11 +869,13 @@ function selectGraphModuleContextSeeds(
       const queryMatches = moduleSeeds.filter(
         (seed) => scoreGraphModuleSeedQueryMatch(seed, input) > 0
       );
-      const bestByScope = new Map<string, GraphModuleSeed>();
+      const bestByScope = new Map<string, GraphModuleSeed[]>();
       for (const seed of moduleSeeds) {
         const key = scopeKey(seed.scope);
-        if (!bestByScope.has(key)) {
-          bestByScope.set(key, seed);
+        const scopeSeeds = bestByScope.get(key) ?? [];
+        if (scopeSeeds.length < GRAPH_MODULE_SCOPE_PROBE_WIDTH) {
+          scopeSeeds.push(seed);
+          bestByScope.set(key, scopeSeeds);
         }
       }
       const compareSeeds = (left: GraphModuleSeed, right: GraphModuleSeed) =>
@@ -869,7 +883,7 @@ function selectGraphModuleContextSeeds(
           scoreGraphModuleSeedQueryMatch(left, input) ||
         scoreGraphModuleSeed(right, input) - scoreGraphModuleSeed(left, input) ||
         String(left.payload.modulePath).localeCompare(String(right.payload.modulePath));
-      const scopeAnchors = [...bestByScope.values()].sort(compareSeeds);
+      const scopeAnchors = [...bestByScope.values()].flat().sort(compareSeeds);
       const scopeAnchorKeys = new Set(
         scopeAnchors.map(
           (seed) => `${scopeKey(seed.scope)}\u0000${String(seed.payload.modulePath ?? '')}`
@@ -950,6 +964,29 @@ async function collectGraphFileFlowContexts(
     collectGraphEnvelope(facts, flowEnvelope, 'project-context-file-flow', input);
     if (isFileFlowContext(flowEnvelope.data)) {
       facts.fileFlows.push(flowEnvelope.data);
+    }
+  }
+}
+
+async function collectGraphStrongIdentifierFileSymbolContexts(
+  facts: ProjectContextGraphFacts,
+  projectRoot: string,
+  input: ProjectGraphInput
+) {
+  const identifiers = strongGraphQueryIdentifiers(input.query);
+  const targets = selectProjectContextFileFlowTargets(facts, input).filter((target) =>
+    identifiers.some((identifier) => pathMatchesGraphIdentifier(target.filePath, identifier))
+  );
+  for (const target of targets.slice(0, identifiers.length)) {
+    const symbolsEnvelope = await executeGraphProjectContextRequest(
+      'file-symbols',
+      projectRoot,
+      { filePath: target.filePath },
+      target.scope
+    );
+    collectGraphEnvelope(facts, symbolsEnvelope, 'project-context-file-symbols', input);
+    if (isFileSymbolContext(symbolsEnvelope.data)) {
+      facts.fileSymbols.push(symbolsEnvelope.data);
     }
   }
 }
@@ -1059,7 +1096,7 @@ function collectGraphEnvelope(
 ) {
   const refs = envelope.refs.filter((ref) => includeProjectContextRef(ref, input, facts.trace));
   const errors = (envelope.errors ?? []).filter((error) =>
-    includeProjectContextError(error, input, facts.trace)
+    includeProjectContextError(error, input, facts)
   );
   facts.trace.requestKinds.push(envelope.queryLevel);
   facts.trace.errorCount += errors.length;
@@ -1087,14 +1124,14 @@ function includeProjectContextRef(
 function includeProjectContextError(
   error: ProjectContextQueryError,
   input: ProjectGraphInput,
-  trace: ProjectGraphProjectContextTrace
+  facts: ProjectContextGraphFacts
 ): boolean {
-  if (!includeGeneratedArtifactPath(error.path, input, trace)) {
+  if (!includeGeneratedArtifactPath(error.path, input, facts.trace)) {
     return false;
   }
   if (shouldSuppressDefaultProjectContextError(error, input)) {
-    trace.suppressedErrorCount += 1;
-    trace.partial = true;
+    facts.trace.suppressedErrorCount += 1;
+    facts.trace.partial = true;
     return false;
   }
   return true;
@@ -1952,6 +1989,22 @@ function createGraphModuleSeedsFromRepoContexts(
         path: projectPathFromRepoPath(repo, item.path),
         ref: item.ref,
       })),
+      ...repo.targets.flatMap((target) =>
+        target.refs.map((ref) => ({
+          path: projectPathFromRepoPath(repo, ref.scope.filePath ?? ''),
+          ref,
+        }))
+      ),
+      ...repo.localPackages.flatMap((localPackage) =>
+        localPackage.path
+          ? [
+              {
+                path: projectPathFromRepoPath(repo, localPackage.path),
+                ref: localPackage.ref,
+              },
+            ]
+          : []
+      ),
       ...repo.entrypoints.flatMap((entrypoint) =>
         entrypoint.refs.flatMap((ref) => {
           const filePath = ref.scope.filePath;
@@ -2244,12 +2297,32 @@ function selectProjectContextFileFlowTargets(
     add(context.file.filePath, scopeFromProjectContextFile(context.file));
   }
 
-  return [...targets.values()].sort(
+  const rankedTargets = [...targets.values()].sort(
     (left, right) =>
       scoreProjectContextFileFlowTarget(right.filePath, input) -
         scoreProjectContextFileFlowTarget(left.filePath, input) ||
       left.filePath.localeCompare(right.filePath)
   );
+  return reserveStrongIdentifierFileTargets(rankedTargets, input);
+}
+
+function reserveStrongIdentifierFileTargets<T extends { filePath: string }>(
+  targets: readonly T[],
+  input: ProjectGraphInput
+): T[] {
+  const reserved: T[] = [];
+  const reservedPaths = new Set<string>();
+  for (const identifier of strongGraphQueryIdentifiers(input.query)) {
+    const match = targets.find((target) => pathMatchesGraphIdentifier(target.filePath, identifier));
+    if (match && !reservedPaths.has(graphPathKey(match.filePath))) {
+      reserved.push(match);
+      reservedPaths.add(graphPathKey(match.filePath));
+    }
+  }
+  return [
+    ...reserved,
+    ...targets.filter((target) => !reservedPaths.has(graphPathKey(target.filePath))),
+  ];
 }
 
 /**
@@ -2833,12 +2906,13 @@ function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
   const relationLimit = input.budget?.relationHopLimit ?? 2;
   const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
   const projectContextWeightedQuery = isProjectContextWeightedGraphQuery(input.query, queryTerms);
-  const nodeMatches = selectQueryNodeMatches(
+  const rankedNodeMatches = selectQueryNodeMatches(
     build.nodes,
     input,
     queryTerms,
     projectContextWeightedQuery
   );
+  const nodeMatches = reserveStrongIdentifierNodeMatches(rankedNodeMatches, input);
   const relations = selectQueryRelations(filteredRelations, input, nodeMatches, relationLimit);
   const items = nodeMatches.slice(0, itemLimit).map((entry) => ({
     ...projectNodeToOutput(entry.node),
@@ -2869,6 +2943,40 @@ function selectQuery(build: GraphBuild, input: ProjectGraphInput): GraphSelectio
       sourceOfTruth: false,
     },
   };
+}
+
+function reserveStrongIdentifierNodeMatches(
+  matches: readonly GraphQueryNodeMatch[],
+  input: ProjectGraphInput
+): GraphQueryNodeMatch[] {
+  const reserved: GraphQueryNodeMatch[] = [];
+  const reservedIds = new Set<string>();
+  const reserve = (match: GraphQueryNodeMatch | undefined) => {
+    if (!match || reservedIds.has(match.node.id)) {
+      return;
+    }
+    reserved.push({
+      ...match,
+      rankingSignals: [...new Set([...match.rankingSignals, 'strong-identifier-reserved'])],
+    });
+    reservedIds.add(match.node.id);
+  };
+
+  for (const identifier of strongGraphQueryIdentifiers(input.query)) {
+    const identifierMatches = matches.filter((match) =>
+      nodeMatchesGraphIdentifier(match.node, identifier)
+    );
+    reserve(identifierMatches.find((match) => match.node.nodeType === 'file'));
+    reserve(
+      identifierMatches.find(
+        (match) =>
+          match.node.nodeType === 'symbol' && compactGraphQueryText(match.node.label) === identifier
+      )
+    );
+    reserve(identifierMatches[0]);
+  }
+
+  return [...reserved, ...matches.filter((match) => !reservedIds.has(match.node.id))];
 }
 
 function selectQueryNodeMatches(
@@ -3440,6 +3548,39 @@ function tokenizeGraphQuery(query: string): string[] {
   ).slice(0, 40);
 }
 
+function strongGraphQueryIdentifiers(query: string | undefined): string[] {
+  if (!query) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      (query.match(/[\p{L}\p{N}_./:-]+/gu) ?? [])
+        .filter((term) => splitGraphIdentifier(term).length > 1)
+        .map(compactGraphQueryText)
+        .filter(
+          (term) =>
+            term.length >= 8 &&
+            !GENERIC_GRAPH_QUERY_TERMS.has(term) &&
+            !WEAK_GRAPH_QUERY_TERMS.has(term)
+        )
+    )
+  ).slice(0, 8);
+}
+
+function pathMatchesGraphIdentifier(filePath: string, identifier: string): boolean {
+  const normalized = normalizeRelativePath(filePath);
+  const extension = path.posix.extname(normalized);
+  const basename = path.posix.basename(normalized, extension);
+  return compactGraphQueryText(basename) === identifier;
+}
+
+function nodeMatchesGraphIdentifier(node: ProjectGraphNode, identifier: string): boolean {
+  return (
+    compactGraphQueryText(node.label) === identifier ||
+    (node.path !== undefined && pathMatchesGraphIdentifier(node.path, identifier))
+  );
+}
+
 function splitGraphIdentifier(term: string): string[] {
   const parts = term
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -3887,6 +4028,7 @@ function projectAlembicGraphOutput(args: {
   selection: GraphSelection;
 }): AlembicGraphOutput {
   const { build, input, projectRoot, queryKind, selection } = args;
+  const projectedBuild = projectFocusedStrongIdentifierBuild(build, selection, input, queryKind);
   const itemLimit = input.budget?.itemLimit ?? 20;
   const refLimit = input.budget?.detailLimit ?? 20;
   const relationLimit = Math.max((input.budget?.relationHopLimit ?? 2) * 20, 20);
@@ -3896,11 +4038,18 @@ function projectAlembicGraphOutput(args: {
   const refs = build.projectContextRefs.slice(0, refLimit).map(projectContextRefSummary);
   const slices = sliceOutputForQueryKind(queryKind, build, input);
   const diagnostics = dedupeGraphDiagnostics([
-    ...build.diagnostics.map(graphDiagnosticFromKnowledge),
+    ...projectedBuild.diagnostics.map(graphDiagnosticFromKnowledge),
     ...(selection.diagnostics ?? []).map(graphDiagnosticFromKnowledge),
     ...resultSignalGraphDiagnostics(selection),
   ]).slice(0, 200);
-  const status = deriveGraphStatus(build, selection);
+  const statusSelection =
+    projectedBuild === build
+      ? selection
+      : {
+          ...selection,
+          result: { ...selection.result, projectContextPartial: false },
+        };
+  const status = deriveGraphStatus(projectedBuild, statusSelection);
   const nextActions = deriveGraphNextActions(queryKind, selection, input);
   const truncated =
     build.nodes.length > nodes.length ||
@@ -3920,7 +4069,7 @@ function projectAlembicGraphOutput(args: {
       displayName: build.projectName,
       projectId: `project:${stableRefSegment(build.projectName) || 'project'}`,
     },
-    repoCoverage: build.projectContext.repoCoverage,
+    repoCoverage: projectedBuild.projectContext.repoCoverage,
     nodes,
     relations,
     refs,
@@ -3932,11 +4081,84 @@ function projectAlembicGraphOutput(args: {
       contractVersion: ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
       outputSchema: 'AlembicGraphOutput',
       producer: 'ProjectContextProjectGraphProvider',
-      projectContext: graphProjectContextMeta(build.projectContext),
+      projectContext: graphProjectContextMeta(projectedBuild.projectContext),
       sourceOfTruth: false,
       callClaimsRequireSourceVerification: true,
     },
   });
+}
+
+function projectFocusedStrongIdentifierBuild(
+  build: GraphBuild,
+  selection: GraphSelection,
+  input: ProjectGraphInput,
+  queryKind: AlembicGraphQueryKind
+): GraphBuild {
+  if (
+    ['file-flow', 'file-symbols', 'module-layers'].includes(queryKind) ||
+    !selectionCoversStrongGraphIdentifiers(selection, input)
+  ) {
+    return build;
+  }
+  const identifiers = strongGraphQueryIdentifiers(input.query);
+  const diagnostics = build.diagnostics.filter(
+    (diagnostic) => !isWeakFocusedGraphDiagnostic(diagnostic, identifiers)
+  );
+  const suppressedCount = build.diagnostics.length - diagnostics.length;
+  const allVisibleErrorsSuppressed = build.diagnostics.length > 0 && diagnostics.length === 0;
+  const errorCount = allVisibleErrorsSuppressed ? 0 : build.projectContext.errorCount;
+  return {
+    ...build,
+    diagnostics,
+    projectContext: {
+      ...build.projectContext,
+      errorCount,
+      partial: errorCount > 0 || build.projectContext.repoCoverage.completeness !== 'complete',
+      suppressedErrorCount:
+        build.projectContext.suppressedErrorCount +
+        (allVisibleErrorsSuppressed ? build.projectContext.errorCount : suppressedCount),
+    },
+  };
+}
+
+function selectionCoversStrongGraphIdentifiers(
+  selection: GraphSelection,
+  input: ProjectGraphInput
+): boolean {
+  const identifiers = strongGraphQueryIdentifiers(input.query);
+  if (identifiers.length === 0) {
+    return false;
+  }
+  const items = selection.items.slice(0, input.budget?.itemLimit ?? 20);
+  return identifiers.every(
+    (identifier) =>
+      items.some(
+        (item) =>
+          item.nodeType === 'file' &&
+          typeof item.path === 'string' &&
+          pathMatchesGraphIdentifier(item.path, identifier)
+      ) &&
+      items.some(
+        (item) =>
+          item.nodeType === 'symbol' &&
+          typeof item.label === 'string' &&
+          compactGraphQueryText(item.label) === identifier
+      )
+  );
+}
+
+function isWeakFocusedGraphDiagnostic(
+  diagnostic: ToolDiagnostic,
+  identifiers: readonly string[]
+): boolean {
+  const message = diagnostic.message.toLowerCase();
+  if (message.includes('module-layers') && /cyclic|uncertain/.test(message)) {
+    return true;
+  }
+  if (!/invalid-scope|payload\.ownedfiles|payload\.modulepath/.test(message)) {
+    return false;
+  }
+  return !identifiers.some((identifier) => message.includes(identifier));
 }
 
 function graphProjectContextMeta(trace: ProjectGraphProjectContextTrace) {
