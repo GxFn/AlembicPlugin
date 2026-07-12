@@ -3,9 +3,9 @@ import '../local-tools/output.js';
 import { withMcpOutputSchema } from '../output-contract.js';
 import { TOOLS, withMcpToolAnnotations } from '../tools.js';
 
-/** Public MCP tools are a static ordinary catalog. Runtime/knowledge state affects
- * each tool's truthful result, never whether the tool can be discovered or called. */
-export function getVisibleTools(..._ignoredLegacyPolicyArguments: unknown[]) {
+/** Return the ordinary static MCP tool catalog. Project state affects tool results,
+ * never catalog membership. */
+export function getToolCatalog() {
   const toolsByName = new Map([...LOCAL_TOOLS, ...TOOLS].map((tool) => [tool.name, tool] as const));
   return [...toolsByName.values()]
     .map(withMcpToolAnnotations)

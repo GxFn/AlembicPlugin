@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
 import { type ProjectLocation, projectLocationService } from './ProjectLocationService.js';
-import type { ProjectRootResolution } from './ProjectRootResolver.js';
 
 const PROJECT_RUNTIME_CONTEXT_VERSION = 2;
 
@@ -35,8 +34,7 @@ export interface ProjectRuntimeIdentity {
   workspaceExists: boolean;
 }
 
-/** Request facts only. This contract intentionally contains no selected/active
- * project, daemon readiness, role/tier, fallback, or host repair policy. */
+/** Request-scoped project location facts exposed with each MCP result. */
 export interface ProjectRuntimeContext {
   contractVersion: typeof PROJECT_RUNTIME_CONTEXT_VERSION;
   identity: ProjectRuntimeIdentity;
@@ -45,9 +43,6 @@ export interface ProjectRuntimeContext {
 
 export interface BuildProjectRuntimeContextOptions {
   projectRoot: string;
-  projectRootResolution?: ProjectRootResolution | null;
-  requiredServices?: readonly string[];
-  [legacyIgnoredOption: string]: unknown;
 }
 
 export function buildProjectRuntimeContext(
@@ -78,10 +73,7 @@ export function buildProjectRuntimeContext(
   };
 }
 
-export function buildPrimeRuntimeContext(input: {
-  projectRoot: string;
-  [legacyIgnoredOption: string]: unknown;
-}): ProjectRuntimeContext {
+export function buildPrimeRuntimeContext(input: { projectRoot: string }): ProjectRuntimeContext {
   return buildProjectRuntimeContext({ projectRoot: input.projectRoot });
 }
 

@@ -389,7 +389,6 @@ function buildHostAgentContract(
     repairPrompts: [
       'If ProjectContext is stale or partial, use raw file reads and state the uncertainty.',
       'If runtime transport closes, repair MCP/plugin transport before using live-output claims.',
-      'If scope differs from the host project, stop and resolve project identity.',
     ],
     resumePrompt: {
       bootstrapSessionRefField: 'bootstrapState.session.id',
@@ -397,7 +396,6 @@ function buildHostAgentContract(
       rule: 'After MCP process restart, read status, compare project identity, then resume from executionPlan/currentDimensionGuidance instead of starting a hidden second bootstrap writer.',
     },
     stopConditions: [
-      'project root or data root mismatch',
       'another bootstrap writer holds the lease',
       'ProjectContext stale/partial/wrong-scope used as final proof',
       'language overlay missing without generic fallback uncertainty',
@@ -1026,10 +1024,6 @@ function buildAgentDecisionChecklist(): Array<Record<string, unknown>> {
 function buildGates(): Record<string, unknown> {
   return {
     contractVersion: ONBOARDING_CONTRACT_VERSION,
-    scope: {
-      rule: 'Project root and data root must match the active Codex host project before source facts can be trusted.',
-      firstRepairTool: 'alembic_status',
-    },
     projectContext: {
       rule: 'Use alembic_recipe_map and alembic_graph for compact ProjectContext orientation before broad raw exploration.',
       degradedStates: ['stale', 'pending', 'partial', 'wrong-scope', 'unsupported-language'],

@@ -30,7 +30,7 @@ import {
 import { buildMcpInitializeInstructions } from './host/guidance.js';
 import { dispatchLocalTool } from './host/local-tool-dispatcher.js';
 import { failureResult, isErrorResult } from './host/results.js';
-import { getVisibleTools } from './host/tool-visibility.js';
+import { getToolCatalog } from './host/tool-catalog.js';
 import {
   createCleanMcpErrorResponse,
   createMcpStructuredToolResult,
@@ -164,12 +164,12 @@ export class HostMcpServer {
   }
 
   async start(): Promise<void> {
-    const visibleTools = getVisibleTools(undefined, this.projectRoot);
+    const tools = getToolCatalog();
     this.sdkServer = new SdkMcpServer(
       { name: 'alembic', version: getPackageVersion() },
       {
         capabilities: { tools: {} },
-        instructions: buildMcpInitializeInstructions(visibleTools),
+        instructions: buildMcpInitializeInstructions(tools),
       }
     );
     this.registerHandlers();
@@ -181,9 +181,7 @@ export class HostMcpServer {
       },
     });
     await this.sdkServer.connect(new StdioServerTransport());
-    process.stderr.write(
-      `Alembic Codex MCP ready — ${getVisibleTools(undefined, this.projectRoot).length} tools\n`
-    );
+    process.stderr.write(`Alembic Codex MCP ready — ${getToolCatalog().length} tools\n`);
   }
 
   async shutdown(): Promise<void> {
@@ -201,7 +199,7 @@ export class HostMcpServer {
     }
     const server = this.sdkServer.server;
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getVisibleTools() }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolCatalog() }));
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
@@ -250,7 +248,7 @@ export class HostMcpServer {
   }
 
   getInitializeInstructions(): string {
-    return buildMcpInitializeInstructions(getVisibleTools(undefined, this.projectRoot));
+    return buildMcpInitializeInstructions(getToolCatalog());
   }
 
   async handleToolCall(
@@ -629,7 +627,6 @@ export class HostMcpServer {
     const logger = Logger.getInstance();
     const projectRuntime = buildProjectRuntimeContext({
       projectRoot: this.projectRoot,
-      requiredServices: ['project-identity', 'jobs'],
     });
 
     const store = new PluginJobStore(this.projectRoot);
@@ -669,8 +666,6 @@ export class HostMcpServer {
   async readJob(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const projectRuntime = buildProjectRuntimeContext({
       projectRoot: this.projectRoot,
-      projectRootResolution: this.projectRootResolution,
-      requiredServices: ['project-identity', 'jobs'],
     });
 
     const store = new PluginJobStore(this.projectRoot);
@@ -744,8 +739,6 @@ export class HostMcpServer {
       projectRoot: this.projectRoot,
       projectRuntime: buildProjectRuntimeContext({
         projectRoot: this.projectRoot,
-        projectRootResolution: this.projectRootResolution,
-        requiredServices: ['project-identity'],
       }),
     };
   }
@@ -755,8 +748,6 @@ export class HostMcpServer {
   ): Promise<ReturnType<typeof buildProjectRuntimeContext>> {
     return buildProjectRuntimeContext({
       projectRoot: executionContext.projectRoot,
-      projectRootResolution: this.projectRootResolution,
-      requiredServices: ['project-identity'],
     });
   }
 }
@@ -892,7 +883,7 @@ function readPositiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-export { getVisibleTools, resetPluginOwnedMcpServerForTests };
+export { getToolCatalog, resetPluginOwnedMcpServerForTests };
 
 export async function startHostMcpServer(): Promise<HostMcpServer> {
   const server = new HostMcpServer();

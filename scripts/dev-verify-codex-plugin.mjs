@@ -16,12 +16,6 @@ const report = {
   mode: options.localMcp ? 'local-mcp' : 'packaged-shell',
   projectRoot: options.projectRoot,
   readbackContract: {
-    blockedEffectiveIdentityFallbacks: [
-      'saved-project-root-effective-identity',
-      'runtime-control-selected-active-effective-identity',
-      'local-jobstore-default-effective-identity',
-    ],
-    failureEnvelopePath: 'projectRuntime.failureEnvelopes',
     projectLocationPath: 'projectRuntime.location',
     diagnosticsTool: 'alembic_status',
     statusTool: 'alembic_status',
@@ -432,7 +426,7 @@ function assertDiagnosticsProjectRootReadback(data, targetRoot) {
   );
 }
 
-function assertRuntimeReadback(data, marker, targetRoot) {
+function assertRuntimeReadback(data, _marker, targetRoot) {
   const runtime = objectFrom(data.projectRuntime);
   assertProbe(
     runtime,
@@ -456,112 +450,28 @@ function assertRuntimeReadback(data, marker, targetRoot) {
     `projectRuntime identity missing databasePath for ${targetRoot}: ${JSON.stringify(identity)}`
   );
 
-  const sourcePolicy = objectFrom(runtime.sourcePolicy);
+  const location = objectFrom(runtime.location);
   assertProbe(
-    sourcePolicy?.effectiveIdentitySource === 'codex-current-project',
-    `projectRuntime sourcePolicy did not keep Codex current project as source for ${targetRoot}: ${JSON.stringify(sourcePolicy)}`
-  );
-  assertProbe(
-    sourcePolicy?.selectedOrActiveCanOverrideEffectiveIdentity === false,
-    `selected/active runtime state can override effective identity for ${targetRoot}: ${JSON.stringify(sourcePolicy)}`
+    location?.projectRoot === identity.projectRoot,
+    `projectRuntime location and identity roots differ for ${targetRoot}: ${JSON.stringify({ identity, location })}`
   );
   assertProbe(
-    sourcePolicy?.runtimeControlSource === 'read-only-diagnostics',
-    `runtime control state is not diagnostic-only for ${targetRoot}: ${JSON.stringify(sourcePolicy)}`
-  );
-
-  const blockedFallbacks = Array.isArray(runtime.blockedFallbacks) ? runtime.blockedFallbacks : [];
-  for (const fallback of report.readbackContract.blockedEffectiveIdentityFallbacks) {
-    assertProbe(
-      blockedFallbacks.includes(fallback),
-      `Missing blocked effective identity fallback ${fallback} for ${targetRoot}: ${JSON.stringify(blockedFallbacks)}`
-    );
-  }
-
-  const fallbackIsolation = Array.isArray(runtime.fallbackIsolation)
-    ? runtime.fallbackIsolation
-    : [];
-  for (const id of [
-    'embedded-plugin-owned-runtime',
-    'local-jobstore',
-    'runtime-control-selected-active',
-    'saved-project-root',
-  ]) {
-    const item = fallbackIsolation.find((candidate) => candidate?.id === id);
-    assertProbe(
-      item?.effectiveIdentityAllowed === false && item?.persistenceRootAllowed === false,
-      `Fallback isolation ${id} was not blocked for effective identity/persistence in ${targetRoot}: ${JSON.stringify(item)}`
-    );
-  }
-
-  const requiredServices = Array.isArray(runtime.requiredServices) ? runtime.requiredServices : [];
-  const projectIdentity = requiredServices.find(
-    (service) => service?.service === 'project-identity'
+    location?.dataRoot === identity.dataRoot,
+    `projectRuntime location and identity data roots differ for ${targetRoot}: ${JSON.stringify({ identity, location })}`
   );
   assertProbe(
-    projectIdentity?.available === true && projectIdentity?.source === 'codex-current-project',
-    `project-identity readiness did not come from Codex current project for ${targetRoot}: ${JSON.stringify(requiredServices)}`
+    location?.databasePath === identity.databasePath,
+    `projectRuntime location and identity database paths differ for ${targetRoot}: ${JSON.stringify({ identity, location })}`
   );
-
-  const failureEnvelopes = Array.isArray(runtime.failureEnvelopes)
-    ? runtime.failureEnvelopes
-    : null;
-  assertProbe(
-    failureEnvelopes,
-    `projectRuntime failureEnvelopes is not an array for ${targetRoot}: ${JSON.stringify(runtime.failureEnvelopes)}`
-  );
-  for (const envelope of failureEnvelopes) {
-    assertProbe(
-      typeof envelope?.contractVersion === 'number' &&
-        typeof envelope?.reason === 'string' &&
-        typeof envelope?.readinessState === 'string',
-      `Invalid projectRuntime failure envelope for ${targetRoot}: ${JSON.stringify(envelope)}`
-    );
-  }
-
-  const entryMode = objectFrom(runtime.entryMode);
-  const expectedEntryMode = expectedEntryModeForMarker(marker);
-  if (expectedEntryMode) {
-    assertProbe(
-      entryMode?.mode === expectedEntryMode,
-      `Unexpected MCP entry mode for ${targetRoot}: expected ${expectedEntryMode}, got ${JSON.stringify(entryMode)}`
-    );
-  }
 
   return {
-    blockedFallbacks,
     dataRoot: identity.dataRoot,
     databasePath: identity.databasePath,
-    entryMode: entryMode?.mode ?? null,
-    expectedEntryMode,
-    failureEnvelopeReasons: failureEnvelopes.map((envelope) => envelope.reason),
-    fallbackIsolation: fallbackIsolation.map((item) => ({
-      effectiveIdentityAllowed: item?.effectiveIdentityAllowed === true,
-      id: item?.id ?? null,
-      persistenceRootAllowed: item?.persistenceRootAllowed === true,
-    })),
+    databaseExists: location.databaseExists === true,
+    projectId: location.projectId ?? null,
     projectRoot: identity.projectRoot,
-    readinessState: runtime.readinessState ?? null,
-    requiredServices: requiredServices.map((service) => ({
-      available: service?.available === true,
-      service: service?.service ?? null,
-      source: service?.source ?? null,
-      state: service?.state ?? null,
-    })),
     runtimeDir: identity.runtimeDir,
-    sourcePolicy,
   };
-}
-
-function expectedEntryModeForMarker(marker) {
-  const mode = objectFrom(marker)?.mode ?? report.mode;
-  if (mode === 'local-mcp') {
-    return 'local-dev-direct-dist';
-  }
-  if (mode === 'packaged-shell') {
-    return 'marketplace-shell';
-  }
-  return null;
 }
 
 function objectFrom(value) {

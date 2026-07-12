@@ -217,7 +217,7 @@ describe('Codex knowledge state', () => {
     expect(state.sourceRefs?.databasePath).not.toBe(join(projectRoot, '.asd', 'alembic.db'));
   });
 
-  test('selects code-drift status only from the requested project when the data root has foreign rows', () => {
+  test('does not project Git checkpoint rows into public knowledge status', () => {
     const root = createProject();
     initializeWorkspace(root);
     writeRecipe(root, 'core.md', '# Core recipe\n');
@@ -236,11 +236,9 @@ describe('Codex knowledge state', () => {
 
     const state = inspectKnowledge(root);
 
-    expect(state.codeDrift).toMatchObject({
-      checkpointCommit: 'requested-commit',
-      lastScannedAt: 100,
-    });
-    expect(JSON.stringify(state.codeDrift)).not.toContain('foreign-newer-commit');
+    expect(state).not.toHaveProperty('codeDrift');
+    expect(JSON.stringify(state)).not.toContain('requested-commit');
+    expect(JSON.stringify(state)).not.toContain('foreign-newer-commit');
   });
 });
 

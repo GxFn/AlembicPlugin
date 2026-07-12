@@ -29,41 +29,15 @@ RC4 execution (2026-06-11).
   explicitly (audit of all `createCleanMcpFailureTaxonomy` callers shows no
   caller relying on code-string mapping). Until then the mapping stays.
 
-### L2 — `LEGACY_IDE_AGENT_SOURCE` ('ide-agent' write source)
-
-- **Where defined**: AlembicCore `src/shared/source-contracts.ts:3`
-  (mirrored read-only in `vendor/AlembicCore`).
-- **Where consumed here**: `lib/host-runtime/policy/SourceBoundary.ts:2,7` — the plugin only
-  imports the constant into `LEGACY_HOST_AGENT_WRITE_SOURCES` so
-  `normalizeCodexHostAgentWriteSource()` rewrites legacy `'ide-agent'` (and
-  other legacy write sources) to `HOST_AGENT_SOURCE`; storage read expansion
-  (`proposalSourceStorageValues`) still accepts stored `'ide-agent'` rows.
-- **Owner**: AlembicCore (cross-repo marker; the plugin is an importer only —
-  removal must start in Core, never in this repository alone).
-- **Status**: keep — live input normalization plus stored-data read expansion;
-  pinned by Core `SourceContracts.test.ts`.
-- **Retirement condition**: stored `'ide-agent'` data migrated (no rows with
-  the legacy source remain) AND a client audit confirms no writer still sends
-  it. Any earlier removal escalates to a controller decision.
-
-### L3 — `legacyEffectiveIdentityFallback` diagnostics field
-
-- **Where**: `lib/host-runtime/context/ProjectRuntimeContext.ts` —
-  `CodexRuntimeFallbackIsolation.legacyEffectiveIdentityFallback` and the
-  `CODEX_RUNTIME_FALLBACK_ISOLATION` table.
-- **What**: read-only diagnostics label naming the legacy effective-identity
-  fallback each isolation entry replaced; always serialized into diagnostics
-  responses (`buildCodexProjectRuntimeContext`, `CodexMcpServer.ts` runtime
-  context payloads). `effectiveIdentityAllowed` is `false` everywhere — the
-  field never influences identity resolution.
-- **Owner**: AlembicPlugin (runtime diagnostics).
-- **Status**: keep — diagnostic surface; labels pinned by
-  CodexRuntimeContext / CodexMcpServer tests.
-- **Retirement condition**: diagnostics consumers verified independent of the
-  field (no reader keys off it) AND the pinning tests are updated in the same
-  change.
-
 ## Disposed entries
+
+### D0 — Host identity and write-source compatibility metadata (removed 2026-07-12)
+
+- **Was**: Plugin-side host identity fallback diagnostics and legacy caller
+  write-source normalization.
+- **Disposition**: removed with the standalone request-scoped MCP cleanup.
+  Project identity now comes from the centralized project-location service,
+  while writes record the canonical actual producer at the write boundary.
 
 ### D1 — Plugin twin `_slimSearchItem` re-export (removed in RC4, 2026-06-11)
 

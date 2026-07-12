@@ -1,14 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ProjectRegistry } from '@alembic/core/workspace';
 import { projectLocationService } from '../../lib/host-runtime/context/ProjectLocationService.js';
 import { PrimeInput } from '../../lib/shared/schemas/mcp-tools.js';
-import {
-  getVisibleTools,
-  HostMcpServer,
-} from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { getToolCatalog, HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { buildStatusOnboardingContract } from '../../lib/host-runtime/status/OnboardingContract.js';
 
 const tierVariable = ['ALEMBIC', 'MCP', 'TIER'].join('_');
 const adminVariable = ['ALEMBIC', 'CODEX', 'ENABLE', 'ADMIN'].join('_');
@@ -30,11 +28,11 @@ describe('independent MCP project location contract', () => {
   test('exposes one ordinary tool catalog regardless of obsolete tier variables', () => {
     process.env[tierVariable] = 'agent';
     process.env[adminVariable] = '0';
-    const ordinary = getVisibleTools().map((tool) => tool.name);
+    const ordinary = getToolCatalog().map((tool) => tool.name);
 
     process.env[tierVariable] = 'admin';
     process.env[adminVariable] = '1';
-    const formerAdmin = getVisibleTools().map((tool) => tool.name);
+    const formerAdmin = getToolCatalog().map((tool) => tool.name);
 
     expect(new Set(ordinary)).toEqual(new Set(formerAdmin));
     expect(ordinary).toContain('alembic_knowledge_lifecycle');
@@ -45,25 +43,18 @@ describe('independent MCP project location contract', () => {
     expect(PrimeInput.safeParse({ query: 'request scoped project knowledge' }).success).toBe(true);
   });
 
-  test('has no live gate, selector, resident identity, or retired-task symbols', () => {
-    const productionFiles = [
-      'lib/host-runtime/mcp/HostMcpServer.ts',
-      'lib/host-runtime/mcp/McpServer.ts',
-      'lib/host-runtime/mcp/host/tool-visibility.ts',
-      'lib/host-runtime/mcp/host/embedded-executor.ts',
-      'lib/host-runtime/context/ProjectRuntimeContext.ts',
-      'lib/host-runtime/mcp/handlers/agent-public-tools.ts',
-      'lib/host-runtime/mcp/handlers/search.ts',
-      'lib/host-runtime/mcp/handlers/recipe-map.ts',
-      'lib/host-runtime/mcp/handlers/structure.ts',
-      'lib/host-runtime/mcp/host/read-only-search-executor.ts',
-      'lib/host-runtime/mcp/host/read-only-graph-executor.ts',
-      'lib/host-runtime/mcp/host/read-only-recipe-map-executor.ts',
-      'lib/host-runtime/mcp/host/read-only-prime-executor.ts',
-      'lib/host-runtime/mcp/host/read-only-code-guard-executor.ts',
-    ];
-    const source = productionFiles
-      .map((file) => readFileSync(join(process.cwd(), file), 'utf8'))
+  test('does not emit an active-host project alignment gate', () => {
+    const contract = buildStatusOnboardingContract({
+      dataRoot: '/external/alembic-data',
+      projectRoot: '/request/project',
+    });
+    expect(contract.gates).not.toHaveProperty('scope');
+    expect(JSON.stringify(contract)).not.toContain('active Codex host project');
+  });
+
+  test('has no live gate, selector, resident identity, or retired-task residue anywhere shipped', () => {
+    const source = shippedTextFiles()
+      .map((file) => readFileSync(file, 'utf8'))
       .join('\n');
 
     for (const obsolete of [
@@ -72,10 +63,6 @@ describe('independent MCP project location contract', () => {
       'HostProjectAlignment',
       'buildLocalSelectionMismatch',
       ['resident', 'ProjectScopeAvailable'].join(''),
-      ['source', 'RevisionManifest'].join(''),
-      ['git', 'DiffCheckpoint'].join(''),
-      ['retrieval', 'MayBeStale'].join(''),
-      'retrievalCheckpoint',
       'ServiceRequestBoundary',
       'serviceBoundary',
       ['Alembic', 'ResidentServiceClient'].join(''),
@@ -83,8 +70,44 @@ describe('independent MCP project location contract', () => {
       ['ALEMBIC', 'CODEX', 'PROJECT', 'SCOPE', 'SUMMARY'].join('_'),
       'codexProjectScopeExecution',
       'normalizeHostAgentWriteSource',
+      'runtime-control.json',
+      'selected-project',
+      'active-project',
+      'active Codex host project',
+      'tool-visibility',
+      'getVisibleTools',
+      'ignoredLegacyPolicyArguments',
     ]) {
-      expect(source, `obsolete production symbol: ${obsolete}`).not.toContain(obsolete);
+      expect(source, `obsolete shipped residue: ${obsolete}`).not.toContain(obsolete);
+    }
+
+    const allowedRecipeMaintenance = [
+      `${join('lib', 'recipe-pipeline')}/`,
+      join('lib', 'host-runtime', 'mcp', 'core-tools', 'output.ts'),
+      join('lib', 'host-runtime', 'mcp', 'handlers', 'host-agent', 'evolve.ts'),
+      join('lib', 'host-runtime', 'mcp', 'handlers', 'tool-router.ts'),
+      join('lib', 'injection', 'ServiceMap.ts'),
+      join('lib', 'injection', 'modules', 'InfraModule.ts'),
+    ];
+    const publicConsumerSource = shippedTextFiles()
+      .filter((file) => file.includes(`${join('', 'lib')}/`))
+      .filter((file) => {
+        const relative = file.slice(process.cwd().length + 1);
+        return !allowedRecipeMaintenance.some(
+          (allowed) => relative === allowed || relative.startsWith(allowed)
+        );
+      })
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n');
+    for (const obsolete of [
+      ['source', 'RevisionManifest'].join(''),
+      ['git', 'DiffCheckpoint'].join(''),
+      ['retrieval', 'MayBeStale'].join(''),
+      'retrievalCheckpoint',
+    ]) {
+      expect(publicConsumerSource, `public Git consumer residue: ${obsolete}`).not.toContain(
+        obsolete
+      );
     }
   });
 
@@ -102,7 +125,10 @@ describe('independent MCP project location contract', () => {
     ];
     for (const [name, args] of calls) {
       const firstResult = (await firstServer.handleToolCall(name, args)) as Record<string, unknown>;
-      const secondResult = (await secondServer.handleToolCall(name, args)) as Record<string, unknown>;
+      const secondResult = (await secondServer.handleToolCall(name, args)) as Record<
+        string,
+        unknown
+      >;
       expect(firstResult.success).toBe(true);
       expect(secondResult.success).toBe(true);
       expect(JSON.stringify(firstResult)).toContain(first);
@@ -176,4 +202,26 @@ function restoreEnv(name: string, value: string | undefined): void {
   } else {
     process.env[name] = value;
   }
+}
+
+function shippedTextFiles(): string[] {
+  const extensions = new Set(['.js', '.json', '.md', '.mjs', '.ts', '.yaml', '.yml']);
+  const roots = ['lib', 'bin', 'config', 'docs', 'skills', 'scripts', 'plugins'];
+  const files: string[] = [];
+  const ignoredDirectories = new Set(['.git', 'coverage', 'dist', 'node_modules']);
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (ignoredDirectories.has(entry.name)) continue;
+      const file = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(file);
+      } else if (entry.isFile() && extensions.has(extname(file))) {
+        files.push(file);
+      }
+    }
+  };
+  for (const root of roots) {
+    visit(join(process.cwd(), root));
+  }
+  return files;
 }

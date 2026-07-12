@@ -871,7 +871,6 @@ function minimalColdStartInlineData<T extends { meta?: Record<string, unknown> }
     'progress',
     'projectRoot',
     'repairState',
-    'serviceBoundary',
     'session',
     'testMode',
     'toolCapabilities',
