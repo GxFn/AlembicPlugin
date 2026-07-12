@@ -2228,6 +2228,9 @@ describe('HostMcpServer', () => {
     makeInitializedWorkspace(projectRoot);
     writePlanFixtureSource(projectRoot, 'initializedEmptyGraph');
     const server = new HostMcpServer({ projectRoot });
+    const databasePath = path.join(projectRoot, '.asd', 'alembic.db');
+    const beforeDatabase = captureDatabaseFamily(databasePath);
+    const beforeInputs = captureReadOnlySearchInputs(projectRoot);
 
     const result = (await server.handleToolCall('alembic_graph', {
       queryKind: 'space',
@@ -2247,6 +2250,8 @@ describe('HostMcpServer', () => {
     );
     expect(result.structuredContent?.ok).toBe(true);
     expect(result.structuredContent?.refs?.length).toBeGreaterThan(0);
+    expect(captureDatabaseFamily(databasePath)).toEqual(beforeDatabase);
+    expect(captureReadOnlySearchInputs(projectRoot)).toEqual(beforeInputs);
   });
 
   test('blocks retired task close before Plugin evidence/evolution execution', async () => {

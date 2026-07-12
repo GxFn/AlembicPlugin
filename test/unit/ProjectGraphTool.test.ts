@@ -445,6 +445,66 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     );
   });
 
+  test('does not let a fixed repo file cap turn a discovered ProjectScope repository into failure', async () => {
+    const projectRoot = createNativeScopeWorkspaceFixtureProject();
+    for (let index = 0; index < 260; index += 1) {
+      writeFile(
+        projectRoot,
+        `Alembic/src/high-volume-${String(index).padStart(3, '0')}.ts`,
+        `export const highVolume${index} = ${index};\n`
+      );
+    }
+
+    const output = await runGraph(projectRoot, {
+      queryKind: 'space',
+      budget: { itemLimit: 500, relationHopLimit: 10 },
+    });
+
+    expect(output.repoCoverage).toMatchObject({
+      requested: 5,
+      attempted: 5,
+      succeeded: 5,
+      failed: 0,
+      omitted: 0,
+      completeness: 'complete',
+    });
+    expect(JSON.stringify(output.diagnostics)).not.toContain(
+      'repo source file collection was truncated'
+    );
+    expect(JSON.stringify(output.diagnostics)).not.toContain(
+      'parser is unavailable for language json'
+    );
+    expect(
+      Number((output.meta.projectContext as { suppressedErrorCount?: number }).suppressedErrorCount)
+    ).toBeGreaterThan(0);
+  });
+
+  test('discovers a single-root project plus every initialized Git submodule as repo coverage', async () => {
+    const projectRoot = createGitSubmoduleFixtureProject();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'space',
+      budget: { itemLimit: 500, relationHopLimit: 10 },
+    });
+
+    expect(output.repoCoverage).toMatchObject({
+      requested: 5,
+      attempted: 5,
+      succeeded: 5,
+      failed: 0,
+      omitted: 0,
+      completeness: 'complete',
+    });
+    expect(output.repoCoverage.discoveredRepoIds).toEqual(
+      expect.arrayContaining([
+        path.basename(projectRoot),
+        'Packages/Foundation',
+        'Packages/Network',
+        'Packages/Player',
+        'Packages/UI',
+      ])
+    );
+  });
+
   test('keeps duplicate package and target labels distinct across repositories', async () => {
     const projectRoot = createDuplicateIdentityWorkspaceFixture();
     const output = await runGraph(projectRoot, {
@@ -607,6 +667,7 @@ function createNativeScopeWorkspaceFixtureProject(): string {
   writeWorkspacePluginFixture(root);
   writeNativeGraphMemberFixture(root, 'Alembic', 'src/index.ts');
   writeNativeGraphMemberFixture(root, 'AlembicDashboard', 'src/dashboard.tsx');
+  writeFile(root, 'AlembicDashboard/config/naming-lint.json', '{"rules":[]}\n');
   writeNativeGraphMemberFixture(root, 'AlembicAgent', 'src/agent.ts');
   writeWorkspaceNoiseBoundaryFixture(root);
   writeNativeGraphProjectScope(root);
@@ -654,6 +715,36 @@ function createDuplicateIdentityWorkspaceFixture(): string {
     path.join(registryDir, PROJECT_SCOPE_REGISTRY_FILENAME),
     JSON.stringify(createProjectScopeRegistryDocument([projectScope]), null, 2)
   );
+  return root;
+}
+
+function createGitSubmoduleFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-submodule-fixture-'));
+  tempRoots.push(root);
+  writeFile(
+    root,
+    'package.json',
+    JSON.stringify({ name: 'single-root', main: 'src/index.ts' }, null, 2)
+  );
+  writeFile(root, 'src/index.ts', 'export const rootProject = true;\n');
+  const submodules = ['Foundation', 'Network', 'Player', 'UI'];
+  const sections: string[] = [];
+  for (const name of submodules) {
+    const relativeRoot = `Packages/${name}`;
+    sections.push(
+      `[submodule "${relativeRoot}"]`,
+      `\tpath = ${relativeRoot}`,
+      `\turl = https://example.invalid/${name}.git`
+    );
+    writeFile(
+      root,
+      `${relativeRoot}/package.json`,
+      JSON.stringify({ name: `@fixture/${name.toLowerCase()}`, main: 'src/index.ts' }, null, 2)
+    );
+    writeFile(root, `${relativeRoot}/src/index.ts`, `export const ${name} = true;\n`);
+    writeFile(root, `${relativeRoot}/.git`, `gitdir: ../../.git/modules/Packages/${name}\n`);
+  }
+  writeFile(root, '.gitmodules', `${sections.join('\n')}\n`);
   return root;
 }
 

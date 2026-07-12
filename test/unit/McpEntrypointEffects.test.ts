@@ -78,6 +78,29 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     expect(fs.existsSync(getProjectRuntimeControlStatePath())).toBe(false);
   });
 
+  it('read-only Graph uses no initializing container and preserves its live DB family byte-for-byte', async () => {
+    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
+    process.env.ALEMBIC_HOME = sandboxHome;
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-graph-project-'));
+    const dataDir = path.join(projectRoot, '.asd');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'config.json'), '{}\n');
+    fs.writeFileSync(path.join(dataDir, 'alembic.db'), '');
+    fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-graph"}\n');
+    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const graph = true;\n');
+    const before = captureProjectReadInputs(projectRoot);
+
+    const server = new HostMcpServer({ projectRoot });
+    const result = (await server.handleToolCall('alembic_graph', {
+      queryKind: 'space',
+    })) as { structuredContent?: { ok?: boolean } };
+
+    expect(result.structuredContent?.ok).toBe(true);
+    expect(captureProjectReadInputs(projectRoot)).toEqual(before);
+  });
+
   it('destructive class: alembic_bootstrap confines writes to the data root and registry', async () => {
     const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-probe-'));
@@ -106,3 +129,27 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     expect(fs.existsSync(getProjectRuntimeControlStatePath())).toBe(false);
   });
 });
+
+function captureProjectReadInputs(
+  projectRoot: string
+): Record<string, { content?: string; exists: boolean; mtimeNs?: string; size?: number }> {
+  const dataDir = path.join(projectRoot, '.asd');
+  return Object.fromEntries(
+    ['alembic.db', 'alembic.db-wal', 'alembic.db-shm', 'config.json'].map((name) => {
+      const filePath = path.join(dataDir, name);
+      if (!fs.existsSync(filePath)) {
+        return [name, { exists: false }];
+      }
+      const stat = fs.statSync(filePath, { bigint: true });
+      return [
+        name,
+        {
+          content: fs.readFileSync(filePath).toString('base64'),
+          exists: true,
+          mtimeNs: stat.mtimeNs.toString(),
+          size: Number(stat.size),
+        },
+      ];
+    })
+  );
+}
