@@ -1,4 +1,3 @@
-import { getServiceContainer } from '#inject/ServiceContainer.js';
 import { runCommitDrivenMaintenance } from '#recipe-pipeline/sustain/git-diff-checkpoint/CommitDrivenMaintenance.js';
 import { HostAgentFileChangeHandler } from '#recipe-pipeline/sustain/HostAgentFileChangeHandler.js';
 import {
@@ -7,7 +6,13 @@ import {
   extractTaskCloseGuardDecision,
   shouldAttachPluginOpportunisticEvolution,
 } from '#recipe-pipeline/sustain/PluginOpportunisticEvolution.js';
+import { createRequestScopedGuardMaintenanceResources } from '../../../repository/guard/RequestScopedGuardMaintenance.js';
+import {
+  attachCodeGuardAuxiliaryFailure,
+  auxiliaryErrorMessage,
+} from './code-guard-auxiliary-failure.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
+import { resolveCodeGuardPhysicalDatabaseIdentity } from './read-only-code-guard-executor.js';
 
 export async function attachPluginOpportunisticEvolutionSurface(input: {
   args: Record<string, unknown>;
@@ -26,28 +31,50 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
   if (!toolOutcome) {
     return input.result;
   }
-  // UM#2：单一 commit-driven 维护编排（与 rescan 入口共享）。presenter 传入自己的 handler 工厂、
-  // 容器与 projectScope，并以 residentSearchEnhancementReady 复刻原 resident 去抖。
-  const {
-    checkpoint,
-    report: unifiedEvolution,
-    routeError,
-    scan,
-  } = await runCommitDrivenMaintenance({
-    buildHandler: createUnifiedEvolutionHandler,
-    container: getServiceContainer(),
-    handlerUnavailableReason:
-      'Core unified evolution services are unavailable in the plugin container',
-    projectRoot: input.projectRoot,
-    residentSearchEnhancementReady: input.executionContext.residentProjectScopeAvailable,
-    runtimeScope: {
-      currentFolderId: input.executionContext.projectScopeIdentity?.currentFolderId ?? null,
-      projectScopeId: input.executionContext.projectScopeIdentity?.projectScopeId ?? null,
-      // 空间根修（2026-07-06）：漂移扫描切到当前 folder 自己的 git 仓——Alembic
-      // 空间只关注 ProjectScope 注册的子仓库，workspace 根（Wakeflow 协作区仓）不是知识源。
-      currentFolderPath: input.executionContext.projectScopeIdentity?.currentFolderPath ?? null,
-    },
-  });
+  const projectRuntime = input.executionContext.projectRuntime;
+  if (!projectRuntime) {
+    return attachMaintenanceFailure(
+      input.result,
+      input.toolName,
+      'Request-scoped ProjectRuntimeContext is unavailable for commit maintenance.'
+    );
+  }
+  const identity = projectRuntime.identity;
+  let resources: ReturnType<typeof createRequestScopedGuardMaintenanceResources> | null = null;
+  let maintenance: Awaited<ReturnType<typeof runCommitDrivenMaintenance>>;
+  try {
+    const physicalIdentity = resolveCodeGuardPhysicalDatabaseIdentity(
+      requireMaintenanceIdentityPath(identity.databasePath, 'databasePath'),
+      requireMaintenanceIdentityPath(identity.dataRoot, 'dataRoot')
+    );
+    resources = createRequestScopedGuardMaintenanceResources({
+      databasePath: physicalIdentity.databasePath,
+      projectRoot: input.projectRoot,
+    });
+    const requestContainer = resources.container;
+    // UM#2：单一 commit-driven 维护编排（与 rescan 入口共享）。presenter 的仓储、
+    // handler 与 checkpoint 必须全部来自同一个请求级物理数据库。
+    maintenance = await runCommitDrivenMaintenance({
+      buildHandler: (projectRoot) => createUnifiedEvolutionHandler(requestContainer, projectRoot),
+      container: requestContainer,
+      handlerUnavailableReason:
+        'Core unified evolution services are unavailable in the request-scoped Guard container',
+      projectRoot: input.projectRoot,
+      residentSearchEnhancementReady: input.executionContext.residentProjectScopeAvailable,
+      runtimeScope: {
+        currentFolderId: input.executionContext.projectScopeIdentity?.currentFolderId ?? null,
+        projectScopeId: input.executionContext.projectScopeIdentity?.projectScopeId ?? null,
+        // 空间根修（2026-07-06）：漂移扫描切到当前 folder 自己的 git 仓——Alembic
+        // 空间只关注 ProjectScope 注册的子仓库，workspace 根（Wakeflow 协作区仓）不是知识源。
+        currentFolderPath: input.executionContext.projectScopeIdentity?.currentFolderPath ?? null,
+      },
+    });
+  } catch (error: unknown) {
+    return attachMaintenanceFailure(input.result, input.toolName, auxiliaryErrorMessage(error));
+  } finally {
+    resources?.close();
+  }
+  const { checkpoint, report: unifiedEvolution, routeError, scan } = maintenance;
 
   const serviceGateReason = input.executionContext.residentProjectScopeAvailable
     ? 'Alembic resident ProjectScope is ready for this source folder.'
@@ -68,7 +95,8 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
     checkpoint,
     unifiedEvolution,
   });
-  return attachNestedData(input.result, { unifiedEvolution: surface });
+  const result = attachNestedData(input.result, { unifiedEvolution: surface });
+  return routeError ? attachMaintenanceFailure(result, input.toolName, routeError) : result;
 }
 
 function attachNestedData(result: unknown, patch: Record<string, unknown>): unknown {
@@ -104,13 +132,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function createUnifiedEvolutionHandler(projectRoot: string): HostAgentFileChangeHandler | null {
-  let container: ReturnType<typeof getServiceContainer>;
-  try {
-    container = getServiceContainer();
-  } catch {
-    return null;
-  }
+function createUnifiedEvolutionHandler(
+  container: { get(name: string): unknown },
+  projectRoot: string
+): HostAgentFileChangeHandler | null {
   const sourceRefRepository = safeContainerGet(container, 'recipeSourceRefRepository');
   const knowledgeRepository = safeContainerGet(container, 'knowledgeRepository');
   if (
@@ -142,10 +167,7 @@ function createUnifiedEvolutionHandler(projectRoot: string): HostAgentFileChange
   );
 }
 
-function safeContainerGet(
-  container: ReturnType<typeof getServiceContainer>,
-  serviceName: string
-): unknown {
+function safeContainerGet(container: { get(name: string): unknown }, serviceName: string): unknown {
   try {
     return container.get(serviceName);
   } catch {
@@ -158,4 +180,22 @@ function hasFunctions(value: unknown, names: readonly string[]): value is Record
     return false;
   }
   return names.every((name) => typeof (value as Record<string, unknown>)[name] === 'function');
+}
+
+function attachMaintenanceFailure(result: unknown, toolName: string, message: string): unknown {
+  if (toolName !== 'alembic_code_guard') {
+    return result;
+  }
+  return attachCodeGuardAuxiliaryFailure({
+    diagnosticCode: 'guard-maintenance-failed',
+    message,
+    result,
+  });
+}
+
+function requireMaintenanceIdentityPath(value: string | null, field: string): string {
+  if (!value?.trim()) {
+    throw new Error(`Request-scoped ProjectRuntimeContext is missing ${field}.`);
+  }
+  return value;
 }

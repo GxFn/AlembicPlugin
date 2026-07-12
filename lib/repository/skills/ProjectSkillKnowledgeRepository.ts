@@ -128,7 +128,10 @@ export function createReadOnlyGitDiffCheckpointReader(
  * 读取最近一次 git-diff checkpoint（按 last_scanned_at 最新行）。表/DB 缺失
  * 返回 null 容缺——status 只作参考投影，不承担 guard 的路由职责。
  */
-export function readGitDiffCheckpointSummary(dataRoot: string): GitDiffCheckpointSummary | null {
+export function readGitDiffCheckpointSummary(
+  dataRoot: string,
+  projectRoot: string
+): GitDiffCheckpointSummary | null {
   const candidates = [path.join(dataRoot, '.asd', 'alembic.db'), path.join(dataRoot, 'alembic.db')];
   for (const dbPath of candidates) {
     if (!fs.existsSync(dbPath)) {
@@ -147,9 +150,13 @@ export function readGitDiffCheckpointSummary(dataRoot: string): GitDiffCheckpoin
         }
         const row = db
           .prepare(
-            'SELECT checkpoint_commit, target_commit, last_route_status, last_scanned_at FROM git_diff_checkpoints ORDER BY last_scanned_at DESC LIMIT 1'
+            `SELECT checkpoint_commit, target_commit, last_route_status, last_scanned_at
+             FROM git_diff_checkpoints
+             WHERE project_root = ?
+             ORDER BY last_scanned_at DESC
+             LIMIT 1`
           )
-          .get() as
+          .get(projectRoot) as
           | {
               checkpoint_commit?: string | null;
               target_commit?: string | null;

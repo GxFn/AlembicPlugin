@@ -6,7 +6,9 @@ import { createAlembicRepositories } from '@alembic/core/repositories';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
+import { attachCodeGuardAuxiliaryFailure } from '../../lib/host-runtime/mcp/host/code-guard-auxiliary-failure.js';
 import { attachPluginOpportunisticEvolutionSurface } from '../../lib/host-runtime/mcp/host/opportunistic-evolution-presenter.js';
+import { AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS } from '../../lib/host-runtime/mcp/public-tools/output.js';
 import {
   getServiceContainer,
   resetServiceContainer,
@@ -96,7 +98,31 @@ describe('Guard request-scoped data-root isolation', () => {
         }),
       ])
     );
+    const parsedOutput = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS.alembic_code_guard.safeParse(output);
+    expect(
+      parsedOutput.success,
+      parsedOutput.success ? undefined : JSON.stringify(parsedOutput.error.issues)
+    ).toBe(true);
     expect(readCheckpointRows(healthyGlobal.db)).toEqual([]);
+  });
+
+  test('does not downgrade an existing blocked Guard result when auxiliary diagnostics are added', () => {
+    const output = attachCodeGuardAuxiliaryFailure({
+      diagnosticCode: 'guard-maintenance-failed',
+      message: 'fixture maintenance failure',
+      result: {
+        reason: { kind: 'blocked', code: 'missing-guard-scope' },
+        status: 'blocked',
+      },
+    }) as Record<string, unknown>;
+
+    expect(output).toMatchObject({
+      reason: { kind: 'blocked', code: 'missing-guard-scope' },
+      status: 'blocked',
+    });
+    expect(output.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'guard-maintenance-failed' })])
+    );
   });
 });
 
@@ -185,12 +211,19 @@ async function executeGuardMaintenance(fixture: RequestFixture): Promise<unknown
     } as never,
     projectRoot: fixture.projectRoot,
     result: {
-      actionKind: 'guard',
-      guard: { verdict: 'passed' },
+      actionKind: 'code-guard',
+      agentHost: 'codex',
+      guard: {
+        ok: true,
+        resultSummary: { payloadType: 'object' },
+        verdict: 'passed',
+      },
+      inputSource: 'automation-envelope',
       ok: true,
+      refs: { detailRefs: [] },
       status: 'ready',
-      success: true,
       summary: 'Code Guard passed.',
+      toolName: 'alembic_code_guard',
     },
     toolName: 'alembic_code_guard',
   });

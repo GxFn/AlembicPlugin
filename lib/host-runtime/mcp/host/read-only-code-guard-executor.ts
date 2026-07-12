@@ -11,6 +11,10 @@ import {
 import { createReadOnlyCodeGuardRepositories } from '../../../repository/guard/ReadOnlyCodeGuardServices.js';
 import { codeGuardHandler } from '../handlers/agent-public-tools.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
+import {
+  attachCodeGuardAuxiliaryFailure,
+  auxiliaryErrorMessage,
+} from './code-guard-auxiliary-failure.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
 import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
 
@@ -35,7 +39,7 @@ export async function executeReadOnlyCodeGuard(
   );
   const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
   const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  const physicalIdentity = resolvePhysicalDatabaseIdentity(databasePath, dataRoot);
+  const physicalIdentity = resolveCodeGuardPhysicalDatabaseIdentity(databasePath, dataRoot);
 
   const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
@@ -88,8 +92,19 @@ export async function executeReadOnlyCodeGuard(
     );
     const ctx: McpContext = { container, projectRuntime };
     const result = await codeGuardHandler(ctx, args);
-    await flushGuardEffects(databasePath, dataRoot, physicalIdentity.databasePath, effects);
-    return result;
+    const effectFailure = await flushGuardEffects(
+      databasePath,
+      dataRoot,
+      physicalIdentity.databasePath,
+      effects
+    );
+    return effectFailure
+      ? attachCodeGuardAuxiliaryFailure({
+          diagnosticCode: 'guard-effects-persistence-failed',
+          message: effectFailure,
+          result,
+        })
+      : result;
   } finally {
     db.close();
     snapshot.dispose();
@@ -101,26 +116,27 @@ async function flushGuardEffects(
   dataRoot: string,
   expectedPhysicalDatabasePath: string,
   effects: CodeGuardEffects
-): Promise<void> {
+): Promise<string | null> {
   if (
     effects.violationRuns.length === 0 &&
     effects.guardHits.size === 0 &&
     effects.primeAdoptions.size === 0
   ) {
-    return;
+    return null;
   }
   try {
-    const currentIdentity = resolvePhysicalDatabaseIdentity(databasePath, dataRoot);
+    const currentIdentity = resolveCodeGuardPhysicalDatabaseIdentity(databasePath, dataRoot);
     if (currentIdentity.databasePath !== expectedPhysicalDatabasePath) {
       throw new Error(
         `Code Guard database identity changed before effect persistence: expected=${expectedPhysicalDatabasePath}, actual=${currentIdentity.databasePath}.`
       );
     }
     persistCodeGuardEffects(currentIdentity.databasePath, effects);
+    return null;
   } catch (err: unknown) {
-    process.stderr.write(
-      `[MCP/Guard] explicit post-result effect degraded: ${err instanceof Error ? err.message : String(err)}\n`
-    );
+    const message = auxiliaryErrorMessage(err);
+    process.stderr.write(`[MCP/Guard] explicit post-result effect degraded: ${message}\n`);
+    return message;
   }
 }
 
@@ -164,7 +180,7 @@ function isWithin(filePath: string, root: string): boolean {
   return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-function resolvePhysicalDatabaseIdentity(
+export function resolveCodeGuardPhysicalDatabaseIdentity(
   databasePath: string,
   dataRoot: string
 ): { dataRoot: string; databasePath: string } {

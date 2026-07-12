@@ -216,7 +216,7 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
   const databaseEntryCount = countProjectSkillKnowledgeEntries(resolver.dataRoot);
   const dbRecipeCount = countProjectDatabaseRecipes(resolver.dataRoot);
   const lifecycle = countProjectRecipeLifecycles(resolver.dataRoot);
-  const codeDrift = readGitDiffCheckpointSummary(resolver.dataRoot);
+  const codeDrift = readGitDiffCheckpointSummary(resolver.dataRoot, projectRoot);
   const recipeCount = dbRecipeCount;
   const hasKnowledge =
     recipeCount > 0 || materializedRecipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;

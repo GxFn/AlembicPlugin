@@ -216,6 +216,32 @@ describe('Codex knowledge state', () => {
     );
     expect(state.sourceRefs?.databasePath).not.toBe(join(projectRoot, '.asd', 'alembic.db'));
   });
+
+  test('selects code-drift status only from the requested project when the data root has foreign rows', () => {
+    const root = createProject();
+    initializeWorkspace(root);
+    writeRecipe(root, 'core.md', '# Core recipe\n');
+    seedCheckpointRows(root, [
+      {
+        checkpointCommit: 'requested-commit',
+        lastScannedAt: 100,
+        projectRoot: root,
+      },
+      {
+        checkpointCommit: 'foreign-newer-commit',
+        lastScannedAt: 200,
+        projectRoot: '/detached/foreign-project',
+      },
+    ]);
+
+    const state = inspectKnowledge(root);
+
+    expect(state.codeDrift).toMatchObject({
+      checkpointCommit: 'requested-commit',
+      lastScannedAt: 100,
+    });
+    expect(JSON.stringify(state.codeDrift)).not.toContain('foreign-newer-commit');
+  });
 });
 
 function createProject() {
@@ -337,6 +363,38 @@ function seedKnowledgeEntries(root: string) {
       'entry_1',
       'Database-backed knowledge'
     );
+  } finally {
+    db.close();
+  }
+}
+
+function seedCheckpointRows(
+  root: string,
+  rows: Array<{ checkpointCommit: string; lastScannedAt: number; projectRoot: string }>
+) {
+  const db = new Database(join(root, '.asd', 'alembic.db'));
+  try {
+    db.exec(`
+      CREATE TABLE git_diff_checkpoints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_root TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        folder_id TEXT NOT NULL,
+        checkpoint_commit TEXT,
+        target_commit TEXT,
+        last_route_status TEXT NOT NULL,
+        last_scanned_at INTEGER
+      );
+    `);
+    const insert = db.prepare(
+      `INSERT INTO git_diff_checkpoints
+        (project_root, scope_id, folder_id, checkpoint_commit, target_commit,
+         last_route_status, last_scanned_at)
+       VALUES (?, 'single-folder', 'root', ?, ?, 'routed', ?)`
+    );
+    for (const row of rows) {
+      insert.run(row.projectRoot, row.checkpointCommit, row.checkpointCommit, row.lastScannedAt);
+    }
   } finally {
     db.close();
   }

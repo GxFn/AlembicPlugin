@@ -154,7 +154,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     expect(captureProjectReadInputs(projectRoot)).toEqual(before);
   });
 
-  it('clean Code Guard uses a request snapshot and preserves its live DB family byte-for-byte', async () => {
+  it('clean Code Guard keeps review read-only while its declared checkpoint write stays in the request DB', async () => {
     const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
     process.env.ALEMBIC_HOME = sandboxHome;
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-guard-project-'));
@@ -176,8 +176,27 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
       projectRoot,
     })) as { status?: string };
 
+    const readDb = new Database(path.join(dataDir, 'alembic.db'), {
+      fileMustExist: true,
+      readonly: true,
+    });
+    const checkpoints = readDb
+      .prepare(
+        'SELECT project_root, checkpoint_commit FROM git_diff_checkpoints ORDER BY updated_at DESC'
+      )
+      .all() as Array<{ checkpoint_commit: string; project_root: string }>;
+    readDb.close();
+    const after = captureProjectReadInputs(projectRoot);
     expect(result.status).toBe('ready');
-    expect(captureProjectReadInputs(projectRoot)).toEqual(before);
+    expect(checkpoints).toEqual([
+      expect.objectContaining({
+        checkpoint_commit: null,
+        project_root: projectRoot,
+      }),
+    ]);
+    expect(after['config.json']).toEqual(before['config.json']);
+    expect(after['alembic.db-wal']?.exists).toBe(before['alembic.db-wal']?.exists);
+    expect(after['alembic.db-shm']?.exists).toBe(before['alembic.db-shm']?.exists);
   });
 
   it('Code Guard commits a real violation only through its declared post-result effect', async () => {
