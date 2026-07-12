@@ -110,24 +110,55 @@ export function selectLocalEmbedLane(
   if (!config.enabled || config.laneOrder === 'keyword-only') {
     return selectEmbedLane([keywordEmbedLane()]);
   }
-  const provider = new OllamaEmbedProvider({
-    model: config.model,
-    endpoint: config.endpoint,
-    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-  });
   const ollamaLane: EmbedLane = {
     name: 'ollama',
-    provider,
+    provider: createOllamaEmbedProvider(config, config.model, opts.fetchImpl),
     isAvailable: async () => {
       const probe = await detectOllamaEmbedding(config, opts.fetchImpl);
       if (!probe.available) {
         throw new Error(probe.reason ?? 'local Ollama embedding is unavailable');
       }
+      const installedModel = resolveInstalledOllamaModel(config.model, probe.models ?? []);
+      if (!installedModel) {
+        throw new Error(`configured Ollama model "${config.model}" has no exact installed match`);
+      }
+      ollamaLane.provider = createOllamaEmbedProvider(config, installedModel, opts.fetchImpl);
       return true;
     },
   };
   const lanes = [ollamaLane, ...(opts.residentLane ? [opts.residentLane] : []), keywordEmbedLane()];
   return selectEmbedLane(lanes);
+}
+
+function createOllamaEmbedProvider(
+  config: Pick<LocalEmbeddingConfig, 'endpoint'>,
+  model: string,
+  fetchImpl?: FetchLike
+): OllamaEmbedProvider {
+  return new OllamaEmbedProvider({
+    model,
+    endpoint: config.endpoint,
+    ...(fetchImpl ? { fetchImpl } : {}),
+  });
+}
+
+/** Resolve an untagged model family to the exact installed Ollama name used by /api/embed. */
+function resolveInstalledOllamaModel(
+  requestedModel: string,
+  installedModels: string[]
+): string | null {
+  const requested = requestedModel.trim();
+  const installed = Array.from(
+    new Set(installedModels.map((model) => model.trim()).filter((model) => model.length > 0))
+  );
+  if (installed.includes(requested)) {
+    return requested;
+  }
+  // An explicit tag is authoritative: never substitute a different installed tag.
+  if (requested.includes(':')) {
+    return null;
+  }
+  return installed.find((model) => model.split(':')[0] === requested) ?? null;
 }
 
 /**

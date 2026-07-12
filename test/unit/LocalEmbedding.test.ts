@@ -126,6 +126,60 @@ describe('LocalEmbedding detection (GMAP-L2)', () => {
 });
 
 describe('LocalEmbedding local-first lane selection (GMAP-L3)', () => {
+  test('base model selection embeds with the exact installed tagged model name', async () => {
+    const embedBodies: Array<Record<string, unknown>> = [];
+    const transport: FetchLike = async (input, init) => {
+      if (input.endsWith('/api/tags')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ models: [{ name: 'qwen3-embedding:0.6b' }] }),
+          text: async () => '',
+        };
+      }
+      embedBodies.push(JSON.parse(init?.body ?? '{}') as Record<string, unknown>);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ embeddings: [[0.1, 0.2]] }),
+        text: async () => '',
+      };
+    };
+    const selection = await selectLocalEmbedLane(
+      {
+        enabled: true,
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
+        model: DEFAULT_OLLAMA_EMBED_MODEL,
+        laneOrder: 'local-first',
+      },
+      { fetchImpl: transport }
+    );
+
+    await selection.provider?.embed('module isolation');
+    expect(selection.lane).toBe('ollama');
+    expect(embedBodies).toEqual([
+      expect.objectContaining({ model: 'qwen3-embedding:0.6b' }),
+    ]);
+  });
+
+  test('an explicitly tagged model does not silently switch to a different installed tag', async () => {
+    const selection = await selectLocalEmbedLane(
+      {
+        enabled: true,
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
+        model: 'qwen3-embedding:1.0b',
+        laneOrder: 'local-first',
+      },
+      { fetchImpl: fakeFetch(['qwen3-embedding:0.6b']) }
+    );
+
+    expect(selection.lane).toBe('keyword');
+    expect(selection.provider).toBeNull();
+    expect(selection.diagnostics.find((diagnostic) => diagnostic.name === 'ollama')).toMatchObject(
+      { available: false, selected: false }
+    );
+  });
+
   test('enabled + Ollama available → selects the Ollama provider', async () => {
     const selection = await selectLocalEmbedLane(
       {
