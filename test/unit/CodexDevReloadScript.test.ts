@@ -188,6 +188,7 @@ describe('Codex plugin local-dev reload script', () => {
 
   test('help text does not advertise current MCP lifecycle flags', () => {
     const output = runReloadScript('--help');
+    const normalizedOutput = output.replace(/\s+/g, ' ');
     const watchOutput = execFileSync(
       process.execPath,
       [join(projectRoot, 'scripts', 'dev-watch-codex-plugin.mjs'), '--help'],
@@ -201,7 +202,9 @@ describe('Codex plugin local-dev reload script', () => {
     expect(output).not.toContain('--no-stop-mcp');
     expect(watchOutput).not.toContain('--restart-mcp');
     expect(watchOutput).not.toContain('--no-restart-mcp');
-    expect(output).toContain('It never inspects, stops, or restarts the current');
+    expect(normalizedOutput).toContain(
+      'It never inspects, stops, or restarts the current Codex host MCP process.'
+    );
     expect(output).toContain('validates');
     expect(output).toContain('projectRuntime identity');
     expect(watchOutput).toContain('It never restarts the current Codex MCP transport.');
