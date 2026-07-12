@@ -205,8 +205,7 @@ export function buildRetrievalCheckpointPosture(
   const diagnostics: RetrievalCheckpointDiagnostic[] = [];
   let retrievalMayBeStale = false;
   const scalarMultiRepoCheckpoint =
-    (input.projectScopeFolderCount ?? 0) > 1 &&
-    (input.projectScopeFolders?.length ?? 0) === 0;
+    (input.projectScopeFolderCount ?? 0) > 1 && (input.projectScopeFolders?.length ?? 0) === 0;
 
   if (sourceRevisionManifest && sourceRevisionManifest.alignment !== 'current') {
     retrievalMayBeStale = true;
