@@ -530,6 +530,7 @@ describe('Agent-facing public tools contract foundation', () => {
           'not-available-or-degraded',
         ].map((layer) => ({
           itemCount: 0,
+          items: [],
           label: layer,
           layer,
           requiredInVisibleReceipt: false,
