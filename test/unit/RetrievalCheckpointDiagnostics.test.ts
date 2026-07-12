@@ -199,7 +199,7 @@ describe('retrieval checkpoint diagnostics', () => {
     }
 
     const primeOutput = (await primeHandler(
-      primeContext(projectRoot, gitDiffCheckpointRepository),
+      primeContext(projectRoot, gitDiffCheckpointRepository, true),
       {
         agentHost: 'codex',
         inputSource: 'host-declared-intent',
@@ -214,6 +214,24 @@ describe('retrieval checkpoint diagnostics', () => {
     expect(diagnosticCodes(primeOutput)).toContain('retrieval-catch-up-needed');
     expect(primeOutput.nextActions).toEqual(
       expect.arrayContaining([expect.objectContaining({ tool: 'alembic_rescan', required: true })])
+    );
+    expect(primeOutput.sourceRevisionManifest).toMatchObject({
+      completeness: 'complete',
+      projectScopeId: 'single-folder',
+      rows: [expect.objectContaining({ checkpointCommit: baselineHead, status: 'stale' })],
+    });
+    const primePackage = asRecord(primeOutput.primePackage);
+    const compactPackage = asRecord(primePackage.compactPackage);
+    expect(compactPackage.acceptedGuards).toEqual([]);
+    expect(compactPackage.acceptedKnowledge).toEqual([]);
+    const trustLayers = asArray(asRecord(primePackage.trustPosture).receiptChecklist).map(asRecord);
+    expect(trustLayers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ layer: 'trusted-to-obey', itemCount: 0 }),
+        expect.objectContaining({ layer: 'trusted-to-use', itemCount: 0 }),
+        expect.objectContaining({ layer: 'requires-verification', itemCount: 2 }),
+        expect.objectContaining({ layer: 'not-available-or-degraded', itemCount: 2 }),
+      ])
     );
 
     const recipeMapOutput = (await recipeMap(
@@ -284,12 +302,72 @@ function searchContext(projectRoot: string, gitDiffCheckpointRepository: unknown
   } as unknown as McpContext;
 }
 
-function primeContext(projectRoot: string, gitDiffCheckpointRepository: unknown): McpContext {
+function primeContext(
+  projectRoot: string,
+  gitDiffCheckpointRepository: unknown,
+  withTrustedCandidates = false
+): McpContext {
   return {
     container: {
       get: vi.fn((name: string) => {
         if (name === 'primeSearchPipeline') {
-          return { search: vi.fn(async () => null) };
+          return {
+            search: vi.fn(async () =>
+              withTrustedCandidates
+                ? {
+                    relatedKnowledge: [
+                      {
+                        id: 'recipe-checkpoint',
+                        title: 'Checkpoint recipe',
+                        trigger: '@checkpoint',
+                        kind: 'pattern',
+                        language: 'typescript',
+                        score: 0.99,
+                        sourceRefs: ['src/index.ts:1'],
+                      },
+                    ],
+                    guardRules: [
+                      {
+                        id: 'rule-checkpoint',
+                        title: 'Checkpoint rule',
+                        trigger: '@checkpoint-rule',
+                        kind: 'rule',
+                        language: 'typescript',
+                        score: 0.98,
+                        sourceRefs: ['src/index.ts:1'],
+                      },
+                    ],
+                    searchMeta: {
+                      queries: ['checkpoint recipe'],
+                      scenario: 'fix',
+                      language: 'typescript',
+                      module: null,
+                      resultCount: 2,
+                      filteredCount: 2,
+                      primeInjectionPackage: {
+                        injection: {
+                          degradedReasons: [],
+                          omittedCount: 0,
+                          selectedCount: 1,
+                          status: 'ready',
+                        },
+                        selectedKnowledge: [
+                          {
+                            evidenceRefs: ['recipe-locator:recipe-checkpoint'],
+                            injectionStatus: 'selected',
+                            itemId: 'recipe-checkpoint',
+                            matchedRegionClasses: ['applicability'],
+                            sourceRefs: ['src/index.ts:1'],
+                            whySelected: ['recipe-locator:exact-recipe'],
+                          },
+                        ],
+                        trace: { sourceRefs: ['src/index.ts:1'] },
+                      },
+                    },
+                  }
+                : null
+            ),
+          };
         }
         if (name === 'gitDiffCheckpointRepository') {
           return gitDiffCheckpointRepository;

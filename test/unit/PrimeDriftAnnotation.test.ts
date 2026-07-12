@@ -2,9 +2,8 @@
  * D5(2026-07-11,P-D 活体矩阵登记):prime 面 drift 标注对称回归。
  * search 面(P1)已带 sourceRefStatus+drifted 降权,prime 面此前漂移盲——
  * 同一 Recipe 的漂移锚点以无标记 trusted 证据交付。本测锁:
- * ①accepted item 携带 sourceRefStatus;②evidenceRefs 逐条 drifted 标记
- * (原串集合匹配);③trusted-to-use 回执 reason 提醒重核;④不改信任分层
- * (drifted item 仍在 acceptedKnowledge,不被降级/剔除)。
+ * 漂移 Recipe 即使仍有 locator，也只能保留为 requires-verification 候选，
+ * 不能进入 acceptedKnowledge / trusted-to-use。
  */
 import { describe, expect, test } from 'vitest';
 import { buildPrimeKnowledgeMaterial } from '../../lib/service/task/PrimeKnowledgeMaterial.js';
@@ -51,7 +50,7 @@ function buildDriftedSearchResult() {
   };
 }
 
-// 信任门需要 locator 证据(与 P-1 backfill 同形);drift 标注不参与信任判定。
+// 信任门需要 locator 证据(与 P-1 backfill 同形)，但 locator 不能覆盖漂移状态。
 const regionEvidence = [
   {
     evidenceRefs: ['recipe-locator:r-drift'],
@@ -64,7 +63,7 @@ const regionEvidence = [
 ];
 
 describe('prime drift 标注对称(D5)', () => {
-  test('drifted Recipe:item 级状态+evidenceRefs 逐条标记+trusted-to-use 提醒', () => {
+  test('drifted Recipe stays visible for verification but never becomes trusted-to-use', () => {
     const material = buildPrimeKnowledgeMaterial({
       requirement,
       searchDegraded: false,
@@ -73,23 +72,23 @@ describe('prime drift 标注对称(D5)', () => {
       taskAnchorDecision,
     });
 
-    const accepted = material.acceptedKnowledge.find((item) => item.id === 'r-drift');
-    expect(accepted).toBeDefined();
-    // ④仍在 trusted 集合(漂移≠错误,不改信任分层)。
-    expect(material.status).toBe('delivered');
-    // ①item 级聚合态。
-    expect(accepted?.sourceRefStatus).toBe('drifted');
-    // ②逐条标记:a.ts 区间漂移,b.ts 未漂移不带字段。
-    const refA = accepted?.evidenceRefs.find((ref) => ref.path === 'lib/feed/a.ts');
-    const refB = accepted?.evidenceRefs.find((ref) => ref.path === 'lib/feed/b.ts');
-    expect(refA).toMatchObject({ line: 10, endLine: 20, drifted: true });
-    expect(refB?.drifted).toBeUndefined();
-    // ③trusted-to-use 回执 reason 带重核提醒。
+    expect(material.acceptedKnowledge).toHaveLength(0);
     const trustedLayer = material.trustPosture.receiptChecklist.find(
       (layer) => layer.layer === 'trusted-to-use'
     );
-    const postureItem = trustedLayer?.items.find((item) => item.id === 'knowledge:r-drift');
-    expect(postureItem?.reason).toContain('re-verify file:line');
+    expect(trustedLayer?.items).toHaveLength(0);
+    const verificationLayer = material.trustPosture.receiptChecklist.find(
+      (layer) => layer.layer === 'requires-verification'
+    );
+    const candidate = verificationLayer?.items.find(
+      (item) => item.id === 'source-status-candidate:r-drift'
+    );
+    expect(candidate).toMatchObject({ status: 'drifted' });
+    expect(candidate?.evidenceRefs?.find((ref) => ref.path === 'lib/feed/a.ts')).toMatchObject({
+      line: 10,
+      endLine: 20,
+      drifted: true,
+    });
   });
 
   test('active Recipe:透传 active 状态,evidenceRefs 无 drifted 字段', () => {
