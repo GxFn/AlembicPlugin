@@ -305,14 +305,14 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
       inputSource: 'host-declared-intent',
       operation: 'review',
       projectRoot,
-    })) as { status?: string };
+    })) as { errorCode?: string; success?: boolean };
 
     const verifyDb = new Database(outsideDatabasePath, { fileMustExist: true, readonly: true });
-    const persisted = verifyDb
-      .prepare('SELECT count(*) AS count FROM guard_violations')
-      .get() as { count: number };
+    const persisted = verifyDb.prepare('SELECT count(*) AS count FROM guard_violations').get() as {
+      count: number;
+    };
     verifyDb.close();
-    expect(result.status).toBe('failed');
+    expect(result).toMatchObject({ errorCode: 'CODEX_MCP_ERROR', success: false });
     expect(persisted.count).toBe(0);
   });
 

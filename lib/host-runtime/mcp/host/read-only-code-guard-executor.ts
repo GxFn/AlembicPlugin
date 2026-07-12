@@ -1,27 +1,18 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
-import { openAlembicDatabase } from '@alembic/core/database';
-import { GuardCheckEngine, ViolationsStore } from '@alembic/core/guard';
-import { createAlembicRepositories } from '@alembic/core/repositories';
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { GuardCheckEngine } from '@alembic/core/guard';
 import Database from 'better-sqlite3';
 import ConfigLoader from '../../../infrastructure/config/AppConfigLoader.js';
+import {
+  type CodeGuardEffects,
+  type GuardViolationRunEffect,
+  persistCodeGuardEffects,
+} from '../../../repository/guard/CodeGuardEffectRepository.js';
 import { createReadOnlyCodeGuardRepositories } from '../../../repository/guard/ReadOnlyCodeGuardServices.js';
 import { codeGuardHandler } from '../handlers/agent-public-tools.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
 import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
-
-interface GuardViolationRunEffect {
-  filePath?: string;
-  summary?: string;
-  violations?: Array<Record<string, unknown>>;
-}
-
-interface GuardEffects {
-  guardHits: Map<string, number>;
-  primeAdoptions: Map<string, number>;
-  violationRuns: GuardViolationRunEffect[];
-}
 
 /**
  * Run public Code Guard over one request-scoped DB/WAL/config snapshot.
@@ -39,21 +30,16 @@ export async function executeReadOnlyCodeGuard(
     throw new Error('Request-scoped ProjectRuntimeContext is required for Code Guard.');
   }
   const identity = projectRuntime.identity;
-  const projectRoot = resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'));
+  const projectRoot = realpathSync.native(
+    resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'))
+  );
   const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
   const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  if (!isWithin(databasePath, dataRoot)) {
-    throw new Error(
-      `Code Guard database identity mismatch: database=${databasePath}, dataRoot=${dataRoot}.`
-    );
-  }
-  if (!existsSync(databasePath)) {
-    throw new Error(`Code Guard database does not exist: ${databasePath}.`);
-  }
+  const physicalIdentity = resolvePhysicalDatabaseIdentity(databasePath, dataRoot);
 
-  const snapshot = createReadOnlySearchSnapshot({ dataRoot, databasePath });
+  const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
-  const effects: GuardEffects = {
+  const effects: CodeGuardEffects = {
     guardHits: new Map(),
     primeAdoptions: new Map(),
     violationRuns: [],
@@ -102,7 +88,7 @@ export async function executeReadOnlyCodeGuard(
     );
     const ctx: McpContext = { container, projectRuntime };
     const result = await codeGuardHandler(ctx, args);
-    await flushGuardEffects(databasePath, dataRoot, effects);
+    await flushGuardEffects(databasePath, dataRoot, physicalIdentity.databasePath, effects);
     return result;
   } finally {
     db.close();
@@ -113,7 +99,8 @@ export async function executeReadOnlyCodeGuard(
 async function flushGuardEffects(
   databasePath: string,
   dataRoot: string,
-  effects: GuardEffects
+  expectedPhysicalDatabasePath: string,
+  effects: CodeGuardEffects
 ): Promise<void> {
   if (
     effects.violationRuns.length === 0 &&
@@ -122,29 +109,18 @@ async function flushGuardEffects(
   ) {
     return;
   }
-  let runtime: Awaited<ReturnType<typeof openAlembicDatabase>> | null = null;
   try {
-    runtime = await openAlembicDatabase(
-      { path: databasePath },
-      { runMigrations: false, workspaceResolver: { dataRoot } as never }
-    );
-    const repositories = createAlembicRepositories(runtime.connection);
-    const violationsStore = new ViolationsStore(runtime.sqlite, runtime.drizzle);
-    for (const run of effects.violationRuns) {
-      violationsStore.appendRun(run);
+    const currentIdentity = resolvePhysicalDatabaseIdentity(databasePath, dataRoot);
+    if (currentIdentity.databasePath !== expectedPhysicalDatabasePath) {
+      throw new Error(
+        `Code Guard database identity changed before effect persistence: expected=${expectedPhysicalDatabasePath}, actual=${currentIdentity.databasePath}.`
+      );
     }
-    for (const [id, count] of effects.guardHits) {
-      repositories.knowledgeRepository.incrementGuardHitsSync(id, count);
-    }
-    for (const [id, count] of effects.primeAdoptions) {
-      repositories.knowledgeRepository.incrementPrimeAdoptionsSync(id, count);
-    }
+    persistCodeGuardEffects(currentIdentity.databasePath, effects);
   } catch (err: unknown) {
     process.stderr.write(
       `[MCP/Guard] explicit post-result effect degraded: ${err instanceof Error ? err.message : String(err)}\n`
     );
-  } finally {
-    runtime?.close();
   }
 }
 
@@ -185,7 +161,25 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function isWithin(filePath: string, root: string): boolean {
   const rel = relative(root, filePath);
-  return rel.length > 0 && !rel.startsWith('..') && !rel.startsWith('/');
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+function resolvePhysicalDatabaseIdentity(
+  databasePath: string,
+  dataRoot: string
+): { dataRoot: string; databasePath: string } {
+  const physicalDataRoot = realpathSync.native(dataRoot);
+  lstatSync(databasePath);
+  const physicalDatabasePath = realpathSync.native(databasePath);
+  if (!isWithin(physicalDatabasePath, physicalDataRoot)) {
+    throw new Error(
+      `Code Guard database physical identity mismatch: database=${physicalDatabasePath}, dataRoot=${physicalDataRoot}.`
+    );
+  }
+  if (!statSync(physicalDatabasePath).isFile()) {
+    throw new Error(`Code Guard database is not a regular file: ${physicalDatabasePath}.`);
+  }
+  return { dataRoot: physicalDataRoot, databasePath: physicalDatabasePath };
 }
 
 function requireIdentityPath(value: string | null, field: string): string {

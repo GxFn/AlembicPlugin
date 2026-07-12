@@ -7,7 +7,7 @@
  *   code: string    → 单文件内联检查
  */
 
-import { readFile, stat } from 'node:fs/promises';
+import { lstat, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { LanguageService } from '@alembic/core/shared';
 import { resolveProjectRoot } from '@alembic/core/workspace';
@@ -380,6 +380,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       meta: { tool: 'alembic_code_guard', mode: 'review', legacyCompatibility: true },
     });
   }
+  const physicalProjectRoot = await realpath(projectRoot);
 
   // Review 不携带可验证的 task/work/content identity 时，跨调用轮次会把无关请求
   // 串在一起。保持无状态比 projectRoot 级计数更诚实；未来若要轮次限制，必须由
@@ -422,9 +423,10 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       continue;
     }
 
-    let fileStat: Awaited<ReturnType<typeof stat>>;
+    let physicalFilePath: string;
     try {
-      fileStat = await stat(filePath);
+      await lstat(filePath);
+      physicalFilePath = await realpath(filePath);
     } catch (err: unknown) {
       const code = isNodeErrorWithCode(err) ? err.code : '';
       const disposition: GuardFileDisposition = code === 'ENOENT' ? 'missing' : 'unreadable';
@@ -434,6 +436,48 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
         disposition,
         message:
           disposition === 'missing' ? 'Requested file does not exist.' : guardErrorMessage(err),
+      };
+      coverageRows.push(row);
+      results.push({
+        filePath,
+        error: row.message,
+        violations: [],
+        summary: { total: 0, errors: 0, warnings: 0 },
+      });
+      continue;
+    }
+
+    const physicalRelative = path.relative(physicalProjectRoot, physicalFilePath);
+    if (
+      physicalRelative.startsWith(`..${path.sep}`) ||
+      physicalRelative === '..' ||
+      path.isAbsolute(physicalRelative)
+    ) {
+      const row: GuardFileCoverageRow = {
+        requestedPath,
+        filePath,
+        disposition: 'out-of-root',
+        message: 'Requested path resolves outside the active project root.',
+      };
+      coverageRows.push(row);
+      results.push({
+        filePath,
+        error: row.message,
+        violations: [],
+        summary: { total: 0, errors: 0, warnings: 0 },
+      });
+      continue;
+    }
+
+    let fileStat: Awaited<ReturnType<typeof stat>>;
+    try {
+      fileStat = await stat(physicalFilePath);
+    } catch (err: unknown) {
+      const row: GuardFileCoverageRow = {
+        requestedPath,
+        filePath,
+        disposition: 'unreadable',
+        message: guardErrorMessage(err),
       };
       coverageRows.push(row);
       results.push({
@@ -463,7 +507,7 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
     }
 
     try {
-      const code = await readFile(filePath, 'utf8');
+      const code = await readFile(physicalFilePath, 'utf8');
       const row: GuardFileCoverageRow = {
         requestedPath,
         filePath,
