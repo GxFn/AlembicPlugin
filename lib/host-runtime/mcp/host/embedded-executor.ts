@@ -12,6 +12,7 @@ import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { isCleanMcpResponse } from '../output-contract.js';
 import { TOOLS } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
+import { executeReadOnlyGraph } from './read-only-graph-executor.js';
 import { executeReadOnlySearch } from './read-only-search-executor.js';
 import { attachServiceBoundary, failureResult } from './results.js';
 
@@ -75,6 +76,14 @@ export class EmbeddedToolExecutor {
     try {
       if (name === 'alembic_search') {
         const result = await executeReadOnlySearch(args, executionContext);
+        return attachExecutionContext(
+          attachServiceBoundary(result, serviceBoundary),
+          executionContext,
+          this.#hostProjectRoot
+        );
+      }
+      if (name === 'alembic_graph') {
+        const result = await executeReadOnlyGraph(args, executionContext);
         return attachExecutionContext(
           attachServiceBoundary(result, serviceBoundary),
           executionContext,

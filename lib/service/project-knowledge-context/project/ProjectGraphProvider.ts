@@ -52,6 +52,7 @@ import {
   REGION_CONTEXT_CONTRACT_VERSION,
 } from '../contracts/index.js';
 import { defaultRefRegistry, stableRefSegment } from '../support/index.js';
+import { discoverInitializedGitSubmoduleRepoFolders } from './GitSubmoduleRepoDiscovery.js';
 
 export interface ProjectGraphNode {
   detailRefId?: string;
@@ -130,6 +131,10 @@ const ALLOWED_RELATION_TYPES = [
 const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
 const GRAPH_REPO_CONCURRENCY = 4;
 const GRAPH_REPO_TIMEOUT_MS = 10_000;
+// ProjectContext public repo schema allows 20k. A repository that exceeds this still returns
+// an explicit truncation diagnostic and fails coverage honestly; the old private 240 cap made
+// ordinary real repositories fail before the caller's product budget was even considered.
+const GRAPH_REPO_MAX_FILES = 20_000;
 // P-D D6(2026-07-11 BiliDili 真机):此前这里是第 6 份 JS-only 私有白名单——
 // .swift 文件在 file-flow 目标选择层即被丢弃,alembic_graph file-flow 对 Swift
 // 项目恒 0 节点(而 Core 直探同文件出 9 imports)。改为 JS 家族 + Core 解析语言
@@ -549,7 +554,7 @@ async function collectGraphRepoContexts(
               includeEntrypoints: true,
               includeMapSummary: false,
               includeTopAreas: true,
-              maxFiles: 240,
+              maxFiles: GRAPH_REPO_MAX_FILES,
               repoName: folder.repoName,
               repoRoot: folder.sourceFolder,
             },
@@ -2281,6 +2286,9 @@ function shouldSuppressDefaultProjectContextError(
   if (!errorPath || isExplicitProjectGraphPathRequest(errorPath, input)) {
     return false;
   }
+  if (isUnsupportedBroadSourceParserError(message, errorPath)) {
+    return true;
+  }
   if (
     isExplicitFileGraphTraversal(input) &&
     (message.includes('file-flow') || message.includes('file-symbols'))
@@ -2296,6 +2304,14 @@ function shouldSuppressDefaultProjectContextError(
   // anchor are not useful graph failures; focused file requests still surface
   // the underlying ProjectContext error unchanged.
   return message.includes('file-flow') || message.includes('file-symbols');
+}
+
+function isUnsupportedBroadSourceParserError(message: string, errorPath: string): boolean {
+  return (
+    (message.includes('file-flow parser is unavailable') ||
+      message.includes('file-symbols parser is unavailable')) &&
+    !PROJECT_CONTEXT_FLOW_SOURCE_EXTENSIONS.has(path.posix.extname(errorPath).toLowerCase())
+  );
 }
 
 function isBroadRepoScanLimitDiagnostic(message: string): boolean {
@@ -2435,8 +2451,22 @@ function filePathFromGraphNodeId(nodeId: string | undefined): string | undefined
 }
 
 function selectGraphRepoFolders(space: SpaceContext, projectRoot: string) {
-  if (space.sourceFolders.length === 0) {
-    return [{ repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }];
+  if (space.sourceFolders.length <= 1) {
+    const rootFolder =
+      space.sourceFolders.length === 0
+        ? { repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }
+        : {
+            repoId: space.sourceFolders[0].repositoryId ?? space.sourceFolders[0].id,
+            repoName:
+              space.sourceFolders[0].displayName ??
+              space.sourceFolders[0].repositoryId ??
+              space.sourceFolders[0].id,
+            sourceFolder: normalizeRelativePath(space.sourceFolders[0].path || '.'),
+          };
+    if (rootFolder.sourceFolder === '.') {
+      return [rootFolder, ...discoverInitializedGitSubmoduleRepoFolders(projectRoot)];
+    }
+    return [rootFolder];
   }
   return space.sourceFolders.map((folder) => ({
     repoId: folder.repositoryId ?? folder.id,

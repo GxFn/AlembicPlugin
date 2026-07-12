@@ -258,7 +258,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(requestKinds).not.toContain('anchor-range');
   });
 
-  test('file-scoped queryKinds suppress unrelated broad repo scan limit diagnostics', async () => {
+  test('file-scoped queryKinds avoid unrelated broad repo scan limit diagnostics', async () => {
     const projectRoot = createLargeFixtureProject();
     const output = await runGraph(projectRoot, {
       queryKind: 'file-symbols',
@@ -266,8 +266,8 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       budget: { itemLimit: 40, relationHopLimit: 4 },
     });
     expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
-    expect(output.status).toBe('partial');
-    expect(output.meta.projectContext?.suppressedErrorCount ?? 0).toBeGreaterThan(0);
+    expect(output.status).toBe('ready');
+    expect(output.meta.projectContext?.suppressedErrorCount ?? 0).toBe(0);
     expect(JSON.stringify(output.diagnostics)).not.toContain('repo source file collection');
   });
 
