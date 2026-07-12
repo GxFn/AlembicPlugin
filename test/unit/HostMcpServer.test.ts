@@ -2254,6 +2254,34 @@ describe('HostMcpServer', () => {
     expect(captureReadOnlySearchInputs(projectRoot)).toEqual(beforeInputs);
   });
 
+  test('allows public Recipe Map reads without mutating the live database family', async () => {
+    useTempAlembicHome();
+    const projectRoot = makeProjectRoot();
+    makeInitializedWorkspace(projectRoot);
+    writePlanFixtureSource(projectRoot, 'initializedEmptyRecipeMap');
+    const server = new HostMcpServer({ projectRoot });
+    const databasePath = path.join(projectRoot, '.asd', 'alembic.db');
+    const beforeDatabase = captureDatabaseFamily(databasePath);
+    const beforeInputs = captureReadOnlySearchInputs(projectRoot);
+
+    const result = (await server.handleToolCall('alembic_recipe_map', {
+      focus: { kind: 'space' },
+      recipeMountLimit: 50,
+    })) as {
+      structuredContent?: {
+        conservation?: { completeness?: string };
+        ok?: boolean;
+        project?: { projectRoot?: string };
+      };
+    };
+
+    expect(result.structuredContent?.project?.projectRoot).toBe(projectRoot);
+    expect(result.structuredContent?.conservation?.completeness).toBe('complete');
+    expect(result.structuredContent?.ok).toBe(true);
+    expect(captureDatabaseFamily(databasePath)).toEqual(beforeDatabase);
+    expect(captureReadOnlySearchInputs(projectRoot)).toEqual(beforeInputs);
+  });
+
   test('blocks retired task close before Plugin evidence/evolution execution', async () => {
     useTempAlembicHome();
     const projectRoot = makeProjectRoot();

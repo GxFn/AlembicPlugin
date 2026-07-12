@@ -240,18 +240,28 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(JSON.stringify(b.recipeMounts)).toEqual(JSON.stringify(a.recipeMounts));
   });
 
-  test('recipe mount display limits preserve complete truth totals and rollups', async () => {
+  test.each([199, 200, 201, 205])(
+    'recipe mount display limits preserve complete truth projection at %i candidates',
+    async (candidateCount) => {
     const projectRoot = createFixtureProject();
-    const recipeIds = Array.from({ length: 205 }, (_, index) => `r-count-${index + 1}`);
+    const sourcePaths = Array.from({ length: 80 }, (_, index) => {
+      const relativePath = `lib/count-${String(index + 1).padStart(3, '0')}.ts`;
+      fs.writeFileSync(path.join(projectRoot, relativePath), `export const count${index + 1} = ${index + 1};\n`);
+      return relativePath;
+    });
+    const recipeIds = Array.from(
+      { length: candidateCount },
+      (_, index) => `r-count-${index + 1}`
+    );
     const deps: RecipeMapDeps = {
       ...fakeDeps(),
       listRecipes: async () =>
         recipeIds.map((id) => ({ id, sources: [], tags: [], title: `Count recipe ${id}` })),
       querySourceRefs: async () => ({
         diagnostics: [],
-        rows: recipeIds.map((recipeId) => ({
+        rows: recipeIds.map((recipeId, index) => ({
           recipeId,
-          sourcePath: 'lib/index.ts:1',
+          sourcePath: `${sourcePaths[index % sourcePaths.length]}:1`,
           status: 'active',
         })),
       }),
@@ -262,22 +272,28 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     const high = await defaultRecipeMapProvider.resolveRecipeMap(highRequest, deps);
 
     expect(low.conservation).toMatchObject({
-      candidateRecipes: 205,
-      mountedTotal: 205,
+      candidateRecipes: candidateCount,
+      mountedTotal: candidateCount,
       deferredTotal: 0,
       uncoveredTotal: 0,
       displayedMounts: 1,
-      omittedMounts: 204,
+      omittedMounts: candidateCount - 1,
       completeness: 'complete',
     });
     expect(high.conservation.mountedTotal).toBe(low.conservation.mountedTotal);
+    expect(high.region).toEqual(low.region);
     expect(high.recipeRollups).toEqual(low.recipeRollups);
+    expect(high.refs).toEqual(low.refs);
+    expect(high.diagnostics).toEqual(low.diagnostics);
     expect(
       low.conservation.mountedTotal +
         low.conservation.deferredTotal +
         low.conservation.uncoveredTotal
     ).toBe(low.conservation.candidateRecipes);
-  });
+    expect(Buffer.byteLength(JSON.stringify(low), 'utf8')).toBeLessThanOrEqual(20 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(high), 'utf8')).toBeLessThanOrEqual(20 * 1024);
+  }
+  );
 
   test('large recipe_map reads remain inline and leave the project filesystem unchanged', async () => {
     const projectRoot = createFixtureProject();

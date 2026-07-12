@@ -101,6 +101,29 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     expect(captureProjectReadInputs(projectRoot)).toEqual(before);
   });
 
+  it('read-only Recipe Map uses no initializing container and preserves its live DB family byte-for-byte', async () => {
+    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
+    process.env.ALEMBIC_HOME = sandboxHome;
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-recipe-map-project-'));
+    const dataDir = path.join(projectRoot, '.asd');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'config.json'), '{}\n');
+    fs.writeFileSync(path.join(dataDir, 'alembic.db'), '');
+    fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-recipe-map"}\n');
+    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const recipeMap = true;\n');
+    const before = captureProjectReadInputs(projectRoot);
+
+    const server = new HostMcpServer({ projectRoot });
+    const result = (await server.handleToolCall('alembic_recipe_map', {
+      focus: { kind: 'space' },
+    })) as { structuredContent?: { ok?: boolean } };
+
+    expect(result.structuredContent?.ok).toBe(true);
+    expect(captureProjectReadInputs(projectRoot)).toEqual(before);
+  });
+
   it('destructive class: alembic_bootstrap confines writes to the data root and registry', async () => {
     const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-probe-'));
