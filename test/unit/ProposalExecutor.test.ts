@@ -22,7 +22,8 @@ function makeProposal(overrides: Partial<ProposalRecord> = {}): ProposalRecord {
     description: 'test proposal',
     evidence: [],
     status: 'observing',
-    proposedAt: Date.now() - 72 * 60 * 60 * 1000,
+    // checkAndExecute evaluates mature proposals; deprecate carries a 7-day observation window.
+    proposedAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
     expiresAt: Date.now() - 1000, // expired
     resolvedAt: null,
     resolvedBy: null,
@@ -103,13 +104,13 @@ function createMockLifecycle() {
 
 function createMockContentPatcher() {
   return {
-    patch: vi.fn(async () => null),
+    applyProposal: vi.fn(async () => null),
   };
 }
 
 function createMockEdgeRepo() {
   return {
-    create: vi.fn(async () => {}),
+    upsertEdge: vi.fn(async () => {}),
     findBySource: vi.fn(async () => []),
     findByTarget: vi.fn(async () => []),
     delete: vi.fn(async () => {}),
@@ -379,6 +380,14 @@ describe('ProposalExecutor', () => {
       const result = await executor.checkAndExecute();
 
       expect(result.executed).toHaveLength(1);
+      expect(edgeRepo.upsertEdge).toHaveBeenCalledWith({
+        fromId: 'r-new',
+        fromType: 'recipe',
+        toId: 'r-001',
+        toType: 'recipe',
+        relation: 'deprecated_by',
+        weight: 1,
+      });
     });
   });
 
@@ -454,7 +463,7 @@ describe('ProposalExecutor', () => {
 
       const result = await executor.checkAndExecute();
 
-      expect(result.executed.length).toBeGreaterThanOrEqual(2);
+      expect(result.executed).toHaveLength(3);
     });
   });
 

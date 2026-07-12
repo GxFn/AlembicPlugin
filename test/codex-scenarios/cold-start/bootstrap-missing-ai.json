@@ -61,7 +61,7 @@
     "sideEffects": {
       "initMarkerWritten": false,
       "jobCreated": false,
-      "savedProjectRootWritten": true,
+      "savedProjectRootWritten": false,
       "secretWritten": false
     },
     "assistant": {

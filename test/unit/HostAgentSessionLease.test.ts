@@ -270,7 +270,7 @@ describe('releaseEmptyHostAgentSessionLease', () => {
       cells: [
         coverageCell({
           grade: 'thin',
-          moduleId: 'target:App:src',
+          moduleId: 'target:src:src',
           dimensionId: 'architecture',
           coveredCount: 0,
           totalCandidateCount: 1,
@@ -482,7 +482,7 @@ describe('releaseEmptyHostAgentSessionLease', () => {
       cells: [
         coverageCell({
           grade: 'thin',
-          moduleId: 'target:App:src',
+          moduleId: 'target:src:src',
           dimensionId: 'architecture',
           coveredCount: 0,
           totalCandidateCount: 1,
@@ -567,7 +567,7 @@ describe('releaseEmptyHostAgentSessionLease', () => {
       cells: [
         coverageCell({
           grade: 'thin',
-          moduleId: 'target:App:src',
+          moduleId: 'target:src:src',
           dimensionId: 'architecture',
           coveredCount: 0,
           totalCandidateCount: 1,
