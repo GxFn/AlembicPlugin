@@ -77,12 +77,12 @@ export async function executeReadOnlySearch(
   }
 }
 
-interface ReadOnlySearchContainerHandle {
+export interface ReadOnlySearchContainerHandle {
   container: McpServiceContainer;
   dispose(): void;
 }
 
-async function createReadOnlySearchContainer(
+export async function createReadOnlySearchContainer(
   db: ReadOnlyDatabase,
   snapshot: ReadOnlySearchSnapshot,
   identity: { dataRoot: string; projectRoot: string }
