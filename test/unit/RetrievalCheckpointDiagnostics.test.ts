@@ -233,6 +233,12 @@ describe('retrieval checkpoint diagnostics', () => {
         expect.objectContaining({ layer: 'not-available-or-degraded', itemCount: 2 }),
       ])
     );
+    const verificationLayer = trustLayers.find(
+      (layer) => layer.layer === 'requires-verification'
+    );
+    expect(asArray(verificationLayer?.items).map((item) => asRecord(item).id)).toEqual(
+      expect.arrayContaining(['recipe-checkpoint', 'rule-checkpoint'])
+    );
 
     const recipeMapOutput = (await recipeMap(
       recipeMapContext(projectRoot, gitDiffCheckpointRepository),
