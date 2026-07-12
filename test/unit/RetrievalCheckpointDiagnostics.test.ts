@@ -229,7 +229,7 @@ describe('retrieval checkpoint diagnostics', () => {
       expect.arrayContaining([
         expect.objectContaining({ layer: 'trusted-to-obey', itemCount: 0 }),
         expect.objectContaining({ layer: 'trusted-to-use', itemCount: 0 }),
-        expect.objectContaining({ layer: 'requires-verification', itemCount: 2 }),
+        expect.objectContaining({ layer: 'requires-verification', itemCount: 3 }),
         expect.objectContaining({ layer: 'not-available-or-degraded', itemCount: 2 }),
       ])
     );

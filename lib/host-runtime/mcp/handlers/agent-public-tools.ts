@@ -332,15 +332,20 @@ function buildPrimeRefs(input: PrimeHandlerSharedInput) {
 }
 
 async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
+  const checkpointInput = resolveRetrievalCheckpointPostureInput(input.effectiveProjectRoot);
+  const runtimeIdentity = input.ctx.projectRuntime?.identity;
+  const checkpointPosture = buildRetrievalCheckpointPosture(input.ctx.container, {
+    ...checkpointInput,
+    currentFolderId: runtimeIdentity?.currentFolderId ?? checkpointInput.currentFolderId,
+    projectId: runtimeIdentity?.projectId ?? checkpointInput.projectId,
+    projectScopeId: runtimeIdentity?.projectScopeId ?? checkpointInput.projectScopeId,
+  });
   const material = buildPrimeMaterialProjection(
     input.intake,
     input.primeSearch,
     buildStandalonePrimeRequirementFrame(input.args),
-    input.args
-  );
-  const checkpointPosture = buildRetrievalCheckpointPosture(
-    input.ctx.container,
-    resolveRetrievalCheckpointPostureInput(input.effectiveProjectRoot)
+    input.args,
+    checkpointPosture.retrievalMayBeStale
   );
   const baseSearchDegraded =
     input.primeSearch.searchDegraded || material.primeKnowledgeMaterial.status === 'degraded';
@@ -506,7 +511,8 @@ function buildPrimeMaterialProjection(
   intake: ReturnType<typeof buildAgentToolContext>,
   primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>,
   frame: StandalonePrimeRequirementFrame,
-  args: AgentPrimeArgs
+  args: AgentPrimeArgs,
+  revisionTrustDegraded = false
 ): PrimeMaterialProjection {
   return {
     primeKnowledgeMaterial: buildPrimeKnowledgeMaterial({
@@ -521,7 +527,7 @@ function buildPrimeMaterialProjection(
         keywords: frame.keywords,
         labels: frame.labels,
       },
-      searchDegraded: primeSearch.searchDegraded,
+      searchDegraded: primeSearch.searchDegraded || revisionTrustDegraded,
       searchResult: primeSearch.searchResult,
       sourceRefs: intake.sourceRefs,
       taskAnchorDecision: intake.lifecycle.taskAnchorDecision,
@@ -1984,7 +1990,10 @@ function resolvePrimeStatus(input: {
     };
   }
   if (input.retrievalCheckpoint.retrievalMayBeStale) {
-    const firstDiagnostic = input.retrievalCheckpoint.diagnostics[0];
+    const firstDiagnostic =
+      input.retrievalCheckpoint.diagnostics.find(
+        (diagnostic) => diagnostic.code === 'retrieval-catch-up-needed'
+      ) ?? input.retrievalCheckpoint.diagnostics[0];
     return {
       reason: {
         kind: 'degraded',

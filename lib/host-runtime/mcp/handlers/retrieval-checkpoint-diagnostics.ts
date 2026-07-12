@@ -205,7 +205,8 @@ export function buildRetrievalCheckpointPosture(
   const diagnostics: RetrievalCheckpointDiagnostic[] = [];
   let retrievalMayBeStale = false;
   const scalarMultiRepoCheckpoint =
-    (input.projectScopeFolderCount ?? 0) > 1 && !sourceRevisionManifest;
+    (input.projectScopeFolderCount ?? 0) > 1 &&
+    (input.projectScopeFolders?.length ?? 0) === 0;
 
   if (sourceRevisionManifest && sourceRevisionManifest.alignment !== 'current') {
     retrievalMayBeStale = true;
@@ -335,16 +336,24 @@ function emptyPosture(
 function buildSourceRevisionManifest(
   repository: CheckpointRepository,
   input: {
+    currentFolderId?: string | null;
     projectRoot: string;
     projectScopeFolders?: SourceRevisionFolder[];
     projectId?: string | null;
     projectScopeId?: string | null;
+    scanRoot?: string | null;
   }
 ): SourceRevisionManifest | null {
-  const folders = input.projectScopeFolders ?? [];
-  if (folders.length === 0) {
-    return null;
-  }
+  const folders =
+    input.projectScopeFolders && input.projectScopeFolders.length > 0
+      ? input.projectScopeFolders
+      : [
+          {
+            folderId: input.currentFolderId ?? 'root',
+            path: input.scanRoot ?? input.projectRoot,
+            repositoryId: input.projectId ?? input.currentFolderId ?? 'root',
+          },
+        ];
   const rows = folders.map((folder) => {
     let checkpoint: Record<string, unknown> | null = null;
     try {
@@ -389,9 +398,9 @@ function buildSourceRevisionManifest(
         ? 'unknown'
         : 'stale',
     completeness: complete ? 'complete' : 'incomplete',
-    identityAlignment: 'unknown',
+    identityAlignment: 'current',
     projectId: input.projectId ?? null,
-    projectScopeId: input.projectScopeId ?? null,
+    projectScopeId: input.projectScopeId ?? 'single-folder',
     rows,
   };
 }

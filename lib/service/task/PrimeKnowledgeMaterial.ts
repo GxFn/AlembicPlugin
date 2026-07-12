@@ -278,7 +278,7 @@ export function buildPrimeKnowledgeMaterial(
   const acceptedKnowledge = effectiveDegraded ? [] : trustedKnowledge;
   const weakMatches = effectiveDegraded ? [] : weakKnowledgeMatches;
   const acceptedGuards = effectiveDegraded ? [] : trustedGuardRules;
-  const verificationGuards = effectiveDegraded ? [] : verificationGuardRules;
+  const verificationGuards = effectiveDegraded ? projectedGuardRules : verificationGuardRules;
   const hasDeliveredKnowledge = acceptedKnowledge.length > 0 || acceptedGuards.length > 0;
   const status: PrimeKnowledgeMaterialStatus = effectiveDegraded
     ? 'degraded'
@@ -486,12 +486,7 @@ function buildTrustedToUse(
     id: `knowledge:${item.id}`,
     title: item.trigger || item.title,
     source: 'accepted-knowledge',
-    // D5:drifted item 在 trusted-to-use 层保留(漂移≠错误),但 reason 提醒重核锚点
-    // ——引用 file:line 前先读现文件,不照抄可能已移动的行号。
-    reason:
-      item.sourceRefStatus === 'drifted'
-        ? `Use this Recipe or pattern as project knowledge; accepted through ${item.trustEvidence.summary}. Source anchors drifted since mining — re-verify file:line before quoting.`
-        : `Use this Recipe or pattern as project knowledge; accepted through ${item.trustEvidence.summary}.`,
+    reason: `Use this Recipe or pattern as project knowledge; accepted through ${item.trustEvidence.summary}.`,
     evidenceRefs: item.evidenceRefs,
   }));
   return trustedToUse;
@@ -517,9 +512,27 @@ function buildRequiresVerificationItems(
     ...acceptedMaterialVerificationItems(input),
     ...weakMatchVerificationItems(input),
     ...weakGuardVerificationItems(input),
+    ...untrustedSourceKnowledgeVerificationItems(input),
     ...primePackageVerificationItems(input, packageNeedsVerification),
     ...degradedSearchCandidateItems(input),
   ];
+}
+
+function untrustedSourceKnowledgeVerificationItems(
+  input: PrimeTrustPostureInput
+): PrimeTrustPostureItem[] {
+  return (input.searchResult?.relatedKnowledge ?? [])
+    .filter((item) => isUntrustedSourceStatus(item.sourceRefStatus))
+    .slice(0, 5)
+    .map((item) => ({
+      id: `source-status-candidate:${item.id}`,
+      title: item.trigger || item.title,
+      source: 'accepted-knowledge',
+      reason:
+        'Recipe source evidence is not active and current, so keep this as a verification candidate instead of trusted project knowledge.',
+      status: item.sourceRefStatus,
+      evidenceRefs: extractEvidenceRefs(item.sourceRefs, item.driftedSourceRefs),
+    }));
 }
 
 function weakGuardVerificationItems(input: PrimeTrustPostureInput): PrimeTrustPostureItem[] {
@@ -1070,7 +1083,11 @@ function hasTrustedRecipeEvidence(
   item: SlimSearchResult,
   selectedKnowledge: Record<string, unknown> | undefined
 ): boolean {
-  return Boolean(resolveAcceptedKnowledgeTrustEvidence(item, selectedKnowledge));
+  return (
+    !isUntrustedSourceStatus(item.sourceRefStatus) &&
+    !isUntrustedSourceStatus(recordString(selectedKnowledge ?? {}, 'sourceRefStatus')) &&
+    Boolean(resolveAcceptedKnowledgeTrustEvidence(item, selectedKnowledge))
+  );
 }
 
 function hasSelectedKnowledgeTrustEvidence(item: Record<string, unknown>): boolean {
@@ -1275,7 +1292,14 @@ function hasTrustedGuardEvidence(guard: AcceptedPrimeGuard): boolean {
   return (
     guard.score >= PRIME_TRUSTED_SCORE_FLOOR &&
     guard.evidenceRefs.length > 0 &&
-    guard.sourceRefStatus !== 'drifted'
+    !isUntrustedSourceStatus(guard.sourceRefStatus)
+  );
+}
+
+function isUntrustedSourceStatus(status: unknown): boolean {
+  return (
+    typeof status === 'string' &&
+    ['drifted', 'stale', 'unresolved', 'unhydrated', 'unknown'].includes(status.toLowerCase())
   );
 }
 
