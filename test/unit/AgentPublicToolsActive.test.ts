@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import {
   codeGuardHandler,
@@ -2176,6 +2178,59 @@ describe('agent-facing active public tools', () => {
       coverage: { outOfRoot: 1, requested: 1 },
       verdict: 'blocked',
     });
+  });
+
+  test('blocks a project-local symlink whose physical source is out of root', async () => {
+    const sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-source-symlink-'));
+    const projectRoot = path.join(sandboxRoot, 'project');
+    const outsideFile = path.join(sandboxRoot, 'outside.ts');
+    fs.mkdirSync(projectRoot);
+    fs.writeFileSync(outsideFile, 'export const outsideSecret = true;\n');
+    fs.symlinkSync(outsideFile, path.join(projectRoot, 'link.ts'));
+    const auditFiles = vi.fn();
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile: vi.fn(),
+        auditFiles,
+        checkCode: vi.fn(),
+        getRules: vi.fn(() => []),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+    ctx.container.singletons = { _projectRoot: projectRoot };
+
+    try {
+      const result = publicToolLegacyTestView(
+        await codeGuardHandler(ctx, {
+          files: ['link.ts'],
+          inputSource: 'host-declared-intent',
+          operation: 'review',
+        })
+      ) as {
+        data: {
+          guard: {
+            coverage: { checked: number; outOfRoot: number; requested: number };
+            verdict: string;
+          };
+          result: { reason: { code: string }; status: string };
+        };
+        success: boolean;
+      };
+
+      expect(result.success).toBe(false);
+      expect(result.data.result).toMatchObject({
+        reason: { code: 'guard-scope-invalid' },
+        status: 'blocked',
+      });
+      expect(result.data.guard).toMatchObject({
+        coverage: { checked: 0, outOfRoot: 1, requested: 1 },
+        verdict: 'blocked',
+      });
+      expect(auditFiles).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(sandboxRoot, { force: true, recursive: true });
+    }
   });
 
   test('blocks code guard when workRef scope is missing from the active session', async () => {

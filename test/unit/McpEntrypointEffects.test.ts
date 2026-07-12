@@ -221,6 +221,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-guard-effect"}\n');
     fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'console.log("guard effect");\n');
     const configBefore = fs.readFileSync(configPath, 'utf8');
+    const familyBefore = captureProjectReadInputs(projectRoot);
 
     const server = new HostMcpServer({ projectRoot });
     const result = (await server.handleToolCall('alembic_code_guard', {
@@ -237,6 +238,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     const feedback = readDb
       .prepare('SELECT stats FROM knowledge_entries WHERE id = ?')
       .get('fixture-console-log') as { stats: string };
+    const journalMode = readDb.pragma('journal_mode', { simple: true });
     readDb.close();
     expect(result.status).toBe('ready');
     expect(result.guard?.verdict).toBe('failed');
@@ -246,6 +248,72 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     );
     expect(JSON.parse(feedback.stats)).toMatchObject({ guardHits: 1 });
     expect(fs.readFileSync(configPath, 'utf8')).toBe(configBefore);
+    expect(journalMode).toBe('delete');
+    const familyAfter = captureProjectReadInputs(projectRoot);
+    expect(familyAfter['alembic.db-wal']?.exists).toBe(familyBefore['alembic.db-wal']?.exists);
+    expect(familyAfter['alembic.db-shm']?.exists).toBe(familyBefore['alembic.db-shm']?.exists);
+  });
+
+  it('Code Guard rejects a database symlink that would route effects outside dataRoot', async () => {
+    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
+    process.env.ALEMBIC_HOME = sandboxHome;
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-guard-db-link-project-'));
+    const dataDir = path.join(projectRoot, '.asd');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'config.json'), '{}\n');
+    fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-guard-db-link"}\n');
+    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'console.log("must not persist");\n');
+
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-guard-db-outside-'));
+    const outsideDataDir = path.join(outsideRoot, '.asd');
+    fs.mkdirSync(outsideDataDir, { recursive: true });
+    const outsideDatabasePath = path.join(outsideDataDir, 'alembic.db');
+    await createMigratedDatabase(outsideDatabasePath, outsideRoot);
+    const seedDb = new Database(outsideDatabasePath, { fileMustExist: true });
+    const now = Math.floor(Date.now() / 1000);
+    seedDb
+      .prepare(
+        `INSERT INTO knowledge_entries
+           (id, title, description, lifecycle, language, kind, constraints, stats, createdAt, updatedAt)
+         VALUES (?, ?, ?, 'active', 'typescript', 'rule', ?, '{}', ?, ?)`
+      )
+      .run(
+        'fixture-db-link-console-log',
+        'Fixture DB link rule',
+        'Must not persist outside dataRoot',
+        JSON.stringify({
+          guards: [
+            {
+              id: 'fixture-db-link-console-log',
+              message: 'Fixture DB link violation',
+              pattern: 'console\\.log',
+              severity: 'error',
+            },
+          ],
+        }),
+        now,
+        now
+      );
+    seedDb.close();
+    fs.symlinkSync(outsideDatabasePath, path.join(dataDir, 'alembic.db'));
+
+    const server = new HostMcpServer({ projectRoot });
+    const result = (await server.handleToolCall('alembic_code_guard', {
+      files: ['index.ts'],
+      inputSource: 'host-declared-intent',
+      operation: 'review',
+      projectRoot,
+    })) as { status?: string };
+
+    const verifyDb = new Database(outsideDatabasePath, { fileMustExist: true, readonly: true });
+    const persisted = verifyDb
+      .prepare('SELECT count(*) AS count FROM guard_violations')
+      .get() as { count: number };
+    verifyDb.close();
+    expect(result.status).toBe('failed');
+    expect(persisted.count).toBe(0);
   });
 
   it('destructive class: alembic_bootstrap confines writes to the data root and registry', async () => {
