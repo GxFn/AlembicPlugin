@@ -12,6 +12,7 @@ import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { isCleanMcpResponse } from '../output-contract.js';
 import { TOOLS } from '../tools.js';
 import { safeProjectRootFallback } from './project-root.js';
+import { executeReadOnlyCodeGuard } from './read-only-code-guard-executor.js';
 import { executeReadOnlyGraph } from './read-only-graph-executor.js';
 import { executeReadOnlyPrime } from './read-only-prime-executor.js';
 import { executeReadOnlyRecipeMap } from './read-only-recipe-map-executor.js';
@@ -102,6 +103,14 @@ export class EmbeddedToolExecutor {
       }
       if (name === 'alembic_recipe_map') {
         const result = await executeReadOnlyRecipeMap(args, executionContext);
+        return attachExecutionContext(
+          attachServiceBoundary(result, serviceBoundary),
+          executionContext,
+          this.#hostProjectRoot
+        );
+      }
+      if (name === 'alembic_code_guard') {
+        const result = await executeReadOnlyCodeGuard(args, executionContext);
         return attachExecutionContext(
           attachServiceBoundary(result, serviceBoundary),
           executionContext,

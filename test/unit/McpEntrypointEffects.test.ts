@@ -12,8 +12,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import migrate001 from '@alembic/core/infrastructure/database/migrations/001_initial_schema';
-import migrate011 from '@alembic/core/infrastructure/database/migrations/011_guard_violations_attribution';
+import { openAlembicDatabase } from '@alembic/core/database';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getProjectRuntimeControlStatePath } from '#host-runtime/context/HostProjectAlignment.js';
@@ -164,10 +163,7 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
     fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
     fs.writeFileSync(path.join(dataDir, 'config.json'), '{}\n');
-    const db = new Database(path.join(dataDir, 'alembic.db'));
-    migrate001(db);
-    migrate011(db);
-    db.close();
+    await createMigratedDatabase(path.join(dataDir, 'alembic.db'), projectRoot);
     fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-guard"}\n');
     fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const guarded = true;\n');
     const before = captureProjectReadInputs(projectRoot);
@@ -182,6 +178,74 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
 
     expect(result.status).toBe('ready');
     expect(captureProjectReadInputs(projectRoot)).toEqual(before);
+  });
+
+  it('Code Guard commits a real violation only through its declared post-result effect', async () => {
+    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
+    process.env.ALEMBIC_HOME = sandboxHome;
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-guard-effect-project-'));
+    const dataDir = path.join(projectRoot, '.asd');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+    const configPath = path.join(dataDir, 'config.json');
+    fs.writeFileSync(configPath, '{}\n');
+    const databasePath = path.join(dataDir, 'alembic.db');
+    await createMigratedDatabase(databasePath, projectRoot);
+    const seedDb = new Database(databasePath, { fileMustExist: true });
+    const now = Math.floor(Date.now() / 1000);
+    seedDb
+      .prepare(
+        `INSERT INTO knowledge_entries
+           (id, title, description, lifecycle, language, kind, constraints, stats, createdAt, updatedAt)
+         VALUES (?, ?, ?, 'active', 'typescript', 'rule', ?, '{}', ?, ?)`
+      )
+      .run(
+        'fixture-console-log',
+        'Fixture console rule',
+        'Records explicit Guard feedback',
+        JSON.stringify({
+          guards: [
+            {
+              id: 'fixture-console-log',
+              message: 'Fixture console violation',
+              pattern: 'console\\.log',
+              severity: 'error',
+            },
+          ],
+        }),
+        now,
+        now
+      );
+    seedDb.close();
+    fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-guard-effect"}\n');
+    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'console.log("guard effect");\n');
+    const configBefore = fs.readFileSync(configPath, 'utf8');
+
+    const server = new HostMcpServer({ projectRoot });
+    const result = (await server.handleToolCall('alembic_code_guard', {
+      files: ['index.ts'],
+      inputSource: 'host-declared-intent',
+      operation: 'review',
+      projectRoot,
+    })) as { guard?: { verdict?: string }; status?: string };
+
+    const readDb = new Database(databasePath, { fileMustExist: true, readonly: true });
+    const persisted = readDb
+      .prepare('SELECT violations_json FROM guard_violations ORDER BY created_at DESC')
+      .all() as Array<{ violations_json: string }>;
+    const feedback = readDb
+      .prepare('SELECT stats FROM knowledge_entries WHERE id = ?')
+      .get('fixture-console-log') as { stats: string };
+    readDb.close();
+    expect(result.status).toBe('ready');
+    expect(result.guard?.verdict).toBe('failed');
+    expect(persisted).toHaveLength(1);
+    expect(JSON.parse(persisted[0]?.violations_json ?? '[]')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ ruleId: 'js-no-console-log' })])
+    );
+    expect(JSON.parse(feedback.stats)).toMatchObject({ guardHits: 1 });
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(configBefore);
   });
 
   it('destructive class: alembic_bootstrap confines writes to the data root and registry', async () => {
@@ -212,6 +276,17 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     expect(fs.existsSync(getProjectRuntimeControlStatePath())).toBe(false);
   });
 });
+
+async function createMigratedDatabase(databasePath: string, dataRoot: string): Promise<void> {
+  const runtime = await openAlembicDatabase(
+    { path: databasePath },
+    { workspaceResolver: { dataRoot } as never }
+  );
+  runtime.close();
+  const db = new Database(databasePath, { fileMustExist: true });
+  db.pragma('journal_mode = DELETE');
+  db.close();
+}
 
 function captureProjectReadInputs(
   projectRoot: string

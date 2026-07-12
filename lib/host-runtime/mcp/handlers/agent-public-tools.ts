@@ -769,9 +769,7 @@ function resolveCodeGuardScope(
 ): CodeGuardScopeResolution {
   const hasCode = typeof args.code === 'string' && args.code.trim().length > 0;
   const effectiveProjectRoot = resolveEffectiveProjectRoot(ctx, args);
-  const explicitFiles = normalizeTaskLifecycleFileRefs(args.files ?? [], {
-    projectRoot: effectiveProjectRoot,
-  });
+  const explicitFiles = normalizeCodeGuardFileRefs(args.files ?? [], effectiveProjectRoot);
   const workRecord = typeof args.workRef === 'string' ? WORK_RECORDS.get(args.workRef) : undefined;
   const workRefFiles =
     !hasCode && explicitFiles.length === 0 && workRecord
@@ -785,6 +783,28 @@ function resolveCodeGuardScope(
     workRecord,
     workRefFiles,
   };
+}
+
+function normalizeCodeGuardFileRefs(files: string[], projectRoot: string): string[] {
+  const normalized = files
+    .map((raw) => {
+      const lifecycleRef = normalizeTaskLifecycleFileRefs([raw], { projectRoot })[0];
+      if (lifecycleRef) {
+        return lifecycleRef;
+      }
+      const explicitPath = raw
+        .trim()
+        .replace(/^file:\/\//, '')
+        .replace(/:(?:L|line-?|#L)?\d+(?:[:,-]\d+)?$/i, '');
+      return explicitPath &&
+        !explicitPath.includes('\0') &&
+        !explicitPath.startsWith('knowledge:') &&
+        !explicitPath.startsWith('host:')
+        ? explicitPath
+        : null;
+    })
+    .filter((file): file is string => Boolean(file));
+  return [...new Set(normalized)];
 }
 
 function buildCodeGuardPreflightOutput(input: {
