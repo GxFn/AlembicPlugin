@@ -206,7 +206,9 @@ describe('Codex plugin local-dev reload script', () => {
       'It never inspects, stops, or restarts the current Codex host MCP process.'
     );
     expect(output).toContain('validates');
-    expect(output).toContain('projectRuntime identity');
+    expect(normalizedOutput).toContain(
+      'the explicit request root plus its projectId/dataRoot/databasePath.'
+    );
     expect(watchOutput).toContain('It never restarts the current Codex MCP transport.');
   });
 

@@ -12,12 +12,17 @@ import { SetupService } from '../../cli/SetupService.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
 import type { GenerateInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
 import {
+  buildProjectRootRequiredActions,
+  buildProjectRootRequiredMessage,
   buildProjectRuntimeContext,
   CODEX_SETUP_PROFILE,
   type HostAdapter,
+  isTrustedProjectRoot,
   type ProjectRootResolution,
   projectLocationService,
   resolveHostAdapter,
+  resolveProjectRootFromEnv,
+  summarizeProjectRootResolution,
 } from '../index.js';
 import { PluginJobStore } from '../jobs/PluginJobStore.js';
 import { type EventLoopWatchdogHandle, startEventLoopWatchdog } from './EventLoopWatchdog.js';
@@ -156,9 +161,14 @@ export class HostMcpServer {
   readonly #hostAdapter: HostAdapter = resolveHostAdapter();
 
   constructor(options: HostMcpServerOptions = {}) {
-    const location = projectLocationService.resolve(options.projectRoot);
-    this.projectRootResolution = location.rootResolution;
-    this.projectRoot = location.projectRoot;
+    const rootResolution = resolveProjectRootFromEnv({ projectRoot: options.projectRoot });
+    this.projectRootResolution = rootResolution;
+    // MCP transport 与静态 catalog 不拥有项目身份。启动环境只有插件 cache/package cwd
+    // 时保留拒绝诊断但不解析 location，实际 root 延迟到每次工具请求再确定。
+    this.projectRoot =
+      rootResolution.path && isTrustedProjectRoot(rootResolution)
+        ? projectLocationService.resolve(rootResolution.path).projectRoot
+        : '';
     this.waitUntilReadyMs = options.waitUntilReadyMs ?? 3000;
     this.sessionId = `codex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -264,6 +274,19 @@ export class HostMcpServer {
       });
       const { projectRoot: _projectRoot, ...scopedArgs } = args;
       return scopedServer.handleToolCallInCurrentProject(name, scopedArgs, options);
+    }
+    if (!this.projectRoot) {
+      const message = buildProjectRootRequiredMessage(this.projectRootResolution);
+      return createCleanMcpErrorResponse({
+        code: 'PROJECT_ROOT_REQUIRED',
+        details: {
+          projectRootResolution: summarizeProjectRootResolution(this.projectRootResolution),
+          requiredActions: buildProjectRootRequiredActions(),
+        },
+        message,
+        status: 'project-root-required',
+        toolName: name,
+      });
     }
     const { projectRoot: _projectRoot, ...localArgs } = args;
     return this.handleToolCallInCurrentProject(name, localArgs, options);

@@ -184,8 +184,8 @@ function buildReadbackProofSummary() {
     proves: [
       'fresh installed-cache MCP startup',
       'loaded artifact build manifest and public entry hash readback',
-      'projectRuntime.identity projectRoot/dataRoot/runtimeDir/databasePath',
-      'projectRuntime.location matches the request-scoped identity and storage paths',
+      'alembic_status project projectRoot/projectId/dataRoot/databasePath',
+      'explicit request root remains independent from installed-cache cwd',
     ],
     probeReportPath: options.probeReportPath,
     requiresFreshProcess: true,
@@ -283,7 +283,7 @@ Behavior:
   Builds the local Codex MCP runtime, verifies the marketplace shell, rewrites installed
   plugin cache roots to local dist/bin/host-mcp.js and starts a fresh MCP probe
   against the rewritten cache. The probe calls alembic_status and validates
-  projectRuntime identity and request-scoped location. It never inspects, stops,
+  the explicit request root plus its projectId/dataRoot/databasePath. It never inspects, stops,
   or restarts the current Codex host
   MCP process. Restart Codex itself if the current transport is closed.
 

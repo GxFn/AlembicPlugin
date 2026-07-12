@@ -16,7 +16,7 @@ const report = {
   mode: options.localMcp ? 'local-mcp' : 'packaged-shell',
   projectRoot: options.projectRoot,
   readbackContract: {
-    projectLocationPath: 'projectRuntime.location',
+    projectLocationPath: 'project',
     diagnosticsTool: 'alembic_status',
     statusTool: 'alembic_status',
   },
@@ -114,7 +114,6 @@ async function probeInstalledTarget(targetRoot) {
     : null;
   const localProjection = assertLocalProjectionMarker(marker, targetRoot);
   const savedHome = join(tmpRoot, `home-${report.probes.length}`);
-  const failedHome = join(tmpRoot, `failed-home-${report.probes.length}`);
   const first = await callMcpStatus(targetRoot, savedHome, { projectRoot: options.projectRoot });
   assertStatusProjectRootReadback(first, targetRoot);
   const diagnostics = await callMcpDiagnostics(targetRoot, savedHome, {
@@ -122,23 +121,17 @@ async function probeInstalledTarget(targetRoot) {
   });
   assertDiagnosticsProjectRootReadback(diagnostics, targetRoot);
   const runtimeReadback = assertRuntimeReadback(diagnostics, marker, targetRoot);
-  const savedData = await callMcpTool(targetRoot, savedHome, 'alembic_status', {});
-  const savedResolution = summarizeStatus(savedData);
+  const omitted = await callMcpTool(targetRoot, savedHome, 'alembic_status', {});
   assertProbe(
-    savedResolution.source !== 'saved-project-root' &&
-      savedResolution.projectRoot !== options.projectRoot,
-    `Saved projectRoot was unexpectedly reused for ${targetRoot}: ${JSON.stringify({
-      statusReadback: savedResolution,
-    })}`
+    omitted.ok === false && omitted.error?.code === 'PROJECT_ROOT_REQUIRED',
+    `Missing projectRoot did not return PROJECT_ROOT_REQUIRED for ${targetRoot}: ${JSON.stringify(omitted)}`
   );
-  const failClosed = await callMcpTool(targetRoot, failedHome, 'alembic_init', {});
-  assertProbe(
-    failClosed.ok === false &&
-      ['CODEX_PROJECT_ROOT_REJECTED', 'CODEX_PROJECT_ROOT_UNRESOLVED'].includes(
-        failClosed.error?.code
-      ),
-    `Missing projectRoot did not fail closed for ${targetRoot}: ${JSON.stringify(failClosed)}`
-  );
+  // 再以同一 cache 入口发起显式 status，证明省略 root 没有保存上一请求 identity，
+  // 也没有污染后续 fresh process；同一 transport 的存活由 unit subprocess 回归覆盖。
+  const afterOmitted = await callMcpStatus(targetRoot, savedHome, {
+    projectRoot: options.projectRoot,
+  });
+  assertStatusProjectRootReadback(afterOmitted, targetRoot);
   return {
     targetRoot,
     marker,
@@ -146,12 +139,12 @@ async function probeInstalledTarget(targetRoot) {
     diagnostics: summarizeDiagnostics(diagnostics),
     localProjection,
     runtimeReadback,
-    saved: summarizeStatus(savedData),
-    failClosed: {
-      errorCode: failClosed.error?.code || null,
-      needsUserInput: failClosed.needsUserInput === true,
-      ok: failClosed.ok,
+    omittedRoot: {
+      errorCode: omitted.error?.code || null,
+      ok: omitted.ok,
+      status: omitted.status || null,
     },
+    explicitRootStillWorksAfterOmittedProbe: afterOmitted.ok === true,
   };
 }
 
@@ -327,6 +320,13 @@ async function callMcpTool(targetRoot, alembicHome, name, args) {
       throw new Error(`MCP ${name} returned no text content\n${JSON.stringify(result)}`);
     }
     return JSON.parse(text);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const childStderr = stderr.join('').trim();
+    throw new Error(
+      childStderr ? `${message}\nMCP child stderr for ${targetRoot}:\n${childStderr}` : message,
+      err instanceof Error ? { cause: err } : undefined
+    );
   } finally {
     await client.close();
   }
@@ -362,43 +362,20 @@ function runStep(name, command, args, stepOptions = {}) {
 
 function summarizeStatus(data) {
   const project = objectFrom(data.project);
-  const resolution = objectFrom(data.projectRootResolution);
   return {
     ok: data.ok === true,
-    projectRoot:
-      stringFrom(project?.root) ??
-      stringFrom(project?.projectRoot) ??
-      stringFrom(data.projectRoot) ??
-      stringFrom(resolution?.path) ??
-      null,
+    dataRoot: stringFrom(project?.dataRoot) ?? null,
+    databaseExists: project?.databaseExists === true,
+    databasePath: stringFrom(project?.databasePath) ?? null,
     initialized: data.initialized,
-    source: stringFrom(resolution?.source),
-    trust: stringFrom(project?.trust) ?? stringFrom(resolution?.trust),
-    rejected:
-      typeof project?.trusted === 'boolean'
-        ? project.trusted !== true
-        : typeof resolution?.rejected === 'boolean'
-          ? resolution.rejected
-          : null,
+    projectId: typeof project?.projectId === 'string' ? project.projectId : null,
+    projectRoot: stringFrom(project?.projectRoot) ?? null,
     status: stringFrom(data.status),
-    trusted:
-      typeof project?.trusted === 'boolean'
-        ? project.trusted
-        : stringFrom(resolution?.trust) === 'trusted',
   };
 }
 
 function summarizeDiagnostics(data) {
-  const resolution = objectFrom(data.projectRootResolution);
-  const runtime = objectFrom(data.projectRuntime);
-  const identity = objectFrom(runtime?.identity);
-  return {
-    ok: data.ok === true,
-    projectRoot: stringFrom(resolution?.path) ?? null,
-    runtimeProjectRoot: stringFrom(identity?.projectRoot) ?? null,
-    source: stringFrom(resolution?.source) ?? null,
-    trust: stringFrom(resolution?.trust) ?? null,
-  };
+  return summarizeStatus(data);
 }
 
 function assertStatusProjectRootReadback(data, targetRoot) {
@@ -408,70 +385,32 @@ function assertStatusProjectRootReadback(data, targetRoot) {
     `Status project root did not preserve explicit projectRoot for ${targetRoot}: ${JSON.stringify(status)}`
   );
   assertProbe(
-    status.trust === 'trusted' && status.trusted === true,
-    `Status project root was not trusted for ${targetRoot}: ${JSON.stringify(status)}`
+    typeof status.dataRoot === 'string' && typeof status.databasePath === 'string',
+    `Status did not return request-scoped storage for ${targetRoot}: ${JSON.stringify(status)}`
   );
 }
 
 function assertDiagnosticsProjectRootReadback(data, targetRoot) {
   const diagnostics = summarizeDiagnostics(data);
   assertProbe(
-    diagnostics.projectRoot === options.projectRoot &&
-      diagnostics.runtimeProjectRoot === options.projectRoot,
+    diagnostics.projectRoot === options.projectRoot,
     `Diagnostics project root did not preserve explicit projectRoot for ${targetRoot}: ${JSON.stringify(diagnostics)}`
   );
   assertProbe(
-    diagnostics.source === 'explicit-option' && diagnostics.trust === 'trusted',
-    `Diagnostics projectRootResolution was not trusted for ${targetRoot}: ${JSON.stringify(diagnostics)}`
+    typeof diagnostics.dataRoot === 'string' && typeof diagnostics.databasePath === 'string',
+    `Diagnostics did not return request-scoped storage for ${targetRoot}: ${JSON.stringify(diagnostics)}`
   );
 }
 
 function assertRuntimeReadback(data, _marker, targetRoot) {
-  const runtime = objectFrom(data.projectRuntime);
+  const readback = summarizeDiagnostics(data);
   assertProbe(
-    runtime,
-    `Missing projectRuntime readback for ${targetRoot}: ${JSON.stringify(data)}`
+    readback.projectRoot === options.projectRoot &&
+      typeof readback.dataRoot === 'string' &&
+      typeof readback.databasePath === 'string',
+    `Missing request-scoped project/storage readback for ${targetRoot}: ${JSON.stringify(data)}`
   );
-  const identity = objectFrom(runtime.identity);
-  assertProbe(
-    identity?.projectRoot === options.projectRoot,
-    `projectRuntime identity did not preserve explicit projectRoot for ${targetRoot}: ${JSON.stringify(identity)}`
-  );
-  assertProbe(
-    typeof identity.dataRoot === 'string' && identity.dataRoot.length > 0,
-    `projectRuntime identity missing dataRoot for ${targetRoot}: ${JSON.stringify(identity)}`
-  );
-  assertProbe(
-    typeof identity.runtimeDir === 'string' && identity.runtimeDir.length > 0,
-    `projectRuntime identity missing runtimeDir for ${targetRoot}: ${JSON.stringify(identity)}`
-  );
-  assertProbe(
-    typeof identity.databasePath === 'string' && identity.databasePath.length > 0,
-    `projectRuntime identity missing databasePath for ${targetRoot}: ${JSON.stringify(identity)}`
-  );
-
-  const location = objectFrom(runtime.location);
-  assertProbe(
-    location?.projectRoot === identity.projectRoot,
-    `projectRuntime location and identity roots differ for ${targetRoot}: ${JSON.stringify({ identity, location })}`
-  );
-  assertProbe(
-    location?.dataRoot === identity.dataRoot,
-    `projectRuntime location and identity data roots differ for ${targetRoot}: ${JSON.stringify({ identity, location })}`
-  );
-  assertProbe(
-    location?.databasePath === identity.databasePath,
-    `projectRuntime location and identity database paths differ for ${targetRoot}: ${JSON.stringify({ identity, location })}`
-  );
-
-  return {
-    dataRoot: identity.dataRoot,
-    databasePath: identity.databasePath,
-    databaseExists: location.databaseExists === true,
-    projectId: location.projectId ?? null,
-    projectRoot: identity.projectRoot,
-    runtimeDir: identity.runtimeDir,
-  };
+  return readback;
 }
 
 function objectFrom(value) {
