@@ -140,7 +140,7 @@ describe('Host Agent ProjectContext direct switch', () => {
     expect(analysis.moduleSeeds).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          moduleName: 'Sources',
+          moduleName: 'Networking',
           modulePath: 'Sources',
           ownedFiles: expect.arrayContaining([
             'Sources/Infrastructure/Networking/Endpoint/Endpoint+Video.swift',
@@ -239,10 +239,14 @@ async function createBiliDiliLikeSwiftProject(): Promise<string> {
       'import PackageDescription',
       'let package = Package(',
       '  name: "BiliDiliFixture",',
-      '  products: [.library(name: "BiliDiliFixture", targets: ["AOXFoundationKit", "AOXNetworkKit"])],',
+      '  products: [.library(name: "BiliDiliFixture", targets: ["Networking", "Home"])],',
+      '  dependencies: [',
+      '    .package(path: "Packages/AOXFoundationKit"),',
+      '    .package(path: "Packages/AOXNetworkKit")',
+      '  ],',
       '  targets: [',
-      '    .target(name: "AOXFoundationKit", path: "Packages/AOXFoundationKit/Sources/AOXFoundationKit"),',
-      '    .target(name: "AOXNetworkKit", dependencies: ["AOXFoundationKit"], path: "Packages/AOXNetworkKit/Sources/AOXNetworkKit")',
+      '    .target(name: "Networking", dependencies: ["AOXFoundationKit", "AOXNetworkKit"], path: "Sources/Infrastructure/Networking"),',
+      '    .target(name: "Home", dependencies: ["Networking", "AOXFoundationKit"], path: "Sources/Features/Home")',
       '  ]',
       ')',
       '',
