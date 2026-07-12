@@ -46,6 +46,7 @@ export interface PluginGitDiffRouteReportSummary {
 export function createPluginGitDiffCheckpointRuntime(
   container: PluginGitDiffCheckpointContainer,
   input: {
+    baselineProjectRoot?: string | null;
     currentFolderId?: string | null;
     projectRoot: string;
     projectScopeId?: string | null;
@@ -56,10 +57,14 @@ export function createPluginGitDiffCheckpointRuntime(
     return null;
   }
 
+  const baselineProvider = createCurrentGitHeadBaselineProvider();
   const service = new GitDiffCheckpointService({
     checkpointRepository:
       checkpointRepository as unknown as GitDiffCheckpointRepositories['checkpointRepository'],
-    baselineProvider: createCurrentGitHeadBaselineProvider(),
+    baselineProvider: {
+      getBaselineCommit: () =>
+        baselineProvider.getBaselineCommit(input.baselineProjectRoot ?? input.projectRoot),
+    },
   });
   // scope 归一走 Core 单源(2026-07-11 下沉):与主体 reconcile 基线读取同键,
   // 本仓不再持有 buildPluginGitDiffCheckpointScope 双实现。
@@ -114,21 +119,25 @@ export function recordPluginGitDiffCheckpointRouteOutcome(input: {
   // 空间根修配套（2026-07-06）：checkpointCommit 残留自另一 git 仓（扫描根从
   // workspace 切到 folder 后 scanner 探明 previousHead 在本仓不存在）→ 显式基线
   // 重置推进到 folder HEAD，否则每轮 merge-base-unavailable 死循环、路由永不收口。
-  const resetBaseline = routeStatus === 'unresolved' && input.scan.previousHeadMissing === true;
+  const resetMissingBaseline =
+    routeStatus === 'unresolved' && input.scan.previousHeadMissing === true;
+  const completedSkip = isCompletedSkippedRange(input, routeStatus);
   // 基线重置即完成追赶：落库 catch-up-routed（ADVANCING 集成员）而非 unresolved 字面。
   // 否则 prime/search 新鲜度姿态把行上残留的 unresolved 判为 INCOMPLETE，检索持续
   // 降级到下一个真实 commit 覆盖该行才解除（2026-07-06 真机实测）。
-  const persistedRouteStatus = resetBaseline ? 'catch-up-routed' : routeStatus;
+  const persistedRouteStatus = resetMissingBaseline ? 'catch-up-routed' : routeStatus;
   const result = input.runtime.service.recordRouteOutcome({
     ...input.runtime.scope,
-    routeReason: resetBaseline
+    routeReason: resetMissingBaseline
       ? `Checkpoint baseline reset: previous commit ${input.scan.previousHead ?? '(unknown)'} does not exist in the folder repository; re-baselined at current HEAD.`
-      : buildRouteReason(routeStatus, input),
+      : completedSkip
+        ? buildCompletedSkipReason(input)
+        : buildRouteReason(routeStatus, input),
     routeStatus: persistedRouteStatus,
     scannedAt: Date.parse(input.scan.scannedAt),
     mergeBaseCommit: input.scan.mergeBase,
     targetCommit: input.scan.head,
-    ...(resetBaseline ? { resetBaseline } : {}),
+    ...(resetMissingBaseline || completedSkip ? { resetBaseline: true } : {}),
   });
   return {
     advanced: result.advanced,
@@ -141,6 +150,42 @@ export function recordPluginGitDiffCheckpointRouteOutcome(input: {
     scope: input.runtime.scope,
     ...(result.unresolvedRange ? { unresolvedRange: result.unresolvedRange } : {}),
   };
+}
+
+function isCompletedSkippedRange(
+  input: {
+    report: PluginGitDiffRouteReportSummary | null;
+    routeAttempted: boolean;
+    routeError: string | null;
+    scan: GitDiffScanResult;
+  },
+  routeStatus: GitDiffCheckpointRouteStatus
+): boolean {
+  if (
+    routeStatus !== 'skipped' ||
+    input.routeError ||
+    !input.scan.scanned ||
+    input.scan.truncated
+  ) {
+    return false;
+  }
+  if (input.scan.events.length === 0) {
+    return true;
+  }
+  return (
+    input.routeAttempted &&
+    input.report !== null &&
+    reportOnlySkipped(input.report, input.scan.events.length)
+  );
+}
+
+function buildCompletedSkipReason(input: {
+  report: PluginGitDiffRouteReportSummary | null;
+  scan: GitDiffScanResult;
+}): string {
+  return input.scan.events.length === 0
+    ? 'Git diff range completed with no dispatchable file events; checkpoint advanced to the inspected HEAD.'
+    : 'Unified evolution completed and classified every routed event as skipped; checkpoint advanced to the inspected HEAD.';
 }
 
 function resolveRouteStatus(input: {

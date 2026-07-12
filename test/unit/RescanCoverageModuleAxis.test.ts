@@ -42,7 +42,7 @@ describe('buildRescanCoverageModuleAxis', () => {
     );
 
     expect(result.source).toBe('rescan-snapshot');
-    expect(result.modules.map((module) => module.moduleId)).toEqual(['Sources', 'BiliDili']);
+    expect(result.modules.map((module) => module.moduleId)).toEqual(['Sources']);
   });
 
   test('uses ProjectContext target source facts instead of aggregate root modules', () => {
@@ -62,6 +62,19 @@ describe('buildRescanCoverageModuleAxis', () => {
     ]);
     expect(result.modules.map((module) => module.moduleId)).not.toContain('BiliDili');
     expect(result.modules.map((module) => module.moduleId).join('\n')).not.toContain('module:root');
+  });
+
+  test('excludes ProjectMap modules outside the confirmed moduleScope', () => {
+    const analysis = analysisWithProjectMapTargets();
+    const result = buildRescanCoverageModuleAxis(analysis, {
+      ...planGateWithAggregateBindings(),
+      moduleScope: ['Sources/Core/ServiceKit'],
+    });
+
+    expect(result.source).toBe('project-map');
+    expect(result.modules.map((module) => module.moduleId)).toEqual([
+      'target:ServiceKit:Sources/Core/ServiceKit',
+    ]);
   });
 });
 
@@ -207,15 +220,8 @@ function analysisWithAggregateMapAndSourceTargets(): HostAgentProjectContextAnal
 function planGateWithAggregateBindings(): PlanGenerationGateReady {
   return {
     generationStage: 'deepMining',
-    moduleScope: ['BiliDili'],
+    moduleScope: [],
     projectRoot: '/project/BiliDili',
-    moduleBindings: [
-      {
-        moduleId: 'BiliDili',
-        modulePath: 'BiliDili',
-        dimensions: ['architecture'],
-        targetRecipes: 1,
-      },
-    ],
+    moduleBindings: [],
   } as unknown as PlanGenerationGateReady;
 }

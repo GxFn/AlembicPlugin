@@ -47,9 +47,14 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
       requireMaintenanceIdentityPath(identity.databasePath, 'databasePath'),
       requireMaintenanceIdentityPath(identity.dataRoot, 'dataRoot')
     );
+    const projectScopeIdentity = input.executionContext.projectScopeIdentity;
+    const maintenanceProjectRoot =
+      projectScopeIdentity?.projectScopeId && projectScopeIdentity.controlRoot
+        ? projectScopeIdentity.controlRoot
+        : input.projectRoot;
     resources = createRequestScopedGuardMaintenanceResources({
       databasePath: physicalIdentity.databasePath,
-      projectRoot: input.projectRoot,
+      projectRoot: maintenanceProjectRoot,
     });
     const requestContainer = resources.container;
     // UM#2：单一 commit-driven 维护编排（与 rescan 入口共享）。presenter 的仓储、
@@ -59,7 +64,7 @@ export async function attachPluginOpportunisticEvolutionSurface(input: {
       container: requestContainer,
       handlerUnavailableReason:
         'Core unified evolution services are unavailable in the request-scoped Guard container',
-      projectRoot: input.projectRoot,
+      projectRoot: maintenanceProjectRoot,
       residentSearchEnhancementReady: input.executionContext.residentProjectScopeAvailable,
       runtimeScope: {
         currentFolderId: input.executionContext.projectScopeIdentity?.currentFolderId ?? null,

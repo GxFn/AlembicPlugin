@@ -163,6 +163,52 @@ describe('retrieval checkpoint diagnostics', () => {
     });
   });
 
+  test('prefers canonical control-root checkpoints and only falls back to legacy folder rows', () => {
+    const folder = createGitFixture();
+    const head = gitOutput(folder.projectRoot, ['rev-parse', 'HEAD']);
+    const controlRoot = path.dirname(folder.projectRoot);
+    const canonicalKey = `${controlRoot}\0scope-a\0folder-a`;
+    const scopedLegacyKey = `${folder.projectRoot}\0scope-a\0folder-a`;
+    const singleLegacyKey = `${folder.projectRoot}\0single-folder\0root`;
+    const rows = new Map<string, Record<string, unknown>>([
+      [canonicalKey, { checkpointCommit: head, lastRouteStatus: 'skipped' }],
+      [scopedLegacyKey, { checkpointCommit: 'legacy-stale', lastRouteStatus: 'failed' }],
+      [singleLegacyKey, { checkpointCommit: 'oldest-stale', lastRouteStatus: 'failed' }],
+    ]);
+    const repository = {
+      get(scope: { folderId: string; projectRoot: string; scopeId: string }) {
+        return rows.get(`${scope.projectRoot}\0${scope.scopeId}\0${scope.folderId}`) ?? null;
+      },
+    };
+    const input = {
+      currentFolderId: 'folder-a',
+      projectRoot: controlRoot,
+      projectScopeFolderCount: 1,
+      projectScopeFolders: [
+        { folderId: 'folder-a', path: folder.projectRoot, repositoryId: 'repo-a' },
+      ],
+      projectScopeId: 'scope-a',
+      scanRoot: folder.projectRoot,
+    };
+
+    const canonical = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      input
+    );
+    expect(canonical.status).toBe('current');
+    expect(canonical.checkpoint?.checkpointCommit).toBe(head);
+
+    rows.delete(canonicalKey);
+    rows.set(scopedLegacyKey, { checkpointCommit: head, lastRouteStatus: 'skipped' });
+    const fallback = buildRetrievalCheckpointPosture(
+      { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
+      input
+    );
+    expect(fallback.status).toBe('current');
+    expect(fallback.checkpoint?.checkpointCommit).toBe(head);
+    expect(rows.has(singleLegacyKey)).toBe(true);
+  });
+
   test('search, prime, and recipe_map expose stale durable checkpoint catch-up posture', async () => {
     const { baselineHead, projectRoot } = createGitFixture();
     const gitDiffCheckpointRepository = createCheckpointRepository(projectRoot, baselineHead);
@@ -233,9 +279,7 @@ describe('retrieval checkpoint diagnostics', () => {
         expect.objectContaining({ layer: 'not-available-or-degraded', itemCount: 2 }),
       ])
     );
-    const verificationLayer = trustLayers.find(
-      (layer) => layer.layer === 'requires-verification'
-    );
+    const verificationLayer = trustLayers.find((layer) => layer.layer === 'requires-verification');
     expect(asArray(verificationLayer?.items).map((item) => asRecord(item).id)).toEqual(
       expect.arrayContaining(['recipe-checkpoint', 'rule-checkpoint'])
     );

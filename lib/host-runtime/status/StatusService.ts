@@ -207,8 +207,7 @@ export async function buildStatus(
   });
   const retrievalCheckpointPosture = readStatusRetrievalCheckpointPosture(
     projectRoot,
-    resolver.databasePath,
-    hostProjectAlignment
+    resolver.databasePath
   );
   const revisionTruth = resolveStatusRevisionTruth(retrievalCheckpointPosture);
   const projectRootResolution =
@@ -583,44 +582,17 @@ function resolveStatusRevisionTruth(
 
 function readStatusRetrievalCheckpointPosture(
   projectRoot: string,
-  databasePath: string,
-  hostProjectAlignment: HostProjectAlignment
+  databasePath: string
 ): RetrievalCheckpointPosture | null {
   if (!existsSync(databasePath)) {
     return null;
   }
   try {
     const repository = createReadOnlyGitDiffCheckpointReader(databasePath);
-    const posture = buildRetrievalCheckpointPosture(
+    return buildRetrievalCheckpointPosture(
       { get: (name: string) => (name === 'gitDiffCheckpointRepository' ? repository : null) },
       resolveRetrievalCheckpointPostureInput(projectRoot)
     );
-    if (!posture.sourceRevisionManifest) {
-      return posture;
-    }
-    const identityAlignment =
-      hostProjectAlignment.handoffAllowed === true
-        ? 'current'
-        : hostProjectAlignment.handoffAllowed === false
-          ? 'mismatch'
-          : 'unknown';
-    const sourceAlignment = posture.sourceRevisionManifest.alignment;
-    const alignment =
-      identityAlignment === 'mismatch'
-        ? ('stale' as const)
-        : identityAlignment === 'unknown' && sourceAlignment === 'current'
-          ? ('unknown' as const)
-          : sourceAlignment;
-    return {
-      ...posture,
-      retrievalMayBeStale: alignment !== 'current',
-      sourceRevisionManifest: {
-        ...posture.sourceRevisionManifest,
-        alignment,
-        identityAlignment,
-      },
-      status: alignment,
-    };
   } catch {
     return null;
   }

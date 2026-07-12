@@ -99,13 +99,14 @@ export function resolveRetrievalCheckpointPostureInput(projectRoot: string): {
     summary.currentFolderPath ??
     summary.folders.find((folder) => folder.folderId === folderId)?.path ??
     null;
+  const canonicalProjectRoot = summary.controlRoot;
   const within =
     typeof folderPath === 'string' &&
     isAbsolute(folderPath) &&
-    !relative(projectRoot, folderPath).startsWith('..');
+    !relative(canonicalProjectRoot, folderPath).startsWith('..');
   return {
     currentFolderId: folderId,
-    projectRoot,
+    projectRoot: canonicalProjectRoot,
     projectScopeFolderCount: summary.folders.length,
     projectScopeFolders: summary.folders.map((folder) => ({
       folderId: folder.folderId,
@@ -144,7 +145,15 @@ export function buildRetrievalCheckpointPosture(
   );
   let row: Record<string, unknown> | null;
   try {
-    row = (checkpointRepository as CheckpointRepository).get(scope);
+    const currentFolderPath =
+      input.projectScopeFolders?.find((folder) => folder.folderId === scope.folderId)?.path ??
+      input.scanRoot ??
+      null;
+    row = readCheckpointWithLegacyFallback(
+      checkpointRepository as CheckpointRepository,
+      scope,
+      currentFolderPath
+    );
   } catch (error: unknown) {
     return {
       ...emptyPosture(
@@ -356,13 +365,12 @@ function buildSourceRevisionManifest(
   const rows = folders.map((folder) => {
     let checkpoint: Record<string, unknown> | null = null;
     try {
-      checkpoint = repository.get(
-        buildGitDiffCheckpointScope({
-          currentFolderId: folder.folderId,
-          projectRoot: input.projectRoot,
-          projectScopeId: input.projectScopeId,
-        })
-      );
+      const canonicalScope = buildGitDiffCheckpointScope({
+        currentFolderId: folder.folderId,
+        projectRoot: input.projectRoot,
+        projectScopeId: input.projectScopeId,
+      });
+      checkpoint = readCheckpointWithLegacyFallback(repository, canonicalScope, folder.path);
     } catch {
       checkpoint = null;
     }
@@ -402,6 +410,22 @@ function buildSourceRevisionManifest(
     projectScopeId: input.projectScopeId ?? 'single-folder',
     rows,
   };
+}
+
+function readCheckpointWithLegacyFallback(
+  repository: CheckpointRepository,
+  canonicalScope: { folderId: string; projectRoot: string; scopeId: string },
+  folderPath: string | null
+): Record<string, unknown> | null {
+  const canonical = repository.get(canonicalScope);
+  if (canonical || !folderPath || folderPath === canonicalScope.projectRoot) {
+    return canonical;
+  }
+  const scopedLegacy = repository.get({ ...canonicalScope, projectRoot: folderPath });
+  if (scopedLegacy) {
+    return scopedLegacy;
+  }
+  return repository.get({ folderId: 'root', projectRoot: folderPath, scopeId: 'single-folder' });
 }
 
 function readCurrentGitHead(projectRoot: string): { ok: true; head: string } | { ok: false } {

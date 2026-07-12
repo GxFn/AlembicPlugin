@@ -346,7 +346,7 @@ export async function guardAuditFiles(ctx: McpContext, args: GuardAuditArgs) {
  * 设计要点:
  *   1. 无参数 → 结构化阻塞，不再自动读取整个 git diff
  *   2. files: string[] → 指定文件路径（简化，不再要求对象数组）
- *   3. violations 内联 recipe 修复指南（doClause + coreCode）
+ *   3. violations 按实际可用性携带 inline Recipe 或 fixSuggestion，并公开指导覆盖计数
  *   4. Review 是无状态检查；不会用 projectRoot 共享轮次或在上限后强制通过
  *   5. 不绑定 task ID — 代码检查独立于任务系统
  *
@@ -636,6 +636,18 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
   // "没什么可检查"——按被检文件语言集合枚举引擎实际装载的规则（数据库 Recipe
   // 规则 + 内置），投影计数与样本。engine.getRules 是引擎检查同源的规则装配面。
   const appliedRules = summarizeAppliedGuardRules(engine, results);
+  const applicableRecipeRules = collectApplicableRecipeRules(
+    ctx,
+    coverageRows.filter((row) => row.disposition === 'checked').map((row) => row.filePath)
+  );
+  const ruleAccounting = {
+    accountingMode: 'separate-execution-modes' as const,
+    countsAreAdditive: false,
+    enumeratedEngineRules: appliedRules?.total ?? 0,
+    additionalEngineChecks: 'not-enumerated' as const,
+    hostEvaluationRequired: applicableRecipeRules.length,
+  };
+  const fixGuidance = summarizeGuardFixGuidance(results, crossFileViolations);
 
   // 5. 写入 ViolationsStore
   try {
@@ -666,11 +678,22 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       )
       .join('\n');
 
+    const guidance = [
+      fixGuidance.inlineRecipe > 0
+        ? `${fixGuidance.inlineRecipe} violation(s) include inline Recipe guidance.`
+        : null,
+      fixGuidance.fixSuggestionOnly > 0
+        ? `${fixGuidance.fixSuggestionOnly} violation(s) include a fixSuggestion without inline Recipe guidance.`
+        : null,
+      fixGuidance.unavailable > 0
+        ? `${fixGuidance.unavailable} violation(s) have no inline fix guidance; inspect the reported rule and source context.`
+        : null,
+    ].filter((line): line is string => line !== null);
     message = [
       `⚠️ Guard review failed: ${totalViolations} violation(s) in ${violatingFiles.length} file(s).`,
       details,
       '',
-      'Each violation includes inline `recipe` with doClause + coreCode — apply fixes directly.',
+      ...guidance,
       'Fix the reported violations and run alembic_code_guard again with the same explicit scope.',
     ].join('\n');
   } else {
@@ -702,11 +725,10 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
       ...(crossFileViolations.length > 0 ? { crossFileViolations } : {}),
       totalViolations,
       appliedRules,
+      ruleAccounting,
+      fixGuidance,
       // G-B：适用 Recipe 规矩清单（refs 精确文件匹配），无论 violation 与否都交付
-      applicableRecipeRules: collectApplicableRecipeRules(
-        ctx,
-        coverageRows.filter((row) => row.disposition === 'checked').map((row) => row.filePath)
-      ),
+      applicableRecipeRules,
       summary: {
         total: totalViolations,
         errors: totalErrors,
@@ -728,6 +750,36 @@ export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
     message,
     meta: { tool: 'alembic_code_guard', mode: 'review' },
   });
+}
+
+function summarizeGuardFixGuidance(
+  results: readonly ReviewFileResult[],
+  crossFileViolations: readonly unknown[]
+): { inlineRecipe: number; fixSuggestionOnly: number; unavailable: number } {
+  const violations: unknown[] = [
+    ...results.flatMap((result) => result.violations),
+    ...crossFileViolations,
+  ];
+  let inlineRecipe = 0;
+  let fixSuggestionOnly = 0;
+  let unavailable = 0;
+  for (const value of violations) {
+    const violation =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+    if (violation.recipe && typeof violation.recipe === 'object') {
+      inlineRecipe += 1;
+    } else if (
+      typeof violation.fixSuggestion === 'string' &&
+      violation.fixSuggestion.trim().length > 0
+    ) {
+      fixSuggestionOnly += 1;
+    } else {
+      unavailable += 1;
+    }
+  }
+  return { inlineRecipe, fixSuggestionOnly, unavailable };
 }
 
 // ═══ Recipe 缓存 ═════════════════════════════════════════
@@ -1144,6 +1196,8 @@ function summarizeAppliedGuardRules(
   results: Array<{ language?: unknown }>
 ): {
   total: number;
+  complete: false;
+  enumerationScope: 'engine-getRules';
   bySource: Record<string, number>;
   sample: Array<{ id: string; name: string; severity: string; source: string }>;
 } | null {
@@ -1180,6 +1234,8 @@ function summarizeAppliedGuardRules(
     }
     return {
       total: all.length,
+      complete: false,
+      enumerationScope: 'engine-getRules',
       bySource,
       sample: all.slice(0, 10),
     };

@@ -11,7 +11,10 @@ import {
   type RecipeLifecycleCounts,
   readGitDiffCheckpointSummary,
 } from '../../repository/skills/ProjectSkillKnowledgeRepository.js';
-import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
+import {
+  resolveProjectScopeRuntime,
+  resolveScopeAwareWorkspace,
+} from '../../shared/project-scope-runtime.js';
 
 export type KnowledgeStatus =
   | 'not_initialized'
@@ -216,7 +219,14 @@ export function inspectKnowledge(projectRoot: string): HostKnowledgeState {
   const databaseEntryCount = countProjectSkillKnowledgeEntries(resolver.dataRoot);
   const dbRecipeCount = countProjectDatabaseRecipes(resolver.dataRoot);
   const lifecycle = countProjectRecipeLifecycles(resolver.dataRoot);
-  const codeDrift = readGitDiffCheckpointSummary(resolver.dataRoot, projectRoot);
+  const projectScopeRuntime = resolveProjectScopeRuntime(projectRoot);
+  const codeDrift = readGitDiffCheckpointSummary(
+    resolver.dataRoot,
+    projectScopeRuntime?.summary.controlRoot ?? projectRoot,
+    projectScopeRuntime && projectScopeRuntime.summary.controlRoot !== projectRoot
+      ? [projectRoot]
+      : []
+  );
   const recipeCount = dbRecipeCount;
   const hasKnowledge =
     recipeCount > 0 || materializedRecipeCount > 0 || skillCount > 0 || databaseEntryCount > 0;

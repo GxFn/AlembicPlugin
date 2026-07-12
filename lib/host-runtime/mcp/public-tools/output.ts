@@ -147,6 +147,8 @@ const GuardResultSummarySchema = z
 const GuardAppliedRulesSchema = z
   .object({
     total: z.number().int().min(0).max(100000),
+    complete: z.literal(false).optional(),
+    enumerationScope: z.literal('engine-getRules').optional(),
     bySource: z.record(z.string().max(240), z.number().int().min(0).max(100000)),
     sample: z
       .array(
@@ -160,6 +162,24 @@ const GuardAppliedRulesSchema = z
           .strict()
       )
       .max(10),
+  })
+  .strict();
+
+const GuardRuleAccountingSchema = z
+  .object({
+    accountingMode: z.literal('separate-execution-modes'),
+    countsAreAdditive: z.literal(false),
+    enumeratedEngineRules: z.number().int().min(0).max(100000),
+    additionalEngineChecks: z.literal('not-enumerated'),
+    hostEvaluationRequired: z.number().int().min(0).max(100000),
+  })
+  .strict();
+
+const GuardFixGuidanceSchema = z
+  .object({
+    inlineRecipe: z.number().int().min(0).max(100000),
+    fixSuggestionOnly: z.number().int().min(0).max(100000),
+    unavailable: z.number().int().min(0).max(100000),
   })
   .strict();
 
@@ -224,6 +244,8 @@ const GuardPublicResultSchema = z
   .object({
     appliedRules: GuardAppliedRulesSchema.optional(),
     applicableRecipeRules: z.array(GuardApplicableRecipeRuleSchema).max(20).optional(),
+    ruleAccounting: GuardRuleAccountingSchema.optional(),
+    fixGuidance: GuardFixGuidanceSchema.optional(),
     coverage: GuardCoverageSchema.optional(),
     crossFileViolations: z.array(GuardPublicViolationSchema).max(50).optional(),
     fileErrors: z.array(GuardFileErrorSchema).max(1000).optional(),
@@ -779,6 +801,8 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
   const totalViolationCount = numberFrom(summary.total);
   const warningCount = numberFrom(summary.warnings);
   const appliedRules = projectGuardAppliedRules(guardResult.appliedRules);
+  const ruleAccounting = GuardRuleAccountingSchema.safeParse(guardResult.ruleAccounting);
+  const fixGuidance = GuardFixGuidanceSchema.safeParse(guardResult.fixGuidance);
   const applicableRecipeRules = projectGuardApplicableRecipeRules(
     guardResult.applicableRecipeRules
   );
@@ -793,6 +817,8 @@ function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicRes
   const verdict = ConclusionDispositionSchema.safeParse(guardResult.verdict);
   return {
     ...(appliedRules ? { appliedRules } : {}),
+    ...(ruleAccounting.success ? { ruleAccounting: ruleAccounting.data } : {}),
+    ...(fixGuidance.success ? { fixGuidance: fixGuidance.data } : {}),
     ...(applicableRecipeRules.length > 0 ? { applicableRecipeRules } : {}),
     ...(coverage ? { coverage } : {}),
     ...(projectedCrossFileViolations.violations.length > 0
@@ -879,7 +905,15 @@ function projectGuardAppliedRules(value: unknown): z.infer<typeof GuardAppliedRu
       };
     })
     .filter((rule) => rule.id.length > 0);
-  return { total, bySource, sample };
+  return {
+    total,
+    ...(record.complete === false ? { complete: false as const } : {}),
+    ...(record.enumerationScope === 'engine-getRules'
+      ? { enumerationScope: 'engine-getRules' as const }
+      : {}),
+    bySource,
+    sample,
+  };
 }
 
 const GUARD_PUBLIC_VIOLATION_LIMIT = 50;

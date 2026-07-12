@@ -130,7 +130,8 @@ export function createReadOnlyGitDiffCheckpointReader(
  */
 export function readGitDiffCheckpointSummary(
   dataRoot: string,
-  projectRoot: string
+  projectRoot: string,
+  legacyProjectRoots: readonly string[] = []
 ): GitDiffCheckpointSummary | null {
   const candidates = [path.join(dataRoot, '.asd', 'alembic.db'), path.join(dataRoot, 'alembic.db')];
   for (const dbPath of candidates) {
@@ -148,15 +149,21 @@ export function readGitDiffCheckpointSummary(
         if (!table) {
           continue;
         }
+        const projectRoots = [
+          projectRoot,
+          ...legacyProjectRoots.filter((root) => root !== projectRoot),
+        ];
+        const placeholders = projectRoots.map(() => '?').join(', ');
         const row = db
           .prepare(
             `SELECT checkpoint_commit, target_commit, last_route_status, last_scanned_at
              FROM git_diff_checkpoints
-             WHERE project_root = ?
-             ORDER BY last_scanned_at DESC
+             WHERE project_root IN (${placeholders})
+             ORDER BY CASE WHEN project_root = ? THEN 0 ELSE 1 END,
+                      last_scanned_at DESC
              LIMIT 1`
           )
-          .get(projectRoot) as
+          .get(...projectRoots, projectRoot) as
           | {
               checkpoint_commit?: string | null;
               target_commit?: string | null;

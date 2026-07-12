@@ -71,7 +71,9 @@ export function shouldRouteCommitDrivenMaintenance(scan: GitDiffScanResult): boo
 export async function runCommitDrivenMaintenance(
   input: CommitDrivenMaintenanceInput
 ): Promise<CommitDrivenMaintenanceResult> {
+  const scanRoot = resolveMaintenanceScanRoot(input);
   const runtime = createPluginGitDiffCheckpointRuntime(input.container, {
+    baselineProjectRoot: scanRoot,
     currentFolderId: input.runtimeScope?.currentFolderId ?? null,
     projectRoot: input.projectRoot,
     projectScopeId: input.runtimeScope?.projectScopeId ?? null,
@@ -82,7 +84,6 @@ export async function runCommitDrivenMaintenance(
   // 台账曾把事件预算挤爆（scale-guard:503>200）。首轮切换时 checkpoint 里残留的
   // workspace 根仓 commit 在 folder 仓中解析不到 merge-base → headRangeStatus
   // unavailable → 本轮不路由、checkpoint 前进为 folder 仓 HEAD——一次性自愈。
-  const scanRoot = resolveMaintenanceScanRoot(input);
   const scanner = new GitDiffScanner({ projectRoot: scanRoot });
   const rawScan = await scanner.scanOnce(input.now ?? Date.now(), { previousHead });
   const scan = remapScanToProjectSpace(rawScan, scanRoot, input.projectRoot);

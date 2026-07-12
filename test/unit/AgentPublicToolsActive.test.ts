@@ -1140,9 +1140,26 @@ describe('agent-facing active public tools', () => {
     expect(asRecord(guardResult.appliedRules).sample).toEqual([
       expect.objectContaining({ id: 'guard-public-api' }),
     ]);
+    expect(asRecord(guardResult.appliedRules)).toMatchObject({
+      complete: false,
+      enumerationScope: 'engine-getRules',
+      total: 1,
+    });
     expect(guardResult.applicableRecipeRules).toEqual([
       expect.objectContaining({ recipeId: 'guard-public-api' }),
     ]);
+    expect(guardResult.ruleAccounting).toEqual({
+      accountingMode: 'separate-execution-modes',
+      countsAreAdditive: false,
+      enumeratedEngineRules: 1,
+      additionalEngineChecks: 'not-enumerated',
+      hostEvaluationRequired: 1,
+    });
+    expect(guardResult.fixGuidance).toEqual({
+      inlineRecipe: 0,
+      fixSuggestionOnly: 0,
+      unavailable: 0,
+    });
     expect(asRecord(first.primeAlignment)).toMatchObject({
       deliveredGuardCount: 1,
       overlappedGuardIds: ['guard-public-api'],
@@ -2444,6 +2461,85 @@ describe('agent-facing active public tools', () => {
       crossFileViolations: [expect.objectContaining({ ruleId: 'cross-file-cycle' })],
       verdict: 'failed',
     });
+  });
+
+  test('reports AST fix guidance honestly when no inline Recipe exists', async () => {
+    const auditFiles = vi.fn((files: Array<{ path: string }>) => ({
+      summary: { total: 1, errors: 0, warnings: 1 },
+      files: files.map((file) => ({
+        filePath: file.path,
+        language: 'typescript',
+        uncertainResults: [],
+        violations: [
+          {
+            ruleId: 'ast_class_bloat',
+            message: 'Class is too large.',
+            severity: 'warning',
+            fixSuggestion: 'Split responsibilities into smaller collaborators.',
+          },
+        ],
+        summary: { total: 1, errors: 0, warnings: 1, uncertain: 0 },
+      })),
+      crossFileViolations: [],
+    }));
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile: vi.fn(),
+        auditFiles,
+        checkCode: vi.fn(),
+        getRules: vi.fn(() =>
+          Array.from({ length: 6 }, (_, index) => ({
+            id: `builtin-${index + 1}`,
+            name: `Built-in ${index + 1}`,
+            severity: 'warning',
+            source: 'builtin',
+          }))
+        ),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        files: ['lib/host-runtime/mcp/handlers/guard.ts'],
+        inputSource: 'host-declared-intent',
+        operation: 'review',
+      })
+    ) as {
+      data: {
+        guard: {
+          appliedRules: Record<string, unknown>;
+          fixGuidance: Record<string, unknown>;
+          ruleAccounting: Record<string, unknown>;
+          summary: string;
+          violations: Array<Record<string, unknown>>;
+        };
+      };
+    };
+
+    expect(result.data.guard.appliedRules).toMatchObject({
+      complete: false,
+      enumerationScope: 'engine-getRules',
+      total: 6,
+    });
+    expect(result.data.guard.ruleAccounting).toMatchObject({
+      enumeratedEngineRules: 6,
+      additionalEngineChecks: 'not-enumerated',
+      countsAreAdditive: false,
+    });
+    expect(result.data.guard.fixGuidance).toEqual({
+      inlineRecipe: 0,
+      fixSuggestionOnly: 1,
+      unavailable: 0,
+    });
+    expect(result.data.guard.violations[0]).toMatchObject({
+      ruleId: 'ast_class_bloat',
+      fixSuggestion: 'Split responsibilities into smaller collaborators.',
+    });
+    expect(result.data.guard.summary).not.toContain('Each violation');
+    expect(result.data.guard.summary).not.toContain('coreCode');
   });
 
   test('repeated reviews never force-pass unresolved violations at a project-wide round cap', async () => {

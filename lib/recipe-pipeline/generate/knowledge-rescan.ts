@@ -86,6 +86,7 @@ import {
   type KnowledgeIndexRebuildReport,
   rebuildLocalKnowledgeIndexes,
 } from './knowledge-index-rebuild.js';
+import { resolveRescanProjectScopeSelection } from './rescan-project-scope.js';
 
 /** MCP handler context */
 interface McpContext {
@@ -223,6 +224,19 @@ async function prepareRescanState(
     planGate.cleanupPolicy === 'full-reset' ? 'rescan-clean' : planGate.cleanupPolicy;
   intent.analysisMode = planGate.cleanupPolicy === 'force-rescan' ? 'full' : 'incremental';
   const plan = buildKnowledgeRescanWorkflowPlan({ intent, projectRoot, dataRoot });
+  const projectContextScope = resolveRescanProjectScopeSelection(
+    plan.projectAnalysis.projectRoot,
+    planGate.moduleScope
+  );
+  if (
+    planGate.moduleScope.length > 0 &&
+    resolveProjectScopeRuntime(plan.projectAnalysis.projectRoot) &&
+    projectContextScope.sourceFolders?.length === 0
+  ) {
+    throw new Error(
+      'Confirmed moduleScope does not match any registered ProjectScope folder; refusing an unscoped control-root rescan.'
+    );
+  }
   const { cleanResult, recipeSnapshot } = await runRescanCleanup({
     dataRoot,
     db,
@@ -245,9 +259,9 @@ async function prepareRescanState(
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
     maxFiles: plan.projectAnalysis.scan.maxFiles,
     moduleScope: planGate.moduleScope,
-    projectRoot: plan.projectAnalysis.projectRoot,
+    projectRoot: projectContextScope.analysisProjectRoot,
     source: 'codex-host-rescan',
-    sourceFolders: plan.projectAnalysis.scan.sourceFolders,
+    sourceFolders: projectContextScope.sourceFolders ?? plan.projectAnalysis.scan.sourceFolders,
   });
   const coverageLedgerSeed = seedRescanCoverageLedgerFromSnapshot(ctx, {
     planGate,
@@ -257,6 +271,7 @@ async function prepareRescanState(
   });
   const unifiedEvolution = await runRescanUnifiedEvolution(ctx, {
     projectRoot,
+    moduleScope: planGate.moduleScope,
   });
   const rescanId =
     typeof args.rescanId === 'string' && args.rescanId.length > 0 ? args.rescanId : null;
@@ -622,6 +637,7 @@ function buildProjectMapCoverageModuleSummaries(
   analysis: HostAgentProjectContextAnalysis,
   planGate: PlanGenerationGateReady
 ): CoverageLedgerModuleSummary[] {
+  const requestedScopes = uniqueStrings(planGate.moduleScope ?? []);
   const modules = new Map<string, CoverageLedgerModuleSummary>();
   for (const module of analysis.presenterInput.map?.modules ?? []) {
     const rawModuleId = module.id?.trim();
@@ -632,7 +648,9 @@ function buildProjectMapCoverageModuleSummaries(
     if (
       !moduleName ||
       !modulePath ||
-      isAggregateProjectTarget(moduleName, modulePath, basenameFromPath(planGate.projectRoot))
+      isAggregateProjectTarget(moduleName, modulePath, basenameFromPath(planGate.projectRoot)) ||
+      (requestedScopes.length > 0 &&
+        !requestedScopes.some((scope) => coverageScopeMatchesModule(scope, moduleName, modulePath)))
     ) {
       continue;
     }
@@ -708,6 +726,10 @@ function buildProjectContextTargetCoverageModuleSummaries(
 
   if (modules.size > 0) {
     return [...modules.values()];
+  }
+
+  if (requestedScopes.length > 0) {
+    return [];
   }
 
   return buildUnscopedProjectContextTargetCoverageModuleSummaries(
@@ -1528,6 +1550,7 @@ async function runRescanUnifiedEvolution(
   ctx: McpContext,
   input: {
     projectRoot: string;
+    moduleScope: readonly string[];
   }
 ): Promise<RescanUnifiedEvolutionResult> {
   // UM#2：单一 commit-driven 维护编排（与 presenter 入口共享）。rescan 拥有自己的路由、从不去抖
@@ -1540,9 +1563,9 @@ async function runRescanUnifiedEvolution(
   // 退回 projectRoot 单轮（既有行为）。主展示取首个有事件的 folder 结果，
   // 其余以 folderOutcomes 摘要附带（additive，不改既有 surface 契约）。
   const scopeRuntime = resolveProjectScopeRuntime(input.projectRoot);
-  const folders = (scopeRuntime?.descriptor.folders ?? [])
-    .filter((folder) => typeof folder.path === 'string' && folder.path.length > 0)
-    .map((folder) => ({ id: folder.id, path: folder.path }));
+  const scopeSelection = resolveRescanProjectScopeSelection(input.projectRoot, input.moduleScope);
+  const maintenanceProjectRoot = scopeRuntime?.summary.controlRoot ?? input.projectRoot;
+  const folders = scopeSelection.folders;
   const rounds =
     folders.length > 0
       ? folders.map((folder) => ({
@@ -1561,7 +1584,7 @@ async function runRescanUnifiedEvolution(
       container: ctx.container,
       handlerUnavailableReason:
         'Core unified evolution services are unavailable in the rescan MCP container',
-      projectRoot: input.projectRoot,
+      projectRoot: maintenanceProjectRoot,
       ...(round.folderPath
         ? {
             runtimeScope: {
@@ -1679,12 +1702,15 @@ function attachCoverageAdvisory(
         targetScopedCellCount: targetCells.targetScopedCount,
       });
     }
-    const cells = targetCells.items;
+    const currentModuleAxis = buildRescanCoverageModuleAxis(
+      state.projectContextAnalysis,
+      state.planGate
+    );
+    const currentModuleIds = new Set(currentModuleAxis.modules.map((module) => module.moduleId));
+    const cells = targetCells.items.filter((cell) => currentModuleIds.has(cell.moduleId));
     const rounds = repo.listRoundsByProjectRoot(state.projectRoot);
     const latestRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
-    const projectMapTargetModuleCount = (
-      state.projectContextAnalysis.presenterInput.map?.modules ?? []
-    ).filter((module) => isTargetScopedCoverageModuleId(module.id)).length;
+    const projectMapTargetModuleCount = currentModuleIds.size;
     const moduleCount =
       projectMapTargetModuleCount > 0
         ? projectMapTargetModuleCount

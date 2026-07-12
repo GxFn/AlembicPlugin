@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,6 +18,8 @@ import {
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildStatus, readLoadedBuildProvenance } from '../../lib/host-runtime/index.js';
+import '../../lib/host-runtime/mcp/local-tools/output.js';
+import { projectMcpToolOutput } from '../../lib/host-runtime/mcp/output-contract.js';
 import type { HostRuntimeStatus } from '../../lib/host-runtime/status/host-runtime-status.js';
 import { buildPostInitActions } from '../../lib/host-runtime/status/StatusService.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
@@ -43,6 +46,45 @@ function makeInitializedWorkspace(projectRoot: string): void {
   fs.writeFileSync(path.join(projectRoot, '.asd', 'alembic.db'), '');
   fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
   fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+}
+
+function seedCurrentSingleFolderCheckpoint(projectRoot: string): string {
+  execFileSync('git', ['init'], { cwd: projectRoot, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'alembic@example.test'], { cwd: projectRoot });
+  execFileSync('git', ['config', 'user.name', 'Alembic Test'], { cwd: projectRoot });
+  fs.writeFileSync(path.join(projectRoot, '.gitignore'), '.asd/\n');
+  writeSourceFile(projectRoot);
+  execFileSync('git', ['add', '.'], { cwd: projectRoot });
+  execFileSync('git', ['commit', '-m', 'status fixture'], { cwd: projectRoot, stdio: 'ignore' });
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+  }).trim();
+  const db = new Database(path.join(projectRoot, '.asd', 'alembic.db'));
+  try {
+    db.exec(`
+      CREATE TABLE git_diff_checkpoints (
+        project_root TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        folder_id TEXT NOT NULL,
+        checkpoint_commit TEXT,
+        target_commit TEXT,
+        merge_base_commit TEXT,
+        last_route_status TEXT NOT NULL,
+        last_scanned_at INTEGER,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    db.prepare(`
+      INSERT INTO git_diff_checkpoints (
+        project_root, scope_id, folder_id, checkpoint_commit, target_commit,
+        merge_base_commit, last_route_status, last_scanned_at, updated_at
+      ) VALUES (?, 'single-folder', 'root', ?, ?, NULL, 'routed', 1, 1)
+    `).run(projectRoot, head, head);
+  } finally {
+    db.close();
+  }
+  return head;
 }
 
 function writeMaterializedRecipe(projectRoot: string, name: string): void {
@@ -791,6 +833,7 @@ describe('Codex status service', () => {
     const hostProjectRoot = makeProjectRoot();
     const selectedProjectRoot = makeProjectRoot();
     makeInitializedWorkspace(hostProjectRoot);
+    const head = seedCurrentSingleFolderCheckpoint(hostProjectRoot);
     fs.writeFileSync(
       path.join(hostProjectRoot, 'Alembic', 'recipes', 'host-project.md'),
       '# Host Project\n'
@@ -814,6 +857,26 @@ describe('Codex status service', () => {
     expect(status.project).toMatchObject({
       hostConnectionState: 'mismatch',
       handoffAllowed: false,
+    });
+    expect(status.knowledge).toMatchObject({
+      sourceRevisionManifest: {
+        alignment: 'current',
+        identityAlignment: 'current',
+        rows: [expect.objectContaining({ checkpointCommit: head, currentCommit: head })],
+      },
+      sourceRevisionStatus: 'current',
+    });
+    expect(status.ok).toBe(true);
+    const publicStatus = projectMcpToolOutput('alembic_status', {
+      success: true,
+      data: status,
+      message: 'Alembic status checked.',
+    }) as Record<string, unknown>;
+    expect(publicStatus).toMatchObject({
+      businessOk: true,
+      status: 'ready',
+      project: { handoffAllowed: false },
+      onboarding: { state: 'project_handoff_mismatch' },
     });
     expect(status.onboarding).toMatchObject({
       state: 'project_handoff_mismatch',

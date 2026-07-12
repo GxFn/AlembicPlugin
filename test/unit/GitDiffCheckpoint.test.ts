@@ -138,9 +138,51 @@ describe('Git diff checkpoint', () => {
       initializationSource: 'current-head',
     });
     expect(runtime?.initializationSource).not.toBe('empty');
-    expect(checkpointRepository.get(runtime!.scope)).toMatchObject({
+    if (!runtime) {
+      throw new Error('checkpoint runtime was not created');
+    }
+    expect(checkpointRepository.get(runtime.scope)).toMatchObject({
       checkpointCommit: head,
       initialFromPlanCommit: head,
+    });
+  });
+
+  test('canonical workspace checkpoint initializes from the selected folder HEAD', () => {
+    const folderRoot = mkdtempSync(join(tmpdir(), 'alembic-folder-head-'));
+    tempDirs.push(folderRoot);
+    writeFileSync(join(folderRoot, 'README.md'), 'folder checkpoint fixture\n');
+    git(folderRoot, ['init']);
+    git(folderRoot, ['config', 'user.email', 'alembic@example.test']);
+    git(folderRoot, ['config', 'user.name', 'Alembic Test']);
+    git(folderRoot, ['add', 'README.md']);
+    git(folderRoot, ['commit', '-m', 'folder initial']);
+    const folderHead = git(folderRoot, ['rev-parse', '--verify', 'HEAD']);
+    const checkpointRepository = createInMemoryCheckpointRepository();
+
+    const runtime = createPluginGitDiffCheckpointRuntime(
+      {
+        get(name: string) {
+          if (name === 'gitDiffCheckpointRepository') {
+            return checkpointRepository;
+          }
+          throw new Error(`unexpected service lookup ${name}`);
+        },
+      },
+      {
+        baselineProjectRoot: folderRoot,
+        currentFolderId: 'folder-plugin',
+        projectRoot: '/workspace/control-root',
+        projectScopeId: 'scope-workspace',
+      }
+    );
+
+    expect(runtime).toMatchObject({ checkpointCommit: folderHead });
+    if (!runtime) {
+      throw new Error('checkpoint runtime was not created');
+    }
+    expect(checkpointRepository.get(runtime.scope)).toMatchObject({
+      checkpointCommit: folderHead,
+      projectRoot: '/workspace/control-root',
     });
   });
 
@@ -237,6 +279,89 @@ describe('Git diff checkpoint', () => {
       routeStatus: 'catch-up-routed',
     });
     expect(routed.unresolvedRange).toBeUndefined();
+  });
+
+  test('plugin advances a fully inspected range when every routed event is skipped', () => {
+    const checkpointRepository = createInMemoryCheckpointRepository();
+    const service = new GitDiffCheckpointService({
+      checkpointRepository: checkpointRepository as never,
+      baselineProvider: { getBaselineCommit: vi.fn(() => 'head-a') },
+    });
+    const scope = { folderId: 'folder-a', projectRoot: '/workspace', scopeId: 'scope-a' };
+    const scan = makeCatchUpScan();
+
+    const result = recordPluginGitDiffCheckpointRouteOutcome({
+      report: {
+        deprecated: 0,
+        fixed: 0,
+        needsReview: 0,
+        skipped: scan.events.length,
+      },
+      routeAttempted: true,
+      routeError: null,
+      runtime: {
+        checkpointCommit: 'head-a',
+        initializationSource: 'existing-checkpoint',
+        scope,
+        service,
+      },
+      scan,
+    });
+
+    expect(result).toMatchObject({
+      advanced: true,
+      checkpointCommit: 'head-c',
+      recorded: true,
+      routeStatus: 'skipped',
+    });
+    expect(result.unresolvedRange).toBeUndefined();
+    expect(checkpointRepository.get(scope)).toMatchObject({
+      checkpointCommit: 'head-c',
+      lastRouteStatus: 'skipped',
+    });
+  });
+
+  test('plugin advances a resolved changed HEAD when the scan has no dispatchable events', () => {
+    const checkpointRepository = createInMemoryCheckpointRepository();
+    const service = new GitDiffCheckpointService({
+      checkpointRepository: checkpointRepository as never,
+      baselineProvider: { getBaselineCommit: vi.fn(() => 'head-a') },
+    });
+    const scope = { folderId: 'folder-a', projectRoot: '/workspace', scopeId: 'scope-a' };
+
+    const result = recordPluginGitDiffCheckpointRouteOutcome({
+      report: null,
+      routeAttempted: false,
+      routeError: null,
+      runtime: {
+        checkpointCommit: 'head-a',
+        initializationSource: 'existing-checkpoint',
+        scope,
+        service,
+      },
+      scan: {
+        dirtyPathCount: 0,
+        events: [],
+        head: 'head-b',
+        headChanged: true,
+        headRangeStatus: 'ancestor',
+        maxEvents: 200,
+        mergeBase: 'head-a',
+        previousHead: 'head-a',
+        range: { from: 'head-a', to: 'head-b' },
+        scanned: true,
+        scannedAt: '2026-07-12T00:00:00.000Z',
+        signature: 'no-dispatchable-events',
+        truncated: false,
+      },
+    });
+
+    expect(result).toMatchObject({
+      advanced: true,
+      checkpointCommit: 'head-b',
+      routeStatus: 'skipped',
+    });
+    expect(result.unresolvedRange).toBeUndefined();
   });
 
   test('plugin route outcome does not overwrite routed checkpoint with same-HEAD empty scan', () => {

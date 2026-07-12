@@ -186,6 +186,18 @@ describe('Agent-facing public tools contract foundation', () => {
               { id: 'r1', name: 'errorHandler 单咽喉', severity: 'warning', source: 'recipe' },
             ],
           },
+          ruleAccounting: {
+            accountingMode: 'separate-execution-modes',
+            countsAreAdditive: false,
+            enumeratedEngineRules: 12,
+            additionalEngineChecks: 'not-enumerated',
+            hostEvaluationRequired: 4,
+          },
+          fixGuidance: {
+            inlineRecipe: 0,
+            fixSuggestionOnly: 1,
+            unavailable: 0,
+          },
           files: [{ language: 'typescript' }],
           summary: { total: 0, errors: 0, warnings: 0 },
         },
@@ -209,6 +221,14 @@ describe('Agent-facing public tools contract foundation', () => {
     expect(parsed).toMatchObject({
       guard: {
         appliedRules: { total: 12, bySource: { recipe: 9 } },
+        ruleAccounting: {
+          accountingMode: 'separate-execution-modes',
+          countsAreAdditive: false,
+          enumeratedEngineRules: 12,
+          additionalEngineChecks: 'not-enumerated',
+          hostEvaluationRequired: 4,
+        },
+        fixGuidance: { inlineRecipe: 0, fixSuggestionOnly: 1, unavailable: 0 },
       },
       primeAlignment: { status: 'observed', overlappedKnowledgeCount: 1 },
       toolName: 'alembic_code_guard',
