@@ -124,6 +124,34 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     expect(captureProjectReadInputs(projectRoot)).toEqual(before);
   });
 
+  it('read-only Prime uses a request snapshot and preserves its live DB family byte-for-byte', async () => {
+    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
+    process.env.ALEMBIC_HOME = sandboxHome;
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-prime-project-'));
+    const dataDir = path.join(projectRoot, '.asd');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'config.json'), '{}\n');
+    fs.writeFileSync(path.join(dataDir, 'alembic.db'), '');
+    fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-prime"}\n');
+    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const prime = true;\n');
+    const before = captureProjectReadInputs(projectRoot);
+
+    const server = new HostMcpServer({ projectRoot });
+    const result = (await server.handleToolCall('alembic_prime', {
+      agentHost: 'codex',
+      inputSource: 'host-declared-intent',
+      projectRoot,
+      requirementGoal: 'Inspect project knowledge without mutating retrieval state',
+      scenario: 'Prime read-only entrypoint effects',
+      taskAction: 'fix',
+    })) as { status?: string };
+
+    expect(result.status).toBeTruthy();
+    expect(captureProjectReadInputs(projectRoot)).toEqual(before);
+  });
+
   it('destructive class: alembic_bootstrap confines writes to the data root and registry', async () => {
     const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
     const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-probe-'));
