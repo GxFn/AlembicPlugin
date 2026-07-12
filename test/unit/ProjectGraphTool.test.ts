@@ -650,6 +650,68 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     );
     expect(String(output.nodes[0]?.path ?? output.nodes[0]?.label)).not.toContain('RequestLogger');
   });
+
+  test('ranks exact multi-repo file-flow candidates before the bounded target cap', async () => {
+    const projectRoot = createNativeScopeWorkspaceFixtureProject();
+    const hostPath = 'AlembicPlugin/lib/host-runtime/mcp/HostMcpServer.ts';
+    const locationPath = 'AlembicPlugin/lib/host-runtime/context/ProjectLocationService.ts';
+    writeFile(
+      projectRoot,
+      hostPath,
+      'export class HostMcpServer { handleRequest() { return true; } }\n'
+    );
+    writeFile(
+      projectRoot,
+      locationPath,
+      'export class ProjectLocationService { resolveRequestRoot() { return "."; } }\n'
+    );
+    // These weak one-term candidates sort before the exact files lexically and exceed the
+    // existing default file-flow cap. The cap must apply after query-quality ranking.
+    for (let index = 0; index < 90; index += 1) {
+      writeFile(
+        projectRoot,
+        `AlembicPlugin/lib/host-runtime/a-request-noise-${String(index).padStart(3, '0')}.ts`,
+        `export const requestNoise${index} = "request";\n`
+      );
+    }
+    for (let index = 0; index < 24; index += 1) {
+      writeFile(
+        projectRoot,
+        `Alembic/src/a-service-noise-${String(index).padStart(3, '0')}.ts`,
+        `export const serviceNoise${index} = "service";\n`
+      );
+    }
+
+    const output = await runGraph(projectRoot, {
+      queryKind: 'map',
+      query: 'HostMcpServer ProjectLocationService request',
+      budget: { itemLimit: 12, relationHopLimit: 4 },
+    });
+    const exactNodes = output.nodes.filter((node) =>
+      [hostPath, locationPath].includes(String(node.path ?? ''))
+    );
+
+    expect(output.repoCoverage).toMatchObject({ completeness: 'complete', requested: 5 });
+    expect(
+      exactNodes,
+      JSON.stringify({ meta: output.meta.projectContext, nodes: output.nodes }, null, 2)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeType: 'file', path: hostPath }),
+        expect.objectContaining({ nodeType: 'symbol', path: hostPath, label: 'HostMcpServer' }),
+        expect.objectContaining({ nodeType: 'file', path: locationPath }),
+        expect.objectContaining({
+          nodeType: 'symbol',
+          path: locationPath,
+          label: 'ProjectLocationService',
+        }),
+      ])
+    );
+    expect(
+      output.nodes.filter((node) => String(node.path ?? '').includes('a-request-noise')).length
+    ).toBeLessThan(exactNodes.length);
+    expect(JSON.stringify(output.diagnostics)).not.toMatch(/cyclic|invalid-scope/i);
+  });
 });
 
 function createFixtureProject(): string {

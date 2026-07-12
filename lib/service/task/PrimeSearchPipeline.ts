@@ -27,6 +27,7 @@ export interface PrimeSearchMeta {
   module: string | null;
   resultCount: number;
   filteredCount: number;
+  filteredOrphanVectorCount?: number;
   route: string;
   requestedMode: string;
   actualMode: string;
@@ -132,6 +133,7 @@ export class PrimeSearchPipeline {
     filteredCount: number,
     routeMeta: Record<string, unknown> | undefined
   ): PrimeSearchMeta {
+    const filteredOrphanVectorCount = boundedPositiveCount(routeMeta?.filteredOrphanVectorCount);
     return {
       queries: request.queries?.length ? request.queries : [request.query],
       scenario: request.scenario ?? '',
@@ -144,11 +146,18 @@ export class PrimeSearchPipeline {
       actualMode: readString(routeMeta?.actualMode) ?? 'keyword',
       semanticUsed: routeMeta?.semanticUsed === true,
       vectorUsed: routeMeta?.vectorUsed === true,
+      ...(filteredOrphanVectorCount === undefined ? {} : { filteredOrphanVectorCount }),
       ...(normalizePrimeFallbackReason(routeMeta?.fallbackReason)
         ? { fallbackReason: normalizePrimeFallbackReason(routeMeta?.fallbackReason) }
         : {}),
     };
   }
+}
+
+function boundedPositiveCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.min(10_000, Math.floor(value))
+    : undefined;
 }
 
 function readString(value: unknown): string | undefined {

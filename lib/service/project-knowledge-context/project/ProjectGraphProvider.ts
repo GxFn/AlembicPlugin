@@ -131,6 +131,8 @@ const ALLOWED_RELATION_TYPES = [
 const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
 const GRAPH_REPO_CONCURRENCY = 4;
 const GRAPH_REPO_TIMEOUT_MS = 10_000;
+const GRAPH_MODULE_QUERY_PROBE_LIMIT = 12;
+const GRAPH_STRONG_IDENTIFIER_SCORE = 40;
 // ProjectContext public repo schema allows 20k. A repository that exceeds this still returns
 // an explicit truncation diagnostic and fails coverage honestly; the old private 240 cap made
 // ordinary real repositories fail before the caller's product budget was even considered.
@@ -486,8 +488,8 @@ async function buildProjectContextGraphFacts(
   try {
     await collectGraphRepoContexts(facts, projectRoot, input);
     const moduleSeeds = createGraphModuleSeedsFromRepoContexts(facts.repos, input, facts.trace);
-    await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input);
     await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input);
+    await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input);
     if (shouldCollectGraphFileFlowContexts(input)) {
       await collectGraphFileFlowContexts(facts, projectRoot, input);
     }
@@ -703,7 +705,7 @@ async function collectGraphMapContexts(
   if (!shouldCollectGraphMapContexts(input)) {
     return;
   }
-  for (const group of selectGraphMapContextGroups(moduleSeeds, input).slice(
+  for (const group of selectGraphMapContextGroups(moduleSeeds, input, facts.modules).slice(
     0,
     graphMapContextGroupLimit(input)
   )) {
@@ -737,10 +739,12 @@ async function collectGraphModuleContexts(
   if (!shouldCollectGraphModuleContexts(input)) {
     return;
   }
-  for (const seed of selectGraphModuleContextSeeds(moduleSeeds, input).slice(
+  const selectedSeeds = selectGraphModuleContextSeeds(moduleSeeds, input).slice(
     0,
     graphModuleContextSeedLimit(input)
-  )) {
+  );
+  const collected: Array<{ context: ModuleContext; seed: GraphModuleSeed }> = [];
+  for (const seed of selectedSeeds) {
     const moduleEnvelope = await executeGraphProjectContextRequest(
       'module',
       projectRoot,
@@ -755,8 +759,19 @@ async function collectGraphModuleContexts(
     collectGraphEnvelope(facts, moduleEnvelope, 'project-context-module', input);
     if (isModuleContext(moduleEnvelope.data)) {
       facts.modules.push(moduleEnvelope.data);
+      collected.push({ context: moduleEnvelope.data, seed });
     }
+  }
 
+  const strongMatches = collected.filter(
+    ({ context }) =>
+      scoreGraphModuleContextEvidence(context, input) >= GRAPH_STRONG_IDENTIFIER_SCORE
+  );
+  // 先用 bounded ModuleContext 做候选探针；找到完整标识符/多词强命中后，仅让其
+  // scope 进入 module-layer，避免弱 request/service 路径带入无关 cycle/scope 告警。
+  const layerSeeds =
+    strongMatches.length > 0 ? strongMatches.map(({ seed }) => seed) : selectedSeeds;
+  for (const seed of layerSeeds) {
     const layersEnvelope = await executeGraphProjectContextRequest(
       'module-layers',
       projectRoot,
@@ -825,8 +840,8 @@ function graphMapContextGroupLimit(input: ProjectGraphInput): number {
 
 function graphModuleContextSeedLimit(input: ProjectGraphInput): number {
   const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
-  if (isProjectContextWeightedGraphQuery(input.query, queryTerms)) {
-    return 2;
+  if (queryTerms.length > 0) {
+    return GRAPH_MODULE_QUERY_PROBE_LIMIT;
   }
   return 4;
 }
@@ -839,12 +854,77 @@ function selectGraphModuleContextSeeds(
   if (!explicitPath) {
     const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
     if (queryTerms.length > 0) {
-      return moduleSeeds.filter((seed) => scoreGraphModuleSeed(seed, input) > 0);
+      const queryMatches = moduleSeeds.filter(
+        (seed) => scoreGraphModuleSeedQueryMatch(seed, input) > 0
+      );
+      const bestByScope = new Map<string, GraphModuleSeed>();
+      for (const seed of moduleSeeds) {
+        const key = scopeKey(seed.scope);
+        if (!bestByScope.has(key)) {
+          bestByScope.set(key, seed);
+        }
+      }
+      const compareSeeds = (left: GraphModuleSeed, right: GraphModuleSeed) =>
+        scoreGraphModuleSeedQueryMatch(right, input) -
+          scoreGraphModuleSeedQueryMatch(left, input) ||
+        scoreGraphModuleSeed(right, input) - scoreGraphModuleSeed(left, input) ||
+        String(left.payload.modulePath).localeCompare(String(right.payload.modulePath));
+      const scopeAnchors = [...bestByScope.values()].sort(compareSeeds);
+      const scopeAnchorKeys = new Set(
+        scopeAnchors.map(
+          (seed) => `${scopeKey(seed.scope)}\u0000${String(seed.payload.modulePath ?? '')}`
+        )
+      );
+      const extraQueryMatches = dedupeGraphModuleSeeds(queryMatches)
+        .filter(
+          (seed) =>
+            !scopeAnchorKeys.has(
+              `${scopeKey(seed.scope)}\u0000${String(seed.payload.modulePath ?? '')}`
+            )
+        )
+        .sort(compareSeeds);
+      return [...scopeAnchors, ...extraQueryMatches];
     }
     return moduleSeeds;
   }
   return moduleSeeds.filter((seed) =>
     ownsPathByKey(normalizeRelativePath(String(seed.payload.modulePath ?? '')), explicitPath)
+  );
+}
+
+function dedupeGraphModuleSeeds(seeds: readonly GraphModuleSeed[]): GraphModuleSeed[] {
+  const byKey = new Map<string, GraphModuleSeed>();
+  for (const seed of seeds) {
+    const key = `${scopeKey(seed.scope)}\u0000${String(seed.payload.modulePath ?? '')}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, seed);
+    }
+  }
+  return [...byKey.values()];
+}
+
+function scoreGraphModuleSeedQueryMatch(seed: GraphModuleSeed, input: ProjectGraphInput): number {
+  const modulePath = normalizeRelativePath(String(seed.payload.modulePath ?? ''));
+  const moduleName = String(seed.payload.moduleName ?? path.posix.basename(modulePath));
+  const refLabel = isRecord(seed.payload.ref)
+    ? String(seed.payload.ref.label ?? seed.payload.ref.id ?? '')
+    : '';
+  const searchText = `${modulePath} ${moduleName} ${refLabel}`.toLowerCase();
+  const compactText = compactGraphQueryText(searchText);
+  const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
+  return queryTerms.reduce(
+    (score, term) => score + scoreGraphModuleSeedTerm(term, searchText, compactText),
+    0
+  );
+}
+
+function scoreGraphModuleContextEvidence(context: ModuleContext, input: ProjectGraphInput): number {
+  return Math.max(
+    0,
+    ...context.ownedFiles.map((file) => scoreProjectContextFileFlowTarget(file.filePath, input)),
+    ...context.publicSurfaces.map((symbol) =>
+      scoreProjectContextFileFlowTarget(`${symbol.filePath}/${symbol.name}`, input)
+    )
   );
 }
 
@@ -2030,7 +2110,8 @@ const WEAK_GRAPH_MODULE_SEED_TERMS = new Set(['map', 'module', 'repo', 'reposito
 
 function selectGraphMapContextGroups(
   seeds: readonly GraphModuleSeed[],
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  modules: readonly ModuleContext[]
 ): Array<{
   repoName: string;
   scope: { repoId?: string; sourceFolder?: string };
@@ -2038,6 +2119,15 @@ function selectGraphMapContextGroups(
 }> {
   const explicitPath = explicitProjectGraphPath(input);
   const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
+  const moduleEvidenceByScope = new Map<string, number>();
+  for (const context of modules) {
+    const score = scoreGraphModuleContextEvidence(context, input);
+    const key = scopeKey(scopeFromGraphModuleContext(context));
+    moduleEvidenceByScope.set(key, Math.max(moduleEvidenceByScope.get(key) ?? 0, score));
+  }
+  const hasStrongModuleEvidence = [...moduleEvidenceByScope.values()].some(
+    (score) => score >= GRAPH_STRONG_IDENTIFIER_SCORE
+  );
   const groups = new Map<
     string,
     {
@@ -2059,13 +2149,31 @@ function selectGraphMapContextGroups(
           ownsPath(normalizeRelativePath(String(seed.payload.modulePath ?? '')), explicitPath)
         );
       }
+      if (hasStrongModuleEvidence) {
+        return (
+          (moduleEvidenceByScope.get(scopeKey(group.scope)) ?? 0) >= GRAPH_STRONG_IDENTIFIER_SCORE
+        );
+      }
       return queryTerms.length === 0 || graphModuleSeedGroupScore(group, input) > 0;
     })
     .sort(
       (left, right) =>
+        (moduleEvidenceByScope.get(scopeKey(right.scope)) ?? 0) -
+          (moduleEvidenceByScope.get(scopeKey(left.scope)) ?? 0) ||
         graphModuleSeedGroupScore(right, input) - graphModuleSeedGroupScore(left, input) ||
         left.repoName.localeCompare(right.repoName)
     );
+}
+
+function scopeFromGraphModuleContext(context: ModuleContext): {
+  repoId?: string;
+  sourceFolder?: string;
+} {
+  if (context.module.ref) {
+    return scopeFromProjectContextRef(context.module.ref);
+  }
+  const firstOwnedFile = context.ownedFiles[0];
+  return firstOwnedFile ? scopeFromProjectContextFile(firstOwnedFile) : {};
 }
 
 function graphModuleSeedGroupScore(
@@ -2136,7 +2244,46 @@ function selectProjectContextFileFlowTargets(
     add(context.file.filePath, scopeFromProjectContextFile(context.file));
   }
 
-  return [...targets.values()].sort((left, right) => left.filePath.localeCompare(right.filePath));
+  return [...targets.values()].sort(
+    (left, right) =>
+      scoreProjectContextFileFlowTarget(right.filePath, input) -
+        scoreProjectContextFileFlowTarget(left.filePath, input) ||
+      left.filePath.localeCompare(right.filePath)
+  );
+}
+
+/**
+ * File-flow collection is bounded before final graph-node ranking. Rank at this boundary too,
+ * otherwise dozens of lexically earlier `request`/`service` files can consume the entire cap
+ * before exact CamelCase identifiers ever reach ProjectContext.
+ */
+function scoreProjectContextFileFlowTarget(filePath: string, input: ProjectGraphInput): number {
+  const queryTerms = input.query ? tokenizeGraphQuery(input.query) : [];
+  if (queryTerms.length === 0) {
+    return 0;
+  }
+  const searchText = normalizeRelativePath(filePath).toLowerCase();
+  const compactText = compactGraphQueryText(searchText);
+  let score = 0;
+  let matchedTerms = 0;
+  for (const term of queryTerms) {
+    const termScore = scoreGraphModuleSeedTerm(term, searchText, compactText);
+    if (termScore <= 0) {
+      continue;
+    }
+    matchedTerms += 1;
+    score += termScore;
+    // The unsplit CamelCase token is the strongest path-level identifier signal.
+    // Short/common pieces such as `request` or `service` cannot earn this bonus alone.
+    const compactTerm = compactGraphQueryText(term);
+    if (compactTerm.length >= 8 && compactText.includes(compactTerm)) {
+      score += GRAPH_STRONG_IDENTIFIER_SCORE;
+    }
+  }
+  if (matchedTerms > 1) {
+    score += matchedTerms * matchedTerms * 4;
+  }
+  return score;
 }
 
 function selectAnchorRangeFilePath(

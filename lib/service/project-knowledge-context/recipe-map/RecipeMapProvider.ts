@@ -602,10 +602,14 @@ function buildNextActions(
     required: false,
   });
   if (diagnostics.some(needsSourceRefReconciliation)) {
+    const hasDriftedRef = diagnostics.some((diagnostic) =>
+      /drift/.test(`${diagnostic.code} ${diagnostic.message}`.toLowerCase())
+    );
     actions.push({
       tool: 'alembic_rescan',
-      reason:
-        'Reconcile stale or unresolved source-ref anchors with an authorized rescan; alembic_recipe_map remains read-only and performs no repair.',
+      reason: hasDriftedRef
+        ? 'Reconcile drifted source-ref anchors whose files still exist but whose anchored content changed; alembic_recipe_map remains read-only and performs no repair.'
+        : 'Reconcile stale or unresolved source-ref anchors with an authorized rescan; alembic_recipe_map remains read-only and performs no repair.',
       required: false,
     });
   }

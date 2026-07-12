@@ -320,6 +320,14 @@ function buildPrimeReadyDiagnostics(
       retryable: false,
     });
   }
+  if (routeMeta?.filteredOrphanVectorCount !== undefined) {
+    diagnostics.push({
+      code: 'prime-orphan-vector-filtered',
+      severity: 'info',
+      message: `${routeMeta.filteredOrphanVectorCount} stale vector candidate(s) were excluded by the request-scoped knowledge database.`,
+      retryable: false,
+    });
+  }
   if (hasSemanticRegionVectorEvidence(regionEvidence)) {
     diagnostics.push({
       code: 'prime-region-vector-evidence-used',

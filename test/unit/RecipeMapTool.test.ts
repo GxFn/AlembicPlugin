@@ -245,9 +245,7 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
       output.diagnostics.filter((diagnostic) => diagnostic.code === 'recipe-context-unresolved')
     ).toHaveLength(1);
     expect(output.nextActions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ tool: 'alembic_rescan', required: false }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ tool: 'alembic_rescan', required: false })])
     );
     expect(JSON.stringify(output.nextActions)).toContain('source-ref');
   });
@@ -296,6 +294,48 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     } finally {
       db.close();
     }
+  });
+
+  test('keeps drifted refs mounted as existing files with deduped drift diagnostics', async () => {
+    const projectRoot = createFixtureProject();
+    expect(normalizeRecipeRef('r-drift-a', 'lib/index.ts:330', 'drifted')).toMatchObject({
+      filePath: 'lib/index.ts',
+      startLine: 330,
+      endLine: 330,
+      status: 'drifted',
+    });
+
+    const output = await defaultRecipeMapProvider.resolveRecipeMap(request(projectRoot, 'module'), {
+      ...fakeDeps(),
+      listRecipes: async () => [
+        { id: 'r-drift-a', title: 'Drifted A', tags: [], sources: [] },
+        { id: 'r-drift-b', title: 'Drifted B', tags: [], sources: [] },
+      ],
+      querySourceRefs: async () => ({
+        diagnostics: [],
+        rows: [
+          { recipeId: 'r-drift-a', sourcePath: 'lib/index.ts:330', status: 'drifted' },
+          { recipeId: 'r-drift-a', sourcePath: 'lib/index.ts:330-330', status: 'drifted' },
+          { recipeId: 'r-drift-b', sourcePath: 'lib/index.ts:330', status: 'drifted' },
+        ],
+      }),
+    });
+
+    const mounts = new Map(output.recipeMounts.map((mount) => [mount.recipeId, mount]));
+    expect(mounts.get('r-drift-a')).toMatchObject({
+      mountNodeId: 'file:lib/index.ts',
+      mountType: 'source-line',
+    });
+    expect(mounts.get('r-drift-b')).toMatchObject({
+      mountNodeId: 'file:lib/index.ts',
+      mountType: 'source-line',
+    });
+    expect(output.diagnostics.filter((item) => item.code === 'recipe-unresolved-ref')).toEqual([]);
+    expect(output.diagnostics.filter((item) => item.code === 'recipe-drifted-ref')).toHaveLength(2);
+    expect(output.nextActions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ tool: 'alembic_rescan', required: false })])
+    );
+    expect(output.status).toBe('partial');
   });
 
   test('mounts use only source refs + metadata, with no semantic markers or full Recipe body', async () => {

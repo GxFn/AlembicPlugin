@@ -83,6 +83,9 @@ export async function search(ctx: McpContext, args: SearchArgs = {}) {
       semanticUsed: route.semanticUsed,
       vectorUsed: route.vectorUsed,
       ...(route.fallbackReason ? { fallbackReason: route.fallbackReason } : {}),
+      ...(route.filteredOrphanVectorCount === undefined
+        ? {}
+        : { filteredOrphanVectorCount: route.filteredOrphanVectorCount }),
       query: query || null,
       totalResults: typeof response.total === 'number' ? response.total : items.length,
       requestProjectIdentity: identity,
@@ -100,6 +103,15 @@ export async function search(ctx: McpContext, args: SearchArgs = {}) {
         code: 'search-keyword-fallback',
         severity: 'info',
         message: 'Semantic/vector search was unavailable; the request used the keyword fallback.',
+        domain: 'knowledge',
+        retryable: false,
+      });
+    }
+    if (route.filteredOrphanVectorCount !== undefined) {
+      diagnostics.push({
+        code: 'search-orphan-vector-filtered',
+        severity: 'info',
+        message: `${route.filteredOrphanVectorCount} stale vector candidate(s) were excluded by the request-scoped knowledge database.`,
         domain: 'knowledge',
         retryable: false,
       });
@@ -236,6 +248,7 @@ function publicSearchRoute(
   const vectorUsed = meta?.vectorUsed === true;
   const semanticUsed = meta?.semanticUsed === true || vectorUsed;
   const fallbackReason = normalizePublicFallbackReason(meta?.fallbackReason);
+  const filteredOrphanVectorCount = boundedPositiveCount(meta?.filteredOrphanVectorCount);
   return {
     requestedMode,
     actualMode,
@@ -243,11 +256,18 @@ function publicSearchRoute(
     vectorUsed,
     semanticUsed,
     fallbackReason,
+    filteredOrphanVectorCount,
     degraded:
       meta?.degraded === true ||
       (requestedMode === 'semantic' && !vectorUsed && Boolean(fallbackReason)),
     resultCount,
   };
+}
+
+function boundedPositiveCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.min(10_000, Math.floor(value))
+    : undefined;
 }
 
 function normalizePublicFallbackReason(value: unknown): string | undefined {

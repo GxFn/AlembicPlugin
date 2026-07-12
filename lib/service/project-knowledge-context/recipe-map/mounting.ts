@@ -8,7 +8,13 @@
  */
 import type { ProjectContextRegion, RecipeMountType, RegionNode } from '../contracts/index.js';
 
-export type RecipeRefStatus = 'active' | 'stale' | 'renamed' | 'unresolved' | 'metadata-only';
+export type RecipeRefStatus =
+  | 'active'
+  | 'drifted'
+  | 'stale'
+  | 'renamed'
+  | 'unresolved'
+  | 'metadata-only';
 
 /** A recipe_source_refs row (subset the mounting engine reads). */
 export interface RecipeSourceRefRow {
@@ -65,6 +71,7 @@ export interface MountDiagnostic {
 
 const REF_STATUS_VALUES = new Set<RecipeRefStatus>([
   'active',
+  'drifted',
   'stale',
   'renamed',
   'unresolved',
@@ -292,8 +299,21 @@ export function selectMountTarget(
 ): { decision: MountDecision; diagnostics: MountDiagnostic[] } {
   const diagnostics: MountDiagnostic[] = [];
   const codeRefs = refs.filter((ref) => ref.filePath);
-  const liveRefs = codeRefs.filter((ref) => ref.status === 'active' || ref.status === 'renamed');
+  const liveRefs = codeRefs.filter(
+    (ref) => ref.status === 'active' || ref.status === 'drifted' || ref.status === 'renamed'
+  );
   const degraded = codeRefs.filter((ref) => ref.status === 'stale' || ref.status === 'unresolved');
+
+  for (const ref of codeRefs.filter((candidate) => candidate.status === 'drifted')) {
+    diagnostics.push({
+      code: 'recipe-drifted-ref',
+      severity: 'warning',
+      message: `Recipe ${recipe.id} source ref still resolves to a file, but its anchored content drifted: ${ref.raw}`,
+      recipeId: recipe.id,
+      ...(ref.filePath ? { path: ref.filePath } : {}),
+      retryable: false,
+    });
+  }
 
   for (const ref of degraded) {
     diagnostics.push({
