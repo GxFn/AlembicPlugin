@@ -50,8 +50,8 @@ export interface AcceptedPrimeKnowledge {
   matchedRegionClasses: string[];
   trustEvidence: PrimeAcceptedKnowledgeTrustEvidence;
   usefulSlices: PrimeUsefulSlice[];
-  /** D5:item 级源锚聚合态(search 面 P1 同源)——任一锚点漂移即 'drifted'。
-   *  仅标注透传,不改信任分层与分数;采信判断交给宿主使用现场。 */
+  /** item 级源锚聚合态——任一锚点漂移即 'drifted'；漂移项只能作为
+   *  requires-verification 候选，不能进入公开 accepted/trusted 材料。 */
   sourceRefStatus?: 'active' | 'drifted';
 }
 
@@ -1271,7 +1271,7 @@ function projectAcceptedKnowledge(
     matchedRegionClasses: collectMatchedRegionClasses(selectedKnowledge),
     trustEvidence,
     usefulSlices,
-    // D5:drift 标注透传(search 面 P1 同源聚合态)——不改信任分层,宿主自判。
+    // 保留源锚聚合态供验证层投影；信任门会在本投影进入 accepted 集合前排除漂移项。
     ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
   };
 }
