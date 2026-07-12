@@ -12,6 +12,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import migrate001 from '@alembic/core/infrastructure/database/migrations/001_initial_schema';
+import migrate011 from '@alembic/core/infrastructure/database/migrations/011_guard_violations_attribution';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getProjectRuntimeControlStatePath } from '#host-runtime/context/HostProjectAlignment.js';
 import HostMcpServer, {
@@ -149,6 +152,35 @@ describe('MCP entrypoint effects stay inside declared boundaries (AD6)', () => {
     })) as { status?: string };
 
     expect(result.status).toBeTruthy();
+    expect(captureProjectReadInputs(projectRoot)).toEqual(before);
+  });
+
+  it('clean Code Guard uses a request snapshot and preserves its live DB family byte-for-byte', async () => {
+    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-home-'));
+    process.env.ALEMBIC_HOME = sandboxHome;
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ad6-guard-project-'));
+    const dataDir = path.join(projectRoot, '.asd');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'recipes'), { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'Alembic', 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'config.json'), '{}\n');
+    const db = new Database(path.join(dataDir, 'alembic.db'));
+    migrate001(db);
+    migrate011(db);
+    db.close();
+    fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"ad6-guard"}\n');
+    fs.writeFileSync(path.join(projectRoot, 'index.ts'), 'export const guarded = true;\n');
+    const before = captureProjectReadInputs(projectRoot);
+
+    const server = new HostMcpServer({ projectRoot });
+    const result = (await server.handleToolCall('alembic_code_guard', {
+      files: ['index.ts'],
+      inputSource: 'host-declared-intent',
+      operation: 'review',
+      projectRoot,
+    })) as { status?: string };
+
+    expect(result.status).toBe('ready');
     expect(captureProjectReadInputs(projectRoot)).toEqual(before);
   });
 

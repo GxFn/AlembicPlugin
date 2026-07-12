@@ -2131,6 +2131,47 @@ describe('agent-facing active public tools', () => {
     expect(auditFile).not.toHaveBeenCalled();
   });
 
+  test('preserves an explicit out-of-root path through per-path guard coverage', async () => {
+    const ctx = makeContext(undefined, {
+      guardCheckEngine: {
+        auditFile: vi.fn(),
+        auditFiles: vi.fn(),
+        checkCode: vi.fn(),
+        getRules: vi.fn(() => []),
+        injectExternalRules: vi.fn(),
+        isEpInjected: () => true,
+      },
+    });
+    ctx.container.singletons = { _projectRoot: process.cwd() };
+
+    const result = publicToolLegacyTestView(
+      await codeGuardHandler(ctx, {
+        files: ['/tmp/__wakeflow_guard_outside__.ts'],
+        inputSource: 'host-declared-intent',
+        operation: 'review',
+      })
+    ) as {
+      data: {
+        guard: {
+          coverage: { outOfRoot: number; requested: number };
+          verdict: string;
+        };
+        result: { reason: { code: string }; status: string };
+      };
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.data.result).toMatchObject({
+      reason: { code: 'guard-scope-invalid' },
+      status: 'blocked',
+    });
+    expect(result.data.guard).toMatchObject({
+      coverage: { outOfRoot: 1, requested: 1 },
+      verdict: 'blocked',
+    });
+  });
+
   test('blocks code guard when workRef scope is missing from the active session', async () => {
     const ctx = makeContext();
     const result = publicToolLegacyTestView(
