@@ -43,6 +43,9 @@ function createCtx() {
         throw new Error(`not registered in test ctx: ${name}`);
       },
     },
+    projectRuntime: {
+      identity: { projectRoot: '/virtual' },
+    },
   } as unknown as Parameters<typeof guardCheck>[0];
 }
 

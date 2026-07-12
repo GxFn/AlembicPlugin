@@ -31,7 +31,6 @@ import {
 } from '../../lib/host-runtime/mcp/HostMcpServer.js';
 import { workStartHandler } from '../../lib/host-runtime/mcp/handlers/agent-public-tools.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
-import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
 
 const tempRoots: string[] = [];
 const ORIGINAL_ENV: Record<string, string | undefined> = {
@@ -119,44 +118,6 @@ describe('RC-7 cc host runtime — identity & runtime context', () => {
   });
 });
 
-describe('RC-7 cc host runtime — project root discovery', () => {
-  test('cc resolveProjectRoot trusts CLAUDE_PROJECT_DIR (cc workspace no longer fail-closed)', () => {
-    const projectDir = tempDir('alembic-cc-projroot-');
-    const resolution = ccAdapter().resolveProjectRoot({
-      env: {
-        CLAUDE_PROJECT_DIR: projectDir,
-        [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot,
-      },
-    });
-    expect(resolution.source).toBe('CLAUDE_PROJECT_DIR');
-    expect(resolution.trust).toBe('trusted');
-    expect(resolution.rejected).toBe(false);
-    expect(resolution.path).toBe(projectDir);
-  });
-
-  test('cc resolveProjectRoot falls back (untrusted) without an explicit/host project source', () => {
-    // No CLAUDE_PROJECT_DIR / ALEMBIC_PROJECT_DIR → only cwd/PWD fallback candidates.
-    const resolution = ccAdapter().resolveProjectRoot({
-      env: {
-        [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot,
-        PWD: tempDir('alembic-cc-pwd-'),
-      },
-    });
-    expect(resolution.trust).not.toBe('trusted');
-  });
-
-  test('explicit projectRoot is trusted on the cc path', () => {
-    const projectDir = tempDir('alembic-cc-explicit-');
-    const resolution = ccAdapter().resolveProjectRoot({
-      projectRoot: projectDir,
-      env: { [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot },
-    });
-    expect(resolution.trust).toBe('trusted');
-    expect(resolution.source).toBe('explicit-option');
-    expect(resolution.path).toBe(projectDir);
-  });
-});
-
 describe('RC-7 cc host runtime — persistence round-trips via the cc adapter', () => {
   test('cc adapter writes then reads an init marker for a project', () => {
     useTempHome();
@@ -177,17 +138,6 @@ describe('RC-7 cc host runtime — persistence round-trips via the cc adapter', 
     expect(read?.initializedBy).toBe('alembic_init');
     // On-disk marker profile stays the persistence-frozen value (cc reuses it; DH-5/CC3).
     expect(read?.profile).toBe(written.profile);
-  });
-
-  test('cc adapter writes then reads a saved project-root marker', () => {
-    useTempHome();
-    const projectDir = tempDir('alembic-cc-saved-');
-    const adapter = ccAdapter();
-
-    const saved = adapter.writeSavedProjectRoot(projectDir);
-    expect(saved.projectRoot).toBe(projectDir);
-    const read = adapter.readSavedProjectRoot();
-    expect(read?.projectRoot).toBe(projectDir);
   });
 });
 
@@ -210,21 +160,6 @@ describe('RC-7 cross-host parity — codex vs claude-code', () => {
     expect(cc.runtimeMode).toBe(codex.runtimeMode);
   });
 
-  test('both adapters resolve the same explicit project root identically (host-agnostic resolution)', () => {
-    const projectDir = tempDir('alembic-parity-projroot-');
-    const codex = codexAdapter().resolveProjectRoot({
-      projectRoot: projectDir,
-      env: { [CODEX_PLUGIN_ROOT_ENV]: shellRoots().codexShellRoot },
-    });
-    const cc = ccAdapter().resolveProjectRoot({
-      projectRoot: projectDir,
-      env: { [CODEX_PLUGIN_ROOT_ENV]: shellRoots().claudeShellRoot },
-    });
-    expect(cc.path).toBe(codex.path);
-    expect(cc.trust).toBe(codex.trust);
-    expect(cc.source).toBe(codex.source);
-  });
-
   test('only L3 selects the host: same factory returns CodexHostAdapter vs ClaudeCodeHostAdapter by shell shape', () => {
     expect(codexAdapter()).toBeInstanceOf(CodexHostAdapter);
     expect(ccAdapter()).toBeInstanceOf(ClaudeCodeHostAdapter);
@@ -236,7 +171,10 @@ describe('RC-7 cross-host parity — codex vs claude-code', () => {
 // HostMcpServer integration: construct the real MCP entry on each shell (it resolves
 // its L3 adapter from process.env at construction, exactly as in production) and drive
 // a real tool dispatch through the cc path.
-type StatusResult = { success: boolean; data: { initialized: boolean; project: { root: string } } };
+type StatusResult = {
+  success: boolean;
+  data: { initialized: boolean; project: { projectRoot: string } };
+};
 
 async function dispatchStatusOnShell(
   shellRoot: string,
@@ -254,7 +192,7 @@ describe('RC-7 cc host runtime — HostMcpServer cc path + dispatch parity', () 
     const projectRoot = tempDir('alembic-cc-server-');
     const result = await dispatchStatusOnShell(shellRoots().claudeShellRoot, projectRoot);
 
-    expect(result.data.project.root).toBe(projectRoot);
+    expect(result.data.project.projectRoot).toBe(projectRoot);
   });
 
   test('codex and cc HostMcpServer return parity status for the same project (host-agnostic dispatch)', async () => {
@@ -267,8 +205,8 @@ describe('RC-7 cc host runtime — HostMcpServer cc path + dispatch parity', () 
     // The MCP dispatch + status projection is host-agnostic: same project → same view.
     expect(cc.success).toBe(codex.success);
     expect(cc.data.initialized).toBe(codex.data.initialized);
-    expect(cc.data.project.root).toBe(codex.data.project.root);
-    expect(cc.data.project.root).toBe(projectRoot);
+    expect(cc.data.project.projectRoot).toBe(codex.data.project.projectRoot);
+    expect(cc.data.project.projectRoot).toBe(projectRoot);
   });
 });
 
@@ -296,34 +234,7 @@ async function resolvedAgentHost(args: Record<string, unknown> = {}): Promise<un
   return readAgentHost(out);
 }
 
-describe('DH-7 — omitted agentHost defaults from the runtime pluginHost (F1)', () => {
-  const primeBaseInput = {
-    capability: 'MCP runtime',
-    integrationBoundary: 'MCP tool',
-    projectRoot: '/tmp/project',
-    requirementGoal: 'Implement the prime gate',
-    taskAction: 'implement' as const,
-  };
-
-  test('schema: alembic_prime input no longer hardcodes agentHost (omittable; was default codex)', () => {
-    const parsed = TOOL_SCHEMAS.alembic_prime.safeParse(primeBaseInput);
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      // Was `.default('codex')` → would have been 'codex' here; now optional → undefined,
-      // so the handler resolves it from the runtime pluginHost instead.
-      expect(parsed.data.agentHost).toBeUndefined();
-    }
-  });
-
-  test('schema: explicit agentHost is accepted, a non-host label still rejected (AGENT_HOSTS unchanged)', () => {
-    expect(
-      TOOL_SCHEMAS.alembic_prime.safeParse({ ...primeBaseInput, agentHost: 'claude-code' }).success
-    ).toBe(true);
-    expect(
-      TOOL_SCHEMAS.alembic_prime.safeParse({ ...primeBaseInput, agentHost: 'not-a-host' }).success
-    ).toBe(false);
-  });
-
+describe('DH-7 — work lifecycle host identity follows the runtime shell', () => {
   test('cc runtime + omitted agentHost → resolves claude-code', async () => {
     process.env[CODEX_PLUGIN_ROOT_ENV] = shellRoots().claudeShellRoot;
     delete process.env.ALEMBIC_PLUGIN_HOST;

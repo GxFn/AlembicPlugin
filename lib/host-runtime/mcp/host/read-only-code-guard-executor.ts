@@ -1,5 +1,5 @@
-import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { GuardCheckEngine } from '@alembic/core/guard';
 import Database from 'better-sqlite3';
 import ConfigLoader from '../../../infrastructure/config/AppConfigLoader.js';
@@ -9,6 +9,8 @@ import {
   persistCodeGuardEffects,
 } from '../../../repository/guard/CodeGuardEffectRepository.js';
 import { createReadOnlyCodeGuardRepositories } from '../../../repository/guard/ReadOnlyCodeGuardServices.js';
+import { CodeGuardInput } from '../../../shared/schemas/mcp-tools.js';
+import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { codeGuardHandler } from '../handlers/agent-public-tools.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
 import {
@@ -16,6 +18,7 @@ import {
   auxiliaryErrorMessage,
 } from './code-guard-auxiliary-failure.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
+import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
 import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
 
 /**
@@ -34,12 +37,16 @@ export async function executeReadOnlyCodeGuard(
     throw new Error('Request-scoped ProjectRuntimeContext is required for Code Guard.');
   }
   const identity = projectRuntime.identity;
+  CodeGuardInput.parse(args);
   const projectRoot = realpathSync.native(
     resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'))
   );
   const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
   const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  const physicalIdentity = resolveCodeGuardPhysicalDatabaseIdentity(databasePath, dataRoot);
+  if (!existsSync(databasePath)) {
+    return createKnowledgeUnavailableResult('alembic_code_guard', projectRuntime);
+  }
+  const physicalIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
 
   const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
@@ -125,7 +132,7 @@ async function flushGuardEffects(
     return null;
   }
   try {
-    const currentIdentity = resolveCodeGuardPhysicalDatabaseIdentity(databasePath, dataRoot);
+    const currentIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
     if (currentIdentity.databasePath !== expectedPhysicalDatabasePath) {
       throw new Error(
         `Code Guard database identity changed before effect persistence: expected=${expectedPhysicalDatabasePath}, actual=${currentIdentity.databasePath}.`
@@ -173,29 +180,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function isWithin(filePath: string, root: string): boolean {
-  const rel = relative(root, filePath);
-  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-}
-
-export function resolveCodeGuardPhysicalDatabaseIdentity(
-  databasePath: string,
-  dataRoot: string
-): { dataRoot: string; databasePath: string } {
-  const physicalDataRoot = realpathSync.native(dataRoot);
-  lstatSync(databasePath);
-  const physicalDatabasePath = realpathSync.native(databasePath);
-  if (!isWithin(physicalDatabasePath, physicalDataRoot)) {
-    throw new Error(
-      `Code Guard database physical identity mismatch: database=${physicalDatabasePath}, dataRoot=${physicalDataRoot}.`
-    );
-  }
-  if (!statSync(physicalDatabasePath).isFile()) {
-    throw new Error(`Code Guard database is not a regular file: ${physicalDatabasePath}.`);
-  }
-  return { dataRoot: physicalDataRoot, databasePath: physicalDatabasePath };
 }
 
 function requireIdentityPath(value: string | null, field: string): string {

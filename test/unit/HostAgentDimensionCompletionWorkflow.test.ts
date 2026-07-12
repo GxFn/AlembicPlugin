@@ -8,15 +8,15 @@ import {
 import { ALEMBIC_MANAGED_GUIDANCE_BEGIN, pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  CODEX_PLUGIN_ROOT_ENV,
-  resolveHostRuntimeContext,
-} from '../../lib/host-runtime/context/RuntimeContext.js';
-import {
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,
   runHostAgentDimensionCompletionWorkflow,
 } from '#recipe-pipeline/generate/dimension-completion.js';
 import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
+import {
+  CODEX_PLUGIN_ROOT_ENV,
+  resolveHostRuntimeContext,
+} from '../../lib/host-runtime/context/RuntimeContext.js';
 
 const tempRoots: string[] = [];
 const ORIGINAL_PLUGIN_HOST = process.env.ALEMBIC_PLUGIN_HOST;
@@ -665,7 +665,11 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
       ],
     };
 
-    const first = await runHostAgentDimensionCompletionWorkflow(createContext(), args, dependencies);
+    const first = await runHostAgentDimensionCompletionWorkflow(
+      createContext(),
+      args,
+      dependencies
+    );
     const second = await runHostAgentDimensionCompletionWorkflow(
       createContext(),
       args,
@@ -717,7 +721,8 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
     expect(agentGuidance).toContain(ALEMBIC_MANAGED_GUIDANCE_BEGIN);
     expect(agentGuidance).toContain("grounded in THIS project's own code");
     expect(
-      fs.lstatSync(path.join(projectRoot, '.agents', 'skills', 'alembic-recipes', 'SKILL.md'))
+      fs
+        .lstatSync(path.join(projectRoot, '.agents', 'skills', 'alembic-recipes', 'SKILL.md'))
         .isSymbolicLink()
     ).toBe(true);
     expect(fs.existsSync(path.join(projectRoot, '.claude', 'skills', 'alembic-recipes'))).toBe(
@@ -756,7 +761,8 @@ describe('HostAgentDimensionCompletionWorkflow', () => {
       ALEMBIC_MANAGED_GUIDANCE_BEGIN
     );
     expect(
-      fs.lstatSync(path.join(projectRoot, '.claude', 'skills', 'alembic-recipes', 'SKILL.md'))
+      fs
+        .lstatSync(path.join(projectRoot, '.claude', 'skills', 'alembic-recipes', 'SKILL.md'))
         .isSymbolicLink()
     ).toBe(true);
     expect(fs.existsSync(path.join(projectRoot, '.agents', 'skills', 'alembic-recipes'))).toBe(
@@ -1120,6 +1126,7 @@ function createContext(
       get: () => null,
       ...overrides,
     },
+    projectRuntime: { identity: { dataRoot } },
   } as HostAgentDimensionCompletionContext;
 }
 

@@ -64,11 +64,6 @@ import type AuditLogger from '../infrastructure/audit/AuditLogger.js';
 import type AuditStore from '../infrastructure/audit/AuditStore.js';
 import type { RecipeEmbeddingSimProviderHandle } from '../recipe-pipeline/vector/recipe-embedding-sim-provider.js';
 import type { ModuleService } from '../service/module/ModuleService.js';
-import type {
-  AlembicResidentCapabilityClients,
-  ResidentSearchClient,
-} from '../service/resident/AlembicResidentCapabilityClients.js';
-import type { AlembicResidentServiceClient } from '../service/resident/AlembicResidentServiceClient.js';
 import type { SkillHooks } from '../service/skills/SkillHooks.js';
 import type { PrimeSearchPipeline } from '../service/task/PrimeSearchPipeline.js';
 
@@ -115,9 +110,6 @@ export interface ServiceMap {
   feedbackCollector: FeedbackCollector;
   tokenUsageStore: TokenUsageStore;
   moduleService: ModuleService;
-  residentCapabilityClients: AlembicResidentCapabilityClients;
-  residentSearchClient: ResidentSearchClient;
-  residentServiceClient: AlembicResidentServiceClient;
   primeSearchPipeline: PrimeSearchPipeline;
 
   // ═══ KnowledgeModule ═══

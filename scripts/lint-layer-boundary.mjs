@@ -28,20 +28,10 @@ const L1_DIRS = ['lib/service', 'lib/recipe-pipeline'];
 // whole L2 host-runtime tree; the direction axiom L1 -> L2 is forbidden except the allowlist).
 const PATTERN = "from '([^']*lib/host-runtime/|#host-runtime/)";
 
-// W5-f P3 residual allowlist (decision (6)b): two host-facts builders consumed by generate
-// workflows at result-assembly time. They read host-global runtime-control state / weave the
-// plugin tool-surface catalog — genuinely host-runtime semantics, not movable into L1.
-// Follow-up route: inject as optional hostFacts ports from the mcp handler layer (DI).
+// Narrow host-boundary ports that are still consumed by L1 workflows.
 const ALLOWLIST = [
-  'lib/recipe-pipeline/generate/cold-start.ts:.*buildLocalSelectionMismatch',
   'lib/recipe-pipeline/generate/cold-start.ts:.*buildColdStartOnboardingContract',
-  'lib/recipe-pipeline/generate/knowledge-rescan.ts:.*buildLocalSelectionMismatch',
-  // P2 WS-2: Project Skill export must resolve the per-host runtime root via L3
-  // HostAdapter while keeping the actual host-name split inside adapter implementations.
   'lib/service/skills/ProjectSkillDelivery.ts:.*#host-runtime/host-adapter/resolveHostAdapter',
-  // type-only bridge (no runtime coupling): resident client surfaces the host-runtime status
-  // shape in its API. Follow-up: sink HostRuntimeStatus into lib/types or a Core contract.
-  'lib/service/resident/AlembicResidentServiceClient.ts:.*import type \\{ HostRuntimeStatus \\}',
 ];
 
 const result = execSync(

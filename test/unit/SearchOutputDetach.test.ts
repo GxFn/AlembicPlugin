@@ -26,7 +26,7 @@ describe('alembic_search detach + alembic_knowledge retire (GMAP-8b)', () => {
       toolName: 'alembic_search' as const,
       operation: 'search' as const,
       summary: 'Knowledge search returned 2 of 3 direct match(es).',
-      result: { mode: 'auto', residentSearch: { attempted: true, available: true, used: true } },
+      result: { mode: 'auto', totalResults: 2 },
       inventory: { matchedCount: 3, returnedCount: 2 },
       items: [{ id: 'recipe-a' }, { id: 'recipe-b' }],
       detailRefs: [{ id: 'recipe:recipe-a', kind: 'recipe' }],
@@ -49,8 +49,7 @@ describe('alembic_search detach + alembic_knowledge retire (GMAP-8b)', () => {
     const parsed = AlembicSearchOutputSchema.parse(output);
     expect(parsed.toolName).toBe('alembic_search');
     expect(parsed.meta.outputSchema).toBe('AlembicSearchOutput');
-    // result/inventory are loose passthroughs so resident-search evidence survives.
-    expect(parsed.result?.residentSearch).toMatchObject({ available: true });
+    expect(parsed.result?.totalResults).toBe(2);
 
     const mcpResult = createAlembicSearchMcpResult(output) as {
       content: Array<{ text: string }>;
@@ -64,12 +63,12 @@ describe('alembic_search detach + alembic_knowledge retire (GMAP-8b)', () => {
     expect(searchSource).not.toContain('defaultProjectKnowledgeContextLayer');
     expect(searchSource).not.toContain('resolveMcpResult(');
     expect(searchSource).toContain('createAlembicSearchMcpResult');
-    expect(searchSource).toContain('projectAlembicSearchOutput');
+    expect(searchSource).toContain('requestProjectIdentity');
   });
 
-  test('search handler keeps the resident search path and never calls another MCP handler', () => {
-    // Resident search execution is preserved (only the output projection changed).
-    expect(searchSource).toContain('residentSearch');
+  test('search handler stays pure local and never calls another MCP handler', () => {
+    expect(searchSource).toContain("ctx.container.get('knowledgeService')");
+    expect(searchSource).not.toContain('resident' + 'Search');
     for (const handler of [
       'routeGraphTool',
       'routeRecipeMapTool',

@@ -6,9 +6,8 @@
 |---|---|
 | `mcp/` | MCP 协议壳+工具 handlers(HostMcpServer 入口;handlers 按工具族一文件一族) |
 | `host-adapter/` | 宿主适配(codex/claude-code 判定与差异面) |
-| `context/` | 运行时身份/环境/对齐事实(RuntimeContext/ProjectRuntimeContext/ProjectRootResolver/HostProjectAlignment/PluginRegistry/ModuleBoundary/JobContext/EmbeddedRuntimeContract) |
-| `status/` | alembic_status 摘要面(StatusService/OnboardingContract/EnhancementRoute/host-runtime-status) |
-| `diagnostics/` | 诊断与预检(Diagnostics/Preflight) |
-| `policy/` | 工具可见性/写来源/请求边界策略(ToolPolicy/SourceBoundary/ServiceRequestBoundary) |
+| `context/` | 请求级项目定位、运行时身份与嵌入执行契约(ProjectLocationService/ProjectRuntimeContext/ProjectRootResolver/RuntimeContext/EmbeddedRuntimeContract) |
+| `jobs/` | Plugin 本地长任务状态与产物存储(PluginJobStore) |
+| `status/` | 冷启动/重扫结果仍需的本地 onboarding 投影(OnboardingContract) |
 
-方向公理:L2(本层)→L1(service/recipe-pipeline) 单向;反向由 `scripts/lint-layer-boundary.mjs` 把门(白名单仅 host-facts 构建器 2 符号+1 条 type-only 桥,follow-up=DI 注入/类型下沉)。wire 冻结:MCP 工具名/载荷字段/`daemon` 载荷键/磁盘 daemon.json 族(见 AlembicCore/docs/wire-contract.md)。
+方向公理:L2(本层)→L1(service/recipe-pipeline) 单向;反向由 `scripts/lint-layer-boundary.mjs` 把门。项目身份只来自请求级 `ProjectLocationService`，MCP 工具名与载荷字段保持稳定。

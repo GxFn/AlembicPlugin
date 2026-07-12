@@ -68,42 +68,6 @@ export const KnowledgeContextBaseInputSchema = z
 // GMAP-8c: alembic_project_matrix and its input schema are retired (replaced by
 // alembic_recipe_map's own contract).
 
-export const PrimeOperationSchema = z.enum(['auto', 'matrix-first', 'search-first']);
-
-export const PrimeModeSchema = z.enum(['summary', 'working-set', 'guard-prep', 'decision-prep']);
-
-export const PrimeTaskActionSchema = z.enum([
-  'implement',
-  'fix',
-  'refactor',
-  'test-writing',
-  'test-repair',
-  'code-edit',
-  'code-review',
-]);
-
-const PrimeLocatorListSchema = z.array(z.string().min(1).max(240)).max(12);
-
-const PrimeContextBaseInputSchema = KnowledgeContextBaseInputSchema.omit({
-  intentRef: true,
-});
-
-export const PrimeInputSchema = PrimeContextBaseInputSchema.extend({
-  tool: z.literal('alembic_prime').optional(),
-  operation: PrimeOperationSchema.default('auto'),
-  primeMode: PrimeModeSchema.default('summary'),
-  taskAction: PrimeTaskActionSchema.optional(),
-  requirementGoal: z.string().min(1).max(1200).optional(),
-  scenario: z.string().min(1).max(240).optional(),
-  capability: z.string().min(1).max(240).optional(),
-  domainObjects: PrimeLocatorListSchema.optional(),
-  integrationBoundary: z.string().min(1).max(240).optional(),
-  lifecycleHint: z.string().min(1).max(240).optional(),
-  qualityConcerns: PrimeLocatorListSchema.optional(),
-  keywords: PrimeLocatorListSchema.optional(),
-  labels: PrimeLocatorListSchema.optional(),
-}).strict();
-
 export const KnowledgeSearchOperationSchema = z.enum(['search', 'get', 'expand']);
 
 export const KnowledgeSearchModeSchema = z.enum(['auto', 'keyword', 'semantic']);
@@ -187,6 +151,5 @@ export type KnowledgeContextProjectRelationType = z.infer<
   typeof KnowledgeContextProjectRelationTypeSchema
 >;
 export type KnowledgeContextBaseInput = z.infer<typeof KnowledgeContextBaseInputSchema>;
-export type PrimeInput = z.infer<typeof PrimeInputSchema>;
 export type KnowledgeSearchInput = z.infer<typeof KnowledgeSearchInputSchema>;
 export type ProjectGraphInput = z.infer<typeof ProjectGraphInputSchema>;

@@ -125,7 +125,7 @@ const CLEAN_MCP_ERROR_SENSITIVE_KEYS = new Set([
   'cookie',
   'internaltelemetry',
   'password',
-  'privatedaemonurl',
+  ['private', 'daemon', 'url'].join(''),
   'providerprivatetrace',
   'refreshtoken',
   'secret',

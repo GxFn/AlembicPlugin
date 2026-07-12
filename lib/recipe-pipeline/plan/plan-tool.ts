@@ -19,7 +19,6 @@ import {
 } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
-import { resolveScopeAwareWorkspace } from '../../shared/project-scope-runtime.js';
 import { confirmPlan } from './plan-confirm.js';
 
 interface PlanToolContext {
@@ -28,6 +27,7 @@ interface PlanToolContext {
     get(name: string): unknown;
     singletons?: Record<string, unknown>;
   };
+  projectRuntime?: { identity: { dataRoot: string } } | null;
 }
 
 interface PlanToolResponse {
@@ -218,7 +218,12 @@ async function buildPlanDraftContext(
 ): Promise<PlanDraftContext> {
   const budgetBytes = resolveProjectInfoTreeBudgetBytes(args);
   const projectInfoTree = buildProjectInfoTree(analysis, budgetBytes);
-  await attachScopeAwareFullProjectInfoTreeRefIfNeeded(projectInfoTree, analysis, projectRoot);
+  await attachScopeAwareFullProjectInfoTreeRefIfNeeded(
+    projectInfoTree,
+    analysis,
+    projectRoot,
+    requireRequestDataRoot(ctx)
+  );
   // U2b：deepMining 草稿每次都「重新读」账本生成覆盖信号；coldStart/moduleMining 不读（coldStart 仍从零）。
   // RED LINE 1：plan 仍是无状态 draft→confirm，账本只是被读取的覆盖状态，绝不把 plan 持久化。
   const coverageSeed =
@@ -284,9 +289,9 @@ function planDraftResponse(draftContext: PlanDraftContext): PlanToolResponse {
 async function attachScopeAwareFullProjectInfoTreeRefIfNeeded(
   projectInfoTree: ProjectInfoTreeRoot,
   analysis: PlanProjectContextAnalysis,
-  projectRoot: string
+  projectRoot: string,
+  dataRoot: string
 ): Promise<void> {
-  const dataRoot = resolveScopeAwareWorkspace(projectRoot).dataRoot;
   const location = { dataRoot, name: 'plan-tree', projectRoot };
   if (!hasProjectInfoTreeOmissions(projectInfoTree.meta)) {
     await removeTransientTransportIfPresent(location);
@@ -304,6 +309,14 @@ async function attachScopeAwareFullProjectInfoTreeRefIfNeeded(
     projectInfoTree.meta.budgetBytes,
     countDeliveredProjectInfoNodes(fullTree)
   );
+}
+
+function requireRequestDataRoot(ctx: PlanToolContext): string {
+  const dataRoot = ctx.projectRuntime?.identity.dataRoot;
+  if (!dataRoot) {
+    throw new Error('Request-scoped project runtime dataRoot is required.');
+  }
+  return dataRoot;
 }
 
 function buildDraftConfirmNextAction(draftContext: PlanDraftContext): Record<string, unknown> {

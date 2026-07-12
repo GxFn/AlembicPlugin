@@ -117,13 +117,12 @@ async function runStatusCases(context) {
       expect(structured.ok === true, 'status should be ok');
       expect(structured.status === 'ready', `status should be ready, got ${structured.status}`);
       expect(
-        structured.project?.root === projectRoot,
-        `status project.root mismatch: ${structured.project?.root}`
+        structured.project?.projectRoot === projectRoot,
+        `status project.projectRoot mismatch: ${structured.project?.projectRoot}`
       );
-      expect(structured.daemon?.status === 'stopped', 'daemon-less runtime should report stopped');
       return {
         initialized: structured.initialized === true,
-        knowledgeUsable: structured.knowledge?.usable === true,
+        knowledgeUsable: structured.knowledge?.available === true,
         workspaceMode: structured.workspace?.mode ?? null,
       };
     },
@@ -173,11 +172,8 @@ async function runAgentLifecycleCases(context) {
     id: 'host/prime',
     toolName: 'alembic_prime',
     args: {
-      taskAction: 'implement',
-      requirementGoal: 'validate AlembicPlugin tools without real MCP transport',
-      capability: 'Codex plugin MCP tool validation',
-      integrationBoundary: 'in-process HostMcpServer tool call',
-      qualityConcerns: ['testing', 'contract fidelity'],
+      query: 'validate AlembicPlugin tools without real MCP transport',
+      context: 'in-process HostMcpServer tool call',
     },
     assert({ structured }) {
       expect(structured.ok === true, 'prime should return a clean ok response');

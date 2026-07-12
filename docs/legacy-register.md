@@ -65,18 +65,7 @@ RC4 execution (2026-06-11).
 
 ## Disposed entries
 
-### D1 — `LEGACY_DIRECT_CALL_COMPATIBILITY_TOOLS` (removed in RC4, 2026-06-11)
-
-- **Was**: `lib/host-runtime/mcp/tools.ts` — an always-empty array (plus derived
-  `LEGACY_DIRECT_CALL_COMPATIBILITY_TOOL_NAMES` Set) kept after the
-  `alembic_task` direct-call retirement, gated by a release probe asserting it
-  stayed empty.
-- **Disposition**: removed now — RC4 fresh 5-repo consumer scan found only the
-  definition and the probe assertion
-  (`scripts/probe-mcp-clean-output-final-cleanup.mjs`). The probe now asserts
-  the export does not reappear instead of asserting emptiness.
-
-### D2 — Plugin twin `_slimSearchItem` re-export (removed in RC4, 2026-06-11)
+### D1 — Plugin twin `_slimSearchItem` re-export (removed in RC4, 2026-06-11)
 
 - **Was**: `lib/host-runtime/mcp/handlers/search.ts` — deprecated backward-compat
   wrapper around `slimSearchResult` from `@alembic/core/search`.

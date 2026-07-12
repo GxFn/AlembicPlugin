@@ -857,6 +857,7 @@ function createContext(): McpContext {
       },
     },
     logger: silentLogger,
+    projectRuntime: { identity: { dataRoot: projectRoot } },
   } as unknown as McpContext;
 }
 

@@ -177,74 +177,19 @@ const AgentPublicToolBaseInput = z.object({
     .describe('Absolute target project root supplied by Codex host runtime'),
 });
 
-const PrimeTaskActionInput = z.enum([
-  'implement',
-  'fix',
-  'refactor',
-  'test-writing',
-  'test-repair',
-  'code-edit',
-  'code-review',
-]);
-const PrimeLocatorTextInput = z.string().min(1).max(240);
-const PrimeLocatorListInput = z.array(PrimeLocatorTextInput).max(12);
-
-const PrimePublicToolBaseInput = AgentPublicToolBaseInput.omit({
-  hostDeclaredIntent: true,
-  userQuery: true,
-});
-
-export const PrimeInput = PrimePublicToolBaseInput.extend({
-  taskAction: PrimeTaskActionInput.describe(
-    'Code-development action prime is being asked to support before code work'
-  ),
-  requirementGoal: z
-    .string()
-    .min(1)
-    .max(1200)
-    .describe('Concrete feature, fix, refactor, test, or code-review goal to prime for'),
-  scenario: PrimeLocatorTextInput.optional().describe(
-    'Requirement scenario or usage situation; counts as a prime locator facet'
-  ),
-  capability: PrimeLocatorTextInput.optional().describe(
-    'Capability or subsystem area; counts as a prime locator facet'
-  ),
-  domainObjects: PrimeLocatorListInput.optional().describe(
-    'Domain objects involved in the code task; counts as a prime locator facet'
-  ),
-  integrationBoundary: PrimeLocatorTextInput.optional().describe(
-    'API, MCP, daemon, storage, plugin, Core, host-agent, or other integration boundary'
-  ),
-  lifecycleHint: PrimeLocatorTextInput.optional().describe(
-    'Optional lifecycle or data-flow hint; does not replace a required locator facet'
-  ),
-  qualityConcerns: PrimeLocatorListInput.optional().describe(
-    'Quality concerns such as safety, concurrency, persistence, observability, or testing'
-  ),
-  labels: PrimeLocatorListInput.optional().describe('Curated short labels for this code task'),
-  keywords: PrimeLocatorListInput.optional().describe('Curated keyword hints for this code task'),
-})
-  .strict()
-  .superRefine((value, ctx) => {
-    const hasLocatorFacet = Boolean(
-      value.scenario?.trim() ||
-        value.capability?.trim() ||
-        (value.domainObjects?.length ?? 0) > 0 ||
-        value.integrationBoundary?.trim() ||
-        (value.qualityConcerns?.length ?? 0) > 0
-    );
-    if (!hasLocatorFacet) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['locatorFacets'],
-        message:
-          'alembic_prime requires at least one locator facet: capability, scenario, domainObjects, integrationBoundary, or qualityConcerns.',
-      });
-    }
+export const PrimeInput = z
+  .object({
+    projectRoot: z
+      .string()
+      .min(1)
+      .max(1200)
+      .optional()
+      .describe('Absolute target project root supplied by the host runtime'),
+    query: z.string().min(1).max(1200).optional().describe('Optional knowledge query'),
+    context: z.string().min(1).max(1200).optional().describe('Optional request context'),
   })
-  .describe(
-    'Standalone code-development Recipe priming. Requires taskAction, requirementGoal, and at least one locator facet; obsolete intentRef/recognizedIntent inputs are not supported.'
-  );
+  .strict()
+  .describe('Request-scoped Alembic Recipe and Guard priming. All fields are optional.');
 export type PrimeInput = z.infer<typeof PrimeInput>;
 
 const AgentRefIdInput = z.string().min(1).max(240);
@@ -793,7 +738,6 @@ export const SubmitKnowledgeItemSchema = z.object({
   headerPaths: z.array(z.string()).optional(),
   moduleName: z.string().optional(),
   includeHeaders: z.boolean().optional(),
-  source: z.string().optional(),
   unitId: z
     .string()
     .optional()
@@ -820,7 +764,6 @@ export const SubmitKnowledgeInput = z.object({
         '可选 unitId / analysisUnitIds / sourceRefs 用于 Host Agent analysis linkage；关系型声明应附 sourceGraphRefs/graphRefs；sourceRefs 可引用 package.json:1 等根文件；rule/pattern 的单文件正当例外请显式传 scope: "narrow" 或 "file-local"。'
     ),
   target_name: z.string().optional().describe('来源标识，如 network-module-scan'),
-  source: z.string().optional().describe('来源标记，默认 mcp'),
   skipConsolidation: z
     .boolean()
     .default(false)

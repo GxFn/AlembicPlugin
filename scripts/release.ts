@@ -235,7 +235,6 @@ function main() {
     if (checker.summary()) {
       info('\n运行 `npm run test` 来执行完整测试');
       info('运行 `npm run release:codex-plugin` 检查 Codex 插件 artifact 发布就绪状态');
-      info('如需 daemon smoke，运行 `npm run release:codex-plugin:daemon`');
       process.exit(0);
     } else {
       error('\n请修复错误后再试');

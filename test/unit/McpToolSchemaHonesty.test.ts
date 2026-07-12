@@ -149,7 +149,7 @@ describe('QD2 / PCI-2 retired source-graph public-surface honesty', () => {
 
     expect(result.success).toBe(false);
     expect(result.tool).toBe('alembic_symbol_search');
-    expect(result.data?.errorCode).toBe('CODEX_UNKNOWN_TOOL');
+    expect(result.errorCode).toBe('CODEX_UNKNOWN_TOOL');
     expect(result.message).toContain('Unknown Alembic tool');
   });
 });

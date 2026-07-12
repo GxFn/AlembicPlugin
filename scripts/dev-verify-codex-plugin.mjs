@@ -22,7 +22,7 @@ const report = {
       'local-jobstore-default-effective-identity',
     ],
     failureEnvelopePath: 'projectRuntime.failureEnvelopes',
-    sourcePolicyPath: 'projectRuntime.sourcePolicy',
+    projectLocationPath: 'projectRuntime.location',
     diagnosticsTool: 'alembic_status',
     statusTool: 'alembic_status',
   },
@@ -41,8 +41,7 @@ try {
         'vitest',
         'run',
         'test/unit/CodexProjectRootResolver.test.ts',
-        'test/unit/HostMcpServer.test.ts',
-        'test/unit/CodexToolPolicy.test.ts',
+        'test/unit/IndependentMcpProjectLocation.test.ts',
       ]);
     }
     if (!options.skipPrepare) {

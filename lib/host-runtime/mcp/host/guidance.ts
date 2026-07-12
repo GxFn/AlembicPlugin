@@ -1,8 +1,8 @@
 import {
+  AGENT_PUBLIC_TOOL_NAMES,
   HOST_AGENT_WORKFLOW_TOOL_NAMES,
   PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES,
-  TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES,
-} from '../../policy/ToolPolicy.js';
+} from './local-tool-catalog.js';
 
 interface GuidanceToolLike {
   description?: string;
@@ -38,9 +38,7 @@ export function buildMcpGuidance(tools: readonly GuidanceToolLike[]): McpGuidanc
   const visibleToolNameSet = new Set(visibleToolNames);
   const knowledgeTools = visibleToolNames.filter((name) => KNOWLEDGE_TOOL_NAMES.has(name));
   const guardTools = visibleToolNames.filter((name) => GUARD_TOOL_NAMES.has(name));
-  const lifecycleTools = visibleToolNames.filter((name) =>
-    TOOL_POLICY_AGENT_PUBLIC_TOOL_NAMES.has(name)
-  );
+  const lifecycleTools = visibleToolNames.filter((name) => AGENT_PUBLIC_TOOL_NAMES.has(name));
   const recoveryTools = visibleToolNames.filter((name) => RECOVERY_TOOL_NAMES.has(name));
   const validationTools = visibleToolNames.filter((name) => VALIDATION_TOOL_NAMES.has(name));
 

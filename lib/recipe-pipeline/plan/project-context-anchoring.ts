@@ -150,8 +150,7 @@ export function buildProjectContextCreationNextActions(
         'Prime task semantics when the candidate encodes a rule, pattern, boundary, or validation workflow.',
       argsTemplate: {
         ...projectRootArg,
-        taskAction: 'code-review',
-        requirementGoal: 'Ground a Recipe candidate in ProjectContext evidence before submission.',
+        query: 'Ground a Recipe candidate in ProjectContext evidence before submission.',
         integrationBoundary: 'ProjectContext-to-Recipe creation',
         qualityConcerns: ['source evidence', 'relationship refs', 'validation guidance'],
       },

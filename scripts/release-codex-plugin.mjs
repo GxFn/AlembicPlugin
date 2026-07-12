@@ -5,7 +5,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
-const shouldRunDaemon = process.argv.includes('--daemon');
 const shouldSkipBuild = process.argv.includes('--skip-build');
 const packageJson = readJson(join(root, 'package.json'));
 
@@ -50,21 +49,12 @@ const steps = [
     command: 'npm',
     args: ['run', 'smoke:codex-plugin'],
   },
-  ...(shouldRunDaemon
-    ? [
-        {
-          name: 'Smoke daemon startup and interrupted job recovery',
-          command: 'npm',
-          args: ['run', 'smoke:codex-plugin', '--', '--daemon'],
-        },
-      ]
-    : []),
 ];
 
 process.stdout.write(
   `Alembic Codex plugin release check (${packageJson.name}@${packageJson.version})\n`
 );
-process.stdout.write(`Daemon smoke: ${shouldRunDaemon ? 'enabled' : 'skipped'}\n\n`);
+process.stdout.write('Standalone MCP smoke enabled.\n\n');
 
 for (const [index, step] of steps.entries()) {
   const label = `${index + 1}/${steps.length} ${step.name}`;
@@ -80,11 +70,6 @@ for (const [index, step] of steps.entries()) {
 }
 
 process.stdout.write('Codex plugin release check passed.\n');
-if (!shouldRunDaemon) {
-  process.stdout.write(
-    'Optional: run npm run release:codex-plugin:daemon to include localhost daemon startup.\n'
-  );
-}
 
 function run(command, args) {
   const result = spawnSync(command, args, {

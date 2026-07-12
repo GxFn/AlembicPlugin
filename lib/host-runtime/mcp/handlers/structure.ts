@@ -4,7 +4,6 @@
  */
 
 import { LanguageService } from '@alembic/core/shared';
-import { resolveProjectRoot } from '@alembic/core/workspace';
 import { ModuleService } from '#service/module/ModuleService.js';
 import {
   createAlembicGraphMcpResult,
@@ -12,11 +11,7 @@ import {
   type ProjectGraphInput,
   ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
-import {
-  buildRetrievalCheckpointPosture,
-  resolveRetrievalCheckpointPostureInput,
-} from './retrieval-checkpoint-diagnostics.js';
-import type { McpContext } from './types.js';
+import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 // ─── Local Types ──────────────────────────────────────────
 
@@ -88,10 +83,8 @@ interface GraphArgs {
 // 同一 projectRoot 在模块生命期内只初始化一次
 let _moduleServiceCache: ModuleServiceCache | null = null;
 
-async function _getLoadedModuleService(ctx?: {
-  container?: { singletons?: { _projectRoot?: unknown } };
-}) {
-  const projectRoot = resolveProjectRoot(ctx?.container);
+async function _getLoadedModuleService(ctx: McpContext) {
+  const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
   if (_moduleServiceCache && _moduleServiceCache.projectRoot === projectRoot) {
     return _moduleServiceCache;
   }
@@ -189,33 +182,7 @@ function _inferTargetRole(targetName: string): string {
 export async function graph(ctx: McpContext, args: GraphArgs = {}) {
   const input = normalizeProjectGraphInput(ctx, args);
   const output = await defaultProjectGraphProvider.resolveAlembicGraph(input);
-  const checkpointPosture = buildRetrievalCheckpointPosture(
-    ctx.container,
-    resolveRetrievalCheckpointPostureInput(output.project.projectRoot)
-  );
-  return createAlembicGraphMcpResult({
-    ...output,
-    status:
-      checkpointPosture.retrievalMayBeStale && output.status === 'ready'
-        ? 'degraded'
-        : output.status,
-    summary: checkpointPosture.retrievalMayBeStale
-      ? `${output.summary} Source revision alignment is not current.`
-      : output.summary,
-    diagnostics: [
-      ...output.diagnostics,
-      ...checkpointPosture.diagnostics.map((diagnostic) => ({
-        code: diagnostic.code,
-        severity: diagnostic.severity,
-        message: diagnostic.message,
-        retryable: diagnostic.retryable,
-      })),
-    ],
-    meta: {
-      ...output.meta,
-      sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
-    },
-  });
+  return createAlembicGraphMcpResult(output);
 }
 
 // Deprecated operation-named entrypoints. Retained only as stale-input
@@ -238,7 +205,7 @@ export async function graphNeighborhood(ctx: McpContext, args: GraphArgs) {
 }
 
 function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGraphInput {
-  const containerProjectRoot = resolveProjectRoot(ctx?.container);
+  const containerProjectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
   const hostDeclaredIntent = readRecord(args.hostDeclaredIntent);
   const query = readString(args.query) ?? readString(hostDeclaredIntent?.query);
   // ProjectContext-shaped public anchors are normalized onto the provider's

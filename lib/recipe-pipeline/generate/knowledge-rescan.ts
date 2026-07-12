@@ -36,8 +36,7 @@ import {
   runRescanCleanPolicy,
 } from '@alembic/core/host-agent-workflows';
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
-import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { buildLocalSelectionMismatch } from '#host-runtime/context/HostProjectAlignment.js';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { buildHostAgentAnalysisSurface } from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 import {
@@ -95,6 +94,7 @@ interface McpContext {
     info(msg: string, meta?: Record<string, unknown>): void;
     warn(msg: string, meta?: Record<string, unknown>): void;
   };
+  projectRuntime?: { identity: { dataRoot: string } } | null;
   startedAt?: number;
   [key: string]: unknown;
 }
@@ -180,7 +180,6 @@ export async function runHostAgentGenerateIncrementalWorkflow(ctx: McpContext, a
         }) as Record<string, unknown> & { meta?: Record<string, unknown> },
         state.planGate
       );
-      attachHostProjectSelectionMismatch(response, state.projectRoot);
       return response;
     }
 
@@ -196,7 +195,7 @@ async function prepareRescanState(
   planGate: PlanGenerationGateReady
 ) {
   const projectRoot = resolveProjectRoot(ctx.container);
-  const dataRoot = resolveDataRoot(ctx.container);
+  const dataRoot = requireRequestDataRoot(ctx);
   const db = ctx.container.get('database');
   const intent = createHostAgentKnowledgeRescanIntent({
     ...args,
@@ -291,6 +290,14 @@ async function prepareRescanState(
     recipeSnapshot,
     unifiedEvolution,
   };
+}
+
+function requireRequestDataRoot(ctx: McpContext): string {
+  const dataRoot = ctx.projectRuntime?.identity.dataRoot;
+  if (!dataRoot) {
+    throw new Error('Request-scoped project runtime dataRoot is required.');
+  }
+  return dataRoot;
 }
 
 async function runRescanCleanup(input: {
@@ -1163,7 +1170,6 @@ async function buildRescanResponse(
   attachPlanGenerationGateData(response, state.planGate);
   attachRescanUnifiedEvolution(response, state.unifiedEvolution);
   attachTrashArchiveMessage(response, state.cleanResult);
-  attachHostProjectSelectionMismatch(response, state.projectRoot);
   attachCoverageLedgerSeedMeta(response, state.coverageLedgerSeed);
   // U2d：附覆盖账本收敛建议（ADVISORY）。放在预算化之前 → 建议进 response.data 并一起被预算。
   // 严格非阻断：绝不设任何 blocking/gate 标志、绝不自动触发再扫一轮——是否再扫由用户/宿主决定。
@@ -1609,9 +1615,6 @@ async function runRescanUnifiedEvolution(
       reason: routeError
         ? `${serviceGateReason} Routing did not complete: ${routeError}.`
         : serviceGateReason,
-      residentProjectScopeAvailable: false,
-      // UM#3：rescan public workflow 自己拥有 commit-driven 维护路由，从不去抖给 resident。
-      residentSearchEnhancementReady: false,
     },
     toolOutcome: {
       reason: 'alembic_rescan completed',
@@ -1845,16 +1848,6 @@ function attachTrashArchiveMessage(
     response.message =
       `📦 已清理的 candidates/wiki 投影归档到 .asd/.trash/${cleanResult.trash.folder.split(/[\\/]/).filter(Boolean).pop()}/` +
       `（${cleanResult.trash.movedItems} 项，可恢复）。${response.message ?? ''}`;
-  }
-}
-
-function attachHostProjectSelectionMismatch(
-  response: Record<string, unknown> & { meta?: Record<string, unknown> },
-  projectRoot: string
-) {
-  const mismatch = buildLocalSelectionMismatch(projectRoot);
-  if (mismatch) {
-    response.meta = { ...(response.meta ?? {}), hostProjectSelectionMismatch: mismatch };
   }
 }
 

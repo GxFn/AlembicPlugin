@@ -1,9 +1,4 @@
-import type {
-  InitMarker,
-  ProjectRootResolution,
-  ResolveProjectRootOptions,
-  SavedProjectRoot,
-} from '../context/ProjectRootResolver.js';
+import type { InitMarker } from '../context/ProjectRootResolver.js';
 import type { HostRuntimeContext } from '../context/RuntimeContext.js';
 
 /**
@@ -54,20 +49,12 @@ export interface HostAdapter {
   readonly allowsEmptyPluginAssets: boolean;
 
   // —— 运行时 env / 身份 ——
-  /** 设置插件运行时 env 默认（runtime mode、host 标识按物理 shell 形态派生、MCP 模式/tier）。 */
+  /** 设置插件运行时 env 默认（runtime mode、host 标识和 MCP 模式）。 */
   ensureRuntimeEnvironment(env?: NodeJS.ProcessEnv): void;
   /** 由 env + 物理 shell 形态解析 HostRuntimeContext（pluginHost / expectedPluginHost 等）。 */
   resolveRuntimeContext(env?: NodeJS.ProcessEnv): HostRuntimeContext;
 
-  // —— 项目根解析 / 信任 ——
-  /** 从宿主 env 源（ALEMBIC_PROJECT_DIR / 工作区 env / cwd 回退）解析并校验项目根。 */
-  resolveProjectRoot(options?: ResolveProjectRootOptions): ProjectRootResolution;
-
-  // —— saved-root / init-marker 持久化 ——
-  /** 读取 saved project root 标记（诊断 / 恢复用，非有效身份来源）。 */
-  readSavedProjectRoot(env?: NodeJS.ProcessEnv): SavedProjectRoot | null;
-  /** 持久化 saved project root 标记。 */
-  writeSavedProjectRoot(projectRoot: string, env?: NodeJS.ProcessEnv): SavedProjectRoot;
+  // —— init-marker 持久化 ——
   /** 读取 per-project init marker（status 报告初始化状态）。 */
   readInitMarker(projectRoot: string): InitMarker | null;
   /** 工作区初始化成功后写入 init marker（系统字段由实现填充）。 */

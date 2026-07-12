@@ -9,7 +9,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildHostProjectHandoffBlock } from '#host-runtime/mcp/host/host-project-handoff.js';
 import { buildGenerateRebuildConfirmationBlock } from '#recipe-pipeline/generate/cold-start.js';
 import { CleanupService } from '#service/cleanup/CleanupService.js';
 import { inspectKnowledge } from '#service/knowledge/KnowledgeState.js';
@@ -130,36 +129,5 @@ describe('P3-2: bootstrap rebuild confirmation gate', () => {
     const knowledge = inspectKnowledge(projectRoot);
     expect(knowledge.usable).toBe(false);
     expect(buildGenerateRebuildConfirmationBlock(knowledge, {})).toBeNull();
-  });
-});
-
-describe('P3-3: selection-mismatch block carries an executable local recovery', () => {
-  function makeBlockInput(projectRoot: string) {
-    return {
-      daemon: {
-        message: 'daemon is not started',
-        pidAlive: false,
-        ready: false,
-        state: null,
-        status: 'stopped',
-      } as never,
-      enhancementRoute: { selected: 'pure-local' } as never,
-      hostProjectAlignment: { connectionState: 'mismatch' } as never,
-      projectRoot,
-      requirement: 'jobs' as const,
-      tool: 'alembic_job',
-    };
-  }
-
-  it('recommends the local host-agent workflow first (bootstrap on a fresh project)', () => {
-    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 't6-mismatch-'));
-    const block = buildHostProjectHandoffBlock(makeBlockInput(projectRoot)) as {
-      data: { nextActions: Array<{ tool: string }> };
-      message: string;
-    };
-    expect(block).not.toBeNull();
-    expect(block.data.nextActions[0].tool).toBe('alembic_bootstrap');
-    expect(block.data.nextActions.map((a) => a.tool)).toContain('alembic_status');
-    expect(block.message).toContain('local host-agent workflow');
   });
 });

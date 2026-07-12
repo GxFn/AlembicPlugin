@@ -12,7 +12,6 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { ProjectContextRefSummarySchema } from './AlembicGraphOutput.js';
 import { RegionNodeKindSchema } from './ProjectContextRegion.js';
-import { SourceRevisionManifestSchema } from './ToolOutputPrimitives.js';
 
 export const ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION = 1 as const;
 
@@ -239,7 +238,6 @@ export const AlembicRecipeMapOutputSchema = z
         fullMapRef: TransientTransportRefSchema.nullable().optional(),
         generatedAt: z.string().datetime({ offset: true }).optional(),
         producer: z.string().min(1).max(160).optional(),
-        sourceRevisionManifest: SourceRevisionManifestSchema.nullable().optional(),
       })
       .strict(),
   })

@@ -12,14 +12,10 @@ import {
   type RecipeContextRequest,
   type RecipeContextResult,
 } from '@alembic/core/recipe-context-capabilities';
-import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
-  type AlembicRecipeMapOutput,
   createAlembicRecipeMapMcpResult,
   defaultProjectGraphProvider,
-  type MapDiagnostic,
   type MapFocus,
-  type MapNextAction,
   type MapRadius,
   type RegionFocus,
   type RegionFocusKind,
@@ -33,12 +29,7 @@ import {
   type RecipeRecordLite,
   type RecipeSourceRefRow,
 } from '#service/project-knowledge-context/recipe-map/index.js';
-import {
-  buildRetrievalCheckpointPosture,
-  type RetrievalCheckpointPosture,
-  resolveRetrievalCheckpointPostureInput,
-} from './retrieval-checkpoint-diagnostics.js';
-import type { McpContext } from './types.js';
+import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 interface RecipeMapArgs {
   focus?: {
@@ -103,17 +94,11 @@ const RECIPE_MAP_FOCUS_KINDS = new Set<RegionFocusKind>([
 ]);
 
 export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
-  const projectRoot = args.projectRoot ?? resolveProjectRoot(ctx?.container);
+  const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
   const request = normalizeRecipeMapRequest(args, projectRoot);
   const deps = buildRecipeMapDeps(ctx);
   const output = await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
-  const checkpointPosture = buildRetrievalCheckpointPosture(
-    ctx.container,
-    resolveRetrievalCheckpointPostureInput(projectRoot)
-  );
-  return createAlembicRecipeMapMcpResult(
-    budgetRecipeMapOutput(attachRecipeMapCheckpointPosture(output, checkpointPosture))
-  );
+  return createAlembicRecipeMapMcpResult(budgetRecipeMapOutput(output));
 }
 
 function normalizeRecipeMapRequest(args: RecipeMapArgs, projectRoot: string): RecipeMapRequest {
@@ -325,55 +310,5 @@ function toRecipeRecordLite(record: RecipeContextRecipeRecord): RecipeRecordLite
     ...(record.sourceFile === undefined || record.sourceFile === null
       ? {}
       : { sourceFile: record.sourceFile }),
-  };
-}
-
-function attachRecipeMapCheckpointPosture(
-  output: AlembicRecipeMapOutput,
-  checkpointPosture: RetrievalCheckpointPosture
-): AlembicRecipeMapOutput {
-  if (!checkpointPosture.retrievalMayBeStale && checkpointPosture.diagnostics.length === 0) {
-    return {
-      ...output,
-      meta: {
-        ...output.meta,
-        sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
-      },
-    };
-  }
-  const diagnostics: MapDiagnostic[] = [
-    ...output.diagnostics,
-    ...checkpointPosture.diagnostics.map(
-      (diagnostic): MapDiagnostic => ({
-        code: diagnostic.code,
-        severity: diagnostic.severity,
-        message: diagnostic.message,
-        retryable: diagnostic.retryable,
-      })
-    ),
-  ];
-  const nextActions: MapNextAction[] = [
-    ...checkpointPosture.nextActions.map(
-      (action): MapNextAction => ({
-        tool: action.tool,
-        reason: action.reason,
-        required: action.required,
-      })
-    ),
-    ...output.nextActions,
-  ].slice(0, 20);
-
-  return {
-    ...output,
-    meta: {
-      ...output.meta,
-      sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
-    },
-    status: output.status === 'ready' ? 'partial' : output.status,
-    summary: checkpointPosture.retrievalMayBeStale
-      ? `${output.summary} Retrieval freshness requires git diff checkpoint catch-up.`
-      : output.summary,
-    diagnostics,
-    nextActions,
   };
 }

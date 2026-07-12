@@ -1,11 +1,14 @@
 import { existsSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { createReadOnlyRecipeMapRepositories } from '../../../repository/recipe-map/ReadOnlyRecipeMapServices.js';
 import { PrimeSearchPipeline } from '../../../service/task/PrimeSearchPipeline.js';
+import { PrimeInput } from '../../../shared/schemas/mcp-tools.js';
+import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { primeHandler } from '../handlers/agent-public-tools.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
+import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
 import {
   createReadOnlySearchContainer,
   type ReadOnlySearchContainerHandle,
@@ -15,8 +18,7 @@ import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
 /**
  * Run public Prime over one request-scoped DB/WAL/config/vector snapshot.
  *
- * Prime keeps the same real SearchEngine, vector lane, RecipeContext locator/region readers,
- * checkpoint repository, and request ProjectRuntimeContext as the public read surfaces. The
+ * Prime keeps the same real SearchEngine, vector lane, and request ProjectRuntimeContext. The
  * general embedded container is intentionally excluded because its migration and shutdown
  * lifecycle can mutate the live SQLite family even when the public operation is read-only.
  */
@@ -29,19 +31,16 @@ export async function executeReadOnlyPrime(
     throw new Error('Request-scoped ProjectRuntimeContext is required for read-only Prime.');
   }
   const identity = projectRuntime.identity;
+  PrimeInput.parse(args);
   const projectRoot = resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'));
   const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
   const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  if (!isWithin(databasePath, dataRoot)) {
-    throw new Error(
-      `Read-only Prime database identity mismatch: database=${databasePath}, dataRoot=${dataRoot}.`
-    );
-  }
   if (!existsSync(databasePath)) {
-    throw new Error(`Read-only Prime database does not exist: ${databasePath}.`);
+    return createKnowledgeUnavailableResult('alembic_prime', projectRuntime);
   }
+  const physicalIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
 
-  const snapshot = createReadOnlySearchSnapshot({ dataRoot, databasePath });
+  const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
   let searchHandle: ReadOnlySearchContainerHandle | null = null;
   try {
@@ -78,11 +77,6 @@ export async function executeReadOnlyPrime(
     db.close();
     snapshot.dispose();
   }
-}
-
-function isWithin(filePath: string, root: string): boolean {
-  const rel = relative(root, filePath);
-  return rel.length > 0 && !rel.startsWith('..') && !rel.startsWith('/');
 }
 
 function requireIdentityPath(value: string | null, field: string): string {

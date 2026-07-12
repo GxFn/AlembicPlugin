@@ -14,7 +14,6 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { JobStore } from '@alembic/core/daemon';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -103,7 +102,6 @@ try {
   process.env.ALEMBIC_PLUGIN_HOST = 'codex';
   process.env.ALEMBIC_CODEX_PLUGIN_ROOT = installedPlugin.installedRoot;
   process.env.ALEMBIC_RUNTIME_MODE = 'plugin';
-  process.env.ALEMBIC_PROJECT_DIR = projectRoot;
   process.env.CODEX_WORKSPACE_DIR = projectRoot;
   process.env.ALEMBIC_QUIET = '1';
 
@@ -114,20 +112,8 @@ try {
 
   const diagnostics = await server.handleToolCall('alembic_status', { aspect: 'runtime' });
   assertResult(diagnostics, 'diagnostics');
-  assert(
-    diagnostics.data?.package?.pinnedSpecifier === runtimeSpecifier,
-    'diagnostics runtime package identity mismatch'
-  );
-  assert(
-    diagnostics.data?.package?.runtimeSpecifier === runtimeSpecifier,
-    'diagnostics runtime specifier mismatch'
-  );
-  assert(diagnostics.data?.plugin?.ok === true, 'diagnostics plugin checks did not pass');
-  assert(diagnostics.data?.runtimeIdentity?.mode === 'plugin', 'diagnostics runtime mode mismatch');
-  assert(
-    diagnostics.data?.primaryAction?.tool === 'alembic_status',
-    'diagnostics should point healthy installs to status'
-  );
+  assert(diagnostics.data?.project?.projectRoot === projectRoot, 'diagnostics project mismatch');
+  assert(diagnostics.data?.runtime?.pluginHost === 'codex', 'diagnostics host mismatch');
 
   const beforeStatus = await server.handleToolCall('alembic_status', {});
   assertResult(beforeStatus, 'status before init');
@@ -135,10 +121,7 @@ try {
     beforeStatus.data?.initialized === false,
     'fresh smoke workspace should start uninitialized'
   );
-  assert(
-    beforeStatus.data?.onboarding?.state === 'needs_init',
-    'fresh smoke workspace should recommend initialization'
-  );
+  assert(beforeStatus.data?.knowledge?.available === false, 'fresh project should have no DB');
 
   const init = await server.handleToolCall('alembic_init', {});
   assertResult(init, 'codex init');
@@ -148,12 +131,6 @@ try {
   assertResult(afterStatus, 'status after init');
   assert(afterStatus.data?.initialized === true, 'status after init should be initialized');
   assert(afterStatus.data?.workspace?.ghost === true, 'codex init should default to Ghost mode');
-
-  const store = new JobStore({ projectRoot });
-  const localJob = store.create({ kind: 'rescan', request: { reason: 'smoke' }, source: 'codex' });
-  const job = await server.handleToolCall('alembic_job', { jobId: localJob.id });
-  assertResult(job, 'local job lookup');
-  assert(job.data?.job?.id === localJob.id, 'local job lookup returned the wrong job');
 
   let stdio = 'skipped';
   if (shouldRunStdio) {
@@ -427,12 +404,9 @@ async function runStdioSmoke({
     args: [join(packageRoot, 'dist', 'bin', 'host-mcp.js')],
     cwd: pluginRoot,
     env: {
-      ALEMBIC_CODEX_ENABLE_ADMIN: '0',
       ALEMBIC_CODEX_PLUGIN_ROOT: pluginRoot,
       ALEMBIC_HOME: alembicHome,
-      ALEMBIC_MCP_TIER: 'agent',
       ALEMBIC_PLUGIN_HOST: 'codex',
-      ALEMBIC_PROJECT_DIR: projectRoot,
       ALEMBIC_QUIET: '1',
       ALEMBIC_RUNTIME_MODE: 'plugin',
       CODEX_WORKSPACE_DIR: projectRoot,

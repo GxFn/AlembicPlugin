@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { attachPluginOpportunisticEvolutionSurface } from '../../lib/host-runtime/mcp/host/opportunistic-evolution-presenter.js';
 import type { GitDiffScanResult } from '../../lib/recipe-pipeline/sustain/git-diff-checkpoint/GitDiffScanner.js';
 import {
   buildPluginOpportunisticEvolutionSurface,
@@ -8,9 +7,7 @@ import {
 } from '../../lib/recipe-pipeline/sustain/PluginOpportunisticEvolution.js';
 
 const fallbackGate = {
-  reason: 'resident unavailable',
-  residentProjectScopeAvailable: false,
-  residentSearchEnhancementReady: false,
+  reason: 'Plugin-owned internal evolution',
 };
 
 function makeScan(overrides: Partial<GitDiffScanResult> = {}): GitDiffScanResult {
@@ -38,29 +35,6 @@ function makeScan(overrides: Partial<GitDiffScanResult> = {}): GitDiffScanResult
 }
 
 describe('Plugin opportunistic evolution surface', () => {
-  it('defers when Alembic resident ProjectScope can handle the project', async () => {
-    let scanned = false;
-    const surface = await buildPluginOpportunisticEvolutionSurface({
-      projectRoot: '/repo',
-      scanner: {
-        async scanOnce() {
-          scanned = true;
-          return makeScan();
-        },
-      },
-      serviceGate: {
-        reason: 'resident ready',
-        residentProjectScopeAvailable: true,
-        residentSearchEnhancementReady: true,
-      },
-      toolOutcome: { success: true, tool: 'alembic_task' },
-    });
-
-    expect(scanned).toBe(true);
-    expect(surface.evidenceGate.verdict).toBe('defer-to-alembic-service');
-    expect(surface.producerBoundary.producerKind).toBe('plugin-opportunistic');
-  });
-
   it('returns no-op when git diff evidence was not routed to unified evolution', async () => {
     const surface = await buildPluginOpportunisticEvolutionSurface({
       projectRoot: '/repo',
@@ -69,7 +43,7 @@ describe('Plugin opportunistic evolution surface', () => {
       toolOutcome: {
         success: true,
         taskId: 'task-1',
-        tool: 'alembic_task',
+        tool: 'alembic_rescan',
         reason: 'implemented API change',
       },
     });
@@ -81,7 +55,7 @@ describe('Plugin opportunistic evolution surface', () => {
     expect('proposal' in surface).toBe(false);
     expect('hint' in surface).toBe(false);
     expect(surface.autoSubmit).toBe(false);
-    expect(surface.producerBoundary.separatedFrom).toBe('daemon-file-change');
+    expect(surface.producerBoundary.separatedFrom).toBe('public-query-execution');
   });
 
   it('keeps fallback no-op when tool outcome evidence is missing', async () => {
@@ -101,7 +75,7 @@ describe('Plugin opportunistic evolution surface', () => {
       projectRoot: '/repo',
       scan: makeScan({ events: [], dirtyPathCount: 0, signature: null }),
       serviceGate: fallbackGate,
-      toolOutcome: { success: true, tool: 'alembic_task' },
+      toolOutcome: { success: true, tool: 'alembic_rescan' },
     });
 
     expect(surface.evidenceGate.verdict).toBe('no-op');
@@ -110,12 +84,6 @@ describe('Plugin opportunistic evolution surface', () => {
   });
 
   it('attaches only to current commit-driven trigger tools', () => {
-    expect(
-      shouldAttachPluginOpportunisticEvolution({
-        toolName: 'alembic_task',
-        args: { operation: 'close' },
-      })
-    ).toBe(false);
     expect(
       shouldAttachPluginOpportunisticEvolution({
         toolName: 'alembic_code_guard',
@@ -209,32 +177,5 @@ describe('Plugin opportunistic evolution surface', () => {
       },
     });
     expect('proposal' in surface).toBe(false);
-  });
-
-  it('keeps alembic_rescan-owned unified evolution instead of overwriting it with a second scan', async () => {
-    const rescanOwnedResult = {
-      success: true,
-      data: {
-        gitDiffEvidence: { eventCount: 3, headChanged: true },
-        unifiedEvolution: {
-          evidenceGate: { verdict: 'routed' },
-          gitDiffEvidence: { eventCount: 3, headChanged: true },
-        },
-      },
-    };
-
-    const result = await attachPluginOpportunisticEvolutionSurface({
-      args: {},
-      executionContext: { residentProjectScopeAvailable: false } as never,
-      projectRoot: '/repo/that/does/not/need/git',
-      result: rescanOwnedResult,
-      toolName: 'alembic_rescan',
-    });
-
-    expect(result).toBe(rescanOwnedResult);
-    expect((result as typeof rescanOwnedResult).data.unifiedEvolution).toMatchObject({
-      evidenceGate: { verdict: 'routed' },
-      gitDiffEvidence: { eventCount: 3, headChanged: true },
-    });
   });
 });

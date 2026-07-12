@@ -13,25 +13,20 @@ import {
 } from './DurableGitDiffCheckpointRouting.js';
 import { GitDiffScanner, type GitDiffScanResult } from './GitDiffScanner.js';
 
-// UM#2：commit-driven 维护的唯一编排。原先两个入口——alembic_rescan 公共 workflow
-// （knowledge-rescan.runRescanUnifiedEvolution）与工具尾 surface 注入
-// （opportunistic-evolution-presenter.attachPluginOpportunisticEvolutionSurface）——各自重复一份
-// 近乎相同的 createPluginGitDiffCheckpointRuntime → scanOnce → handleFileChanges → recordRouteOutcome。
-// 这里抽为单一编排，两入口都调；surface 因 serviceGate/toolOutcome 不同各入口自行构建。
+// Commit-driven Recipe maintenance is owned by the explicit rescan workflow.
+// This helper sequences checkpoint creation, scanning, file-change handling,
+// and route outcome persistence without participating in public query tools.
 // 不改信封语义：runtime/scanOnce/handleFileChanges/recordRouteOutcome 的调用顺序与参数与原两入口一致，
-// route-complete 判定与 routeError 兜底也一致；presenter 的 resident 去抖以 residentSearchEnhancementReady
-// 参数复刻（rescan 传 false=从不去抖）。rescan 的 prepareRescanState 顺序由其调用点保留（在调用本函数之前），
+// route-complete 判定与 routeError 兜底也一致。rescan 的 prepareRescanState 顺序由其调用点保留（在调用本函数之前），
 // 不在本函数内。
 
 export interface CommitDrivenMaintenanceInput {
-  // 入口各自的 HostAgentFileChangeHandler 工厂（presenter 与 rescan 经不同容器装配，故由入口提供）。
+  // Rescan supplies its container-specific HostAgentFileChangeHandler factory.
   buildHandler: (projectRoot: string) => HostAgentFileChangeHandler | null;
   container: PluginGitDiffCheckpointContainer;
   handlerUnavailableReason: string;
   now?: number;
   projectRoot: string;
-  // presenter 去抖：resident 检索增强就绪且本次无 HEAD 变化时不路由（无新提交需维护）。rescan 省略=false。
-  residentSearchEnhancementReady?: boolean;
   runtimeScope?: {
     currentFolderId?: string | null;
     projectScopeId?: string | null;
@@ -92,9 +87,7 @@ export async function runCommitDrivenMaintenance(
   let routeError: string | null = null;
   let routeAttempted = false;
 
-  // resident 检索增强去抖（presenter 专用；rescan 自己拥有路由、从不去抖）。
-  const deferToResidentSearch = Boolean(input.residentSearchEnhancementReady) && !scan.headChanged;
-  if (!deferToResidentSearch && shouldRouteCommitDrivenMaintenance(scan)) {
+  if (shouldRouteCommitDrivenMaintenance(scan)) {
     routeAttempted = true;
     const handler = input.buildHandler(input.projectRoot);
     if (handler) {

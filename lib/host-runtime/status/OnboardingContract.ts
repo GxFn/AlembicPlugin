@@ -12,7 +12,6 @@ import {
   buildProjectContextCreationNextActions,
 } from '#recipe-pipeline/plan/project-context-anchoring.js';
 import type { HostKnowledgeState } from '#service/knowledge/KnowledgeState.js';
-import type { HostProjectAlignment } from '../context/HostProjectAlignment.js';
 import {
   listPluginToolSurfaceCatalog,
   type PluginToolSurfaceEntry,
@@ -74,7 +73,6 @@ export interface BuildOnboardingContractInput {
   diagnosticsOk?: boolean;
   dimensions?: unknown;
   fileCount?: number | null;
-  hostProjectAlignment?: HostProjectAlignment;
   knowledge?: HostKnowledgeState;
   moduleCount?: number | null;
   primaryLanguage?: string | null;
@@ -180,7 +178,6 @@ function buildBootstrapState(
     },
     runtime: {
       aiProviderRequired: false,
-      daemonRequiredForBootstrap: false,
       defaultRoute: 'plugin-owned-codex-facing',
       host: 'codex',
       owner: 'alembic-plugin',
@@ -199,7 +196,7 @@ function buildBootstrapState(
 
 function resolveBootstrapStatus(input: BuildOnboardingContractInput): string {
   if (input.projectRootTrusted === false) {
-    return 'wrong_scope';
+    return 'project_root_unresolved';
   }
   if (input.diagnosticsOk === false) {
     return 'degraded';
@@ -272,11 +269,7 @@ function buildSingleWriterLeaseVisibility(
     takeoverRule: activeBootstrap
       ? 'Do not start a second bootstrap writer. Re-check alembic_status and wait, or let a later lease-enforcement slice decide takeover.'
       : 'No active bootstrap writer is visible; alembic_bootstrap may start or resume the Codex-owned bootstrap route.',
-    sharedEntrypoints: [
-      'Codex host-agent alembic_bootstrap',
-      'Plugin job route alembic_job',
-      'Alembic daemon job provider',
-    ],
+    sharedEntrypoints: ['Codex host-agent alembic_bootstrap', 'Plugin job route alembic_job'],
     enforcementBoundary:
       'Visibility-only; this field does not implement hard lease gate enforcement.',
   };
@@ -310,12 +303,9 @@ function summarizeToolGroup(
         openWorldHint: entry.annotations.openWorldHint,
       },
       handlerOwner: entry.handlerOwner,
-      knowledgeGate: entry.knowledgeGate,
       name: entry.name,
       owner: entry.owner,
-      residentRoutePolicy: entry.residentRoutePolicy,
       schema: entry.schema,
-      tier: entry.tier,
     }));
 }
 
@@ -665,7 +655,7 @@ function buildScopeBrief(input: BuildOnboardingContractInput): Record<string, un
       ? 'ghost-or-external-data-root'
       : 'project-root';
   return {
-    selectedProject: {
+    project: {
       basename: path.basename(input.projectRoot),
       projectRoot: input.projectRoot,
       dataRoot: input.dataRoot || input.projectRoot,
@@ -681,7 +671,6 @@ function buildScopeBrief(input: BuildOnboardingContractInput): Record<string, un
     hardStops: [
       'wrong project root or data root',
       'untrusted Codex project root resolution',
-      'host project handoff mismatch',
       'another bootstrap writer holds the lease',
       'stale or partial ProjectContext used as final proof',
     ],
@@ -702,8 +691,6 @@ function buildToolCapabilityMatrix(
       evidenceRefs: describeToolEvidenceRefs(entry.name),
       invalidConclusions: describeToolInvalidConclusions(entry.name),
       handlerOwner: entry.handlerOwner,
-      knowledgeGate: entry.knowledgeGate,
-      residentRoutePolicy: entry.residentRoutePolicy,
     }));
 }
 
@@ -1014,7 +1001,7 @@ function buildRecipeGuidanceFloor(): Record<string, unknown> {
 function buildAgentDecisionChecklist(): Array<Record<string, unknown>> {
   return [
     {
-      when: 'bootstrapState.status is wrong_scope, degraded, or project_root_unresolved',
+      when: 'bootstrapState.status is degraded or project_root_unresolved',
       nextTool: 'alembic_status',
       blockedConclusions: ['do not use ProjectContext facts', 'do not submit Recipes'],
     },
@@ -1096,8 +1083,8 @@ function buildRepairState(
 ): Record<string, unknown> {
   const status = typeof bootstrapState.status === 'string' ? bootstrapState.status : 'unknown';
   const reasons: string[] = [];
-  if (status === 'wrong_scope') {
-    reasons.push('project scope or host handoff is not trusted');
+  if (status === 'project_root_unresolved') {
+    reasons.push('request project root is unresolved');
   }
   if (status === 'degraded') {
     reasons.push('runtime diagnostics are not healthy');
@@ -1118,7 +1105,7 @@ function buildRepairState(
     reasons,
     rebuildRequired: status === 'project_context_stale',
     firstRepairTool:
-      status === 'wrong_scope' || status === 'degraded'
+      status === 'project_root_unresolved' || status === 'degraded'
         ? 'alembic_status'
         : status === 'project_context_stale'
           ? 'alembic_recipe_map'

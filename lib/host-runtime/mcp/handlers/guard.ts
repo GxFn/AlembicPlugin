@@ -10,14 +10,13 @@
 import { lstat, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { LanguageService } from '@alembic/core/shared';
-import { resolveProjectRoot } from '@alembic/core/workspace';
 import {
   type CollectionCoverage,
   type ConclusionDisposition,
   deriveConclusionDisposition,
 } from '#service/project-knowledge-context/contracts/ToolOutputPrimitives.js';
 import { envelope } from '../envelope.js';
-import type { McpContext } from './types.js';
+import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 // ─── Local Types ──────────────────────────────────────────
 
@@ -259,7 +258,7 @@ export async function guardAuditFiles(ctx: McpContext, args: GuardAuditArgs) {
   await _injectEnhancementGuardRules(engine, ctx);
 
   // 解析项目根路径（用于相对路径转绝对路径）
-  const projectRoot = resolveProjectRoot(ctx.container);
+  const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
 
   // 补充缺失的 content（从磁盘读取）
   // 相对路径自动转绝对路径，避免 MCP 进程 cwd 不在项目目录时读不到文件
@@ -356,7 +355,7 @@ export async function guardAuditFiles(ctx: McpContext, args: GuardAuditArgs) {
 export async function guardReview(ctx: McpContext, args: GuardReviewArgs) {
   const { GuardCheckEngine } = await import('@alembic/core/guard');
 
-  const projectRoot = resolveProjectRoot(ctx.container);
+  const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
 
   if (!args.files || !Array.isArray(args.files) || args.files.length === 0) {
     return envelope({
@@ -915,7 +914,7 @@ export async function scanProject(ctx: McpContext, args: ScanProjectArgs) {
   const includeContent = args.includeContent || false;
   const contentMaxLines = args.contentMaxLines || 100;
 
-  const projectRoot = resolveProjectRoot(ctx.container);
+  const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
 
   // 使用 ModuleService（多语言统一入口）
   let service: ModuleServiceLike;
@@ -1167,7 +1166,7 @@ async function _injectEnhancementGuardRules(
     // 匹配项目(如 React)注入对应包规则,无对应生态(如纯 Swift)得空集——评估期
     // 语言门(GuardCheckEngine 按文件语言过滤)仍是第二道网。失败静默降级为不注入。
     const { resolveEnhancementGuardRulesForProject } = await import('@alembic/core/guard');
-    const projectRoot = resolveProjectRoot(ctx.container);
+    const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
     const { rules, packIds, detection } = await resolveEnhancementGuardRulesForProject(projectRoot);
     if (rules.length > 0) {
       engine.injectExternalRules(rules);

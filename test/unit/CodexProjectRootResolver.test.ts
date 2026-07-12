@@ -3,12 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
-  buildProjectRootRequiredMessage,
-  getSavedProjectRootPath,
-  readSavedProjectRoot,
   resolveProjectRootFromEnv,
   summarizeProjectRootResolution,
-  writeSavedProjectRoot,
 } from '../../lib/host-runtime/context/ProjectRootResolver.js';
 import { getPackageVersion } from '../../lib/shared/package-assets.js';
 
@@ -30,36 +26,10 @@ describe('CodexProjectRootResolver', () => {
     });
   });
 
-  test('saves explicit projectRoot as diagnostics without reusing it as effective identity', () => {
-    const projectRoot = makeDir('codex-root-saved-');
-    const alembicHome = makeDir('codex-home-saved-');
-    const env = { ALEMBIC_HOME: alembicHome } as NodeJS.ProcessEnv;
-
-    const saved = writeSavedProjectRoot(projectRoot, env);
-    const resolution = resolveProjectRootFromEnv({ env });
-
-    expect(fs.existsSync(getSavedProjectRootPath(env))).toBe(true);
-    expect(readSavedProjectRoot(env)).toMatchObject({
-      projectRoot,
-      source: 'explicit-projectRoot',
-    });
-    expect(saved.projectRoot).toBe(projectRoot);
-    expect(resolution).toMatchObject({
-      source: 'process.cwd',
-      trust: 'fallback',
-      rejected: false,
-    });
-    expect(resolution.path).not.toBe(projectRoot);
-  });
-
-  test('trusts Alembic and Codex workspace environment variables', () => {
-    const alembicRoot = makeDir('codex-root-alembic-');
+  test('trusts current host workspace environment variables', () => {
     const codexRoot = makeDir('codex-root-codex-');
     const workspaceRoot = makeDir('codex-root-workspace-');
 
-    expect(resolveProjectRootFromEnv({ env: { ALEMBIC_PROJECT_DIR: alembicRoot } }).source).toBe(
-      'ALEMBIC_PROJECT_DIR'
-    );
     expect(resolveProjectRootFromEnv({ env: { CODEX_WORKSPACE_DIR: codexRoot } }).source).toBe(
       'CODEX_WORKSPACE_DIR'
     );
@@ -68,7 +38,7 @@ describe('CodexProjectRootResolver', () => {
     );
   });
 
-  test('reports fallback roots without trusting them for initialization', () => {
+  test('trusts the current PWD when the host omits an explicit root', () => {
     const projectRoot = makeDir('codex-root-fallback-');
     const alembicHome = makeDir('codex-home-fallback-');
 
@@ -79,12 +49,9 @@ describe('CodexProjectRootResolver', () => {
     expect(resolution).toMatchObject({
       path: projectRoot,
       source: 'PWD',
-      trust: 'fallback',
+      trust: 'trusted',
       rejected: false,
     });
-    expect(buildProjectRootRequiredMessage(resolution)).toContain(
-      'cannot determine the target project directory'
-    );
   });
 
   test('rejects Codex plugin cache paths', () => {

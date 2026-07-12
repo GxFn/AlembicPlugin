@@ -4,8 +4,7 @@
  * Model Context Protocol (stdio transport)
  * 提供给插件宿主 Agent 的工具集
  *
- * V3.3 tool surface：39 → 16 工具（14 agent + 2 admin）
- * 通过 ALEMBIC_MCP_TIER 环境变量控制可见工具集（agent/admin）
+ * V3.3 tool surface：one ordinary public catalog.
  *
  * 冷启动路径:
  *   - 宿主 Agent 路径: bootstrap (Mission Briefing) → dimension_complete × N
@@ -30,10 +29,7 @@ import {
   type HostTurnMetaInput,
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/host-turn-meta.js';
-import {
-  isProjectScopeSummaryForFolder,
-  resolveProjectScopeRuntime,
-} from '../../shared/project-scope-runtime.js';
+import { projectLocationService } from '../context/ProjectLocationService.js';
 import type { ProjectRuntimeContext } from '../context/ProjectRuntimeContext.js';
 import { wrapHandler } from './errorHandler.js';
 import type { McpContext, McpServiceContainer } from './handlers/types.js';
@@ -45,7 +41,7 @@ import {
   withMcpOutputSchema,
 } from './output-contract.js';
 import { type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
-import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from './tools.js';
+import { TOOLS, withMcpToolAnnotations } from './tools.js';
 
 // ─── TypeScript Interfaces ──────────────────────────────────
 
@@ -66,6 +62,7 @@ interface McpServerOptions {
   bootstrap?: BootstrapLike | null;
   source?: ToolCallSource;
   surface?: ToolSurface;
+  projectRoot?: string;
 }
 
 export interface McpToolCallOptions {
@@ -163,12 +160,14 @@ export class McpServer {
   _startedAt: number;
   bootstrap: BootstrapLike | null;
   sdkServer: SdkMcpServer | null;
+  readonly projectRoot: string | null;
   constructor(options: McpServerOptions = {}) {
     // Logger 延迟到 initialize() 之后获取，避免在 Bootstrap 之前触发单例初始化
     this.logger = null;
     this.container = options.container || null;
     this.bootstrap = options.bootstrap || null;
     this.sdkServer = null;
+    this.projectRoot = options.projectRoot ?? null;
     this._startedAt = Date.now();
     this._defaultActorRole = options.actorRole || null;
     this._defaultSource = options.source || { kind: 'mcp', name: 'tools/call' };
@@ -200,12 +199,11 @@ export class McpServer {
       const { default: Bootstrap } = await import('../../bootstrap.js');
 
       // MCP 模式必须显式指定项目目录 — process.cwd() 在多根工作区中不可靠
-      const projectRoot = process.env.ALEMBIC_PROJECT_DIR;
+      const projectRoot = this.projectRoot;
       if (!projectRoot) {
         const msg =
-          `[MCP] 缺少 ALEMBIC_PROJECT_DIR 环境变量。MCP server 拒绝启动。\n` +
-          `在多根工作区中 process.cwd() 可能指向任意子目录，不能作为项目根目录。\n` +
-          `请由插件宿主传入 ALEMBIC_PROJECT_DIR，或在调用 MCP 工具时提供明确的 projectRoot。`;
+          `[MCP] 缺少 request-scoped projectRoot。MCP server 拒绝启动。\n` +
+          `请由 Plugin 项目定位服务传入当前调用的明确 projectRoot。`;
         process.stderr.write(`${msg}\n`);
         throw new Error(msg);
       }
@@ -213,18 +211,13 @@ export class McpServer {
       // ── 排除项目检查 — 防止误配置 ALEMBIC_PROJECT_DIR 到不该创建运行时数据的目录 ──
       // Ghost 模式下跳过排除检查（数据不写入项目目录）
       const { isExcludedProject } = await import('@alembic/core/shared');
-      const { ProjectRegistry } = await import('@alembic/core/workspace');
-      const isGhost = ProjectRegistry.isGhost(projectRoot);
+      const isGhost = projectLocationService.resolve(projectRoot).ghost;
       const exclusion = isExcludedProject(projectRoot);
-      const projectScopeRuntime = resolveProjectScopeRuntime(projectRoot);
-      const isProjectScopeGhostExecution =
-        projectScopeRuntime?.summary.storageKind === 'ghost' &&
-        isProjectScopeSummaryForFolder(projectScopeRuntime.summary, projectRoot);
-      if (exclusion.excluded && !isGhost && !isProjectScopeGhostExecution) {
+      if (exclusion.excluded && !isGhost) {
         const msg =
           `[MCP] projectRoot "${projectRoot}" 是排除项目（${exclusion.reason}），` +
           `MCP server 拒绝在此目录创建运行时数据。\n` +
-          `提示: 请由插件宿主传入正确的 ALEMBIC_PROJECT_DIR。`;
+          `提示: 请由 Plugin 项目定位服务传入正确的 projectRoot。`;
         process.stderr.write(`${msg}\n`);
         throw new Error(msg);
       }
@@ -268,7 +261,7 @@ export class McpServer {
 
   /**
    * 注册 ListTools / CallTool 请求处理器
-   * ListTools 基于 ALEMBIC_MCP_TIER 过滤可见工具
+   * ListTools exposes the complete ordinary tool surface.
    */
   _registerHandlers() {
     if (!this.sdkServer) {
@@ -276,14 +269,8 @@ export class McpServer {
     }
     const server = this.sdkServer.server;
 
-    // ── ListTools: 按 tier 过滤 ──
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const tierName = process.env.ALEMBIC_MCP_TIER || 'agent';
-      const maxTier = (TIER_ORDER as Record<string, number>)[tierName] ?? TIER_ORDER.agent;
-      const visible = TOOLS.filter(
-        (t) => ((TIER_ORDER as Record<string, number>)[t.tier || 'agent'] ?? 0) <= maxTier
-      );
-      return { tools: visible.map(withMcpToolAnnotations).map(withMcpOutputSchema) };
+      return { tools: TOOLS.map(withMcpToolAnnotations).map(withMcpOutputSchema) };
     });
 
     // ── CallTool: 路由到 handler ──
@@ -316,17 +303,6 @@ export class McpServer {
   ): Promise<McpToolResponse> {
     if (Object.hasOwn(RETIRED_PUBLIC_TOOL_REPLACEMENTS, name)) {
       return createRetiredPublicToolResult(name);
-    }
-    if (name === 'alembic_task') {
-      return createMcpStructuredToolResult(
-        createCleanMcpErrorResponse({
-          code: 'CODEX_TOOL_RETIRED',
-          message:
-            'alembic_task has been retired. Use alembic_prime, alembic_work, or alembic_code_guard.',
-          status: 'retired',
-          toolName: name,
-        })
-      );
     }
     const actorRole = options.actor?.role || this._defaultActorRole || this._resolveMcpActorRole();
     const source = options.source || this._defaultSource;
@@ -464,14 +440,8 @@ export class McpServer {
     }
     await this.sdkServer.connect(transport);
 
-    const tierName = process.env.ALEMBIC_MCP_TIER || 'agent';
-    const maxTier = (TIER_ORDER as Record<string, number>)[tierName] ?? TIER_ORDER.agent;
-    const visibleCount = TOOLS.filter(
-      (t) => ((TIER_ORDER as Record<string, number>)[t.tier || 'agent'] ?? 0) <= maxTier
-    ).length;
-
-    this.logger?.info(`MCP Server started (stdio) — ${visibleCount} tools [tier=${tierName}]`);
-    process.stderr.write(`Alembic MCP ready — ${visibleCount} tools [tier=${tierName}]\n`);
+    this.logger?.info(`MCP Server started (stdio) — ${TOOLS.length} tools`);
+    process.stderr.write(`Alembic MCP ready — ${TOOLS.length} tools\n`);
   }
 
   async shutdown() {

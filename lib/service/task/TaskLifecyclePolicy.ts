@@ -1,5 +1,5 @@
 /**
- * TaskLifecyclePolicy — Codex-aware alembic_task lifecycle decisions.
+ * TaskLifecyclePolicy — host work and Guard lifecycle decisions.
  *
  * 这个策略层只处理 Plugin 内部的 Codex task 触发语义：它不创建任务、
  * 不写入状态，也不替 Guard 执行检查。handler 负责真实 MCP 响应，policy

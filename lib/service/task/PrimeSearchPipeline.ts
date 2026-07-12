@@ -14,11 +14,6 @@
 
 import type { SearchResultItem, SlimSearchResult } from '@alembic/core/search';
 import { slimSearchResult } from '@alembic/core/search';
-import type {
-  ResidentPrimeInjectionPackageSummary,
-  ResidentPrimeRetrievalConsumerSummary,
-  ResidentSearchAttemptMeta,
-} from '../resident/AlembicResidentServiceClient.js';
 
 // ── Types ───────────────────────────────────────────
 
@@ -32,12 +27,6 @@ export interface PrimeSearchMeta {
   module: string | null;
   resultCount: number;
   filteredCount: number;
-  // Optional resident-derived evidence. The local adapter does not populate
-  // these; they stay so downstream trust/diagnostics keep their null-guarded
-  // reads and a later resident path can repopulate them without a contract change.
-  primeInjectionPackage?: ResidentPrimeInjectionPackageSummary;
-  retrievalConsumer?: ResidentPrimeRetrievalConsumerSummary;
-  residentSearch?: ResidentSearchAttemptMeta;
 }
 
 export interface PrimeSearchResult {

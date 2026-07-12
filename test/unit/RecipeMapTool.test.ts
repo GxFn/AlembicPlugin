@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createRecipeContextServiceFromCore } from '@alembic/core/recipe-context-capabilities';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
+import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import {
   routeGraphTool,
   routeRecipeMapTool,
@@ -533,5 +534,6 @@ function createFixtureProject(): string {
 function createContext(projectRoot: string): McpContext {
   return {
     container: { get: () => undefined, singletons: { _projectRoot: projectRoot } },
+    projectRuntime: buildProjectRuntimeContext({ projectRoot }),
   } as unknown as McpContext;
 }

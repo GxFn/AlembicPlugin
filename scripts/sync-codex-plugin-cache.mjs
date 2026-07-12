@@ -226,7 +226,6 @@ function rewriteCachedMcpForLocalDist(cacheRoot) {
       ALEMBIC_PLUGIN_HOST: 'codex',
       ALEMBIC_CODEX_MCP_MODE: '1',
       ALEMBIC_MCP_MODE: '1',
-      ALEMBIC_MCP_TIER: serverEnv.ALEMBIC_MCP_TIER || 'agent',
       ALEMBIC_RUNTIME_MODE: 'plugin',
     },
   };

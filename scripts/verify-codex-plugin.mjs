@@ -78,7 +78,6 @@ for (const [scriptName, scriptValue] of [
   ['verify:codex-plugin', 'node scripts/verify-codex-plugin.mjs'],
   ['smoke:codex-plugin', 'node scripts/smoke-codex-plugin.mjs'],
   ['release:codex-plugin', 'node scripts/release-codex-plugin.mjs'],
-  ['release:codex-plugin:daemon', 'node scripts/release-codex-plugin.mjs --daemon'],
 ]) {
   expect(
     packageJson.scripts?.[scriptName] === scriptValue,
@@ -146,8 +145,6 @@ for (const [envName, envValue] of [
   ['ALEMBIC_MCP_MODE', '1'],
   ['ALEMBIC_CODEX_MCP_MODE', '1'],
   ['ALEMBIC_CODEX_PLUGIN_ROOT', '.'],
-  ['ALEMBIC_MCP_TIER', 'agent'],
-  ['ALEMBIC_CODEX_ENABLE_ADMIN', '0'],
 ]) {
   expect(server?.env?.[envName] === envValue, `.mcp.json must set ${envName}=${envValue}`);
 }

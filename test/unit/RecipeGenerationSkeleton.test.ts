@@ -8,7 +8,6 @@ import {
   RECIPE_GENERATION_STATE_PROJECTION_SOURCES,
   RECIPE_GENERATION_SUBSYSTEM_ROOT,
 } from '#recipe-pipeline/contracts.js';
-import { PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES } from '../../lib/host-runtime/index.js';
 import { listPluginToolSurfaceCatalog } from '../../lib/host-runtime/mcp/PluginToolSurfaceCatalog.js';
 import { TOOLS } from '../../lib/host-runtime/mcp/tools.js';
 import { TOOL_SCHEMAS } from '../../lib/shared/schemas/mcp-tools.js';
@@ -21,7 +20,6 @@ const rg9ImplementationPaths = [
   'lib/recipe-pipeline/generate/dimension-completion.ts',
   'lib/recipe-pipeline/generate/knowledge-rescan.ts',
   'lib/recipe-pipeline/generate/project-context-analysis.ts',
-  'lib/recipe-pipeline/generate/project-data-root.ts',
   'lib/recipe-pipeline/curate/recipe-evidence-gate.ts',
   'lib/recipe-pipeline/generate/recipe-region-vector.ts',
   'lib/recipe-pipeline/generate/runtime/GenerateEventEmitter.ts',
@@ -43,7 +41,7 @@ describe('RG-0 recipe generation skeleton', () => {
       RECIPE_GENERATION_SUBSYSTEM_ROOT
     );
     expect(sorted(RECIPE_GENERATION_PROJECT_CONTEXT_TOOL_NAMES)).toEqual(
-      sorted(PUBLIC_KNOWLEDGE_NAVIGATION_TOOL_NAMES)
+      sorted(['alembic_graph', 'alembic_prime', 'alembic_recipe_map', 'alembic_search'])
     );
     expect(RECIPE_GENERATION_SKELETON_CONTRACT.projectContext).toMatchObject({
       role: 'source-of-project-facts',
@@ -111,7 +109,7 @@ describe('RG-0 recipe generation skeleton', () => {
     );
   });
 
-  test('keeps RG-9 moved implementations under recipe-generation with old paths as thin adapters', () => {
+  test('keeps RG-9 implementations under recipe-generation without retired bridge imports', () => {
     for (const adapterPath of rg9AdapterPaths) {
       const source = readWorkspaceFile(adapterPath);
       const executableLines = source
@@ -133,6 +131,16 @@ describe('RG-0 recipe generation skeleton', () => {
       expect(source).not.toContain('#service/bootstrap/');
       expect(source).not.toContain('#service/evolution/');
       expect(source).not.toContain('#service/vector/');
+    }
+
+    for (const requestScopedPath of [
+      'lib/recipe-pipeline/generate/cold-start.ts',
+      'lib/recipe-pipeline/generate/dimension-completion.ts',
+      'lib/recipe-pipeline/generate/knowledge-rescan.ts',
+    ]) {
+      const source = readWorkspaceFile(requestScopedPath);
+      expect(source).toContain('projectRuntime?.identity.dataRoot');
+      expect(source).not.toContain('resolveHostAgentDataRoot');
     }
   });
 });

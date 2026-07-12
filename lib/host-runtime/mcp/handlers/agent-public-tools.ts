@@ -1,10 +1,3 @@
-import {
-  createRecipeContextServiceFromCore,
-  type RecipeContextRequest,
-  type RecipeContextVectorService,
-} from '@alembic/core/recipe-context-capabilities';
-import { RECIPE_SEMANTIC_REGION_METADATA_TYPE } from '@alembic/core/vector';
-import { resolveProjectRoot } from '@alembic/core/workspace';
 import { resolveHostRuntimeContext } from '#host-runtime/context/RuntimeContext.js';
 import type { HostDeclaredIntentInput, HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import {
@@ -29,16 +22,14 @@ import {
   createAgentPublicToolOutput,
   createAgentPublicToolResultEnvelope,
   createPrimePublicPackage,
-  PRIME_PUBLIC_TRUST_LAYERS,
   type PrimePublicPackage,
 } from '../public-tools/index.js';
 import * as guardHandlers from './guard.js';
 import {
-  buildRetrievalCheckpointPosture,
-  type RetrievalCheckpointPosture,
-  resolveRetrievalCheckpointPostureInput,
-} from './retrieval-checkpoint-diagnostics.js';
-import type { McpContext, McpServiceContainer } from './types.js';
+  type McpContext,
+  type McpServiceContainer,
+  requireRequestProjectRuntime,
+} from './types.js';
 
 interface AgentPublicBaseArgs {
   activeFile?: string;
@@ -55,35 +46,15 @@ interface AgentPublicBaseArgs {
   [key: string]: unknown;
 }
 
-interface AgentPrimeArgs extends AgentPublicBaseArgs {
-  capability?: string;
-  domainObjects?: string[];
-  integrationBoundary?: string;
-  intentRef?: string;
-  keywords?: string[];
-  labels?: string[];
-  lifecycleHint?: string;
-  qualityConcerns?: string[];
+interface AgentPrimeArgs {
+  context?: string;
+  language?: string;
+  projectRoot?: string;
   query?: string;
-  recognizedIntent?: Record<string, unknown>;
-  requirementGoal?: string;
-  scenario?: string;
-  taskAction?: string;
 }
 
 interface StandalonePrimeRequirementFrame {
-  capability?: string;
-  domainObjects: string[];
-  integrationBoundary?: string;
-  keywords: string[];
-  labels: string[];
-  lifecycleHint?: string;
-  locatorFacets: string[];
-  qualityConcerns: string[];
-  requirementGoal?: string;
-  scenario?: string;
   searchQuery?: string;
-  taskAction?: string;
 }
 
 interface AgentWorkStartArgs extends AgentPublicBaseArgs {
@@ -146,10 +117,16 @@ interface CodeGuardScopeResolution {
   workRefFiles: string[];
 }
 
+interface PrimeToolContext {
+  agentHost: AgentHost;
+  inputSource: AgentInputSource;
+  sourceRefs: string[];
+}
+
 interface PrimeHandlerSharedInput {
   args: AgentPrimeArgs;
   detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildAgentToolContext>;
+  intake: PrimeToolContext;
   primeRef: string;
 }
 
@@ -161,14 +138,7 @@ interface PrimeHandlerReadyInput extends PrimeHandlerSharedInput {
 
 interface PrimeMaterialProjection {
   primeKnowledgeMaterial: PrimeKnowledgeMaterial;
-  retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
 }
-
-type AgentPrimeSkippedReason =
-  | 'mechanical-envelope-only'
-  | 'no-semantic-intent'
-  | 'status-only-turn'
-  | 'not-relevant-to-project-knowledge';
 
 interface PipelineLike {
   search(request: PrimeSearchRequest): Promise<PrimeSearchResult | null>;
@@ -178,7 +148,6 @@ let primeCounter = 0;
 let workCounter = 0;
 
 const PRIME_PUBLIC_STRING_MAX_CHARS = 240;
-const PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT = 10;
 let finishCounter = 0;
 let guardCounter = 0;
 const WORK_RECORDS = new Map<string, WorkRecord>();
@@ -194,7 +163,6 @@ interface PrimeDeliveryRecord {
   guards: Array<{ id: string; title: string; sources: string[] }>;
   knowledge: Array<{ id: string; title: string; sources: string[] }>;
   primeRef: string;
-  sourceRevisionManifest: RetrievalCheckpointPosture['sourceRevisionManifest'];
 }
 const PRIME_RECORDS = new Map<string, PrimeDeliveryRecord>();
 const PRIME_RECORDS_CAP = 50;
@@ -210,47 +178,10 @@ function rememberPrimeDelivery(record: PrimeDeliveryRecord): void {
   }
 }
 
-interface PrimeRecipeRecord {
-  id: string;
-  kind?: string;
-  lifecycle?: string;
-  sourceFile?: string | null;
-  sources?: string[];
-  summary?: string;
-  title?: string;
-  trigger?: string;
-}
-
-interface PrimeRecipeListData {
-  page?: number;
-  pageSize?: number;
-  recipes?: PrimeRecipeRecord[];
-  total?: number;
-}
-
-interface PrimeRecipeRegionHit {
-  content?: string;
-  id: string;
-  recipeId: string;
-  regionClass: string;
-  score: number;
-}
-
 export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
   const intake = buildPrimeToolContext(args);
   const detailRefs = buildBaseDetailRefs('alembic_prime', intake.sourceRefs);
   const primeRef = nextPrimeRef();
-  const blockingReason = resolvePrimeBlockingReason(args, intake);
-  if (blockingReason) {
-    return buildPrimeBlockingOutput({
-      args,
-      detailRefs,
-      intake,
-      primeRef,
-      blockingReason,
-    });
-  }
-
   const effectiveProjectRoot = resolveEffectiveProjectRoot(ctx, args);
   const primeSearch = await runPrimeSearch(ctx, args, intake);
   return buildPrimeReadyOutput({
@@ -264,66 +195,6 @@ export async function primeHandler(ctx: McpContext, args: AgentPrimeArgs) {
   });
 }
 
-function buildPrimeBlockingOutput(
-  input: PrimeHandlerSharedInput & {
-    blockingReason: NonNullable<ReturnType<typeof resolvePrimeBlockingReason>>;
-  }
-) {
-  const result = buildPrimeBlockingResult(input);
-  const primePackage = buildPrimePublicPackage({
-    detailRefs: input.detailRefs,
-    intake: input.intake,
-    primeKnowledgeMaterial: null,
-    primeRef: input.primeRef,
-    result,
-    searchDegraded: false,
-    searchResult: null,
-  });
-  // GMAP-8: prime is decoupled from the KnowledgeContext middle layer — return its
-  // own prime-native output (primePackage + bounded detailRefs/diagnostics/nextActions).
-  return createAgentPublicToolOutput(result, {
-    primePackage,
-    detailRefs: input.detailRefs,
-    diagnostics: [
-      {
-        code: result.reason?.code ?? 'prime-blocked',
-        message: result.reason?.message ?? result.summary,
-        retryable: result.reason?.retryable ?? false,
-        severity: 'warning' as const,
-      },
-    ],
-    nextActions: [
-      {
-        tool: 'alembic_prime',
-        reason: result.reason?.message ?? 'Repair the prime input and call alembic_prime again.',
-        required: true,
-      },
-    ],
-  });
-}
-
-function buildPrimeBlockingResult(
-  input: PrimeHandlerSharedInput & {
-    blockingReason: NonNullable<ReturnType<typeof resolvePrimeBlockingReason>>;
-  }
-) {
-  return createAgentPublicToolResultEnvelope({
-    actionKind: 'prime',
-    agentHost: input.intake.agentHost,
-    inputSource: input.intake.inputSource,
-    reason: {
-      kind: 'blocked',
-      code: input.blockingReason.code,
-      message: input.blockingReason.message,
-      retryable: false,
-    },
-    refs: buildPrimeRefs(input),
-    status: 'blocked',
-    summary: buildResultSummary(input.blockingReason.message),
-    toolName: 'alembic_prime',
-  });
-}
-
 function buildPrimeRefs(input: PrimeHandlerSharedInput) {
   return {
     detailRefs: input.detailRefs,
@@ -332,41 +203,27 @@ function buildPrimeRefs(input: PrimeHandlerSharedInput) {
 }
 
 async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
-  const checkpointInput = resolveRetrievalCheckpointPostureInput(input.effectiveProjectRoot);
-  const runtimeIdentity = input.ctx.projectRuntime?.identity;
-  const checkpointPosture = buildRetrievalCheckpointPosture(input.ctx.container, {
-    ...checkpointInput,
-    currentFolderId: runtimeIdentity?.currentFolderId ?? checkpointInput.currentFolderId,
-    projectId: runtimeIdentity?.projectId ?? checkpointInput.projectId,
-    projectScopeId: runtimeIdentity?.projectScopeId ?? checkpointInput.projectScopeId,
-  });
   const material = buildPrimeMaterialProjection(
     input.intake,
     input.primeSearch,
     buildStandalonePrimeRequirementFrame(input.args),
-    input.args,
-    checkpointPosture.retrievalMayBeStale
+    input.args
   );
   const baseSearchDegraded =
     input.primeSearch.searchDegraded || material.primeKnowledgeMaterial.status === 'degraded';
-  const effectiveSearchDegraded = baseSearchDegraded || checkpointPosture.retrievalMayBeStale;
   const status = resolvePrimeStatus({
     primeKnowledgeMaterial: material.primeKnowledgeMaterial,
-    retrievalConsumer: material.retrievalConsumer,
-    retrievalCheckpoint: checkpointPosture,
     searchDegraded: input.primeSearch.searchDegraded,
     searchResult: input.primeSearch.searchResult,
-    skippedReason: input.primeSearch.skippedReason,
   });
   const result = buildPrimeReadyResult(input, status);
 
   const primePackage = buildPrimePublicPackage({
     detailRefs: input.detailRefs,
-    intake: input.intake,
     primeKnowledgeMaterial: material.primeKnowledgeMaterial,
     primeRef: input.primeRef,
     result,
-    searchDegraded: effectiveSearchDegraded,
+    searchDegraded: baseSearchDegraded,
     searchResult: input.primeSearch.searchResult,
   });
   // prime→guard step1：留存交付知识摘要供 guard 观测重叠（observe-only）。
@@ -384,11 +241,8 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
       sources: (item.evidenceRefs ?? []).map((ref) => ref.path).filter(Boolean),
     })),
     primeRef: input.primeRef,
-    sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
   });
-  // GMAP-8: prime returns its own prime-native output (primePackage + bounded
-  // detailRefs/diagnostics), assembled from the resident search material — never
-  // the KnowledgeContext middle layer, ProjectMatrix, or graph provider.
+  // Prime returns its own query-native output with bounded detail refs.
   return createAgentPublicToolOutput(result, {
     primePackage,
     detailRefs: [...input.detailRefs, ...primeMaterialDetailRefs(material.primeKnowledgeMaterial)],
@@ -398,19 +252,8 @@ async function buildPrimeReadyOutput(input: PrimeHandlerReadyInput) {
         baseSearchDegraded,
         input.primeSearch.regionEvidence
       ),
-      ...checkpointPosture.diagnostics.map((diagnostic) => ({
-        code: diagnostic.code,
-        severity: diagnostic.severity,
-        message: diagnostic.message,
-        retryable: diagnostic.retryable,
-      })),
     ],
-    nextActions: checkpointPosture.nextActions.map((action) => ({
-      tool: action.tool,
-      reason: action.reason,
-      required: action.required,
-    })),
-    sourceRevisionManifest: checkpointPosture.sourceRevisionManifest,
+    nextActions: [],
   });
 }
 
@@ -461,10 +304,7 @@ function buildPrimeReadyDiagnostics(
       retryable: true,
     });
   }
-  if (
-    !hasSemanticRegionVectorEvidence(regionEvidence) &&
-    !primeSearch.searchResult?.searchMeta.residentSearch?.residentVector?.available
-  ) {
+  if (!hasSemanticRegionVectorEvidence(regionEvidence)) {
     diagnostics.push({
       code: 'prime-vector-evidence-unavailable',
       severity: 'info',
@@ -508,32 +348,23 @@ function _readFiniteNumber(value: unknown): number | undefined {
 }
 
 function buildPrimeMaterialProjection(
-  intake: ReturnType<typeof buildAgentToolContext>,
+  intake: PrimeToolContext,
   primeSearch: Awaited<ReturnType<typeof runPrimeSearch>>,
   frame: StandalonePrimeRequirementFrame,
-  args: AgentPrimeArgs,
-  revisionTrustDegraded = false
+  args: AgentPrimeArgs
 ): PrimeMaterialProjection {
   return {
     primeKnowledgeMaterial: buildPrimeKnowledgeMaterial({
       requirement: {
-        userQuery: firstString(args.userQuery, frame.searchQuery) ?? '',
-        ...(args.activeFile ? { activeFile: args.activeFile } : {}),
-        ...(frame.scenario ? { scenario: frame.scenario } : {}),
+        userQuery: frame.searchQuery ?? '',
         queries: frame.searchQuery ? [frame.searchQuery] : [],
         language: args.language ?? null,
-        ...(frame.taskAction ? { taskAction: frame.taskAction } : {}),
-        ...(frame.requirementGoal ? { requirementGoal: frame.requirementGoal } : {}),
-        keywords: frame.keywords,
-        labels: frame.labels,
       },
-      searchDegraded: primeSearch.searchDegraded || revisionTrustDegraded,
+      searchDegraded: primeSearch.searchDegraded,
       searchResult: primeSearch.searchResult,
       sourceRefs: intake.sourceRefs,
-      taskAnchorDecision: intake.lifecycle.taskAnchorDecision,
       regionEvidence: primeSearch.regionEvidence,
     }),
-    retrievalConsumer: primeSearch.searchResult?.searchMeta.retrievalConsumer ?? null,
   };
 }
 
@@ -970,13 +801,7 @@ function buildCodeGuardReadyOutput(input: {
   const primeAlignment = effectivePrimeRef
     ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files, guardResult)
     : null;
-  const sourceRevisionAlignment = isRecord(primeAlignment?.sourceRevisionManifest)
-    ? primeAlignment.sourceRevisionManifest.alignment
-    : null;
-  const status =
-    baseStatus === 'ready' && sourceRevisionAlignment && sourceRevisionAlignment !== 'current'
-      ? 'degraded'
-      : baseStatus;
+  const status = baseStatus;
   // 采纳信号回流（2026-07-06 闭环审查落地）：observed 且有真实重叠 = "prime 交付的
   // 知识用在了对的文件上"——递增 stats.primeAdoptions（observe-first，decay/排序
   // 消费另行调参）。失败静默：回流是观测面副作用，绝不破坏 guard 主链。
@@ -998,14 +823,8 @@ function buildCodeGuardReadyOutput(input: {
       ? {
           reason: {
             kind: 'degraded' as const,
-            code:
-              sourceRevisionAlignment && sourceRevisionAlignment !== 'current'
-                ? ('guard-source-revision-untrusted' as const)
-                : ('guard-coverage-incomplete' as const),
-            message:
-              sourceRevisionAlignment && sourceRevisionAlignment !== 'current'
-                ? 'Code Guard used a Prime receipt whose source revision manifest is not current.'
-                : 'Code Guard could not complete every requested file check.',
+            code: 'guard-coverage-incomplete' as const,
+            message: 'Code Guard could not complete every requested file check.',
             retryable: true,
           },
         }
@@ -1130,7 +949,6 @@ function buildGuardPrimeAlignment(
     feedbackGuardIds,
     feedbackRecorded: feedbackGuardIds.length > 0,
     coverageComplete,
-    sourceRevisionManifest: record.sourceRevisionManifest,
   };
 }
 
@@ -1238,826 +1056,77 @@ function buildAgentToolContext(args: AgentPublicBaseArgs) {
   };
 }
 
-function buildPrimeToolContext(args: AgentPrimeArgs): ReturnType<typeof buildAgentToolContext> {
-  const frame = buildStandalonePrimeRequirementFrame(args);
-  const rawUserQuery = firstString(args.userQuery);
-  const lifecycle = classifyTaskLifecycleInput({
-    operation: 'prime',
-    rawUserQuery,
-    userQuery: frame.searchQuery ?? rawUserQuery,
-  });
-  const sourceRefs = uniqueStrings([
-    ...(args.sourceRefs ?? []),
-    ...(args.sourceEvidenceRefs ?? []),
-  ]);
+function buildPrimeToolContext(_args: AgentPrimeArgs): PrimeToolContext {
   return {
-    agentHost: args.agentHost ?? resolveDefaultAgentHost(),
-    inputSource: resolveAgentInputSource(args.inputSource, lifecycle.inputSource),
-    lifecycle,
-    sourceRefs,
+    agentHost: resolveDefaultAgentHost(),
+    inputSource: 'user-message',
+    sourceRefs: [],
   };
 }
 
 function buildStandalonePrimeRequirementFrame(
   args: AgentPrimeArgs
 ): StandalonePrimeRequirementFrame {
-  const taskAction = normalizePrimeTaskAction(args.taskAction);
-  const requirementGoal = firstString(args.requirementGoal);
-  const scenario = firstString(args.scenario);
-  const capability = firstString(args.capability);
-  const domainObjects = stringList(args.domainObjects);
-  const integrationBoundary = firstString(args.integrationBoundary);
-  const lifecycleHint = firstString(args.lifecycleHint);
-  const qualityConcerns = stringList(args.qualityConcerns);
-  const labels = stringList(args.labels);
-  const keywords = stringList(args.keywords);
-  const locatorFacets = uniqueStrings([
-    ...(scenario ? [scenario] : []),
-    ...(capability ? [capability] : []),
-    ...domainObjects,
-    ...(integrationBoundary ? [integrationBoundary] : []),
-    ...qualityConcerns,
-  ]);
-  const queryParts = uniqueStrings([
-    ...(requirementGoal ? [requirementGoal] : []),
-    ...(taskAction ? [taskAction] : []),
-    ...locatorFacets,
-    ...(lifecycleHint ? [lifecycleHint] : []),
-    ...keywords,
-    ...labels,
-  ]);
+  const query = firstString(args.query);
+  const context = firstString(args.context);
+  const queryParts = uniqueStrings([...(query ? [query] : []), ...(context ? [context] : [])]);
   return {
-    ...(capability ? { capability } : {}),
-    domainObjects,
-    ...(integrationBoundary ? { integrationBoundary } : {}),
-    keywords,
-    labels,
-    ...(lifecycleHint ? { lifecycleHint } : {}),
-    locatorFacets,
-    qualityConcerns,
-    ...(requirementGoal ? { requirementGoal } : {}),
-    ...(scenario ? { scenario } : {}),
     ...(queryParts.length > 0 ? { searchQuery: queryParts.join(' ') } : {}),
-    ...(taskAction ? { taskAction } : {}),
   };
-}
-
-function hasAnyStandalonePrimeSignal(frame: StandalonePrimeRequirementFrame): boolean {
-  return Boolean(
-    frame.taskAction ||
-      frame.requirementGoal ||
-      frame.locatorFacets.length > 0 ||
-      frame.lifecycleHint ||
-      frame.keywords.length > 0 ||
-      frame.labels.length > 0
-  );
-}
-
-function hasRequiredStandalonePrimeFrame(frame: StandalonePrimeRequirementFrame): boolean {
-  return Boolean(frame.taskAction && frame.requirementGoal && frame.locatorFacets.length > 0);
-}
-
-function normalizePrimeTaskAction(value: unknown): string | undefined {
-  const action = firstString(value)
-    ?.toLowerCase()
-    .replace(/[_\s]+/g, '-');
-  switch (action) {
-    case 'implement':
-    case 'implementation':
-    case 'build':
-    case 'add':
-      return 'implement';
-    case 'fix':
-    case 'repair':
-      return 'fix';
-    case 'refactor':
-      return 'refactor';
-    case 'test':
-    case 'test-writing':
-    case 'write-tests':
-    case 'add-tests':
-      return 'test-writing';
-    case 'test-repair':
-    case 'fix-tests':
-    case 'repair-tests':
-      return 'test-repair';
-    case 'code-edit':
-    case 'edit-code':
-    case 'remove':
-    case 'delete':
-      return 'code-edit';
-    case 'code-review':
-    case 'review':
-      return 'code-review';
-    default:
-      return undefined;
-  }
-}
-
-function resolvePrimeBlockingReason(
-  args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildAgentToolContext>
-): {
-  code: 'missing-required-intent' | 'missing-referenced-docs' | 'obsolete-prime-intent-input';
-  message: string;
-} | null {
-  const obsoleteFields = obsoletePrimeInputFields(args);
-  if (obsoleteFields.length > 0) {
-    return {
-      code: 'obsolete-prime-intent-input',
-      message: `alembic_prime no longer accepts ${obsoleteFields.join(', ')} as prime input; call it with taskAction, requirementGoal, and at least one locator facet.`,
-    };
-  }
-
-  const frame = buildStandalonePrimeRequirementFrame(args);
-  if (
-    intake.lifecycle.primeDecision.action === 'skip' &&
-    !isTrustedStandaloneCodePrimeFrame(frame)
-  ) {
-    return null;
-  }
-
-  if (!hasRequiredStandalonePrimeFrame(frame)) {
-    return {
-      code: 'missing-required-intent',
-      message:
-        'alembic_prime requires standalone code-development input: taskAction, requirementGoal, and at least one locator facet (capability, scenario, domainObjects, integrationBoundary, or qualityConcerns).',
-    };
-  }
-
-  if (intake.inputSource === 'automation-envelope' && intake.sourceRefs.length === 0) {
-    return {
-      code: 'missing-referenced-docs',
-      message:
-        'Automation-envelope prime requires a curated direct code-development frame plus explicit sourceRefs so the host can verify referenced dispatch/plan evidence.',
-    };
-  }
-  return null;
-}
-
-function obsoletePrimeInputFields(args: AgentPrimeArgs): string[] {
-  const fields: string[] = [];
-  if (firstString(args.intentRef)) {
-    fields.push('intentRef');
-  }
-  if (args.recognizedIntent && typeof args.recognizedIntent === 'object') {
-    fields.push('recognizedIntent');
-  }
-  if (firstString(args.query)) {
-    fields.push('query');
-  }
-  if (
-    args.hostDeclaredIntent &&
-    !hasAnyStandalonePrimeSignal(buildStandalonePrimeRequirementFrame(args))
-  ) {
-    fields.push('hostDeclaredIntent');
-  }
-  return fields;
 }
 
 async function runPrimeSearch(
   ctx: McpContext,
   args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildAgentToolContext>
+  _intake: PrimeToolContext
 ): Promise<{
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
-  skippedReason: AgentPrimeSkippedReason | null;
   regionEvidence: Record<string, unknown>[];
 }> {
-  const skippedReason = resolvePrimeSkipBeforeRetrieval(args, intake);
-  if (skippedReason) {
-    return {
-      searchDegraded: false,
-      searchResult: null,
-      skippedReason,
-      regionEvidence: [],
-    };
-  }
   const pipeline = getPipeline(ctx.container);
   if (!pipeline) {
-    return { searchDegraded: true, searchResult: null, skippedReason: null, regionEvidence: [] };
+    return { searchDegraded: true, searchResult: null, regionEvidence: [] };
   }
   try {
-    // PDR-1d/PDR-2b: prime retrieval = structured query → unified vector search
-    // (route-agnostic, same engine as alembic_search), PLUS local Recipe
-    // semantic-region evidence from the Core-fixed searchRegions lane.
     const frame = buildStandalonePrimeRequirementFrame(args);
     const searchResult = await pipeline.search({
       query: frame.searchQuery ?? '',
       ...(frame.searchQuery ? { queries: [frame.searchQuery] } : {}),
-      ...(frame.scenario ? { scenario: frame.scenario } : {}),
       language: args.language ?? null,
     });
-    const regionEvidence = await queryPrimeRegionEvidence(ctx, frame);
-    let sourceRefEvidence =
-      regionEvidence.length > 0 ? [] : await queryPrimeSourceRefLocatorEvidence(ctx, args, intake);
-    // P-1（2026-07-06 pure-local 自足）：无文件锚点、无向量证据时，本地检索命中的
-    // Recipe 用 recipe_source_refs 行级区间回填 locator 证据——refs 数据就在本地
-    // SQLite，信任门不必依赖 daemon（resident injection package）才能放行。检索
-    // 质量门（quality filter）已在 pipeline 层把关；whySelected 标记 backfill 来源
-    // 与 exact-match 区分，审计可辨。
-    if (regionEvidence.length === 0 && sourceRefEvidence.length === 0 && searchResult) {
-      const hitRecipeIds = uniqueStrings(
-        [...searchResult.relatedKnowledge, ...searchResult.guardRules].map((item) => item.id)
-      );
-      sourceRefEvidence = await queryPrimeHitRecipeLocatorEvidence(ctx, hitRecipeIds);
-    }
     return {
       searchDegraded: false,
       searchResult,
-      skippedReason: null,
-      regionEvidence: [...regionEvidence, ...sourceRefEvidence],
+      regionEvidence: [],
     };
   } catch (err: unknown) {
     process.stderr.write(
       `[MCP/AgentPublicTools] alembic_prime search degraded: ${err instanceof Error ? err.message : String(err)}\n`
     );
-    return { searchDegraded: true, searchResult: null, skippedReason: null, regionEvidence: [] };
+    return { searchDegraded: true, searchResult: null, regionEvidence: [] };
   }
 }
-
-// Pure-local prime cannot rely on resident vector Recipe-region evidence when the
-// vector index is empty. If the host supplied explicit source refs, promote only
-// exact Recipe source matches into locator evidence so prime can still deliver
-// source-backed guidance without trusting broad keyword search.
-async function queryPrimeSourceRefLocatorEvidence(
-  ctx: McpContext,
-  args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildAgentToolContext>
-): Promise<Record<string, unknown>[]> {
-  const projectRoot = resolveEffectiveProjectRoot(ctx, args);
-  const anchors = normalizeTaskLifecycleFileRefs(
-    uniqueStrings([
-      ...intake.sourceRefs,
-      ...(typeof args.activeFile === 'string' ? [args.activeFile] : []),
-    ]),
-    { projectRoot }
-  );
-  if (anchors.length === 0) {
-    return [];
-  }
-  const recipeContext = buildPrimeRecipeContextService(ctx);
-  if (!recipeContext) {
-    return [];
-  }
-  try {
-    const recipes = await listAllPrimeRecipeRecords(recipeContext);
-    const anchorSet = new Set(anchors);
-    return recipes
-      .flatMap((recipe) => projectRecipeSourceRefLocatorEvidence(recipe, anchorSet, projectRoot))
-      .slice(0, PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT);
-  } catch (err: unknown) {
-    process.stderr.write(
-      `[MCP/AgentPublicTools] alembic_prime source-ref locator fallback degraded: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-    return [];
-  }
-}
-
-/**
- * P-1 第二锚源：文件锚点缺席的纯本地 prime。本地统一检索命中的 recipe，若在
- * recipe_source_refs 有真实源引用，则以行级区间回填 recipe-locator 信任证据。
- * 与 exact-match fallback 的差异仅在锚源（检索命中 vs host 文件锚），证据形态
- * 同构；whySelected 用 search-hit-source-ref-backfill 标记以便审计区分。
- */
-async function queryPrimeHitRecipeLocatorEvidence(
-  ctx: McpContext,
-  hitRecipeIds: string[]
-): Promise<Record<string, unknown>[]> {
-  if (hitRecipeIds.length === 0) {
-    return [];
-  }
-  const recipeContext = buildPrimeRecipeContextService(ctx);
-  if (!recipeContext) {
-    return [];
-  }
-  try {
-    const recipes = await listAllPrimeRecipeRecords(recipeContext);
-    const hitSet = new Set(hitRecipeIds);
-    return recipes
-      .filter((recipe) => hitSet.has(recipe.id))
-      .flatMap((recipe) => {
-        const refs = uniqueStrings([
-          ...(recipe.sources ?? []),
-          ...(recipe.sourceFile ? [recipe.sourceFile] : []),
-        ]);
-        if (refs.length === 0) {
-          return [];
-        }
-        return [
-          {
-            evidenceRefs: [`recipe-locator:${recipe.id}`],
-            injectionStatus: 'selected',
-            itemId: recipe.id,
-            kind: recipe.kind ?? 'pattern',
-            recipeId: recipe.id,
-            score: 1,
-            sourceRefs: refs.slice(0, 5),
-            trustEvidenceSource: 'source-ref-locator-fallback',
-            ...(recipe.title ? { title: recipe.title } : {}),
-            ...(recipe.trigger ? { trigger: recipe.trigger } : {}),
-            ...(recipe.summary ? { summary: recipe.summary } : {}),
-            whySelected: ['recipe-locator:search-hit-source-ref-backfill'],
-          },
-        ];
-      })
-      .slice(0, PRIME_SOURCE_REF_LOCATOR_EVIDENCE_LIMIT);
-  } catch (err: unknown) {
-    process.stderr.write(
-      `[MCP/AgentPublicTools] alembic_prime hit-recipe locator backfill degraded: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-    return [];
-  }
-}
-
-function buildPrimeRecipeContextService(
-  ctx: McpContext
-): ReturnType<typeof createRecipeContextServiceFromCore> | null {
-  const knowledge = safeContainerGet(ctx, 'knowledgeService');
-  const sourceRefRepository = safeContainerGet(ctx, 'recipeSourceRefRepository');
-  if (!knowledge || !sourceRefRepository) {
-    return null;
-  }
-  const vectorService = safeContainerGet(ctx, 'vectorService');
-  try {
-    return createRecipeContextServiceFromCore({
-      knowledge: knowledge as Parameters<typeof createRecipeContextServiceFromCore>[0]['knowledge'],
-      sourceRefRepository: sourceRefRepository as Parameters<
-        typeof createRecipeContextServiceFromCore
-      >[0]['sourceRefRepository'],
-      vectorService: (vectorService ?? null) as Parameters<
-        typeof createRecipeContextServiceFromCore
-      >[0]['vectorService'],
-    });
-  } catch {
-    return null;
-  }
-}
-
-export async function collectPrimeRecipePages(
-  readPage: (page: number, pageSize: number) => Promise<PrimeRecipeListData>
-): Promise<PrimeRecipeRecord[]> {
-  const records: PrimeRecipeRecord[] = [];
-  const pageSize = 200;
-  for (let page = 1; page <= 10_000; page += 1) {
-    const data = await readPage(page, pageSize);
-    const pageRecords = data.recipes ?? [];
-    records.push(...pageRecords);
-    const total = data.total ?? records.length;
-    if (records.length >= total || pageRecords.length === 0) {
-      return records;
-    }
-  }
-  throw new Error('Prime Recipe hydration exceeded the 10,000 page safety bound.');
-}
-
-async function listAllPrimeRecipeRecords(
-  recipeContext: ReturnType<typeof createRecipeContextServiceFromCore>
-): Promise<PrimeRecipeRecord[]> {
-  return collectPrimeRecipePages(async (page, pageSize) => {
-    const envelope = await recipeContext.execute({
-      kind: 'list',
-      payload: { filter: {}, page, pageSize },
-    } as RecipeContextRequest);
-    return envelope.data as PrimeRecipeListData;
-  });
-}
-
-function safeContainerGet(ctx: McpContext, name: string): unknown {
-  try {
-    return ctx.container.get(name);
-  } catch {
-    return null;
-  }
-}
-
-export function projectRecipeSourceRefLocatorEvidence(
-  recipe: PrimeRecipeRecord,
-  anchorSet: Set<string>,
-  projectRoot: string
-): Record<string, unknown>[] {
-  const rawRefs = uniqueStrings([
-    ...(recipe.sources ?? []),
-    ...(recipe.sourceFile ? [recipe.sourceFile] : []),
-  ]);
-  const matchedRefs = rawRefs.filter((ref) =>
-    normalizeTaskLifecycleFileRefs([ref], { projectRoot }).some((path) => anchorSet.has(path))
-  );
-  if (matchedRefs.length === 0) {
-    return [];
-  }
-  return [
-    {
-      evidenceRefs: [`recipe-locator:${recipe.id}`],
-      injectionStatus: 'selected',
-      itemId: recipe.id,
-      kind: recipe.kind ?? 'pattern',
-      recipeId: recipe.id,
-      score: 1,
-      sourceRefs: matchedRefs,
-      trustEvidenceSource: 'source-ref-locator-fallback',
-      ...(recipe.title ? { title: recipe.title } : {}),
-      ...(recipe.trigger ? { trigger: recipe.trigger } : {}),
-      ...(recipe.summary ? { summary: recipe.summary } : {}),
-      whySelected: ['recipe-locator:source-ref-exact-match'],
-    },
-  ];
-}
-
-// PDR-2b: query local Recipe semantic-region vectors via the Core-fixed
-// searchRegions lane and project hits into the prime regionEvidence seam, so
-// subject-less prime earns recipe-semantic-region trust evidence (full quality,
-// no lexical downgrade). Degrades to [] (lexical-only) when there is no vector
-// service, no embed lane, or no usable query signal.
-async function queryPrimeRegionEvidence(
-  ctx: McpContext,
-  frame: StandalonePrimeRequirementFrame
-): Promise<Record<string, unknown>[]> {
-  const regionQuery = buildPrimeRegionQuery(frame);
-  if (!regionQuery) {
-    return [];
-  }
-  let vectorService: RecipeContextVectorService | null;
-  try {
-    vectorService =
-      (ctx.container.get('vectorService') as RecipeContextVectorService | null) ?? null;
-  } catch {
-    return [];
-  }
-  if (!vectorService) {
-    return [];
-  }
-  try {
-    const hits = await vectorService.hybridSearch(regionQuery, {
-      filter: { type: RECIPE_SEMANTIC_REGION_METADATA_TYPE },
-      topK: 10,
-    });
-    if (!hits.some((hit) => hit.vectorUsed === true)) {
-      return []; // embed lane unavailable → no region evidence (documented degrade)
-    }
-    const recipeContext = buildPrimeRecipeContextService(ctx);
-    const recipes = recipeContext ? await listAllPrimeRecipeRecords(recipeContext) : [];
-    return mapRegionHitsToPrimeEvidence(
-      hits.map(regionHitFromVectorHit),
-      new Map(recipes.map((recipe) => [recipe.id, recipe]))
-    );
-  } catch (err: unknown) {
-    process.stderr.write(
-      `[MCP/AgentPublicTools] alembic_prime region retrieval degraded: ${err instanceof Error ? err.message : String(err)}\n`
-    );
-    return [];
-  }
-}
-
-// Build the region-search query from the richest available frame signal so a
-// subject-less prime (no explicit searchQuery) still drives region retrieval.
-export function buildPrimeRegionQuery(frame: StandalonePrimeRequirementFrame): string {
-  const direct = frame.searchQuery?.trim();
-  if (direct) {
-    return direct;
-  }
-  return [frame.requirementGoal, frame.scenario, ...frame.keywords, ...frame.labels]
-    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
-    .join(' ')
-    .trim();
-}
-
-function regionHitFromVectorHit(
-  hit: Awaited<ReturnType<RecipeContextVectorService['hybridSearch']>>[number]
-): PrimeRecipeRegionHit {
-  return {
-    content: readVectorHitString(hit, 'content') ?? readVectorHitString(hit, 'text'),
-    id: hit.id,
-    recipeId: readVectorHitString(hit, 'recipeId') ?? '',
-    regionClass: readVectorHitString(hit, 'regionClass') ?? '',
-    score: typeof hit.score === 'number' ? hit.score : 0,
-  };
-}
-
-function readVectorHitString(hit: Record<string, unknown>, key: string): string | undefined {
-  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
-    value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : undefined;
-  const item = asRecord(hit.item);
-  const dataItem = asRecord(asRecord(hit.data)?.item);
-  const containers: Array<Record<string, unknown> | undefined> = [
-    hit,
-    asRecord(hit.metadata),
-    item,
-    asRecord(item?.metadata),
-    dataItem,
-    asRecord(dataItem?.metadata),
-  ];
-  for (const container of containers) {
-    const value = container?.[key];
-    if (typeof value === 'string' && value.length > 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-// Project searchRegions hits into resident-region selectedKnowledge records that
-// mirror PrimeKnowledgeMaterial.projectResidentRegionSelectedRecipe output, so the
-// prime trust gate credits them as recipe-semantic-region evidence. Hits are
-// grouped by recipeId; hits without recipeId/regionClass are dropped.
-export function mapRegionHitsToPrimeEvidence(
-  hits: PrimeRecipeRegionHit[],
-  recipesById: ReadonlyMap<string, PrimeRecipeRecord> = new Map()
-): Record<string, unknown>[] {
-  const byRecipe = new Map<
-    string,
-    {
-      recipeId: string;
-      regionClasses: string[];
-      matchedRegions: Record<string, unknown>[];
-      score: number;
-      descriptions: string[];
-    }
-  >();
-  for (const hit of hits) {
-    const recipeId = hit.recipeId.trim();
-    const regionClass = hit.regionClass.trim();
-    if (!recipeId || !regionClass) {
-      continue;
-    }
-    const group = byRecipe.get(recipeId) ?? {
-      recipeId,
-      regionClasses: [],
-      matchedRegions: [],
-      score: 0,
-      descriptions: [],
-    };
-    if (!group.regionClasses.includes(regionClass)) {
-      group.regionClasses.push(regionClass);
-    }
-    group.matchedRegions.push({
-      recipeId,
-      regionClass,
-      score: hit.score,
-      ...(hit.content ? { snippet: hit.content } : {}),
-    });
-    group.score = Math.max(group.score, hit.score);
-    if (hit.content?.trim()) {
-      group.descriptions.push(hit.content.trim());
-    }
-    byRecipe.set(recipeId, group);
-  }
-  return [...byRecipe.values()].map((group) => {
-    const recipe = recipesById.get(group.recipeId);
-    const sourceRefs = uniqueStrings([
-      ...(recipe?.sources ?? []),
-      ...(recipe?.sourceFile ? [recipe.sourceFile] : []),
-    ]);
-    const hydrated = Boolean(
-      recipe?.kind && recipe.title && sourceRefs.length > 0 && recipe.lifecycle === 'active'
-    );
-    return {
-      evidenceRefs: [`residentRegionRetrieval:${group.recipeId}`],
-      injectionStatus: hydrated ? 'selected' : 'candidate',
-      itemId: group.recipeId,
-      kind: recipe?.kind ?? 'unknown',
-      ...(hydrated ? { matchedRegionClasses: group.regionClasses.slice(0, 8) } : {}),
-      matchedRegions: group.matchedRegions,
-      recipeId: group.recipeId,
-      score: group.score,
-      sourceRefs,
-      ...(recipe?.title ? { title: recipe.title } : {}),
-      ...(recipe?.lifecycle ? { lifecycle: recipe.lifecycle } : {}),
-      hydrationStatus: hydrated ? 'complete' : 'missing',
-      ...(!hydrated ? { unverifiedRegionClasses: group.regionClasses.slice(0, 8) } : {}),
-      ...(group.descriptions.length > 0 ? { description: group.descriptions[0] } : {}),
-      whySelected: ['resident-region-retrieval', 'local-region-vector'],
-    };
-  });
-}
-
-function resolvePrimeSkipBeforeRetrieval(
-  args: AgentPrimeArgs,
-  intake: ReturnType<typeof buildAgentToolContext>
-): AgentPrimeSkippedReason | null {
-  const frame = buildStandalonePrimeRequirementFrame(args);
-  const trustedStandaloneFrame = isTrustedStandaloneCodePrimeFrame(frame);
-  if (args.intentKind && isExplicitNonCodePrimeIntentKind(args.intentKind)) {
-    return args.intentKind === 'status-only'
-      ? 'status-only-turn'
-      : 'not-relevant-to-project-knowledge';
-  }
-  if (isStandalonePrimeMechanicalEnvelopeFrame(frame)) {
-    return 'mechanical-envelope-only';
-  }
-  if (isLowInformationStandalonePrimeFrame(frame)) {
-    return 'not-relevant-to-project-knowledge';
-  }
-  if (intake.lifecycle.primeDecision.action === 'skip' && !trustedStandaloneFrame) {
-    return mapPrimeSkipReason(intake.lifecycle.primeDecision.reasonCode);
-  }
-  if (hasRequiredStandalonePrimeFrame(frame) && isStandalonePrimeNonCodeFrame(frame)) {
-    return 'not-relevant-to-project-knowledge';
-  }
-  return null;
-}
-
-function isTrustedStandaloneCodePrimeFrame(frame: StandalonePrimeRequirementFrame): boolean {
-  return hasRequiredStandalonePrimeFrame(frame) && !isStandalonePrimeNonCodeFrame(frame);
-}
-
-function isExplicitNonCodePrimeIntentKind(intentKind: AgentIntentKind): boolean {
-  return (
-    intentKind === 'read-only-analysis' ||
-    intentKind === 'status-only' ||
-    intentKind === 'design-or-planning' ||
-    intentKind === 'mechanical-envelope' ||
-    intentKind === 'unknown'
-  );
-}
-
-function isStandalonePrimeNonCodeFrame(frame: StandalonePrimeRequirementFrame): boolean {
-  const frameText = standalonePrimeSemanticText(frame);
-  if (!frameText) {
-    return false;
-  }
-  if (
-    /\b(without|no)\s+code\s+changes?\b|\bread[-\s]?only\s+(plan|planning|discussion)\b/i.test(
-      frameText
-    )
-  ) {
-    return true;
-  }
-  const hasCodeWorkMarker =
-    /\b(implement|fix|repair|refactor|test|tests|code|handler|schema|runtime|api|mcp|plugin|route|service|pipeline|contract|projection|validation|regression|bug)\b|实现|修复|重构|测试|代码|接口|处理器|模式|运行时/u.test(
-      frameText
-    );
-  if (hasCodeWorkMarker) {
-    return false;
-  }
-  return (
-    /\b(where|which)\b.{0,80}\b(file|module|class|handler|route|located|location|live|entrypoint)\b/i.test(
-      frameText
-    ) ||
-    /\b(project\s+navigation|module\s+location|file\s+location|where\s+to\s+find)\b/i.test(
-      frameText
-    ) ||
-    /在哪里|在哪个文件|位置|入口在哪/u.test(frameText) ||
-    /^(what\s+is|explain|tell\s+me\s+about|overview\s+of)\b/i.test(frameText) ||
-    /\b(general\s+knowledge|background\s+knowledge|concept\s+overview)\b/i.test(frameText) ||
-    /是什么|解释一下|介绍一下/u.test(frameText) ||
-    /\b(design|planning|plan|proposal|options?|tradeoffs?|roadmap)\b.{0,80}\b(discussion|options?|proposal|plan|tradeoffs?)\b/i.test(
-      frameText
-    )
-  );
-}
-
-function isStandalonePrimeMechanicalEnvelopeFrame(frame: StandalonePrimeRequirementFrame): boolean {
-  const frameText = standalonePrimeSemanticText(frame);
-  return /<\s*codex_delegation\b|<\s*input\b|<\/\s*codex_delegation\s*>|currentWindow\s*:|taskId\s*:|stateRoot\s*:|dispatchGroup\s*:/iu.test(
-    frameText
-  );
-}
-
-function isLowInformationStandalonePrimeFrame(frame: StandalonePrimeRequirementFrame): boolean {
-  const frameText = standalonePrimeSemanticText(frame);
-  if (!frameText) {
-    return true;
-  }
-  if (
-    /^(help|what\s+now|next\s+steps?|where\s+do\s+i\s+start|how\s+do\s+i\s+start|continue|继续|帮我|下一步|从哪里开始|哪里开始|怎么开始)[?？。!！\s]*$/iu.test(
-      frameText
-    )
-  ) {
-    return true;
-  }
-  const tokens =
-    frameText
-      .toLowerCase()
-      .match(/[a-z0-9_]+|[\p{Script=Han}]+/gu)
-      ?.filter((token) => {
-        if (LOW_INFORMATION_STANDALONE_PRIME_TOKENS.has(token)) {
-          return false;
-        }
-        return token.length > 1 || /[\p{Script=Han}]/u.test(token);
-      }) ?? [];
-  const hasConcreteCodeLocator =
-    /\b(api|route|handler|schema|zod|runtime|mcp|plugin|service|pipeline|contract|projection|validation|regression|test|tests|file|module|class|function|method)\b|接口|路由|处理器|模式|运行时|服务|管线|契约|投影|验证|测试|文件|模块|函数/u.test(
-      frameText
-    );
-  return tokens.length < 3 && !hasConcreteCodeLocator;
-}
-
-function standalonePrimeSemanticText(frame: StandalonePrimeRequirementFrame): string {
-  return [
-    frame.requirementGoal,
-    frame.scenario,
-    frame.capability,
-    ...frame.domainObjects,
-    frame.integrationBoundary,
-    frame.lifecycleHint,
-    ...frame.qualityConcerns,
-    ...frame.keywords,
-    ...frame.labels,
-  ]
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-const LOW_INFORMATION_STANDALONE_PRIME_TOKENS = new Set([
-  'begin',
-  'continue',
-  'do',
-  'help',
-  'how',
-  'me',
-  'next',
-  'now',
-  'please',
-  'start',
-  'steps',
-  'what',
-  'where',
-  '帮我',
-  '从哪里开始',
-  '继续',
-  '哪里开始',
-  '下一步',
-  '怎么开始',
-]);
 
 function resolvePrimeStatus(input: {
   primeKnowledgeMaterial: Pick<
     PrimeKnowledgeMaterial,
     'acceptedGuards' | 'acceptedKnowledge' | 'degradedReason' | 'status'
   >;
-  retrievalConsumer: PrimeSearchResult['searchMeta']['retrievalConsumer'] | null;
-  retrievalCheckpoint: RetrievalCheckpointPosture;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
-  skippedReason: AgentPrimeSkippedReason | null;
 }): Pick<AgentPublicToolResultEnvelope, 'status' | 'reason'> & { summary: string } {
-  if (input.skippedReason) {
-    return {
-      reason: {
-        kind: 'skip',
-        code: input.skippedReason,
-        message: `Prime skipped by intent lifecycle policy: ${input.skippedReason}.`,
-        retryable: false,
-      },
-      status: 'skipped',
-      summary: `Prime skipped: ${input.skippedReason}.`,
-    };
-  }
-  if (input.retrievalCheckpoint.retrievalMayBeStale) {
-    const firstDiagnostic =
-      input.retrievalCheckpoint.diagnostics.find(
-        (diagnostic) => diagnostic.code === 'retrieval-catch-up-needed'
-      ) ?? input.retrievalCheckpoint.diagnostics[0];
+  if (input.searchDegraded) {
     return {
       reason: {
         kind: 'degraded',
         code: 'optional-service-unavailable',
         message:
-          firstDiagnostic?.message ??
-          'Prime retrieval may be stale until alembic_rescan catches up the durable git diff checkpoint.',
-        retryable: true,
-      },
-      status: 'degraded',
-      summary:
-        'Prime retrieval may be stale because the durable git diff checkpoint needs catch-up.',
-    };
-  }
-  if (input.retrievalConsumer && !input.retrievalConsumer.producerContract.available) {
-    const isResidentUnavailable =
-      input.retrievalConsumer.producerContract.reasonCode === 'resident-search-unavailable';
-    const missingFields = input.retrievalConsumer.producerContract.missingFields.join(', ');
-    return {
-      reason: {
-        kind: 'degraded',
-        code: isResidentUnavailable ? 'resident-unavailable' : 'optional-service-unavailable',
-        message: isResidentUnavailable
-          ? 'Prime search could not read the Alembic resident retrieval metadata contract.'
-          : `Prime search used a resident response without Stage 1A retrieval metadata: ${missingFields}.`,
-        retryable: true,
-      },
-      status: 'degraded',
-      summary: isResidentUnavailable
-        ? 'Prime retrieval metadata is unavailable because the resident route was unavailable.'
-        : 'Prime retrieval metadata is degraded because the resident Stage 1A contract is incomplete.',
-    };
-  }
-  if (input.searchDegraded) {
-    return {
-      reason: {
-        kind: 'degraded',
-        code: 'resident-unavailable',
-        message:
           'Prime search degraded because the local PrimeSearchPipeline retrieval lane failed or was unavailable.',
         retryable: true,
       },
       status: 'degraded',
-      summary: 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
+      summary: 'Prime local search was unavailable.',
     };
   }
   if (input.primeKnowledgeMaterial.status === 'degraded') {
@@ -2066,16 +1135,11 @@ function resolvePrimeStatus(input: {
       reason: {
         kind: 'degraded',
         code: 'knowledge-empty',
-        message:
-          reason?.message ??
-          'Prime withheld retrieved Recipe or Guard candidates before marking them trusted.',
+        message: reason?.message ?? 'Prime local search was unavailable.',
         retryable: true,
       },
       status: 'degraded',
-      summary:
-        reason?.code === 'low-information-intent'
-          ? 'Prime withheld retrieved knowledge because the request lacked concrete anchors.'
-          : 'Prime degraded before delivering trusted Recipe or Guard knowledge.',
+      summary: 'Prime local search was unavailable.',
     };
   }
   const acceptedKnowledgeCount = input.primeKnowledgeMaterial.acceptedKnowledge.length;
@@ -2090,14 +1154,7 @@ function resolvePrimeStatus(input: {
   const guardCount = input.searchResult?.guardRules.length ?? 0;
   if (relatedCount === 0 && guardCount === 0) {
     return {
-      reason: {
-        kind: 'degraded',
-        code: 'knowledge-empty',
-        message:
-          'Prime completed the attempted local SearchEngine and Recipe-region lanes but found no matching Recipe or Guard knowledge.',
-        retryable: true,
-      },
-      status: 'degraded',
+      status: 'ready',
       summary: 'Prime found no matching Recipe or Guard knowledge.',
     };
   }
@@ -2413,17 +1470,14 @@ function buildBaseDetailRefs(toolName: AgentPublicToolName, sourceRefs: string[]
 
 function buildPrimePublicPackage(input: {
   detailRefs: AgentDetailRef[];
-  intake: ReturnType<typeof buildAgentToolContext>;
   primeKnowledgeMaterial: PrimeKnowledgeMaterial | null;
   primeRef: string;
   result: AgentPublicToolResultEnvelope;
   searchDegraded: boolean;
   searchResult: PrimeSearchResult | null;
 }): PrimePublicPackage {
-  const producerBoundary = buildPrimeProducerBoundary(input.searchResult);
-
   // Keep visible prime output compact; full Recipe and Guard material stays
-  // available through the trust material and detail refs.
+  // available through the material projection and detail refs.
   return createPrimePublicPackage({
     compactPackage: {
       acceptedGuards: (input.primeKnowledgeMaterial?.acceptedGuards ?? [])
@@ -2432,17 +1486,9 @@ function buildPrimePublicPackage(input: {
           evidenceRefCount: item.evidenceRefs.length,
           id: item.id,
           score: item.score,
-          // D5:drift 聚合态进紧凑公开面(schema 已同步),宿主引用锚点前自判。
-          ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
           title: item.title,
           trigger: item.trigger,
         })),
-      weakMatches: (input.primeKnowledgeMaterial?.weakMatches ?? []).slice(0, 5).map((item) => ({
-        id: item.id,
-        score: item.score,
-        title: item.title,
-        ...(item.trigger ? { trigger: item.trigger } : {}),
-      })),
       acceptedKnowledge: (input.primeKnowledgeMaterial?.acceptedKnowledge ?? [])
         .slice(0, 8)
         .map((item) => ({
@@ -2459,9 +1505,7 @@ function buildPrimePublicPackage(input: {
           kind: item.kind,
           matchedRegionClasses: item.matchedRegionClasses,
           score: item.score,
-          ...(item.sourceRefStatus ? { sourceRefStatus: item.sourceRefStatus } : {}),
           title: item.title,
-          trustEvidence: item.trustEvidence,
           trigger: item.trigger,
           usefulSlices: item.usefulSlices.map((slice) => ({
             evidenceRefCount: slice.evidenceRefs.length,
@@ -2484,9 +1528,7 @@ function buildPrimePublicPackage(input: {
       },
       detailRefsMode: 'ref-based',
       evidenceDelivery: 'detailRefs-and-primeKnowledgeMaterial',
-      primeInjectionPackage: producerBoundary,
     },
-    feedbackDigest: buildPrimeFeedbackDigest(input.searchResult),
     kind: 'PrimePublicPackage',
     primeRef: input.primeRef,
     reason: input.result.reason,
@@ -2494,32 +1536,7 @@ function buildPrimePublicPackage(input: {
     status: input.result.status,
     projectContextGuidance: buildPrimeProjectContextGuidance(input),
     summary: input.result.summary,
-    trustPosture: buildPrimeTrustPostureProjection(input.primeKnowledgeMaterial, input.result),
-    trustReceipt: {
-      hostResponse: input.primeKnowledgeMaterial
-        ? sanitizePrimeHostResponse(input.primeKnowledgeMaterial.hostResponse)
-        : null,
-      receiptId: input.primeKnowledgeMaterial?.receiptId ?? input.primeRef,
-      status: input.primeKnowledgeMaterial?.status ?? primeTrustStatusFromResult(input.result),
-    },
   });
-}
-
-function sanitizePrimeHostResponse(
-  response: PrimeKnowledgeMaterial['hostResponse']
-): Record<string, unknown> {
-  return {
-    ...response,
-    reason: hostNeutralPrimeText(response.reason),
-  };
-}
-
-function hostNeutralPrimeText(text: string): string {
-  return text
-    .replace(/\bAs Codex\b/g, 'As the host agent')
-    .replace(/\bCodex\b/g, 'host agent')
-    .replace(/\bClaude Code\b/g, 'host agent')
-    .replace(/\bClaude\b/g, 'host agent');
 }
 
 function buildPrimeProjectContextGuidance(input: {
@@ -2584,171 +1601,15 @@ function compactPrimePublicString(value: string | undefined): string | undefined
   return `${normalized.slice(0, PRIME_PUBLIC_STRING_MAX_CHARS - 3)}...`;
 }
 
-function buildPrimeFeedbackDigest(searchResult: PrimeSearchResult | null) {
-  const consumer = searchResult?.searchMeta.retrievalConsumer;
-  if (!consumer) {
-    return null;
-  }
-  return {
-    decisionRefCount: consumer.retrievalQuality?.decisionRefCount ?? null,
-    feedbackSignalCount: consumer.retrievalQuality?.feedbackSignalCount ?? null,
-    observeOnly: consumer.feedback?.observeOnly ?? null,
-    sourceRefCoverage: consumer.retrievalQuality?.sourceRefCoverage ?? null,
-    supportedSignals: consumer.feedback?.supportedSignals ?? [],
-  };
-}
-
-function buildPrimeTrustPostureProjection(
-  primeKnowledgeMaterial: PrimeKnowledgeMaterial | null,
-  result: AgentPublicToolResultEnvelope
-) {
-  const status = primeKnowledgeMaterial?.status ?? primeTrustStatusFromResult(result);
-  const checklist = primeKnowledgeMaterial
-    ? primeKnowledgeMaterial.trustPosture.receiptChecklist.map((layer) => ({
-        itemCount: layer.items.length,
-        items: layer.items.slice(0, 10).map((item) => ({
-          id: publicPrimeTrustCandidateId(item.id),
-          source: item.source,
-          ...(item.status ? { status: item.status } : {}),
-          title: item.title,
-        })),
-        label: layer.label,
-        layer: layer.layer,
-        requiredInVisibleReceipt: layer.requiredInVisibleReceipt,
-        visibleReceiptDirective: layer.visibleReceiptDirective,
-      }))
-    : PRIME_PUBLIC_TRUST_LAYERS.map((layer) => ({
-        itemCount: layer === 'not-available-or-degraded' ? 1 : 0,
-        items: [],
-        label: primeTrustLayerLabelForPublicPackage(layer),
-        layer,
-        requiredInVisibleReceipt: layer === 'not-available-or-degraded',
-        visibleReceiptDirective:
-          layer === 'not-available-or-degraded'
-            ? `In the visible receipt, say no usable project knowledge was delivered because prime ${result.status}.`
-            : primeTrustLayerDirectiveForPublicPackage(layer),
-      }));
-
-  return {
-    antiEmptyReceiptRequired:
-      primeKnowledgeMaterial?.trustPosture.antiEmptyReceipt.required ?? true,
-    noTrustedClaimRequired: result.status !== 'ready' || status !== 'delivered',
-    receiptChecklist: checklist,
-    status,
-  };
-}
-
-function publicPrimeTrustCandidateId(id: string): string {
-  for (const prefix of [
-    'weak-guard:',
-    'weak-match:',
-    'weak-search-candidate:',
-    'source-status-candidate:',
-  ]) {
-    if (id.startsWith(prefix) && id.length > prefix.length) {
-      return id.slice(prefix.length);
-    }
-  }
-  return id;
-}
-
-function primeTrustStatusFromResult(
-  result: AgentPublicToolResultEnvelope
-): 'blocked' | 'degraded' | 'skipped' {
-  if (result.status === 'blocked') {
-    return 'blocked';
-  }
-  if (result.status === 'skipped') {
-    return 'skipped';
-  }
-  return 'degraded';
-}
-
-function buildPrimeProducerBoundary(searchResult: PrimeSearchResult | null) {
-  const residentPackage = searchResult?.searchMeta.primeInjectionPackage;
-  const producerContract = searchResult?.searchMeta.retrievalConsumer?.producerContract;
-  const residentSearch = searchResult?.searchMeta.residentSearch;
-  const missingProducerFields = producerContract?.missingFields ?? [];
-  const producerOnlyFields: PrimePublicPackage['compactPackage']['primeInjectionPackage']['producerOnlyFields'] =
-    [
-      'decisionRegister',
-      'feedback',
-      'intent',
-      'search',
-      'vector',
-      'residentRegionRetrieval',
-      'selectedKnowledge',
-      'omitted',
-      'trace',
-      'retrievalQuality',
-    ];
-
-  // PrimeInjectionPackage 的 lexical/vector/trace 等生产语义属于
-  // Alembic resident producer；Plugin 只透传 compact metadata，不能在消费侧补造。
-  return {
-    availability:
-      producerContract && !producerContract.available
-        ? ('producer-contract-missing' as const)
-        : residentPackage
-          ? ('resident-provided' as const)
-          : residentSearch && residentSearch.available === false
-            ? ('resident-unavailable' as const)
-            : searchResult
-              ? ('not-produced' as const)
-              : ('not-run' as const),
-    missingProducerFields,
-    omittedCount: residentPackage?.injection.omittedCount ?? null,
-    pluginSynthesized: false as const,
-    producer: 'alembic-resident-service' as const,
-    producerBoundary:
-      'PrimeInjectionPackage lexical/vector/residentRegionRetrieval/selectedKnowledge/omitted/trace fields are produced by Alembic resident search metadata; AlembicPlugin only passes through the compact resident projection and never synthesizes producer-only fields.',
-    producerOnlyFields,
-    selectedCount: residentPackage?.injection.selectedCount ?? null,
-    status: residentPackage?.injection.status ?? null,
-  };
-}
-
-function primeTrustLayerLabelForPublicPackage(layer: (typeof PRIME_PUBLIC_TRUST_LAYERS)[number]) {
-  switch (layer) {
-    case 'trusted-to-obey':
-      return 'Guard and rule constraints Codex must obey';
-    case 'trusted-to-use':
-      return 'Recipe or pattern knowledge Codex may use';
-    case 'context-only':
-      return 'Host intent, query, and evidence context only';
-    case 'requires-verification':
-      return 'Source refs, candidates, and evidence that require verification';
-    case 'not-available-or-degraded':
-      return 'Missing, blocked, or degraded project knowledge';
-  }
-}
-
-function primeTrustLayerDirectiveForPublicPackage(
-  layer: (typeof PRIME_PUBLIC_TRUST_LAYERS)[number]
-) {
-  switch (layer) {
-    case 'trusted-to-obey':
-      return 'No trusted-to-obey constraints were delivered in this prime result.';
-    case 'trusted-to-use':
-      return 'No trusted-to-use Recipe knowledge was delivered in this prime result.';
-    case 'context-only':
-      return 'Host intent and query data are only context when prime is not ready.';
-    case 'requires-verification':
-      return 'Source refs and evidence refs still require verification before use.';
-    case 'not-available-or-degraded':
-      return 'Say no usable project knowledge was delivered.';
-  }
-}
-
 function buildResultSummary(compact: string): string {
   const visible = compact.trim() || 'Agent public tool result is ready.';
   return visible.length > 2000 ? visible.slice(0, 2000) : visible;
 }
 
-function resolveEffectiveProjectRoot(ctx: McpContext, args: AgentPublicBaseArgs): string {
+function resolveEffectiveProjectRoot(ctx: McpContext, args: { projectRoot?: string }): string {
   return typeof args.projectRoot === 'string' && args.projectRoot.trim()
     ? args.projectRoot.trim()
-    : resolveProjectRoot(ctx.container);
+    : requireRequestProjectRuntime(ctx).identity.projectRoot;
 }
 
 function resolveAgentInputSource(
@@ -2771,29 +1632,6 @@ function resolveAgentInputSource(
       return 'user-message';
     case 'unknown':
       return 'user-message';
-  }
-}
-
-function mapPrimeSkipReason(
-  reasonCode: TaskLifecycleClassification['primeDecision']['reasonCode']
-):
-  | 'mechanical-envelope-only'
-  | 'no-semantic-intent'
-  | 'status-only-turn'
-  | 'not-relevant-to-project-knowledge' {
-  switch (reasonCode) {
-    case 'automation-envelope-needs-context':
-      return 'mechanical-envelope-only';
-    case 'no-semantic-query':
-      return 'no-semantic-intent';
-    case 'status-only':
-      return 'status-only-turn';
-    case 'non-code-development-turn':
-      return 'not-relevant-to-project-knowledge';
-    case 'uninitialized-project':
-    case 'knowledge-ready-code-task':
-    case 'knowledge-ready-user-query':
-      return 'not-relevant-to-project-knowledge';
   }
 }
 
@@ -2835,13 +1673,6 @@ function firstString(...values: unknown[]): string | undefined {
     }
   }
   return undefined;
-}
-
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return uniqueStrings(value.filter((item): item is string => typeof item === 'string'));
 }
 
 function uniqueStrings(values: string[]): string[] {

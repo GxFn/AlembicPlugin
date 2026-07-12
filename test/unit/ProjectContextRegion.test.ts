@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
+import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import {
@@ -208,5 +209,6 @@ function createContext(projectRoot: string): McpContext {
       get: () => undefined,
       singletons: { _projectRoot: projectRoot },
     },
+    projectRuntime: buildProjectRuntimeContext({ projectRoot }),
   } as unknown as McpContext;
 }

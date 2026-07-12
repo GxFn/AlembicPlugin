@@ -17,7 +17,6 @@ import {
   isSoftAuthoringViolation,
 } from '@alembic/core/knowledge';
 import { getDeveloperIdentity, HOST_AGENT_SOURCE } from '@alembic/core/shared';
-import { normalizeHostAgentWriteSource } from '#host-runtime/policy/SourceBoundary.js';
 import {
   buildKnownModuleNames,
   buildResolveModuleFromSourceRefs,
@@ -30,7 +29,6 @@ import {
   shouldRunRecipeEvidenceGate,
   validateRecipeProductionEvidenceGate,
 } from '#recipe-pipeline/curate/recipe-evidence-gate.js';
-import { resolveHostAgentDataRoot } from '#recipe-pipeline/generate/project-data-root.js';
 import { routePlanTool as routePlanToolImpl } from '#recipe-pipeline/plan/plan-tool.js';
 import { assessProjectContextRelationshipGrounding } from '#recipe-pipeline/plan/project-context-anchoring.js';
 import {
@@ -46,11 +44,12 @@ import * as recipeMapHandlers from './recipe-map.js';
 import * as searchHandlers from './search.js';
 import * as skillHandlers from './skill.js';
 import * as structureHandlers from './structure.js';
-import type {
-  McpContext,
-  ToolRouterGraphArgs,
-  ToolRouterSearchArgs,
-  ToolRouterSkillArgs,
+import {
+  type McpContext,
+  requireRequestProjectRuntime,
+  type ToolRouterGraphArgs,
+  type ToolRouterSearchArgs,
+  type ToolRouterSkillArgs,
 } from './types.js';
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
@@ -61,7 +60,6 @@ interface SubmitKnowledgeOptions {
   clientId?: string;
   dimensionId?: string;
   skipConsolidation: boolean;
-  source: unknown;
   supersedes?: string;
 }
 
@@ -210,10 +208,7 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
     }
   }
   const bootstrapSession = resolveGenerateSession(ctx.container, options.bootstrapSessionId);
-  const dataRoot = resolveHostAgentDataRoot(
-    ctx.container,
-    bootstrapSession?.projectRoot || projectContext.projectRoot
-  );
+  const dataRoot = requireRequestProjectRuntime(ctx).identity.dataRoot;
   const evidenceGateResponse = buildSubmitKnowledgeEvidenceGateResponse({
     args,
     bootstrapSession,
@@ -269,7 +264,6 @@ function resolveSubmitKnowledgeOptions(args: Record<string, unknown>): SubmitKno
     clientId: args.client_id as string | undefined,
     dimensionId: args.dimensionId as string | undefined,
     skipConsolidation: (args.skipConsolidation as boolean) === true,
-    source: normalizeHostAgentWriteSource(args.source),
     supersedes: args.supersedes as string | undefined,
   };
 }
@@ -279,8 +273,7 @@ async function resolveSubmitProjectContext(
   clientId: string | undefined
 ): Promise<SubmitProjectContextResult> {
   const { checkRecipeSave } = await import('../RateLimiter.js');
-  const { resolveProjectRoot } = await import('@alembic/core/workspace');
-  const projectRoot = resolveProjectRoot(ctx.container);
+  const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
   const limitCheck = checkRecipeSave(projectRoot, clientId || process.env.USER || 'mcp-client');
   if (limitCheck.allowed) {
     return { ok: true, projectRoot };
@@ -301,7 +294,9 @@ function preprocessSubmitKnowledgeItems(
   options: SubmitKnowledgeOptions
 ): void {
   for (const item of items) {
-    item.source = normalizeHostAgentWriteSource(item.source || options.source);
+    // Producer provenance is assigned by RecipeProductionGateway below. Ignore
+    // caller-provided top-level or per-item source labels.
+    delete item.source;
     if (options.dimensionId && !item.dimensionId) {
       item.dimensionId = options.dimensionId;
     }

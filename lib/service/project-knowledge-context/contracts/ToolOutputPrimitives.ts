@@ -36,33 +36,6 @@ export const CONCLUSION_DISPOSITIONS = ['passed', 'failed', 'incomplete', 'block
 export const ConclusionDispositionSchema = z.enum(CONCLUSION_DISPOSITIONS);
 export type ConclusionDisposition = z.infer<typeof ConclusionDispositionSchema>;
 
-/** Project-scoped source/checkpoint vector shared as a leaf, never an envelope. */
-export const SourceRevisionManifestSchema = z
-  .object({
-    alignment: z.enum(['current', 'stale', 'unknown']),
-    completeness: z.enum(['complete', 'incomplete']),
-    identityAlignment: z.enum(['current', 'mismatch', 'unknown']),
-    projectId: z.string().min(1).max(240).nullable(),
-    projectScopeId: z.string().min(1).max(240).nullable(),
-    rows: z
-      .array(
-        z
-          .object({
-            checkpointCommit: z.string().min(1).max(240).nullable(),
-            currentCommit: z.string().min(1).max(240).nullable(),
-            dirty: z.boolean().nullable(),
-            folderId: z.string().min(1).max(240),
-            repositoryId: z.string().min(1).max(240).nullable(),
-            scannedAt: z.string().datetime({ offset: true }).nullable(),
-            status: z.enum(['current', 'dirty', 'missing-checkpoint', 'stale', 'unknown']),
-          })
-          .strict()
-      )
-      .max(1000),
-  })
-  .strict();
-export type SourceRevisionManifest = z.infer<typeof SourceRevisionManifestSchema>;
-
 /**
  * 结论强度只由完整度和真实失败事实决定；展示层不得自行把 partial 投影成 pass。
  */

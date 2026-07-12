@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { createReadOnlyRecipeMapRepositories } from '../../../repository/recipe-map/ReadOnlyRecipeMapServices.js';
-import { createReadOnlySearchRepositories } from '../../../repository/search/ReadOnlySearchServices.js';
+import { RecipeMapInput } from '../../../shared/schemas/mcp-tools.js';
+import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { recipeMap } from '../handlers/recipe-map.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
+import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
 import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
 
 /**
@@ -21,29 +23,23 @@ export async function executeReadOnlyRecipeMap(
     throw new Error('Request-scoped ProjectRuntimeContext is required for read-only Recipe Map.');
   }
   const identity = projectRuntime.identity;
+  RecipeMapInput.parse(args);
   const projectRoot = resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'));
   const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
   const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  if (!isWithin(databasePath, dataRoot)) {
-    throw new Error(
-      `Read-only Recipe Map database identity mismatch: database=${databasePath}, dataRoot=${dataRoot}.`
-    );
-  }
   if (!existsSync(databasePath)) {
-    throw new Error(`Read-only Recipe Map database does not exist: ${databasePath}.`);
+    return createKnowledgeUnavailableResult('alembic_recipe_map', projectRuntime);
   }
+  const physicalIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
 
-  const snapshot = createReadOnlySearchSnapshot({ dataRoot, databasePath });
+  const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
   try {
     db.pragma('query_only = ON');
-    const { checkpointRepository } = createReadOnlySearchRepositories(db);
     const { knowledgeService, sourceRefRepository } = createReadOnlyRecipeMapRepositories(db);
     const container: McpServiceContainer = {
       get(name: string): unknown {
         switch (name) {
-          case 'gitDiffCheckpointRepository':
-            return checkpointRepository;
           case 'knowledgeService':
             return knowledgeService;
           case 'recipeSourceRefRepository':
@@ -66,11 +62,6 @@ export async function executeReadOnlyRecipeMap(
     db.close();
     snapshot.dispose();
   }
-}
-
-function isWithin(filePath: string, root: string): boolean {
-  const rel = relative(root, filePath);
-  return rel.length > 0 && !rel.startsWith('..') && !rel.startsWith('/');
 }
 
 function requireIdentityPath(value: string | null, field: string): string {

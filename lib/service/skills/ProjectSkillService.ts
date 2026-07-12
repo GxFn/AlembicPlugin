@@ -148,7 +148,7 @@ export class ProjectSkillService {
           total: runtimeExports.length,
         },
         sourceRoot,
-        hint: 'Project Skills use dataRoot/Alembic/skills as source and host-selected runtime symlinks (.agents/skills for Codex, .claude/skills for Claude Code). Same-name project skills intentionally override built-in skills.',
+        hint: 'Project Skills use the request dataRoot/Alembic/skills as source and current-host runtime symlinks (.agents/skills for Codex, .claude/skills for Claude Code). Same-name project skills intentionally override built-in skills.',
       },
     };
   }

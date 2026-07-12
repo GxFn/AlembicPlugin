@@ -6,7 +6,7 @@ import type { UnifiedEvolutionReport } from '#recipe-pipeline/sustain/HostAgentF
 
 type GitDiffScannerLike = Pick<GitDiffScanner, 'scanOnce'>;
 
-export type PluginOpportunisticEvolutionVerdict = 'defer-to-alembic-service' | 'no-op' | 'routed';
+export type PluginOpportunisticEvolutionVerdict = 'no-op' | 'routed';
 
 export interface PluginOpportunisticEvolutionToolOutcome {
   reason?: string | null;
@@ -17,12 +17,6 @@ export interface PluginOpportunisticEvolutionToolOutcome {
 
 export interface PluginOpportunisticEvolutionServiceGate {
   reason: string;
-  residentProjectScopeAvailable: boolean;
-  // UM#3：改名自旧的服务门「主服务可否接管 ProjectScope」位。语义固化为「resident 检索增强是否就绪」——
-  // resident（常驻）ProjectScope 只做检索增强，没有活的 evolution、不是 commit-driven 维护的对端；
-  // 该位仅用于 surface 的「无 HEAD 变化时把 Plugin fallback 去抖为 no-op」(resident 检索增强去抖)，
-  // 不代表 resident 会接管维护。commit-driven 维护始终由本链路（GitDiffCheckpoint→HostAgentFileChangeHandler）执行。
-  residentSearchEnhancementReady: boolean;
 }
 
 export interface PluginOpportunisticEvolutionGuardDecision {
@@ -81,7 +75,7 @@ export interface PluginOpportunisticEvolutionSurface {
   };
   producerBoundary: {
     producerKind: 'plugin-opportunistic';
-    separatedFrom: 'daemon-file-change';
+    separatedFrom: 'public-query-execution';
   };
   serviceGate: PluginOpportunisticEvolutionServiceGate;
   trigger: {
@@ -121,7 +115,7 @@ export async function buildPluginOpportunisticEvolutionSurface(
     autoSubmit: false as const,
     producerBoundary: {
       producerKind: 'plugin-opportunistic' as const,
-      separatedFrom: 'daemon-file-change' as const,
+      separatedFrom: 'public-query-execution' as const,
     },
     ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
     serviceGate: input.serviceGate,
@@ -135,22 +129,6 @@ export async function buildPluginOpportunisticEvolutionSurface(
     input.scan ?? (await input.scanner?.scanOnce()),
     input.guardDecision?.taskScopedFiles
   );
-
-  // UM#3：resident 检索增强去抖（非维护对端）。仅当 resident 检索增强就绪且本次无 HEAD range 变化时，
-  // 把 Plugin fallback surface 去抖为 no-op（resident 已能服务该 scope 的检索，无新提交需维护）。
-  // 一旦 HEAD 变化（有新 commit），即走 commit-driven 维护链路，不被该去抖拦截。
-  if (input.serviceGate.residentSearchEnhancementReady && !scan?.headChanged) {
-    return {
-      ...base,
-      ...(scan ? { gitDiffEvidence: projectGitDiffEvidence(scan) } : {}),
-      evidenceGate: {
-        verdict: 'defer-to-alembic-service',
-        reasons: [
-          'Resident retrieval-enhancement is ready for this project scope and no HEAD range changed; Plugin commit-driven maintenance has nothing new to route, so this fallback surface is a no-op.',
-        ],
-      },
-    };
-  }
 
   if (input.guardDecision && input.guardDecision.action !== 'run') {
     return {

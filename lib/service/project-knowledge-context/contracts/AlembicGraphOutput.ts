@@ -9,7 +9,7 @@
  */
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { CollectionCoverageSchema, SourceRevisionManifestSchema } from './ToolOutputPrimitives.js';
+import { CollectionCoverageSchema } from './ToolOutputPrimitives.js';
 
 export const ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION = 1 as const;
 
@@ -210,7 +210,6 @@ export const AlembicGraphOutputSchema = z
         generatedAt: z.string().datetime({ offset: true }).optional(),
         producer: z.string().min(1).max(160).optional(),
         projectContext: AlembicGraphProjectContextMetaSchema.optional(),
-        sourceRevisionManifest: SourceRevisionManifestSchema.nullable().optional(),
         sourceOfTruth: z.literal(false),
         callClaimsRequireSourceVerification: z.literal(true),
       })

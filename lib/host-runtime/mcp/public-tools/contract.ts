@@ -40,32 +40,24 @@ export const AGENT_ACTION_KINDS = ['prime', 'work', 'code-guard'] as const;
 export const AGENT_RESULT_STATUSES = ['ready', 'skipped', 'degraded', 'blocked', 'failed'] as const;
 
 export const AGENT_SKIP_REASON_CODES = [
-  'no-semantic-intent',
   'status-only-turn',
   'mechanical-envelope-only',
   'no-work-scope',
   'no-code-scope',
-  'not-relevant-to-project-knowledge',
 ] as const;
 
 export const AGENT_DEGRADED_REASON_CODES = [
   'low-confidence-intent',
-  'resident-unavailable',
   'project-scope-unavailable',
   'knowledge-empty',
   'detail-budget-limited',
   'optional-service-unavailable',
   'guard-coverage-incomplete',
-  'guard-source-revision-untrusted',
 ] as const;
 
 export const AGENT_BLOCKED_REASON_CODES = [
   'project-root-untrusted',
   'project-isolation-unconfirmed',
-  'missing-required-intent',
-  'missing-referenced-docs',
-  'obsolete-prime-intent-input',
-  'missing-prime-scope',
   'missing-work-ref',
   'missing-guard-scope',
   'decision-scope-unconfirmed',
@@ -220,14 +212,6 @@ export type AgentPublicToolRef = z.infer<typeof AgentPublicToolRefSchema>;
 export type AgentDetailRef = z.infer<typeof AgentDetailRefSchema>;
 export type AgentPublicToolResultEnvelope = z.infer<typeof AgentPublicToolResultEnvelopeSchema>;
 
-export const PRIME_PUBLIC_TRUST_LAYERS = [
-  'trusted-to-obey',
-  'trusted-to-use',
-  'context-only',
-  'requires-verification',
-  'not-available-or-degraded',
-] as const;
-
 // Codex host 只依赖这个稳定投影读取 prime 结果；完整知识和证据仍通过
 // detailRefs / primeKnowledgeMaterial 保留，避免把长知识包塞进可见 message。
 export const PrimePublicPackageSchema = z
@@ -239,32 +223,6 @@ export const PrimePublicPackageSchema = z
     reason: AgentPublicToolReasonSchema.optional(),
     refs: AgentPublicToolRefsSchema,
     summary: AgentPublicToolResultSummarySchema,
-    trustPosture: z.object({
-      status: z.enum(['delivered', 'empty', 'degraded', 'blocked', 'skipped']),
-      noTrustedClaimRequired: z.boolean(),
-      antiEmptyReceiptRequired: z.boolean(),
-      receiptChecklist: z
-        .array(
-          z.object({
-            itemCount: z.number().int().min(0).max(500),
-            items: z
-              .array(
-                z.object({
-                  id: z.string().min(1).max(240),
-                  source: z.string().min(1).max(120),
-                  status: z.string().min(1).max(120).optional(),
-                  title: z.string().min(1).max(1200),
-                })
-              )
-              .max(10),
-            label: z.string().min(1).max(160),
-            layer: z.enum(PRIME_PUBLIC_TRUST_LAYERS),
-            requiredInVisibleReceipt: z.boolean(),
-            visibleReceiptDirective: z.string().min(1).max(600),
-          })
-        )
-        .length(PRIME_PUBLIC_TRUST_LAYERS.length),
-    }),
     projectContextGuidance: z.object({
       boundary: z.string().min(1).max(600),
       recommendedQueries: z
@@ -282,119 +240,17 @@ export const PrimePublicPackageSchema = z
       sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(40),
       status: z.enum(['not-requested', 'recommended', 'ready-evidence', 'degraded']),
     }),
-    trustReceipt: z.object({
-      hostResponse: z.record(z.string(), z.unknown()).nullable(),
-      receiptId: z.string().min(1).max(240).nullable(),
-      status: z.enum(['delivered', 'empty', 'degraded', 'blocked', 'skipped']),
-    }),
-    feedbackDigest: z
-      .object({
-        decisionRefCount: z.number().int().min(0).max(1000).nullable(),
-        feedbackSignalCount: z.number().int().min(0).max(1000).nullable(),
-        observeOnly: z.boolean().nullable(),
-        sourceRefCoverage: z.number().min(0).max(1).nullable(),
-        supportedSignals: z.array(z.string().min(1).max(80)).max(20),
-      })
-      .nullable(),
     compactPackage: z.object({
-      // Wave 3 质量分层（2026-07-06）：locator 证据但检索分低于信任地板的弱相关
-      // 候选——requires-verification 语义，紧凑投影（不带 actionHint 全文）。
-      weakMatches: z
-        .array(
-          z.object({
-            id: z.string().min(1).max(240),
-            score: z.number(),
-            title: z.string().min(1).max(1200),
-            trigger: z.string().max(240).optional(),
-          })
-        )
-        .max(5)
-        .optional(),
-      acceptedGuards: z
-        .array(
-          z.object({
-            evidenceRefCount: z.number().int().min(0).max(500),
-            id: z.string().min(1).max(240),
-            score: z.number(),
-            // D5(2026-07-11):源锚漂移聚合态(search 面同源)——drifted 提示引用前重核锚点。
-            sourceRefStatus: z.enum(['active', 'drifted']).optional(),
-            title: z.string().min(1).max(240),
-            trigger: z.string().min(0).max(240),
-          })
-        )
-        .max(8),
-      acceptedKnowledge: z
-        .array(
-          z.object({
-            actionHint: z.string().min(1).max(500).optional(),
-            evidenceRefCount: z.number().int().min(0).max(500),
-            id: z.string().min(1).max(240),
-            kind: z.string().min(1).max(80),
-            matchedRegionClasses: z.array(z.string().min(1).max(80)).max(8),
-            score: z.number(),
-            // D5:同 acceptedGuards.sourceRefStatus。
-            sourceRefStatus: z.enum(['active', 'drifted']).optional(),
-            title: z.string().min(1).max(240),
-            trustEvidence: z.object({
-              kind: z.enum(['recipe-locator', 'recipe-semantic-region']),
-              source: z.enum(['prime-injection-package', 'source-ref-locator-fallback']),
-              summary: z.string().min(1).max(300),
-            }),
-            trigger: z.string().min(0).max(240),
-            usefulSlices: z
-              .array(
-                z.object({
-                  evidenceRefCount: z.number().int().min(0).max(500),
-                  regionClass: z.string().min(1).max(80).optional(),
-                  score: z.number().optional(),
-                  sourceRefsBridge: z.string().min(1).max(80).optional(),
-                  text: z.string().min(1).max(500),
-                })
-              )
-              .max(4),
-          })
-        )
-        .max(8),
+      acceptedGuards: z.array(z.record(z.string(), z.unknown())).max(20),
+      acceptedKnowledge: z.array(z.record(z.string(), z.unknown())).max(20),
       counts: z.object({
         acceptedGuards: z.number().int().min(0).max(500),
         acceptedKnowledge: z.number().int().min(0).max(500),
-        detailRefs: z.number().int().min(0).max(40),
+        detailRefs: z.number().int().min(0).max(200),
         omittedFromCompact: z.number().int().min(0).max(1000),
       }),
       detailRefsMode: z.literal('ref-based'),
       evidenceDelivery: z.literal('detailRefs-and-primeKnowledgeMaterial'),
-      primeInjectionPackage: z.object({
-        availability: z.enum([
-          'resident-provided',
-          'producer-contract-missing',
-          'resident-unavailable',
-          'not-produced',
-          'not-run',
-        ]),
-        missingProducerFields: z.array(z.string().min(1).max(160)).max(40),
-        omittedCount: z.number().int().min(0).max(1000).nullable(),
-        pluginSynthesized: z.literal(false),
-        producer: z.literal('alembic-resident-service'),
-        producerBoundary: z.string().min(1).max(600),
-        producerOnlyFields: z
-          .array(
-            z.enum([
-              'decisionRegister',
-              'feedback',
-              'intent',
-              'omitted',
-              'residentRegionRetrieval',
-              'retrievalQuality',
-              'search',
-              'selectedKnowledge',
-              'trace',
-              'vector',
-            ])
-          )
-          .max(12),
-        selectedCount: z.number().int().min(0).max(1000).nullable(),
-        status: z.string().min(1).max(120).nullable(),
-      }),
     }),
   })
   .strict();
@@ -467,7 +323,7 @@ export const AGENT_PUBLIC_TOOL_CONTRACT_CATALOG = [
     'alembic_prime',
     {
       acceptedRefs: ['detailRefs'],
-      requiredFields: ['agentHost', 'inputSource', 'taskAction', 'requirementGoal'],
+      requiredFields: [],
     },
     ['primeRef', 'detailRefs'],
     {

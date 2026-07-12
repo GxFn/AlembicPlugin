@@ -1,12 +1,6 @@
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
-import type { AlembicResidentProjectScopeIdentity } from '../../../service/resident/AlembicResidentServiceClient.js';
-import {
-  ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV,
-  serializeProjectScopeSummary,
-} from '../../../shared/project-scope-runtime.js';
 import type { ProjectRuntimeContext } from '../../context/ProjectRuntimeContext.js';
-import type { ServiceBoundaryDecision } from '../../index.js';
 import type { McpServiceContainer } from '../handlers/types.js';
 import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { isCleanMcpResponse } from '../output-contract.js';
@@ -17,13 +11,11 @@ import { executeReadOnlyGraph } from './read-only-graph-executor.js';
 import { executeReadOnlyPrime } from './read-only-prime-executor.js';
 import { executeReadOnlyRecipeMap } from './read-only-recipe-map-executor.js';
 import { executeReadOnlySearch } from './read-only-search-executor.js';
-import { attachServiceBoundary, failureResult } from './results.js';
+import { failureResult } from './results.js';
 
 export interface ToolExecutionContext {
   projectRuntime?: ProjectRuntimeContext | null;
   projectRoot: string;
-  projectScopeIdentity: AlembicResidentProjectScopeIdentity | null;
-  residentProjectScopeAvailable: boolean;
 }
 
 export interface EmbeddedToolExecutorOptions {
@@ -65,57 +57,36 @@ export class EmbeddedToolExecutor {
   async execute(
     name: string,
     args: Record<string, unknown>,
-    serviceBoundary: ServiceBoundaryDecision,
     executionContext: ToolExecutionContext,
     options: EmbeddedToolCallOptions = {}
   ): Promise<unknown> {
     if (!TOOLS.some((tool) => tool.name === name)) {
-      return attachServiceBoundary(
-        failureResult(name, `Unknown Alembic tool: ${name}`),
-        serviceBoundary
-      );
+      return {
+        ...failureResult(name, `Unknown Alembic tool: ${name}`),
+        errorCode: 'CODEX_UNKNOWN_TOOL',
+      };
     }
 
     try {
       if (name === 'alembic_search') {
         const result = await executeReadOnlySearch(args, executionContext);
-        return attachExecutionContext(
-          attachServiceBoundary(result, serviceBoundary),
-          executionContext,
-          this.#hostProjectRoot
-        );
+        return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_graph') {
         const result = await executeReadOnlyGraph(args, executionContext);
-        return attachExecutionContext(
-          attachServiceBoundary(result, serviceBoundary),
-          executionContext,
-          this.#hostProjectRoot
-        );
+        return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_prime') {
         const result = await executeReadOnlyPrime(args, executionContext);
-        return attachExecutionContext(
-          attachServiceBoundary(result, serviceBoundary),
-          executionContext,
-          this.#hostProjectRoot
-        );
+        return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_recipe_map') {
         const result = await executeReadOnlyRecipeMap(args, executionContext);
-        return attachExecutionContext(
-          attachServiceBoundary(result, serviceBoundary),
-          executionContext,
-          this.#hostProjectRoot
-        );
+        return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_code_guard') {
         const result = await executeReadOnlyCodeGuard(args, executionContext);
-        return attachExecutionContext(
-          attachServiceBoundary(result, serviceBoundary),
-          executionContext,
-          this.#hostProjectRoot
-        );
+        return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       const localMcp = await this.#getPluginOwnedMcpServer(executionContext);
       const result = await localMcp._executeMcpHandler(name, args, {
@@ -129,18 +100,11 @@ export class EmbeddedToolExecutor {
         surface: 'codex',
         hostTurnMeta: options.hostTurnMeta,
       });
-      return attachExecutionContext(
-        attachServiceBoundary(result, serviceBoundary),
-        executionContext,
-        this.#hostProjectRoot
-      );
+      return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       return attachExecutionContext(
-        attachServiceBoundary(
-          failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`),
-          serviceBoundary
-        ),
+        failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`),
         executionContext,
         this.#hostProjectRoot
       );
@@ -163,34 +127,23 @@ export class EmbeddedToolExecutor {
   ): Promise<EmbeddedMcpServer> {
     const scopeKey = [
       executionContext.projectRoot,
-      executionContext.projectScopeIdentity?.projectScopeId ?? 'single-folder',
-      executionContext.projectScopeIdentity?.currentFolderId ?? '',
+      executionContext.projectRuntime?.identity.projectScopeId ?? 'single-folder',
+      executionContext.projectRuntime?.identity.currentFolderId ?? '',
     ].join('\0');
     if (sharedPluginOwnedMcpServer && sharedPluginOwnedMcpServerKey === scopeKey) {
       return sharedPluginOwnedMcpServer;
     }
     await resetPluginOwnedMcpServer();
 
-    const previousProjectDir = process.env.ALEMBIC_PROJECT_DIR;
-    const previousProjectScopeSummary = process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
     const previousCwd = safeProjectRootFallback();
-    process.env.ALEMBIC_PROJECT_DIR = executionContext.projectRoot;
-    const serializedProjectScope = serializeProjectScopeSummary(
-      executionContext.projectScopeIdentity?.projectScope ?? null
-    );
-    if (serializedProjectScope) {
-      process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV] = serializedProjectScope;
-    } else {
-      delete process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
-    }
     const server = new EmbeddedMcpServer({
       actorRole: 'host-mcp',
+      projectRoot: executionContext.projectRoot,
       source: { kind: 'codex', name: 'plugin-owned-codex-facing' },
       surface: 'codex',
     });
     try {
-      // Plugin-owned Codex tools use the embedded Plugin handler tree. Alembic daemon can still
-      // serve resident capabilities, but it must not replace Codex-facing task payload ownership.
+      // Plugin-owned tools execute in-process for this request-scoped project.
       await server.initialize();
       sharedPluginOwnedMcpServer = server;
       sharedPluginOwnedMcpServerKey = scopeKey;
@@ -204,16 +157,6 @@ export class EmbeddedToolExecutor {
       resetServiceContainer();
       throw err;
     } finally {
-      if (previousProjectDir === undefined) {
-        delete process.env.ALEMBIC_PROJECT_DIR;
-      } else {
-        process.env.ALEMBIC_PROJECT_DIR = previousProjectDir;
-      }
-      if (previousProjectScopeSummary === undefined) {
-        delete process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV];
-      } else {
-        process.env[ALEMBIC_CODEX_PROJECT_SCOPE_SUMMARY_ENV] = previousProjectScopeSummary;
-      }
       try {
         process.chdir(previousCwd);
       } catch (err: unknown) {
@@ -236,9 +179,6 @@ function attachExecutionContext(
     return result;
   }
   const record = result as Record<string, unknown>;
-  const identity = executionContext.residentProjectScopeAvailable
-    ? executionContext.projectScopeIdentity
-    : null;
   if (isCleanMcpResponse(record)) {
     return record;
   }
@@ -250,35 +190,7 @@ function attachExecutionContext(
     executionContext.projectRuntime && !Object.hasOwn(data, 'projectRuntime')
       ? { projectRuntime: executionContext.projectRuntime }
       : {};
-  if (!identity) {
-    return Object.keys(projectRuntimePatch).length > 0
-      ? {
-          ...record,
-          data: {
-            ...data,
-            ...projectRuntimePatch,
-          },
-        }
-      : result;
-  }
-  return {
-    ...record,
-    data: {
-      ...data,
-      ...projectRuntimePatch,
-      codexProjectScopeExecution: {
-        controlRoot: identity.controlRoot,
-        currentFolderId: identity.currentFolderId,
-        currentFolderPath: identity.currentFolderPath,
-        dataRoot: identity.dataRoot,
-        enabled: true,
-        hostProjectRoot,
-        mode: identity.mode,
-        projectScopeId: identity.projectScopeId,
-        reason:
-          'ProjectScope resident identity is ready; Plugin-owned Codex tool execution uses the resident ghost dataRoot instead of creating runtime data in the bound source folder.',
-        serviceScopeId: identity.serviceScopeId,
-      },
-    },
-  };
+  return Object.keys(projectRuntimePatch).length > 0
+    ? { ...record, data: { ...data, ...projectRuntimePatch } }
+    : result;
 }

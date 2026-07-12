@@ -55,18 +55,6 @@
       "binding": "_buckets",
       "owner": "AlembicPlugin",
       "reason": "Rate-limiter token buckets, pruned on interval; process-scoped middleware state."
-    },
-    {
-      "file": "lib/service/task/PrimeKnowledgeMaterial.ts",
-      "binding": "primeReceiptCounter",
-      "owner": "AlembicPlugin",
-      "reason": "Monotonic receipt counter for prime material envelopes."
-    },
-    {
-      "file": "lib/service/resident/DaemonAutostart.ts",
-      "binding": "lastAttemptByRoot",
-      "owner": "AlembicPlugin",
-      "reason": "Autostart spawn cooldown ledger keyed by projectRoot; bounded by distinct roots in one MCP process lifetime, entries overwritten per attempt, and reset via __clearDaemonAutostartCooldownForTests in tests."
     }
   ]
 }

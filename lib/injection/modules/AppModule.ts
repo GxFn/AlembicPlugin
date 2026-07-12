@@ -15,10 +15,6 @@ import { FeedbackCollector, QualityScorer } from '@alembic/core/service/quality'
 import { RecipeCandidateValidator, RecipeParser } from '@alembic/core/service/recipe';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import { ModuleService } from '../../service/module/ModuleService.js';
-import {
-  type AlembicResidentCapabilityClients,
-  createAlembicResidentCapabilityClients,
-} from '../../service/resident/AlembicResidentCapabilityClients.js';
 import { PrimeSearchPipeline } from '../../service/task/PrimeSearchPipeline.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -63,31 +59,6 @@ export function register(c: ServiceContainer) {
   });
 
   // ═══ PrimeSearchPipeline (for prime multi-query search) ═══
-
-  c.singleton('residentCapabilityClients', (ct: ServiceContainer) => {
-    const projectRoot = resolveProjectRoot(ct);
-    return createAlembicResidentCapabilityClients({ projectRoot });
-  });
-  c.singleton('residentSearchClient', (ct: ServiceContainer) => {
-    return (ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients).search;
-  });
-  // Deprecated internal DI key retained only for HTTP compatibility callers until every
-  // route switches to capability-specific clients; Codex MCP paths use the split clients.
-  // PDR-4: dashboard / decisionRegister / intentEpisode bindings dropped with their dead
-  // client lanes; only the live search and job lanes remain on this aggregate.
-  c.singleton('residentServiceClient', (ct: ServiceContainer) => {
-    const clients = ct.get('residentCapabilityClients') as AlembicResidentCapabilityClients;
-    return {
-      enqueueJob: clients.jobs.enqueueJob.bind(clients.jobs),
-      probe: clients.probe.probe.bind(clients.probe),
-      readJob: clients.jobs.readJob.bind(clients.jobs),
-      resolveProjectScopeIdentity: clients.projectScope.resolveProjectScopeIdentity.bind(
-        clients.projectScope
-      ),
-      search: clients.search.search.bind(clients.search),
-      searchWithResult: clients.search.searchWithResult.bind(clients.search),
-    };
-  });
 
   c.singleton(
     'primeSearchPipeline',

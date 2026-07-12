@@ -1,15 +1,10 @@
 import { join } from 'node:path';
+import { projectLocationService } from '../context/ProjectLocationService.js';
 import {
   getInitMarkerPath,
   type InitMarker,
-  type ProjectRootResolution,
-  type ResolveProjectRootOptions,
   readInitMarker as readInitMarkerImpl,
-  readSavedProjectRoot as readSavedProjectRootImpl,
-  resolveProjectRootFromEnv,
-  type SavedProjectRoot,
   writeInitMarker as writeInitMarkerImpl,
-  writeSavedProjectRoot as writeSavedProjectRootImpl,
 } from '../context/ProjectRootResolver.js';
 import {
   CLAUDE_CODE_PLUGIN_HOST,
@@ -50,28 +45,16 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
     return resolveHostRuntimeContext(env);
   }
 
-  resolveProjectRoot(options?: ResolveProjectRootOptions): ProjectRootResolution {
-    return resolveProjectRootFromEnv(options);
-  }
-
-  readSavedProjectRoot(env?: NodeJS.ProcessEnv): SavedProjectRoot | null {
-    return readSavedProjectRootImpl(env);
-  }
-
-  writeSavedProjectRoot(projectRoot: string, env?: NodeJS.ProcessEnv): SavedProjectRoot {
-    return writeSavedProjectRootImpl(projectRoot, env);
-  }
-
   readInitMarker(projectRoot: string): InitMarker | null {
-    return readInitMarkerImpl(projectRoot);
+    return readInitMarkerImpl(projectLocationService.resolve(projectRoot).runtimeDir);
   }
 
   writeInitMarker(projectRoot: string, input: HostInitMarkerInput): InitMarker {
-    return writeInitMarkerImpl(projectRoot, input);
+    return writeInitMarkerImpl(projectLocationService.resolve(projectRoot), input);
   }
 
   initMarkerPath(projectRoot: string): string {
-    return getInitMarkerPath(projectRoot);
+    return getInitMarkerPath(projectLocationService.resolve(projectRoot).runtimeDir);
   }
 
   projectSkillRoot(projectRoot: string): string {
@@ -87,7 +70,7 @@ export class ClaudeCodeHostAdapter implements HostAdapter {
   }
 
   normalizePluginMcpArg(arg: string): string {
-    return arg.replaceAll('${CLAUDE_PLUGIN_ROOT}', '.');
+    return arg.replaceAll('${' + 'CLAUDE_PLUGIN_ROOT}', '.');
   }
 }
 

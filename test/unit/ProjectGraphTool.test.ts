@@ -7,6 +7,7 @@ import {
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
@@ -865,11 +866,11 @@ function writeWorkspacePluginFixture(root: string) {
       '}',
       '',
       'interface AgentPrimeArgs extends AgentPublicBaseArgs {',
-      '  taskAction: string;',
+      '  workAction: string;',
       '}',
       '',
       'export async function primeHandler(args: AgentPrimeArgs) {',
-      '  return args.taskAction;',
+      '  return args.workAction;',
       '}',
       '',
     ].join('\n')
@@ -899,5 +900,6 @@ function createContext(projectRoot: string): McpContext {
       get: () => undefined,
       singletons: { _projectRoot: projectRoot },
     },
+    projectRuntime: buildProjectRuntimeContext({ projectRoot }),
   } as unknown as McpContext;
 }

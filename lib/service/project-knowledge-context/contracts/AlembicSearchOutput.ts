@@ -11,8 +11,7 @@
  * operation=search returns Recipe summaries/ids by query + filters; operation=get
  * returns one Agent-facing Recipe detail by id/ref (the single-Recipe detail tool);
  * operation=expand returns a bounded expansion of a known ref. result/inventory/
- * items stay loose passthroughs so resident-search evidence (residentSearch,
- * residentVector, searchMeta, vector) and the search-quality summary survive intact.
+ * items stay loose passthroughs so local search evidence survives intact.
  */
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';

@@ -10,7 +10,6 @@ export const CODEX_RUNTIME_PACKAGE = 'alembic-runtime';
 export const CODEX_RUNTIME_BIN = 'alembic-codex-mcp';
 export const CODEX_MARKETPLACE_SHELL_ENTRY = './bin/alembic-start.mjs';
 export const CODEX_SETUP_PROFILE = 'codex-plugin';
-export const DEFAULT_MCP_TIER = 'agent';
 export const ALEMBIC_RUNTIME_MODE_ENV = 'ALEMBIC_RUNTIME_MODE';
 export const ALEMBIC_RUNTIME_MODE_PLUGIN = 'plugin';
 export const ALEMBIC_PLUGIN_HOST_ENV = 'ALEMBIC_PLUGIN_HOST';
@@ -20,15 +19,10 @@ export const CODEX_PLUGIN_HOST = 'codex';
 export const CLAUDE_CODE_PLUGIN_HOST = 'claude-code';
 export const MCP_MODE_ENV = 'ALEMBIC_MCP_MODE';
 export const CODEX_MCP_SHIM_ENV = 'ALEMBIC_CODEX_MCP_MODE';
-export const MCP_TIER_ENV = 'ALEMBIC_MCP_TIER';
-export const CODEX_ADMIN_ENABLE_ENV = 'ALEMBIC_CODEX_ENABLE_ADMIN';
 export const CODEX_PLUGIN_ROOT_ENV = 'ALEMBIC_CODEX_PLUGIN_ROOT';
 export const CODEX_EMBEDDED_RUNTIME_SPECIFIER = `${CODEX_RUNTIME_PACKAGE}@0.3.0`;
 
 export interface HostRuntimeContext {
-  adminEnabled: boolean;
-  defaultTier: string;
-  effectiveTier: string;
   expectedPluginHost: string;
   expectedRuntimeMode: string;
   marketplacePath: string;
@@ -38,7 +32,6 @@ export interface HostRuntimeContext {
   pinnedRuntimeSpecifier: string;
   pluginHost: string;
   pluginRoot: string;
-  requestedTier: string;
   runtimeBin: string;
   runtimeMode: string;
   runtimePackage: string;
@@ -53,25 +46,18 @@ export function ensureRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env): 
     derivePluginHostFromShape(detectPluginHostShape(resolveCodexPluginRoot(env)));
   env[MCP_MODE_ENV] = '1';
   env[CODEX_MCP_SHIM_ENV] = '1';
-  env[MCP_TIER_ENV] = env[MCP_TIER_ENV] || DEFAULT_MCP_TIER;
 }
 
 export function resolveHostRuntimeContext(
   env: NodeJS.ProcessEnv = process.env
 ): HostRuntimeContext {
   const packageVersion = getPackageVersion();
-  const requestedTier = env[MCP_TIER_ENV] || DEFAULT_MCP_TIER;
-  const adminEnabled = env[CODEX_ADMIN_ENABLE_ENV] === '1';
-  const effectiveTier = resolveEffectiveTier(requestedTier, adminEnabled);
   const pluginRoot = resolveCodexPluginRoot(env);
   // RC-1: expectedPluginHost 与 pluginHost 回退均由物理 shell 形态派生
   // （codex shell→codex、claude-code shell→claude-code），取代恒为 codex 的硬编码，
   // 使诊断按真实 shell 校验运行时 host（cc 运行时自认 claude-code）。
   const expectedPluginHost = derivePluginHostFromShape(detectPluginHostShape(pluginRoot));
   return {
-    adminEnabled,
-    defaultTier: DEFAULT_MCP_TIER,
-    effectiveTier,
     expectedPluginHost,
     expectedRuntimeMode: ALEMBIC_RUNTIME_MODE_PLUGIN,
     marketplacePath: join(PACKAGE_ROOT, '.agents', 'plugins', 'marketplace.json'),
@@ -81,7 +67,6 @@ export function resolveHostRuntimeContext(
     pinnedRuntimeSpecifier: `${CODEX_RUNTIME_PACKAGE}@${packageVersion}`,
     pluginHost: normalizeRuntimeIdentity(env[ALEMBIC_PLUGIN_HOST_ENV]) || expectedPluginHost,
     pluginRoot,
-    requestedTier,
     runtimeBin: CODEX_RUNTIME_BIN,
     runtimeMode:
       normalizeRuntimeIdentity(env[ALEMBIC_RUNTIME_MODE_ENV]) || ALEMBIC_RUNTIME_MODE_PLUGIN,
@@ -114,13 +99,6 @@ export function detectPluginHostShape(pluginRoot: string): 'codex' | 'claude-cod
 // RC-1: 由 shell 形态派生 host 标识，集中消除散落的硬编码 codex 默认。
 export function derivePluginHostFromShape(hostShape: 'codex' | 'claude-code'): string {
   return hostShape === 'claude-code' ? CLAUDE_CODE_PLUGIN_HOST : CODEX_PLUGIN_HOST;
-}
-
-export function resolveEffectiveTier(tierName: string, adminEnabled: boolean): string {
-  if (tierName === 'admin' && !adminEnabled) {
-    return DEFAULT_MCP_TIER;
-  }
-  return tierName || DEFAULT_MCP_TIER;
 }
 
 function normalizeRuntimeIdentity(value: string | undefined): string {

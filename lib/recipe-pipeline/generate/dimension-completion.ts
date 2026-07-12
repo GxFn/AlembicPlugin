@@ -39,7 +39,6 @@ import {
 } from '#recipe-pipeline/generate/coverage-ledger-write.js';
 import { filterGenericParentCoverageModules } from '#recipe-pipeline/generate/coverage-module-axis.js';
 import { buildHostAgentAnalysisProgressBackfill } from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
-import { resolveHostAgentDataRoot } from '#recipe-pipeline/generate/project-data-root.js';
 import { GenerateEventEmitter } from '#recipe-pipeline/generate/runtime/GenerateEventEmitter.js';
 import { generateSkill as generateWorkflowSkill } from '#recipe-pipeline/generate/skill-delivery/WorkflowSkillCompletionCapability.js';
 import {
@@ -90,6 +89,7 @@ interface HostAgentCompletionContainer extends HostAgentSessionContainer {
 export interface HostAgentDimensionCompletionContext {
   container: HostAgentCompletionContainer;
   logger?: HostAgentCompletionLogger;
+  projectRuntime?: { identity: { dataRoot: string } } | null;
   [key: string]: unknown;
 }
 
@@ -318,8 +318,7 @@ export async function runHostAgentDimensionCompletionWorkflow(
     );
   }
 
-  const projectRoot = session.value.projectRoot;
-  const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);
+  const dataRoot = requireRequestDataRoot(ctx);
   const referencedFiles =
     input.value.referencedFiles.length > 0
       ? input.value.referencedFiles
@@ -367,6 +366,14 @@ export async function runHostAgentDimensionCompletionWorkflow(
     result: sideEffects.value,
     responseTimeMs: (dependencies.now?.() ?? Date.now()) - startedAtMs,
   });
+}
+
+function requireRequestDataRoot(ctx: HostAgentDimensionCompletionContext): string {
+  const dataRoot = ctx.projectRuntime?.identity.dataRoot;
+  if (!dataRoot) {
+    throw new Error('Request-scoped project runtime dataRoot is required.');
+  }
+  return dataRoot;
 }
 
 async function applyDimensionCompletionSideEffects({

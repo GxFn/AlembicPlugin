@@ -128,14 +128,14 @@ async function callDraft(
   projectRoot: string,
   hints?: Record<string, unknown>
 ): Promise<PlanToolResponse> {
-  return (await routePlanTool(createContext(), {
+  return (await routePlanTool(createContext(projectRoot), {
     operation: 'draft',
     projectRoot,
     ...(hints ? { hints } : {}),
   })) as PlanToolResponse;
 }
 
-function createContext() {
+function createContext(projectRoot: string) {
   return {
     actor: { role: 'unit-test', user: 'unit-test' },
     container: {
@@ -144,6 +144,7 @@ function createContext() {
       },
       singletons: {},
     },
+    projectRuntime: { identity: { dataRoot: projectRoot } },
   };
 }
 

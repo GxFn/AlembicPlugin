@@ -1,57 +1,16 @@
-import {
-  CODEX_ADMIN_ENABLE_ENV,
-  DEFAULT_MCP_TIER,
-  EMPTY_KNOWLEDGE_STATE,
-  type HostKnowledgeState,
-  inspectKnowledge,
-  isTrustedProjectRoot,
-  MCP_TIER_ENV,
-  PROJECT_ROOT_PROPERTY,
-  resolveHostAdapter,
-  resolveToolPolicy,
-} from '../../index.js';
+import { LOCAL_TOOLS, PROJECT_ROOT_PROPERTY } from './local-tool-catalog.js';
 import '../local-tools/output.js';
 import { withMcpOutputSchema } from '../output-contract.js';
-import { TIER_ORDER, TOOLS, withMcpToolAnnotations } from '../tools.js';
-import { safeProjectRootFallback } from './project-root.js';
+import { TOOLS, withMcpToolAnnotations } from '../tools.js';
 
-// Tool list 必须按当前知识状态和 tier 过滤，同时保留 projectRoot 覆盖入口。
-export function getVisibleTools(
-  tierName = process.env[MCP_TIER_ENV] || DEFAULT_MCP_TIER,
-  projectRoot = resolveHostAdapter().resolveProjectRoot().path || safeProjectRootFallback(),
-  options: { residentProjectScopeAvailable?: boolean } = {}
-) {
-  // DH-3c: host-operation 经 L3 HostAdapter 走（L2 不再直依赖 host-specific 函数）。
-  const adapter = resolveHostAdapter();
-  const resolution = adapter.resolveProjectRoot({ projectRoot });
-  const knowledge = isTrustedProjectRoot(resolution)
-    ? inspectKnowledge(projectRoot)
-    : buildExplicitProjectRootRequiredKnowledgeState();
-  return resolveToolPolicy({
-    adminEnabled: process.env[CODEX_ADMIN_ENABLE_ENV] === '1',
-    coreTools: TOOLS,
-    knowledge,
-    residentProjectScopeAvailable: options.residentProjectScopeAvailable,
-    tierName,
-    tierOrder: TIER_ORDER,
-  })
-    .visibleTools.map(withMcpToolAnnotations)
+/** Public MCP tools are a static ordinary catalog. Runtime/knowledge state affects
+ * each tool's truthful result, never whether the tool can be discovered or called. */
+export function getVisibleTools(..._ignoredLegacyPolicyArguments: unknown[]) {
+  const toolsByName = new Map([...LOCAL_TOOLS, ...TOOLS].map((tool) => [tool.name, tool] as const));
+  return [...toolsByName.values()]
+    .map(withMcpToolAnnotations)
     .map(withMcpOutputSchema)
     .map(withProjectRootInput);
-}
-
-function buildExplicitProjectRootRequiredKnowledgeState(): HostKnowledgeState {
-  return {
-    ...EMPTY_KNOWLEDGE_STATE,
-    initialized: true,
-    hasKnowledge: true,
-    dbRecipeCount: 1,
-    materializedRecipeCount: 0,
-    recipeCount: 1,
-    skillCount: 0,
-    status: 'knowledge_ready',
-    usable: true,
-  };
 }
 
 function withProjectRootInput<T extends { inputSchema?: Record<string, unknown> }>(tool: T): T {

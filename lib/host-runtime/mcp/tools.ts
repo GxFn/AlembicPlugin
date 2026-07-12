@@ -1,7 +1,7 @@
 /**
- * MCP Tool Definitions — V3 Routed Surface (19 agent + 1 admin = 20 tools)
+ * MCP Tool Definitions — one ordinary public surface.
  *
- * Each tool declaration contains name, tier (agent/admin), description, and inputSchema.
+ * Each tool declaration contains name, description, and inputSchema.
  * description is the key for Agent tool selection — use bullet list to enumerate all operations and their purposes.
  * inputSchema is auto-generated from Zod Schema (zodToMcpSchema); parameter .describe() translates to JSON Schema description.
  *
@@ -38,10 +38,7 @@ import {
 } from '#shared/schemas/mcp-tools.js';
 import { TOOL_GATEWAY_MAP, withPluginToolAnnotations } from './PluginToolSurfaceCatalog.js';
 import './core-tools/output.js';
-// MTC-4: alembic_status is a cross-server tool (resident core surface + cold-start
-// local surface). Its single output projector is homed in codex-local/output, so it
-// must be co-registered wherever TOOLS loads (both the resident and cold-start shells
-// import tools.ts), otherwise the resident alembic_status output has no projector.
+// Both Host and embedded status routes share this clean-output projector.
 import './local-tools/output.js';
 import './knowledge-context-tools/graph-output.js';
 import './knowledge-context-tools/output.js';
@@ -140,7 +137,6 @@ const _ConsolidateSchema =
   });
 
 // ─── Tier Definitions ────────────────────────────────────────
-export const TIER_ORDER = { agent: 0, admin: 1 };
 
 export const withMcpToolAnnotations = withPluginToolAnnotations;
 export { TOOL_GATEWAY_MAP };
@@ -153,13 +149,12 @@ const CODE_GUARD_DESCRIPTION = getAgentPublicToolDescriptionBase('alembic_code_g
 
 export const TOOLS = [
   // ══════════════════════════════════════════════════════
-  //  Tier: agent — Core Agent Toolset (19)
+  //  Ordinary public toolset
   // ══════════════════════════════════════════════════════
 
   // Agent-facing public workflow tools
   {
     name: 'alembic_prime',
-    tier: 'agent',
     description:
       `${PRIME_DESCRIPTION.title}. ${PRIME_DESCRIPTION.purpose}\n` +
       `${PRIME_DESCRIPTION.selectionHint} It is reserved for code-development Recipe priming and skips or blocks non-code, low-information, and obsolete intent-route inputs before retrieval.\n` +
@@ -169,7 +164,6 @@ export const TOOLS = [
 
   {
     name: 'alembic_recipe_map',
-    tier: 'agent',
     description:
       'Use when the user asks which Recipes govern a code region, file, or module before editing; map Recipes onto a bounded ProjectContext region (replaces alembic_project_matrix). Pick a focus {kind: space|repo|map|module|file|symbol|anchor, refId/filePath/line}:\n' +
       '• region — rootNode, breadcrumb, and bounded child nodes (shares ref ids with alembic_graph)\n' +
@@ -183,7 +177,6 @@ export const TOOLS = [
   // MTC-7: merged the former split work lifecycle tools into one phase-routed tool.
   {
     name: 'alembic_work',
-    tier: 'agent',
     description:
       `${WORK_DESCRIPTION.title}. ${WORK_DESCRIPTION.purpose}\n` +
       `${WORK_DESCRIPTION.selectionHint}\n` +
@@ -193,7 +186,6 @@ export const TOOLS = [
 
   {
     name: 'alembic_code_guard',
-    tier: 'agent',
     description:
       `${CODE_GUARD_DESCRIPTION.title}. ${CODE_GUARD_DESCRIPTION.purpose}\n` +
       `${CODE_GUARD_DESCRIPTION.selectionHint}\n` +
@@ -203,7 +195,6 @@ export const TOOLS = [
 
   {
     name: 'alembic_status',
-    tier: 'agent',
     description:
       'Check Alembic runtime status, diagnostics, and knowledge base stats. Optional aspect narrows the view: runtime = runtime/diagnostics, knowledge = knowledge base stats (recipes/candidates/index). Omit aspect for the full status. When knowledge is empty, cold-start is needed (call alembic_bootstrap).',
     inputSchema: zodToMcpSchema(StatusInput),
@@ -212,7 +203,6 @@ export const TOOLS = [
   // Unified Search
   {
     name: 'alembic_search',
-    tier: 'agent',
     description:
       'Use to pull exact Recipe/knowledge detail when the user asks about a project standard, convention, prior decision, or known rule; search, get, or expand compact Recipe / knowledge context.\n' +
       '• search — direct lookup by explicit query, keywords, mode, and Recipe metadata filters\n' +
@@ -225,7 +215,6 @@ export const TOOLS = [
   // Project Graph
   {
     name: 'alembic_graph',
-    tier: 'agent',
     description:
       'Use before changing code when the user asks for imports, dependencies, impact, structure, call paths, files, symbols, or project relations; run pure ProjectContext graph queries over project structure, packages, modules, source files, symbols, and stable refs. Select a queryKind:\n' +
       '• space / repo / map — project, repo, and architecture-map overviews\n' +
@@ -240,7 +229,6 @@ export const TOOLS = [
   // Submit Knowledge (Unified Pipeline)
   {
     name: 'alembic_plan',
-    tier: 'agent',
     description:
       'Prepare the stateless planSelection required immediately before Alembic Recipe generation.\n' +
       '• draft — collect bounded real ProjectContext as projectInfoTree plus the full candidate dimension catalog and Agent decision checklist for one generation stage\n' +
@@ -252,7 +240,6 @@ export const TOOLS = [
 
   {
     name: 'alembic_submit_knowledge',
-    tier: 'agent',
     description:
       'Submit knowledge entries (single/batch unified pipeline). Pass 1~N items via the items array.\n' +
       '• All entries undergo strict validation; all V3 fields must be provided at once\n' +
@@ -271,14 +258,13 @@ export const TOOLS = [
   // Project Skill Management
   {
     name: 'alembic_project_skill',
-    tier: 'agent',
     description:
       'Host-aware Project Skill delivery and runtime export.\n' +
-      '• list — list built-in skills, dataRoot source skills, selected host runtime exports, and effective winners\n' +
-      '• load — load a skill, preferring the selected host project runtime (`.agents/skills/<name>/SKILL.md` for Codex, `.claude/skills/<name>/SKILL.md` for Claude Code), then dataRoot source, then built-in\n' +
+      '• list — list built-in skills, request dataRoot source skills, current host runtime exports, and effective winners\n' +
+      '• load — load a skill, preferring the current request project runtime (`.agents/skills/<name>/SKILL.md` for Codex, `.claude/skills/<name>/SKILL.md` for Claude Code), then dataRoot source, then built-in\n' +
       '• upsert/create/update — write source to `dataRoot/Alembic/skills/<name>/`, produce a Plugin route receipt, and optionally export\n' +
-      '• refresh — only when the current dataRoot has knowledge_entries, candidates, or recipes, refresh knowledge-dependent same-name Project Skills and maintain the Alembic managed-guidance block in the selected standard-mode host context file\n' +
-      '• export — symlink source SKILL.md into the selected host project skill root after authorizeProjectSkillExport=true\n' +
+      '• refresh — only when the request dataRoot has knowledge_entries, candidates, or recipes, refresh knowledge-dependent same-name Project Skills and maintain the Alembic managed-guidance block in the current standard-mode host context file\n' +
+      '• export — symlink source SKILL.md into the current request project skill root after authorizeProjectSkillExport=true\n' +
       '• delete — delete Alembic-managed source/runtime projection; built-in plugin skills remain read-only',
     inputSchema: zodToMcpSchema(ProjectSkillInput),
   },
@@ -286,7 +272,6 @@ export const TOOLS = [
   // Cold-Start Bootstrap
   {
     name: 'alembic_bootstrap',
-    tier: 'agent',
     description:
       'Plan-selection-driven cold-start — requires planSelection from a just-run alembic_plan confirm before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded planSelection dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
@@ -301,7 +286,6 @@ export const TOOLS = [
   // Incremental Rescan
   {
     name: 'alembic_rescan',
-    tier: 'agent',
     description:
       'Plan-selection-driven incremental rescan / moduleMining — requires planSelection from a just-run alembic_plan confirm before cleanup or generation.\n' +
       '• deepMining snapshots approved Recipes → cleans derived caches → planSelection ProjectContext analysis\n' +
@@ -318,7 +302,6 @@ export const TOOLS = [
   // Recipe Evolution
   {
     name: 'alembic_evolve',
-    tier: 'agent',
     description:
       'Batch Recipe evolution decisions. Dual-entry tool:\n' +
       '\u2022 Rescan mode: called per-dimension before gap-fill (evolve \u2192 submit \u2192 complete)\n' +
@@ -333,7 +316,6 @@ export const TOOLS = [
   // Consolidation Review
   {
     name: 'alembic_consolidate',
-    tier: 'agent',
     description:
       'Semantic consolidation review for ambiguous Recipe overlaps.\n' +
       'Called after alembic_submit_knowledge when pendingSemanticReview items exist (nextAction tail instruction).\n' +
@@ -347,7 +329,6 @@ export const TOOLS = [
   // Dimension Complete Notification
   {
     name: 'alembic_dimension_complete',
-    tier: 'agent',
     description:
       'Dimension analysis completion notification. Handles: Recipe linking, Skill generation (auto-synthesized from submitted candidates), Checkpoint saving, cross-dimension Hints distribution.\n' +
       'analysisText can be brief — the system auto-synthesizes detailed content from submitted candidates for Skill generation.\n' +
@@ -356,15 +337,14 @@ export const TOOLS = [
   },
 
   // ══════════════════════════════════════════════════════
-  //  Tier: admin — Admin/CI Tools (+1)
+  //  Knowledge lifecycle
   // ══════════════════════════════════════════════════════
 
   // Knowledge Lifecycle
   {
     name: 'alembic_knowledge_lifecycle',
-    tier: 'admin',
     description:
-      'Knowledge lifecycle operation exposed to Codex MCP. Only reactivate is allowed here: deprecated Recipe → pending review. publish/deprecate/approve/fast_track are not available to the default Codex agent; use Dashboard or an explicit admin path instead.',
+      'Knowledge lifecycle operation exposed to MCP. Only reactivate is allowed here: deprecated Recipe → pending review.',
     inputSchema: zodToMcpSchema(KnowledgeLifecycleInput),
   },
 ];

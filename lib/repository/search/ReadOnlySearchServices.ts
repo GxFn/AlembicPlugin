@@ -42,11 +42,9 @@ interface KnowledgeListResult {
 
 /** Keep raw read SQL in the repository layer while the MCP host owns route selection only. */
 export function createReadOnlySearchRepositories(db: ReadOnlyDatabase): {
-  checkpointRepository: ReadOnlyGitDiffCheckpointRepository;
   knowledgeService: ReadOnlyKnowledgeService;
 } {
   return {
-    checkpointRepository: new ReadOnlyGitDiffCheckpointRepository(db),
     knowledgeService: new ReadOnlyKnowledgeService(db),
   };
 }
@@ -120,43 +118,6 @@ class ReadOnlyKnowledgeService {
       .all(projected.id)
       .map((sourceRef) => String((sourceRef as { source_path: unknown }).source_path));
     return projected;
-  }
-}
-
-class ReadOnlyGitDiffCheckpointRepository {
-  readonly #db: ReadOnlyDatabase;
-
-  constructor(db: ReadOnlyDatabase) {
-    this.#db = db;
-  }
-
-  get(scope: {
-    folderId: string;
-    projectRoot: string;
-    scopeId: string;
-  }): Record<string, unknown> | null {
-    const row = this.#db
-      .prepare(
-        `SELECT *
-           FROM git_diff_checkpoints
-          WHERE project_root = ? AND scope_id = ? AND folder_id = ?
-          LIMIT 1`
-      )
-      .get(scope.projectRoot, scope.scopeId, scope.folderId) as Record<string, unknown> | undefined;
-    if (!row) {
-      return null;
-    }
-    return {
-      ...row,
-      advancedAt: row.advanced_at,
-      checkpointCommit: row.checkpoint_commit,
-      initialFromPlanCommit: row.initial_from_plan_commit,
-      lastRouteReason: row.last_route_reason,
-      lastRouteStatus: row.last_route_status,
-      lastScannedAt: row.last_scanned_at,
-      mergeBaseCommit: row.merge_base_commit,
-      targetCommit: row.target_commit,
-    };
   }
 }
 

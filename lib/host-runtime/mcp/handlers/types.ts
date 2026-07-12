@@ -45,6 +45,13 @@ export interface McpContext {
   [key: string]: unknown;
 }
 
+export function requireRequestProjectRuntime(ctx: McpContext): ProjectRuntimeContext {
+  if (!ctx.projectRuntime) {
+    throw new Error('Request-scoped ProjectRuntimeContext is required.');
+  }
+  return ctx.projectRuntime;
+}
+
 // ─── Search ──────────────────────────────────────────────
 
 /** Common search handler args */

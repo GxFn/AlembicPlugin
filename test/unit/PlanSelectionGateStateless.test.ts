@@ -277,6 +277,7 @@ function createNoStorageContext(projectRoot = '/tmp/stateless-plan-gate') {
       info() {},
       warn() {},
     },
+    projectRuntime: { identity: { dataRoot: projectRoot } },
   };
 }
 

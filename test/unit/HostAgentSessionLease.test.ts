@@ -1163,6 +1163,7 @@ function createRescanContext(
       },
     },
     logger: silentLogger,
+    projectRuntime: { identity: { dataRoot: fixture.dataRoot } },
   };
 }
 

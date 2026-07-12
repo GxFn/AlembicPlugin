@@ -1,8 +1,6 @@
 import { rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { JobStore, resolveDaemonPaths } from '@alembic/core/daemon';
 import Logger from '@alembic/core/logging';
-import { ProjectRegistry } from '@alembic/core/workspace';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -11,44 +9,18 @@ import {
   readHostTurnMetaFromMcpRequest,
 } from '#service/task/host-turn-meta.js';
 import { SetupService } from '../../cli/SetupService.js';
-import {
-  type AlembicResidentCapabilityClients,
-  createAlembicResidentCapabilityClients,
-  isResidentProjectScopeReady,
-} from '../../service/resident/AlembicResidentCapabilityClients.js';
-import { ensureResidentDaemonRunning } from '../../service/resident/DaemonAutostart.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
 import type { GenerateInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
 import {
-  buildHostEnhancementRouteChoice,
-  buildHostProjectAlignment,
-  buildPostInitActions,
-  buildPostInitMessage,
-  buildProjectRootRequiredActions,
-  buildProjectRootRequiredMessage,
   buildProjectRuntimeContext,
-  buildRecommendedAction,
-  buildRuntimeDiagnostics,
-  buildStatus,
   CODEX_SETUP_PROFILE,
-  EMPTY_KNOWLEDGE_STATE,
-  getRuntimeFallbackIsolation,
   type HostAdapter,
-  type HostKnowledgeState,
-  inspectKnowledge,
-  isInitOnDemandTool,
-  isTrustedProjectRoot,
   type ProjectRootResolution,
-  preflightTool,
-  RESIDENT_PROJECT_SCOPE_TOOL_NAMES,
+  projectLocationService,
   resolveHostAdapter,
-  resolveServiceRequestBoundary,
-  type ServiceBoundaryDecision,
-  summarizeProjectRootResolution,
 } from '../index.js';
-import type { HostRuntimeStatus } from '../status/host-runtime-status.js';
+import { PluginJobStore } from '../jobs/PluginJobStore.js';
 import { type EventLoopWatchdogHandle, startEventLoopWatchdog } from './EventLoopWatchdog.js';
-import { buildAgentPublicPreBootstrapBlock } from './host/agent-public-prebootstrap-gate.js';
 import {
   EmbeddedToolExecutor,
   resetPluginOwnedMcpServer,
@@ -57,17 +29,7 @@ import {
 } from './host/embedded-executor.js';
 import { buildMcpInitializeInstructions } from './host/guidance.js';
 import { dispatchLocalTool } from './host/local-tool-dispatcher.js';
-import { attachPluginOpportunisticEvolutionSurface } from './host/opportunistic-evolution-presenter.js';
-import { safeProjectRootFallback } from './host/project-root.js';
-import {
-  persistAuthorizedProjectRootScope,
-  resolveProjectRootScope,
-} from './host/project-root-scope.js';
-import { attachServiceBoundary, failureResult, isErrorResult } from './host/results.js';
-import {
-  maybeRunStagingAccessSweep,
-  STAGING_ACCESS_SWEEP_TOOL_NAMES,
-} from './host/staging-access-sweep.js';
+import { failureResult, isErrorResult } from './host/results.js';
 import { getVisibleTools } from './host/tool-visibility.js';
 import {
   createCleanMcpErrorResponse,
@@ -77,7 +39,6 @@ import {
 import { buildMcpToolUsageView, type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
 import { raceToolCallDeadline, ToolCallDeadlineError } from './tool-call-deadline.js';
 import './local-tools/output.js';
-import { TIER_ORDER, TOOLS } from './tools.js';
 
 interface HostMcpServerOptions {
   projectRoot?: string;
@@ -155,15 +116,15 @@ function resolveWorkspaceModeConflict(
   if (!requestedMode) {
     return null;
   }
-  const entry = ProjectRegistry.get(projectRoot);
-  if (!entry) {
+  const location = projectLocationService.resolve(projectRoot);
+  if (!location.registered || !location.projectId) {
     return null;
   }
-  const existingMode = entry.ghost ? 'ghost' : 'standard';
+  const existingMode = location.ghost ? 'ghost' : 'standard';
   if (existingMode === requestedMode) {
     return null;
   }
-  return { existingMode, projectId: entry.id, requestedMode };
+  return { existingMode, projectId: location.projectId, requestedMode };
 }
 
 type WorkspaceModeConflict = NonNullable<ReturnType<typeof resolveWorkspaceModeConflict>>;
@@ -181,7 +142,6 @@ export class HostMcpServer {
   /** 事件循环看门狗句柄(start 建、shutdown 停);null=未启动或被 env 关闭。 */
   watchdog: EventLoopWatchdogHandle | null = null;
   #embeddedToolExecutor: EmbeddedToolExecutor | null = null;
-  #residentCapabilityClients: AlembicResidentCapabilityClients | null = null;
   #initPromise: Promise<Record<string, unknown>> | null = null;
   #initRuntimeState: InitRuntimeState = {
     attempted: false,
@@ -196,10 +156,9 @@ export class HostMcpServer {
   readonly #hostAdapter: HostAdapter = resolveHostAdapter();
 
   constructor(options: HostMcpServerOptions = {}) {
-    this.projectRootResolution = this.#hostAdapter.resolveProjectRoot({
-      projectRoot: options.projectRoot,
-    });
-    this.projectRoot = this.projectRootResolution.path || safeProjectRootFallback();
+    const location = projectLocationService.resolve(options.projectRoot);
+    this.projectRootResolution = location.rootResolution;
+    this.projectRoot = location.projectRoot;
     this.waitUntilReadyMs = options.waitUntilReadyMs ?? 3000;
     this.sessionId = `codex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -225,21 +184,6 @@ export class HostMcpServer {
     process.stderr.write(
       `Alembic Codex MCP ready — ${getVisibleTools(undefined, this.projectRoot).length} tools\n`
     );
-    // X2 方案 A：MCP 会话启动即 fire-and-forget 确保 resident daemon 在跑（主体在场形态）。
-    // 仅插件形态解析不到 daemon 入口时诚实降级 unavailable——不阻塞启动、不报错；
-    // already-running/unavailable 之外的分支（started/超时/失败/冷却）留痕供核验。
-    void ensureResidentDaemonRunning({
-      projectRoot: this.projectRoot,
-      logger: Logger.getInstance(),
-    }).then((result) => {
-      if (result.status !== 'already-running' && result.status !== 'unavailable') {
-        Logger.getInstance().info('[HostMcpServer] resident daemon autostart result', {
-          entrypoint: result.entrypoint ?? null,
-          reason: result.reason ?? null,
-          status: result.status,
-        });
-      }
-    });
   }
 
   async shutdown(): Promise<void> {
@@ -257,11 +201,7 @@ export class HostMcpServer {
     }
     const server = this.sdkServer.server;
 
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: getVisibleTools(undefined, this.projectRoot, {
-        residentProjectScopeAvailable: await this.isResidentProjectScopeAvailable(),
-      }),
-    }));
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getVisibleTools() }));
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
@@ -318,39 +258,17 @@ export class HostMcpServer {
     args: Record<string, unknown>,
     options: ToolCallOptions = {}
   ): Promise<unknown> {
-    if (name === 'alembic_task') {
-      return createCleanMcpErrorResponse({
-        code: 'CODEX_TOOL_RETIRED',
-        message:
-          'alembic_task has been retired. Use alembic_prime, alembic_work, or alembic_code_guard.',
-        status: 'retired',
-        toolName: name,
-      });
-    }
-    const scope = resolveProjectRootScope(name, args);
-    if (scope.kind === 'failure') {
-      return scope.result;
-    }
-    if (scope.kind === 'scoped-project') {
+    const requestedRoot = typeof args.projectRoot === 'string' ? args.projectRoot : undefined;
+    if (requestedRoot && resolve(requestedRoot) !== this.projectRoot) {
       const scopedServer = new HostMcpServer({
-        projectRoot: scope.override.projectRoot,
+        projectRoot: requestedRoot,
         waitUntilReadyMs: this.waitUntilReadyMs,
       });
-      const scopedOverride = {
-        ...scope.override,
-        projectRoot: scopedServer.projectRoot,
-        resolution: scopedServer.projectRootResolution,
-        trusted: scope.override.trusted,
-      };
-      const result = await scopedServer.handleToolCallInCurrentProject(
-        name,
-        scope.override.args,
-        options
-      );
-      persistAuthorizedProjectRootScope(name, scopedOverride, result);
-      return result;
+      const { projectRoot: _projectRoot, ...scopedArgs } = args;
+      return scopedServer.handleToolCallInCurrentProject(name, scopedArgs, options);
     }
-    return this.handleToolCallInCurrentProject(name, scope.args, options);
+    const { projectRoot: _projectRoot, ...localArgs } = args;
+    return this.handleToolCallInCurrentProject(name, localArgs, options);
   }
 
   private async handleToolCallInCurrentProject(
@@ -359,56 +277,6 @@ export class HostMcpServer {
     options: ToolCallOptions = {}
   ): Promise<unknown> {
     const executionContext = await this.resolveToolExecutionContext(name);
-    let knowledge = inspectKnowledge(this.projectRoot);
-    const residentProjectScopeAvailable = executionContext.residentProjectScopeAvailable;
-
-    const initialPreflight = preflightTool({
-      coreTools: TOOLS,
-      knowledge,
-      projectRootResolution: this.projectRootResolution,
-      residentProjectScopeAvailable,
-      stage: 'before-auto-init',
-      tierOrder: TIER_ORDER,
-      toolName: name,
-    });
-    if (!initialPreflight.ok) {
-      return initialPreflight.failure;
-    }
-
-    if (initialPreflight.autoInit) {
-      const initResult = await this.ensureWorkspaceInitializedForTool(name);
-      if (isErrorResult(initResult)) {
-        return initResult;
-      }
-      knowledge = inspectKnowledge(this.projectRoot);
-    }
-
-    const executePreflight = preflightTool({
-      coreTools: TOOLS,
-      knowledge,
-      projectRootResolution: this.projectRootResolution,
-      residentProjectScopeAvailable,
-      stage: 'execute',
-      tierOrder: TIER_ORDER,
-      toolName: name,
-    });
-    if (!executePreflight.ok) {
-      return executePreflight.failure;
-    }
-
-    const agentPublicPreBootstrapBlock = buildAgentPublicPreBootstrapBlock({
-      args,
-      knowledge,
-      residentProjectScopeAvailable,
-      toolName: name,
-    });
-    if (agentPublicPreBootstrapBlock) {
-      return agentPublicPreBootstrapBlock;
-    }
-
-    const stagingAccessSweep = this.shouldRunStagingAccessSweep(name, args, knowledge)
-      ? await this.runStagingAccessSweep(name, executionContext)
-      : null;
 
     const localDispatch = dispatchLocalTool(name, args, {
       buildColdStartKnowledgeStatus: () => this.buildColdStartKnowledgeStatus(),
@@ -416,16 +284,8 @@ export class HostMcpServer {
       buildStatus: () => this.buildStatus(),
       cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
       initializeWorkspace: (nextArgs) => this.initializeWorkspace(nextArgs),
-      enqueueJob: async (kind, nextArgs) =>
-        attachServiceBoundary(
-          await this.enqueueJob(kind, nextArgs),
-          resolveServiceRequestBoundary(name, args)
-        ),
-      readJob: async (nextArgs) =>
-        attachServiceBoundary(
-          await this.readJob(nextArgs),
-          resolveServiceRequestBoundary(name, args)
-        ) as Record<string, unknown>,
+      enqueueJob: async (kind, nextArgs) => this.enqueueJob(kind, nextArgs),
+      readJob: async (nextArgs) => this.readJob(nextArgs),
     });
     if (localDispatch.handled) {
       const result = await localDispatch.result;
@@ -433,32 +293,39 @@ export class HostMcpServer {
       return result;
     }
 
-    const serviceBoundary = resolveServiceRequestBoundary(name, args);
-    const result = await this.callPluginOwnedTool(
-      name,
-      args,
-      serviceBoundary,
-      executionContext,
-      options
-    );
-    if (stagingAccessSweep?.timedOut) {
-      process.stderr.write(
-        `[StagingAccessSweep] ${name} returned before staging sweep finished for ${this.projectRoot}\n`
-      );
-    }
+    const result = await this.callPluginOwnedTool(name, args, executionContext, options);
     this.trackSession(name);
     return result;
   }
 
   async buildStatus(): Promise<Record<string, unknown>> {
-    const data = await buildStatus(this.projectRoot, {
-      autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
-      projectRootResolution: this.projectRootResolution,
-    });
+    const location = projectLocationService.resolve(this.projectRoot);
     return {
       success: true,
       data: {
-        ...data,
+        project: {
+          projectRoot: location.projectRoot,
+          projectId: location.projectId,
+          projectScopeId: location.projectScopeId,
+          currentFolderId: location.currentFolderId,
+          registered: location.registered,
+          ghost: location.ghost,
+          dataRoot: location.dataRoot,
+          databasePath: location.databasePath,
+          databaseExists: location.databaseExists,
+        },
+        knowledge: {
+          available: location.databaseExists,
+          initialized: location.databaseExists,
+          status: location.databaseExists ? 'available' : 'unavailable',
+        },
+        initialized: location.databaseExists,
+        workspace: {
+          mode: location.ghost ? 'ghost' : 'standard',
+          ghost: location.ghost,
+          dataRoot: location.dataRoot,
+          projectRoot: location.projectRoot,
+        },
         session: this.buildSessionView(),
         usage: buildMcpToolUsageView(this.#toolUsage),
       },
@@ -480,9 +347,6 @@ export class HostMcpServer {
     };
   }
 
-  // MTC-4: alembic_status aspect='knowledge' in the cold-start shell. Reports
-  // only local knowledge presence derived from the cold-start status summary;
-  // it never reaches resident-only recipe/candidate/vector-index stats.
   async buildColdStartKnowledgeStatus(): Promise<Record<string, unknown>> {
     const status = await this.buildStatus();
     const statusData = status.data as { knowledge?: Record<string, unknown> } | undefined;
@@ -490,76 +354,28 @@ export class HostMcpServer {
       success: true,
       data: {
         knowledge: {
-          resident: false,
           ...(statusData?.knowledge ?? {}),
-          note: 'Cold-start reports local knowledge presence only; resident recipe/candidate/vector-index stats require an active project runtime.',
+          note: 'Knowledge availability is reported for this request-scoped project only.',
         },
       },
     };
   }
 
-  // PDR-3: the embedded daemon is removed. The runtime-diagnostics route still
-  // feeds consumers (enhancement-route, host-project-alignment, runtime
-  // diagnostics) that are typed for a non-null HostRuntimeStatus, so report a
-  // synthetic daemon-less "stopped" status instead of a live daemon probe.
-  private buildStoppedDaemonStatus(): HostRuntimeStatus {
-    const paths = resolveDaemonPaths(this.projectRoot);
-    return {
-      status: 'stopped',
-      ready: false,
-      projectRoot: this.projectRoot,
-      dataRoot: paths.dataRoot,
-      projectId: paths.projectId,
-      statePath: paths.statePath,
-      pidPath: paths.pidPath,
-      lockDir: paths.lockDir,
-      logPath: paths.logPath,
-      state: null,
-      pidAlive: false,
-      health: null,
-      message: 'daemon removed (PDR-3)',
-    };
-  }
-
   async buildDiagnostics(): Promise<Record<string, unknown>> {
-    const daemonStatus: HostRuntimeStatus = this.buildStoppedDaemonStatus();
-    const residentClients = this.residentClients();
-    const residentService = await residentClients.probe.probe({ daemonStatus });
-    const projectScopeIdentity = await residentClients.projectScope.resolveProjectScopeIdentity({
-      daemonStatus,
-    });
     const runtime = this.#hostAdapter.resolveRuntimeContext();
-    const enhancementRoute = buildHostEnhancementRouteChoice({
-      daemonStatus,
-      requirement: 'status',
-    });
-    const hostProjectAlignment = buildHostProjectAlignment({
-      daemonStatus,
-      enhancementRoute,
-      projectScopeIdentity,
-      projectRoot: this.projectRoot,
-    });
-    const projectRuntime = buildProjectRuntimeContext({
-      daemonStatus,
-      enhancementRoute,
-      hostProjectAlignment,
-      projectRoot: this.projectRoot,
-      projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity,
-      requiredServices: ['project-identity'],
-      runtime,
-    });
+    const location = projectLocationService.resolve(this.projectRoot);
     return {
       success: true,
-      data: buildRuntimeDiagnostics(daemonStatus, runtime, {
-        autoInit: this.#initRuntimeState as unknown as Record<string, unknown>,
-        enhancementRoute,
-        hostProjectAlignment,
-        projectRuntime,
-        projectScopeIdentity,
-        residentService,
-        projectRootResolution: this.projectRootResolution,
-      }),
+      data: {
+        project: {
+          projectRoot: location.projectRoot,
+          projectId: location.projectId,
+          dataRoot: location.dataRoot,
+          databasePath: location.databasePath,
+          databaseExists: location.databaseExists,
+        },
+        runtime,
+      },
     };
   }
 
@@ -591,9 +407,6 @@ export class HostMcpServer {
       initResult.success !== false &&
       results.every((result) => result.ok !== false) &&
       postInitConsistency.ok;
-    const knowledgeAfterInit =
-      (readOptionalRecord(statusData.knowledge) as HostKnowledgeState | undefined) ??
-      EMPTY_KNOWLEDGE_STATE;
     if (!postInitConsistency.ok) {
       this.#initRuntimeState = {
         ...this.#initRuntimeState,
@@ -613,80 +426,22 @@ export class HostMcpServer {
             | undefined) ??
           requestedMode ??
           'ghost',
-        nextActions: ok
-          ? buildPostInitActions(knowledgeAfterInit)
-          : [
-              buildRecommendedAction({
-                label: 'Run diagnostics',
-                reason: 'Inspect runtime, package, and plugin metadata before retrying setup.',
-                startsDaemon: false,
-                tool: 'alembic_status',
-              }),
-            ],
+        nextActions: ok ? [] : [{ tool: 'alembic_status', required: false }],
         profile: CODEX_SETUP_PROFILE,
         results,
         status: statusData,
       },
       message: ok
-        ? buildPostInitMessage(knowledgeAfterInit)
+        ? 'Alembic workspace initialized for this project.'
         : postInitConsistency.ok
           ? 'Alembic Codex initialization failed. Run diagnostics before retrying.'
           : `Alembic Codex initialization artifacts were created, but post-initialization status could not verify the same initialized project identity: ${postInitConsistency.reason}`,
     };
   }
 
-  async ensureWorkspaceInitializedForTool(toolName: string): Promise<Record<string, unknown>> {
-    if (!isInitOnDemandTool(toolName)) {
-      return { success: true, data: { initialized: false, reason: 'tool is not init-on-demand' } };
-    }
-    if (inspectKnowledge(this.projectRoot).initialized) {
-      return {
-        success: true,
-        data: {
-          initialized: false,
-          reason: 'workspace already initialized',
-          requestedTool: toolName,
-        },
-      };
-    }
-    return this.runWorkspaceInitialization({
-      force: false,
-      initializedBy: 'codex-plugin-init-on-demand',
-      requestedMode: null,
-      requestedTool: toolName,
-      route: 'tool-call',
-      seed: false,
-    });
-  }
-
   async runWorkspaceInitialization(
     input: WorkspaceInitializationInput
   ): Promise<Record<string, unknown>> {
-    if (!isTrustedProjectRoot(this.projectRootResolution)) {
-      const errorCode =
-        this.projectRootResolution.trust === 'rejected'
-          ? 'CODEX_PROJECT_ROOT_REJECTED'
-          : 'CODEX_PROJECT_ROOT_UNRESOLVED';
-      this.#initRuntimeState = {
-        attempted: false,
-        lastAttemptedAt: null,
-        lastError: buildProjectRootRequiredMessage(this.projectRootResolution),
-        ok: false,
-        requestedTool: input.requestedTool || null,
-        route: input.route,
-      };
-      return failureResult(
-        input.requestedTool || 'alembic_init',
-        buildProjectRootRequiredMessage(this.projectRootResolution),
-        {
-          errorCode,
-          needsUserInput: true,
-          projectRootResolution: summarizeProjectRootResolution(this.projectRootResolution),
-          required: { projectRoot: 'absolute path' },
-          requiredActions: buildProjectRootRequiredActions(),
-        }
-      );
-    }
     if (this.#initPromise) {
       return this.#initPromise;
     }
@@ -718,7 +473,7 @@ export class HostMcpServer {
     }
 
     if (
-      inspectKnowledge(this.projectRoot).initialized &&
+      projectLocationService.resolve(this.projectRoot).databaseExists &&
       !input.force &&
       !input.seed &&
       input.requestedMode !== 'standard'
@@ -827,43 +582,18 @@ export class HostMcpServer {
         needsUserInput: true,
         projectId: modeConflict.projectId,
         requestedMode: modeConflict.requestedMode,
-        nextActions: [
-          buildRecommendedAction({
-            label: 'Check workspace status',
-            reason: 'Inspect the registered Alembic workspace mode before retrying init.',
-            startsDaemon: false,
-            tool: 'alembic_status',
-          }),
-        ],
+        nextActions: [{ tool: 'alembic_status', required: false }],
       }
     );
   }
 
   async cleanupRuntime(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    // PDR-3: the embedded daemon is removed, so there is no daemon process to
-    // stop or status-probe here. cleanupRuntime keeps only the LOCAL filesystem
-    // cleanup of the runtimeDir daemon files; daemon status resolves to null and
-    // the project runtime context is built daemon-less (mirrors enqueueJob).
-    const projectRuntime = buildProjectRuntimeContext({
-      daemonStatus: null,
-      enhancementRoute: null,
-      hostProjectAlignment: null,
-      projectRoot: this.projectRoot,
-      projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity: null,
-      requiredServices: ['project-identity', 'daemon'],
-    });
-    const paths = resolveDaemonPaths(this.projectRoot);
-    const runtimeDir = projectRuntime.identity.runtimeDir || paths.runtimeDir;
-    const dataRoot = projectRuntime.identity.dataRoot || paths.dataRoot;
+    const location = projectLocationService.resolve(this.projectRoot);
+    const projectRuntime = buildProjectRuntimeContext({ projectRoot: location.projectRoot });
     const targets = {
-      dataRoot,
-      jobsDir: join(runtimeDir, 'jobs'),
-      lockDir: join(runtimeDir, 'daemon.lock'),
-      logPath: join(runtimeDir, 'daemon.log'),
-      pidPath: join(runtimeDir, 'daemon.pid'),
-      runtimeDir,
-      statePath: join(runtimeDir, 'daemon.json'),
+      dataRoot: location.dataRoot,
+      jobsDir: join(location.runtimeDir, 'jobs'),
+      runtimeDir: location.runtimeDir,
     };
 
     if (args.confirm !== true) {
@@ -875,14 +605,10 @@ export class HostMcpServer {
           targets,
         },
         message:
-          'Dry run only. Plugin uninstall does not remove Alembic data. Re-run with confirm=true to delete daemon runtime state/log/job files.',
+          'Dry run only. Plugin uninstall does not remove Alembic data. Re-run with confirm=true to delete Plugin job files.',
       };
     }
 
-    rmSync(targets.statePath, { force: true });
-    rmSync(targets.pidPath, { force: true });
-    rmSync(targets.logPath, { force: true });
-    rmSync(targets.lockDir, { force: true, recursive: true });
     rmSync(targets.jobsDir, { force: true, recursive: true });
     return {
       success: true,
@@ -892,34 +618,21 @@ export class HostMcpServer {
         cleaned: targets,
       },
       message:
-        'Alembic Codex daemon runtime state cleaned. Knowledge, Recipes, and project data were left intact.',
+        'Alembic Plugin job state cleaned. Knowledge, Recipes, and project data were left intact.',
     };
   }
 
   async enqueueJob(kind: 'bootstrap' | 'rescan', args: Record<string, unknown>): Promise<unknown> {
-    // MTC-7: public surface is the merged alembic_job route; kind stays the
-    // bootstrap/rescan job discriminator for the shared resident job runner.
     const toolName = 'alembic_job';
-    // PDR-2a/PDR-3: bootstrap/rescan run IN-PROCESS synchronously and persist to a
-    // local JobStore (pure file I/O, no resident process). The embedded runtime
-    // carrier has been removed, so jobs never spawn anything. Tool interaction is
-    // unchanged: alembic_job returns a job record (now already completed) and readJob
-    // keeps reading it from the JobStore.
     const { getServiceContainer } = await import('#inject/ServiceContainer.js');
     const container = getServiceContainer();
     const logger = Logger.getInstance();
-    // No daemon → daemon-less project runtime context (mirrors readJob's null path).
     const projectRuntime = buildProjectRuntimeContext({
-      daemonStatus: null,
-      enhancementRoute: null,
-      hostProjectAlignment: null,
       projectRoot: this.projectRoot,
-      projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity: null,
       requiredServices: ['project-identity', 'jobs'],
     });
 
-    const store = new JobStore({ projectRoot: this.projectRoot });
+    const store = new PluginJobStore(this.projectRoot);
     const job = store.create({
       kind,
       request: args,
@@ -936,7 +649,6 @@ export class HostMcpServer {
         const { rescanForHostAgent } = await import('./handlers/host-agent/rescan.js');
         raw = await rescanForHostAgent({ container, logger }, normalizeRescanJobArgs(args));
       }
-      // Match the daemon job runner: store the unwrapped envelope data as the job result.
       const result =
         raw && typeof raw === 'object' && 'data' in raw
           ? ((raw as { data?: unknown }).data ?? raw)
@@ -955,51 +667,14 @@ export class HostMcpServer {
   }
 
   async readJob(args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    // PDR-3: daemon removed → daemon status always null; readJob serves the
-    // local JobStore fallback path below.
-    const daemon: HostRuntimeStatus | null = null;
-    const projectScopeIdentity = daemon
-      ? await this.residentClients().projectScope.resolveProjectScopeIdentity({
-          daemonStatus: daemon,
-        })
-      : null;
-    const enhancementRoute = daemon
-      ? buildHostEnhancementRouteChoice({
-          daemonStatus: daemon,
-          requirement: 'jobs',
-        })
-      : null;
-    const hostProjectAlignment =
-      daemon && enhancementRoute
-        ? buildHostProjectAlignment({
-            daemonStatus: daemon,
-            enhancementRoute,
-            projectScopeIdentity,
-            projectRoot: this.projectRoot,
-          })
-        : null;
     const projectRuntime = buildProjectRuntimeContext({
-      daemonStatus: daemon,
-      enhancementRoute,
-      hostProjectAlignment,
       projectRoot: this.projectRoot,
       projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity,
       requiredServices: ['project-identity', 'jobs'],
     });
-    const daemonResult = await this.tryReadJobFromDaemon(args, daemon);
-    if (daemonResult) {
-      return attachProjectRuntimeContext(daemonResult, projectRuntime) as Record<string, unknown>;
-    }
 
-    const store = new JobStore({ projectRoot: this.projectRoot });
-    const jobRoute = {
-      fallback: true,
-      fallbackIsolation: getRuntimeFallbackIsolation('local-jobstore'),
-      reason: 'resident-job-api-unavailable-or-not-ready',
-      selected: 'embedded-host-agent-recoverable',
-      note: 'Local JobStore is exposed only as embedded Codex host-agent job recovery, not as the effective project identity source.',
-    };
+    const store = new PluginJobStore(this.projectRoot);
+    const jobRoute = { selected: 'plugin-owned-local-jobstore' };
     const jobId = typeof args.jobId === 'string' ? args.jobId : '';
     if (jobId) {
       const job = store.get(jobId);
@@ -1031,24 +706,11 @@ export class HostMcpServer {
     };
   }
 
-  async tryReadJobFromDaemon(
-    _args: Record<string, unknown>,
-    _daemonInput?: HostRuntimeStatus | null
-  ): Promise<Record<string, unknown> | null> {
-    // PDR-3: the embedded daemon (and its resident job-read path) is removed.
-    // There is no daemon to read jobs from; readJob always falls back to the
-    // local JobStore. Signature is preserved for the existing caller.
-    return null;
-  }
-
   async callPluginOwnedTool(
     name: string,
     args: Record<string, unknown>,
-    serviceBoundary: ServiceBoundaryDecision,
     executionContext: ToolExecutionContext = {
       projectRoot: this.projectRoot,
-      projectScopeIdentity: null,
-      residentProjectScopeAvailable: false,
     },
     options: ToolCallOptions = {}
   ): Promise<unknown> {
@@ -1061,26 +723,10 @@ export class HostMcpServer {
     const result = await this.embeddedToolExecutor().execute(
       name,
       args,
-      serviceBoundary,
       scopedExecutionContext,
       options
     );
-    return attachPluginOpportunisticEvolutionSurface({
-      args,
-      executionContext: scopedExecutionContext,
-      projectRoot: this.projectRoot,
-      result,
-      toolName: name,
-    });
-  }
-
-  private residentClients(): AlembicResidentCapabilityClients {
-    if (!this.#residentCapabilityClients) {
-      this.#residentCapabilityClients = createAlembicResidentCapabilityClients({
-        projectRoot: this.projectRoot,
-      });
-    }
-    return this.#residentCapabilityClients;
+    return result;
   }
 
   private embeddedToolExecutor(): EmbeddedToolExecutor {
@@ -1093,112 +739,24 @@ export class HostMcpServer {
     return this.#embeddedToolExecutor;
   }
 
-  private async isResidentProjectScopeAvailable(): Promise<boolean> {
-    try {
-      const identity = await this.residentClients().projectScope.resolveProjectScopeIdentity();
-      return isResidentProjectScopeReady(identity);
-    } catch {
-      return false;
-    }
-  }
-
-  private async runStagingAccessSweep(
-    toolName: string,
-    executionContext: ToolExecutionContext
-  ): Promise<Awaited<ReturnType<typeof maybeRunStagingAccessSweep>> | null> {
-    const scopedExecutionContext = executionContext.projectRuntime
-      ? executionContext
-      : {
-          ...executionContext,
-          projectRuntime: await this.buildPluginOwnedProjectRuntimeContext(executionContext),
-        };
-    return maybeRunStagingAccessSweep({
-      getContainer: () =>
-        this.embeddedToolExecutor().withPluginOwnedContainer(
-          scopedExecutionContext,
-          async (c) => c
-        ),
-      logger: Logger.getInstance(),
-      projectRoot: scopedExecutionContext.projectRoot,
-      toolName,
-    });
-  }
-
-  private shouldRunStagingAccessSweep(
-    toolName: string,
-    args: Record<string, unknown>,
-    knowledge: HostKnowledgeState
-  ): boolean {
-    if (!knowledge.initialized || !STAGING_ACCESS_SWEEP_TOOL_NAMES.has(toolName)) {
-      return false;
-    }
-    if (toolName === 'alembic_status' && args.aspect === 'runtime') {
-      return false;
-    }
-    return true;
-  }
-
-  private async resolveToolExecutionContext(toolName: string): Promise<ToolExecutionContext> {
-    const usesResidentProjectScope = RESIDENT_PROJECT_SCOPE_TOOL_NAMES.has(toolName);
-    if (!usesResidentProjectScope) {
-      return {
+  private async resolveToolExecutionContext(_toolName: string): Promise<ToolExecutionContext> {
+    return {
+      projectRoot: this.projectRoot,
+      projectRuntime: buildProjectRuntimeContext({
         projectRoot: this.projectRoot,
-        projectScopeIdentity: null,
-        residentProjectScopeAvailable: false,
-      };
-    }
-    try {
-      const identity = await this.residentClients().projectScope.resolveProjectScopeIdentity({
-        folderPath: this.projectRoot,
-      });
-      const residentProjectScopeAvailable = isResidentProjectScopeReady(identity);
-      return {
-        // ProjectScope 执行保持当前 source folder 作为 projectRoot；
-        // WorkspaceResolver 通过 resident summary 只写入 ghost dataRoot。
-        projectRoot: this.projectRoot,
-        projectScopeIdentity: residentProjectScopeAvailable ? identity : null,
-        residentProjectScopeAvailable,
-      };
-    } catch {
-      return {
-        projectRoot: this.projectRoot,
-        projectScopeIdentity: null,
-        residentProjectScopeAvailable: false,
-      };
-    }
+        projectRootResolution: this.projectRootResolution,
+        requiredServices: ['project-identity'],
+      }),
+    };
   }
 
   private async buildPluginOwnedProjectRuntimeContext(
     executionContext: ToolExecutionContext
   ): Promise<ReturnType<typeof buildProjectRuntimeContext>> {
-    // PDR-3: daemon removed → daemon status always null. Downstream is guarded
-    // by `daemonStatus ? ... : null`, so the four-tool live path stays valid.
-    const daemonStatus: HostRuntimeStatus | null = null;
-    const runtime = this.#hostAdapter.resolveRuntimeContext();
-    const enhancementRoute = daemonStatus
-      ? buildHostEnhancementRouteChoice({
-          daemonStatus,
-          requirement: 'mcp',
-        })
-      : null;
-    const hostProjectAlignment =
-      daemonStatus && enhancementRoute
-        ? buildHostProjectAlignment({
-            daemonStatus,
-            enhancementRoute,
-            projectScopeIdentity: executionContext.projectScopeIdentity,
-            projectRoot: this.projectRoot,
-          })
-        : null;
     return buildProjectRuntimeContext({
-      daemonStatus,
-      enhancementRoute,
-      hostProjectAlignment,
       projectRoot: executionContext.projectRoot,
       projectRootResolution: this.projectRootResolution,
-      projectScopeIdentity: executionContext.projectScopeIdentity,
       requiredServices: ['project-identity'],
-      runtime,
     });
   }
 }
@@ -1265,19 +823,13 @@ function verifyPostInitConsistency(input: {
   if (input.statusData.initialized !== true || statusKnowledge.initialized !== true) {
     return { ok: false, reason: 'post-status remained uninitialized' };
   }
-  if (!sameResolvedPath(statusProject.root, input.projectRoot)) {
+  if (!sameResolvedPath(statusProject.projectRoot, input.projectRoot)) {
     return { ok: false, reason: 'post-status project root differs from the initialized root' };
   }
-  const statusAutoInit = readOptionalRecord(input.statusData.autoInit) ?? {};
   const markerReadback = readOptionalRecord(input.markerReadback);
   const initMarker = readOptionalRecord(input.initData.marker);
   const marker = initMarker ?? markerReadback;
-  if (
-    statusAutoInit.markerExists !== true ||
-    !marker ||
-    !markerReadback ||
-    (!initMarker && input.initData.alreadyInitialized !== true)
-  ) {
+  if (!marker || !markerReadback || (!initMarker && input.initData.alreadyInitialized !== true)) {
     return { ok: false, reason: 'init marker was not readable after post-status' };
   }
   if (!sameResolvedPath(marker.projectRoot, input.projectRoot)) {
@@ -1295,12 +847,8 @@ function verifyPostInitConsistency(input: {
   if (statusWorkspace.ghost !== marker.ghost) {
     return { ok: false, reason: 'post-status workspace mode contradicts the init marker' };
   }
-  const expectedDataRootSource = marker.ghost ? 'ghost-registry' : 'project-root';
-  if (
-    statusProject.dataRootSource !== expectedDataRootSource ||
-    statusWorkspace.dataRootSource !== expectedDataRootSource
-  ) {
-    return { ok: false, reason: 'post-status data-root source contradicts the init marker' };
+  if (!sameResolvedPath(statusProject.dataRoot, marker.dataRoot)) {
+    return { ok: false, reason: 'post-status data root contradicts the init marker' };
   }
   return { ok: true, reason: 'post-status and init marker are identity-consistent' };
 }

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import { routeSubmitKnowledgeTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 
@@ -497,11 +498,13 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     );
 
     const result = await routeSubmitKnowledgeTool(makeContext({ projectRoot }), {
+      source: 'caller-spoofed',
       dimensionId: 'architecture',
       sessionId: 'session-1',
       skipConsolidation: true,
       items: [
         makeValidSubmitItem({
+          source: 'item-spoofed',
           title: 'Source Bound Fact',
           kind: 'fact',
           sourceRefs: ['src/source.ts:1-3'],
@@ -521,10 +524,15 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     expect(result.success).toBe(true);
     expect(gatewayState.createCalls).toHaveLength(1);
     expect(gatewayState.createCalls[0]).toMatchObject({
+      source: 'host-agent',
       options: {
         skipConsolidation: true,
       },
     });
+    const request = gatewayState.createCalls[0] as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(request.items[0]).not.toHaveProperty('source');
   });
 
   it('refreshes created Recipes and returns source-ref/vector freshness summaries', async () => {
@@ -942,6 +950,8 @@ function makeContext({
   projectRoot?: string;
   recipeSourceRefRepository?: unknown;
 } = {}): McpContext {
+  const effectiveProjectRoot = projectRoot ?? gatewayState.projectRoot;
+  fs.mkdirSync(effectiveProjectRoot, { recursive: true });
   const session = projectRoot
     ? {
         id: 'session-1',
@@ -988,6 +998,7 @@ function makeContext({
         return null;
       },
     },
+    projectRuntime: buildProjectRuntimeContext({ projectRoot: effectiveProjectRoot }),
   };
 }
 

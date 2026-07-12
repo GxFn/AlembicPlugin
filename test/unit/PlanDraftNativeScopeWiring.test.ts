@@ -9,6 +9,7 @@ import {
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { projectLocationService } from '../../lib/host-runtime/context/ProjectLocationService.js';
 import { routePlanTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 
@@ -266,6 +267,9 @@ function createContext(projectRoot: string): McpContext {
     container: {
       get: () => undefined,
       singletons: { _projectRoot: projectRoot },
+    },
+    projectRuntime: {
+      identity: { dataRoot: projectLocationService.resolve(projectRoot).dataRoot },
     },
   } as unknown as McpContext;
 }

@@ -15,11 +15,11 @@ export type AgentPublicToolDescriptionBase = z.infer<typeof AgentPublicToolDescr
 export const AGENT_PUBLIC_TOOL_DESCRIPTION_BASE = {
   alembic_prime: {
     name: 'alembic_prime',
-    title: 'Prime code-development Recipe context',
+    title: 'Prime project Recipe context',
     purpose:
-      'Load compact, trust-labeled Recipe guidance for a standalone code-development requirement frame and return primeRef plus detailRefs.',
+      'Retrieve and present compact project Recipe and Guard knowledge for an optional query or context.',
     selectionHint:
-      'Use before implementation, fixes, refactors, tests, or code-review edits when the host can provide taskAction, requirementGoal, and locator facets.',
+      'Use when project knowledge may help; query and context are optional and never act as admission gates.',
     nonGoal:
       'Does not answer general knowledge lookup, provide project maps, create work sessions, modify code, mark work complete, or run guard checks.',
   },

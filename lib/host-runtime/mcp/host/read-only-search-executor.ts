@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { HybridRetriever, SearchEngine } from '@alembic/core/search';
 import { BinaryPersistence, IndexingPipeline, VectorService } from '@alembic/core/vector';
 import Database from 'better-sqlite3';
@@ -8,10 +8,12 @@ import {
   selectLocalEmbedLane,
 } from '../../../recipe-pipeline/vector/LocalEmbedding.js';
 import { createReadOnlySearchRepositories } from '../../../repository/search/ReadOnlySearchServices.js';
-import { AlembicResidentServiceClient } from '../../../service/resident/AlembicResidentServiceClient.js';
+import { SearchInput } from '../../../shared/schemas/mcp-tools.js';
+import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { search } from '../handlers/search.js';
 import type { McpContext, McpServiceContainer, SearchArgs } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
+import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
 import { ReadOnlyHnswVectorStore } from './read-only-hnsw-vector-store.js';
 import {
   createReadOnlySearchSnapshot,
@@ -19,9 +21,6 @@ import {
 } from './read-only-search-snapshot.js';
 
 type ReadOnlyDatabase = InstanceType<typeof Database>;
-type ResidentSearchRoute = 'pure-local' | 'resident-enabled';
-
-const RESIDENT_SEARCH_ENABLED_ENV = 'ALEMBIC_RESIDENT_SEARCH_ENABLED';
 
 /**
  * Run public Search against a connection that SQLite itself opened read-only.
@@ -29,7 +28,7 @@ const RESIDENT_SEARCH_ENABLED_ENV = 'ALEMBIC_RESIDENT_SEARCH_ENABLED';
  * The general embedded MCP Bootstrap owns migrations, lifecycle services and writable WAL
  * connections. Reusing it for Search made an otherwise read-only tool update or remove live
  * `-wal`/`-shm` sidecars whenever the request switched projects. This bounded container exposes
- * only Search's read collectors, so no migration, audit, vector-sync or shutdown checkpoint can
+ * only Search's read collectors, so no migration, audit, vector-sync, or shutdown hook can
  * enter the request path.
  */
 export async function executeReadOnlySearch(
@@ -41,19 +40,16 @@ export async function executeReadOnlySearch(
     throw new Error('Request-scoped ProjectRuntimeContext is required for read-only Search.');
   }
   const identity = projectRuntime.identity;
+  SearchInput.parse(args);
   const projectRoot = resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'));
   const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
   const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  if (!isWithin(databasePath, dataRoot)) {
-    throw new Error(
-      `Read-only Search database identity mismatch: database=${databasePath}, dataRoot=${dataRoot}.`
-    );
-  }
   if (!existsSync(databasePath)) {
-    throw new Error(`Read-only Search database does not exist: ${databasePath}.`);
+    return createKnowledgeUnavailableResult('alembic_search', projectRuntime);
   }
+  const physicalIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
 
-  const snapshot = createReadOnlySearchSnapshot({ dataRoot, databasePath });
+  const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
   let containerHandle: ReadOnlySearchContainerHandle | null = null;
   try {
@@ -98,29 +94,16 @@ export async function createReadOnlySearchContainer(
         }
       : {}) as unknown as ConstructorParameters<typeof SearchEngine>[1]
   );
-  const { checkpointRepository, knowledgeService } = createReadOnlySearchRepositories(db);
-  const residentSearchRoute = resolveResidentSearchRoute();
-  const residentSearchClient =
-    residentSearchRoute === 'resident-enabled'
-      ? new AlembicResidentServiceClient({ projectRoot: identity.projectRoot })
-      : null;
-  process.stderr.write(
-    `[MCP/Search] resident contribution route=${residentSearchRoute} selector=${RESIDENT_SEARCH_ENABLED_ENV}\n`
-  );
+  const { knowledgeService } = createReadOnlySearchRepositories(db);
 
   return {
     container: {
       get(name: string): unknown {
         switch (name) {
-          case 'gitDiffCheckpointRepository':
-            return checkpointRepository;
           case 'hybridRetriever':
             return vectorGraph?.hybridRetriever;
           case 'knowledgeService':
             return knowledgeService;
-          case 'residentSearchClient':
-          case 'residentServiceClient':
-            return residentSearchClient;
           case 'searchEngine':
             return searchEngine;
           case 'vectorService':
@@ -138,31 +121,6 @@ export async function createReadOnlySearchContainer(
     },
     dispose: () => vectorGraph?.dispose(),
   };
-}
-
-/**
- * Select whether the optional resident lane may contribute to Search results.
- *
- * Resident fusion remains the compatibility default. Acceptance and other deterministic
- * pure-local processes can explicitly set ALEMBIC_RESIDENT_SEARCH_ENABLED=0 without changing
- * daemon lifecycle policy; ALEMBIC_DAEMON_AUTOSTART continues to govern startup only.
- */
-function resolveResidentSearchRoute(env: NodeJS.ProcessEnv = process.env): ResidentSearchRoute {
-  const raw = env[RESIDENT_SEARCH_ENABLED_ENV];
-  if (raw === undefined) {
-    return 'resident-enabled';
-  }
-  const normalized = raw.trim().toLowerCase();
-  if (['0', 'false', 'no', 'off', ''].includes(normalized)) {
-    return 'pure-local';
-  }
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return 'resident-enabled';
-  }
-  process.stderr.write(
-    `[MCP/Search] invalid ${RESIDENT_SEARCH_ENABLED_ENV}=${JSON.stringify(raw)}; defaulting to resident-enabled.\n`
-  );
-  return 'resident-enabled';
 }
 
 interface ReadOnlyVectorGraph {
@@ -230,11 +188,6 @@ function readVectorConfig(configPath: string): unknown {
     );
     return undefined;
   }
-}
-
-function isWithin(filePath: string, root: string): boolean {
-  const rel = relative(root, filePath);
-  return rel.length > 0 && !rel.startsWith('..') && !relative(root, filePath).startsWith('/');
 }
 
 function requireIdentityPath(value: string | null, field: string): string {

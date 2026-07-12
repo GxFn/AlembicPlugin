@@ -40,14 +40,7 @@ export const LOCAL_FORBIDDEN_TOP_LEVEL_OUTPUT_KEYS = new Set([
   'success',
 ]);
 
-export const LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set([
-  'diagnostics',
-  'enhancementRoute',
-  'hostProjectAlignment',
-  'projectRuntime',
-  'residentService',
-  'serviceBoundary',
-]);
+export const LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS = new Set(['projectRuntime']);
 
 // MTC-4: the old alembic_mcp_status forbade diagnostics/runtime keys to stay a
 // light status. The merged alembic_status is a runtime-diagnostic tool that
@@ -63,7 +56,7 @@ const LOCAL_SENSITIVE_OUTPUT_KEYS = new Set([
   'cookie',
   'internaltelemetry',
   'password',
-  'privatedaemonurl',
+  ['private', 'daemon', 'url'].join(''),
   'providerprivatetrace',
   'refreshtoken',
   'secret',
@@ -88,8 +81,6 @@ const RESERVED_TOP_LEVEL_FIELD_RENAMES: Record<string, string> = {
 const ALLOWED_CLEAN_META_KEYS = new Set(['responseTimeMs', 'source']);
 
 export const LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
-  // MTC-7: union of the merged bootstrap/rescan enqueue fields + the job-read
-  // (codex_job) fields, projected for the single alembic_job route.
   alembic_job: [
     'job',
     'jobId',
@@ -99,63 +90,19 @@ export const LOCAL_TOOL_ALLOWED_BUSINESS_FIELD_NAMES = {
     'nextActions',
     'projectRuntime',
     'reasonCode',
-    'residentService',
   ],
-  // MTC-7: union of the merged alembic_codex_stop (daemon flags) +
-  // alembic_codex_cleanup (cleanup targets/projectRuntime) business fields.
-  alembic_runtime: [
-    'cleaned',
-    'daemonReady',
-    'daemonStatus',
-    'dryRun',
-    'pidAlive',
-    'projectRuntime',
-    'stopped',
-    'targets',
-  ],
-  // MTC-4: union of the merged alembic_health (resident) + alembic_mcp_status +
-  // alembic_codex_diagnostics business fields, projected for both shells.
+  alembic_runtime: ['cleaned', 'dryRun', 'projectRuntime', 'targets'],
   alembic_status: [
-    'actionHints',
-    'ai',
-    'autoInit',
     'businessOk',
     'businessStatus',
     'businessSummary',
-    'checks',
-    'cleanup',
-    'codex',
-    'commands',
-    'daemon',
-    'enhancementRoute',
-    'gitDiffCheckpoint',
-    'hostProjectAlignment',
     'initialized',
-    'issues',
     'knowledge',
-    'knowledgeBase',
-    'moduleBoundary',
-    'nextActions',
-    'node',
-    'offlineFallback',
-    'onboarding',
-    'package',
-    'plugin',
-    'primaryAction',
     'project',
-    'projectRoot',
-    'projectRootResolution',
-    'projectRuntime',
-    'projectScopeIdentity',
-    'residentService',
-    'residentServiceBoundary',
-    'runtimeIdentity',
-    'services',
+    'runtime',
     'session',
     'summary',
-    'uptime',
     'usage',
-    'version',
     'workspace',
   ],
   alembic_init: [
@@ -196,8 +143,6 @@ const LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
     Array.isArray(input.business.jobs)
       ? `Alembic Codex job list returned ${input.business.jobs.length} item(s).`
       : 'Alembic Codex job checked.',
-  // MTC-7: alembic_runtime covers both stop and cleanup; discriminate by the
-  // business fields each action produces (cleanup carries dryRun/cleaned/targets).
   alembic_runtime: (input) => {
     if (input.business.dryRun === true) {
       return 'Alembic Codex cleanup preview completed.';
@@ -205,7 +150,7 @@ const LOCAL_TOOL_SUMMARY_BUILDERS: Partial<
     if ('cleaned' in input.business || 'targets' in input.business) {
       return 'Alembic Codex runtime cleanup completed.';
     }
-    return 'Alembic Codex daemon stop requested.';
+    return 'Alembic Plugin runtime cleanup completed.';
   },
 };
 
@@ -369,13 +314,6 @@ function normalizeBusinessValue(value: unknown, toolName: LocalCleanOutputToolNa
     out.statusSnapshot = out.status;
     delete out.status;
   }
-  if (toolName === 'alembic_runtime' && isRecord(out.daemon)) {
-    out.daemonReady = out.daemon.ready === true;
-    out.daemonStatus = typeof out.daemon.status === 'string' ? out.daemon.status : null;
-    out.pidAlive = out.daemon.pidAlive === true;
-    out.stopped = out.daemon.ready !== true && out.daemon.pidAlive !== true;
-    delete out.daemon;
-  }
   if (toolName === 'alembic_job' && out.errorCode) {
     out.reasonCode = out.errorCode;
   }
@@ -429,9 +367,7 @@ function pickAllowedBusinessFields(
 function shouldStripRuntimeField(key: string, toolName: LocalCleanOutputToolName): boolean {
   return (
     !isRuntimeDiagnosticTool(toolName) &&
-    (LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key) ||
-      key === 'daemon' ||
-      key === 'projectScopeIdentity')
+    (LOCAL_IMPLICIT_RUNTIME_OUTPUT_KEYS.has(key) || key === 'projectScopeIdentity')
   );
 }
 

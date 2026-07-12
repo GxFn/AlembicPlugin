@@ -28,7 +28,6 @@ import {
 } from '@alembic/core/knowledge';
 import { jsonByteLength } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
-import { buildLocalSelectionMismatch } from '#host-runtime/context/HostProjectAlignment.js';
 import { buildColdStartOnboardingContract } from '#host-runtime/status/OnboardingContract.js';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import {
@@ -46,7 +45,6 @@ import {
   createProjectContextHostAgentSession,
   selectProjectContextDimensions,
 } from '#recipe-pipeline/generate/project-context-analysis.js';
-import { resolveHostAgentDataRoot } from '#recipe-pipeline/generate/project-data-root.js';
 import {
   acquirePlanGenerationLease,
   applyPlanGateToProjectAnalysisIntent,
@@ -64,6 +62,7 @@ import type { GenerateInput } from '#shared/schemas/mcp-tools.js';
 interface McpContext {
   container: ServiceContainer;
   logger: WorkflowLogger;
+  projectRuntime?: { identity: { dataRoot: string } } | null;
   startedAt?: number;
   [key: string]: unknown;
 }
@@ -118,10 +117,10 @@ export async function runHostAgentColdStartWorkflow(ctx: McpContext, args?: Gene
 export async function runHostAgentGenerateFullWorkflow(ctx: McpContext, args?: GenerateInput) {
   const t0 = Date.now();
   const projectRoot = resolveProjectRoot(ctx.container);
-  const dataRoot = resolveHostAgentDataRoot(ctx.container, projectRoot);
+  const dataRoot = requireRequestDataRoot(ctx);
   const gate = await prepareColdStartPlanGate(ctx, args, projectRoot);
   if (!gate.ok) {
-    return attachLocalSelectionMismatch(gate.response, projectRoot);
+    return gate.response;
   }
 
   try {
@@ -134,6 +133,14 @@ export async function runHostAgentGenerateFullWorkflow(ctx: McpContext, args?: G
   } finally {
     gate.lease.release();
   }
+}
+
+function requireRequestDataRoot(ctx: McpContext): string {
+  const dataRoot = ctx.projectRuntime?.identity.dataRoot;
+  if (!dataRoot) {
+    throw new Error('Request-scoped project runtime dataRoot is required.');
+  }
+  return dataRoot;
 }
 
 async function prepareColdStartPlanGate(
@@ -175,7 +182,7 @@ async function runPlanGatedColdStart(
     args
   );
   if (confirmationBlock) {
-    return attachLocalSelectionMismatch(confirmationBlock, input.projectRoot);
+    return confirmationBlock;
   }
 
   const intent = createHostAgentColdStartIntent();
@@ -200,7 +207,7 @@ async function runPlanGatedColdStart(
       }) as Record<string, unknown>,
       input.planGate
     );
-    return attachLocalSelectionMismatch(response, input.projectRoot);
+    return response;
   }
 
   const briefingDimensions = selectProjectContextDimensions(
@@ -216,7 +223,7 @@ async function runPlanGatedColdStart(
     projectRoot: input.projectRoot,
     responseTimeMs: Date.now() - input.responseStartMs,
   });
-  return attachLocalSelectionMismatch(response, input.projectRoot);
+  return response;
 }
 
 function buildColdStartDestructiveConfirmationBlock(
@@ -1187,22 +1194,6 @@ export function buildGenerateRebuildConfirmationBlock(
  * 自己的数据根），但必须把 codex_* 门禁所依据的同一事实带回响应，
  * 不允许静默绕过。
  */
-function attachLocalSelectionMismatch(
-  response: Record<string, unknown>,
-  projectRoot: string
-): Record<string, unknown> {
-  const mismatch = buildLocalSelectionMismatch(projectRoot);
-  if (!mismatch) {
-    return response;
-  }
-  const meta =
-    response.meta && typeof response.meta === 'object' && !Array.isArray(response.meta)
-      ? (response.meta as Record<string, unknown>)
-      : {};
-  response.meta = { ...meta, hostProjectSelectionMismatch: mismatch };
-  return response;
-}
-
 function baseName(value: string): string {
   const segments = value.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] ?? value;
