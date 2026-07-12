@@ -122,7 +122,8 @@ export class RecipeMapProvider {
       mapNodeSummary(node, index, allMounts, deferred)
     );
 
-    const status = deriveStatus(region, diagnostics, allMounts);
+    const boundedDiagnostics = dedupeMapDiagnostics(diagnostics).slice(0, 200);
+    const status = deriveStatus(region, boundedDiagnostics, allMounts);
     const summary = `alembic_recipe_map ${request.focus.kind} displayed ${displayedMounts.length} of ${allMounts.length} recipe mounts over ${nodes.length} region nodes (ProjectContext ${status}).`;
 
     const output = AlembicRecipeMapOutputSchema.parse({
@@ -152,8 +153,8 @@ export class RecipeMapProvider {
         omittedMounts: allMounts.length - displayedMounts.length,
         completeness: 'complete',
       },
-      diagnostics: dedupeMapDiagnostics(diagnostics).slice(0, 200),
-      nextActions: buildNextActions(request, displayedMounts),
+      diagnostics: boundedDiagnostics,
+      nextActions: buildNextActions(request, displayedMounts, boundedDiagnostics),
       limits: {
         nodeLimit: request.nodeLimit,
         recipeMountLimit: request.recipeMountLimit,
@@ -576,7 +577,8 @@ function regionScopePrefix(region: ProjectContextRegion): string | undefined {
 
 function buildNextActions(
   request: RecipeMapRequest,
-  mounts: readonly RecipeMountSummary[]
+  mounts: readonly RecipeMountSummary[],
+  diagnostics: readonly MapDiagnostic[]
 ): MapNextAction[] {
   const actions: MapNextAction[] = [
     {
@@ -599,7 +601,20 @@ function buildNextActions(
     reason: 'Use alembic_prime for task-semantic Recipe selection rather than structural mounting.',
     required: false,
   });
+  if (diagnostics.some(needsSourceRefReconciliation)) {
+    actions.push({
+      tool: 'alembic_rescan',
+      reason:
+        'Reconcile stale or unresolved source-ref anchors with an authorized rescan; alembic_recipe_map remains read-only and performs no repair.',
+      required: false,
+    });
+  }
   return actions.slice(0, 20);
+}
+
+function needsSourceRefReconciliation(diagnostic: MapDiagnostic): boolean {
+  const text = `${diagnostic.code} ${diagnostic.message} ${diagnostic.path ?? ''}`.toLowerCase();
+  return /source[- ]?ref|stale|drift|unresolved/.test(text);
 }
 
 function deriveStatus(
@@ -647,11 +662,17 @@ function dedupeMapDiagnostics(diagnostics: MapDiagnostic[]): MapDiagnostic[] {
   return [
     ...new Map(
       diagnostics.map((diagnostic) => [
-        `${diagnostic.code}\u0000${diagnostic.recipeId ?? ''}\u0000${diagnostic.message}`,
+        `${diagnostic.code}\u0000${diagnostic.recipeId ?? ''}\u0000${canonicalizeSingleLineAnchor(
+          diagnostic.path ?? ''
+        )}\u0000${canonicalizeSingleLineAnchor(diagnostic.message)}`,
         diagnostic,
       ])
     ).values(),
   ];
+}
+
+function canonicalizeSingleLineAnchor(value: string): string {
+  return value.replace(/:(\d+)-\1\b/g, ':$1');
 }
 
 function suppressResolvedSourceRefMissDiagnostics(diagnostics: MapDiagnostic[]): MapDiagnostic[] {

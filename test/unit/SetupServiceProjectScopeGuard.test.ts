@@ -60,7 +60,7 @@ describe('SetupService ProjectScope pre-delete guard', () => {
     expect(config.core).not.toHaveProperty('dir');
     expect(config.core).not.toHaveProperty('constitution');
     expect(config.vector?.localEmbedding).toMatchObject({
-      enabled: false,
+      enabled: true,
       laneOrder: 'local-first',
     });
   });

@@ -27,6 +27,12 @@ export interface PrimeSearchMeta {
   module: string | null;
   resultCount: number;
   filteredCount: number;
+  route: string;
+  requestedMode: string;
+  actualMode: string;
+  semanticUsed: boolean;
+  vectorUsed: boolean;
+  fallbackReason?: string;
 }
 
 export interface PrimeSearchResult {
@@ -49,7 +55,7 @@ interface SearchEngineLike {
   search(
     query: string,
     options?: { mode?: string; limit?: number; rank?: boolean }
-  ): Promise<{ items?: unknown[] }>;
+  ): Promise<{ items?: unknown[]; searchMeta?: Record<string, unknown> }>;
 }
 
 // ── Constants ───────────────────────────────────────
@@ -76,9 +82,7 @@ export class PrimeSearchPipeline {
     if (!query) {
       return null;
     }
-    const response = await this.#search
-      .search(query, { mode: 'auto', limit: 8, rank: false })
-      .catch(() => ({ items: [] }));
+    const response = await this.#search.search(query, { mode: 'auto', limit: 8, rank: false });
     const items = ((response.items || []) as SearchResultItem[])
       .map((item) => ({
         ...slimSearchResult(item),
@@ -86,15 +90,17 @@ export class PrimeSearchPipeline {
       }))
       .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
     const filtered = this.#qualityFilter(items);
-    if (filtered.length === 0) {
-      return null;
-    }
     const knowledge = filtered.filter((r) => r.kind !== 'rule').slice(0, 5);
     const rules = filtered.filter((r) => r.kind === 'rule').slice(0, 3);
     return {
       relatedKnowledge: knowledge,
       guardRules: rules,
-      searchMeta: this.#buildSearchMeta(request, items.length, filtered.length),
+      searchMeta: this.#buildSearchMeta(
+        request,
+        items.length,
+        filtered.length,
+        response.searchMeta
+      ),
     };
   }
 
@@ -123,7 +129,8 @@ export class PrimeSearchPipeline {
   #buildSearchMeta(
     request: PrimeSearchRequest,
     resultCount: number,
-    filteredCount: number
+    filteredCount: number,
+    routeMeta: Record<string, unknown> | undefined
   ): PrimeSearchMeta {
     return {
       queries: request.queries?.length ? request.queries : [request.query],
@@ -132,8 +139,46 @@ export class PrimeSearchPipeline {
       module: request.module ?? null,
       resultCount,
       filteredCount,
+      route: readString(routeMeta?.route) ?? 'unknown',
+      requestedMode: readString(routeMeta?.requestedMode) ?? 'auto',
+      actualMode: readString(routeMeta?.actualMode) ?? 'keyword',
+      semanticUsed: routeMeta?.semanticUsed === true,
+      vectorUsed: routeMeta?.vectorUsed === true,
+      ...(normalizePrimeFallbackReason(routeMeta?.fallbackReason)
+        ? { fallbackReason: normalizePrimeFallbackReason(routeMeta?.fallbackReason) }
+        : {}),
     };
   }
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function normalizePrimeFallbackReason(value: unknown): string | undefined {
+  const reason = readString(value)?.toLowerCase();
+  if (!reason) {
+    return undefined;
+  }
+  if (reason.startsWith('vector_store_query_failed')) {
+    return 'vector-store-query-failed';
+  }
+  if (reason.startsWith('semantic_search_failed')) {
+    return 'semantic-search-failed';
+  }
+  if (reason.includes('vector_store_unavailable')) {
+    return 'vector-store-unavailable-or-empty';
+  }
+  if (reason.includes('embed_provider_unavailable')) {
+    return 'embed-provider-unavailable';
+  }
+  if (reason.includes('empty_query_embedding')) {
+    return 'empty-query-embedding';
+  }
+  if (/^[a-z0-9_-]+$/.test(reason)) {
+    return reason.replaceAll('_', '-');
+  }
+  return 'search-route-unavailable';
 }
 
 function calibratePrimeSearchScore(item: SearchResultItem): number {

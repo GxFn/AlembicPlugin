@@ -2802,6 +2802,19 @@ function scoreGraphQueryNode(
     return null;
   }
 
+  const coverage = queryMatchedTerms.length / queryTerms.length;
+  if (queryMatchedTerms.length > 1) {
+    matchScore += queryMatchedTerms.length * coverage * 0.8;
+    rankingSignals.push('multi-term-coverage');
+  }
+  const specificMatches = queryMatchedTerms.filter(
+    (term) => term.length >= 8 && !WEAK_GRAPH_QUERY_TERMS.has(term)
+  ).length;
+  if (specificMatches > 0) {
+    matchScore += specificMatches * 0.6;
+    rankingSignals.push('specific-identifier-match');
+  }
+
   if (projectContextWeightedQuery) {
     const projectContextBoost = projectContextSemanticNodeBoost(node);
     if (projectContextBoost > 0) {
@@ -3272,11 +3285,21 @@ function countBy<T>(values: T[], keyOf: (value: T) => string): Record<string, nu
 function tokenizeGraphQuery(query: string): string[] {
   return Array.from(
     new Set(
-      (query.toLowerCase().match(/[\p{L}\p{N}_./:-]+/gu) ?? [])
-        .map((term) => term.trim())
+      (query.match(/[\p{L}\p{N}_./:-]+/gu) ?? [])
+        .flatMap((term) => splitGraphIdentifier(term))
+        .map((term) => term.trim().toLowerCase())
         .filter((term) => term.length >= 2 && !GENERIC_GRAPH_QUERY_TERMS.has(term))
     )
   ).slice(0, 40);
+}
+
+function splitGraphIdentifier(term: string): string[] {
+  const parts = term
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[\s_.:/-]+/)
+    .filter(Boolean);
+  return parts.length > 1 ? [term, ...parts] : [term];
 }
 
 function graphQuerySearchText(node: ProjectGraphNode): string {
@@ -3328,7 +3351,7 @@ function isProjectContextWeightedGraphQuery(
 
 const GENERIC_GRAPH_QUERY_TERMS = new Set(['alembic', 'graph', 'project', 'source']);
 
-const WEAK_GRAPH_QUERY_TERMS = new Set(['repo', 'repository', 'source']);
+const WEAK_GRAPH_QUERY_TERMS = new Set(['repo', 'repository', 'request', 'source']);
 
 const PROJECT_CONTEXT_WEIGHTED_QUERY_TERMS = [
   'project-context',

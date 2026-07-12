@@ -304,12 +304,27 @@ function buildPrimeReadyDiagnostics(
       retryable: true,
     });
   }
-  if (!hasSemanticRegionVectorEvidence(regionEvidence)) {
+  const routeMeta = primeSearch.searchResult?.searchMeta;
+  if (routeMeta?.vectorUsed) {
     diagnostics.push({
-      code: 'prime-vector-evidence-unavailable',
+      code: 'prime-vector-used',
       severity: 'info',
-      message:
-        'The local Recipe semantic-region vector lane was unavailable or unused; PrimeSearchPipeline lexical/FWS evidence remains independently reported.',
+      message: 'PrimeSearchPipeline used the local semantic/vector search route.',
+      retryable: false,
+    });
+  } else if (routeMeta?.fallbackReason || routeMeta?.actualMode === 'keyword') {
+    diagnostics.push({
+      code: 'prime-keyword-fallback',
+      severity: 'info',
+      message: 'PrimeSearchPipeline used the keyword fallback because the vector route was unused.',
+      retryable: false,
+    });
+  }
+  if (hasSemanticRegionVectorEvidence(regionEvidence)) {
+    diagnostics.push({
+      code: 'prime-region-vector-evidence-used',
+      severity: 'info',
+      message: 'Prime also included separate semantic-region vector evidence.',
       retryable: false,
     });
   }

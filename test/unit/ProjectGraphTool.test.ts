@@ -618,6 +618,38 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(visibleOutput).not.toContain('/vendor/');
     expect(visibleOutput).not.toContain('.d.ts');
   });
+
+  test('normalizes CamelCase identifiers and keeps specific multi-term matches above request noise', async () => {
+    const projectRoot = createFixtureProject();
+    writeFile(
+      projectRoot,
+      'lib/HostMcpServer.ts',
+      'export class HostMcpServer { handleRequest() { return true; } }\n'
+    );
+    writeFile(
+      projectRoot,
+      'lib/ProjectLocationService.ts',
+      'export class ProjectLocationService { resolveRequestRoot() { return "."; } }\n'
+    );
+    writeFile(
+      projectRoot,
+      'lib/RequestLogger.ts',
+      'export class RequestLogger { request() { return "request"; } }\n'
+    );
+
+    const output = await runGraph(projectRoot, {
+      queryKind: 'map',
+      query: 'HostMcpServer ProjectLocationService request',
+      budget: { itemLimit: 6, relationHopLimit: 4 },
+    });
+    const topPaths = output.nodes.slice(0, 4).map((node) => String(node.path ?? node.label));
+    expect(topPaths.some((value) => value.includes('HostMcpServer'))).toBe(true);
+    expect(topPaths.some((value) => value.includes('ProjectLocationService'))).toBe(true);
+    expect(output.nodes[0]?.queryMatchedTerms).toEqual(
+      expect.arrayContaining(['host', 'mcp', 'server'])
+    );
+    expect(String(output.nodes[0]?.path ?? output.nodes[0]?.label)).not.toContain('RequestLogger');
+  });
 });
 
 function createFixtureProject(): string {

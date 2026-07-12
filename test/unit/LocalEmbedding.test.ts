@@ -38,10 +38,10 @@ function fakeFetch(models: string[], opts: { fail?: boolean; status?: number } =
 }
 
 describe('LocalEmbedding config + env (GMAP-L3)', () => {
-  test('applies defaults (disabled, local-first, default endpoint/model)', () => {
+  test('applies local-first auto-detection defaults', () => {
     const config = resolveLocalEmbeddingConfig(undefined, {} as NodeJS.ProcessEnv);
     expect(config).toEqual({
-      enabled: false,
+      enabled: true,
       endpoint: DEFAULT_OLLAMA_ENDPOINT,
       model: DEFAULT_OLLAMA_EMBED_MODEL,
       laneOrder: 'local-first',
@@ -106,6 +106,22 @@ describe('LocalEmbedding detection (GMAP-L2)', () => {
     );
     expect(result.available).toBe(false);
     expect(result.reason).toBeTruthy();
+  });
+
+  test('bounds an unresponsive default endpoint probe', async () => {
+    const startedAt = Date.now();
+    const hangingFetch: FetchLike = async (_url, init) =>
+      await new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        });
+      });
+    const result = await detectOllamaEmbedding(
+      { endpoint: DEFAULT_OLLAMA_ENDPOINT, model: DEFAULT_OLLAMA_EMBED_MODEL },
+      hangingFetch
+    );
+    expect(result.available).toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
   });
 });
 

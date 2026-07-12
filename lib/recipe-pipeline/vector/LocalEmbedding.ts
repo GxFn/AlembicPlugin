@@ -5,13 +5,12 @@
  * EmbedProviderSelector). This module owns ONLY the Plugin concerns: resolving the
  * localEmbedding config (config.json + host env), detecting a local Ollama daemon,
  * and selecting a local-first EmbedProvider lane. The plugin never downloads or
- * packages an embedding model; users opt in by running Ollama locally.
+ * packages an embedding model; an already-running local Ollama is auto-detected.
  *
  * The plugin exposes the same setup path to every host surface that loads this
  * runtime; no alternate embedding provider is hidden behind this module.
  */
 import {
-  buildLocalFirstEmbedLanes,
   type EmbedLane,
   type EmbedLaneSelection,
   type FetchLike,
@@ -24,12 +23,13 @@ import { z } from 'zod';
 
 export const DEFAULT_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
 export const DEFAULT_OLLAMA_EMBED_MODEL = 'qwen3-embedding';
+export const DEFAULT_OLLAMA_PROBE_TIMEOUT_MS = 1_500;
 
 export const LocalEmbeddingLaneOrderSchema = z.enum(['local-first', 'keyword-only']);
 
 export const LocalEmbeddingConfigSchema = z
   .object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
     endpoint: z.string().min(1).max(2000).default(DEFAULT_OLLAMA_ENDPOINT),
     model: z.string().min(1).max(200).default(DEFAULT_OLLAMA_EMBED_MODEL),
     laneOrder: LocalEmbeddingLaneOrderSchema.default('local-first'),
@@ -92,6 +92,7 @@ export function detectOllamaEmbedding(
     model: config.model,
     endpoint: config.endpoint,
     ...(fetchImpl ? { fetchImpl } : {}),
+    timeoutMs: DEFAULT_OLLAMA_PROBE_TIMEOUT_MS,
   }).probe();
 }
 
@@ -109,14 +110,23 @@ export function selectLocalEmbedLane(
   if (!config.enabled || config.laneOrder === 'keyword-only') {
     return selectEmbedLane([keywordEmbedLane()]);
   }
-  const lanes = buildLocalFirstEmbedLanes({
-    ollama: {
-      model: config.model,
-      endpoint: config.endpoint,
-      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-    },
-    ...(opts.residentLane ? { resident: opts.residentLane } : {}),
+  const provider = new OllamaEmbedProvider({
+    model: config.model,
+    endpoint: config.endpoint,
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
   });
+  const ollamaLane: EmbedLane = {
+    name: 'ollama',
+    provider,
+    isAvailable: async () => {
+      const probe = await detectOllamaEmbedding(config, opts.fetchImpl);
+      if (!probe.available) {
+        throw new Error(probe.reason ?? 'local Ollama embedding is unavailable');
+      }
+      return true;
+    },
+  };
+  const lanes = [ollamaLane, ...(opts.residentLane ? [opts.residentLane] : []), keywordEmbedLane()];
   return selectEmbedLane(lanes);
 }
 
@@ -125,13 +135,12 @@ export function selectLocalEmbedLane(
  */
 export function localEmbeddingSetupGuidance(config: LocalEmbeddingConfig): string[] {
   return [
-    'Local semantic embeddings are optional and run through your own Ollama daemon.',
+    'Local semantic embeddings auto-detect your own Ollama daemon; Alembic never downloads a model.',
     '  1. Install Ollama: https://ollama.com/download',
     `  2. Pull an embedding model: ollama pull ${config.model}`,
     `  3. Make sure the daemon is reachable at ${config.endpoint} (GET /api/tags).`,
-    '  4. Enable it: set vector.localEmbedding.enabled=true in .asd/config.json, or export',
-    '     ALEMBIC_LOCAL_EMBEDDING_ENABLED=1 (optionally ALEMBIC_OLLAMA_ENDPOINT /',
-    '     ALEMBIC_OLLAMA_EMBED_MODEL).',
-    'When Ollama is absent or disabled, Alembic cleanly falls back to keyword search.',
+    '  4. Optional overrides: ALEMBIC_OLLAMA_ENDPOINT / ALEMBIC_OLLAMA_EMBED_MODEL.',
+    'Set ALEMBIC_LOCAL_EMBEDDING_ENABLED=0, vector.localEmbedding.enabled=false, or',
+    'laneOrder=keyword-only to disable probing. Absent services/models fall back to keyword search.',
   ];
 }

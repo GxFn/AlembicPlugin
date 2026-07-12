@@ -214,6 +214,44 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(output.status).toBe('partial');
   });
 
+  test('dedupes equivalent single-line anchors and recommends bounded source-ref reconciliation', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await defaultRecipeMapProvider.resolveRecipeMap(request(projectRoot, 'module'), {
+      ...fakeDeps(),
+      querySourceRefs: async () => ({
+        rows: ROWS,
+        diagnostics: [
+          {
+            code: 'recipe-context-unresolved',
+            severity: 'warning',
+            message: 'Recipe r-file source ref lib/index.ts:330 could not be resolved.',
+            recipeId: 'r-file',
+            path: 'lib/index.ts:330',
+            retryable: true,
+          },
+          {
+            code: 'recipe-context-unresolved',
+            severity: 'warning',
+            message: 'Recipe r-file source ref lib/index.ts:330-330 could not be resolved.',
+            recipeId: 'r-file',
+            path: 'lib/index.ts:330-330',
+            retryable: true,
+          },
+        ],
+      }),
+    });
+
+    expect(
+      output.diagnostics.filter((diagnostic) => diagnostic.code === 'recipe-context-unresolved')
+    ).toHaveLength(1);
+    expect(output.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tool: 'alembic_rescan', required: false }),
+      ])
+    );
+    expect(JSON.stringify(output.nextActions)).toContain('source-ref');
+  });
+
   test('request-scoped read-only RecipeContext preserves drifted source refs in listAll', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-recipemap-db-'));
     tempRoots.push(root);

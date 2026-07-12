@@ -326,11 +326,11 @@ export class SetupService {
           ...(this.subRepoUrl ? { subRepoUrl: this.subRepoUrl } : {}),
         },
         guard: { enabled: true },
-        // GMAP-L3: optional local semantic embeddings via a user-run Ollama daemon.
-        // Disabled by default; clean keyword fallback when off/absent.
+        // GMAP-L3: auto-detect local semantic embeddings from a user-run Ollama daemon.
+        // A missing daemon/model degrades quickly to the clean keyword baseline.
         vector: {
           localEmbedding: {
-            enabled: false,
+            enabled: true,
             endpoint: DEFAULT_OLLAMA_ENDPOINT,
             model: DEFAULT_OLLAMA_EMBED_MODEL,
             laneOrder: 'local-first',
@@ -812,7 +812,7 @@ export class SetupService {
           reason: `本地 embedding provider 不可用 (${vectorAvailability.reason})`,
           hint:
             `baseline/hybrid search 可继续使用；如需本地语义检索，请先执行 "ollama pull ${localConfig.model}"，` +
-            '再设置 ALEMBIC_LOCAL_EMBEDDING_ENABLED=1 或 .asd/config.json 的 vector.localEmbedding.enabled=true。',
+            'Alembic 会自动探测；如需禁用，请设置 ALEMBIC_LOCAL_EMBEDDING_ENABLED=0。',
           localEmbeddingGuidance: localEmbeddingSetupGuidance(localConfig),
           vectorAvailability: compactVectorAvailability(vectorAvailability),
         };
