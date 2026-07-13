@@ -24,7 +24,7 @@ export interface RecipeRegionVectorBuildReport {
   entries: number;
   reason: string | null;
   semanticMemories: RecipeSemanticMemorySyncReport | null;
-  status: 'failed' | 'skipped' | 'synced';
+  status: 'degraded' | 'failed' | 'skipped' | 'synced';
   syncResult: Awaited<ReturnType<ServiceMap['vectorService']['syncRecipeSemanticRegions']>> | null;
   vectorAvailability: VectorAvailability | null;
   vectorStatsAfter: Record<string, unknown> | null;
@@ -159,7 +159,9 @@ export async function buildRecipeSemanticRegionVectors(
     });
     await flushVectorStore(container);
     const vectorStatsAfter = await readVectorStats(vectorService);
-    logger.info(`[${logPrefix}] Recipe semantic-region vectors synced`, {
+    const status = recipeRegionBuildStatus(result.status);
+    const reason = recipeRegionBuildReason(result);
+    logger.info(`[${logPrefix}] Recipe semantic-region vector maintenance ${status}`, {
       status: result.status,
       scanned: result.scanned,
       generated: result.generated,
@@ -175,9 +177,9 @@ export async function buildRecipeSemanticRegionVectors(
       bridgeRecipeCount: bridge.recipeCount,
       bridgeRefCount: bridge.refCount,
       entries: entries.length,
-      reason: null,
+      reason,
       semanticMemories,
-      status: 'synced',
+      status,
       syncResult: result,
       vectorAvailability,
       vectorStatsAfter,
@@ -209,6 +211,22 @@ export async function buildRecipeSemanticRegionVectors(
       vectorStatsBefore,
     };
   }
+}
+
+function recipeRegionBuildStatus(
+  status: RecipeRegionSyncResult['status']
+): RecipeRegionVectorBuildReport['status'] {
+  return status === 'completed' ? 'synced' : status;
+}
+
+function recipeRegionBuildReason(result: RecipeRegionSyncResult): string | null {
+  if (result.status === 'degraded') {
+    return result.degradedReason ?? 'recipe-region-maintenance-degraded';
+  }
+  if (result.status === 'failed') {
+    return result.errors[0] ?? 'recipe-region-maintenance-failed';
+  }
+  return null;
 }
 
 function buildSourceRefsBridgeByRecipeId(
