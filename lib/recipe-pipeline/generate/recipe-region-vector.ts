@@ -6,10 +6,9 @@ import type { ServiceMap } from '#inject/ServiceMap.js';
 // bootstrap/rescan path (PDR-2a). These region chunks are what subject-less
 // prime retrieves to earn recipe-semantic-region trust evidence (full quality,
 // no lexical downgrade). The build is:
-//   - availability-gated: region chunks must be embedded by an available provider;
-//     when that provider is absent or degraded we skip entirely rather than running
-//     syncRecipeSemanticRegions (whose removeStale step precedes the embed step
-//     and would otherwise strip changed-recipe chunks without re-embedding them).
+//   - provider-independent maintenance: availability is diagnostic only. Core receives
+//     the complete Recipe authority even without an embed provider, so it can remove
+//     authority-absent regions while preserving old chunks for still-live Recipes.
 //   - non-blocking: any failure is logged and swallowed so rescan still returns.
 
 interface RegionVectorBuildContext {
@@ -89,7 +88,8 @@ export async function buildRecipeSemanticRegionVectors(
     );
   }
 
-  // Availability gate — probe before touching the index (see header note on removeStale).
+  // Availability is report-only. Core owns the destructive-safety decision and can
+  // execute authoritative cleanup without an embed provider.
   const vectorStatsBefore = await readVectorStats(vectorService);
   let vectorAvailability: VectorAvailability;
   try {
@@ -108,12 +108,8 @@ export async function buildRecipeSemanticRegionVectors(
     );
   }
   if (!vectorAvailability.available) {
-    logger.info(`[${logPrefix}] Recipe region-vector build skipped (vector unavailable)`, {
+    logger.info(`[${logPrefix}] Recipe region-vector provider unavailable; continuing cleanup`, {
       availability: summarizeVectorAvailability(vectorAvailability),
-    });
-    return skippedRegionBuildReport(vectorAvailability.reason, null, {
-      vectorAvailability,
-      vectorStatsBefore,
     });
   }
 
