@@ -168,6 +168,77 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
     });
   });
 
+  it.each([
+    {
+      expectedReason: 'embed-provider-unavailable',
+      expectedStatus: 'degraded',
+      syncResult: {
+        degradedReason: 'embed-provider-unavailable',
+        errors: [],
+        generated: 1,
+        generatedMetadata: [],
+        removed: 0,
+        scanned: 1,
+        skipped: 1,
+        status: 'degraded',
+        upserted: 0,
+      },
+    },
+    {
+      expectedReason: 'embed-upsert-failed:replacement generation failed',
+      expectedStatus: 'failed',
+      syncResult: {
+        errors: ['embed-upsert-failed:replacement generation failed'],
+        generated: 1,
+        generatedMetadata: [],
+        removed: 0,
+        scanned: 1,
+        skipped: 0,
+        status: 'failed',
+        upserted: 0,
+      },
+    },
+  ])(
+    'surfaces $expectedStatus maintenance without claiming synced',
+    async ({ expectedReason, expectedStatus, syncResult }) => {
+      const container = createContainer({
+        knowledgeService: {
+          list: vi.fn(async () => ({
+            data: [
+              {
+                toJSON: () => ({
+                  content: 'Replacement body',
+                  id: 'recipe-replacement',
+                  lifecycle: 'active',
+                  title: 'Replacement Recipe',
+                }),
+              },
+            ],
+          })),
+        },
+        memoryRepository: createMemoryRepository(),
+        vectorService: {
+          getAvailability: vi.fn(async () => vectorAvailability({ available: true })),
+          getStats: vi.fn(async () => ({ count: 2, dimension: 3, hasIndex: true, indexSize: 2 })),
+          syncRecipeSemanticRegions: vi.fn(async () => syncResult),
+        },
+        vectorStore: { flush: vi.fn(async () => undefined) },
+      });
+
+      const report = await buildRecipeSemanticRegionVectors({
+        container,
+        logger: { info: vi.fn() },
+        logPrefix: 'replacement-safety',
+      });
+
+      expect(report).toMatchObject({
+        reason: expectedReason,
+        status: expectedStatus,
+        syncResult: { removed: 0, upserted: 0 },
+      });
+    }
+  );
+
   it('skips without touching region vectors when provider availability is degraded', async () => {
     const syncRecipeSemanticRegions = vi.fn();
     const vectorService = {
