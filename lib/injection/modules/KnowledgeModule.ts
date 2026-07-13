@@ -63,6 +63,10 @@ import {
   type RegionVectorStorePort,
   type SimProviderLogger,
 } from '../../recipe-pipeline/vector/recipe-embedding-sim-provider.js';
+import {
+  createRecipeVectorGenerationRuntime,
+  RECIPE_VECTOR_GENERATION_MANAGER_KEY,
+} from '../../recipe-pipeline/vector/recipe-vector-generation-runtime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 interface VectorRuntimeRoot {
@@ -189,7 +193,7 @@ function registerSearchServices(c: ServiceContainer) {
     if (adapter === 'json') {
       const store = new JsonVectorAdapter(dataRoot, { writeZone });
       store.initSync();
-      return store;
+      return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
     }
 
     if (adapter === 'hnsw' || adapter === 'auto') {
@@ -207,7 +211,7 @@ function registerSearchServices(c: ServiceContainer) {
           writeZone,
         });
         store.initSync();
-        return store;
+        return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
       } catch (err: unknown) {
         // HNSW 初始化失败, 降级到 JSON — 记录警告便于排查
         const logger = ct.singletons.logger || console;
@@ -220,14 +224,14 @@ function registerSearchServices(c: ServiceContainer) {
         );
         const store = new JsonVectorAdapter(dataRoot, { writeZone });
         store.initSync();
-        return store;
+        return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
       }
     }
 
     // 未知适配器, 默认 JSON
     const store = new JsonVectorAdapter(dataRoot, { writeZone });
     store.initSync();
-    return store;
+    return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
   });
 
   c.singleton('indexingPipeline', (ct: ServiceContainer) => {
@@ -250,6 +254,22 @@ function registerSearchServices(c: ServiceContainer) {
       alpha: (hybrid.alpha as number) || 0.5,
     } as ConstructorParameters<typeof HybridRetriever>[0]);
   });
+}
+
+function wrapRecipeVectorGenerationRuntime(
+  container: ServiceContainer,
+  dataRoot: string,
+  writeZone: WriteZone | undefined,
+  baseStore: InstanceType<typeof JsonVectorAdapter> | InstanceType<typeof HnswVectorAdapter>
+) {
+  const runtime = createRecipeVectorGenerationRuntime({
+    baseStore,
+    dataRoot,
+    ...(writeZone ? { writeZone } : {}),
+  });
+  (container.singletons as Record<string, unknown>)[RECIPE_VECTOR_GENERATION_MANAGER_KEY] =
+    runtime.generationManager;
+  return runtime.vectorStore;
 }
 
 function registerSharedServices(c: ServiceContainer) {

@@ -279,6 +279,7 @@ async function buildColdStartMissionBriefingResponse(
     fileCount: input.projectContextAnalysis.fileCount,
     moduleCount: input.projectContextAnalysis.moduleCount,
     primaryLang: input.projectContextAnalysis.primaryLang,
+    producerCapability: 'cold-start',
     projectRoot: input.projectRoot,
   });
   const briefing = await buildColdStartMissionBriefing(ctx, input, session);

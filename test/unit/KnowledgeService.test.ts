@@ -409,13 +409,16 @@ describe('KnowledgeService', () => {
       expect(result.lifecycle).toBe(Lifecycle.PENDING);
     });
 
-    test('approve: pending → active (alias for publish)', async () => {
+    test('approve blocks legacy pending Recipes without a native retrieval profile', async () => {
       const { service, repo } = createService();
       repo._seed(makeEntry({ lifecycle: Lifecycle.PENDING }));
 
-      const result = await service.approve('test-id-001', { userId: 'reviewer1' });
-
-      expect(result.lifecycle).toBe(Lifecycle.ACTIVE);
+      await expect(service.approve('test-id-001', { userId: 'reviewer1' })).rejects.toThrow(
+        'Recipe retrieval readiness blocks active transition'
+      );
+      await expect(repo.findById('test-id-001')).resolves.toMatchObject({
+        lifecycle: Lifecycle.PENDING,
+      });
     });
 
     test('autoApprove: pending → pending (no-op)', async () => {
@@ -448,15 +451,17 @@ describe('KnowledgeService', () => {
       );
     });
 
-    test('publish: pending → active', async () => {
+    test('publish blocks legacy pending Recipes without a native retrieval profile', async () => {
       const { service, repo } = createService();
       const entry = makeEntry({ lifecycle: Lifecycle.PENDING });
       repo._seed(entry);
 
-      const result = await service.publish('test-id-001', { userId: 'publisher1' });
-
-      expect(result.lifecycle).toBe(Lifecycle.ACTIVE);
-      expect(result.publishedBy).toBe('publisher1');
+      await expect(service.publish('test-id-001', { userId: 'publisher1' })).rejects.toThrow(
+        'Recipe retrieval readiness blocks active transition'
+      );
+      await expect(repo.findById('test-id-001')).resolves.toMatchObject({
+        lifecycle: Lifecycle.PENDING,
+      });
     });
 
     test('deprecate: active → deprecated (需要 reason)', async () => {
@@ -495,13 +500,16 @@ describe('KnowledgeService', () => {
       expect(result.lifecycle).toBe(Lifecycle.PENDING);
     });
 
-    test('fastTrack: pending → active (alias for publish)', async () => {
+    test('fastTrack blocks legacy pending Recipes without a native retrieval profile', async () => {
       const { service, repo } = createService();
       repo._seed(makeEntry({ lifecycle: Lifecycle.PENDING }));
 
-      const result = await service.fastTrack('test-id-001', { userId: 'auto' });
-
-      expect(result.lifecycle).toBe(Lifecycle.ACTIVE);
+      await expect(service.fastTrack('test-id-001', { userId: 'auto' })).rejects.toThrow(
+        'Recipe retrieval readiness blocks active transition'
+      );
+      await expect(repo.findById('test-id-001')).resolves.toMatchObject({
+        lifecycle: Lifecycle.PENDING,
+      });
     });
 
     test('非法状态转换抛出 ConflictError', async () => {

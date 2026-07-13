@@ -5,17 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ── Mock 工厂 ──
 
 function createMockVectorStore() {
+  const items = new Map<string, Record<string, unknown>>();
   return {
-    upsert: vi.fn().mockResolvedValue(undefined),
-    batchUpsert: vi.fn().mockResolvedValue(undefined),
-    remove: vi.fn().mockResolvedValue(undefined),
-    clear: vi.fn().mockResolvedValue(undefined),
-    getById: vi.fn().mockResolvedValue(null),
+    upsert: vi.fn(async (item: { id: string }) => {
+      items.set(item.id, item);
+    }),
+    batchUpsert: vi.fn(async (batch: Array<{ id: string }>) => {
+      for (const item of batch) items.set(item.id, item);
+    }),
+    remove: vi.fn(async (id: string) => {
+      items.delete(id);
+    }),
+    clear: vi.fn(async () => {
+      items.clear();
+    }),
+    getById: vi.fn(async (id: string) => items.get(id) ?? null),
     getStats: vi
       .fn()
       .mockResolvedValue({ count: 0, dimension: 768, indexSize: 0, quantized: false }),
     searchVector: vi.fn().mockResolvedValue([]),
-    listIds: vi.fn().mockResolvedValue([]),
+    listIds: vi.fn(async () => [...items.keys()]),
   };
 }
 
@@ -326,32 +335,26 @@ describe('VectorService', () => {
   describe('syncEntry()', () => {
     const entry = { id: '123', title: 'Test', content: 'Hello world', kind: 'recipe' };
 
-    it('should embed text and upsert to vectorStore', async () => {
+    it('uses the canonical Recipe document set instead of an entry_ competitor', async () => {
       const svc = createService();
       await svc.syncEntry(entry);
 
-      expect(embedProvider.embed).toHaveBeenCalledWith(['Test\n\nHello world']);
-      expect(vectorStore.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'entry_123',
-          content: 'Test\n\nHello world',
-          vector: [0.1, 0.2, 0.3],
-          metadata: expect.objectContaining({
-            entryId: '123',
-            title: 'Test',
-            kind: 'recipe',
-          }),
-        })
+      expect(embedProvider.embed).toHaveBeenCalledWith(['Test']);
+      expect(vectorStore.batchUpsert).toHaveBeenCalledWith([
+        expect.objectContaining({ id: expect.stringMatching(/^recipe_region_123_identity_/) }),
+      ]);
+      expect(vectorStore.upsert).not.toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'entry_123' })
       );
     });
 
     it('should skip when no embedProvider', async () => {
       const svc = createService({ embedProvider: null });
       await svc.syncEntry(entry);
-      expect(vectorStore.upsert).not.toHaveBeenCalled();
+      expect(vectorStore.batchUpsert).not.toHaveBeenCalled();
     });
 
-    it('should handle object content (body + code)', async () => {
+    it('does not index generic body/code bags outside the canonical Recipe facts', async () => {
       const svc = createService();
       await svc.syncEntry({
         id: '456',
@@ -359,7 +362,7 @@ describe('VectorService', () => {
         content: { body: 'Description', code: 'let x = 1;' },
       });
 
-      expect(embedProvider.embed).toHaveBeenCalledWith(['Complex\n\nDescription\n\nlet x = 1;']);
+      expect(embedProvider.embed).toHaveBeenCalledWith(['Complex']);
     });
 
     it('should skip entry with empty content', async () => {

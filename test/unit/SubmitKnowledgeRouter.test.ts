@@ -9,6 +9,8 @@ import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 const gatewayState = vi.hoisted(() => ({
   createCalls: [] as unknown[],
   freshnessCalls: [] as unknown[],
+  productionCalls: [] as unknown[],
+  readinessCalls: [] as string[],
   freshnessResult: {
     errors: [],
     processed: 1,
@@ -100,6 +102,26 @@ vi.mock('@alembic/core/knowledge', async (importOriginal) => {
         gatewayState.createCalls.push(request);
         return gatewayState.result;
       }
+
+      async createOrStage(input: unknown, context: unknown) {
+        gatewayState.productionCalls.push({ context, input });
+        return {
+          ...gatewayState.result,
+          production: context,
+        };
+      }
+
+      async evaluateReadiness(recipeId: string) {
+        gatewayState.readinessCalls.push(recipeId);
+        return {
+          ready: true,
+          schemaVersion: '1',
+          profileHash: 'profile-hash-001',
+          documentSetHash: 'document-set-hash-001',
+          violations: [],
+          warnings: [],
+        };
+      }
     },
     // P1.1：stage-1 门禁 re-point 后通过该 barrel 调用 validateAgainst，使用真实实现（权威规范），
     // 保持 router 集成测试中内容质量门禁的真实行为，不削弱断言。
@@ -131,6 +153,8 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
   beforeEach(() => {
     gatewayState.createCalls = [];
     gatewayState.freshnessCalls = [];
+    gatewayState.productionCalls = [];
+    gatewayState.readinessCalls = [];
     gatewayState.projectRoot = '/tmp/alembic-project';
     gatewayState.freshnessResult = {
       errors: [],
@@ -211,6 +235,87 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
         },
       ],
     };
+  });
+
+  it('uses the Core production port and returns structured profile/readiness/code evidence', async () => {
+    const retrievalProfile = {
+      schemaVersion: '1',
+      primaryLanguage: 'en',
+      summary: {
+        primary: 'Use the request-scoped project runtime for Recipe submission.',
+        technicalEnglish: 'Use the request-scoped project runtime for Recipe submission.',
+      },
+      concepts: [
+        {
+          term: 'request-scoped project runtime',
+          language: 'en',
+          provenanceRefs: ['field:description'],
+        },
+      ],
+      scenarios: [],
+      exclusions: [],
+      provenance: {
+        evidenceRefs: ['lib/host-runtime/mcp/handlers/tool-router.ts:153-235'],
+        sourceFieldRefs: ['field:description'],
+        sourceContentHash: 'source-content-hash-001',
+        generator: 'host-evidence-v1',
+      },
+    };
+    gatewayState.result.created[0].raw = {
+      coreCode: 'routeSubmitKnowledgeTool(ctx, args)',
+      id: 'recipe-semantic-001',
+      retrievalProfile,
+    };
+
+    const result = await routeSubmitKnowledgeTool(makeContext(), {
+      items: [makeValidSubmitItem({ retrievalProfile })],
+      skipConsolidation: true,
+    });
+
+    expect(gatewayState.createCalls).toHaveLength(0);
+    expect(gatewayState.productionCalls).toEqual([
+      {
+        input: expect.objectContaining({
+          items: [expect.objectContaining({ retrievalProfile })],
+        }),
+        context: expect.objectContaining({
+          capability: 'knowledge-submit',
+          source: 'host-agent',
+        }),
+      },
+    ]);
+    expect(gatewayState.readinessCalls).toEqual(['recipe-semantic-001']);
+    expect(gatewayState.freshnessCalls).toEqual([
+      [expect.objectContaining({ retrievalProfile })],
+    ]);
+    expect(result.data).toMatchObject({
+      production: {
+        capability: 'knowledge-submit',
+        source: 'host-agent',
+      },
+      readiness: [
+        {
+          recipeId: 'recipe-semantic-001',
+          ready: true,
+          profileHash: 'profile-hash-001',
+          documentSetHash: 'document-set-hash-001',
+        },
+      ],
+      retrievalProfiles: [
+        {
+          recipeId: 'recipe-semantic-001',
+          profile: retrievalProfile,
+        },
+      ],
+      codeEvidence: [
+        {
+          recipeId: 'recipe-semantic-001',
+          coreCodePresent: true,
+          provenanceRefs: ['lib/host-runtime/mcp/handlers/tool-router.ts:153-235'],
+          readinessViolationCodes: [],
+        },
+      ],
+    });
   });
 
   it('uses Core-provided newRecipeId for alembic_consolidate decisions', async () => {
@@ -522,17 +627,22 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(gatewayState.createCalls).toHaveLength(1);
-    expect(gatewayState.createCalls[0]).toMatchObject({
-      source: 'host-agent',
-      options: {
-        skipConsolidation: true,
+    expect(gatewayState.productionCalls).toHaveLength(1);
+    expect(gatewayState.productionCalls[0]).toMatchObject({
+      context: {
+        capability: 'cold-start',
+        source: 'host-agent',
+      },
+      input: {
+        options: {
+          skipConsolidation: true,
+        },
       },
     });
-    const request = gatewayState.createCalls[0] as {
-      items: Array<Record<string, unknown>>;
+    const request = gatewayState.productionCalls[0] as {
+      input: { items: Array<Record<string, unknown>> };
     };
-    expect(request.items[0]).not.toHaveProperty('source');
+    expect(request.input.items[0]).not.toHaveProperty('source');
   });
 
   it('refreshes created Recipes and returns source-ref/vector freshness summaries', async () => {
@@ -691,15 +801,8 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     const degradedReasons = Array.isArray(result.data.degradedReasons)
       ? result.data.degradedReasons
       : [];
-    expect(memoryRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'recipe-region-memory:recipe-semantic-001',
-        relatedEntities: ['src/current.ts:1-3'],
-        source: 'recipe-region-vector',
-        sourceDimension: 'architecture',
-        type: 'recipe',
-      })
-    );
+    expect(memoryRepository.create).not.toHaveBeenCalled();
+    expect(memoryRepository.update).not.toHaveBeenCalled();
     expect(memoryRepository.delete).not.toHaveBeenCalled();
     expect(result.data).toMatchObject({
       freshness: {
@@ -731,7 +834,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(gatewayState.createCalls).toHaveLength(1);
+    expect(gatewayState.productionCalls).toHaveLength(1);
     expect(result.data).toMatchObject({
       status: 'degraded',
       finality: 'non-final',
@@ -776,7 +879,7 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(gatewayState.createCalls).toHaveLength(1);
+    expect(gatewayState.productionCalls).toHaveLength(1);
     expect(result.data).toMatchObject({
       status: 'degraded',
       finality: 'non-final',
@@ -895,10 +998,12 @@ describe('routeSubmitKnowledgeTool pending semantic review nextAction', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(gatewayState.createCalls).toHaveLength(1);
-    expect(gatewayState.createCalls[0]).toMatchObject({
-      options: {
-        skipConsolidation: true,
+    expect(gatewayState.productionCalls).toHaveLength(1);
+    expect(gatewayState.productionCalls[0]).toMatchObject({
+      input: {
+        options: {
+          skipConsolidation: true,
+        },
       },
     });
   });
@@ -942,11 +1047,13 @@ function makeValidSubmitItem(overrides: Record<string, unknown> = {}): Record<st
 function makeContext({
   freshnessServiceAvailable = true,
   memoryRepository,
+  producerCapability,
   projectRoot,
   recipeSourceRefRepository,
 }: {
   freshnessServiceAvailable?: boolean;
   memoryRepository?: unknown;
+  producerCapability?: 'cold-start' | 'incremental';
   projectRoot?: string;
   recipeSourceRefRepository?: unknown;
 } = {}): McpContext {
@@ -964,6 +1071,11 @@ function makeContext({
           recordRejection: vi.fn(),
           recordSubmission: vi.fn(),
         },
+        toSnapshot: () => ({
+          projectContext: {
+            recipeProducerCapability: producerCapability ?? 'cold-start',
+          },
+        }),
       }
     : null;
   return {

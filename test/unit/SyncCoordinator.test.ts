@@ -5,13 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ── Mock 工厂 ──
 
 function createMockVectorStore() {
+  const items = new Map<string, Record<string, unknown>>();
   return {
-    upsert: vi.fn().mockResolvedValue(undefined),
-    batchUpsert: vi.fn().mockResolvedValue(undefined),
-    remove: vi.fn().mockResolvedValue(undefined),
-    clear: vi.fn().mockResolvedValue(undefined),
-    getById: vi.fn().mockResolvedValue(null),
-    listIds: vi.fn().mockResolvedValue([]),
+    upsert: vi.fn(async (item: { id: string }) => {
+      items.set(item.id, item);
+    }),
+    batchUpsert: vi.fn(async (batch: Array<{ id: string }>) => {
+      for (const item of batch) items.set(item.id, item);
+    }),
+    remove: vi.fn(async (id: string) => {
+      items.delete(id);
+    }),
+    clear: vi.fn(async () => {
+      items.clear();
+    }),
+    getById: vi.fn(async (id: string) => items.get(id) ?? null),
+    listIds: vi.fn(async () => [...items.keys()]),
   };
 }
 
@@ -135,11 +144,10 @@ describe('SyncCoordinator', () => {
       await vi.advanceTimersByTimeAsync(250);
 
       // Should have batched all 3 upserts together
-      expect(embedProvider.embed).toHaveBeenCalledTimes(2);
-      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
+      expect(embedProvider.embed).toHaveBeenCalledTimes(1);
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(1);
       const batchArgs = vectorStore.batchUpsert.mock.calls[0]?.[0] as Array<{ id: string }>;
       expect(batchArgs).toHaveLength(3);
-      expect(batchArgs.every((item) => item.id.startsWith('entry_'))).toBe(true);
     });
 
     it('should deduplicate same entryId within window (last write wins)', async () => {
@@ -159,7 +167,7 @@ describe('SyncCoordinator', () => {
 
       await vi.advanceTimersByTimeAsync(250);
 
-      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(1);
       const batch = vectorStore.batchUpsert.mock.calls[0]?.[0] as Array<{
         id: string;
         content: string;
@@ -214,16 +222,14 @@ describe('SyncCoordinator', () => {
       });
       await vi.advanceTimersByTimeAsync(100);
 
-      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
-      expect(vectorStore.batchUpsert.mock.calls[0]?.[0]).toEqual([
-        expect.objectContaining({ id: 'entry_recipe-1' }),
-      ]);
-      expect(vectorStore.batchUpsert.mock.calls[1]?.[0]).toEqual(
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(1);
+      expect(vectorStore.batchUpsert.mock.calls[0]?.[0]).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            metadata: expect.objectContaining({ recipeId: 'recipe-1' }),
-          }),
+          expect.objectContaining({ metadata: expect.objectContaining({ recipeId: 'recipe-1' }) }),
         ])
+      );
+      expect(vectorStore.batchUpsert.mock.calls[0]?.[0]).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: 'entry_recipe-1' })])
       );
     });
 
@@ -287,7 +293,7 @@ describe('SyncCoordinator', () => {
 
       await coord.flush();
 
-      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(1);
     });
 
     it('should be safe to call with no pending changes', async () => {
@@ -394,21 +400,20 @@ describe('SyncCoordinator', () => {
       const coord = createCoordinator({ debounceMs: 50 });
       const result = await coord.reconcile(db as never);
 
-      expect(result.orphansRemoved).toBe(1);
+      expect(result.orphansRemoved).toBe(2);
+      expect(result.legacyEntryVectorsRemoved).toBe(2);
       expect(vectorStore.remove).toHaveBeenCalledWith('entry_abc');
+      expect(vectorStore.remove).toHaveBeenCalledWith('entry_def');
       // chunk_ prefix should not be touched
       expect(vectorStore.remove).not.toHaveBeenCalledWith('chunk_0');
     });
 
     it('should queue missing entries for sync', async () => {
       // vector index has entry_abc, but DB has abc and new_one
-      const storedIds = new Set(['entry_abc']);
-      vectorStore.listIds = vi.fn(async () => [...storedIds]);
-      vectorStore.batchUpsert.mockImplementation(async (items: Array<{ id: string }>) => {
-        for (const item of items) {
-          storedIds.add(item.id);
-        }
-      });
+      vectorStore.listIds = vi
+        .fn()
+        .mockResolvedValueOnce(['entry_abc'])
+        .mockResolvedValue(['entry_abc', 'entry_new_one']);
       const db = createMockDb([
         { id: 'abc', title: 'Existing', content: 'data1' },
         { id: 'new_one', title: 'New Entry', content: 'data2', kind: 'recipe' },
@@ -417,9 +422,9 @@ describe('SyncCoordinator', () => {
       const coord = createCoordinator({ debounceMs: 50 });
       const result = await coord.reconcile(db as never);
 
-      expect(result.missingSynced).toBe(1);
-      // flush should have been called, triggering batch processing
+      expect(result.initialInspection?.missingIds.length).toBeGreaterThan(0);
       expect(vectorStore.batchUpsert).toHaveBeenCalled();
+      expect(result.finalInspection?.healthy).toBe(false);
     });
 
     it('should handle empty DB gracefully', async () => {

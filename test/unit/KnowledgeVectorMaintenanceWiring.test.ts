@@ -20,19 +20,18 @@ describe('KnowledgeSyncService production vector maintenance wiring', () => {
     const root = mkdtempSync(join(tmpdir(), 'alembic-vector-maintenance-'));
     roots.push(root);
     let releaseMaintenance: (() => void) | undefined;
-    const syncRecipeSemanticRegions = vi.fn(
+    const buildRecipeRetrievalGeneration = vi.fn(
       () =>
         new Promise<Record<string, unknown>>((resolve) => {
           releaseMaintenance = () =>
             resolve({
+              active: { generationId: 'generation-1', manifestHash: 'manifest-1' },
               errors: [],
-              generated: 0,
-              generatedMetadata: [],
-              removed: 0,
-              scanned: 0,
-              skipped: 0,
-              status: 'completed',
-              upserted: 0,
+              generationId: 'generation-1',
+              inspection: { healthy: true },
+              manifest: { manifestHash: 'manifest-1' },
+              previous: null,
+              status: 'activated',
             });
         })
     );
@@ -54,6 +53,7 @@ describe('KnowledgeSyncService production vector maintenance wiring', () => {
       findActiveByRecipeIds: vi.fn(() => []),
     }));
     container.register('vectorService', () => ({
+      buildRecipeRetrievalGeneration,
       getAvailability: vi.fn(async () => ({
         available: true,
         probeStatus: 'ready',
@@ -61,14 +61,14 @@ describe('KnowledgeSyncService production vector maintenance wiring', () => {
         status: 'available',
       })),
       getStats: vi.fn(async () => ({ count: 0, dimension: 3, hasIndex: true, indexSize: 0 })),
-      syncRecipeSemanticRegions,
+      syncRecipeSemanticRegions: vi.fn(),
     }));
     container.register('vectorStore', () => ({ flush: vi.fn(async () => undefined) }));
 
     const syncService = container.get('knowledgeSyncService');
     const syncPromise = syncService.syncAll(emptyRawDb(), { skipViolations: true });
 
-    await vi.waitFor(() => expect(syncRecipeSemanticRegions).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(buildRecipeRetrievalGeneration).toHaveBeenCalledOnce());
     const pending = Symbol('pending');
     expect(await Promise.race([syncPromise, Promise.resolve(pending)])).toBe(pending);
     releaseMaintenance?.();
@@ -77,8 +77,9 @@ describe('KnowledgeSyncService production vector maintenance wiring', () => {
       vectorMaintenanceStatus: 'completed',
       vectorMaintenanceReport: {
         entries: 0,
+        generation: { generationId: 'generation-1', status: 'activated' },
         status: 'synced',
-        syncResult: { removed: 0 },
+        syncResult: null,
       },
     });
   });

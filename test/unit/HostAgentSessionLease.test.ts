@@ -127,9 +127,13 @@ describe('releaseEmptyHostAgentSessionLease', () => {
       fileCount: 1,
       moduleCount: 1,
       primaryLang: 'swift',
+      producerCapability: 'incremental',
       projectRoot: fixture.projectRoot,
     });
     expect(session.id).not.toBe('bs-file-empty');
+    expect(session.toSnapshot().projectContext).toMatchObject({
+      recipeProducerCapability: 'incremental',
+    });
     expect(readStoredSessionIds(fixture.dataRoot)).toEqual([session.id]);
   });
 
@@ -936,6 +940,7 @@ describe('releaseEmptyHostAgentSessionLease', () => {
         fileCount: 1,
         moduleCount: 1,
         primaryLang: 'swift',
+        producerCapability: 'incremental',
         projectRoot: fixture.projectRoot,
       })
     ).toThrow(expect.objectContaining({ errorCode: 'BOOTSTRAP_IN_PROGRESS' }));

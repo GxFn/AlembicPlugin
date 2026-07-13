@@ -73,6 +73,9 @@ export interface GenerateSessionLike {
     getAllSubmittedTriggers?(): Set<string>;
     getSubmissions?(dimId: string): Array<{ recipeId?: string; sources?: string[] }>;
   };
+  toSnapshot?(): {
+    projectContext?: Record<string, unknown>;
+  };
 }
 
 export interface DimensionQualityReportLike {

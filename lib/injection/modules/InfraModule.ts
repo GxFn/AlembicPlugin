@@ -25,7 +25,7 @@ import {
   createAlembicRepositories,
 } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
-import { buildRecipeSemanticRegionVectors } from '#recipe-pipeline/generate/recipe-region-vector.js';
+import { maintainRecipeRetrievalDocuments } from '#recipe-pipeline/generate/recipe-region-vector.js';
 import { GenerateTaskManager } from '#recipe-pipeline/generate/runtime/GenerateTaskManager.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
@@ -184,7 +184,7 @@ export function createKnowledgeVectorMaintenance(
 ): KnowledgeVectorMaintenance {
   return {
     reconcileAuthoritativeCorpus: () =>
-      buildRecipeSemanticRegionVectors({
+      maintainRecipeRetrievalDocuments({
         container,
         logger: container.get('logger'),
         logPrefix: 'knowledge-sync',

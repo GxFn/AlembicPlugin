@@ -36,7 +36,7 @@ function reconcileReport(overrides: { stale: number } & Record<string, number>) 
 }
 
 /**
- * region-vector provider 桩：把 buildRecipeSemanticRegionVectors 推向 'degraded' 或 'synced'。
+ * Recipe retrieval provider stub: drives verified generation or offline cleanup.
  * - unavailable=true → availability 只留诊断，权威清理仍运行且 Core 返回 degraded。
  * - unavailable=false → 单条 recipe + 可用 provider，建器走 synced 分支（semantic_memories 非 0）。
  */
@@ -56,6 +56,27 @@ function regionVectorServices(opts: { unavailable: boolean }): Record<string, un
       };
   return {
     vectorService: {
+      buildRecipeRetrievalGeneration: vi.fn(async () =>
+        opts.unavailable
+          ? {
+              status: 'failed',
+              generationId: null,
+              previous: null,
+              active: null,
+              manifest: null,
+              inspection: null,
+              errors: ['embed-provider-unavailable'],
+            }
+          : {
+              status: 'activated',
+              generationId: 'generation-1',
+              previous: null,
+              active: { generationId: 'generation-1', manifestHash: 'manifest-1' },
+              manifest: { manifestHash: 'manifest-1' },
+              inspection: { healthy: true },
+              errors: [],
+            }
+      ),
       getAvailability: vi.fn(async () => availability),
       getStats: vi.fn(async () => ({
         count: 0,
@@ -201,19 +222,18 @@ describe('U6 P5 region-vector degradation warning + report surface', () => {
       bridgeRecipeCount: 0,
       bridgeRefCount: 0,
       entries: 1,
-      reason: null,
-      semanticMemories: null,
-      status: 'synced' as const,
-      syncResult: {
+      generation: {
+        status: 'activated' as const,
+        generationId: 'generation-1',
+        previous: null,
+        active: { generationId: 'generation-1', manifestHash: 'manifest-1' },
+        manifest: null,
+        inspection: { healthy: true },
         errors: [],
-        generated: 1,
-        generatedMetadata: [],
-        removed: 0,
-        scanned: 1,
-        skipped: 0,
-        status: 'completed' as const,
-        upserted: 1,
       },
+      reason: null,
+      status: 'synced' as const,
+      syncResult: null,
       vectorAvailability: null,
       vectorStatsAfter: null,
       vectorStatsBefore: null,
@@ -276,7 +296,7 @@ describe('U6 P5 region-vector degradation warning + report surface', () => {
     expect(warned).toBe(true);
   });
 
-  it('does not warn when region vectors are synced (semantic_memories non-zero)', async () => {
+  it('does not warn when the verified generation is activated', async () => {
     const reconciler = {
       reconcile: vi.fn(async () => reconcileReport({ stale: 0 })),
     };
@@ -291,10 +311,13 @@ describe('U6 P5 region-vector degradation warning + report surface', () => {
       logPrefix: 'Rescan',
     });
 
-    // synced 时 region-vector 真正构建（syncRecipeSemanticRegions 被调用），status 反映之；
-    // 不发「NOT built」告警。（semantic_memories 子路径依赖独立 memoryRepository，此处不纳入断言。）
+    // synced means Core verified and atomically activated the shadow generation.
     expect(report.recipeRegionVectors.status).toBe('synced');
-    expect(report.recipeRegionVectors.syncResult).not.toBeNull();
+    expect(report.recipeRegionVectors.generation).toMatchObject({
+      status: 'activated',
+      inspection: { healthy: true },
+    });
+    expect(report.recipeRegionVectors.syncResult).toBeNull();
     const warned = log.warn.mock.calls.some((call) =>
       String(call[0]).includes('semantic-region generation unavailable')
     );

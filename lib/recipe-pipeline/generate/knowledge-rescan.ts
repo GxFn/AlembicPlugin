@@ -1486,6 +1486,7 @@ function buildRescanBriefing(
     fileCount: projectContextAnalysis.fileCount,
     moduleCount: projectContextAnalysis.moduleCount,
     primaryLang: projectContextAnalysis.primaryLang,
+    producerCapability: 'incremental',
     projectRoot: state.projectRoot,
   });
 

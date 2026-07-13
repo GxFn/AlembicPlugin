@@ -8,14 +8,17 @@
  *   - 通过 Drizzle 执行真实 SQL 读写
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { openAlembicDatabase } from '@alembic/core/database';
 import {
   getDrizzle,
   initDrizzle,
   resetDrizzle,
   schema,
 } from '@alembic/core/infrastructure/database/drizzle';
-import migrate001 from '@alembic/core/infrastructure/database/migrations/001_initial_schema';
-import migrate004 from '@alembic/core/infrastructure/database/migrations/004_evolution_proposals';
+import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
 
@@ -75,59 +78,79 @@ describe('Integration: Drizzle ORM', () => {
   });
 
   describe('real SQL operations via Drizzle', () => {
-    test('should insert and select from knowledge_entries', () => {
-      // Run migration to create table
-      migrate001(db);
-      migrate004(db);
-      const drizzle = initDrizzle(db);
+    test('should insert and select from knowledge_entries', async () => {
+      const fixture = await openMigratedFixture();
+      const drizzle = fixture.runtime.drizzle;
 
-      // Insert a row via Drizzle
-      drizzle
-        .insert(schema.knowledgeEntries)
-        .values({
-          id: 'test-1',
-          title: 'hello',
-          language: 'typescript',
-          createdAt: Math.floor(Date.now() / 1000),
-          updatedAt: Math.floor(Date.now() / 1000),
-        })
-        .run();
+      try {
+        // Insert a row via Drizzle
+        drizzle
+          .insert(schema.knowledgeEntries)
+          .values({
+            id: 'test-1',
+            title: 'hello',
+            language: 'typescript',
+            createdAt: Math.floor(Date.now() / 1000),
+            updatedAt: Math.floor(Date.now() / 1000),
+          })
+          .run();
 
-      // Read it back
-      const rows = drizzle.select().from(schema.knowledgeEntries).all();
-      expect(rows).toHaveLength(1);
-      expect(rows[0].id).toBe('test-1');
-      expect(rows[0].title).toBe('hello');
-      expect(rows[0].language).toBe('typescript');
+        // Read it back
+        const rows = drizzle.select().from(schema.knowledgeEntries).all();
+        expect(rows).toHaveLength(1);
+        expect(rows[0].id).toBe('test-1');
+        expect(rows[0].title).toBe('hello');
+        expect(rows[0].language).toBe('typescript');
+      } finally {
+        fixture.close();
+      }
     });
 
-    test('should handle update operations', () => {
-      migrate001(db);
-      migrate004(db);
-      const drizzle = initDrizzle(db);
+    test('should handle update operations', async () => {
+      const fixture = await openMigratedFixture();
+      const drizzle = fixture.runtime.drizzle;
 
-      drizzle
-        .insert(schema.knowledgeEntries)
-        .values({
-          id: 'upd-1',
-          title: 'update me',
-          createdAt: Math.floor(Date.now() / 1000),
-          updatedAt: Math.floor(Date.now() / 1000),
-        })
-        .run();
+      try {
+        drizzle
+          .insert(schema.knowledgeEntries)
+          .values({
+            id: 'upd-1',
+            title: 'update me',
+            createdAt: Math.floor(Date.now() / 1000),
+            updatedAt: Math.floor(Date.now() / 1000),
+          })
+          .run();
 
-      drizzle
-        .update(schema.knowledgeEntries)
-        .set({ title: 'updated', updatedAt: Math.floor(Date.now() / 1000) })
-        .where(eq(schema.knowledgeEntries.id, 'upd-1'))
-        .run();
+        drizzle
+          .update(schema.knowledgeEntries)
+          .set({ title: 'updated', updatedAt: Math.floor(Date.now() / 1000) })
+          .where(eq(schema.knowledgeEntries.id, 'upd-1'))
+          .run();
 
-      const rows = drizzle
-        .select()
-        .from(schema.knowledgeEntries)
-        .where(eq(schema.knowledgeEntries.id, 'upd-1'))
-        .all();
-      expect(rows[0].title).toBe('updated');
+        const rows = drizzle
+          .select()
+          .from(schema.knowledgeEntries)
+          .where(eq(schema.knowledgeEntries.id, 'upd-1'))
+          .all();
+        expect(rows[0].title).toBe('updated');
+      } finally {
+        fixture.close();
+      }
     });
   });
 });
+
+async function openMigratedFixture() {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-drizzle-integration-'));
+  const runtime = await openAlembicDatabase(
+    { path: path.join(projectRoot, '.asd', 'alembic.db') },
+    { workspaceResolver: WorkspaceResolver.fromProject(projectRoot) }
+  );
+  return {
+    runtime,
+    close() {
+      runtime.close();
+      fs.rmSync(projectRoot, { force: true, recursive: true });
+    },
+  };
+}

@@ -16,6 +16,7 @@ import {
   resolveLocalEmbeddingConfig,
   selectLocalEmbedLane,
 } from '#recipe-pipeline/vector/LocalEmbedding.js';
+import { RECIPE_VECTOR_GENERATION_MANAGER_KEY } from '#recipe-pipeline/vector/recipe-vector-generation-runtime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 // GMAP-L3: the singleton key holding the local-first embed-lane selection. It is
@@ -41,8 +42,9 @@ export function register(c: ServiceContainer) {
         | Record<string, unknown>
         | undefined) || {};
 
+    const vectorStore = ct.get('vectorStore');
     return new VectorService({
-      vectorStore: ct.get('vectorStore'),
+      vectorStore,
       indexingPipeline: ct.get('indexingPipeline'),
       hybridRetriever: ct.services.hybridRetriever
         ? (ct.get('hybridRetriever') as ConstructorParameters<
@@ -64,6 +66,9 @@ export function register(c: ServiceContainer) {
             | import('@alembic/core/database').DrizzleDB
             | undefined)
         : undefined,
+      recipeGenerationManager: (ct.singletons as Record<string, unknown>)[
+        RECIPE_VECTOR_GENERATION_MANAGER_KEY
+      ] as ConstructorParameters<typeof VectorService>[0]['recipeGenerationManager'] | undefined,
     });
   });
 }

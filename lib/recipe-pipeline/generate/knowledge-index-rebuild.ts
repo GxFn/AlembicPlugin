@@ -3,8 +3,8 @@ import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { ServiceContainer } from '#inject/ServiceContainer.js';
 import { resolveProjectScopeRuntime } from '#shared/project-scope-runtime.js';
 import {
-  buildRecipeSemanticRegionVectors,
-  type RecipeRegionVectorBuildReport,
+  maintainRecipeRetrievalDocuments,
+  type RecipeRetrievalMaintenanceReport,
 } from './recipe-region-vector.js';
 
 // U6 D2：fingerprint/rescan scan 的批量上限 tier 表（S/M/L → 50/150/400）。
@@ -38,7 +38,7 @@ interface KnowledgeSyncServiceLike {
     skipped: number;
     synced: number;
     updated: number;
-    vectorMaintenanceReport?: RecipeRegionVectorBuildReport;
+    vectorMaintenanceReport?: RecipeRetrievalMaintenanceReport;
     vectorMaintenanceStatus: string;
     violations?: string[];
   }>;
@@ -73,7 +73,7 @@ type ReconcileReportWithRepair = Awaited<ReturnType<SourceRefReconcilerLike['rec
 
 export interface KnowledgeIndexRebuildReport {
   knowledgeSync: Awaited<ReturnType<KnowledgeSyncServiceLike['syncAll']>> | null;
-  recipeRegionVectors: RecipeRegionVectorBuildReport;
+  recipeRegionVectors: RecipeRetrievalMaintenanceReport;
   sourceRefs: ReconcileReportWithRepair | null;
 }
 
@@ -92,7 +92,7 @@ export async function rebuildLocalKnowledgeIndexes(
   const sourceRefs = await reconcileSourceRefs(ctx);
   const recipeRegionVectors =
     knowledgeSync?.vectorMaintenanceReport ??
-    (await buildRecipeSemanticRegionVectors({
+    (await maintainRecipeRetrievalDocuments({
       container: ctx.container,
       logger: ctx.logger,
       logPrefix: ctx.logPrefix,
@@ -114,7 +114,7 @@ export async function rebuildLocalKnowledgeIndexes(
  */
 function warnIfRegionVectorsNotBuilt(
   ctx: KnowledgeIndexRebuildContext,
-  report: RecipeRegionVectorBuildReport
+  report: RecipeRetrievalMaintenanceReport
 ): void {
   if (report.status === 'synced') {
     return;
@@ -124,8 +124,8 @@ function warnIfRegionVectorsNotBuilt(
     {
       status: report.status,
       reason: report.reason,
-      semanticMemoryStatus: report.semanticMemories?.status ?? null,
-      semanticMemoryTotal: report.semanticMemories?.total ?? 0,
+      activeGenerationId: report.generation?.active?.generationId ?? null,
+      generationStatus: report.generation?.status ?? null,
       vectorAvailable: report.vectorAvailability?.available ?? null,
     }
   );

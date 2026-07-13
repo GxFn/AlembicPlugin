@@ -71,6 +71,7 @@ export function createProjectContextHostAgentSession(input: {
   fileCount: number;
   moduleCount: number;
   primaryLang: string | null;
+  producerCapability: 'cold-start' | 'incremental';
   projectRoot: string;
 }): ReturnType<ReturnType<typeof getOrCreateSessionManager>['createSession']> {
   const sessionManager = getOrCreateSessionManager(input.container);
@@ -151,6 +152,7 @@ function createSession(
     fileCount: number;
     moduleCount: number;
     primaryLang: string | null;
+    producerCapability: 'cold-start' | 'incremental';
     projectRoot: string;
   },
   sessionManager: ReturnType<typeof getOrCreateSessionManager>
@@ -164,6 +166,7 @@ function createSession(
       fileCount: input.fileCount,
       modules: input.moduleCount,
       primaryLang: input.primaryLang,
+      recipeProducerCapability: input.producerCapability,
       projectInformationSource: 'project-context',
       projectName: basename(input.projectRoot),
     },

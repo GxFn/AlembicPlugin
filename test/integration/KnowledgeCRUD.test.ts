@@ -47,6 +47,16 @@ describe('Integration: KnowledgeService CRUD + Lifecycle', () => {
         skillHooks: null, // 禁用 SkillHooks
         confidenceRouter: null, // 禁用 AI 路由
         qualityScorer: null, // 禁用质量评分
+        // This suite isolates CRUD/lifecycle persistence. Retrieval readiness
+        // failure truth is covered by the producer-port and KnowledgeService units.
+        retrievalReadinessEvaluator: () => ({
+          documentSetHash: 'integration-document-set',
+          profileHash: 'integration-profile',
+          ready: true,
+          schemaVersion: '1',
+          violations: [],
+          warnings: [],
+        }),
       }
     );
   });

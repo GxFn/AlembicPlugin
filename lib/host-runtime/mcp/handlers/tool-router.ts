@@ -10,7 +10,13 @@
  */
 
 import { dimensionTags } from '@alembic/core/dimensions';
-import type { CreateRecipeItem, CreateRecipeResult } from '@alembic/core/knowledge';
+import type {
+  CreateRecipeItem,
+  CreateRecipeResult,
+  RecipeProducerCapability,
+  RecipeProductionPort,
+  RecipeProductionResult,
+} from '@alembic/core/knowledge';
 import {
   applyStyleWaiver,
   getRequiredFieldsDescription,
@@ -54,6 +60,23 @@ import {
 
 type PendingSemanticReview = NonNullable<CreateRecipeResult['pendingSemanticReview']>[number];
 type GenerateSession = ReturnType<typeof resolveGenerateSession>;
+type RetrievalReadinessReport = Awaited<ReturnType<RecipeProductionPort['evaluateReadiness']>>;
+
+interface SubmitProductionDiagnostics {
+  codeEvidence: Array<{
+    coreCodePresent: boolean;
+    provenanceRefs: string[];
+    readinessViolationCodes: string[];
+    recipeId: string;
+  }>;
+  readiness: Array<RetrievalReadinessReport & { recipeId: string }>;
+  retrievalProfiles: Array<{
+    profile: Record<string, unknown>;
+    recipeId: string;
+  }>;
+}
+
+type SubmitProductionResult = RecipeProductionResult & SubmitProductionDiagnostics;
 
 interface SubmitKnowledgeOptions {
   bootstrapSessionId?: string;
@@ -140,7 +163,7 @@ export async function routeProjectSkillTool(ctx: McpContext, args: ToolRouterSki
  * 流程:
  *   1. 限流
  *   2. V3 字段增强（MCP 特有预处理）
- *   3. RecipeProductionGateway.create() — 统一管道
+ *   3. RecipeProductionPort.createOrStage() — 统一生产管道
  *   4. Bootstrap session 追踪
  *   5. 返回统一结果
  *
@@ -225,7 +248,8 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
     dataRoot,
     itemsResult.items,
     options,
-    readBootstrapSubmissionSets(bootstrapSession)
+    readBootstrapSubmissionSets(bootstrapSession),
+    resolveSubmitProducerCapability(bootstrapSession)
   );
   trackSubmitKnowledgeResult(ctx, itemsResult.items, options.dimensionId, gatewayResult);
   const freshness = await refreshCreatedRecipeFreshness(ctx.container, gatewayResult.created);
@@ -328,20 +352,71 @@ async function createSubmitKnowledgeRecipes(
   dataRoot: string,
   items: Array<Record<string, unknown>>,
   options: SubmitKnowledgeOptions,
-  existing: { existingTitles?: Set<string>; existingTriggers?: Set<string> }
-): Promise<CreateRecipeResult> {
+  existing: { existingTitles?: Set<string>; existingTriggers?: Set<string> },
+  capability: RecipeProducerCapability
+): Promise<SubmitProductionResult> {
   const gateway = await createSubmitKnowledgeGateway(ctx, dataRoot);
-  return gateway.create({
-    source: HOST_AGENT_SOURCE,
-    items: items as CreateRecipeItem[],
-    options: {
-      skipConsolidation: options.skipConsolidation,
-      supersedes: options.supersedes,
-      existingTitles: existing.existingTitles,
-      existingTriggers: existing.existingTriggers,
-      userId: getDeveloperIdentity(),
+  const result = await gateway.createOrStage(
+    {
+      items: items as CreateRecipeItem[],
+      options: {
+        skipConsolidation: options.skipConsolidation,
+        supersedes: options.supersedes,
+        existingTitles: existing.existingTitles,
+        existingTriggers: existing.existingTriggers,
+      },
     },
-  });
+    {
+      capability,
+      source: HOST_AGENT_SOURCE,
+      userId: getDeveloperIdentity(),
+    }
+  );
+  const readiness = await Promise.all(
+    result.created.map(async (created) => ({
+      recipeId: created.id,
+      ...(await gateway.evaluateReadiness(created.id)),
+    }))
+  );
+  return {
+    ...result,
+    ...buildSubmitProductionDiagnostics(result, readiness),
+  };
+}
+
+function resolveSubmitProducerCapability(session: GenerateSession): RecipeProducerCapability {
+  const snapshot = session?.toSnapshot?.();
+  const capability = snapshot?.projectContext?.recipeProducerCapability;
+  return capability === 'cold-start' || capability === 'incremental'
+    ? capability
+    : 'knowledge-submit';
+}
+
+function buildSubmitProductionDiagnostics(
+  result: RecipeProductionResult,
+  readiness: Array<RetrievalReadinessReport & { recipeId: string }>
+): SubmitProductionDiagnostics {
+  const readinessByRecipeId = new Map(readiness.map((report) => [report.recipeId, report]));
+  const retrievalProfiles: SubmitProductionDiagnostics['retrievalProfiles'] = [];
+  const codeEvidence: SubmitProductionDiagnostics['codeEvidence'] = [];
+  for (const created of result.created) {
+    const raw = readRecord(created.raw);
+    const profile = readRecord(raw.retrievalProfile);
+    const provenance = readRecord(profile.provenance);
+    const report = readinessByRecipeId.get(created.id);
+    if (Object.keys(profile).length > 0) {
+      retrievalProfiles.push({ profile, recipeId: created.id });
+    }
+    codeEvidence.push({
+      coreCodePresent: typeof raw.coreCode === 'string' && raw.coreCode.trim().length > 0,
+      provenanceRefs: stringArray(provenance.evidenceRefs),
+      readinessViolationCodes: (report?.violations ?? [])
+        .filter((violation) => violation.field === 'coreCode')
+        .map((violation) => violation.code),
+      recipeId: created.id,
+    });
+  }
+  return { codeEvidence, readiness, retrievalProfiles };
 }
 
 async function createSubmitKnowledgeGateway(ctx: McpContext, dataRoot: string) {
@@ -445,7 +520,7 @@ function trackSubmitKnowledgeResult(
 }
 
 function buildSubmitKnowledgeResponse(
-  gatewayResult: CreateRecipeResult,
+  gatewayResult: SubmitProductionResult,
   items: Array<Record<string, unknown>>,
   supersedes: string | undefined,
   freshness: RecipeFreshnessPublicOutput | null
@@ -453,6 +528,10 @@ function buildSubmitKnowledgeResponse(
   const successCount = gatewayResult.created.length;
   const data: Record<string, unknown> = {
     count: successCount,
+    codeEvidence: gatewayResult.codeEvidence,
+    production: gatewayResult.production,
+    readiness: gatewayResult.readiness,
+    retrievalProfiles: gatewayResult.retrievalProfiles,
     total: items.length,
   };
 

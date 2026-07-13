@@ -6,10 +6,6 @@ import type {
   RecipeFreshnessVectorSummary,
 } from '@alembic/core/knowledge';
 import type { KnowledgeRepository } from '@alembic/core/repositories';
-import {
-  type RecipeSemanticMemoryEntry,
-  syncRecipeSemanticMemoriesForEntries,
-} from '#recipe-pipeline/generate/recipe-region-vector.js';
 
 export interface RecipeFreshnessContainer {
   get(name: string): unknown;
@@ -255,7 +251,6 @@ async function refreshRecipeFreshnessEntries(
       maxRecipes: Math.max(entries.length, 1),
     });
     const publicResult = summarizeRefreshResult(result, options.requested);
-    await syncSemanticMemoriesForFreshRecipes(container, entries, publicResult);
     return mergeFreshnessOutputs([publicResult], skipped) ?? publicResult;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -273,38 +268,6 @@ async function refreshRecipeFreshnessEntries(
       errors: [message],
     };
   }
-}
-
-async function syncSemanticMemoriesForFreshRecipes(
-  container: RecipeFreshnessContainer,
-  entries: readonly RecipeFreshnessEntry[],
-  freshness: RecipeFreshnessPublicOutput
-): Promise<void> {
-  const freshRecipeIds = new Set(
-    freshness.recipes
-      .filter((recipe) => recipeVectorRefreshWasRunnable(recipe))
-      .map((recipe) => recipe.recipeId)
-  );
-  const freshEntries = entries.filter((entry) => freshRecipeIds.has(entry.id));
-  if (freshEntries.length === 0) {
-    return;
-  }
-
-  await syncRecipeSemanticMemoriesForEntries({
-    container: container as import('#inject/ServiceContainer.js').ServiceContainer,
-    deleteStale: false,
-    entries: freshEntries as readonly RecipeSemanticMemoryEntry[],
-    logPrefix: 'recipe-freshness',
-  });
-}
-
-function recipeVectorRefreshWasRunnable(recipe: RecipeFreshnessPublicRecipe): boolean {
-  return (
-    recipe.vector.status !== 'failed' &&
-    recipe.vector.status !== 'skipped' &&
-    recipe.vector.regionSyncStatus !== 'failed' &&
-    recipe.vector.regionSyncStatus !== 'skipped'
-  );
 }
 
 function summarizeRefreshResult(
@@ -456,7 +419,9 @@ export function toRecipeFreshnessEntry(value: unknown): RecipeFreshnessEntry | n
   copyStringFields(jsonValue, entry);
   copyArrayField(jsonValue, entry, 'tags');
   copyAnyField(jsonValue, entry, 'content');
+  copyAnyField(jsonValue, entry, 'quality');
   copyAnyField(jsonValue, entry, 'reasoning');
+  copyAnyField(jsonValue, entry, 'retrievalProfile');
   copyNullableStringField(jsonValue, entry, 'sourceFile');
   copyUpdatedAt(jsonValue, entry);
   return entry;
@@ -485,10 +450,10 @@ function copyArrayField(
 function copyAnyField(
   source: Record<string, unknown>,
   target: RecipeFreshnessEntry,
-  field: 'content' | 'reasoning'
+  field: 'content' | 'quality' | 'reasoning' | 'retrievalProfile'
 ): void {
   if (source[field] !== undefined) {
-    target[field] = source[field];
+    (target as unknown as Record<string, unknown>)[field] = source[field];
   }
 }
 
