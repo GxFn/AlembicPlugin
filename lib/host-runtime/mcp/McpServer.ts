@@ -448,6 +448,7 @@ export class McpServer {
     if (this.sdkServer) {
       await this.sdkServer.close();
     }
+    await this.container?.shutdown?.();
     if (this.bootstrap) {
       await this.bootstrap.shutdown();
     }

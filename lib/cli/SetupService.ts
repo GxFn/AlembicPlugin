@@ -67,6 +67,7 @@ import {
   localEmbeddingSetupGuidance,
   resolveLocalEmbeddingConfig,
 } from '#recipe-pipeline/vector/LocalEmbedding.js';
+import type { ServiceContainer } from '../injection/ServiceContainer.js';
 import { PACKAGE_ROOT } from '../shared/package-assets.js';
 import { resolveNativeProjectScopeWorkspace } from '../shared/project-scope-runtime.js';
 
@@ -622,6 +623,7 @@ export class SetupService {
     const previousProjectDir = process.env.ALEMBIC_PROJECT_DIR;
     const previousQuiet = process.env.ALEMBIC_QUIET;
     let bootstrap: InstanceType<typeof Bootstrap> | null = null;
+    let serviceContainer: ServiceContainer | null = null;
 
     try {
       process.env.ALEMBIC_PROJECT_DIR = this.projectRoot;
@@ -639,16 +641,28 @@ export class SetupService {
       ConfigLoader.set('database.path', '.asd/alembic.db');
 
       bootstrap = new Bootstrap({ env });
-      await bootstrap.initialize();
+      const components = await bootstrap.initialize();
+
+      const { ServiceContainer } = await import('../injection/ServiceContainer.js');
+      serviceContainer = new ServiceContainer();
+      await serviceContainer.initialize({
+        auditLogger: components.auditLogger,
+        config: components.config,
+        db: components.db,
+        projectRoot: this.projectRoot,
+        skillHooks: components.skillHooks,
+        workspaceResolver: components.workspaceResolver,
+      });
 
       const db = bootstrap.components?.db?.getDb?.();
       if (db) {
         // 从子仓库文件同步核心数据到 DB 缓存（统一 Recipe 模型）
-        await this._syncRecipesToDB(db);
+        await this._syncRecipesToDB(db, serviceContainer);
       }
 
       return { dbPath: this.dbPath };
     } finally {
+      await serviceContainer?.shutdown();
       if (bootstrap) {
         await bootstrap.shutdown();
       }
@@ -673,11 +687,9 @@ export class SetupService {
    * 从 Alembic/recipes/*.md + candidates/*.md 同步到 DB 缓存
    * 委托 KnowledgeSyncService 执行全字段同步（setup 场景跳过违规记录）
    */
-  private async _syncRecipesToDB(db: unknown) {
-    const { KnowledgeSyncService } = await import('@alembic/core/knowledge');
-    const syncRoot = this.resolver?.dataRoot ?? this.projectRoot;
-    const syncService = new KnowledgeSyncService(syncRoot);
-    const report = syncService.sync(db as Parameters<typeof syncService.sync>[0], {
+  private async _syncRecipesToDB(db: unknown, container: ServiceContainer) {
+    const syncService = container.get('knowledgeSyncService');
+    const report = await syncService.syncAll(db as Parameters<typeof syncService.syncAll>[0], {
       skipViolations: true,
     });
 

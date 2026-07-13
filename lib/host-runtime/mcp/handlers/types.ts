@@ -20,6 +20,7 @@ export interface McpServiceContainer {
   // biome-ignore lint/suspicious/noExplicitAny: MCP handler DI 是动态服务边界，调用方在具体工具内按服务语义收窄。
   get(name: string): any;
   getServiceNames?(): string[];
+  shutdown?(): Promise<void>;
   singletons?: Record<string, unknown>;
 }
 

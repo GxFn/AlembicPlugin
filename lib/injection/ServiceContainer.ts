@@ -145,10 +145,12 @@ export function buildServiceContainerRuntimeConfig(
 export class ServiceContainer {
   logger: ReturnType<typeof Logger.getInstance>;
   services: Record<string, () => unknown>;
+  shutdownPromise: Promise<void> | null;
   singletons: Record<string, unknown>;
   constructor() {
     this.services = {};
     this.singletons = {};
+    this.shutdownPromise = null;
     this.logger = Logger.getInstance();
   }
 
@@ -330,6 +332,31 @@ export class ServiceContainer {
   /** 清除所有单例（用于测试） */
   reset() {
     this.singletons = {};
+    this.shutdownPromise = null;
+  }
+
+  /**
+   * Drain vector mutations and close vector storage before the owning
+   * Bootstrap is allowed to close SQLite.
+   */
+  async shutdown(): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.shutdownPromise = this.shutdownVectorRuntime();
+    }
+    await this.shutdownPromise;
+  }
+
+  private async shutdownVectorRuntime(): Promise<void> {
+    const vectorService = this.singletons.vectorService as
+      | { destroy?: () => Promise<void> | void }
+      | undefined;
+    await vectorService?.destroy?.();
+
+    const vectorStore = this.singletons.vectorStore as
+      | { destroy?: () => Promise<void> | void; flush?: () => Promise<void> | void }
+      | undefined;
+    await vectorStore?.flush?.();
+    await vectorStore?.destroy?.();
   }
 
   /** 获取所有已注册的服务名 */

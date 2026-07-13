@@ -100,6 +100,7 @@ describe('SyncCoordinator', () => {
 
       expect(eventBus.on).toHaveBeenCalledWith('knowledge:changed', expect.any(Function));
       expect(eventBus.on).toHaveBeenCalledWith('knowledge:deleted', expect.any(Function));
+      expect(eventBus.on).toHaveBeenCalledWith('lifecycle:transition', expect.any(Function));
     });
   });
 
@@ -134,10 +135,11 @@ describe('SyncCoordinator', () => {
       await vi.advanceTimersByTimeAsync(250);
 
       // Should have batched all 3 upserts together
-      expect(embedProvider.embed).toHaveBeenCalledOnce();
-      expect(vectorStore.batchUpsert).toHaveBeenCalledOnce();
+      expect(embedProvider.embed).toHaveBeenCalledTimes(2);
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
       const batchArgs = vectorStore.batchUpsert.mock.calls[0]?.[0] as Array<{ id: string }>;
       expect(batchArgs).toHaveLength(3);
+      expect(batchArgs.every((item) => item.id.startsWith('entry_'))).toBe(true);
     });
 
     it('should deduplicate same entryId within window (last write wins)', async () => {
@@ -157,7 +159,7 @@ describe('SyncCoordinator', () => {
 
       await vi.advanceTimersByTimeAsync(250);
 
-      expect(vectorStore.batchUpsert).toHaveBeenCalledOnce();
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
       const batch = vectorStore.batchUpsert.mock.calls[0]?.[0] as Array<{
         id: string;
         content: string;
@@ -191,6 +193,55 @@ describe('SyncCoordinator', () => {
       await vi.advanceTimersByTimeAsync(100);
 
       expect(vectorStore.remove).toHaveBeenCalledWith('entry_99');
+    });
+  });
+
+  describe('lifecycle:transition event', () => {
+    it('uses the full entry payload to refresh entry and Recipe-region vectors', async () => {
+      const coord = createCoordinator({ debounceMs: 50 });
+      coord.bindEventBus(eventBus as never);
+
+      eventBus.emit('lifecycle:transition', {
+        entryId: 'recipe-1',
+        to: 'active',
+        entry: {
+          content: { markdown: 'Full lifecycle body' },
+          id: 'recipe-1',
+          kind: 'pattern',
+          lifecycle: 'active',
+          title: 'Lifecycle Recipe',
+        },
+      });
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
+      expect(vectorStore.batchUpsert.mock.calls[0]?.[0]).toEqual([
+        expect.objectContaining({ id: 'entry_recipe-1' }),
+      ]);
+      expect(vectorStore.batchUpsert.mock.calls[1]?.[0]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            metadata: expect.objectContaining({ recipeId: 'recipe-1' }),
+          }),
+        ])
+      );
+    });
+
+    it('removes both entry and Recipe-region vectors on deprecation', async () => {
+      const coord = createCoordinator({ debounceMs: 50 });
+      vectorStore.listIds.mockResolvedValue([
+        'entry_recipe-1',
+        'recipe_region_recipe-1_identity_old',
+        'recipe_region_other_identity_keep',
+      ]);
+      coord.bindEventBus(eventBus as never);
+
+      eventBus.emit('lifecycle:transition', { entryId: 'recipe-1', to: 'deprecated' });
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(vectorStore.remove).toHaveBeenCalledWith('entry_recipe-1');
+      expect(vectorStore.remove).toHaveBeenCalledWith('recipe_region_recipe-1_identity_old');
+      expect(vectorStore.remove).not.toHaveBeenCalledWith('recipe_region_other_identity_keep');
     });
   });
 
@@ -236,7 +287,7 @@ describe('SyncCoordinator', () => {
 
       await coord.flush();
 
-      expect(vectorStore.batchUpsert).toHaveBeenCalledOnce();
+      expect(vectorStore.batchUpsert).toHaveBeenCalledTimes(2);
     });
 
     it('should be safe to call with no pending changes', async () => {
@@ -248,7 +299,7 @@ describe('SyncCoordinator', () => {
   // ── destroy ──
 
   describe('destroy()', () => {
-    it('should clear pending changes and remove event listener', () => {
+    it('should clear pending changes and remove event listener', async () => {
       const coord = createCoordinator();
       coord.bindEventBus(eventBus as never);
 
@@ -258,15 +309,17 @@ describe('SyncCoordinator', () => {
         entry: { id: '1', title: 'T', content: 'c' },
       });
 
-      coord.destroy();
+      await coord.destroy();
 
       expect(eventBus.off).toHaveBeenCalledWith('knowledge:changed', expect.any(Function));
+      expect(eventBus.off).toHaveBeenCalledWith('knowledge:deleted', expect.any(Function));
+      expect(eventBus.off).toHaveBeenCalledWith('lifecycle:transition', expect.any(Function));
     });
 
-    it('should be safe to call multiple times', () => {
+    it('should be safe to call multiple times', async () => {
       const coord = createCoordinator();
-      coord.destroy();
-      coord.destroy(); // should not throw
+      await coord.destroy();
+      await coord.destroy(); // should not throw
     });
   });
 

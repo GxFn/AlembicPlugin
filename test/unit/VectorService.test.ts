@@ -573,7 +573,7 @@ describe('VectorService', () => {
     it('should allow re-initialization after destroy', async () => {
       const svc = createService({ autoSyncOnCrud: false });
       await svc.initialize();
-      svc.destroy();
+      await svc.destroy();
       // Should not throw on re-init
       await svc.initialize();
     });
