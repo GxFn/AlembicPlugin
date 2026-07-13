@@ -120,10 +120,12 @@ export async function buildRecipeSemanticRegionVectors(
   let entries: Parameters<typeof vectorService.syncRecipeSemanticRegions>[0];
   try {
     const listed = await knowledgeService.list({}, { page: 1, pageSize: REGION_BUILD_PAGE_SIZE });
-    entries = (listed?.data ?? []).map(
-      (entry: { toJSON(): unknown }) =>
-        entry.toJSON() as Parameters<typeof vectorService.syncRecipeSemanticRegions>[0][number]
-    );
+    entries = (listed?.data ?? [])
+      .map(
+        (entry: { toJSON(): unknown }) =>
+          entry.toJSON() as Parameters<typeof vectorService.syncRecipeSemanticRegions>[0][number]
+      )
+      .filter((entry) => !isDeprecatedRecipeEntry(entry));
   } catch (err: unknown) {
     logger.info(`[${logPrefix}] Recipe region-vector build skipped (knowledge list failed)`, {
       reason: err instanceof Error ? err.message : String(err),
@@ -134,23 +136,18 @@ export async function buildRecipeSemanticRegionVectors(
       { vectorAvailability, vectorStatsBefore }
     );
   }
-  if (entries.length === 0) {
-    return skippedRegionBuildReport('no-recipe-entries', null, {
-      vectorAvailability,
-      vectorStatsBefore,
-    });
-  }
-
   const bridge = buildSourceRefsBridgeByRecipeId(
     container,
     entries.map((entry) => entry.id)
   );
+  const nonDeprecatedRecipeIds = entries.map((entry) => entry.id);
   let semanticMemories: RecipeSemanticMemorySyncReport | null = null;
   try {
     const result = await syncRecipeSemanticRegionVectorsInBatches(
       vectorService,
       entries,
-      bridge.byRecipeId
+      bridge.byRecipeId,
+      nonDeprecatedRecipeIds
     );
     semanticMemories = await syncRecipeSemanticMemoriesForEntries({
       bridgeByRecipeId: bridge.byRecipeId,
@@ -276,13 +273,29 @@ function pushUniqueRef(refsByRecipe: Map<string, string[]>, recipeId: string, so
 async function syncRecipeSemanticRegionVectorsInBatches(
   vectorService: ServiceMap['vectorService'],
   entries: Parameters<ServiceMap['vectorService']['syncRecipeSemanticRegions']>[0],
-  bridgeByRecipeId: Record<string, RecipeSourceRefsBridge>
+  bridgeByRecipeId: Record<string, RecipeSourceRefsBridge>,
+  nonDeprecatedRecipeIds: readonly string[]
 ): Promise<RecipeRegionSyncResult> {
   const aggregate = emptyRecipeRegionSyncResult();
+  if (entries.length === 0) {
+    const result = await vectorService.syncRecipeSemanticRegions([], {
+      sourceRefsBridgeByRecipeId: {},
+      maintenanceScope: {
+        kind: 'authoritative-corpus',
+        nonDeprecatedRecipeIds,
+      },
+    });
+    mergeRecipeRegionSyncResult(aggregate, result);
+    return aggregate;
+  }
   for (let index = 0; index < entries.length; index += RECIPE_REGION_SYNC_BATCH_SIZE) {
     const batch = entries.slice(index, index + RECIPE_REGION_SYNC_BATCH_SIZE);
     const result = await vectorService.syncRecipeSemanticRegions(batch, {
       sourceRefsBridgeByRecipeId: pickBridgeForEntries(bridgeByRecipeId, batch),
+      maintenanceScope: {
+        kind: 'authoritative-corpus',
+        nonDeprecatedRecipeIds,
+      },
     });
     mergeRecipeRegionSyncResult(aggregate, result);
   }
