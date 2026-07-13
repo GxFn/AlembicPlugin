@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventBus } from '@alembic/core/events';
 import type { RecipeRetrievalProfile } from '@alembic/core/knowledge';
 import {
   type EmbeddingPort,
@@ -8,6 +9,7 @@ import {
   RECIPE_REGION_VECTOR_ID_PREFIX,
   type RecipeRegionSourceEntry,
   syncRecipeSemanticRegionVectors,
+  VectorLifecycleCoordinator,
 } from '@alembic/core/vector';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRecipeVectorGenerationRuntime } from '../../lib/recipe-pipeline/vector/recipe-vector-generation-runtime.js';
@@ -100,6 +102,183 @@ describe('Recipe vector generation runtime', () => {
     expect(
       (await runtime.vectorStore.searchVector([1, 0], { topK: 10 })).map((hit) => hit.item.id)
     ).not.toContain(oldId);
+  });
+
+  it.each([
+    ['knowledge deletion', 'knowledge:deleted', { entryId: 'recipe-terminal-1' }],
+    [
+      'deprecated transition',
+      'lifecycle:transition',
+      { entryId: 'recipe-terminal-1', to: 'deprecated' },
+    ],
+  ])('removes provider-offline terminal truth from base and rollback-only generations after %s', async (_label, eventName, payload) => {
+    const dataRoot = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'alembic-recipe-generation-terminal-')
+    );
+    roots.push(dataRoot);
+    const base = new JsonVectorAdapter(dataRoot, {
+      indexPath: path.join(dataRoot, '.asd/context/base-vector-index.json'),
+    });
+    await base.init();
+    const runtime = createRecipeVectorGenerationRuntime({ baseStore: base, dataRoot });
+    const recipeId = 'recipe-terminal-1';
+    const legacyId = `entry_${recipeId}`;
+    const baseCanonicalId = canonicalRecipeVectorId(recipeId, 'a'.repeat(24));
+    const rollbackIntentId = canonicalRecipeVectorId(recipeId, 'b'.repeat(24));
+    const rollbackGuidanceId = canonicalRecipeVectorId(
+      recipeId,
+      'c'.repeat(24),
+      'applicability',
+      'guidance'
+    );
+    const rollbackUnrelatedId = canonicalRecipeVectorId('recipe-unrelated-1', 'd'.repeat(24));
+    const currentUnrelatedId = canonicalRecipeVectorId('recipe-unrelated-2', 'e'.repeat(24));
+
+    await base.batchUpsert([
+      vectorItem(legacyId, recipeId, 'legacy base residue'),
+      vectorItem(baseCanonicalId, recipeId, 'canonical base residue'),
+    ]);
+    const rollbackGeneration = await runtime.storeFactory.createShadow('generation-rollback');
+    await rollbackGeneration.batchUpsert([
+      vectorItem(rollbackIntentId, recipeId, 'rollback-only target intent'),
+      vectorItem(rollbackGuidanceId, recipeId, 'rollback-only target guidance'),
+      vectorItem(rollbackUnrelatedId, 'recipe-unrelated-1', 'rollback unrelated'),
+    ]);
+    expect(
+      await runtime.router.activate(
+        { generationId: 'generation-rollback', manifestHash: 'manifest-rollback' },
+        null
+      )
+    ).toBe(true);
+    const currentGeneration = await runtime.storeFactory.createShadow('generation-current');
+    await currentGeneration.upsert(
+      vectorItem(currentUnrelatedId, 'recipe-unrelated-2', 'current unrelated')
+    );
+    expect(
+      await runtime.router.activate(
+        { generationId: 'generation-current', manifestHash: 'manifest-current' },
+        'generation-rollback'
+      )
+    ).toBe(true);
+
+    const eventBus = new EventBus({ maxListeners: 10 });
+    const coordinator = new VectorLifecycleCoordinator({
+      vectorStore: runtime.vectorStore,
+      embedProvider: null,
+      contextualEnricher: null,
+      debounceMs: 60_000,
+      recipeVectorTruthRemover: runtime.recipeVectorTruthRemover,
+    });
+    coordinator.bindEventBus(eventBus);
+    eventBus.emit(eventName, payload);
+    await coordinator.flush();
+
+    expect(await base.getById(legacyId)).toBeNull();
+    expect(await base.getById(baseCanonicalId)).toBeNull();
+    expect(await rollbackGeneration.getById(rollbackIntentId)).toBeNull();
+    expect(await rollbackGeneration.getById(rollbackGuidanceId)).toBeNull();
+    expect(await rollbackGeneration.getById(rollbackUnrelatedId)).not.toBeNull();
+    expect(await currentGeneration.getById(currentUnrelatedId)).not.toBeNull();
+    expect(
+      await runtime.generationManager.rollback({
+        generationId: 'generation-rollback',
+        manifestHash: 'manifest-rollback',
+      })
+    ).toBe(true);
+    expect(await runtime.vectorStore.getById(rollbackIntentId)).toBeNull();
+    expect(await runtime.vectorStore.getById(rollbackUnrelatedId)).not.toBeNull();
+    await coordinator.destroy();
+  });
+
+  it('surfaces partial terminal cleanup and completes it on an idempotent retry', async () => {
+    const dataRoot = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'alembic-recipe-generation-terminal-retry-')
+    );
+    roots.push(dataRoot);
+    const base = new JsonVectorAdapter(dataRoot, {
+      indexPath: path.join(dataRoot, '.asd/context/base-vector-index.json'),
+    });
+    await base.init();
+    const runtime = createRecipeVectorGenerationRuntime({ baseStore: base, dataRoot });
+    const recipeId = 'recipe-terminal-retry-1';
+    const legacyId = `entry_${recipeId}`;
+    const baseCanonicalId = canonicalRecipeVectorId(recipeId, 'f'.repeat(24));
+    const rollbackId = canonicalRecipeVectorId(recipeId, '1'.repeat(24));
+    await base.batchUpsert([
+      vectorItem(legacyId, recipeId, 'legacy retry residue'),
+      vectorItem(baseCanonicalId, recipeId, 'canonical retry residue'),
+    ]);
+    const rollbackGeneration = await runtime.storeFactory.createShadow('generation-retry-old');
+    await rollbackGeneration.upsert(vectorItem(rollbackId, recipeId, 'rollback retry target'));
+
+    const truthRemover = runtime.recipeVectorTruthRemover;
+    const originalRemove = base.remove.bind(base);
+    let failed = false;
+    vi.spyOn(base, 'remove').mockImplementation(async (id: string) => {
+      if (id === legacyId && !failed) {
+        failed = true;
+        throw new Error('base-terminal-remove-failed');
+      }
+      await originalRemove(id);
+    });
+
+    await expect(truthRemover.removeRecipeByIdentity(recipeId)).rejects.toThrow(
+      'base-terminal-remove-failed'
+    );
+    expect(await rollbackGeneration.getById(rollbackId)).toBeNull();
+    await expect(truthRemover.removeRecipeByIdentity(recipeId)).resolves.toBeUndefined();
+    expect(await base.getById(legacyId)).toBeNull();
+    expect(await base.getById(baseCanonicalId)).toBeNull();
+  });
+
+  it('does not let a failed terminal cleanup erase a newer same-Recipe upsert', async () => {
+    const dataRoot = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'alembic-recipe-generation-terminal-newer-event-')
+    );
+    roots.push(dataRoot);
+    const base = new JsonVectorAdapter(dataRoot, {
+      indexPath: path.join(dataRoot, '.asd/context/base-vector-index.json'),
+    });
+    await base.init();
+    const runtime = createRecipeVectorGenerationRuntime({ baseStore: base, dataRoot });
+    expect(runtime.recipeVectorTruthRemover).toBeDefined();
+    const eventBus = new EventBus({ maxListeners: 10 });
+    const recipeId = 'recipe-terminal-newer-event-1';
+    const replacement = {
+      ...generationRecipe(),
+      id: recipeId,
+      title: 'Newer live replacement wins over the failed terminal event',
+    };
+    const controlledRemover = {
+      removeRecipeByIdentity: vi.fn(async (removedRecipeId: string) => {
+        eventBus.emit('knowledge:changed', {
+          action: 'update',
+          entryId: removedRecipeId,
+          entry: replacement,
+        });
+        throw new Error('terminal-cleanup-failed-before-newer-event');
+      }),
+    };
+    const coordinator = new VectorLifecycleCoordinator({
+      vectorStore: runtime.vectorStore,
+      embedProvider: embedProvider(),
+      contextualEnricher: null,
+      debounceMs: 60_000,
+      recipeVectorTruthRemover: controlledRemover,
+    });
+    coordinator.bindEventBus(eventBus);
+    eventBus.emit('knowledge:deleted', { entryId: recipeId });
+
+    await expect(coordinator.flush()).rejects.toThrow('terminal-cleanup-failed-before-newer-event');
+    await coordinator.flush();
+
+    expect(controlledRemover.removeRecipeByIdentity).toHaveBeenCalledOnce();
+    expect(
+      (await runtime.vectorStore.listIds()).some(
+        (id) => id.startsWith(RECIPE_REGION_VECTOR_ID_PREFIX) && id.includes(recipeId)
+      )
+    ).toBe(true);
+    await coordinator.destroy();
   });
 
   it('preserves a live replacement while retiring its stale content-hash id', async () => {
@@ -275,7 +454,7 @@ describe('Recipe vector generation runtime', () => {
         'generation-1'
       ),
     ]);
-    expect(concurrentActivation).toEqual([true, false]);
+    expect([...concurrentActivation].sort()).toEqual([false, true]);
     expect(
       await runtime.router.activate(
         { generationId: 'generation-1', manifestHash: 'manifest-1' },

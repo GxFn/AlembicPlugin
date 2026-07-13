@@ -12,6 +12,7 @@ import {
   type RecipeVectorGenerationRoute,
   type RecipeVectorGenerationRouter,
   type RecipeVectorGenerationStoreFactory,
+  type RecipeVectorTruthRemover,
   removeRecipeVectorsByTruth,
   VectorStore,
 } from '@alembic/core/vector';
@@ -23,11 +24,13 @@ const ACTIVE_ROUTE_LOCK = `${GENERATION_ROOT}.active.lock`;
 const ACTIVE_ROUTE_LOCK_RETRY_MS = 5;
 const ACTIVE_ROUTE_LOCK_TIMEOUT_MS = 5_000;
 export const RECIPE_VECTOR_GENERATION_MANAGER_KEY = '_recipeVectorGenerationManager';
+export const RECIPE_VECTOR_TRUTH_REMOVER_KEY = '_recipeVectorTruthRemover';
 
 export interface RecipeVectorGenerationRuntime {
   generationManager: RecipeVectorGenerationManager;
   router: RecipeVectorGenerationRouter;
   storeFactory: RecipeVectorGenerationStoreFactory;
+  recipeVectorTruthRemover: RecipeVectorTruthRemover;
   vectorStore: VectorStore;
 }
 
@@ -39,12 +42,47 @@ export function createRecipeVectorGenerationRuntime(input: {
   const persistence = new GenerationPersistence(input.dataRoot, input.writeZone);
   const factory = new JsonGenerationStoreFactory(persistence);
   const router = new FileGenerationRouter(persistence);
+  const recipeVectorTruthRemover = new GenerationRecipeVectorTruthRemover(input.baseStore, factory);
   return {
     generationManager: new RecipeVectorGenerationManager(factory, router),
     router,
     storeFactory: factory,
+    recipeVectorTruthRemover,
     vectorStore: new RoutedRecipeVectorStore(input.baseStore, router, factory),
   };
+}
+
+/**
+ * Core 只传入权威 Recipe identity；Plugin 作为多代存储 owner 负责把终态删除
+ * 落到 legacy/base 与每一个已知 generation。两侧都必须尝试，任何残留都 reject，
+ * 让 Core 保留 identity 并在下一次显式 flush 时重试。
+ */
+class GenerationRecipeVectorTruthRemover implements RecipeVectorTruthRemover {
+  readonly #base: VectorStore;
+  readonly #factory: JsonGenerationStoreFactory;
+
+  constructor(base: VectorStore, factory: JsonGenerationStoreFactory) {
+    this.#base = base;
+    this.#factory = factory;
+  }
+
+  async removeRecipeByIdentity(recipeId: string): Promise<void> {
+    const failures: string[] = [];
+    try {
+      const result = await removeRecipeVectorsByTruth(this.#base, recipeId);
+      failures.push(...result.errors.map((error) => `base:${error}`));
+    } catch (error: unknown) {
+      failures.push(`base:${errorMessage(error)}`);
+    }
+    try {
+      await this.#factory.removeRecipeFromEveryGeneration(recipeId);
+    } catch (error: unknown) {
+      failures.push(`generations:${errorMessage(error)}`);
+    }
+    if (failures.length > 0) {
+      throw new Error(`recipe-vector-truth-remove-failed:${recipeId}:${failures.join(',')}`);
+    }
+  }
 }
 
 class FileGenerationRouter implements RecipeVectorGenerationRouter {

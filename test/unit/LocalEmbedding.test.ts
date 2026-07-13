@@ -1,3 +1,4 @@
+import { EventBus } from '@alembic/core/events';
 import type { FetchLike } from '@alembic/core/vector';
 import { describe, expect, test, vi } from 'vitest';
 import {
@@ -12,6 +13,7 @@ import {
   resolveLocalEmbeddingConfig,
   selectLocalEmbedLane,
 } from '../../lib/recipe-pipeline/vector/LocalEmbedding.js';
+import { RECIPE_VECTOR_TRUTH_REMOVER_KEY } from '../../lib/recipe-pipeline/vector/recipe-vector-generation-runtime.js';
 
 // Fake Ollama /api/tags transport so detection/selection are deterministic + offline.
 function fakeFetch(models: string[], opts: { fail?: boolean; status?: number } = {}): FetchLike {
@@ -294,6 +296,33 @@ describe('VectorModule injection (GMAP-L3)', () => {
     expect(() =>
       registerVectorModule(c as unknown as Parameters<typeof registerVectorModule>[0])
     ).not.toThrow();
+  });
+
+  test('register injects terminal Recipe truth removal even on the provider-offline lane', async () => {
+    const c = vectorModuleContainer({
+      vector: { autoSyncOnCrud: true, syncDebounceMs: 60_000 },
+    });
+    const eventBus = new EventBus({ maxListeners: 10 });
+    const recipeVectorTruthRemover = {
+      removeRecipeByIdentity: vi.fn(async (_recipeId: string) => undefined),
+    };
+    (c.services as Record<string, () => unknown>).eventBus = () => eventBus;
+    (c.singletons as Record<string, unknown>)[RECIPE_VECTOR_TRUTH_REMOVER_KEY] =
+      recipeVectorTruthRemover;
+    registerVectorModule(c as unknown as Parameters<typeof registerVectorModule>[0]);
+
+    const vectorService = c.get('vectorService') as {
+      initialize(): Promise<void>;
+      destroy(): Promise<void>;
+    };
+    await vectorService.initialize();
+    eventBus.emit('knowledge:deleted', { entryId: 'recipe-provider-offline' });
+    await vectorService.destroy();
+
+    expect(recipeVectorTruthRemover.removeRecipeByIdentity).toHaveBeenCalledOnce();
+    expect(recipeVectorTruthRemover.removeRecipeByIdentity).toHaveBeenCalledWith(
+      'recipe-provider-offline'
+    );
   });
 
   test('setup guidance lists Ollama install + pull + enable steps (no model download by the plugin)', () => {

@@ -66,6 +66,7 @@ import {
 import {
   createRecipeVectorGenerationRuntime,
   RECIPE_VECTOR_GENERATION_MANAGER_KEY,
+  RECIPE_VECTOR_TRUTH_REMOVER_KEY,
 } from '../../recipe-pipeline/vector/recipe-vector-generation-runtime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
@@ -269,6 +270,8 @@ function wrapRecipeVectorGenerationRuntime(
   });
   (container.singletons as Record<string, unknown>)[RECIPE_VECTOR_GENERATION_MANAGER_KEY] =
     runtime.generationManager;
+  (container.singletons as Record<string, unknown>)[RECIPE_VECTOR_TRUTH_REMOVER_KEY] =
+    runtime.recipeVectorTruthRemover;
   return runtime.vectorStore;
 }
 

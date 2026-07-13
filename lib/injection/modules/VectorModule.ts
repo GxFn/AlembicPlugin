@@ -16,7 +16,10 @@ import {
   resolveLocalEmbeddingConfig,
   selectLocalEmbedLane,
 } from '#recipe-pipeline/vector/LocalEmbedding.js';
-import { RECIPE_VECTOR_GENERATION_MANAGER_KEY } from '#recipe-pipeline/vector/recipe-vector-generation-runtime.js';
+import {
+  RECIPE_VECTOR_GENERATION_MANAGER_KEY,
+  RECIPE_VECTOR_TRUTH_REMOVER_KEY,
+} from '#recipe-pipeline/vector/recipe-vector-generation-runtime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 // GMAP-L3: the singleton key holding the local-first embed-lane selection. It is
@@ -69,6 +72,11 @@ export function register(c: ServiceContainer) {
       recipeGenerationManager: (ct.singletons as Record<string, unknown>)[
         RECIPE_VECTOR_GENERATION_MANAGER_KEY
       ] as ConstructorParameters<typeof VectorService>[0]['recipeGenerationManager'] | undefined,
+      // 终态 identity 来自 Core lifecycle 事件；Plugin 只实现 base + 全 generation
+      // 的物理删除，不能再从 active reader 或 entry_* 兼容删除推断终态意图。
+      recipeVectorTruthRemover: (ct.singletons as Record<string, unknown>)[
+        RECIPE_VECTOR_TRUTH_REMOVER_KEY
+      ] as ConstructorParameters<typeof VectorService>[0]['recipeVectorTruthRemover'] | undefined,
     });
   });
 }
