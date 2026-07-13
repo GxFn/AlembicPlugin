@@ -6,6 +6,78 @@ import {
 } from '../../lib/recipe-pipeline/generate/recipe-region-vector.js';
 
 describe('buildRecipeSemanticRegionVectors availability gate', () => {
+  it('passes one complete non-deprecated authority set to every batch, including an empty corpus', async () => {
+    const syncRecipeSemanticRegions = vi.fn(async () => ({
+      degradedReason: null,
+      errors: [],
+      generated: 0,
+      generatedMetadata: [],
+      removed: 0,
+      scanned: 0,
+      skipped: 0,
+      status: 'completed',
+      upserted: 0,
+    }));
+    const vectorService = {
+      getAvailability: vi.fn(async () => vectorAvailability({ available: true })),
+      getStats: vi.fn(async () => ({ count: 0, dimension: 3, hasIndex: true, indexSize: 0 })),
+      syncRecipeSemanticRegions,
+    };
+    const entries = Array.from({ length: 8 }, (_, index) => ({
+      toJSON: () => ({
+        content: `Recipe ${index}`,
+        id: `recipe-${index}`,
+        lifecycle: index === 7 ? 'deprecated' : 'active',
+        title: `Recipe ${index}`,
+      }),
+    }));
+    const knowledgeService = {
+      list: vi
+        .fn()
+        .mockResolvedValueOnce({ data: entries })
+        .mockResolvedValueOnce({ data: [] }),
+    };
+    const container = createContainer({
+      knowledgeService,
+      memoryRepository: createMemoryRepository(),
+      vectorService,
+      vectorStore: { flush: vi.fn(async () => undefined) },
+    });
+
+    await buildRecipeSemanticRegionVectors({
+      container,
+      logger: { info: vi.fn() },
+      logPrefix: 'test',
+    });
+
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledTimes(2);
+    const expectedAuthority = Array.from({ length: 7 }, (_, index) => `recipe-${index}`);
+    for (const call of syncRecipeSemanticRegions.mock.calls) {
+      expect(call[1]).toMatchObject({
+        maintenanceScope: {
+          kind: 'authoritative-corpus',
+          nonDeprecatedRecipeIds: expectedAuthority,
+        },
+      });
+    }
+
+    syncRecipeSemanticRegions.mockClear();
+    await buildRecipeSemanticRegionVectors({
+      container,
+      logger: { info: vi.fn() },
+      logPrefix: 'test-empty',
+    });
+
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledOnce();
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledWith([], {
+      maintenanceScope: {
+        kind: 'authoritative-corpus',
+        nonDeprecatedRecipeIds: [],
+      },
+      sourceRefsBridgeByRecipeId: {},
+    });
+  });
+
   it('uses VectorService availability instead of stats embedProviderAvailable', async () => {
     const syncRecipeSemanticRegions = vi.fn(async () => ({
       degradedReason: null,
