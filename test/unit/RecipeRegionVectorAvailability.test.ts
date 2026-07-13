@@ -332,6 +332,73 @@ describe('buildRecipeSemanticRegionVectors authoritative maintenance', () => {
     });
   });
 
+  it('continues authoritative cleanup when the availability probe throws', async () => {
+    const probeError = new Error('availability probe timed out');
+    const syncRecipeSemanticRegions = vi.fn(async () => ({
+      degradedReason: 'embed-provider-unavailable',
+      errors: [],
+      generated: 1,
+      generatedMetadata: [],
+      removed: 1,
+      scanned: 1,
+      skipped: 1,
+      status: 'degraded',
+      upserted: 0,
+    }));
+    const list = vi.fn(async () => ({
+      data: [
+        {
+          toJSON: () => ({
+            content: 'Live body',
+            id: 'recipe-live',
+            lifecycle: 'active',
+            title: 'Live Recipe',
+          }),
+        },
+      ],
+    }));
+    const logger = { info: vi.fn() };
+    const container = createContainer({
+      knowledgeService: { list },
+      memoryRepository: createMemoryRepository(),
+      vectorService: {
+        getAvailability: vi.fn(async () => {
+          throw probeError;
+        }),
+        getStats: vi.fn(async () => ({ count: 2, dimension: 3, hasIndex: true, indexSize: 2 })),
+        syncRecipeSemanticRegions,
+      },
+      vectorStore: { flush: vi.fn(async () => undefined) },
+    });
+
+    const report = await buildRecipeSemanticRegionVectors({
+      container,
+      logger,
+      logPrefix: 'probe-error',
+    });
+
+    expect(list).toHaveBeenCalledOnce();
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'recipe-live' })],
+      expect.objectContaining({
+        maintenanceScope: {
+          kind: 'authoritative-corpus',
+          nonDeprecatedRecipeIds: ['recipe-live'],
+        },
+      })
+    );
+    expect(report).toMatchObject({
+      reason: 'embed-provider-unavailable',
+      status: 'degraded',
+      syncResult: { removed: 1, upserted: 0 },
+      vectorAvailability: null,
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      '[probe-error] Recipe region-vector availability probe failed; continuing cleanup',
+      { reason: probeError.message }
+    );
+  });
+
   it('keeps existing semantic memories when syncing a partial fresh-run Recipe batch', async () => {
     const memoryRepository = createMemoryRepository([
       {
