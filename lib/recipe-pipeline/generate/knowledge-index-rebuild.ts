@@ -101,7 +101,7 @@ export async function rebuildLocalKnowledgeIndexes(
   // U6 P5：region-vector provider 不可用 → 权威清理仍运行，报告 status='degraded'；
   // 这里在装配层补一条高可见 warn，让「新 region 无法生成、subject-less prime 无法挣到
   // 新 recipe-semantic-region 信任证据」对 rescan 运维可见（建器内只有 info 级 logger）。
-  // status='synced' 时 semantic_memories 从 0→非 0，无需告警；'failed' 是带原因的非阻断失败，亦记 warn。
+  // status='synced' 时 region generation/maintenance 已完成，无需告警；'failed' 是带原因的非阻断失败，亦记 warn。
   warnIfRegionVectorsNotBuilt(ctx, recipeRegionVectors);
 
   return { knowledgeSync, recipeRegionVectors, sourceRefs };
@@ -120,7 +120,7 @@ function warnIfRegionVectorsNotBuilt(
     return;
   }
   ctx.logger.warn(
-    `[${ctx.logPrefix}] Recipe semantic-region vectors NOT built (status=${report.status}); semantic_memories stay 0 and subject-less prime cannot earn recipe-semantic-region trust until a vector provider is available`,
+    `[${ctx.logPrefix}] Recipe semantic-region generation unavailable (status=${report.status}); authoritative cleanup may still have completed, but new vector-backed recipe-semantic-region trust evidence requires a vector provider`,
     {
       status: report.status,
       reason: report.reason,

@@ -271,7 +271,7 @@ describe('U6 P5 region-vector degradation warning + report surface', () => {
       },
     });
     const warned = log.warn.mock.calls.some((call) =>
-      String(call[0]).includes('semantic-region vectors NOT built')
+      String(call[0]).includes('semantic-region generation unavailable')
     );
     expect(warned).toBe(true);
   });
@@ -296,7 +296,7 @@ describe('U6 P5 region-vector degradation warning + report surface', () => {
     expect(report.recipeRegionVectors.status).toBe('synced');
     expect(report.recipeRegionVectors.syncResult).not.toBeNull();
     const warned = log.warn.mock.calls.some((call) =>
-      String(call[0]).includes('semantic-region vectors NOT built')
+      String(call[0]).includes('semantic-region generation unavailable')
     );
     expect(warned).toBe(false);
   });
