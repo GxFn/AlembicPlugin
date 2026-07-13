@@ -249,13 +249,25 @@ export const AlembicRecipeMapOutputSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    const completeMountProjection = Math.min(
+      value.limits.recipeMountLimit,
+      value.conservation.mountedTotal
+    );
     if (
-      value.limits.appliedRecipeMountLimit !== value.recipeMounts.length ||
-      value.limits.appliedRecipeMountLimit !== value.conservation.displayedMounts
+      value.limits.appliedRecipeMountLimit !== value.conservation.displayedMounts ||
+      (value.continuation === undefined &&
+        value.limits.appliedRecipeMountLimit !== value.recipeMounts.length) ||
+      (value.continuation !== undefined &&
+        (value.conservation.displayedMounts < value.recipeMounts.length ||
+          value.conservation.displayedMounts > completeMountProjection ||
+          (value.conservation.completeness === 'complete' &&
+            !value.continuation.hasMore &&
+            value.conservation.displayedMounts !== completeMountProjection)))
     ) {
       ctx.addIssue({
         code: 'custom',
-        message: 'Applied Recipe mount limit must equal the displayed mount count.',
+        message:
+          'Applied Recipe mount limit must equal the inline count, or the cumulative delivered count for a continuation.',
         path: ['limits', 'appliedRecipeMountLimit'],
       });
     }

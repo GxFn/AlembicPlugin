@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   AnchorRangeContext,
@@ -174,6 +175,16 @@ const PROJECT_CONTEXT_FLOW_SOURCE_EXTENSIONS = new Set([
   '.mts',
   '.ts',
   '.tsx',
+  ...Object.keys(EXTENSION_PARSER_LANGUAGE),
+]);
+const GRAPH_MODULE_SOURCE_EXTENSIONS = new Set([
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.json',
   ...Object.keys(EXTENSION_PARSER_LANGUAGE),
 ]);
 
@@ -702,7 +713,13 @@ async function buildProjectContextGraphFacts(
       await collectNarrowGraphFileContexts(facts, projectRoot, input, signal);
     } else {
       await collectGraphRepoContexts(facts, projectRoot, input, signal, onProgress);
-      const moduleSeeds = createGraphModuleSeedsFromRepoContexts(facts.repos, input, facts.trace);
+      const moduleSeeds = await createGraphModuleSeedsFromRepoContexts(
+        projectRoot,
+        facts.repos,
+        input,
+        facts.trace,
+        signal
+      );
       await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input, signal);
       await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input, signal);
       if (shouldCollectGraphFileFlowContexts(input)) {
@@ -2621,13 +2638,25 @@ function isRootPackageManifestPath(packagePath: string | undefined): boolean {
   );
 }
 
-function createGraphModuleSeedsFromRepoContexts(
+async function createGraphModuleSeedsFromRepoContexts(
+  projectRoot: string,
   repos: readonly RepoContext[],
   input: ProjectGraphInput,
-  trace: ProjectGraphProjectContextTrace
-): GraphModuleSeed[] {
+  trace: ProjectGraphProjectContextTrace,
+  signal?: AbortSignal
+): Promise<GraphModuleSeed[]> {
   const seeds = new Map<string, GraphModuleSeed>();
+  const supportedModulePathCache = new Map<string, boolean>();
+  const repositoryRoots = new Set(repos.map((repo) => normalizeRelativePath(repo.repo.root)));
+  for (const repoId of trace.repoCoverage.discoveredRepoIds) {
+    signal?.throwIfAborted();
+    const repoRoot = await resolveExistingGraphModulePath(projectRoot, repoId);
+    if (repoRoot) {
+      repositoryRoots.add(repoRoot);
+    }
+  }
   for (const repo of repos) {
+    signal?.throwIfAborted();
     const repoName = repo.localPackages[0]?.name ?? repo.repo.name;
     const scope = scopeFromRepoContext(repo);
     const candidatePaths = [
@@ -2670,8 +2699,30 @@ function createGraphModuleSeedsFromRepoContexts(
       ),
     ];
     for (const candidate of candidatePaths) {
-      const modulePath = normalizeModulePath(candidate.path);
+      signal?.throwIfAborted();
+      const refPath = candidate.ref?.scope.filePath;
+      const modulePathCandidates = [
+        candidate.path,
+        ...(isNonEmptyString(refPath) ? [refPath, projectPathFromRepoPath(repo, refPath)] : []),
+      ].map(graphModuleDirectoryCandidate);
+      let modulePath: string | undefined;
+      for (const candidatePath of modulePathCandidates) {
+        modulePath = await resolveExistingGraphModulePath(projectRoot, candidatePath);
+        if (modulePath) {
+          break;
+        }
+      }
       if (!modulePath) {
+        continue;
+      }
+      if (crossesGraphRepositoryBoundary(modulePath, repo, repositoryRoots)) {
+        continue;
+      }
+      const hasSupportedSource =
+        supportedModulePathCache.get(modulePath) ??
+        (await graphModulePathContainsSupportedFile(projectRoot, modulePath, signal));
+      supportedModulePathCache.set(modulePath, hasSupportedSource);
+      if (!hasSupportedSource) {
         continue;
       }
       if (!includeGraphModuleSeedPath(modulePath, scope, input, trace)) {
@@ -2721,6 +2772,25 @@ function includeGraphModuleSeedPath(
     return false;
   }
   return true;
+}
+
+function crossesGraphRepositoryBoundary(
+  modulePath: string,
+  owner: RepoContext,
+  repositoryRoots: ReadonlySet<string>
+): boolean {
+  const ownerRoot = normalizeRelativePath(owner.repo.root);
+  return [...repositoryRoots].some((repoRoot) => {
+    if (repoRoot === ownerRoot) {
+      return false;
+    }
+    return (
+      repoRoot !== '.' &&
+      (modulePath === repoRoot ||
+        modulePath.startsWith(`${repoRoot}/`) ||
+        repoRoot.startsWith(`${modulePath}/`))
+    );
+  });
 }
 
 function isRepositoryRootModuleSeed(
@@ -3257,6 +3327,102 @@ function normalizeModulePath(value: string | undefined): string | undefined {
     return undefined;
   }
   return normalized;
+}
+
+function graphModuleDirectoryCandidate(value: string | undefined): string | undefined {
+  const normalized = normalizeRelativePath(value ?? '');
+  if (!normalized || normalized === '.') {
+    return undefined;
+  }
+  return path.posix.extname(normalized) ? path.posix.dirname(normalized) : normalized;
+}
+
+/** Resolve a Core module probe to a real, canonical, project-confined directory. */
+export async function resolveExistingGraphModulePath(
+  projectRoot: string,
+  candidatePath: string | undefined
+): Promise<string | undefined> {
+  const normalized = normalizeModulePath(candidatePath);
+  if (!normalized) {
+    return undefined;
+  }
+  try {
+    const canonicalRoot = await realpath(projectRoot);
+    let current = canonicalRoot;
+    for (const segment of normalized.split('/')) {
+      const entries = await readdir(current);
+      const exact = entries.find((entry) => entry === segment);
+      const matches = entries.filter(
+        (entry) => entry.toLocaleLowerCase() === segment.toLocaleLowerCase()
+      );
+      const resolvedSegment = exact ?? (matches.length === 1 ? matches[0] : undefined);
+      if (!resolvedSegment) {
+        return undefined;
+      }
+      current = await realpath(path.join(current, resolvedSegment));
+      if (!isPathWithin(canonicalRoot, current)) {
+        return undefined;
+      }
+    }
+    if (!isPathWithin(canonicalRoot, current) || !(await stat(current)).isDirectory()) {
+      return undefined;
+    }
+    return normalizeModulePath(path.relative(canonicalRoot, current).split(path.sep).join('/'));
+  } catch {
+    return undefined;
+  }
+}
+
+async function graphModulePathContainsSupportedFile(
+  projectRoot: string,
+  modulePath: string,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const pending = [path.resolve(projectRoot, modulePath)];
+  while (pending.length > 0) {
+    signal?.throwIfAborted();
+    const current = pending.pop();
+    if (!current) {
+      continue;
+    }
+    try {
+      for (const entry of await readdir(current, { withFileTypes: true })) {
+        signal?.throwIfAborted();
+        if (entry.isDirectory()) {
+          if (!shouldSkipGraphModuleDirectory(entry.name)) {
+            pending.push(path.join(current, entry.name));
+          }
+          continue;
+        }
+        if (
+          entry.isFile() &&
+          GRAPH_MODULE_SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+        ) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function shouldSkipGraphModuleDirectory(directoryName: string): boolean {
+  return (
+    directoryName.startsWith('.') ||
+    [
+      'node_modules',
+      'vendor',
+      'Pods',
+      'dist',
+      'build',
+      'coverage',
+      '__generated__',
+      'generated',
+      'DerivedData',
+    ].includes(directoryName)
+  );
 }
 
 function isProjectContextFlowSourcePath(filePath: string): boolean {

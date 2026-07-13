@@ -18,13 +18,13 @@ import {
   AlembicRecipeMapOutputSchema,
 } from '../../lib/service/project-knowledge-context/contracts/AlembicRecipeMapOutput.js';
 import { defaultProjectGraphProvider } from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
-import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import {
   defaultRecipeMapProvider,
   normalizeRecipeRef,
   type RecipeMapDeps,
   type RecipeMapRequest,
 } from '../../lib/service/project-knowledge-context/recipe-map/index.js';
+import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 
 const tempRoots: string[] = [];
 
@@ -103,6 +103,9 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     // The deeper Recipes still appear as descendant rollups on the root.
     const rootRollup = output.recipeRollups.find((rollup) => rollup.nodeId === rootNodeId);
     expect(rootRollup?.descendantRecipeCount ?? 0).toBeGreaterThanOrEqual(2);
+    expect(new Set(output.recipeRollups.map((rollup) => rollup.nodeId)).size).toBe(
+      output.recipeRollups.length
+    );
   });
 
   test('public Recipe Map returns opaque deterministic continuation pages without rebuilding facts', async () => {
@@ -134,6 +137,152 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(new Set(stableIds).size).toBe(stableIds.length);
     expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
     await manager.dispose();
+  });
+
+  test('continuation cancellation reports incomplete conservation and removes chunks', async () => {
+    const projectRoot = createFixtureProject();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const ctx = createContext(projectRoot);
+    ctx.projectContextExecution = { buildSessions: manager };
+    try {
+      const first = (await routeRecipeMapTool(ctx, {
+        focus: { kind: 'space' },
+        pageSize: 1,
+        projectRoot,
+      })) as { structuredContent: AlembicRecipeMapOutput };
+      const cursor = first.structuredContent.continuation?.nextCursor;
+      expect(cursor).toBeTruthy();
+      const cancelled = (await routeRecipeMapTool(ctx, {
+        cancelCursor: cursor,
+        projectRoot,
+      })) as { structuredContent: AlembicRecipeMapOutput };
+
+      expect(cancelled.structuredContent.conservation).toMatchObject({
+        completeness: 'incomplete',
+        displayedMounts: 0,
+      });
+      expect(cancelled.structuredContent.continuation).toMatchObject({
+        hasMore: false,
+        nextCursor: null,
+      });
+      expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
+    } finally {
+      await manager.dispose();
+    }
+  });
+
+  test('public continuation reconstructs the complete bounded Recipe Map exactly once', async () => {
+    const projectRoot = createFixtureProject();
+    for (let index = 0; index < 96; index += 1) {
+      fs.writeFileSync(
+        path.join(projectRoot, 'lib', `page-${String(index).padStart(3, '0')}.ts`),
+        `export const page${index} = ${index};\n`
+      );
+    }
+    const recipeIds = Array.from({ length: 30 }, (_, index) => `r-page-${index}`);
+    const recipeRecords = recipeIds.map((id, index) => ({
+      id,
+      sources: [],
+      tags: [],
+      title: `Page recipe ${index}`,
+    }));
+    const recipeRows = recipeIds.map((recipeId, index) => ({
+      recipeId,
+      sourcePath: `lib/page-${String(index).padStart(3, '0')}.ts:1`,
+      status: 'active',
+    }));
+    const completeRecipeContext: RecipeMapDeps = {
+      resolveRegion: (focus, root, radius) =>
+        defaultProjectGraphProvider.resolveProjectContextRegion({
+          focus,
+          projectRoot: root,
+          radius,
+        }),
+      querySourceRefs: async () => ({ rows: recipeRows, diagnostics: [] }),
+      listRecipes: async () => recipeRecords,
+    };
+    const baseline = await defaultRecipeMapProvider.resolveBoundedRecipeMap(
+      { ...request(projectRoot, 'space'), nodeLimit: 500 },
+      completeRecipeContext
+    );
+    const expectedKeys = recipeMapStableKeys(baseline).sort();
+
+    const databaseRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-recipemap-pages-db-'));
+    tempRoots.push(databaseRoot);
+    const db = new Database(path.join(databaseRoot, 'alembic.db'));
+    db.exec(`
+      CREATE TABLE knowledge_entries (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        tags TEXT NOT NULL,
+        sources TEXT NOT NULL
+      );
+      CREATE TABLE recipe_source_refs (
+        recipe_id TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        new_path TEXT,
+        verified_at INTEGER,
+        PRIMARY KEY (recipe_id, source_path)
+      );
+    `);
+    const insertRecipe = db.prepare(
+      'INSERT INTO knowledge_entries (id, title, tags, sources) VALUES (?, ?, ?, ?)'
+    );
+    const insertRef = db.prepare(
+      'INSERT INTO recipe_source_refs (recipe_id, source_path, status) VALUES (?, ?, ?)'
+    );
+    for (let index = 0; index < recipeIds.length; index += 1) {
+      insertRecipe.run(recipeIds[index], `Page recipe ${index}`, '[]', '[]');
+      insertRef.run(recipeIds[index], recipeRows[index].sourcePath, 'active');
+    }
+    db.pragma('query_only = ON');
+    const repositories = createReadOnlyRecipeMapRepositories(db);
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const ctx = createContext(projectRoot, {
+      knowledgeService: repositories.knowledgeService,
+      recipeSourceRefRepository: repositories.sourceRefRepository,
+    });
+    ctx.projectContextExecution = { buildSessions: manager };
+    try {
+      let result = (await routeRecipeMapTool(ctx, {
+        focus: { kind: 'space' },
+        nodeLimit: 500,
+        pageSize: 10,
+        projectRoot,
+      })) as { structuredContent: AlembicRecipeMapOutput };
+      const factSessionRef = result.structuredContent.continuation?.factSessionRef;
+      const actualKeys: string[] = [];
+      let pages = 0;
+      let terminal = result.structuredContent;
+      while (true) {
+        pages += 1;
+        terminal = result.structuredContent;
+        expect(Buffer.byteLength(JSON.stringify(terminal), 'utf8')).toBeLessThanOrEqual(20 * 1024);
+        expect(terminal.continuation?.factSessionRef).toBe(factSessionRef);
+        actualKeys.push(...recipeMapStableKeys(terminal));
+        const cursor = terminal.continuation?.nextCursor;
+        if (!cursor) {
+          break;
+        }
+        result = (await routeRecipeMapTool(ctx, { cursor, projectRoot })) as {
+          structuredContent: AlembicRecipeMapOutput;
+        };
+      }
+
+      expect(pages).toBeGreaterThanOrEqual(3);
+      expect(new Set(actualKeys).size).toBe(actualKeys.length);
+      expect(actualKeys.sort()).toEqual(expectedKeys);
+      expect(terminal.status).toBe(baseline.status);
+      expect(terminal.region.truncated).toBe(baseline.region.truncated);
+      expect(terminal.conservation).toEqual(baseline.conservation);
+      expect(terminal.limits.appliedRecipeMountLimit).toBe(baseline.limits.appliedRecipeMountLimit);
+      expect(terminal.continuation?.hasMore).toBe(false);
+      expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
+    } finally {
+      await manager.dispose();
+      db.close();
+    }
   });
 
   test('module focus mounts directly and resolves multi-ref to the lowest common ancestor', async () => {
@@ -622,6 +771,17 @@ function filesystemManifest(root: string): string[] {
   return values.sort();
 }
 
+function recipeMapStableKeys(output: AlembicRecipeMapOutput): string[] {
+  return [
+    ...output.region.nodes.map((node) => `node:${node.nodeId}`),
+    ...output.refs.map((ref) => `ref:${ref.id}`),
+    ...output.recipeMounts.map(
+      (mount) => `mount:${mount.recipeId}\0${mount.mountNodeId}\0${mount.mountType}`
+    ),
+    ...output.recipeRollups.map((rollup) => `rollup:${rollup.nodeId}`),
+  ];
+}
+
 function createFixtureProject(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-recipemap-fixture-'));
   tempRoots.push(root);
@@ -641,9 +801,12 @@ function createFixtureProject(): string {
   return root;
 }
 
-function createContext(projectRoot: string): McpContext {
+function createContext(projectRoot: string, services: Record<string, unknown> = {}): McpContext {
   return {
-    container: { get: () => undefined, singletons: { _projectRoot: projectRoot } },
+    container: {
+      get: (name: string) => services[name],
+      singletons: { _projectRoot: projectRoot },
+    },
     projectRuntime: buildProjectRuntimeContext({ projectRoot }),
   } as unknown as McpContext;
 }

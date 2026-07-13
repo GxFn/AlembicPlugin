@@ -14,6 +14,7 @@ import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-c
 import {
   defaultProjectGraphProvider,
   executeWithProjectContextRepoDeadline,
+  resolveExistingGraphModulePath,
 } from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
 import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { GRAPH_QUERY_KINDS, GraphInput } from '../../lib/shared/schemas/mcp-tools.js';
@@ -458,9 +459,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       expect(first.structuredContent.repoCoverage.attempted).toBeLessThan(
         first.structuredContent.repoCoverage.requested
       );
-      expect(
-        first.structuredContent.refs.some((ref) => ref.kind === 'repo')
-      ).toBe(true);
+      expect(first.structuredContent.refs.some((ref) => ref.kind === 'repo')).toBe(true);
 
       const reconstructedKeys = graphStableKeys(first.structuredContent);
       let terminal = first.structuredContent;
@@ -876,6 +875,36 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     ).toBeLessThan(exactNodes.length);
     expect(JSON.stringify(output.diagnostics)).not.toMatch(/cyclic|invalid-scope/i);
   });
+
+  test('nested SwiftPM module probes use only existing canonical project paths', async () => {
+    const projectRoot = createNestedSwiftPackageGraphFixtureProject();
+    const output = await runGraph(projectRoot, {
+      queryKind: 'map',
+      budget: { itemLimit: 24, relationHopLimit: 4 },
+    });
+
+    expect(output.repoCoverage).toMatchObject({ completeness: 'complete', failed: 0 });
+    expect(JSON.stringify(output.diagnostics)).not.toMatch(/invalid-scope/i);
+    for (const node of output.nodes) {
+      const nodePath = typeof node.path === 'string' ? node.path : undefined;
+      if (nodePath?.startsWith('Packages/AOXUIKit/')) {
+        expect(fs.existsSync(path.join(projectRoot, nodePath))).toBe(true);
+      }
+    }
+  });
+
+  test('module seed reconciliation canonicalizes case and rejects nonexistent paths', async () => {
+    const projectRoot = createNestedSwiftPackageGraphFixtureProject();
+    expect(
+      await resolveExistingGraphModulePath(projectRoot, 'Packages/AOXUIKit/sources/aoxuikit')
+    ).toBe('Packages/AOXUIKit/Sources/AOXUIKit');
+    expect(
+      await resolveExistingGraphModulePath(
+        projectRoot,
+        'Packages/AOXUIKit/Packages/AOXUIKit/Sources/AOXUIKit'
+      )
+    ).toBeUndefined();
+  });
 });
 
 function createFixtureProject(): string {
@@ -982,6 +1011,47 @@ function createSwiftPackageGraphFixtureProject(): string {
     'Sources/BDHome/Refresh/HomeRequestRefreshGate.swift',
     'public struct HomeRequestRefreshGate {\n  public init() {}\n}\n'
   );
+  return root;
+}
+
+function createNestedSwiftPackageGraphFixtureProject(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-graph-nested-swift-fixture-'));
+  tempRoots.push(root);
+  writeFile(root, 'package.json', JSON.stringify({ name: 'nested-swift-root' }, null, 2));
+  writeFile(root, 'src/index.ts', 'export const rootProject = true;\n');
+  writeFile(
+    root,
+    '.gitmodules',
+    '[submodule "Packages/AOXUIKit"]\n\tpath = Packages/AOXUIKit\n\turl = https://example.invalid/AOXUIKit.git\n'
+  );
+  writeFile(root, 'Packages/AOXUIKit/.git', 'gitdir: ../../.git/modules/Packages/AOXUIKit\n');
+  writeFile(
+    root,
+    'Packages/AOXUIKit/Package.swift',
+    [
+      '// swift-tools-version: 6.0',
+      'import PackageDescription',
+      'let package = Package(',
+      '  name: "AOXUIKit",',
+      '  targets: [',
+      '    .target(name: "AOXUIKit", path: "Sources/AOXUIKit"),',
+      '    .testTarget(name: "AOXUIKitTests", path: "Tests/AOXUIKitTests"),',
+      '  ]',
+      ')',
+      '',
+    ].join('\n')
+  );
+  writeFile(
+    root,
+    'Packages/AOXUIKit/Sources/AOXUIKit/Button.swift',
+    'public struct Button { public init() {} }\n'
+  );
+  writeFile(
+    root,
+    'Packages/AOXUIKit/Tests/AOXUIKitTests/ButtonTests.swift',
+    'struct ButtonTests {}\n'
+  );
+  writeFile(root, 'Packages/AOXUIKit/docs/readme.md', '# Documentation only\n');
   return root;
 }
 

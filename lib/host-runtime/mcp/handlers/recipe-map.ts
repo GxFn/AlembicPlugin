@@ -25,6 +25,7 @@ import {
   budgetRecipeMapOutput,
   defaultRecipeMapProvider,
   type MountDiagnostic,
+  RECIPE_MAP_INLINE_BUDGET_BYTES,
   type RecipeMapDeps,
   type RecipeMapRequest,
   type RecipeRecordLite,
@@ -129,17 +130,20 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
   }
   const request = normalizeRecipeMapRequest(args, projectRoot);
   const deps = buildRecipeMapDeps(ctx);
-  const output = await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
-  const budgeted = budgetRecipeMapOutput(output);
-  const factSessionRef = budgeted.meta.factSessionRef;
+  const output = execution
+    ? await defaultRecipeMapProvider.resolveBoundedRecipeMap(request, deps)
+    : await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
+  const factSessionRef = output.meta.factSessionRef;
   if (!execution || !factSessionRef) {
-    return createAlembicRecipeMapMcpResult(budgeted);
+    return createAlembicRecipeMapMcpResult(budgetRecipeMapOutput(output));
   }
+  const context = budgetRecipeMapOutput(recipeMapContinuationBase(output));
+  const items = recipeMapPageEntries(output);
   const page = await execution.buildSessions.publishContinuation({
-    context: recipeMapContinuationBase(budgeted),
+    context,
     factSessionRef,
-    items: recipeMapPageEntries(budgeted),
-    pageSize: args.pageSize ?? 100,
+    items,
+    pageSize: recipeMapContinuationPageSize(context, items, args.pageSize ?? 100),
     projectRoot,
   });
   return createAlembicRecipeMapMcpResult(materializeRecipeMapContinuation(page));
@@ -153,9 +157,11 @@ type RecipeMapPageEntry =
 
 function recipeMapPageEntries(output: AlembicRecipeMapOutput): RecipeMapPageEntry[] {
   return [
+    // Mounts lead the stream so conservation can truthfully report the
+    // cumulative delivered mount projection on every later/terminal page.
+    ...output.recipeMounts.map((value): RecipeMapPageEntry => ({ kind: 'mount', value })),
     ...output.region.nodes.map((value): RecipeMapPageEntry => ({ kind: 'node', value })),
     ...output.refs.map((value): RecipeMapPageEntry => ({ kind: 'ref', value })),
-    ...output.recipeMounts.map((value): RecipeMapPageEntry => ({ kind: 'mount', value })),
     ...output.recipeRollups.map((value): RecipeMapPageEntry => ({ kind: 'rollup', value })),
   ];
 }
@@ -196,8 +202,8 @@ function materializeRecipeMapContinuation(
       rollups.push(entry.value);
     }
   }
-  const displayedMounts = mounts.length;
-  return {
+  const pageMounts = mounts.length;
+  const rawPage = {
     ...base,
     status: page.hasMore && base.status === 'ready' ? 'partial' : base.status,
     summary: `${base.summary} Continuation page ${page.page}${page.hasMore ? ' has more facts.' : ' is terminal.'}`,
@@ -207,13 +213,13 @@ function materializeRecipeMapContinuation(
     recipeRollups: rollups,
     conservation: {
       ...base.conservation,
-      displayedMounts,
-      omittedMounts: Math.max(0, base.conservation.mountedTotal - displayedMounts),
+      displayedMounts: pageMounts,
+      omittedMounts: Math.max(0, base.conservation.mountedTotal - pageMounts),
     },
     limits: {
       ...base.limits,
-      appliedRecipeMountLimit: displayedMounts,
-      recipeMountLimitReason: recipeMapPageLimitReason(base, displayedMounts),
+      appliedRecipeMountLimit: pageMounts,
+      recipeMountLimitReason: recipeMapPageLimitReason(base, pageMounts),
     },
     continuation: {
       accumulatedCounts: page.accumulatedCounts,
@@ -223,7 +229,117 @@ function materializeRecipeMapContinuation(
       page: page.page,
       resultRef: page.resultRef,
     },
+  } satisfies AlembicRecipeMapOutput;
+  // The generic budgeter temporarily rewrites conservation to this page's
+  // inline mounts. Keep the terminal marker out of that intermediate parse;
+  // terminal cumulative truth is restored immediately below.
+  const budgetedPage = budgetRecipeMapOutput(
+    page.hasMore
+      ? rawPage
+      : {
+          ...rawPage,
+          continuation: { ...rawPage.continuation, hasMore: true },
+        }
+  );
+  const completeMountProjection = Math.min(
+    base.limits.recipeMountLimit,
+    base.conservation.mountedTotal
+  );
+  const cumulativeMounts = Math.min(page.accumulatedCounts.items, completeMountProjection);
+  return {
+    ...budgetedPage,
+    summary: `${base.summary} Continuation page ${page.page} delivered ${cumulativeMounts} of ${base.conservation.mountedTotal} bounded mounts${page.hasMore ? ' and has more facts.' : ' and is terminal.'}`,
+    conservation: {
+      ...budgetedPage.conservation,
+      displayedMounts: cumulativeMounts,
+      omittedMounts: Math.max(0, base.conservation.mountedTotal - cumulativeMounts),
+    },
+    limits: {
+      ...budgetedPage.limits,
+      appliedRecipeMountLimit: cumulativeMounts,
+      recipeMountLimitReason: recipeMapPageLimitReason(base, cumulativeMounts),
+    },
+    continuation: rawPage.continuation,
   };
+}
+
+function recipeMapContinuationPageSize(
+  base: AlembicRecipeMapOutput,
+  items: readonly RecipeMapPageEntry[],
+  requestedPageSize: number
+): number {
+  const maximum = Math.max(
+    1,
+    Math.min(
+      items.length || 1,
+      Number.isFinite(requestedPageSize) ? Math.max(1, Math.trunc(requestedPageSize)) : 100
+    )
+  );
+  let low = 1;
+  let high = maximum;
+  let selected = 0;
+  while (low <= high) {
+    const candidate = Math.floor((low + high) / 2);
+    if (recipeMapContinuationChunksFit(base, items, candidate)) {
+      selected = candidate;
+      low = candidate + 1;
+    } else {
+      high = candidate - 1;
+    }
+  }
+  if (selected === 0) {
+    throw new Error(
+      'Recipe Map continuation cannot preserve a stable item within the inline byte budget.'
+    );
+  }
+  return selected;
+}
+
+function recipeMapContinuationChunksFit(
+  base: AlembicRecipeMapOutput,
+  items: readonly RecipeMapPageEntry[],
+  pageSize: number
+): boolean {
+  if (items.length === 0) {
+    return true;
+  }
+  const opaque = 'x'.repeat(240);
+  for (let start = 0; start < items.length; start += pageSize) {
+    const chunk = items.slice(start, start + pageSize);
+    const hasMore = start + chunk.length < items.length;
+    const output = materializeRecipeMapContinuation({
+      accumulatedCounts: { items: start + chunk.length },
+      context: base,
+      factSessionRef: opaque,
+      hasMore,
+      items: chunk,
+      nextCursor: hasMore ? opaque : null,
+      page: Math.floor(start / pageSize) + 1,
+      resultRef: opaque,
+    });
+    if (Buffer.byteLength(JSON.stringify(output), 'utf8') > RECIPE_MAP_INLINE_BUDGET_BYTES) {
+      return false;
+    }
+    const expectedKeys = chunk.map(recipeMapPageEntryKey);
+    const actualKeys = recipeMapPageEntries(output).map(recipeMapPageEntryKey);
+    if (
+      actualKeys.length !== expectedKeys.length ||
+      actualKeys.some((key, index) => key !== expectedKeys[index])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function recipeMapPageEntryKey(entry: RecipeMapPageEntry): string {
+  if (entry.kind === 'node' || entry.kind === 'rollup') {
+    return `${entry.kind}:${entry.value.nodeId}`;
+  }
+  if (entry.kind === 'ref') {
+    return `ref:${entry.value.id}`;
+  }
+  return `mount:${entry.value.recipeId}\u0000${entry.value.mountNodeId}\u0000${entry.value.mountType}`;
 }
 
 function recipeMapPageLimitReason(
@@ -258,6 +374,7 @@ function cancelledRecipeMapContinuation(
     ],
     conservation: {
       ...base.conservation,
+      completeness: 'incomplete',
       displayedMounts: 0,
       omittedMounts: base.conservation.mountedTotal,
     },

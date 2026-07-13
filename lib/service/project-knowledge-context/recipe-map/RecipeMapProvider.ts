@@ -59,11 +59,18 @@ export interface RecipeMapDeps {
 }
 
 const DEFAULT_REF_LIMIT = 80;
-const RECIPE_MAP_INLINE_BUDGET_BYTES = 20 * 1024;
+export const RECIPE_MAP_INLINE_BUDGET_BYTES = 20 * 1024;
 const RECIPE_MAP_TRUTH_BUDGET_BYTES = 14 * 1024;
 
 export class RecipeMapProvider {
   async resolveRecipeMap(
+    request: RecipeMapRequest,
+    deps: RecipeMapDeps
+  ): Promise<AlembicRecipeMapOutput> {
+    return budgetRecipeMapOutput(await this.resolveBoundedRecipeMap(request, deps));
+  }
+
+  async resolveBoundedRecipeMap(
     request: RecipeMapRequest,
     deps: RecipeMapDeps
   ): Promise<AlembicRecipeMapOutput> {
@@ -176,7 +183,7 @@ export class RecipeMapProvider {
         ...(region.meta?.factFingerprint ? { factFingerprint: region.meta.factFingerprint } : {}),
       },
     });
-    return budgetRecipeMapOutput(output);
+    return output;
   }
 }
 
@@ -492,7 +499,9 @@ function buildRollups(
   mounts: readonly RecipeMountSummary[],
   deferred: readonly string[]
 ): RecipeRollupSummary[] {
-  return [region.rootNode, ...region.nodes]
+  return [
+    ...new Map([region.rootNode, ...region.nodes].map((node) => [node.nodeId, node])).values(),
+  ]
     .map((node) => {
       const counts = recipeCountsForNode(node.nodeId, index, mounts, deferred);
       return {
