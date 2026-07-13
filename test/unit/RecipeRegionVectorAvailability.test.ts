@@ -5,7 +5,7 @@ import {
   syncRecipeSemanticMemoriesForEntries,
 } from '../../lib/recipe-pipeline/generate/recipe-region-vector.js';
 
-describe('buildRecipeSemanticRegionVectors availability gate', () => {
+describe('buildRecipeSemanticRegionVectors authoritative maintenance', () => {
   it('passes one complete non-deprecated authority set to every batch, including an empty corpus', async () => {
     const syncRecipeSemanticRegions = vi.fn(async () => ({
       degradedReason: null,
@@ -239,8 +239,18 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
     }
   );
 
-  it('skips without touching region vectors when provider availability is degraded', async () => {
-    const syncRecipeSemanticRegions = vi.fn();
+  it('forwards complete Recipe authority when provider availability is degraded', async () => {
+    const syncRecipeSemanticRegions = vi.fn(async () => ({
+      degradedReason: 'embed-provider-unavailable',
+      errors: [],
+      generated: 1,
+      generatedMetadata: [],
+      removed: 2,
+      scanned: 1,
+      skipped: 1,
+      status: 'degraded',
+      upserted: 0,
+    }));
     const vectorService = {
       getAvailability: vi.fn(async () =>
         vectorAvailability({
@@ -259,13 +269,33 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
       })),
       syncRecipeSemanticRegions,
     };
+    const list = vi.fn(async () => ({
+      data: [
+        {
+          toJSON: () => ({
+            content: 'Live body retained without replacement embedding.',
+            id: 'recipe-live',
+            lifecycle: 'active',
+            title: 'Live Recipe',
+          }),
+        },
+        {
+          toJSON: () => ({
+            content: 'Deprecated body excluded from authority.',
+            id: 'recipe-deprecated',
+            lifecycle: 'deprecated',
+            title: 'Deprecated Recipe',
+          }),
+        },
+      ],
+    }));
     const container = createContainer({
       vectorService,
       knowledgeService: {
-        list: vi.fn(async () => {
-          throw new Error('knowledge list should not run when availability is degraded');
-        }),
+        list,
       },
+      memoryRepository: createMemoryRepository(),
+      vectorStore: { flush: vi.fn(async () => undefined) },
     });
 
     const report = await buildRecipeSemanticRegionVectors({
@@ -274,10 +304,25 @@ describe('buildRecipeSemanticRegionVectors availability gate', () => {
       logPrefix: 'test',
     });
 
-    expect(syncRecipeSemanticRegions).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledOnce();
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledOnce();
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'recipe-live' })],
+      {
+        maintenanceScope: {
+          kind: 'authoritative-corpus',
+          nonDeprecatedRecipeIds: ['recipe-live'],
+        },
+        sourceRefsBridgeByRecipeId: {},
+      }
+    );
     expect(report).toMatchObject({
       reason: 'embed-provider-unavailable',
-      status: 'skipped',
+      status: 'degraded',
+      syncResult: {
+        removed: 2,
+        upserted: 0,
+      },
       vectorAvailability: {
         available: false,
         probeStatus: 'unavailable',
