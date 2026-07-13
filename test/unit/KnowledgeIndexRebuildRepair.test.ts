@@ -8,7 +8,7 @@ import {
 // U6 P4/P5/D2 consumer wiring tests:
 //  - P4: stale>0 → repairRenames+applyRepairs 激活、renamed/applied surface、幂等重跑不重复写。
 //  - P4 degrade: 实例缺方法 → best-effort 跳过、不抛、按 reconcile 报告返回。
-//  - P5: rebuild wrapper 返回报告；region-vector skipped → 高可见 warn；synced → 无 warn。
+//  - P5: rebuild wrapper 返回报告；region-vector degraded → 高可见 warn；synced → 无 warn。
 //  - D2: tier S/M/L → 50/150/400 + env 覆盖 + 守卫回退。
 
 /** 最小 ServiceContainer.get 桩（同 RecipeRegionVectorAvailability.test.ts 口径）。 */
@@ -36,8 +36,8 @@ function reconcileReport(overrides: { stale: number } & Record<string, number>) 
 }
 
 /**
- * region-vector provider 桩：把 buildRecipeSemanticRegionVectors 推向 'skipped' 或 'synced'。
- * - unavailable=true → getAvailability 返回 available:false，建器走 vector-unavailable 跳过分支（status='skipped'）。
+ * region-vector provider 桩：把 buildRecipeSemanticRegionVectors 推向 'degraded' 或 'synced'。
+ * - unavailable=true → availability 只留诊断，权威清理仍运行且 Core 返回 degraded。
  * - unavailable=false → 单条 recipe + 可用 provider，建器走 synced 分支（semantic_memories 非 0）。
  */
 function regionVectorServices(opts: { unavailable: boolean }): Record<string, unknown> {
@@ -65,36 +65,35 @@ function regionVectorServices(opts: { unavailable: boolean }): Record<string, un
         indexSize: 0,
       })),
       syncRecipeSemanticRegions: vi.fn(async () => ({
-        degradedReason: null,
+        degradedReason: opts.unavailable ? 'embed-provider-unavailable' : null,
         errors: [],
         generated: 1,
         generatedMetadata: [],
-        removed: 0,
+        removed: opts.unavailable ? 1 : 0,
         scanned: 1,
-        status: 'completed',
-        upserted: 1,
+        skipped: opts.unavailable ? 1 : 0,
+        status: opts.unavailable ? 'degraded' : 'completed',
+        upserted: opts.unavailable ? 0 : 1,
       })),
     },
     knowledgeService: {
       list: vi.fn(async () => ({
-        data: opts.unavailable
-          ? []
-          : [
-              {
-                toJSON: () => ({
-                  category: 'runtime',
-                  content: 'Region vector recipe.',
-                  description: 'desc',
-                  dimensionId: 'architecture',
-                  id: 'recipe-rv',
-                  lifecycle: 'active',
-                  reasoning: { sources: ['Sources/App.swift'], whyStandard: 'proof' },
-                  tags: ['vector'],
-                  title: 'Region vector recipe',
-                  trigger: 'when region vectors build',
-                }),
-              },
-            ],
+        data: [
+          {
+            toJSON: () => ({
+              category: 'runtime',
+              content: 'Region vector recipe.',
+              description: 'desc',
+              dimensionId: 'architecture',
+              id: 'recipe-rv',
+              lifecycle: 'active',
+              reasoning: { sources: ['Sources/App.swift'], whyStandard: 'proof' },
+              tags: ['vector'],
+              title: 'Region vector recipe',
+              trigger: 'when region vectors build',
+            }),
+          },
+        ],
       })),
     },
     knowledgeSyncService: {
@@ -192,7 +191,7 @@ describe('U6 P4 rename repair activation', () => {
   });
 });
 
-describe('U6 P5 region-vector skip warning + report surface', () => {
+describe('U6 P5 region-vector degradation warning + report surface', () => {
   it('reuses the syncAll maintenance report instead of running a second authoritative build', async () => {
     const services = regionVectorServices({ unavailable: false });
     const syncRecipeSemanticRegions = (
@@ -247,7 +246,7 @@ describe('U6 P5 region-vector skip warning + report surface', () => {
     expect(syncRecipeSemanticRegions).not.toHaveBeenCalled();
   });
 
-  it('returns the rebuild report and emits a high-visibility warning when region vectors are skipped', async () => {
+  it('returns cleanup evidence and warns when provider-less generation is degraded', async () => {
     const reconciler = {
       reconcile: vi.fn(async () => reconcileReport({ stale: 0 })),
     };
@@ -262,7 +261,15 @@ describe('U6 P5 region-vector skip warning + report surface', () => {
       logPrefix: 'Rescan',
     });
 
-    expect(report.recipeRegionVectors.status).toBe('skipped');
+    expect(report.recipeRegionVectors).toMatchObject({
+      reason: 'embed-provider-unavailable',
+      status: 'degraded',
+      syncResult: {
+        degradedReason: 'embed-provider-unavailable',
+        removed: 1,
+        upserted: 0,
+      },
+    });
     const warned = log.warn.mock.calls.some((call) =>
       String(call[0]).includes('semantic-region vectors NOT built')
     );

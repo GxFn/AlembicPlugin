@@ -98,9 +98,9 @@ export async function rebuildLocalKnowledgeIndexes(
       logPrefix: ctx.logPrefix,
     }));
 
-  // U6 P5：region-vector provider 不可用 → 报告 status 已是 'skipped'（建器内部各跳过分支统一置位）；
-  // 这里在装配层补一条高可见 warn，让「semantic_memories 维持 0、subject-less prime 无法挣到
-  // recipe-semantic-region 信任证据」对 rescan 运维可见（建器内只有 info 级 logger）。
+  // U6 P5：region-vector provider 不可用 → 权威清理仍运行，报告 status='degraded'；
+  // 这里在装配层补一条高可见 warn，让「新 region 无法生成、subject-less prime 无法挣到
+  // 新 recipe-semantic-region 信任证据」对 rescan 运维可见（建器内只有 info 级 logger）。
   // status='synced' 时 semantic_memories 从 0→非 0，无需告警；'failed' 是带原因的非阻断失败，亦记 warn。
   warnIfRegionVectorsNotBuilt(ctx, recipeRegionVectors);
 
@@ -108,9 +108,9 @@ export async function rebuildLocalKnowledgeIndexes(
 }
 
 /**
- * U6 P5：当 region-vector 未真正构建（skipped/failed）时发高可见告警。
+ * U6 P5：当 region-vector 未真正生成（degraded/skipped/failed）时发高可见告警。
  * 仅 surface，不改变构建判定——provider 在则 status='synced'、semantic_memories 非 0；
- * provider 缺则建器已置 status='skipped'，此处把它升级成 warn 让运维注意到 region 信任证据缺口。
+ * provider 缺则 Core 仍完成权威清理并返回 degraded，此处提示新 region 信任证据缺口。
  */
 function warnIfRegionVectorsNotBuilt(
   ctx: KnowledgeIndexRebuildContext,
