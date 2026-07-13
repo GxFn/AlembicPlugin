@@ -1,19 +1,27 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
 import type { WriteZone } from '@alembic/core/io';
 import {
   JsonVectorAdapter,
+  parseRecipeIdFromRegionVectorId,
   RECIPE_REGION_VECTOR_ID_PREFIX,
   RecipeVectorGenerationManager,
   type RecipeVectorGenerationManifest,
   type RecipeVectorGenerationRoute,
   type RecipeVectorGenerationRouter,
   type RecipeVectorGenerationStoreFactory,
+  removeRecipeVectorsByTruth,
   VectorStore,
 } from '@alembic/core/vector';
 
 const GENERATION_ROOT = '.asd/context/recipe-vector-generations';
 const ACTIVE_ROUTE_FILE = `${GENERATION_ROOT}/active.json`;
+// 锁目录与 generations 根同级，避免被 listGenerationIds() 当作真实 generation。
+const ACTIVE_ROUTE_LOCK = `${GENERATION_ROOT}.active.lock`;
+const ACTIVE_ROUTE_LOCK_RETRY_MS = 5;
+const ACTIVE_ROUTE_LOCK_TIMEOUT_MS = 5_000;
 export const RECIPE_VECTOR_GENERATION_MANAGER_KEY = '_recipeVectorGenerationManager';
 
 export interface RecipeVectorGenerationRuntime {
@@ -41,7 +49,6 @@ export function createRecipeVectorGenerationRuntime(input: {
 
 class FileGenerationRouter implements RecipeVectorGenerationRouter {
   readonly #persistence: GenerationPersistence;
-  #activationTail: Promise<void> = Promise.resolve();
 
   constructor(persistence: GenerationPersistence) {
     this.#persistence = persistence;
@@ -55,22 +62,16 @@ class FileGenerationRouter implements RecipeVectorGenerationRouter {
     next: RecipeVectorGenerationRoute,
     expectedPreviousGenerationId: string | null
   ): Promise<boolean> {
-    const predecessor = this.#activationTail;
-    let release: () => void = () => undefined;
-    this.#activationTail = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await predecessor;
-    try {
+    return this.#persistence.withExclusiveDirectoryLock(ACTIVE_ROUTE_LOCK, async () => {
+      // CAS 的 read → compare → write 必须共用同一个 dataRoot 锁；实例内 Promise
+      // 队列无法约束另一个 Codex runtime，更无法约束独立进程。
       const current = await this.readActive();
       if ((current?.generationId ?? null) !== expectedPreviousGenerationId) {
         return false;
       }
       await this.#persistence.writeJsonAtomic(ACTIVE_ROUTE_FILE, next);
       return true;
-    } finally {
-      release();
-    }
+    });
   }
 }
 
@@ -131,6 +132,22 @@ class JsonGenerationStoreFactory implements RecipeVectorGenerationStoreFactory {
     }
   }
 
+  async removeRecipeFromEveryGeneration(recipeId: string): Promise<void> {
+    const failures: string[] = [];
+    for (const generationId of await this.#persistence.listGenerationIds()) {
+      try {
+        const store = await this.open(generationId);
+        const result = await removeRecipeVectorsByTruth(store, recipeId);
+        failures.push(...result.errors.map((error) => `${generationId}:${error}`));
+      } catch (error) {
+        failures.push(`${generationId}:${errorMessage(error)}`);
+      }
+    }
+    if (failures.length > 0) {
+      throw new Error(`recipe-vector-generation-truth-remove-failed:${failures.join(',')}`);
+    }
+  }
+
   async #open(generationId: string): Promise<JsonVectorAdapter> {
     const cached = this.#stores.get(generationId);
     if (cached) {
@@ -187,17 +204,35 @@ class RoutedRecipeVectorStore extends VectorStore {
   }
 
   async remove(id: string): Promise<void> {
+    const recipeId = parseRecipeIdFromRegionVectorId(id);
+    const hasLiveReplacement = recipeId
+      ? await this.#hasActiveRecipeReplacement(id, recipeId)
+      : false;
     const failures: string[] = [];
-    try {
-      await this.#base.remove(id);
-    } catch (error) {
-      failures.push(`base:${errorMessage(error)}`);
-    }
-    if (isRecipeDocumentId(id)) {
+    if (recipeId && !hasLiveReplacement) {
       try {
-        await this.#factory.removeRecipeDocumentFromEveryGeneration(id);
+        const result = await removeRecipeVectorsByTruth(this.#base, recipeId);
+        failures.push(...result.errors.map((error) => `base:${error}`));
+      } catch (error) {
+        failures.push(`base:${errorMessage(error)}`);
+      }
+      try {
+        await this.#factory.removeRecipeFromEveryGeneration(recipeId);
       } catch (error) {
         failures.push(`generations:${errorMessage(error)}`);
+      }
+    } else {
+      try {
+        await this.#base.remove(id);
+      } catch (error) {
+        failures.push(`base:${errorMessage(error)}`);
+      }
+      if (isRecipeDocumentId(id)) {
+        try {
+          await this.#factory.removeRecipeDocumentFromEveryGeneration(id);
+        } catch (error) {
+          failures.push(`generations:${errorMessage(error)}`);
+        }
       }
     }
     if (failures.length > 0) {
@@ -281,6 +316,17 @@ class RoutedRecipeVectorStore extends VectorStore {
     const active = await this.#router.readActive();
     return active ? this.#factory.open(active.generationId) : null;
   }
+
+  async #hasActiveRecipeReplacement(id: string, recipeId: string): Promise<boolean> {
+    const active = await this.#activeStore();
+    if (!active) {
+      return false;
+    }
+    return (await active.listIds()).some(
+      (candidateId) =>
+        candidateId !== id && parseRecipeIdFromRegionVectorId(candidateId) === recipeId
+    );
+  }
 }
 
 class GenerationPersistence {
@@ -347,20 +393,58 @@ class GenerationPersistence {
   }
 
   async writeJsonAtomic(relativePath: string, value: unknown): Promise<void> {
-    const temporaryPath = `${relativePath}.tmp`;
+    const temporaryPath = `${relativePath}.${process.pid}.${randomUUID()}.tmp`;
     const content = `${JSON.stringify(value, null, 2)}\n`;
     if (this.writeZone) {
       const temporary = this.writeZone.data(temporaryPath);
       const target = this.writeZone.data(relativePath);
-      await this.writeZone.writeFileAsync(temporary, content);
-      this.writeZone.rename(temporary, target);
+      try {
+        await this.writeZone.writeFileAsync(temporary, content);
+        this.writeZone.rename(temporary, target);
+      } finally {
+        await this.writeZone.removeAsync(temporary);
+      }
       return;
     }
     const target = this.absolute(relativePath);
     const temporary = this.absolute(temporaryPath);
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(temporary, content);
-    await rename(temporary, target);
+    try {
+      await writeFile(temporary, content, { flag: 'wx' });
+      await rename(temporary, target);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+
+  async withExclusiveDirectoryLock<T>(
+    relativeLockDir: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const lockDir = this.absolute(relativeLockDir);
+    await mkdir(path.dirname(lockDir), { recursive: true });
+    const deadline = Date.now() + ACTIVE_ROUTE_LOCK_TIMEOUT_MS;
+    while (true) {
+      try {
+        // 不带 recursive 的 mkdir 是跨 runtime/进程共享的原子互斥点。
+        // 锁超时 fail-closed；不能仅凭 mtime 删除可能仍被暂停进程持有的锁。
+        await mkdir(lockDir);
+        break;
+      } catch (error) {
+        if (!isAlreadyExistsError(error)) {
+          throw error;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error('recipe-vector-active-route-lock-timeout');
+        }
+        await wait(ACTIVE_ROUTE_LOCK_RETRY_MS);
+      }
+    }
+    try {
+      return await action();
+    } finally {
+      await rm(lockDir, { force: true, recursive: true });
+    }
   }
 
   async removeGeneration(generationId: string): Promise<void> {
@@ -398,6 +482,14 @@ function isMissingFileError(error: unknown): boolean {
     error instanceof Error &&
     'code' in error &&
     (error as Error & { code?: string }).code === 'ENOENT'
+  );
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as Error & { code?: string }).code === 'EEXIST'
   );
 }
 

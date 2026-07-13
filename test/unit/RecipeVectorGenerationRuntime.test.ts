@@ -7,6 +7,7 @@ import {
   JsonVectorAdapter,
   RECIPE_REGION_VECTOR_ID_PREFIX,
   type RecipeRegionSourceEntry,
+  syncRecipeSemanticRegionVectors,
 } from '@alembic/core/vector';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRecipeVectorGenerationRuntime } from '../../lib/recipe-pipeline/vector/recipe-vector-generation-runtime.js';
@@ -20,6 +21,177 @@ afterEach(() => {
 });
 
 describe('Recipe vector generation runtime', () => {
+  it('removes a deleted Recipe identity across content-hash generations and the legacy base', async () => {
+    const dataRoot = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'alembic-recipe-generation-delete-')
+    );
+    roots.push(dataRoot);
+    const base = new JsonVectorAdapter(dataRoot, {
+      indexPath: path.join(dataRoot, '.asd/context/base-vector-index.json'),
+    });
+    await base.init();
+    const runtime = createRecipeVectorGenerationRuntime({ baseStore: base, dataRoot });
+    const recipeId = 'recipe-delete-1';
+    const oldId = canonicalRecipeVectorId(recipeId, 'a'.repeat(24));
+    const newId = canonicalRecipeVectorId(recipeId, 'b'.repeat(24));
+    const oldGuidanceId = canonicalRecipeVectorId(
+      recipeId,
+      'c'.repeat(24),
+      'applicability',
+      'guidance'
+    );
+    const newGuidanceId = canonicalRecipeVectorId(
+      recipeId,
+      'd'.repeat(24),
+      'applicability',
+      'guidance'
+    );
+    const legacyId = `entry_${recipeId}`;
+
+    await base.upsert(vectorItem(legacyId, recipeId, 'legacy base'));
+    await base.upsert(vectorItem(oldId, recipeId, 'stale canonical base'));
+    const oldGeneration = await runtime.storeFactory.createShadow('generation-old');
+    await oldGeneration.batchUpsert([
+      vectorItem(oldId, recipeId, 'old generation intent'),
+      vectorItem(oldGuidanceId, recipeId, 'old generation guidance'),
+    ]);
+    expect(
+      await runtime.router.activate(
+        { generationId: 'generation-old', manifestHash: 'manifest-old' },
+        null
+      )
+    ).toBe(true);
+
+    const newGeneration = await runtime.storeFactory.createShadow('generation-new');
+    await newGeneration.batchUpsert([
+      vectorItem(newId, recipeId, 'new generation intent'),
+      vectorItem(newGuidanceId, recipeId, 'new generation guidance'),
+    ]);
+    expect(
+      await runtime.router.activate(
+        { generationId: 'generation-new', manifestHash: 'manifest-new' },
+        'generation-old'
+      )
+    ).toBe(true);
+
+    const cleanup = await syncRecipeSemanticRegionVectors(runtime.vectorStore, null, [], {
+      maintenanceScope: {
+        kind: 'authoritative-corpus',
+        nonDeprecatedRecipeIds: [],
+      },
+      removeStale: true,
+    });
+
+    expect(cleanup).toMatchObject({ removed: 2 });
+    expect(await base.getById(legacyId)).toBeNull();
+    expect(await base.getById(oldId)).toBeNull();
+    expect(await newGeneration.getById(newId)).toBeNull();
+    expect(await newGeneration.getById(newGuidanceId)).toBeNull();
+    expect(await oldGeneration.getById(oldId)).toBeNull();
+    expect(await oldGeneration.getById(oldGuidanceId)).toBeNull();
+    expect(
+      await runtime.generationManager.rollback({
+        generationId: 'generation-old',
+        manifestHash: 'manifest-old',
+      })
+    ).toBe(true);
+    expect(await runtime.vectorStore.getById(oldId)).toBeNull();
+    expect(await runtime.vectorStore.listIds()).not.toContain(oldId);
+    expect(
+      (await runtime.vectorStore.searchVector([1, 0], { topK: 10 })).map((hit) => hit.item.id)
+    ).not.toContain(oldId);
+  });
+
+  it('preserves a live replacement while retiring its stale content-hash id', async () => {
+    const dataRoot = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'alembic-recipe-generation-live-update-')
+    );
+    roots.push(dataRoot);
+    const base = new JsonVectorAdapter(dataRoot, {
+      indexPath: path.join(dataRoot, '.asd/context/base-vector-index.json'),
+    });
+    await base.init();
+    const runtime = createRecipeVectorGenerationRuntime({ baseStore: base, dataRoot });
+    const recipeId = 'recipe-live-update-1';
+    const staleId = canonicalRecipeVectorId(recipeId, 'c'.repeat(24));
+    const replacementId = canonicalRecipeVectorId(recipeId, 'd'.repeat(24));
+    const active = await runtime.storeFactory.createShadow('generation-live-update');
+    await active.batchUpsert([
+      vectorItem(staleId, recipeId, 'stale'),
+      vectorItem(replacementId, recipeId, 'replacement'),
+    ]);
+    expect(
+      await runtime.router.activate(
+        { generationId: 'generation-live-update', manifestHash: 'manifest-live-update' },
+        null
+      )
+    ).toBe(true);
+
+    await runtime.vectorStore.remove(staleId);
+
+    expect(await runtime.vectorStore.getById(staleId)).toBeNull();
+    expect(await runtime.vectorStore.getById(replacementId)).toMatchObject({
+      content: 'replacement',
+    });
+  });
+
+  it('serializes active-route CAS across independent runtimes sharing one dataRoot', async () => {
+    const dataRoot = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'alembic-recipe-generation-multi-runtime-')
+    );
+    roots.push(dataRoot);
+    const baseA = new JsonVectorAdapter(dataRoot, {
+      indexPath: path.join(dataRoot, '.asd/context/base-a.json'),
+    });
+    const baseB = new JsonVectorAdapter(dataRoot, {
+      indexPath: path.join(dataRoot, '.asd/context/base-b.json'),
+    });
+    await Promise.all([baseA.init(), baseB.init()]);
+    const runtimeA = createRecipeVectorGenerationRuntime({ baseStore: baseA, dataRoot });
+    const runtimeB = createRecipeVectorGenerationRuntime({ baseStore: baseB, dataRoot });
+    expect(
+      await runtimeA.router.activate({ generationId: 'seed', manifestHash: 'seed-hash' }, null)
+    ).toBe(true);
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const previous = await runtimeA.router.readActive();
+      const left = {
+        generationId: `left-${attempt}`,
+        manifestHash: `left-hash-${attempt}`,
+      };
+      const right = {
+        generationId: `right-${attempt}`,
+        manifestHash: `right-hash-${attempt}`,
+      };
+      const outcomes = await Promise.allSettled([
+        runtimeA.router.activate(left, previous?.generationId ?? null),
+        runtimeB.router.activate(right, previous?.generationId ?? null),
+      ]);
+
+      expect(outcomes.every((outcome) => outcome.status === 'fulfilled')).toBe(true);
+      const values = outcomes
+        .filter(
+          (outcome): outcome is PromiseFulfilledResult<boolean> => outcome.status === 'fulfilled'
+        )
+        .map((outcome) => outcome.value)
+        .sort();
+      expect(values).toEqual([false, true]);
+      expect(await runtimeB.router.readActive()).toEqual(await runtimeA.router.readActive());
+      expect([left.generationId, right.generationId]).toContain(
+        (await runtimeA.router.readActive())?.generationId
+      );
+    }
+    const generationFiles = await fs.promises.readdir(
+      path.join(dataRoot, '.asd/context/recipe-vector-generations')
+    );
+    expect(
+      generationFiles.filter((name) => name.startsWith('active.json.') && name.endsWith('.tmp'))
+    ).toEqual([]);
+    await expect(
+      fs.promises.stat(path.join(dataRoot, '.asd/context/recipe-vector-generations.active.lock'))
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('routes only verified active generations, supports rollback, and removes offline across stores', async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-recipe-generation-'));
     roots.push(dataRoot);
@@ -229,6 +401,24 @@ describe('Recipe vector generation runtime', () => {
     ).rejects.toThrow('recipe-vector-json-invalid');
   });
 });
+
+function canonicalRecipeVectorId(
+  recipeId: string,
+  hash: string,
+  regionClass = 'identity',
+  documentRole = 'intent'
+): string {
+  return `${RECIPE_REGION_VECTOR_ID_PREFIX}${recipeId}_${regionClass}_ps1_${documentRole}_${hash}`;
+}
+
+function vectorItem(id: string, recipeId: string, content: string) {
+  return {
+    id,
+    content,
+    vector: [1, 0],
+    metadata: { recipeId, type: 'recipe-semantic-region' },
+  };
+}
 
 function generationRecipe(): RecipeRegionSourceEntry {
   const source: RecipeRegionSourceEntry = {
