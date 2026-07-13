@@ -15,6 +15,7 @@ import { WriteZone } from '@alembic/core/io';
 import {
   KnowledgeFileWriter,
   KnowledgeSyncService,
+  type KnowledgeVectorMaintenance,
   type SourceRefReconciler,
 } from '@alembic/core/knowledge';
 import Logger from '@alembic/core/logging';
@@ -24,6 +25,7 @@ import {
   createAlembicRepositories,
 } from '@alembic/core/repositories';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { buildRecipeSemanticRegionVectors } from '#recipe-pipeline/generate/recipe-region-vector.js';
 import { GenerateTaskManager } from '#recipe-pipeline/generate/runtime/GenerateTaskManager.js';
 import AuditLogger from '../../infrastructure/audit/AuditLogger.js';
 import AuditStore from '../../infrastructure/audit/AuditStore.js';
@@ -172,8 +174,22 @@ function registerKnowledgeSync(c: ServiceContainer) {
     const sourceRefReconciler = getSourceRefReconciler(ct);
     return new KnowledgeSyncService(dataRoot, {
       sourceRefReconciler: sourceRefReconciler || undefined,
+      vectorMaintenance: createKnowledgeVectorMaintenance(ct),
     });
   });
+}
+
+export function createKnowledgeVectorMaintenance(
+  container: ServiceContainer
+): KnowledgeVectorMaintenance {
+  return {
+    reconcileAuthoritativeCorpus: () =>
+      buildRecipeSemanticRegionVectors({
+        container,
+        logger: container.get('logger'),
+        logPrefix: 'knowledge-sync',
+      }),
+  };
 }
 
 function getSourceRefReconciler(ct: ServiceContainer): SourceRefReconciler | undefined {

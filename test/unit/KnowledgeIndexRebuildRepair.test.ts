@@ -98,7 +98,14 @@ function regionVectorServices(opts: { unavailable: boolean }): Record<string, un
       })),
     },
     knowledgeSyncService: {
-      sync: vi.fn(() => ({ created: 0, skipped: 0, synced: 0, updated: 0 })),
+      syncAll: vi.fn(async () => ({
+        created: 0,
+        orphaned: [],
+        skipped: 0,
+        synced: 0,
+        updated: 0,
+        vectorMaintenanceStatus: 'completed',
+      })),
     },
     recipeSourceRefRepository: {
       findActiveByRecipeIds: vi.fn(() => [

@@ -29,16 +29,18 @@ interface KnowledgeIndexRebuildContext {
 }
 
 interface KnowledgeSyncServiceLike {
-  sync(
+  syncAll(
     db: unknown,
     opts?: { force?: boolean }
-  ): {
+  ): Promise<{
     created: number;
+    orphaned: string[];
     skipped: number;
     synced: number;
     updated: number;
+    vectorMaintenanceStatus: string;
     violations?: string[];
-  };
+  }>;
 }
 
 interface SourceRefReconcilerLike {
@@ -69,7 +71,7 @@ type ReconcileReportWithRepair = Awaited<ReturnType<SourceRefReconcilerLike['rec
 };
 
 export interface KnowledgeIndexRebuildReport {
-  knowledgeSync: ReturnType<KnowledgeSyncServiceLike['sync']> | null;
+  knowledgeSync: Awaited<ReturnType<KnowledgeSyncServiceLike['syncAll']>> | null;
   recipeRegionVectors: RecipeRegionVectorBuildReport;
   sourceRefs: ReconcileReportWithRepair | null;
 }
@@ -85,7 +87,7 @@ export interface KnowledgeIndexRebuildReport {
 export async function rebuildLocalKnowledgeIndexes(
   ctx: KnowledgeIndexRebuildContext
 ): Promise<KnowledgeIndexRebuildReport> {
-  const knowledgeSync = syncKnowledgeEntries(ctx);
+  const knowledgeSync = await syncKnowledgeEntries(ctx);
   const sourceRefs = await reconcileSourceRefs(ctx);
   const recipeRegionVectors = await buildRecipeSemanticRegionVectors({
     container: ctx.container,
@@ -126,17 +128,19 @@ function warnIfRegionVectorsNotBuilt(
   );
 }
 
-function syncKnowledgeEntries(
+async function syncKnowledgeEntries(
   ctx: KnowledgeIndexRebuildContext
-): ReturnType<KnowledgeSyncServiceLike['sync']> | null {
+): Promise<Awaited<ReturnType<KnowledgeSyncServiceLike['syncAll']>> | null> {
   try {
     const syncService = ctx.container.get('knowledgeSyncService') as KnowledgeSyncServiceLike;
-    const report = syncService.sync(ctx.db, { force: true });
+    const report = await syncService.syncAll(ctx.db, { force: true });
     ctx.logger.info(`[${ctx.logPrefix}] KnowledgeSyncService sync complete`, {
       created: report.created,
+      orphaned: report.orphaned.length,
       skipped: report.skipped,
       synced: report.synced,
       updated: report.updated,
+      vectorMaintenanceStatus: report.vectorMaintenanceStatus,
       violations: report.violations?.length ?? 0,
     });
     return report;
