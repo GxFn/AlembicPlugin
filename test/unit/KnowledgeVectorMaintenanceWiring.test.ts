@@ -67,13 +67,10 @@ describe('KnowledgeSyncService production vector maintenance wiring', () => {
 
     const syncService = container.get('knowledgeSyncService');
     const syncPromise = syncService.syncAll(emptyRawDb(), { skipViolations: true });
-    let settled = false;
-    void syncPromise.then(() => {
-      settled = true;
-    });
 
     await vi.waitFor(() => expect(syncRecipeSemanticRegions).toHaveBeenCalledOnce());
-    expect(settled).toBe(false);
+    const pending = Symbol('pending');
+    expect(await Promise.race([syncPromise, Promise.resolve(pending)])).toBe(pending);
     releaseMaintenance?.();
 
     await expect(syncPromise).resolves.toMatchObject({
