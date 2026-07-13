@@ -402,7 +402,13 @@ describe('SyncCoordinator', () => {
 
     it('should queue missing entries for sync', async () => {
       // vector index has entry_abc, but DB has abc and new_one
-      vectorStore.listIds = vi.fn().mockResolvedValue(['entry_abc']);
+      const storedIds = new Set(['entry_abc']);
+      vectorStore.listIds = vi.fn(async () => [...storedIds]);
+      vectorStore.batchUpsert.mockImplementation(async (items: Array<{ id: string }>) => {
+        for (const item of items) {
+          storedIds.add(item.id);
+        }
+      });
       const db = createMockDb([
         { id: 'abc', title: 'Existing', content: 'data1' },
         { id: 'new_one', title: 'New Entry', content: 'data2', kind: 'recipe' },

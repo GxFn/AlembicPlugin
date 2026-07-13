@@ -95,9 +95,12 @@ export async function buildRecipeSemanticRegionVectors(
   try {
     vectorAvailability = await vectorService.getAvailability();
   } catch (err: unknown) {
-    logger.info(`[${logPrefix}] Recipe region-vector availability probe failed; continuing cleanup`, {
-      reason: err instanceof Error ? err.message : String(err),
-    });
+    logger.info(
+      `[${logPrefix}] Recipe region-vector availability probe failed; continuing cleanup`,
+      {
+        reason: err instanceof Error ? err.message : String(err),
+      }
+    );
   }
   if (vectorAvailability && !vectorAvailability.available) {
     logger.info(`[${logPrefix}] Recipe region-vector provider unavailable; continuing cleanup`, {
