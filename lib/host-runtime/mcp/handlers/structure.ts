@@ -213,6 +213,23 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
     return createAlembicGraphMcpResult(materializeGraphContinuation(page));
   }
   const input = normalizeProjectGraphInput(ctx, args);
+  if (execution) {
+    const progressive = await defaultProjectGraphProvider.resolveAlembicGraphProgressively(
+      input,
+      execution
+    );
+    if (progressive) {
+      const page = await execution.buildSessions.publishLiveContinuation({
+        context: graphContinuationBase,
+        itemKey: graphPageEntryKey,
+        items: graphStablePageEntries,
+        lease: progressive,
+        pageSize: args.pageSize ?? 100,
+        projectRoot: input.projectRoot ?? requireRequestProjectRuntime(ctx).identity.projectRoot,
+      });
+      return createAlembicGraphMcpResult(materializeGraphContinuation(page));
+    }
+  }
   const output = await defaultProjectGraphProvider.resolveAlembicGraph(input, execution);
   const factSessionRef = output.meta.projectContext?.factSessionRef;
   if (!execution || !factSessionRef) {
@@ -241,6 +258,30 @@ function graphPageEntries(output: AlembicGraphOutput): GraphPageEntry[] {
     ...output.refs.map((value): GraphPageEntry => ({ kind: 'ref', value })),
     ...(output.slices ?? []).map((value): GraphPageEntry => ({ kind: 'slice', value })),
   ];
+}
+
+function graphStablePageEntries(output: AlembicGraphOutput, settled: boolean): GraphPageEntry[] {
+  const entries = graphPageEntries(output);
+  if (settled) {
+    return entries;
+  }
+  // A running full-space build can still discover lower-weight nodes that sort
+  // ahead of modules/targets. The project root is the only public item that is
+  // invariant from discovery through the terminal projection; repo outcomes are
+  // nevertheless spooled incrementally by the shared fact session.
+  return entries.filter((entry) => entry.kind === 'node' && entry.value.nodeType === 'project');
+}
+
+function graphPageEntryKey(entry: GraphPageEntry): string {
+  switch (entry.kind) {
+    case 'node':
+    case 'ref':
+      return `${entry.kind}:${entry.value.id}`;
+    case 'relation':
+      return `relation:${entry.value.fromId}\0${entry.value.relationType}\0${entry.value.toId}`;
+    case 'slice':
+      return `slice:${entry.value.refId ?? ''}\0${entry.value.filePath}\0${entry.value.range.startLine}\0${entry.value.range.endLine}`;
+  }
 }
 
 function graphContinuationBase(output: AlembicGraphOutput): AlembicGraphOutput {

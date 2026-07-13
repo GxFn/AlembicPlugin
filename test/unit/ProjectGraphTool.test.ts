@@ -11,6 +11,11 @@ import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/Proje
 import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
+import {
+  defaultProjectGraphProvider,
+  executeWithProjectContextRepoDeadline,
+} from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
+import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { GRAPH_QUERY_KINDS, GraphInput } from '../../lib/shared/schemas/mcp-tools.js';
 
 const tempRoots: string[] = [];
@@ -56,6 +61,7 @@ interface GraphOutput {
   tool: string;
   queryKind: string;
   summary: string;
+  continuation?: { nextCursor: string | null };
   project: Record<string, unknown>;
   repoCoverage: {
     discoveredRepoIds: string[];
@@ -83,6 +89,21 @@ function projectContextRequestKinds(output: GraphOutput): string[] {
   return Array.isArray(projectContext?.requestKinds)
     ? projectContext.requestKinds.map((kind) => String(kind))
     : [];
+}
+
+function graphStableKeys(output: GraphOutput): string[] {
+  return [
+    ...output.nodes.map((node) => `node:${String(node.id)}`),
+    ...output.relations.map(
+      (relation) =>
+        `relation:${String(relation.fromId)}\0${String(relation.relationType)}\0${String(relation.toId)}`
+    ),
+    ...output.refs.map((ref) => `ref:${String(ref.id)}`),
+    ...(output.slices ?? []).map(
+      (slice) =>
+        `slice:${String(slice.refId ?? '')}\0${String(slice.filePath)}\0${JSON.stringify(slice.range)}`
+    ),
+  ];
 }
 
 async function runGraph(projectRoot: string, args: Record<string, unknown>): Promise<GraphOutput> {
@@ -411,6 +432,89 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(handlerSource).not.toContain('resolveMcpResult');
     expect(handlerSource).toContain('resolveAlembicGraph');
     expect(handlerSource).toContain('createAlembicGraphMcpResult');
+  });
+
+  test('returns a live first page while a later repository is still running and reconstructs terminal IDs', async () => {
+    const projectRoot = createNativeScopeWorkspaceFixtureProject();
+    for (let index = 0; index < 400; index += 1) {
+      writeFile(
+        projectRoot,
+        `AlembicAgent/src/slow-${String(index).padStart(3, '0')}.ts`,
+        `export const slow${index} = ${index};\n`
+      );
+    }
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const ctx = createContext(projectRoot);
+    ctx.projectContextExecution = { buildSessions: manager };
+    try {
+      const first = (await routeGraphTool(ctx, {
+        pageSize: 4,
+        projectRoot,
+        queryKind: 'map',
+      })) as GraphResult;
+      expect(first.structuredContent.status).toBe('partial');
+      expect(first.structuredContent.repoCoverage).toMatchObject({
+        attempted: 0,
+        requested: 5,
+      });
+
+      const reconstructedKeys = graphStableKeys(first.structuredContent);
+      let terminal = first.structuredContent;
+      let cursor = first.structuredContent.continuation?.nextCursor;
+      while (cursor) {
+        const next = (await routeGraphTool(ctx, { cursor, projectRoot })) as GraphResult;
+        terminal = next.structuredContent;
+        reconstructedKeys.push(...graphStableKeys(next.structuredContent));
+        cursor = next.structuredContent.continuation?.nextCursor;
+      }
+      expect(terminal.repoCoverage).toMatchObject({
+        attempted: 5,
+        completeness: 'complete',
+        failed: 0,
+        requested: 5,
+        succeeded: 5,
+      });
+      const finalOutput = await defaultProjectGraphProvider.resolveAlembicGraph(
+        { projectRoot, queryKind: 'map' },
+        { buildSessions: manager }
+      );
+      expect(new Set(reconstructedKeys).size).toBe(reconstructedKeys.length);
+      expect([...reconstructedKeys].sort()).toEqual(
+        graphStableKeys(finalOutput as GraphOutput).sort()
+      );
+    } finally {
+      await manager.dispose();
+    }
+  });
+
+  test('repo deadline aborts its child worker and waits for cleanup acknowledgement', async () => {
+    let workerAborted = false;
+    let workerSettled = false;
+    const startedAt = Date.now();
+    await expect(
+      executeWithProjectContextRepoDeadline({
+        cleanupTimeoutMs: 100,
+        repoId: 'slow-repo',
+        timeoutMs: 10,
+        execute: (signal) =>
+          new Promise<never>((_resolve, reject) => {
+            signal.addEventListener(
+              'abort',
+              () => {
+                workerAborted = true;
+                setTimeout(() => {
+                  workerSettled = true;
+                  reject(signal.reason);
+                }, 15);
+              },
+              { once: true }
+            );
+          }),
+      })
+    ).rejects.toThrow('repo request exceeded 10ms for slow-repo');
+    expect(workerAborted).toBe(true);
+    expect(workerSettled).toBe(true);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20);
   });
 
   test('uses native ProjectScope registry as the default graph boundary', async () => {

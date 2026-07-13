@@ -86,6 +86,20 @@ export interface ProjectContextBuildLease<T> {
   value: T;
 }
 
+export interface ProjectContextProgressiveSnapshot<T> {
+  settled: boolean;
+  value: T;
+  version: number;
+}
+
+export interface ProjectContextProgressiveLease<T> {
+  factSessionRef: string;
+  fingerprint: string;
+  next(afterVersion: number, signal?: AbortSignal): Promise<ProjectContextProgressiveSnapshot<T>>;
+  release(): void;
+  snapshot: ProjectContextProgressiveSnapshot<T>;
+}
+
 export interface ProjectContextContinuationPage<T> {
   accumulatedCounts: { items: number };
   factSessionRef: string;
@@ -105,23 +119,47 @@ interface BuildRecord<T = unknown> {
   factSessionRef: string;
   fingerprint: string;
   key: string;
+  projectRoot: string;
+  progressValue?: T;
+  progressVersion: number;
+  progressWaiters: Set<() => void>;
   promise: Promise<T>;
+  scope: ProjectContextBuildScope;
   settled: boolean;
   value?: T;
 }
 
-interface ContinuationRecord {
+interface ContinuationRecordBase {
   cursor: string;
   expiresAt: number;
   factSessionRef: string;
+  fingerprint: string;
   filePath: string;
   page: number;
   pageSize: number;
   projectRoot: string;
   resultDirectory: string;
   resultRef: string;
+  scope: ProjectContextBuildScope;
   start: number;
 }
+
+interface StaticContinuationRecord extends ContinuationRecordBase {
+  kind: 'static';
+}
+
+interface LiveContinuationRecord extends ContinuationRecordBase {
+  contextFor(value: unknown): unknown;
+  deliveredKeys: Set<string>;
+  itemKey(item: unknown): string;
+  itemsFor(value: unknown, settled: boolean): readonly unknown[];
+  kind: 'live';
+  lastContext?: unknown;
+  lease: ProjectContextProgressiveLease<unknown>;
+  snapshot: ProjectContextProgressiveSnapshot<unknown>;
+}
+
+type ContinuationRecord = StaticContinuationRecord | LiveContinuationRecord;
 
 interface StoredContinuation {
   context?: unknown;
@@ -162,7 +200,7 @@ export class ProjectContextBuildSessionManager {
   }
 
   async acquire<T>(input: {
-    build(signal: AbortSignal): Promise<T>;
+    build(signal: AbortSignal, publish: (value: T) => void): Promise<T>;
     chunks?(value: T): readonly ProjectContextFactChunk[];
     projectRoot: string;
     scope: ProjectContextBuildScope;
@@ -180,7 +218,14 @@ export class ProjectContextBuildSessionManager {
     const key = digest(`${projectRoot}\0${stableJson(input.scope)}\0${fingerprint}`);
     let record = this.#sessions.get(key) as BuildRecord<T> | undefined;
     if (!record) {
-      record = this.#createBuildRecord(key, fingerprint, input.build, input.chunks);
+      record = this.#createBuildRecord(
+        key,
+        fingerprint,
+        projectRoot,
+        input.scope,
+        input.build,
+        input.chunks
+      );
       this.#sessions.set(key, record as BuildRecord);
     }
 
@@ -215,6 +260,61 @@ export class ProjectContextBuildSessionManager {
     }
   }
 
+  async acquireProgressive<T>(input: {
+    build(signal: AbortSignal, publish: (value: T) => void): Promise<T>;
+    chunks?(value: T): readonly ProjectContextFactChunk[];
+    projectRoot: string;
+    scope: ProjectContextBuildScope;
+    signal?: AbortSignal;
+  }): Promise<ProjectContextProgressiveLease<T>> {
+    this.#cleanupExpired();
+    input.signal?.throwIfAborted();
+    const projectRoot = canonicalProjectRoot(input.projectRoot);
+    const fingerprint = fingerprintProjectFacts(
+      projectRoot,
+      input.scope,
+      this.#fileHashCache,
+      input.signal
+    );
+    const key = digest(`${projectRoot}\0${stableJson(input.scope)}\0${fingerprint}`);
+    let record = this.#sessions.get(key) as BuildRecord<T> | undefined;
+    if (!record) {
+      record = this.#createBuildRecord(
+        key,
+        fingerprint,
+        projectRoot,
+        input.scope,
+        input.build,
+        input.chunks
+      );
+      this.#sessions.set(key, record as BuildRecord);
+    }
+    const activeRecord = record;
+
+    const consumer = Symbol('project-context-progressive-consumer');
+    activeRecord.activeConsumers.add(consumer);
+    try {
+      const snapshot = await this.#waitForProgress(activeRecord, 0, input.signal);
+      let released = false;
+      return {
+        factSessionRef: activeRecord.factSessionRef,
+        fingerprint,
+        snapshot,
+        next: (afterVersion, signal) => this.#waitForProgress(activeRecord, afterVersion, signal),
+        release: () => {
+          if (released) {
+            return;
+          }
+          released = true;
+          this.#releaseConsumer(activeRecord, consumer);
+        },
+      };
+    } catch (error) {
+      this.#releaseConsumer(activeRecord, consumer);
+      throw error;
+    }
+  }
+
   async publishContinuation<T>(input: {
     context?: unknown;
     factSessionRef: string;
@@ -224,6 +324,16 @@ export class ProjectContextBuildSessionManager {
   }): Promise<ProjectContextContinuationPage<T>> {
     this.#cleanupExpired();
     const projectRoot = canonicalProjectRoot(input.projectRoot);
+    const factSession = [...this.#sessions.values()].find(
+      (record) => record.factSessionRef === input.factSessionRef
+    );
+    if (!factSession || factSession.projectRoot !== projectRoot) {
+      throw new ProjectContextContinuationError(
+        'PROJECT_CONTEXT_FACT_SESSION_INVALID',
+        'The continuation cannot be attached to an unknown or cross-project fact session.',
+        false
+      );
+    }
     const pageSize = Math.max(1, Math.trunc(input.pageSize));
     const resultRef = opaqueRef('result');
     const firstItems = input.items.slice(0, pageSize);
@@ -257,12 +367,15 @@ export class ProjectContextBuildSessionManager {
       cursor,
       expiresAt: Date.now() + this.#ttlMs,
       factSessionRef: input.factSessionRef,
+      fingerprint: factSession.fingerprint,
+      kind: 'static',
       filePath,
       page: 2,
       pageSize,
       projectRoot,
       resultDirectory,
       resultRef,
+      scope: factSession.scope,
       start: pageSize,
     });
     return {
@@ -275,6 +388,67 @@ export class ProjectContextBuildSessionManager {
       resultRef,
       ...(input.context === undefined ? {} : { context: input.context }),
     };
+  }
+
+  async publishLiveContinuation<T, U>(input: {
+    context(value: T): unknown;
+    itemKey(item: U): string;
+    items(value: T, settled: boolean): readonly U[];
+    lease: ProjectContextProgressiveLease<T>;
+    pageSize: number;
+    projectRoot: string;
+  }): Promise<ProjectContextContinuationPage<U>> {
+    this.#cleanupExpired();
+    const projectRoot = canonicalProjectRoot(input.projectRoot);
+    const factSession = [...this.#sessions.values()].find(
+      (record) => record.factSessionRef === input.lease.factSessionRef
+    );
+    if (!factSession || factSession.projectRoot !== projectRoot) {
+      input.lease.release();
+      throw new ProjectContextContinuationError(
+        'PROJECT_CONTEXT_FACT_SESSION_INVALID',
+        'The live continuation cannot be attached to an unknown or cross-project fact session.',
+        false
+      );
+    }
+
+    const resultRef = opaqueRef('result');
+    const resultDirectory = path.join(this.#tempRoot, digest(resultRef));
+    mkdirOwnerOnly(resultDirectory);
+    const filePath = path.join(resultDirectory, 'live-continuation.json');
+    writeFileSync(filePath, JSON.stringify({ factSessionRef: input.lease.factSessionRef }), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    const cursor = opaqueRef('cursor');
+    const record: LiveContinuationRecord = {
+      contextFor: input.context as (value: unknown) => unknown,
+      cursor,
+      deliveredKeys: new Set(),
+      expiresAt: Date.now() + this.#ttlMs,
+      factSessionRef: input.lease.factSessionRef,
+      filePath,
+      fingerprint: factSession.fingerprint,
+      itemKey: input.itemKey as (item: unknown) => string,
+      itemsFor: input.items as (value: unknown, settled: boolean) => readonly unknown[],
+      kind: 'live',
+      lease: input.lease as ProjectContextProgressiveLease<unknown>,
+      page: 1,
+      pageSize: Math.max(1, Math.trunc(input.pageSize)),
+      projectRoot,
+      resultDirectory,
+      resultRef,
+      scope: factSession.scope,
+      snapshot: input.lease.snapshot as ProjectContextProgressiveSnapshot<unknown>,
+      start: 0,
+    };
+    this.#continuations.set(cursor, record);
+    try {
+      return await this.#readLiveContinuation<U>(record, true);
+    } catch (error) {
+      this.#cleanupResult(record);
+      throw error;
+    }
   }
 
   async readContinuation<T>(input: {
@@ -293,6 +467,23 @@ export class ProjectContextBuildSessionManager {
         'The continuation cursor belongs to a different canonical project root.',
         false
       );
+    }
+    const currentFingerprint = fingerprintProjectFacts(
+      record.projectRoot,
+      record.scope,
+      this.#fileHashCache
+    );
+    if (currentFingerprint !== record.fingerprint) {
+      this.#cleanupResult(record);
+      this.#invalidateFactSession(record.factSessionRef);
+      throw new ProjectContextContinuationError(
+        'PROJECT_CONTEXT_FACTS_CHANGED',
+        'Project source or manifest facts changed after the previous page. Retry the bounded request.',
+        true
+      );
+    }
+    if (record.kind === 'live') {
+      return this.#readLiveContinuation<T>(record, false);
     }
     const stored = JSON.parse(readFileSync(record.filePath, 'utf8')) as StoredContinuation;
     const items = stored.items.slice(record.start, record.start + record.pageSize) as T[];
@@ -341,12 +532,15 @@ export class ProjectContextBuildSessionManager {
         false
       );
     }
-    const stored = JSON.parse(readFileSync(record.filePath, 'utf8')) as StoredContinuation;
+    const context =
+      record.kind === 'live'
+        ? (record.lastContext ?? record.contextFor(record.snapshot.value))
+        : (JSON.parse(readFileSync(record.filePath, 'utf8')) as StoredContinuation).context;
     this.#cleanupResult(record);
     return {
       factSessionRef: record.factSessionRef,
       resultRef: record.resultRef,
-      ...(stored.context === undefined ? {} : { context: stored.context as T }),
+      ...(context === undefined ? {} : { context: context as T }),
     };
   }
 
@@ -373,7 +567,9 @@ export class ProjectContextBuildSessionManager {
   #createBuildRecord<T>(
     key: string,
     fingerprint: string,
-    build: (signal: AbortSignal) => Promise<T>,
+    projectRoot: string,
+    scope: ProjectContextBuildScope,
+    build: (signal: AbortSignal, publish: (value: T) => void) => Promise<T>,
     chunks?: (value: T) => readonly ProjectContextFactChunk[]
   ): BuildRecord<T> {
     const factSessionRef = opaqueRef('facts');
@@ -388,35 +584,127 @@ export class ProjectContextBuildSessionManager {
       factSessionRef,
       fingerprint,
       key,
+      projectRoot,
+      progressVersion: 0,
+      progressWaiters: new Set(),
       promise: Promise.resolve(undefined as T),
+      scope: { ...scope },
       settled: false,
     };
+    const publish = (value: T) => {
+      controller.signal.throwIfAborted();
+      record.progressValue = value;
+      record.progressVersion += 1;
+      this.#writeFactChunks(record, chunks?.(value) ?? []);
+      for (const waiter of record.progressWaiters) {
+        waiter();
+      }
+      record.progressWaiters.clear();
+    };
     record.promise = Promise.resolve()
-      .then(() => build(controller.signal))
+      .then(() => build(controller.signal, publish))
       .then((value) => {
         controller.signal.throwIfAborted();
-        const factChunks = [...(chunks?.(value) ?? [])].sort((left, right) =>
-          left.id.localeCompare(right.id)
-        );
-        for (const [index, chunk] of factChunks.entries()) {
-          const fileName = `${String(index).padStart(4, '0')}-${digest(chunk.id).slice(0, 12)}.json`;
-          writeFileSync(path.join(buildDirectory, fileName), JSON.stringify(chunk.value), {
-            encoding: 'utf8',
-            mode: 0o600,
-          });
-        }
         record.value = value;
         record.settled = true;
+        publish(value);
         record.expiresAt = Date.now() + this.#ttlMs;
         return value;
       })
       .catch((error: unknown) => {
         record.settled = true;
+        for (const waiter of record.progressWaiters) {
+          waiter();
+        }
+        record.progressWaiters.clear();
         this.#sessions.delete(key);
         rmSync(buildDirectory, { force: true, recursive: true });
         throw error;
       });
+    // Progressive callers can legitimately return a first page without awaiting
+    // the terminal build. Keep the original rejecting promise for consumers while
+    // attaching an internal observer so later cancellation cannot surface as an
+    // unhandled process rejection.
+    void record.promise.catch(() => undefined);
     return record;
+  }
+
+  async #waitForProgress<T>(
+    record: BuildRecord<T>,
+    afterVersion: number,
+    signal?: AbortSignal
+  ): Promise<ProjectContextProgressiveSnapshot<T>> {
+    signal?.throwIfAborted();
+    while (record.progressVersion <= afterVersion && !record.settled) {
+      await waitForNotification(record.progressWaiters, signal);
+    }
+    if (record.progressValue === undefined) {
+      await waitForConsumer(record.promise, signal, () => undefined);
+    }
+    if (record.progressValue === undefined) {
+      throw new Error('ProjectContext build settled without publishing a value.');
+    }
+    return {
+      settled: record.settled,
+      value: record.progressValue,
+      version: record.progressVersion,
+    };
+  }
+
+  #writeFactChunks<T>(record: BuildRecord<T>, chunks: readonly ProjectContextFactChunk[]): void {
+    for (const chunk of [...chunks].sort((left, right) => left.id.localeCompare(right.id))) {
+      const fileName = `repo-${digest(chunk.id).slice(0, 24)}.json`;
+      writeFileSync(path.join(record.buildDirectory, fileName), JSON.stringify(chunk.value), {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+    }
+  }
+
+  async #readLiveContinuation<T>(
+    record: LiveContinuationRecord,
+    initial: boolean
+  ): Promise<ProjectContextContinuationPage<T>> {
+    this.#continuations.delete(record.cursor);
+    if (!initial) {
+      this.#expiredCursors.set(record.cursor, Date.now() + this.#ttlMs);
+    }
+    while (true) {
+      const candidates = record.itemsFor(record.snapshot.value, record.snapshot.settled);
+      const available = candidates.filter(
+        (item) => !record.deliveredKeys.has(record.itemKey(item))
+      );
+      if (available.length > 0 || record.snapshot.settled) {
+        const items = available.slice(0, record.pageSize);
+        for (const item of items) {
+          record.deliveredKeys.add(record.itemKey(item));
+        }
+        record.lastContext = record.contextFor(record.snapshot.value);
+        const remaining = available.length - items.length;
+        const hasMore = remaining > 0 || !record.snapshot.settled;
+        let nextCursor: string | null = null;
+        if (hasMore) {
+          nextCursor = opaqueRef('cursor');
+          record.cursor = nextCursor;
+          record.expiresAt = Date.now() + this.#ttlMs;
+          record.page += 1;
+          this.#continuations.set(nextCursor, record);
+        } else {
+          this.#cleanupResult(record);
+        }
+        return {
+          accumulatedCounts: { items: record.deliveredKeys.size },
+          factSessionRef: record.factSessionRef,
+          hasMore,
+          items: items as T[],
+          nextCursor,
+          page: hasMore ? record.page - 1 : record.page,
+          resultRef: record.resultRef,
+          ...(record.lastContext === undefined ? {} : { context: record.lastContext }),
+        };
+      }
+      record.snapshot = await record.lease.next(record.snapshot.version);
+    }
   }
 
   #releaseConsumer(record: BuildRecord, consumer: symbol): void {
@@ -442,6 +730,21 @@ export class ProjectContextBuildSessionManager {
     }
   }
 
+  #invalidateFactSession(factSessionRef: string): void {
+    for (const [key, record] of this.#sessions) {
+      if (record.factSessionRef !== factSessionRef) {
+        continue;
+      }
+      if (!record.settled) {
+        record.controller.abort(
+          new DOMException('ProjectContext source facts changed.', 'AbortError')
+        );
+      }
+      this.#sessions.delete(key);
+      rmSync(record.buildDirectory, { force: true, recursive: true });
+    }
+  }
+
   #cleanupResult(record: ContinuationRecord): void {
     for (const [cursor, candidate] of this.#continuations) {
       if (candidate.resultRef === record.resultRef) {
@@ -450,6 +753,9 @@ export class ProjectContextBuildSessionManager {
       }
     }
     rmSync(record.resultDirectory, { force: true, recursive: true });
+    if (record.kind === 'live') {
+      record.lease.release();
+    }
     this.#cleanupBuildFiles(record.factSessionRef);
   }
 
@@ -516,6 +822,23 @@ function waitForConsumer<T>(
   });
 }
 
+function waitForNotification(waiters: Set<() => void>, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const settle = () => {
+      signal?.removeEventListener('abort', abort);
+      waiters.delete(settle);
+      resolve();
+    };
+    const abort = () => {
+      waiters.delete(settle);
+      reject(signal?.reason ?? new DOMException('ProjectContext request aborted.', 'AbortError'));
+    };
+    waiters.add(settle);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
 function fingerprintProjectFacts(
   projectRoot: string,
   scope: ProjectContextBuildScope,
@@ -523,62 +846,110 @@ function fingerprintProjectFacts(
   signal?: AbortSignal
 ): string {
   const records: string[] = [];
-  const requestedExplicitPath = scope.filePath
-    ? path.resolve(projectRoot, scope.filePath.replace(/\\/g, '/'))
-    : undefined;
-  if (requestedExplicitPath && !isPathWithin(projectRoot, requestedExplicitPath)) {
+  const explicitPath = resolveExplicitFactPath(projectRoot, scope.filePath);
+  const addFact = (absolutePath: string) =>
+    appendProjectFactRecord(records, projectRoot, absolutePath, hashCache, signal);
+  if (explicitPath) {
+    appendNarrowProjectFactRecords(projectRoot, explicitPath, addFact);
+    return digest(records.sort().join('\n'));
+  }
+  appendBroadProjectFactRecords(projectRoot, projectRoot, addFact, signal);
+  return digest(records.sort().join('\n'));
+}
+
+function resolveExplicitFactPath(projectRoot: string, filePath?: string): string | undefined {
+  if (!filePath) {
+    return undefined;
+  }
+  const requestedPath = path.resolve(projectRoot, filePath.replace(/\\/g, '/'));
+  if (!isPathWithin(projectRoot, requestedPath)) {
     throw new Error('ProjectContext build scope escapes the canonical project root.');
   }
-  const explicitPath =
-    requestedExplicitPath && existsSync(requestedExplicitPath)
-      ? realpathSync(requestedExplicitPath)
-      : requestedExplicitPath;
-  if (explicitPath && !isPathWithin(projectRoot, explicitPath)) {
+  const explicitPath = existsSync(requestedPath) ? realpathSync(requestedPath) : requestedPath;
+  if (!isPathWithin(projectRoot, explicitPath)) {
     throw new Error('ProjectContext build scope resolves outside the canonical project root.');
   }
-  const visit = (directory: string) => {
-    signal?.throwIfAborted();
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-      left.name.localeCompare(right.name)
-    )) {
-      signal?.throwIfAborted();
-      if (entry.isDirectory() && SKIPPED_DIRECTORIES.has(entry.name)) {
-        continue;
-      }
-      const absolutePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(absolutePath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
-      if (
-        !MANIFEST_NAMES.has(entry.name) &&
-        !SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()) &&
-        absolutePath !== explicitPath
-      ) {
-        continue;
-      }
-      const stat = statSync(absolutePath, { bigint: true });
-      const relativePath = path.relative(projectRoot, absolutePath).replace(/\\/g, '/');
-      const signature = [stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
-      const cached = hashCache.get(absolutePath);
-      const hash =
-        cached?.signature === signature ? cached.hash : digest(readFileSync(absolutePath));
-      if (cached?.signature !== signature) {
-        hashCache.set(absolutePath, { hash, signature });
-      }
-      records.push(
-        [relativePath, '1', stat.size.toString(), stat.mtimeNs.toString(), hash].join('\0')
-      );
-    }
-  };
-  visit(projectRoot);
-  if (explicitPath && !existsSync(explicitPath)) {
-    records.push([path.relative(projectRoot, explicitPath), '0', '0', '0'].join('\0'));
+  return explicitPath;
+}
+
+function appendProjectFactRecord(
+  records: string[],
+  projectRoot: string,
+  absolutePath: string,
+  hashCache: Map<string, { hash: string; signature: string }>,
+  signal?: AbortSignal
+): void {
+  signal?.throwIfAborted();
+  if (!existsSync(absolutePath)) {
+    records.push([path.relative(projectRoot, absolutePath), '0', '0', '0'].join('\0'));
+    return;
   }
-  return digest(records.sort().join('\n'));
+  const canonicalPath = realpathSync(absolutePath);
+  if (!isPathWithin(projectRoot, canonicalPath)) {
+    throw new Error('ProjectContext fact resolves outside the canonical project root.');
+  }
+  const stat = statSync(canonicalPath, { bigint: true });
+  const relativePath = path.relative(projectRoot, absolutePath).replace(/\\/g, '/');
+  const signature = [stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
+  const cached = hashCache.get(canonicalPath);
+  const hash = cached?.signature === signature ? cached.hash : digest(readFileSync(canonicalPath));
+  if (cached?.signature !== signature) {
+    hashCache.set(canonicalPath, { hash, signature });
+  }
+  records.push([relativePath, '1', stat.size.toString(), stat.mtimeNs.toString(), hash].join('\0'));
+}
+
+function appendNarrowProjectFactRecords(
+  projectRoot: string,
+  explicitPath: string,
+  addFact: (absolutePath: string) => void
+): void {
+  addFact(explicitPath);
+  let directory = path.dirname(explicitPath);
+  while (isPathWithin(projectRoot, directory)) {
+    for (const manifestName of [...MANIFEST_NAMES].sort()) {
+      const manifestPath = path.join(directory, manifestName);
+      if (existsSync(manifestPath)) {
+        addFact(manifestPath);
+      }
+    }
+    if (directory === projectRoot) {
+      return;
+    }
+    directory = path.dirname(directory);
+  }
+}
+
+function appendBroadProjectFactRecords(
+  projectRoot: string,
+  directory: string,
+  addFact: (absolutePath: string) => void,
+  signal?: AbortSignal
+): void {
+  signal?.throwIfAborted();
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )) {
+    signal?.throwIfAborted();
+    if (entry.isDirectory() && SKIPPED_DIRECTORIES.has(entry.name)) {
+      continue;
+    }
+    const absolutePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      appendBroadProjectFactRecords(projectRoot, absolutePath, addFact, signal);
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+    if (
+      !MANIFEST_NAMES.has(entry.name) &&
+      !SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+    ) {
+      continue;
+    }
+    addFact(absolutePath);
+  }
 }
 
 function canonicalProjectRoot(projectRoot: string): string {

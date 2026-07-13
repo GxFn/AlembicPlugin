@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
-import { defaultProjectGraphProvider } from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
-import { graph } from '../../lib/host-runtime/mcp/handlers/structure.js';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
-import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import { HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
+import { graph } from '../../lib/host-runtime/mcp/handlers/structure.js';
+import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
+import { defaultProjectGraphProvider } from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
+import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 
 const roots: string[] = [];
 
@@ -27,6 +27,42 @@ function fixture(): string {
 }
 
 describe('ProjectContextBuildSessionManager', () => {
+  test('publishes an in-flight snapshot before the shared build settles', async () => {
+    const projectRoot = fixture();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    let releaseBuild = () => undefined;
+    let finalSettled = false;
+    const lease = await manager.acquireProgressive({
+      projectRoot,
+      scope: { kind: 'space' },
+      build: async (_signal, publish) => {
+        publish({ ids: ['project'] });
+        await new Promise<void>((resolve) => {
+          releaseBuild = resolve;
+        });
+        finalSettled = true;
+        return { ids: ['project', 'repo:a'] };
+      },
+      chunks: (value) => value.ids.map((id) => ({ id, value: { id } })),
+    });
+
+    expect(lease.snapshot).toMatchObject({
+      settled: false,
+      value: { ids: ['project'] },
+    });
+    expect(finalSettled).toBe(false);
+    const finalSnapshot = lease.next(lease.snapshot.version);
+    releaseBuild();
+    await expect(finalSnapshot).resolves.toMatchObject({
+      settled: true,
+      value: { ids: ['project', 'repo:a'] },
+    });
+    expect(finalSettled).toBe(true);
+    lease.release();
+    expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
+    await manager.dispose();
+  });
+
   test('Graph and Recipe Map region consume the same broad fact session', async () => {
     const projectRoot = fixture();
     const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
@@ -87,6 +123,31 @@ describe('ProjectContextBuildSessionManager', () => {
     await manager.dispose();
   });
 
+  test('public live Graph cursor rejects changed source facts and removes ephemeral state', async () => {
+    const projectRoot = fixture();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const ctx: McpContext = {
+      container: { get: () => undefined },
+      projectRuntime: buildProjectRuntimeContext({ projectRoot }),
+      projectContextExecution: { buildSessions: manager },
+    };
+    const first = (await graph(ctx, { queryKind: 'map', pageSize: 1 })) as {
+      structuredContent: { continuation: { nextCursor: string | null } };
+    };
+    const cursor = first.structuredContent.continuation.nextCursor;
+    if (!cursor) {
+      throw new Error('Expected a live Graph continuation cursor.');
+    }
+    fs.writeFileSync(path.join(projectRoot, 'lib/index.ts'), 'export const value = 2;\n');
+
+    await expect(graph(ctx, { cursor })).rejects.toMatchObject({
+      code: 'PROJECT_CONTEXT_FACTS_CHANGED',
+      retryable: true,
+    });
+    expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
+    await manager.dispose();
+  });
+
   test('Host reuses a project-confined session across explicit projectRoot calls', async () => {
     const hostRoot = fixture();
     const projectRoot = fixture();
@@ -139,6 +200,35 @@ describe('ProjectContextBuildSessionManager', () => {
     expect(builds).toBe(2);
     expect(changed.factSessionRef).not.toBe(first.factSessionRef);
     changed.release();
+    await manager.dispose();
+  });
+
+  test('narrow file sessions ignore unrelated sources but invalidate on the file or containing manifest', async () => {
+    const projectRoot = fixture();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    let builds = 0;
+    const build = async () => ({ build: ++builds });
+    const scope = { kind: 'file-symbols', filePath: 'lib/index.ts' };
+
+    const first = await manager.acquire({ projectRoot, scope, build });
+    first.release();
+    fs.writeFileSync(path.join(projectRoot, 'lib/unrelated.ts'), 'export const unrelated = 1;\n');
+    const unrelated = await manager.acquire({ projectRoot, scope, build });
+    expect(unrelated.factSessionRef).toBe(first.factSessionRef);
+    expect(builds).toBe(1);
+    unrelated.release();
+
+    fs.writeFileSync(path.join(projectRoot, 'lib/index.ts'), 'export const value = 2;\n');
+    const sourceChanged = await manager.acquire({ projectRoot, scope, build });
+    expect(sourceChanged.factSessionRef).not.toBe(first.factSessionRef);
+    expect(builds).toBe(2);
+    sourceChanged.release();
+
+    fs.writeFileSync(path.join(projectRoot, 'package.json'), '{"name":"fixture-v2"}\n');
+    const manifestChanged = await manager.acquire({ projectRoot, scope, build });
+    expect(manifestChanged.factSessionRef).not.toBe(sourceChanged.factSessionRef);
+    expect(builds).toBe(3);
+    manifestChanged.release();
     await manager.dispose();
   });
 
@@ -221,6 +311,33 @@ describe('ProjectContextBuildSessionManager', () => {
     expect(third).toMatchObject({ items: ['e'], hasMore: false, page: 3 });
     expect([...first.items, ...second.items, ...third.items]).toEqual(['a', 'b', 'c', 'd', 'e']);
     expect(fs.readdirSync(tempRoot)).toEqual([]);
+    lease.release();
+    await manager.dispose();
+  });
+
+  test('invalidates and cleans a continuation when its source facts change between pages', async () => {
+    const projectRoot = fixture();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const lease = await manager.acquire({
+      projectRoot,
+      scope: { kind: 'space' },
+      build: async () => ({ ids: ['a', 'b', 'c'] }),
+    });
+    const first = await manager.publishContinuation({
+      projectRoot,
+      factSessionRef: lease.factSessionRef,
+      items: lease.value.ids,
+      pageSize: 1,
+    });
+    fs.writeFileSync(path.join(projectRoot, 'lib/index.ts'), 'export const value = 2;\n');
+
+    await expect(
+      manager.readContinuation({ projectRoot, cursor: first.nextCursor! })
+    ).rejects.toMatchObject({
+      code: 'PROJECT_CONTEXT_FACTS_CHANGED',
+      retryable: true,
+    });
+    expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
     lease.release();
     await manager.dispose();
   });

@@ -56,6 +56,8 @@ import type {
   ProjectContextBuildScope,
   ProjectContextBuildSessionManager,
   ProjectContextFactChunk,
+  ProjectContextProgressiveLease,
+  ProjectContextProgressiveSnapshot,
 } from '../session/ProjectContextBuildSessionManager.js';
 import { defaultRefRegistry, stableRefSegment } from '../support/index.js';
 import { discoverInitializedGitSubmoduleRepoFolders } from './GitSubmoduleRepoDiscovery.js';
@@ -150,6 +152,7 @@ const ALLOWED_RELATION_TYPES = [
 const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
 const GRAPH_REPO_CONCURRENCY = 4;
 const GRAPH_REPO_TIMEOUT_MS = 10_000;
+const GRAPH_REPO_CLEANUP_ACK_TIMEOUT_MS = 1_000;
 const GRAPH_MODULE_QUERY_PROBE_LIMIT = 12;
 const GRAPH_MODULE_SCOPE_PROBE_WIDTH = 2;
 const GRAPH_STRONG_IDENTIFIER_SCORE = 40;
@@ -209,6 +212,7 @@ interface ProjectContextGraphFacts {
   maps: ProjectMap[];
   moduleLayers: ModuleLayerContext[];
   modules: ModuleContext[];
+  projectName?: string;
   // Raw ProjectContext refs accumulated across every executed request; projected
   // into the Recipe-free AlembicGraphOutput `refs` list.
   projectContextRefs: ProjectContextRef[];
@@ -254,6 +258,54 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
       queryKind,
       selection,
     });
+  }
+
+  async resolveAlembicGraphProgressively(
+    input: ProjectGraphInput,
+    options: ProjectGraphExecutionOptions
+  ): Promise<ProjectContextProgressiveLease<AlembicGraphOutput> | null> {
+    if (!options.buildSessions) {
+      return null;
+    }
+    const projectRoot = input.projectRoot ?? process.cwd();
+    const normalizedInput = normalizeGraphProviderInput(input);
+    const queryKind = resolveGraphQueryKind(normalizedInput);
+    if (preflightAlembicGraphSelection(normalizedInput, queryKind)) {
+      return null;
+    }
+    const buildInput = canonicalProjectContextBuildInput(normalizedInput);
+    const buildLease = await options.buildSessions.acquireProgressive({
+      projectRoot,
+      scope: projectContextBuildScope(buildInput),
+      signal: options.signal,
+      build: (signal, publish) => this.buildGraphUncached(projectRoot, buildInput, signal, publish),
+      chunks: graphBuildFactChunks,
+    });
+    const project = (snapshot: ProjectContextProgressiveSnapshot<GraphBuild>) => {
+      const build = {
+        ...snapshot.value,
+        factSessionRef: buildLease.factSessionRef,
+        factFingerprint: buildLease.fingerprint,
+      };
+      return {
+        settled: snapshot.settled,
+        value: projectAlembicGraphOutput({
+          build,
+          input: normalizedInput,
+          projectRoot,
+          queryKind,
+          selection: selectAlembicGraph(build, normalizedInput, queryKind),
+        }),
+        version: snapshot.version,
+      } satisfies ProjectContextProgressiveSnapshot<AlembicGraphOutput>;
+    };
+    return {
+      factSessionRef: buildLease.factSessionRef,
+      fingerprint: buildLease.fingerprint,
+      snapshot: project(buildLease.snapshot),
+      next: async (afterVersion, signal) => project(await buildLease.next(afterVersion, signal)),
+      release: buildLease.release,
+    };
   }
 
   // GMAP-3: shared ProjectContext region projection consumed by both alembic_graph
@@ -308,71 +360,103 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
   private async buildGraphUncached(
     projectRoot: string,
     input: ProjectGraphInput,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    publish?: (value: GraphBuild) => void
   ): Promise<GraphBuild> {
-    const projectContextFacts = await buildProjectContextGraphFacts(projectRoot, input, signal);
-    const projectName = projectNameFromProjectContextFacts(projectContextFacts, projectRoot);
-    const projectId = `project:${stableRefSegment(projectName) || 'project'}`;
-    const projectRef = defaultRefRegistry.createDetailRef({
-      domain: 'project',
-      id: projectId,
-      operation: 'project-graph',
-      requiredForCompletion: true,
-      summary:
-        'Bounded project graph projected from ProjectContextCapabilities.execute public envelopes.',
-      title: `Project graph: ${projectName}`,
-      tool: 'alembic_graph',
-      uri: projectRoot,
-    });
-    const nodes = new NodeStore(projectRef.id, (nodePath) =>
-      includeGeneratedArtifactPath(nodePath, input, projectContextFacts.trace)
+    const projectContextFacts = await buildProjectContextGraphFacts(
+      projectRoot,
+      input,
+      signal,
+      publish
+        ? (facts) => publish(projectGraphBuildFromFacts(projectRoot, input, facts, true))
+        : undefined
     );
-    const relations = new RelationStore();
-    nodes.add({ id: projectId, label: projectName, nodeType: 'project', path: '.' });
-
-    for (const repoContext of projectContextFacts.repos) {
-      addRepoContextNodes(nodes, relations, projectId, repoContext);
-    }
-    for (const moduleContext of projectContextFacts.modules) {
-      addModuleContextNodes(nodes, relations, projectId, moduleContext);
-    }
-    for (const layerContext of projectContextFacts.moduleLayers) {
-      addModuleLayerContextNodes(nodes, relations, layerContext);
-    }
-    for (const mapContext of projectContextFacts.maps) {
-      addProjectMapContextNodes(nodes, relations, projectId, mapContext);
-    }
-
-    addProjectContextFileFlowEdges(projectContextFacts.fileFlows, nodes, relations);
-    addFileSymbolContextNodes(projectContextFacts.fileSymbols, nodes, relations, input.symbolName);
-    addAnchorRangeContextNodes(projectContextFacts.anchorRanges, nodes, relations, projectId);
-    addProjectContextPathOwnershipRelations(projectContextFacts, nodes, relations, projectId);
-
-    return {
-      detailRefs: dedupeDetailRefs([projectRef, ...projectContextFacts.detailRefs]).slice(
-        0,
-        MAX_PROJECT_CONTEXT_DETAIL_REFS
-      ),
-      diagnostics: projectContextFacts.diagnostics,
-      nodes: nodes.values(),
-      projectContext: projectContextFacts.trace,
-      projectContextRefs: projectContextFacts.projectContextRefs,
-      projectName,
-      projectRef,
-      relations: relations.values(),
-      sourceSlices: buildGraphSourceSlices(projectContextFacts),
-      sources: [
-        {
-          domain: 'project',
-          id: projectRef.id,
-          detailRefId: projectRef.id,
-          summary:
-            'Project graph facts were projected from ProjectContextCapabilities.execute outputs; local paths are only request anchors.',
-        },
-        ...projectContextFacts.sources,
-      ],
-    };
+    return projectGraphBuildFromFacts(projectRoot, input, projectContextFacts, false);
   }
+}
+
+function projectGraphBuildFromFacts(
+  projectRoot: string,
+  input: ProjectGraphInput,
+  projectContextFacts: ProjectContextGraphFacts,
+  forcePartial: boolean
+): GraphBuild {
+  const projectedTrace: ProjectGraphProjectContextTrace = {
+    ...projectContextFacts.trace,
+    generatedArtifactSkipSamples: [...projectContextFacts.trace.generatedArtifactSkipSamples],
+    repoCoverage: {
+      ...projectContextFacts.trace.repoCoverage,
+      discoveredRepoIds: [...projectContextFacts.trace.repoCoverage.discoveredRepoIds],
+      succeededRepoIds: [...projectContextFacts.trace.repoCoverage.succeededRepoIds],
+      failedRepoIds: [...projectContextFacts.trace.repoCoverage.failedRepoIds],
+      omittedRepoIds: [...projectContextFacts.trace.repoCoverage.omittedRepoIds],
+    },
+    requestKinds: [...projectContextFacts.trace.requestKinds],
+  };
+  const projectName = projectNameFromProjectContextFacts(projectContextFacts, projectRoot);
+  const projectId = `project:${stableRefSegment(projectName) || 'project'}`;
+  const projectRef = defaultRefRegistry.createDetailRef({
+    domain: 'project',
+    id: projectId,
+    operation: 'project-graph',
+    requiredForCompletion: true,
+    summary:
+      'Bounded project graph projected from ProjectContextCapabilities.execute public envelopes.',
+    title: `Project graph: ${projectName}`,
+    tool: 'alembic_graph',
+    uri: projectRoot,
+  });
+  const nodes = new NodeStore(projectRef.id, (nodePath) =>
+    includeGeneratedArtifactPath(nodePath, input, projectedTrace)
+  );
+  const relations = new RelationStore();
+  nodes.add({ id: projectId, label: projectName, nodeType: 'project', path: '.' });
+
+  for (const repoContext of projectContextFacts.repos) {
+    addRepoContextNodes(nodes, relations, projectId, repoContext);
+  }
+  for (const moduleContext of projectContextFacts.modules) {
+    addModuleContextNodes(nodes, relations, projectId, moduleContext);
+  }
+  for (const layerContext of projectContextFacts.moduleLayers) {
+    addModuleLayerContextNodes(nodes, relations, layerContext);
+  }
+  for (const mapContext of projectContextFacts.maps) {
+    addProjectMapContextNodes(nodes, relations, projectId, mapContext);
+  }
+
+  addProjectContextFileFlowEdges(projectContextFacts.fileFlows, nodes, relations);
+  addFileSymbolContextNodes(projectContextFacts.fileSymbols, nodes, relations, input.symbolName);
+  addAnchorRangeContextNodes(projectContextFacts.anchorRanges, nodes, relations, projectId);
+  addProjectContextPathOwnershipRelations(projectContextFacts, nodes, relations, projectId);
+
+  return {
+    detailRefs: dedupeDetailRefs([projectRef, ...projectContextFacts.detailRefs]).slice(
+      0,
+      MAX_PROJECT_CONTEXT_DETAIL_REFS
+    ),
+    diagnostics: [...projectContextFacts.diagnostics],
+    nodes: nodes.values(),
+    projectContext: {
+      ...projectedTrace,
+      partial: projectedTrace.partial || forcePartial,
+    },
+    projectContextRefs: [...projectContextFacts.projectContextRefs],
+    projectName,
+    projectRef,
+    relations: relations.values(),
+    sourceSlices: buildGraphSourceSlices(projectContextFacts),
+    sources: [
+      {
+        domain: 'project',
+        id: projectRef.id,
+        detailRefId: projectRef.id,
+        summary:
+          'Project graph facts were projected from ProjectContextCapabilities.execute outputs; local paths are only request anchors.',
+      },
+      ...projectContextFacts.sources,
+    ],
+  };
 }
 
 function normalizeGraphProviderInput(input: ProjectGraphInput): ProjectGraphInput {
@@ -426,7 +510,12 @@ function projectContextBuildScope(input: ProjectGraphInput): ProjectContextBuild
 }
 
 function graphBuildFactChunks(build: GraphBuild): ProjectContextFactChunk[] {
-  const repoIds = [...build.projectContext.repoCoverage.discoveredRepoIds].sort();
+  const repoIds = [
+    ...new Set([
+      ...build.projectContext.repoCoverage.succeededRepoIds,
+      ...build.projectContext.repoCoverage.failedRepoIds,
+    ]),
+  ].sort();
   return repoIds.map((repoId) => ({
     id: repoId,
     value: {
@@ -568,7 +657,8 @@ function emptyGraphBuild(projectRoot: string): GraphBuild {
 async function buildProjectContextGraphFacts(
   projectRoot: string,
   input: ProjectGraphInput,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (facts: ProjectContextGraphFacts) => void
 ): Promise<ProjectContextGraphFacts> {
   const facts: ProjectContextGraphFacts = {
     anchorRanges: [],
@@ -605,7 +695,13 @@ async function buildProjectContextGraphFacts(
     if (isExplicitFileGraphTraversal(input)) {
       await collectNarrowGraphFileContexts(facts, projectRoot, input, signal);
     } else {
-      await collectGraphRepoContexts(facts, projectRoot, input, signal);
+      await collectGraphRepoContexts(
+        facts,
+        projectRoot,
+        input,
+        signal,
+        onProgress ? () => onProgress(facts) : undefined
+      );
       const moduleSeeds = createGraphModuleSeedsFromRepoContexts(facts.repos, input, facts.trace);
       await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input, signal);
       await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input, signal);
@@ -827,7 +923,8 @@ async function collectGraphRepoContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
   input: ProjectGraphInput,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: () => void
 ) {
   const spaceEnvelope = await executeGraphProjectContextRequest(
     'space',
@@ -843,105 +940,164 @@ async function collectGraphRepoContexts(
     signal
   );
   collectGraphEnvelope(facts, spaceEnvelope, 'project-context-space', input);
+  if (isSpaceContext(spaceEnvelope.data)) {
+    facts.projectName =
+      rootManifestProjectName(projectRoot) ??
+      spaceEnvelope.data.space.displayName ??
+      projectNameFromRoot(projectRoot);
+  }
   const folders: GraphRepoFolder[] = isSpaceContext(spaceEnvelope.data)
     ? selectGraphRepoFolders(spaceEnvelope.data, projectRoot)
     : [{ repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }];
 
   const discoveredRepoIds = folders.map(graphRepoCoverageId);
-  const outcomes = await mapWithBoundedConcurrency<GraphRepoFolder, GraphRepoCollectionOutcome>(
+  const succeededRepoIds: string[] = [];
+  const failedRepoIds: string[] = [];
+  let timeoutCount = 0;
+  const updateCoverage = () => {
+    const attempted = succeededRepoIds.length + failedRepoIds.length;
+    facts.trace.repoCoverage = {
+      scope: 'repositories',
+      requested: folders.length,
+      attempted,
+      succeeded: succeededRepoIds.length,
+      failed: failedRepoIds.length,
+      omitted: 0,
+      completeness: attempted < folders.length || failedRepoIds.length > 0 ? 'partial' : 'complete',
+      discoveredRepoIds,
+      succeededRepoIds: [...succeededRepoIds],
+      failedRepoIds: [...failedRepoIds],
+      omittedRepoIds: [],
+      timeoutCount,
+    };
+  };
+  updateCoverage();
+  if (onProgress) {
+    onProgress();
+    await yieldGraphProgress(signal);
+  }
+
+  const pendingOutcomes = new Map<number, GraphRepoCollectionOutcome>();
+  let nextOutcomeIndex = 0;
+  await mapWithBoundedConcurrency<GraphRepoFolder, GraphRepoCollectionOutcome>(
     folders,
     GRAPH_REPO_CONCURRENCY,
     async (folder): Promise<GraphRepoCollectionOutcome> => {
       try {
-        const envelope = await withGraphRepoTimeout(
-          executeGraphProjectContextRequest(
-            'repo',
-            projectRoot,
-            {
-              includeCommands: true,
-              includeEntrypoints: true,
-              includeMapSummary: false,
-              includeTopAreas: true,
-              maxFiles: GRAPH_REPO_MAX_FILES,
-              repoName: folder.repoName,
-              repoRoot: folder.sourceFolder,
-            },
-            { repoId: folder.repoId, sourceFolder: folder.sourceFolder },
-            signal
-          ),
-          graphRepoCoverageId(folder)
-        );
+        const envelope = await executeWithProjectContextRepoDeadline({
+          execute: (repoSignal) =>
+            executeGraphProjectContextRequest(
+              'repo',
+              projectRoot,
+              {
+                includeCommands: true,
+                includeEntrypoints: true,
+                includeMapSummary: false,
+                includeTopAreas: true,
+                maxFiles: GRAPH_REPO_MAX_FILES,
+                repoName: folder.repoName,
+                repoRoot: folder.sourceFolder,
+              },
+              { repoId: folder.repoId, sourceFolder: folder.sourceFolder },
+              repoSignal
+            ),
+          parentSignal: signal,
+          repoId: graphRepoCoverageId(folder),
+        });
         return { envelope, folder };
       } catch (error: unknown) {
+        if (signal?.aborted) {
+          throw signal.reason ?? error;
+        }
         return { error, folder };
+      }
+    },
+    (outcome, index) => {
+      pendingOutcomes.set(index, outcome);
+      while (pendingOutcomes.has(nextOutcomeIndex)) {
+        const nextOutcome = pendingOutcomes.get(nextOutcomeIndex);
+        if (!nextOutcome) {
+          break;
+        }
+        pendingOutcomes.delete(nextOutcomeIndex);
+        applyGraphRepoOutcome(facts, input, nextOutcome, succeededRepoIds, failedRepoIds, () => {
+          timeoutCount += 1;
+        });
+        nextOutcomeIndex += 1;
+        updateCoverage();
+        onProgress?.();
       }
     }
   );
+}
 
-  const succeededRepoIds: string[] = [];
-  const failedRepoIds: string[] = [];
-  let timeoutCount = 0;
-  for (const outcome of outcomes) {
-    const repoId = graphRepoCoverageId(outcome.folder);
-    if ('error' in outcome) {
-      failedRepoIds.push(repoId);
-      if (outcome.error instanceof GraphRepoTimeoutError) {
-        timeoutCount += 1;
-      }
-      facts.trace.errorCount += 1;
-      facts.trace.partial = true;
-      facts.diagnostics.push({
-        code:
-          outcome.error instanceof GraphRepoTimeoutError
-            ? 'project-context-repo-timeout'
-            : 'project-context-repo-failed',
-        domain: 'project',
-        message: `ProjectContext repo collection failed for ${repoId}: ${
-          outcome.error instanceof Error ? outcome.error.message : String(outcome.error)
-        }`,
-        retryable: true,
-        severity: 'warning',
-      });
-      continue;
-    }
+function yieldGraphProgress(signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const immediate = setImmediate(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    });
+    const abort = () => {
+      clearImmediate(immediate);
+      reject(signal?.reason ?? new DOMException('ProjectContext request aborted.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
 
-    const errorCountBeforeCollection = facts.trace.errorCount;
-    collectGraphEnvelope(facts, outcome.envelope, 'project-context-repo', input);
-    const relevantErrorCount = facts.trace.errorCount - errorCountBeforeCollection;
-    const completed = isRepoContext(outcome.envelope.data) && relevantErrorCount === 0;
-    if (completed && isRepoContext(outcome.envelope.data)) {
-      facts.repos.push(outcome.envelope.data);
-      succeededRepoIds.push(repoId);
-    } else {
-      failedRepoIds.push(repoId);
-      facts.trace.partial = true;
-      if (relevantErrorCount === 0) {
-        facts.trace.errorCount += 1;
-        facts.diagnostics.push({
-          code: 'project-context-repo-result-missing',
-          domain: 'project',
-          message: `ProjectContext repo collection returned no usable repo facts for ${repoId}.`,
-          retryable: true,
-          severity: 'warning',
-        });
-      }
+function applyGraphRepoOutcome(
+  facts: ProjectContextGraphFacts,
+  input: ProjectGraphInput,
+  outcome: GraphRepoCollectionOutcome,
+  succeededRepoIds: string[],
+  failedRepoIds: string[],
+  recordTimeout: () => void
+): void {
+  const repoId = graphRepoCoverageId(outcome.folder);
+  if ('error' in outcome) {
+    failedRepoIds.push(repoId);
+    if (outcome.error instanceof GraphRepoTimeoutError) {
+      recordTimeout();
     }
+    facts.trace.errorCount += 1;
+    facts.trace.partial = true;
+    facts.diagnostics.push({
+      code:
+        outcome.error instanceof GraphRepoTimeoutError
+          ? 'project-context-repo-timeout'
+          : 'project-context-repo-failed',
+      domain: 'project',
+      message: `ProjectContext repo collection failed for ${repoId}: ${
+        outcome.error instanceof Error ? outcome.error.message : String(outcome.error)
+      }`,
+      retryable: true,
+      severity: 'warning',
+    });
+    return;
   }
 
-  facts.trace.repoCoverage = {
-    scope: 'repositories',
-    requested: folders.length,
-    attempted: folders.length,
-    succeeded: succeededRepoIds.length,
-    failed: failedRepoIds.length,
-    omitted: 0,
-    completeness: failedRepoIds.length === 0 ? 'complete' : 'partial',
-    discoveredRepoIds,
-    succeededRepoIds,
-    failedRepoIds,
-    omittedRepoIds: [],
-    timeoutCount,
-  };
+  const errorCountBeforeCollection = facts.trace.errorCount;
+  collectGraphEnvelope(facts, outcome.envelope, 'project-context-repo', input);
+  const relevantErrorCount = facts.trace.errorCount - errorCountBeforeCollection;
+  const completed = isRepoContext(outcome.envelope.data) && relevantErrorCount === 0;
+  if (completed && isRepoContext(outcome.envelope.data)) {
+    facts.repos.push(outcome.envelope.data);
+    succeededRepoIds.push(repoId);
+    return;
+  }
+  failedRepoIds.push(repoId);
+  facts.trace.partial = true;
+  if (relevantErrorCount === 0) {
+    facts.trace.errorCount += 1;
+    facts.diagnostics.push({
+      code: 'project-context-repo-result-missing',
+      domain: 'project',
+      message: `ProjectContext repo collection returned no usable repo facts for ${repoId}.`,
+      retryable: true,
+      severity: 'warning',
+    });
+  }
 }
 
 interface GraphRepoFolder {
@@ -959,35 +1115,103 @@ function graphRepoCoverageId(folder: GraphRepoFolder): string {
 }
 
 class GraphRepoTimeoutError extends Error {
-  constructor(repoId: string) {
-    super(`repo request exceeded ${GRAPH_REPO_TIMEOUT_MS}ms for ${repoId}`);
+  constructor(repoId: string, timeoutMs = GRAPH_REPO_TIMEOUT_MS) {
+    super(`repo request exceeded ${timeoutMs}ms for ${repoId}`);
     this.name = 'GraphRepoTimeoutError';
   }
 }
 
-async function withGraphRepoTimeout<T>(promise: Promise<T>, repoId: string): Promise<T> {
+class GraphRepoCleanupTimeoutError extends GraphRepoTimeoutError {
+  constructor(repoId: string, timeoutMs: number, cleanupTimeoutMs: number) {
+    super(repoId, timeoutMs);
+    this.name = 'GraphRepoCleanupTimeoutError';
+    this.message = `${this.message}; worker did not acknowledge abort within ${cleanupTimeoutMs}ms`;
+  }
+}
+
+export async function executeWithProjectContextRepoDeadline<T>(input: {
+  cleanupTimeoutMs?: number;
+  execute(signal: AbortSignal): Promise<T>;
+  parentSignal?: AbortSignal;
+  repoId: string;
+  timeoutMs?: number;
+}): Promise<T> {
+  const timeoutMs = input.timeoutMs ?? GRAPH_REPO_TIMEOUT_MS;
+  const cleanupTimeoutMs = input.cleanupTimeoutMs ?? GRAPH_REPO_CLEANUP_ACK_TIMEOUT_MS;
+  input.parentSignal?.throwIfAborted();
+  const controller = new AbortController();
+  const forwardParentAbort = () =>
+    controller.abort(
+      input.parentSignal?.reason ??
+        new DOMException('ProjectContext request aborted.', 'AbortError')
+    );
+  input.parentSignal?.addEventListener('abort', forwardParentAbort, { once: true });
+  const work = Promise.resolve().then(() => {
+    controller.signal.throwIfAborted();
+    return input.execute(controller.signal);
+  });
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timeoutError: GraphRepoTimeoutError | undefined;
   try {
-    return await Promise.race([
-      promise,
+    const value = await Promise.race([
+      work,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new GraphRepoTimeoutError(repoId)),
-          GRAPH_REPO_TIMEOUT_MS
-        );
+        timeout = setTimeout(() => {
+          timeoutError = new GraphRepoTimeoutError(input.repoId, timeoutMs);
+          controller.abort(timeoutError);
+          reject(timeoutError);
+        }, timeoutMs);
       }),
     ]);
+    if (timeoutError) {
+      throw timeoutError;
+    }
+    input.parentSignal?.throwIfAborted();
+    return value;
+  } catch (error) {
+    if (timeoutError || input.parentSignal?.aborted) {
+      const settled = await waitForGraphRepoSettlement(work, cleanupTimeoutMs);
+      if (!settled && timeoutError) {
+        throw new GraphRepoCleanupTimeoutError(input.repoId, timeoutMs, cleanupTimeoutMs);
+      }
+      if (timeoutError) {
+        throw timeoutError;
+      }
+      throw input.parentSignal?.reason ?? error;
+    }
+    throw error;
   } finally {
     if (timeout) {
       clearTimeout(timeout);
     }
+    input.parentSignal?.removeEventListener('abort', forwardParentAbort);
   }
+}
+
+function waitForGraphRepoSettlement(work: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      resolve(value);
+    };
+    const timeout = setTimeout(() => finish(false), timeoutMs);
+    work.then(
+      () => finish(true),
+      () => finish(true)
+    );
+  });
 }
 
 async function mapWithBoundedConcurrency<T, R>(
   items: readonly T[],
   concurrency: number,
-  mapper: (item: T) => Promise<R>
+  mapper: (item: T) => Promise<R>,
+  onSettled?: (result: R, index: number) => void
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let nextIndex = 0;
@@ -995,7 +1219,9 @@ async function mapWithBoundedConcurrency<T, R>(
     while (nextIndex < items.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await mapper(items[index]);
+      const result = await mapper(items[index]);
+      results[index] = result;
+      onSettled?.(result, index);
     }
   }
   const workerCount = Math.min(Math.max(1, concurrency), Math.max(1, items.length));
@@ -2267,6 +2493,7 @@ function projectNameFromProjectContextFacts(
   projectRoot: string
 ): string {
   return (
+    facts.projectName ??
     rootLocalPackageNameFromRepos(facts.repos) ??
     facts.repos[0]?.repo.name ??
     rootManifestProjectName(projectRoot) ??
