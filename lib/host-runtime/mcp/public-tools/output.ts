@@ -589,68 +589,97 @@ function normalizeAgentPublicToolPayload(
 function projectGuardPublicResult(value: unknown): z.infer<typeof GuardPublicResultSchema> {
   const record = asRecord(value);
   const guardResult = asRecord(record.guardResult);
-  const summary = asRecord(guardResult.summary);
-  const files = Array.isArray(guardResult.files) ? guardResult.files : [];
-  const violations = Array.isArray(guardResult.violations) ? guardResult.violations : [];
-  const errorCount = numberFrom(summary.errors);
-  const totalViolationCount = numberFrom(summary.total);
-  const warningCount = numberFrom(summary.warnings);
+  return {
+    ...projectGuardRuleDetails(guardResult),
+    ...projectGuardViolationDetails(guardResult),
+    ...projectGuardStatusDetails(record, guardResult),
+    ok: record.ok !== false,
+    resultSummary: projectGuardResultSummary(record, guardResult),
+  };
+}
+
+function projectGuardRuleDetails(
+  guardResult: Record<string, unknown>
+): Partial<z.infer<typeof GuardPublicResultSchema>> {
   const appliedRules = projectGuardAppliedRules(guardResult.appliedRules);
   const ruleAccounting = GuardRuleAccountingSchema.safeParse(guardResult.ruleAccounting);
   const fixGuidance = GuardFixGuidanceSchema.safeParse(guardResult.fixGuidance);
   const applicableRecipeRules = projectGuardApplicableRecipeRules(
     guardResult.applicableRecipeRules
   );
-  const projectedViolations = projectGuardViolations(guardResult);
   const coverage = projectGuardCoverage(guardResult.coverage);
-  const projectedCrossFileViolations = projectGuardViolations({
-    violations: guardResult.crossFileViolations,
-  });
-  const fileErrors = projectGuardFileErrors(guardResult.fileErrors);
-  const reviewRound = numberFrom(guardResult.reviewRound);
-  const uncertainCount = numberFrom(asRecord(guardResult.uncertainSummary).total);
-  const verdict = ConclusionDispositionSchema.safeParse(guardResult.verdict);
   return {
     ...(appliedRules ? { appliedRules } : {}),
     ...(ruleAccounting.success ? { ruleAccounting: ruleAccounting.data } : {}),
     ...(fixGuidance.success ? { fixGuidance: fixGuidance.data } : {}),
     ...(applicableRecipeRules.length > 0 ? { applicableRecipeRules } : {}),
     ...(coverage ? { coverage } : {}),
-    ...(projectedCrossFileViolations.violations.length > 0
-      ? { crossFileViolations: projectedCrossFileViolations.violations }
+  };
+}
+
+function projectGuardViolationDetails(
+  guardResult: Record<string, unknown>
+): Partial<z.infer<typeof GuardPublicResultSchema>> {
+  const projectedViolations = projectGuardViolations(guardResult);
+  const crossFileViolations = projectGuardViolations({
+    violations: guardResult.crossFileViolations,
+  });
+  const fileErrors = projectGuardFileErrors(guardResult.fileErrors);
+  return {
+    ...(crossFileViolations.violations.length > 0
+      ? { crossFileViolations: crossFileViolations.violations }
       : {}),
     ...(fileErrors.length > 0 ? { fileErrors } : {}),
     ...(projectedViolations.violations.length > 0
-      ? {
-          violations: projectedViolations.violations,
-          ...(projectedViolations.truncated ? { violationsTruncated: true } : {}),
-        }
+      ? { violations: projectedViolations.violations }
       : {}),
-    ...(stringFrom(record.guardErrorCode)
-      ? { guardErrorCode: stringFrom(record.guardErrorCode) }
-      : {}),
+    ...(projectedViolations.truncated ? { violationsTruncated: true } : {}),
+  };
+}
+
+function projectGuardStatusDetails(
+  record: Record<string, unknown>,
+  guardResult: Record<string, unknown>
+): Partial<z.infer<typeof GuardPublicResultSchema>> {
+  const guardErrorCode = stringFrom(record.guardErrorCode);
+  const reviewRound = numberFrom(guardResult.reviewRound);
+  const summary = stringFrom(record.summary);
+  const uncertainCount = numberFrom(asRecord(guardResult.uncertainSummary).total);
+  const verdict = ConclusionDispositionSchema.safeParse(guardResult.verdict);
+  return {
+    ...(guardErrorCode ? { guardErrorCode } : {}),
     ...(typeof guardResult.maxRoundsReached === 'boolean'
       ? { maxRoundsReached: guardResult.maxRoundsReached }
       : {}),
-    ok: record.ok !== false,
     ...(reviewRound !== null ? { reviewRound } : {}),
-    resultSummary: {
-      ...(errorCount !== null ? { errorCount } : {}),
-      ...(files.length ? { fileCount: Math.min(files.length, 1000) } : {}),
-      ...(stringFrom(guardResult.language, 1200)
-        ? { language: stringFrom(guardResult.language, 1200) }
-        : {}),
-      payloadType: describePayloadType(record.guardResult),
-      ...(totalViolationCount !== null
-        ? { violationCount: totalViolationCount }
-        : violations.length
-          ? { violationCount: Math.min(violations.length, 10000) }
-          : {}),
-      ...(warningCount !== null ? { warningCount } : {}),
-    },
-    ...(stringFrom(record.summary) ? { summary: stringFrom(record.summary) } : {}),
+    ...(summary ? { summary } : {}),
     ...(uncertainCount !== null ? { uncertain: { count: uncertainCount } } : {}),
     ...(verdict.success ? { verdict: verdict.data } : {}),
+  };
+}
+
+function projectGuardResultSummary(
+  record: Record<string, unknown>,
+  guardResult: Record<string, unknown>
+): z.infer<typeof GuardResultSummarySchema> {
+  const summary = asRecord(guardResult.summary);
+  const files = Array.isArray(guardResult.files) ? guardResult.files : [];
+  const violations = Array.isArray(guardResult.violations) ? guardResult.violations : [];
+  const errorCount = numberFrom(summary.errors);
+  const totalViolationCount = numberFrom(summary.total);
+  const warningCount = numberFrom(summary.warnings);
+  const language = stringFrom(guardResult.language, 1200);
+  return {
+    ...(errorCount !== null ? { errorCount } : {}),
+    ...(files.length ? { fileCount: Math.min(files.length, 1000) } : {}),
+    ...(language ? { language } : {}),
+    payloadType: describePayloadType(record.guardResult),
+    ...(totalViolationCount !== null
+      ? { violationCount: totalViolationCount }
+      : violations.length
+        ? { violationCount: Math.min(violations.length, 10000) }
+        : {}),
+    ...(warningCount !== null ? { warningCount } : {}),
   };
 }
 

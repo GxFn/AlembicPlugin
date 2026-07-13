@@ -2,32 +2,22 @@ import type Database from 'better-sqlite3';
 
 type ReadOnlyDatabase = InstanceType<typeof Database>;
 
-export interface CodeGuardReadEffectSink {
-  recordGuardHits(id: string, count: number): void;
-  recordPrimeAdoptions(id: string, count: number): void;
-}
-
 /** Keep Guard snapshot SQL in the repository layer while the MCP host owns effect routing. */
-export function createReadOnlyCodeGuardRepositories(
-  db: ReadOnlyDatabase,
-  effects: CodeGuardReadEffectSink
-): {
+export function createReadOnlyCodeGuardRepositories(db: ReadOnlyDatabase): {
   knowledgeRepository: ReadOnlyCodeGuardKnowledgeRepository;
   sourceRefRepository: ReadOnlyCodeGuardSourceRefRepository;
 } {
   return {
-    knowledgeRepository: new ReadOnlyCodeGuardKnowledgeRepository(db, effects),
+    knowledgeRepository: new ReadOnlyCodeGuardKnowledgeRepository(db),
     sourceRefRepository: new ReadOnlyCodeGuardSourceRefRepository(db),
   };
 }
 
 class ReadOnlyCodeGuardKnowledgeRepository {
   readonly #db: ReadOnlyDatabase;
-  readonly #effects: CodeGuardReadEffectSink;
 
-  constructor(db: ReadOnlyDatabase, effects: CodeGuardReadEffectSink) {
+  constructor(db: ReadOnlyDatabase) {
     this.#db = db;
-    this.#effects = effects;
   }
 
   findGuardRulesSync(lifecycles: string[]): Array<Record<string, unknown>> {
@@ -73,13 +63,9 @@ class ReadOnlyCodeGuardKnowledgeRepository {
       .all(...ids) as Array<Record<string, unknown>>;
   }
 
-  incrementGuardHitsSync(id: string, count: number): void {
-    this.#effects.recordGuardHits(id, count);
-  }
+  incrementGuardHitsSync(): void {}
 
-  incrementPrimeAdoptionsSync(id: string, count: number): void {
-    this.#effects.recordPrimeAdoptions(id, count);
-  }
+  incrementPrimeAdoptionsSync(): void {}
 }
 
 class ReadOnlyCodeGuardSourceRefRepository {

@@ -821,14 +821,19 @@ function buildCodeGuardReadyOutput(input: {
   // 记录继承，命中本会话 PRIME_RECORDS 时报告"prime 交付知识与被检文件的重叠"。
   // 纯观测面：不改变守门判定，不新增硬门；未命中/无 primeRef 时字段缺席。
   const effectivePrimeRef = args.primeRef ?? scope.workRecord?.primeRef;
+  const feedbackPersistenceEnabled = ctx.container.singletons?._guardEffectMode !== 'observe-only';
   const primeAlignment = effectivePrimeRef
-    ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files, guardResult)
+    ? buildGuardPrimeAlignment(effectivePrimeRef, scope.files, guardResult, {
+        feedbackPersistenceEnabled,
+      })
     : null;
   const status = baseStatus;
   // 采纳信号回流（2026-07-06 闭环审查落地）：observed 且有真实重叠 = "prime 交付的
   // 知识用在了对的文件上"——递增 stats.primeAdoptions（observe-first，decay/排序
   // 消费另行调参）。失败静默：回流是观测面副作用，绝不破坏 guard 主链。
-  recordPrimeAdoptionSignals(ctx, primeAlignment);
+  if (feedbackPersistenceEnabled) {
+    recordPrimeAdoptionSignals(ctx, primeAlignment);
+  }
   const result = createAgentPublicToolResultEnvelope({
     actionKind: 'code-guard',
     agentHost: intake.agentHost,
@@ -920,7 +925,8 @@ function recordPrimeAdoptionSignals(
 function buildGuardPrimeAlignment(
   primeRef: string,
   checkedFiles: string[],
-  guardResult: Record<string, unknown>
+  guardResult: Record<string, unknown>,
+  options: { feedbackPersistenceEnabled: boolean }
 ): Record<string, unknown> {
   const record = PRIME_RECORDS.get(primeRef);
   if (!record) {
@@ -956,8 +962,10 @@ function buildGuardPrimeAlignment(
   const feedbackGuardIds = uniqueStrings([...appliedGuardIds, ...violatedGuardIds]).filter(
     (id) => !record.feedbackRuleIds.has(id)
   );
-  for (const id of feedbackGuardIds) {
-    record.feedbackRuleIds.add(id);
+  if (options.feedbackPersistenceEnabled) {
+    for (const id of feedbackGuardIds) {
+      record.feedbackRuleIds.add(id);
+    }
   }
   return {
     primeRef,
@@ -970,7 +978,10 @@ function buildGuardPrimeAlignment(
     appliedGuardIds,
     violatedGuardIds,
     feedbackGuardIds,
-    feedbackRecorded: feedbackGuardIds.length > 0,
+    feedbackRecorded: options.feedbackPersistenceEnabled && feedbackGuardIds.length > 0,
+    ...(!options.feedbackPersistenceEnabled
+      ? { note: 'Public Guard reports Prime alignment without persisting feedback.' }
+      : {}),
     coverageComplete,
   };
 }

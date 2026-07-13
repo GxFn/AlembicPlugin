@@ -3,20 +3,11 @@ import { resolve } from 'node:path';
 import { GuardCheckEngine } from '@alembic/core/guard';
 import Database from 'better-sqlite3';
 import ConfigLoader from '../../../infrastructure/config/AppConfigLoader.js';
-import {
-  type CodeGuardEffects,
-  type GuardViolationRunEffect,
-  persistCodeGuardEffects,
-} from '../../../repository/guard/CodeGuardEffectRepository.js';
 import { createReadOnlyCodeGuardRepositories } from '../../../repository/guard/ReadOnlyCodeGuardServices.js';
 import { CodeGuardInput } from '../../../shared/schemas/mcp-tools.js';
 import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { codeGuardHandler } from '../handlers/agent-public-tools.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
-import {
-  attachCodeGuardAuxiliaryFailure,
-  auxiliaryErrorMessage,
-} from './code-guard-auxiliary-failure.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
 import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
 import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
@@ -24,9 +15,9 @@ import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
 /**
  * Run public Code Guard over one request-scoped DB/WAL/config snapshot.
  *
- * Guard is read-mostly, but a real violation and Prime feedback are declared persistent effects.
- * The request therefore audits only the private snapshot, collects those effects, and opens the
- * live database only after a business result exists and only when an effect must be committed.
+ * The public host route is observational: violations and Prime alignment are returned to the
+ * caller, but the request must never write Guard runs, hit counters, or adoption feedback back to
+ * the live knowledge database. Non-public owning runtimes retain their normal writable container.
  */
 export async function executeReadOnlyCodeGuard(
   args: Record<string, unknown>,
@@ -50,17 +41,9 @@ export async function executeReadOnlyCodeGuard(
 
   const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
-  const effects: CodeGuardEffects = {
-    guardHits: new Map(),
-    primeAdoptions: new Map(),
-    violationRuns: [],
-  };
   try {
     db.pragma('query_only = ON');
-    const { knowledgeRepository, sourceRefRepository } = createReadOnlyCodeGuardRepositories(db, {
-      recordGuardHits: (id, count) => incrementEffect(effects.guardHits, id, count),
-      recordPrimeAdoptions: (id, count) => incrementEffect(effects.primeAdoptions, id, count),
-    });
+    const { knowledgeRepository, sourceRefRepository } = createReadOnlyCodeGuardRepositories(db);
     const guardCheckEngine = new GuardCheckEngine(
       db as unknown as ConstructorParameters<typeof GuardCheckEngine>[0],
       {
@@ -81,74 +64,27 @@ export async function executeReadOnlyCodeGuard(
             return sourceRefRepository;
           case 'violationsStore':
             return {
-              appendRun(run: GuardViolationRunEffect): void {
-                effects.violationRuns.push(run);
-              },
+              appendRun(): void {},
             };
           default:
             throw new Error(`Request-scoped Code Guard container does not expose ${name}.`);
         }
       },
       singletons: {
+        _guardEffectMode: 'observe-only',
         _projectRoot: projectRoot,
         _workspaceResolver: { dataRoot, projectRoot },
       },
     };
     process.stderr.write(
-      `[MCP/Guard] request-scoped snapshot route is physically read-only: projectRoot=${projectRoot} database=${databasePath}\n`
+      `[MCP/Guard] request-scoped snapshot route is physically read-only; live effects disabled: projectRoot=${projectRoot} database=${databasePath}\n`
     );
     const ctx: McpContext = { container, projectRuntime };
-    const result = await codeGuardHandler(ctx, args);
-    const effectFailure = await flushGuardEffects(
-      databasePath,
-      dataRoot,
-      physicalIdentity.databasePath,
-      effects
-    );
-    return effectFailure
-      ? attachCodeGuardAuxiliaryFailure({
-          diagnosticCode: 'guard-effects-persistence-failed',
-          message: effectFailure,
-          result,
-        })
-      : result;
+    return await codeGuardHandler(ctx, args);
   } finally {
     db.close();
     snapshot.dispose();
   }
-}
-
-async function flushGuardEffects(
-  databasePath: string,
-  dataRoot: string,
-  expectedPhysicalDatabasePath: string,
-  effects: CodeGuardEffects
-): Promise<string | null> {
-  if (
-    effects.violationRuns.length === 0 &&
-    effects.guardHits.size === 0 &&
-    effects.primeAdoptions.size === 0
-  ) {
-    return null;
-  }
-  try {
-    const currentIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
-    if (currentIdentity.databasePath !== expectedPhysicalDatabasePath) {
-      throw new Error(
-        `Code Guard database identity changed before effect persistence: expected=${expectedPhysicalDatabasePath}, actual=${currentIdentity.databasePath}.`
-      );
-    }
-    persistCodeGuardEffects(currentIdentity.databasePath, effects);
-    return null;
-  } catch (err: unknown) {
-    const message = auxiliaryErrorMessage(err);
-    process.stderr.write(`[MCP/Guard] explicit post-result effect degraded: ${message}\n`);
-    return message;
-  }
-}
-
-function incrementEffect(effects: Map<string, number>, id: string, count: number): void {
-  effects.set(id, (effects.get(id) ?? 0) + count);
 }
 
 function readGuardConfig(configPath: string): Record<string, unknown> {
