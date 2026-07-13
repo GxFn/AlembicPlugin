@@ -5,6 +5,8 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 import { executeReadOnlySearch } from '../../lib/host-runtime/mcp/host/read-only-search-executor.js';
+import { createReadOnlySearchContainer } from '../../lib/host-runtime/mcp/host/read-only-search-executor.js';
+import { createReadOnlySearchSnapshot } from '../../lib/host-runtime/mcp/host/read-only-search-snapshot.js';
 
 const roots: string[] = [];
 
@@ -79,6 +81,57 @@ describe('public Search read-only storage fingerprint', () => {
         vectorUsed: false,
       });
       expect(fingerprintFamily(family)).toEqual(before);
+    } finally {
+      writer.close();
+    }
+  });
+
+  test('constructs a retrieval reader graph without writer or lifecycle services', async () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-reader-project-'));
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-reader-data-'));
+    roots.push(projectRoot, dataRoot);
+    const asd = path.join(dataRoot, '.asd');
+    fs.mkdirSync(asd, { recursive: true });
+    const databasePath = path.join(asd, 'alembic.db');
+    const writer = new Database(databasePath);
+    try {
+      writer.exec(`
+        CREATE TABLE knowledge_entries (
+          id TEXT PRIMARY KEY, title TEXT, description TEXT, language TEXT,
+          dimensionId TEXT, category TEXT, knowledgeType TEXT, kind TEXT, scope TEXT,
+          content TEXT, lifecycle TEXT, tags TEXT, trigger TEXT, difficulty TEXT,
+          quality TEXT, stats TEXT, headers TEXT, moduleName TEXT, whenClause TEXT,
+          doClause TEXT, updatedAt TEXT, createdAt TEXT
+        );
+        CREATE TABLE recipe_source_refs (
+          recipe_id TEXT NOT NULL, source_path TEXT NOT NULL, status TEXT NOT NULL, new_path TEXT
+        );
+      `);
+      const snapshot = createReadOnlySearchSnapshot({ dataRoot, databasePath });
+      const snapshotDb = new Database(snapshot.databasePath, {
+        fileMustExist: true,
+        readonly: true,
+      });
+      const handle = await createReadOnlySearchContainer(snapshotDb, snapshot, {
+        dataRoot,
+        projectRoot,
+      });
+      try {
+        expect(handle.container.get('knowledgeRetrievalPort')).toBeDefined();
+        for (const forbidden of [
+          'indexingPipeline',
+          'vectorService',
+          'vectorStore',
+          'vectorIndexWriter',
+          'vectorLifecycleCoordinator',
+        ]) {
+          expect(() => handle.container.get(forbidden)).toThrow(/does not expose/);
+        }
+      } finally {
+        handle.dispose();
+        snapshotDb.close();
+        snapshot.dispose();
+      }
     } finally {
       writer.close();
     }

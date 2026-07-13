@@ -241,6 +241,7 @@ export const PrimePublicPackageSchema = z
       status: z.enum(['not-requested', 'recommended', 'ready-evidence', 'degraded']),
     }),
     compactPackage: z.object({
+      candidateRecipeIds: z.array(z.string().min(1).max(240)).max(100).default([]),
       acceptedGuards: z.array(z.record(z.string(), z.unknown())).max(20),
       acceptedKnowledge: z.array(z.record(z.string(), z.unknown())).max(20),
       counts: z.object({

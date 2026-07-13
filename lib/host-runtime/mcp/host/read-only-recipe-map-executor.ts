@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { createReadOnlyRecipeMapRepositories } from '../../../repository/recipe-map/ReadOnlyRecipeMapServices.js';
+import type { ProjectContextBuildSessionManager } from '../../../service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { RecipeMapInput } from '../../../shared/schemas/mcp-tools.js';
 import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { recipeMap } from '../handlers/recipe-map.js';
@@ -16,7 +17,11 @@ import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
  */
 export async function executeReadOnlyRecipeMap(
   args: Record<string, unknown>,
-  executionContext: ToolExecutionContext
+  executionContext: ToolExecutionContext,
+  projectContextExecution?: {
+    buildSessions: ProjectContextBuildSessionManager;
+    signal?: AbortSignal;
+  }
 ): Promise<unknown> {
   const projectRuntime = executionContext.projectRuntime;
   if (!projectRuntime) {
@@ -56,7 +61,7 @@ export async function executeReadOnlyRecipeMap(
     process.stderr.write(
       `[MCP/RecipeMap] request-scoped snapshot route is physically read-only: projectRoot=${projectRoot} database=${databasePath}\n`
     );
-    const ctx: McpContext = { container, projectRuntime };
+    const ctx: McpContext = { container, projectRuntime, projectContextExecution };
     return await recipeMap(ctx, args);
   } finally {
     db.close();

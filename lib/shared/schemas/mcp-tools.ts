@@ -187,6 +187,21 @@ export const PrimeInput = z
       .describe('Absolute target project root supplied by the host runtime'),
     query: z.string().min(1).max(1200).optional().describe('Optional knowledge query'),
     context: z.string().min(1).max(1200).optional().describe('Optional request context'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe('Bounded canonical candidate count shared with Search'),
+    language: z.string().min(1).max(120).optional(),
+    module: z.string().min(1).max(240).optional(),
+    kind: z.enum(['all', 'rule', 'pattern', 'fact', 'guide', 'decision', 'standard']).optional(),
+    category: z.string().min(1).max(240).optional(),
+    dimensionId: z.string().min(1).max(240).optional(),
+    knowledgeType: z.string().min(1).max(240).optional(),
+    scope: z.string().min(1).max(240).optional(),
+    tags: z.array(z.string().min(1).max(120)).max(20).optional(),
   })
   .strict()
   .describe('Request-scoped Alembic Recipe and Guard priming. All fields are optional.');
@@ -329,7 +344,32 @@ const KnowledgeContextBudgetInput = z
 
 const SearchBudgetInput = KnowledgeContextBudgetInput.omit({
   relationHopLimit: true,
-}).describe('Budget limits for search items, detail refs, text, and next actions.');
+})
+  .passthrough()
+  .superRefine((budget, ctx) => {
+    const supported = new Set([
+      'tokenBudget',
+      'itemLimit',
+      'detailLimit',
+      'contentCharLimit',
+      'matrixNodeLimit',
+      'nextActionLimit',
+      // Retired request compatibility only. Keeping this as an unlisted
+      // passthrough key lets cached callers drain without republishing it in
+      // the MCP schema or accepting arbitrary future budget fields.
+      'relationHopLimit',
+    ]);
+    for (const key of Object.keys(budget)) {
+      if (!supported.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Unsupported search budget field: ${key}`,
+          path: [key],
+        });
+      }
+    }
+  })
+  .describe('Budget limits for search items, detail refs, text, and next actions.');
 
 const GraphBudgetInput = KnowledgeContextBudgetInput.pick({
   itemLimit: true,
@@ -552,6 +592,10 @@ export const GraphInput = z
       .describe('Optional non-private ProjectContext source refs.'),
     sourceEvidenceRefs: z.array(z.string().min(1).max(240)).max(80).optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
+    cursor: z.string().min(1).max(240).optional(),
+    cancelCursor: z.string().min(1).max(240).optional(),
+    pageSize: z.number().int().min(1).max(200).optional(),
+    detailLevel: z.literal('summary').default('summary'),
     budget: GraphBudgetInput.optional(),
     // ── Deprecated stale-input aliases (handler-boundary normalization only) ──
     // Not the public contract; retained so cached host arguments still parse and
@@ -605,6 +649,10 @@ export const RecipeMapInput = z
       .strict()
       .optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
+    cursor: z.string().min(1).max(240).optional(),
+    cancelCursor: z.string().min(1).max(240).optional(),
+    pageSize: z.number().int().min(1).max(200).optional(),
+    detailLevel: z.literal('summary').default('summary'),
     activeFile: z.string().min(1).max(2000).optional(),
     includeRecipes: z.boolean().default(true),
     includeRollups: z.boolean().default(true),

@@ -10,7 +10,10 @@
  */
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { ProjectContextRefSummarySchema } from './AlembicGraphOutput.js';
+import {
+  ProjectContextContinuationSchema,
+  ProjectContextRefSummarySchema,
+} from './AlembicGraphOutput.js';
 import { RegionNodeKindSchema } from './ProjectContextRegion.js';
 
 export const ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION = 1 as const;
@@ -230,6 +233,7 @@ export const AlembicRecipeMapOutputSchema = z
     conservation: MapConservationSchema,
     diagnostics: z.array(MapDiagnosticSchema).max(200),
     nextActions: z.array(MapNextActionSchema).max(20),
+    continuation: ProjectContextContinuationSchema.optional(),
     limits: AlembicRecipeMapLimitsSchema,
     meta: z
       .object({
@@ -238,6 +242,8 @@ export const AlembicRecipeMapOutputSchema = z
         fullMapRef: TransientTransportRefSchema.nullable().optional(),
         generatedAt: z.string().datetime({ offset: true }).optional(),
         producer: z.string().min(1).max(160).optional(),
+        factSessionRef: z.string().min(1).max(240).optional(),
+        factFingerprint: z.string().length(64).optional(),
       })
       .strict(),
   })

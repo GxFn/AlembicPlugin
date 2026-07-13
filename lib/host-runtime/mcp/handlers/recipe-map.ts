@@ -13,6 +13,7 @@ import {
   type RecipeContextResult,
 } from '@alembic/core/recipe-context-capabilities';
 import {
+  type AlembicRecipeMapOutput,
   createAlembicRecipeMapMcpResult,
   defaultProjectGraphProvider,
   type MapFocus,
@@ -29,9 +30,13 @@ import {
   type RecipeRecordLite,
   type RecipeSourceRefRow,
 } from '#service/project-knowledge-context/recipe-map/index.js';
+import type { ProjectContextContinuationPage } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 interface RecipeMapArgs {
+  cancelCursor?: string;
+  cursor?: string;
+  pageSize?: number;
   focus?: {
     kind?: string;
     refId?: string;
@@ -95,10 +100,181 @@ const RECIPE_MAP_FOCUS_KINDS = new Set<RegionFocusKind>([
 
 export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
   const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
+  const execution = ctx.projectContextExecution;
+  if (args.cursor || args.cancelCursor) {
+    if (!execution) {
+      throw new Error('ProjectContext continuation requires the public request-scoped runtime.');
+    }
+    if (args.cancelCursor) {
+      const cancelled = await execution.buildSessions.cancelContinuation<AlembicRecipeMapOutput>({
+        cursor: args.cancelCursor,
+        projectRoot,
+      });
+      if (!cancelled.context) {
+        throw new Error('Recipe Map continuation cancellation lost its bounded result context.');
+      }
+      return createAlembicRecipeMapMcpResult(
+        cancelledRecipeMapContinuation(cancelled.context, cancelled)
+      );
+    }
+    const cursor = args.cursor;
+    if (!cursor) {
+      throw new Error('Recipe Map continuation cursor is required.');
+    }
+    const page = await execution.buildSessions.readContinuation<RecipeMapPageEntry>({
+      cursor,
+      projectRoot,
+    });
+    return createAlembicRecipeMapMcpResult(materializeRecipeMapContinuation(page));
+  }
   const request = normalizeRecipeMapRequest(args, projectRoot);
   const deps = buildRecipeMapDeps(ctx);
   const output = await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
-  return createAlembicRecipeMapMcpResult(budgetRecipeMapOutput(output));
+  const budgeted = budgetRecipeMapOutput(output);
+  const factSessionRef = budgeted.meta.factSessionRef;
+  if (!execution || !factSessionRef) {
+    return createAlembicRecipeMapMcpResult(budgeted);
+  }
+  const page = await execution.buildSessions.publishContinuation({
+    context: recipeMapContinuationBase(budgeted),
+    factSessionRef,
+    items: recipeMapPageEntries(budgeted),
+    pageSize: args.pageSize ?? 100,
+    projectRoot,
+  });
+  return createAlembicRecipeMapMcpResult(materializeRecipeMapContinuation(page));
+}
+
+type RecipeMapPageEntry =
+  | { kind: 'node'; value: AlembicRecipeMapOutput['region']['nodes'][number] }
+  | { kind: 'ref'; value: AlembicRecipeMapOutput['refs'][number] }
+  | { kind: 'mount'; value: AlembicRecipeMapOutput['recipeMounts'][number] }
+  | { kind: 'rollup'; value: AlembicRecipeMapOutput['recipeRollups'][number] };
+
+function recipeMapPageEntries(output: AlembicRecipeMapOutput): RecipeMapPageEntry[] {
+  return [
+    ...output.region.nodes.map((value): RecipeMapPageEntry => ({ kind: 'node', value })),
+    ...output.refs.map((value): RecipeMapPageEntry => ({ kind: 'ref', value })),
+    ...output.recipeMounts.map((value): RecipeMapPageEntry => ({ kind: 'mount', value })),
+    ...output.recipeRollups.map((value): RecipeMapPageEntry => ({ kind: 'rollup', value })),
+  ];
+}
+
+function recipeMapContinuationBase(output: AlembicRecipeMapOutput): AlembicRecipeMapOutput {
+  return {
+    ...output,
+    region: { ...output.region, nodes: [] },
+    refs: [],
+    recipeMounts: [],
+    recipeRollups: [],
+    continuation: undefined,
+  };
+}
+
+function materializeRecipeMapContinuation(
+  page: ProjectContextContinuationPage<RecipeMapPageEntry>
+): AlembicRecipeMapOutput {
+  const base = page.context as AlembicRecipeMapOutput | undefined;
+  if (!base) {
+    throw new Error('Recipe Map continuation lost its bounded result context.');
+  }
+  const nodes: AlembicRecipeMapOutput['region']['nodes'] = [];
+  const refs: AlembicRecipeMapOutput['refs'] = [];
+  const mounts: AlembicRecipeMapOutput['recipeMounts'] = [];
+  const rollups: AlembicRecipeMapOutput['recipeRollups'] = [];
+  for (const entry of page.items) {
+    if (entry.kind === 'node') {
+      nodes.push(entry.value);
+    }
+    if (entry.kind === 'ref') {
+      refs.push(entry.value);
+    }
+    if (entry.kind === 'mount') {
+      mounts.push(entry.value);
+    }
+    if (entry.kind === 'rollup') {
+      rollups.push(entry.value);
+    }
+  }
+  const displayedMounts = mounts.length;
+  return {
+    ...base,
+    status: page.hasMore && base.status === 'ready' ? 'partial' : base.status,
+    summary: `${base.summary} Continuation page ${page.page}${page.hasMore ? ' has more facts.' : ' is terminal.'}`,
+    region: { ...base.region, nodes },
+    refs,
+    recipeMounts: mounts,
+    recipeRollups: rollups,
+    conservation: {
+      ...base.conservation,
+      displayedMounts,
+      omittedMounts: Math.max(0, base.conservation.mountedTotal - displayedMounts),
+    },
+    limits: {
+      ...base.limits,
+      appliedRecipeMountLimit: displayedMounts,
+      recipeMountLimitReason: recipeMapPageLimitReason(base, displayedMounts),
+    },
+    continuation: {
+      accumulatedCounts: page.accumulatedCounts,
+      factSessionRef: page.factSessionRef,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+      page: page.page,
+      resultRef: page.resultRef,
+    },
+  };
+}
+
+function recipeMapPageLimitReason(
+  base: AlembicRecipeMapOutput,
+  displayedMounts: number
+): AlembicRecipeMapOutput['limits']['recipeMountLimitReason'] {
+  if (displayedMounts < Math.min(base.limits.recipeMountLimit, base.conservation.mountedTotal)) {
+    return 'inline-byte-budget';
+  }
+  return base.conservation.mountedTotal < base.limits.recipeMountLimit
+    ? 'available-mounts'
+    : 'requested-limit';
+}
+
+function cancelledRecipeMapContinuation(
+  base: AlembicRecipeMapOutput,
+  cancelled: { factSessionRef: string; resultRef: string }
+): AlembicRecipeMapOutput {
+  const empty = recipeMapContinuationBase(base);
+  return {
+    ...empty,
+    status: 'partial',
+    summary: 'alembic_recipe_map continuation cancelled; ephemeral result chunks were removed.',
+    diagnostics: [
+      ...base.diagnostics,
+      {
+        code: 'project-context-continuation-cancelled',
+        message: 'The caller explicitly cancelled the opaque continuation.',
+        retryable: true,
+        severity: 'info',
+      },
+    ],
+    conservation: {
+      ...base.conservation,
+      displayedMounts: 0,
+      omittedMounts: base.conservation.mountedTotal,
+    },
+    limits: {
+      ...base.limits,
+      appliedRecipeMountLimit: 0,
+      recipeMountLimitReason: recipeMapPageLimitReason(base, 0),
+    },
+    continuation: {
+      accumulatedCounts: { items: 0 },
+      factSessionRef: cancelled.factSessionRef,
+      hasMore: false,
+      nextCursor: null,
+      page: 1,
+      resultRef: cancelled.resultRef,
+    },
+  };
 }
 
 function normalizeRecipeMapRequest(args: RecipeMapArgs, projectRoot: string): RecipeMapRequest {
@@ -182,7 +358,10 @@ function clampInt(value: number | undefined, fallback: number, min: number, max:
 
 function buildRecipeMapDeps(ctx: McpContext): RecipeMapDeps {
   const resolveRegion: RecipeMapDeps['resolveRegion'] = (focus, projectRoot, radius) =>
-    defaultProjectGraphProvider.resolveProjectContextRegion({ focus, projectRoot, radius });
+    defaultProjectGraphProvider.resolveProjectContextRegion(
+      { focus, projectRoot, radius },
+      ctx.projectContextExecution
+    );
 
   const recipeContext = buildRecipeContextService(ctx);
   if (!recipeContext) {

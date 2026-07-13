@@ -11,6 +11,7 @@ import type {
   SaveSnapshotParams,
 } from '@alembic/core/types';
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
+import type { ProjectContextBuildSessionManager } from '../../../service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import type { ProjectRuntimeContext } from '../../context/ProjectRuntimeContext.js';
 import type { McpToolUsageMap } from '../session-usage.js';
 
@@ -43,6 +44,10 @@ export interface McpContext {
   connection?: McpConnection;
   hostTurnMeta?: HostTurnMetaInput;
   projectRuntime?: ProjectRuntimeContext | null;
+  projectContextExecution?: {
+    buildSessions: ProjectContextBuildSessionManager;
+    signal?: AbortSignal;
+  };
   [key: string]: unknown;
 }
 

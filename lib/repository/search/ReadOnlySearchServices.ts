@@ -49,7 +49,7 @@ export function createReadOnlySearchRepositories(db: ReadOnlyDatabase): {
   };
 }
 
-class ReadOnlyKnowledgeService {
+export class ReadOnlyKnowledgeService {
   readonly #db: ReadOnlyDatabase;
 
   constructor(db: ReadOnlyDatabase) {
@@ -59,6 +59,22 @@ class ReadOnlyKnowledgeService {
   async get(id: string): Promise<ReadOnlyKnowledgeEntry | null> {
     const row = this.#db.prepare('SELECT * FROM knowledge_entries WHERE id = ?').get(id);
     return row ? this.#projectRow(row as Record<string, unknown>) : null;
+  }
+
+  async findByIds(ids: readonly string[]): Promise<ReadOnlyKnowledgeEntry[]> {
+    const uniqueIds = [...new Set(ids)].filter((id) => id.length > 0).slice(0, 256);
+    if (uniqueIds.length === 0) {
+      return [];
+    }
+    const placeholders = uniqueIds.map(() => '?').join(', ');
+    const rows = this.#db
+      .prepare(`SELECT * FROM knowledge_entries WHERE id IN (${placeholders})`)
+      .all(...uniqueIds) as Array<Record<string, unknown>>;
+    const byId = new Map(rows.map((row) => [String(row.id), this.#projectRow(row)]));
+    return uniqueIds.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [row] : [];
+    });
   }
 
   async list(

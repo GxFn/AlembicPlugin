@@ -467,14 +467,17 @@ async function runStdioSmoke({
     );
     assertResult(diagnostics, 'MCP stdio diagnostics');
     assert(
-      diagnostics.package?.pinnedSpecifier === runtimeSpecifier,
+      diagnostics.runtime?.pinnedRuntimeSpecifier === runtimeSpecifier,
       'MCP stdio diagnostics runtime package identity mismatch'
     );
     assert(
-      diagnostics.package?.runtimeSpecifier === runtimeSpecifier,
+      diagnostics.runtime?.embeddedRuntimeSpecifier === runtimeSpecifier,
       'MCP stdio diagnostics runtime specifier mismatch'
     );
-    assert(diagnostics.plugin?.ok === true, 'MCP stdio diagnostics plugin checks did not pass');
+    assert(
+      diagnostics.runtime?.pluginHost === 'codex' && diagnostics.runtime?.runtimeMode === 'plugin',
+      'MCP stdio diagnostics plugin identity checks did not pass'
+    );
 
     const beforeStatus = await callStdioJsonTool(client, 'alembic_status', {}, stderr);
     assertResult(beforeStatus, 'MCP stdio status before init');

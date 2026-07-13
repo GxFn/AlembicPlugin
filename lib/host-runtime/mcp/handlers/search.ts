@@ -222,13 +222,16 @@ function searchOptions(
   return {
     mode,
     limit,
-    rank: mode !== 'keyword',
+    // Core's KnowledgeRetrievalPort already owns the canonical candidate order.
+    // Search and Prime must not apply a second request-surface reranker.
+    rank: false,
     ...(kind ? { kind } : {}),
     ...copyStringFilter(value, 'category'),
     ...copyStringFilter(value, 'dimensionId'),
     ...copyStringFilter(value, 'knowledgeType'),
     ...copyStringFilter(value, 'scope'),
     ...copyStringFilter(value, 'language'),
+    ...copyStringFilter(value, 'module'),
     ...(Array.isArray(value.tags) ? { tags: value.tags } : {}),
   };
 }

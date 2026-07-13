@@ -1,4 +1,9 @@
-import { BinaryPersistence, HnswIndex, ScalarQuantizer, VectorStore } from '@alembic/core/vector';
+import {
+  BinaryPersistence,
+  HnswIndex,
+  ScalarQuantizer,
+  type VectorIndexReader,
+} from '@alembic/core/vector';
 
 const QUANTIZE_THRESHOLD = 3000;
 
@@ -10,13 +15,13 @@ type VectorItem = {
 };
 
 /**
- * An immutable HNSW reader for request-scoped Search snapshots.
+ * An immutable HNSW reader for per-request Search snapshots.
  *
  * The normal adapter owns persistence, WAL replay, migrations and flush timers. Search only needs
  * retrieval, so loading the copied ASVEC directly keeps the public request path unable to write or
  * reconfigure process-global path policy.
  */
-export class ReadOnlyHnswVectorStore extends VectorStore {
+export class ReadOnlyHnswVectorReader implements VectorIndexReader {
   readonly #contents: Map<string, string>;
   readonly #dimension: number;
   readonly #index: HnswIndex;
@@ -24,7 +29,6 @@ export class ReadOnlyHnswVectorStore extends VectorStore {
   readonly #quantizer: ScalarQuantizer | null;
 
   constructor(indexPath: string) {
-    super();
     const loaded = BinaryPersistence.load(indexPath);
     this.#dimension = loaded.dimension;
     this.#index = HnswIndex.deserialize(loaded.indexData);
@@ -38,11 +42,7 @@ export class ReadOnlyHnswVectorStore extends VectorStore {
     }
   }
 
-  override async init(): Promise<void> {
-    // The constructor synchronously loaded the already-stable private snapshot.
-  }
-
-  override async getById(id: string): Promise<VectorItem | null> {
+  async getById(id: string): Promise<VectorItem | null> {
     const nodeIndex = this.#index.idToIndex.get(id);
     const node = nodeIndex === undefined ? null : this.#index.nodes[nodeIndex];
     if (!node && !this.#metadata.has(id) && !this.#contents.has(id)) {
@@ -51,7 +51,7 @@ export class ReadOnlyHnswVectorStore extends VectorStore {
     return this.#item(id, node?.vector);
   }
 
-  override async searchVector(
+  async searchVector(
     queryVector: number[],
     options: Record<string, unknown> = {}
   ): Promise<Array<{ item: VectorItem; score: number }>> {
@@ -96,34 +96,24 @@ export class ReadOnlyHnswVectorStore extends VectorStore {
       .slice(0, topK);
   }
 
-  override async searchByFilter(filter: Record<string, unknown>): Promise<VectorItem[]> {
-    return (await this.listIds())
+  async listIds(options: { limit?: number } = {}): Promise<string[]> {
+    const ids = [...this.#index.idToIndex.keys()].sort((left, right) => left.localeCompare(right));
+    return options.limit === undefined ? ids : ids.slice(0, Math.max(0, options.limit));
+  }
+
+  async getStats(): Promise<{ count: number; indexSize: number; dimension: number }> {
+    return { count: this.#index.size, indexSize: this.#index.size, dimension: this.#dimension };
+  }
+
+  dispose(): void {
+    // The immutable in-memory reader owns no timers, WAL, or persistence handles.
+  }
+
+  async searchByFilter(filter: Record<string, unknown>): Promise<VectorItem[]> {
+    return [...this.#index.idToIndex.keys()]
+      .sort((left, right) => left.localeCompare(right))
       .map((id) => this.#item(id, this.#nodeVector(id)))
       .filter((item) => matchesMetadataFilter(item.metadata, filter));
-  }
-
-  override async listIds(): Promise<string[]> {
-    return [...this.#index.idToIndex.keys()].sort((left, right) => left.localeCompare(right));
-  }
-
-  override async getStats(): Promise<{ count: number; indexSize: number }> {
-    return { count: this.#index.size, indexSize: this.#index.size };
-  }
-
-  override async upsert(): Promise<void> {
-    throw new Error('Read-only HNSW snapshot does not support upsert.');
-  }
-
-  override async batchUpsert(): Promise<void> {
-    throw new Error('Read-only HNSW snapshot does not support batchUpsert.');
-  }
-
-  override async remove(): Promise<void> {
-    throw new Error('Read-only HNSW snapshot does not support remove.');
-  }
-
-  override async clear(): Promise<void> {
-    throw new Error('Read-only HNSW snapshot does not support clear.');
   }
 
   #item(id: string, vector?: Float32Array | number[]): VectorItem {

@@ -47,10 +47,18 @@ interface AgentPublicBaseArgs {
 }
 
 interface AgentPrimeArgs {
+  category?: string;
   context?: string;
+  dimensionId?: string;
+  kind?: string;
   language?: string;
+  limit?: number;
+  module?: string;
+  knowledgeType?: string;
   projectRoot?: string;
   query?: string;
+  scope?: string;
+  tags?: string[];
 }
 
 interface StandalonePrimeRequirementFrame {
@@ -1128,6 +1136,9 @@ async function runPrimeSearch(
       query: frame.searchQuery ?? '',
       ...(frame.searchQuery ? { queries: [frame.searchQuery] } : {}),
       language: args.language ?? null,
+      module: args.module ?? null,
+      limit: args.limit,
+      filters: compactPrimeFilters(args),
     });
     return {
       searchDegraded: false,
@@ -1140,6 +1151,19 @@ async function runPrimeSearch(
     );
     return { searchDegraded: true, searchResult: null, regionEvidence: [] };
   }
+}
+
+function compactPrimeFilters(args: AgentPrimeArgs): Record<string, unknown> {
+  return {
+    ...(args.kind && args.kind !== 'all' ? { kind: args.kind } : {}),
+    ...(args.category ? { category: args.category } : {}),
+    ...(args.dimensionId ? { dimensionId: args.dimensionId } : {}),
+    ...(args.knowledgeType ? { knowledgeType: args.knowledgeType } : {}),
+    ...(args.scope ? { scope: args.scope } : {}),
+    ...(args.language ? { language: args.language } : {}),
+    ...(args.module ? { module: args.module } : {}),
+    ...(args.tags?.length ? { tags: args.tags } : {}),
+  };
 }
 
 function resolvePrimeStatus(input: {
@@ -1514,6 +1538,7 @@ function buildPrimePublicPackage(input: {
   // available through the material projection and detail refs.
   return createPrimePublicPackage({
     compactPackage: {
+      candidateRecipeIds: input.searchResult?.searchMeta.candidateRecipeIds ?? [],
       acceptedGuards: (input.primeKnowledgeMaterial?.acceptedGuards ?? [])
         .slice(0, 8)
         .map((item) => ({
@@ -1548,6 +1573,7 @@ function buildPrimePublicPackage(input: {
             ...(slice.sourceRefsBridge ? { sourceRefsBridge: slice.sourceRefsBridge } : {}),
             text: slice.text,
           })),
+          ...(item.retrievalEvidence ? { retrievalEvidence: item.retrievalEvidence } : {}),
         })),
       counts: {
         acceptedGuards: input.primeKnowledgeMaterial?.acceptedGuards.length ?? 0,

@@ -6,11 +6,13 @@
 import { LanguageService } from '@alembic/core/shared';
 import { ModuleService } from '#service/module/ModuleService.js';
 import {
+  type AlembicGraphOutput,
   createAlembicGraphMcpResult,
   defaultProjectGraphProvider,
   type ProjectGraphInput,
   ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
+import type { ProjectContextContinuationPage } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 // ─── Local Types ──────────────────────────────────────────
@@ -51,6 +53,9 @@ interface ModuleServiceCache {
 }
 
 interface GraphArgs {
+  cancelCursor?: string;
+  cursor?: string;
+  pageSize?: number;
   queryKind?: string;
   refId?: string;
   fromRefId?: string;
@@ -180,9 +185,145 @@ function _inferTargetRole(targetName: string): string {
 // ═══════════════════════════════════════════════════════════
 
 export async function graph(ctx: McpContext, args: GraphArgs = {}) {
+  const execution = ctx.projectContextExecution;
+  if (args.cursor || args.cancelCursor) {
+    if (!execution) {
+      throw new Error('ProjectContext continuation requires the public request-scoped runtime.');
+    }
+    const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
+    if (args.cancelCursor) {
+      const cancelled = await execution.buildSessions.cancelContinuation<AlembicGraphOutput>({
+        cursor: args.cancelCursor,
+        projectRoot,
+      });
+      if (!cancelled.context) {
+        throw new Error('Graph continuation cancellation lost its bounded result context.');
+      }
+      const output = cancelledGraphContinuation(cancelled.context, cancelled);
+      return createAlembicGraphMcpResult(output);
+    }
+    const cursor = args.cursor;
+    if (!cursor) {
+      throw new Error('Graph continuation cursor is required.');
+    }
+    const page = await execution.buildSessions.readContinuation<GraphPageEntry>({
+      cursor,
+      projectRoot,
+    });
+    return createAlembicGraphMcpResult(materializeGraphContinuation(page));
+  }
   const input = normalizeProjectGraphInput(ctx, args);
-  const output = await defaultProjectGraphProvider.resolveAlembicGraph(input);
-  return createAlembicGraphMcpResult(output);
+  const output = await defaultProjectGraphProvider.resolveAlembicGraph(input, execution);
+  const factSessionRef = output.meta.projectContext?.factSessionRef;
+  if (!execution || !factSessionRef) {
+    return createAlembicGraphMcpResult(output);
+  }
+  const page = await execution.buildSessions.publishContinuation({
+    context: graphContinuationBase(output),
+    factSessionRef,
+    items: graphPageEntries(output),
+    pageSize: args.pageSize ?? 100,
+    projectRoot: output.project.projectRoot,
+  });
+  return createAlembicGraphMcpResult(materializeGraphContinuation(page));
+}
+
+type GraphPageEntry =
+  | { kind: 'node'; value: AlembicGraphOutput['nodes'][number] }
+  | { kind: 'relation'; value: AlembicGraphOutput['relations'][number] }
+  | { kind: 'ref'; value: AlembicGraphOutput['refs'][number] }
+  | { kind: 'slice'; value: NonNullable<AlembicGraphOutput['slices']>[number] };
+
+function graphPageEntries(output: AlembicGraphOutput): GraphPageEntry[] {
+  return [
+    ...output.nodes.map((value): GraphPageEntry => ({ kind: 'node', value })),
+    ...output.relations.map((value): GraphPageEntry => ({ kind: 'relation', value })),
+    ...output.refs.map((value): GraphPageEntry => ({ kind: 'ref', value })),
+    ...(output.slices ?? []).map((value): GraphPageEntry => ({ kind: 'slice', value })),
+  ];
+}
+
+function graphContinuationBase(output: AlembicGraphOutput): AlembicGraphOutput {
+  return {
+    ...output,
+    nodes: [],
+    relations: [],
+    refs: [],
+    slices: [],
+    continuation: undefined,
+  };
+}
+
+function materializeGraphContinuation(
+  page: ProjectContextContinuationPage<GraphPageEntry>
+): AlembicGraphOutput {
+  const base = page.context as AlembicGraphOutput | undefined;
+  if (!base) {
+    throw new Error('Graph continuation lost its bounded result context.');
+  }
+  const nodes: AlembicGraphOutput['nodes'] = [];
+  const relations: AlembicGraphOutput['relations'] = [];
+  const refs: AlembicGraphOutput['refs'] = [];
+  const slices: NonNullable<AlembicGraphOutput['slices']> = [];
+  for (const entry of page.items) {
+    if (entry.kind === 'node') {
+      nodes.push(entry.value);
+    }
+    if (entry.kind === 'relation') {
+      relations.push(entry.value);
+    }
+    if (entry.kind === 'ref') {
+      refs.push(entry.value);
+    }
+    if (entry.kind === 'slice') {
+      slices.push(entry.value);
+    }
+  }
+  return {
+    ...base,
+    status: page.hasMore && base.status === 'ready' ? 'partial' : base.status,
+    summary: `${base.summary} Continuation page ${page.page}${page.hasMore ? ' has more facts.' : ' is terminal.'}`,
+    nodes,
+    relations,
+    refs,
+    slices,
+    continuation: {
+      accumulatedCounts: page.accumulatedCounts,
+      factSessionRef: page.factSessionRef,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+      page: page.page,
+      resultRef: page.resultRef,
+    },
+  };
+}
+
+function cancelledGraphContinuation(
+  base: AlembicGraphOutput,
+  cancelled: { factSessionRef: string; resultRef: string }
+): AlembicGraphOutput {
+  return {
+    ...graphContinuationBase(base),
+    status: 'partial',
+    summary: 'alembic_graph continuation cancelled; ephemeral result chunks were removed.',
+    diagnostics: [
+      ...base.diagnostics,
+      {
+        code: 'project-context-continuation-cancelled',
+        message: 'The caller explicitly cancelled the opaque continuation.',
+        retryable: true,
+        severity: 'info',
+      },
+    ],
+    continuation: {
+      accumulatedCounts: { items: 0 },
+      factSessionRef: cancelled.factSessionRef,
+      hasMore: false,
+      nextCursor: null,
+      page: 1,
+      resultRef: cancelled.resultRef,
+    },
+  };
 }
 
 // Deprecated operation-named entrypoints. Retained only as stale-input

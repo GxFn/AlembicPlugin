@@ -3,8 +3,8 @@
  *
  * Route-agnostic thin adapter over the unified in-process SearchEngine (the same
  * engine alembic_search uses). Takes a structured prime query, runs one
- * vector/lexical search, applies the quality filter, and splits knowledge vs
- * Guard rules. The legacy intent-frame multi-query/RRF orchestration and the
+ * canonical vector/lexical search and presents the already-authoritative order
+ * as knowledge vs Guard groups. The legacy intent-frame multi-query/RRF orchestration and the
  * resident-handoff lane were removed in PDR-1d; local Recipe semantic-region
  * evidence is wired separately (PDR-2) via PrimeKnowledgeMaterial's
  * `regionEvidence` seam.
@@ -21,6 +21,7 @@ import { slimSearchResult } from '@alembic/core/search';
 export type { SlimSearchResult } from '@alembic/core/search';
 
 export interface PrimeSearchMeta {
+  candidateRecipeIds: string[];
   queries: string[];
   scenario: string;
   language: string | null;
@@ -37,8 +38,8 @@ export interface PrimeSearchMeta {
 }
 
 export interface PrimeSearchResult {
-  relatedKnowledge: SlimSearchResult[];
-  guardRules: SlimSearchResult[];
+  relatedKnowledge: PrimeCandidateResult[];
+  guardRules: PrimeCandidateResult[];
   searchMeta: PrimeSearchMeta;
 }
 
@@ -49,21 +50,17 @@ export interface PrimeSearchRequest {
   scenario?: string;
   language?: string | null;
   module?: string | null;
+  limit?: number;
+  filters?: Record<string, unknown>;
 }
 
 /** Minimal SearchEngine shape — duck-typed for DI flexibility */
 interface SearchEngineLike {
   search(
     query: string,
-    options?: { mode?: string; limit?: number; rank?: boolean }
+    options?: { mode?: string; limit?: number; rank?: boolean; [key: string]: unknown }
   ): Promise<{ items?: unknown[]; searchMeta?: Record<string, unknown> }>;
 }
-
-// ── Constants ───────────────────────────────────────
-
-/** Route-calibrated relevance floor shared by lexical, semantic, and RRF evidence. */
-const MIN_SCORE_THRESHOLD = 0.45;
-const RELATIVE_SCORE_RATIO = 0.5;
 
 // ── PrimeSearchPipeline ─────────────────────────────
 
@@ -75,31 +72,32 @@ export class PrimeSearchPipeline {
   }
 
   /**
-   * Run one unified search for the structured prime query, quality-filter the
-   * results, and split into knowledge vs Guard rules.
+   * Run one unified search for the structured prime query and split the
+   * canonical candidates into knowledge vs Guard presentation groups.
    */
   async search(request: PrimeSearchRequest): Promise<PrimeSearchResult | null> {
     const query = request.query?.trim();
     if (!query) {
       return null;
     }
-    const response = await this.#search.search(query, { mode: 'auto', limit: 8, rank: false });
-    const items = ((response.items || []) as SearchResultItem[])
-      .map((item) => ({
-        ...slimSearchResult(item),
-        score: calibratePrimeSearchScore(item),
-      }))
-      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-    const filtered = this.#qualityFilter(items);
-    const knowledge = filtered.filter((r) => r.kind !== 'rule').slice(0, 5);
-    const rules = filtered.filter((r) => r.kind === 'rule').slice(0, 3);
+    const limit = boundedLimit(request.limit);
+    const response = await this.#search.search(query, {
+      ...(request.filters ?? {}),
+      mode: 'auto',
+      limit,
+      rank: false,
+    });
+    const items = ((response.items || []) as SearchResultItem[]).map(projectPrimeCandidate);
+    const knowledge = items.filter((r) => r.kind !== 'rule').slice(0, limit);
+    const rules = items.filter((r) => r.kind === 'rule').slice(0, limit);
     return {
       relatedKnowledge: knowledge,
       guardRules: rules,
       searchMeta: this.#buildSearchMeta(
         request,
         items.length,
-        filtered.length,
+        items.length,
+        items.map((item) => item.id),
         response.searchMeta
       ),
     };
@@ -107,34 +105,16 @@ export class PrimeSearchPipeline {
 
   // ── Private ───────────────────────────────────────
 
-  /**
-   * Quality filter over route-calibrated scores. Expects items sorted descending.
-   */
-  #qualityFilter(items: SlimSearchResult[]): SlimSearchResult[] {
-    if (items.length === 0) {
-      return [];
-    }
-    const maxScore = items[0]?.score ?? 0;
-    const effectiveThreshold = Math.max(MIN_SCORE_THRESHOLD, maxScore * RELATIVE_SCORE_RATIO);
-    const result: SlimSearchResult[] = [];
-    for (const item of items) {
-      const score = item.score;
-      if (score < effectiveThreshold) {
-        break;
-      }
-      result.push(item);
-    }
-    return result;
-  }
-
   #buildSearchMeta(
     request: PrimeSearchRequest,
     resultCount: number,
     filteredCount: number,
+    candidateRecipeIds: string[],
     routeMeta: Record<string, unknown> | undefined
   ): PrimeSearchMeta {
     const filteredOrphanVectorCount = boundedPositiveCount(routeMeta?.filteredOrphanVectorCount);
     return {
+      candidateRecipeIds,
       queries: request.queries?.length ? request.queries : [request.query],
       scenario: request.scenario ?? '',
       language: request.language ?? null,
@@ -152,6 +132,44 @@ export class PrimeSearchPipeline {
         : {}),
     };
   }
+}
+
+export type PrimeCandidateResult = SlimSearchResult & {
+  denseRank?: number;
+  denseSimilarity?: number;
+  sparseRank?: number;
+  sparseScore?: number;
+  rrfContribution?: { dense: number; sparse: number; total: number };
+  regionEvidence?: unknown[];
+  retrievalDiagnostics?: Record<string, unknown>;
+};
+
+function projectPrimeCandidate(item: SearchResultItem): PrimeCandidateResult {
+  const record = item as unknown as Record<string, unknown>;
+  return {
+    ...slimSearchResult(item),
+    ...copyFiniteNumber(record, 'denseRank'),
+    ...copyFiniteNumber(record, 'denseSimilarity'),
+    ...copyFiniteNumber(record, 'sparseRank'),
+    ...copyFiniteNumber(record, 'sparseScore'),
+    ...(isRecord(record.rrfContribution)
+      ? { rrfContribution: record.rrfContribution as PrimeCandidateResult['rrfContribution'] }
+      : {}),
+    ...(Array.isArray(record.regionEvidence) ? { regionEvidence: record.regionEvidence } : {}),
+    ...(isRecord(record.retrievalDiagnostics)
+      ? { retrievalDiagnostics: record.retrievalDiagnostics }
+      : {}),
+  };
+}
+
+function boundedLimit(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? Math.min(100, value)
+    : 10;
+}
+
+function copyFiniteNumber(value: Record<string, unknown>, key: string): Record<string, number> {
+  return typeof value[key] === 'number' && Number.isFinite(value[key]) ? { [key]: value[key] } : {};
 }
 
 function boundedPositiveCount(value: unknown): number | undefined {
@@ -190,41 +208,6 @@ function normalizePrimeFallbackReason(value: unknown): string | undefined {
   return 'search-route-unavailable';
 }
 
-function calibratePrimeSearchScore(item: SearchResultItem): number {
-  const record = item as unknown as Record<string, unknown>;
-  const breakdown =
-    readRecord(record.scoreBreakdown) ?? readRecord(readRecord(record.metadata)?.scoreBreakdown);
-  const raw = typeof item.score === 'number' && Number.isFinite(item.score) ? item.score : 0;
-  const rrf = readNumber(breakdown?.rrfScore);
-  if (rrf !== undefined) {
-    return clamp01(rrf / 0.03);
-  }
-  const semantic =
-    readNumber(breakdown?.semanticScore) ??
-    readNumber(breakdown?.vectorScore) ??
-    (readStringArray(breakdown?.matchRoutes).includes('semantic') ? raw : undefined);
-  if (semantic !== undefined) {
-    return clamp01(semantic);
-  }
-  return raw > 1 ? clamp01(1 - Math.exp(-raw / 2)) : clamp01(raw);
-}
-
-function readRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function readNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string')
-    : [];
-}
-
-function clamp01(value: number): number {
-  return Number(Math.max(0, Math.min(1, value)).toFixed(6));
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

@@ -1,5 +1,9 @@
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
+import {
+  ProjectContextBuildSessionManager,
+  ProjectContextContinuationError,
+} from '../../../service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import type { ProjectRuntimeContext } from '../../context/ProjectRuntimeContext.js';
 import type { McpServiceContainer } from '../handlers/types.js';
 import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
@@ -25,6 +29,7 @@ export interface EmbeddedToolExecutorOptions {
 
 interface EmbeddedToolCallOptions {
   hostTurnMeta?: HostTurnMetaInput;
+  signal?: AbortSignal;
 }
 
 let sharedPluginOwnedMcpServer: EmbeddedMcpServer | null = null;
@@ -48,6 +53,7 @@ export async function resetPluginOwnedMcpServerForTests(): Promise<void> {
 export class EmbeddedToolExecutor {
   readonly #getSessionId: () => string;
   readonly #hostProjectRoot: string;
+  readonly #projectContextBuildSessions = new ProjectContextBuildSessionManager();
 
   constructor(options: EmbeddedToolExecutorOptions) {
     this.#getSessionId = options.getSessionId;
@@ -73,7 +79,10 @@ export class EmbeddedToolExecutor {
         return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_graph') {
-        const result = await executeReadOnlyGraph(args, executionContext);
+        const result = await executeReadOnlyGraph(args, executionContext, {
+          buildSessions: this.#projectContextBuildSessions,
+          signal: options.signal,
+        });
         return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_prime') {
@@ -81,7 +90,10 @@ export class EmbeddedToolExecutor {
         return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_recipe_map') {
-        const result = await executeReadOnlyRecipeMap(args, executionContext);
+        const result = await executeReadOnlyRecipeMap(args, executionContext, {
+          buildSessions: this.#projectContextBuildSessions,
+          signal: options.signal,
+        });
         return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
       }
       if (name === 'alembic_code_guard') {
@@ -103,12 +115,26 @@ export class EmbeddedToolExecutor {
       return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof ProjectContextContinuationError) {
+        return attachExecutionContext(
+          {
+            ...failureResult(name, message, { retryable: err.retryable }),
+            errorCode: err.code,
+          },
+          executionContext,
+          this.#hostProjectRoot
+        );
+      }
       return attachExecutionContext(
         failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`),
         executionContext,
         this.#hostProjectRoot
       );
     }
+  }
+
+  async dispose(): Promise<void> {
+    await this.#projectContextBuildSessions.dispose();
   }
 
   async withPluginOwnedContainer<T>(

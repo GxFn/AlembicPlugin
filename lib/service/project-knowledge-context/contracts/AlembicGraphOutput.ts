@@ -45,6 +45,18 @@ export type AlembicGraphQueryKind = z.infer<typeof AlembicGraphQueryKindSchema>;
 export const AlembicGraphStatusSchema = z.enum(['ready', 'partial', 'degraded', 'failed']);
 export type AlembicGraphStatus = z.infer<typeof AlembicGraphStatusSchema>;
 
+export const ProjectContextContinuationSchema = z
+  .object({
+    resultRef: z.string().min(1).max(240),
+    factSessionRef: z.string().min(1).max(240),
+    nextCursor: z.string().min(1).max(240).nullable(),
+    hasMore: z.boolean(),
+    page: z.number().int().min(1),
+    accumulatedCounts: z.object({ items: z.number().int().nonnegative() }).strict(),
+  })
+  .strict();
+export type ProjectContextContinuation = z.infer<typeof ProjectContextContinuationSchema>;
+
 export const AlembicGraphNodeTypeSchema = z.enum([
   'project',
   'package',
@@ -163,6 +175,8 @@ export const AlembicGraphProjectContextMetaSchema = z
     errorCount: z.number().int().nonnegative(),
     suppressedErrorCount: z.number().int().nonnegative(),
     partial: z.boolean(),
+    factSessionRef: z.string().min(1).max(240).optional(),
+    factFingerprint: z.string().length(64).optional(),
   })
   .strict();
 
@@ -202,6 +216,7 @@ export const AlembicGraphOutputSchema = z
     slices: z.array(GraphSourceSliceSummarySchema).max(80).optional(),
     diagnostics: z.array(GraphDiagnosticSchema).max(200),
     nextActions: z.array(GraphNextActionSchema).max(20),
+    continuation: ProjectContextContinuationSchema.optional(),
     limits: AlembicGraphLimitsSchema,
     meta: z
       .object({

@@ -250,7 +250,9 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(output.nodes.some((node) => node.nodeType === 'symbol')).toBe(true);
 
     const requestKinds = projectContextRequestKinds(output);
-    expect(requestKinds).toEqual(expect.arrayContaining(['space', 'repo', 'file-symbols']));
+    expect(requestKinds).toEqual(['file-symbols']);
+    expect(requestKinds).not.toContain('space');
+    expect(requestKinds).not.toContain('repo');
     expect(requestKinds).not.toContain('map');
     expect(requestKinds).not.toContain('module');
     expect(requestKinds).not.toContain('module-layers');

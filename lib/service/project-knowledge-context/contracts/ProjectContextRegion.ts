@@ -141,6 +141,8 @@ export const ProjectContextRegionSchema = z
         contractVersion: z.literal(REGION_CONTEXT_CONTRACT_VERSION),
         outputSchema: z.literal('ProjectContextRegion').default('ProjectContextRegion'),
         producer: z.string().min(1).max(160).optional(),
+        factSessionRef: z.string().min(1).max(240).optional(),
+        factFingerprint: z.string().length(64).optional(),
       })
       .strict()
       .optional(),

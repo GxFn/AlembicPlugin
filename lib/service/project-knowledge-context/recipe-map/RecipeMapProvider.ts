@@ -172,6 +172,8 @@ export class RecipeMapProvider {
         fullMapRef: null,
         outputSchema: 'AlembicRecipeMapOutput',
         producer: 'RecipeMapProvider',
+        ...(region.meta?.factSessionRef ? { factSessionRef: region.meta.factSessionRef } : {}),
+        ...(region.meta?.factFingerprint ? { factFingerprint: region.meta.factFingerprint } : {}),
       },
     });
     return budgetRecipeMapOutput(output);

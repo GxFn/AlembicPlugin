@@ -219,6 +219,13 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       expect(result.recipeMountLimit).toBe(25);
     });
 
+    test('accepts opaque continuation controls', () => {
+      expect(RecipeMapInput.parse({ cursor: 'cursor_opaque', pageSize: 25 })).toMatchObject({
+        cursor: 'cursor_opaque',
+        pageSize: 25,
+      });
+    });
+
     test('rejects an unknown focus kind', () => {
       expect(RecipeMapInput.safeParse({ focus: { kind: 'recipe' } }).success).toBe(false);
     });
@@ -324,6 +331,13 @@ describe('Integration: Zod Schemas — mcp-tools.ts', () => {
       expect(legacy.operation).toBe('stats');
       expect(legacy.direction).toBe('both');
       expect(legacy.maxDepth).toBe(2);
+    });
+
+    test('accepts opaque continuation controls', () => {
+      expect(GraphInput.parse({ cursor: 'cursor_opaque', pageSize: 25 })).toMatchObject({
+        cursor: 'cursor_opaque',
+        pageSize: 25,
+      });
     });
 
     test('should accept host-declared intent and source refs', () => {

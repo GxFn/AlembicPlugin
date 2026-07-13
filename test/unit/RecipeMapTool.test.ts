@@ -18,6 +18,7 @@ import {
   AlembicRecipeMapOutputSchema,
 } from '../../lib/service/project-knowledge-context/contracts/AlembicRecipeMapOutput.js';
 import { defaultProjectGraphProvider } from '../../lib/service/project-knowledge-context/project/ProjectGraphProvider.js';
+import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import {
   defaultRecipeMapProvider,
   normalizeRecipeRef,
@@ -102,6 +103,37 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     // The deeper Recipes still appear as descendant rollups on the root.
     const rootRollup = output.recipeRollups.find((rollup) => rollup.nodeId === rootNodeId);
     expect(rootRollup?.descendantRecipeCount ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  test('public Recipe Map returns opaque deterministic continuation pages without rebuilding facts', async () => {
+    const projectRoot = createFixtureProject();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const ctx = createContext(projectRoot);
+    ctx.projectContextExecution = { buildSessions: manager };
+    const first = (await routeRecipeMapTool(ctx, {
+      focus: { kind: 'space' },
+      pageSize: 1,
+      projectRoot,
+    })) as { structuredContent: AlembicRecipeMapOutput };
+    expect(first.structuredContent.continuation?.hasMore).toBe(true);
+    expect(first.structuredContent.continuation?.resultRef).not.toContain(projectRoot);
+    const factSessionRef = first.structuredContent.continuation?.factSessionRef;
+    let cursor = first.structuredContent.continuation?.nextCursor ?? null;
+    let pages = 1;
+    const stableIds = first.structuredContent.region.nodes.map((node) => node.nodeId);
+    while (cursor) {
+      const next = (await routeRecipeMapTool(ctx, { cursor, projectRoot })) as {
+        structuredContent: AlembicRecipeMapOutput;
+      };
+      pages += 1;
+      expect(next.structuredContent.continuation?.factSessionRef).toBe(factSessionRef);
+      stableIds.push(...next.structuredContent.region.nodes.map((node) => node.nodeId));
+      cursor = next.structuredContent.continuation?.nextCursor ?? null;
+    }
+    expect(pages).toBeGreaterThanOrEqual(3);
+    expect(new Set(stableIds).size).toBe(stableIds.length);
+    expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
+    await manager.dispose();
   });
 
   test('module focus mounts directly and resolves multi-ref to the lowest common ancestor', async () => {

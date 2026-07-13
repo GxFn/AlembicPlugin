@@ -27,6 +27,15 @@ export interface AcceptedPrimeKnowledge {
   evidenceRefs: PrimeEvidenceRef[];
   matchedRegionClasses: string[];
   usefulSlices: PrimeUsefulSlice[];
+  retrievalEvidence?: {
+    denseRank?: number;
+    denseSimilarity?: number;
+    sparseRank?: number;
+    sparseScore?: number;
+    rrfContribution?: Record<string, unknown>;
+    regionEvidence?: unknown[];
+    retrievalDiagnostics?: Record<string, unknown>;
+  };
 }
 
 export interface AcceptedPrimeGuard extends AcceptedPrimeKnowledge {}
@@ -129,7 +138,33 @@ function projectItem(item: SlimSearchResult): AcceptedPrimeKnowledge {
     evidenceRefs: refs,
     matchedRegionClasses: [],
     usefulSlices: [],
+    ...projectRetrievalEvidence(record),
   };
+}
+
+function projectRetrievalEvidence(
+  record: Record<string, unknown>
+): Pick<AcceptedPrimeKnowledge, 'retrievalEvidence'> {
+  const evidence = {
+    ...copyFiniteNumber(record, 'denseRank'),
+    ...copyFiniteNumber(record, 'denseSimilarity'),
+    ...copyFiniteNumber(record, 'sparseRank'),
+    ...copyFiniteNumber(record, 'sparseScore'),
+    ...(isRecord(record.rrfContribution) ? { rrfContribution: record.rrfContribution } : {}),
+    ...(Array.isArray(record.regionEvidence) ? { regionEvidence: record.regionEvidence } : {}),
+    ...(isRecord(record.retrievalDiagnostics)
+      ? { retrievalDiagnostics: record.retrievalDiagnostics }
+      : {}),
+  };
+  return Object.keys(evidence).length > 0 ? { retrievalEvidence: evidence } : {};
+}
+
+function copyFiniteNumber(value: Record<string, unknown>, key: string): Record<string, number> {
+  return typeof value[key] === 'number' && Number.isFinite(value[key]) ? { [key]: value[key] } : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function readStringArray(value: unknown): string[] {

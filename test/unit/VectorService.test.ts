@@ -303,10 +303,12 @@ describe('VectorService', () => {
       expect(results).toHaveLength(1);
     });
 
-    it('should return empty when no embedProvider', async () => {
+    it('should preserve sparse truth when no embedProvider', async () => {
       const svc = createService({ embedProvider: null });
       const results = await svc.hybridSearch('query');
-      expect(results).toHaveLength(0);
+      expect(embedProvider.embed).not.toHaveBeenCalled();
+      expect(hybridRetriever.search).toHaveBeenCalled();
+      expect(results).toHaveLength(1);
     });
 
     it('should handle embed failure gracefully', async () => {
@@ -328,7 +330,7 @@ describe('VectorService', () => {
       const svc = createService();
       await svc.syncEntry(entry);
 
-      expect(embedProvider.embed).toHaveBeenCalledWith('Test\n\nHello world');
+      expect(embedProvider.embed).toHaveBeenCalledWith(['Test\n\nHello world']);
       expect(vectorStore.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'entry_123',
@@ -357,7 +359,7 @@ describe('VectorService', () => {
         content: { body: 'Description', code: 'let x = 1;' },
       });
 
-      expect(embedProvider.embed).toHaveBeenCalledWith('Complex\n\nDescription\n\nlet x = 1;');
+      expect(embedProvider.embed).toHaveBeenCalledWith(['Complex\n\nDescription\n\nlet x = 1;']);
     });
 
     it('should skip entry with empty content', async () => {

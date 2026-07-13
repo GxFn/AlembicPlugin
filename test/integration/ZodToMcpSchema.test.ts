@@ -178,6 +178,8 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.properties.hostDeclaredIntent).toBeDefined();
       expect(result.properties.sourceRefs).toBeDefined();
       expect(result.properties.query).toBeDefined();
+      expect(result.properties.cursor).toBeDefined();
+      expect(result.properties.pageSize).toBeDefined();
     });
 
     test('RecipeMapInput should expose focus and radius in MCP schema', () => {
@@ -186,6 +188,8 @@ describe('Integration: zodToMcpSchema', () => {
       expect(result.properties.focus).toBeDefined();
       expect(result.properties.radius).toBeDefined();
       expect(result.properties.includeRecipes).toBeDefined();
+      expect(result.properties.cursor).toBeDefined();
+      expect(result.properties.cancelCursor).toBeDefined();
     });
 
     test('RescanInput should expose controller-authorized produce session fields', () => {

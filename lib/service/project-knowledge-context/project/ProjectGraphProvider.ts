@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type {
   AnchorRangeContext,
@@ -51,6 +52,11 @@ import {
   ProjectGraphInputSchema,
   REGION_CONTEXT_CONTRACT_VERSION,
 } from '../contracts/index.js';
+import type {
+  ProjectContextBuildScope,
+  ProjectContextBuildSessionManager,
+  ProjectContextFactChunk,
+} from '../session/ProjectContextBuildSessionManager.js';
 import { defaultRefRegistry, stableRefSegment } from '../support/index.js';
 import { discoverInitializedGitSubmoduleRepoFolders } from './GitSubmoduleRepoDiscovery.js';
 
@@ -72,8 +78,19 @@ export interface ProjectGraphRelation {
 }
 
 export interface ProjectGraphProvider {
-  resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput>;
-  resolveProjectContextRegion(request: ProjectContextRegionRequest): Promise<ProjectContextRegion>;
+  resolveAlembicGraph(
+    input: ProjectGraphInput,
+    options?: ProjectGraphExecutionOptions
+  ): Promise<AlembicGraphOutput>;
+  resolveProjectContextRegion(
+    request: ProjectContextRegionRequest,
+    options?: ProjectGraphExecutionOptions
+  ): Promise<ProjectContextRegion>;
+}
+
+export interface ProjectGraphExecutionOptions {
+  buildSessions?: ProjectContextBuildSessionManager;
+  signal?: AbortSignal;
 }
 
 interface GraphBuild {
@@ -87,6 +104,8 @@ interface GraphBuild {
   relations: ProjectGraphRelation[];
   sourceSlices: GraphSourceSliceSummary[];
   sources: KnowledgeContextSource[];
+  factSessionRef?: string;
+  factFingerprint?: string;
 }
 
 interface ProjectGraphProjectContextTrace {
@@ -204,7 +223,10 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
   // facts into the Recipe-free AlembicGraphOutput, selected by queryKind. Shares
   // buildGraph with resolveProjectGraph; never routes through the KnowledgeContext
   // middle layer or KnowledgeContextToolOutput envelope.
-  async resolveAlembicGraph(input: ProjectGraphInput): Promise<AlembicGraphOutput> {
+  async resolveAlembicGraph(
+    input: ProjectGraphInput,
+    options: ProjectGraphExecutionOptions = {}
+  ): Promise<AlembicGraphOutput> {
     const projectRoot = input.projectRoot ?? process.cwd();
     const normalizedInput = normalizeGraphProviderInput(input);
     const queryKind = resolveGraphQueryKind(normalizedInput);
@@ -220,7 +242,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     }
     let build: GraphBuild;
     try {
-      build = await this.buildGraph(projectRoot, normalizedInput);
+      build = await this.buildGraph(projectRoot, normalizedInput, options);
     } catch (error) {
       return failedAlembicGraphOutput(projectRoot, queryKind, error);
     }
@@ -240,7 +262,8 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
   // nodeIds/refs are identical to alembic_graph's, so a ref round-trips between
   // graph (refId) and recipe_map (focus) for free.
   async resolveProjectContextRegion(
-    request: ProjectContextRegionRequest
+    request: ProjectContextRegionRequest,
+    options: ProjectGraphExecutionOptions = {}
   ): Promise<ProjectContextRegion> {
     const focus = request.focus;
     const projectRoot = request.projectRoot ?? process.cwd();
@@ -248,14 +271,46 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     // collect the right facts — this never invokes the public alembic_graph tool.
     const build = await this.buildGraph(
       projectRoot,
-      regionBuildInput(focus, projectRoot, request.radius)
+      regionBuildInput(focus, projectRoot, request.radius),
+      options
     );
     const selection = applyRegionRadius(selectRegionFromBuild(build, focus), request.radius ?? {});
     return projectProjectContextRegion({ build, focus, projectRoot, selection });
   }
 
-  private async buildGraph(projectRoot: string, input: ProjectGraphInput): Promise<GraphBuild> {
-    const projectContextFacts = await buildProjectContextGraphFacts(projectRoot, input);
+  private async buildGraph(
+    projectRoot: string,
+    input: ProjectGraphInput,
+    options: ProjectGraphExecutionOptions
+  ): Promise<GraphBuild> {
+    const buildInput = canonicalProjectContextBuildInput(input);
+    if (!options.buildSessions) {
+      return this.buildGraphUncached(projectRoot, buildInput, options.signal);
+    }
+    const lease = await options.buildSessions.acquire({
+      projectRoot,
+      scope: projectContextBuildScope(buildInput),
+      signal: options.signal,
+      build: (signal) => this.buildGraphUncached(projectRoot, buildInput, signal),
+      chunks: graphBuildFactChunks,
+    });
+    try {
+      return {
+        ...lease.value,
+        factSessionRef: lease.factSessionRef,
+        factFingerprint: lease.fingerprint,
+      };
+    } finally {
+      lease.release();
+    }
+  }
+
+  private async buildGraphUncached(
+    projectRoot: string,
+    input: ProjectGraphInput,
+    signal?: AbortSignal
+  ): Promise<GraphBuild> {
+    const projectContextFacts = await buildProjectContextGraphFacts(projectRoot, input, signal);
     const projectName = projectNameFromProjectContextFacts(projectContextFacts, projectRoot);
     const projectId = `project:${stableRefSegment(projectName) || 'project'}`;
     const projectRef = defaultRefRegistry.createDetailRef({
@@ -335,6 +390,64 @@ function normalizeGraphProviderInput(input: ProjectGraphInput): ProjectGraphInpu
     ...(input.fromId || !input.fromRefId ? {} : { fromId: input.fromRefId }),
     ...(input.toId || !input.toRefId ? {} : { toId: input.toRefId }),
   });
+}
+
+function canonicalProjectContextBuildInput(input: ProjectGraphInput): ProjectGraphInput {
+  const explicitPath = explicitProjectGraphPath(input);
+  if (explicitPath || input.query) {
+    return input;
+  }
+  // Broad Graph and Recipe Map calls share one deterministic, superset fact
+  // build. Selection remains caller-specific after the shared build completes.
+  return ProjectGraphInputSchema.parse({
+    projectRoot: input.projectRoot,
+    queryKind: 'map',
+  });
+}
+
+function projectContextBuildScope(input: ProjectGraphInput): ProjectContextBuildScope {
+  const filePath = explicitProjectGraphPath(input);
+  if (filePath) {
+    return {
+      kind: resolveGraphQueryKind(input),
+      filePath: normalizeRelativePath(filePath),
+      ...(input.line === undefined ? {} : { line: input.line }),
+      ...(input.radius?.beforeLines === undefined ? {} : { beforeLines: input.radius.beforeLines }),
+      ...(input.radius?.afterLines === undefined ? {} : { afterLines: input.radius.afterLines }),
+      ...(input.radius?.relationHops === undefined
+        ? {}
+        : { relationHops: input.radius.relationHops }),
+    };
+  }
+  return {
+    kind: input.query ? 'query' : 'space',
+    ...(input.query ? { query: input.query } : {}),
+  };
+}
+
+function graphBuildFactChunks(build: GraphBuild): ProjectContextFactChunk[] {
+  const repoIds = [...build.projectContext.repoCoverage.discoveredRepoIds].sort();
+  return repoIds.map((repoId) => ({
+    id: repoId,
+    value: {
+      repoId,
+      failed: build.projectContext.repoCoverage.failedRepoIds.includes(repoId),
+      nodeIds: build.nodes
+        .filter((node) => node.path === repoId || node.path?.startsWith(`${repoId}/`))
+        .map((node) => node.id)
+        .sort(),
+      relationIds: build.relations
+        .filter((relation) =>
+          build.nodes.some(
+            (node) =>
+              (node.id === relation.fromId || node.id === relation.toId) &&
+              (node.path === repoId || node.path?.startsWith(`${repoId}/`))
+          )
+        )
+        .map((relation) => `${relation.fromId}\0${relation.relationType}\0${relation.toId}`)
+        .sort(),
+    },
+  }));
 }
 
 function preflightAlembicGraphSelection(
@@ -454,7 +567,8 @@ function emptyGraphBuild(projectRoot: string): GraphBuild {
 
 async function buildProjectContextGraphFacts(
   projectRoot: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ): Promise<ProjectContextGraphFacts> {
   const facts: ProjectContextGraphFacts = {
     anchorRanges: [],
@@ -487,26 +601,34 @@ async function buildProjectContextGraphFacts(
   };
 
   try {
-    await collectGraphRepoContexts(facts, projectRoot, input);
-    const moduleSeeds = createGraphModuleSeedsFromRepoContexts(facts.repos, input, facts.trace);
-    await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input);
-    await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input);
-    if (shouldCollectGraphFileFlowContexts(input)) {
-      await collectGraphFileFlowContexts(facts, projectRoot, input);
-    }
-    if (shouldCollectGraphStrongIdentifierFileSymbols(input)) {
-      await collectGraphStrongIdentifierFileSymbolContexts(facts, projectRoot, input);
-    }
-    if (shouldCollectGraphFileSymbolsContexts(input)) {
-      await collectGraphFileSymbolsContexts(facts, projectRoot, input);
-    }
-    if (shouldCollectGraphSourceSliceContexts(input)) {
-      await collectGraphSourceSliceContexts(facts, projectRoot, input);
-    }
-    if (shouldCollectGraphAnchorRangeContexts(input)) {
-      await collectGraphAnchorRangeContexts(facts, projectRoot, input);
+    signal?.throwIfAborted();
+    if (isExplicitFileGraphTraversal(input)) {
+      await collectNarrowGraphFileContexts(facts, projectRoot, input, signal);
+    } else {
+      await collectGraphRepoContexts(facts, projectRoot, input, signal);
+      const moduleSeeds = createGraphModuleSeedsFromRepoContexts(facts.repos, input, facts.trace);
+      await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input, signal);
+      await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input, signal);
+      if (shouldCollectGraphFileFlowContexts(input)) {
+        await collectGraphFileFlowContexts(facts, projectRoot, input, signal);
+      }
+      if (shouldCollectGraphStrongIdentifierFileSymbols(input)) {
+        await collectGraphStrongIdentifierFileSymbolContexts(facts, projectRoot, input, signal);
+      }
+      if (shouldCollectGraphFileSymbolsContexts(input)) {
+        await collectGraphFileSymbolsContexts(facts, projectRoot, input, signal);
+      }
+      if (shouldCollectGraphSourceSliceContexts(input)) {
+        await collectGraphSourceSliceContexts(facts, projectRoot, input, signal);
+      }
+      if (shouldCollectGraphAnchorRangeContexts(input)) {
+        await collectGraphAnchorRangeContexts(facts, projectRoot, input, signal);
+      }
     }
   } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason ?? error;
+    }
     facts.diagnostics.push({
       code: 'project-context-execution-failed',
       domain: 'project',
@@ -528,18 +650,198 @@ async function buildProjectContextGraphFacts(
   return facts;
 }
 
+async function collectNarrowGraphFileContexts(
+  facts: ProjectContextGraphFacts,
+  projectRoot: string,
+  input: ProjectGraphInput,
+  signal?: AbortSignal
+): Promise<void> {
+  const filePath = explicitProjectGraphPath(input);
+  if (!filePath) {
+    return;
+  }
+  const queryKind = resolveGraphQueryKind(input);
+  facts.trace.repoCoverage = {
+    ...emptyGraphRepoCoverage(),
+    completeness: 'complete',
+  };
+
+  if (queryKind === 'file-flow' || queryKind === 'impact' || queryKind === 'neighborhood') {
+    if (queryKind === 'impact' || queryKind === 'neighborhood') {
+      await collectNarrowContainingRepoContext(facts, projectRoot, filePath, input, signal);
+    }
+    const envelope = await executeGraphProjectContextRequest(
+      'file-flow',
+      projectRoot,
+      { filePath },
+      {},
+      signal
+    );
+    collectGraphEnvelope(facts, envelope, 'project-context-file-flow', input);
+    if (isFileFlowContext(envelope.data)) {
+      facts.fileFlows.push(envelope.data);
+    }
+    return;
+  }
+  if (queryKind === 'file-symbols') {
+    const envelope = await executeGraphProjectContextRequest(
+      'file-symbols',
+      projectRoot,
+      { filePath, ...(input.symbolName ? { symbolName: input.symbolName } : {}) },
+      {},
+      signal
+    );
+    collectGraphEnvelope(facts, envelope, 'project-context-file-symbols', input);
+    if (isFileSymbolContext(envelope.data)) {
+      facts.fileSymbols.push(envelope.data);
+    }
+    return;
+  }
+  if (queryKind === 'source-slice') {
+    const line = input.line ?? 1;
+    const startLine = Math.max(1, line - (input.radius?.beforeLines ?? 0));
+    const endLine = line + (input.radius?.afterLines ?? 0);
+    const envelope = await executeGraphProjectContextRequest(
+      'source-slice',
+      projectRoot,
+      { endLine, filePath, includeText: true, range: { endLine, startLine }, startLine },
+      {},
+      signal
+    );
+    collectGraphEnvelope(facts, envelope, 'project-context-source-slice', input);
+    if (isSourceSliceContext(envelope.data)) {
+      facts.sourceSliceContexts.push(envelope.data);
+    }
+    return;
+  }
+  if (queryKind === 'anchor-range') {
+    const envelope = await executeGraphProjectContextRequest(
+      'anchor-range',
+      projectRoot,
+      {
+        afterLines: input.radius?.afterLines ?? 8,
+        beforeLines: input.radius?.beforeLines ?? 8,
+        filePath,
+        includeContainingRefs: true,
+        includeRelatedRefs: true,
+        includeRelations: true,
+        includeSourceSlices: true,
+        includeSymbols: true,
+        line: input.line ?? 1,
+        relationHops: input.radius?.relationHops ?? 1,
+      },
+      {},
+      signal
+    );
+    collectGraphEnvelope(facts, envelope, 'project-context-anchor-range', input);
+    if (isAnchorRangeContext(envelope.data)) {
+      facts.anchorRanges.push(envelope.data);
+    }
+  }
+}
+
+async function collectNarrowContainingRepoContext(
+  facts: ProjectContextGraphFacts,
+  projectRoot: string,
+  filePath: string,
+  input: ProjectGraphInput,
+  signal?: AbortSignal
+): Promise<void> {
+  const firstSegment = normalizeRelativePath(filePath).split('/')[0] ?? '';
+  const candidateRoot = path.join(projectRoot, firstSegment);
+  const sourceFolder =
+    firstSegment &&
+    ['package.json', 'Package.swift', 'Cargo.toml', 'go.mod', 'pyproject.toml'].some((manifest) =>
+      existsSync(path.join(candidateRoot, manifest))
+    )
+      ? firstSegment
+      : '.';
+  const repoName = sourceFolder === '.' ? projectNameFromRoot(projectRoot) : firstSegment;
+  try {
+    const envelope = await executeGraphProjectContextRequest(
+      'repo',
+      projectRoot,
+      {
+        includeCommands: true,
+        includeEntrypoints: true,
+        includeMapSummary: false,
+        includeTopAreas: true,
+        maxFiles: GRAPH_REPO_MAX_FILES,
+        repoName,
+        repoRoot: sourceFolder,
+      },
+      { repoId: repoName, sourceFolder },
+      signal
+    );
+    collectGraphEnvelope(facts, envelope, 'project-context-repo', input);
+    if (isRepoContext(envelope.data)) {
+      facts.repos.push(envelope.data);
+      facts.trace.repoCoverage = {
+        scope: 'repositories',
+        requested: 1,
+        attempted: 1,
+        succeeded: 1,
+        failed: 0,
+        omitted: 0,
+        completeness: 'complete',
+        discoveredRepoIds: [repoName],
+        succeededRepoIds: [repoName],
+        failedRepoIds: [],
+        omittedRepoIds: [],
+        timeoutCount: 0,
+      };
+    }
+  } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason ?? error;
+    }
+    facts.trace.errorCount += 1;
+    facts.trace.partial = true;
+    facts.trace.repoCoverage = {
+      scope: 'repositories',
+      requested: 1,
+      attempted: 1,
+      succeeded: 0,
+      failed: 1,
+      omitted: 0,
+      completeness: 'partial',
+      discoveredRepoIds: [repoName],
+      succeededRepoIds: [],
+      failedRepoIds: [repoName],
+      omittedRepoIds: [],
+      timeoutCount: 0,
+    };
+    facts.diagnostics.push({
+      code: 'project-context-repo-failed',
+      domain: 'project',
+      message: `Containing repo collection failed for ${repoName}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      retryable: true,
+      severity: 'warning',
+    });
+  }
+}
+
 async function collectGraphRepoContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
-  const spaceEnvelope = await executeGraphProjectContextRequest('space', projectRoot, {
-    activeFile: input.activeFile,
-    includeProjectTree: true,
-    includeStructuralHotspots: true,
-    maxTreeEntries: 80,
-    sourceRefs: input.sourceRefs,
-  });
+  const spaceEnvelope = await executeGraphProjectContextRequest(
+    'space',
+    projectRoot,
+    {
+      activeFile: input.activeFile,
+      includeProjectTree: true,
+      includeStructuralHotspots: true,
+      maxTreeEntries: 80,
+      sourceRefs: input.sourceRefs,
+    },
+    {},
+    signal
+  );
   collectGraphEnvelope(facts, spaceEnvelope, 'project-context-space', input);
   const folders: GraphRepoFolder[] = isSpaceContext(spaceEnvelope.data)
     ? selectGraphRepoFolders(spaceEnvelope.data, projectRoot)
@@ -564,7 +866,8 @@ async function collectGraphRepoContexts(
               repoName: folder.repoName,
               repoRoot: folder.sourceFolder,
             },
-            { repoId: folder.repoId, sourceFolder: folder.sourceFolder }
+            { repoId: folder.repoId, sourceFolder: folder.sourceFolder },
+            signal
           ),
           graphRepoCoverageId(folder)
         );
@@ -704,7 +1007,8 @@ async function collectGraphMapContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
   moduleSeeds: readonly GraphModuleSeed[],
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
   if (!shouldCollectGraphMapContexts(input)) {
     return;
@@ -724,7 +1028,8 @@ async function collectGraphMapContexts(
         moduleSeeds: group.seeds.slice(0, 4).map((seed) => seed.payload),
         repoName: group.repoName,
       },
-      group.scope
+      group.scope,
+      signal
     );
     facts.trace.mapRequestCount += 1;
     collectGraphEnvelope(facts, mapEnvelope, 'project-context-map', input);
@@ -738,7 +1043,8 @@ async function collectGraphModuleContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
   moduleSeeds: readonly GraphModuleSeed[],
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
   if (!shouldCollectGraphModuleContexts(input)) {
     return;
@@ -757,7 +1063,8 @@ async function collectGraphModuleContexts(
         includeDependencies: true,
         includePublicSurfaces: true,
       },
-      seed.scope
+      seed.scope,
+      signal
     );
     facts.trace.moduleRequestCount += 1;
     collectGraphEnvelope(facts, moduleEnvelope, 'project-context-module', input);
@@ -783,7 +1090,8 @@ async function collectGraphModuleContexts(
         ...seed.payload,
         includeBoundaryCrossings: true,
       },
-      seed.scope
+      seed.scope,
+      signal
     );
     facts.trace.moduleRequestCount += 1;
     collectGraphEnvelope(facts, layersEnvelope, 'project-context-module-layers', input);
@@ -945,7 +1253,8 @@ function scoreGraphModuleContextEvidence(context: ModuleContext, input: ProjectG
 async function collectGraphFileFlowContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
   const sourceFiles = selectProjectContextFileFlowTargets(facts, input).slice(
     0,
@@ -959,7 +1268,8 @@ async function collectGraphFileFlowContexts(
       {
         filePath: file.filePath,
       },
-      file.scope
+      file.scope,
+      signal
     );
     collectGraphEnvelope(facts, flowEnvelope, 'project-context-file-flow', input);
     if (isFileFlowContext(flowEnvelope.data)) {
@@ -971,7 +1281,8 @@ async function collectGraphFileFlowContexts(
 async function collectGraphStrongIdentifierFileSymbolContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
   const identifiers = strongGraphQueryIdentifiers(input.query);
   const targets = selectProjectContextFileFlowTargets(facts, input).filter((target) =>
@@ -982,7 +1293,8 @@ async function collectGraphStrongIdentifierFileSymbolContexts(
       'file-symbols',
       projectRoot,
       { filePath: target.filePath },
-      target.scope
+      target.scope,
+      signal
     );
     collectGraphEnvelope(facts, symbolsEnvelope, 'project-context-file-symbols', input);
     if (isFileSymbolContext(symbolsEnvelope.data)) {
@@ -994,25 +1306,32 @@ async function collectGraphStrongIdentifierFileSymbolContexts(
 async function collectGraphAnchorRangeContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
   const anchorFilePath = selectAnchorRangeFilePath(facts, input);
   if (!anchorFilePath) {
     return;
   }
 
-  const anchorEnvelope = await executeGraphProjectContextRequest('anchor-range', projectRoot, {
-    afterLines: input.radius?.afterLines ?? 8,
-    beforeLines: input.radius?.beforeLines ?? 8,
-    filePath: anchorFilePath,
-    includeContainingRefs: true,
-    includeRelatedRefs: true,
-    includeRelations: true,
-    includeSourceSlices: true,
-    includeSymbols: true,
-    line: input.line ?? 1,
-    relationHops: input.radius?.relationHops ?? 1,
-  });
+  const anchorEnvelope = await executeGraphProjectContextRequest(
+    'anchor-range',
+    projectRoot,
+    {
+      afterLines: input.radius?.afterLines ?? 8,
+      beforeLines: input.radius?.beforeLines ?? 8,
+      filePath: anchorFilePath,
+      includeContainingRefs: true,
+      includeRelatedRefs: true,
+      includeRelations: true,
+      includeSourceSlices: true,
+      includeSymbols: true,
+      line: input.line ?? 1,
+      relationHops: input.radius?.relationHops ?? 1,
+    },
+    {},
+    signal
+  );
   collectGraphEnvelope(facts, anchorEnvelope, 'project-context-anchor-range', input);
   if (isAnchorRangeContext(anchorEnvelope.data)) {
     facts.anchorRanges.push(anchorEnvelope.data);
@@ -1025,16 +1344,23 @@ async function collectGraphAnchorRangeContexts(
 async function collectGraphFileSymbolsContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
   const filePath = selectAnchorRangeFilePath(facts, input);
   if (!filePath) {
     return;
   }
-  const symbolsEnvelope = await executeGraphProjectContextRequest('file-symbols', projectRoot, {
-    filePath,
-    ...(input.symbolName ? { symbolName: input.symbolName } : {}),
-  });
+  const symbolsEnvelope = await executeGraphProjectContextRequest(
+    'file-symbols',
+    projectRoot,
+    {
+      filePath,
+      ...(input.symbolName ? { symbolName: input.symbolName } : {}),
+    },
+    {},
+    signal
+  );
   collectGraphEnvelope(facts, symbolsEnvelope, 'project-context-file-symbols', input);
   if (isFileSymbolContext(symbolsEnvelope.data)) {
     facts.fileSymbols.push(symbolsEnvelope.data);
@@ -1044,7 +1370,8 @@ async function collectGraphFileSymbolsContexts(
 async function collectGraphSourceSliceContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  signal?: AbortSignal
 ) {
   const filePath = selectAnchorRangeFilePath(facts, input);
   if (!filePath) {
@@ -1057,13 +1384,19 @@ async function collectGraphSourceSliceContexts(
   const line = input.line ?? 1;
   const startLine = Math.max(1, line - (input.radius?.beforeLines ?? 0));
   const endLine = line + (input.radius?.afterLines ?? 0);
-  const sliceEnvelope = await executeGraphProjectContextRequest('source-slice', projectRoot, {
-    endLine,
-    filePath,
-    includeText: true,
-    range: { endLine, startLine },
-    startLine,
-  });
+  const sliceEnvelope = await executeGraphProjectContextRequest(
+    'source-slice',
+    projectRoot,
+    {
+      endLine,
+      filePath,
+      includeText: true,
+      range: { endLine, startLine },
+      startLine,
+    },
+    {},
+    signal
+  );
   collectGraphEnvelope(facts, sliceEnvelope, 'project-context-source-slice', input);
   if (isSourceSliceContext(sliceEnvelope.data)) {
     facts.sourceSliceContexts.push(sliceEnvelope.data);
@@ -1074,18 +1407,23 @@ async function executeGraphProjectContextRequest(
   kind: ProjectContextRequestKind,
   projectRoot: string,
   payload: Record<string, unknown>,
-  scope: { repoId?: string; sourceFolder?: string } = {}
+  scope: { repoId?: string; sourceFolder?: string } = {},
+  signal?: AbortSignal
 ): Promise<ProjectContextEnvelope<ProjectContextResult>> {
-  return ProjectContextCapabilities.execute({
-    kind,
-    payload,
-    project: { projectRoot, source: 'alembic-plugin-mcp' },
-    scope: {
-      projectRoot,
-      ...(scope.repoId === undefined ? {} : { repoId: scope.repoId }),
-      ...(scope.sourceFolder === undefined ? {} : { sourceFolder: scope.sourceFolder }),
+  signal?.throwIfAborted();
+  return ProjectContextCapabilities.execute(
+    {
+      kind,
+      payload,
+      project: { projectRoot, source: 'alembic-plugin-mcp' },
+      scope: {
+        projectRoot,
+        ...(scope.repoId === undefined ? {} : { repoId: scope.repoId }),
+        ...(scope.sourceFolder === undefined ? {} : { sourceFolder: scope.sourceFolder }),
+      },
     },
-  });
+    { signal }
+  );
 }
 
 function collectGraphEnvelope(
@@ -1931,9 +2269,35 @@ function projectNameFromProjectContextFacts(
   return (
     rootLocalPackageNameFromRepos(facts.repos) ??
     facts.repos[0]?.repo.name ??
+    rootManifestProjectName(projectRoot) ??
     projectNameFromRoot(projectRoot) ??
     'project'
   );
+}
+
+function rootManifestProjectName(projectRoot: string): string | undefined {
+  const packageJson = path.join(projectRoot, 'package.json');
+  if (!existsSync(packageJson)) {
+    return undefined;
+  }
+  try {
+    const canonicalRoot = realpathSync(projectRoot);
+    const canonicalManifest = realpathSync(packageJson);
+    if (!isPathWithin(canonicalRoot, canonicalManifest)) {
+      return undefined;
+    }
+    const manifest = JSON.parse(readFileSync(canonicalManifest, 'utf8')) as unknown;
+    if (!isRecord(manifest)) {
+      return undefined;
+    }
+    return isNonEmptyString(manifest.name) ? manifest.name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
 }
 
 function rootLocalPackageNameFromRepos(repos: readonly RepoContext[]): string | undefined {
@@ -4081,7 +4445,11 @@ function projectAlembicGraphOutput(args: {
       contractVersion: ALEMBIC_GRAPH_OUTPUT_CONTRACT_VERSION,
       outputSchema: 'AlembicGraphOutput',
       producer: 'ProjectContextProjectGraphProvider',
-      projectContext: graphProjectContextMeta(projectedBuild.projectContext),
+      projectContext: {
+        ...graphProjectContextMeta(projectedBuild.projectContext),
+        ...(build.factSessionRef ? { factSessionRef: build.factSessionRef } : {}),
+        ...(build.factFingerprint ? { factFingerprint: build.factFingerprint } : {}),
+      },
       sourceOfTruth: false,
       callClaimsRequireSourceVerification: true,
     },
@@ -4945,6 +5313,8 @@ function projectProjectContextRegion(args: {
       contractVersion: REGION_CONTEXT_CONTRACT_VERSION,
       outputSchema: 'ProjectContextRegion',
       producer: 'ProjectContextProjectGraphProvider',
+      ...(build.factSessionRef ? { factSessionRef: build.factSessionRef } : {}),
+      ...(build.factFingerprint ? { factFingerprint: build.factFingerprint } : {}),
     },
   });
 }

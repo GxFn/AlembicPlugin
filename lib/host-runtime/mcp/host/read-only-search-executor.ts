@@ -1,7 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { HybridRetriever, SearchEngine } from '@alembic/core/search';
-import { BinaryPersistence, IndexingPipeline, VectorService } from '@alembic/core/vector';
+import {
+  HybridCandidateRetriever,
+  KnowledgeRetrievalPolicy,
+  type KnowledgeRetrievalPort,
+  KnowledgeTruthProjector,
+  SearchEngine,
+} from '@alembic/core/search';
+import { asEmbeddingPort, BinaryPersistence, type EmbeddingPort } from '@alembic/core/vector';
 import Database from 'better-sqlite3';
 import {
   resolveLocalEmbeddingConfig,
@@ -14,7 +20,7 @@ import { search } from '../handlers/search.js';
 import type { McpContext, McpServiceContainer, SearchArgs } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
 import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
-import { ReadOnlyHnswVectorStore } from './read-only-hnsw-vector-store.js';
+import { ReadOnlyHnswVectorReader } from './read-only-hnsw-vector-reader.js';
 import {
   createReadOnlySearchSnapshot,
   type ReadOnlySearchSnapshot,
@@ -83,33 +89,41 @@ export async function createReadOnlySearchContainer(
   snapshot: ReadOnlySearchSnapshot,
   identity: { dataRoot: string; projectRoot: string }
 ): Promise<ReadOnlySearchContainerHandle> {
-  const vectorGraph = await createReadOnlyVectorGraph(snapshot);
-  const searchEngine = new SearchEngine(
-    db,
-    (vectorGraph
-      ? {
-          hybridRetriever: vectorGraph.hybridRetriever,
-          vectorService: vectorGraph.vectorService,
-          vectorStore: vectorGraph.vectorStore,
-        }
-      : {}) as unknown as ConstructorParameters<typeof SearchEngine>[1]
-  );
   const { knowledgeService } = createReadOnlySearchRepositories(db);
+  const sparseEngine = new SearchEngine(db);
+  const vectorGraph = await createReadOnlyVectorGraph(snapshot);
+  const candidateRetriever = new HybridCandidateRetriever({
+    embedding: vectorGraph.embedding,
+    reader: vectorGraph.reader,
+    sparse: async (query, options) => {
+      options.signal?.throwIfAborted();
+      const filters = isRecord(options.filter) ? options.filter : {};
+      const response = await sparseEngine.search(query, {
+        ...filters,
+        limit: options.limit,
+        mode: 'weighted',
+        rank: false,
+      });
+      options.signal?.throwIfAborted();
+      return response.items.map((item) => ({ ...item, id: item.id, score: item.score }));
+    },
+  });
+  const knowledgeRetrievalPort: KnowledgeRetrievalPort = new KnowledgeRetrievalPolicy(
+    candidateRetriever,
+    new KnowledgeTruthProjector(knowledgeService)
+  );
+  const searchEngine = new SearchEngine(db, { knowledgeRetrievalPort });
 
   return {
     container: {
       get(name: string): unknown {
         switch (name) {
-          case 'hybridRetriever':
-            return vectorGraph?.hybridRetriever;
           case 'knowledgeService':
             return knowledgeService;
+          case 'knowledgeRetrievalPort':
+            return knowledgeRetrievalPort;
           case 'searchEngine':
             return searchEngine;
-          case 'vectorService':
-            return vectorGraph?.vectorService;
-          case 'vectorStore':
-            return vectorGraph?.vectorStore;
           default:
             throw new Error(`Read-only Search container does not expose ${name}.`);
         }
@@ -119,59 +133,37 @@ export async function createReadOnlySearchContainer(
         _workspaceResolver: { dataRoot: identity.dataRoot },
       },
     },
-    dispose: () => vectorGraph?.dispose(),
+    dispose: () => vectorGraph.dispose(),
   };
 }
 
 interface ReadOnlyVectorGraph {
   dispose(): void;
-  hybridRetriever: HybridRetriever;
-  vectorService: VectorService;
-  vectorStore: ReadOnlyHnswVectorStore;
+  embedding: EmbeddingPort | null;
+  reader: ReadOnlyHnswVectorReader | null;
 }
 
 async function createReadOnlyVectorGraph(
   snapshot: ReadOnlySearchSnapshot
-): Promise<ReadOnlyVectorGraph | null> {
+): Promise<ReadOnlyVectorGraph> {
   if (!BinaryPersistence.isValid(snapshot.vectorIndexPath)) {
     process.stderr.write(
       '[MCP/Search] request snapshot has no valid HNSW index; local semantic lane is unavailable.\n'
     );
-    return null;
+    return { dispose: () => undefined, embedding: null, reader: null };
   }
 
-  const vectorStore = new ReadOnlyHnswVectorStore(snapshot.vectorIndexPath);
-  const hybridRetriever = new HybridRetriever({
-    vectorStore: vectorStore as unknown as NonNullable<
-      ConstructorParameters<typeof HybridRetriever>[0]
-    >['vectorStore'],
-  });
-  const indexingPipeline = new IndexingPipeline({
-    projectRoot: snapshot.dataRoot,
-    scanDirs: [],
-    vectorStore,
-  });
+  const reader = new ReadOnlyHnswVectorReader(snapshot.vectorIndexPath);
   const localEmbedding = resolveLocalEmbeddingConfig(readVectorConfig(snapshot.configPath));
   const embedSelection = await selectLocalEmbedLane(localEmbedding);
-  const vectorService = new VectorService({
-    autoSyncOnCrud: false,
-    contextualEnricher: null,
-    embedProvider: embedSelection.provider,
-    eventBus: null,
-    hybridRetriever,
-    indexingPipeline,
-    syncDebounceMs: 2000,
-    vectorStore,
-  });
-  await vectorService.initialize();
+  const embedding = embedSelection.provider ? asEmbeddingPort(embedSelection.provider) : null;
   process.stderr.write(
     `[MCP/Search] local snapshot vector lane=${embedSelection.lane} index=${snapshot.vectorIndexPath}\n`
   );
   return {
-    dispose: () => vectorStore.destroy(),
-    hybridRetriever,
-    vectorService,
-    vectorStore,
+    dispose: () => reader.dispose(),
+    embedding,
+    reader,
   };
 }
 
@@ -195,4 +187,8 @@ function requireIdentityPath(value: string | null, field: string): string {
     throw new Error(`Read-only Search project identity is missing ${field}.`);
   }
   return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

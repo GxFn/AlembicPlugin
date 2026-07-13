@@ -23,6 +23,28 @@ describe('raceToolCallDeadline(async 挂死兜底)', () => {
       'boom'
     );
   });
+
+  it('deadline aborts the real worker and waits for its bounded cleanup acknowledgement', async () => {
+    let stopped = false;
+    await expect(
+      raceToolCallDeadline(
+        (signal) =>
+          new Promise<void>((_resolve, reject) => {
+            signal.addEventListener(
+              'abort',
+              () => {
+                stopped = true;
+                reject(signal.reason);
+              },
+              { once: true }
+            );
+          }),
+        20,
+        { cleanupAckMs: 100 }
+      )
+    ).rejects.toBeInstanceOf(ToolCallDeadlineError);
+    expect(stopped).toBe(true);
+  });
 });
 
 describe('EventLoopWatchdog(同步钉死旁路检测)', () => {

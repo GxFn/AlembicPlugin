@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs';
+import { existsSync, realpathSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import Logger from '@alembic/core/logging';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -61,6 +61,7 @@ interface InitRuntimeState {
 
 interface ToolCallOptions {
   hostTurnMeta?: HostTurnMetaInput;
+  signal?: AbortSignal;
 }
 
 // 每调用软超时档位(async 挂死兜底;同步钉死归 EventLoopWatchdog)。
@@ -147,6 +148,7 @@ export class HostMcpServer {
   /** 事件循环看门狗句柄(start 建、shutdown 停);null=未启动或被 env 关闭。 */
   watchdog: EventLoopWatchdogHandle | null = null;
   #embeddedToolExecutor: EmbeddedToolExecutor | null = null;
+  readonly #scopedProjectServers = new Map<string, HostMcpServer>();
   #initPromise: Promise<Record<string, unknown>> | null = null;
   #initRuntimeState: InitRuntimeState = {
     attempted: false,
@@ -201,6 +203,13 @@ export class HostMcpServer {
       await this.sdkServer.close();
     }
     await resetPluginOwnedMcpServer();
+    await this.#embeddedToolExecutor?.dispose();
+    this.#embeddedToolExecutor = null;
+    for (const server of this.#scopedProjectServers.values()) {
+      await server.#embeddedToolExecutor?.dispose();
+      server.#embeddedToolExecutor = null;
+    }
+    this.#scopedProjectServers.clear();
   }
 
   registerHandlers(): void {
@@ -219,10 +228,10 @@ export class HostMcpServer {
       // 事件循环被钉死时服务端完全不可见,破案全靠进程恰好还活着可采样。
       Logger.getInstance().info(`[MCP] ${name} start`);
       try {
-        const result = await this.#withToolCallDeadline(
-          name,
+        const result = await this.#withToolCallDeadline(name, (signal) =>
           this.handleToolCall(name, args || {}, {
             hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
+            signal,
           })
         );
         Logger.getInstance().info(`[MCP] ${name} done`, {
@@ -249,12 +258,12 @@ export class HostMcpServer {
   }
 
   /** 按工具档位计算软超时并委托 raceToolCallDeadline(逻辑在 tool-call-deadline.ts,可直测)。 */
-  #withToolCallDeadline<T>(name: string, work: Promise<T>): Promise<T> {
+  #withToolCallDeadline<T>(name: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const heavy = HEAVY_TOOL_DEADLINE_TOOLS.has(name);
     const deadlineMs =
       readPositiveIntEnv('ALEMBIC_MCP_TOOL_DEADLINE_MS') ??
       (heavy ? HEAVY_TOOL_DEADLINE_MS : DEFAULT_TOOL_DEADLINE_MS);
-    return raceToolCallDeadline(work, deadlineMs);
+    return raceToolCallDeadline(work, deadlineMs, { cleanupAckMs: 1_000 });
   }
 
   getInitializeInstructions(): string {
@@ -267,11 +276,22 @@ export class HostMcpServer {
     options: ToolCallOptions = {}
   ): Promise<unknown> {
     const requestedRoot = typeof args.projectRoot === 'string' ? args.projectRoot : undefined;
-    if (requestedRoot && resolve(requestedRoot) !== this.projectRoot) {
-      const scopedServer = new HostMcpServer({
-        projectRoot: requestedRoot,
-        waitUntilReadyMs: this.waitUntilReadyMs,
-      });
+    const resolvedRequestedRoot = requestedRoot ? resolve(requestedRoot) : undefined;
+    const canonicalRequestedRoot = resolvedRequestedRoot
+      ? canonicalProjectPath(resolvedRequestedRoot)
+      : undefined;
+    const canonicalCurrentRoot = this.projectRoot ? canonicalProjectPath(this.projectRoot) : '';
+    if (canonicalRequestedRoot && canonicalRequestedRoot !== canonicalCurrentRoot) {
+      let scopedServer = this.#scopedProjectServers.get(canonicalRequestedRoot);
+      if (!scopedServer) {
+        scopedServer = new HostMcpServer({
+          // Key sessions by canonical identity, but preserve the caller's logical
+          // path in public projectRoot outputs (/var must not become /private/var).
+          projectRoot: resolvedRequestedRoot ?? canonicalRequestedRoot,
+          waitUntilReadyMs: this.waitUntilReadyMs,
+        });
+        this.#scopedProjectServers.set(canonicalRequestedRoot, scopedServer);
+      }
       const { projectRoot: _projectRoot, ...scopedArgs } = args;
       return scopedServer.handleToolCallInCurrentProject(name, scopedArgs, options);
     }
@@ -869,6 +889,11 @@ function verifyPostInitConsistency(input: {
 
 function sameResolvedPath(left: unknown, right: unknown): boolean {
   return typeof left === 'string' && typeof right === 'string' && resolve(left) === resolve(right);
+}
+
+function canonicalProjectPath(projectRoot: string): string {
+  const resolved = resolve(projectRoot);
+  return existsSync(resolved) ? realpathSync(resolved) : resolved;
 }
 
 function readRecordArray(value: unknown): Record<string, unknown>[] | undefined {

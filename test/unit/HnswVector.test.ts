@@ -831,7 +831,7 @@ describe('HybridRetriever', () => {
     expect(fused).toHaveLength(5);
   });
 
-  it('should normalize scores to [0, 1]', () => {
+  it('should preserve raw RRF contributions without page-local max normalization', () => {
     const retriever = new HybridRetriever({ rrfK: 60 });
     const fused = retriever.fuse({
       denseResults: [{ id: 'a', item: { id: 'a' } }],
@@ -843,8 +843,9 @@ describe('HybridRetriever', () => {
       expect(item.score).toBeGreaterThanOrEqual(0);
       expect(item.score).toBeLessThanOrEqual(1);
     }
-    // First item should have score = 1 (normalized max)
-    expect(fused[0].score).toBeCloseTo(1, 3);
+    // One lane at rank 1 with the default alpha=0.5 and rrfK=60.
+    expect(fused[0].score).toBeCloseTo(0.5 / 61, 8);
+    expect(fused[0].score).toBe(fused[0].rrfScore);
   });
 });
 
