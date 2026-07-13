@@ -91,23 +91,15 @@ export async function buildRecipeSemanticRegionVectors(
   // Availability is report-only. Core owns the destructive-safety decision and can
   // execute authoritative cleanup without an embed provider.
   const vectorStatsBefore = await readVectorStats(vectorService);
-  let vectorAvailability: VectorAvailability;
+  let vectorAvailability: VectorAvailability | null = null;
   try {
     vectorAvailability = await vectorService.getAvailability();
   } catch (err: unknown) {
-    logger.info(
-      `[${logPrefix}] Recipe region-vector build skipped (vector availability unavailable)`,
-      {
-        reason: err instanceof Error ? err.message : String(err),
-      }
-    );
-    return skippedRegionBuildReport(
-      'vector-availability-unavailable',
-      err instanceof Error ? err.message : String(err),
-      { vectorStatsBefore }
-    );
+    logger.info(`[${logPrefix}] Recipe region-vector availability probe failed; continuing cleanup`, {
+      reason: err instanceof Error ? err.message : String(err),
+    });
   }
-  if (!vectorAvailability.available) {
+  if (vectorAvailability && !vectorAvailability.available) {
     logger.info(`[${logPrefix}] Recipe region-vector provider unavailable; continuing cleanup`, {
       availability: summarizeVectorAvailability(vectorAvailability),
     });
