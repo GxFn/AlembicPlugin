@@ -193,6 +193,60 @@ describe('U6 P4 rename repair activation', () => {
 });
 
 describe('U6 P5 region-vector skip warning + report surface', () => {
+  it('reuses the syncAll maintenance report instead of running a second authoritative build', async () => {
+    const services = regionVectorServices({ unavailable: false });
+    const syncRecipeSemanticRegions = (
+      services.vectorService as { syncRecipeSemanticRegions: ReturnType<typeof vi.fn> }
+    ).syncRecipeSemanticRegions;
+    const maintenanceReport = {
+      bridgeRecipeCount: 0,
+      bridgeRefCount: 0,
+      entries: 1,
+      reason: null,
+      semanticMemories: null,
+      status: 'synced' as const,
+      syncResult: {
+        errors: [],
+        generated: 1,
+        generatedMetadata: [],
+        removed: 0,
+        scanned: 1,
+        skipped: 0,
+        status: 'completed' as const,
+        upserted: 1,
+      },
+      vectorAvailability: null,
+      vectorStatsAfter: null,
+      vectorStatsBefore: null,
+    };
+    services.knowledgeSyncService = {
+      syncAll: vi.fn(async () => ({
+        created: 0,
+        orphaned: [],
+        skipped: 0,
+        synced: 1,
+        updated: 0,
+        vectorMaintenanceReport: maintenanceReport,
+        vectorMaintenanceStatus: 'completed',
+      })),
+    };
+
+    const report = await rebuildLocalKnowledgeIndexes({
+      container: createContainer({
+        sourceRefReconciler: {
+          reconcile: vi.fn(async () => reconcileReport({ stale: 0 })),
+        },
+        ...services,
+      }),
+      db: {},
+      logger: logger(),
+      logPrefix: 'Rescan',
+    });
+
+    expect(report.recipeRegionVectors).toBe(maintenanceReport);
+    expect(syncRecipeSemanticRegions).not.toHaveBeenCalled();
+  });
+
   it('returns the rebuild report and emits a high-visibility warning when region vectors are skipped', async () => {
     const reconciler = {
       reconcile: vi.fn(async () => reconcileReport({ stale: 0 })),

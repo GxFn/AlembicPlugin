@@ -662,23 +662,26 @@ export class SetupService {
 
       return { dbPath: this.dbPath };
     } finally {
-      await serviceContainer?.shutdown();
-      if (bootstrap) {
-        await bootstrap.shutdown();
-      }
-      ConfigLoader.config = null; // 重置静态状态
-      if (previousProjectDir === undefined) {
-        delete process.env.ALEMBIC_PROJECT_DIR;
-      } else {
-        process.env.ALEMBIC_PROJECT_DIR = previousProjectDir;
-      }
-      if (previousQuiet === undefined) {
-        delete process.env.ALEMBIC_QUIET;
-      } else {
-        process.env.ALEMBIC_QUIET = previousQuiet;
-      }
-      if (resolve(process.cwd()) !== resolve(previousCwd)) {
-        process.chdir(previousCwd);
+      try {
+        await serviceContainer?.shutdown();
+        if (bootstrap) {
+          await bootstrap.shutdown();
+        }
+      } finally {
+        ConfigLoader.config = null; // 重置静态状态
+        if (previousProjectDir === undefined) {
+          delete process.env.ALEMBIC_PROJECT_DIR;
+        } else {
+          process.env.ALEMBIC_PROJECT_DIR = previousProjectDir;
+        }
+        if (previousQuiet === undefined) {
+          delete process.env.ALEMBIC_QUIET;
+        } else {
+          process.env.ALEMBIC_QUIET = previousQuiet;
+        }
+        if (resolve(process.cwd()) !== resolve(previousCwd)) {
+          process.chdir(previousCwd);
+        }
       }
     }
   }

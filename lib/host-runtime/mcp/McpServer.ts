@@ -445,12 +445,15 @@ export class McpServer {
   }
 
   async shutdown() {
-    if (this.sdkServer) {
-      await this.sdkServer.close();
-    }
-    await this.container?.shutdown?.();
-    if (this.bootstrap) {
-      await this.bootstrap.shutdown();
+    try {
+      if (this.sdkServer) {
+        await this.sdkServer.close();
+      }
+    } finally {
+      await this.container?.shutdown?.();
+      if (this.bootstrap) {
+        await this.bootstrap.shutdown();
+      }
     }
   }
 }

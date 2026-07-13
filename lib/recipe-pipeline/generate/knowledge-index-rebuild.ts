@@ -38,6 +38,7 @@ interface KnowledgeSyncServiceLike {
     skipped: number;
     synced: number;
     updated: number;
+    vectorMaintenanceReport?: RecipeRegionVectorBuildReport;
     vectorMaintenanceStatus: string;
     violations?: string[];
   }>;
@@ -89,11 +90,13 @@ export async function rebuildLocalKnowledgeIndexes(
 ): Promise<KnowledgeIndexRebuildReport> {
   const knowledgeSync = await syncKnowledgeEntries(ctx);
   const sourceRefs = await reconcileSourceRefs(ctx);
-  const recipeRegionVectors = await buildRecipeSemanticRegionVectors({
-    container: ctx.container,
-    logger: ctx.logger,
-    logPrefix: ctx.logPrefix,
-  });
+  const recipeRegionVectors =
+    knowledgeSync?.vectorMaintenanceReport ??
+    (await buildRecipeSemanticRegionVectors({
+      container: ctx.container,
+      logger: ctx.logger,
+      logPrefix: ctx.logPrefix,
+    }));
 
   // U6 P5：region-vector provider 不可用 → 报告 status 已是 'skipped'（建器内部各跳过分支统一置位）；
   // 这里在装配层补一条高可见 warn，让「semantic_memories 维持 0、subject-less prime 无法挣到
