@@ -88,25 +88,11 @@ export async function buildRecipeSemanticRegionVectors(
     );
   }
 
-  // Availability is report-only. Core owns the destructive-safety decision and can
-  // execute authoritative cleanup without an embed provider.
-  const vectorStatsBefore = await readVectorStats(vectorService);
-  let vectorAvailability: VectorAvailability | null = null;
-  try {
-    vectorAvailability = await vectorService.getAvailability();
-  } catch (err: unknown) {
-    logger.info(
-      `[${logPrefix}] Recipe region-vector availability probe failed; continuing cleanup`,
-      {
-        reason: err instanceof Error ? err.message : String(err),
-      }
-    );
-  }
-  if (vectorAvailability && !vectorAvailability.available) {
-    logger.info(`[${logPrefix}] Recipe region-vector provider unavailable; continuing cleanup`, {
-      availability: summarizeVectorAvailability(vectorAvailability),
-    });
-  }
+  const { vectorAvailability, vectorStatsBefore } = await readVectorMaintenanceDiagnostics(
+    vectorService,
+    logger,
+    logPrefix
+  );
 
   let entries: Parameters<typeof vectorService.syncRecipeSemanticRegions>[0];
   try {
@@ -202,6 +188,36 @@ export async function buildRecipeSemanticRegionVectors(
       vectorStatsBefore,
     };
   }
+}
+
+async function readVectorMaintenanceDiagnostics(
+  vectorService: ServiceMap['vectorService'],
+  logger: RegionVectorBuildContext['logger'],
+  logPrefix: string
+): Promise<{
+  vectorAvailability: VectorAvailability | null;
+  vectorStatsBefore: Record<string, unknown> | null;
+}> {
+  // Availability is report-only. Core owns the destructive-safety decision and can
+  // execute authoritative cleanup without an embed provider.
+  const vectorStatsBefore = await readVectorStats(vectorService);
+  let vectorAvailability: VectorAvailability | null = null;
+  try {
+    vectorAvailability = await vectorService.getAvailability();
+  } catch (err: unknown) {
+    logger.info(
+      `[${logPrefix}] Recipe region-vector availability probe failed; continuing cleanup`,
+      {
+        reason: err instanceof Error ? err.message : String(err),
+      }
+    );
+  }
+  if (vectorAvailability && !vectorAvailability.available) {
+    logger.info(`[${logPrefix}] Recipe region-vector provider unavailable; continuing cleanup`, {
+      availability: summarizeVectorAvailability(vectorAvailability),
+    });
+  }
+  return { vectorAvailability, vectorStatsBefore };
 }
 
 function recipeRegionBuildStatus(
