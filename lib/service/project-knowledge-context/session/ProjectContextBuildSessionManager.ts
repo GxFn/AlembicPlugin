@@ -86,8 +86,10 @@ export interface ProjectContextBuildLease<T> {
   value: T;
 }
 
+export type ProjectContextProgressiveOutcome = 'progress' | 'success';
+
 export interface ProjectContextProgressiveSnapshot<T> {
-  settled: boolean;
+  outcome: ProjectContextProgressiveOutcome;
   value: T;
   version: number;
 }
@@ -120,14 +122,19 @@ interface BuildRecord<T = unknown> {
   fingerprint: string;
   key: string;
   projectRoot: string;
-  progressValue?: T;
+  progressEvents: ProjectContextProgressiveSnapshot<T>[];
   progressVersion: number;
   progressWaiters: Set<() => void>;
   promise: Promise<T>;
   scope: ProjectContextBuildScope;
-  settled: boolean;
+  terminal: BuildTerminalOutcome<T>;
   value?: T;
 }
+
+type BuildTerminalOutcome<T> =
+  | { kind: 'pending' }
+  | { kind: 'success'; value: T; version: number }
+  | { error: unknown; kind: 'error' | 'cancelled' };
 
 interface ContinuationRecordBase {
   cursor: string;
@@ -152,7 +159,7 @@ interface LiveContinuationRecord extends ContinuationRecordBase {
   contextFor(value: unknown): unknown;
   deliveredKeys: Set<string>;
   itemKey(item: unknown): string;
-  itemsFor(value: unknown, settled: boolean): readonly unknown[];
+  itemsFor(value: unknown, outcome: ProjectContextProgressiveOutcome): readonly unknown[];
   kind: 'live';
   lastContext?: unknown;
   lease: ProjectContextProgressiveLease<unknown>;
@@ -164,6 +171,12 @@ type ContinuationRecord = StaticContinuationRecord | LiveContinuationRecord;
 interface StoredContinuation {
   context?: unknown;
   items: readonly unknown[];
+}
+
+interface TerminalCursorFailure {
+  error: unknown;
+  expiresAt: number;
+  projectRoot: string;
 }
 
 export class ProjectContextContinuationError extends Error {
@@ -188,6 +201,7 @@ export class ProjectContextBuildSessionManager {
   readonly #expiredCursors = new Map<string, number>();
   readonly #fileHashCache = new Map<string, { hash: string; signature: string }>();
   readonly #sessions = new Map<string, BuildRecord>();
+  readonly #terminalCursorFailures = new Map<string, TerminalCursorFailure>();
   readonly #ttlMs: number;
   readonly #tempRoot: string;
 
@@ -250,7 +264,11 @@ export class ProjectContextBuildSessionManager {
       };
     } catch (error) {
       this.#releaseConsumer(record, consumer);
-      if (input.signal?.aborted && record.activeConsumers.size === 0 && !record.settled) {
+      if (
+        input.signal?.aborted &&
+        record.activeConsumers.size === 0 &&
+        record.terminal.kind === 'pending'
+      ) {
         // The final cancelled consumer is the cleanup acknowledgement boundary:
         // do not let the host report TOOL_TIMEOUT until the shared worker has
         // observed the abort and settled (the outer deadline still bounds this).
@@ -393,7 +411,7 @@ export class ProjectContextBuildSessionManager {
   async publishLiveContinuation<T, U>(input: {
     context(value: T): unknown;
     itemKey(item: U): string;
-    items(value: T, settled: boolean): readonly U[];
+    items(value: T, outcome: ProjectContextProgressiveOutcome): readonly U[];
     lease: ProjectContextProgressiveLease<T>;
     pageSize: number;
     projectRoot: string;
@@ -430,7 +448,10 @@ export class ProjectContextBuildSessionManager {
       filePath,
       fingerprint: factSession.fingerprint,
       itemKey: input.itemKey as (item: unknown) => string,
-      itemsFor: input.items as (value: unknown, settled: boolean) => readonly unknown[],
+      itemsFor: input.items as (
+        value: unknown,
+        outcome: ProjectContextProgressiveOutcome
+      ) => readonly unknown[],
       kind: 'live',
       lease: input.lease as ProjectContextProgressiveLease<unknown>,
       page: 1,
@@ -456,6 +477,17 @@ export class ProjectContextBuildSessionManager {
     projectRoot: string;
   }): Promise<ProjectContextContinuationPage<T>> {
     this.#cleanupExpired();
+    const terminalFailure = this.#terminalCursorFailures.get(input.cursor);
+    if (terminalFailure) {
+      if (canonicalProjectRoot(input.projectRoot) !== terminalFailure.projectRoot) {
+        throw new ProjectContextContinuationError(
+          'PROJECT_CONTEXT_CURSOR_CONFINED',
+          'The continuation cursor belongs to a different canonical project root.',
+          false
+        );
+      }
+      throw terminalFailure.error;
+    }
     const record = this.#continuations.get(input.cursor);
     if (!record) {
       throw this.#missingCursorError(input.cursor);
@@ -483,7 +515,12 @@ export class ProjectContextBuildSessionManager {
       );
     }
     if (record.kind === 'live') {
-      return this.#readLiveContinuation<T>(record, false);
+      try {
+        return await this.#readLiveContinuation<T>(record, false);
+      } catch (error) {
+        this.#cleanupResult(record);
+        throw error;
+      }
     }
     const stored = JSON.parse(readFileSync(record.filePath, 'utf8')) as StoredContinuation;
     const items = stored.items.slice(record.start, record.start + record.pageSize) as T[];
@@ -521,6 +558,17 @@ export class ProjectContextBuildSessionManager {
     projectRoot: string;
   }): Promise<{ context?: T; factSessionRef: string; resultRef: string }> {
     this.#cleanupExpired();
+    const terminalFailure = this.#terminalCursorFailures.get(input.cursor);
+    if (terminalFailure) {
+      if (canonicalProjectRoot(input.projectRoot) !== terminalFailure.projectRoot) {
+        throw new ProjectContextContinuationError(
+          'PROJECT_CONTEXT_CURSOR_CONFINED',
+          'The continuation cursor belongs to a different canonical project root.',
+          false
+        );
+      }
+      throw terminalFailure.error;
+    }
     const record = this.#continuations.get(input.cursor);
     if (!record) {
       throw this.#missingCursorError(input.cursor);
@@ -558,6 +606,7 @@ export class ProjectContextBuildSessionManager {
       record.controller.abort(new DOMException('Build session manager disposed.', 'AbortError'));
     }
     this.#sessions.clear();
+    this.#terminalCursorFailures.clear();
     this.#continuations.clear();
     this.#expiredCursors.clear();
     this.#fileHashCache.clear();
@@ -586,33 +635,39 @@ export class ProjectContextBuildSessionManager {
       key,
       projectRoot,
       progressVersion: 0,
+      progressEvents: [],
       progressWaiters: new Set(),
       promise: Promise.resolve(undefined as T),
       scope: { ...scope },
-      settled: false,
+      terminal: { kind: 'pending' },
     };
-    const publish = (value: T) => {
+    const publishEvent = (value: T, outcome: ProjectContextProgressiveOutcome) => {
       controller.signal.throwIfAborted();
-      record.progressValue = value;
-      record.progressVersion += 1;
       this.#writeFactChunks(record, chunks?.(value) ?? []);
+      record.progressVersion += 1;
+      record.progressEvents.push({ outcome, value, version: record.progressVersion });
       for (const waiter of record.progressWaiters) {
         waiter();
       }
       record.progressWaiters.clear();
     };
+    const publish = (value: T) => publishEvent(value, 'progress');
     record.promise = Promise.resolve()
       .then(() => build(controller.signal, publish))
       .then((value) => {
         controller.signal.throwIfAborted();
         record.value = value;
-        record.settled = true;
-        publish(value);
+        publishEvent(value, 'success');
+        record.terminal = { kind: 'success', value, version: record.progressVersion };
         record.expiresAt = Date.now() + this.#ttlMs;
         return value;
       })
       .catch((error: unknown) => {
-        record.settled = true;
+        record.terminal = {
+          error,
+          kind: controller.signal.aborted ? 'cancelled' : 'error',
+        };
+        this.#failLiveContinuations(factSessionRef, error);
         for (const waiter of record.progressWaiters) {
           waiter();
         }
@@ -635,20 +690,23 @@ export class ProjectContextBuildSessionManager {
     signal?: AbortSignal
   ): Promise<ProjectContextProgressiveSnapshot<T>> {
     signal?.throwIfAborted();
-    while (record.progressVersion <= afterVersion && !record.settled) {
+    while (true) {
+      if (record.terminal.kind === 'error' || record.terminal.kind === 'cancelled') {
+        throw record.terminal.error;
+      }
+      const nextEvent = record.progressEvents.find((event) => event.version > afterVersion);
+      if (nextEvent) {
+        return nextEvent;
+      }
+      if (record.terminal.kind === 'success') {
+        const terminalEvent = record.progressEvents.at(-1);
+        if (!terminalEvent) {
+          throw new Error('ProjectContext build succeeded without publishing a terminal value.');
+        }
+        return terminalEvent;
+      }
       await waitForNotification(record.progressWaiters, signal);
     }
-    if (record.progressValue === undefined) {
-      await waitForConsumer(record.promise, signal, () => undefined);
-    }
-    if (record.progressValue === undefined) {
-      throw new Error('ProjectContext build settled without publishing a value.');
-    }
-    return {
-      settled: record.settled,
-      value: record.progressValue,
-      version: record.progressVersion,
-    };
   }
 
   #writeFactChunks<T>(record: BuildRecord<T>, chunks: readonly ProjectContextFactChunk[]): void {
@@ -670,18 +728,18 @@ export class ProjectContextBuildSessionManager {
       this.#expiredCursors.set(record.cursor, Date.now() + this.#ttlMs);
     }
     while (true) {
-      const candidates = record.itemsFor(record.snapshot.value, record.snapshot.settled);
+      const candidates = record.itemsFor(record.snapshot.value, record.snapshot.outcome);
       const available = candidates.filter(
         (item) => !record.deliveredKeys.has(record.itemKey(item))
       );
-      if (available.length > 0 || record.snapshot.settled) {
+      if (available.length > 0 || record.snapshot.outcome === 'success') {
         const items = available.slice(0, record.pageSize);
         for (const item of items) {
           record.deliveredKeys.add(record.itemKey(item));
         }
         record.lastContext = record.contextFor(record.snapshot.value);
         const remaining = available.length - items.length;
-        const hasMore = remaining > 0 || !record.snapshot.settled;
+        const hasMore = remaining > 0 || record.snapshot.outcome !== 'success';
         let nextCursor: string | null = null;
         if (hasMore) {
           nextCursor = opaqueRef('cursor');
@@ -712,7 +770,7 @@ export class ProjectContextBuildSessionManager {
       return;
     }
     if (record.activeConsumers.size === 0) {
-      if (!record.settled) {
+      if (record.terminal.kind === 'pending') {
         record.controller.abort(
           new DOMException('Every fact-session consumer cancelled.', 'AbortError')
         );
@@ -735,7 +793,7 @@ export class ProjectContextBuildSessionManager {
       if (record.factSessionRef !== factSessionRef) {
         continue;
       }
-      if (!record.settled) {
+      if (record.terminal.kind === 'pending') {
         record.controller.abort(
           new DOMException('ProjectContext source facts changed.', 'AbortError')
         );
@@ -759,11 +817,34 @@ export class ProjectContextBuildSessionManager {
     this.#cleanupBuildFiles(record.factSessionRef);
   }
 
+  #failLiveContinuations(factSessionRef: string, error: unknown): void {
+    for (const [cursor, record] of this.#continuations) {
+      if (record.kind !== 'live' || record.factSessionRef !== factSessionRef) {
+        continue;
+      }
+      this.#continuations.delete(cursor);
+      this.#terminalCursorFailures.set(cursor, {
+        error,
+        expiresAt: Date.now() + this.#ttlMs,
+        projectRoot: record.projectRoot,
+      });
+      rmSync(record.resultDirectory, { force: true, recursive: true });
+      record.lease.release();
+    }
+    this.#cleanupBuildFiles(factSessionRef);
+  }
+
   #cleanupExpired(): void {
     const now = Date.now();
     for (const [cursor, expiry] of this.#expiredCursors) {
       if (expiry <= now) {
         this.#expiredCursors.delete(cursor);
+      }
+    }
+    for (const [cursor, failure] of this.#terminalCursorFailures) {
+      if (failure.expiresAt <= now) {
+        this.#terminalCursorFailures.delete(cursor);
+        this.#expiredCursors.set(cursor, now + this.#ttlMs);
       }
     }
     for (const record of [...this.#continuations.values()]) {
@@ -772,7 +853,11 @@ export class ProjectContextBuildSessionManager {
       }
     }
     for (const [key, record] of this.#sessions) {
-      if (record.settled && record.activeConsumers.size === 0 && record.expiresAt <= now) {
+      if (
+        record.terminal.kind !== 'pending' &&
+        record.activeConsumers.size === 0 &&
+        record.expiresAt <= now
+      ) {
         this.#sessions.delete(key);
         rmSync(record.buildDirectory, { force: true, recursive: true });
       }

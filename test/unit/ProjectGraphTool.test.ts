@@ -448,15 +448,19 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     ctx.projectContextExecution = { buildSessions: manager };
     try {
       const first = (await routeGraphTool(ctx, {
-        pageSize: 4,
+        pageSize: 1,
         projectRoot,
         queryKind: 'map',
       })) as GraphResult;
       expect(first.structuredContent.status).toBe('partial');
-      expect(first.structuredContent.repoCoverage).toMatchObject({
-        attempted: 0,
-        requested: 5,
-      });
+      expect(first.structuredContent.repoCoverage.requested).toBe(5);
+      expect(first.structuredContent.repoCoverage.attempted).toBeGreaterThanOrEqual(1);
+      expect(first.structuredContent.repoCoverage.attempted).toBeLessThan(
+        first.structuredContent.repoCoverage.requested
+      );
+      expect(
+        first.structuredContent.refs.some((ref) => ref.kind === 'repo')
+      ).toBe(true);
 
       const reconstructedKeys = graphStableKeys(first.structuredContent);
       let terminal = first.structuredContent;
@@ -482,6 +486,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       expect([...reconstructedKeys].sort()).toEqual(
         graphStableKeys(finalOutput as GraphOutput).sort()
       );
+      expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
     } finally {
       await manager.dispose();
     }

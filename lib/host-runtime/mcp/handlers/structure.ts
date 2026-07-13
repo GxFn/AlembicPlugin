@@ -12,7 +12,10 @@ import {
   type ProjectGraphInput,
   ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
-import type { ProjectContextContinuationPage } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
+import type {
+  ProjectContextContinuationPage,
+  ProjectContextProgressiveOutcome,
+} from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 // ─── Local Types ──────────────────────────────────────────
@@ -260,16 +263,24 @@ function graphPageEntries(output: AlembicGraphOutput): GraphPageEntry[] {
   ];
 }
 
-function graphStablePageEntries(output: AlembicGraphOutput, settled: boolean): GraphPageEntry[] {
+function graphStablePageEntries(
+  output: AlembicGraphOutput,
+  outcome: ProjectContextProgressiveOutcome
+): GraphPageEntry[] {
   const entries = graphPageEntries(output);
-  if (settled) {
+  if (outcome === 'success') {
     return entries;
   }
-  // A running full-space build can still discover lower-weight nodes that sort
-  // ahead of modules/targets. The project root is the only public item that is
-  // invariant from discovery through the terminal projection; repo outcomes are
-  // nevertheless spooled incrementally by the shared fact session.
-  return entries.filter((entry) => entry.kind === 'node' && entry.value.nodeType === 'project');
+  const completedRepoCount = output.repoCoverage.attempted;
+  const completedRepoRefs = entries
+    .filter((entry): entry is Extract<GraphPageEntry, { kind: 'ref' }> => {
+      return entry.kind === 'ref' && entry.value.kind === 'repo';
+    })
+    .slice(0, completedRepoCount);
+  return [
+    ...completedRepoRefs,
+    ...entries.filter((entry) => entry.kind === 'node' && entry.value.nodeType === 'project'),
+  ];
 }
 
 function graphPageEntryKey(entry: GraphPageEntry): string {

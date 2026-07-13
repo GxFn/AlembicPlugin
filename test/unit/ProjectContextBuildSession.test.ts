@@ -27,7 +27,7 @@ function fixture(): string {
 }
 
 describe('ProjectContextBuildSessionManager', () => {
-  test('publishes an in-flight snapshot before the shared build settles', async () => {
+  test('preserves every in-flight delta before the shared build settles', async () => {
     const projectRoot = fixture();
     const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
     let releaseBuild = () => undefined;
@@ -37,28 +37,113 @@ describe('ProjectContextBuildSessionManager', () => {
       scope: { kind: 'space' },
       build: async (_signal, publish) => {
         publish({ ids: ['project'] });
+        publish({ ids: ['repo:a'] });
         await new Promise<void>((resolve) => {
           releaseBuild = resolve;
         });
         finalSettled = true;
-        return { ids: ['project', 'repo:a'] };
+        return { ids: ['project', 'repo:a', 'module:a'] };
       },
       chunks: (value) => value.ids.map((id) => ({ id, value: { id } })),
     });
 
     expect(lease.snapshot).toMatchObject({
-      settled: false,
+      outcome: 'progress',
       value: { ids: ['project'] },
     });
     expect(finalSettled).toBe(false);
-    const finalSnapshot = lease.next(lease.snapshot.version);
+    const repoSnapshot = await lease.next(lease.snapshot.version);
+    expect(repoSnapshot).toMatchObject({
+      outcome: 'progress',
+      value: { ids: ['repo:a'] },
+    });
+    const finalSnapshot = lease.next(repoSnapshot.version);
     releaseBuild();
     await expect(finalSnapshot).resolves.toMatchObject({
-      settled: true,
-      value: { ids: ['project', 'repo:a'] },
+      outcome: 'success',
+      value: { ids: ['project', 'repo:a', 'module:a'] },
     });
     expect(finalSettled).toBe(true);
     lease.release();
+    expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
+    await manager.dispose();
+  });
+
+  test('broadcasts the exact terminal build error to every waiter and live cursor', async () => {
+    const projectRoot = fixture();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const terminalError = new Error('terminal-boom');
+    let failBuild = () => undefined;
+    const build = async (
+      _signal: AbortSignal,
+      publish: (value: { ids: string[] }) => void
+    ): Promise<{ ids: string[] }> => {
+      publish({ ids: ['repo:a'] });
+      await new Promise<void>((resolve) => {
+        failBuild = resolve;
+      });
+      throw terminalError;
+    };
+    const firstLease = await manager.acquireProgressive({
+      projectRoot,
+      scope: { kind: 'space' },
+      build,
+    });
+    const secondLease = await manager.acquireProgressive({
+      projectRoot,
+      scope: { kind: 'space' },
+      build,
+    });
+    const thirdLease = await manager.acquireProgressive({
+      projectRoot,
+      scope: { kind: 'space' },
+      build,
+    });
+    const firstPage = await manager.publishLiveContinuation({
+      context: (value) => value,
+      itemKey: (item: string) => item,
+      items: (value) => value.ids,
+      lease: firstLease,
+      pageSize: 1,
+      projectRoot,
+    });
+    expect(firstPage).toMatchObject({
+      hasMore: true,
+      items: ['repo:a'],
+    });
+    if (!firstPage.nextCursor) {
+      throw new Error('Expected the in-flight result to publish a live cursor.');
+    }
+
+    const pending = [
+      secondLease.next(secondLease.snapshot.version),
+      thirdLease.next(thirdLease.snapshot.version),
+    ];
+    failBuild();
+    const results = await Promise.allSettled(pending);
+    expect(results).toHaveLength(2);
+    for (const result of results) {
+      expect(result.status).toBe('rejected');
+      if (result.status === 'rejected') {
+        expect(result.reason).toBe(terminalError);
+      }
+    }
+
+    expect(manager.debugSnapshot()).toMatchObject({
+      activeContinuations: 0,
+      activeSessions: 0,
+    });
+    expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
+    await expect(
+      manager.readContinuation({ cursor: firstPage.nextCursor, projectRoot })
+    ).rejects.toBe(terminalError);
+
+    secondLease.release();
+    thirdLease.release();
+    expect(manager.debugSnapshot()).toMatchObject({
+      activeContinuations: 0,
+      activeSessions: 0,
+    });
     expect(fs.readdirSync(manager.debugSnapshot().tempRoot)).toEqual([]);
     await manager.dispose();
   });

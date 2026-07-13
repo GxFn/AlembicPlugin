@@ -108,6 +108,7 @@ interface GraphBuild {
   sources: KnowledgeContextSource[];
   factSessionRef?: string;
   factFingerprint?: string;
+  factChunkRepoIds?: string[];
 }
 
 interface ProjectGraphProjectContextTrace {
@@ -288,7 +289,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
         factFingerprint: buildLease.fingerprint,
       };
       return {
-        settled: snapshot.settled,
+        outcome: snapshot.outcome,
         value: projectAlembicGraphOutput({
           build,
           input: normalizedInput,
@@ -368,7 +369,8 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
       input,
       signal,
       publish
-        ? (facts) => publish(projectGraphBuildFromFacts(projectRoot, input, facts, true))
+        ? (facts, repoOutcomeId) =>
+            publish(projectGraphBuildFromFacts(projectRoot, input, facts, true, [repoOutcomeId]))
         : undefined
     );
     return projectGraphBuildFromFacts(projectRoot, input, projectContextFacts, false);
@@ -379,7 +381,8 @@ function projectGraphBuildFromFacts(
   projectRoot: string,
   input: ProjectGraphInput,
   projectContextFacts: ProjectContextGraphFacts,
-  forcePartial: boolean
+  forcePartial: boolean,
+  factChunkRepoIds?: readonly string[]
 ): GraphBuild {
   const projectedTrace: ProjectGraphProjectContextTrace = {
     ...projectContextFacts.trace,
@@ -456,6 +459,7 @@ function projectGraphBuildFromFacts(
       },
       ...projectContextFacts.sources,
     ],
+    ...(factChunkRepoIds === undefined ? {} : { factChunkRepoIds: [...factChunkRepoIds] }),
   };
 }
 
@@ -511,10 +515,12 @@ function projectContextBuildScope(input: ProjectGraphInput): ProjectContextBuild
 
 function graphBuildFactChunks(build: GraphBuild): ProjectContextFactChunk[] {
   const repoIds = [
-    ...new Set([
-      ...build.projectContext.repoCoverage.succeededRepoIds,
-      ...build.projectContext.repoCoverage.failedRepoIds,
-    ]),
+    ...new Set(
+      build.factChunkRepoIds ?? [
+        ...build.projectContext.repoCoverage.succeededRepoIds,
+        ...build.projectContext.repoCoverage.failedRepoIds,
+      ]
+    ),
   ].sort();
   return repoIds.map((repoId) => ({
     id: repoId,
@@ -658,7 +664,7 @@ async function buildProjectContextGraphFacts(
   projectRoot: string,
   input: ProjectGraphInput,
   signal?: AbortSignal,
-  onProgress?: (facts: ProjectContextGraphFacts) => void
+  onProgress?: (facts: ProjectContextGraphFacts, repoOutcomeId: string) => void
 ): Promise<ProjectContextGraphFacts> {
   const facts: ProjectContextGraphFacts = {
     anchorRanges: [],
@@ -695,13 +701,7 @@ async function buildProjectContextGraphFacts(
     if (isExplicitFileGraphTraversal(input)) {
       await collectNarrowGraphFileContexts(facts, projectRoot, input, signal);
     } else {
-      await collectGraphRepoContexts(
-        facts,
-        projectRoot,
-        input,
-        signal,
-        onProgress ? () => onProgress(facts) : undefined
-      );
+      await collectGraphRepoContexts(facts, projectRoot, input, signal, onProgress);
       const moduleSeeds = createGraphModuleSeedsFromRepoContexts(facts.repos, input, facts.trace);
       await collectGraphModuleContexts(facts, projectRoot, moduleSeeds, input, signal);
       await collectGraphMapContexts(facts, projectRoot, moduleSeeds, input, signal);
@@ -924,7 +924,7 @@ async function collectGraphRepoContexts(
   projectRoot: string,
   input: ProjectGraphInput,
   signal?: AbortSignal,
-  onProgress?: () => void
+  onProgress?: (delta: ProjectContextGraphFacts, repoOutcomeId: string) => void
 ) {
   const spaceEnvelope = await executeGraphProjectContextRequest(
     'space',
@@ -972,10 +972,7 @@ async function collectGraphRepoContexts(
     };
   };
   updateCoverage();
-  if (onProgress) {
-    onProgress();
-    await yieldGraphProgress(signal);
-  }
+  const progressOffsets = emptyProjectContextGraphFactOffsets();
 
   const pendingOutcomes = new Map<number, GraphRepoCollectionOutcome>();
   let nextOutcomeIndex = 0;
@@ -1025,25 +1022,87 @@ async function collectGraphRepoContexts(
         });
         nextOutcomeIndex += 1;
         updateCoverage();
-        onProgress?.();
+        const repoOutcomeId = graphRepoCoverageId(nextOutcome.folder);
+        const delta = takeProjectContextGraphFactsDelta(facts, progressOffsets);
+        const repoRef = facts.projectContextRefs.find(
+          (ref) =>
+            ref.kind === 'repo' &&
+            (ref.scope.repoId === nextOutcome.folder.repoId ||
+              normalizeRelativePath(ref.scope.sourceFolder ?? '') ===
+                normalizeRelativePath(nextOutcome.folder.sourceFolder))
+        );
+        if (repoRef && !delta.projectContextRefs.some((ref) => ref.id === repoRef.id)) {
+          delta.projectContextRefs.push(repoRef);
+        }
+        onProgress?.(delta, repoOutcomeId);
       }
     }
   );
 }
 
-function yieldGraphProgress(signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  return new Promise<void>((resolve, reject) => {
-    const immediate = setImmediate(() => {
-      signal?.removeEventListener('abort', abort);
-      resolve();
-    });
-    const abort = () => {
-      clearImmediate(immediate);
-      reject(signal?.reason ?? new DOMException('ProjectContext request aborted.', 'AbortError'));
-    };
-    signal?.addEventListener('abort', abort, { once: true });
-  });
+type ProjectContextGraphFactArrayKey = Exclude<
+  keyof ProjectContextGraphFacts,
+  'projectName' | 'trace'
+>;
+
+type ProjectContextGraphFactOffsets = Record<ProjectContextGraphFactArrayKey, number>;
+
+const PROJECT_CONTEXT_GRAPH_FACT_ARRAY_KEYS = [
+  'anchorRanges',
+  'detailRefs',
+  'diagnostics',
+  'fileFlows',
+  'fileSymbols',
+  'maps',
+  'moduleLayers',
+  'modules',
+  'projectContextRefs',
+  'repos',
+  'sourceSliceContexts',
+  'sources',
+] as const satisfies readonly ProjectContextGraphFactArrayKey[];
+
+function emptyProjectContextGraphFactOffsets(): ProjectContextGraphFactOffsets {
+  return Object.fromEntries(
+    PROJECT_CONTEXT_GRAPH_FACT_ARRAY_KEYS.map((key) => [key, 0])
+  ) as ProjectContextGraphFactOffsets;
+}
+
+function takeProjectContextGraphFactsDelta(
+  facts: ProjectContextGraphFacts,
+  offsets: ProjectContextGraphFactOffsets
+): ProjectContextGraphFacts {
+  const delta = {
+    anchorRanges: facts.anchorRanges.slice(offsets.anchorRanges),
+    detailRefs: facts.detailRefs.slice(offsets.detailRefs),
+    diagnostics: facts.diagnostics.slice(offsets.diagnostics),
+    fileFlows: facts.fileFlows.slice(offsets.fileFlows),
+    fileSymbols: facts.fileSymbols.slice(offsets.fileSymbols),
+    maps: facts.maps.slice(offsets.maps),
+    moduleLayers: facts.moduleLayers.slice(offsets.moduleLayers),
+    modules: facts.modules.slice(offsets.modules),
+    ...(facts.projectName === undefined ? {} : { projectName: facts.projectName }),
+    projectContextRefs: facts.projectContextRefs.slice(offsets.projectContextRefs),
+    repos: facts.repos.slice(offsets.repos),
+    sourceSliceContexts: facts.sourceSliceContexts.slice(offsets.sourceSliceContexts),
+    sources: facts.sources.slice(offsets.sources),
+    trace: {
+      ...facts.trace,
+      generatedArtifactSkipSamples: [...facts.trace.generatedArtifactSkipSamples],
+      repoCoverage: {
+        ...facts.trace.repoCoverage,
+        discoveredRepoIds: [...facts.trace.repoCoverage.discoveredRepoIds],
+        failedRepoIds: [...facts.trace.repoCoverage.failedRepoIds],
+        omittedRepoIds: [...facts.trace.repoCoverage.omittedRepoIds],
+        succeededRepoIds: [...facts.trace.repoCoverage.succeededRepoIds],
+      },
+      requestKinds: [...facts.trace.requestKinds],
+    },
+  } satisfies ProjectContextGraphFacts;
+  for (const key of PROJECT_CONTEXT_GRAPH_FACT_ARRAY_KEYS) {
+    offsets[key] = facts[key].length;
+  }
+  return delta;
 }
 
 function applyGraphRepoOutcome(
@@ -4626,7 +4685,9 @@ function projectAlembicGraphOutput(args: {
 
   const nodes = selection.items.slice(0, itemLimit).map(graphNodeSummaryFromItem);
   const relations = selection.relations.slice(0, relationLimit).map(graphRelationSummaryFromItem);
-  const refs = build.projectContextRefs.slice(0, refLimit).map(projectContextRefSummary);
+  const refs = prioritizeGraphRepoRefs(build.projectContextRefs)
+    .slice(0, refLimit)
+    .map(projectContextRefSummary);
   const slices = sliceOutputForQueryKind(queryKind, build, input);
   const diagnostics = dedupeGraphDiagnostics([
     ...projectedBuild.diagnostics.map(graphDiagnosticFromKnowledge),
@@ -4807,6 +4868,14 @@ function projectContextRefSummary(ref: ProjectContextRef): ProjectContextRefSumm
     ...(ref.scope.range === undefined ? {} : { range: toGraphSourceRange(ref.scope.range) }),
     ...(ref.parentRef === undefined ? {} : { parentRef: ref.parentRef }),
   };
+}
+
+function prioritizeGraphRepoRefs(refs: readonly ProjectContextRef[]): ProjectContextRef[] {
+  const uniqueRefs = dedupeProjectContextRefs([...refs]);
+  return [
+    ...uniqueRefs.filter((ref) => ref.kind === 'repo'),
+    ...uniqueRefs.filter((ref) => ref.kind !== 'repo'),
+  ];
 }
 
 function graphDiagnosticFromKnowledge(diagnostic: ToolDiagnostic): GraphDiagnostic {
