@@ -110,6 +110,7 @@ function createTruthFixture(): {
       moduleName TEXT,
       whenClause TEXT,
       doClause TEXT,
+      dontClause TEXT,
       updatedAt TEXT,
       createdAt TEXT
     );

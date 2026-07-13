@@ -38,7 +38,7 @@ describe('public Search read-only storage fingerprint', () => {
           dimensionId TEXT, category TEXT, knowledgeType TEXT, kind TEXT, scope TEXT,
           content TEXT, lifecycle TEXT, tags TEXT, trigger TEXT, difficulty TEXT,
           quality TEXT, stats TEXT, headers TEXT, moduleName TEXT, whenClause TEXT,
-          doClause TEXT, updatedAt TEXT, createdAt TEXT
+          doClause TEXT, dontClause TEXT, updatedAt TEXT, createdAt TEXT
         );
         INSERT INTO knowledge_entries (
           id, title, description, language, dimensionId, category, knowledgeType,
