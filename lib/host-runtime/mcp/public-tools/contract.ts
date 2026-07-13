@@ -127,10 +127,17 @@ export const AgentDetailRefSchema = z.object({
     'source-ref',
     'test-output',
   ]),
-  summary: z.string().min(1).max(500),
+  summary: z.preprocess(
+    (value) => (typeof value === 'string' ? normalizeAgentDetailSummary(value) : value),
+    z.string().min(1).max(500)
+  ),
   uri: z.string().min(1).max(1200).optional(),
   requiredForCompletion: z.boolean().default(false),
 });
+
+function normalizeAgentDetailSummary(value: string): string {
+  return value.trim().replace(/\s+/gu, ' ').slice(0, 500).trimEnd();
+}
 
 export const AgentPublicToolResultSummarySchema = z.string().min(1).max(2000);
 

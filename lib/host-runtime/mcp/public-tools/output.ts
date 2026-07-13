@@ -23,6 +23,7 @@ import {
   AgentPublicToolRefsSchema,
   type AgentPublicToolResultEnvelope,
   AgentResultStatusSchema,
+  createPrimePublicPackage,
   PrimePublicPackageSchema,
 } from './contract.js';
 
@@ -449,8 +450,8 @@ export function createAgentPublicToolOutput(
   }
   // 投影边界防崩（2026-07-06 架构化，五连 schema 事故根治）：strict schema 仍是
   // 公开契约门，但 parse 失败不再让整个工具输出崩掉（primeAlignment/actionHint
-  // 两次真机整体拒绝的教训）。降级路径：剥掉业务 payload，保留结果元数据 + 显式
-  // output-projection-rejected 诊断——工具可用性保住，缺陷可见不被掩盖。
+  // 两次真机整体拒绝的教训）。Prime 的 schema 要求 primePackage，因此降级也必须
+  // 保持 Prime 契约形状；有效 package 原样保留，坏 package 只保留 refs/候选标识。
   const parsed = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[result.toolName].safeParse(response);
   if (parsed.success) {
     if (result.toolName === 'alembic_prime') {
@@ -466,8 +467,15 @@ export function createAgentPublicToolOutput(
   process.stderr.write(
     `[MCP/PublicTools] ${result.toolName} output projection rejected; degraded to base envelope: ${issueSummary}\n`
   );
+  const projectionDiagnostic = {
+    code: 'output-projection-rejected',
+    severity: 'error' as const,
+    message: `Business payload was withheld because it violated the public output schema (${issueSummary}). The tool ran; fix the projection.`,
+    retryable: false,
+  };
   const fallback = createCleanMcpResponse(
     {
+      ...createAgentPublicProjectionFallback(result, publicPayload, projectionDiagnostic),
       actionKind: result.actionKind,
       agentHost: result.agentHost,
       inputSource: result.inputSource,
@@ -477,14 +485,6 @@ export function createAgentPublicToolOutput(
       summary: result.summary,
       toolName: result.toolName,
       ...(result.reason ? { reason: result.reason } : {}),
-      diagnostics: [
-        {
-          code: 'output-projection-rejected',
-          severity: 'error',
-          message: `Business payload was withheld because it violated the public output schema (${issueSummary}). The tool ran; fix the projection.`,
-          retryable: false,
-        },
-      ],
     },
     result.toolName
   );
@@ -494,6 +494,96 @@ export function createAgentPublicToolOutput(
   }
   // base envelope 也不过 schema = 契约本身坏了，保留旧的硬失败语义暴露问题。
   throw parsed.error;
+}
+
+function createAgentPublicProjectionFallback(
+  result: AgentPublicToolResultEnvelope,
+  publicPayload: Record<string, unknown>,
+  diagnostic: z.infer<typeof PrimeDiagnosticSchema>
+): Record<string, unknown> {
+  if (result.toolName !== 'alembic_prime') {
+    return { diagnostics: [diagnostic] };
+  }
+
+  const packageResult = PrimePublicPackageSchema.safeParse(publicPayload.primePackage);
+  return {
+    detailRefs: mergePrimeFallbackDetailRefs(result.refs.detailRefs, publicPayload.detailRefs),
+    diagnostics: [diagnostic],
+    nextActions: [],
+    primePackage: packageResult.success
+      ? packageResult.data
+      : createPrimeProjectionFallbackPackage(result, publicPayload.primePackage),
+  };
+}
+
+function mergePrimeFallbackDetailRefs(
+  resultRefs: z.infer<typeof AgentDetailRefSchema>[],
+  payloadRefs: unknown
+): z.infer<typeof AgentDetailRefSchema>[] {
+  const merged = new Map<string, z.infer<typeof AgentDetailRefSchema>>();
+  for (const candidate of [...resultRefs, ...(Array.isArray(payloadRefs) ? payloadRefs : [])]) {
+    const parsed = AgentDetailRefSchema.safeParse(candidate);
+    if (parsed.success && !merged.has(parsed.data.id)) {
+      merged.set(parsed.data.id, parsed.data);
+    }
+    if (merged.size >= 200) {
+      break;
+    }
+  }
+  return [...merged.values()];
+}
+
+function createPrimeProjectionFallbackPackage(
+  result: AgentPublicToolResultEnvelope,
+  rawPackage: unknown
+) {
+  const packageRecord = asRecord(rawPackage);
+  const compactRecord = asRecord(packageRecord.compactPackage);
+  const guidanceRecord = asRecord(packageRecord.projectContextGuidance);
+  const candidateRecipeIds = boundedStringArray(compactRecord.candidateRecipeIds, 100, 240);
+  const sourceEvidenceRefs = boundedStringArray(guidanceRecord.sourceEvidenceRefs, 40, 240);
+  return createPrimePublicPackage({
+    compactPackage: {
+      acceptedGuards: [],
+      acceptedKnowledge: [],
+      candidateRecipeIds,
+      counts: {
+        acceptedGuards: 0,
+        acceptedKnowledge: 0,
+        detailRefs: result.refs.detailRefs.length,
+        omittedFromCompact: 0,
+      },
+      detailRefsMode: 'ref-based',
+      evidenceDelivery: 'detailRefs-and-primeKnowledgeMaterial',
+    },
+    kind: 'PrimePublicPackage',
+    primeRef:
+      result.refs.primeRef?.id ?? stringFrom(packageRecord.primeRef, 240) ?? 'prime-fallback',
+    projectContextGuidance: {
+      boundary: 'Prime business projection was rejected; use preserved refs for diagnosis.',
+      projectContextRefs: boundedStringArray(guidanceRecord.projectContextRefs, 40, 240),
+      recommendedQueries: [],
+      recommendedTools: boundedStringArray(guidanceRecord.recommendedTools, 8, 120),
+      sourceEvidenceRefs,
+      status: 'degraded',
+    },
+    ...(result.reason ? { reason: result.reason } : {}),
+    refs: result.refs,
+    status: result.status,
+    summary: result.summary,
+  });
+}
+
+function boundedStringArray(value: unknown, limit: number, itemLimit: number): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .flatMap((item) => {
+      const normalized = typeof item === 'string' ? item.trim().slice(0, itemLimit) : '';
+      return normalized ? [normalized] : [];
+    })
+    .slice(0, limit);
 }
 
 function scrubPrimeOutputRelationSurface(value: unknown): unknown {
