@@ -82,6 +82,98 @@ describe('Plugin authoritative Recipe vector maintenance integration', () => {
     expect(subset.removed).toBe(0);
     expect(store.items.has(unrelatedId)).toBe(true);
   });
+
+  it('uses the real Core cleanup-only path without a provider and is idempotent', async () => {
+    const liveRecipe = recipe('live-without-provider');
+    const changedLiveRecipe = {
+      ...liveRecipe,
+      doClause: 'Keep live-without-provider correct after an unavailable provider probe',
+    };
+    const store = memoryVectorStore([]);
+    const seedProvider = {
+      embed: vi.fn(async (texts: string[]) => texts.map(() => [1, 0, 0])),
+    };
+    await syncRecipeSemanticRegionVectors(store as never, seedProvider as never, [liveRecipe]);
+    const oldLiveRegionIds = [...store.items.keys()].filter((id) =>
+      id.startsWith('recipe_region_live-without-provider_')
+    );
+    const absentRegionId = 'recipe_region_absent-without-provider_identity_stale-proof';
+    store.items.set(absentRegionId, vectorItem(absentRegionId));
+    store.batchUpsert.mockClear();
+
+    const syncRecipeSemanticRegions = vi.fn((entries, options) =>
+      syncRecipeSemanticRegionVectors(store as never, null, entries, options)
+    );
+    const container = createContainer({
+      knowledgeService: {
+        list: vi.fn(async () => ({
+          data: [{ toJSON: () => changedLiveRecipe }],
+        })),
+      },
+      memoryRepository: memoryRepository(),
+      recipeSourceRefRepository: { findActiveByRecipeIds: vi.fn(() => []) },
+      vectorService: {
+        getAvailability: vi.fn(async () => ({
+          available: false,
+          embedProviderConfigured: false,
+          probeStatus: 'unavailable',
+          reason: 'embed-provider-unavailable',
+          status: 'degraded',
+        })),
+        getStats: vi.fn(async () => ({
+          count: store.items.size,
+          dimension: 3,
+          hasIndex: true,
+          indexSize: store.items.size,
+        })),
+        syncRecipeSemanticRegions,
+      },
+      vectorStore: store,
+    });
+
+    const first = await buildRecipeSemanticRegionVectors({
+      container,
+      logger: { info: vi.fn() },
+      logPrefix: 'isolated-provider-null',
+    });
+    const second = await buildRecipeSemanticRegionVectors({
+      container,
+      logger: { info: vi.fn() },
+      logPrefix: 'isolated-provider-null-repeat',
+    });
+
+    expect(first).toMatchObject({
+      reason: 'embed-provider-unavailable',
+      status: 'degraded',
+      syncResult: {
+        degradedReason: 'embed-provider-unavailable',
+        removed: 1,
+        upserted: 0,
+      },
+    });
+    expect(second).toMatchObject({
+      reason: 'embed-provider-unavailable',
+      status: 'degraded',
+      syncResult: {
+        degradedReason: 'embed-provider-unavailable',
+        removed: 0,
+        upserted: 0,
+      },
+    });
+    expect(store.items.has(absentRegionId)).toBe(false);
+    expect(oldLiveRegionIds.length).toBeGreaterThan(0);
+    expect(oldLiveRegionIds.every((id) => store.items.has(id))).toBe(true);
+    expect(store.batchUpsert).not.toHaveBeenCalled();
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledTimes(2);
+    for (const call of syncRecipeSemanticRegions.mock.calls) {
+      expect(call[1]).toMatchObject({
+        maintenanceScope: {
+          kind: 'authoritative-corpus',
+          nonDeprecatedRecipeIds: ['live-without-provider'],
+        },
+      });
+    }
+  });
 });
 
 function recipe(id: string) {
