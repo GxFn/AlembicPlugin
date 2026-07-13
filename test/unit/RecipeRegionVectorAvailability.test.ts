@@ -332,6 +332,58 @@ describe('buildRecipeSemanticRegionVectors authoritative maintenance', () => {
     });
   });
 
+  it('forwards an empty authoritative corpus when no provider is available', async () => {
+    const syncRecipeSemanticRegions = vi.fn(async () => ({
+      degradedReason: null,
+      errors: [],
+      generated: 0,
+      generatedMetadata: [],
+      removed: 3,
+      scanned: 0,
+      skipped: 0,
+      status: 'completed',
+      upserted: 0,
+    }));
+    const container = createContainer({
+      knowledgeService: { list: vi.fn(async () => ({ data: [] })) },
+      memoryRepository: createMemoryRepository(),
+      vectorService: {
+        getAvailability: vi.fn(async () =>
+          vectorAvailability({
+            available: false,
+            probeStatus: 'unavailable',
+            reason: 'embed-provider-unavailable',
+            status: 'degraded',
+          })
+        ),
+        getStats: vi.fn(async () => ({ count: 3, dimension: 3, hasIndex: true, indexSize: 3 })),
+        syncRecipeSemanticRegions,
+      },
+      vectorStore: { flush: vi.fn(async () => undefined) },
+    });
+
+    const report = await buildRecipeSemanticRegionVectors({
+      container,
+      logger: { info: vi.fn() },
+      logPrefix: 'provider-null-empty-authority',
+    });
+
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledOnce();
+    expect(syncRecipeSemanticRegions).toHaveBeenCalledWith([], {
+      maintenanceScope: {
+        kind: 'authoritative-corpus',
+        nonDeprecatedRecipeIds: [],
+      },
+      sourceRefsBridgeByRecipeId: {},
+    });
+    expect(report).toMatchObject({
+      entries: 0,
+      status: 'synced',
+      syncResult: { removed: 3, upserted: 0 },
+      vectorAvailability: { available: false },
+    });
+  });
+
   it('continues authoritative cleanup when the availability probe throws', async () => {
     const probeError = new Error('availability probe timed out');
     const syncRecipeSemanticRegions = vi.fn(async () => ({
