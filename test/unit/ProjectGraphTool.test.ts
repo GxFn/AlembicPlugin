@@ -460,6 +460,13 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
         first.structuredContent.repoCoverage.requested
       );
       expect(first.structuredContent.refs.some((ref) => ref.kind === 'repo')).toBe(true);
+      expect(
+        (
+          first.structuredContent.meta.projectContext as {
+            liveProbeReceipt?: { phase?: string; verdict?: string };
+          }
+        ).liveProbeReceipt
+      ).toMatchObject({ phase: 'progress', verdict: 'blocked' });
 
       const reconstructedKeys = graphStableKeys(first.structuredContent);
       let terminal = first.structuredContent;
@@ -477,6 +484,13 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
         requested: 5,
         succeeded: 5,
       });
+      expect(
+        (
+          terminal.meta.projectContext as {
+            liveProbeReceipt?: { phase?: string; comparisonStatus?: string };
+          }
+        ).liveProbeReceipt
+      ).toMatchObject({ phase: 'terminal', comparisonStatus: 'unavailable' });
       const finalOutput = await defaultProjectGraphProvider.resolveAlembicGraph(
         { projectRoot, queryKind: 'map' },
         { buildSessions: manager }
@@ -519,6 +533,71 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(workerAborted).toBe(true);
     expect(workerSettled).toBe(true);
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20);
+  });
+
+  test('keeps live semantic identities stable across a mtime-only touch and a fresh manager', async () => {
+    const projectRoot = createFixtureProject();
+    const sourcePath = path.join(projectRoot, 'lib', 'index.ts');
+    const firstManager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const first = await defaultProjectGraphProvider.resolveAlembicGraph(
+      { projectRoot, queryKind: 'map' },
+      { buildSessions: firstManager }
+    );
+    const firstReceipt = first.meta.projectContext?.liveProbeReceipt;
+    const firstFingerprint = first.meta.projectContext?.factFingerprint;
+    await firstManager.dispose();
+
+    const original = fs.statSync(sourcePath);
+    fs.utimesSync(sourcePath, original.atime, new Date(original.mtimeMs + 2_000));
+    const secondManager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const second = await defaultProjectGraphProvider.resolveAlembicGraph(
+      { projectRoot, queryKind: 'map' },
+      { buildSessions: secondManager }
+    );
+    const secondReceipt = second.meta.projectContext?.liveProbeReceipt;
+    const secondFingerprint = second.meta.projectContext?.factFingerprint;
+    await secondManager.dispose();
+
+    expect(secondFingerprint).not.toBe(firstFingerprint);
+    expect(secondReceipt?.observedSourceVectorHash).toBe(firstReceipt?.observedSourceVectorHash);
+    expect(secondReceipt?.terminalSemanticOutputHash).toBe(
+      firstReceipt?.terminalSemanticOutputHash
+    );
+  });
+
+  test('does not reuse a generic Graph build after a certified probe binding appears', async () => {
+    const projectRoot = createFixtureProject();
+    const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });
+    const identityHash = `sha256:${'a'.repeat(64)}`;
+    try {
+      const generic = await defaultProjectGraphProvider.resolveAlembicGraph(
+        { projectRoot, queryKind: 'space' },
+        { buildSessions: manager }
+      );
+      expect(generic.meta.projectContext?.liveProbeReceipt.comparisonStatus).toBe('unavailable');
+
+      const certified = await defaultProjectGraphProvider.resolveAlembicGraph(
+        { projectRoot, queryKind: 'space' },
+        {
+          buildSessions: manager,
+          certifiedProbe: {
+            artifactId: 'cpf-v1:fixture',
+            blockingReasons: [],
+            canonicalScopeHash: identityHash,
+            certifiedSourceVectorHash: identityHash,
+            comparisonStatus: 'matched',
+            observedSourceVectorHash: identityHash,
+            repositories: [{ repoId: 'fixture-root', relativeRoot: '.' }],
+          },
+        }
+      );
+      expect(certified.meta.projectContext?.liveProbeReceipt).toMatchObject({
+        comparedArtifactId: 'cpf-v1:fixture',
+        comparisonStatus: 'matched',
+      });
+    } finally {
+      await manager.dispose();
+    }
   });
 
   test('uses native ProjectScope registry as the default graph boundary', async () => {
@@ -588,6 +667,20 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(
       Number((output.meta.projectContext as { suppressedErrorCount?: number }).suppressedErrorCount)
     ).toBeGreaterThan(0);
+    expect(output.status).toBe('degraded');
+    const truthReceipt = (
+      output.meta.projectContext as {
+        liveProbeReceipt?: Record<string, unknown>;
+      }
+    ).liveProbeReceipt;
+    expect(truthReceipt).toMatchObject({
+      phase: 'terminal',
+      canonicalScopeHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      observedSourceVectorHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      terminalSemanticOutputHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      repoIdentityHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      moduleIdentityHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+    });
   });
 
   test('discovers a single-root project plus every initialized Git submodule as repo coverage', async () => {

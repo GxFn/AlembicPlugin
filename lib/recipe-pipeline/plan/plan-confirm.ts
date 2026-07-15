@@ -1,4 +1,5 @@
 import { resolvePlanDimensionDefinitions } from '@alembic/core/dimensions';
+import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
 import {
   normalizeConfirmedPlanIntent,
   type PlanIntent,
@@ -12,6 +13,7 @@ import {
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
+import { readPluginCertifiedCarrierFromProjectContext } from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 
 export interface PlanConfirmContext {
   actor?: { role?: string; user?: string };
@@ -43,6 +45,10 @@ export async function confirmPlan(
   if (!payloadResult.ok) {
     return payloadResult.response;
   }
+  const certifiedAxisFailure = await validateCertifiedPlanModuleAxis(ctx, projectRoot);
+  if (certifiedAxisFailure) {
+    return certifiedAxisFailure;
+  }
   let intent: PlanIntent;
   try {
     intent = normalizeConfirmedPlanIntent(payloadResult.intent);
@@ -62,6 +68,40 @@ export async function confirmPlan(
     await writeColdStartDeferredCoverageRows(ctx, projectRoot, intent);
   }
   return confirmedPlanResponse(projectRoot, intent, buildPlanSelection(intent));
+}
+
+async function validateCertifiedPlanModuleAxis(
+  ctx: PlanConfirmContext,
+  projectRoot: string
+): Promise<PlanConfirmResponse | null> {
+  try {
+    const session = getOrCreateSessionManager(ctx.container as never).getAnySession(undefined, {
+      projectRoot,
+    });
+    const carrier = session
+      ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
+      : null;
+    if (!carrier) {
+      return null;
+    }
+    const moduleService = ctx.container.get('moduleService') as
+      | { listCanonicalModules(): Promise<Array<{ id?: string; name: string }>> }
+      | undefined;
+    if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
+      throw new TypeError('Certified plan confirm requires the artifact-bound ModuleService.');
+    }
+    const modules = await moduleService.listCanonicalModules();
+    if (modules.length === 0) {
+      throw new TypeError('Certified plan confirm cannot use an empty canonical module axis.');
+    }
+    return null;
+  } catch (error) {
+    return blocked(
+      'PLAN_CERTIFIED_MODULE_AXIS_BLOCKED',
+      error instanceof Error ? error.message : String(error),
+      { operation: 'confirm', projectRoot }
+    );
+  }
 }
 
 /**

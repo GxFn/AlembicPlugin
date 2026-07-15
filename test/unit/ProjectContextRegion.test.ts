@@ -20,6 +20,8 @@ const FILE_SCOPED_FOCUS = new Set<RegionFocusKind>(['file', 'anchor', 'symbol'])
 const REGION_NODE_KINDS = new Set([
   'space',
   'repo',
+  'package',
+  'target',
   'map',
   'module-layer',
   'module',

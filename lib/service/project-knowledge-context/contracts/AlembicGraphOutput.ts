@@ -53,9 +53,35 @@ export const ProjectContextContinuationSchema = z
     hasMore: z.boolean(),
     page: z.number().int().min(1),
     accumulatedCounts: z.object({ items: z.number().int().nonnegative() }).strict(),
+    typeAccounting: z
+      .object({
+        mounts: continuationTypeAccountingSchema(),
+        nodes: continuationTypeAccountingSchema(),
+        refs: continuationTypeAccountingSchema(),
+        relations: continuationTypeAccountingSchema(),
+        rollups: continuationTypeAccountingSchema(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type ProjectContextContinuation = z.infer<typeof ProjectContextContinuationSchema>;
+
+function continuationTypeAccountingSchema() {
+  return z
+    .object({
+      shown: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+      remaining: z.number().int().nonnegative(),
+      cumulative: z.number().int().nonnegative(),
+    })
+    .strict()
+    .superRefine((value, ctx) => {
+      if (value.cumulative + value.remaining !== value.total || value.shown > value.total) {
+        ctx.addIssue({ code: 'custom', message: 'Continuation type accounting is inconsistent.' });
+      }
+    });
+}
 
 export const AlembicGraphNodeTypeSchema = z.enum([
   'project',
@@ -177,6 +203,26 @@ export const AlembicGraphProjectContextMetaSchema = z
     partial: z.boolean(),
     factSessionRef: z.string().min(1).max(240).optional(),
     factFingerprint: z.string().length(64).optional(),
+    liveProbeReceipt: z
+      .object({
+        kind: z.literal('ProjectContextLiveProbeReceipt'),
+        version: z.literal(1),
+        phase: z.enum(['progress', 'terminal']),
+        verdict: z.enum(['passed', 'blocked']),
+        canonicalScopeHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        observedSourceVectorHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        terminalSemanticOutputHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        repoIdentityHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        moduleIdentityHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        comparedArtifactId: z.string().min(1).nullable(),
+        certifiedSourceVectorHash: z
+          .string()
+          .regex(/^sha256:[a-f0-9]{64}$/)
+          .nullable(),
+        comparisonStatus: z.enum(['matched', 'mismatched', 'unavailable']),
+        blockingReasons: z.array(z.string().min(1).max(240)).max(40),
+      })
+      .strict(),
   })
   .strict();
 

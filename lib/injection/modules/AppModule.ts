@@ -8,12 +8,14 @@
  *   - primeSearchPipeline (for prime multi-query search — no DB dependency)
  */
 
+import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
 import { RecipeExtractor } from '@alembic/core/knowledge';
 import { TokenUsageStore } from '@alembic/core/repositories';
 import { unwrapRawDb } from '@alembic/core/search';
 import { FeedbackCollector, QualityScorer } from '@alembic/core/service/quality';
 import { RecipeCandidateValidator, RecipeParser } from '@alembic/core/service/recipe';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
+import { readPluginCertifiedCarrierFromProjectContext } from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { ModuleService } from '../../service/module/ModuleService.js';
 import { PrimeSearchPipeline } from '../../service/task/PrimeSearchPipeline.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
@@ -54,6 +56,15 @@ export function register(c: ServiceContainer) {
         recipeExtractor: ct.singletons._recipeExtractor || null,
         guardCheckEngine: ct.get('guardCheckEngine'),
         violationsStore: ct.get('violationsStore'),
+        certifiedFactsProvider: () => {
+          const session = getOrCreateSessionManager(ct).getAnySession(undefined, {
+            projectRoot,
+          });
+          const carrier = session
+            ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
+            : null;
+          return carrier ? { carrier, dataRoot: resolveDataRoot(ct) } : null;
+        },
       } as unknown as ConstructorParameters<typeof ModuleService>[1]
     );
   });

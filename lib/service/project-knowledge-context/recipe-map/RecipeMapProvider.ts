@@ -146,6 +146,7 @@ export class RecipeMapProvider {
         rootNode,
         breadcrumb,
         nodes,
+        relations: region.relations,
         truncated: region.truncated || region.nodes.length > nodes.length,
       },
       refs: region.refs.slice(0, DEFAULT_REF_LIMIT),
@@ -159,7 +160,10 @@ export class RecipeMapProvider {
         displayedMounts: displayedMounts.length,
         omittedMounts: allMounts.length - displayedMounts.length,
         completeness: 'complete',
+        mountAccountingCompleteness: 'complete',
       },
+      projectCoverageStatus: 'unavailable',
+      finalCoverageReceipt: null,
       diagnostics: boundedDiagnostics,
       nextActions: buildNextActions(request, displayedMounts, boundedDiagnostics),
       limits: {
@@ -721,6 +725,7 @@ function failedRecipeMapOutput(request: RecipeMapRequest, error: unknown): Alemb
       },
       breadcrumb: [],
       nodes: [],
+      relations: [],
       truncated: false,
     },
     refs: [],
@@ -734,7 +739,10 @@ function failedRecipeMapOutput(request: RecipeMapRequest, error: unknown): Alemb
       displayedMounts: 0,
       omittedMounts: 0,
       completeness: 'unknown',
+      mountAccountingCompleteness: 'unknown',
     },
+    projectCoverageStatus: 'unavailable',
+    finalCoverageReceipt: null,
     diagnostics: [
       {
         code: 'recipe-map-region-failed',

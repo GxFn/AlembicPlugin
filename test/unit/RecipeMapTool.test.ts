@@ -106,6 +106,16 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(new Set(output.recipeRollups.map((rollup) => rollup.nodeId)).size).toBe(
       output.recipeRollups.length
     );
+    const scriptNodes = output.region.nodes.filter((node) => node.label.startsWith('script:'));
+    expect(scriptNodes.length).toBeGreaterThan(0);
+    expect(scriptNodes.every((node) => node.kind === 'target')).toBe(true);
+    expect((output as unknown as Record<string, unknown>).projectCoverageStatus).toBe(
+      'unavailable'
+    );
+    expect((output as unknown as Record<string, unknown>).finalCoverageReceipt).toBeNull();
+    expect(
+      (output.conservation as unknown as Record<string, unknown>).mountAccountingCompleteness
+    ).toBe('complete');
   });
 
   test('public Recipe Map returns opaque deterministic continuation pages without rebuilding facts', async () => {
@@ -130,6 +140,19 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
       };
       pages += 1;
       expect(next.structuredContent.continuation?.factSessionRef).toBe(factSessionRef);
+      const typeAccounting = (
+        next.structuredContent.continuation as unknown as {
+          typeAccounting?: Record<
+            string,
+            { shown: number; total: number; remaining: number; cumulative: number }
+          >;
+        }
+      ).typeAccounting;
+      expect(typeAccounting).toBeDefined();
+      for (const accounting of Object.values(typeAccounting ?? {})) {
+        expect(accounting.cumulative + accounting.remaining).toBe(accounting.total);
+        expect(accounting.shown).toBeGreaterThanOrEqual(0);
+      }
       stableIds.push(...next.structuredContent.region.nodes.map((node) => node.nodeId));
       cursor = next.structuredContent.continuation?.nextCursor ?? null;
     }
@@ -774,6 +797,9 @@ function filesystemManifest(root: string): string[] {
 function recipeMapStableKeys(output: AlembicRecipeMapOutput): string[] {
   return [
     ...output.region.nodes.map((node) => `node:${node.nodeId}`),
+    ...output.region.relations.map(
+      (relation) => `relation:${relation.fromId}\0${relation.relationType}\0${relation.toId}`
+    ),
     ...output.refs.map((ref) => `ref:${ref.id}`),
     ...output.recipeMounts.map(
       (mount) => `mount:${mount.recipeId}\0${mount.mountNodeId}\0${mount.mountType}`
@@ -788,7 +814,11 @@ function createFixtureProject(): string {
   fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
   fs.writeFileSync(
     path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-project', main: 'lib/index.ts' }, null, 2)
+    JSON.stringify(
+      { name: 'fixture-project', main: 'lib/index.ts', scripts: { build: 'tsc -p .' } },
+      null,
+      2
+    )
   );
   fs.writeFileSync(
     path.join(root, 'lib', 'helper.ts'),

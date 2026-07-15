@@ -29,6 +29,11 @@ import type {
   RepoContext,
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
+import {
+  openPluginCertifiedProjection,
+  type PluginCertifiedCarrier,
+  type PluginCertifiedProjection,
+} from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { attachHostAgentManagedBoundary } from './host-managed-boundary.js';
 
 /** 全局排除目录 */
@@ -138,6 +143,8 @@ export class ModuleService {
   #targets: TargetInfo[] = [];
   #moduleFileCache = new Map<string, FileInfo[]>();
   #loaded = false;
+  #certifiedProjection: PluginCertifiedProjection | null = null;
+  #certifiedBindingKey: string | null = null;
 
   #logger: ReturnType<typeof Logger.getInstance>;
 
@@ -145,6 +152,7 @@ export class ModuleService {
   #recipeExtractor;
   #guardCheckEngine;
   #violationsStore;
+  #certifiedFactsProvider;
 
   constructor(
     projectRoot: string,
@@ -154,6 +162,10 @@ export class ModuleService {
       recipeExtractor?: Record<string, unknown> | null;
       guardCheckEngine?: Record<string, unknown> | null;
       violationsStore?: Record<string, unknown> | null;
+      certifiedFactsProvider?: () =>
+        | { carrier: PluginCertifiedCarrier; dataRoot: string }
+        | null
+        | Promise<{ carrier: PluginCertifiedCarrier; dataRoot: string } | null>;
     } = {}
   ) {
     this.#projectRoot = projectRoot;
@@ -162,6 +174,7 @@ export class ModuleService {
     this.#recipeExtractor = options.recipeExtractor || null;
     this.#guardCheckEngine = options.guardCheckEngine || null;
     this.#violationsStore = options.violationsStore || null;
+    this.#certifiedFactsProvider = options.certifiedFactsProvider;
   }
 
   // ═══════════════════════════════════════════════════════
@@ -169,6 +182,41 @@ export class ModuleService {
   // ═══════════════════════════════════════════════════════
 
   async load() {
+    const certified = await this.#certifiedFactsProvider?.();
+    if (certified) {
+      const bindingKey = certifiedCarrierBindingKey(certified.carrier);
+      if (this.#loaded && this.#certifiedBindingKey === bindingKey) {
+        return;
+      }
+      this.#certifiedProjection = await openPluginCertifiedProjection(certified);
+      this.#certifiedBindingKey = bindingKey;
+      this.#repoContext = null;
+      this.#mapContext = null;
+      this.#moduleFileCache.clear();
+      this.#targets = this.#certifiedProjection.modules.map((module) => ({
+        discovererId: 'certified-project-facts',
+        info: { source: 'certified-project-facts' },
+        metadata: {
+          fileCount: module.ownedFiles.length,
+          source: 'certified-project-facts',
+        },
+        name: module.name,
+        path: module.ownedFiles[0]?.split('/').slice(0, -1).join('/') || '.',
+        type: 'certified-module',
+        certifiedModuleId: module.id,
+      }));
+      this.#loaded = true;
+      return;
+    }
+    if (this.#certifiedProjection) {
+      this.#certifiedProjection = null;
+      this.#certifiedBindingKey = null;
+      this.#repoContext = null;
+      this.#mapContext = null;
+      this.#targets = [];
+      this.#moduleFileCache.clear();
+      this.#loaded = false;
+    }
     if (this.#loaded) {
       return;
     }
@@ -203,14 +251,14 @@ export class ModuleService {
     this.#repoContext = null;
     this.#mapContext = null;
     this.#targets = [];
+    this.#certifiedProjection = null;
+    this.#certifiedBindingKey = null;
     this.#moduleFileCache.clear();
     await this.load();
   }
 
   async #ensureLoaded() {
-    if (!this.#loaded) {
-      await this.load();
-    }
+    await this.load();
   }
 
   // ═══════════════════════════════════════════════════════
@@ -228,6 +276,25 @@ export class ModuleService {
     const targetObj = typeof target === 'string' ? this.#targetByName(target) : target;
     if (!targetObj) {
       return [];
+    }
+    if (this.#certifiedProjection) {
+      const certifiedModuleId = readString(targetObj.certifiedModuleId);
+      const module = this.#certifiedProjection.modules.find(
+        (candidate) =>
+          (certifiedModuleId && candidate.id === certifiedModuleId) ||
+          candidate.name === readString(targetObj.name)
+      );
+      return (module?.ownedFiles ?? []).map((relativePath) => ({
+        language:
+          this.#certifiedProjection?.files.find((file) =>
+            file.repositoryRelativeRoot === '.'
+              ? file.relativePath === relativePath
+              : `${file.repositoryRelativeRoot}/${file.relativePath}` === relativePath
+          )?.language ?? 'unknown',
+        name: _pathBasename(relativePath),
+        path: _pathJoin(this.#projectRoot, relativePath),
+        relativePath,
+      }));
     }
 
     if (
@@ -301,6 +368,14 @@ export class ModuleService {
    */
   async listCanonicalModules(): Promise<CanonicalModuleInfo[]> {
     await this.#ensureLoaded();
+    if (this.#certifiedProjection) {
+      return this.#certifiedProjection.modules.map((module) => ({
+        id: module.id,
+        name: module.name,
+        path: module.ownedFiles[0]?.split('/').slice(0, -1).join('/') || '.',
+        ownedFiles: [...module.ownedFiles],
+      }));
+    }
     const modules = this.#mapContext?.modules ?? [];
     if (modules.length === 0) {
       return this.#fallbackCanonicalModulesFromRepo();
@@ -1237,6 +1312,16 @@ export class ModuleService {
       walkDir(this.#projectRoot, 'root');
     }
   }
+}
+
+function certifiedCarrierBindingKey(carrier: PluginCertifiedCarrier): string {
+  return [
+    carrier.artifactId,
+    carrier.sourceVectorHash,
+    carrier.factsContentHash,
+    carrier.certificationBindingHash,
+    carrier.canonicalScopeHash,
+  ].join('\0');
 }
 
 function isRepoContext(value: ProjectContextResult): value is RepoContext {

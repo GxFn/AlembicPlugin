@@ -14,7 +14,7 @@ import {
   ProjectContextContinuationSchema,
   ProjectContextRefSummarySchema,
 } from './AlembicGraphOutput.js';
-import { RegionNodeKindSchema } from './ProjectContextRegion.js';
+import { RegionNodeKindSchema, RegionRelationSchema } from './ProjectContextRegion.js';
 
 export const ALEMBIC_RECIPE_MAP_OUTPUT_CONTRACT_VERSION = 1 as const;
 
@@ -155,6 +155,7 @@ export const MapRegionSchema = z
     rootNode: MapNodeSummarySchema,
     breadcrumb: z.array(MapNodeSummarySchema).max(40),
     nodes: z.array(MapNodeSummarySchema).max(500),
+    relations: z.array(RegionRelationSchema).max(500),
     truncated: z.boolean(),
   })
   .strict();
@@ -187,9 +188,16 @@ export const MapConservationSchema = z
     displayedMounts: z.number().int().nonnegative(),
     omittedMounts: z.number().int().nonnegative(),
     completeness: z.enum(['complete', 'incomplete', 'unknown']),
+    mountAccountingCompleteness: z.enum(['complete', 'incomplete', 'unknown']),
   })
   .strict()
   .superRefine((value, ctx) => {
+    if (value.completeness !== value.mountAccountingCompleteness) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Legacy completeness must mirror mountAccountingCompleteness.',
+      });
+    }
     if (
       value.completeness === 'complete' &&
       value.candidateRecipes !== value.mountedTotal + value.deferredTotal + value.uncoveredTotal
@@ -231,6 +239,15 @@ export const AlembicRecipeMapOutputSchema = z
     recipeMounts: z.array(RecipeMountSummarySchema).max(200),
     recipeRollups: z.array(RecipeRollupSummarySchema).max(200),
     conservation: MapConservationSchema,
+    projectCoverageStatus: z.enum(['unavailable', 'partial', 'complete']),
+    finalCoverageReceipt: z
+      .object({
+        receiptHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        sourceVectorHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        canonicalScopeHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      })
+      .strict()
+      .nullable(),
     diagnostics: z.array(MapDiagnosticSchema).max(200),
     nextActions: z.array(MapNextActionSchema).max(20),
     continuation: ProjectContextContinuationSchema.optional(),
@@ -244,11 +261,28 @@ export const AlembicRecipeMapOutputSchema = z
         producer: z.string().min(1).max(160).optional(),
         factSessionRef: z.string().min(1).max(240).optional(),
         factFingerprint: z.string().length(64).optional(),
+        continuationTotals: z
+          .object({
+            mounts: z.number().int().nonnegative(),
+            nodes: z.number().int().nonnegative(),
+            refs: z.number().int().nonnegative(),
+            relations: z.number().int().nonnegative(),
+            rollups: z.number().int().nonnegative(),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   })
   .strict()
   .superRefine((value, ctx) => {
+    if (value.projectCoverageStatus === 'complete' && value.finalCoverageReceipt === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Complete project coverage requires a final coverage receipt.',
+        path: ['projectCoverageStatus'],
+      });
+    }
     const completeMountProjection = Math.min(
       value.limits.recipeMountLimit,
       value.conservation.mountedTotal

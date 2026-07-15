@@ -3,6 +3,7 @@
  * getTargets, getTargetFiles, getTargetMetadata, graphQuery, graphImpact, graphPath, graphStats
  */
 
+import { getOrCreateSessionManager } from '@alembic/core/host-agent-workflows';
 import { LanguageService } from '@alembic/core/shared';
 import { ModuleService } from '#service/module/ModuleService.js';
 import {
@@ -16,6 +17,10 @@ import type {
   ProjectContextContinuationPage,
   ProjectContextProgressiveOutcome,
 } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
+import {
+  observePluginCertifiedLiveProbe,
+  readPluginCertifiedCarrierFromProjectContext,
+} from '../../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 // ─── Local Types ──────────────────────────────────────────
@@ -193,7 +198,7 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
     if (!execution) {
       throw new Error('ProjectContext continuation requires the public request-scoped runtime.');
     }
-    const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
+    const projectRoot = acceptedGraphControlRoot(requireRequestProjectRuntime(ctx).identity);
     if (args.cancelCursor) {
       const cancelled = await execution.buildSessions.cancelContinuation<AlembicGraphOutput>({
         cursor: args.cancelCursor,
@@ -216,10 +221,11 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
     return createAlembicGraphMcpResult(materializeGraphContinuation(page));
   }
   const input = normalizeProjectGraphInput(ctx, args);
+  const providerOptions = await resolveGraphExecutionOptions(ctx, input.projectRoot, execution);
   if (execution) {
     const progressive = await defaultProjectGraphProvider.resolveAlembicGraphProgressively(
       input,
-      execution
+      providerOptions
     );
     if (progressive) {
       const page = await execution.buildSessions.publishLiveContinuation({
@@ -233,7 +239,7 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
       return createAlembicGraphMcpResult(materializeGraphContinuation(page));
     }
   }
-  const output = await defaultProjectGraphProvider.resolveAlembicGraph(input, execution);
+  const output = await defaultProjectGraphProvider.resolveAlembicGraph(input, providerOptions);
   const factSessionRef = output.meta.projectContext?.factSessionRef;
   if (!execution || !factSessionRef) {
     return createAlembicGraphMcpResult(output);
@@ -246,6 +252,35 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
     projectRoot: output.project.projectRoot,
   });
   return createAlembicGraphMcpResult(materializeGraphContinuation(page));
+}
+
+async function resolveGraphExecutionOptions(
+  ctx: McpContext,
+  projectRoot: string | undefined,
+  execution: McpContext['projectContextExecution']
+) {
+  const options = execution ? { ...execution } : {};
+  const identity = requireRequestProjectRuntime(ctx).identity;
+  const root = projectRoot ?? acceptedGraphControlRoot(identity);
+  const sessionManager = getOrCreateSessionManager(ctx.container);
+  const session =
+    sessionManager.getAnySession(undefined, { projectRoot: root }) ??
+    sessionManager.getAnySession(undefined, { projectRoot: identity.projectRoot });
+  const carrier = session
+    ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
+    : null;
+  if (!carrier) {
+    return options;
+  }
+  const dataRoot = identity.dataRoot;
+  return {
+    ...options,
+    certifiedProbe: await observePluginCertifiedLiveProbe({
+      carrier,
+      controlRoot: root,
+      dataRoot,
+    }),
+  };
 }
 
 type GraphPageEntry =
@@ -398,7 +433,8 @@ export async function graphNeighborhood(ctx: McpContext, args: GraphArgs) {
 }
 
 function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGraphInput {
-  const containerProjectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
+  const runtimeIdentity = requireRequestProjectRuntime(ctx).identity;
+  const containerProjectRoot = acceptedGraphControlRoot(runtimeIdentity);
   const hostDeclaredIntent = readRecord(args.hostDeclaredIntent);
   const query = readString(args.query) ?? readString(hostDeclaredIntent?.query);
   // ProjectContext-shaped public anchors are normalized onto the provider's
@@ -426,7 +462,10 @@ function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGr
     ...(nodeId ? { nodeId } : {}),
     ...(args.nodeType ? { nodeType: args.nodeType } : {}),
     ...(args.operation ? { operation: args.operation } : {}),
-    projectRoot: args.projectRoot ?? containerProjectRoot,
+    projectRoot:
+      args.projectRoot && args.projectRoot !== runtimeIdentity.projectRoot
+        ? args.projectRoot
+        : containerProjectRoot,
     ...(args.radius ? { radius: args.radius } : {}),
     ...(args.refId ? { refId: args.refId } : {}),
     ...(hostDeclaredIntent === undefined ? {} : { hostDeclaredIntent }),
@@ -439,6 +478,15 @@ function normalizeProjectGraphInput(ctx: McpContext, args: GraphArgs): ProjectGr
     ...(args.toRefId ? { toRefId: args.toRefId } : {}),
     ...(args.toType ? { toType: args.toType } : {}),
   });
+}
+
+function acceptedGraphControlRoot(identity: {
+  projectRoot: string;
+  projectScope?: unknown;
+}): string {
+  const scope = readRecord(identity.projectScope);
+  const controlRoot = readString(scope?.controlRoot);
+  return controlRoot ?? identity.projectRoot;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

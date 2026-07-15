@@ -45,6 +45,13 @@ import {
   createProjectSkillService,
   type ProjectSkillServiceResult,
 } from '#service/skills/ProjectSkillService.js';
+import {
+  emitPluginDimensionCompletionReceipt,
+  openPluginCertifiedProjection,
+  type PluginCertifiedCarrier,
+  persistPluginCertifiedCarrier,
+  readPluginCertifiedCarrierFromProjectContext,
+} from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 
 const logger = Logger.getInstance();
 
@@ -192,6 +199,8 @@ export interface HostAgentWorkflowSession {
   };
   storeHints(dimId: string, hints: Record<string, unknown>): void;
   getAccumulatedHints(): Record<string, unknown>;
+  replaceProjectContext?(projectContext: Record<string, unknown>): void;
+  toSnapshot?(): { projectContext: Record<string, unknown> };
 }
 
 interface HostAgentDimensionCompletionEmitter {
@@ -347,6 +356,16 @@ export async function runHostAgentDimensionCompletionWorkflow(
     return evidenceGateResponse;
   }
 
+  const certifiedPreflight = await prepareCertifiedDimensionCompletion({
+    ctx,
+    dataRoot,
+    dimensionId: input.value.dimensionId,
+    session: session.value,
+  });
+  if (!certifiedPreflight.success) {
+    return certifiedPreflight.response;
+  }
+
   const sideEffects = await applyDimensionCompletionSideEffects({
     ctx,
     dataRoot,
@@ -356,6 +375,7 @@ export async function runHostAgentDimensionCompletionWorkflow(
     referencedFiles,
     session: session.value,
     submittedRecipeIds,
+    certifiedWiring: certifiedPreflight.wiring,
   });
   if (!sideEffects.success) {
     return sideEffects.response;
@@ -366,6 +386,98 @@ export async function runHostAgentDimensionCompletionWorkflow(
     result: sideEffects.value,
     responseTimeMs: (dependencies.now?.() ?? Date.now()) - startedAtMs,
   });
+}
+
+async function prepareCertifiedDimensionCompletion(input: {
+  ctx: HostAgentDimensionCompletionContext;
+  dataRoot: string;
+  dimensionId: string;
+  session: HostAgentWorkflowSession;
+}): Promise<
+  | { success: true; wiring: CoverageLedgerWiring | null }
+  | { success: false; response: HostAgentDimensionCompletionResponse }
+> {
+  if (!input.session.toSnapshot) {
+    return { success: true, wiring: null };
+  }
+  let carrier: PluginCertifiedCarrier | null;
+  try {
+    carrier = readPluginCertifiedCarrierFromProjectContext(
+      input.session.toSnapshot().projectContext
+    );
+  } catch (error) {
+    return certifiedDimensionFailure(error);
+  }
+  if (!carrier) {
+    return { success: true, wiring: null };
+  }
+  if (!input.session.replaceProjectContext) {
+    return certifiedDimensionFailure(
+      new TypeError('Certified dimension completion session cannot persist its receipt.')
+    );
+  }
+  try {
+    const projection = await openPluginCertifiedProjection({
+      carrier,
+      dataRoot: input.dataRoot,
+    });
+    const wiring = await resolveCoverageLedgerWiring(input.ctx);
+    if (!wiring) {
+      throw new TypeError('Certified dimension completion requires coverage and module services.');
+    }
+    const expectedModuleIds = new Set(projection.modules.map((module) => module.id));
+    const actualModuleIds = new Set(
+      wiring.canonicalModules.map((module) => module.id ?? module.name)
+    );
+    if (
+      expectedModuleIds.size !== actualModuleIds.size ||
+      [...expectedModuleIds].some((moduleId) => !actualModuleIds.has(moduleId))
+    ) {
+      throw new TypeError('Certified dimension completion module axis drifted from the artifact.');
+    }
+    await emitPluginDimensionCompletionReceipt({
+      carrier,
+      dataRoot: input.dataRoot,
+      runId: `plugin-dimension-${input.session.id}-${input.dimensionId}`,
+    });
+    persistPluginCertifiedCarrier({
+      carrier,
+      projectRoot: input.session.projectRoot,
+      session: input.session as HostAgentWorkflowSession & {
+        replaceProjectContext(projectContext: Record<string, unknown>): void;
+        toSnapshot(): { projectContext: Record<string, unknown> };
+      },
+    });
+    const freshManager = getOrCreateSessionManager(
+      createDataRootSessionContainer(input.ctx.container, input.dataRoot)
+    );
+    const reloaded = freshManager.getAnySession(input.session.id, {
+      projectRoot: input.session.projectRoot,
+    });
+    const reloadedCarrier = reloaded
+      ? readPluginCertifiedCarrierFromProjectContext(reloaded.toSnapshot().projectContext)
+      : null;
+    if (!reloadedCarrier?.plugin?.dimensionCompletionReceipt) {
+      throw new TypeError('Fresh Generate session reload lost the dimension completion receipt.');
+    }
+    return { success: true, wiring };
+  } catch (error) {
+    return certifiedDimensionFailure(error);
+  }
+}
+
+function certifiedDimensionFailure(error: unknown): {
+  success: false;
+  response: HostAgentDimensionCompletionResponse;
+} {
+  const reason = error instanceof Error ? error.message : String(error);
+  return {
+    success: false,
+    response: validationFailure(
+      `Certified ProjectContext dimension completion blocked before side effects: ${reason}`,
+      'CERTIFIED_PROJECT_CONTEXT_BLOCKED'
+    ),
+  };
 }
 
 function requireRequestDataRoot(ctx: HostAgentDimensionCompletionContext): string {
@@ -385,6 +497,7 @@ async function applyDimensionCompletionSideEffects({
   referencedFiles,
   session,
   submittedRecipeIds,
+  certifiedWiring,
 }: {
   ctx: HostAgentDimensionCompletionContext;
   dataRoot: string;
@@ -394,6 +507,7 @@ async function applyDimensionCompletionSideEffects({
   referencedFiles: string[];
   session: HostAgentWorkflowSession;
   submittedRecipeIds: string[];
+  certifiedWiring: CoverageLedgerWiring | null;
 }): Promise<
   | { success: true; value: DimensionCompletionSideEffectResult }
   | { success: false; response: HostAgentDimensionCompletionResponse }
@@ -450,6 +564,7 @@ async function applyDimensionCompletionSideEffects({
       skillResult,
       submittedRecipeIds,
       updated: completion.updated,
+      certifiedWiring,
     }),
   };
 }
@@ -503,6 +618,7 @@ async function persistAndBroadcastDimensionCompletion({
   skillResult,
   submittedRecipeIds,
   updated,
+  certifiedWiring,
 }: {
   ctx: HostAgentDimensionCompletionContext;
   dataRoot: string;
@@ -517,6 +633,7 @@ async function persistAndBroadcastDimensionCompletion({
   skillResult: HostAgentDimensionSkillResult;
   submittedRecipeIds: string[];
   updated: boolean;
+  certifiedWiring: CoverageLedgerWiring | null;
 }): Promise<DimensionCompletionSideEffectResult> {
   await persistDimensionCheckpoint({
     session,
@@ -609,6 +726,7 @@ async function persistAndBroadcastDimensionCompletion({
     referencedFiles,
     submittedRecipeIds,
     projectRoot: session.projectRoot,
+    strictWiring: certifiedWiring,
   });
 
   return {
@@ -662,66 +780,94 @@ async function writeDimensionCompletionCoverageLedger(args: {
   referencedFiles: string[];
   submittedRecipeIds: string[];
   projectRoot: string;
+  strictWiring?: CoverageLedgerWiring | null;
 }): Promise<void> {
   const { ctx, dimension, input, referencedFiles, submittedRecipeIds, projectRoot } = args;
   const logger = ctx.logger;
+  if (args.strictWiring) {
+    writeDimensionCompletionCoverageLedgerWithWiring({
+      coverageLedgerRepository: args.strictWiring.coverageLedgerRepository,
+      canonicalModules: args.strictWiring.canonicalModules,
+      dimension,
+      input,
+      logger,
+      projectRoot,
+      referencedFiles,
+      submittedRecipeIds,
+    });
+    return;
+  }
   try {
     const wiring = await resolveCoverageLedgerWiring(ctx);
     if (!wiring) {
       return;
     }
-    const { coverageLedgerRepository } = wiring;
-    const rawModules = buildCompletionCoverageModuleAxis(wiring.canonicalModules);
-    const modules = selectCompletionCoverageModules({
-      coverageLedgerRepository,
+    writeDimensionCompletionCoverageLedgerWithWiring({
+      coverageLedgerRepository: wiring.coverageLedgerRepository,
+      canonicalModules: wiring.canonicalModules,
+      dimension,
+      input,
       logger,
       projectRoot,
-      rawModules,
-    });
-    if (!modules) {
-      return;
-    }
-
-    // coveredPaths = 已引用文件去行号锚点（referencedFiles 形如 `path:10-20`，剥离末尾 `:行号`）。
-    const coveredPaths = referencedFiles.map((ref) => ref.replace(/:\d+(?:-\d+)?$/, ''));
-    const candidates = buildCompletionCoverageCandidates({
-      coveredPaths,
-      dimensionId: dimension.id,
-      modules,
-    });
-
-    const tier = resolveModuleTier(modules.length);
-    const perCellTarget = resolvePerCellTargetDefault(tier);
-    const exhaustedDeclarations = buildCompletionExhaustedDeclarations({
-      dimensionId: dimension.id,
-      input,
-      modules,
-    });
-
-    writeCoverageLedgerForCompletion({
-      repository: coverageLedgerRepository,
-      projectRoot,
-      modules,
-      dimensionIds: [dimension.id],
-      candidates,
-      coveredPaths,
-      perCellTarget,
-      ...(exhaustedDeclarations ? { exhaustedDeclarations } : {}),
-      lastRound: resolveLastCoverageLedgerRound(coverageLedgerRepository, projectRoot),
-      ...(logger ? { logger } : {}),
-    });
-
-    reflowDeepMiningRoundOnCompletion({
-      repository: coverageLedgerRepository,
-      projectRoot,
-      newRecipeCount: resolveNewRecipeCount(input, submittedRecipeIds),
-      ...(logger ? { logger } : {}),
+      referencedFiles,
+      submittedRecipeIds,
     });
   } catch (err: unknown) {
     // 任何异常都吞掉：账本写入是 advisory 旁路，绝不改变维度完成响应或阻断完成。
     const reason = err instanceof Error ? err.message : String(err);
     logger?.debug?.(`[DimensionComplete] coverage ledger write skipped: ${reason}`);
   }
+}
+
+function writeDimensionCompletionCoverageLedgerWithWiring(input: {
+  canonicalModules: CanonicalModuleSummary[];
+  coverageLedgerRepository: CoverageLedgerRepository;
+  dimension: DimensionDef;
+  input: CompletionInput;
+  logger: HostAgentDimensionCompletionContext['logger'];
+  projectRoot: string;
+  referencedFiles: string[];
+  submittedRecipeIds: string[];
+}): void {
+  const rawModules = buildCompletionCoverageModuleAxis(input.canonicalModules);
+  const modules = selectCompletionCoverageModules({
+    coverageLedgerRepository: input.coverageLedgerRepository,
+    logger: input.logger,
+    projectRoot: input.projectRoot,
+    rawModules,
+  });
+  if (!modules) {
+    throw new TypeError('Certified dimension completion has no canonical module axis.');
+  }
+  const coveredPaths = input.referencedFiles.map((ref) => ref.replace(/:\d+(?:-\d+)?$/, ''));
+  const candidates = buildCompletionCoverageCandidates({
+    coveredPaths,
+    dimensionId: input.dimension.id,
+    modules,
+  });
+  const exhaustedDeclarations = buildCompletionExhaustedDeclarations({
+    dimensionId: input.dimension.id,
+    input: input.input,
+    modules,
+  });
+  writeCoverageLedgerForCompletion({
+    repository: input.coverageLedgerRepository,
+    projectRoot: input.projectRoot,
+    modules,
+    dimensionIds: [input.dimension.id],
+    candidates,
+    coveredPaths,
+    perCellTarget: resolvePerCellTargetDefault(resolveModuleTier(modules.length)),
+    ...(exhaustedDeclarations ? { exhaustedDeclarations } : {}),
+    lastRound: resolveLastCoverageLedgerRound(input.coverageLedgerRepository, input.projectRoot),
+    ...(input.logger ? { logger: input.logger } : {}),
+  });
+  reflowDeepMiningRoundOnCompletion({
+    repository: input.coverageLedgerRepository,
+    projectRoot: input.projectRoot,
+    newRecipeCount: resolveNewRecipeCount(input.input, input.submittedRecipeIds),
+    ...(input.logger ? { logger: input.logger } : {}),
+  });
 }
 
 async function resolveCoverageLedgerWiring(

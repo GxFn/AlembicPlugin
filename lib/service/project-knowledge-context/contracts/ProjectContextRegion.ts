@@ -32,6 +32,8 @@ export type RegionFocusKind = z.infer<typeof RegionFocusKindSchema>;
 export const RegionNodeKindSchema = z.enum([
   'space',
   'repo',
+  'package',
+  'target',
   'map',
   'module-layer',
   'module',

@@ -19,6 +19,7 @@ import type {
 } from '@alembic/core/project-context';
 import { EXTENSION_PARSER_LANGUAGE } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
+import { hashCanonicalJson } from '@alembic/core/project-context-foundation';
 import type {
   AlembicGraphOutput,
   AlembicGraphQueryKind,
@@ -93,6 +94,15 @@ export interface ProjectGraphProvider {
 
 export interface ProjectGraphExecutionOptions {
   buildSessions?: ProjectContextBuildSessionManager;
+  certifiedProbe?: {
+    artifactId: string;
+    blockingReasons: string[];
+    canonicalScopeHash: string;
+    certifiedSourceVectorHash: string;
+    comparisonStatus: 'matched' | 'mismatched';
+    observedSourceVectorHash: string;
+    repositories: Array<{ repoId: string; relativeRoot: string }>;
+  };
   signal?: AbortSignal;
 }
 
@@ -110,6 +120,8 @@ interface GraphBuild {
   factSessionRef?: string;
   factFingerprint?: string;
   factChunkRepoIds?: string[];
+  progressiveOutcome?: 'progress' | 'success';
+  certifiedProbe?: ProjectGraphExecutionOptions['certifiedProbe'];
 }
 
 interface ProjectGraphProjectContextTrace {
@@ -288,9 +300,10 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     const buildInput = canonicalProjectContextBuildInput(normalizedInput);
     const buildLease = await options.buildSessions.acquireProgressive({
       projectRoot,
-      scope: projectContextBuildScope(buildInput),
+      scope: projectContextBuildScope(buildInput, options.certifiedProbe),
       signal: options.signal,
-      build: (signal, publish) => this.buildGraphUncached(projectRoot, buildInput, signal, publish),
+      build: (signal, publish) =>
+        this.buildGraphUncached(projectRoot, buildInput, signal, publish, options.certifiedProbe),
       chunks: graphBuildFactChunks,
     });
     const project = (snapshot: ProjectContextProgressiveSnapshot<GraphBuild>) => {
@@ -298,6 +311,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
         ...snapshot.value,
         factSessionRef: buildLease.factSessionRef,
         factFingerprint: buildLease.fingerprint,
+        progressiveOutcome: snapshot.outcome,
       };
       return {
         outcome: snapshot.outcome,
@@ -349,13 +363,20 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
   ): Promise<GraphBuild> {
     const buildInput = canonicalProjectContextBuildInput(input);
     if (!options.buildSessions) {
-      return this.buildGraphUncached(projectRoot, buildInput, options.signal);
+      return this.buildGraphUncached(
+        projectRoot,
+        buildInput,
+        options.signal,
+        undefined,
+        options.certifiedProbe
+      );
     }
     const lease = await options.buildSessions.acquire({
       projectRoot,
-      scope: projectContextBuildScope(buildInput),
+      scope: projectContextBuildScope(buildInput, options.certifiedProbe),
       signal: options.signal,
-      build: (signal) => this.buildGraphUncached(projectRoot, buildInput, signal),
+      build: (signal) =>
+        this.buildGraphUncached(projectRoot, buildInput, signal, undefined, options.certifiedProbe),
       chunks: graphBuildFactChunks,
     });
     try {
@@ -373,18 +394,36 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     projectRoot: string,
     input: ProjectGraphInput,
     signal?: AbortSignal,
-    publish?: (value: GraphBuild) => void
+    publish?: (value: GraphBuild) => void,
+    certifiedProbe?: ProjectGraphExecutionOptions['certifiedProbe']
   ): Promise<GraphBuild> {
     const projectContextFacts = await buildProjectContextGraphFacts(
       projectRoot,
       input,
       signal,
+      certifiedProbe?.repositories,
       publish
         ? (facts, repoOutcomeId) =>
-            publish(projectGraphBuildFromFacts(projectRoot, input, facts, true, [repoOutcomeId]))
+            publish(
+              projectGraphBuildFromFacts(
+                projectRoot,
+                input,
+                facts,
+                true,
+                [repoOutcomeId],
+                certifiedProbe
+              )
+            )
         : undefined
     );
-    return projectGraphBuildFromFacts(projectRoot, input, projectContextFacts, false);
+    return projectGraphBuildFromFacts(
+      projectRoot,
+      input,
+      projectContextFacts,
+      false,
+      undefined,
+      certifiedProbe
+    );
   }
 }
 
@@ -393,7 +432,8 @@ function projectGraphBuildFromFacts(
   input: ProjectGraphInput,
   projectContextFacts: ProjectContextGraphFacts,
   forcePartial: boolean,
-  factChunkRepoIds?: readonly string[]
+  factChunkRepoIds?: readonly string[],
+  certifiedProbe?: ProjectGraphExecutionOptions['certifiedProbe']
 ): GraphBuild {
   const projectedTrace: ProjectGraphProjectContextTrace = {
     ...projectContextFacts.trace,
@@ -450,6 +490,7 @@ function projectGraphBuildFromFacts(
       MAX_PROJECT_CONTEXT_DETAIL_REFS
     ),
     diagnostics: [...projectContextFacts.diagnostics],
+    ...(certifiedProbe ? { certifiedProbe } : {}),
     nodes: nodes.values(),
     projectContext: {
       ...projectedTrace,
@@ -504,10 +545,20 @@ function canonicalProjectContextBuildInput(input: ProjectGraphInput): ProjectGra
   });
 }
 
-function projectContextBuildScope(input: ProjectGraphInput): ProjectContextBuildScope {
+function projectContextBuildScope(
+  input: ProjectGraphInput,
+  certifiedProbe?: ProjectGraphExecutionOptions['certifiedProbe']
+): ProjectContextBuildScope {
+  const certificationScope = certifiedProbe
+    ? {
+        certifiedArtifactId: certifiedProbe.artifactId,
+        certifiedSourceVectorHash: certifiedProbe.certifiedSourceVectorHash,
+      }
+    : {};
   const filePath = explicitProjectGraphPath(input);
   if (filePath) {
     return {
+      ...certificationScope,
       kind: resolveGraphQueryKind(input),
       filePath: normalizeRelativePath(filePath),
       ...(input.line === undefined ? {} : { line: input.line }),
@@ -519,6 +570,7 @@ function projectContextBuildScope(input: ProjectGraphInput): ProjectContextBuild
     };
   }
   return {
+    ...certificationScope,
     kind: input.query ? 'query' : 'space',
     ...(input.query ? { query: input.query } : {}),
   };
@@ -675,6 +727,7 @@ async function buildProjectContextGraphFacts(
   projectRoot: string,
   input: ProjectGraphInput,
   signal?: AbortSignal,
+  certifiedRepositories?: Array<{ repoId: string; relativeRoot: string }>,
   onProgress?: (facts: ProjectContextGraphFacts, repoOutcomeId: string) => void
 ): Promise<ProjectContextGraphFacts> {
   const facts: ProjectContextGraphFacts = {
@@ -712,7 +765,14 @@ async function buildProjectContextGraphFacts(
     if (isExplicitFileGraphTraversal(input)) {
       await collectNarrowGraphFileContexts(facts, projectRoot, input, signal);
     } else {
-      await collectGraphRepoContexts(facts, projectRoot, input, signal, onProgress);
+      await collectGraphRepoContexts(
+        facts,
+        projectRoot,
+        input,
+        signal,
+        certifiedRepositories,
+        onProgress
+      );
       const moduleSeeds = await createGraphModuleSeedsFromRepoContexts(
         projectRoot,
         facts.repos,
@@ -941,6 +1001,7 @@ async function collectGraphRepoContexts(
   projectRoot: string,
   input: ProjectGraphInput,
   signal?: AbortSignal,
+  certifiedRepositories?: Array<{ repoId: string; relativeRoot: string }>,
   onProgress?: (delta: ProjectContextGraphFacts, repoOutcomeId: string) => void
 ) {
   const spaceEnvelope = await executeGraphProjectContextRequest(
@@ -964,7 +1025,7 @@ async function collectGraphRepoContexts(
       projectNameFromRoot(projectRoot);
   }
   const folders: GraphRepoFolder[] = isSpaceContext(spaceEnvelope.data)
-    ? selectGraphRepoFolders(spaceEnvelope.data, projectRoot)
+    ? selectGraphRepoFolders(spaceEnvelope.data, projectRoot, certifiedRepositories)
     : [{ repoId: undefined, repoName: projectNameFromRoot(projectRoot), sourceFolder: '.' }];
 
   const discoveredRepoIds = folders.map(graphRepoCoverageId);
@@ -3486,7 +3547,26 @@ function filePathFromGraphNodeId(nodeId: string | undefined): string | undefined
   return normalizeRelativePath(nodeId.slice('file:'.length));
 }
 
-function selectGraphRepoFolders(space: SpaceContext, projectRoot: string) {
+function selectGraphRepoFolders(
+  space: SpaceContext,
+  projectRoot: string,
+  certifiedRepositories?: Array<{ repoId: string; relativeRoot: string }>
+) {
+  if (certifiedRepositories) {
+    const identities = new Set<string>();
+    return certifiedRepositories.map((repository) => {
+      const identity = `${repository.repoId}\0${normalizeRelativePath(repository.relativeRoot)}`;
+      if (identities.has(identity)) {
+        throw new TypeError(`Duplicate certified Graph repository tuple: ${repository.repoId}.`);
+      }
+      identities.add(identity);
+      return {
+        repoId: repository.repoId,
+        repoName: repository.repoId,
+        sourceFolder: normalizeRelativePath(repository.relativeRoot),
+      };
+    });
+  }
   if (space.sourceFolders.length <= 1) {
     const rootFolder =
       space.sourceFolders.length === 0
@@ -4903,6 +4983,15 @@ function projectAlembicGraphOutput(args: {
         ...graphProjectContextMeta(projectedBuild.projectContext),
         ...(build.factSessionRef ? { factSessionRef: build.factSessionRef } : {}),
         ...(build.factFingerprint ? { factFingerprint: build.factFingerprint } : {}),
+        liveProbeReceipt: buildProjectContextLiveProbeReceipt({
+          build: projectedBuild,
+          nodes,
+          queryKind,
+          refs,
+          relations,
+          slices,
+          status,
+        }),
       },
       sourceOfTruth: false,
       callClaimsRequireSourceVerification: true,
@@ -5073,7 +5162,7 @@ function resultSignalGraphDiagnostics(selection: GraphSelection): GraphDiagnosti
 function deriveGraphStatus(build: GraphBuild, selection: GraphSelection): AlembicGraphStatus {
   const result = selection.result;
   // ProjectContext 已报告执行错误时，不能被同一请求的 partial/no-match 标志遮蔽。
-  if (build.projectContext.errorCount > 0) {
+  if (build.projectContext.errorCount > 0 || build.projectContext.suppressedErrorCount > 0) {
     return 'degraded';
   }
   const partial =
@@ -5088,6 +5177,85 @@ function deriveGraphStatus(build: GraphBuild, selection: GraphSelection): Alembi
     return 'partial';
   }
   return 'ready';
+}
+
+function buildProjectContextLiveProbeReceipt(input: {
+  build: GraphBuild;
+  nodes: readonly GraphNodeSummary[];
+  queryKind: AlembicGraphQueryKind;
+  refs: readonly ProjectContextRefSummary[];
+  relations: readonly GraphRelationSummary[];
+  slices: readonly GraphSourceSliceSummary[];
+  status: AlembicGraphStatus;
+}) {
+  const discoveredRepoIds = [...input.build.projectContext.repoCoverage.discoveredRepoIds].sort();
+  const moduleIds = input.build.nodes
+    .filter((node) => node.nodeType === 'module')
+    .map((node) => node.id)
+    .sort();
+  const blockingReasons = [
+    ...(input.status === 'ready' ? [] : [`graph-status:${input.status}`]),
+    ...(input.build.projectContext.suppressedErrorCount > 0
+      ? [`suppressed-errors:${input.build.projectContext.suppressedErrorCount}`]
+      : []),
+    ...(input.build.projectContext.repoCoverage.completeness === 'complete'
+      ? []
+      : [`repo-coverage:${input.build.projectContext.repoCoverage.completeness}`]),
+    ...(input.build.certifiedProbe?.blockingReasons ?? ['certified-comparison-unavailable']),
+  ];
+  const phase = input.build.progressiveOutcome === 'progress' ? 'progress' : 'terminal';
+  const semanticProjection = {
+    blockingReasons,
+    modules: moduleIds,
+    nodes: input.nodes,
+    queryKind: input.queryKind,
+    refs: input.refs.map(({ id, kind, label, filePath, range, parentRef }) => ({
+      id,
+      kind,
+      label,
+      filePath,
+      range,
+      parentRef,
+    })),
+    relations: input.relations,
+    repositories: discoveredRepoIds,
+    slices: input.slices,
+    status: input.status,
+  };
+  return {
+    kind: 'ProjectContextLiveProbeReceipt' as const,
+    version: 1 as const,
+    phase,
+    verdict:
+      phase === 'terminal' && blockingReasons.length === 0
+        ? ('passed' as const)
+        : ('blocked' as const),
+    canonicalScopeHash:
+      input.build.certifiedProbe?.canonicalScopeHash ??
+      hashCanonicalJson({ repositories: discoveredRepoIds }),
+    observedSourceVectorHash:
+      input.build.certifiedProbe?.observedSourceVectorHash ??
+      hashCanonicalJson({
+        repositories: discoveredRepoIds,
+        nodes: input.build.nodes.map(({ id, nodeType, path: nodePath }) => ({
+          id,
+          nodeType,
+          path: nodePath,
+        })),
+        relations: input.build.relations.map(({ fromId, relationType, toId }) => ({
+          fromId,
+          relationType,
+          toId,
+        })),
+      }),
+    terminalSemanticOutputHash: hashCanonicalJson(semanticProjection),
+    repoIdentityHash: hashCanonicalJson(discoveredRepoIds),
+    moduleIdentityHash: hashCanonicalJson(moduleIds),
+    comparedArtifactId: input.build.certifiedProbe?.artifactId ?? null,
+    certifiedSourceVectorHash: input.build.certifiedProbe?.certifiedSourceVectorHash ?? null,
+    comparisonStatus: input.build.certifiedProbe?.comparisonStatus ?? ('unavailable' as const),
+    blockingReasons,
+  };
 }
 
 function deriveGraphNextActions(
@@ -5826,8 +5994,9 @@ function regionKindFromNodeType(nodeType: KnowledgeContextProjectNodeType): Regi
     case 'project':
       return 'space';
     case 'package':
+      return 'package';
     case 'target':
-      return 'repo';
+      return 'target';
     case 'module':
       return 'module';
     case 'directory':

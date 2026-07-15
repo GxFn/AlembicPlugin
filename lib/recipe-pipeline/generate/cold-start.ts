@@ -194,6 +194,7 @@ async function runPlanGatedColdStart(
   });
   const cleanupResult = await runColdStartCleanup(ctx, input, plan);
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
+    certifiedSession: { container: ctx.container, dataRoot: input.dataRoot },
     maxFiles: plan.projectAnalysis.scan.maxFiles,
     moduleScope: input.planGate.moduleScope,
     projectRoot: plan.projectAnalysis.projectRoot,

@@ -256,6 +256,7 @@ async function prepareRescanState(
   }
 
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
+    certifiedSession: { container: ctx.container, dataRoot },
     maxFiles: plan.projectAnalysis.scan.maxFiles,
     moduleScope: planGate.moduleScope,
     projectRoot: projectContextScope.analysisProjectRoot,

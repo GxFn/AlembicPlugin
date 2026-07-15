@@ -25,6 +25,10 @@ import {
   normalizeProjectContextPath,
   type ProjectSourceFileFact,
 } from '@alembic/core/service/planFacts';
+import {
+  openPluginCertifiedProjection,
+  readPluginCertifiedCarrierFromProjectContext,
+} from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 
 interface BuildHostAgentProjectContextAnalysisInput {
   projectRoot: string;
@@ -35,6 +39,10 @@ interface BuildHostAgentProjectContextAnalysisInput {
   maxModuleDetails?: number;
   maxFileDetails?: number;
   sourceFolders?: readonly string[];
+  certifiedSession?: {
+    container: HostAgentSessionContainer;
+    dataRoot: string;
+  };
 }
 
 export interface ProjectContextModuleSeed {
@@ -75,6 +83,15 @@ export function createProjectContextHostAgentSession(input: {
   projectRoot: string;
 }): ReturnType<ReturnType<typeof getOrCreateSessionManager>['createSession']> {
   const sessionManager = getOrCreateSessionManager(input.container);
+  const certifiedSession = sessionManager.getAnySession(undefined, {
+    projectRoot: input.projectRoot,
+  });
+  if (
+    certifiedSession &&
+    readPluginCertifiedCarrierFromProjectContext(certifiedSession.toSnapshot().projectContext)
+  ) {
+    return certifiedSession;
+  }
   releaseEmptyHostAgentSessionLease({
     projectRoot: input.projectRoot,
     sessionManager,
@@ -200,6 +217,10 @@ export function releaseEmptyHostAgentSessionLease(input: {
 export async function buildHostAgentProjectContextAnalysis(
   input: BuildHostAgentProjectContextAnalysisInput
 ): Promise<HostAgentProjectContextAnalysis> {
+  const certified = await tryBuildCertifiedHostAgentProjectContextAnalysis(input);
+  if (certified) {
+    return certified;
+  }
   const maxModuleSeeds = input.maxModuleSeeds ?? 25;
   const maxModuleDetails = input.maxModuleDetails ?? 3;
   const maxFileDetails = input.maxFileDetails ?? 8;
@@ -352,6 +373,74 @@ export async function buildHostAgentProjectContextAnalysis(
     requestKinds: uniqueRequestKinds(envelopes.map((envelope) => envelope.queryLevel)),
     secondaryLanguages,
     sourceFileFacts,
+  };
+}
+
+async function tryBuildCertifiedHostAgentProjectContextAnalysis(
+  input: BuildHostAgentProjectContextAnalysisInput
+): Promise<HostAgentProjectContextAnalysis | null> {
+  if (!input.certifiedSession) {
+    return null;
+  }
+  const session = getOrCreateSessionManager(input.certifiedSession.container).getAnySession(
+    undefined,
+    { projectRoot: input.projectRoot }
+  );
+  const carrier = session
+    ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
+    : null;
+  if (!carrier) {
+    return null;
+  }
+  const projection = await openPluginCertifiedProjection({
+    carrier,
+    dataRoot: input.certifiedSession.dataRoot,
+  });
+  const presenterInput = buildProjectContextPresenterInput(projection.envelopes);
+  const languageCounts = projection.files.reduce<Record<string, number>>((counts, file) => {
+    counts[file.language] = (counts[file.language] ?? 0) + 1;
+    return counts;
+  }, {});
+  const primaryLang =
+    Object.entries(languageCounts).sort(
+      ([left, leftCount], [right, rightCount]) =>
+        rightCount - leftCount || left.localeCompare(right)
+    )[0]?.[0] ?? 'unknown';
+  const secondaryLanguages = Object.keys(languageCounts)
+    .filter((language) => language !== primaryLang)
+    .sort();
+  const dimensions = resolveProjectContextDimensions(primaryLang);
+  return {
+    dimensions,
+    envelopes: projection.envelopes,
+    fileCount: projection.files.length,
+    isEmpty: projection.files.length === 0,
+    isMultiLang: secondaryLanguages.length > 0,
+    moduleCount: projection.modules.length,
+    moduleSeeds: projection.modules.map((module) => {
+      const firstOwnedFile = module.ownedFiles[0];
+      return {
+        kind: 'certified-module',
+        moduleId: module.id,
+        moduleName: module.name,
+        modulePath: firstOwnedFile ? firstOwnedFile.split('/').slice(0, -1).join('/') || '.' : '.',
+        ownedFiles: [...module.ownedFiles],
+        role: 'certified-module',
+      };
+    }),
+    presenterInput,
+    primaryLang,
+    projectType: 'certified-project',
+    requestKinds: projection.requestKinds,
+    secondaryLanguages,
+    sourceFileFacts: projection.files.map((file) => ({
+      filePath:
+        file.repositoryRelativeRoot === '.'
+          ? file.relativePath
+          : `${file.repositoryRelativeRoot}/${file.relativePath}`,
+      language: file.language,
+      sizeBytes: file.byteLength,
+    })),
   };
 }
 

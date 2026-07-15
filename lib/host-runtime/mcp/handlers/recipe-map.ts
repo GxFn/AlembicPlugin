@@ -100,7 +100,8 @@ const RECIPE_MAP_FOCUS_KINDS = new Set<RegionFocusKind>([
 ]);
 
 export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
-  const projectRoot = requireRequestProjectRuntime(ctx).identity.projectRoot;
+  const identity = requireRequestProjectRuntime(ctx).identity;
+  const projectRoot = acceptedRecipeMapControlRoot(identity);
   const execution = ctx.projectContextExecution;
   if (args.cursor || args.cancelCursor) {
     if (!execution) {
@@ -149,8 +150,22 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
   return createAlembicRecipeMapMcpResult(materializeRecipeMapContinuation(page));
 }
 
+function acceptedRecipeMapControlRoot(identity: {
+  projectRoot: string;
+  projectScope?: unknown;
+}): string {
+  const scope =
+    identity.projectScope && typeof identity.projectScope === 'object'
+      ? (identity.projectScope as Record<string, unknown>)
+      : undefined;
+  return typeof scope?.controlRoot === 'string' && scope.controlRoot.length > 0
+    ? scope.controlRoot
+    : identity.projectRoot;
+}
+
 type RecipeMapPageEntry =
   | { kind: 'node'; value: AlembicRecipeMapOutput['region']['nodes'][number] }
+  | { kind: 'relation'; value: AlembicRecipeMapOutput['region']['relations'][number] }
   | { kind: 'ref'; value: AlembicRecipeMapOutput['refs'][number] }
   | { kind: 'mount'; value: AlembicRecipeMapOutput['recipeMounts'][number] }
   | { kind: 'rollup'; value: AlembicRecipeMapOutput['recipeRollups'][number] };
@@ -161,6 +176,7 @@ function recipeMapPageEntries(output: AlembicRecipeMapOutput): RecipeMapPageEntr
     // cumulative delivered mount projection on every later/terminal page.
     ...output.recipeMounts.map((value): RecipeMapPageEntry => ({ kind: 'mount', value })),
     ...output.region.nodes.map((value): RecipeMapPageEntry => ({ kind: 'node', value })),
+    ...output.region.relations.map((value): RecipeMapPageEntry => ({ kind: 'relation', value })),
     ...output.refs.map((value): RecipeMapPageEntry => ({ kind: 'ref', value })),
     ...output.recipeRollups.map((value): RecipeMapPageEntry => ({ kind: 'rollup', value })),
   ];
@@ -169,11 +185,21 @@ function recipeMapPageEntries(output: AlembicRecipeMapOutput): RecipeMapPageEntr
 function recipeMapContinuationBase(output: AlembicRecipeMapOutput): AlembicRecipeMapOutput {
   return {
     ...output,
-    region: { ...output.region, nodes: [] },
+    region: { ...output.region, nodes: [], relations: [] },
     refs: [],
     recipeMounts: [],
     recipeRollups: [],
     continuation: undefined,
+    meta: {
+      ...output.meta,
+      continuationTotals: {
+        mounts: output.recipeMounts.length,
+        nodes: output.region.nodes.length,
+        refs: output.refs.length,
+        relations: output.region.relations.length,
+        rollups: output.recipeRollups.length,
+      },
+    },
   };
 }
 
@@ -185,6 +211,7 @@ function materializeRecipeMapContinuation(
     throw new Error('Recipe Map continuation lost its bounded result context.');
   }
   const nodes: AlembicRecipeMapOutput['region']['nodes'] = [];
+  const relations: AlembicRecipeMapOutput['region']['relations'] = [];
   const refs: AlembicRecipeMapOutput['refs'] = [];
   const mounts: AlembicRecipeMapOutput['recipeMounts'] = [];
   const rollups: AlembicRecipeMapOutput['recipeRollups'] = [];
@@ -195,6 +222,9 @@ function materializeRecipeMapContinuation(
     if (entry.kind === 'ref') {
       refs.push(entry.value);
     }
+    if (entry.kind === 'relation') {
+      relations.push(entry.value);
+    }
     if (entry.kind === 'mount') {
       mounts.push(entry.value);
     }
@@ -203,11 +233,18 @@ function materializeRecipeMapContinuation(
     }
   }
   const pageMounts = mounts.length;
+  const typeAccounting = recipeMapTypeAccounting(base, page, {
+    mounts: pageMounts,
+    nodes: nodes.length,
+    refs: refs.length,
+    relations: relations.length,
+    rollups: rollups.length,
+  });
   const rawPage = {
     ...base,
     status: page.hasMore && base.status === 'ready' ? 'partial' : base.status,
     summary: `${base.summary} Continuation page ${page.page}${page.hasMore ? ' has more facts.' : ' is terminal.'}`,
-    region: { ...base.region, nodes },
+    region: { ...base.region, nodes, relations },
     refs,
     recipeMounts: mounts,
     recipeRollups: rollups,
@@ -228,6 +265,7 @@ function materializeRecipeMapContinuation(
       nextCursor: page.nextCursor,
       page: page.page,
       resultRef: page.resultRef,
+      typeAccounting,
     },
   } satisfies AlembicRecipeMapOutput;
   // The generic budgeter temporarily rewrites conservation to this page's
@@ -339,6 +377,9 @@ function recipeMapPageEntryKey(entry: RecipeMapPageEntry): string {
   if (entry.kind === 'ref') {
     return `ref:${entry.value.id}`;
   }
+  if (entry.kind === 'relation') {
+    return `relation:${entry.value.fromId}\u0000${entry.value.relationType}\u0000${entry.value.toId}`;
+  }
   return `mount:${entry.value.recipeId}\u0000${entry.value.mountNodeId}\u0000${entry.value.mountType}`;
 }
 
@@ -375,6 +416,7 @@ function cancelledRecipeMapContinuation(
     conservation: {
       ...base.conservation,
       completeness: 'incomplete',
+      mountAccountingCompleteness: 'incomplete',
       displayedMounts: 0,
       omittedMounts: base.conservation.mountedTotal,
     },
@@ -390,8 +432,62 @@ function cancelledRecipeMapContinuation(
       nextCursor: null,
       page: 1,
       resultRef: cancelled.resultRef,
+      typeAccounting: recipeMapCancelledTypeAccounting(base),
     },
   };
+}
+
+function recipeMapTypeAccounting(
+  base: AlembicRecipeMapOutput,
+  page: ProjectContextContinuationPage<RecipeMapPageEntry>,
+  shown: { mounts: number; nodes: number; refs: number; relations: number; rollups: number }
+) {
+  const totals = requireRecipeMapContinuationTotals(base);
+  let remainingBudget = page.accumulatedCounts.items;
+  const cumulative = {
+    mounts: Math.min(totals.mounts, remainingBudget),
+    nodes: 0,
+    refs: 0,
+    relations: 0,
+    rollups: 0,
+  };
+  remainingBudget -= cumulative.mounts;
+  cumulative.nodes = Math.min(totals.nodes, Math.max(0, remainingBudget));
+  remainingBudget -= cumulative.nodes;
+  cumulative.relations = Math.min(totals.relations, Math.max(0, remainingBudget));
+  remainingBudget -= cumulative.relations;
+  cumulative.refs = Math.min(totals.refs, Math.max(0, remainingBudget));
+  remainingBudget -= cumulative.refs;
+  cumulative.rollups = Math.min(totals.rollups, Math.max(0, remainingBudget));
+  return Object.fromEntries(
+    (['mounts', 'nodes', 'relations', 'refs', 'rollups'] as const).map((kind) => [
+      kind,
+      {
+        shown: shown[kind],
+        total: totals[kind],
+        remaining: totals[kind] - cumulative[kind],
+        cumulative: cumulative[kind],
+      },
+    ])
+  ) as NonNullable<AlembicRecipeMapOutput['continuation']>['typeAccounting'];
+}
+
+function recipeMapCancelledTypeAccounting(base: AlembicRecipeMapOutput) {
+  const totals = requireRecipeMapContinuationTotals(base);
+  return Object.fromEntries(
+    (['mounts', 'nodes', 'relations', 'refs', 'rollups'] as const).map((kind) => [
+      kind,
+      { shown: 0, total: totals[kind], remaining: totals[kind], cumulative: 0 },
+    ])
+  ) as NonNullable<AlembicRecipeMapOutput['continuation']>['typeAccounting'];
+}
+
+function requireRecipeMapContinuationTotals(base: AlembicRecipeMapOutput) {
+  const totals = base.meta.continuationTotals;
+  if (!totals) {
+    throw new Error('Recipe Map continuation is missing per-type totals.');
+  }
+  return totals;
 }
 
 function normalizeRecipeMapRequest(args: RecipeMapArgs, projectRoot: string): RecipeMapRequest {

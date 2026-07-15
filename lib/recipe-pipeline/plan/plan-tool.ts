@@ -1,5 +1,11 @@
-import { resolveModuleTier, resolvePerCellTargetDefault } from '@alembic/core/host-agent-workflows';
+import {
+  baseDimensions,
+  getOrCreateSessionManager,
+  resolveModuleTier,
+  resolvePerCellTargetDefault,
+} from '@alembic/core/host-agent-workflows';
 import { type PlanStageId, renderPlanScaleChecklistEn } from '@alembic/core/plans';
+import { buildProjectContextPresenterInput } from '@alembic/core/project-context';
 import type { CoverageLedgerRecord, CoverageLedgerRepository } from '@alembic/core/repositories';
 import {
   buildCandidateDimensions,
@@ -19,6 +25,10 @@ import {
 } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
+import {
+  openPluginCertifiedProjection,
+  readPluginCertifiedCarrierFromProjectContext,
+} from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { confirmPlan } from './plan-confirm.js';
 
 interface PlanToolContext {
@@ -183,13 +193,74 @@ export async function routePlanTool(
 
 async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolResponse> {
   const projectRoot = resolvePlanProjectRoot(ctx, args);
-  const analysis = await collectPlanProjectContext(projectRoot, args.hints);
+  const analysis =
+    (await collectCertifiedPlanProjectContext(ctx, projectRoot)) ??
+    (await collectPlanProjectContext(projectRoot, args.hints));
   if (analysis.fileCount === 0 && analysis.moduleCount === 0) {
     return emptyProjectContextResponse(projectRoot);
   }
 
   const draftContext = await buildPlanDraftContext(ctx, args, projectRoot, analysis);
   return planDraftResponse(draftContext);
+}
+
+async function collectCertifiedPlanProjectContext(
+  ctx: PlanToolContext,
+  projectRoot: string
+): Promise<PlanProjectContextAnalysis | null> {
+  const session = getOrCreateSessionManager(ctx.container as never).getAnySession(undefined, {
+    projectRoot,
+  });
+  const carrier = session
+    ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
+    : null;
+  if (!carrier) {
+    return null;
+  }
+  const projection = await openPluginCertifiedProjection({
+    carrier,
+    dataRoot: requireRequestDataRoot(ctx),
+  });
+  const languageCounts = projection.files.reduce<Record<string, number>>((counts, file) => {
+    counts[file.language] = (counts[file.language] ?? 0) + 1;
+    return counts;
+  }, {});
+  const primaryLanguage =
+    Object.entries(languageCounts).sort(
+      ([left, leftCount], [right, rightCount]) =>
+        rightCount - leftCount || left.localeCompare(right)
+    )[0]?.[0] ?? 'unknown';
+  return {
+    contextStatus: 'complete',
+    dimensions: [...baseDimensions],
+    envelopes: projection.envelopes,
+    factSource: 'project-context',
+    fileCount: projection.files.length,
+    frameworks: [],
+    moduleCount: projection.modules.length,
+    moduleSeeds: projection.modules.map((module) => ({
+      moduleName: module.name,
+      modulePath: module.ownedFiles[0]?.split('/').slice(0, -1).join('/') || '.',
+      ownedFiles: [...module.ownedFiles],
+      role: 'certified-module',
+    })),
+    presenterInput: buildProjectContextPresenterInput(projection.envelopes),
+    primaryLanguage,
+    projectType: 'certified-project',
+    requestKinds: projection.requestKinds,
+    secondaryLanguages: Object.keys(languageCounts)
+      .filter((language) => language !== primaryLanguage)
+      .sort(),
+    sourceFileFacts: projection.files.map((file) => ({
+      filePath:
+        file.repositoryRelativeRoot === '.'
+          ? file.relativePath
+          : `${file.repositoryRelativeRoot}/${file.relativePath}`,
+      language: file.language,
+      sizeBytes: file.byteLength,
+    })),
+    understandingGaps: [],
+  };
 }
 
 function emptyProjectContextResponse(projectRoot: string): PlanToolResponse {

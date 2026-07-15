@@ -41,6 +41,7 @@ import {
   type RecipeFreshnessPublicOutput,
   refreshCreatedRecipeFreshness,
 } from '#recipe-pipeline/sustain/RecipeFreshnessRuntime.js';
+import { readPluginCertifiedCarrierFromProjectContext } from '../../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { envelope } from '../envelope.js';
 import {
   type RecipeContentQualityGateResult,
@@ -249,7 +250,8 @@ export async function routeSubmitKnowledgeTool(ctx: McpContext, args: Record<str
     itemsResult.items,
     options,
     readBootstrapSubmissionSets(bootstrapSession),
-    resolveSubmitProducerCapability(bootstrapSession)
+    resolveSubmitProducerCapability(bootstrapSession),
+    bootstrapSession
   );
   trackSubmitKnowledgeResult(ctx, itemsResult.items, options.dimensionId, gatewayResult);
   const freshness = await refreshCreatedRecipeFreshness(ctx.container, gatewayResult.created);
@@ -353,9 +355,14 @@ async function createSubmitKnowledgeRecipes(
   items: Array<Record<string, unknown>>,
   options: SubmitKnowledgeOptions,
   existing: { existingTitles?: Set<string>; existingTriggers?: Set<string> },
-  capability: RecipeProducerCapability
+  capability: RecipeProducerCapability,
+  bootstrapSession: GenerateSession
 ): Promise<SubmitProductionResult> {
-  const gateway = await createSubmitKnowledgeGateway(ctx, dataRoot);
+  const gateway = await createSubmitKnowledgeGateway(
+    ctx,
+    dataRoot,
+    hasCertifiedProjectFacts(bootstrapSession)
+  );
   const result = await gateway.createOrStage(
     {
       items: items as CreateRecipeItem[],
@@ -419,7 +426,11 @@ function buildSubmitProductionDiagnostics(
   return { codeEvidence, readiness, retrievalProfiles };
 }
 
-async function createSubmitKnowledgeGateway(ctx: McpContext, dataRoot: string) {
+async function createSubmitKnowledgeGateway(
+  ctx: McpContext,
+  dataRoot: string,
+  strictCertifiedAxis: boolean
+) {
   const { RecipeProductionGateway } = await import('@alembic/core/knowledge');
   const { findSimilarRecipes } = await import('@alembic/core/service/candidate');
   type GatewayOptions = ConstructorParameters<typeof RecipeProductionGateway>[0];
@@ -427,7 +438,7 @@ async function createSubmitKnowledgeGateway(ctx: McpContext, dataRoot: string) {
   // 让 Core #deriveModuleName 按 canonical 轴校验显式 moduleName / 反查 sourceRefs 落点。
   // submit 是 async 路径，可安全 await moduleService；取不到模块轴时两个 dep 为 undefined，
   // Core 退回原 passthrough（加性、向后兼容）。
-  const moduleAxis = await resolveSubmitKnowledgeModuleAxis(ctx);
+  const moduleAxis = await resolveSubmitKnowledgeModuleAxis(ctx, strictCertifiedAxis);
   return new RecipeProductionGateway({
     knowledgeService: ctx.container.get('knowledgeService'),
     projectRoot: dataRoot,
@@ -455,7 +466,10 @@ async function createSubmitKnowledgeGateway(ctx: McpContext, dataRoot: string) {
  * U1 #5：解析 submit-knowledge 路径的 canonical 模块轴依赖。
  * best-effort：moduleService 不可取 / 未加载出模块 / 加载抛错 → 返回空，让 Core 退回 passthrough。
  */
-async function resolveSubmitKnowledgeModuleAxis(ctx: McpContext): Promise<{
+async function resolveSubmitKnowledgeModuleAxis(
+  ctx: McpContext,
+  strictCertifiedAxis = false
+): Promise<{
   knownModuleNames?: string[];
   resolveModuleFromSourceRefs?: (sourceRefs: string[]) => string | undefined;
 }> {
@@ -464,10 +478,16 @@ async function resolveSubmitKnowledgeModuleAxis(ctx: McpContext): Promise<{
       listCanonicalModules?: () => Promise<Array<{ id?: string; name: string; path?: string }>>;
     } | null;
     if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
+      if (strictCertifiedAxis) {
+        throw new TypeError('Certified submit requires the artifact-bound ModuleService axis.');
+      }
       return {};
     }
     const modules = await moduleService.listCanonicalModules();
     if (!Array.isArray(modules) || modules.length === 0) {
+      if (strictCertifiedAxis) {
+        throw new TypeError('Certified submit cannot use an empty canonical module axis.');
+      }
       return {};
     }
     return {
@@ -475,6 +495,9 @@ async function resolveSubmitKnowledgeModuleAxis(ctx: McpContext): Promise<{
       resolveModuleFromSourceRefs: buildResolveModuleFromSourceRefs(modules),
     };
   } catch (err: unknown) {
+    if (strictCertifiedAxis) {
+      throw err;
+    }
     const reason = err instanceof Error ? err.message : String(err);
     // ctx.logger 在 McpContext 上是 index-signature（unknown），做类型守卫再调用。
     const logger = ctx.logger;
@@ -490,6 +513,11 @@ async function resolveSubmitKnowledgeModuleAxis(ctx: McpContext): Promise<{
     }
     return {};
   }
+}
+
+function hasCertifiedProjectFacts(session: GenerateSession): boolean {
+  const snapshot = session?.toSnapshot?.();
+  return Boolean(snapshot && readPluginCertifiedCarrierFromProjectContext(snapshot.projectContext));
 }
 
 function optionalContainerService(ctx: McpContext, name: string): unknown {
