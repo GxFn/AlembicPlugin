@@ -17,7 +17,9 @@ describe('reachable public five-tool reader inventory', () => {
     for (const [tool, file] of Object.entries(routes)) {
       expect(embedded, tool).toContain(`name === '${tool}'`);
       const source = read(file);
-      expect(source, file).toMatch(/resolvePublicKnowledge(?:ReadRoute|Publication)/u);
+      expect(source, file).toMatch(
+        /(?:resolvePublicKnowledgeReadRoute|observePublicKnowledgePublication)/u
+      );
       expect(source, file).not.toMatch(/EventBus|StagingManager|afterPublish/u);
     }
     const ordinaryResolver = read('public-knowledge-read-route.ts');
@@ -29,6 +31,8 @@ describe('reachable public five-tool reader inventory', () => {
 
   test('keeps Graph live-source and Recipe-free while four knowledge tools share sealed snapshots', () => {
     const graph = read('read-only-graph-executor.ts');
+    expect(graph).toContain('observePublicKnowledgePublication');
+    expect(graph).not.toContain('resolvePublicKnowledgePublication');
     expect(graph).not.toMatch(/Database|createReadOnlySearchSnapshot|knowledgeService|Recipe/u);
     for (const file of [
       'read-only-search-executor.ts',

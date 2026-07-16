@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { type ProjectLocation, projectLocationService } from './ProjectLocationService.js';
 import {
+  observePublicKnowledgePublication,
   type ProjectRuntimePublicationProvenance,
-  resolvePublicKnowledgePublication,
 } from './StrictPublicKnowledgeResolver.js';
 
 const PROJECT_RUNTIME_CONTEXT_VERSION = 3;
@@ -72,7 +72,7 @@ export function buildProjectRuntimeContext(
     runtimeDir: location.runtimeDir,
     workspaceExists: facts.workspaceExists,
   };
-  const publication = resolvePublicKnowledgePublication(identity).provenance;
+  const publication = observePublicKnowledgePublication(identity).provenance;
   return {
     contractVersion: PROJECT_RUNTIME_CONTEXT_VERSION,
     identity,

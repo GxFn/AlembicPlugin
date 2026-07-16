@@ -455,10 +455,12 @@ describe('Recipe vector generation runtime', () => {
       ),
     ]);
     expect([...concurrentActivation].sort()).toEqual([false, true]);
+    const concurrentWinner = await runtime.router.readActive();
+    expect(['generation-2', 'generation-reset']).toContain(concurrentWinner?.generationId);
     expect(
       await runtime.router.activate(
         { generationId: 'generation-1', manifestHash: 'manifest-1' },
-        'generation-2'
+        concurrentWinner?.generationId ?? null
       )
     ).toBe(true);
     expect(

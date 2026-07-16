@@ -11,6 +11,8 @@ import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/Proje
 import { EmbeddedToolExecutor } from '../../lib/host-runtime/mcp/host/embedded-executor.js';
 
 const FIXTURE_ROOT = path.resolve('test/fixtures/strict-publication-v1/recipe-publications');
+const SNAPSHOT_ID = 'snapshot-23eb0db0c7f77684b3c604f5515a5951faa2193c8597172105946dbb20b1692d';
+const SNAPSHOT_PATH = `snapshots/${SNAPSHOT_ID}`;
 const roots: string[] = [];
 const previousHome = process.env.ALEMBIC_HOME;
 
@@ -128,7 +130,100 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
       await executor.dispose();
     }
   }, 30_000);
+
+  test.each([
+    [
+      'database is missing',
+      (publicationRoot: string) => {
+        fs.rmSync(path.join(publicationRoot, SNAPSHOT_PATH, 'data/.asd/alembic.db'));
+      },
+    ],
+    [
+      'Recipe is tampered',
+      (publicationRoot: string) => {
+        tamper(
+          path.join(
+            publicationRoot,
+            SNAPSHOT_PATH,
+            'data/Alembic/recipes/testing-quality/strict-expression-module-src-testing-quality.md'
+          )
+        );
+      },
+    ],
+    [
+      'vector store is missing',
+      (publicationRoot: string) => {
+        fs.rmSync(
+          path.join(
+            publicationRoot,
+            SNAPSHOT_PATH,
+            'data/.asd/context/recipe-vector-generations/75abdb099a96a552751e37e1-529c0223-fccc-41df-be50-20b6e25826b5/store/.asd/context/index/vector_index.json'
+          )
+        );
+      },
+    ],
+    [
+      'final coverage is tampered',
+      (publicationRoot: string) => {
+        tamper(path.join(publicationRoot, SNAPSHOT_PATH, 'final-coverage.json'));
+      },
+    ],
+  ])(
+    'keeps formal Graph live when pointed knowledge %s and fails four knowledge tools closed',
+    async (_label, mutatePublication) => {
+      const fixture = installFixture();
+      const publicationRoot = path.join(fixture.dataRoot, '.asd/context/recipe-publications');
+      mutatePublication(publicationRoot);
+      const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
+      const executor = new EmbeddedToolExecutor({
+        getSessionId: () => 'strict-graph-isolation-test',
+        hostProjectRoot: fixture.projectRoot,
+      });
+      try {
+        const graph = await executor.execute(
+          'alembic_graph',
+          {
+            queryKind: 'file-symbols',
+            filePath: 'src/index.ts',
+            budget: { itemLimit: 80 },
+          },
+          { projectRoot: fixture.projectRoot, projectRuntime: runtime }
+        );
+        expect(JSON.stringify(graph)).toContain('src/index.ts');
+        expect(JSON.stringify(graph)).not.toContain('Plugin-owned Codex tool execution failed');
+        const graphRecord = asRecord(graph);
+        const graphMeta = asRecord(graphRecord?._meta);
+        expect(asRecord(graphMeta?.alembicPublication)).toMatchObject({
+          mode: 'strict-v1',
+          routeState: 'ready',
+          sessionId: 'strict-integration-run',
+          snapshotId: SNAPSHOT_ID,
+        });
+
+        for (const [name, args] of [
+          ['alembic_search', { query: 'strict' }],
+          ['alembic_prime', { query: 'strict' }],
+          ['alembic_recipe_map', {}],
+          ['alembic_code_guard', { operation: 'check', code: 'const strict = true;' }],
+        ] as Array<[string, Record<string, unknown>]>) {
+          const result = await executor.execute(name, args, {
+            projectRoot: fixture.projectRoot,
+            projectRuntime: runtime,
+          });
+          expect(JSON.stringify(result), name).toContain('STRICT_PUBLICATION_');
+        }
+      } finally {
+        await executor.dispose();
+      }
+    },
+    30_000
+  );
 });
+
+function tamper(filePath: string): void {
+  fs.chmodSync(filePath, 0o600);
+  fs.appendFileSync(filePath, '\n ');
+}
 
 function installFixture(): { dataRoot: string; projectRoot: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'strict-five-tool-plugin-'));

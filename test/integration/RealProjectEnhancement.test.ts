@@ -60,7 +60,6 @@ const ENHANCEMENT_CASES = {
 
 // 不应匹配任何 Enhancement Pack 的项目
 const NO_ENHANCEMENT_CASES = {
-  Alamofire: { lang: 'swift', frameworks: [] },
   axum: { lang: 'rust', frameworks: [] },
   discourse: { lang: 'ruby', frameworks: [] },
 };
@@ -198,6 +197,20 @@ describe('Enhancement Pack Resolution — Positive', () => {
       });
     });
   }
+});
+
+// ── 仅按语言匹配的项目 ───────────────────────────────────────────
+describe('Enhancement Pack Resolution — Language Only', () => {
+  let registry;
+
+  beforeAll(async () => {
+    registry = await initEnhancementRegistry();
+  });
+
+  it('Alamofire (swift) should resolve the accepted Swift/iOS pack', () => {
+    const packs = registry.resolve('swift', []);
+    expect(packs.map((pack) => pack.id)).toEqual(['swift-ios']);
+  });
 });
 
 // ── 不应匹配的项目 ───────────────────────────────────────────────

@@ -69,6 +69,17 @@ export type PublicKnowledgePublicationResolution =
     }
   | StrictReadyPublicKnowledgePublication;
 
+export type PublicKnowledgePublicationObservation =
+  | {
+      provenance: ProjectRuntimePublicationProvenance;
+      state: 'legacy' | 'unavailable';
+    }
+  | {
+      provenance: ProjectRuntimePublicationProvenance;
+      route: PublicKnowledgeRouteV1;
+      state: 'ready';
+    };
+
 export interface StrictPublicationIdentityInput {
   dataRoot: string;
   projectId: string | null;
@@ -105,49 +116,15 @@ interface VectorItemRecord extends Record<string, unknown> {
 export function resolvePublicKnowledgePublication(
   identity: StrictPublicationIdentityInput
 ): PublicKnowledgePublicationResolution {
+  const observation = observePublicKnowledgePublication(identity);
+  if (observation.state !== 'ready') {
+    return observation;
+  }
+
   const dataRoot = path.resolve(requireText(identity.dataRoot, 'dataRoot'));
   const publicationRoot = path.join(dataRoot, STRICT_PUBLICATION_ROOT_RELATIVE_PATH);
-  const markerPath = path.join(publicationRoot, STRICT_PUBLICATION_MARKER_FILE);
-  if (!pathExists(markerPath)) {
-    return {
-      provenance: legacyProvenance(),
-      state: 'legacy',
-    };
-  }
-
-  assertNoSymlinkTraversal(dataRoot, markerPath);
-  const marker = readCanonicalJson<StrictPublicationMarkerV1>(
-    markerPath,
-    'STRICT_PUBLICATION_MARKER_INVALID',
-    true
-  );
-  verifyMarker(marker, identity);
-
-  const activePath = path.join(publicationRoot, STRICT_PUBLICATION_ACTIVE_FILE);
-  if (!pathExists(activePath)) {
-    return {
-      provenance: strictUnavailableProvenance(),
-      state: 'unavailable',
-    };
-  }
-  assertNoSymlinkTraversal(dataRoot, activePath);
-  const route = readCanonicalJson<PublicKnowledgeRouteV1>(
-    activePath,
-    'STRICT_PUBLICATION_ROUTE_INVALID',
-    false
-  );
-  let preparedRoute: PreparedPublicKnowledgeRouteV1;
-  try {
-    preparedRoute = preparePublicKnowledgeRouteV1(route);
-  } catch {
-    fail('STRICT_PUBLICATION_ROUTE_INVALID');
-  }
-  if (readFileSync(activePath, 'utf8') !== preparedRoute.canonicalBytes) {
-    fail('STRICT_PUBLICATION_ROUTE_BYTES_MISMATCH');
-  }
-  if (!SNAPSHOT_ID_PATTERN.test(route.snapshotId)) {
-    fail('STRICT_PUBLICATION_SNAPSHOT_ID_INVALID');
-  }
+  const route = observation.route;
+  const provenance = observation.provenance;
 
   const snapshotRoot = confinedChild(
     publicationRoot,
@@ -220,7 +197,6 @@ export function resolvePublicKnowledgePublication(
     fail('STRICT_PUBLICATION_DATABASE_MISSING');
   }
 
-  const provenance = readyProvenance(route);
   return {
     candidateDataManifest,
     dataFiles,
@@ -232,6 +208,60 @@ export function resolvePublicKnowledgePublication(
     snapshotRoot,
     state: 'ready',
     vector,
+  };
+}
+
+/** Observe only the fixed strict marker and canonical route; never open pointed knowledge. */
+export function observePublicKnowledgePublication(
+  identity: StrictPublicationIdentityInput
+): PublicKnowledgePublicationObservation {
+  const dataRoot = path.resolve(requireText(identity.dataRoot, 'dataRoot'));
+  const publicationRoot = path.join(dataRoot, STRICT_PUBLICATION_ROOT_RELATIVE_PATH);
+  const markerPath = path.join(publicationRoot, STRICT_PUBLICATION_MARKER_FILE);
+  if (!pathExists(markerPath)) {
+    return {
+      provenance: legacyProvenance(),
+      state: 'legacy',
+    };
+  }
+
+  assertNoSymlinkTraversal(dataRoot, markerPath);
+  const marker = readCanonicalJson<StrictPublicationMarkerV1>(
+    markerPath,
+    'STRICT_PUBLICATION_MARKER_INVALID',
+    true
+  );
+  verifyMarker(marker, identity);
+
+  const activePath = path.join(publicationRoot, STRICT_PUBLICATION_ACTIVE_FILE);
+  if (!pathExists(activePath)) {
+    return {
+      provenance: strictUnavailableProvenance(),
+      state: 'unavailable',
+    };
+  }
+  assertNoSymlinkTraversal(dataRoot, activePath);
+  const route = readCanonicalJson<PublicKnowledgeRouteV1>(
+    activePath,
+    'STRICT_PUBLICATION_ROUTE_INVALID',
+    false
+  );
+  let preparedRoute: PreparedPublicKnowledgeRouteV1;
+  try {
+    preparedRoute = preparePublicKnowledgeRouteV1(route);
+  } catch {
+    fail('STRICT_PUBLICATION_ROUTE_INVALID');
+  }
+  if (readFileSync(activePath, 'utf8') !== preparedRoute.canonicalBytes) {
+    fail('STRICT_PUBLICATION_ROUTE_BYTES_MISMATCH');
+  }
+  if (!SNAPSHOT_ID_PATTERN.test(route.snapshotId)) {
+    fail('STRICT_PUBLICATION_SNAPSHOT_ID_INVALID');
+  }
+  return {
+    provenance: readyProvenance(route),
+    route,
+    state: 'ready',
   };
 }
 

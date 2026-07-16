@@ -98,14 +98,20 @@ describe('strict public knowledge publication resolver', () => {
     ],
     ['lineage', `${snapshotPath()}/lineage.json`],
     ['G4 receipt', `${snapshotPath()}/g4-receipt.json`],
-  ])('fails closed when the accepted %s artifact is tampered', (_label, relativePath) => {
+  ])('fails closed when the accepted %s artifact is tampered', (label, relativePath) => {
     const fixture = installFixture();
     const target = path.join(fixture.dataRoot, '.asd/context/recipe-publications', relativePath);
     fs.chmodSync(target, 0o600);
     fs.appendFileSync(target, '\n ');
-    expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
-      /STRICT_PUBLICATION_/
-    );
+    if (label === 'marker' || label === 'route') {
+      expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
+        /STRICT_PUBLICATION_/
+      );
+      return;
+    }
+    const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
+    expect(runtime.publication).toMatchObject({ mode: 'strict-v1', routeState: 'ready' });
+    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(/STRICT_PUBLICATION_/);
   });
 
   test('allows legacy resolution only when the strict marker is absent', () => {
@@ -143,15 +149,20 @@ describe('strict public knowledge publication resolver', () => {
   test.each([
     ['cross generation', { vectorGenerationId: 'other-generation' }],
     ['traversal-shaped snapshot id', { snapshotId: '../private-candidate' }],
-  ])('rejects a canonical %s route', (_label, patch) => {
+  ])('rejects a canonical %s route', (label, patch) => {
     const fixture = installFixture();
     const routePath = path.join(fixture.dataRoot, '.asd/context/recipe-publications/active.json');
     const route = JSON.parse(fs.readFileSync(routePath, 'utf8')) as Record<string, unknown>;
     const prepared = preparePublicKnowledgeRouteV1({ ...route, ...patch } as never);
     fs.writeFileSync(routePath, prepared.canonicalBytes);
-    expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
-      /STRICT_PUBLICATION_/
-    );
+    if (label === 'traversal-shaped snapshot id') {
+      expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
+        /STRICT_PUBLICATION_/
+      );
+      return;
+    }
+    const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
+    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(/STRICT_PUBLICATION_/);
   });
 
   test('rejects a symlink anywhere inside the selected snapshot route', () => {
@@ -165,7 +176,8 @@ describe('strict public knowledge publication resolver', () => {
     fs.cpSync(snapshotRoot, detached, { recursive: true });
     fs.rmSync(snapshotRoot, { force: true, recursive: true });
     fs.symlinkSync(detached, snapshotRoot, 'dir');
-    expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
+    const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
+    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(
       'STRICT_PUBLICATION_SYMLINK_FORBIDDEN'
     );
   });
@@ -182,7 +194,8 @@ describe('strict public knowledge publication resolver', () => {
     fs.copyFileSync(manifestPath, detached);
     fs.rmSync(manifestPath);
     fs.symlinkSync(detached, manifestPath, 'file');
-    expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
+    const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
+    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(
       'STRICT_PUBLICATION_SERVING_MANIFEST_INVALID'
     );
   });
