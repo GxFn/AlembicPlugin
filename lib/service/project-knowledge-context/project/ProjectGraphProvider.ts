@@ -19,7 +19,10 @@ import type {
 } from '@alembic/core/project-context';
 import { EXTENSION_PARSER_LANGUAGE } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
-import { hashCanonicalJson } from '@alembic/core/project-context-foundation';
+import {
+  hashCanonicalJson,
+  type ProjectContextRequestOutcomeV1,
+} from '@alembic/core/project-context-foundation';
 import type {
   AlembicGraphOutput,
   AlembicGraphQueryKind,
@@ -37,6 +40,7 @@ import type {
   ProjectContextRefSummary,
   ProjectContextRegion,
   ProjectContextRegionRequest,
+  ProjectContextSuppressedObservationSummary,
   ProjectGraphInput,
   RegionFocus,
   RegionFocusKind,
@@ -95,6 +99,7 @@ export interface ProjectGraphProvider {
 export interface ProjectGraphExecutionOptions {
   buildSessions?: ProjectContextBuildSessionManager;
   certifiedEnvelopes?: ProjectContextEnvelope<ProjectContextResult>[];
+  certifiedRequestOutcomes?: ProjectContextRequestOutcomeV1[];
   certifiedProbe?: {
     artifactId: string;
     blockingReasons: string[];
@@ -129,6 +134,7 @@ interface GraphBuild {
 interface ProjectGraphProjectContextTrace {
   errorCount: number;
   suppressedErrorCount: number;
+  suppressedObservations: ProjectContextSuppressedObservationSummary;
   explicitFileTraversalFocused: boolean;
   fileFlowTargetCount: number;
   fileFlowTargetLimit: number;
@@ -141,6 +147,24 @@ interface ProjectGraphProjectContextTrace {
   repoCoverage: GraphRepoCoverage;
   requestKinds: ProjectContextRequestKind[];
 }
+
+type ProjectContextSuppressedObservationDisposition =
+  ProjectContextSuppressedObservationSummary['categories'][number]['disposition'];
+type ProjectContextSuppressedObservationSample =
+  ProjectContextSuppressedObservationSummary['categories'][number]['samples'][number];
+
+interface ProjectContextSuppressedObservationClassification {
+  code: string;
+  disposition: ProjectContextSuppressedObservationDisposition;
+  reason: string;
+}
+
+type ProjectContextSuppressionAuthorityClassification =
+  ProjectContextRequestOutcomeV1['errors'][number]['classification'];
+type ProjectContextSuppressionAuthority = Map<
+  string,
+  Set<ProjectContextSuppressionAuthorityClassification>
+>;
 
 const ALLOWED_NODE_TYPES = [
   'project',
@@ -311,7 +335,8 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
           signal,
           publish,
           options.certifiedProbe,
-          options.certifiedEnvelopes
+          options.certifiedEnvelopes,
+          options.certifiedRequestOutcomes
         ),
       chunks: graphBuildFactChunks,
     });
@@ -381,7 +406,8 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
         options.signal,
         undefined,
         options.certifiedProbe,
-        options.certifiedEnvelopes
+        options.certifiedEnvelopes,
+        options.certifiedRequestOutcomes
       );
     }
     const lease = await options.buildSessions.acquire({
@@ -395,7 +421,8 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
           signal,
           undefined,
           options.certifiedProbe,
-          options.certifiedEnvelopes
+          options.certifiedEnvelopes,
+          options.certifiedRequestOutcomes
         ),
       chunks: graphBuildFactChunks,
     });
@@ -416,7 +443,8 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     signal?: AbortSignal,
     publish?: (value: GraphBuild) => void,
     certifiedProbe?: ProjectGraphExecutionOptions['certifiedProbe'],
-    certifiedEnvelopes?: ProjectContextEnvelope<ProjectContextResult>[]
+    certifiedEnvelopes?: ProjectContextEnvelope<ProjectContextResult>[],
+    certifiedRequestOutcomes?: ProjectContextRequestOutcomeV1[]
   ): Promise<GraphBuild> {
     const projectContextFacts = await buildProjectContextGraphFacts(
       projectRoot,
@@ -424,6 +452,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
       signal,
       certifiedProbe?.repositories,
       certifiedEnvelopes,
+      certifiedRequestOutcomes,
       publish
         ? (facts, repoOutcomeId) =>
             publish(
@@ -460,6 +489,9 @@ function projectGraphBuildFromFacts(
   const projectedTrace: ProjectGraphProjectContextTrace = {
     ...projectContextFacts.trace,
     generatedArtifactSkipSamples: [...projectContextFacts.trace.generatedArtifactSkipSamples],
+    suppressedObservations: cloneProjectContextSuppressedObservationSummary(
+      projectContextFacts.trace.suppressedObservations
+    ),
     repoCoverage: {
       ...projectContextFacts.trace.repoCoverage,
       discoveredRepoIds: [...projectContextFacts.trace.repoCoverage.discoveredRepoIds],
@@ -719,6 +751,7 @@ function emptyGraphBuild(projectRoot: string): GraphBuild {
     projectContext: {
       errorCount: 0,
       suppressedErrorCount: 0,
+      suppressedObservations: emptyProjectContextSuppressedObservationSummary(),
       explicitFileTraversalFocused: false,
       fileFlowTargetCount: 0,
       fileFlowTargetLimit: 0,
@@ -754,6 +787,7 @@ async function buildProjectContextGraphFacts(
   signal?: AbortSignal,
   certifiedRepositories?: Array<{ repoId: string; relativeRoot: string }>,
   certifiedEnvelopes?: ProjectContextEnvelope<ProjectContextResult>[],
+  certifiedRequestOutcomes?: ProjectContextRequestOutcomeV1[],
   onProgress?: (facts: ProjectContextGraphFacts, repoOutcomeId: string) => void
 ): Promise<ProjectContextGraphFacts> {
   const facts: ProjectContextGraphFacts = {
@@ -772,6 +806,7 @@ async function buildProjectContextGraphFacts(
     trace: {
       errorCount: 0,
       suppressedErrorCount: 0,
+      suppressedObservations: emptyProjectContextSuppressedObservationSummary(),
       explicitFileTraversalFocused: isExplicitFileGraphTraversal(input),
       fileFlowTargetCount: 0,
       fileFlowTargetLimit: graphFileFlowTargetLimit(input),
@@ -796,6 +831,7 @@ async function buildProjectContextGraphFacts(
         certifiedEnvelopes,
         certifiedRepositories,
         input,
+        certifiedRequestOutcomes,
         onProgress
       );
     } else {
@@ -862,15 +898,23 @@ function collectCertifiedGraphEnvelopes(
   envelopes: readonly ProjectContextEnvelope<ProjectContextResult>[],
   repositories: readonly { repoId: string; relativeRoot: string }[],
   input: ProjectGraphInput,
+  certifiedRequestOutcomes?: readonly ProjectContextRequestOutcomeV1[],
   onProgress?: (facts: ProjectContextGraphFacts, repoOutcomeId: string) => void
 ): void {
+  const suppressionAuthority = buildProjectContextSuppressionAuthority(certifiedRequestOutcomes);
   const expectedRepoIds = repositories.map(({ repoId }) => repoId);
   const expectedRepoIdSet = new Set(expectedRepoIds);
   const repoEnvelopes = new Map<string, ProjectContextEnvelope<ProjectContextResult>>();
   for (const envelope of envelopes) {
     if (isSpaceContext(envelope.data)) {
       if (!facts.projectName) {
-        collectGraphEnvelope(facts, envelope, 'project-context-certified-space', input);
+        collectGraphEnvelope(
+          facts,
+          envelope,
+          'project-context-certified-space',
+          input,
+          suppressionAuthority
+        );
         facts.projectName = envelope.data.space.displayName;
       }
       continue;
@@ -899,17 +943,35 @@ function collectCertifiedGraphEnvelopes(
       continue;
     }
     if (isModuleContext(envelope.data)) {
-      collectGraphEnvelope(facts, envelope, 'project-context-certified-module', input);
+      collectGraphEnvelope(
+        facts,
+        envelope,
+        'project-context-certified-module',
+        input,
+        suppressionAuthority
+      );
       facts.modules.push(envelope.data);
       continue;
     }
     if (isModuleLayerContext(envelope.data)) {
-      collectGraphEnvelope(facts, envelope, 'project-context-certified-module-layers', input);
+      collectGraphEnvelope(
+        facts,
+        envelope,
+        'project-context-certified-module-layers',
+        input,
+        suppressionAuthority
+      );
       facts.moduleLayers.push(envelope.data);
       continue;
     }
     if (isProjectMapContext(envelope.data)) {
-      collectGraphEnvelope(facts, envelope, 'project-context-certified-map', input);
+      collectGraphEnvelope(
+        facts,
+        envelope,
+        'project-context-certified-map',
+        input,
+        suppressionAuthority
+      );
       facts.trace.mapRequestCount += 1;
       facts.maps.push(envelope.data);
     }
@@ -921,7 +983,13 @@ function collectCertifiedGraphEnvelopes(
   for (const repoId of expectedRepoIds) {
     const envelope = repoEnvelopes.get(repoId);
     if (envelope && isRepoContext(envelope.data)) {
-      collectGraphEnvelope(facts, envelope, 'project-context-certified-repo', input);
+      collectGraphEnvelope(
+        facts,
+        envelope,
+        'project-context-certified-repo',
+        input,
+        suppressionAuthority
+      );
       facts.repos.push(envelope.data);
       succeededRepoIds.push(repoId);
     } else {
@@ -1301,6 +1369,9 @@ function takeProjectContextGraphFactsDelta(
     trace: {
       ...facts.trace,
       generatedArtifactSkipSamples: [...facts.trace.generatedArtifactSkipSamples],
+      suppressedObservations: cloneProjectContextSuppressedObservationSummary(
+        facts.trace.suppressedObservations
+      ),
       repoCoverage: {
         ...facts.trace.repoCoverage,
         discoveredRepoIds: [...facts.trace.repoCoverage.discoveredRepoIds],
@@ -1927,11 +1998,12 @@ function collectGraphEnvelope(
   facts: ProjectContextGraphFacts,
   envelope: ProjectContextEnvelope<ProjectContextResult>,
   operation: string,
-  input: ProjectGraphInput
+  input: ProjectGraphInput,
+  suppressionAuthority?: ProjectContextSuppressionAuthority
 ) {
   const refs = envelope.refs.filter((ref) => includeProjectContextRef(ref, input, facts.trace));
   const errors = (envelope.errors ?? []).filter((error) =>
-    includeProjectContextError(error, input, facts)
+    includeProjectContextError(error, envelope.queryLevel, input, facts, suppressionAuthority)
   );
   facts.trace.requestKinds.push(envelope.queryLevel);
   facts.trace.errorCount += errors.length;
@@ -1958,14 +2030,26 @@ function includeProjectContextRef(
 
 function includeProjectContextError(
   error: ProjectContextQueryError,
+  requestKind: ProjectContextRequestKind,
   input: ProjectGraphInput,
-  facts: ProjectContextGraphFacts
+  facts: ProjectContextGraphFacts,
+  suppressionAuthority?: ProjectContextSuppressionAuthority
 ): boolean {
   if (!includeGeneratedArtifactPath(error.path, input, facts.trace)) {
     return false;
   }
   if (shouldSuppressDefaultProjectContextError(error, input)) {
-    facts.trace.suppressedErrorCount += 1;
+    recordProjectContextSuppressedObservation(
+      facts.trace,
+      classifyProjectContextSuppressedObservation(error, requestKind, input, suppressionAuthority),
+      {
+        errorCode: error.code,
+        messageHash: hashCanonicalJson(error.message),
+        ...(error.path ? { path: normalizeRelativePath(error.path) } : {}),
+        requestKind,
+        severity: error.severity,
+      }
+    );
     return false;
   }
   return true;
@@ -3452,6 +3536,217 @@ function shouldSuppressDefaultProjectContextError(
   // anchor are not useful graph failures; focused file requests still surface
   // the underlying ProjectContext error unchanged.
   return message.includes('file-flow') || message.includes('file-symbols');
+}
+
+function emptyProjectContextSuppressedObservationSummary(): ProjectContextSuppressedObservationSummary {
+  return {
+    kind: 'ProjectContextSuppressedObservationSummary',
+    version: 1,
+    observedCount: 0,
+    nonBlockingCount: 0,
+    blockingCount: 0,
+    unclassifiedCount: 0,
+    conserved: true,
+    categories: [],
+  };
+}
+
+function cloneProjectContextSuppressedObservationSummary(
+  summary: ProjectContextSuppressedObservationSummary
+): ProjectContextSuppressedObservationSummary {
+  return {
+    ...summary,
+    categories: summary.categories.map((category) => ({
+      ...category,
+      samples: category.samples.map((sample) => ({ ...sample })),
+    })),
+  };
+}
+
+function buildProjectContextSuppressionAuthority(
+  outcomes?: readonly ProjectContextRequestOutcomeV1[]
+): ProjectContextSuppressionAuthority {
+  const authority: ProjectContextSuppressionAuthority = new Map();
+  for (const outcome of outcomes ?? []) {
+    for (const diagnostic of outcome.errors) {
+      const identity = projectContextSuppressionAuthorityIdentity(outcome.kind, diagnostic);
+      const classifications = authority.get(identity) ?? new Set();
+      classifications.add(diagnostic.classification);
+      authority.set(identity, classifications);
+    }
+  }
+  return authority;
+}
+
+function projectContextSuppressionAuthorityIdentity(
+  requestKind: ProjectContextRequestKind,
+  error: { code: string; message: string; path?: string; retryable: boolean }
+): string {
+  return hashCanonicalJson({
+    code: error.code,
+    message: error.message,
+    path: normalizeRelativePath(error.path ?? ''),
+    requestKind,
+    retryable: error.retryable,
+  });
+}
+
+function classifyProjectContextSuppressedObservation(
+  error: ProjectContextQueryError,
+  requestKind: ProjectContextRequestKind,
+  input: ProjectGraphInput,
+  authority?: ProjectContextSuppressionAuthority
+): ProjectContextSuppressedObservationClassification {
+  if (error.severity === 'error') {
+    return {
+      code: 'required-project-context-error',
+      disposition: 'required',
+      reason: 'ProjectContext marked the suppressed observation as a required error.',
+    };
+  }
+  const classifications = authority?.get(
+    projectContextSuppressionAuthorityIdentity(requestKind, error)
+  );
+  if (classifications?.size === 1) {
+    const [classification] = classifications;
+    if (classification === 'confirmed-defect') {
+      return {
+        code: 'foundation-confirmed-defect',
+        disposition: 'confirmed-defect',
+        reason: 'The loaded Foundation request outcome classified this observation as a defect.',
+      };
+    }
+    if (classification === 'expected-external') {
+      return {
+        code: 'foundation-expected-external',
+        disposition: 'expected',
+        reason: 'The loaded Foundation request outcome proved this external observation expected.',
+      };
+    }
+    if (classification === 'advisory') {
+      return {
+        code: 'foundation-advisory',
+        disposition: 'expected',
+        reason: 'The loaded Foundation request outcome classified this warning as advisory.',
+      };
+    }
+  }
+  if (classifications && classifications.size > 1) {
+    return {
+      code: 'ambiguous-foundation-classification',
+      disposition: 'unclassified',
+      reason: 'Loaded Foundation rows disagree on the observation classification.',
+    };
+  }
+
+  const message = error.message.toLowerCase();
+  const errorPath = normalizeRelativePath(error.path ?? '');
+  if (
+    error.code === 'query-unavailable' &&
+    error.severity === 'warning' &&
+    !isExplicitFileGraphTraversal(input) &&
+    !['file-flow', 'file-symbols', 'source-slice', 'anchor-range'].includes(requestKind) &&
+    errorPath &&
+    isUnsupportedBroadSourceParserError(message, errorPath)
+  ) {
+    return {
+      code: 'unsupported-broad-source-parser',
+      disposition: 'not-applicable',
+      reason: 'The broad request observed a file type outside the supported flow parser surface.',
+    };
+  }
+  if (
+    requestKind === 'map' &&
+    error.code === 'query-unavailable' &&
+    error.severity === 'warning' &&
+    !errorPath &&
+    message.startsWith('map external dependency is not owned by module seeds:')
+  ) {
+    return {
+      code: 'map-external-dependency-unowned',
+      disposition: 'expected',
+      reason: 'The map request typed the dependency as external to the loaded module seed scope.',
+    };
+  }
+  if (
+    requestKind === 'module-layers' &&
+    error.code === 'query-unavailable' &&
+    error.severity === 'warning' &&
+    !errorPath &&
+    message === 'module-layers local layer direction is cyclic or uncertain.'
+  ) {
+    return {
+      code: 'module-layer-direction-advisory',
+      disposition: 'expected',
+      reason: 'The module-layer request retained an uncertain local direction as an advisory.',
+    };
+  }
+  if (
+    isExplicitFileGraphTraversal(input) &&
+    error.severity === 'warning' &&
+    isBroadRepoScanLimitDiagnostic(message)
+  ) {
+    return {
+      code: 'focused-query-broad-scan-limit',
+      disposition: 'not-applicable',
+      reason: 'The focused request does not require the unrelated broad repository scan remainder.',
+    };
+  }
+  return {
+    code: 'unclassified-suppressed-observation',
+    disposition: 'unclassified',
+    reason: 'No loaded authority or structural applicability proof classified this observation.',
+  };
+}
+
+function recordProjectContextSuppressedObservation(
+  trace: ProjectGraphProjectContextTrace,
+  classification: ProjectContextSuppressedObservationClassification,
+  sample: ProjectContextSuppressedObservationSample,
+  count = 1
+): void {
+  if (!Number.isInteger(count) || count <= 0) {
+    throw new TypeError('Suppressed ProjectContext observation count must be a positive integer.');
+  }
+  const summary = trace.suppressedObservations;
+  let category = summary.categories.find(
+    (candidate) =>
+      candidate.code === classification.code &&
+      candidate.disposition === classification.disposition &&
+      candidate.reason === classification.reason
+  );
+  if (!category) {
+    category = { ...classification, count: 0, samples: [] };
+    summary.categories.push(category);
+  }
+  category.count += count;
+  const sampleIdentity = hashCanonicalJson(sample);
+  if (
+    category.samples.length < 3 &&
+    !category.samples.some((candidate) => hashCanonicalJson(candidate) === sampleIdentity)
+  ) {
+    category.samples.push(sample);
+  }
+  summary.observedCount += count;
+  if (['expected', 'not-applicable'].includes(classification.disposition)) {
+    summary.nonBlockingCount += count;
+  } else {
+    summary.blockingCount += count;
+  }
+  if (classification.disposition === 'unclassified') {
+    summary.unclassifiedCount += count;
+  }
+  summary.categories.sort(
+    (left, right) =>
+      left.code.localeCompare(right.code) ||
+      left.disposition.localeCompare(right.disposition) ||
+      left.reason.localeCompare(right.reason)
+  );
+  trace.suppressedErrorCount = summary.observedCount;
+  summary.conserved =
+    summary.observedCount === summary.nonBlockingCount + summary.blockingCount &&
+    summary.observedCount ===
+      summary.categories.reduce((total, candidate) => total + candidate.count, 0);
 }
 
 function isUnsupportedBroadSourceParserError(message: string, errorPath: string): boolean {
@@ -5167,22 +5462,75 @@ function projectFocusedStrongIdentifierBuild(
     return build;
   }
   const identifiers = strongGraphQueryIdentifiers(input.query);
-  const diagnostics = build.diagnostics.filter(
-    (diagnostic) => !isWeakFocusedGraphDiagnostic(diagnostic, identifiers)
+  const suppressedDiagnostics = build.diagnostics.filter((diagnostic) =>
+    isWeakFocusedGraphDiagnostic(diagnostic, identifiers)
   );
-  const suppressedCount = build.diagnostics.length - diagnostics.length;
+  const diagnostics = build.diagnostics.filter(
+    (diagnostic) => !suppressedDiagnostics.includes(diagnostic)
+  );
   const allVisibleErrorsSuppressed = build.diagnostics.length > 0 && diagnostics.length === 0;
   const errorCount = allVisibleErrorsSuppressed ? 0 : build.projectContext.errorCount;
+  const projectContext = {
+    ...build.projectContext,
+    suppressedObservations: cloneProjectContextSuppressedObservationSummary(
+      build.projectContext.suppressedObservations
+    ),
+  };
+  for (const diagnostic of suppressedDiagnostics) {
+    const moduleLayerAdvisory =
+      diagnostic.code === 'project-context-query-unavailable' &&
+      diagnostic.message.toLowerCase() ===
+        'module-layers local layer direction is cyclic or uncertain.';
+    recordProjectContextSuppressedObservation(
+      projectContext,
+      moduleLayerAdvisory
+        ? {
+            code: 'module-layer-direction-advisory',
+            disposition: 'expected',
+            reason:
+              'The module-layer request retained an uncertain local direction as an advisory.',
+          }
+        : {
+            code: 'unclassified-focused-diagnostic',
+            disposition: 'unclassified',
+            reason:
+              'A focused projection suppressed a diagnostic without its original typed authority.',
+          },
+      {
+        errorCode: diagnostic.code,
+        messageHash: hashCanonicalJson(diagnostic.message),
+        requestKind: queryKind,
+        severity: diagnostic.severity === 'error' ? 'error' : 'warning',
+      }
+    );
+  }
+  const missingSuppressedCount = allVisibleErrorsSuppressed
+    ? Math.max(0, build.projectContext.errorCount - suppressedDiagnostics.length)
+    : 0;
+  if (missingSuppressedCount > 0) {
+    recordProjectContextSuppressedObservation(
+      projectContext,
+      {
+        code: 'unclassified-focused-diagnostic-count',
+        disposition: 'unclassified',
+        reason: 'Suppressed focused error cardinality exceeded the reviewable diagnostic rows.',
+      },
+      {
+        errorCode: 'project-context-diagnostic-count',
+        messageHash: hashCanonicalJson({ errorCount: build.projectContext.errorCount }),
+        requestKind: queryKind,
+        severity: 'error',
+      },
+      missingSuppressedCount
+    );
+  }
   return {
     ...build,
     diagnostics,
     projectContext: {
-      ...build.projectContext,
+      ...projectContext,
       errorCount,
       partial: errorCount > 0 || build.projectContext.repoCoverage.completeness !== 'complete',
-      suppressedErrorCount:
-        build.projectContext.suppressedErrorCount +
-        (allVisibleErrorsSuppressed ? build.projectContext.errorCount : suppressedCount),
     },
   };
 }
@@ -5233,6 +5581,9 @@ function graphProjectContextMeta(trace: ProjectGraphProjectContextTrace) {
     refCount: trace.refCount,
     errorCount: trace.errorCount,
     suppressedErrorCount: trace.suppressedErrorCount,
+    suppressedObservations: cloneProjectContextSuppressedObservationSummary(
+      trace.suppressedObservations
+    ),
     partial: trace.partial,
   };
 }
@@ -5317,7 +5668,10 @@ function resultSignalGraphDiagnostics(selection: GraphSelection): GraphDiagnosti
 function deriveGraphStatus(build: GraphBuild, selection: GraphSelection): AlembicGraphStatus {
   const result = selection.result;
   // ProjectContext 已报告执行错误时，不能被同一请求的 partial/no-match 标志遮蔽。
-  if (build.projectContext.errorCount > 0) {
+  if (
+    build.projectContext.errorCount > 0 ||
+    build.projectContext.suppressedObservations.blockingCount > 0
+  ) {
     return 'degraded';
   }
   const partial =
@@ -5350,6 +5704,16 @@ function buildProjectContextLiveProbeReceipt(input: {
     .sort();
   const blockingReasons = [
     ...(input.status === 'ready' ? [] : [`graph-status:${input.status}`]),
+    ...(input.build.projectContext.suppressedObservations.blockingCount === 0
+      ? []
+      : [
+          `suppressed-observation-blocking:${input.build.projectContext.suppressedObservations.blockingCount}`,
+        ]),
+    ...(input.build.projectContext.suppressedObservations.unclassifiedCount === 0
+      ? []
+      : [
+          `suppressed-observation-unclassified:${input.build.projectContext.suppressedObservations.unclassifiedCount}`,
+        ]),
     ...(input.build.projectContext.repoCoverage.completeness === 'complete'
       ? []
       : [`repo-coverage:${input.build.projectContext.repoCoverage.completeness}`]),
@@ -5373,6 +5737,7 @@ function buildProjectContextLiveProbeReceipt(input: {
     repositories: discoveredRepoIds,
     slices: input.slices,
     status: input.status,
+    suppressedObservations: input.build.projectContext.suppressedObservations,
   };
   return {
     kind: 'ProjectContextLiveProbeReceipt' as const,
@@ -5406,6 +5771,9 @@ function buildProjectContextLiveProbeReceipt(input: {
     comparedArtifactId: input.build.certifiedProbe?.artifactId ?? null,
     certifiedSourceVectorHash: input.build.certifiedProbe?.certifiedSourceVectorHash ?? null,
     comparisonStatus: input.build.certifiedProbe?.comparisonStatus ?? ('unavailable' as const),
+    suppressedObservations: cloneProjectContextSuppressedObservationSummary(
+      input.build.projectContext.suppressedObservations
+    ),
     blockingReasons,
   };
 }
@@ -5528,6 +5896,7 @@ function failedAlembicGraphOutput(
         refCount: 0,
         errorCount: 1,
         suppressedErrorCount: 0,
+        suppressedObservations: emptyProjectContextSuppressedObservationSummary(),
         partial: true,
       },
       sourceOfTruth: false,

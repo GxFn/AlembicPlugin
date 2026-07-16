@@ -194,12 +194,100 @@ export const AlembicGraphLimitsSchema = z
   })
   .strict();
 
+export const ProjectContextSuppressedObservationDispositionSchema = z.enum([
+  'expected',
+  'not-applicable',
+  'required',
+  'confirmed-defect',
+  'unclassified',
+]);
+
+export const ProjectContextSuppressedObservationSummarySchema = z
+  .object({
+    kind: z.literal('ProjectContextSuppressedObservationSummary'),
+    version: z.literal(1),
+    observedCount: z.number().int().nonnegative(),
+    nonBlockingCount: z.number().int().nonnegative(),
+    blockingCount: z.number().int().nonnegative(),
+    unclassifiedCount: z.number().int().nonnegative(),
+    conserved: z.boolean(),
+    categories: z
+      .array(
+        z
+          .object({
+            code: z.string().min(1).max(120),
+            disposition: ProjectContextSuppressedObservationDispositionSchema,
+            reason: z.string().min(1).max(240),
+            count: z.number().int().positive(),
+            samples: z
+              .array(
+                z
+                  .object({
+                    requestKind: AlembicGraphQueryKindSchema,
+                    errorCode: z.string().min(1).max(80),
+                    severity: z.enum(['error', 'warning']),
+                    messageHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+                    path: z.string().min(1).max(2000).optional(),
+                  })
+                  .strict()
+              )
+              .max(3),
+          })
+          .strict()
+      )
+      .max(40),
+  })
+  .strict()
+  .superRefine((summary, ctx) => {
+    if (!isProjectContextSuppressedObservationSummaryConserved(summary)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Suppressed ProjectContext observation accounting is not conserved.',
+      });
+    }
+  });
+export type ProjectContextSuppressedObservationSummary = z.infer<
+  typeof ProjectContextSuppressedObservationSummarySchema
+>;
+
+export function isProjectContextSuppressedObservationSummaryConserved(
+  summary: Pick<
+    ProjectContextSuppressedObservationSummary,
+    | 'observedCount'
+    | 'nonBlockingCount'
+    | 'blockingCount'
+    | 'unclassifiedCount'
+    | 'conserved'
+    | 'categories'
+  >
+): boolean {
+  const categoryTotal = summary.categories.reduce((total, category) => total + category.count, 0);
+  const nonBlockingTotal = summary.categories
+    .filter((category) => ['expected', 'not-applicable'].includes(category.disposition))
+    .reduce((total, category) => total + category.count, 0);
+  const blockingTotal = summary.categories
+    .filter((category) => !['expected', 'not-applicable'].includes(category.disposition))
+    .reduce((total, category) => total + category.count, 0);
+  const unclassifiedTotal = summary.categories
+    .filter((category) => category.disposition === 'unclassified')
+    .reduce((total, category) => total + category.count, 0);
+  return (
+    summary.conserved &&
+    categoryTotal === summary.observedCount &&
+    summary.nonBlockingCount + summary.blockingCount === summary.observedCount &&
+    nonBlockingTotal === summary.nonBlockingCount &&
+    blockingTotal === summary.blockingCount &&
+    unclassifiedTotal === summary.unclassifiedCount
+  );
+}
+
 export const AlembicGraphProjectContextMetaSchema = z
   .object({
     requestKinds: z.array(AlembicGraphQueryKindSchema).max(20),
     refCount: z.number().int().nonnegative(),
     errorCount: z.number().int().nonnegative(),
     suppressedErrorCount: z.number().int().nonnegative(),
+    suppressedObservations: ProjectContextSuppressedObservationSummarySchema,
     partial: z.boolean(),
     factSessionRef: z.string().min(1).max(240).optional(),
     factFingerprint: z.string().length(64).optional(),
@@ -220,11 +308,21 @@ export const AlembicGraphProjectContextMetaSchema = z
           .regex(/^sha256:[a-f0-9]{64}$/)
           .nullable(),
         comparisonStatus: z.enum(['matched', 'mismatched', 'unavailable']),
+        suppressedObservations: ProjectContextSuppressedObservationSummarySchema,
         blockingReasons: z.array(z.string().min(1).max(240)).max(40),
       })
       .strict(),
   })
-  .strict();
+  .strict()
+  .superRefine((meta, ctx) => {
+    if (meta.suppressedErrorCount !== meta.suppressedObservations.observedCount) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Legacy suppressed error count must equal the typed observation total.',
+        path: ['suppressedErrorCount'],
+      });
+    }
+  });
 
 export const AlembicGraphProjectSchema = z
   .object({

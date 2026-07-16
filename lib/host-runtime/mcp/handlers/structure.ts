@@ -319,6 +319,7 @@ export async function resolveCertifiedGraphExecutionOptions(
   return {
     ...options,
     certifiedEnvelopes: projection.envelopes,
+    certifiedRequestOutcomes: opened.artifact.facts.requestOutcomes,
     certifiedProbe,
   };
 }

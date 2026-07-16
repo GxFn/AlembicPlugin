@@ -37,7 +37,10 @@ import { runHostAgentColdStartWorkflow } from '../lib/recipe-pipeline/generate/c
 import { runHostAgentDimensionCompletionWorkflow } from '../lib/recipe-pipeline/generate/dimension-completion.js';
 import { createReadOnlyRecipeMapRepositories } from '../lib/repository/recipe-map/ReadOnlyRecipeMapServices.js';
 import { ModuleService } from '../lib/service/module/ModuleService.js';
-import type { AlembicGraphOutput } from '../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
+import {
+  type AlembicGraphOutput,
+  isProjectContextSuppressedObservationSummaryConserved,
+} from '../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
 import type { AlembicRecipeMapOutput } from '../lib/service/project-knowledge-context/contracts/AlembicRecipeMapOutput.js';
 import { ProjectContextBuildSessionManager } from '../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { resolveScopeAwareWorkspace } from '../lib/shared/project-scope-runtime.js';
@@ -81,7 +84,7 @@ interface IncompleteScenarioProbe {
 
 type ScenarioProbe = CompletedScenarioProbe | IncompleteScenarioProbe;
 
-const TASK_ID = 'i2-2-alembic-plugin-pcf-graph-map-rootcause2-t1';
+const TASK_ID = 'i2-2-alembic-plugin-pcf-graph-map-rootcause3-t1';
 
 if (isMainThread) {
   await main();
@@ -134,6 +137,18 @@ async function main(): Promise<void> {
       scenarios: [mr5, sp],
     };
     const bothCompleted = completed.length === 2;
+    const graphSuppressedObservationTruthReady =
+      bothCompleted &&
+      completed.every((scenario) => {
+        const summary = scenario.graph.projectContextMeta?.suppressedObservations;
+        return Boolean(
+          summary &&
+            isProjectContextSuppressedObservationSummaryConserved(summary) &&
+            scenario.graph.projectContextMeta?.suppressedErrorCount === summary.observedCount &&
+            summary.blockingCount === 0 &&
+            summary.unclassifiedCount === 0
+        );
+      });
     const audit = {
       schemaVersion: 1,
       reportType: 'ProjectContextCapabilityAuditReport.Plugin',
@@ -147,6 +162,7 @@ async function main(): Promise<void> {
             (scenario) =>
               scenario.graph.status === 'ready' &&
               scenario.graph.errorDiagnosticCount === 0 &&
+              graphSuppressedObservationTruthReady &&
               scenario.map.status === 'ready' &&
               scenario.map.errorDiagnosticCount === 0
           ),
@@ -156,6 +172,7 @@ async function main(): Promise<void> {
         graphIdentityDuplicatesZero:
           bothCompleted &&
           completed.every((scenario) => scenario.graph.duplicateIdentityCount === 0),
+        graphSuppressedObservationsConserved: graphSuppressedObservationTruthReady,
         publicGraphTerminalReceiptsPresent:
           bothCompleted &&
           completed.every(
@@ -1089,6 +1106,7 @@ function receiptSummary(
     phase: receipt.phase,
     verdict: receipt.verdict,
     comparisonStatus: receipt.comparisonStatus,
+    suppressedObservations: receipt.suppressedObservations,
     canonicalScopeHash: receipt.canonicalScopeHash,
     observedSourceVectorHash: receipt.observedSourceVectorHash,
     certifiedSourceVectorHash: receipt.certifiedSourceVectorHash,

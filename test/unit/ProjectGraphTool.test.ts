@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { ProjectContextQueryError } from '@alembic/core/project-context';
+import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import {
   createProjectDescriptor,
   createProjectScopeRegistryDocument,
@@ -10,7 +12,11 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
-import { ALEMBIC_GRAPH_QUERY_KINDS } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
+import {
+  ALEMBIC_GRAPH_QUERY_KINDS,
+  isProjectContextSuppressedObservationSummaryConserved,
+  type ProjectContextSuppressedObservationSummary,
+} from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
 import {
   defaultProjectGraphProvider,
   executeWithProjectContextRepoDeadline,
@@ -115,6 +121,47 @@ async function runGraph(projectRoot: string, args: Record<string, unknown>): Pro
   // Visible MCP text must be the summary only.
   expect(result.content).toEqual([{ type: 'text', text: result.structuredContent.summary }]);
   return result.structuredContent;
+}
+
+async function runCertifiedGraphWithSuppressedObservation(
+  projectRoot: string,
+  error: ProjectContextQueryError
+): Promise<GraphOutput> {
+  const repoEnvelope = await ProjectContextCapabilities.execute({
+    kind: 'repo',
+    payload: {
+      includeCommands: true,
+      includeEntrypoints: true,
+      includeMapSummary: false,
+      includeTopAreas: true,
+      maxFiles: 100,
+      repoName: 'fixture-project',
+      repoRoot: '.',
+    },
+    project: { projectRoot, source: 'project-graph-terminal-truth-test' },
+    scope: { projectRoot, repoId: 'fixture-project', sourceFolder: '.' },
+  });
+  return defaultProjectGraphProvider.resolveAlembicGraph(
+    { projectRoot, queryKind: 'space', budget: { itemLimit: 100, relationHopLimit: 10 } },
+    {
+      certifiedEnvelopes: [
+        {
+          ...repoEnvelope,
+          errors: [...(repoEnvelope.errors ?? []), error],
+        },
+      ],
+      certifiedProbe: {
+        artifactId: 'cpf-v1:project-graph-terminal-truth-test',
+        blockingReasons: [],
+        canonicalScopeHash: `sha256:${'a'.repeat(64)}`,
+        certifiedSourceVectorHash: `sha256:${'b'.repeat(64)}`,
+        comparisonStatus: 'matched',
+        observedSourceVectorHash: `sha256:${'b'.repeat(64)}`,
+        receiptHash: `sha256:${'c'.repeat(64)}`,
+        repositories: [{ repoId: 'fixture-project', relativeRoot: '.' }],
+      },
+    }
+  );
 }
 
 describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', () => {
@@ -681,6 +728,101 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       repoIdentityHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       moduleIdentityHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
     });
+  });
+
+  test('blocks a required parser defect even when the broad Graph projection suppresses its diagnostic', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runCertifiedGraphWithSuppressedObservation(projectRoot, {
+      code: 'query-unavailable',
+      message: 'file-flow parser is unavailable for language markdown',
+      path: 'docs/required-design.md',
+      retryable: false,
+      severity: 'error',
+    });
+    const projectContext = output.meta.projectContext as Record<string, unknown>;
+
+    expect(projectContext.suppressedObservations).toMatchObject({
+      kind: 'ProjectContextSuppressedObservationSummary',
+      version: 1,
+      observedCount: 1,
+      nonBlockingCount: 0,
+      blockingCount: 1,
+      unclassifiedCount: 0,
+      conserved: true,
+      categories: [
+        expect.objectContaining({
+          code: 'required-project-context-error',
+          disposition: 'required',
+          count: 1,
+        }),
+      ],
+    });
+    expect(output.status).toBe('degraded');
+    expect(projectContext.liveProbeReceipt).toMatchObject({
+      verdict: 'blocked',
+      blockingReasons: expect.arrayContaining(['suppressed-observation-blocking:1']),
+    });
+  });
+
+  test('keeps a structurally unsupported broad-source warning typed and non-blocking', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runCertifiedGraphWithSuppressedObservation(projectRoot, {
+      code: 'query-unavailable',
+      message: 'file-symbols parser is unavailable for language markdown',
+      path: 'docs/advisory-design.md',
+      retryable: false,
+      severity: 'warning',
+    });
+    const projectContext = output.meta.projectContext as Record<string, unknown>;
+
+    expect(projectContext.suppressedObservations).toMatchObject({
+      kind: 'ProjectContextSuppressedObservationSummary',
+      version: 1,
+      observedCount: 1,
+      nonBlockingCount: 1,
+      blockingCount: 0,
+      unclassifiedCount: 0,
+      conserved: true,
+      categories: [
+        expect.objectContaining({
+          code: 'unsupported-broad-source-parser',
+          disposition: 'not-applicable',
+          count: 1,
+        }),
+      ],
+    });
+    expect(output.status).toBe('ready');
+    expect(projectContext.liveProbeReceipt).toMatchObject({
+      verdict: 'passed',
+      blockingReasons: [],
+    });
+  });
+
+  test('rejects count mutation or a missing category at the audit conservation gate', async () => {
+    const projectRoot = createFixtureProject();
+    const output = await runCertifiedGraphWithSuppressedObservation(projectRoot, {
+      code: 'query-unavailable',
+      message: 'file-symbols parser is unavailable for language markdown',
+      path: 'docs/advisory-design.md',
+      retryable: false,
+      severity: 'warning',
+    });
+    const summary = (output.meta.projectContext as Record<string, unknown>)
+      .suppressedObservations as ProjectContextSuppressedObservationSummary;
+
+    expect(isProjectContextSuppressedObservationSummaryConserved(summary)).toBe(true);
+    expect(
+      isProjectContextSuppressedObservationSummaryConserved({
+        ...summary,
+        observedCount: summary.observedCount + 1,
+      })
+    ).toBe(false);
+    expect(
+      isProjectContextSuppressedObservationSummaryConserved({
+        ...summary,
+        categories: [],
+      })
+    ).toBe(false);
   });
 
   test('discovers a single-root project plus every initialized Git submodule as repo coverage', async () => {
