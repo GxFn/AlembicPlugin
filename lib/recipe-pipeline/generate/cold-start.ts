@@ -62,7 +62,7 @@ import type { GenerateInput } from '#shared/schemas/mcp-tools.js';
 interface McpContext {
   container: ServiceContainer;
   logger: WorkflowLogger;
-  projectRuntime?: { identity: { dataRoot: string } } | null;
+  projectRuntime?: { identity: { dataRoot: string; projectRoot?: string } } | null;
   startedAt?: number;
   [key: string]: unknown;
 }
@@ -192,15 +192,21 @@ async function runPlanGatedColdStart(
     projectRoot: input.projectRoot,
     dataRoot: input.dataRoot,
   });
-  const cleanupResult = await runColdStartCleanup(ctx, input, plan);
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
-    certifiedSession: { container: ctx.container, dataRoot: input.dataRoot },
+    certifiedSession: {
+      container: ctx.container,
+      dataRoot: input.dataRoot,
+      strict: Boolean(ctx.projectRuntime?.identity.projectRoot),
+    },
     maxFiles: plan.projectAnalysis.scan.maxFiles,
     moduleScope: input.planGate.moduleScope,
     projectRoot: plan.projectAnalysis.projectRoot,
     source: 'codex-host-bootstrap',
     sourceFolders: plan.projectAnalysis.scan.sourceFolders,
   });
+  // Reopen and validate strict Foundation facts before reset or any other
+  // cold-start side effect. Missing/stale lineage therefore fails closed.
+  const cleanupResult = await runColdStartCleanup(ctx, input, plan);
   if (projectContextAnalysis.isEmpty) {
     const response = attachPlanGenerationGateData(
       presentHostAgentColdStartEmptyProject({

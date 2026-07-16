@@ -667,7 +667,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(
       Number((output.meta.projectContext as { suppressedErrorCount?: number }).suppressedErrorCount)
     ).toBeGreaterThan(0);
-    expect(output.status).toBe('degraded');
+    expect(output.status).toBe('ready');
     const truthReceipt = (
       output.meta.projectContext as {
         liveProbeReceipt?: Record<string, unknown>;

@@ -930,6 +930,20 @@ function fingerprintProjectFacts(
   hashCache: Map<string, { hash: string; signature: string }>,
   signal?: AbortSignal
 ): string {
+  if (
+    scope.certifiedLiveProbeMatched === true &&
+    typeof scope.certifiedArtifactId === 'string' &&
+    scope.certifiedArtifactId.length > 0 &&
+    typeof scope.certifiedSourceVectorHash === 'string' &&
+    scope.certifiedSourceVectorHash.length > 0
+  ) {
+    // The handler has just recomputed and matched the complete live source
+    // vector before constructing this scope. The build and every continuation
+    // page project an immutable certified artifact, so rescanning the broad
+    // workspace for each page is both unrelated to the accepted root+N scope
+    // and can dominate the public terminal latency.
+    return digest(`certified\0${scope.certifiedArtifactId}\0${scope.certifiedSourceVectorHash}`);
+  }
   const records: string[] = [];
   const explicitPath = resolveExplicitFactPath(projectRoot, scope.filePath);
   const addFact = (absolutePath: string) =>

@@ -27,7 +27,10 @@ import {
 } from '@alembic/core/service/planFacts';
 import {
   openPluginCertifiedProjection,
+  PLUGIN_CERTIFIED_ENTRYPOINTS,
+  persistPluginCertifiedCarrier,
   readPluginCertifiedCarrierFromProjectContext,
+  reopenPluginCertifiedConsumer,
 } from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 
 interface BuildHostAgentProjectContextAnalysisInput {
@@ -42,6 +45,7 @@ interface BuildHostAgentProjectContextAnalysisInput {
   certifiedSession?: {
     container: HostAgentSessionContainer;
     dataRoot: string;
+    strict?: boolean;
   };
 }
 
@@ -390,12 +394,31 @@ async function tryBuildCertifiedHostAgentProjectContextAnalysis(
     ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
     : null;
   if (!carrier) {
+    if (input.certifiedSession.strict) {
+      throw new TypeError(
+        'Loaded strict generation requires the Plan-created certified carrier before analysis.'
+      );
+    }
     return null;
   }
-  const projection = await openPluginCertifiedProjection({
-    carrier,
-    dataRoot: input.certifiedSession.dataRoot,
-  });
+  const projection = carrier.receipts['recipe-generation']
+    ? await openPluginCertifiedProjection({
+        carrier,
+        dataRoot: input.certifiedSession.dataRoot,
+      })
+    : (
+        await reopenPluginCertifiedConsumer({
+          carrier,
+          consumer: 'recipe-generation',
+          dataRoot: input.certifiedSession.dataRoot,
+          entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS['recipe-generation'],
+          runId: `${session?.id ?? 'generation'}-recipe-generation`,
+        })
+      ).projection;
+  if (!session) {
+    throw new TypeError('Certified generation carrier is detached from its HostAgent session.');
+  }
+  persistPluginCertifiedCarrier({ carrier, projectRoot: input.projectRoot, session });
   const presenterInput = buildProjectContextPresenterInput(projection.envelopes);
   const languageCounts = projection.files.reduce<Record<string, number>>((counts, file) => {
     counts[file.language] = (counts[file.language] ?? 0) + 1;

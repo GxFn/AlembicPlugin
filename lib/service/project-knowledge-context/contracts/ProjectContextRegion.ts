@@ -113,6 +113,7 @@ export type RegionRadius = z.infer<typeof RegionRadiusSchema>;
 export const ProjectContextRegionRequestSchema = z
   .object({
     focus: RegionFocusSchema,
+    nodeLimit: z.number().int().min(1).max(5000).optional(),
     projectRoot: z.string().min(1).max(2000).optional(),
     radius: RegionRadiusSchema.optional(),
   })

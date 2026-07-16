@@ -94,7 +94,7 @@ interface McpContext {
     info(msg: string, meta?: Record<string, unknown>): void;
     warn(msg: string, meta?: Record<string, unknown>): void;
   };
-  projectRuntime?: { identity: { dataRoot: string } } | null;
+  projectRuntime?: { identity: { dataRoot: string; projectRoot?: string } } | null;
   startedAt?: number;
   [key: string]: unknown;
 }
@@ -256,7 +256,11 @@ async function prepareRescanState(
   }
 
   const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
-    certifiedSession: { container: ctx.container, dataRoot },
+    certifiedSession: {
+      container: ctx.container,
+      dataRoot,
+      strict: Boolean(ctx.projectRuntime?.identity.projectRoot),
+    },
     maxFiles: plan.projectAnalysis.scan.maxFiles,
     moduleScope: planGate.moduleScope,
     projectRoot: projectContextScope.analysisProjectRoot,

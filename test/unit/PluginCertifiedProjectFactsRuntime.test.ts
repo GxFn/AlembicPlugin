@@ -23,19 +23,19 @@ describe('PluginCertifiedProjectFactsRuntime', () => {
 
     expect(projection.modules).toHaveLength(30);
     expect(projection.files).toHaveLength(30);
-    expect(projection.modules.at(-1)?.id).toBe('module:29');
+    expect(projection.modules.at(-1)?.id).toBe('repo-root::module:29');
     expect(projection.files.every((file) => file.byteLength > 0 && file.blobHash.length > 0)).toBe(
       true
     );
   });
 
-  test('requires all four upstream receipts and rejects a stale binding', () => {
+  test('allows incremental receipt persistence and rejects any stale present binding', () => {
     const carrier = fixtureCarrier();
     expect(() => assertPluginCertifiedCarrier(carrier)).not.toThrow();
 
     const missing = structuredClone(carrier);
     delete missing.receipts.plan;
-    expect(() => assertPluginCertifiedCarrier(missing)).toThrow(/missing plan receipt/);
+    expect(() => assertPluginCertifiedCarrier(missing)).not.toThrow();
 
     const stale = structuredClone(carrier);
     stale.sourceVectorHash = hashCanonicalJson({ stale: true });
@@ -54,6 +54,19 @@ describe('PluginCertifiedProjectFactsRuntime', () => {
         synthesizedProjectScopeFactCount: 0,
       },
       dimensionCompletionReceipt: fixtureReceipt('dimension-completion'),
+      instrumentation: [
+        {
+          consumer: 'dimension-completion',
+          entrypoint: 'lib/recipe-pipeline/generate/dimension-completion.js',
+          kind: 'consumer-reopen',
+          receiptHash: fixtureReceipt('dimension-completion').receiptHash,
+        },
+        {
+          emittedModuleCount: 30,
+          expectedOwnerModuleCount: 30,
+          kind: 'module-projection',
+        },
+      ],
       knowledgeRescanApplicability: 'applicable',
       moduleAxisHash: hashCanonicalJson({ modules: 30 }),
     };
@@ -129,6 +142,8 @@ function fixtureCarrier(): PluginCertifiedCarrier {
     canonicalScopeHash: HASH,
     certificationBindingHash: HASH,
     factsContentHash: HASH,
+    preparationId: 'prep-v1:00000000-0000-4000-8000-000000000001',
+    preparationReceiptHash: HASH,
     receipts: Object.fromEntries(
       ['plan', 'recipe-generation', 'dependency-graph', 'module-coverage'].map((consumer) => [
         consumer,

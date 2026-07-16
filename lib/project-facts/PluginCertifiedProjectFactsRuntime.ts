@@ -8,6 +8,7 @@ import {
   buildSourceRevisionVectorV1,
   type CertifiedProjectFactsArtifactV1,
   CertifiedProjectFactsConsumerPort,
+  type CertifiedProjectFactsPreparationReceiptV1,
   FileCertifiedProjectFactsStore,
   hashBytes,
   hashCanonicalJson,
@@ -17,6 +18,7 @@ import {
 } from '@alembic/core/project-context-foundation';
 
 const PLUGIN_ADAPTER_VERSION = 'alembic-plugin-pcf-adapters-v1';
+export const PLUGIN_CERTIFIED_MODE = 'strict-v1' as const;
 const DIMENSION_COMPLETION_ENTRYPOINT = 'lib/recipe-pipeline/generate/dimension-completion.js';
 const REQUIRED_UPSTREAM_CONSUMERS = [
   'plan',
@@ -24,6 +26,20 @@ const REQUIRED_UPSTREAM_CONSUMERS = [
   'dependency-graph',
   'module-coverage',
 ] as const;
+const PLUGIN_CERTIFIED_CONSUMERS = [
+  ...REQUIRED_UPSTREAM_CONSUMERS,
+  'dimension-completion',
+] as const;
+
+export const PLUGIN_CERTIFIED_ENTRYPOINTS = {
+  plan: 'lib/recipe-pipeline/plan/plan-tool.js',
+  'recipe-generation': 'lib/recipe-pipeline/generate/project-context-analysis.js',
+  'dependency-graph': 'lib/host-runtime/mcp/handlers/structure.js',
+  'module-coverage': 'lib/service/module/ModuleService.js',
+  'dimension-completion': DIMENSION_COMPLETION_ENTRYPOINT,
+} as const;
+
+export type PluginCertifiedConsumer = (typeof PLUGIN_CERTIFIED_CONSUMERS)[number];
 
 export interface PluginCertifiedModule {
   id: string;
@@ -45,7 +61,7 @@ export interface PluginCertifiedFile {
 export interface PluginCertifiedProjection {
   artifactId: string;
   canonicalScopeHash: string;
-  consumer: 'plugin-read' | 'dimension-completion';
+  consumer: 'plugin-read' | PluginCertifiedConsumer;
   envelopes: ProjectContextEnvelope<ProjectContextResult>[];
   files: PluginCertifiedFile[];
   modules: PluginCertifiedModule[];
@@ -65,9 +81,28 @@ export interface PluginCertifiedExtension {
   version: 1;
   counters: PluginStrictCounters;
   dimensionCompletionReceipt?: ProjectContextConsumerProjectionReceiptV2;
+  instrumentation: PluginStrictInstrumentationEvent[];
   knowledgeRescanApplicability: 'applicable';
   moduleAxisHash?: string;
 }
+
+export type PluginStrictInstrumentationEvent =
+  | {
+      consumer: PluginCertifiedConsumer;
+      entrypoint: string;
+      kind: 'consumer-reopen';
+      receiptHash: string;
+    }
+  | {
+      emittedModuleCount: number;
+      expectedOwnerModuleCount: number;
+      kind: 'module-projection';
+    }
+  | {
+      counter: keyof PluginStrictCounters;
+      entrypoint: string;
+      kind: 'strict-bypass';
+    };
 
 export interface PluginCertifiedCarrier {
   artifactId: string;
@@ -75,7 +110,9 @@ export interface PluginCertifiedCarrier {
   canonicalScopeHash: string;
   certificationBindingHash: string;
   factsContentHash: string;
-  receipts: Record<string, ProjectContextConsumerProjectionReceiptV2 | undefined>;
+  preparationId: `prep-v1:${string}`;
+  preparationReceiptHash: string;
+  receipts: Partial<Record<PluginCertifiedConsumer, ProjectContextConsumerProjectionReceiptV2>>;
   sourceVectorHash: string;
   plugin?: PluginCertifiedExtension;
   [key: string]: unknown;
@@ -95,11 +132,48 @@ export interface PluginCertifiedLiveProbe {
   certifiedSourceVectorHash: string;
   comparisonStatus: 'matched' | 'mismatched';
   observedSourceVectorHash: string;
+  receiptHash: string;
   repositories: Array<{ repoId: string; relativeRoot: string }>;
 }
 
 export function pluginCertifiedStoreRoot(dataRoot: string): string {
   return path.join(dataRoot, 'context', 'certified-project-facts', 'v2');
+}
+
+export function createPluginCertifiedCarrier(
+  artifact: CertifiedProjectFactsArtifactV1,
+  preparation: CertifiedProjectFactsPreparationReceiptV1
+): PluginCertifiedCarrier {
+  const scope = artifact.manifest.projectScopeManifest;
+  if (!scope) {
+    throw new TypeError('Plugin Foundation capture is missing its ProjectScope manifest.');
+  }
+  if (
+    preparation.artifactId !== artifact.artifactId ||
+    preparation.certificationBindingHash !== artifact.certificationBindingHash
+  ) {
+    throw new TypeError('Plugin Foundation preparation is stale for the captured artifact.');
+  }
+  const instrumentation: PluginStrictInstrumentationEvent[] = [];
+  const carrier: PluginCertifiedCarrier = {
+    artifactId: artifact.artifactId,
+    baseReadbackUnchanged: true,
+    canonicalScopeHash: scope.canonicalScopeHash,
+    certificationBindingHash: artifact.certificationBindingHash,
+    factsContentHash: artifact.factsContentHash,
+    preparationId: preparation.preparationId,
+    preparationReceiptHash: preparation.receiptHash,
+    plugin: {
+      version: 1,
+      counters: summarizePluginStrictInstrumentation(instrumentation),
+      instrumentation,
+      knowledgeRescanApplicability: 'applicable',
+    },
+    receipts: {},
+    sourceVectorHash: artifact.sourceVectorHash,
+  };
+  assertPluginCertifiedCarrier(carrier);
+  return carrier;
 }
 
 export function readPluginCertifiedCarrierFromProjectContext(
@@ -132,20 +206,24 @@ export function assertPluginCertifiedCarrier(
     carrier.factsContentHash,
     carrier.certificationBindingHash,
     carrier.canonicalScopeHash,
+    carrier.preparationId,
+    carrier.preparationReceiptHash,
   ]) {
     if (typeof identity !== 'string' || !identity) {
       throw new TypeError('Certified project facts carrier has a partial binding.');
     }
   }
+  if (!/^prep-v1:[0-9a-f-]{36}$/i.test(carrier.preparationId)) {
+    throw new TypeError('Certified project facts carrier has an invalid preparation binding.');
+  }
   if (!carrier.receipts || typeof carrier.receipts !== 'object') {
     throw new TypeError('Certified project facts carrier receipt ledger is missing.');
   }
-  for (const consumer of REQUIRED_UPSTREAM_CONSUMERS) {
+  for (const consumer of PLUGIN_CERTIFIED_CONSUMERS) {
     const receipt = carrier.receipts[consumer];
-    if (!receipt) {
-      throw new TypeError(`Certified project facts carrier is missing ${consumer} receipt.`);
+    if (receipt) {
+      assertReceiptBinding(carrier, receipt, consumer);
     }
-    assertReceiptBinding(carrier, receipt, consumer);
   }
   if (carrier.plugin) {
     assertPluginExtension(carrier, carrier.plugin);
@@ -156,6 +234,16 @@ export async function openPluginCertifiedProjection(input: {
   carrier: PluginCertifiedCarrier;
   dataRoot: string;
 }): Promise<PluginCertifiedProjection> {
+  return (await openPluginCertifiedFacts(input)).projection;
+}
+
+export async function openPluginCertifiedFacts(input: {
+  carrier: PluginCertifiedCarrier;
+  dataRoot: string;
+}): Promise<{
+  artifact: CertifiedProjectFactsArtifactV1;
+  projection: PluginCertifiedProjection;
+}> {
   assertPluginCertifiedCarrier(input.carrier);
   const artifact = await new FileCertifiedProjectFactsStore(
     pluginCertifiedStoreRoot(input.dataRoot)
@@ -163,18 +251,22 @@ export async function openPluginCertifiedProjection(input: {
   assertArtifactBinding(input.carrier, artifact);
   const projection = projectPluginCertifiedFacts(artifact, 'plugin-read');
   assertFullModuleAxis(projection);
-  return projection;
+  return { artifact, projection };
 }
 
 export async function observePluginCertifiedLiveProbe(input: {
+  artifact?: CertifiedProjectFactsArtifactV1;
   carrier: PluginCertifiedCarrier;
   controlRoot: string;
   dataRoot: string;
 }): Promise<PluginCertifiedLiveProbe> {
   assertPluginCertifiedCarrier(input.carrier);
-  const artifact = await new FileCertifiedProjectFactsStore(
-    pluginCertifiedStoreRoot(input.dataRoot)
-  ).open(input.carrier.artifactId as never, input.carrier.certificationBindingHash as never);
+  const artifact =
+    input.artifact ??
+    (await new FileCertifiedProjectFactsStore(pluginCertifiedStoreRoot(input.dataRoot)).open(
+      input.carrier.artifactId as never,
+      input.carrier.certificationBindingHash as never
+    ));
   assertArtifactBinding(input.carrier, artifact);
   const scope = artifact.manifest.projectScopeManifest;
   if (!scope) {
@@ -186,73 +278,100 @@ export async function observePluginCertifiedLiveProbe(input: {
       sourceRoot: path.resolve(input.controlRoot, repository.relativeRoot),
     })),
   });
-  const entries = [];
-  const blockingReasons: string[] = [];
-  for (const repository of scope.repositories) {
-    const sourceRoot = path.resolve(input.controlRoot, repository.relativeRoot);
-    const runtimeRepository = { ...repository, sourceRoot };
-    const [observation, descriptors] = await Promise.all([
-      ports.observeRevision({ repository: runtimeRepository }),
-      ports.enumerateEligibleFiles({
-        repository: runtimeRepository,
-        policy: artifact.facts.inventory.includeExcludePolicy,
-      }),
-    ]);
-    const files = [];
-    for (const descriptor of descriptors) {
-      const content = await ports.readFile({
-        repository: runtimeRepository,
-        relativePath: descriptor.relativePath,
+  const rows = await Promise.all(
+    scope.repositories.map(async (repository) => {
+      const sourceRoot = path.resolve(input.controlRoot, repository.relativeRoot);
+      const runtimeRepository = { ...repository, sourceRoot };
+      const [observation, descriptors] = await Promise.all([
+        ports.observeRevision({ repository: runtimeRepository }),
+        ports.enumerateEligibleFiles({
+          repository: runtimeRepository,
+          policy: artifact.facts.inventory.includeExcludePolicy,
+        }),
+      ]);
+      const files = await mapWithConcurrency(descriptors, 32, async (descriptor) => {
+        const content = await ports.readFile({
+          repository: runtimeRepository,
+          relativePath: descriptor.relativePath,
+        });
+        return {
+          repoId: repository.repoId,
+          relativePath: descriptor.relativePath,
+          language: descriptor.language.trim() || 'unknown',
+          mode: descriptor.mode,
+          sizeBytes: content.byteLength,
+          blobSha256: hashBytes(content),
+          ownerModuleIds: [...(descriptor.ownerModuleIds ?? [])].sort(),
+          ...(descriptor.ownersV2 ? { ownersV2: structuredClone(descriptor.ownersV2) } : {}),
+        };
       });
-      files.push({
+      const eligibleInventoryHash = hashCanonicalJson(files);
+      const workingTreeContentHash = hashCanonicalJson(
+        files.map((file) => [file.relativePath, file.mode, file.blobSha256])
+      );
+      const expected = artifact.manifest.sourceRevisionVector.entries.find(
+        (candidate) => candidate.repoId === repository.repoId
+      );
+      const expectedRevision = expected?.revision;
+      const revision =
+        observation.kind === 'git' &&
+        observation.dirty === false &&
+        expectedRevision?.kind === 'git-dirty' &&
+        expectedRevision.commitId === observation.commitId &&
+        expectedRevision.treeId === observation.treeId &&
+        expectedRevision.workingTreeContentHash === workingTreeContentHash
+          ? // Core promotes a clean Git observation to content-bound dirty when
+            // eligible ignored files are outside the declared Git tree. A live
+            // probe must preserve that revision protocol instead of collapsing
+            // the same bytes back to git-clean and reporting false drift.
+            structuredClone(expectedRevision)
+          : observation.kind === 'git' && observation.dirty === false
+            ? {
+                kind: 'git-clean' as const,
+                commitId: observation.commitId ?? '',
+                treeId: observation.treeId ?? '',
+              }
+            : observation.kind === 'git'
+              ? {
+                  kind: 'git-dirty' as const,
+                  commitId: observation.commitId,
+                  treeId: observation.treeId,
+                  workingTreeContentHash,
+                }
+              : { kind: 'content' as const, workingTreeContentHash };
+      const entry = {
+        scopeId: repository.scopeId,
         repoId: repository.repoId,
-        relativePath: descriptor.relativePath,
-        language: descriptor.language.trim() || 'unknown',
-        mode: descriptor.mode,
-        sizeBytes: content.byteLength,
-        blobSha256: hashBytes(content),
-        ownerModuleIds: [...(descriptor.ownerModuleIds ?? [])].sort(),
-        ...(descriptor.ownersV2 ? { ownersV2: structuredClone(descriptor.ownersV2) } : {}),
-      });
-    }
-    const eligibleInventoryHash = hashCanonicalJson(files);
-    const workingTreeContentHash = hashCanonicalJson(
-      files.map((file) => [file.relativePath, file.mode, file.blobSha256])
-    );
-    const expected = artifact.manifest.sourceRevisionVector.entries.find(
-      (entry) => entry.repoId === repository.repoId
-    );
-    const revision =
-      observation.kind === 'git' && observation.dirty === false
-        ? {
-            kind: 'git-clean' as const,
-            commitId: observation.commitId ?? '',
-            treeId: observation.treeId ?? '',
-          }
-        : observation.kind === 'git'
-          ? {
-              kind: 'git-dirty' as const,
-              commitId: observation.commitId,
-              treeId: observation.treeId,
-              workingTreeContentHash,
-            }
-          : { kind: 'content' as const, workingTreeContentHash };
-    entries.push({
-      scopeId: repository.scopeId,
-      repoId: repository.repoId,
-      relativeRoot: repository.relativeRoot,
-      revision,
-      eligibleInventoryHash,
-      includeExcludePolicyHash: artifact.facts.inventory.includeExcludePolicyHash,
-    });
-    if (!expected || hashCanonicalJson(expected) !== hashCanonicalJson(entries.at(-1))) {
-      blockingReasons.push(`repository-drift:${repository.repoId}`);
-    }
-  }
+        relativeRoot: repository.relativeRoot,
+        revision,
+        eligibleInventoryHash,
+        includeExcludePolicyHash: artifact.facts.inventory.includeExcludePolicyHash,
+      };
+      return {
+        blockingReasons:
+          expected && hashCanonicalJson(expected) === hashCanonicalJson(entry)
+            ? []
+            : [`repository-drift:${repository.repoId}`],
+        entry,
+      };
+    })
+  );
+  const entries = rows.map(({ entry }) => entry);
+  const blockingReasons = rows.flatMap(({ blockingReasons: reasons }) => reasons);
   const observed = buildSourceRevisionVectorV1(entries);
   if (observed.sourceVectorHash !== artifact.sourceVectorHash) {
     blockingReasons.push('source-vector-mismatch');
   }
+  const repositories = scope.repositories.map(({ repoId, relativeRoot }) => ({
+    repoId,
+    relativeRoot,
+  }));
+  const receiptHash = hashCanonicalJson({
+    artifactId: artifact.artifactId,
+    canonicalScopeHash: scope.canonicalScopeHash,
+    observedSourceVectorHash: observed.sourceVectorHash,
+    repositories,
+  });
   return {
     artifactId: artifact.artifactId,
     blockingReasons: [...new Set(blockingReasons)].sort(),
@@ -261,7 +380,8 @@ export async function observePluginCertifiedLiveProbe(input: {
     comparisonStatus:
       observed.sourceVectorHash === artifact.sourceVectorHash ? 'matched' : 'mismatched',
     observedSourceVectorHash: observed.sourceVectorHash,
-    repositories: scope.repositories.map(({ repoId, relativeRoot }) => ({ repoId, relativeRoot })),
+    receiptHash,
+    repositories,
   };
 }
 
@@ -270,55 +390,115 @@ export async function emitPluginDimensionCompletionReceipt(input: {
   dataRoot: string;
   runId: string;
 }): Promise<PluginCertifiedProjection> {
+  for (const consumer of REQUIRED_UPSTREAM_CONSUMERS) {
+    if (!input.carrier.receipts[consumer]) {
+      throw new TypeError(
+        `Dimension completion requires the persisted ${consumer} projection receipt.`
+      );
+    }
+  }
+  return (
+    await reopenPluginCertifiedConsumer({
+      carrier: input.carrier,
+      consumer: 'dimension-completion',
+      dataRoot: input.dataRoot,
+      entrypoint: DIMENSION_COMPLETION_ENTRYPOINT,
+      runId: input.runId,
+    })
+  ).projection;
+}
+
+export async function reopenPluginCertifiedConsumer(input: {
+  carrier: PluginCertifiedCarrier;
+  consumer: PluginCertifiedConsumer;
+  dataRoot: string;
+  entrypoint: string;
+  runId: string;
+}): Promise<{
+  artifact: CertifiedProjectFactsArtifactV1;
+  projection: PluginCertifiedProjection;
+  receipt: ProjectContextConsumerProjectionReceiptV2;
+}> {
   assertPluginCertifiedCarrier(input.carrier);
+  if (input.entrypoint !== PLUGIN_CERTIFIED_ENTRYPOINTS[input.consumer]) {
+    throw new TypeError(
+      `Certified ${input.consumer} adapter must reopen at its actual Plugin entrypoint.`
+    );
+  }
   const store = new FileCertifiedProjectFactsStore(pluginCertifiedStoreRoot(input.dataRoot));
-  const artifact = await store.open(
-    input.carrier.artifactId as never,
-    input.carrier.certificationBindingHash as never
-  );
-  assertArtifactBinding(input.carrier, artifact);
-  const preparation = await store.createPreparation(
-    artifact.artifactId,
-    artifact.certificationBindingHash
-  );
+  const preparationId = input.carrier.preparationId;
+  const runId = lineageRunId(input.carrier);
+  const invocationId = opaqueRunId(input.runId);
+  let reopenedArtifact: CertifiedProjectFactsArtifactV1 | undefined;
   const projected = await new CertifiedProjectFactsConsumerPort(store).reopenWithAdapter({
     adapter: {
       adapterVersion: PLUGIN_ADAPTER_VERSION,
-      entrypoint: DIMENSION_COMPLETION_ENTRYPOINT,
+      entrypoint: input.entrypoint,
       loadEvidenceHash: hashCanonicalJson({
         adapterVersion: PLUGIN_ADAPTER_VERSION,
-        entrypoint: DIMENSION_COMPLETION_ENTRYPOINT,
+        consumer: input.consumer,
+        entrypoint: input.entrypoint,
+        invocationId,
         loaded: true,
       }),
-      payloadSchemaHash: hashCanonicalJson({ consumer: 'dimension-completion', version: 1 }),
-      project: (sealed) =>
-        projectPluginCertifiedFacts(
-          sealed as CertifiedProjectFactsArtifactV1,
-          'dimension-completion'
-        ),
+      payloadSchemaHash: hashCanonicalJson({ consumer: input.consumer, version: 1 }),
+      project: (sealed) => {
+        const artifact = sealed as CertifiedProjectFactsArtifactV1;
+        reopenedArtifact = artifact;
+        return projectPluginCertifiedFacts(artifact, input.consumer);
+      },
     },
-    consumer: 'dimension-completion',
-    expectedCertificationBindingHash: artifact.certificationBindingHash,
-    preparationId: preparation.preparationId,
-    runId: opaqueRunId(input.runId),
+    consumer: input.consumer,
+    expectedCertificationBindingHash: input.carrier.certificationBindingHash as never,
+    preparationId,
+    runId,
   });
+  if (!reopenedArtifact) {
+    throw new TypeError(`Certified ${input.consumer} adapter did not receive the sealed artifact.`);
+  }
+  const artifact = reopenedArtifact;
+  assertArtifactBinding(input.carrier, artifact);
   const projection = projected.payload as unknown as PluginCertifiedProjection;
   assertFullModuleAxis(projection);
-  assertReceiptBinding(input.carrier, projected.receipt, 'dimension-completion');
+  assertReceiptBinding(input.carrier, projected.receipt, input.consumer);
   await store.completeRunLease({
     expectedCertificationBindingHash: artifact.certificationBindingHash,
-    preparationId: preparation.preparationId,
-    runId: opaqueRunId(input.runId),
+    preparationId,
+    runId,
   });
-  input.carrier.plugin = {
-    version: 1,
-    counters: zeroPluginStrictCounters(),
-    dimensionCompletionReceipt: projected.receipt,
-    knowledgeRescanApplicability: 'applicable',
-    moduleAxisHash: hashCanonicalJson(projection.modules),
+  input.carrier.receipts[input.consumer] = projected.receipt;
+  const extension = input.carrier.plugin ?? {
+    version: 1 as const,
+    counters: summarizePluginStrictInstrumentation([]),
+    instrumentation: [],
+    knowledgeRescanApplicability: 'applicable' as const,
   };
+  extension.instrumentation = extension.instrumentation.filter(
+    (event) =>
+      !(event.kind === 'consumer-reopen' && event.consumer === input.consumer) &&
+      event.kind !== 'module-projection'
+  );
+  extension.instrumentation.push(
+    {
+      consumer: input.consumer,
+      entrypoint: input.entrypoint,
+      kind: 'consumer-reopen',
+      receiptHash: projected.receipt.receiptHash,
+    },
+    {
+      emittedModuleCount: projection.modules.length,
+      expectedOwnerModuleCount: expectedOwnerModuleCount(projection.files),
+      kind: 'module-projection',
+    }
+  );
+  extension.counters = summarizePluginStrictInstrumentation(extension.instrumentation);
+  extension.moduleAxisHash = hashCanonicalJson(projection.modules);
+  if (input.consumer === 'dimension-completion') {
+    extension.dimensionCompletionReceipt = projected.receipt;
+  }
+  input.carrier.plugin = extension;
   assertPluginCertifiedCarrier(input.carrier);
-  return projection;
+  return { artifact, projection, receipt: projected.receipt };
 }
 
 export function persistPluginCertifiedCarrier(input: {
@@ -359,7 +539,9 @@ export function samePluginCertifiedBinding(
     left.sourceVectorHash === right.sourceVectorHash &&
     left.factsContentHash === right.factsContentHash &&
     left.certificationBindingHash === right.certificationBindingHash &&
-    left.canonicalScopeHash === right.canonicalScopeHash
+    left.canonicalScopeHash === right.canonicalScopeHash &&
+    left.preparationId === right.preparationId &&
+    left.preparationReceiptHash === right.preparationReceiptHash
   );
 }
 
@@ -378,7 +560,7 @@ export function projectPluginCertifiedFacts(
     blobHash: file.blobSha256,
     byteLength: file.sizeBytes,
     language: file.language,
-    moduleIds: [...file.ownerModuleIds].sort(),
+    moduleIds: file.ownerModuleIds.map((moduleId) => qualifyModuleId(file.repoId, moduleId)).sort(),
     relativePath: file.relativePath,
     repositoryRelativeRoot: requireRepositoryRoot(relativeRoots, file.repoId),
     repoId: file.repoId,
@@ -428,9 +610,11 @@ function assertPluginExtension(
     extension.version !== 1 ||
     extension.knowledgeRescanApplicability !== 'applicable' ||
     !extension.counters ||
-    Object.values(extension.counters).some((count) => count !== 0)
+    !Array.isArray(extension.instrumentation) ||
+    hashCanonicalJson(extension.counters) !==
+      hashCanonicalJson(summarizePluginStrictInstrumentation(extension.instrumentation))
   ) {
-    throw new TypeError('Plugin strict certified counters must remain zero.');
+    throw new TypeError('Plugin strict certified counters do not match observed instrumentation.');
   }
   if (extension.dimensionCompletionReceipt) {
     assertReceiptBinding(carrier, extension.dimensionCompletionReceipt, 'dimension-completion');
@@ -478,9 +662,7 @@ function buildCertifiedModules(files: readonly PluginCertifiedFile[]): PluginCer
   const rows = new Map<string, { files: Set<string>; repoId: string }>();
   for (const file of files) {
     if (file.moduleIds.length === 0) {
-      throw new TypeError(
-        `Certified source ${file.repoId}/${file.relativePath} has no module owner.`
-      );
+      continue;
     }
     for (const moduleId of file.moduleIds) {
       const existing = rows.get(moduleId);
@@ -495,11 +677,22 @@ function buildCertifiedModules(files: readonly PluginCertifiedFile[]): PluginCer
   return [...rows.entries()]
     .map(([id, row]) => ({
       id,
-      name: id.replace(/^module:/, '').replace(/^repo:/, ''),
+      name: localModuleId(id)
+        .replace(/^module:/, '')
+        .replace(/^repo:/, ''),
       ownedFiles: [...row.files].sort(),
       repoId: row.repoId,
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function qualifyModuleId(repoId: string, moduleId: string): string {
+  return `${repoId}::${moduleId}`;
+}
+
+function localModuleId(qualifiedModuleId: string): string {
+  const separator = qualifiedModuleId.indexOf('::');
+  return separator < 0 ? qualifiedModuleId : qualifiedModuleId.slice(separator + 2);
 }
 
 function assertFullModuleAxis(projection: PluginCertifiedProjection): void {
@@ -535,12 +728,55 @@ function opaqueRunId(value: string): string {
   return normalized;
 }
 
-function zeroPluginStrictCounters(): PluginStrictCounters {
-  return {
+function lineageRunId(carrier: PluginCertifiedCarrier): string {
+  return opaqueRunId(`plugin-lineage-${carrier.preparationId}`);
+}
+
+export function summarizePluginStrictInstrumentation(
+  events: readonly PluginStrictInstrumentationEvent[]
+): PluginStrictCounters {
+  const counters: PluginStrictCounters = {
     cappedModuleProjectionCount: 0,
     directProjectContextCallCount: 0,
     emptyModuleAxisPassthroughCount: 0,
     rawFilesystemFallbackCount: 0,
     synthesizedProjectScopeFactCount: 0,
   };
+  for (const event of events) {
+    if (event.kind === 'strict-bypass') {
+      counters[event.counter] += 1;
+    } else if (event.kind === 'module-projection') {
+      if (event.emittedModuleCount < event.expectedOwnerModuleCount) {
+        counters.cappedModuleProjectionCount += 1;
+      }
+      if (event.expectedOwnerModuleCount > 0 && event.emittedModuleCount === 0) {
+        counters.emptyModuleAxisPassthroughCount += 1;
+      }
+    }
+  }
+  return counters;
+}
+
+function expectedOwnerModuleCount(files: readonly PluginCertifiedFile[]): number {
+  return new Set(files.flatMap((file) => file.moduleIds)).size;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index], index);
+      }
+    })
+  );
+  return results;
 }

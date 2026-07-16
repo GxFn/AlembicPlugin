@@ -48,6 +48,7 @@ import {
 import {
   emitPluginDimensionCompletionReceipt,
   openPluginCertifiedProjection,
+  PLUGIN_CERTIFIED_MODE,
   type PluginCertifiedCarrier,
   persistPluginCertifiedCarrier,
   readPluginCertifiedCarrierFromProjectContext,
@@ -400,15 +401,19 @@ async function prepareCertifiedDimensionCompletion(input: {
   if (!input.session.toSnapshot) {
     return { success: true, wiring: null };
   }
+  const snapshot = input.session.toSnapshot();
   let carrier: PluginCertifiedCarrier | null;
   try {
-    carrier = readPluginCertifiedCarrierFromProjectContext(
-      input.session.toSnapshot().projectContext
-    );
+    carrier = readPluginCertifiedCarrierFromProjectContext(snapshot.projectContext);
   } catch (error) {
     return certifiedDimensionFailure(error);
   }
   if (!carrier) {
+    if (snapshot.projectContext.pluginCertifiedMode === PLUGIN_CERTIFIED_MODE) {
+      return certifiedDimensionFailure(
+        new TypeError('Loaded strict dimension completion is missing its certified carrier.')
+      );
+    }
     return { success: true, wiring: null };
   }
   if (!input.session.replaceProjectContext) {

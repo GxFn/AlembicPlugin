@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   baseDimensions,
   getOrCreateSessionManager,
@@ -25,9 +26,14 @@ import {
 } from '@alembic/core/service/planFacts';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
+import { capturePluginCertifiedProjectFacts } from '../../project-facts/PluginCertifiedProjectFactsProducer.js';
 import {
   openPluginCertifiedProjection,
+  PLUGIN_CERTIFIED_ENTRYPOINTS,
+  PLUGIN_CERTIFIED_MODE,
+  persistPluginCertifiedCarrier,
   readPluginCertifiedCarrierFromProjectContext,
+  reopenPluginCertifiedConsumer,
 } from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { confirmPlan } from './plan-confirm.js';
 
@@ -37,7 +43,7 @@ interface PlanToolContext {
     get(name: string): unknown;
     singletons?: Record<string, unknown>;
   };
-  projectRuntime?: { identity: { dataRoot: string } } | null;
+  projectRuntime?: { identity: { dataRoot: string; projectRoot?: string } } | null;
 }
 
 interface PlanToolResponse {
@@ -193,9 +199,17 @@ export async function routePlanTool(
 
 async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanToolResponse> {
   const projectRoot = resolvePlanProjectRoot(ctx, args);
+  const strictLoadedRequest = isLoadedStrictPlanRequest(ctx, projectRoot);
+  const certified = await collectCertifiedPlanProjectContext(ctx, projectRoot, {
+    captureIfMissing: strictLoadedRequest,
+  });
   const analysis =
-    (await collectCertifiedPlanProjectContext(ctx, projectRoot)) ??
-    (await collectPlanProjectContext(projectRoot, args.hints));
+    certified ??
+    (strictLoadedRequest
+      ? (() => {
+          throw new TypeError('Loaded strict Plan request did not produce a certified carrier.');
+        })()
+      : await collectPlanProjectContext(projectRoot, args.hints));
   if (analysis.fileCount === 0 && analysis.moduleCount === 0) {
     return emptyProjectContextResponse(projectRoot);
   }
@@ -206,21 +220,54 @@ async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTool
 
 async function collectCertifiedPlanProjectContext(
   ctx: PlanToolContext,
-  projectRoot: string
+  projectRoot: string,
+  options: { captureIfMissing: boolean }
 ): Promise<PlanProjectContextAnalysis | null> {
-  const session = getOrCreateSessionManager(ctx.container as never).getAnySession(undefined, {
-    projectRoot,
-  });
-  const carrier = session
+  const manager = getOrCreateSessionManager(ctx.container as never);
+  let session = manager.getAnySession(undefined, { projectRoot });
+  let carrier = session
     ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
     : null;
+  if (!carrier && options.captureIfMissing) {
+    if (session) {
+      throw new TypeError(
+        'Loaded strict Plan request found a HostAgent session without a certified carrier.'
+      );
+    }
+    const captured = await capturePluginCertifiedProjectFacts({
+      dataRoot: requireRequestDataRoot(ctx),
+      projectRoot,
+    });
+    carrier = captured.carrier;
+    session = manager.createSession({
+      dimensions: baseDimensions,
+      projectContext: {
+        certifiedProjectFacts: structuredClone(carrier),
+        pluginCertifiedMode: PLUGIN_CERTIFIED_MODE,
+        projectName: projectRoot.split(/[\\/]/).at(-1) ?? projectRoot,
+        recipeProducerCapability: 'cold-start',
+      },
+      projectRoot,
+    });
+  }
   if (!carrier) {
     return null;
   }
-  const projection = await openPluginCertifiedProjection({
-    carrier,
-    dataRoot: requireRequestDataRoot(ctx),
-  });
+  const dataRoot = requireRequestDataRoot(ctx);
+  const projection = carrier.receipts.plan
+    ? await openPluginCertifiedProjection({ carrier, dataRoot })
+    : (
+        await reopenPluginCertifiedConsumer({
+          carrier,
+          consumer: 'plan',
+          dataRoot,
+          entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS.plan,
+          runId: `${session?.id ?? 'plan'}-plan`,
+        })
+      ).projection;
+  if (session) {
+    persistPluginCertifiedCarrier({ carrier, projectRoot, session });
+  }
   const languageCounts = projection.files.reduce<Record<string, number>>((counts, file) => {
     counts[file.language] = (counts[file.language] ?? 0) + 1;
     return counts;
@@ -261,6 +308,11 @@ async function collectCertifiedPlanProjectContext(
     })),
     understandingGaps: [],
   };
+}
+
+function isLoadedStrictPlanRequest(ctx: PlanToolContext, projectRoot: string): boolean {
+  const runtimeRoot = ctx.projectRuntime?.identity.projectRoot;
+  return Boolean(runtimeRoot && path.resolve(runtimeRoot) === path.resolve(projectRoot));
 }
 
 function emptyProjectContextResponse(projectRoot: string): PlanToolResponse {

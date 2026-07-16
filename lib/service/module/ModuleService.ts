@@ -31,8 +31,12 @@ import type {
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import {
   openPluginCertifiedProjection,
+  PLUGIN_CERTIFIED_ENTRYPOINTS,
   type PluginCertifiedCarrier,
   type PluginCertifiedProjection,
+  type PluginCertifiedSessionPort,
+  persistPluginCertifiedCarrier,
+  reopenPluginCertifiedConsumer,
 } from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { attachHostAgentManagedBoundary } from './host-managed-boundary.js';
 
@@ -153,6 +157,7 @@ export class ModuleService {
   #guardCheckEngine;
   #violationsStore;
   #certifiedFactsProvider;
+  #certifiedFactsRequired;
 
   constructor(
     projectRoot: string,
@@ -163,9 +168,20 @@ export class ModuleService {
       guardCheckEngine?: Record<string, unknown> | null;
       violationsStore?: Record<string, unknown> | null;
       certifiedFactsProvider?: () =>
-        | { carrier: PluginCertifiedCarrier; dataRoot: string }
+        | {
+            carrier: PluginCertifiedCarrier;
+            dataRoot: string;
+            projectRoot?: string;
+            session?: PluginCertifiedSessionPort;
+          }
         | null
-        | Promise<{ carrier: PluginCertifiedCarrier; dataRoot: string } | null>;
+        | Promise<{
+            carrier: PluginCertifiedCarrier;
+            dataRoot: string;
+            projectRoot?: string;
+            session?: PluginCertifiedSessionPort;
+          } | null>;
+      certifiedFactsRequired?: () => boolean;
     } = {}
   ) {
     this.#projectRoot = projectRoot;
@@ -175,6 +191,7 @@ export class ModuleService {
     this.#guardCheckEngine = options.guardCheckEngine || null;
     this.#violationsStore = options.violationsStore || null;
     this.#certifiedFactsProvider = options.certifiedFactsProvider;
+    this.#certifiedFactsRequired = options.certifiedFactsRequired;
   }
 
   // ═══════════════════════════════════════════════════════
@@ -183,12 +200,31 @@ export class ModuleService {
 
   async load() {
     const certified = await this.#certifiedFactsProvider?.();
+    if (!certified && this.#certifiedFactsRequired?.()) {
+      throw new TypeError('Loaded strict module coverage is missing its certified carrier.');
+    }
     if (certified) {
       const bindingKey = certifiedCarrierBindingKey(certified.carrier);
       if (this.#loaded && this.#certifiedBindingKey === bindingKey) {
         return;
       }
-      this.#certifiedProjection = await openPluginCertifiedProjection(certified);
+      this.#certifiedProjection = certified.carrier.receipts['module-coverage']
+        ? await openPluginCertifiedProjection(certified)
+        : (
+            await reopenPluginCertifiedConsumer({
+              ...certified,
+              consumer: 'module-coverage',
+              entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS['module-coverage'],
+              runId: `${certified.session?.id ?? 'module-service'}-module-coverage`,
+            })
+          ).projection;
+      if (certified.session && certified.projectRoot) {
+        persistPluginCertifiedCarrier({
+          carrier: certified.carrier,
+          projectRoot: certified.projectRoot,
+          session: certified.session,
+        });
+      }
       this.#certifiedBindingKey = bindingKey;
       this.#repoContext = null;
       this.#mapContext = null;

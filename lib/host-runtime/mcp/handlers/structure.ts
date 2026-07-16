@@ -19,7 +19,12 @@ import type {
 } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import {
   observePluginCertifiedLiveProbe,
+  openPluginCertifiedFacts,
+  PLUGIN_CERTIFIED_ENTRYPOINTS,
+  PLUGIN_CERTIFIED_MODE,
+  persistPluginCertifiedCarrier,
   readPluginCertifiedCarrierFromProjectContext,
+  reopenPluginCertifiedConsumer,
 } from '../../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
@@ -221,7 +226,11 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
     return createAlembicGraphMcpResult(materializeGraphContinuation(page));
   }
   const input = normalizeProjectGraphInput(ctx, args);
-  const providerOptions = await resolveGraphExecutionOptions(ctx, input.projectRoot, execution);
+  const providerOptions = await resolveCertifiedGraphExecutionOptions(
+    ctx,
+    input.projectRoot,
+    execution
+  );
   if (execution) {
     const progressive = await defaultProjectGraphProvider.resolveAlembicGraphProgressively(
       input,
@@ -254,7 +263,7 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
   return createAlembicGraphMcpResult(materializeGraphContinuation(page));
 }
 
-async function resolveGraphExecutionOptions(
+export async function resolveCertifiedGraphExecutionOptions(
   ctx: McpContext,
   projectRoot: string | undefined,
   execution: McpContext['projectContextExecution']
@@ -270,16 +279,41 @@ async function resolveGraphExecutionOptions(
     ? readPluginCertifiedCarrierFromProjectContext(session.toSnapshot().projectContext)
     : null;
   if (!carrier) {
+    if (session?.toSnapshot().projectContext.pluginCertifiedMode === PLUGIN_CERTIFIED_MODE) {
+      throw new TypeError('Loaded strict Graph/Map session is missing its certified carrier.');
+    }
     return options;
   }
   const dataRoot = identity.dataRoot;
+  const reopened = !carrier.receipts['dependency-graph']
+    ? await reopenPluginCertifiedConsumer({
+        carrier,
+        consumer: 'dependency-graph',
+        dataRoot,
+        entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS['dependency-graph'],
+        runId: `${session?.id ?? 'graph'}-dependency-graph`,
+      })
+    : null;
+  if (reopened) {
+    if (!session) {
+      throw new TypeError('Certified Graph carrier is detached from its HostAgent session.');
+    }
+    persistPluginCertifiedCarrier({ carrier, projectRoot: session.projectRoot, session });
+  }
+  const opened = reopened ?? (await openPluginCertifiedFacts({ carrier, dataRoot }));
+  const projection = opened.projection;
+  const certifiedProbe = await observePluginCertifiedLiveProbe({
+    artifact: opened.artifact,
+    carrier,
+    controlRoot: root,
+    dataRoot,
+  });
   return {
     ...options,
-    certifiedProbe: await observePluginCertifiedLiveProbe({
-      carrier,
-      controlRoot: root,
-      dataRoot,
-    }),
+    ...(certifiedProbe.comparisonStatus === 'matched' && certifiedProbe.blockingReasons.length === 0
+      ? { certifiedEnvelopes: projection.envelopes }
+      : {}),
+    certifiedProbe,
   };
 }
 

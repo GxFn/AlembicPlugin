@@ -50,12 +50,21 @@ export interface RecipeMapDeps {
   resolveRegion(
     focus: RegionFocus,
     projectRoot: string,
-    radius: MapRadius
+    radius: MapRadius,
+    nodeLimit?: number
   ): Promise<ProjectContextRegion>;
   querySourceRefs(query: {
     pathPrefix?: string;
   }): Promise<{ rows: RecipeSourceRefRow[]; diagnostics: MountDiagnostic[] }>;
   listRecipes(): Promise<RecipeRecordLite[]>;
+  projectCoverage?: {
+    finalCoverageReceipt: {
+      canonicalScopeHash: string;
+      receiptHash: string;
+      sourceVectorHash: string;
+    } | null;
+    status: 'unavailable' | 'partial' | 'complete';
+  };
 }
 
 const DEFAULT_REF_LIMIT = 80;
@@ -76,7 +85,12 @@ export class RecipeMapProvider {
   ): Promise<AlembicRecipeMapOutput> {
     let region: ProjectContextRegion;
     try {
-      region = await deps.resolveRegion(request.focus, request.projectRoot, request.radius);
+      region = await deps.resolveRegion(
+        request.focus,
+        request.projectRoot,
+        request.radius,
+        request.nodeLimit
+      );
     } catch (error) {
       return failedRecipeMapOutput(request, error);
     }
@@ -162,8 +176,8 @@ export class RecipeMapProvider {
         completeness: 'complete',
         mountAccountingCompleteness: 'complete',
       },
-      projectCoverageStatus: 'unavailable',
-      finalCoverageReceipt: null,
+      projectCoverageStatus: deps.projectCoverage?.status ?? 'unavailable',
+      finalCoverageReceipt: deps.projectCoverage?.finalCoverageReceipt ?? null,
       diagnostics: boundedDiagnostics,
       nextActions: buildNextActions(request, displayedMounts, boundedDiagnostics),
       limits: {

@@ -32,6 +32,7 @@ import {
   type RecipeSourceRefRow,
 } from '#service/project-knowledge-context/recipe-map/index.js';
 import type { ProjectContextContinuationPage } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
+import { resolveCertifiedGraphExecutionOptions } from './structure.js';
 import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
 interface RecipeMapArgs {
@@ -130,7 +131,12 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
     return createAlembicRecipeMapMcpResult(materializeRecipeMapContinuation(page));
   }
   const request = normalizeRecipeMapRequest(args, projectRoot);
-  const deps = buildRecipeMapDeps(ctx);
+  const graphExecution = await resolveCertifiedGraphExecutionOptions(
+    ctx,
+    projectRoot,
+    ctx.projectContextExecution
+  );
+  const deps = buildRecipeMapDeps(ctx, graphExecution);
   const output = execution
     ? await defaultRecipeMapProvider.resolveBoundedRecipeMap(request, deps)
     : await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
@@ -569,16 +575,35 @@ function clampInt(value: number | undefined, fallback: number, min: number, max:
   return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
-function buildRecipeMapDeps(ctx: McpContext): RecipeMapDeps {
-  const resolveRegion: RecipeMapDeps['resolveRegion'] = (focus, projectRoot, radius) =>
+function buildRecipeMapDeps(
+  ctx: McpContext,
+  graphExecution: Parameters<typeof defaultProjectGraphProvider.resolveProjectContextRegion>[1]
+): RecipeMapDeps {
+  const resolveRegion: RecipeMapDeps['resolveRegion'] = (focus, projectRoot, radius, nodeLimit) =>
     defaultProjectGraphProvider.resolveProjectContextRegion(
-      { focus, projectRoot, radius },
-      ctx.projectContextExecution
+      { focus, projectRoot, radius, ...(nodeLimit === undefined ? {} : { nodeLimit }) },
+      graphExecution
     );
 
   const recipeContext = buildRecipeContextService(ctx);
+  const certifiedProbe = graphExecution?.certifiedProbe;
+  const projectCoverage: RecipeMapDeps['projectCoverage'] = certifiedProbe
+    ? {
+        finalCoverageReceipt: {
+          canonicalScopeHash: certifiedProbe.canonicalScopeHash,
+          receiptHash: certifiedProbe.receiptHash,
+          sourceVectorHash: certifiedProbe.observedSourceVectorHash,
+        },
+        status:
+          certifiedProbe.comparisonStatus === 'matched' &&
+          certifiedProbe.blockingReasons.length === 0
+            ? 'complete'
+            : 'partial',
+      }
+    : { finalCoverageReceipt: null, status: 'unavailable' };
   if (!recipeContext) {
     return {
+      projectCoverage,
       resolveRegion,
       querySourceRefs: async () => ({
         rows: [],
@@ -597,6 +622,7 @@ function buildRecipeMapDeps(ctx: McpContext): RecipeMapDeps {
   }
 
   return {
+    projectCoverage,
     resolveRegion,
     querySourceRefs: async (query) => {
       const envelope = await recipeContext.execute({
