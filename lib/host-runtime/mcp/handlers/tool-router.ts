@@ -41,7 +41,11 @@ import {
   type RecipeFreshnessPublicOutput,
   refreshCreatedRecipeFreshness,
 } from '#recipe-pipeline/sustain/RecipeFreshnessRuntime.js';
-import { readPluginCertifiedCarrierFromProjectContext } from '../../../project-facts/PluginCertifiedProjectFactsRuntime.js';
+import {
+  failPluginStrictBypasses,
+  PluginStrictBypassError,
+  readPluginCertifiedCarrierFromProjectContext,
+} from '../../../project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { envelope } from '../envelope.js';
 import {
   type RecipeContentQualityGateResult,
@@ -436,8 +440,8 @@ async function createSubmitKnowledgeGateway(
   type GatewayOptions = ConstructorParameters<typeof RecipeProductionGateway>[0];
   // U1 #5：从 canonical ProjectMap.modules（ModuleService 已加载的内存投影）构造模块轴依赖，
   // 让 Core #deriveModuleName 按 canonical 轴校验显式 moduleName / 反查 sourceRefs 落点。
-  // submit 是 async 路径，可安全 await moduleService；取不到模块轴时两个 dep 为 undefined，
-  // Core 退回原 passthrough（加性、向后兼容）。
+  // submit 是 async 路径，可安全 await moduleService。非 certified 会话保留原
+  // passthrough 兼容性；certified 会话缺轴时 fail closed。
   const moduleAxis = await resolveSubmitKnowledgeModuleAxis(ctx, strictCertifiedAxis);
   return new RecipeProductionGateway({
     knowledgeService: ctx.container.get('knowledgeService'),
@@ -464,9 +468,9 @@ async function createSubmitKnowledgeGateway(
 
 /**
  * U1 #5：解析 submit-knowledge 路径的 canonical 模块轴依赖。
- * best-effort：moduleService 不可取 / 未加载出模块 / 加载抛错 → 返回空，让 Core 退回 passthrough。
+ * 非 certified 会话 best-effort；certified 会话把缺轴/Core passthrough 作为可观测旁路并 fail closed。
  */
-async function resolveSubmitKnowledgeModuleAxis(
+export async function resolveSubmitKnowledgeModuleAxis(
   ctx: McpContext,
   strictCertifiedAxis = false
 ): Promise<{
@@ -479,14 +483,24 @@ async function resolveSubmitKnowledgeModuleAxis(
     } | null;
     if (!moduleService || typeof moduleService.listCanonicalModules !== 'function') {
       if (strictCertifiedAxis) {
-        throw new TypeError('Certified submit requires the artifact-bound ModuleService axis.');
+        failPluginStrictBypasses({
+          bypasses: ['empty-module-axis', 'core-passthrough'],
+          entrypoint:
+            'lib/host-runtime/mcp/handlers/tool-router.js#resolveSubmitKnowledgeModuleAxis',
+          message: 'Certified submit requires the artifact-bound ModuleService axis.',
+        });
       }
       return {};
     }
     const modules = await moduleService.listCanonicalModules();
     if (!Array.isArray(modules) || modules.length === 0) {
       if (strictCertifiedAxis) {
-        throw new TypeError('Certified submit cannot use an empty canonical module axis.');
+        failPluginStrictBypasses({
+          bypasses: ['empty-module-axis', 'core-passthrough'],
+          entrypoint:
+            'lib/host-runtime/mcp/handlers/tool-router.js#resolveSubmitKnowledgeModuleAxis',
+          message: 'Certified submit cannot use an empty canonical module axis.',
+        });
       }
       return {};
     }
@@ -496,7 +510,16 @@ async function resolveSubmitKnowledgeModuleAxis(
     };
   } catch (err: unknown) {
     if (strictCertifiedAxis) {
-      throw err;
+      if (err instanceof PluginStrictBypassError) {
+        throw err;
+      }
+      failPluginStrictBypasses({
+        bypasses: ['empty-module-axis', 'core-passthrough'],
+        entrypoint: 'lib/host-runtime/mcp/handlers/tool-router.js#resolveSubmitKnowledgeModuleAxis',
+        message: `Certified submit cannot reopen the artifact-bound module axis: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      });
     }
     const reason = err instanceof Error ? err.message : String(err);
     // ctx.logger 在 McpContext 上是 index-signature（unknown），做类型守卫再调用。

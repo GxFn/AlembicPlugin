@@ -26,6 +26,7 @@ import {
   type ProjectSourceFileFact,
 } from '@alembic/core/service/planFacts';
 import {
+  failPluginStrictBypasses,
   openPluginCertifiedProjection,
   PLUGIN_CERTIFIED_ENTRYPOINTS,
   persistPluginCertifiedCarrier,
@@ -395,9 +396,17 @@ async function tryBuildCertifiedHostAgentProjectContextAnalysis(
     : null;
   if (!carrier) {
     if (input.certifiedSession.strict) {
-      throw new TypeError(
-        'Loaded strict generation requires the Plan-created certified carrier before analysis.'
-      );
+      failPluginStrictBypasses({
+        bypasses: [
+          'direct-project-context',
+          'raw-filesystem',
+          'synthetic-project-scope',
+          'capped-module-axis',
+        ],
+        entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS['recipe-generation'],
+        message:
+          'Loaded strict generation requires the Plan-created certified carrier before analysis.',
+      });
     }
     return null;
   }

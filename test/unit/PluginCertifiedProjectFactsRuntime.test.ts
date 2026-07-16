@@ -62,6 +62,8 @@ describe('PluginCertifiedProjectFactsRuntime', () => {
           receiptHash: fixtureReceipt('dimension-completion').receiptHash,
         },
         {
+          consumer: 'dimension-completion',
+          entrypoint: 'lib/recipe-pipeline/generate/dimension-completion.js',
           emittedModuleCount: 30,
           expectedOwnerModuleCount: 30,
           kind: 'module-projection',

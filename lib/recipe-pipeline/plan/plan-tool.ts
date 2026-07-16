@@ -28,6 +28,7 @@ import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 import { capturePluginCertifiedProjectFacts } from '../../project-facts/PluginCertifiedProjectFactsProducer.js';
 import {
+  failPluginStrictBypasses,
   openPluginCertifiedProjection,
   PLUGIN_CERTIFIED_ENTRYPOINTS,
   PLUGIN_CERTIFIED_MODE,
@@ -230,9 +231,12 @@ async function collectCertifiedPlanProjectContext(
     : null;
   if (!carrier && options.captureIfMissing) {
     if (session) {
-      throw new TypeError(
-        'Loaded strict Plan request found a HostAgent session without a certified carrier.'
-      );
+      failPluginStrictBypasses({
+        bypasses: ['collect-plan-project-context'],
+        entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS.plan,
+        message:
+          'Loaded strict Plan request found a HostAgent session without a certified carrier.',
+      });
     }
     const captured = await capturePluginCertifiedProjectFacts({
       dataRoot: requireRequestDataRoot(ctx),
@@ -251,6 +255,13 @@ async function collectCertifiedPlanProjectContext(
     });
   }
   if (!carrier) {
+    if (options.captureIfMissing) {
+      failPluginStrictBypasses({
+        bypasses: ['collect-plan-project-context'],
+        entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS.plan,
+        message: 'Loaded strict Plan request did not produce a certified carrier.',
+      });
+    }
     return null;
   }
   const dataRoot = requireRequestDataRoot(ctx);

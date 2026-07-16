@@ -41,6 +41,15 @@ export const PLUGIN_CERTIFIED_ENTRYPOINTS = {
 
 export type PluginCertifiedConsumer = (typeof PLUGIN_CERTIFIED_CONSUMERS)[number];
 
+export type PluginStrictBypassKind =
+  | 'capped-module-axis'
+  | 'collect-plan-project-context'
+  | 'core-passthrough'
+  | 'direct-project-context'
+  | 'empty-module-axis'
+  | 'raw-filesystem'
+  | 'synthetic-project-scope';
+
 export interface PluginCertifiedModule {
   id: string;
   name: string;
@@ -94,15 +103,66 @@ export type PluginStrictInstrumentationEvent =
       receiptHash: string;
     }
   | {
+      consumer: PluginCertifiedConsumer;
+      entrypoint: string;
       emittedModuleCount: number;
       expectedOwnerModuleCount: number;
       kind: 'module-projection';
     }
   | {
+      bypass: PluginStrictBypassKind;
       counter: keyof PluginStrictCounters;
       entrypoint: string;
       kind: 'strict-bypass';
     };
+
+const PLUGIN_STRICT_BYPASS_COUNTERS: Record<PluginStrictBypassKind, keyof PluginStrictCounters> = {
+  'capped-module-axis': 'cappedModuleProjectionCount',
+  'collect-plan-project-context': 'directProjectContextCallCount',
+  'core-passthrough': 'emptyModuleAxisPassthroughCount',
+  'direct-project-context': 'directProjectContextCallCount',
+  'empty-module-axis': 'emptyModuleAxisPassthroughCount',
+  'raw-filesystem': 'rawFilesystemFallbackCount',
+  'synthetic-project-scope': 'synthesizedProjectScopeFactCount',
+};
+
+export class PluginStrictBypassError extends TypeError {
+  readonly code = 'PLUGIN_CERTIFIED_STRICT_BYPASS';
+  readonly strictCounters: PluginStrictCounters;
+  readonly strictBypassEvents: Extract<
+    PluginStrictInstrumentationEvent,
+    { kind: 'strict-bypass' }
+  >[];
+
+  constructor(
+    message: string,
+    events: Extract<PluginStrictInstrumentationEvent, { kind: 'strict-bypass' }>[]
+  ) {
+    super(message);
+    this.name = 'PluginStrictBypassError';
+    this.strictBypassEvents = events;
+    this.strictCounters = summarizePluginStrictInstrumentation(events);
+  }
+}
+
+export function failPluginStrictBypasses(input: {
+  bypasses: readonly PluginStrictBypassKind[];
+  entrypoint: string;
+  message: string;
+}): never {
+  const events = [...new Set(input.bypasses)].map(
+    (bypass): Extract<PluginStrictInstrumentationEvent, { kind: 'strict-bypass' }> => ({
+      bypass,
+      counter: PLUGIN_STRICT_BYPASS_COUNTERS[bypass],
+      entrypoint: input.entrypoint,
+      kind: 'strict-bypass',
+    })
+  );
+  if (events.length === 0) {
+    throw new TypeError('Strict bypass instrumentation requires at least one observed bypass.');
+  }
+  throw new PluginStrictBypassError(input.message, events);
+}
 
 export interface PluginCertifiedCarrier {
   artifactId: string;
@@ -476,7 +536,7 @@ export async function reopenPluginCertifiedConsumer(input: {
   extension.instrumentation = extension.instrumentation.filter(
     (event) =>
       !(event.kind === 'consumer-reopen' && event.consumer === input.consumer) &&
-      event.kind !== 'module-projection'
+      !(event.kind === 'module-projection' && event.consumer === input.consumer)
   );
   extension.instrumentation.push(
     {
@@ -486,6 +546,8 @@ export async function reopenPluginCertifiedConsumer(input: {
       receiptHash: projected.receipt.receiptHash,
     },
     {
+      consumer: input.consumer,
+      entrypoint: input.entrypoint,
       emittedModuleCount: projection.modules.length,
       expectedOwnerModuleCount: expectedOwnerModuleCount(projection.files),
       kind: 'module-projection',
@@ -744,6 +806,11 @@ export function summarizePluginStrictInstrumentation(
   };
   for (const event of events) {
     if (event.kind === 'strict-bypass') {
+      if (PLUGIN_STRICT_BYPASS_COUNTERS[event.bypass] !== event.counter) {
+        throw new TypeError(
+          `Plugin strict bypass ${event.bypass} is bound to the wrong counter ${event.counter}.`
+        );
+      }
       counters[event.counter] += 1;
     } else if (event.kind === 'module-projection') {
       if (event.emittedModuleCount < event.expectedOwnerModuleCount) {

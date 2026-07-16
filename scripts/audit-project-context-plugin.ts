@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
 import { openAlembicDatabase } from '@alembic/core/database';
@@ -25,9 +25,11 @@ import {
   routeRecipeMapTool,
 } from '../lib/host-runtime/mcp/handlers/tool-router.js';
 import type { McpContext } from '../lib/host-runtime/mcp/handlers/types.js';
+import { PLUGIN_CORE_ALIGNED_SOURCE_POLICY } from '../lib/project-facts/PluginCertifiedProjectFactsProducer.js';
 import {
   assertExactRepositoryTuples,
   openPluginCertifiedProjection,
+  PLUGIN_CERTIFIED_ENTRYPOINTS,
   pluginCertifiedStoreRoot,
   readPluginCertifiedCarrierFromProjectContext,
 } from '../lib/project-facts/PluginCertifiedProjectFactsRuntime.js';
@@ -79,6 +81,8 @@ interface IncompleteScenarioProbe {
 
 type ScenarioProbe = CompletedScenarioProbe | IncompleteScenarioProbe;
 
+const TASK_ID = 'i2-2-alembic-plugin-pcf-graph-map-rootcause2-t1';
+
 if (isMainThread) {
   await main();
 } else {
@@ -123,7 +127,7 @@ async function main(): Promise<void> {
     const runtime = {
       schemaVersion: 1,
       reportType: 'ProjectContextCapabilityRuntime.Plugin',
-      taskId: 'i2-2-alembic-plugin-pcf-graph-map-rework1-t1',
+      taskId: TASK_ID,
       repository,
       loadedCore,
       probeDeadlineMs: args.timeoutMs,
@@ -133,7 +137,7 @@ async function main(): Promise<void> {
     const audit = {
       schemaVersion: 1,
       reportType: 'ProjectContextCapabilityAuditReport.Plugin',
-      taskId: 'i2-2-alembic-plugin-pcf-graph-map-rework1-t1',
+      taskId: TASK_ID,
       repository,
       loadedCore,
       invariants: {
@@ -198,6 +202,18 @@ async function main(): Promise<void> {
           bothCompleted && completed.every((scenario) => scenario.lineage.strictCountersZero),
         loadedEntrypointTraceComplete:
           bothCompleted && completed.every((scenario) => hasAllCertifiedConsumerTraces(scenario)),
+        strictEntrypointDenominatorComplete:
+          bothCompleted &&
+          completed.every((scenario) => hasCompleteStrictEntrypointDenominator(scenario)),
+        coreCanonicalSourcePolicyAligned:
+          bothCompleted && completed.every((scenario) => scenario.lineage.coreAlignedSourcePolicy),
+        eligibleScriptsRetainCertifiedSourceEvidence:
+          bothCompleted &&
+          completed.some((scenario) => scenario.lineage.eligibleScriptSourceCount > 0) &&
+          completed.some((scenario) => scenario.lineage.eligibleScriptSourceRefCount > 0) &&
+          completed.every((scenario) => scenario.lineage.eligibleScriptSourceConserved),
+        pristineDataRootBeforePlan:
+          bothCompleted && completed.every((scenario) => scenario.lineage.dataRootAbsentBeforePlan),
         freshManagerSemanticIdentityStable:
           bothCompleted &&
           completed.every((scenario) => scenario.lineage.freshManagerIdentityStable),
@@ -208,6 +224,8 @@ async function main(): Promise<void> {
         certifiedComparisonRequiresPersistedCarrier: true,
         sourceRootsReadOnly: true,
         runtimeWritesConfinedToAuditOutput: true,
+        i2AdapterChainOnly: true,
+        i3ResetSingleFactsLlmPlan: 'pending',
         finalDemandClaim: false,
         incompleteProbeConclusion: bothCompleted
           ? null
@@ -285,6 +303,7 @@ async function probeScenarioInWorker(
 
 async function probeScenario(label: string, projectRoot: string, dataRoot: string) {
   const startedAt = Date.now();
+  const dataRootAbsentBeforePlan = !existsSync(dataRoot);
   const phaseTimingsMs: Record<string, number> = {};
   const mark = (phase: string) => {
     phaseTimingsMs[phase] = Date.now() - startedAt;
@@ -296,23 +315,8 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
       `${label} ProjectScope resolved an unexpected data root: ${String(ctx.projectRuntime?.identity.dataRoot)}`
     );
   }
-  const databaseRuntime = await openAlembicDatabase(
-    { path: path.join(dataRoot, 'alembic.db') },
-    { workspaceResolver: WorkspaceResolver.fromProject(projectRoot) }
-  );
-  const repositories = createAlembicRepositories(databaseRuntime.connection);
-  services.set('database', databaseRuntime.connection);
-  services.set('gitDiffCheckpointRepository', repositories.gitDiffCheckpointRepository);
-  services.set('knowledgeRepository', repositories.knowledgeRepository);
-  services.set('lifecycleEventRepository', repositories.lifecycleEventRepository);
-  services.set('proposalGateway', {
-    submit: async () => ({ id: `proposal-${label.toLowerCase()}` }),
-  });
-  services.set('proposalRepository', repositories.proposalRepository);
-  services.set('recipeSourceRefRepository', repositories.recipeSourceRefRepository);
-  mark('database-ready');
-
   const buildSessions = new ProjectContextBuildSessionManager({ ttlMs: 30_000 });
+  let databaseRuntime: Awaited<ReturnType<typeof openAlembicDatabase>> | null = null;
   let recipeDatabase: InstanceType<typeof Database> | null = null;
   ctx.projectContextExecution = { buildSessions };
   try {
@@ -356,6 +360,7 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
       carrier: planCarrier,
       dataRoot,
     });
+    const scriptSources = eligibleScriptSourceEvidence(artifact, planProjection);
     const moduleService = new ModuleService(projectRoot, {
       certifiedFactsProvider: () => {
         const active = generateManager.getAnySession(undefined, { projectRoot });
@@ -366,8 +371,21 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
       },
     });
     services.set('moduleService', moduleService);
-    const canonicalModules = await moduleService.listCanonicalModules();
-    mark('module-axis');
+    databaseRuntime = await openAlembicDatabase(
+      { path: path.join(dataRoot, 'alembic.db') },
+      { workspaceResolver: WorkspaceResolver.fromProject(projectRoot) }
+    );
+    const repositories = createAlembicRepositories(databaseRuntime.connection);
+    services.set('database', databaseRuntime.connection);
+    services.set('gitDiffCheckpointRepository', repositories.gitDiffCheckpointRepository);
+    services.set('knowledgeRepository', repositories.knowledgeRepository);
+    services.set('lifecycleEventRepository', repositories.lifecycleEventRepository);
+    services.set('proposalGateway', {
+      submit: async () => ({ id: `proposal-${label.toLowerCase()}` }),
+    });
+    services.set('proposalRepository', repositories.proposalRepository);
+    services.set('recipeSourceRefRepository', repositories.recipeSourceRefRepository);
+    mark('database-ready');
     const draftData = readRecord(draft.data);
     const projectInfoTree = readRecord(draftData.projectInfoTree);
     const confirmed = readToolResponse(
@@ -390,7 +408,7 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
         operation: 'confirm',
         plannedNextActions: [
           {
-            reason: 'Exercise the real strict empty-start cold-start entrypoint.',
+            reason: 'Exercise the pristine I2 adapter chain; the I3 rebuild remains pending.',
             tool: 'alembic_bootstrap',
           },
         ],
@@ -407,7 +425,7 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
           secondaryLanguages: stringArray(projectInfoTree.secondaryLanguages),
         },
         projectRoot,
-        rationale: `${label} strict empty-start production audit without fallback.`,
+        rationale: `${label} pristine I2 adapter audit without fallback; I3 remains pending.`,
         scale: {
           contentMaxLines: 120,
           depthLevels: ['project', 'module'],
@@ -479,6 +497,8 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
     mark('graph-terminal');
     const map = await recipeMapPages(projectRoot, ctx);
     mark('map-terminal');
+    const canonicalModules = await moduleService.listCanonicalModules();
+    mark('module-axis');
     const beforeFifth = readPluginCertifiedCarrierFromProjectContext(
       session.toSnapshot().projectContext
     );
@@ -593,6 +613,25 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
       map,
       lineage: {
         artifactId: finalCarrier.artifactId,
+        coreAlignedSourcePolicy:
+          artifact.facts.inventory.includeExcludePolicy.version ===
+            PLUGIN_CORE_ALIGNED_SOURCE_POLICY.version &&
+          sameStrings(
+            artifact.facts.inventory.includeExcludePolicy.includeExtensions,
+            PLUGIN_CORE_ALIGNED_SOURCE_POLICY.includeExtensions
+          ) &&
+          sameStrings(
+            artifact.facts.inventory.includeExcludePolicy.excludeDirectories,
+            PLUGIN_CORE_ALIGNED_SOURCE_POLICY.excludeDirectories
+          ),
+        dataRootAbsentBeforePlan,
+        eligibleScriptSourceConserved: scriptSources.every((source) => source.conserved),
+        eligibleScriptSourceCount: scriptSources.length,
+        eligibleScriptSourceRefCount: scriptSources.reduce(
+          (count, source) => count + source.sourceRefCount,
+          0
+        ),
+        eligibleScriptSources: scriptSources,
         exactRepositoryTuples: exactTuples,
         freshManagerIdentityStable,
         instrumentation: finalCarrier.plugin?.instrumentation ?? [],
@@ -611,7 +650,7 @@ async function probeScenario(label: string, projectRoot: string, dataRoot: strin
   } finally {
     await buildSessions.dispose();
     recipeDatabase?.close();
-    databaseRuntime.close();
+    databaseRuntime?.close();
     _resetGenerateSessionManagersForTesting();
   }
 }
@@ -743,6 +782,86 @@ function hasAllCertifiedConsumerTraces(
     'dimension-completion',
   ] as const;
   return expected.every((consumer) => observed.has(consumer));
+}
+
+function hasCompleteStrictEntrypointDenominator(
+  scenario: Awaited<ReturnType<typeof probeScenario>>
+): boolean {
+  const reopenEvents = scenario.lineage.instrumentation.filter(
+    (event) => event.kind === 'consumer-reopen'
+  );
+  const moduleEvents = scenario.lineage.instrumentation.filter(
+    (event) => event.kind === 'module-projection'
+  );
+  const bypassEvents = scenario.lineage.instrumentation.filter(
+    (event) => event.kind === 'strict-bypass'
+  );
+  const expected = Object.entries(PLUGIN_CERTIFIED_ENTRYPOINTS);
+  return (
+    reopenEvents.length === expected.length &&
+    moduleEvents.length === expected.length &&
+    bypassEvents.length === 0 &&
+    expected.every(
+      ([consumer, entrypoint]) =>
+        reopenEvents.some(
+          (event) => event.consumer === consumer && event.entrypoint === entrypoint
+        ) &&
+        moduleEvents.some((event) => event.consumer === consumer && event.entrypoint === entrypoint)
+    )
+  );
+}
+
+function eligibleScriptSourceEvidence(
+  artifact: Awaited<ReturnType<FileCertifiedProjectFactsStore['open']>>,
+  projection: Awaited<ReturnType<typeof openPluginCertifiedProjection>>
+) {
+  return artifact.facts.inventory.files
+    .filter((file) => file.relativePath.split('/').includes('scripts'))
+    .map((file) => {
+      const projected = projection.files.find(
+        (candidate) =>
+          candidate.repoId === file.repoId && candidate.relativePath === file.relativePath
+      );
+      const frozen = artifact.facts.detail.frozenFiles?.find(
+        (candidate) =>
+          candidate.repoId === file.repoId && candidate.relativePath === file.relativePath
+      );
+      const expectedModuleIds = file.ownerModuleIds
+        .map((moduleId) => `${file.repoId}::${moduleId}`)
+        .sort();
+      const frozenBlobConserved = Boolean(
+        frozen &&
+          frozen.blobHash === file.blobSha256 &&
+          frozen.fullChunkRefs.includes(file.blobSha256) &&
+          artifact.chunks.some(
+            (chunk) => chunk.blobHash === frozen.blobHash && chunk.byteLength === frozen.byteLength
+          )
+      );
+      const projectionConserved = Boolean(
+        projected &&
+          projected.blobHash === file.blobSha256 &&
+          sameStrings(projected.moduleIds, expectedModuleIds)
+      );
+      const sourceRefCount = artifact.facts.requestOutcomes.filter((outcome) =>
+        outcome.sourceRanges.some(
+          (range) => range.repoId === file.repoId && range.relativePath === file.relativePath
+        )
+      ).length;
+      return {
+        conserved: frozenBlobConserved && projectionConserved,
+        frozenBlobConserved,
+        inventoryOwnerModuleCount: file.ownerModuleIds.length,
+        inventoryOwnerV2Count: file.ownersV2?.length ?? 0,
+        projectionConserved,
+        relativePath: file.relativePath,
+        repoId: file.repoId,
+        sourceRefCount,
+      };
+    });
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
 }
 
 function createContext(projectRoot: string): {

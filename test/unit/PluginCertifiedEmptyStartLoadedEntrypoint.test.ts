@@ -6,7 +6,10 @@ import {
   _resetGenerateSessionManagersForTesting,
   getOrCreateSessionManager,
 } from '@alembic/core/host-agent-workflows';
-import { FileCertifiedProjectFactsStore } from '@alembic/core/project-context-foundation';
+import {
+  FileCertifiedProjectFactsStore,
+  hashCanonicalJson,
+} from '@alembic/core/project-context-foundation';
 import { createAlembicRepositories } from '@alembic/core/repositories';
 import {
   createProjectDescriptor,
@@ -31,6 +34,7 @@ import {
 } from '../../lib/project-facts/PluginCertifiedProjectFactsRuntime.js';
 import { runHostAgentColdStartWorkflow } from '../../lib/recipe-pipeline/generate/cold-start.js';
 import { runHostAgentDimensionCompletionWorkflow } from '../../lib/recipe-pipeline/generate/dimension-completion.js';
+import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-pipeline/generate/project-context-analysis.js';
 import { createReadOnlyRecipeMapRepositories } from '../../lib/repository/recipe-map/ReadOnlyRecipeMapServices.js';
 import { ModuleService } from '../../lib/service/module/ModuleService.js';
 import type { AlembicGraphOutput } from '../../lib/service/project-knowledge-context/contracts/AlembicGraphOutput.js';
@@ -84,9 +88,83 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       sourceVectorHash: carrier?.sourceVectorHash,
     });
 
+    const sourceFile = path.join(projectRoot, 'plugin-empty-start', 'src/index.ts');
+    const sourceBytes = fs.readFileSync(sourceFile);
+    fs.appendFileSync(sourceFile, 'export const drifted = true;\n');
+    const graphDrift = await captureRejection(
+      routeGraphTool(ctx, { projectRoot, queryKind: 'map' })
+    );
+    expect(readStrictBypassKinds(graphDrift)).toEqual(['direct-project-context']);
+    expect(readStrictBypassCounters(graphDrift)).toMatchObject({
+      directProjectContextCallCount: 1,
+    });
+    fs.writeFileSync(sourceFile, sourceBytes);
+    const retryCarrier = readPluginCertifiedCarrierFromProjectContext(
+      session?.toSnapshot().projectContext
+    );
+    expect(Object.values(retryCarrier?.plugin?.counters ?? {}).every((count) => count === 0)).toBe(
+      true
+    );
+
     const missingCarrierContext = structuredClone(session?.toSnapshot().projectContext ?? {});
     delete missingCarrierContext.certifiedProjectFacts;
     session?.replaceProjectContext(missingCarrierContext);
+    const planBypass = await captureRejection(
+      routePlanTool(ctx, {
+        generationStage: 'coldStart',
+        hints: { maxBudget: 64 },
+        operation: 'draft',
+        projectRoot,
+      })
+    );
+    expect(readStrictBypassKinds(planBypass)).toEqual(['collect-plan-project-context']);
+    expect(readStrictBypassCounters(planBypass)).toMatchObject({
+      directProjectContextCallCount: 1,
+    });
+
+    const generationBypass = await captureRejection(
+      buildHostAgentProjectContextAnalysis({
+        certifiedSession: {
+          container: ctx.container,
+          dataRoot: ctx.projectRuntime?.identity.dataRoot ?? projectRoot,
+          strict: true,
+        },
+        projectRoot,
+        source: 'codex-host-bootstrap',
+      })
+    );
+    expect(readStrictBypassKinds(generationBypass)).toEqual([
+      'capped-module-axis',
+      'direct-project-context',
+      'raw-filesystem',
+      'synthetic-project-scope',
+    ]);
+    expect(readStrictBypassCounters(generationBypass)).toMatchObject({
+      cappedModuleProjectionCount: 1,
+      directProjectContextCallCount: 1,
+      rawFilesystemFallbackCount: 1,
+      synthesizedProjectScopeFactCount: 1,
+    });
+
+    const routerModule = (await import(
+      '../../lib/host-runtime/mcp/handlers/tool-router.js'
+    )) as unknown as {
+      resolveSubmitKnowledgeModuleAxis?: (
+        context: McpContext,
+        strictCertifiedAxis: boolean
+      ) => Promise<unknown>;
+    };
+    expect(routerModule.resolveSubmitKnowledgeModuleAxis).toBeTypeOf('function');
+    const submitAxisBypass = await captureRejection(
+      routerModule.resolveSubmitKnowledgeModuleAxis?.(ctx, true) ?? Promise.resolve()
+    );
+    expect(readStrictBypassKinds(submitAxisBypass)).toEqual([
+      'core-passthrough',
+      'empty-module-axis',
+    ]);
+    expect(readStrictBypassCounters(submitAxisBypass)).toMatchObject({
+      emptyModuleAxisPassthroughCount: 2,
+    });
     await expect(routeGraphTool(ctx, { projectRoot, queryKind: 'map' })).rejects.toThrow(
       /strict Graph\/Map session is missing/
     );
@@ -94,14 +172,44 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       certifiedFactsProvider: () => null,
       certifiedFactsRequired: () => true,
     });
-    await expect(moduleService.listCanonicalModules()).rejects.toThrow(
-      /strict module coverage is missing/
-    );
+    const moduleBypass = await captureRejection(moduleService.listCanonicalModules());
+    expect(readStrictBypassKinds(moduleBypass)).toEqual([
+      'direct-project-context',
+      'raw-filesystem',
+    ]);
+    expect(readStrictBypassCounters(moduleBypass)).toMatchObject({
+      directProjectContextCallCount: 1,
+      rawFilesystemFallbackCount: 1,
+    });
   });
 
-  test('native root+4 empty start conserves one artifact through all five loaded consumers and a fresh manager', async () => {
+  test('strict loaded Plan rejects synthetic ProjectScope before capture', async () => {
+    const projectRoot = createBareProjectWithoutScope();
+    const ctx = createLoadedContext(projectRoot);
+    const error = await captureRejection(
+      routePlanTool(ctx, {
+        generationStage: 'coldStart',
+        hints: { maxBudget: 64 },
+        operation: 'draft',
+        projectRoot,
+      })
+    );
+
+    expect(readStrictBypassKinds(error)).toEqual(['synthetic-project-scope']);
+    expect(readStrictBypassCounters(error)).toMatchObject({
+      synthesizedProjectScopeFactCount: 1,
+    });
+  });
+
+  test('native root+4 pristine I2 adapter chain conserves one artifact through all five loaded consumers and a fresh manager', async () => {
     const fixture = createNativeRootPlusFourProject();
     const { ctx, services } = createLoadedContextHarness(fixture.controlRoot);
+    expect(fs.existsSync(fixture.dataRoot)).toBe(false);
+    expect(
+      getOrCreateSessionManager(ctx.container).getAnySession(undefined, {
+        projectRoot: fixture.controlRoot,
+      })
+    ).toBeNull();
     const response = (await routePlanTool(ctx, {
       generationStage: 'coldStart',
       hints: { maxBudget: 256 },
@@ -123,6 +231,48 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
     const artifact = await new FileCertifiedProjectFactsStore(
       pluginCertifiedStoreRoot(fixture.dataRoot)
     ).open(planCarrier.artifactId as never, planCarrier.certificationBindingHash as never);
+    const scriptInventory = artifact.facts.inventory.files.find(
+      (file) => file.repoId === 'BiliDili' && file.relativePath === 'scripts/eligible-build.ts'
+    );
+    expect(scriptInventory).toMatchObject({
+      language: 'typescript',
+      relativePath: 'scripts/eligible-build.ts',
+      repoId: 'BiliDili',
+    });
+    expect(scriptInventory?.ownerModuleIds).toEqual([]);
+    expect(scriptInventory?.ownersV2).toEqual([]);
+    const frozenScript = artifact.facts.detail.frozenFiles?.find(
+      (file) => file.repoId === 'BiliDili' && file.relativePath === 'scripts/eligible-build.ts'
+    );
+    expect(frozenScript).toMatchObject({
+      blobHash: scriptInventory?.blobSha256,
+      status: 'frozen-blob-available',
+    });
+    expect(frozenScript?.fullChunkRefs).toContain(scriptInventory?.blobSha256);
+    expect(
+      artifact.chunks.some(
+        (chunk) => chunk.blobHash === frozenScript?.blobHash && chunk.byteLength > 0
+      )
+    ).toBe(true);
+    const scriptOutcome = artifact.facts.requestOutcomes.find(
+      (outcome) =>
+        (outcome.selector as { filePath?: unknown }).filePath === 'scripts/eligible-build.ts'
+    );
+    expect(scriptOutcome).toMatchObject({
+      language: 'typescript',
+      ownerSurfaceId: 'language:typescript:typescript',
+      repoId: 'BiliDili',
+      terminalStatus: 'completed',
+    });
+    expect(scriptOutcome?.sourceRanges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relativePath: 'scripts/eligible-build.ts',
+          repoId: 'BiliDili',
+        }),
+      ])
+    );
+    const baseArtifactHash = hashCanonicalJson(artifact);
     const exactTuples = artifact.manifest.sourceRevisionVector.entries.map((entry) => ({
       repoId: entry.repoId,
       relativeRoot: entry.relativeRoot,
@@ -160,7 +310,6 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       },
     });
     services.set('moduleService', moduleService);
-    expect((await moduleService.listCanonicalModules()).length).toBeGreaterThan(24);
 
     const runtime = await openAlembicDatabase(
       { path: path.join(fixture.dataRoot, 'alembic.db') },
@@ -204,7 +353,8 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       operation: 'confirm',
       plannedNextActions: [
         {
-          reason: 'Exercise the real strict empty-start cold-start entrypoint.',
+          reason:
+            'Exercise the strict pristine I2 adapter chain; I3 authorized rebuild remains pending.',
           tool: 'alembic_bootstrap',
         },
       ],
@@ -221,7 +371,7 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
         secondaryLanguages: stringArray(projectInfoTree.secondaryLanguages),
       },
       projectRoot: fixture.controlRoot,
-      rationale: 'Confirm the certified root+4 empty-start production path without fallback.',
+      rationale: 'Confirm the certified root+4 pristine I2 adapter path without fallback.',
       scale: {
         contentMaxLines: 120,
         depthLevels: ['project', 'module'],
@@ -308,6 +458,7 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       ).toBe('ready');
       expect(errorDiagnostics(graph)).toHaveLength(0);
       expect(JSON.stringify(graph)).not.toContain('scripts/audit');
+      expect((await moduleService.listCanonicalModules()).length).toBeGreaterThan(24);
 
       const recipeMap = await readTerminalRecipeMap(ctx, fixture.controlRoot);
       expect(
@@ -488,16 +639,76 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
         'dimension-completion',
       ])
     );
+    expect(
+      reloadedCarrier?.plugin?.instrumentation.filter((event) => event.kind === 'module-projection')
+    ).toHaveLength(5);
+    for (const consumer of [
+      'plan',
+      'recipe-generation',
+      'dependency-graph',
+      'module-coverage',
+      'dimension-completion',
+    ] as const) {
+      expect(reloadedCarrier?.receipts[consumer]).toMatchObject({
+        artifactId: planCarrier.artifactId,
+        certificationBindingHash: planCarrier.certificationBindingHash,
+        consumer,
+        factsContentHash: planCarrier.factsContentHash,
+        sourceVectorHash: planCarrier.sourceVectorHash,
+      });
+    }
+    const reopenedBaseArtifact = await new FileCertifiedProjectFactsStore(
+      pluginCertifiedStoreRoot(fixture.dataRoot)
+    ).open(planCarrier.artifactId as never, planCarrier.certificationBindingHash as never);
+    expect(hashCanonicalJson(reopenedBaseArtifact)).toBe(baseArtifactHash);
   }, 60_000);
 });
 
 function createProject(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-certified-empty-start-'));
   tempRoots.push(root);
+  process.env.ALEMBIC_HOME = root;
+  const runtimeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-certified-empty-data-'));
+  tempRoots.push(runtimeParent);
+  const sourceRoot = path.join(root, 'plugin-empty-start');
+  fs.mkdirSync(path.join(sourceRoot, 'src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(sourceRoot, 'package.json'),
+    JSON.stringify({ name: '@fixture/plugin-empty-start', type: 'module' }, null, 2)
+  );
+  fs.writeFileSync(path.join(sourceRoot, 'src/index.ts'), 'export const loaded = true;\n');
+  const descriptor = createProjectDescriptor({
+    controlRoot: root,
+    dataRoot: path.join(runtimeParent, 'project-data'),
+    displayName: 'Plugin Empty Start',
+    folders: [
+      {
+        displayName: 'plugin-empty-start',
+        id: 'folder-plugin-empty-start',
+        path: sourceRoot,
+        repositoryId: 'plugin-empty-start',
+        role: 'primary-source',
+      },
+    ],
+    projectId: 'plugin-empty-start',
+    projectScopeId: 'scope-plugin-empty-start',
+  });
+  fs.mkdirSync(path.join(root, '.asd'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, '.asd', PROJECT_SCOPE_REGISTRY_FILENAME),
+    JSON.stringify(createProjectScopeRegistryDocument([descriptor]), null, 2)
+  );
+  return root;
+}
+
+function createBareProjectWithoutScope(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-certified-synthetic-scope-'));
+  tempRoots.push(root);
+  process.env.ALEMBIC_HOME = root;
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(
     path.join(root, 'package.json'),
-    JSON.stringify({ name: '@fixture/plugin-empty-start', type: 'module' }, null, 2)
+    JSON.stringify({ name: '@fixture/plugin-synthetic-scope', type: 'module' }, null, 2)
   );
   fs.writeFileSync(path.join(root, 'src/index.ts'), 'export const loaded = true;\n');
   return root;
@@ -580,7 +791,16 @@ function createNativeRootPlusFourProject(): {
       `public struct ${repository.repoId}Runtime { public init() {} }\n`
     );
   }
-  const dataRoot = path.join(controlRoot, '.asd', 'workspaces', 'bili-dili');
+  writeProjectFile(
+    controlRoot,
+    'BiliDili/scripts/eligible-build.ts',
+    'export const buildTarget = "BiliDili";\n'
+  );
+  const runtimeParent = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'plugin-certified-root-plus-four-data-')
+  );
+  tempRoots.push(runtimeParent);
+  const dataRoot = path.join(runtimeParent, 'bili-dili');
   const descriptor = createProjectDescriptor({
     controlRoot,
     dataRoot,
@@ -669,6 +889,49 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+async function captureRejection(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error('Expected the strict entrypoint to fail closed.');
+}
+
+function readStrictBypassKinds(value: unknown): string[] {
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+  const events = (value as { strictBypassEvents?: unknown }).strictBypassEvents;
+  if (!Array.isArray(events)) {
+    return [];
+  }
+  return events
+    .flatMap((event) =>
+      event &&
+      typeof event === 'object' &&
+      typeof (event as { bypass?: unknown }).bypass === 'string'
+        ? [(event as { bypass: string }).bypass]
+        : []
+    )
+    .sort();
+}
+
+function readStrictBypassCounters(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  const counters = (value as { strictCounters?: unknown }).strictCounters;
+  if (!counters || typeof counters !== 'object' || Array.isArray(counters)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(counters).filter(
+      (entry): entry is [string, number] => typeof entry[1] === 'number'
+    )
+  );
 }
 
 function createCoverageLedgerRepository(): Record<string, unknown> {

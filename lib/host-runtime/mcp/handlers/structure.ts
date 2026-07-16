@@ -18,6 +18,7 @@ import type {
   ProjectContextProgressiveOutcome,
 } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import {
+  failPluginStrictBypasses,
   observePluginCertifiedLiveProbe,
   openPluginCertifiedFacts,
   PLUGIN_CERTIFIED_ENTRYPOINTS,
@@ -308,11 +309,16 @@ export async function resolveCertifiedGraphExecutionOptions(
     controlRoot: root,
     dataRoot,
   });
+  if (certifiedProbe.comparisonStatus !== 'matched' || certifiedProbe.blockingReasons.length > 0) {
+    failPluginStrictBypasses({
+      bypasses: ['direct-project-context'],
+      entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS['dependency-graph'],
+      message: `Loaded strict Graph/Map cannot bypass a stale certified source vector: ${certifiedProbe.blockingReasons.join(',') || certifiedProbe.comparisonStatus}`,
+    });
+  }
   return {
     ...options,
-    ...(certifiedProbe.comparisonStatus === 'matched' && certifiedProbe.blockingReasons.length === 0
-      ? { certifiedEnvelopes: projection.envelopes }
-      : {}),
+    certifiedEnvelopes: projection.envelopes,
     certifiedProbe,
   };
 }

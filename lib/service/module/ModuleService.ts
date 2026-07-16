@@ -30,6 +30,7 @@ import type {
 } from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import {
+  failPluginStrictBypasses,
   openPluginCertifiedProjection,
   PLUGIN_CERTIFIED_ENTRYPOINTS,
   type PluginCertifiedCarrier,
@@ -201,7 +202,11 @@ export class ModuleService {
   async load() {
     const certified = await this.#certifiedFactsProvider?.();
     if (!certified && this.#certifiedFactsRequired?.()) {
-      throw new TypeError('Loaded strict module coverage is missing its certified carrier.');
+      failPluginStrictBypasses({
+        bypasses: ['direct-project-context', 'raw-filesystem'],
+        entrypoint: PLUGIN_CERTIFIED_ENTRYPOINTS['module-coverage'],
+        message: 'Loaded strict module coverage is missing its certified carrier.',
+      });
     }
     if (certified) {
       const bindingKey = certifiedCarrierBindingKey(certified.carrier);

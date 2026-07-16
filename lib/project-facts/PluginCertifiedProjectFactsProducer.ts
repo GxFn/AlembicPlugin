@@ -18,33 +18,64 @@ import {
 import { resolveProjectScopeRuntime } from '../shared/project-scope-runtime.js';
 import {
   createPluginCertifiedCarrier,
+  failPluginStrictBypasses,
   type PluginCertifiedCarrier,
   pluginCertifiedStoreRoot,
 } from './PluginCertifiedProjectFactsRuntime.js';
 
-const PLUGIN_SOURCE_EXTENSIONS = [
-  '.c',
-  '.cpp',
-  '.cs',
-  '.dart',
-  '.go',
-  '.h',
-  '.java',
-  '.js',
-  '.jsx',
-  '.kt',
-  '.kts',
-  '.m',
-  '.mm',
-  '.mjs',
-  '.py',
-  '.rb',
-  '.rs',
-  '.swift',
-  '.ts',
-  '.tsx',
-  '.vue',
-] as const;
+// Keep this producer aligned byte-for-byte with Core's accepted
+// pcf-production-source-v1 policy. Plugin adds only nested-repository path
+// exclusions derived from the already accepted ProjectScope manifest.
+export const PLUGIN_CORE_ALIGNED_SOURCE_POLICY = {
+  excludeDirectories: [
+    '.build',
+    '.git',
+    '.swiftpm',
+    '.wakeflow-active',
+    '.wakeflow-local',
+    'DerivedData',
+    'build',
+    'coverage',
+    'dist',
+    'node_modules',
+    'vendor',
+    'xcuserdata',
+  ],
+  includeExtensions: [
+    '.c',
+    '.cc',
+    '.cpp',
+    '.cxx',
+    '.dart',
+    '.go',
+    '.gradle',
+    '.h',
+    '.hpp',
+    '.java',
+    '.js',
+    '.json',
+    '.jsx',
+    '.kt',
+    '.kts',
+    '.m',
+    '.md',
+    '.mm',
+    '.mjs',
+    '.pbxproj',
+    '.plist',
+    '.properties',
+    '.py',
+    '.rs',
+    '.swift',
+    '.toml',
+    '.ts',
+    '.tsx',
+    '.xml',
+    '.yaml',
+    '.yml',
+  ],
+  version: 'pcf-production-source-v1',
+} as const;
 
 export interface PluginCertifiedCaptureResult {
   carrier: PluginCertifiedCarrier;
@@ -58,7 +89,7 @@ export async function capturePluginCertifiedProjectFacts(input: {
   signal?: AbortSignal;
 }): Promise<PluginCertifiedCaptureResult> {
   const scope = createPluginScopeBinding(input.projectRoot);
-  const inventoryPolicy = inventoryPolicyForScope(scope.manifest.repositories);
+  const inventoryPolicy = inventoryPolicyForScope(scope.repositories, input.dataRoot);
   const hostPorts = new NodeProjectContextFoundationHostPorts(undefined, {
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
@@ -289,19 +320,11 @@ function readExternalDependencyName(message: string): string | null {
 function createPluginScopeBinding(projectRoot: string) {
   const nativeScope = resolveProjectScopeRuntime(projectRoot);
   if (!nativeScope) {
-    const controlRoot = fs.realpathSync.native(projectRoot);
-    const repoId = path.basename(controlRoot);
-    return buildProjectScopeManifestV1({
-      acceptedScope: {
-        projectIdentity: {
-          projectId: `plugin-project:${repoId}`,
-          scopeId: `plugin-scope:${repoId}`,
-        },
-        projectMode: 'plugin-single-repository',
-        repositories: [{ relativeRoot: '.', repoId }],
-      },
-      controlRoot,
-      sourceRoots: [{ repoId, sourceRoot: controlRoot }],
+    failPluginStrictBypasses({
+      bypasses: ['synthetic-project-scope'],
+      entrypoint:
+        'lib/project-facts/PluginCertifiedProjectFactsProducer.js#createPluginScopeBinding',
+      message: `Loaded strict Plugin capture requires an accepted native ProjectScope: ${projectRoot}`,
     });
   }
 
@@ -343,11 +366,12 @@ function createPluginScopeBinding(projectRoot: string) {
 }
 
 function inventoryPolicyForScope(
-  repositories: readonly { relativeRoot: string }[]
+  repositories: readonly { relativeRoot: string; sourceRoot: string }[],
+  dataRoot: string
 ): ProjectContextInventoryPolicyV1 {
   const excludeRelativePaths = [
-    ...new Set(
-      repositories.flatMap((parent) =>
+    ...new Set([
+      ...repositories.flatMap((parent) =>
         repositories.flatMap((child) => {
           if (parent === child) {
             return [];
@@ -360,27 +384,21 @@ function inventoryPolicyForScope(
             ? [child.relativeRoot.slice(prefix.length)]
             : [];
         })
-      )
-    ),
+      ),
+      ...repositories.flatMap((repository) => {
+        const relativeDataRoot = portableRelativeRoot(
+          path.relative(repository.sourceRoot, path.resolve(dataRoot))
+        );
+        return relativeDataRoot === '.' || relativeDataRoot.startsWith('../')
+          ? []
+          : [relativeDataRoot];
+      }),
+    ]),
   ].sort();
   return {
-    excludeDirectories: [
-      '.asd',
-      '.git',
-      '.next',
-      '.turbo',
-      '.build',
-      'DerivedData',
-      'Pods',
-      'build',
-      'coverage',
-      'dist',
-      'node_modules',
-      'scripts',
-      'vendor',
-    ],
-    includeExtensions: [...PLUGIN_SOURCE_EXTENSIONS],
-    version: 'alembic-plugin-source-inventory-v1',
+    excludeDirectories: [...PLUGIN_CORE_ALIGNED_SOURCE_POLICY.excludeDirectories],
+    includeExtensions: [...PLUGIN_CORE_ALIGNED_SOURCE_POLICY.includeExtensions],
+    version: PLUGIN_CORE_ALIGNED_SOURCE_POLICY.version,
     ...(excludeRelativePaths.length ? { excludeRelativePaths } : {}),
   };
 }
