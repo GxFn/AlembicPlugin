@@ -1,7 +1,11 @@
 import { existsSync } from 'node:fs';
 import { type ProjectLocation, projectLocationService } from './ProjectLocationService.js';
+import {
+  type ProjectRuntimePublicationProvenance,
+  resolvePublicKnowledgePublication,
+} from './StrictPublicKnowledgeResolver.js';
 
-const PROJECT_RUNTIME_CONTEXT_VERSION = 2;
+const PROJECT_RUNTIME_CONTEXT_VERSION = 3;
 
 export interface ProjectRuntimeLocationFacts {
   projectRoot: string;
@@ -39,6 +43,7 @@ export interface ProjectRuntimeContext {
   contractVersion: typeof PROJECT_RUNTIME_CONTEXT_VERSION;
   identity: ProjectRuntimeIdentity;
   location: ProjectRuntimeLocationFacts;
+  publication: ProjectRuntimePublicationProvenance;
 }
 
 export interface BuildProjectRuntimeContextOptions {
@@ -50,26 +55,29 @@ export function buildProjectRuntimeContext(
 ): ProjectRuntimeContext {
   const location = projectLocationService.resolve(options.projectRoot);
   const facts = location.resolver.toFacts();
+  const identity: ProjectRuntimeIdentity = {
+    currentFolderId: location.currentFolderId,
+    dataRoot: location.dataRoot,
+    dataRootSource: facts.dataRootSource,
+    databasePath: location.databasePath,
+    ghost: location.ghost,
+    mode: facts.mode,
+    projectExists: existsSync(location.projectRoot),
+    projectId: location.projectId,
+    projectRealpath: facts.projectRealpath,
+    projectRoot: location.projectRoot,
+    projectScope: facts.projectScope ?? null,
+    projectScopeId: location.projectScopeId,
+    registered: facts.registered,
+    runtimeDir: location.runtimeDir,
+    workspaceExists: facts.workspaceExists,
+  };
+  const publication = resolvePublicKnowledgePublication(identity).provenance;
   return {
     contractVersion: PROJECT_RUNTIME_CONTEXT_VERSION,
-    identity: {
-      currentFolderId: location.currentFolderId,
-      dataRoot: location.dataRoot,
-      dataRootSource: facts.dataRootSource,
-      databasePath: location.databasePath,
-      ghost: location.ghost,
-      mode: facts.mode,
-      projectExists: existsSync(location.projectRoot),
-      projectId: location.projectId,
-      projectRealpath: facts.projectRealpath,
-      projectRoot: location.projectRoot,
-      projectScope: facts.projectScope ?? null,
-      projectScopeId: location.projectScopeId,
-      registered: facts.registered,
-      runtimeDir: location.runtimeDir,
-      workspaceExists: facts.workspaceExists,
-    },
+    identity,
     location: serializableLocation(location),
+    publication,
   };
 }
 

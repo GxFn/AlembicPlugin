@@ -658,6 +658,8 @@ export const RecipeMapInput = z
     includeRollups: z.boolean().default(true),
     recipeMountLimit: z.number().int().min(0).max(200).optional(),
     nodeLimit: z.number().int().min(1).max(500).optional(),
+    servingCoverageOffset: z.number().int().min(0).max(1_000_000).optional(),
+    servingCoverageLimit: z.number().int().min(1).max(50).optional(),
   })
   .strict();
 export type RecipeMapInput = z.infer<typeof RecipeMapInput>;

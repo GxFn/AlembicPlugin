@@ -32,6 +32,7 @@ import {
   type RecipeSourceRefRow,
 } from '#service/project-knowledge-context/recipe-map/index.js';
 import type { ProjectContextContinuationPage } from '#service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
+import { resolvePublicKnowledgePublication } from '../../context/StrictPublicKnowledgeResolver.js';
 import { resolveCertifiedGraphExecutionOptions } from './structure.js';
 import { type McpContext, requireRequestProjectRuntime } from './types.js';
 
@@ -56,6 +57,8 @@ interface RecipeMapArgs {
   includeRollups?: boolean;
   recipeMountLimit?: number;
   nodeLimit?: number;
+  servingCoverageOffset?: number;
+  servingCoverageLimit?: number;
   [key: string]: unknown;
 }
 
@@ -136,7 +139,10 @@ export async function recipeMap(ctx: McpContext, args: RecipeMapArgs = {}) {
     projectRoot,
     ctx.projectContextExecution
   );
-  const deps = buildRecipeMapDeps(ctx, graphExecution);
+  const deps = buildRecipeMapDeps(ctx, graphExecution, {
+    limit: args.servingCoverageLimit,
+    offset: args.servingCoverageOffset,
+  });
   const output = execution
     ? await defaultRecipeMapProvider.resolveBoundedRecipeMap(request, deps)
     : await defaultRecipeMapProvider.resolveRecipeMap(request, deps);
@@ -577,7 +583,8 @@ function clampInt(value: number | undefined, fallback: number, min: number, max:
 
 function buildRecipeMapDeps(
   ctx: McpContext,
-  graphExecution: Parameters<typeof defaultProjectGraphProvider.resolveProjectContextRegion>[1]
+  graphExecution: Parameters<typeof defaultProjectGraphProvider.resolveProjectContextRegion>[1],
+  servingCoveragePage: { limit?: number; offset?: number }
 ): RecipeMapDeps {
   const resolveRegion: RecipeMapDeps['resolveRegion'] = (focus, projectRoot, radius, nodeLimit) =>
     defaultProjectGraphProvider.resolveProjectContextRegion(
@@ -586,6 +593,7 @@ function buildRecipeMapDeps(
     );
 
   const recipeContext = buildRecipeContextService(ctx);
+  const servingCoverage = strictServingCoverage(ctx, servingCoveragePage);
   const certifiedProbe = graphExecution?.certifiedProbe;
   const projectCoverage: RecipeMapDeps['projectCoverage'] = certifiedProbe
     ? {
@@ -604,6 +612,7 @@ function buildRecipeMapDeps(
   if (!recipeContext) {
     return {
       projectCoverage,
+      servingCoverage,
       resolveRegion,
       querySourceRefs: async () => ({
         rows: [],
@@ -623,6 +632,7 @@ function buildRecipeMapDeps(
 
   return {
     projectCoverage,
+    servingCoverage,
     resolveRegion,
     querySourceRefs: async (query) => {
       const envelope = await recipeContext.execute({
@@ -662,6 +672,48 @@ function buildRecipeMapDeps(
       }
       throw new Error('RecipeContext pagination exceeded the 10,000 page safety bound.');
     },
+  };
+}
+
+function strictServingCoverage(
+  ctx: McpContext,
+  page: { limit?: number; offset?: number }
+): RecipeMapDeps['servingCoverage'] {
+  const runtime = requireRequestProjectRuntime(ctx);
+  const publication = resolvePublicKnowledgePublication(runtime.identity);
+  runtime.publication = publication.provenance;
+  if (publication.state !== 'ready') {
+    return null;
+  }
+  const cells = [...publication.finalCoverage.cells].sort((left, right) =>
+    left.cellId.localeCompare(right.cellId)
+  );
+  const offset = Math.min(page.offset ?? 0, cells.length);
+  const limit = Math.min(50, Math.max(1, page.limit ?? 25));
+  const displayed = cells.slice(offset, offset + limit);
+  const count = (disposition: (typeof cells)[number]['finalDisposition']) =>
+    cells.filter((cell) => cell.finalDisposition === disposition).length;
+  const nextOffset = offset + displayed.length < cells.length ? offset + displayed.length : null;
+  const failed = count('failed');
+  const unknown = count('unknown');
+  return {
+    source: 'strict-publication-v1',
+    status: failed === 0 && unknown === 0 ? 'complete' : 'blocked',
+    snapshotId: publication.route.snapshotId,
+    receiptHash: publication.finalCoverage.receiptHash,
+    totalCells: cells.length,
+    coveredByReadyRecipe: count('covered-by-ready-recipe'),
+    investigatedEmpty: count('investigated-empty'),
+    failed,
+    unknown,
+    displayedCells: displayed.length,
+    remainingCells: Math.max(0, cells.length - offset - displayed.length),
+    cells: displayed.map((cell) => ({
+      cellId: cell.cellId,
+      finalDisposition: cell.finalDisposition,
+      finalRecipeCount: cell.finalRecipeIds.length,
+    })),
+    continuation: { offset, limit, nextOffset, hasMore: nextOffset !== null },
   };
 }
 

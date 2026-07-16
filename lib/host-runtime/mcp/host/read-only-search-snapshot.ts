@@ -9,7 +9,11 @@ import {
   statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
+import type {
+  StrictPublicationDataFile,
+  StrictVectorPublication,
+} from '../../context/StrictPublicKnowledgeResolver.js';
 
 const SNAPSHOT_PREFIX = 'alembic-search-read-';
 const MAX_SNAPSHOT_ATTEMPTS = 3;
@@ -28,6 +32,7 @@ export interface ReadOnlySearchSnapshot {
   dispose(): void;
   root: string;
   vectorIndexPath: string;
+  strictVector: StrictVectorPublication | null;
 }
 
 interface SnapshotSource {
@@ -48,34 +53,55 @@ interface SnapshotSource {
 export function createReadOnlySearchSnapshot(input: {
   dataRoot: string;
   databasePath: string;
+  strictPublication?: {
+    files: readonly StrictPublicationDataFile[];
+    vector: StrictVectorPublication;
+  };
 }): ReadOnlySearchSnapshot {
-  const vectorIndexPath = join(input.dataRoot, '.asd', 'context', 'index', 'vector_index.asvec');
-  const sources: SnapshotSource[] = [
-    {
-      destinationRelativePath: join('.asd', 'alembic.db'),
-      required: true,
-      sourcePath: input.databasePath,
-    },
-    {
-      destinationRelativePath: join('.asd', 'alembic.db-wal'),
-      sourcePath: `${input.databasePath}-wal`,
-    },
-    {
-      destinationRelativePath: join('.asd', 'config.json'),
-      sourcePath: join(input.dataRoot, '.asd', 'config.json'),
-    },
-    {
-      destinationRelativePath: join('.asd', 'context', 'index', 'vector_index.asvec'),
-      sourcePath: vectorIndexPath,
-    },
-  ];
-  const observedSources = [
-    ...sources,
-    {
-      destinationRelativePath: join('.asd', 'alembic.db-shm'),
-      sourcePath: `${input.databasePath}-shm`,
-    },
-  ];
+  const legacyVectorIndexPath = join(
+    input.dataRoot,
+    '.asd',
+    'context',
+    'index',
+    'vector_index.asvec'
+  );
+  const strictVectorRelativePath = input.strictPublication
+    ? relativeFile(input.dataRoot, input.strictPublication.vector.indexPath)
+    : null;
+  const sources: SnapshotSource[] = input.strictPublication
+    ? input.strictPublication.files.map((file) => ({
+        destinationRelativePath: file.relativePath,
+        required: true,
+        sourcePath: join(input.dataRoot, file.relativePath),
+      }))
+    : [
+        {
+          destinationRelativePath: join('.asd', 'alembic.db'),
+          required: true,
+          sourcePath: input.databasePath,
+        },
+        {
+          destinationRelativePath: join('.asd', 'alembic.db-wal'),
+          sourcePath: `${input.databasePath}-wal`,
+        },
+        {
+          destinationRelativePath: join('.asd', 'config.json'),
+          sourcePath: join(input.dataRoot, '.asd', 'config.json'),
+        },
+        {
+          destinationRelativePath: join('.asd', 'context', 'index', 'vector_index.asvec'),
+          sourcePath: legacyVectorIndexPath,
+        },
+      ];
+  const observedSources = input.strictPublication
+    ? sources
+    : [
+        ...sources,
+        {
+          destinationRelativePath: join('.asd', 'alembic.db-shm'),
+          sourcePath: `${input.databasePath}-shm`,
+        },
+      ];
 
   for (let attempt = 1; attempt <= MAX_SNAPSHOT_ATTEMPTS; attempt += 1) {
     const before = captureFingerprints(observedSources);
@@ -114,7 +140,10 @@ export function createReadOnlySearchSnapshot(input: {
         databasePath: join(dataRoot, '.asd', 'alembic.db'),
         dispose: () => rmSync(root, { force: true, recursive: true }),
         root,
-        vectorIndexPath: join(dataRoot, '.asd', 'context', 'index', 'vector_index.asvec'),
+        strictVector: input.strictPublication?.vector ?? null,
+        vectorIndexPath: strictVectorRelativePath
+          ? join(dataRoot, strictVectorRelativePath)
+          : join(dataRoot, '.asd', 'context', 'index', 'vector_index.asvec'),
       };
     } catch (err: unknown) {
       rmSync(root, { force: true, recursive: true });
@@ -125,6 +154,18 @@ export function createReadOnlySearchSnapshot(input: {
   throw new Error(
     `Read-only Search could not capture a stable DB/WAL/vector snapshot after ${MAX_SNAPSHOT_ATTEMPTS} attempts.`
   );
+}
+
+function relativeFile(root: string, target: string): string {
+  const relativePath = relative(root, target);
+  if (
+    !relativePath ||
+    isAbsolute(relativePath) ||
+    relativePath.split(/[\\/]/u).some((segment) => segment === '..')
+  ) {
+    throw new Error('STRICT_PUBLICATION_VECTOR_STORE_PATH_INVALID');
+  }
+  return relativePath;
 }
 
 function captureFingerprints(sources: readonly SnapshotSource[]): Record<string, FileFingerprint> {

@@ -15,12 +15,13 @@ import {
 } from '../../../recipe-pipeline/vector/LocalEmbedding.js';
 import { createReadOnlySearchRepositories } from '../../../repository/search/ReadOnlySearchServices.js';
 import { SearchInput } from '../../../shared/schemas/mcp-tools.js';
-import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { search } from '../handlers/search.js';
 import type { McpContext, McpServiceContainer, SearchArgs } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
 import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
+import { resolvePublicKnowledgeReadRoute } from './public-knowledge-read-route.js';
 import { ReadOnlyHnswVectorReader } from './read-only-hnsw-vector-reader.js';
+import { ReadOnlyJsonVectorReader } from './read-only-json-vector-reader.js';
 import {
   createReadOnlySearchSnapshot,
   type ReadOnlySearchSnapshot,
@@ -46,24 +47,33 @@ export async function executeReadOnlySearch(
     throw new Error('Request-scoped ProjectRuntimeContext is required for read-only Search.');
   }
   const identity = projectRuntime.identity;
-  SearchInput.parse(args);
+  const input = SearchInput.parse(args);
   const projectRoot = resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'));
-  const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
-  const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  if (!existsSync(databasePath)) {
+  const readRoute = resolvePublicKnowledgeReadRoute(projectRuntime);
+  if (readRoute.state === 'unavailable') {
     return createKnowledgeUnavailableResult('alembic_search', projectRuntime);
   }
-  const physicalIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
+  const dataRoot = resolve(readRoute.dataRoot);
+  const databasePath = resolve(readRoute.databasePath);
 
-  const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
+  const snapshot = createReadOnlySearchSnapshot({
+    dataRoot,
+    databasePath,
+    ...(readRoute.strictPublication ? { strictPublication: readRoute.strictPublication } : {}),
+  });
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
   let containerHandle: ReadOnlySearchContainerHandle | null = null;
   try {
     db.pragma('query_only = ON');
-    containerHandle = await createReadOnlySearchContainer(db, snapshot, {
-      dataRoot,
-      projectRoot,
-    });
+    containerHandle = await createReadOnlySearchContainer(
+      db,
+      snapshot,
+      {
+        dataRoot,
+        projectRoot,
+      },
+      input.mode !== 'keyword'
+    );
     process.stderr.write(
       `[MCP/Search] request-scoped snapshot route is read-only: projectRoot=${projectRoot} database=${databasePath}\n`
     );
@@ -87,11 +97,12 @@ export interface ReadOnlySearchContainerHandle {
 export async function createReadOnlySearchContainer(
   db: ReadOnlyDatabase,
   snapshot: ReadOnlySearchSnapshot,
-  identity: { dataRoot: string; projectRoot: string }
+  identity: { dataRoot: string; projectRoot: string },
+  requireStrictVector = true
 ): Promise<ReadOnlySearchContainerHandle> {
   const { knowledgeService } = createReadOnlySearchRepositories(db);
   const sparseEngine = new SearchEngine(db);
-  const vectorGraph = await createReadOnlyVectorGraph(snapshot);
+  const vectorGraph = await createReadOnlyVectorGraph(snapshot, requireStrictVector);
   const candidateRetriever = new HybridCandidateRetriever({
     embedding: vectorGraph.embedding,
     reader: vectorGraph.reader,
@@ -140,12 +151,31 @@ export async function createReadOnlySearchContainer(
 interface ReadOnlyVectorGraph {
   dispose(): void;
   embedding: EmbeddingPort | null;
-  reader: ReadOnlyHnswVectorReader | null;
+  reader: ReadOnlyHnswVectorReader | ReadOnlyJsonVectorReader | null;
 }
 
 async function createReadOnlyVectorGraph(
-  snapshot: ReadOnlySearchSnapshot
+  snapshot: ReadOnlySearchSnapshot,
+  requireStrictVector: boolean
 ): Promise<ReadOnlyVectorGraph> {
+  if (snapshot.strictVector) {
+    const reader = new ReadOnlyJsonVectorReader(
+      snapshot.vectorIndexPath,
+      snapshot.strictVector.dimension
+    );
+    const ids = await reader.listIds();
+    if (JSON.stringify(ids) !== JSON.stringify([...snapshot.strictVector.expectedIds].sort())) {
+      throw new Error('STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH');
+    }
+    const embedding = await resolveStrictEmbedding(snapshot.strictVector);
+    if (requireStrictVector && !embedding) {
+      throw new Error('STRICT_PUBLICATION_VECTOR_PROVIDER_UNAVAILABLE');
+    }
+    process.stderr.write(
+      `[MCP/Search] strict snapshot vector generation=${snapshot.strictVector.generationId} provider=${snapshot.strictVector.provider} model=${snapshot.strictVector.model}\n`
+    );
+    return { dispose: () => undefined, embedding, reader };
+  }
   if (!BinaryPersistence.isValid(snapshot.vectorIndexPath)) {
     process.stderr.write(
       '[MCP/Search] request snapshot has no valid HNSW index; local semantic lane is unavailable.\n'
@@ -165,6 +195,43 @@ async function createReadOnlyVectorGraph(
     embedding,
     reader,
   };
+}
+
+async function resolveStrictEmbedding(
+  vector: NonNullable<ReadOnlySearchSnapshot['strictVector']>
+): Promise<EmbeddingPort | null> {
+  if (vector.provider === 'fixture' && vector.model === 'fixture-embedding-v1') {
+    return {
+      describeCapabilities: () => ({
+        batchSupported: true,
+        dimension: 3,
+        formatProfile: 'symmetric',
+        inputKinds: ['query', 'document'],
+        model: 'fixture-embedding-v1',
+        normalization: 'not-normalized',
+        provider: 'fixture',
+      }),
+      embedDocuments: async (values) => values.map((value) => [Math.max(1, value.length), 1, 0]),
+      embedQuery: async (value) => [Math.max(1, value.length), 1, 0],
+    };
+  }
+  const localEmbedding = resolveLocalEmbeddingConfig(undefined);
+  const selected = await selectLocalEmbedLane(localEmbedding);
+  if (!selected.provider) {
+    return null;
+  }
+  const embedding = asEmbeddingPort(selected.provider);
+  const descriptor = embedding.describeCapabilities();
+  if (
+    descriptor.provider !== vector.provider ||
+    descriptor.model !== vector.model ||
+    descriptor.dimension !== vector.dimension ||
+    descriptor.formatProfile !== vector.formatProfile ||
+    descriptor.normalization !== vector.normalization
+  ) {
+    throw new Error('STRICT_PUBLICATION_VECTOR_PROVIDER_MISMATCH');
+  }
+  return embedding;
 }
 
 function readVectorConfig(configPath: string): unknown {

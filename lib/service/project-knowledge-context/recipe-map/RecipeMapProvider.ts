@@ -65,6 +65,7 @@ export interface RecipeMapDeps {
     } | null;
     status: 'unavailable' | 'partial' | 'complete';
   };
+  servingCoverage?: AlembicRecipeMapOutput['servingCoverage'];
 }
 
 const DEFAULT_REF_LIMIT = 80;
@@ -178,6 +179,7 @@ export class RecipeMapProvider {
       },
       projectCoverageStatus: deps.projectCoverage?.status ?? 'unavailable',
       finalCoverageReceipt: deps.projectCoverage?.finalCoverageReceipt ?? null,
+      servingCoverage: deps.servingCoverage ?? null,
       diagnostics: boundedDiagnostics,
       nextActions: buildNextActions(request, displayedMounts, boundedDiagnostics),
       limits: {

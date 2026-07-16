@@ -1,14 +1,13 @@
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { createReadOnlyRecipeMapRepositories } from '../../../repository/recipe-map/ReadOnlyRecipeMapServices.js';
 import type { ProjectContextBuildSessionManager } from '../../../service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { RecipeMapInput } from '../../../shared/schemas/mcp-tools.js';
-import { projectLocationService } from '../../context/ProjectLocationService.js';
 import { recipeMap } from '../handlers/recipe-map.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
 import { createKnowledgeUnavailableResult } from './knowledge-unavailable-result.js';
+import { resolvePublicKnowledgeReadRoute } from './public-knowledge-read-route.js';
 import { createReadOnlySearchSnapshot } from './read-only-search-snapshot.js';
 
 /**
@@ -30,14 +29,18 @@ export async function executeReadOnlyRecipeMap(
   const identity = projectRuntime.identity;
   RecipeMapInput.parse(args);
   const projectRoot = resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'));
-  const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));
-  const databasePath = resolve(requireIdentityPath(identity.databasePath, 'databasePath'));
-  if (!existsSync(databasePath)) {
+  const readRoute = resolvePublicKnowledgeReadRoute(projectRuntime);
+  if (readRoute.state === 'unavailable') {
     return createKnowledgeUnavailableResult('alembic_recipe_map', projectRuntime);
   }
-  const physicalIdentity = projectLocationService.confineExistingDatabase(dataRoot, databasePath);
+  const dataRoot = resolve(readRoute.dataRoot);
+  const databasePath = resolve(readRoute.databasePath);
 
-  const snapshot = createReadOnlySearchSnapshot(physicalIdentity);
+  const snapshot = createReadOnlySearchSnapshot({
+    dataRoot,
+    databasePath,
+    ...(readRoute.strictPublication ? { strictPublication: readRoute.strictPublication } : {}),
+  });
   const db = new Database(snapshot.databasePath, { fileMustExist: true, readonly: true });
   try {
     db.pragma('query_only = ON');

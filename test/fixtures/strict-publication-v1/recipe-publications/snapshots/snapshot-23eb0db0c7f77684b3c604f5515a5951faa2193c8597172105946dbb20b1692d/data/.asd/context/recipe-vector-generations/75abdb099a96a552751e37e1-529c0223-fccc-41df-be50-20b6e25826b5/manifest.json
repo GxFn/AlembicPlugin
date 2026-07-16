@@ -1,0 +1,82 @@
+{
+  "manifestVersion": 1,
+  "projectionSchemaVersion": "1",
+  "vectorSchemaVersion": 2,
+  "provider": "fixture",
+  "model": "fixture-embedding-v1",
+  "dimension": 3,
+  "formatProfile": "symmetric",
+  "normalization": "not-normalized",
+  "corpusFingerprint": "a3b34f31e2a3dce4aba419b89588de1815fe62bea1bfcc51466a634ecf252ead",
+  "corpusHash": "a3b34f31e2a3dce4aba419b89588de1815fe62bea1bfcc51466a634ecf252ead",
+  "generationId": "75abdb099a96a552751e37e1-529c0223-fccc-41df-be50-20b6e25826b5",
+  "status": "ready",
+  "createdFrom": "full-build",
+  "manifestHash": "75abdb099a96a552751e37e1596996e567f5b9d4524e35eb6b3c8447b68548f4",
+  "recipeCount": 6,
+  "documentCount": 24,
+  "expectedIds": [
+    "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_applicability_ps1_guidance_230af4208f34c3ce7e4143b6",
+    "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_architectureConvention_ps1_implementation_8904244566f7ffb50ef61c74",
+    "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_identity_ps1_intent_fff85b286293a2f396d4b348",
+    "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_rationale_ps1_rationale_836e9c522a65a190eb90cac6",
+    "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_applicability_ps1_guidance_a486bb89f593cffcdc1304fc",
+    "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_architectureConvention_ps1_implementation_17fe86df005de202107bbedc",
+    "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_identity_ps1_intent_b062fa608de47c3c764a18bb",
+    "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_rationale_ps1_rationale_0c9f06d30997496728b01e19",
+    "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_applicability_ps1_guidance_5a38f09832599e6c6f5592f5",
+    "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_architectureConvention_ps1_implementation_40ab3e7324db3bbe1b8ae151",
+    "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_identity_ps1_intent_33a04580641f3bae09b78106",
+    "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_rationale_ps1_rationale_22fb8803bdf5830bd3045a6d",
+    "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_applicability_ps1_guidance_21a121955a7b94b74e468bd5",
+    "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_architectureConvention_ps1_implementation_cd80e75decbc373d5e4b5289",
+    "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_identity_ps1_intent_f3b7e75af6ae98d2fe6d2aa4",
+    "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_rationale_ps1_rationale_f112b68f4dd36059076eeca3",
+    "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_applicability_ps1_guidance_f3e8e213c9c2e6298be58b29",
+    "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_architectureConvention_ps1_implementation_2f45bcae1845e043692687cc",
+    "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_identity_ps1_intent_3109159f1d39386ffdfc8cf8",
+    "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_rationale_ps1_rationale_69afde4803e226834212b067",
+    "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_applicability_ps1_guidance_4971376a3b74a1bc9240c780",
+    "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_architectureConvention_ps1_implementation_a1f10a3ccf49136f8c58031c",
+    "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_identity_ps1_intent_3d00624ff9a0479d4a2c2d08",
+    "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_rationale_ps1_rationale_65f112f4bfc1ca49924e403d"
+  ],
+  "expectedIdsByRecipe": {
+    "4aa3c7c6-a54d-51dc-8c59-1a730642ad4a": [
+      "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_applicability_ps1_guidance_230af4208f34c3ce7e4143b6",
+      "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_architectureConvention_ps1_implementation_8904244566f7ffb50ef61c74",
+      "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_identity_ps1_intent_fff85b286293a2f396d4b348",
+      "recipe_region_4aa3c7c6-a54d-51dc-8c59-1a730642ad4a_rationale_ps1_rationale_836e9c522a65a190eb90cac6"
+    ],
+    "5be6616f-850b-58d3-96df-1bc94758adfb": [
+      "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_applicability_ps1_guidance_a486bb89f593cffcdc1304fc",
+      "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_architectureConvention_ps1_implementation_17fe86df005de202107bbedc",
+      "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_identity_ps1_intent_b062fa608de47c3c764a18bb",
+      "recipe_region_5be6616f-850b-58d3-96df-1bc94758adfb_rationale_ps1_rationale_0c9f06d30997496728b01e19"
+    ],
+    "5d649a2f-c655-5b0b-8208-34d746ac6458": [
+      "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_applicability_ps1_guidance_5a38f09832599e6c6f5592f5",
+      "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_architectureConvention_ps1_implementation_40ab3e7324db3bbe1b8ae151",
+      "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_identity_ps1_intent_33a04580641f3bae09b78106",
+      "recipe_region_5d649a2f-c655-5b0b-8208-34d746ac6458_rationale_ps1_rationale_22fb8803bdf5830bd3045a6d"
+    ],
+    "8d780b34-c413-522f-a101-a68d5b9084d9": [
+      "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_applicability_ps1_guidance_21a121955a7b94b74e468bd5",
+      "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_architectureConvention_ps1_implementation_cd80e75decbc373d5e4b5289",
+      "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_identity_ps1_intent_f3b7e75af6ae98d2fe6d2aa4",
+      "recipe_region_8d780b34-c413-522f-a101-a68d5b9084d9_rationale_ps1_rationale_f112b68f4dd36059076eeca3"
+    ],
+    "ca76beec-31a0-58fe-b21d-175aa2c2e6c1": [
+      "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_applicability_ps1_guidance_f3e8e213c9c2e6298be58b29",
+      "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_architectureConvention_ps1_implementation_2f45bcae1845e043692687cc",
+      "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_identity_ps1_intent_3109159f1d39386ffdfc8cf8",
+      "recipe_region_ca76beec-31a0-58fe-b21d-175aa2c2e6c1_rationale_ps1_rationale_69afde4803e226834212b067"
+    ],
+    "f7493877-45f6-5f94-be81-a349fcf5db79": [
+      "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_applicability_ps1_guidance_4971376a3b74a1bc9240c780",
+      "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_architectureConvention_ps1_implementation_a1f10a3ccf49136f8c58031c",
+      "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_identity_ps1_intent_3d00624ff9a0479d4a2c2d08",
+      "recipe_region_f7493877-45f6-5f94-be81-a349fcf5db79_rationale_ps1_rationale_65f112f4bfc1ca49924e403d"
+    ]
+  }
+}

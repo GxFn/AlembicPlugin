@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import type { ProjectContextBuildSessionManager } from '../../../service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import { GraphInput } from '../../../shared/schemas/mcp-tools.js';
+import { resolvePublicKnowledgePublication } from '../../context/StrictPublicKnowledgeResolver.js';
 import { graph } from '../handlers/structure.js';
 import type { McpContext, McpServiceContainer } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
@@ -19,6 +20,8 @@ export async function executeReadOnlyGraph(
     throw new Error('Request-scoped ProjectRuntimeContext is required for read-only Graph.');
   }
   const identity = projectRuntime.identity;
+  const publication = resolvePublicKnowledgePublication(identity);
+  projectRuntime.publication = publication.provenance;
   GraphInput.parse(args);
   const projectRoot = resolve(requireIdentityPath(identity.projectRoot, 'projectRoot'));
   const dataRoot = resolve(requireIdentityPath(identity.dataRoot, 'dataRoot'));

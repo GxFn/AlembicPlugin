@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "strict-publication-v1",
+  "purpose": "I8 Plugin compatibility only; not MR5, SP, BiliDili, or T6 evidence",
+  "source": {
+    "alembicCoreCommit": "d4de7edd6bbfaeb36a01b3cc243ba1617c001f65",
+    "alembicMainCommit": "5a92ec24c24ba0992515fae884a510dc6c0a61f4",
+    "producerTest": "test/integration/StrictRecipePipelineFacade.integration.test.ts",
+    "producerEvidence": "i7-i8-alembic-main-public-serving-bundle-rootcause1-t1"
+  },
+  "publication": {
+    "fileCount": 21,
+    "pathRelativeSha256ListHash": "sha256:3548600f77d64b46e9e52bd40827e4d69b24906a190b36a9d65a3c4db66ecba1",
+    "markerHash": "sha256:af6e19695dbef90189aac62cd0f5039c16b76c9f823182bfb6c66257d49ecfe3",
+    "routeBytesHash": "sha256:bdeedfd5a0e1e5f1c800d4bcc6a2983e21433a51c277b5fdd0a180428b84ff30",
+    "snapshotId": "snapshot-23eb0db0c7f77684b3c604f5515a5951faa2193c8597172105946dbb20b1692d",
+    "servingSnapshotManifestHash": "sha256:6c4768d41904f39e3987fe4c97a84d5656b016de5d0be3898b3e737cc412bcd8",
+    "finalCoverageBindingHash": "sha256:8d50b0a1820f94db3fe75a627e2c663bd384a5c0cb2973e5e4951339d140656a",
+    "vectorGenerationId": "75abdb099a96a552751e37e1-529c0223-fccc-41df-be50-20b6e25826b5",
+    "vectorManifestHash": "75abdb099a96a552751e37e1596996e567f5b9d4524e35eb6b3c8447b68548f4"
+  }
+}

@@ -248,6 +248,47 @@ export const AlembicRecipeMapOutputSchema = z
       })
       .strict()
       .nullable(),
+    servingCoverage: z
+      .object({
+        source: z.literal('strict-publication-v1'),
+        status: z.enum(['complete', 'blocked']),
+        snapshotId: z.string().regex(/^snapshot-[a-f0-9]{64}$/),
+        receiptHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        totalCells: z.number().int().nonnegative(),
+        coveredByReadyRecipe: z.number().int().nonnegative(),
+        investigatedEmpty: z.number().int().nonnegative(),
+        failed: z.number().int().nonnegative(),
+        unknown: z.number().int().nonnegative(),
+        displayedCells: z.number().int().nonnegative(),
+        remainingCells: z.number().int().nonnegative(),
+        cells: z
+          .array(
+            z
+              .object({
+                cellId: z.string().min(1).max(500),
+                finalDisposition: z.enum([
+                  'covered-by-ready-recipe',
+                  'investigated-empty',
+                  'failed',
+                  'unknown',
+                ]),
+                finalRecipeCount: z.number().int().nonnegative(),
+              })
+              .strict()
+          )
+          .max(50),
+        continuation: z
+          .object({
+            offset: z.number().int().nonnegative(),
+            limit: z.number().int().min(1).max(50),
+            nextOffset: z.number().int().nonnegative().nullable(),
+            hasMore: z.boolean(),
+          })
+          .strict(),
+      })
+      .strict()
+      .nullable()
+      .default(null),
     diagnostics: z.array(MapDiagnosticSchema).max(200),
     nextActions: z.array(MapNextActionSchema).max(20),
     continuation: ProjectContextContinuationSchema.optional(),

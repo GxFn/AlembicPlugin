@@ -206,7 +206,16 @@ function attachExecutionContext(
   }
   const record = result as Record<string, unknown>;
   if (isCleanMcpResponse(record)) {
-    return record;
+    const publication = publicationForResult(record, executionContext);
+    return {
+      ...record,
+      _meta: {
+        ...(record._meta && typeof record._meta === 'object' && !Array.isArray(record._meta)
+          ? (record._meta as Record<string, unknown>)
+          : {}),
+        alembicPublication: publication,
+      },
+    };
   }
   const data =
     record.data && typeof record.data === 'object' && !Array.isArray(record.data)
@@ -216,7 +225,47 @@ function attachExecutionContext(
     executionContext.projectRuntime && !Object.hasOwn(data, 'projectRuntime')
       ? { projectRuntime: executionContext.projectRuntime }
       : {};
+  const publication = publicationForResult(record, executionContext);
   return Object.keys(projectRuntimePatch).length > 0
-    ? { ...record, data: { ...data, ...projectRuntimePatch } }
-    : result;
+    ? {
+        ...record,
+        _meta: { alembicPublication: publication },
+        data: { ...data, ...projectRuntimePatch },
+      }
+    : { ...record, _meta: { alembicPublication: publication } };
+}
+
+function publicationForResult(
+  result: Record<string, unknown>,
+  executionContext: ToolExecutionContext
+): ProjectRuntimeContext['publication'] | null {
+  const projectRuntime = executionContext.projectRuntime;
+  if (!projectRuntime) {
+    return null;
+  }
+  const publication = projectRuntime.publication;
+  if (publication.mode !== 'strict-v1' || publication.routeState !== 'ready') {
+    return publication;
+  }
+  const structured = asRecord(result.structuredContent);
+  const meta = asRecord(structured?.meta);
+  const projectContext = asRecord(meta?.projectContext);
+  const liveProbe = asRecord(projectContext?.liveProbeReceipt);
+  const observed =
+    typeof liveProbe?.observedSourceVectorHash === 'string'
+      ? liveProbe.observedSourceVectorHash
+      : null;
+  if (!observed || !publication.sourceRevisionVectorHash) {
+    return publication;
+  }
+  const sourceRevisionMatch =
+    observed === publication.sourceRevisionVectorHash ? 'matched' : 'mismatched';
+  projectRuntime.publication = { ...publication, sourceRevisionMatch };
+  return projectRuntime.publication;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
