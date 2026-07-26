@@ -6,9 +6,18 @@ import {
   createProjectScopeRegistryDocument,
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, test } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
+import { HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
 import { EmbeddedToolExecutor } from '../../lib/host-runtime/mcp/host/embedded-executor.js';
+import {
+  AgentPrimeOutputSchema,
+  AgentWorkOutputSchema,
+} from '../../lib/host-runtime/mcp/public-tools/output.js';
 
 const FIXTURE_ROOT = path.resolve('test/fixtures/strict-publication-v1/recipe-publications');
 const SNAPSHOT_ID = 'snapshot-23eb0db0c7f77684b3c604f5515a5951faa2193c8597172105946dbb20b1692d';
@@ -24,6 +33,151 @@ afterEach(() => {
 });
 
 describe('strict-publication-v1 formal five-tool compatibility', () => {
+  test('transports all five formal tools and Work with legal publication metadata', async () => {
+    const fixture = installFixture();
+    const transport = await openHostTransport(fixture.projectRoot);
+    try {
+      const calls: Array<[string, Record<string, unknown>]> = [
+        [
+          'alembic_search',
+          { operation: 'search', query: 'strict result boundary', mode: 'semantic', limit: 3 },
+        ],
+        ['alembic_prime', { query: 'strict result boundary', limit: 3 }],
+        ['alembic_recipe_map', { focus: { kind: 'space' }, nodeLimit: 40, recipeMountLimit: 20 }],
+        [
+          'alembic_code_guard',
+          {
+            operation: 'check',
+            code: 'export function strictResult(value: string): string { return value; }',
+            language: 'typescript',
+          },
+        ],
+        ['alembic_graph', { queryKind: 'stats', budget: { itemLimit: 80 } }],
+      ];
+      const results: Record<string, Awaited<ReturnType<Client['callTool']>>> = {};
+      for (const [name, args] of calls) {
+        const result = await transport.client.callTool({ name, arguments: args });
+        expect(CallToolResultSchema.parse(result), name).toBeTruthy();
+        expect(result.isError, name).not.toBe(true);
+        expect(readPublicationMeta(result), name).toMatchObject({
+          mode: 'strict-v1',
+          routeState: 'ready',
+          snapshotId: SNAPSHOT_ID,
+        });
+        expect(asRecord(result.structuredContent), name).not.toHaveProperty('_meta');
+        results[name] = result;
+      }
+      const prime = results.alembic_prime;
+      expect(CallToolResultSchema.parse(prime)).toBeTruthy();
+      expect(AgentPrimeOutputSchema.parse(prime.structuredContent)).toMatchObject({
+        ok: true,
+        toolName: 'alembic_prime',
+      });
+
+      const work = await transport.client.callTool({
+        name: 'alembic_work',
+        arguments: {
+          phase: 'start',
+          title: 'Verify MCP publication transport',
+          workScope: {
+            goal: 'Keep clean structured payloads separate from transport metadata.',
+            files: ['src/index.ts'],
+          },
+        },
+      });
+      expect(CallToolResultSchema.parse(work)).toBeTruthy();
+      expect(AgentWorkOutputSchema.parse(work.structuredContent)).toMatchObject({
+        ok: true,
+        toolName: 'alembic_work',
+      });
+      expect(readPublicationMeta(work)).toMatchObject({
+        mode: 'strict-v1',
+        routeState: 'ready',
+        snapshotId: SNAPSHOT_ID,
+      });
+      expect(asRecord(work.structuredContent)).not.toHaveProperty('_meta');
+    } finally {
+      await transport.close();
+    }
+  }, 30_000);
+
+  test('keeps route-null failures and live Graph schema-legal across tools/call transport', async () => {
+    const fixture = installFixture();
+    fs.rmSync(path.join(fixture.dataRoot, '.asd/context/recipe-publications/active.json'));
+    const transport = await openHostTransport(fixture.projectRoot);
+    try {
+      for (const [name, args] of [
+        ['alembic_search', { query: 'strict' }],
+        ['alembic_prime', { query: 'strict' }],
+        ['alembic_recipe_map', {}],
+        ['alembic_code_guard', { operation: 'check', code: 'const strict = true;' }],
+      ] as Array<[string, Record<string, unknown>]>) {
+        const result = await transport.client.callTool({ name, arguments: args });
+        expect(CallToolResultSchema.parse(result), name).toBeTruthy();
+        expect(result.isError, name).toBe(true);
+        expect(asRecord(result.structuredContent), name).toMatchObject({ ok: false });
+        expect(readPublicationMeta(result), name).toMatchObject({
+          mode: 'strict-v1',
+          routeState: 'unavailable',
+        });
+        expect(asRecord(result.structuredContent), name).not.toHaveProperty('_meta');
+      }
+
+      const graph = await transport.client.callTool({
+        name: 'alembic_graph',
+        arguments: {
+          queryKind: 'file-symbols',
+          filePath: 'src/index.ts',
+          budget: { itemLimit: 80 },
+        },
+      });
+      expect(CallToolResultSchema.parse(graph)).toBeTruthy();
+      expect(graph.isError).not.toBe(true);
+      expect(JSON.stringify(graph.structuredContent)).toContain('src/index.ts');
+      expect(readPublicationMeta(graph)).toMatchObject({
+        mode: 'strict-v1',
+        routeState: 'unavailable',
+      });
+      expect(asRecord(graph.structuredContent)).not.toHaveProperty('_meta');
+    } finally {
+      await transport.close();
+    }
+  }, 30_000);
+
+  test('keeps corrupt-publication failures schema-legal across tools/call transport', async () => {
+    const fixture = installFixture();
+    fs.rmSync(
+      path.join(
+        fixture.dataRoot,
+        '.asd/context/recipe-publications',
+        SNAPSHOT_PATH,
+        'data/.asd/alembic.db'
+      )
+    );
+    const transport = await openHostTransport(fixture.projectRoot);
+    try {
+      for (const [name, args] of [
+        ['alembic_search', { query: 'strict' }],
+        ['alembic_prime', { query: 'strict' }],
+        ['alembic_recipe_map', {}],
+        ['alembic_code_guard', { operation: 'check', code: 'const strict = true;' }],
+      ] as Array<[string, Record<string, unknown>]>) {
+        const result = await transport.client.callTool({ name, arguments: args });
+        expect(CallToolResultSchema.parse(result), name).toBeTruthy();
+        expect(result.isError, name).toBe(true);
+        expect(asRecord(result.structuredContent), name).toMatchObject({ ok: false });
+        expect(readPublicationMeta(result), name).toMatchObject({
+          mode: 'strict-v1',
+          routeState: 'ready',
+          snapshotId: SNAPSHOT_ID,
+        });
+        expect(asRecord(result.structuredContent), name).not.toHaveProperty('_meta');
+      }
+    } finally {
+      await transport.close();
+    }
+  }, 30_000);
+
   test('routes all five formal tools through one accepted publication and keeps calls read-only', async () => {
     const fixture = installFixture();
     const before = fingerprintTree(fixture.dataRoot);
@@ -285,4 +439,32 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function readPublicationMeta(result: unknown): Record<string, unknown> | null {
+  return asRecord(asRecord(asRecord(result)?._meta)?.alembicPublication);
+}
+
+async function openHostTransport(projectRoot: string): Promise<{
+  client: Client;
+  close(): Promise<void>;
+}> {
+  const host = new HostMcpServer({ projectRoot });
+  host.sdkServer = new SdkMcpServer(
+    { name: 'strict-publication-host-test', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+  );
+  host.registerHandlers();
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'strict-publication-client-test', version: '1.0.0' });
+  await host.sdkServer.connect(serverTransport);
+  await client.connect(clientTransport);
+  await client.listTools();
+  return {
+    client,
+    async close(): Promise<void> {
+      await client.close();
+      await host.shutdown();
+    },
+  };
 }

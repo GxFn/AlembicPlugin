@@ -23,6 +23,7 @@ import {
   AgentPublicToolRefsSchema,
   type AgentPublicToolResultEnvelope,
   AgentResultStatusSchema,
+  createAgentPublicToolResultEnvelope,
   createPrimePublicPackage,
   PrimePublicPackageSchema,
 } from './contract.js';
@@ -966,7 +967,73 @@ function describePayloadType(
 
 function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolName) {
   const schema = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[toolName];
-  return schema.parse(input);
+  const parsed = schema.safeParse(input);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  const record = asRecord(input);
+  const data = asRecord(record.data);
+  const unavailable = data.status === 'unavailable';
+  const failed = record.success === false;
+  if (!unavailable && !failed) {
+    throw parsed.error;
+  }
+  const summary =
+    stringFrom(record.message, 600) ??
+    `${toolName} ${unavailable ? 'is unavailable' : 'failed before producing a public result'}.`;
+  const result = createAgentPublicToolResultEnvelope({
+    actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
+    agentHost: 'codex',
+    inputSource: 'tool-result',
+    reason: {
+      kind: 'failure',
+      code: 'handler-error',
+      message: summary,
+      retryable: false,
+    },
+    refs: { detailRefs: [] },
+    status: 'failed',
+    summary,
+    toolName,
+  });
+  const diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
+  const payload: Record<string, unknown> = { diagnostics };
+  if (toolName === 'alembic_prime') {
+    Object.assign(payload, {
+      detailRefs: [],
+      nextActions: [],
+      primePackage: createPrimePublicPackage({
+        compactPackage: {
+          acceptedGuards: [],
+          acceptedKnowledge: [],
+          candidateRecipeIds: [],
+          counts: {
+            acceptedGuards: 0,
+            acceptedKnowledge: 0,
+            detailRefs: 0,
+            omittedFromCompact: 0,
+          },
+          detailRefsMode: 'ref-based',
+          evidenceDelivery: 'detailRefs-and-primeKnowledgeMaterial',
+        },
+        kind: 'PrimePublicPackage',
+        primeRef: 'prime-unavailable',
+        projectContextGuidance: {
+          boundary: summary,
+          projectContextRefs: [],
+          recommendedQueries: [],
+          recommendedTools: [],
+          sourceEvidenceRefs: [],
+          status: 'degraded',
+        },
+        reason: result.reason,
+        refs: result.refs,
+        status: result.status,
+        summary: result.summary,
+      }),
+    });
+  }
+  return schema.parse(createAgentPublicToolOutput(result, payload));
 }
 
 for (const toolName of AGENT_PUBLIC_TOOL_NAMES) {

@@ -197,9 +197,13 @@ export function createCleanMcpErrorResponse(input: {
   );
 }
 
-export function createMcpStructuredToolResult(response: CleanMcpResponse): CallToolResult {
+export function createMcpStructuredToolResult(
+  response: CleanMcpResponse,
+  transportMeta?: CallToolResult['_meta']
+): CallToolResult {
   const parsed = CleanMcpResponseSchema.parse(response);
   return {
+    ...(transportMeta ? { _meta: transportMeta } : {}),
     structuredContent: parsed,
     content: [{ type: 'text', text: parsed.summary }],
     isError: parsed.ok ? undefined : true,
@@ -216,15 +220,19 @@ export function serializeMcpToolResult(
   if (isMcpCallToolResult(value)) {
     return value;
   }
-  const projected = projectMcpToolOutput(toolName, value);
+  const { payload, transportMeta } = splitMcpTransportMetadata(value);
+  const projected = projectMcpToolOutput(toolName, payload);
   if (projected) {
-    return createMcpStructuredToolResult(projected);
+    return createMcpStructuredToolResult(projected, transportMeta);
   }
-  if (isCleanMcpResponse(value)) {
-    return createMcpStructuredToolResult(value);
+  if (isCleanMcpResponse(payload)) {
+    return createMcpStructuredToolResult(payload, transportMeta);
   }
-  if (options.isErrorResult(value)) {
-    return createMcpStructuredToolResult(projectLegacyErrorAsCleanResponse(toolName, value));
+  if (options.isErrorResult(payload)) {
+    return createMcpStructuredToolResult(
+      projectLegacyErrorAsCleanResponse(toolName, payload),
+      transportMeta
+    );
   }
   return createMcpStructuredToolResult(
     createCleanMcpErrorResponse({
@@ -233,8 +241,32 @@ export function serializeMcpToolResult(
       message: `No clean MCP output projector is registered for ${toolName}.`,
       status: 'blocked',
       toolName,
-    })
+    }),
+    transportMeta
   );
+}
+
+function splitMcpTransportMetadata(value: unknown): {
+  payload: unknown;
+  transportMeta?: CallToolResult['_meta'];
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { payload: value };
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    !Object.hasOwn(record, '_meta') ||
+    !record._meta ||
+    typeof record._meta !== 'object' ||
+    Array.isArray(record._meta)
+  ) {
+    return { payload: value };
+  }
+  const { _meta: transportMeta, ...payload } = record;
+  return {
+    payload,
+    transportMeta: transportMeta as CallToolResult['_meta'],
+  };
 }
 
 export function withMcpOutputSchema<T extends { name: string; outputSchema?: unknown }>(

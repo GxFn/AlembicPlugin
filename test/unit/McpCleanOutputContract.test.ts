@@ -170,6 +170,54 @@ describe('MCP clean output contract foundation', () => {
     }
   });
 
+  test('moves only protocol _meta from a projected payload to CallToolResult metadata', () => {
+    const outputSchema = CleanMcpResponseBaseSchema.extend({
+      result: z.object({ count: z.number().int().min(0) }).strict(),
+    }).strict();
+    const unregister = registerMcpOutputProjector({
+      outputSchema,
+      outputSchemaName: 'TransportMetadataTestOutput',
+      projectorName: 'transport-metadata-test-projector',
+      toolName: 'alembic_transport_metadata_test',
+      project(input) {
+        return outputSchema.parse(input);
+      },
+    });
+    try {
+      const value = {
+        ok: true,
+        status: 'ready',
+        summary: 'Transport metadata is separate.',
+        result: { count: 1 },
+        _meta: {
+          alembicPublication: {
+            mode: 'strict-v1',
+            routeState: 'ready',
+          },
+        },
+      };
+      const serialized = serializeMcpToolResult('alembic_transport_metadata_test', value, {
+        isErrorResult: () => false,
+      });
+
+      expect(serialized._meta).toEqual(value._meta);
+      expect(serialized.structuredContent).not.toHaveProperty('_meta');
+      expect(serialized.structuredContent).toMatchObject({
+        ok: true,
+        result: { count: 1 },
+      });
+      expect(() =>
+        serializeMcpToolResult(
+          'alembic_transport_metadata_test',
+          { ...value, unknownPayloadField: true },
+          { isErrorResult: () => false }
+        )
+      ).toThrow(/unknownPayloadField|Unrecognized key/);
+    } finally {
+      unregister();
+    }
+  });
+
   test('fails closed with clean structuredContent when a tool has no output projector', () => {
     const legacy = { success: true, data: { total: 1 } };
 
