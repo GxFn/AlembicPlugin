@@ -34,6 +34,14 @@ const SNAPSHOT_ID = 'snapshot-23eb0db0c7f77684b3c604f5515a5951faa2193c8597172105
 const SNAPSHOT_PATH = `snapshots/${SNAPSHOT_ID}`;
 const RECOVERY_UUID = '529c0223-fccc-41df-be50-20b6e25826b5';
 const RECOVERED_SNAPSHOT_ID = `${SNAPSHOT_ID}-${RECOVERY_UUID}`;
+const EXACT_PLANNING_IDENTITIES = {
+  expansionLedgerHeadHash:
+    'sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+  finalExpandedScheduleHash:
+    'sha256:9aae474b7682a4de47b13b839349d788831cdb0b91a834e5b55d409be15bbcfe',
+  finalCodeFactGenerationManifestHash:
+    'sha256:351105afc1c5c300033f2389cb2bf9633deb4c305044d90a516e54170d1ad91e',
+} as const;
 const roots: string[] = [];
 const previousHome = process.env.ALEMBIC_HOME;
 
@@ -102,6 +110,7 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
           mode: 'strict-v1',
           routeState: 'ready',
           snapshotId: SNAPSHOT_ID,
+          ...EXACT_PLANNING_IDENTITIES,
         });
         expect(asRecord(result.structuredContent), name).not.toHaveProperty('_meta');
         results[name] = result;
@@ -775,6 +784,9 @@ function createKnownUnavailableProducerResult(
     vectorGenerationId: null,
     vectorManifestHash: null,
     sourceRevisionVectorHash: null,
+    expansionLedgerHeadHash: null,
+    finalExpandedScheduleHash: null,
+    finalCodeFactGenerationManifestHash: null,
     sourceRevisionMatch: 'not-checked',
   };
   const unavailableRuntime = { ...projectRuntime, publication };

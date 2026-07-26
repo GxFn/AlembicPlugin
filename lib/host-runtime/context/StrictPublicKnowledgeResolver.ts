@@ -38,6 +38,9 @@ export interface ProjectRuntimePublicationProvenance {
   vectorGenerationId: string | null;
   vectorManifestHash: string | null;
   sourceRevisionVectorHash: string | null;
+  expansionLedgerHeadHash: string | null;
+  finalExpandedScheduleHash: string | null;
+  finalCodeFactGenerationManifestHash: string | null;
   sourceRevisionMatch: 'matched' | 'mismatched' | 'not-checked' | 'unavailable';
 }
 
@@ -497,9 +500,10 @@ function verifyServingValidation(
   candidateDataManifest: Record<string, unknown>
 ): void {
   verifySelfHash(receipt, 'receiptHash', 'STRICT_PUBLICATION_VALIDATION_RECEIPT_INVALID');
-  const servingRecipeIds = finalCoverage.cells
-    .flatMap((cell) => cell.finalRecipeIds)
-    .sort((left, right) => left.localeCompare(right));
+  // validation 签名的是可服务 Recipe 集合；同一 Recipe 覆盖多个 cell 时不能重复计入。
+  const servingRecipeIds = [
+    ...new Set(finalCoverage.cells.flatMap((cell) => cell.finalRecipeIds)),
+  ].sort((left, right) => left.localeCompare(right));
   if (
     receipt.schemaVersion !== 1 ||
     receipt.verdict !== 'pass' ||
@@ -514,6 +518,9 @@ function verifyServingValidation(
     receipt.certifiedProjectFactsHash !== route.certifiedProjectFactsHash ||
     receipt.sourceRevisionVectorHash !== route.sourceRevisionVectorHash ||
     receipt.analysisFixpointHash !== route.analysisFixpointHash ||
+    receipt.expansionLedgerHeadHash !== route.expansionLedgerHeadHash ||
+    receipt.finalExpandedScheduleHash !== route.finalExpandedScheduleHash ||
+    receipt.finalCodeFactGenerationManifestHash !== route.finalCodeFactGenerationManifestHash ||
     canonicalJsonStringify(receipt.servingRecipeIds) !== canonicalJsonStringify(servingRecipeIds)
   ) {
     fail('STRICT_PUBLICATION_VALIDATION_RECEIPT_INVALID');
@@ -568,6 +575,9 @@ function verifyLineage(
       'sealedCorpusVerificationHash',
       'vectorGenerationId',
       'vectorManifestHash',
+      'expansionLedgerHeadHash',
+      'finalExpandedScheduleHash',
+      'finalCodeFactGenerationManifestHash',
     ],
     'STRICT_PUBLICATION_LINEAGE_INVALID'
   );
@@ -578,7 +588,10 @@ function verifyLineage(
     lineage.readyMemberSetHash !== candidateDataManifest.readyMemberSetHash ||
     lineage.sealedCorpusVerificationHash !== validation.sealedCorpusVerificationHash ||
     lineage.vectorGenerationId !== route.vectorGenerationId ||
-    lineage.vectorManifestHash !== route.vectorManifestHash
+    lineage.vectorManifestHash !== route.vectorManifestHash ||
+    lineage.expansionLedgerHeadHash !== route.expansionLedgerHeadHash ||
+    lineage.finalExpandedScheduleHash !== route.finalExpandedScheduleHash ||
+    lineage.finalCodeFactGenerationManifestHash !== route.finalCodeFactGenerationManifestHash
   ) {
     fail('STRICT_PUBLICATION_LINEAGE_INVALID');
   }
@@ -870,6 +883,9 @@ function legacyProvenance(): ProjectRuntimePublicationProvenance {
     vectorGenerationId: null,
     vectorManifestHash: null,
     sourceRevisionVectorHash: null,
+    expansionLedgerHeadHash: null,
+    finalExpandedScheduleHash: null,
+    finalCodeFactGenerationManifestHash: null,
     sourceRevisionMatch: 'unavailable',
   };
 }
@@ -883,6 +899,9 @@ function strictUnavailableProvenance(): ProjectRuntimePublicationProvenance {
     vectorGenerationId: null,
     vectorManifestHash: null,
     sourceRevisionVectorHash: null,
+    expansionLedgerHeadHash: null,
+    finalExpandedScheduleHash: null,
+    finalCodeFactGenerationManifestHash: null,
     sourceRevisionMatch: 'not-checked',
   };
 }
@@ -896,6 +915,9 @@ function readyProvenance(route: PublicKnowledgeRouteV1): ProjectRuntimePublicati
     vectorGenerationId: route.vectorGenerationId,
     vectorManifestHash: route.vectorManifestHash,
     sourceRevisionVectorHash: route.sourceRevisionVectorHash,
+    expansionLedgerHeadHash: route.expansionLedgerHeadHash,
+    finalExpandedScheduleHash: route.finalExpandedScheduleHash,
+    finalCodeFactGenerationManifestHash: route.finalCodeFactGenerationManifestHash,
     sourceRevisionMatch: 'not-checked',
   };
 }

@@ -9,6 +9,9 @@ export const ProjectRuntimePublicationProvenanceSchema = z
     vectorGenerationId: z.string().nullable(),
     vectorManifestHash: z.string().nullable(),
     sourceRevisionVectorHash: z.string().nullable(),
+    expansionLedgerHeadHash: z.string().nullable(),
+    finalExpandedScheduleHash: z.string().nullable(),
+    finalCodeFactGenerationManifestHash: z.string().nullable(),
     sourceRevisionMatch: z.enum(['matched', 'mismatched', 'not-checked', 'unavailable']),
   })
   .strict();
@@ -22,6 +25,9 @@ export const StrictUnavailablePublicationProvenanceSchema =
     vectorGenerationId: z.null(),
     vectorManifestHash: z.null(),
     sourceRevisionVectorHash: z.null(),
+    expansionLedgerHeadHash: z.null(),
+    finalExpandedScheduleHash: z.null(),
+    finalCodeFactGenerationManifestHash: z.null(),
     sourceRevisionMatch: z.literal('not-checked'),
   }).strict();
 

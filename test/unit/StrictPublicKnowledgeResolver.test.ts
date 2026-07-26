@@ -2,9 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createFinalCoverageBindingReceiptV1,
+  createServingSnapshotManifestV1,
   createStrictPublicationMarkerV1,
   preparePublicKnowledgeRouteV1,
 } from '@alembic/core/knowledge';
+import { hashCanonicalJson } from '@alembic/core/project-context-foundation';
 import {
   createProjectDescriptor,
   createProjectScopeRegistryDocument,
@@ -65,6 +68,39 @@ describe('strict public knowledge publication resolver', () => {
     expect(resolution.vector.expectedIds).toHaveLength(24);
   });
 
+  test('accepts one ready Recipe serving multiple final coverage cells', () => {
+    const fixture = installFixture();
+    rewriteFixtureWithSharedServingRecipe(fixture.dataRoot);
+    const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
+
+    expect(resolvePublicKnowledgePublication(runtime.identity).state).toBe('ready');
+  });
+
+  test('preserves and verifies the exact planning identities from route through lineage', () => {
+    const fixture = installFixture();
+    addExactPlanningIdentitiesToLineage(fixture.dataRoot);
+    const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
+
+    expect(resolvePublicKnowledgePublication(runtime.identity).state).toBe('ready');
+    expect(runtime.publication).toMatchObject({
+      expansionLedgerHeadHash:
+        'sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+      finalExpandedScheduleHash:
+        'sha256:9aae474b7682a4de47b13b839349d788831cdb0b91a834e5b55d409be15bbcfe',
+      finalCodeFactGenerationManifestHash:
+        'sha256:351105afc1c5c300033f2389cb2bf9633deb4c305044d90a516e54170d1ad91e',
+    });
+
+    const tampered = installFixture();
+    addExactPlanningIdentitiesToLineage(tampered.dataRoot, {
+      finalExpandedScheduleHash: `sha256:${'f'.repeat(64)}`,
+    });
+    const tamperedRuntime = buildProjectRuntimeContext({ projectRoot: tampered.projectRoot });
+    expect(() => resolvePublicKnowledgePublication(tamperedRuntime.identity)).toThrow(
+      'STRICT_PUBLICATION_LINEAGE_INVALID'
+    );
+  });
+
   test('treats a valid strict marker with no active route as unavailable, never legacy', () => {
     const fixture = installFixture();
     fs.rmSync(path.join(fixture.dataRoot, '.asd/context/recipe-publications/active.json'));
@@ -80,6 +116,9 @@ describe('strict public knowledge publication resolver', () => {
       vectorGenerationId: null,
       vectorManifestHash: null,
       sourceRevisionVectorHash: null,
+      expansionLedgerHeadHash: null,
+      finalExpandedScheduleHash: null,
+      finalCodeFactGenerationManifestHash: null,
       sourceRevisionMatch: 'not-checked',
     });
     expect(resolvePublicKnowledgePublication(runtime.identity)).toEqual({
@@ -261,4 +300,104 @@ function installFixture(options: { projectId?: string } = {}): {
 
 function snapshotPath(): string {
   return `snapshots/${SNAPSHOT_ID}`;
+}
+
+function rewriteFixtureWithSharedServingRecipe(dataRoot: string): void {
+  const publicationRoot = path.join(dataRoot, '.asd/context/recipe-publications');
+  const snapshotRoot = path.join(publicationRoot, snapshotPath());
+  const candidateCoveragePath = path.join(snapshotRoot, 'candidate-coverage.json');
+  const candidateCoverage = readJson(candidateCoveragePath);
+  const firstCandidateCell = (candidateCoverage.cells as Array<Record<string, unknown>>)[0];
+  const { receiptHash: _candidateCoverageReceiptHash, ...candidateCoverageInput } =
+    candidateCoverage;
+  const rebuiltCandidateCoverageInput = {
+    ...candidateCoverageInput,
+    cells: (candidateCoverage.cells as Array<Record<string, unknown>>).map((cell) => ({
+      ...cell,
+      contentReadyRecipeIds: firstCandidateCell.contentReadyRecipeIds,
+      contentReadyRecipeFingerprints: firstCandidateCell.contentReadyRecipeFingerprints,
+      productionBindingHashes: firstCandidateCell.productionBindingHashes,
+      expressionSetReceiptIds: firstCandidateCell.expressionSetReceiptIds,
+    })),
+  };
+  const rebuiltCandidateCoverage = {
+    ...rebuiltCandidateCoverageInput,
+    receiptHash: hashCanonicalJson(rebuiltCandidateCoverageInput),
+  };
+  writeJson(candidateCoveragePath, rebuiltCandidateCoverage);
+  const finalCoveragePath = path.join(snapshotRoot, 'final-coverage.json');
+  const finalCoverage = readJson(finalCoveragePath);
+  const firstCell = (finalCoverage.cells as Array<Record<string, unknown>>)[0];
+  const finalRecipeIds = firstCell.finalRecipeIds as string[];
+  const finalRecipeFingerprints = firstCell.finalRecipeFingerprints as string[];
+  const rebuiltFinalCoverage = createFinalCoverageBindingReceiptV1({
+    candidateCoverage: rebuiltCandidateCoverage as never,
+    candidateDataManifestHash: finalCoverage.candidateDataManifestHash as string,
+    g4ReceiptHash: finalCoverage.g4ReceiptHash as string,
+    cells: (finalCoverage.cells as Array<Record<string, unknown>>).map((cell) => ({
+      ...cell,
+      finalRecipeIds,
+      finalRecipeFingerprints,
+    })) as never,
+  });
+  writeJson(finalCoveragePath, rebuiltFinalCoverage);
+
+  const validationPath = path.join(snapshotRoot, 'serving-snapshot-validation.json');
+  const validation = readJson(validationPath);
+  const { receiptHash: _receiptHash, ...validationInput } = validation;
+  const rebuiltValidationInput = {
+    ...validationInput,
+    candidateCoverageReceiptHash: rebuiltCandidateCoverage.receiptHash,
+    finalCoverageBindingHash: rebuiltFinalCoverage.receiptHash,
+    servingRecipeIds: finalRecipeIds,
+  };
+  const rebuiltValidation = {
+    ...rebuiltValidationInput,
+    receiptHash: hashCanonicalJson(rebuiltValidationInput),
+  };
+  writeJson(validationPath, rebuiltValidation);
+
+  const manifestPath = path.join(snapshotRoot, 'manifest.json');
+  const manifest = readJson(manifestPath);
+  const { schemaVersion: _schemaVersion, manifestHash: _manifestHash, ...manifestInput } = manifest;
+  const rebuiltManifest = createServingSnapshotManifestV1({
+    ...manifestInput,
+    finalCoverageBindingHash: rebuiltFinalCoverage.receiptHash,
+    servingSnapshotValidationHash: rebuiltValidation.receiptHash,
+  } as never);
+  writeJson(manifestPath, rebuiltManifest);
+
+  const routePath = path.join(publicationRoot, 'active.json');
+  const route = readJson(routePath);
+  const rebuiltRoute = preparePublicKnowledgeRouteV1({
+    ...route,
+    servingSnapshotManifestHash: rebuiltManifest.manifestHash,
+  } as never);
+  fs.chmodSync(routePath, 0o600);
+  fs.writeFileSync(routePath, rebuiltRoute.canonicalBytes);
+}
+
+function addExactPlanningIdentitiesToLineage(
+  dataRoot: string,
+  patch: Record<string, unknown> = {}
+): void {
+  const publicationRoot = path.join(dataRoot, '.asd/context/recipe-publications');
+  const route = readJson(path.join(publicationRoot, 'active.json'));
+  const lineagePath = path.join(publicationRoot, snapshotPath(), 'lineage.json');
+  writeJson(lineagePath, {
+    ...readJson(lineagePath),
+    expansionLedgerHeadHash: route.expansionLedgerHeadHash,
+    finalExpandedScheduleHash: route.finalExpandedScheduleHash,
+    finalCodeFactGenerationManifestHash: route.finalCodeFactGenerationManifestHash,
+    ...patch,
+  });
+}
+
+function readJson(filePath: string): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+}
+
+function writeJson(filePath: string, value: unknown): void {
+  fs.chmodSync(filePath, 0o600);
+  fs.writeFileSync(filePath, `${JSON.stringify(value)}\n`);
 }
