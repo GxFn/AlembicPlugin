@@ -965,22 +965,226 @@ function describePayloadType(
     : 'object';
 }
 
+const ProjectRuntimePublicationProvenanceSchema = z
+  .object({
+    mode: z.enum(['legacy', 'strict-v1']),
+    routeState: z.enum(['legacy', 'ready', 'unavailable']),
+    sessionId: z.string().nullable(),
+    snapshotId: z.string().nullable(),
+    vectorGenerationId: z.string().nullable(),
+    vectorManifestHash: z.string().nullable(),
+    sourceRevisionVectorHash: z.string().nullable(),
+    sourceRevisionMatch: z.enum(['matched', 'mismatched', 'not-checked', 'unavailable']),
+  })
+  .strict();
+
+const StrictUnavailablePublicationProvenanceSchema =
+  ProjectRuntimePublicationProvenanceSchema.safeExtend({
+    mode: z.literal('strict-v1'),
+    routeState: z.literal('unavailable'),
+    sessionId: z.null(),
+    snapshotId: z.null(),
+    vectorGenerationId: z.null(),
+    vectorManifestHash: z.null(),
+    sourceRevisionVectorHash: z.null(),
+    sourceRevisionMatch: z.literal('not-checked'),
+  }).strict();
+
+const ProjectRuntimeContextV3Schema = z
+  .object({
+    contractVersion: z.literal(3),
+    identity: z
+      .object({
+        projectRoot: z.string().min(1).max(1200),
+        projectRealpath: z.string().min(1).max(1200),
+        projectExists: z.boolean(),
+        projectId: z.string().nullable(),
+        projectScope: z.unknown().nullable(),
+        projectScopeId: z.string().nullable(),
+        currentFolderId: z.string().nullable(),
+        registered: z.boolean(),
+        ghost: z.boolean(),
+        mode: z.string().min(1).max(80),
+        dataRoot: z.string().min(1).max(1200),
+        dataRootSource: z.string().min(1).max(1200),
+        databasePath: z.string().min(1).max(1200),
+        runtimeDir: z.string().min(1).max(1200),
+        workspaceExists: z.boolean(),
+      })
+      .strict(),
+    location: z
+      .object({
+        projectRoot: z.string().min(1).max(1200),
+        projectId: z.string().nullable(),
+        projectScopeId: z.string().nullable(),
+        currentFolderId: z.string().nullable(),
+        registered: z.boolean(),
+        ghost: z.boolean(),
+        dataRoot: z.string().min(1).max(1200),
+        databasePath: z.string().min(1).max(1200),
+        databaseExists: z.boolean(),
+        runtimeDir: z.string().min(1).max(1200),
+      })
+      .strict(),
+    publication: ProjectRuntimePublicationProvenanceSchema,
+  })
+  .strict();
+
+const StrictUnavailableProjectRuntimeContextV3Schema = ProjectRuntimeContextV3Schema.safeExtend({
+  publication: StrictUnavailablePublicationProvenanceSchema,
+}).strict();
+
+const StrictRouteUnavailableDiagnosticSchema = PrimeDiagnosticSchema.safeExtend({
+  code: z.literal('strict-publication-route-unavailable'),
+  severity: z.literal('info'),
+  retryable: z.literal(false),
+}).strict();
+
+// 这是只读 host producer 的已知 route-unavailable v3 形态。最外层与 data 都
+// strict；projectRuntime 是显式版本化 carrier，不能再用 data.status 的单字段
+// 猜测把任意对象吞进 fallback。
+const AgentPublicKnownUnavailableResultSchema = z
+  .object({
+    success: z.literal(true),
+    data: z
+      .object({
+        status: z.literal('unavailable'),
+        summary: PublicStringSchema,
+        items: z.array(z.never()).max(0),
+        results: z.array(z.never()).max(0),
+        relations: z.array(z.never()).max(0),
+        diagnostics: z.tuple([StrictRouteUnavailableDiagnosticSchema]),
+        nextActions: z.array(z.never()).max(0),
+        project: z
+          .object({
+            projectRoot: z.string().min(1).max(1200),
+            projectId: z.string().nullable(),
+            dataRoot: z.string().min(1).max(1200),
+            databasePath: z.string().min(1).max(1200),
+            databaseExists: z.literal(false),
+            publication: StrictUnavailablePublicationProvenanceSchema,
+          })
+          .strict(),
+        projectRuntime: StrictUnavailableProjectRuntimeContextV3Schema,
+      })
+      .strict(),
+    message: PublicStringSchema,
+    toolName: z.enum(['alembic_prime', 'alembic_code_guard']),
+  })
+  .strict()
+  .superRefine((output, ctx) => {
+    if (output.message !== output.data.summary) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['message'],
+        message: 'message must match data.summary for the known unavailable result',
+      });
+    }
+    if (output.message !== output.data.diagnostics[0].message) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['data', 'diagnostics', 0, 'message'],
+        message: 'diagnostic message must match the known unavailable summary',
+      });
+    }
+    const identity = output.data.projectRuntime.identity;
+    const project = output.data.project;
+    for (const [field, expected, actual] of [
+      ['projectRoot', identity.projectRoot, project.projectRoot],
+      ['projectId', identity.projectId, project.projectId],
+      ['dataRoot', identity.dataRoot, project.dataRoot],
+      ['databasePath', identity.databasePath, project.databasePath],
+    ] as const) {
+      if (expected !== actual) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['data', 'project', field],
+          message: `${field} must match projectRuntime.identity`,
+        });
+      }
+    }
+  });
+
+// EmbeddedToolExecutor 的 producer failure 只允许既有、封闭的字段集合。额外
+// 字段必须变成带 Zod 诊断的显式 projection-rejected failure，禁止静默删除后
+// 伪装成一个合法 handler-error。
+const AgentPublicProducerFailureSchema = z
+  .object({
+    success: z.literal(false),
+    data: z
+      .object({
+        projectRuntime: ProjectRuntimeContextV3Schema,
+        retryable: z.boolean().optional(),
+      })
+      .strict(),
+    errorCode: z.string().min(1).max(120),
+    message: z.string().min(1).max(4000),
+    tool: AgentPublicToolNameSchema,
+  })
+  .strict();
+
 function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolName) {
   const schema = AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[toolName];
   const parsed = schema.safeParse(input);
   if (parsed.success) {
     return parsed.data;
   }
-  const record = asRecord(input);
-  const data = asRecord(record.data);
-  const unavailable = data.status === 'unavailable';
-  const failed = record.success === false;
-  if (!unavailable && !failed) {
-    throw parsed.error;
+
+  const unavailable = AgentPublicKnownUnavailableResultSchema.safeParse(input);
+  if (unavailable.success && unavailable.data.toolName === toolName) {
+    return projectKnownUnavailableAgentOutput(unavailable.data, toolName);
   }
-  const summary =
-    stringFrom(record.message, 600) ??
-    `${toolName} ${unavailable ? 'is unavailable' : 'failed before producing a public result'}.`;
+
+  const producerFailure = AgentPublicProducerFailureSchema.safeParse(input);
+  if (producerFailure.success && producerFailure.data.tool === toolName) {
+    return projectProducerFailureAgentOutput(producerFailure.data, toolName);
+  }
+
+  return projectRejectedAgentOutput(
+    [
+      ...(producerFailure.success ? [] : [producerFailure.error]),
+      ...(unavailable.success ? [] : [unavailable.error]),
+      parsed.error,
+    ],
+    toolName
+  );
+}
+
+function projectKnownUnavailableAgentOutput(
+  input: z.infer<typeof AgentPublicKnownUnavailableResultSchema>,
+  toolName: AgentPublicToolName
+) {
+  const diagnostic = input.data.diagnostics[0];
+  const summary = input.message.slice(0, 600);
+  const result = createAgentPublicToolResultEnvelope({
+    actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
+    agentHost: 'codex',
+    inputSource: 'tool-result',
+    reason: {
+      kind: 'degraded',
+      code: 'optional-service-unavailable',
+      message: summary,
+      retryable: diagnostic.retryable,
+    },
+    refs: { detailRefs: [] },
+    status: 'degraded',
+    summary,
+    toolName,
+  });
+  return createAgentPublicFailureOutput({
+    diagnostic,
+    errorCode: diagnostic.code,
+    result,
+    toolName,
+  });
+}
+
+function projectProducerFailureAgentOutput(
+  input: z.infer<typeof AgentPublicProducerFailureSchema>,
+  toolName: AgentPublicToolName
+) {
+  const summary = input.message.slice(0, 600);
+  const errorCode = resolveProducerErrorCode(input.errorCode, input.message);
   const result = createAgentPublicToolResultEnvelope({
     actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
     agentHost: 'codex',
@@ -989,6 +1193,47 @@ function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolN
       kind: 'failure',
       code: 'handler-error',
       message: summary,
+      retryable: input.data.retryable ?? false,
+    },
+    refs: { detailRefs: [] },
+    status: 'failed',
+    summary,
+    toolName,
+  });
+  return createAgentPublicFailureOutput({
+    diagnostic: {
+      code: errorCode,
+      severity: 'error',
+      message: summary,
+      retryable: input.data.retryable ?? false,
+    },
+    errorCode,
+    result,
+    toolName,
+  });
+}
+
+function projectRejectedAgentOutput(errors: readonly z.ZodError[], toolName: AgentPublicToolName) {
+  const issues = errors.flatMap((error) => error.issues);
+  const prioritizedIssues = [
+    ...issues.filter((issue) => issue.code === 'unrecognized_keys'),
+    ...issues.filter((issue) => issue.code !== 'unrecognized_keys'),
+  ];
+  const issueSummary = prioritizedIssues
+    .slice(0, 5)
+    .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+    .join('; ')
+    .slice(0, 600);
+  const summary = `Rejected malformed ${toolName} producer output: ${issueSummary}`.slice(0, 600);
+  process.stderr.write(`[MCP/PublicTools] ${summary}\n`);
+  const result = createAgentPublicToolResultEnvelope({
+    actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
+    agentHost: 'codex',
+    inputSource: 'tool-result',
+    reason: {
+      kind: 'failure',
+      code: 'schema-validation-failed',
+      message: summary,
       retryable: false,
     },
     refs: { detailRefs: [] },
@@ -996,8 +1241,27 @@ function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolN
     summary,
     toolName,
   });
-  const diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
-  const payload: Record<string, unknown> = { diagnostics };
+  return createAgentPublicFailureOutput({
+    diagnostic: {
+      code: 'agent-public-output-projection-rejected',
+      severity: 'error',
+      message: issueSummary,
+      retryable: false,
+    },
+    errorCode: 'AGENT_PUBLIC_OUTPUT_PROJECTION_REJECTED',
+    result,
+    toolName,
+  });
+}
+
+function createAgentPublicFailureOutput(input: {
+  diagnostic: z.infer<typeof PrimeDiagnosticSchema>;
+  errorCode: string;
+  result: AgentPublicToolResultEnvelope;
+  toolName: AgentPublicToolName;
+}) {
+  const { diagnostic, errorCode, result, toolName } = input;
+  const payload: Record<string, unknown> = { diagnostics: [diagnostic] };
   if (toolName === 'alembic_prime') {
     Object.assign(payload, {
       detailRefs: [],
@@ -1019,7 +1283,7 @@ function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolN
         kind: 'PrimePublicPackage',
         primeRef: 'prime-unavailable',
         projectContextGuidance: {
-          boundary: summary,
+          boundary: result.summary,
           projectContextRefs: [],
           recommendedQueries: [],
           recommendedTools: [],
@@ -1033,7 +1297,30 @@ function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolN
       }),
     });
   }
-  return schema.parse(createAgentPublicToolOutput(result, payload));
+  const projected = createAgentPublicToolOutput(result, payload, { ok: false });
+  return AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[toolName].parse({
+    ...projected,
+    error: createCleanMcpError({
+      code: errorCode,
+      details: {
+        producerReasonCode: result.reason?.code,
+      },
+      message: result.summary,
+      source: {
+        reasonCode: mapAgentPublicReasonFailureKind(result.reason?.code ?? 'handler-error'),
+        retryable: result.reason?.retryable ?? false,
+      },
+      status: result.status,
+    }),
+  });
+}
+
+function resolveProducerErrorCode(errorCode: string, message: string): string {
+  if (/^STRICT_PUBLICATION_[A-Z0-9_]+$/u.test(errorCode)) {
+    return errorCode;
+  }
+  const strictCodes = [...new Set(message.match(/\bSTRICT_PUBLICATION_[A-Z0-9_]+\b/gu) ?? [])];
+  return strictCodes.length === 1 ? strictCodes[0] : errorCode;
 }
 
 for (const toolName of AGENT_PUBLIC_TOOL_NAMES) {

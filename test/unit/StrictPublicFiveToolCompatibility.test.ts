@@ -10,7 +10,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import { HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
 import { EmbeddedToolExecutor } from '../../lib/host-runtime/mcp/host/embedded-executor.js';
@@ -116,6 +116,14 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
         expect(CallToolResultSchema.parse(result), name).toBeTruthy();
         expect(result.isError, name).toBe(true);
         expect(asRecord(result.structuredContent), name).toMatchObject({ ok: false });
+        if (name === 'alembic_prime' || name === 'alembic_code_guard') {
+          expect(asRecord(asRecord(result.structuredContent)?.error)?.code, name).toBe(
+            'strict-publication-route-unavailable'
+          );
+          expect(JSON.stringify(result), name).not.toContain(
+            'AGENT_PUBLIC_OUTPUT_PROJECTION_REJECTED'
+          );
+        }
         expect(readPublicationMeta(result), name).toMatchObject({
           mode: 'strict-v1',
           routeState: 'unavailable',
@@ -166,6 +174,11 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
         expect(CallToolResultSchema.parse(result), name).toBeTruthy();
         expect(result.isError, name).toBe(true);
         expect(asRecord(result.structuredContent), name).toMatchObject({ ok: false });
+        if (name === 'alembic_prime' || name === 'alembic_code_guard') {
+          expect(asRecord(asRecord(result.structuredContent)?.error)?.code, name).toBe(
+            'STRICT_PUBLICATION_ARTIFACT_MISSING'
+          );
+        }
         expect(readPublicationMeta(result), name).toMatchObject({
           mode: 'strict-v1',
           routeState: 'ready',
@@ -173,10 +186,167 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
         });
         expect(asRecord(result.structuredContent), name).not.toHaveProperty('_meta');
       }
+
+      const graph = await transport.client.callTool({
+        name: 'alembic_graph',
+        arguments: {
+          queryKind: 'file-symbols',
+          filePath: 'src/index.ts',
+          budget: { itemLimit: 80 },
+        },
+      });
+      expect(CallToolResultSchema.parse(graph)).toBeTruthy();
+      expect(graph.isError).not.toBe(true);
+      expect(JSON.stringify(graph.structuredContent)).toContain('src/index.ts');
+      expect(readPublicationMeta(graph)).toMatchObject({
+        mode: 'strict-v1',
+        routeState: 'ready',
+        snapshotId: SNAPSHOT_ID,
+      });
+      expect(asRecord(graph.structuredContent)).not.toHaveProperty('_meta');
     } finally {
       await transport.close();
     }
   }, 30_000);
+
+  test.each([
+    ['alembic_prime', { query: 'strict' }],
+    [
+      'alembic_work',
+      {
+        phase: 'start',
+        title: 'Preserve producer failure code',
+        workScope: { goal: 'Keep exact producer diagnostics.', files: ['src/index.ts'] },
+      },
+    ],
+    ['alembic_code_guard', { operation: 'check', code: 'const strict = true;' }],
+  ] as Array<[string, Record<string, unknown>]>)(
+    'preserves the exact canonical %s producer failure through HostMcpServer transport',
+    async (name, args) => {
+      const fixture = installFixture();
+      const transport = await openHostTransport(fixture.projectRoot);
+      const producerFailure = createCanonicalProducerFailure(name, fixture.projectRoot);
+      vi.spyOn(transport.host, 'callPluginOwnedTool').mockResolvedValue(producerFailure);
+      try {
+        const result = await transport.client.callTool({ name, arguments: args });
+        expect(CallToolResultSchema.parse(result)).toBeTruthy();
+        expect(result.isError).toBe(true);
+        const structured = asRecord(result.structuredContent);
+        expect(asRecord(structured?.error)?.code).toBe('STRICT_PUBLICATION_TEST_FAILURE');
+        expect(JSON.stringify(structured)).not.toContain('AGENT_PUBLIC_OUTPUT_PROJECTION_REJECTED');
+        expect(readPublicationMeta(result)).toEqual(
+          asRecord(asRecord(producerFailure._meta)?.alembicPublication)
+        );
+      } finally {
+        await transport.close();
+      }
+    },
+    30_000
+  );
+
+  test.each([
+    ['alembic_prime', { query: 'strict' }],
+    [
+      'alembic_work',
+      {
+        phase: 'start',
+        title: 'Reject malformed producer failure',
+        workScope: { goal: 'Keep strict transport projection.', files: ['src/index.ts'] },
+      },
+    ],
+    ['alembic_code_guard', { operation: 'check', code: 'const strict = true;' }],
+  ] as Array<[string, Record<string, unknown>]>)(
+    'fails closed when %s returns a malformed failure through HostMcpServer transport',
+    async (name, args) => {
+      const fixture = installFixture();
+      const transport = await openHostTransport(fixture.projectRoot);
+      const producerFailure = createCanonicalProducerFailure(name, fixture.projectRoot);
+      vi.spyOn(transport.host, 'callPluginOwnedTool').mockResolvedValue({
+        ...producerFailure,
+        data: {
+          ...asRecord(producerFailure.data),
+          projectRuntime: {
+            ...asRecord(asRecord(producerFailure.data)?.projectRuntime),
+            unexpectedNestedRuntimeField: 'must-not-be-silently-dropped',
+          },
+        },
+        unexpectedTransportField: 'must-not-be-silently-dropped',
+      });
+      try {
+        const result = await transport.client.callTool({ name, arguments: args });
+        expect(CallToolResultSchema.parse(result)).toBeTruthy();
+        expect(result.isError).toBe(true);
+        const structured = asRecord(result.structuredContent);
+        expect(asRecord(structured?.error)?.code).toBe('AGENT_PUBLIC_OUTPUT_PROJECTION_REJECTED');
+        expect(JSON.stringify(structured)).toContain('unexpectedTransportField');
+        expect(JSON.stringify(structured)).toContain('unexpectedNestedRuntimeField');
+        expect(JSON.stringify(structured)).not.toContain('"handler-error"');
+      } finally {
+        await transport.close();
+      }
+    },
+    30_000
+  );
+
+  test('does not infer an exact failure code from an ambiguous producer message', async () => {
+    const fixture = installFixture();
+    const transport = await openHostTransport(fixture.projectRoot);
+    vi.spyOn(transport.host, 'callPluginOwnedTool').mockResolvedValue({
+      ...createCanonicalProducerFailure('alembic_work', fixture.projectRoot),
+      message:
+        'Producer observed STRICT_PUBLICATION_ROUTE_INVALID after STRICT_PUBLICATION_MARKER_INVALID.',
+    });
+    try {
+      const result = await transport.client.callTool({
+        name: 'alembic_work',
+        arguments: {
+          phase: 'start',
+          title: 'Keep ambiguous diagnostics honest',
+          workScope: { goal: 'Avoid false error attribution.', files: ['src/index.ts'] },
+        },
+      });
+      expect(CallToolResultSchema.parse(result)).toBeTruthy();
+      expect(result.isError).toBe(true);
+      expect(asRecord(asRecord(result.structuredContent)?.error)?.code).toBe('CODEX_MCP_ERROR');
+    } finally {
+      await transport.close();
+    }
+  }, 30_000);
+
+  test.each([
+    ['alembic_prime', { query: 'strict' }],
+    [
+      'alembic_work',
+      {
+        phase: 'start',
+        title: 'Reject malformed unavailable result',
+        workScope: { goal: 'Keep unavailable projection strict.', files: ['src/index.ts'] },
+      },
+    ],
+    ['alembic_code_guard', { operation: 'check', code: 'const strict = true;' }],
+  ] as Array<[string, Record<string, unknown>]>)(
+    'fails closed when %s returns status=unavailable with an unknown field',
+    async (name, args) => {
+      const fixture = installFixture();
+      const transport = await openHostTransport(fixture.projectRoot);
+      vi.spyOn(transport.host, 'callPluginOwnedTool').mockResolvedValue({
+        ...createKnownUnavailableProducerResult(name, fixture.projectRoot),
+        unexpectedUnavailableField: 'must-not-be-silently-dropped',
+      });
+      try {
+        const result = await transport.client.callTool({ name, arguments: args });
+        expect(CallToolResultSchema.parse(result)).toBeTruthy();
+        expect(result.isError).toBe(true);
+        const structured = asRecord(result.structuredContent);
+        expect(asRecord(structured?.error)?.code).toBe('AGENT_PUBLIC_OUTPUT_PROJECTION_REJECTED');
+        expect(JSON.stringify(structured)).toContain('unexpectedUnavailableField');
+        expect(JSON.stringify(structured)).not.toContain('"handler-error"');
+      } finally {
+        await transport.close();
+      }
+    },
+    30_000
+  );
 
   test('routes all five formal tools through one accepted publication and keeps calls read-only', async () => {
     const fixture = installFixture();
@@ -445,9 +615,75 @@ function readPublicationMeta(result: unknown): Record<string, unknown> | null {
   return asRecord(asRecord(asRecord(result)?._meta)?.alembicPublication);
 }
 
+function createCanonicalProducerFailure(
+  toolName: string,
+  projectRoot: string
+): Record<string, unknown> {
+  const projectRuntime = buildProjectRuntimeContext({ projectRoot });
+  return {
+    success: false,
+    message: 'Producer failed with STRICT_PUBLICATION_TEST_FAILURE.',
+    errorCode: 'CODEX_MCP_ERROR',
+    tool: toolName,
+    data: { projectRuntime },
+    _meta: { alembicPublication: projectRuntime.publication },
+  };
+}
+
+function createKnownUnavailableProducerResult(
+  toolName: string,
+  projectRoot: string
+): Record<string, unknown> {
+  const projectRuntime = buildProjectRuntimeContext({ projectRoot });
+  const publication = {
+    mode: 'strict-v1',
+    routeState: 'unavailable',
+    sessionId: null,
+    snapshotId: null,
+    vectorGenerationId: null,
+    vectorManifestHash: null,
+    sourceRevisionVectorHash: null,
+    sourceRevisionMatch: 'not-checked',
+  };
+  const unavailableRuntime = { ...projectRuntime, publication };
+  const summary = 'Strict publication route is unavailable.';
+  return {
+    success: true,
+    data: {
+      status: 'unavailable',
+      summary,
+      items: [],
+      results: [],
+      relations: [],
+      diagnostics: [
+        {
+          code: 'strict-publication-route-unavailable',
+          severity: 'info',
+          message: summary,
+          retryable: false,
+        },
+      ],
+      nextActions: [],
+      project: {
+        projectRoot: projectRuntime.identity.projectRoot,
+        projectId: projectRuntime.identity.projectId,
+        dataRoot: projectRuntime.identity.dataRoot,
+        databasePath: projectRuntime.identity.databasePath,
+        databaseExists: false,
+        publication,
+      },
+      projectRuntime: unavailableRuntime,
+    },
+    message: summary,
+    toolName,
+    _meta: { alembicPublication: publication },
+  };
+}
+
 async function openHostTransport(projectRoot: string): Promise<{
   client: Client;
   close(): Promise<void>;
+  host: HostMcpServer;
 }> {
   const host = new HostMcpServer({ projectRoot });
   host.sdkServer = new SdkMcpServer(
@@ -462,6 +698,7 @@ async function openHostTransport(projectRoot: string): Promise<{
   await client.listTools();
   return {
     client,
+    host,
     async close(): Promise<void> {
       await client.close();
       await host.shutdown();
