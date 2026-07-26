@@ -5,7 +5,7 @@ import {
   ProjectContextContinuationError,
 } from '../../../service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import type { ProjectRuntimeContext } from '../../context/ProjectRuntimeContext.js';
-import { StrictPublicationError } from '../../context/StrictPublicKnowledgeResolver.js';
+import { StrictPublicationError } from '../../context/StrictPublicationError.js';
 import type { McpServiceContainer } from '../handlers/types.js';
 import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { isCleanMcpResponse } from '../output-contract.js';

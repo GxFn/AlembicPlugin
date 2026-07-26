@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
+import { StrictPublicationError } from '../../context/StrictPublicationError.js';
 import type {
   StrictPublicationDataFile,
   StrictVectorPublication,
@@ -163,7 +164,7 @@ function relativeFile(root: string, target: string): string {
     isAbsolute(relativePath) ||
     relativePath.split(/[\\/]/u).some((segment) => segment === '..')
   ) {
-    throw new Error('STRICT_PUBLICATION_VECTOR_STORE_PATH_INVALID');
+    throw new StrictPublicationError('STRICT_PUBLICATION_VECTOR_STORE_PATH_INVALID');
   }
   return relativePath;
 }

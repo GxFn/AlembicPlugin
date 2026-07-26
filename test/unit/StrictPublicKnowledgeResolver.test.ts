@@ -12,10 +12,8 @@ import {
 } from '@alembic/core/shared';
 import { afterEach, describe, expect, test } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
-import {
-  resolvePublicKnowledgePublication,
-  StrictPublicationError,
-} from '../../lib/host-runtime/context/StrictPublicKnowledgeResolver.js';
+import { StrictPublicationError } from '../../lib/host-runtime/context/StrictPublicationError.js';
+import { resolvePublicKnowledgePublication } from '../../lib/host-runtime/context/StrictPublicKnowledgeResolver.js';
 
 const FIXTURE_ROOT = path.resolve('test/fixtures/strict-publication-v1/recipe-publications');
 const SNAPSHOT_ID = 'snapshot-23eb0db0c7f77684b3c604f5515a5951faa2193c8597172105946dbb20b1692d';

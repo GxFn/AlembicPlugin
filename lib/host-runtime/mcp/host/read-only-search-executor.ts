@@ -15,6 +15,7 @@ import {
 } from '../../../recipe-pipeline/vector/LocalEmbedding.js';
 import { createReadOnlySearchRepositories } from '../../../repository/search/ReadOnlySearchServices.js';
 import { SearchInput } from '../../../shared/schemas/mcp-tools.js';
+import { StrictPublicationError } from '../../context/StrictPublicationError.js';
 import { search } from '../handlers/search.js';
 import type { McpContext, McpServiceContainer, SearchArgs } from '../handlers/types.js';
 import type { ToolExecutionContext } from './embedded-executor.js';
@@ -165,11 +166,11 @@ async function createReadOnlyVectorGraph(
     );
     const ids = await reader.listIds();
     if (JSON.stringify(ids) !== JSON.stringify([...snapshot.strictVector.expectedIds].sort())) {
-      throw new Error('STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH');
+      throw new StrictPublicationError('STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH');
     }
     const embedding = await resolveStrictEmbedding(snapshot.strictVector);
     if (requireStrictVector && !embedding) {
-      throw new Error('STRICT_PUBLICATION_VECTOR_PROVIDER_UNAVAILABLE');
+      throw new StrictPublicationError('STRICT_PUBLICATION_VECTOR_PROVIDER_UNAVAILABLE');
     }
     process.stderr.write(
       `[MCP/Search] strict snapshot vector generation=${snapshot.strictVector.generationId} provider=${snapshot.strictVector.provider} model=${snapshot.strictVector.model}\n`
@@ -229,7 +230,7 @@ async function resolveStrictEmbedding(
     descriptor.formatProfile !== vector.formatProfile ||
     descriptor.normalization !== vector.normalization
   ) {
-    throw new Error('STRICT_PUBLICATION_VECTOR_PROVIDER_MISMATCH');
+    throw new StrictPublicationError('STRICT_PUBLICATION_VECTOR_PROVIDER_MISMATCH');
   }
   return embedding;
 }

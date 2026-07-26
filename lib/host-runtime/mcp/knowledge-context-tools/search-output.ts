@@ -6,21 +6,77 @@
  * CallToolResult, so this projector advertises the AlembicSearchOutput schema in
  * tools/list and provides a typed fallback projection.
  */
-import type { z } from 'zod';
+import { z } from 'zod';
 import { AlembicSearchOutputSchema } from '#service/project-knowledge-context/index.js';
+import { isStrictPublicationErrorCode } from '../../context/StrictPublicationError.js';
 import { type CleanMcpResponse, registerMcpOutputProjector } from '../output-contract.js';
+import { ProjectRuntimeContextV3Schema } from '../project-runtime-output-schema.js';
 
 export const SEARCH_CLEAN_OUTPUT_TOOL_NAMES = ['alembic_search'] as const;
 
 const AlembicSearchCleanOutputSchema =
   AlembicSearchOutputSchema as unknown as z.ZodType<CleanMcpResponse>;
 
+const SearchProducerFailureSchema = z
+  .object({
+    success: z.literal(false),
+    data: z
+      .object({
+        projectRuntime: ProjectRuntimeContextV3Schema,
+        retryable: z.boolean().optional(),
+      })
+      .strict(),
+    errorCode: z.string().min(1).max(120),
+    message: z.string().min(1).max(4000),
+    tool: z.literal('alembic_search'),
+  })
+  .strict();
+
 function projectAlembicSearchCleanOutput(input: unknown): CleanMcpResponse {
   const parsed = AlembicSearchOutputSchema.safeParse(input);
   if (parsed.success) {
     return parsed.data as unknown as CleanMcpResponse;
   }
+  const producerFailure = SearchProducerFailureSchema.safeParse(input);
+  if (
+    producerFailure.success &&
+    (producerFailure.data.errorCode === 'CODEX_MCP_ERROR' ||
+      isStrictPublicationErrorCode(producerFailure.data.errorCode))
+  ) {
+    return buildAlembicSearchProducerFailure(producerFailure.data);
+  }
   return buildAlembicSearchProjectionFailure();
+}
+
+function buildAlembicSearchProducerFailure(
+  input: z.infer<typeof SearchProducerFailureSchema>
+): CleanMcpResponse {
+  const summary = input.message.slice(0, 2000);
+  return AlembicSearchOutputSchema.parse({
+    ok: false,
+    status: 'failed',
+    tool: 'alembic_search',
+    toolName: 'alembic_search',
+    operation: 'search',
+    summary,
+    items: [],
+    detailRefs: [],
+    sources: [],
+    diagnostics: [
+      {
+        code: input.errorCode,
+        message: summary.slice(0, 800),
+        retryable: input.data.retryable ?? false,
+        severity: 'error',
+      },
+    ],
+    nextActions: [],
+    meta: {
+      contractVersion: 1,
+      outputSchema: 'AlembicSearchOutput',
+      producer: 'alembic-search-clean-output-projector',
+    },
+  }) as unknown as CleanMcpResponse;
 }
 
 function buildAlembicSearchProjectionFailure(): CleanMcpResponse {

@@ -18,6 +18,10 @@ import {
   canonicalJsonStringify,
   hashCanonicalJson,
 } from '@alembic/core/project-context-foundation';
+import {
+  StrictPublicationError,
+  type StrictPublicationErrorCode,
+} from './StrictPublicationError.js';
 
 export const STRICT_PUBLICATION_ROOT_RELATIVE_PATH = '.asd/context/recipe-publications';
 const STRICT_PUBLICATION_MARKER_FILE = 'marker.json';
@@ -25,60 +29,6 @@ const STRICT_PUBLICATION_ACTIVE_FILE = 'active.json';
 const SNAPSHOT_ID_PATTERN = /^snapshot-[a-f0-9]{64}$/u;
 const SHA_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
-const STRICT_PUBLICATION_ERROR_CODES = [
-  'STRICT_PUBLICATION_ARTIFACT_MISSING',
-  'STRICT_PUBLICATION_CANDIDATE_COVERAGE_INVALID',
-  'STRICT_PUBLICATION_CANDIDATE_MANIFEST_INVALID',
-  'STRICT_PUBLICATION_DATABASE_MISSING',
-  'STRICT_PUBLICATION_DATA_FILE_HASH_MISMATCH',
-  'STRICT_PUBLICATION_DATA_FILE_INVALID',
-  'STRICT_PUBLICATION_DATA_FILE_PATH_INVALID',
-  'STRICT_PUBLICATION_DATA_FILE_SET_INVALID',
-  'STRICT_PUBLICATION_DATA_ROOT_INVALID',
-  'STRICT_PUBLICATION_FINAL_COVERAGE_INVALID',
-  'STRICT_PUBLICATION_G4_RECEIPT_INVALID',
-  'STRICT_PUBLICATION_LINEAGE_INVALID',
-  'STRICT_PUBLICATION_MARKER_INVALID',
-  'STRICT_PUBLICATION_MIGRATION_BUNDLE_MISMATCH',
-  'STRICT_PUBLICATION_PATH_OUT_OF_SCOPE',
-  'STRICT_PUBLICATION_PROJECT_IDENTITY_MISMATCH',
-  'STRICT_PUBLICATION_PROJECT_SCOPE_INVALID',
-  'STRICT_PUBLICATION_ROUTE_BYTES_MISMATCH',
-  'STRICT_PUBLICATION_ROUTE_INVALID',
-  'STRICT_PUBLICATION_SERVING_MANIFEST_INVALID',
-  'STRICT_PUBLICATION_SNAPSHOT_ID_INVALID',
-  'STRICT_PUBLICATION_SNAPSHOT_INVALID',
-  'STRICT_PUBLICATION_SNAPSHOT_PATH_INVALID',
-  'STRICT_PUBLICATION_SYMLINK_FORBIDDEN',
-  'STRICT_PUBLICATION_VALIDATION_RECEIPT_INVALID',
-  'STRICT_PUBLICATION_VECTOR_GENERATION_INVALID',
-  'STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH',
-  'STRICT_PUBLICATION_VECTOR_ITEM_INVALID',
-  'STRICT_PUBLICATION_VECTOR_MANIFEST_INVALID',
-  'STRICT_PUBLICATION_VECTOR_ROUTE_INVALID',
-  'STRICT_PUBLICATION_VECTOR_ROUTE_MISMATCH',
-  'STRICT_PUBLICATION_VECTOR_STORE_INVALID',
-] as const;
-const STRICT_PUBLICATION_ERROR_CODE_SET: ReadonlySet<string> = new Set(
-  STRICT_PUBLICATION_ERROR_CODES
-);
-
-export type StrictPublicationErrorCode = (typeof STRICT_PUBLICATION_ERROR_CODES)[number];
-
-export class StrictPublicationError extends Error {
-  readonly code: StrictPublicationErrorCode;
-  readonly retryable = false;
-
-  constructor(code: StrictPublicationErrorCode) {
-    super(code);
-    if (!isStrictPublicationErrorCode(code)) {
-      throw new Error(`Unsupported strict publication error code: ${code}`);
-    }
-    this.name = 'StrictPublicationError';
-    this.code = code;
-  }
-}
-
 export interface ProjectRuntimePublicationProvenance {
   mode: 'legacy' | 'strict-v1';
   routeState: 'legacy' | 'ready' | 'unavailable';
@@ -750,7 +700,11 @@ function verifyVectorItems(items: VectorItemRecord[], manifest: VectorManifestRe
   }
 }
 
-function readCanonicalJson<T>(filePath: string, code: string, newline: boolean): T {
+function readCanonicalJson<T>(
+  filePath: string,
+  code: StrictPublicationErrorCode,
+  newline: boolean
+): T {
   const value = readJson<T>(filePath, code);
   // Public route CAS bytes are Core-canonical. The other Main artifacts are deliberately
   // byte-stable JSON records written in their producer field order with one trailing newline;
@@ -762,7 +716,7 @@ function readCanonicalJson<T>(filePath: string, code: string, newline: boolean):
   return value;
 }
 
-function readJson<T>(filePath: string, code: string): T {
+function readJson<T>(filePath: string, code: StrictPublicationErrorCode): T {
   try {
     const stat = lstatSync(filePath);
     if (!stat.isFile() || stat.isSymbolicLink()) {
@@ -778,7 +732,11 @@ function readJson<T>(filePath: string, code: string): T {
   }
 }
 
-function verifySelfHash(record: Record<string, unknown>, key: string, code: string): void {
+function verifySelfHash(
+  record: Record<string, unknown>,
+  key: string,
+  code: StrictPublicationErrorCode
+): void {
   const claimed = record[key];
   const { [key]: _claimed, ...semantic } = record;
   if (!SHA_PATTERN.test(readText(claimed) ?? '') || claimed !== hashCanonicalJson(semantic)) {
@@ -786,7 +744,11 @@ function verifySelfHash(record: Record<string, unknown>, key: string, code: stri
   }
 }
 
-function verifyExactKeys(record: Record<string, unknown>, keys: string[], code: string): void {
+function verifyExactKeys(
+  record: Record<string, unknown>,
+  keys: string[],
+  code: StrictPublicationErrorCode
+): void {
   if (
     canonicalJsonStringify(Object.keys(record).sort()) !== canonicalJsonStringify([...keys].sort())
   ) {
@@ -794,7 +756,11 @@ function verifyExactKeys(record: Record<string, unknown>, keys: string[], code: 
   }
 }
 
-function assertRegularDirectory(root: string, target: string, code: string): void {
+function assertRegularDirectory(
+  root: string,
+  target: string,
+  code: StrictPublicationErrorCode
+): void {
   assertNoSymlinkTraversal(root, target);
   try {
     const stat = lstatSync(target);
@@ -806,7 +772,7 @@ function assertRegularDirectory(root: string, target: string, code: string): voi
   }
 }
 
-function assertRegularFile(root: string, target: string, code: string): void {
+function assertRegularFile(root: string, target: string, code: StrictPublicationErrorCode): void {
   assertNoSymlinkTraversal(root, target);
   try {
     const stat = lstatSync(target);
@@ -847,7 +813,11 @@ function assertNoSymlinkTraversal(root: string, target: string): void {
   }
 }
 
-function confinedChild(root: string, relativePath: string, code: string): string {
+function confinedChild(
+  root: string,
+  relativePath: string,
+  code: StrictPublicationErrorCode
+): string {
   if (
     !relativePath ||
     path.isAbsolute(relativePath) ||
@@ -954,7 +924,7 @@ function readText(value: unknown): string | null {
 function requireText(value: unknown, field: string): string {
   const text = readText(value);
   if (!text) {
-    throw new Error(`STRICT_PUBLICATION_IDENTITY_INVALID:${field}`);
+    throw new StrictPublicationError('STRICT_PUBLICATION_IDENTITY_INVALID', field);
   }
   return text;
 }
@@ -965,13 +935,6 @@ function readErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function fail(code: string): never {
-  if (!isStrictPublicationErrorCode(code)) {
-    throw new Error(code);
-  }
+function fail(code: StrictPublicationErrorCode): never {
   throw new StrictPublicationError(code);
-}
-
-function isStrictPublicationErrorCode(code: string): code is StrictPublicationErrorCode {
-  return STRICT_PUBLICATION_ERROR_CODE_SET.has(code);
 }

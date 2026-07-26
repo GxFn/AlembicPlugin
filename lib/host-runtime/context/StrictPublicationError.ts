@@ -1,0 +1,76 @@
+export const STRICT_PUBLICATION_ERROR_CODES = [
+  'STRICT_PUBLICATION_ARTIFACT_MISSING',
+  'STRICT_PUBLICATION_CANDIDATE_COVERAGE_INVALID',
+  'STRICT_PUBLICATION_CANDIDATE_MANIFEST_INVALID',
+  'STRICT_PUBLICATION_DATABASE_MISSING',
+  'STRICT_PUBLICATION_DATA_FILE_HASH_MISMATCH',
+  'STRICT_PUBLICATION_DATA_FILE_INVALID',
+  'STRICT_PUBLICATION_DATA_FILE_PATH_INVALID',
+  'STRICT_PUBLICATION_DATA_FILE_SET_INVALID',
+  'STRICT_PUBLICATION_DATA_ROOT_INVALID',
+  'STRICT_PUBLICATION_FINAL_COVERAGE_INVALID',
+  'STRICT_PUBLICATION_G4_RECEIPT_INVALID',
+  'STRICT_PUBLICATION_IDENTITY_INVALID',
+  'STRICT_PUBLICATION_LINEAGE_INVALID',
+  'STRICT_PUBLICATION_MARKER_INVALID',
+  'STRICT_PUBLICATION_MIGRATION_BUNDLE_MISMATCH',
+  'STRICT_PUBLICATION_PATH_OUT_OF_SCOPE',
+  'STRICT_PUBLICATION_PROJECT_IDENTITY_MISMATCH',
+  'STRICT_PUBLICATION_PROJECT_SCOPE_INVALID',
+  'STRICT_PUBLICATION_ROUTE_BYTES_MISMATCH',
+  'STRICT_PUBLICATION_ROUTE_INVALID',
+  'STRICT_PUBLICATION_SERVING_MANIFEST_INVALID',
+  'STRICT_PUBLICATION_SNAPSHOT_ID_INVALID',
+  'STRICT_PUBLICATION_SNAPSHOT_INVALID',
+  'STRICT_PUBLICATION_SNAPSHOT_PATH_INVALID',
+  'STRICT_PUBLICATION_SYMLINK_FORBIDDEN',
+  'STRICT_PUBLICATION_VALIDATION_RECEIPT_INVALID',
+  'STRICT_PUBLICATION_VECTOR_GENERATION_INVALID',
+  'STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH',
+  'STRICT_PUBLICATION_VECTOR_ITEM_INVALID',
+  'STRICT_PUBLICATION_VECTOR_MANIFEST_INVALID',
+  'STRICT_PUBLICATION_VECTOR_PROVIDER_MISMATCH',
+  'STRICT_PUBLICATION_VECTOR_PROVIDER_UNAVAILABLE',
+  'STRICT_PUBLICATION_VECTOR_QUERY_DIMENSION_MISMATCH',
+  'STRICT_PUBLICATION_VECTOR_ROUTE_INVALID',
+  'STRICT_PUBLICATION_VECTOR_ROUTE_MISMATCH',
+  'STRICT_PUBLICATION_VECTOR_STORE_INVALID',
+  'STRICT_PUBLICATION_VECTOR_STORE_PATH_INVALID',
+] as const;
+
+const STRICT_PUBLICATION_ERROR_CODE_SET: ReadonlySet<string> = new Set(
+  STRICT_PUBLICATION_ERROR_CODES
+);
+
+export type StrictPublicationErrorCode = (typeof STRICT_PUBLICATION_ERROR_CODES)[number];
+
+/**
+ * Bounded internal error contract shared by strict-publication readers and the host executor.
+ *
+ * Only registered producer codes cross the executor boundary. Optional detail remains diagnostic
+ * text and never participates in code selection.
+ */
+export class StrictPublicationError extends Error {
+  readonly code: StrictPublicationErrorCode;
+  readonly retryable = false;
+
+  constructor(code: StrictPublicationErrorCode, detail?: string) {
+    super(formatStrictPublicationErrorMessage(code, detail));
+    this.name = 'StrictPublicationError';
+    this.code = code;
+  }
+}
+
+export function isStrictPublicationErrorCode(code: string): code is StrictPublicationErrorCode {
+  return STRICT_PUBLICATION_ERROR_CODE_SET.has(code);
+}
+
+function formatStrictPublicationErrorMessage(
+  code: StrictPublicationErrorCode,
+  detail: string | undefined
+): string {
+  if (!isStrictPublicationErrorCode(code)) {
+    throw new Error(`Unsupported strict publication error code: ${code}`);
+  }
+  return detail ? `${code}:${detail}` : code;
+}

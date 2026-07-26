@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { VectorIndexReader } from '@alembic/core/vector';
+import { StrictPublicationError } from '../../context/StrictPublicationError.js';
 
 type VectorItem = {
   content: string;
@@ -16,7 +17,7 @@ export class ReadOnlyJsonVectorReader implements VectorIndexReader {
   constructor(indexPath: string, dimension: number) {
     const parsed = JSON.parse(readFileSync(indexPath, 'utf8')) as unknown;
     if (!Array.isArray(parsed)) {
-      throw new Error('STRICT_PUBLICATION_VECTOR_STORE_INVALID');
+      throw new StrictPublicationError('STRICT_PUBLICATION_VECTOR_STORE_INVALID');
     }
     this.#dimension = dimension;
     this.#items = new Map(
@@ -32,13 +33,13 @@ export class ReadOnlyJsonVectorReader implements VectorIndexReader {
           typeof item.metadata !== 'object' ||
           Array.isArray(item.metadata)
         ) {
-          throw new Error('STRICT_PUBLICATION_VECTOR_ITEM_INVALID');
+          throw new StrictPublicationError('STRICT_PUBLICATION_VECTOR_ITEM_INVALID');
         }
         return [item.id, item] as const;
       })
     );
     if (this.#items.size !== parsed.length) {
-      throw new Error('STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH');
+      throw new StrictPublicationError('STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH');
     }
   }
 
@@ -60,8 +61,9 @@ export class ReadOnlyJsonVectorReader implements VectorIndexReader {
     options: { topK?: number; filter?: unknown; minScore?: number } = {}
   ): Promise<Array<{ item: VectorItem; score: number }>> {
     if (queryVector.length !== this.#dimension) {
-      throw new Error(
-        `STRICT_PUBLICATION_VECTOR_QUERY_DIMENSION_MISMATCH:${this.#dimension}:${queryVector.length}`
+      throw new StrictPublicationError(
+        'STRICT_PUBLICATION_VECTOR_QUERY_DIMENSION_MISMATCH',
+        `${this.#dimension}:${queryVector.length}`
       );
     }
     const topK = positiveInteger(options.topK, 10);
