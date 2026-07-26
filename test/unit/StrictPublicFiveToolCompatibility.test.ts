@@ -170,6 +170,12 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
         ['alembic_recipe_map', {}],
         ['alembic_code_guard', { operation: 'check', code: 'const strict = true;' }],
       ] as Array<[string, Record<string, unknown>]>) {
+        if (name === 'alembic_prime' || name === 'alembic_code_guard') {
+          expect(await transport.host.callPluginOwnedTool(name, args), name).toMatchObject({
+            success: false,
+            errorCode: 'STRICT_PUBLICATION_ARTIFACT_MISSING',
+          });
+        }
         const result = await transport.client.callTool({ name, arguments: args });
         expect(CallToolResultSchema.parse(result), name).toBeTruthy();
         expect(result.isError, name).toBe(true);
@@ -232,7 +238,7 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
         expect(CallToolResultSchema.parse(result)).toBeTruthy();
         expect(result.isError).toBe(true);
         const structured = asRecord(result.structuredContent);
-        expect(asRecord(structured?.error)?.code).toBe('STRICT_PUBLICATION_TEST_FAILURE');
+        expect(asRecord(structured?.error)?.code).toBe('STRICT_PUBLICATION_ARTIFACT_MISSING');
         expect(JSON.stringify(structured)).not.toContain('AGENT_PUBLIC_OUTPUT_PROJECTION_REJECTED');
         expect(readPublicationMeta(result)).toEqual(
           asRecord(asRecord(producerFailure._meta)?.alembicPublication)
@@ -288,20 +294,20 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
     30_000
   );
 
-  test('does not infer an exact failure code from an ambiguous producer message', async () => {
+  test('does not promote a strict-like token from a generic producer message', async () => {
     const fixture = installFixture();
     const transport = await openHostTransport(fixture.projectRoot);
     vi.spyOn(transport.host, 'callPluginOwnedTool').mockResolvedValue({
       ...createCanonicalProducerFailure('alembic_work', fixture.projectRoot),
-      message:
-        'Producer observed STRICT_PUBLICATION_ROUTE_INVALID after STRICT_PUBLICATION_MARKER_INVALID.',
+      errorCode: 'CODEX_MCP_ERROR',
+      message: 'Producer observed STRICT_PUBLICATION_FAKE_ONLY.',
     });
     try {
       const result = await transport.client.callTool({
         name: 'alembic_work',
         arguments: {
           phase: 'start',
-          title: 'Keep ambiguous diagnostics honest',
+          title: 'Keep generic diagnostics honest',
           workScope: { goal: 'Avoid false error attribution.', files: ['src/index.ts'] },
         },
       });
@@ -622,8 +628,8 @@ function createCanonicalProducerFailure(
   const projectRuntime = buildProjectRuntimeContext({ projectRoot });
   return {
     success: false,
-    message: 'Producer failed with STRICT_PUBLICATION_TEST_FAILURE.',
-    errorCode: 'CODEX_MCP_ERROR',
+    message: 'Producer failed with STRICT_PUBLICATION_ARTIFACT_MISSING.',
+    errorCode: 'STRICT_PUBLICATION_ARTIFACT_MISSING',
     tool: toolName,
     data: { projectRuntime },
     _meta: { alembicPublication: projectRuntime.publication },

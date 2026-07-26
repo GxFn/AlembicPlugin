@@ -5,6 +5,7 @@ import {
   ProjectContextContinuationError,
 } from '../../../service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 import type { ProjectRuntimeContext } from '../../context/ProjectRuntimeContext.js';
+import { StrictPublicationError } from '../../context/StrictPublicKnowledgeResolver.js';
 import type { McpServiceContainer } from '../handlers/types.js';
 import { McpServer as EmbeddedMcpServer } from '../McpServer.js';
 import { isCleanMcpResponse } from '../output-contract.js';
@@ -119,6 +120,18 @@ export class EmbeddedToolExecutor {
         return attachExecutionContext(
           {
             ...failureResult(name, message, { retryable: err.retryable }),
+            errorCode: err.code,
+          },
+          executionContext,
+          this.#hostProjectRoot
+        );
+      }
+      if (err instanceof StrictPublicationError) {
+        return attachExecutionContext(
+          {
+            ...failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`, {
+              retryable: err.retryable,
+            }),
             errorCode: err.code,
           },
           executionContext,

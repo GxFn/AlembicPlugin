@@ -25,6 +25,59 @@ const STRICT_PUBLICATION_ACTIVE_FILE = 'active.json';
 const SNAPSHOT_ID_PATTERN = /^snapshot-[a-f0-9]{64}$/u;
 const SHA_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
+const STRICT_PUBLICATION_ERROR_CODES = [
+  'STRICT_PUBLICATION_ARTIFACT_MISSING',
+  'STRICT_PUBLICATION_CANDIDATE_COVERAGE_INVALID',
+  'STRICT_PUBLICATION_CANDIDATE_MANIFEST_INVALID',
+  'STRICT_PUBLICATION_DATABASE_MISSING',
+  'STRICT_PUBLICATION_DATA_FILE_HASH_MISMATCH',
+  'STRICT_PUBLICATION_DATA_FILE_INVALID',
+  'STRICT_PUBLICATION_DATA_FILE_PATH_INVALID',
+  'STRICT_PUBLICATION_DATA_FILE_SET_INVALID',
+  'STRICT_PUBLICATION_DATA_ROOT_INVALID',
+  'STRICT_PUBLICATION_FINAL_COVERAGE_INVALID',
+  'STRICT_PUBLICATION_G4_RECEIPT_INVALID',
+  'STRICT_PUBLICATION_LINEAGE_INVALID',
+  'STRICT_PUBLICATION_MARKER_INVALID',
+  'STRICT_PUBLICATION_MIGRATION_BUNDLE_MISMATCH',
+  'STRICT_PUBLICATION_PATH_OUT_OF_SCOPE',
+  'STRICT_PUBLICATION_PROJECT_IDENTITY_MISMATCH',
+  'STRICT_PUBLICATION_PROJECT_SCOPE_INVALID',
+  'STRICT_PUBLICATION_ROUTE_BYTES_MISMATCH',
+  'STRICT_PUBLICATION_ROUTE_INVALID',
+  'STRICT_PUBLICATION_SERVING_MANIFEST_INVALID',
+  'STRICT_PUBLICATION_SNAPSHOT_ID_INVALID',
+  'STRICT_PUBLICATION_SNAPSHOT_INVALID',
+  'STRICT_PUBLICATION_SNAPSHOT_PATH_INVALID',
+  'STRICT_PUBLICATION_SYMLINK_FORBIDDEN',
+  'STRICT_PUBLICATION_VALIDATION_RECEIPT_INVALID',
+  'STRICT_PUBLICATION_VECTOR_GENERATION_INVALID',
+  'STRICT_PUBLICATION_VECTOR_ID_SET_MISMATCH',
+  'STRICT_PUBLICATION_VECTOR_ITEM_INVALID',
+  'STRICT_PUBLICATION_VECTOR_MANIFEST_INVALID',
+  'STRICT_PUBLICATION_VECTOR_ROUTE_INVALID',
+  'STRICT_PUBLICATION_VECTOR_ROUTE_MISMATCH',
+  'STRICT_PUBLICATION_VECTOR_STORE_INVALID',
+] as const;
+const STRICT_PUBLICATION_ERROR_CODE_SET: ReadonlySet<string> = new Set(
+  STRICT_PUBLICATION_ERROR_CODES
+);
+
+export type StrictPublicationErrorCode = (typeof STRICT_PUBLICATION_ERROR_CODES)[number];
+
+export class StrictPublicationError extends Error {
+  readonly code: StrictPublicationErrorCode;
+  readonly retryable = false;
+
+  constructor(code: StrictPublicationErrorCode) {
+    super(code);
+    if (!isStrictPublicationErrorCode(code)) {
+      throw new Error(`Unsupported strict publication error code: ${code}`);
+    }
+    this.name = 'StrictPublicationError';
+    this.code = code;
+  }
+}
 
 export interface ProjectRuntimePublicationProvenance {
   mode: 'legacy' | 'strict-v1';
@@ -913,5 +966,12 @@ function readErrorCode(error: unknown): string | undefined {
 }
 
 function fail(code: string): never {
-  throw new Error(code);
+  if (!isStrictPublicationErrorCode(code)) {
+    throw new Error(code);
+  }
+  throw new StrictPublicationError(code);
+}
+
+function isStrictPublicationErrorCode(code: string): code is StrictPublicationErrorCode {
+  return STRICT_PUBLICATION_ERROR_CODE_SET.has(code);
 }

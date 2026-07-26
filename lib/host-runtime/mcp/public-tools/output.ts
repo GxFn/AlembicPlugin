@@ -1184,7 +1184,7 @@ function projectProducerFailureAgentOutput(
   toolName: AgentPublicToolName
 ) {
   const summary = input.message.slice(0, 600);
-  const errorCode = resolveProducerErrorCode(input.errorCode, input.message);
+  const errorCode = input.errorCode;
   const result = createAgentPublicToolResultEnvelope({
     actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
     agentHost: 'codex',
@@ -1313,14 +1313,6 @@ function createAgentPublicFailureOutput(input: {
       status: result.status,
     }),
   });
-}
-
-function resolveProducerErrorCode(errorCode: string, message: string): string {
-  if (/^STRICT_PUBLICATION_[A-Z0-9_]+$/u.test(errorCode)) {
-    return errorCode;
-  }
-  const strictCodes = [...new Set(message.match(/\bSTRICT_PUBLICATION_[A-Z0-9_]+\b/gu) ?? [])];
-  return strictCodes.length === 1 ? strictCodes[0] : errorCode;
 }
 
 for (const toolName of AGENT_PUBLIC_TOOL_NAMES) {

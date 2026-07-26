@@ -12,7 +12,10 @@ import {
 } from '@alembic/core/shared';
 import { afterEach, describe, expect, test } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
-import { resolvePublicKnowledgePublication } from '../../lib/host-runtime/context/StrictPublicKnowledgeResolver.js';
+import {
+  resolvePublicKnowledgePublication,
+  StrictPublicationError,
+} from '../../lib/host-runtime/context/StrictPublicKnowledgeResolver.js';
 
 const FIXTURE_ROOT = path.resolve('test/fixtures/strict-publication-v1/recipe-publications');
 const SNAPSHOT_ID = 'snapshot-23eb0db0c7f77684b3c604f5515a5951faa2193c8597172105946dbb20b1692d';
@@ -27,6 +30,17 @@ afterEach(() => {
 });
 
 describe('strict public knowledge publication resolver', () => {
+  test('rejects arbitrary codes from the producer-owned strict error type', () => {
+    expect(() => {
+      new StrictPublicationError('STRICT_PUBLICATION_FAKE_ONLY' as never);
+    }).toThrow('Unsupported strict publication error code: STRICT_PUBLICATION_FAKE_ONLY');
+    try {
+      new StrictPublicationError('STRICT_PUBLICATION_FAKE_ONLY' as never);
+    } catch (error: unknown) {
+      expect(error).not.toBeInstanceOf(StrictPublicationError);
+    }
+  });
+
   test('resolves the accepted Main physical bundle from the fixed ordinary namespace', () => {
     const fixture = installFixture();
     const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
@@ -111,7 +125,9 @@ describe('strict public knowledge publication resolver', () => {
     }
     const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
     expect(runtime.publication).toMatchObject({ mode: 'strict-v1', routeState: 'ready' });
-    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(/STRICT_PUBLICATION_/);
+    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(
+      /STRICT_PUBLICATION_/
+    );
   });
 
   test('allows legacy resolution only when the strict marker is absent', () => {
@@ -162,7 +178,9 @@ describe('strict public knowledge publication resolver', () => {
       return;
     }
     const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
-    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(/STRICT_PUBLICATION_/);
+    expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(
+      /STRICT_PUBLICATION_/
+    );
   });
 
   test('rejects a symlink anywhere inside the selected snapshot route', () => {
