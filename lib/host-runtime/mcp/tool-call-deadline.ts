@@ -6,7 +6,7 @@
  * TOOL_TIMEOUT 前等待有界的清理确认；Promise 形式仅保留旧调用方兼容。
  */
 
-/** 软超时专用错误:外层据此把响应码定为 TOOL_TIMEOUT(区别于 CODEX_MCP_ERROR)。 */
+/** 软超时专用错误:外层据此把响应码定为 TOOL_TIMEOUT(区别于通用 INTERNAL_ERROR)。 */
 export class ToolCallDeadlineError extends Error {}
 
 export async function raceToolCallDeadline<T>(

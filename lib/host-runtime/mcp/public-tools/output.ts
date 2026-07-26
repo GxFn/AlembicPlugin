@@ -4,6 +4,7 @@ import {
   CollectionCoverageSchema,
   ConclusionDispositionSchema,
 } from '#service/project-knowledge-context/contracts/ToolOutputPrimitives.js';
+import { normalizeHostMcpErrorCode } from '../error-taxonomy.js';
 import {
   CleanMcpResponseBaseSchema,
   createCleanMcpError,
@@ -1120,7 +1121,7 @@ function projectProducerFailureAgentOutput(
   toolName: AgentPublicToolName
 ) {
   const summary = input.message.slice(0, 600);
-  const errorCode = input.errorCode;
+  const errorCode = normalizeHostMcpErrorCode(input.errorCode);
   const result = createAgentPublicToolResultEnvelope({
     actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
     agentHost: 'codex',

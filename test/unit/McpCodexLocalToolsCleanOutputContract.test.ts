@@ -162,6 +162,36 @@ describe('MCP Codex local tools clean output contract', () => {
     }
   });
 
+  test('normalizes deprecated generic local failures and keeps the top-level code authoritative', () => {
+    const result = serializeMcpToolResult(
+      'alembic_job',
+      {
+        success: false,
+        errorCode: 'CODEX_MCP_ERROR',
+        message: 'Legacy local failure.',
+        data: {
+          errorCode: 'VALIDATION_ERROR',
+          error: {
+            code: 'CODEX_MCP_ERROR',
+            message: 'Nested legacy failure detail.',
+          },
+          jobRoute: { selected: 'plugin-owned-local-jobstore' },
+        },
+      },
+      { isErrorResult: () => true }
+    );
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    expect(result.isError).toBe(true);
+    expect(structured).not.toHaveProperty('reasonCode');
+    expect(structured.error).toMatchObject({
+      code: 'INTERNAL_ERROR',
+      mcpErrorCode: 'core.failure.internal-error',
+      reasonCode: 'internal-error',
+    });
+    expect(JSON.stringify(result)).not.toContain('CODEX_MCP_ERROR');
+  });
+
   test('rejects already-clean Codex local outputs with non-whitelisted fields', () => {
     const parsed = LOCAL_TOOL_OUTPUT_SCHEMAS.alembic_status.safeParse({
       ok: true,

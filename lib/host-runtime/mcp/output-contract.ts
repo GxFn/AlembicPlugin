@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   CleanMcpFailureTaxonomySchema,
   createCleanMcpFailureTaxonomy,
+  normalizeHostMcpErrorCode,
   sanitizeCleanMcpErrorDetails,
 } from './error-taxonomy.js';
 import { zodToMcpSchema } from './zodToMcpSchema.js';
@@ -150,11 +151,12 @@ export function createCleanMcpError(input: {
   status?: string;
 }): z.infer<typeof CleanMcpErrorSchema> {
   const details = sanitizeCleanMcpErrorDetails(input.details);
+  const code = normalizeHostMcpErrorCode(input.code);
   return CleanMcpErrorSchema.parse({
-    code: input.code,
+    code,
     message: input.message,
     ...createCleanMcpFailureTaxonomy({
-      code: input.code,
+      code,
       details,
       failureKind: input.failureKind,
       source: input.source,

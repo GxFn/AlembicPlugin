@@ -313,7 +313,8 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
       });
       expect(CallToolResultSchema.parse(result)).toBeTruthy();
       expect(result.isError).toBe(true);
-      expect(asRecord(asRecord(result.structuredContent)?.error)?.code).toBe('CODEX_MCP_ERROR');
+      expect(asRecord(asRecord(result.structuredContent)?.error)?.code).toBe('INTERNAL_ERROR');
+      expect(JSON.stringify(result)).not.toContain('CODEX_MCP_ERROR');
     } finally {
       await transport.close();
     }

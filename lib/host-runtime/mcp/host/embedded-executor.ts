@@ -68,10 +68,9 @@ export class EmbeddedToolExecutor {
     options: EmbeddedToolCallOptions = {}
   ): Promise<unknown> {
     if (!TOOLS.some((tool) => tool.name === name)) {
-      return {
-        ...failureResult(name, `Unknown Alembic tool: ${name}`),
-        errorCode: 'CODEX_UNKNOWN_TOOL',
-      };
+      return failureResult(name, `Unknown Alembic tool: ${name}`, {
+        code: 'CODEX_UNKNOWN_TOOL',
+      });
     }
 
     try {
@@ -118,28 +117,26 @@ export class EmbeddedToolExecutor {
       const message = err instanceof Error ? err.message : String(err);
       if (err instanceof ProjectContextContinuationError) {
         return attachExecutionContext(
-          {
-            ...failureResult(name, message, { retryable: err.retryable }),
-            errorCode: err.code,
-          },
+          failureResult(name, message, {
+            code: err.code,
+            data: { retryable: err.retryable },
+          }),
           executionContext,
           this.#hostProjectRoot
         );
       }
       if (err instanceof StrictPublicationError) {
         return attachExecutionContext(
-          {
-            ...failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`, {
-              retryable: err.retryable,
-            }),
-            errorCode: err.code,
-          },
+          failureResult(name, `Plugin-owned tool execution failed: ${message}`, {
+            code: err.code,
+            data: { retryable: err.retryable },
+          }),
           executionContext,
           this.#hostProjectRoot
         );
       }
       return attachExecutionContext(
-        failureResult(name, `Plugin-owned Codex tool execution failed: ${message}`),
+        failureResult(name, `Plugin-owned tool execution failed: ${message}`),
         executionContext,
         this.#hostProjectRoot
       );

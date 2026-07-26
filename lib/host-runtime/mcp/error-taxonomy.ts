@@ -51,6 +51,19 @@ export interface CreateCleanMcpFailureTaxonomyInput {
   status?: string;
 }
 
+export const HOST_NEUTRAL_INTERNAL_ERROR_CODE = 'INTERNAL_ERROR';
+const DEPRECATED_CODEX_MCP_ERROR_CODE = 'CODEX_MCP_ERROR';
+
+/**
+ * Read compatibility for the pre-host-neutral generic MCP code.
+ *
+ * New producer paths must emit INTERNAL_ERROR. The old Codex-labelled value is
+ * accepted only at decoder boundaries and is never returned to MCP clients.
+ */
+export function normalizeHostMcpErrorCode(code: string): string {
+  return code === DEPRECATED_CODEX_MCP_ERROR_CODE ? HOST_NEUTRAL_INTERNAL_ERROR_CODE : code;
+}
+
 // IC4/P3 step-7 registry adoption: every plugin-owned error code maps to a
 // Core failure kind from config/error-registry.json (vendor ef83a41 lineage);
 // unmapped codes fall back to internal-error. Recipe evidence gate refusals
@@ -67,7 +80,8 @@ const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   CODEX_HOST_PROJECT_DISCONNECTED: 'unavailable',
   CODEX_HOST_PROJECT_MISMATCH: 'conflict',
   CODEX_INVALID_PROJECT_ROOT_ARGUMENT: 'invalid-input',
-  CODEX_MCP_ERROR: 'internal-error',
+  // Deprecated compatibility alias. New runtime producers emit INTERNAL_ERROR.
+  [DEPRECATED_CODEX_MCP_ERROR_CODE]: 'internal-error',
   CODEX_TOOL_NOT_AVAILABLE: 'capability-mismatch',
   CODEX_TOOL_RETIRED: 'capability-mismatch',
   CODEX_UNKNOWN_TOOL: 'capability-mismatch',
@@ -85,7 +99,7 @@ const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   HOST_FAILURE: 'host-failure',
   INCOMPLETE_SUBMISSION: 'invalid-input',
   INSUFFICIENT_EVIDENCE: 'invalid-input',
-  INTERNAL_ERROR: 'internal-error',
+  [HOST_NEUTRAL_INTERNAL_ERROR_CODE]: 'internal-error',
   INVALID_INPUT: 'invalid-input',
   MISSING_GUARD_SCOPE: 'invalid-input',
   NOT_FOUND: 'not-found',
@@ -179,6 +193,9 @@ export function createCleanMcpFailureTaxonomy(
 export function sanitizeCleanMcpErrorDetails(value: unknown): unknown {
   if (value === undefined) {
     return undefined;
+  }
+  if (typeof value === 'string') {
+    return normalizeHostMcpErrorCode(value);
   }
   if (!value || typeof value !== 'object') {
     return value;

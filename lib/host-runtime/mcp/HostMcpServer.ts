@@ -36,11 +36,7 @@ import { buildMcpInitializeInstructions } from './host/guidance.js';
 import { dispatchLocalTool } from './host/local-tool-dispatcher.js';
 import { failureResult, isErrorResult } from './host/results.js';
 import { getToolCatalog } from './host/tool-catalog.js';
-import {
-  createCleanMcpErrorResponse,
-  createMcpStructuredToolResult,
-  serializeMcpToolResult,
-} from './output-contract.js';
+import { createCleanMcpErrorResponse, serializeMcpToolResult } from './output-contract.js';
 import { buildMcpToolUsageView, type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
 import { raceToolCallDeadline, ToolCallDeadlineError } from './tool-call-deadline.js';
 import './local-tools/output.js';
@@ -246,12 +242,17 @@ export class HostMcpServer {
           durationMs: Date.now() - startedAt,
           message,
         });
-        return createMcpStructuredToolResult(
-          createCleanMcpErrorResponse({
-            code: timedOut ? 'TOOL_TIMEOUT' : 'CODEX_MCP_ERROR',
-            message,
-            toolName: name,
-          })
+        return serializeMcpToolResult(
+          name,
+          failureResult(name, message, {
+            code: timedOut ? 'TOOL_TIMEOUT' : 'INTERNAL_ERROR',
+            data: {
+              projectRuntime: buildProjectRuntimeContext({
+                projectRoot: this.projectRoot,
+              }),
+            },
+          }),
+          { isErrorResult }
         );
       }
     });
@@ -554,9 +555,11 @@ export class HostMcpServer {
           input.requestedTool || 'alembic_init',
           'Alembic Codex initialization failed. Run diagnostics before retrying.',
           {
-            errorCode: 'CODEX_AUTO_INIT_FAILED',
-            results,
-            route: input.route,
+            code: 'CODEX_AUTO_INIT_FAILED',
+            data: {
+              results,
+              route: input.route,
+            },
           }
         );
       }
@@ -596,9 +599,11 @@ export class HostMcpServer {
         input.requestedTool || 'alembic_init',
         'Alembic Codex initialization failed. Run diagnostics before retrying.',
         {
-          errorCode: 'CODEX_AUTO_INIT_FAILED',
-          lastError: message,
-          route: input.route,
+          code: 'CODEX_AUTO_INIT_FAILED',
+          data: {
+            lastError: message,
+            route: input.route,
+          },
         }
       );
     }
@@ -618,12 +623,14 @@ export class HostMcpServer {
       input.requestedTool || 'alembic_init',
       `${message} Ordinary Codex init will not switch workspace mode automatically.`,
       {
-        errorCode: 'CODEX_WORKSPACE_MODE_CONFLICT',
-        existingMode: modeConflict.existingMode,
-        needsUserInput: true,
-        projectId: modeConflict.projectId,
-        requestedMode: modeConflict.requestedMode,
-        nextActions: [{ tool: 'alembic_status', required: false }],
+        code: 'CODEX_WORKSPACE_MODE_CONFLICT',
+        data: {
+          existingMode: modeConflict.existingMode,
+          needsUserInput: true,
+          projectId: modeConflict.projectId,
+          requestedMode: modeConflict.requestedMode,
+          nextActions: [{ tool: 'alembic_status', required: false }],
+        },
       }
     );
   }
@@ -701,7 +708,7 @@ export class HostMcpServer {
     } catch (err: unknown) {
       store.fail(job.id, err);
       return failureResult(toolName, err instanceof Error ? err.message : String(err), {
-        projectRuntime,
+        data: { projectRuntime },
       });
     }
   }
@@ -719,8 +726,11 @@ export class HostMcpServer {
       return job
         ? { success: true, data: { job, jobRoute, projectRuntime } }
         : failureResult('alembic_job', `Alembic job not found: ${jobId}`, {
-            jobRoute,
-            projectRuntime,
+            code: 'NOT_FOUND',
+            data: {
+              jobRoute,
+              projectRuntime,
+            },
           });
     }
 

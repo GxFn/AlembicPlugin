@@ -349,11 +349,12 @@ describe('strict publication producer error transport', () => {
       expect(result.structuredContent).toMatchObject({
         diagnostics: [
           expect.objectContaining({
-            code: 'CODEX_MCP_ERROR',
+            code: 'INTERNAL_ERROR',
             severity: 'error',
           }),
         ],
       });
+      expect(JSON.stringify(result)).not.toContain('CODEX_MCP_ERROR');
       const diagnostics = asRecord(result.structuredContent)?.diagnostics;
       expect(asRecord(Array.isArray(diagnostics) ? diagnostics[0] : null)?.code).not.toBe(
         'STRICT_PUBLICATION_FAKE_ONLY'

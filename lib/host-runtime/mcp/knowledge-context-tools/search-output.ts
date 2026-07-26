@@ -9,6 +9,7 @@
 import { z } from 'zod';
 import { AlembicSearchOutputSchema } from '#service/project-knowledge-context/index.js';
 import { isStrictPublicationErrorCode } from '../../context/StrictPublicationError.js';
+import { HOST_NEUTRAL_INTERNAL_ERROR_CODE, normalizeHostMcpErrorCode } from '../error-taxonomy.js';
 import { type CleanMcpResponse, registerMcpOutputProjector } from '../output-contract.js';
 import { ProjectRuntimeContextV3Schema } from '../project-runtime-output-schema.js';
 
@@ -38,18 +39,18 @@ function projectAlembicSearchCleanOutput(input: unknown): CleanMcpResponse {
     return parsed.data as unknown as CleanMcpResponse;
   }
   const producerFailure = SearchProducerFailureSchema.safeParse(input);
-  if (
-    producerFailure.success &&
-    (producerFailure.data.errorCode === 'CODEX_MCP_ERROR' ||
-      isStrictPublicationErrorCode(producerFailure.data.errorCode))
-  ) {
-    return buildAlembicSearchProducerFailure(producerFailure.data);
+  if (producerFailure.success) {
+    const errorCode = normalizeHostMcpErrorCode(producerFailure.data.errorCode);
+    if (errorCode === HOST_NEUTRAL_INTERNAL_ERROR_CODE || isStrictPublicationErrorCode(errorCode)) {
+      return buildAlembicSearchProducerFailure(producerFailure.data, errorCode);
+    }
   }
   return buildAlembicSearchProjectionFailure();
 }
 
 function buildAlembicSearchProducerFailure(
-  input: z.infer<typeof SearchProducerFailureSchema>
+  input: z.infer<typeof SearchProducerFailureSchema>,
+  errorCode: string
 ): CleanMcpResponse {
   const summary = input.message.slice(0, 2000);
   return AlembicSearchOutputSchema.parse({
@@ -64,7 +65,7 @@ function buildAlembicSearchProducerFailure(
     sources: [],
     diagnostics: [
       {
-        code: input.errorCode,
+        code: errorCode,
         message: summary.slice(0, 800),
         retryable: input.data.retryable ?? false,
         severity: 'error',

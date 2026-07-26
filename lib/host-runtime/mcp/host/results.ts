@@ -1,15 +1,23 @@
-// Codex-facing MCP helper 统一返回结构，避免 server orchestration 重复拼 envelope。
+import { HOST_NEUTRAL_INTERNAL_ERROR_CODE, normalizeHostMcpErrorCode } from '../error-taxonomy.js';
+
+export interface FailureResultOptions {
+  code?: string;
+  data?: Record<string, unknown>;
+}
+
+// Shared Host MCP helper: one authoritative top-level code, with business data
+// kept separate so projectors never have to choose between competing codes.
 export function failureResult(
   tool: string,
   message: string,
-  data: Record<string, unknown> = {}
+  options: FailureResultOptions = {}
 ): Record<string, unknown> {
   return {
     success: false,
     message,
-    errorCode: 'CODEX_MCP_ERROR',
+    errorCode: normalizeHostMcpErrorCode(options.code ?? HOST_NEUTRAL_INTERNAL_ERROR_CODE),
     tool,
-    data,
+    data: options.data ?? {},
   };
 }
 

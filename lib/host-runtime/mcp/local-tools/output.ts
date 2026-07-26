@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HOST_NEUTRAL_INTERNAL_ERROR_CODE, normalizeHostMcpErrorCode } from '../error-taxonomy.js';
 import {
   CleanMcpResponseBaseSchema,
   createCleanMcpError,
@@ -182,6 +183,9 @@ export function projectLocalToolOutput(
   const cleanMeta = pickCleanMeta(legacy.meta);
   const errorDetails = pickLegacyErrorDetails(legacy, businessSource);
   const reasonCode = extractReasonCode(legacy, businessSource, errorDetails);
+  if (!ok) {
+    delete business.reasonCode;
+  }
   const summary = buildLocalToolSummary(toolName, {
     business,
     errorDetails,
@@ -199,7 +203,7 @@ export function projectLocalToolOutput(
       ...(!ok
         ? {
             error: createCleanMcpError({
-              code: reasonCode || 'CODEX_MCP_ERROR',
+              code: reasonCode || HOST_NEUTRAL_INTERNAL_ERROR_CODE,
               ...(errorDetails === null ? {} : { details: errorDetails }),
               message: summary,
               source: errorDetails ?? legacy,
@@ -315,7 +319,9 @@ function normalizeBusinessValue(value: unknown, toolName: LocalCleanOutputToolNa
     delete out.status;
   }
   if (toolName === 'alembic_job' && out.errorCode) {
-    out.reasonCode = out.errorCode;
+    out.reasonCode =
+      typeof out.errorCode === 'string' ? normalizeHostMcpErrorCode(out.errorCode) : out.errorCode;
+    delete out.errorCode;
   }
   return out;
 }
@@ -405,16 +411,16 @@ function extractReasonCode(
   businessSource: unknown,
   errorDetails: Record<string, unknown> | null
 ): string | null {
-  if (isRecord(businessSource) && typeof businessSource.errorCode === 'string') {
-    return businessSource.errorCode;
-  }
   if (typeof legacy.errorCode === 'string') {
-    return legacy.errorCode;
+    return normalizeHostMcpErrorCode(legacy.errorCode);
+  }
+  if (isRecord(businessSource) && typeof businessSource.errorCode === 'string') {
+    return normalizeHostMcpErrorCode(businessSource.errorCode);
   }
   for (const key of ['code', 'mcpErrorCode', 'reasonCode']) {
     const value = errorDetails?.[key];
     if (typeof value === 'string' && value.length > 0) {
-      return value;
+      return normalizeHostMcpErrorCode(value);
     }
   }
   return null;
