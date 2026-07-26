@@ -10,13 +10,19 @@ import { z } from 'zod';
 import { AlembicSearchOutputSchema } from '#service/project-knowledge-context/index.js';
 import { isStrictPublicationErrorCode } from '../../context/StrictPublicationError.js';
 import { HOST_NEUTRAL_INTERNAL_ERROR_CODE, normalizeHostMcpErrorCode } from '../error-taxonomy.js';
-import { type CleanMcpResponse, registerMcpOutputProjector } from '../output-contract.js';
+import {
+  CleanMcpErrorSchema,
+  type CleanMcpResponse,
+  createCleanMcpError,
+  registerMcpOutputProjector,
+} from '../output-contract.js';
 import { ProjectRuntimeContextV3Schema } from '../project-runtime-output-schema.js';
 
 export const SEARCH_CLEAN_OUTPUT_TOOL_NAMES = ['alembic_search'] as const;
 
-const AlembicSearchCleanOutputSchema =
-  AlembicSearchOutputSchema as unknown as z.ZodType<CleanMcpResponse>;
+const AlembicSearchCleanOutputSchema = AlembicSearchOutputSchema.extend({
+  error: CleanMcpErrorSchema.optional(),
+}) as unknown as z.ZodType<CleanMcpResponse>;
 
 const SearchProducerFailureSchema = z
   .object({
@@ -34,14 +40,14 @@ const SearchProducerFailureSchema = z
   .strict();
 
 function projectAlembicSearchCleanOutput(input: unknown): CleanMcpResponse {
-  const parsed = AlembicSearchOutputSchema.safeParse(input);
+  const parsed = AlembicSearchCleanOutputSchema.safeParse(input);
   if (parsed.success) {
     return parsed.data as unknown as CleanMcpResponse;
   }
   const producerFailure = SearchProducerFailureSchema.safeParse(input);
   if (producerFailure.success) {
     const errorCode = normalizeHostMcpErrorCode(producerFailure.data.errorCode);
-    if (errorCode === HOST_NEUTRAL_INTERNAL_ERROR_CODE || isStrictPublicationErrorCode(errorCode)) {
+    if (isPreservedSearchProducerFailureCode(errorCode)) {
       return buildAlembicSearchProducerFailure(producerFailure.data, errorCode);
     }
   }
@@ -53,7 +59,8 @@ function buildAlembicSearchProducerFailure(
   errorCode: string
 ): CleanMcpResponse {
   const summary = input.message.slice(0, 2000);
-  return AlembicSearchOutputSchema.parse({
+  const retryable = input.data.retryable ?? errorCode === 'TOOL_TIMEOUT';
+  return AlembicSearchCleanOutputSchema.parse({
     ok: false,
     status: 'failed',
     tool: 'alembic_search',
@@ -67,11 +74,16 @@ function buildAlembicSearchProducerFailure(
       {
         code: errorCode,
         message: summary.slice(0, 800),
-        retryable: input.data.retryable ?? false,
+        retryable,
         severity: 'error',
       },
     ],
     nextActions: [],
+    error: createCleanMcpError({
+      code: errorCode,
+      message: summary,
+      status: 'failed',
+    }),
     meta: {
       contractVersion: 1,
       outputSchema: 'AlembicSearchOutput',
@@ -80,8 +92,16 @@ function buildAlembicSearchProducerFailure(
   }) as unknown as CleanMcpResponse;
 }
 
+function isPreservedSearchProducerFailureCode(errorCode: string): boolean {
+  return (
+    errorCode === HOST_NEUTRAL_INTERNAL_ERROR_CODE ||
+    errorCode === 'TOOL_TIMEOUT' ||
+    isStrictPublicationErrorCode(errorCode)
+  );
+}
+
 function buildAlembicSearchProjectionFailure(): CleanMcpResponse {
-  return AlembicSearchOutputSchema.parse({
+  return AlembicSearchCleanOutputSchema.parse({
     ok: false,
     status: 'failed',
     tool: 'alembic_search',

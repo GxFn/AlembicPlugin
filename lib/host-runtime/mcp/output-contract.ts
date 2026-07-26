@@ -45,6 +45,10 @@ export const CleanMcpMetaSchema = z
   .object({
     contractVersion: z.literal(CLEAN_MCP_OUTPUT_CONTRACT_VERSION),
     coverageLedgerSeed: CleanMcpCoverageLedgerSeedSchema.optional(),
+    // Graph's public contract makes these verification boundaries explicit.
+    // Keep the exact literals here so projector-produced failures remain valid
+    // clean MCP responses without widening transport metadata arbitrarily.
+    callClaimsRequireSourceVerification: z.literal(true).optional(),
     fullBriefingRef: CleanMcpTransientTransportRefSchema.nullable().optional(),
     fullMapRef: CleanMcpTransientTransportRefSchema.nullable().optional(),
     generatedAt: z.string().datetime({ offset: true }).optional(),
@@ -53,6 +57,7 @@ export const CleanMcpMetaSchema = z
     projector: z.string().min(1).max(160).optional(),
     responseTimeMs: z.number().nonnegative().optional(),
     source: z.string().min(1).max(160).optional(),
+    sourceOfTruth: z.literal(false).optional(),
     toolName: z.string().min(1).max(160).optional(),
     traceRef: z.string().min(1).max(240).optional(),
   })

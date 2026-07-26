@@ -238,20 +238,27 @@ export class HostMcpServer {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         const timedOut = err instanceof ToolCallDeadlineError;
+        const projectRuntime = buildProjectRuntimeContext({
+          projectRoot: this.projectRoot,
+        });
         Logger.getInstance().warn(`[MCP] ${name} ${timedOut ? 'timeout' : 'error'}`, {
           durationMs: Date.now() - startedAt,
           message,
         });
         return serializeMcpToolResult(
           name,
-          failureResult(name, message, {
-            code: timedOut ? 'TOOL_TIMEOUT' : 'INTERNAL_ERROR',
-            data: {
-              projectRuntime: buildProjectRuntimeContext({
-                projectRoot: this.projectRoot,
-              }),
+          {
+            ...failureResult(name, message, {
+              code: timedOut ? 'TOOL_TIMEOUT' : 'INTERNAL_ERROR',
+              data: {
+                projectRuntime,
+                retryable: timedOut,
+              },
+            }),
+            _meta: {
+              alembicPublication: projectRuntime.publication,
             },
-          }),
+          },
           { isErrorResult }
         );
       }

@@ -228,6 +228,63 @@ describe('host-neutral MCP execution errors', () => {
       await transport.close();
     }
   }, 30_000);
+
+  test('preserves a real SDK Search timeout and sibling knowledge-projector timeouts', async () => {
+    const projectRoot = installProject();
+    process.env.ALEMBIC_MCP_TOOL_DEADLINE_MS = '10';
+    const transport = await openHostTransport(projectRoot, shellRoots().codex);
+    try {
+      vi.spyOn(transport.host, 'handleToolCall').mockImplementation(
+        (_name, _args, options) =>
+          new Promise((_resolve, reject) => {
+            options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+              once: true,
+            });
+          })
+      );
+      for (const request of [
+        {
+          name: 'alembic_search',
+          arguments: {
+            operation: 'search',
+            query: 'search timeout preservation',
+          },
+        },
+        {
+          name: 'alembic_graph',
+          arguments: {
+            queryKind: 'map',
+          },
+        },
+        {
+          name: 'alembic_recipe_map',
+          arguments: {},
+        },
+      ]) {
+        const result = await transport.client.callTool(request);
+
+        expect(CallToolResultSchema.parse(result), request.name).toBeTruthy();
+        expect(result.isError, request.name).toBe(true);
+        expect(
+          asRecord((asRecord(result.structuredContent)?.diagnostics as unknown[])[0]),
+          request.name
+        ).toMatchObject({
+          code: 'TOOL_TIMEOUT',
+          retryable: true,
+          severity: 'error',
+        });
+        expect(asRecord(asRecord(result.structuredContent)?.error), request.name).toMatchObject({
+          code: 'TOOL_TIMEOUT',
+          mcpErrorCode: 'core.failure.timeout',
+          reasonCode: 'timeout',
+        });
+        expect(asRecord(result._meta), request.name).toHaveProperty('alembicPublication');
+        expect(asRecord(result.structuredContent), request.name).not.toHaveProperty('_meta');
+      }
+    } finally {
+      await transport.close();
+    }
+  }, 30_000);
 });
 
 function installProject(): string {

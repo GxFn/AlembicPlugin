@@ -122,6 +122,7 @@ const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   SOURCE_REF_NOT_FOUND: 'invalid-input',
   STALE_GRAPH: 'invalid-input',
   TIMEOUT: 'timeout',
+  TOOL_TIMEOUT: 'timeout',
   TOOL_ERROR: 'internal-error',
   TOOL_FAILED: 'internal-error',
   UNKNOWN_PROJECT_SKILL_OPERATION: 'invalid-input',
