@@ -2,6 +2,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  createServingSnapshotManifestV1,
+  type PublicKnowledgeRouteV1,
+  preparePublicKnowledgeRouteV1,
+  type ServingSnapshotManifestV1,
+} from '@alembic/core/knowledge';
+import {
+  canonicalJsonStringify,
+  hashCanonicalJson,
+} from '@alembic/core/project-context-foundation';
+import {
   createProjectDescriptor,
   createProjectScopeRegistryDocument,
   PROJECT_SCOPE_REGISTRY_FILENAME,
@@ -22,6 +32,8 @@ import {
 const FIXTURE_ROOT = path.resolve('test/fixtures/strict-publication-v1/recipe-publications');
 const SNAPSHOT_ID = 'snapshot-23eb0db0c7f77684b3c604f5515a5951faa2193c8597172105946dbb20b1692d';
 const SNAPSHOT_PATH = `snapshots/${SNAPSHOT_ID}`;
+const RECOVERY_UUID = '529c0223-fccc-41df-be50-20b6e25826b5';
+const RECOVERED_SNAPSHOT_ID = `${SNAPSHOT_ID}-${RECOVERY_UUID}`;
 const roots: string[] = [];
 const previousHome = process.env.ALEMBIC_HOME;
 
@@ -33,6 +45,33 @@ afterEach(() => {
 });
 
 describe('strict-publication-v1 formal five-tool compatibility', () => {
+  test('resolves a Main-style recovered snapshot and surfaces it through MCP Recipe Map', async () => {
+    const fixture = installFixture();
+    rewriteFixtureAsRecoveredSnapshot(fixture.dataRoot);
+    assertRecoveredFixtureConsistency(fixture.dataRoot);
+    const transport = await openHostTransport(fixture.projectRoot);
+    try {
+      const result = await transport.client.callTool({
+        name: 'alembic_recipe_map',
+        arguments: { focus: { kind: 'space' }, nodeLimit: 40, recipeMountLimit: 20 },
+      });
+      expect(CallToolResultSchema.parse(result)).toBeTruthy();
+      expect(result.isError, JSON.stringify(result)).not.toBe(true);
+      expect(readPublicationMeta(result)).toMatchObject({
+        mode: 'strict-v1',
+        routeState: 'ready',
+        snapshotId: RECOVERED_SNAPSHOT_ID,
+      });
+      expect(asRecord(asRecord(result.structuredContent)?.servingCoverage)).toMatchObject({
+        source: 'strict-publication-v1',
+        status: 'complete',
+        snapshotId: RECOVERED_SNAPSHOT_ID,
+      });
+    } finally {
+      await transport.close();
+    }
+  }, 30_000);
+
   test('transports all five formal tools and Work with legal publication metadata', async () => {
     const fixture = installFixture();
     const transport = await openHostTransport(fixture.projectRoot);
@@ -590,6 +629,92 @@ function installFixture(): { dataRoot: string; projectRoot: string } {
     recursive: true,
   });
   return { dataRoot, projectRoot };
+}
+
+/**
+ * Mirrors Main's collision-recovery rename while rebuilding only the immutable
+ * snapshot witnesses whose hashes include snapshotId. Core remains the contract
+ * authority for the recovered id, serving manifest, and route bytes.
+ */
+function rewriteFixtureAsRecoveredSnapshot(dataRoot: string): void {
+  const publicationRoot = path.join(dataRoot, '.asd/context/recipe-publications');
+  const originalSnapshotRoot = path.join(publicationRoot, SNAPSHOT_PATH);
+  const recoveredSnapshotRoot = path.join(publicationRoot, 'snapshots', RECOVERED_SNAPSHOT_ID);
+  fs.renameSync(originalSnapshotRoot, recoveredSnapshotRoot);
+
+  const validationPath = path.join(recoveredSnapshotRoot, 'serving-snapshot-validation.json');
+  const validation = JSON.parse(fs.readFileSync(validationPath, 'utf8')) as Record<string, unknown>;
+  const { receiptHash: _receiptHash, ...validationSemantic } = {
+    ...validation,
+    snapshotId: RECOVERED_SNAPSHOT_ID,
+  };
+  const recoveredValidation = {
+    ...validationSemantic,
+    receiptHash: hashCanonicalJson(validationSemantic),
+  };
+  fs.chmodSync(validationPath, 0o600);
+  fs.writeFileSync(validationPath, `${JSON.stringify(recoveredValidation)}\n`);
+
+  const manifestPath = path.join(recoveredSnapshotRoot, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as ServingSnapshotManifestV1;
+  const { schemaVersion: _schemaVersion, manifestHash: _manifestHash, ...manifestInput } = manifest;
+  const recoveredManifest = createServingSnapshotManifestV1({
+    ...manifestInput,
+    snapshotId: RECOVERED_SNAPSHOT_ID,
+    servingSnapshotValidationHash: recoveredValidation.receiptHash,
+  });
+  fs.chmodSync(manifestPath, 0o600);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(recoveredManifest)}\n`);
+
+  const routePath = path.join(publicationRoot, 'active.json');
+  const route = JSON.parse(fs.readFileSync(routePath, 'utf8')) as PublicKnowledgeRouteV1;
+  const recoveredRoute = preparePublicKnowledgeRouteV1({
+    ...route,
+    snapshotId: RECOVERED_SNAPSHOT_ID,
+    servingSnapshotManifestHash: recoveredManifest.manifestHash,
+  });
+  fs.chmodSync(routePath, 0o600);
+  fs.writeFileSync(routePath, recoveredRoute.canonicalBytes);
+}
+
+function assertRecoveredFixtureConsistency(dataRoot: string): void {
+  const publicationRoot = path.join(dataRoot, '.asd/context/recipe-publications');
+  const recoveredSnapshotRoot = path.join(publicationRoot, 'snapshots', RECOVERED_SNAPSHOT_ID);
+  const route = JSON.parse(
+    fs.readFileSync(path.join(publicationRoot, 'active.json'), 'utf8')
+  ) as Record<string, unknown>;
+  const validation = JSON.parse(
+    fs.readFileSync(path.join(recoveredSnapshotRoot, 'serving-snapshot-validation.json'), 'utf8')
+  ) as Record<string, unknown>;
+  const candidateManifest = JSON.parse(
+    fs.readFileSync(path.join(recoveredSnapshotRoot, 'data/candidate-data-manifest.json'), 'utf8')
+  ) as Record<string, unknown>;
+  const finalCoverage = JSON.parse(
+    fs.readFileSync(path.join(recoveredSnapshotRoot, 'final-coverage.json'), 'utf8')
+  ) as Record<string, unknown>;
+  const { receiptHash, ...validationSemantic } = validation;
+  expect(receiptHash).toBe(hashCanonicalJson(validationSemantic));
+  expect(validation).toMatchObject({
+    schemaVersion: 1,
+    verdict: 'pass',
+    failedPredicate: null,
+    sessionId: route.sessionId,
+    runId: route.sessionId,
+    snapshotId: RECOVERED_SNAPSHOT_ID,
+    candidateDataManifestHash: candidateManifest.manifestHash,
+    finalCoverageBindingHash: finalCoverage.receiptHash,
+    vectorGenerationId: route.vectorGenerationId,
+    vectorManifestHash: route.vectorManifestHash,
+    certifiedProjectFactsHash: route.certifiedProjectFactsHash,
+    sourceRevisionVectorHash: route.sourceRevisionVectorHash,
+    analysisFixpointHash: route.analysisFixpointHash,
+  });
+  const expectedServingRecipeIds = (finalCoverage.cells as Array<{ finalRecipeIds: string[] }>)
+    .flatMap((cell) => cell.finalRecipeIds)
+    .sort((left, right) => left.localeCompare(right));
+  expect(canonicalJsonStringify(validation.servingRecipeIds)).toBe(
+    canonicalJsonStringify(expectedServingRecipeIds)
+  );
 }
 
 function fingerprintTree(root: string): Record<string, string> {

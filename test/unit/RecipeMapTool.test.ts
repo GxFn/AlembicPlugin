@@ -27,6 +27,8 @@ import {
 import { ProjectContextBuildSessionManager } from '../../lib/service/project-knowledge-context/session/ProjectContextBuildSessionManager.js';
 
 const tempRoots: string[] = [];
+const BASE_SNAPSHOT_ID = `snapshot-${'a'.repeat(64)}`;
+const RECOVERED_SNAPSHOT_ID = `${BASE_SNAPSHOT_ID}-529c0223-fccc-41df-be50-20b6e25826b5`;
 
 const RECIPES = [
   { id: 'r-global', title: 'Architecture overview', scope: 'global', tags: [], sources: [] },
@@ -116,6 +118,57 @@ describe('alembic_recipe_map (GMAP-4-7)', () => {
     expect(
       (output.conservation as unknown as Record<string, unknown>).mountAccountingCompleteness
     ).toBe('complete');
+  });
+
+  test('serving coverage consumes the Core strict snapshot-id contract', async () => {
+    const output = await recipeMap(createFixtureProject(), 'space');
+    const servingCoverage = {
+      source: 'strict-publication-v1' as const,
+      status: 'complete' as const,
+      snapshotId: RECOVERED_SNAPSHOT_ID,
+      receiptHash: `sha256:${'b'.repeat(64)}`,
+      totalCells: 1,
+      coveredByReadyRecipe: 1,
+      investigatedEmpty: 0,
+      failed: 0,
+      unknown: 0,
+      displayedCells: 1,
+      remainingCells: 0,
+      cells: [
+        {
+          cellId: 'module:strict-snapshot-contract',
+          finalDisposition: 'covered-by-ready-recipe' as const,
+          finalRecipeCount: 1,
+        },
+      ],
+      continuation: { offset: 0, limit: 25, nextOffset: null, hasMore: false },
+    };
+    expect(
+      AlembicRecipeMapOutputSchema.parse({ ...output, servingCoverage }).servingCoverage?.snapshotId
+    ).toBe(RECOVERED_SNAPSHOT_ID);
+    expect(
+      AlembicRecipeMapOutputSchema.parse({
+        ...output,
+        servingCoverage: { ...servingCoverage, snapshotId: BASE_SNAPSHOT_ID },
+      }).servingCoverage?.snapshotId
+    ).toBe(BASE_SNAPSHOT_ID);
+
+    for (const snapshotId of [
+      `snapshot-${'A'.repeat(64)}`,
+      `${BASE_SNAPSHOT_ID}-529c0223-fccc-31df-be50-20b6e25826b5`,
+      `${RECOVERED_SNAPSHOT_ID}-extra`,
+      `${BASE_SNAPSHOT_ID}/529c0223-fccc-41df-be50-20b6e25826b5`,
+      '../private-candidate',
+      `.${path.sep}${BASE_SNAPSHOT_ID}`,
+    ]) {
+      expect(
+        AlembicRecipeMapOutputSchema.safeParse({
+          ...output,
+          servingCoverage: { ...servingCoverage, snapshotId },
+        }).success,
+        snapshotId
+      ).toBe(false);
+    }
   });
 
   test('public Recipe Map returns opaque deterministic continuation pages without rebuilding facts', async () => {

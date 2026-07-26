@@ -8,6 +8,7 @@
  * semantic/keyword search. No full Recipe body is returned (use alembic_search
  * for Recipe detail). This is NOT KnowledgeContextToolOutput.
  */
+import { parseStrictPublicationSnapshotIdV1 } from '@alembic/core/knowledge';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import {
@@ -222,6 +223,18 @@ const TransientTransportRefSchema = z
   })
   .strict();
 
+// 输出 schema 消费 Core 的同一 parser，避免 Recipe Map 重新定义 snapshot-id 语法。
+const StrictPublicationSnapshotIdSchema = z.string().superRefine((snapshotId, ctx) => {
+  try {
+    parseStrictPublicationSnapshotIdV1(snapshotId);
+  } catch (_err: unknown) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Invalid strict publication snapshot id.',
+    });
+  }
+});
+
 export const AlembicRecipeMapOutputSchema = z
   .object({
     ok: z.boolean(),
@@ -252,7 +265,7 @@ export const AlembicRecipeMapOutputSchema = z
       .object({
         source: z.literal('strict-publication-v1'),
         status: z.enum(['complete', 'blocked']),
-        snapshotId: z.string().regex(/^snapshot-[a-f0-9]{64}$/),
+        snapshotId: StrictPublicationSnapshotIdSchema,
         receiptHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
         totalCells: z.number().int().nonnegative(),
         coveredByReadyRecipe: z.number().int().nonnegative(),

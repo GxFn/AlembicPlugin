@@ -9,9 +9,11 @@ import {
   type FinalCoverageBindingReceiptV1,
   type PreparedPublicKnowledgeRouteV1,
   type PublicKnowledgeRouteV1,
+  parseStrictPublicationSnapshotIdV1,
   preparePublicKnowledgeRouteV1,
   type ServingSnapshotManifestV1,
   type StrictPublicationMarkerV1,
+  type StrictPublicationSnapshotIdV1,
 } from '@alembic/core/knowledge';
 import {
   buildProjectScopeManifestV1,
@@ -26,7 +28,6 @@ import {
 export const STRICT_PUBLICATION_ROOT_RELATIVE_PATH = '.asd/context/recipe-publications';
 const STRICT_PUBLICATION_MARKER_FILE = 'marker.json';
 const STRICT_PUBLICATION_ACTIVE_FILE = 'active.json';
-const SNAPSHOT_ID_PATTERN = /^snapshot-[a-f0-9]{64}$/u;
 const SHA_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
 export interface ProjectRuntimePublicationProvenance {
@@ -258,9 +259,7 @@ export function observePublicKnowledgePublication(
   if (readFileSync(activePath, 'utf8') !== preparedRoute.canonicalBytes) {
     fail('STRICT_PUBLICATION_ROUTE_BYTES_MISMATCH');
   }
-  if (!SNAPSHOT_ID_PATTERN.test(route.snapshotId)) {
-    fail('STRICT_PUBLICATION_SNAPSHOT_ID_INVALID');
-  }
+  parseSnapshotId(route.snapshotId);
   return {
     provenance: readyProvenance(route),
     route,
@@ -346,6 +345,7 @@ function verifyCandidateDataManifest(
   manifest: Record<string, unknown>,
   route: PublicKnowledgeRouteV1
 ): void {
+  const snapshot = parseSnapshotId(route.snapshotId);
   verifyExactKeys(
     manifest,
     [
@@ -369,7 +369,7 @@ function verifyCandidateDataManifest(
     manifest.schemaVersion !== 1 ||
     manifest.databaseIntegrity !== 'ok' ||
     manifest.foreignKeyViolationCount !== 0 ||
-    manifest.manifestHash !== `sha256:${route.snapshotId.slice('snapshot-'.length)}` ||
+    manifest.manifestHash !== snapshot.candidateDataManifestHash ||
     manifest.vectorGenerationId !== route.vectorGenerationId ||
     manifest.vectorManifestHash !== route.vectorManifestHash ||
     !Array.isArray(manifest.activeRecipeIds) ||
@@ -377,6 +377,18 @@ function verifyCandidateDataManifest(
     !Array.isArray(manifest.files)
   ) {
     fail('STRICT_PUBLICATION_CANDIDATE_MANIFEST_INVALID');
+  }
+}
+
+/**
+ * Core 是 strict snapshot-id 的唯一语法权威；Plugin 只把 Core 的合同失败
+ * 翻译为既有 resolver 错误码，不能再维护会与 collision-recovery 漂移的正则。
+ */
+function parseSnapshotId(snapshotId: string): StrictPublicationSnapshotIdV1 {
+  try {
+    return parseStrictPublicationSnapshotIdV1(snapshotId);
+  } catch (_err: unknown) {
+    fail('STRICT_PUBLICATION_SNAPSHOT_ID_INVALID');
   }
 }
 

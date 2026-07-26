@@ -162,22 +162,32 @@ describe('strict public knowledge publication resolver', () => {
 
   test.each([
     ['cross generation', { vectorGenerationId: 'other-generation' }],
-    ['traversal-shaped snapshot id', { snapshotId: '../private-candidate' }],
-  ])('rejects a canonical %s route', (label, patch) => {
+  ])('rejects a canonical %s route', (_label, patch) => {
     const fixture = installFixture();
     const routePath = path.join(fixture.dataRoot, '.asd/context/recipe-publications/active.json');
     const route = JSON.parse(fs.readFileSync(routePath, 'utf8')) as Record<string, unknown>;
     const prepared = preparePublicKnowledgeRouteV1({ ...route, ...patch } as never);
     fs.writeFileSync(routePath, prepared.canonicalBytes);
-    if (label === 'traversal-shaped snapshot id') {
-      expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
-        /STRICT_PUBLICATION_/
-      );
-      return;
-    }
     const runtime = buildProjectRuntimeContext({ projectRoot: fixture.projectRoot });
     expect(() => resolvePublicKnowledgePublication(runtime.identity)).toThrow(
       /STRICT_PUBLICATION_/
+    );
+  });
+
+  test.each([
+    ['uppercase hash', `snapshot-${'A'.repeat(64)}`],
+    ['malformed UUID suffix', `${SNAPSHOT_ID}-529c0223-fccc-31df-be50-20b6e25826b5`],
+    ['extra suffix', `${SNAPSHOT_ID}-529c0223-fccc-41df-be50-20b6e25826b5-extra`],
+    ['separator', `${SNAPSHOT_ID}/529c0223-fccc-41df-be50-20b6e25826b5`],
+    ['traversal', '../private-candidate'],
+    ['path-unsafe prefix', `.${path.sep}${SNAPSHOT_ID}`],
+  ])('rejects a %s snapshot id before resolving a physical path', (_label, snapshotId) => {
+    const fixture = installFixture();
+    const routePath = path.join(fixture.dataRoot, '.asd/context/recipe-publications/active.json');
+    const route = JSON.parse(fs.readFileSync(routePath, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(routePath, JSON.stringify({ ...route, snapshotId }));
+    expect(() => buildProjectRuntimeContext({ projectRoot: fixture.projectRoot })).toThrow(
+      'STRICT_PUBLICATION_ROUTE_INVALID'
     );
   });
 
