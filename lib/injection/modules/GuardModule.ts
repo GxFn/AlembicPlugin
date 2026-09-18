@@ -39,6 +39,8 @@ export function register(c: ServiceContainer) {
       null,
       {
         guardCheckEngine,
+        // 规则生命周期与其他知识共用文件真相，避免下次 sync 恢复已禁用规则。
+        fileStore: ct.get('knowledgeFileWriter'),
       } as ConstructorParameters<typeof GuardService>[3]
     );
   });

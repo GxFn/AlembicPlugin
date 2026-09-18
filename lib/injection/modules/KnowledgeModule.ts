@@ -324,6 +324,7 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
     const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
     const lifecycle = ct.get('lifecycleStateMachine') as LifecycleStateMachine;
     return new StagingManager(knowledgeRepo, {
+      fileStore: ct.get('knowledgeFileWriter'),
       lifecycle,
       signalBus:
         (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
@@ -393,6 +394,7 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
     // 知识失明直到下次 reconcile)。
     return new ContentPatcher(knowledgeRepo, sourceRefRepo, {
       projectRoot: resolveProjectRoot(ct),
+      fileStore: ct.get('knowledgeFileWriter'),
     });
   });
 }
@@ -403,7 +405,17 @@ function registerEvolutionWorkflowServices(c: ServiceContainer) {
     const lifecycleEventRepo = ct.get('lifecycleEventRepository') as LifecycleEventRepository;
     const signalBus = ct.get('signalBus') as import('@alembic/core/events').SignalBus;
     const proposalRepo = ct.get('proposalRepository') as ProposalRepository;
-    return new LifecycleStateMachine(knowledgeRepo, lifecycleEventRepo, signalBus, proposalRepo);
+    // 进化与人工知识写入共用 Markdown 真相源，后续 sync 不得回滚状态。
+    return new LifecycleStateMachine(
+      knowledgeRepo,
+      lifecycleEventRepo,
+      signalBus,
+      proposalRepo,
+      undefined,
+      {
+        fileStore: ct.get('knowledgeFileWriter'),
+      }
+    );
   });
 
   c.singleton('proposalExecutor', (ct: ServiceContainer) => {
