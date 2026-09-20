@@ -1,21 +1,19 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
-let JsonVectorAdapter, IndexingPipeline;
-
-beforeAll(async () => {
-  const vecMod = await import('@alembic/core/vector');
-  JsonVectorAdapter = vecMod.JsonVectorAdapter;
-  const pipeMod = await import('@alembic/core/vector');
-  IndexingPipeline = pipeMod.IndexingPipeline;
-});
+import { HybridRetriever } from '@alembic/core/search';
+import {
+  HnswVectorAdapter,
+  IndexingPipeline,
+  JsonVectorAdapter,
+  LegacyEmbedProviderAdapter,
+} from '@alembic/core/vector';
 
 /* ────────────────────────────────────────────
  *  JsonVectorAdapter
  * ──────────────────────────────────────────── */
 describe('JsonVectorAdapter', () => {
-  let tmpDir;
+  let tmpDir: string;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'asd-vec-'));
@@ -102,7 +100,7 @@ describe('JsonVectorAdapter', () => {
  *  IndexingPipeline
  * ──────────────────────────────────────────── */
 describe('IndexingPipeline', () => {
-  let tmpDir;
+  let tmpDir: string;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'asd-pipe-'));
@@ -190,5 +188,68 @@ describe('IndexingPipeline', () => {
 
     const ids = await store.listIds();
     expect(ids.length).toBe(0); // Nothing written
+  });
+});
+
+// 算法、量化、CRC 和故障矩阵在 Core 单源维护；这里验证宿主消费构建产物的完整接线。
+describe('Core vector package integration', () => {
+  it('indexes through the embedding port and preserves both hybrid contracts after reopening', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-core-vector-contract-'));
+    let store: HnswVectorAdapter | undefined;
+    try {
+      fs.mkdirSync(path.join(root, 'recipes'));
+      fs.writeFileSync(path.join(root, 'recipes', 'needle.md'), 'alpha needle');
+      fs.writeFileSync(path.join(root, 'recipes', 'other.md'), 'beta hay');
+      const embedText = (text: string) => (text.includes('needle') ? [1, 0] : [0, 1]);
+      const port = new LegacyEmbedProviderAdapter({
+        embed: async (input) => (Array.isArray(input) ? input.map(embedText) : embedText(input)),
+      });
+      store = new HnswVectorAdapter(root, { M: 4, flushIntervalMs: 60_000 });
+      await store.init();
+      const pipeline = new IndexingPipeline({
+        vectorStore: store,
+        aiProvider: port,
+        projectRoot: root,
+        scanDirs: ['recipes'],
+        chunking: { useAST: false },
+      });
+      expect(await pipeline.run()).toMatchObject({ upserted: 2 });
+      await store.flush();
+      store.destroy();
+
+      // 真正从落盘文件创建新实例，避免只检查同一内存对象。
+      store = new HnswVectorAdapter(root, { M: 4, flushIntervalMs: 60_000 });
+      await store.init();
+      expect(await store.listIds()).toHaveLength(2);
+      const queryVector = await port.embedQuery('needle');
+      const [storedHit] = await store.hybridSearch(queryVector, 'needle', { topK: 1 });
+      expect(storedHit.item).toMatchObject({
+        content: 'alpha needle',
+        vector: [1, 0],
+        metadata: { sourcePath: 'recipes/needle.md' },
+      });
+      expect(storedHit.rrfContribution.dense).toBeGreaterThan(0);
+      expect(storedHit.rrfContribution.sparse).toBeGreaterThan(0);
+
+      const reader = store;
+      const retriever = new HybridRetriever({ vectorStore: reader });
+      const [hit] = await retriever.search('needle', queryVector, {
+        topK: 1,
+        sparseSearchFn: async (query) =>
+          (await reader.hybridSearch(null, query)).map((row) => ({
+            id: row.item.id,
+            score: row.keywordScore,
+          })),
+      });
+      expect(hit).toMatchObject({
+        id: storedHit.item.id,
+        data: { item: { content: 'alpha needle', metadata: { sourcePath: 'recipes/needle.md' } } },
+      });
+      expect(hit.rrfContribution.dense).toBeGreaterThan(0);
+      expect(hit.rrfContribution.sparse).toBeGreaterThan(0);
+    } finally {
+      store?.destroy();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
