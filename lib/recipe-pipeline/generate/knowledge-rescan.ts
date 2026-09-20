@@ -34,6 +34,7 @@ import {
   resolvePerCellTargetDefault,
   runForceRescanCleanPolicy,
   runRescanCleanPolicy,
+  writeCoverageLedgerForCompletion,
 } from '@alembic/core/host-agent-workflows';
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveProjectRoot } from '@alembic/core/workspace';
@@ -79,7 +80,6 @@ import {
   preferTargetScopedCoverageItems,
   uniqueTargetScopedCoverageModuleCount,
 } from './coverage-ledger-target-axis.js';
-import { writeCoverageLedgerForCompletion } from './coverage-ledger-write.js';
 import { filterGenericParentCoverageModules } from './coverage-module-axis.js';
 import {
   type KnowledgeIndexRebuildReport,

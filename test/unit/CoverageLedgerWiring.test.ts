@@ -18,9 +18,10 @@
 import {
   adviseCoverageLedger,
   buildKnowledgeRescanPlan,
-  reflowDeepMiningRoundOnCompletion as coreReflowDeepMiningRoundOnCompletion,
-  writeCoverageLedgerForCompletion as coreWriteCoverageLedgerForCompletion,
+  type CoverageLedgerWriteInput,
   type RelevanceAuditSummary,
+  reflowDeepMiningRoundOnCompletion,
+  writeCoverageLedgerForCompletion,
 } from '@alembic/core/host-agent-workflows';
 import type {
   CoverageLedgerRecord,
@@ -29,11 +30,6 @@ import type {
 } from '@alembic/core/repositories';
 import type { DimensionDef } from '@alembic/core/test-fixtures';
 import { describe, expect, test } from 'vitest';
-import {
-  type CoverageLedgerWriteInput,
-  reflowDeepMiningRoundOnCompletion,
-  writeCoverageLedgerForCompletion,
-} from '#recipe-pipeline/generate/coverage-ledger-write.js';
 import { derivePerCellTargetsFromGate } from '#recipe-pipeline/generate/knowledge-rescan.js';
 import type { PlanSelectionModuleBinding } from '#recipe-pipeline/plan/plan-generation-gate.js';
 import { buildCoverageSeedFromCells } from '#recipe-pipeline/plan/plan-tool.js';
@@ -78,11 +74,6 @@ function createFakeRepository(): {
 }
 
 describe('writeCoverageLedgerForCompletion (U2 shared helper)', () => {
-  test('plugin compatibility facade re-exports the Core host-agent workflow helpers', () => {
-    expect(writeCoverageLedgerForCompletion).toBe(coreWriteCoverageLedgerForCompletion);
-    expect(reflowDeepMiningRoundOnCompletion).toBe(coreReflowDeepMiningRoundOnCompletion);
-  });
-
   test('writes covered cell + uncovered (thin) cell from candidates/coveredPaths', () => {
     const { repository, upserts } = createFakeRepository();
 

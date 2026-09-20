@@ -9,8 +9,11 @@
 
 // C-5(2026-07-02 统一重构)：事件名改用 Core wire 常量单源——发射端漂移自此编译期可见;
 // 消费端(Dashboard/TaskManager 字符串监听)随 S4 词族批次切换。
-import { RECIPE_PIPELINE_EVENTS } from '@alembic/core/knowledge';
-import type { DimensionCompletePayload, ProgressPayload } from './generate-event-types.js';
+import {
+  type DimensionCompletePayload,
+  type ProgressPayload,
+  RECIPE_PIPELINE_EVENTS,
+} from '@alembic/core/knowledge';
 
 export class GenerateEventEmitter {
   /** EventBus 实例 */

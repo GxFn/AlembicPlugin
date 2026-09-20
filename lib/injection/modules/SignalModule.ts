@@ -11,8 +11,8 @@ import { SignalAggregator, SignalBridge, SignalBus, SignalTraceWriter } from '@a
 // RIC-2b: type-import ReportStore from the high-level @alembic/core/report facade
 // (not the low-level infrastructure/report). The instance still flows via DI.
 import type { ReportStore } from '@alembic/core/report';
+import { shutdown } from '@alembic/core/shared';
 import { resolveDataRoot } from '@alembic/core/workspace';
-import { shutdown } from '../../shared/shutdown.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
 
 export function register(c: ServiceContainer) {

@@ -7,9 +7,11 @@ import {
   type DimensionDef,
   getOrCreateSessionManager,
   type ProjectSkillDeliveryReceipt,
+  reflowDeepMiningRoundOnCompletion,
   resolveModuleTier,
   resolvePerCellTargetDefault,
   saveDimensionCheckpoint,
+  writeCoverageLedgerForCompletion,
 } from '@alembic/core/host-agent-workflows';
 import Logger from '@alembic/core/logging';
 import type { CoverageLedgerRepository } from '@alembic/core/repositories';
@@ -33,10 +35,6 @@ import {
   countTargetScopedCoverageItems,
   preferTargetScopedCoverageItems,
 } from '#recipe-pipeline/generate/coverage-ledger-target-axis.js';
-import {
-  reflowDeepMiningRoundOnCompletion,
-  writeCoverageLedgerForCompletion,
-} from '#recipe-pipeline/generate/coverage-ledger-write.js';
 import { filterGenericParentCoverageModules } from '#recipe-pipeline/generate/coverage-module-axis.js';
 import { buildHostAgentAnalysisProgressBackfill } from '#recipe-pipeline/generate/HostAgentAnalysisSurface.js';
 import { GenerateEventEmitter } from '#recipe-pipeline/generate/runtime/GenerateEventEmitter.js';
