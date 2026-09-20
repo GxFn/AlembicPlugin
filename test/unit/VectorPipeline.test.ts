@@ -133,7 +133,6 @@ describe('IndexingPipeline', () => {
     const store = new JsonVectorAdapter(tmpDir);
     const pipeline = new IndexingPipeline({
       vectorStore: store,
-      aiProvider: null, // No AI — vectors will be empty []
       projectRoot: tmpDir,
     });
 
@@ -232,11 +231,17 @@ describe('Core vector package integration', () => {
       expect(storedHit.rrfContribution.sparse).toBeGreaterThan(0);
 
       const reader = store;
-      const retriever = new HybridRetriever({ vectorStore: reader });
+      // 旧通用检索口的 filter 类型更宽；本例按实际使用的 topK 契约委托真实 store。
+      const retriever = new HybridRetriever({
+        vectorStore: {
+          searchVector: (vector, { topK }) => reader.searchVector(vector, { topK }),
+        },
+      });
+      const sparseRows = await reader.hybridSearch(null, 'needle');
       const [hit] = await retriever.search('needle', queryVector, {
         topK: 1,
-        sparseSearchFn: async (query) =>
-          (await reader.hybridSearch(null, query)).map((row) => ({
+        sparseSearchFn: () =>
+          sparseRows.map((row) => ({
             id: row.item.id,
             score: row.keywordScore,
           })),
