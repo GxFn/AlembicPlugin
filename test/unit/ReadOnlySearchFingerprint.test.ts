@@ -1,18 +1,26 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { BinaryPersistence, HnswIndex } from '@alembic/core/vector';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, test } from 'vitest';
-import { executeReadOnlySearch } from '../../lib/host-runtime/mcp/host/read-only-search-executor.js';
-import { createReadOnlySearchContainer } from '../../lib/host-runtime/mcp/host/read-only-search-executor.js';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import {
+  createReadOnlySearchContainer,
+  executeReadOnlySearch,
+} from '../../lib/host-runtime/mcp/host/read-only-search-executor.js';
 import { createReadOnlySearchSnapshot } from '../../lib/host-runtime/mcp/host/read-only-search-snapshot.js';
 
 const roots: string[] = [];
 
 describe('public Search read-only storage fingerprint', () => {
   afterEach(() => {
-    for (const root of roots.splice(0)) fs.rmSync(root, { force: true, recursive: true });
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+    for (const root of roots.splice(0)) {
+      fs.rmSync(root, { force: true, recursive: true });
+    }
   });
 
   test('keeps the live DB/WAL/SHM/vector family byte-identical', async () => {
@@ -86,12 +94,36 @@ describe('public Search read-only storage fingerprint', () => {
     }
   });
 
-  test('constructs a retrieval reader graph without writer or lifecycle services', async () => {
+  test.each([
+    'valid',
+    'corrupt',
+    'missing',
+  ] as const)('reads the %s snapshot once and constructs no writer or lifecycle services', async (state) => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-reader-project-'));
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alembic-reader-data-'));
     roots.push(projectRoot, dataRoot);
     const asd = path.join(dataRoot, '.asd');
     fs.mkdirSync(asd, { recursive: true });
+    fs.writeFileSync(
+      path.join(asd, 'config.json'),
+      JSON.stringify({
+        vector: { localEmbedding: { enabled: false } },
+      })
+    );
+    const vectorPath = path.join(asd, 'context/index/vector_index.asvec');
+    if (state === 'valid') {
+      const index = new HnswIndex({ M: 4 });
+      index.addPoint('reader-vector', [1, 0]);
+      BinaryPersistence.save(vectorPath, {
+        index,
+        quantizer: null,
+        metadata: new Map([['reader-vector', { kind: 'pattern' }]]),
+        contents: new Map([['reader-vector', 'snapshot content']]),
+      });
+    } else if (state === 'corrupt') {
+      fs.mkdirSync(path.dirname(vectorPath), { recursive: true });
+      fs.writeFileSync(vectorPath, 'corrupt snapshot');
+    }
     const databasePath = path.join(asd, 'alembic.db');
     const writer = new Database(databasePath);
     try {
@@ -112,11 +144,17 @@ describe('public Search read-only storage fingerprint', () => {
         fileMustExist: true,
         readonly: true,
       });
+      // 只观察真实请求副本的读取，不替换解码器、存储或 provider 决策。
+      const read = vi.spyOn(fs, 'readFileSync');
+      syncBuiltinESMExports();
       const handle = await createReadOnlySearchContainer(snapshotDb, snapshot, {
         dataRoot,
         projectRoot,
       });
       try {
+        expect(read.mock.calls.filter(([file]) => file === snapshot.vectorIndexPath)).toHaveLength(
+          1
+        );
         expect(handle.container.get('knowledgeRetrievalPort')).toBeDefined();
         for (const forbidden of [
           'indexingPipeline',

@@ -7,7 +7,7 @@ import {
   KnowledgeTruthProjector,
   SearchEngine,
 } from '@alembic/core/search';
-import { asEmbeddingPort, BinaryPersistence, type EmbeddingPort } from '@alembic/core/vector';
+import { asEmbeddingPort, type EmbeddingPort } from '@alembic/core/vector';
 import Database from 'better-sqlite3';
 import {
   resolveLocalEmbeddingConfig,
@@ -177,14 +177,17 @@ async function createReadOnlyVectorGraph(
     );
     return { dispose: () => undefined, embedding, reader };
   }
-  if (!BinaryPersistence.isValid(snapshot.vectorIndexPath)) {
+  let reader: ReadOnlyHnswVectorReader;
+  try {
+    // 构造时由 Core load 完成结构校验；预先 isValid 会重复读取和解码整个请求副本。
+    reader = new ReadOnlyHnswVectorReader(snapshot.vectorIndexPath);
+  } catch {
     process.stderr.write(
       '[MCP/Search] request snapshot has no valid HNSW index; local semantic lane is unavailable.\n'
     );
     return { dispose: () => undefined, embedding: null, reader: null };
   }
 
-  const reader = new ReadOnlyHnswVectorReader(snapshot.vectorIndexPath);
   const localEmbedding = resolveLocalEmbeddingConfig(readVectorConfig(snapshot.configPath));
   const embedSelection = await selectLocalEmbedLane(localEmbedding);
   const embedding = embedSelection.provider ? asEmbeddingPort(embedSelection.provider) : null;
