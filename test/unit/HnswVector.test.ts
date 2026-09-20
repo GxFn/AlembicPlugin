@@ -1581,7 +1581,7 @@ describe('AsyncPersistence', () => {
     wal.destroy();
   });
 
-  it('recover should replay valid WAL entries', () => {
+  it('recover should retain replayed WAL entries until the snapshot succeeds', async () => {
     const indexPath = path.join(tmpDir, 'test.asvec');
     const replayed = [];
 
@@ -1610,7 +1610,10 @@ describe('AsyncPersistence', () => {
     expect(replayed[0].id).toBe('doc1');
     expect(replayed[1].t).toBe(WAL_OP.REMOVE);
 
-    // WAL file should be cleaned up after recovery
+    // Core 重放只恢复内存；快照成功前必须保留 WAL，防止宿主再次崩溃时丢失记录。
+    expect(fs.existsSync(walPath)).toBe(true);
+    expect(wal.pendingCount).toBe(2);
+    await wal.flush();
     expect(fs.existsSync(walPath)).toBe(false);
 
     wal.destroy();
