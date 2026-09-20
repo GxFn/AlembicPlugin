@@ -1,139 +1,44 @@
-/**
- * KnowledgeModule — 知识 + 搜索 + 向量服务注册
- *
- * 负责注册:
- *   - knowledgeService, knowledgeGraphService, confidenceRouter
- *   - searchEngine, vectorStore, indexingPipeline
- *   - enhancementRegistry, languageService, dimensionCopy
- *     (discovery 走 Core 内部 getDiscovererRegistry 单例,不经 DI——2026-07-10 校准)
- *   - projectGraph
- */
-
-import { createHash } from 'node:crypto';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-// readFileAtCommit 走 ROOT 门面(@alembic/core):Core 侧 ./shared 门面冻结在
-// shrink-only 预算 192,G-C P3 新增符号按 SD-5 B2=re-point 先例经根门面导出。
-import { readFileAtCommit } from '@alembic/core';
+/** 知识用例装配入口：基础服务 → 检索 → 共享服务 → 演化；初始化订阅保持独立。 */
 import { DimensionCopy } from '@alembic/core/dimensions';
 import { getFrameworkEnhancements as getEnhancementRegistry } from '@alembic/core/enhancement';
-import {
-  ConsolidationAdvisor,
-  ContentPatcher,
-  DecayDetector,
-  EnhancementSuggester,
-  LifecycleStateMachine,
-  ProposalExecutor,
-  ProposalGateway,
-  RedundancyAnalyzer,
-  StagingManager,
-} from '@alembic/core/evolution';
-import type { WriteZone } from '@alembic/core/io';
 import {
   ConfidenceRouter,
   createFsSourceRefResolver,
   KnowledgeGraphService,
   KnowledgeService,
-  RecipeFreshnessService,
-  RecipeProductionGateway,
+  type KnowledgeServiceOptions,
   resolveGroundedSourcePaths,
-  SourceRefReconciler,
 } from '@alembic/core/knowledge';
-import type {
-  KnowledgeEdgeRepository,
-  KnowledgeRepository,
-  LifecycleEventRepository,
-  ProposalRepository,
-  SourceRefRepository,
-} from '@alembic/core/repositories';
-import { HybridRetriever, SearchEngine } from '@alembic/core/search';
-import { findSimilarRecipes } from '@alembic/core/service/candidate';
-import { isExcludedProject, LanguageService } from '@alembic/core/shared';
-import { HnswVectorAdapter, IndexingPipeline, JsonVectorAdapter } from '@alembic/core/vector';
-import {
-  resolveDataRoot,
-  resolveKnowledgeScanDirs,
-  resolveProjectRoot,
-} from '@alembic/core/workspace';
+import { LanguageService } from '@alembic/core/shared';
+import { resolveProjectRoot } from '@alembic/core/workspace';
 import { refreshRecipeFreshnessByIds } from '#recipe-pipeline/sustain/RecipeFreshnessRuntime.js';
-import {
-  createRecipeEmbeddingSimProvider,
-  type EmbeddingSimProvider,
-  type RecipeEmbeddingSimProviderHandle,
-  type RegionVectorStorePort,
-  type SimProviderLogger,
-} from '../../recipe-pipeline/vector/recipe-embedding-sim-provider.js';
-import {
-  createRecipeVectorGenerationRuntime,
-  RECIPE_VECTOR_GENERATION_MANAGER_KEY,
-  RECIPE_VECTOR_TRUTH_REMOVER_KEY,
-} from '../../recipe-pipeline/vector/recipe-vector-generation-runtime.js';
 import type { ServiceContainer } from '../ServiceContainer.js';
-
-interface VectorRuntimeRoot {
-  dataRoot: string;
-  writeZone: WriteZone | undefined;
-}
-
-function resolveVectorRuntimeRoot(ct: ServiceContainer): VectorRuntimeRoot {
-  const dataRoot = resolveDataRoot(ct);
-  const projectRoot = resolveProjectRoot(ct);
-  const wz = ct.singletons.writeZone as WriteZone | undefined;
-  const sourceRepoExclusion = isExcludedProject(projectRoot);
-
-  if (sourceRepoExclusion.excluded && path.resolve(dataRoot) === path.resolve(projectRoot)) {
-    const digest = createHash('sha1').update(path.resolve(projectRoot)).digest('hex').slice(0, 12);
-    const redirectedRoot = path.join(tmpdir(), 'alembic-dev', 'vector', digest);
-    const logger = ct.singletons.logger || console;
-    (logger as { warn?: (...args: unknown[]) => void }).warn?.(
-      '[vectorStore] Excluded project detected; redirecting vector runtime away from source repository',
-      {
-        reason: sourceRepoExclusion.reason,
-        redirectedRoot,
-      }
-    );
-    return { dataRoot: redirectedRoot, writeZone: undefined };
-  }
-
-  return { dataRoot, writeZone: wz };
-}
+import { registerKnowledgeEvolution } from './KnowledgeEvolutionModule.js';
+import { registerKnowledgeRetrieval } from './KnowledgeRetrievalModule.js';
 
 export function register(c: ServiceContainer) {
   registerKnowledgeServices(c);
-  registerSearchServices(c);
+  registerKnowledgeRetrieval(c);
   registerSharedServices(c);
-  registerEvolutionServices(c);
-}
-
-/**
- * 解析共享的 embedding 相似度 provider 函数，喂给三处演化服务 ctor。
- * 句柄为 null（无 vectorStore）→ 返回 undefined → Core ctor 保持缺省（纯 Jaccard）。
- */
-function resolveEmbeddingSimProvider(ct: ServiceContainer): EmbeddingSimProvider | undefined {
-  const handle = ct.get('embeddingSimProvider') as RecipeEmbeddingSimProviderHandle | null;
-  return handle?.provider;
+  registerKnowledgeEvolution(c);
 }
 
 function registerKnowledgeServices(c: ServiceContainer) {
   c.singleton(
     'confidenceRouter',
-    (ct: ServiceContainer) =>
-      new ConfidenceRouter(
-        {},
-        ct.get('qualityScorer') as ConstructorParameters<typeof ConfidenceRouter>[1]
-      )
+    (ct: ServiceContainer) => new ConfidenceRouter({}, ct.get('qualityScorer'))
   );
 
   c.singleton(
     'knowledgeService',
     (ct: ServiceContainer) =>
       new KnowledgeService(
-        ct.get('knowledgeRepository') as ConstructorParameters<typeof KnowledgeService>[0],
-        ct.get('auditLogger') as ConstructorParameters<typeof KnowledgeService>[1],
+        ct.get('knowledgeRepository'),
+        ct.get('auditLogger'),
         // PDR-3: governance Gateway deleted (dead daemon path). KnowledgeService stores but
         // never reads this ctor arg, so pass null instead of a removed 'gateway' singleton.
         null,
-        ct.get('knowledgeGraphService') as ConstructorParameters<typeof KnowledgeService>[3],
+        ct.get('knowledgeGraphService'),
         {
           fileWriter: ct.get('knowledgeFileWriter'),
           skillHooks: ct.get('skillHooks'),
@@ -149,130 +54,14 @@ function registerKnowledgeServices(c: ServiceContainer) {
               sourceRefResolver: createFsSourceRefResolver(),
               projectRoot: resolveProjectRoot(ct),
             }),
-        } as ConstructorParameters<typeof KnowledgeService>[4]
+        } satisfies KnowledgeServiceOptions
       )
   );
 
   c.singleton(
     'knowledgeGraphService',
-    (ct: ServiceContainer) =>
-      new KnowledgeGraphService(
-        ct.get('knowledgeEdgeRepository') as ConstructorParameters<typeof KnowledgeGraphService>[0]
-      )
+    (ct: ServiceContainer) => new KnowledgeGraphService(ct.get('knowledgeEdgeRepository'))
   );
-}
-
-function registerSearchServices(c: ServiceContainer) {
-  c.singleton('searchEngine', (ct: ServiceContainer) => {
-    const vectorService = ct.services.vectorService ? ct.get('vectorService') : null;
-    return new SearchEngine(
-      ct.get('database') as unknown as ConstructorParameters<typeof SearchEngine>[0],
-      {
-        // Plugin 不再注入第三方 AI/embedding provider；语义增强走 Alembic resident service，
-        // 本地 embedded runtime 保持 baseline/hybrid search 行为。
-        aiProvider: null,
-        vectorStore: ct.get('vectorStore'),
-        vectorService,
-        hybridRetriever: ct.get('hybridRetriever'),
-        crossEncoderReranker: null,
-        signalBus: ct.singletons.signalBus || null,
-        knowledgeRepo: ct.get('knowledgeRepository'),
-        sourceRefRepo: ct.get('recipeSourceRefRepository'),
-      } as unknown as ConstructorParameters<typeof SearchEngine>[1]
-    );
-  });
-
-  c.singleton('vectorStore', (ct: ServiceContainer) => {
-    const { dataRoot, writeZone } = resolveVectorRuntimeRoot(ct);
-    const config =
-      ((ct.singletons._config as Record<string, unknown> | undefined)?.vector as
-        | Record<string, unknown>
-        | undefined) || {};
-    const adapter = (config.adapter as string) || 'auto';
-
-    // 根据配置选择适配器
-    if (adapter === 'json') {
-      const store = new JsonVectorAdapter(dataRoot, { writeZone });
-      store.initSync();
-      return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
-    }
-
-    if (adapter === 'hnsw' || adapter === 'auto') {
-      try {
-        const hnsw = (config.hnsw as Record<string, unknown> | undefined) || {};
-        const persistence = (config.persistence as Record<string, unknown> | undefined) || {};
-        const store = new HnswVectorAdapter(dataRoot, {
-          M: hnsw.M as number | undefined,
-          efConstruct: hnsw.efConstruct as number | undefined,
-          efSearch: hnsw.efSearch as number | undefined,
-          quantize: config.quantize as string | undefined,
-          quantizeThreshold: config.quantizeThreshold as number | undefined,
-          flushIntervalMs: persistence.flushIntervalMs as number | undefined,
-          flushBatchSize: persistence.flushBatchSize as number | undefined,
-          writeZone,
-        });
-        store.initSync();
-        return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
-      } catch (err: unknown) {
-        // HNSW 初始化失败, 降级到 JSON — 记录警告便于排查
-        const logger = ct.singletons.logger || console;
-        (logger as { warn?: (...args: unknown[]) => void }).warn?.(
-          '[vectorStore] HNSW init failed, falling back to JsonVectorAdapter',
-          {
-            error: (err as Error).message,
-            adapter,
-          }
-        );
-        const store = new JsonVectorAdapter(dataRoot, { writeZone });
-        store.initSync();
-        return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
-      }
-    }
-
-    // 未知适配器, 默认 JSON
-    const store = new JsonVectorAdapter(dataRoot, { writeZone });
-    store.initSync();
-    return wrapRecipeVectorGenerationRuntime(ct, dataRoot, writeZone, store);
-  });
-
-  c.singleton('indexingPipeline', (ct: ServiceContainer) => {
-    const { dataRoot } = resolveVectorRuntimeRoot(ct);
-    return new IndexingPipeline({
-      projectRoot: dataRoot,
-      scanDirs: resolveKnowledgeScanDirs(ct),
-      vectorStore: ct.get('vectorStore'),
-    } as ConstructorParameters<typeof IndexingPipeline>[0]);
-  });
-
-  c.singleton('hybridRetriever', (ct: ServiceContainer) => {
-    const config = (ct.singletons._config as Record<string, unknown> | undefined)?.vector as
-      | Record<string, unknown>
-      | undefined;
-    const hybrid = (config?.hybrid as Record<string, unknown> | undefined) || {};
-    return new HybridRetriever({
-      vectorStore: ct.get('vectorStore'),
-      rrfK: (hybrid.rrfK as number) || 60,
-      alpha: (hybrid.alpha as number) || 0.5,
-    } as ConstructorParameters<typeof HybridRetriever>[0]);
-  });
-}
-
-function wrapRecipeVectorGenerationRuntime(
-  container: ServiceContainer,
-  dataRoot: string,
-  writeZone: WriteZone | undefined,
-  baseStore: InstanceType<typeof JsonVectorAdapter> | InstanceType<typeof HnswVectorAdapter>
-) {
-  const runtime = createRecipeVectorGenerationRuntime({
-    baseStore,
-    dataRoot,
-    ...(writeZone ? { writeZone } : {}),
-  });
-  (container.singletons as Record<string, unknown>)[RECIPE_VECTOR_GENERATION_MANAGER_KEY] =
-    runtime.generationManager;
-  (container.singletons as Record<string, unknown>)[RECIPE_VECTOR_TRUTH_REMOVER_KEY] =
-    runtime.recipeVectorTruthRemover;
-  return runtime.vectorStore;
 }
 
 function registerSharedServices(c: ServiceContainer) {
@@ -280,217 +69,6 @@ function registerSharedServices(c: ServiceContainer) {
   c.register('languageService', () => LanguageService);
   c.register('dimensionCopy', () => DimensionCopy);
   c.register('projectGraph', () => c.singletons.projectGraph || null);
-}
-
-function registerEvolutionServices(c: ServiceContainer) {
-  registerEvolutionAnalysisServices(c);
-  registerEvolutionWorkflowServices(c);
-  registerRecipeProductionServices(c);
-}
-
-function registerEvolutionAnalysisServices(c: ServiceContainer) {
-  c.singleton('sourceRefReconciler', (ct: ServiceContainer) => {
-    const projectRoot = resolveProjectRoot(ct);
-    const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new SourceRefReconciler(projectRoot, sourceRefRepo, knowledgeRepo, {
-      signalBus:
-        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
-        undefined,
-      // P3 observe-only 漂移精判:git 历史读取器,绑定本容器 projectRoot 的 git 仓。
-      // 多 folder ProjectScope 下 sourcePath 属其他 folder 仓时 git show 取不到 → null →
-      // 精判保守跳过(不误判);基线 commit 由 rescan 侧从 checkpoint 传入,缺则不精判。
-      gitReader: (commit, relPath) => readFileAtCommit(projectRoot, commit, relPath),
-    });
-  });
-
-  c.singleton('recipeFreshnessService', (ct: ServiceContainer) => {
-    return new RecipeFreshnessService({
-      sourceRefReconciler: ct.get('sourceRefReconciler') as ConstructorParameters<
-        typeof RecipeFreshnessService
-      >[0]['sourceRefReconciler'],
-      sourceRefRepository: ct.get('recipeSourceRefRepository') as ConstructorParameters<
-        typeof RecipeFreshnessService
-      >[0]['sourceRefRepository'],
-      vectorService: ct.services.vectorService
-        ? (ct.get('vectorService') as ConstructorParameters<
-            typeof RecipeFreshnessService
-          >[0]['vectorService'])
-        : null,
-    });
-  });
-
-  c.singleton('stagingManager', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    const lifecycle = ct.get('lifecycleStateMachine') as LifecycleStateMachine;
-    return new StagingManager(knowledgeRepo, {
-      fileStore: ct.get('knowledgeFileWriter'),
-      lifecycle,
-      signalBus:
-        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
-        undefined,
-    });
-  });
-
-  c.singleton('decayDetector', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new DecayDetector(knowledgeRepo, {
-      signalBus:
-        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
-        undefined,
-      knowledgeEdgeRepo: ct.services.knowledgeEdgeRepository
-        ? (ct.get('knowledgeEdgeRepository') as KnowledgeEdgeRepository)
-        : undefined,
-      sourceRefRepo: ct.services.recipeSourceRefRepository
-        ? (ct.get('recipeSourceRefRepository') as SourceRefRepository)
-        : undefined,
-      // U4 消费侧 d2：注入 lifecycleStateMachine，使 staging sweep 第4 driver 调 scanAll(cap) 时，
-      // 命中的 active recipe 经 Core DecayDetector 内部直走 transition(trigger='decay-detection')→decaying
-      // 并记 lifecycle_transition_events（B1：不依赖信号订阅）。lifecycleStateMachine 单例 factory 不反向
-      // 依赖 decayDetector，无循环依赖；缺省（不注入）时 Core 仅打分不迁移（向后兼容）。
-      lifecycleStateMachine: ct.get('lifecycleStateMachine') as LifecycleStateMachine,
-    });
-  });
-
-  // U5 #1 closeout：构建一次 VectorService-backed embedding 相似度 provider 句柄，
-  // 三处演化服务（RedundancyAnalyzer / ProposalExecutor / ConsolidationAdvisor）共用同一实例。
-  // 无 vectorStore → 句柄为 null → 三处保持缺省（Core 纯 Jaccard，向后兼容）。
-  // 预热（一次性加载预计算 region 向量）在 initializeKnowledgeServices 的 await 钩子里完成，
-  // provider 函数本身保持同步。
-  c.singleton('embeddingSimProvider', (ct: ServiceContainer) => {
-    const vectorStore = ct.services.vectorStore
-      ? (ct.get('vectorStore') as unknown as RegionVectorStorePort)
-      : null;
-    return createRecipeEmbeddingSimProvider({
-      vectorStore,
-      logger: (ct.singletons.logger as SimProviderLogger | undefined) ?? null,
-    });
-  });
-
-  c.singleton('redundancyAnalyzer', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new RedundancyAnalyzer(knowledgeRepo, {
-      signalBus:
-        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
-        undefined,
-      embeddingSimProvider: resolveEmbeddingSimProvider(ct),
-    });
-  });
-
-  c.singleton('enhancementSuggester', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new EnhancementSuggester(knowledgeRepo, {
-      signalBus:
-        (ct.singletons.signalBus as import('@alembic/core/events').SignalBus | undefined) ||
-        undefined,
-    });
-  });
-
-  c.singleton('contentPatcher', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    const sourceRefRepo = ct.get('recipeSourceRefRepository') as SourceRefRepository;
-    // P-B(2026-07-11 落锚 parity):注入 projectRoot,update 提案执行后 refs
-    // 立即带 region 指纹落锚(此前重建 refs 全 NULL fp,漂移检测对刚更新的
-    // 知识失明直到下次 reconcile)。
-    return new ContentPatcher(knowledgeRepo, sourceRefRepo, {
-      projectRoot: resolveProjectRoot(ct),
-      fileStore: ct.get('knowledgeFileWriter'),
-    });
-  });
-}
-
-function registerEvolutionWorkflowServices(c: ServiceContainer) {
-  c.singleton('lifecycleStateMachine', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    const lifecycleEventRepo = ct.get('lifecycleEventRepository') as LifecycleEventRepository;
-    const signalBus = ct.get('signalBus') as import('@alembic/core/events').SignalBus;
-    const proposalRepo = ct.get('proposalRepository') as ProposalRepository;
-    // 进化与人工知识写入共用 Markdown 真相源，后续 sync 不得回滚状态。
-    return new LifecycleStateMachine(
-      knowledgeRepo,
-      lifecycleEventRepo,
-      signalBus,
-      proposalRepo,
-      undefined,
-      {
-        fileStore: ct.get('knowledgeFileWriter'),
-      }
-    );
-  });
-
-  c.singleton('proposalExecutor', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    const proposalRepo = ct.get('proposalRepository') as ProposalRepository;
-    const lifecycle = ct.get('lifecycleStateMachine') as LifecycleStateMachine;
-    const contentPatcher = ct.get('contentPatcher') as ContentPatcher;
-    const edgeRepo = ct.get('knowledgeEdgeRepository') as KnowledgeEdgeRepository;
-    return new ProposalExecutor(
-      knowledgeRepo,
-      proposalRepo,
-      lifecycle,
-      contentPatcher,
-      edgeRepo,
-      resolveEmbeddingSimProvider(ct)
-    );
-  });
-
-  c.singleton('consolidationAdvisor', (ct: ServiceContainer) => {
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new ConsolidationAdvisor(knowledgeRepo, resolveEmbeddingSimProvider(ct));
-  });
-
-  c.singleton('proposalGateway', (ct: ServiceContainer) => {
-    const proposalRepo = ct.get('proposalRepository') as ProposalRepository;
-    const lifecycle = ct.get('lifecycleStateMachine') as LifecycleStateMachine;
-    const knowledgeRepo = ct.get('knowledgeRepository') as KnowledgeRepository;
-    return new ProposalGateway(proposalRepo, lifecycle, knowledgeRepo);
-  });
-}
-
-function registerRecipeProductionServices(c: ServiceContainer) {
-  c.singleton('recipeProductionGateway', (ct: ServiceContainer) => {
-    const knowledgeService = ct.get('knowledgeService');
-    const dataRoot = resolveDataRoot(ct) as string;
-    let consolidationAdvisor = null;
-    let proposalRepository = null;
-    let proposalGateway = null;
-    try {
-      consolidationAdvisor = ct.get('consolidationAdvisor');
-    } catch {
-      /* optional */
-    }
-    try {
-      proposalRepository = ct.get('proposalRepository');
-    } catch {
-      /* optional */
-    }
-    try {
-      proposalGateway = ct.get('proposalGateway');
-    } catch {
-      /* optional */
-    }
-    // U1 #5：此处是同步 DI singleton 工厂，无法 await moduleService.load() 取 canonical 模块轴
-    // （强行同步扫 ProjectContext 不符合 DI 工厂语义）。故本入口不注入 knownModuleNames /
-    // resolveModuleFromSourceRefs，Core #deriveModuleName 退回原 passthrough（加性、向后兼容）。
-    // 需要 canonical 模块轴的 submit 链路走 tool-router 的 async createSubmitKnowledgeGateway，
-    // 在那里按 canonical ProjectMap.modules 注入这两个 dep。
-    return new RecipeProductionGateway({
-      knowledgeService: knowledgeService as unknown as ConstructorParameters<
-        typeof RecipeProductionGateway
-      >[0]['knowledgeService'],
-      projectRoot: dataRoot,
-      consolidationAdvisor: consolidationAdvisor as unknown as ConstructorParameters<
-        typeof RecipeProductionGateway
-      >[0]['consolidationAdvisor'],
-      proposalRepository: proposalRepository as unknown as ConstructorParameters<
-        typeof RecipeProductionGateway
-      >[0]['proposalRepository'],
-      proposalGateway: proposalGateway as unknown as ConstructorParameters<
-        typeof RecipeProductionGateway
-      >[0]['proposalGateway'],
-      findSimilarRecipes,
-    });
-  });
 }
 
 /**
@@ -504,8 +82,8 @@ export function initializeKnowledgeServices(c: ServiceContainer): void {
   // quality/source_modified 等）即时驱动 observing proposal 执行；sweep 有界兜底见 staging-access-sweep。
   // 放在 eventBus 早 return 之前：proposal 信号订阅不应依赖 eventBus/searchEngine 是否就绪。
   try {
-    const proposalExecutor = c.get('proposalExecutor') as ProposalExecutor | null;
-    const signalBus = c.get('signalBus') as import('@alembic/core/events').SignalBus | null;
+    const proposalExecutor = c.get('proposalExecutor');
+    const signalBus = c.get('signalBus');
     if (proposalExecutor && signalBus) {
       proposalExecutor.subscribeToSignals(signalBus);
     }
@@ -518,11 +96,8 @@ export function initializeKnowledgeServices(c: ServiceContainer): void {
   }
 
   try {
-    const { EventBus } = await_import_EventBus();
-    const eventBus = c.get('eventBus') as InstanceType<typeof EventBus>;
-    const searchEngine = c.get('searchEngine') as {
-      refreshIndex: (opts?: { force?: boolean }) => void;
-    };
+    const eventBus = c.get('eventBus');
+    const searchEngine = c.get('searchEngine');
 
     // Bug 修复: keyword 索引与 Vector 索引一致性 — 将 knowledge:changed 事件绑定到 refreshIndex
     eventBus.on('knowledge:changed', () => {
@@ -547,14 +122,6 @@ export function initializeKnowledgeServices(c: ServiceContainer): void {
   } catch {
     /* EventBus/SearchEngine not available — skip binding */
   }
-}
-
-/** EventBus 延迟引用（避免循环依赖） */
-function await_import_EventBus() {
-  // EventBus 类型已经通过 container 解析，此处只用于 TS 类型
-  return {
-    EventBus: Object as unknown as typeof import('@alembic/core/events').EventBus,
-  };
 }
 
 async function _refreshFreshnessForEntry(c: ServiceContainer, entryId: string): Promise<void> {

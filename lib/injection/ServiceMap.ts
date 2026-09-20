@@ -1,3 +1,15 @@
+import type {
+  ConsolidationAdvisor,
+  ContentPatcher,
+  DecayDetector,
+  EnhancementSuggester,
+  LifecycleStateMachine,
+  ProposalExecutor,
+  ProposalGateway,
+  RedundancyAnalyzer,
+  StagingManager,
+} from '@alembic/core/evolution';
+import type { SourceRefReconciler } from '@alembic/core/knowledge';
 /**
  * ServiceMap — DI 容器类型安全映射
  *
@@ -112,20 +124,34 @@ export interface ServiceMap {
   moduleService: ModuleService;
   primeSearchPipeline: PrimeSearchPipeline;
 
-  // ═══ KnowledgeModule ═══
+  // ═══ KnowledgeModule: 知识用例与共享服务 ═══
   confidenceRouter: ConfidenceRouter;
   knowledgeService: KnowledgeService;
-  recipeFreshnessService: RecipeFreshnessService;
-  recipeProductionGateway: RecipeProductionGateway;
   knowledgeGraphService: KnowledgeGraphService;
-  searchEngine: SearchEngine;
-  vectorStore: VectorStore;
-  indexingPipeline: IndexingPipeline;
-  hybridRetriever: HybridRetriever;
   enhancementRegistry: unknown; // dynamic registry, type varies
   languageService: typeof LanguageService;
   dimensionCopy: typeof DimensionCopy;
   projectGraph: unknown | null;
+
+  // ═══ KnowledgeRetrievalModule ═══
+  searchEngine: SearchEngine;
+  vectorStore: VectorStore;
+  indexingPipeline: IndexingPipeline;
+  hybridRetriever: HybridRetriever;
+
+  // ═══ KnowledgeEvolutionModule ═══
+  recipeFreshnessService: RecipeFreshnessService;
+  recipeProductionGateway: RecipeProductionGateway;
+  sourceRefReconciler: SourceRefReconciler;
+  stagingManager: StagingManager;
+  decayDetector: DecayDetector;
+  redundancyAnalyzer: RedundancyAnalyzer;
+  enhancementSuggester: EnhancementSuggester;
+  contentPatcher: ContentPatcher;
+  lifecycleStateMachine: LifecycleStateMachine;
+  proposalExecutor: ProposalExecutor;
+  consolidationAdvisor: ConsolidationAdvisor;
+  proposalGateway: ProposalGateway;
 
   // ═══ VectorModule ═══
   vectorService: VectorService;
