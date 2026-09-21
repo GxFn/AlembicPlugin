@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  type ProjectContextContract,
+  withProjectContextSession,
+} from '@alembic/core/project-context';
+import {
   buildProjectContextRequestMatrixV2,
   buildProjectScopeManifestV1,
   captureCertifiedProjectFactsV2,
@@ -88,9 +92,19 @@ export async function capturePluginCertifiedProjectFacts(input: {
   projectRoot: string;
   signal?: AbortSignal;
 }): Promise<PluginCertifiedCaptureResult> {
+  // 整批认证请求复用一个真实分析会话；保留各请求 signal 和既有证据转译。
+  return withProjectContextSession((projectContext) =>
+    capturePluginFactsInSession(input, projectContext)
+  );
+}
+
+async function capturePluginFactsInSession(
+  input: Parameters<typeof capturePluginCertifiedProjectFacts>[0],
+  projectContext: ProjectContextContract
+): Promise<PluginCertifiedCaptureResult> {
   const scope = createPluginScopeBinding(input.projectRoot);
   const inventoryPolicy = inventoryPolicyForScope(scope.repositories, input.dataRoot);
-  const hostPorts = new NodeProjectContextFoundationHostPorts(undefined, {
+  const hostPorts = new NodeProjectContextFoundationHostPorts(projectContext, {
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
       sourceRoot: repository.sourceRoot,

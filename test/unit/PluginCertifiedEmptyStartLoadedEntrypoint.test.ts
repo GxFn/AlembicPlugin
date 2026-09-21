@@ -16,9 +16,10 @@ import {
   createProjectScopeRegistryDocument,
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
+import { typeScriptAstPlugin } from '@alembic/core/test-fixtures';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import {
   routeGraphTool,
@@ -47,6 +48,7 @@ const databaseRuntimes: AlembicDatabaseRuntime[] = [];
 const ORIGINAL_ALEMBIC_HOME = process.env.ALEMBIC_HOME;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const runtime of databaseRuntimes.splice(0)) {
     runtime.close();
   }
@@ -65,6 +67,7 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
   test('actual Plan draft captures one carrier and strict consumers reject its removal', async () => {
     const projectRoot = createProject();
     const ctx = createLoadedContext(projectRoot);
+    const walk = vi.spyOn(typeScriptAstPlugin, 'walk');
 
     const response = (await routePlanTool(ctx, {
       generationStage: 'coldStart',
@@ -74,6 +77,7 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
     })) as { success?: boolean };
 
     expect(response.success).toBe(true);
+    expect(walk).toHaveBeenCalledTimes(1);
     const session = getOrCreateSessionManager(ctx.container).getAnySession(undefined, {
       projectRoot,
     });
