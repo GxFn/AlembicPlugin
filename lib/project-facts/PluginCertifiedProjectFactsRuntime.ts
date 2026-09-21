@@ -418,7 +418,22 @@ export async function observePluginCertifiedLiveProbe(input: {
   );
   const entries = rows.map(({ entry }) => entry);
   const blockingReasons = rows.flatMap(({ blockingReasons: reasons }) => reasons);
-  const observed = buildSourceRevisionVectorV1(entries);
+  // 支持输入也参与版本身份；重新观察实际读集，不能复制认证时的旧 hash 使漂移失效。
+  const inputClosureHash = artifact.facts.inputClosure
+    ? await ports.observeInputClosureHash({
+        closure: artifact.facts.inputClosure,
+        chunks: artifact.chunks,
+        repositories: scope.repositories.map((repository) => ({
+          ...repository,
+          sourceRoot: path.resolve(input.controlRoot, repository.relativeRoot),
+        })),
+        controlRoot: input.controlRoot,
+      })
+    : undefined;
+  if (inputClosureHash !== artifact.manifest.inputClosureHash) {
+    blockingReasons.push('analysis-input-drift');
+  }
+  const observed = buildSourceRevisionVectorV1(entries, inputClosureHash);
   if (observed.sourceVectorHash !== artifact.sourceVectorHash) {
     blockingReasons.push('source-vector-mismatch');
   }

@@ -29,6 +29,8 @@ import {
 import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
 import {
   assertExactRepositoryTuples,
+  observePluginCertifiedLiveProbe,
+  openPluginCertifiedFacts,
   openPluginCertifiedProjection,
   pluginCertifiedStoreRoot,
   readPluginCertifiedCarrierFromProjectContext,
@@ -77,7 +79,7 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
     })) as { success?: boolean };
 
     expect(response.success).toBe(true);
-    expect(walk).toHaveBeenCalledTimes(1);
+    expect(walk).toHaveBeenCalledTimes(2);
     const session = getOrCreateSessionManager(ctx.container).getAnySession(undefined, {
       projectRoot,
     });
@@ -90,6 +92,30 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       artifactId: carrier?.artifactId,
       consumer: 'plan',
       sourceVectorHash: carrier?.sourceVectorHash,
+    });
+
+    if (!carrier) {
+      throw new Error('Plan did not persist its certified input carrier.');
+    }
+    const dataRoot = ctx.projectRuntime?.identity.dataRoot ?? projectRoot;
+    const { artifact } = await openPluginCertifiedFacts({ carrier, dataRoot });
+    expect(artifact.facts.inputClosure).toBeDefined();
+    expect(artifact.manifest.inputClosureHash).toBe(hashCanonicalJson(artifact.facts.inputClosure));
+    const probeInput = { artifact, carrier, controlRoot: projectRoot, dataRoot };
+    expect(await observePluginCertifiedLiveProbe(probeInput)).toMatchObject({
+      comparisonStatus: 'matched',
+      blockingReasons: [],
+    });
+    const emptyDirectory = path.join(projectRoot, 'plugin-empty-start', 'input-freshness-empty');
+    fs.mkdirSync(emptyDirectory);
+    expect(await observePluginCertifiedLiveProbe(probeInput)).toMatchObject({
+      comparisonStatus: 'mismatched',
+      blockingReasons: expect.arrayContaining(['analysis-input-drift']),
+    });
+    fs.rmdirSync(emptyDirectory);
+    expect(await observePluginCertifiedLiveProbe(probeInput)).toMatchObject({
+      comparisonStatus: 'matched',
+      blockingReasons: [],
     });
 
     const sourceFile = path.join(projectRoot, 'plugin-empty-start', 'src/index.ts');

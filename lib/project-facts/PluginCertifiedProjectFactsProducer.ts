@@ -236,6 +236,7 @@ function createPluginFoundationPorts(
   hostPorts: NodeProjectContextFoundationHostPorts
 ): ProjectContextFoundationHostPorts {
   return {
+    createInputCapture: (input) => hostPorts.createInputCapture(input),
     enumerateEligibleFiles: (input) => hostPorts.enumerateEligibleFiles(input),
     executeRequest: async (input) =>
       conserveDependencyEvidence(await hostPorts.executeRequest(input), {
