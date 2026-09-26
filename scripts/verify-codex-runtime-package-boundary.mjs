@@ -143,7 +143,7 @@ try {
   expect(installedCoreManifest.version === coreManifest.version, 'bundled Core version mismatch');
 
   // 在安装包内部解析 import-only Core 公开入口，并启动真实 SDK worker。
-  // 普通变量符号不是旧 AST 的产物，可同时验证依赖闭包、包内资源和生产接线。
+  // 普通变量符号及真实调用观察同时验证依赖闭包、包内资源和生产接线。
   const sdkProbePath = join(installedRoot, '.sdk-boundary-probe.mjs');
   writeFileSync(
     sdkProbePath,
@@ -155,16 +155,27 @@ import { startHostMcpServer } from './dist/lib/host-runtime/mcp/HostMcpServer.js
 assert.equal(typeof startHostMcpServer, 'function');
 const projectRoot = join(${JSON.stringify(installRoot)}, 'sdk-project');
 await mkdir(projectRoot);
-await writeFile(join(projectRoot, 'index.ts'), 'export const installedSdkSymbol = 1;\\n');
+await writeFile(join(projectRoot, 'index.ts'), [
+  'export const installedSdkSymbol = 1;',
+  'function target() {}',
+  'export function run(client) { target(); target(); client.target(); }',
+].join('\\n'));
 let runtimeRoot;
 await withCodeGraphProjectContextSession({ dataRoot: join(projectRoot, 'private') }, async (context, runtime) => {
   runtimeRoot = runtime.runtimeRoot;
   const result = await context.execute({ kind: 'file-symbols', scope: { projectRoot }, payload: { filePath: 'index.ts' } });
   assert.deepEqual(result.errors ?? [], []);
   assert(result.data.symbols.some((symbol) => symbol.name === 'installedSdkSymbol'));
+  const flow = await context.execute({ kind: 'file-flow', scope: { projectRoot }, payload: { filePath: 'index.ts' } });
+  assert.deepEqual(flow.errors ?? [], []);
+  const calls = flow.data.callers;
+  assert.equal(calls.length, 3);
+  assert.equal(new Set(calls.map((call) => call.ref.id)).size, 3);
+  assert.equal(calls.filter((call) => call.to?.ref && !call.unresolved).length, 2);
+  assert.equal(calls.filter((call) => call.unresolved && !call.to?.ref).length, 1);
 });
 assert.deepEqual(await readdir(runtimeRoot), []);
-console.log('installed SDK symbol extraction and worker cleanup passed');
+console.log('installed SDK symbols, call observations, and worker cleanup passed');
 `
   );
   const entrypointProbe = run(process.execPath, [sdkProbePath], {
@@ -192,6 +203,7 @@ console.log('installed SDK symbol extraction and worker cleanup passed');
         install: installMode,
         entrypointProbe: 'passed',
         codeGraphExtraction: 'passed',
+        codeGraphFileFlow: 'passed',
         coreDependency: installedManifest.dependencies?.['@alembic/core'],
       },
       null,
