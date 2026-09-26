@@ -9,6 +9,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -50,9 +51,15 @@ try {
     'runtime package must expose bin.alembic-codex-mcp -> dist/bin/host-mcp.js'
   );
   expect(
-    generatedManifest.dependencies?.['@alembic/core'] === '0.3.0',
-    'runtime package must pin @alembic/core to exact 0.3.0'
+    generatedManifest.dependencies?.['@alembic/core'] === coreManifest.version,
+    `runtime package must pin @alembic/core to exact ${coreManifest.version}`
   );
+  for (const [name, version] of Object.entries(coreManifest.dependencies || {})) {
+    expect(
+      generatedManifest.dependencies?.[name] === version,
+      `runtime package must carry Core-owned dependency ${name}@${version}`
+    );
+  }
   expectNoFileDependencies(generatedManifest, 'generated runtime package');
   expectNoFileDependencies(sourceManifest, 'source runtime manifest');
   expectNoFileDependencies(coreManifest, 'Core package manifest');
@@ -70,23 +77,6 @@ try {
   const packInfo = parseNpmPackJson(pack.stdout)[0];
   const tarball = join(packDir, packInfo.filename);
   expect(existsSync(tarball), `npm pack did not create ${tarball}`);
-  const corePack = run(
-    'npm',
-    ['pack', coreSource.path, '--json', '--pack-destination', packDir, '--ignore-scripts'],
-    {
-      cwd: root,
-      env: { ...process.env, HUSKY: '0', npm_config_cache: npmCache },
-      maxBuffer: 80 * 1024 * 1024,
-    }
-  );
-  const corePackInfo = parseNpmPackJson(corePack.stdout)[0];
-  const coreTarball = join(packDir, corePackInfo.filename);
-  expect(existsSync(coreTarball), `npm pack did not create ${coreTarball}`);
-  expect(corePackInfo.name === '@alembic/core', 'Core pack package name mismatch');
-  expect(
-    corePackInfo.version === generatedManifest.dependencies?.['@alembic/core'],
-    'Core pack version mismatch'
-  );
   const tarListing = run('tar', ['-tzf', tarball], { maxBuffer: 80 * 1024 * 1024 })
     .stdout.split('\n')
     .filter(Boolean);
@@ -115,7 +105,6 @@ try {
   const installArgs = [
     'install',
     tarball,
-    coreTarball,
     '--ignore-scripts',
     '--omit=dev',
     '--package-lock=false',
@@ -147,24 +136,41 @@ try {
     existsSync(join(installedRoot, 'dist', 'bin', 'host-mcp.js')),
     'installed runtime MCP entrypoint missing'
   );
-  expect(
-    [
-      join(installRoot, 'node_modules', '@alembic', 'core', 'package.json'),
-      join(installedRoot, 'node_modules', '@alembic', 'core', 'package.json'),
-    ].some((candidate) => existsSync(candidate)),
-    'installed @alembic/core package missing'
+  // 只安装用户实际取得的 runtime tarball；另装 Core tarball 会替它补依赖、掩盖缺包。
+  const installedCoreManifest = readJson(
+    join(installedRoot, 'node_modules', '@alembic', 'core', 'package.json')
   );
-  const entrypointProbe = run(
-    process.execPath,
-    [
-      '--input-type=module',
-      '--eval',
-      `const mod = await import(${JSON.stringify(
-        join(installedRoot, 'dist', 'lib', 'host-runtime', 'mcp', 'HostMcpServer.js')
-      )}); if (typeof mod.startHostMcpServer !== 'function') throw new Error('missing startHostMcpServer');`,
-    ],
-    { cwd: installRoot, timeout: 15000 }
+  expect(installedCoreManifest.version === coreManifest.version, 'bundled Core version mismatch');
+
+  // 在安装包内部解析 import-only Core 公开入口，并启动真实 SDK worker。
+  // 普通变量符号不是旧 AST 的产物，可同时验证依赖闭包、包内资源和生产接线。
+  const sdkProbePath = join(installedRoot, '.sdk-boundary-probe.mjs');
+  writeFileSync(
+    sdkProbePath,
+    `import assert from 'node:assert/strict';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { withCodeGraphProjectContextSession } from '@alembic/core/project-context';
+import { startHostMcpServer } from './dist/lib/host-runtime/mcp/HostMcpServer.js';
+assert.equal(typeof startHostMcpServer, 'function');
+const projectRoot = join(${JSON.stringify(installRoot)}, 'sdk-project');
+await mkdir(projectRoot);
+await writeFile(join(projectRoot, 'index.ts'), 'export const installedSdkSymbol = 1;\\n');
+let runtimeRoot;
+await withCodeGraphProjectContextSession({ dataRoot: join(projectRoot, 'private') }, async (context, runtime) => {
+  runtimeRoot = runtime.runtimeRoot;
+  const result = await context.execute({ kind: 'file-symbols', scope: { projectRoot }, payload: { filePath: 'index.ts' } });
+  assert.deepEqual(result.errors ?? [], []);
+  assert(result.data.symbols.some((symbol) => symbol.name === 'installedSdkSymbol'));
+});
+assert.deepEqual(await readdir(runtimeRoot), []);
+console.log('installed SDK symbol extraction and worker cleanup passed');
+`
   );
+  const entrypointProbe = run(process.execPath, [sdkProbePath], {
+    cwd: installRoot,
+    timeout: 45000,
+  });
   expect(entrypointProbe.status === 0, 'runtime MCP entrypoint module probe failed');
 
   if (errors.length > 0) {
@@ -178,13 +184,14 @@ try {
         packageName: sourceManifest.name,
         packageVersion: installedManifest.version,
         tarball: packInfo.filename,
-        coreTarball: corePackInfo.filename,
+        bundledCoreVersion: installedCoreManifest.version,
         unpackedSize: packInfo.unpackedSize,
         packFileCount: packInfo.entryCount,
         noFileDependencies: true,
         forbiddenOldShapeRejected: true,
         install: installMode,
         entrypointProbe: 'passed',
+        codeGraphExtraction: 'passed',
         coreDependency: installedManifest.dependencies?.['@alembic/core'],
       },
       null,
@@ -211,7 +218,11 @@ function installOfflineFromTarball(tarball, manifest) {
     if (dependency === '@alembic/core') {
       continue;
     }
-    const source = join(root, 'node_modules', dependency);
+    // Core 新增的依赖可能只在本地 Core 安装；离线模式仍按同一依赖所有者解析。
+    const ownerRoot = Object.hasOwn(coreManifest.dependencies || {}, dependency)
+      ? coreSource.path
+      : root;
+    const source = join(ownerRoot, 'node_modules', dependency);
     const destination = join(installRoot, 'node_modules', dependency);
     if (!existsSync(source)) {
       throw new Error(

@@ -75,6 +75,7 @@ process.stdout.write(
       packageName: sourceManifest.name,
       packageVersion: rootPackage.version,
       corePackage: `${corePackage.name}@${corePackage.version}`,
+      coreRuntimeDependencies: corePackage.dependencies,
       entrypoint: 'dist/bin/host-mcp.js',
       sourceManifest: sourceManifestPath,
     },
@@ -91,8 +92,8 @@ function writeRuntimePackageJson() {
     dependencies: normalizeRuntimeDependencies(sourceManifest.dependencies || {}),
     // Path B（自足 npm runtime）：@alembic/core 私有、不在公共 registry，故 vendored 进
     // node_modules/@alembic/core，随本包 tarball 一起发布（bundledDependencies）。安装时
-    // npm 直接用 bundle 的副本，不去 registry 拉 @alembic/core；其余依赖（better-sqlite3
-    // /web-tree-sitter 等）都是公共 npm 包，按平台正常解析（含原生预编译）。
+    // npm 直接用 bundle 的副本，不去 registry 拉 @alembic/core。npm 不会补装这个
+    // 已打包 Core 缺失的依赖，必须从 Core 单源声明提升到生成包，由 npm 正常解析。
     bundledDependencies: ['@alembic/core'],
   };
   delete runtimePackage.private;
@@ -101,7 +102,12 @@ function writeRuntimePackageJson() {
 
 function normalizeRuntimeDependencies(dependencies) {
   const normalized = {};
-  for (const [name, version] of Object.entries(dependencies)) {
+  // Core 拥有其共享运行依赖的版本；重叠项也使用 Core 声明，避免宿主较宽的旧范围
+  // 允许安装低于 Core 下限的版本。宿主独有依赖仍由 runtime 源 manifest 维护。
+  for (const [name, version] of Object.entries({
+    ...dependencies,
+    ...corePackage.dependencies,
+  })) {
     normalized[name] = name === '@alembic/core' ? corePackage.version : version;
   }
   return normalized;
@@ -146,7 +152,7 @@ function bundleCoreDependency() {
   // Path B：把私有 @alembic/core vendored 进 node_modules/@alembic/core，使其随
   // runtime tarball 一起发布（bundledDependencies）。用 `npm pack` 取 Core 的“已发布形态”
   // （尊重 Core package.json 的 `files` 白名单），再解压到位。Core 自身的依赖不 bundle——
-  // 它们已声明在本 runtime 包的 dependencies 里，安装时从顶层 node_modules 解析。
+  // 它们由 Core manifest 自动提升到生成 runtime 的 dependencies，安装时从顶层解析。
   const destination = join(outputRoot, 'node_modules', '@alembic', 'core');
   const packDir = join(outputRoot, '.core-pack');
   mkdirSync(packDir, { recursive: true });
