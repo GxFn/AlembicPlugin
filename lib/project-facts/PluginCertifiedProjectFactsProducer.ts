@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  type CodeGraphProjectContextRuntime,
   type ProjectContextContract,
-  withProjectContextSession,
+  withCodeGraphProjectContextSession,
 } from '@alembic/core/project-context';
 import {
   buildProjectContextRequestMatrixV2,
@@ -92,18 +93,25 @@ export async function capturePluginCertifiedProjectFacts(input: {
   projectRoot: string;
   signal?: AbortSignal;
 }): Promise<PluginCertifiedCaptureResult> {
-  // 整批认证请求复用一个真实分析会话；保留各请求 signal 和既有证据转译。
-  return withProjectContextSession((projectContext) =>
-    capturePluginFactsInSession(input, projectContext)
+  input.signal?.throwIfAborted();
+  // 先验证真实来源目录；SDK 私有目录创建不能把缺失 sourceRoot 变成合法范围。
+  const scope = createPluginScopeBinding(input.projectRoot);
+  return withCodeGraphProjectContextSession(
+    { dataRoot: input.dataRoot, signal: input.signal },
+    (projectContext, runtime) => capturePluginFactsInSession(input, scope, projectContext, runtime)
   );
 }
 
 async function capturePluginFactsInSession(
   input: Parameters<typeof capturePluginCertifiedProjectFacts>[0],
-  projectContext: ProjectContextContract
+  scope: ReturnType<typeof createPluginScopeBinding>,
+  projectContext: ProjectContextContract,
+  runtime: CodeGraphProjectContextRuntime
 ): Promise<PluginCertifiedCaptureResult> {
-  const scope = createPluginScopeBinding(input.projectRoot);
-  const inventoryPolicy = inventoryPolicyForScope(scope.repositories, input.dataRoot);
+  const inventoryPolicy = inventoryPolicyForScope(scope.repositories, [
+    input.dataRoot,
+    runtime.runtimeRoot,
+  ]);
   const hostPorts = new NodeProjectContextFoundationHostPorts(projectContext, {
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
@@ -154,7 +162,7 @@ async function capturePluginFactsInSession(
             'dimension-completion',
           ],
         }),
-        parserHash: hashCanonicalJson({ authority: 'core-node-project-context-host-ports' }),
+        parserHash: runtime.engineHash,
         scopeIdentityHash: scope.manifest.canonicalScopeHash,
       },
       detailPolicy: {
@@ -212,6 +220,7 @@ async function capturePluginFactsInSession(
       `Plugin Foundation capture failed strict readiness: ${artifact.readiness.errors.join(',')}; unavailable=${JSON.stringify(unavailableRequests)}`
     );
   }
+  input.signal?.throwIfAborted();
   const store = new FileCertifiedProjectFactsStore(pluginCertifiedStoreRoot(input.dataRoot));
   const storeReceipt = await store.put(artifact);
   // One preparation belongs to the persisted carrier for its full consumer lineage.
@@ -382,7 +391,7 @@ function createPluginScopeBinding(projectRoot: string) {
 
 function inventoryPolicyForScope(
   repositories: readonly { relativeRoot: string; sourceRoot: string }[],
-  dataRoot: string
+  privateRoots: readonly string[]
 ): ProjectContextInventoryPolicyV1 {
   const excludeRelativePaths = [
     ...new Set([
@@ -400,14 +409,19 @@ function inventoryPolicyForScope(
             : [];
         })
       ),
-      ...repositories.flatMap((repository) => {
-        const relativeDataRoot = portableRelativeRoot(
-          path.relative(repository.sourceRoot, path.resolve(dataRoot))
-        );
-        return relativeDataRoot === '.' || relativeDataRoot.startsWith('../')
-          ? []
-          : [relativeDataRoot];
-      }),
+      // 固定 runtime 父目录参与策略；随机会话目录不进入可复核 hash。
+      ...repositories.flatMap((repository) =>
+        privateRoots.flatMap((privateRoot) => {
+          const relativePrivateRoot = portableRelativeRoot(
+            path.relative(repository.sourceRoot, fs.realpathSync.native(privateRoot))
+          );
+          return relativePrivateRoot === '.' ||
+            relativePrivateRoot === '..' ||
+            relativePrivateRoot.startsWith('../')
+            ? []
+            : [relativePrivateRoot];
+        })
+      ),
     ]),
   ].sort();
   return {

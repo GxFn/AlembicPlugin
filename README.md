@@ -6,7 +6,7 @@ Distill your codebase into a knowledge base that AI coding agents query while th
 
 [![npm version](https://img.shields.io/npm/v/alembic-ai.svg?style=flat-square)](https://www.npmjs.com/package/alembic-ai)
 [![License](https://img.shields.io/npm/l/alembic-ai.svg?style=flat-square)](https://github.com/GxFn/Alembic/blob/main/LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen?style=flat-square)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.5-brightgreen?style=flat-square)](https://nodejs.org)
 
 [中文](README_CN.md)
 
@@ -295,7 +295,7 @@ With `--ghost` (or the plugin, where Ghost is the default), **all of the above**
 
 ## Requirements
 
-- Node.js ≥ 22
+- Node.js ≥ 22.5
 - macOS recommended (the Seatbelt sandbox for agent terminal tools is macOS-only; everything else is cross-platform)
 - better-sqlite3 (bundled)
 

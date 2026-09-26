@@ -6,7 +6,7 @@
 
 [![npm version](https://img.shields.io/npm/v/alembic-ai.svg?style=flat-square)](https://www.npmjs.com/package/alembic-ai)
 [![License](https://img.shields.io/npm/l/alembic-ai.svg?style=flat-square)](https://github.com/GxFn/Alembic/blob/main/LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen?style=flat-square)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.5-brightgreen?style=flat-square)](https://nodejs.org)
 
 [English](README.md)
 
@@ -295,7 +295,7 @@ your-project/
 
 ## 环境要求
 
-- Node.js ≥ 22
+- Node.js ≥ 22.5
 - 推荐 macOS（智能体终端工具的 Seatbelt 沙箱仅 macOS；其余能力跨平台）
 - better-sqlite3（内置）
 

@@ -1,10 +1,13 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { withCodeGraphProjectContextSession } from '@alembic/core/project-context';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
+  CallToolRequestSchema,
+  type CallToolResult,
   CallToolResultSchema,
   EmptyResultSchema,
   ErrorCode,
@@ -37,6 +40,7 @@ import {
   resetPluginOwnedMcpServerForTests,
 } from '../../lib/host-runtime/mcp/HostMcpServer.js';
 import { failureResult } from '../../lib/host-runtime/mcp/host/results.js';
+import { McpServer } from '../../lib/host-runtime/mcp/McpServer.js';
 
 const roots: string[] = [];
 const previousPluginRoot = process.env[CODEX_PLUGIN_ROOT_ENV];
@@ -62,6 +66,141 @@ afterEach(async () => {
 });
 
 describe('host-neutral MCP execution errors', () => {
+  test('SDK sender string cancellation reaches the real CodeGraph owner and returns CANCELLED after cleanup', async () => {
+    const projectRoot = installProject();
+    writeFileSync(join(projectRoot, 'symbols.ts'), 'export const sdkProduced = 1;\n');
+    const dataRoot = join(projectRoot, 'runtime');
+    process.env.ALEMBIC_MCP_TOOL_DEADLINE_MS = '5000';
+    const completed = Promise.withResolvers<CallToolResult>();
+    const ready = Promise.withResolvers<string>();
+    const transport = await openHostTransport(projectRoot, shellRoots().codex, completed.resolve);
+    vi.spyOn(transport.host, 'handleToolCall').mockImplementation(async (_name, _args, options) =>
+      withCodeGraphProjectContextSession(
+        { dataRoot, signal: options.signal },
+        async (context, runtime) => {
+          const symbols = await context.execute({
+            kind: 'file-symbols',
+            scope: { projectRoot },
+            payload: { filePath: 'symbols.ts' },
+          });
+          expect(JSON.stringify(symbols.data)).toContain('"name":"sdkProduced"');
+          ready.resolve(runtime.runtimeRoot);
+          return new Promise<never>((_resolve, reject) =>
+            options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+              once: true,
+            })
+          );
+        }
+      )
+    );
+    const sender = new AbortController();
+    const clientResult = transport.client
+      .callTool(
+        { name: 'alembic_plan', arguments: { operation: 'draft', generationStage: 'coldStart' } },
+        undefined,
+        { signal: sender.signal }
+      )
+      .catch((error) => error);
+    try {
+      const runtimeRoot = await Promise.race([
+        ready.promise,
+        completed.promise.then(() => {
+          throw new Error('Transport settled before the real worker was ready.');
+        }),
+      ]);
+      expect(readdirSync(runtimeRoot)).toHaveLength(1);
+      // SDK Client 会发送 notifications/cancelled，protocol 将 reason 字符串原样 abort。
+      sender.abort('User cancelled the transport request');
+      const result = await completed.promise;
+      expect(asRecord(asRecord(result.structuredContent)?.error)).toMatchObject({
+        code: 'CANCELLED',
+        message: 'User cancelled the transport request',
+      });
+      expect(readdirSync(runtimeRoot)).toEqual([]);
+      await clientResult;
+    } finally {
+      sender.abort('test cleanup');
+      await transport.close();
+    }
+  }, 15_000);
+
+  test.each([
+    'cancel',
+    'business',
+  ])('embedded SDK registration preserves string sender cancellation and %s classification', async (failure) => {
+    const projectRoot = installProject();
+    const embedded = new McpServer({ projectRoot, container: { get: () => undefined } });
+    embedded.sdkServer = new SdkMcpServer(
+      { name: 'embedded-transport-cancel-test', version: '1.0.0' },
+      { capabilities: { tools: {} } }
+    );
+    const completed = Promise.withResolvers<CallToolResult>();
+    const ready = Promise.withResolvers<void>();
+    observeCallToolResult(embedded.sdkServer, completed.resolve);
+    embedded._registerHandlers();
+    const client = await connectClient(embedded.sdkServer);
+    vi.spyOn(embedded, '_resolveHandler').mockReturnValue(async (ctx) => {
+      ready.resolve();
+      if (!ctx.signal) {
+        throw new Error('Sender signal did not reach the embedded handler.');
+      }
+      await new Promise<void>((resolve) =>
+        ctx.signal?.addEventListener('abort', () => resolve(), { once: true })
+      );
+      if (failure === 'business') {
+        throw Object.assign(new Error('Business failure wins independently of cancellation'), {
+          code: 'NOT_FOUND',
+        });
+      }
+      ctx.signal.throwIfAborted();
+    });
+    const sender = new AbortController();
+    const clientResult = client
+      .callTool(
+        { name: 'alembic_plan', arguments: { operation: 'draft', generationStage: 'coldStart' } },
+        undefined,
+        { signal: sender.signal }
+      )
+      .catch((error) => error);
+    try {
+      await ready.promise;
+      sender.abort('Embedded transport string reason');
+      const result = await completed.promise;
+      expect(asRecord(asRecord(result.structuredContent)?.error)).toMatchObject(
+        failure === 'cancel'
+          ? { code: 'CANCELLED', message: 'Embedded transport string reason' }
+          : { code: 'NOT_FOUND', message: 'Business failure wins independently of cancellation' }
+      );
+      await clientResult;
+    } finally {
+      sender.abort('test cleanup');
+      await client.close();
+      await embedded.shutdown();
+    }
+  });
+
+  test('public direct Graph keeps caller AbortError as CANCELLED outside wrapHandler', async () => {
+    const projectRoot = installProject();
+    writeFileSync(join(projectRoot, 'symbols.ts'), 'export const sdkProduced = 1;\n');
+    const host = new HostMcpServer({ projectRoot });
+    const controller = new AbortController();
+    controller.abort(new DOMException('Graph request cancelled by caller', 'AbortError'));
+    try {
+      const result = await host.handleToolCall(
+        'alembic_graph',
+        { queryKind: 'file-symbols', filePath: 'symbols.ts' },
+        { signal: controller.signal }
+      );
+      expect(asRecord(result)).toMatchObject({
+        success: false,
+        errorCode: 'CANCELLED',
+        message: expect.stringContaining('Graph request cancelled by caller'),
+      });
+    } finally {
+      await host.shutdown();
+    }
+  });
+
   test('failureResult owns one explicit top-level code and keeps data non-competing', () => {
     expect(failureResult('alembic_prime', 'generic failure')).toEqual({
       success: false,
@@ -304,7 +443,8 @@ function shellRoots(): { claudeCode: string; codex: string } {
 
 async function openHostTransport(
   projectRoot: string,
-  shellRoot: string
+  shellRoot: string,
+  onCallToolResult?: (result: CallToolResult) => void
 ): Promise<{
   client: Client;
   close(): Promise<void>;
@@ -317,12 +457,11 @@ async function openHostTransport(
     { name: 'host-neutral-mcp-errors-test', version: '1.0.0' },
     { capabilities: { tools: {} } }
   );
+  if (onCallToolResult) {
+    observeCallToolResult(host.sdkServer, onCallToolResult);
+  }
   host.registerHandlers();
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'host-neutral-mcp-errors-client', version: '1.0.0' });
-  await host.sdkServer.connect(serverTransport);
-  await client.connect(clientTransport);
-  await client.listTools();
+  const client = await connectClient(host.sdkServer);
   return {
     client,
     host,
@@ -331,6 +470,33 @@ async function openHostTransport(
       await host.shutdown();
     },
   };
+}
+
+// SDK 在收到取消通知后不再往客户端发送该响应；这里仅观察真实注册 callback 的最终值，
+// 请求、取消通知和 extra.signal 仍全程经过 SDK InMemoryTransport/Protocol。
+function observeCallToolResult(
+  sdk: SdkMcpServer,
+  onResult: (result: CallToolResult) => void
+): void {
+  const register = sdk.server.setRequestHandler.bind(sdk.server);
+  vi.spyOn(sdk.server, 'setRequestHandler').mockImplementation((schema, handler) => {
+    register(schema, async (request, extra) => {
+      const result = await handler(request, extra);
+      if (schema === CallToolRequestSchema) {
+        onResult(CallToolResultSchema.parse(result));
+      }
+      return result;
+    });
+  });
+}
+
+async function connectClient(sdk: SdkMcpServer): Promise<Client> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'host-neutral-mcp-errors-client', version: '1.0.0' });
+  await sdk.connect(serverTransport);
+  await client.connect(clientTransport);
+  await client.listTools();
+  return client;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

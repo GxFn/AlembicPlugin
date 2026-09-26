@@ -1,17 +1,23 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ProjectContextQueryError } from '@alembic/core/project-context';
+import {
+  getCodeGraphProjectContextIdentity,
+  type ProjectContextQueryError,
+} from '@alembic/core/project-context';
 import { ProjectContextCapabilities } from '@alembic/core/project-context-capabilities';
 import {
   createProjectDescriptor,
   createProjectScopeRegistryDocument,
   PROJECT_SCOPE_REGISTRY_FILENAME,
 } from '@alembic/core/shared';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import { routeGraphTool } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
+import {
+  type McpContext,
+  requireRequestProjectRuntime,
+} from '../../lib/host-runtime/mcp/handlers/types.js';
 import {
   ALEMBIC_GRAPH_QUERY_KINDS,
   isProjectContextSuppressedObservationSummaryConserved,
@@ -170,6 +176,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (previousAlembicHome === undefined) {
       delete process.env.ALEMBIC_HOME;
     } else {
@@ -178,6 +185,79 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     for (const root of tempRoots.splice(0)) {
       fs.rmSync(root, { force: true, recursive: true });
     }
+  });
+
+  test('filePath Graph uses CodeGraph symbols and keys shared builds by exact engine identity', async () => {
+    const projectRoot = createFixtureProject();
+    const manager = new ProjectContextBuildSessionManager();
+    const ctx = createContext(projectRoot);
+    ctx.projectContextExecution = { buildSessions: manager };
+    const acquire = vi.spyOn(manager, 'acquireProgressive');
+    try {
+      const result = (await routeGraphTool(ctx, {
+        projectRoot,
+        queryKind: 'file-symbols',
+        filePath: 'lib/index.ts',
+      })) as GraphResult;
+      expect(result.structuredContent.ok).toBe(true);
+      expect(result.structuredContent.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: 'run', nodeType: 'symbol' }),
+          expect.objectContaining({ label: 'sibling', nodeType: 'symbol' }),
+        ])
+      );
+      const legacy = await ProjectContextCapabilities.execute({
+        kind: 'file-symbols',
+        scope: { projectRoot },
+        payload: { filePath: 'lib/index.ts' },
+      });
+      expect(legacy.errors ?? []).toEqual([]);
+      expect(JSON.stringify(legacy.data)).not.toContain('"name":"sibling"');
+      expect(acquire).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: expect.objectContaining({
+            engineHash: (await getCodeGraphProjectContextIdentity()).engineHash,
+          }),
+        })
+      );
+      expect(
+        fs.readdirSync(
+          path.join(requireRequestProjectRuntime(ctx).identity.dataRoot, '.asd/codegraph-sessions')
+        )
+      ).toEqual([]);
+    } finally {
+      await manager.dispose();
+    }
+  });
+
+  test('public filePath Graph preserves CodeGraph unavailable for unsupported declarations', async () => {
+    const projectRoot = createFixtureProject();
+    writeFile(
+      projectRoot,
+      'lib/unsupported.ts',
+      'export namespace Models { export class Box {} }\n'
+    );
+    // 对照旧入口静默空成功；新入口必须显式保留 SDK coverage unavailable。
+    const legacy = await ProjectContextCapabilities.execute({
+      kind: 'file-symbols',
+      scope: { projectRoot },
+      payload: { filePath: 'lib/unsupported.ts' },
+    });
+    expect(legacy.errors ?? []).toEqual([]);
+    expect(legacy.data).toMatchObject({ symbols: [] });
+    const result = await runGraph(projectRoot, {
+      queryKind: 'file-symbols',
+      filePath: 'lib/unsupported.ts',
+    });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining('CodeGraph symbol coverage unavailable'),
+        }),
+      ])
+    );
+    expect(result.status).not.toBe('ready');
+    expect(result.nodes.filter((node) => node.nodeType === 'symbol')).toEqual([]);
   });
 
   test('public queryKind enum matches the service AlembicGraphOutput enum', () => {
@@ -466,7 +546,8 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
       ),
       'utf8'
     );
-    expect(providerSource).toContain('ProjectContextCapabilities.execute');
+    expect(providerSource).toContain('withCodeGraphProjectContextSession');
+    expect(providerSource).not.toContain('ProjectContextCapabilities.execute');
     expect(providerSource).toContain('ProjectContextProjectGraphProvider');
     expect(providerSource).toContain('resolveAlembicGraph');
     expect(providerSource).not.toContain('walkProject');

@@ -319,7 +319,9 @@ export async function observePluginCertifiedLiveProbe(input: {
   carrier: PluginCertifiedCarrier;
   controlRoot: string;
   dataRoot: string;
+  signal?: AbortSignal;
 }): Promise<PluginCertifiedLiveProbe> {
+  input.signal?.throwIfAborted();
   assertPluginCertifiedCarrier(input.carrier);
   const artifact =
     input.artifact ??
@@ -343,15 +345,17 @@ export async function observePluginCertifiedLiveProbe(input: {
       const sourceRoot = path.resolve(input.controlRoot, repository.relativeRoot);
       const runtimeRepository = { ...repository, sourceRoot };
       const [observation, descriptors] = await Promise.all([
-        ports.observeRevision({ repository: runtimeRepository }),
+        ports.observeRevision({ repository: runtimeRepository, signal: input.signal }),
         ports.enumerateEligibleFiles({
           repository: runtimeRepository,
+          signal: input.signal,
           policy: artifact.facts.inventory.includeExcludePolicy,
         }),
       ]);
       const files = await mapWithConcurrency(descriptors, 32, async (descriptor) => {
         const content = await ports.readFile({
           repository: runtimeRepository,
+          signal: input.signal,
           relativePath: descriptor.relativePath,
         });
         return {
@@ -428,6 +432,7 @@ export async function observePluginCertifiedLiveProbe(input: {
           sourceRoot: path.resolve(input.controlRoot, repository.relativeRoot),
         })),
         controlRoot: input.controlRoot,
+        signal: input.signal,
       })
     : undefined;
   if (inputClosureHash !== artifact.manifest.inputClosureHash) {

@@ -201,6 +201,10 @@ export class ProjectContextBuildSessionManager {
   readonly #expiredCursors = new Map<string, number>();
   readonly #fileHashCache = new Map<string, { hash: string; signature: string }>();
   readonly #sessions = new Map<string, BuildRecord>();
+  // 缓存失效不等于工作结束：一直持有 owner，直到其 finally（含 SDK worker 退出）完成。
+  readonly #unsettledBuilds = new Set<BuildRecord>();
+  #disposePromise?: Promise<void>;
+  #disposed = false;
   readonly #terminalCursorFailures = new Map<string, TerminalCursorFailure>();
   readonly #ttlMs: number;
   readonly #tempRoot: string;
@@ -220,6 +224,7 @@ export class ProjectContextBuildSessionManager {
     scope: ProjectContextBuildScope;
     signal?: AbortSignal;
   }): Promise<ProjectContextBuildLease<T>> {
+    this.#assertOpen();
     this.#cleanupExpired();
     input.signal?.throwIfAborted();
     const projectRoot = canonicalProjectRoot(input.projectRoot);
@@ -285,6 +290,7 @@ export class ProjectContextBuildSessionManager {
     scope: ProjectContextBuildScope;
     signal?: AbortSignal;
   }): Promise<ProjectContextProgressiveLease<T>> {
+    this.#assertOpen();
     this.#cleanupExpired();
     input.signal?.throwIfAborted();
     const projectRoot = canonicalProjectRoot(input.projectRoot);
@@ -340,6 +346,7 @@ export class ProjectContextBuildSessionManager {
     pageSize: number;
     projectRoot: string;
   }): Promise<ProjectContextContinuationPage<T>> {
+    this.#assertOpen();
     this.#cleanupExpired();
     const projectRoot = canonicalProjectRoot(input.projectRoot);
     const factSession = [...this.#sessions.values()].find(
@@ -416,6 +423,7 @@ export class ProjectContextBuildSessionManager {
     pageSize: number;
     projectRoot: string;
   }): Promise<ProjectContextContinuationPage<U>> {
+    this.#assertOpen();
     this.#cleanupExpired();
     const projectRoot = canonicalProjectRoot(input.projectRoot);
     const factSession = [...this.#sessions.values()].find(
@@ -602,15 +610,30 @@ export class ProjectContextBuildSessionManager {
   }
 
   async dispose(): Promise<void> {
-    for (const record of this.#sessions.values()) {
+    if (this.#disposePromise) {
+      return this.#disposePromise;
+    }
+    this.#disposed = true;
+    const pending = [...this.#unsettledBuilds];
+    for (const record of pending) {
       record.controller.abort(new DOMException('Build session manager disposed.', 'AbortError'));
     }
-    this.#sessions.clear();
-    this.#terminalCursorFailures.clear();
-    this.#continuations.clear();
-    this.#expiredCursors.clear();
-    this.#fileHashCache.clear();
-    rmSync(this.#tempRoot, { force: true, recursive: true });
+    // 停机先禁止新构建，再等包括已失效记录在内的清理确认，最后移除共享临时目录。
+    this.#disposePromise = Promise.allSettled(pending.map((record) => record.promise)).then(() => {
+      this.#sessions.clear();
+      this.#terminalCursorFailures.clear();
+      this.#continuations.clear();
+      this.#expiredCursors.clear();
+      this.#fileHashCache.clear();
+      rmSync(this.#tempRoot, { force: true, recursive: true });
+    });
+    return this.#disposePromise;
+  }
+
+  #assertOpen(): void {
+    if (this.#disposed) {
+      throw new DOMException('Build session manager disposed.', 'AbortError');
+    }
   }
 
   #createBuildRecord<T>(
@@ -672,10 +695,14 @@ export class ProjectContextBuildSessionManager {
           waiter();
         }
         record.progressWaiters.clear();
-        this.#sessions.delete(key);
+        if (this.#sessions.get(key) === record) {
+          this.#sessions.delete(key);
+        }
         rmSync(buildDirectory, { force: true, recursive: true });
         throw error;
-      });
+      })
+      .finally(() => this.#unsettledBuilds.delete(record as BuildRecord));
+    this.#unsettledBuilds.add(record as BuildRecord);
     // Progressive callers can legitimately return a first page without awaiting
     // the terminal build. Keep the original rejecting promise for consumers while
     // attaching an internal observer so later cancellation cannot surface as an

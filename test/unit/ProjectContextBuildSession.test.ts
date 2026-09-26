@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { withCodeGraphProjectContextSession } from '@alembic/core/project-context';
 import { afterEach, describe, expect, test } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
 import { HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
@@ -27,6 +28,126 @@ function fixture(): string {
 }
 
 describe('ProjectContextBuildSessionManager', () => {
+  test.each([
+    false,
+    true,
+  ])('dispose waits for worker cleanup after invalidation=%s and rejects new work', async (invalidate) => {
+    const projectRoot = fixture();
+    const manager = new ProjectContextBuildSessionManager();
+    const tempRoot = manager.debugSnapshot().tempRoot;
+    let cleanupFinished = false;
+    let finishCleanup = () => undefined;
+    const cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const lease = await manager.acquireProgressive({
+      projectRoot,
+      scope: { kind: 'space' },
+      build: async (signal, publish) => {
+        publish({ ids: ['a', 'b'] });
+        try {
+          await new Promise<never>((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          );
+        } finally {
+          await cleanup;
+          cleanupFinished = true;
+        }
+      },
+    });
+    const first = await manager.publishLiveContinuation({
+      projectRoot,
+      lease,
+      pageSize: 1,
+      items: (value) => value.ids,
+      itemKey: (value) => value,
+      context: () => ({}),
+    });
+    if (invalidate) {
+      if (!first.nextCursor) {
+        throw new Error('Fixture did not produce a live continuation.');
+      }
+      fs.appendFileSync(path.join(projectRoot, 'lib/index.ts'), 'export const changed = true;\n');
+      await expect(
+        manager.readContinuation({ projectRoot, cursor: first.nextCursor })
+      ).rejects.toMatchObject({ code: 'PROJECT_CONTEXT_FACTS_CHANGED' });
+      expect(manager.debugSnapshot().activeSessions).toBe(0);
+    }
+    let disposed = false;
+    const disposal = manager.dispose().then(() => {
+      disposed = true;
+    });
+    try {
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(disposed).toBe(false);
+      expect(cleanupFinished).toBe(false);
+      expect(fs.existsSync(tempRoot)).toBe(true);
+      await expect(
+        manager.acquire({ projectRoot, scope: { kind: 'space' }, build: async () => ({}) })
+      ).rejects.toMatchObject({ name: 'AbortError' });
+    } finally {
+      finishCleanup();
+      await disposal;
+      lease.release();
+    }
+    expect(cleanupFinished).toBe(true);
+    expect(fs.existsSync(tempRoot)).toBe(false);
+    await manager.dispose();
+  });
+
+  test('one actual CodeGraph worker belongs to the shared build until final owner shutdown', async () => {
+    const projectRoot = fixture();
+    const dataRoot = fixture();
+    const manager = new ProjectContextBuildSessionManager();
+    const left = new AbortController();
+    let announceReady = (_runtimeRoot: string) => undefined;
+    const ready = new Promise<string>((resolve) => {
+      announceReady = resolve;
+    });
+    let builds = 0;
+    const build = async (signal: AbortSignal) => {
+      builds += 1;
+      return withCodeGraphProjectContextSession({ dataRoot, signal }, async (context, runtime) => {
+        const symbols = await context.execute({
+          kind: 'file-symbols',
+          scope: { projectRoot },
+          payload: { filePath: 'lib/index.ts' },
+        });
+        expect(JSON.stringify(symbols.data)).toContain('"name":"value"');
+        announceReady(runtime.runtimeRoot);
+        return new Promise<never>((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        );
+      });
+    };
+    const first = manager
+      .acquire({
+        projectRoot,
+        scope: { kind: 'file-symbols', filePath: 'lib/index.ts' },
+        signal: left.signal,
+        build,
+      })
+      .catch((error) => ({ error }));
+    const second = manager
+      .acquire({ projectRoot, scope: { kind: 'file-symbols', filePath: 'lib/index.ts' }, build })
+      .catch((error) => ({ error }));
+    try {
+      const runtimeRoot = await ready;
+      expect(builds).toBe(1);
+      expect(fs.readdirSync(runtimeRoot)).toHaveLength(1);
+      const reason = new DOMException('Only the left consumer cancelled', 'AbortError');
+      left.abort(reason);
+      expect(await first).toEqual({ error: reason });
+      expect(fs.readdirSync(runtimeRoot)).toHaveLength(1);
+      await manager.dispose();
+      expect(await second).toMatchObject({ error: { name: 'AbortError' } });
+      expect(fs.readdirSync(runtimeRoot)).toEqual([]);
+    } finally {
+      await manager.dispose();
+      await Promise.allSettled([first, second]);
+    }
+  });
+
   test('preserves every in-flight delta before the shared build settles', async () => {
     const projectRoot = fixture();
     const manager = new ProjectContextBuildSessionManager({ ttlMs: 5_000 });

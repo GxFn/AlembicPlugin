@@ -41,6 +41,7 @@ import {
   withMcpOutputSchema,
 } from './output-contract.js';
 import { type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
+import { withMcpRequestSignal } from './tool-call-deadline.js';
 import { TOOLS, withMcpToolAnnotations } from './tools.js';
 
 // ─── TypeScript Interfaces ──────────────────────────────────
@@ -66,6 +67,7 @@ interface McpServerOptions {
 }
 
 export interface McpToolCallOptions {
+  signal?: AbortSignal;
   actor?: ToolActor;
   projectRuntime?: ProjectRuntimeContext | null;
   source?: ToolCallSource;
@@ -274,19 +276,27 @@ export class McpServer {
     });
 
     // ── CallTool: 路由到 handler ──
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
       const t0 = Date.now();
       try {
-        return await this._handleToolCall(name, args || {}, {
-          hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
-        });
+        return await withMcpRequestSignal(extra.signal, (signal) =>
+          this._handleToolCall(name, args || {}, {
+            hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
+            signal,
+          })
+        );
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        this.logger?.error(`MCP tool error: ${name}`, { error: errMsg });
+        const cancelled = err instanceof Error && err.name === 'AbortError';
+        const code = cancelled ? 'CANCELLED' : 'TOOL_ERROR';
+        this.logger?.error(`MCP tool ${cancelled ? 'cancelled' : 'error'}: ${name}`, {
+          error: errMsg,
+          code,
+        });
         return createMcpStructuredToolResult(
           createCleanMcpErrorResponse({
-            code: 'TOOL_ERROR',
+            code,
             message: errMsg,
             responseTimeMs: Date.now() - t0,
             toolName: name,
@@ -317,6 +327,7 @@ export class McpServer {
       source,
       surface,
       hostTurnMeta: options.hostTurnMeta,
+      signal: options.signal,
     });
     if (isMcpToolResponse(result)) {
       return result;
@@ -328,6 +339,7 @@ export class McpServer {
     name: string,
     args: Record<string, unknown>,
     runtime: {
+      signal?: AbortSignal;
       actor?: ToolActor;
       projectRuntime?: ProjectRuntimeContext | null;
       source?: ToolCallSource;
@@ -342,6 +354,7 @@ export class McpServer {
       source: runtime.source,
       surface: runtime.surface,
       hostTurnMeta: runtime.hostTurnMeta,
+      signal: runtime.signal,
     });
 
     // 查找 handler 并通过 wrapHandler 统一错误处理

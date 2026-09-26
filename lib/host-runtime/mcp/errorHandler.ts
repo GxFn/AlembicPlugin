@@ -26,8 +26,8 @@ const logger = Logger.getInstance();
 
 /** Error-like object with optional code and details */
 interface ErrorWithDetails extends Error {
-  code?: string;
-  errorCode?: string;
+  code?: unknown;
+  errorCode?: unknown;
   details?: unknown;
   toJSON?: () => unknown;
 }
@@ -40,6 +40,11 @@ type McpHandlerFn = (
 
 /** 从已知错误类型推断 errorCode */
 function inferErrorCode(err: unknown): string {
+  // AbortSignal.reason 常为 DOMException（code=20）；不能把数字交给 MCP 字符串码 schema，
+  // 否则错误包装本身再次失败并遮蔽原取消原因。使用既有 taxonomy 的取消码。
+  if (err instanceof Error && err.name === 'AbortError') {
+    return 'CANCELLED';
+  }
   if (err instanceof ValidationError) {
     return 'VALIDATION_ERROR';
   }
@@ -52,11 +57,11 @@ function inferErrorCode(err: unknown): string {
   if (err instanceof PermissionDenied) {
     return 'PERMISSION_DENIED';
   }
-  const errRecord = err as ErrorWithDetails;
-  if (errRecord.errorCode) {
+  const errRecord = err as ErrorWithDetails | null | undefined;
+  if (typeof errRecord?.errorCode === 'string' && errRecord.errorCode) {
     return errRecord.errorCode;
   }
-  if (errRecord.code) {
+  if (typeof errRecord?.code === 'string' && errRecord.code) {
     return errRecord.code;
   }
   return 'INTERNAL_ERROR';

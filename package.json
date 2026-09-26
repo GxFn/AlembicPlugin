@@ -6,7 +6,7 @@
   "type": "module",
   "main": "dist/lib/bootstrap.js",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.5.0"
   },
   "imports": {
     "#shared/*": {

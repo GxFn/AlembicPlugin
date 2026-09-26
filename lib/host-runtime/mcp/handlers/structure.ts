@@ -269,8 +269,8 @@ export async function resolveCertifiedGraphExecutionOptions(
   projectRoot: string | undefined,
   execution: McpContext['projectContextExecution']
 ) {
-  const options = execution ? { ...execution } : {};
   const identity = requireRequestProjectRuntime(ctx).identity;
+  const options = { dataRoot: identity.dataRoot, signal: ctx.signal, ...execution };
   const root = projectRoot ?? acceptedGraphControlRoot(identity);
   const sessionManager = getOrCreateSessionManager(ctx.container);
   const session =
@@ -308,6 +308,7 @@ export async function resolveCertifiedGraphExecutionOptions(
     carrier,
     controlRoot: root,
     dataRoot,
+    signal: options.signal,
   });
   if (certifiedProbe.comparisonStatus !== 'matched' || certifiedProbe.blockingReasons.length > 0) {
     failPluginStrictBypasses({

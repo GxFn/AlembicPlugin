@@ -34,7 +34,7 @@
     "alembic-codex-mcp": "dist/bin/host-mcp.js"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.5.0"
   },
   "license": "MIT",
   "publishConfig": {

@@ -157,6 +157,7 @@ try {
         shellBootstrap:
           shellDryRun.runtimePackage?.specifier === runtimeSpecifier ? 'passed' : 'failed',
         stdio,
+        stdioCodeGraph: stdio,
       },
       null,
       2
@@ -432,6 +433,7 @@ async function runStdioSmoke({
     for (const required of [
       'alembic_status',
       'alembic_init',
+      'alembic_graph',
       'alembic_job',
       'alembic_submit_knowledge',
       'alembic_bootstrap',
@@ -491,6 +493,20 @@ async function runStdioSmoke({
     assert(
       init.statusSnapshot?.initialized === true,
       'MCP stdio codex init did not produce initialized status'
+    );
+
+    // 普通 const 是 CodeGraph 新生产的符号；通过打包产物和真实 stdio 验证 SDK 接线，
+    // 防止只验证宿主能启动，却遗漏分析 worker 或其包内资源。
+    const graph = await callStdioJsonTool(
+      client,
+      'alembic_graph',
+      { queryKind: 'file-symbols', filePath: 'index.js' },
+      stderr
+    );
+    assertResult(graph, 'MCP stdio CodeGraph symbols');
+    assert(
+      graph.nodes?.some((node) => node.nodeType === 'symbol' && node.label === 'stdioSmoke'),
+      'MCP stdio CodeGraph did not produce the ordinary const symbol'
     );
   } finally {
     await closeMcpClient(client, stderr, 'MCP stdio');

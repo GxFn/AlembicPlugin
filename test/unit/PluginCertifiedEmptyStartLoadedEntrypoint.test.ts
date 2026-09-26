@@ -6,6 +6,7 @@ import {
   _resetGenerateSessionManagersForTesting,
   getOrCreateSessionManager,
 } from '@alembic/core/host-agent-workflows';
+import { getCodeGraphProjectContextIdentity } from '@alembic/core/project-context';
 import {
   FileCertifiedProjectFactsStore,
   hashCanonicalJson,
@@ -15,18 +16,24 @@ import {
   createProjectDescriptor,
   createProjectScopeRegistryDocument,
   PROJECT_SCOPE_REGISTRY_FILENAME,
+  pathGuard,
 } from '@alembic/core/shared';
 import { typeScriptAstPlugin } from '@alembic/core/test-fixtures';
 import { WorkspaceResolver } from '@alembic/core/workspace';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { buildProjectRuntimeContext } from '../../lib/host-runtime/context/ProjectRuntimeContext.js';
+import { HostMcpServer } from '../../lib/host-runtime/mcp/HostMcpServer.js';
 import {
   routeGraphTool,
   routePlanTool,
   routeRecipeMapTool,
 } from '../../lib/host-runtime/mcp/handlers/tool-router.js';
-import type { McpContext } from '../../lib/host-runtime/mcp/handlers/types.js';
+import {
+  type McpContext,
+  requireRequestProjectRuntime,
+} from '../../lib/host-runtime/mcp/handlers/types.js';
+import { capturePluginCertifiedProjectFacts } from '../../lib/project-facts/PluginCertifiedProjectFactsProducer.js';
 import {
   assertExactRepositoryTuples,
   observePluginCertifiedLiveProbe,
@@ -66,6 +73,119 @@ afterEach(() => {
 });
 
 describe('Plugin certified empty-start loaded entrypoint', () => {
+  test('CodeGraph capture excludes its private runtime when dataRoot is a source root', async () => {
+    const projectRoot = createProject();
+    const dataRoot = path.join(projectRoot, 'plugin-empty-start');
+    const { carrier } = await capturePluginCertifiedProjectFacts({ projectRoot, dataRoot });
+    const { artifact } = await openPluginCertifiedFacts({ carrier, dataRoot });
+    expect(artifact.certification.parserHash).toBe(
+      (await getCodeGraphProjectContextIdentity()).engineHash
+    );
+    expect(artifact.facts.inventory.includeExcludePolicy.excludeRelativePaths).toContain(
+      '.asd/codegraph-sessions'
+    );
+    expect(
+      artifact.facts.inventory.files.every(
+        (file) => !file.relativePath.includes('codegraph-sessions')
+      )
+    ).toBe(true);
+    expect(fs.readdirSync(path.join(dataRoot, '.asd/codegraph-sessions'))).toEqual([]);
+  });
+
+  test('rejects a missing accepted source root before CodeGraph can create runtime directories', async () => {
+    const projectRoot = createProject();
+    const sourceRoot = path.join(projectRoot, 'plugin-empty-start');
+    fs.rmSync(sourceRoot, { recursive: true });
+    await expect(
+      capturePluginCertifiedProjectFacts({ projectRoot, dataRoot: sourceRoot })
+    ).rejects.toThrow();
+    expect(fs.existsSync(sourceRoot)).toBe(false);
+  });
+
+  test('actual Plan draft respects request cancellation before capture and creates no session', async () => {
+    const projectRoot = createProject();
+    const ctx = createLoadedContext(projectRoot);
+    const controller = new AbortController();
+    const reason = new DOMException('Plan request cancelled', 'AbortError');
+    controller.abort(reason);
+    ctx.signal = controller.signal;
+    await expect(
+      routePlanTool(ctx, { operation: 'draft', generationStage: 'coldStart', projectRoot })
+    ).rejects.toBe(reason);
+    expect(
+      getOrCreateSessionManager(ctx.container).getAnySession(undefined, { projectRoot })
+    ).toBeNull();
+    expect(
+      fs.existsSync(
+        path.join(requireRequestProjectRuntime(ctx).identity.dataRoot, '.asd/codegraph-sessions')
+      )
+    ).toBe(false);
+  });
+
+  test('cancelling an in-flight Plan waits for the actual CodeGraph scope to close', async () => {
+    const projectRoot = createProject();
+    const ctx = createLoadedContext(projectRoot);
+    const controller = new AbortController();
+    ctx.signal = controller.signal;
+    const reason = new DOMException('Active Plan capture cancelled', 'AbortError');
+    const runtimeRoot = path.join(
+      requireRequestProjectRuntime(ctx).identity.dataRoot,
+      '.asd/codegraph-sessions'
+    );
+    const result = routePlanTool(ctx, {
+      operation: 'draft',
+      generationStage: 'coldStart',
+      projectRoot,
+    }).then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    );
+    try {
+      await vi.waitFor(
+        () =>
+          expect(fs.existsSync(runtimeRoot) && fs.readdirSync(runtimeRoot).length > 0).toBe(true),
+        { interval: 5, timeout: 10_000 }
+      );
+      controller.abort(reason);
+      expect(await result).toMatchObject({
+        error: { name: 'AbortError', message: reason.message },
+      });
+      expect(fs.readdirSync(runtimeRoot)).toEqual([]);
+      expect(
+        getOrCreateSessionManager(ctx.container).getAnySession(undefined, { projectRoot })
+      ).toBeNull();
+    } finally {
+      controller.abort(reason);
+      await result;
+    }
+  });
+
+  test('Host MCP Plan carries cancellation through the embedded handler without capturing facts', async () => {
+    const projectRoot = createProject();
+    const ctx = createLoadedContext(projectRoot);
+    const server = new HostMcpServer({ projectRoot });
+    const controller = new AbortController();
+    controller.abort(new DOMException('Host Plan request cancelled', 'AbortError'));
+    try {
+      const result = await server.handleToolCall(
+        'alembic_plan',
+        { operation: 'draft', generationStage: 'coldStart' },
+        { signal: controller.signal }
+      );
+      expect(JSON.stringify(result)).toContain('Host Plan request cancelled');
+      expect(JSON.stringify(result)).toContain('CANCELLED');
+      expect(readRecord(result).success).not.toBe(true);
+      expect(
+        fs.existsSync(
+          path.join(requireRequestProjectRuntime(ctx).identity.dataRoot, '.asd/codegraph-sessions')
+        )
+      ).toBe(false);
+    } finally {
+      await server.shutdown();
+      pathGuard._reset();
+    }
+  });
+
   test('actual Plan draft captures one carrier and strict consumers reject its removal', async () => {
     const projectRoot = createProject();
     const ctx = createLoadedContext(projectRoot);
@@ -99,6 +219,10 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
     }
     const dataRoot = ctx.projectRuntime?.identity.dataRoot ?? projectRoot;
     const { artifact } = await openPluginCertifiedFacts({ carrier, dataRoot });
+    expect(artifact.certification.parserHash).toBe(
+      (await getCodeGraphProjectContextIdentity()).engineHash
+    );
+    expect(fs.readdirSync(path.join(dataRoot, '.asd/codegraph-sessions'))).toEqual([]);
     expect(artifact.facts.inputClosure).toBeDefined();
     expect(artifact.manifest.inputClosureHash).toBe(hashCanonicalJson(artifact.facts.inputClosure));
     const probeInput = { artifact, carrier, controlRoot: projectRoot, dataRoot };

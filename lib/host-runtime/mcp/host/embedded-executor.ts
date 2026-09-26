@@ -1,3 +1,4 @@
+import Logger from '@alembic/core/logging';
 import type { HostTurnMetaInput } from '#service/task/host-turn-meta.js';
 import { resetServiceContainer } from '../../../injection/ServiceContainer.js';
 import {
@@ -111,6 +112,7 @@ export class EmbeddedToolExecutor {
         source: { kind: 'codex', name: 'plugin-owned-codex-facing' },
         surface: 'codex',
         hostTurnMeta: options.hostTurnMeta,
+        signal: options.signal,
       });
       return attachExecutionContext(result, executionContext, this.#hostProjectRoot);
     } catch (err: unknown) {
@@ -135,8 +137,19 @@ export class EmbeddedToolExecutor {
           this.#hostProjectRoot
         );
       }
+      // Read-only Graph/Recipe Map 不经过 wrapHandler；已知业务错误保持上方优先级，
+      // 这里只将真实 AbortError 归类为取消，不能因 signal 已取消就重写其它失败。
+      const cancelled = err instanceof Error && err.name === 'AbortError';
+      if (cancelled) {
+        Logger.getInstance().warn(`[MCP:${name}] CANCELLED: ${message}`, {
+          tool: name,
+          errorCode: 'CANCELLED',
+        });
+      }
       return attachExecutionContext(
-        failureResult(name, `Plugin-owned tool execution failed: ${message}`),
+        failureResult(name, `Plugin-owned tool execution failed: ${message}`, {
+          code: cancelled ? 'CANCELLED' : 'INTERNAL_ERROR',
+        }),
         executionContext,
         this.#hostProjectRoot
       );

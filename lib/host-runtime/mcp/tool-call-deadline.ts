@@ -9,6 +9,41 @@
 /** 软超时专用错误:外层据此把响应码定为 TOOL_TIMEOUT(区别于通用 INTERNAL_ERROR)。 */
 export class ToolCallDeadlineError extends Error {}
 
+/**
+ * SDK sender 的 cancellation reason 可以是字符串。只在 transport 边界转成 AbortError，
+ * 让下游 throwIfAborted / worker 以及 MCP 错误分类使用同一个明确取消语义。
+ * 不根据 signal.aborted 改写业务异常；deadline 在外层独立组合，仍保留专用错误类型。
+ */
+export async function withMcpRequestSignal<T>(
+  senderSignal: AbortSignal,
+  work: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => {
+    const reason: unknown = senderSignal.reason;
+    const error = new Error(
+      reason instanceof Error
+        ? reason.message
+        : typeof reason === 'string'
+          ? reason
+          : 'MCP request cancelled.',
+      { cause: reason }
+    );
+    error.name = 'AbortError';
+    controller.abort(error);
+  };
+  senderSignal.addEventListener('abort', abort, { once: true });
+  if (senderSignal.aborted) {
+    abort();
+  }
+  try {
+    controller.signal.throwIfAborted();
+    return await work(controller.signal);
+  } finally {
+    senderSignal.removeEventListener('abort', abort);
+  }
+}
+
 export async function raceToolCallDeadline<T>(
   work: Promise<T> | ((signal: AbortSignal) => Promise<T>),
   deadlineMs: number,

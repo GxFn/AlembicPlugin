@@ -39,6 +39,7 @@ import {
 import { confirmPlan } from './plan-confirm.js';
 
 interface PlanToolContext {
+  signal?: AbortSignal;
   actor?: { role?: string; user?: string };
   container: {
     get(name: string): unknown;
@@ -175,6 +176,7 @@ export async function routePlanTool(
   ctx: PlanToolContext,
   args: PlanArgs
 ): Promise<PlanToolResponse> {
+  ctx.signal?.throwIfAborted();
   switch (args.operation) {
     case 'draft':
       return draftPlan(ctx, args);
@@ -211,11 +213,13 @@ async function draftPlan(ctx: PlanToolContext, args: PlanArgs): Promise<PlanTool
           throw new TypeError('Loaded strict Plan request did not produce a certified carrier.');
         })()
       : await collectPlanProjectContext(projectRoot, args.hints));
+  ctx.signal?.throwIfAborted();
   if (analysis.fileCount === 0 && analysis.moduleCount === 0) {
     return emptyProjectContextResponse(projectRoot);
   }
 
   const draftContext = await buildPlanDraftContext(ctx, args, projectRoot, analysis);
+  ctx.signal?.throwIfAborted();
   return planDraftResponse(draftContext);
 }
 
@@ -241,7 +245,9 @@ async function collectCertifiedPlanProjectContext(
     const captured = await capturePluginCertifiedProjectFacts({
       dataRoot: requireRequestDataRoot(ctx),
       projectRoot,
+      signal: ctx.signal,
     });
+    ctx.signal?.throwIfAborted();
     carrier = captured.carrier;
     session = manager.createSession({
       dimensions: baseDimensions,
@@ -276,6 +282,7 @@ async function collectCertifiedPlanProjectContext(
           runId: `${session?.id ?? 'plan'}-plan`,
         })
       ).projection;
+  ctx.signal?.throwIfAborted();
   if (session) {
     persistPluginCertifiedCarrier({ carrier, projectRoot, session });
   }

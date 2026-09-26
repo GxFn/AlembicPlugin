@@ -39,6 +39,7 @@ export interface McpConnection {
 
 /** MCP handler context passed from McpServer / router layer */
 export interface McpContext {
+  signal?: AbortSignal;
   container: McpServiceContainer;
   startedAt?: number;
   connection?: McpConnection;

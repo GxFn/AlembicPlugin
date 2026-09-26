@@ -38,7 +38,11 @@ import { failureResult, isErrorResult } from './host/results.js';
 import { getToolCatalog } from './host/tool-catalog.js';
 import { createCleanMcpErrorResponse, serializeMcpToolResult } from './output-contract.js';
 import { buildMcpToolUsageView, type McpToolUsageMap, trackMcpToolUsage } from './session-usage.js';
-import { raceToolCallDeadline, ToolCallDeadlineError } from './tool-call-deadline.js';
+import {
+  raceToolCallDeadline,
+  ToolCallDeadlineError,
+  withMcpRequestSignal,
+} from './tool-call-deadline.js';
 import './local-tools/output.js';
 
 interface HostMcpServerOptions {
@@ -216,7 +220,7 @@ export class HostMcpServer {
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: getToolCatalog() }));
 
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
       const startedAt = Date.now();
       // 统一观测(2026-07-10 事故补课):每次调用必有 start/done 两行——
@@ -224,11 +228,14 @@ export class HostMcpServer {
       // 事件循环被钉死时服务端完全不可见,破案全靠进程恰好还活着可采样。
       Logger.getInstance().info(`[MCP] ${name} start`);
       try {
-        const result = await this.#withToolCallDeadline(name, (signal) =>
-          this.handleToolCall(name, args || {}, {
-            hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
-            signal,
-          })
+        const result = await withMcpRequestSignal(extra.signal, (senderSignal) =>
+          this.#withToolCallDeadline(name, (deadlineSignal) =>
+            this.handleToolCall(name, args || {}, {
+              hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
+              // 两种取消共享清理链；sender 无权覆盖内部 TOOL_TIMEOUT 的错误类型。
+              signal: AbortSignal.any([senderSignal, deadlineSignal]),
+            })
+          )
         );
         Logger.getInstance().info(`[MCP] ${name} done`, {
           durationMs: Date.now() - startedAt,
@@ -238,18 +245,22 @@ export class HostMcpServer {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         const timedOut = err instanceof ToolCallDeadlineError;
+        const cancelled = err instanceof Error && err.name === 'AbortError';
         const projectRuntime = buildProjectRuntimeContext({
           projectRoot: this.projectRoot,
         });
-        Logger.getInstance().warn(`[MCP] ${name} ${timedOut ? 'timeout' : 'error'}`, {
-          durationMs: Date.now() - startedAt,
-          message,
-        });
+        Logger.getInstance().warn(
+          `[MCP] ${name} ${timedOut ? 'timeout' : cancelled ? 'cancelled' : 'error'}`,
+          {
+            durationMs: Date.now() - startedAt,
+            message,
+          }
+        );
         return serializeMcpToolResult(
           name,
           {
             ...failureResult(name, message, {
-              code: timedOut ? 'TOOL_TIMEOUT' : 'INTERNAL_ERROR',
+              code: timedOut ? 'TOOL_TIMEOUT' : cancelled ? 'CANCELLED' : 'INTERNAL_ERROR',
               data: {
                 projectRuntime,
                 retryable: timedOut,
