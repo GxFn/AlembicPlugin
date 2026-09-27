@@ -148,9 +148,10 @@ try {
   writeFileSync(
     sdkProbePath,
     `import assert from 'node:assert/strict';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withCodeGraphProjectContextSession } from '@alembic/core/project-context';
+import { NodeProjectContextFoundationHostPorts } from '@alembic/core/project-context-foundation';
 import { startHostMcpServer } from './dist/lib/host-runtime/mcp/HostMcpServer.js';
 assert.equal(typeof startHostMcpServer, 'function');
 const projectRoot = join(${JSON.stringify(installRoot)}, 'sdk-project');
@@ -173,9 +174,31 @@ await withCodeGraphProjectContextSession({ dataRoot: join(projectRoot, 'private'
   assert.equal(new Set(calls.map((call) => call.ref.id)).size, 3);
   assert.equal(calls.filter((call) => call.to?.ref && !call.unresolved).length, 2);
   assert.equal(calls.filter((call) => call.unresolved && !call.to?.ref).length, 1);
+  // 安装后的包也必须从冻结输入运行项目SDK，不能只验证单文件extract资源存在。
+  const frozenRoot = join(${JSON.stringify(installRoot)}, 'frozen-sdk-project');
+  await mkdir(frozenRoot);
+  const files = {
+    'caller.ts': "import { target as alias } from './dep'; export function run() { alias(); }",
+    'dep.ts': 'export function target() {}',
+  };
+  for (const [file, source] of Object.entries(files)) { await writeFile(join(frozenRoot, file), source); }
+  const capture = await new NodeProjectContextFoundationHostPorts(context).createInputCapture({
+    repositories: [{ repoId: 'installed', scopeId: 'installed', relativeRoot: '.', sourceRoot: frozenRoot }],
+    files: Object.entries(files).map(([relativePath, source]) => ({ repoId: 'installed', relativePath, content: Buffer.from(source) })),
+  });
+  assert(capture);
+  const query = { kind: 'file-flow', scope: { projectRoot: frozenRoot, repoId: 'installed' }, payload: { filePath: 'caller.ts' } };
+  const captured = await context.execute(query, { sourceReader: capture.reader });
+  assert.deepEqual(captured.errors ?? [], []);
+  assert.equal(captured.data.callers[0].unresolved, false);
+  assert.equal(captured.data.callers[0].to.filePath, 'dep.ts');
+  assert.equal(captured.data.callers[0].to.ref.kind, 'file-symbol');
+  const snapshot = await capture.snapshot();
+  await rm(frozenRoot, { recursive: true });
+  assert.deepEqual(await context.execute(query, { sourceReader: capture.createReplay(snapshot) }), captured);
 });
 assert.deepEqual(await readdir(runtimeRoot), []);
-console.log('installed SDK symbols, call observations, and worker cleanup passed');
+console.log('installed SDK symbols, captured import targets, offline replay, and worker cleanup passed');
 `
   );
   const entrypointProbe = run(process.execPath, [sdkProbePath], {
@@ -204,6 +227,7 @@ console.log('installed SDK symbols, call observations, and worker cleanup passed
         entrypointProbe: 'passed',
         codeGraphExtraction: 'passed',
         codeGraphFileFlow: 'passed',
+        codeGraphFrozenProject: 'passed',
         coreDependency: installedManifest.dependencies?.['@alembic/core'],
       },
       null,

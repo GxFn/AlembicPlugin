@@ -73,9 +73,14 @@ afterEach(() => {
 });
 
 describe('Plugin certified empty-start loaded entrypoint', () => {
-  test('CodeGraph capture excludes its private runtime when dataRoot is a source root', async () => {
+  test('CodeGraph capture preserves import targets while excluding its runtime from the source root', async () => {
     const projectRoot = createProject();
     const dataRoot = path.join(projectRoot, 'plugin-empty-start');
+    fs.writeFileSync(
+      path.join(dataRoot, 'src/index.ts'),
+      "import { target as alias } from './z-dep';\nexport function entry() { alias(); }\n"
+    );
+    fs.writeFileSync(path.join(dataRoot, 'src/z-dep.ts'), 'export function target() {}\n');
     const { carrier } = await capturePluginCertifiedProjectFacts({ projectRoot, dataRoot });
     const { artifact } = await openPluginCertifiedFacts({ carrier, dataRoot });
     expect(artifact.certification.parserHash).toBe(
@@ -90,6 +95,27 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       )
     ).toBe(true);
     expect(fs.readdirSync(path.join(dataRoot, '.asd/codegraph-sessions'))).toEqual([]);
+    expect(
+      artifact.facts.requestOutcomes.find(
+        (row) => row.kind === 'file-flow' && row.terminalStatus === 'completed'
+      )
+    ).toMatchObject({
+      terminalStatus: 'completed',
+      output: {
+        data: {
+          callers: [
+            expect.objectContaining({
+              unresolved: false,
+              to: expect.objectContaining({
+                filePath: 'src/z-dep.ts',
+                symbol: 'target',
+                ref: expect.objectContaining({ kind: 'file-symbol' }),
+              }),
+            }),
+          ],
+        },
+      },
+    });
   });
 
   test('rejects a missing accepted source root before CodeGraph can create runtime directories', async () => {
