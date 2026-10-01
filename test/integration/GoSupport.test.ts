@@ -22,10 +22,10 @@ import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/c
 import { LanguageService } from '@alembic/core/shared';
 import {
   analyzeSourceFile as analyzeFile,
-  analyzeProject,
   getDiscovererRegistry,
   resetDiscovererRegistry,
 } from '@alembic/core/test-fixtures';
+import { summarizeAstFiles } from '../support/summarizeAstFiles.js';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');
@@ -164,7 +164,7 @@ describe('L1: Go AST Analysis (gin)', () => {
       return;
     }
     files = await collectGoFiles();
-    summary = analyzeProject(files, 'go');
+    summary = summarizeAstFiles(files, 'go');
   }, 60000);
 
   it('should produce AST summary', () => {
@@ -565,7 +565,7 @@ describe('Full-Stack Go Integration (gin)', () => {
     expect(primaryLang).toBe('go');
 
     // Step 4: AST analysis
-    const summary = analyzeProject(files, 'go');
+    const summary = summarizeAstFiles(files, 'go');
     expect(summary).not.toBeNull();
     expect(summary.classes.length).toBeGreaterThan(0);
 

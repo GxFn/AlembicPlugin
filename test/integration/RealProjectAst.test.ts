@@ -4,18 +4,19 @@
  *
  * 验证:
  *  1. analyzeFile() 对真实代码文件不抛异常
- *  2. analyzeProject() 聚合结果的 classes / protocols / methods 数量合理
+ *  2. 逐文件分析后汇总的 classes / protocols / methods 数量合理
  *  3. 无 AST 插件的语言（Go/Rust/Ruby）优雅降级
  *  4. 性能：大型项目在合理时间内完成
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { summarizeAstFiles } from '../support/summarizeAstFiles.js';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');
 
-let analyzeFile, analyzeProject, _astIsAvailable;
+let analyzeFile, _astIsAvailable;
 let getDiscovererRegistry, resetDiscovererRegistry;
 let _LanguageService;
 
@@ -23,7 +24,6 @@ beforeAll(async () => {
   // 加载 AST 插件
   const fixtures = await import('@alembic/core/test-fixtures');
   analyzeFile = fixtures.analyzeFile;
-  analyzeProject = fixtures.analyzeProject;
   _astIsAvailable = fixtures.isAvailable;
   getDiscovererRegistry = fixtures.getDiscovererRegistry;
   resetDiscovererRegistry = fixtures.resetDiscovererRegistry;
@@ -110,7 +110,7 @@ describe('Real Project AST Analysis', () => {
         }
 
         const t0 = Date.now();
-        summary = analyzeProject(files, expected.lang);
+        summary = summarizeAstFiles(files, expected.lang);
         const _elapsed = Date.now() - t0;
       }, 60000); // 60s timeout for large projects
 
@@ -220,7 +220,7 @@ describe('AST Performance', () => {
     }
 
     const t0 = Date.now();
-    const summary = analyzeProject(files, 'swift');
+    const summary = summarizeAstFiles(files, 'swift');
     const elapsed = Date.now() - t0;
     expect(elapsed).toBeLessThan(30000);
     expect(summary).toBeDefined();

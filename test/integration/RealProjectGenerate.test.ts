@@ -22,11 +22,11 @@ import { DimensionCopy } from '@alembic/core/dimensions';
 import { initFrameworkEnhancements as initEnhancementRegistry } from '@alembic/core/enhancement';
 import { LanguageService } from '@alembic/core/shared';
 import {
-  analyzeProject,
   isAvailable as astIsAvailable,
   getDiscovererRegistry,
   resetDiscovererRegistry,
 } from '@alembic/core/test-fixtures';
+import { summarizeAstFiles } from '../support/summarizeAstFiles.js';
 
 const __dirname = import.meta.dirname;
 const GITHUB_DIR = path.resolve(__dirname, '..', '..', '..');
@@ -101,7 +101,7 @@ async function runBootstrapPhases(projectRoot, maxFiles = 500) {
         relativePath: f.relativePath,
         content: f.content,
       }));
-      astSummary = analyzeProject(astFiles, primaryLang);
+      astSummary = summarizeAstFiles(astFiles, primaryLang);
     } catch {
       /* graceful degradation */
     }
