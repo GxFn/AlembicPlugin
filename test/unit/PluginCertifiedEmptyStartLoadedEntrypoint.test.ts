@@ -201,6 +201,15 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       requireRequestProjectRuntime(ctx).identity.dataRoot,
       '.asd/codegraph-sessions'
     );
+    // 分析会话不启动外部进程，磁盘上没有可等待的 worker 目录。改在会话内第一次真实解析时取消：
+    // 这一刻捕获正在进行，作用域（私有运行目录）已经打开。
+    const walk = typeScriptAstPlugin.walk.bind(typeScriptAstPlugin);
+    let scopeOpenAtCancel: boolean | undefined;
+    vi.spyOn(typeScriptAstPlugin, 'walk').mockImplementation((...args) => {
+      scopeOpenAtCancel ??= fs.existsSync(runtimeRoot);
+      controller.abort(reason);
+      return walk(...args);
+    });
     const result = routePlanTool(ctx, {
       operation: 'draft',
       generationStage: 'coldStart',
@@ -210,15 +219,10 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       (error) => ({ error })
     );
     try {
-      await vi.waitFor(
-        () =>
-          expect(fs.existsSync(runtimeRoot) && fs.readdirSync(runtimeRoot).length > 0).toBe(true),
-        { interval: 5, timeout: 10_000 }
-      );
-      controller.abort(reason);
       expect(await result).toMatchObject({
         error: { name: 'AbortError', message: reason.message },
       });
+      expect(scopeOpenAtCancel).toBe(true);
       expect(fs.readdirSync(runtimeRoot)).toEqual([]);
       expect(
         getOrCreateSessionManager(ctx.container).getAnySession(undefined, { projectRoot })

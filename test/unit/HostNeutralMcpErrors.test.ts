@@ -108,7 +108,8 @@ describe('host-neutral MCP execution errors', () => {
           throw new Error('Transport settled before the real worker was ready.');
         }),
       ]);
-      expect(readdirSync(runtimeRoot)).toHaveLength(1);
+      // 分析会话不启动外部进程：作用域打开期间私有运行目录存在，但里面没有任何东西。
+      expect(readdirSync(runtimeRoot)).toEqual([]);
       // SDK Client 会发送 notifications/cancelled，protocol 将 reason 字符串原样 abort。
       sender.abort('User cancelled the transport request');
       const result = await completed.promise;

@@ -95,7 +95,7 @@ describe('ProjectContextBuildSessionManager', () => {
     await manager.dispose();
   });
 
-  test('one actual CodeGraph worker belongs to the shared build until final owner shutdown', async () => {
+  test('one actual analysis session belongs to the shared build until final owner shutdown', async () => {
     const projectRoot = fixture();
     const dataRoot = fixture();
     const manager = new ProjectContextBuildSessionManager();
@@ -105,6 +105,8 @@ describe('ProjectContextBuildSessionManager', () => {
       announceReady = resolve;
     });
     let builds = 0;
+    // 会话不启动外部进程，磁盘上没有可观察的 worker 目录；用会话 Promise 是否落定判断它是否仍打开。
+    let sessionClosed = false;
     const build = async (signal: AbortSignal) => {
       builds += 1;
       return withCodeGraphProjectContextSession({ dataRoot, signal }, async (context, runtime) => {
@@ -118,6 +120,8 @@ describe('ProjectContextBuildSessionManager', () => {
         return new Promise<never>((_resolve, reject) =>
           signal.addEventListener('abort', () => reject(signal.reason), { once: true })
         );
+      }).finally(() => {
+        sessionClosed = true;
       });
     };
     const first = manager
@@ -134,13 +138,16 @@ describe('ProjectContextBuildSessionManager', () => {
     try {
       const runtimeRoot = await ready;
       expect(builds).toBe(1);
-      expect(fs.readdirSync(runtimeRoot)).toHaveLength(1);
+      expect(sessionClosed).toBe(false);
       const reason = new DOMException('Only the left consumer cancelled', 'AbortError');
       left.abort(reason);
       expect(await first).toEqual({ error: reason });
-      expect(fs.readdirSync(runtimeRoot)).toHaveLength(1);
+      // 只有一个消费者取消：共享构建和它的会话继续为另一个消费者服务。
+      expect(builds).toBe(1);
+      expect(sessionClosed).toBe(false);
       await manager.dispose();
       expect(await second).toMatchObject({ error: { name: 'AbortError' } });
+      expect(sessionClosed).toBe(true);
       expect(fs.readdirSync(runtimeRoot)).toEqual([]);
     } finally {
       await manager.dispose();

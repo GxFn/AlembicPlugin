@@ -231,14 +231,14 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     }
   });
 
-  test('public filePath Graph preserves CodeGraph unavailable for unsupported declarations', async () => {
+  test('public filePath Graph preserves coverage unavailable for unsupported declarations', async () => {
     const projectRoot = createFixtureProject();
     writeFile(
       projectRoot,
       'lib/unsupported.ts',
       'export namespace Models { export class Box {} }\n'
     );
-    // 对照旧入口静默空成功；新入口必须显式保留 SDK coverage unavailable。
+    // 对照普通入口静默空成功；严格会话必须显式报告声明覆盖不可用。
     const legacy = await ProjectContextCapabilities.execute({
       kind: 'file-symbols',
       scope: { projectRoot },
@@ -253,7 +253,7 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(result.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          message: expect.stringContaining('CodeGraph symbol coverage unavailable'),
+          message: expect.stringContaining('Declaration coverage unavailable'),
         }),
       ])
     );
