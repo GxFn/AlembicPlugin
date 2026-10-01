@@ -212,7 +212,8 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
         payload: { filePath: 'lib/index.ts' },
       });
       expect(legacy.errors ?? []).toEqual([]);
-      expect(JSON.stringify(legacy.data)).not.toContain('"name":"sibling"');
+      // Core 自有的文件事实现在也列出模块级变量；不经 CodeGraph 的实时查询与 Graph 入口看到同一批声明。
+      expect(JSON.stringify(legacy.data)).toContain('"name":"sibling"');
       expect(acquire).toHaveBeenCalledWith(
         expect.objectContaining({
           scope: expect.objectContaining({
