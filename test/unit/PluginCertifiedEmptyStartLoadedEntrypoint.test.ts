@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -73,7 +74,10 @@ afterEach(() => {
 });
 
 describe('Plugin certified empty-start loaded entrypoint', () => {
-  test('CodeGraph capture preserves import targets while excluding its runtime from the source root', async () => {
+  test.each([
+    false,
+    true,
+  ])('CodeGraph capture preserves import targets and excludes private state (git=%s)', async (git) => {
     const projectRoot = createProject();
     const dataRoot = path.join(projectRoot, 'plugin-empty-start');
     fs.writeFileSync(
@@ -81,6 +85,25 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       "import { target as alias } from './z-dep';\nexport function entry() { alias(); }\n"
     );
     fs.writeFileSync(path.join(dataRoot, 'src/z-dep.ts'), 'export function target() {}\n');
+    if (git) {
+      fs.writeFileSync(path.join(dataRoot, '.gitignore'), '.asd/\n');
+      execFileSync('git', ['init', '-q'], { cwd: dataRoot });
+      execFileSync('git', ['add', '.'], { cwd: dataRoot });
+      execFileSync(
+        'git',
+        [
+          '-c',
+          'user.name=CodeGraph Test',
+          '-c',
+          'user.email=codegraph-test@example.invalid',
+          'commit',
+          '-qm',
+          'fixture',
+          '--no-gpg-sign',
+        ],
+        { cwd: dataRoot }
+      );
+    }
     const { carrier } = await capturePluginCertifiedProjectFacts({ projectRoot, dataRoot });
     const { artifact } = await openPluginCertifiedFacts({ carrier, dataRoot });
     expect(artifact.certification.parserHash).toBe(
@@ -115,6 +138,26 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
           ],
         },
       },
+    });
+    const probeInput = { artifact, carrier, controlRoot: projectRoot, dataRoot };
+    expect(await observePluginCertifiedLiveProbe(probeInput)).toMatchObject({
+      comparisonStatus: 'matched',
+      blockingReasons: [],
+    });
+    // 首次发布的认证产物属于宿主状态，后续捕获不能把自己的JSON再次当成源码。
+    const repeated = await capturePluginCertifiedProjectFacts({ projectRoot, dataRoot });
+    const reopened = await openPluginCertifiedFacts({ carrier: repeated.carrier, dataRoot });
+    expect(reopened.artifact.facts.inventory.files).toEqual(artifact.facts.inventory.files);
+    expect(reopened.artifact.facts.inventory.includeExcludePolicy.excludeRelativePaths).toContain(
+      '.asd'
+    );
+    expect(await observePluginCertifiedLiveProbe(probeInput)).toMatchObject({
+      comparisonStatus: 'matched',
+      blockingReasons: [],
+    });
+    fs.appendFileSync(path.join(dataRoot, 'src/z-dep.ts'), '\nexport const changed = true;');
+    expect(await observePluginCertifiedLiveProbe(probeInput)).toMatchObject({
+      comparisonStatus: 'mismatched',
     });
   });
 

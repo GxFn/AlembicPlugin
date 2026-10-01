@@ -24,13 +24,14 @@ import { resolveProjectScopeRuntime } from '../shared/project-scope-runtime.js';
 import {
   createPluginCertifiedCarrier,
   failPluginStrictBypasses,
+  PLUGIN_PRIVATE_INPUT_POLICY_VERSION,
   type PluginCertifiedCarrier,
+  pluginCertifiedPrivateDirectories,
   pluginCertifiedStoreRoot,
 } from './PluginCertifiedProjectFactsRuntime.js';
 
-// Keep this producer aligned byte-for-byte with Core's accepted
-// pcf-production-source-v1 policy. Plugin adds only nested-repository path
-// exclusions derived from the already accepted ProjectScope manifest.
+// 基础扩展名与目录名沿用Core的pcf-production-source-v1；宿主私有路径和多仓边界
+// 在inventoryPolicyForScope中补齐，并以独立版本绑定目录发现/Git状态的新语义。
 export const PLUGIN_CORE_ALIGNED_SOURCE_POLICY = {
   excludeDirectories: [
     '.build',
@@ -96,9 +97,17 @@ export async function capturePluginCertifiedProjectFacts(input: {
   input.signal?.throwIfAborted();
   // 先验证真实来源目录；SDK 私有目录创建不能把缺失 sourceRoot 变成合法范围。
   const scope = createPluginScopeBinding(input.projectRoot);
+  // 固定私有目录在捕获前创建；产物写入不得新增已被捕获的祖先目录项。
+  const privateDirectories = pluginCertifiedPrivateDirectories(path.resolve(input.dataRoot)).map(
+    (directory) => {
+      fs.mkdirSync(directory, { recursive: true });
+      return fs.realpathSync.native(directory);
+    }
+  );
   return withCodeGraphProjectContextSession(
-    { dataRoot: input.dataRoot, signal: input.signal },
-    (projectContext, runtime) => capturePluginFactsInSession(input, scope, projectContext, runtime)
+    { dataRoot: input.dataRoot, privateDirectories, signal: input.signal },
+    (projectContext, runtime) =>
+      capturePluginFactsInSession(input, scope, projectContext, runtime, privateDirectories)
   );
 }
 
@@ -106,13 +115,16 @@ async function capturePluginFactsInSession(
   input: Parameters<typeof capturePluginCertifiedProjectFacts>[0],
   scope: ReturnType<typeof createPluginScopeBinding>,
   projectContext: ProjectContextContract,
-  runtime: CodeGraphProjectContextRuntime
+  runtime: CodeGraphProjectContextRuntime,
+  privateDirectories: readonly string[]
 ): Promise<PluginCertifiedCaptureResult> {
   const inventoryPolicy = inventoryPolicyForScope(scope.repositories, [
     input.dataRoot,
     runtime.runtimeRoot,
+    ...privateDirectories,
   ]);
   const hostPorts = new NodeProjectContextFoundationHostPorts(projectContext, {
+    privateDirectories,
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
       sourceRoot: repository.sourceRoot,
@@ -427,7 +439,7 @@ function inventoryPolicyForScope(
   return {
     excludeDirectories: [...PLUGIN_CORE_ALIGNED_SOURCE_POLICY.excludeDirectories],
     includeExtensions: [...PLUGIN_CORE_ALIGNED_SOURCE_POLICY.includeExtensions],
-    version: PLUGIN_CORE_ALIGNED_SOURCE_POLICY.version,
+    version: PLUGIN_PRIVATE_INPUT_POLICY_VERSION,
     ...(excludeRelativePaths.length ? { excludeRelativePaths } : {}),
   };
 }

@@ -1,4 +1,6 @@
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
+import Logger from '@alembic/core/logging';
 import type {
   ProjectContextEnvelope,
   ProjectContextRequestKind,
@@ -196,6 +198,13 @@ export interface PluginCertifiedLiveProbe {
   repositories: Array<{ repoId: string; relativeRoot: string }>;
 }
 
+// 新捕获显式把宿主状态从inventory/SDK/Git状态排除；旧产物不自动获得新的revision语义。
+export const PLUGIN_PRIVATE_INPUT_POLICY_VERSION = 'pcf-plugin-private-input-v1';
+
+export function pluginCertifiedPrivateDirectories(dataRoot: string): string[] {
+  return [path.join(dataRoot, '.asd'), pluginCertifiedStoreRoot(dataRoot)];
+}
+
 export function pluginCertifiedStoreRoot(dataRoot: string): string {
   return path.join(dataRoot, 'context', 'certified-project-facts', 'v2');
 }
@@ -334,7 +343,17 @@ export async function observePluginCertifiedLiveProbe(input: {
   if (!scope) {
     throw new TypeError('Certified live probe is missing its ProjectScope manifest.');
   }
+  const privateDirectories =
+    artifact.facts.inventory.includeExcludePolicy.version === PLUGIN_PRIVATE_INPUT_POLICY_VERSION
+      ? pluginCertifiedPrivateDirectories(await realpath(input.dataRoot))
+      : [];
+  Logger.debug('Plugin certified freshness selected its recorded input-policy version', {
+    artifactId: artifact.artifactId,
+    policyVersion: artifact.facts.inventory.includeExcludePolicy.version,
+    revisionScope: privateDirectories.length ? 'declared-private-directories' : 'legacy-git-status',
+  });
   const ports = new NodeProjectContextFoundationHostPorts(undefined, {
+    privateDirectories,
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
       sourceRoot: path.resolve(input.controlRoot, repository.relativeRoot),
