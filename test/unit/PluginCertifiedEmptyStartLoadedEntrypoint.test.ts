@@ -272,7 +272,8 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
     })) as { success?: boolean };
 
     expect(response.success).toBe(true);
-    expect(walk).toHaveBeenCalledTimes(2);
+    // 一次 Plan 草拟只做一次认证捕获，一次捕获只分析一遍：唯一的源码文件只被遍历一次。
+    expect(walk).toHaveBeenCalledTimes(1);
     const session = getOrCreateSessionManager(ctx.container).getAnySession(undefined, {
       projectRoot,
     });

@@ -13,12 +13,9 @@ import {
   FileCertifiedProjectFactsStore,
   hashCanonicalJson,
   NodeProjectContextFoundationHostPorts,
-  type ProjectContextDependencyResolutionV1,
   type ProjectContextFoundationFileDescriptor,
-  type ProjectContextFoundationHostPorts,
   type ProjectContextFoundationRepositoryInput,
   type ProjectContextInventoryPolicyV1,
-  type ProjectContextRequestExecutionResult,
 } from '@alembic/core/project-context-foundation';
 import { resolveProjectScopeRuntime } from '../shared/project-scope-runtime.js';
 import {
@@ -123,14 +120,15 @@ async function capturePluginFactsInSession(
     runtime.runtimeRoot,
     ...privateDirectories,
   ]);
-  const hostPorts = new NodeProjectContextFoundationHostPorts(projectContext, {
+  // 依赖观测与决议的配平由 Core 的端口自己完成（没有归属目录时按名字归类并出决议），
+  // 宿主不再包一层去补造决议。
+  const ports = new NodeProjectContextFoundationHostPorts(projectContext, {
     privateDirectories,
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
       sourceRoot: repository.sourceRoot,
     })),
   });
-  const ports = createPluginFoundationPorts(hostPorts);
   const inventoryRows: Array<{
     files: ProjectContextFoundationFileDescriptor[];
     repository: ProjectContextFoundationRepositoryInput;
@@ -251,106 +249,6 @@ async function capturePluginFactsInSession(
     })),
     storeReceiptHash: storeReceipt.receiptHash,
   };
-}
-
-function createPluginFoundationPorts(
-  hostPorts: NodeProjectContextFoundationHostPorts
-): ProjectContextFoundationHostPorts {
-  return {
-    createInputCapture: (input) => hostPorts.createInputCapture(input),
-    enumerateEligibleFiles: (input) => hostPorts.enumerateEligibleFiles(input),
-    executeRequest: async (input) =>
-      conserveDependencyEvidence(await hostPorts.executeRequest(input), {
-        repoId: input.repository.repoId,
-        requestKind: input.plan.kind,
-      }),
-    observeRevision: (input) => hostPorts.observeRevision(input),
-    readFile: (input) => hostPorts.readFile(input),
-    verifySnapshot: (input) => hostPorts.verifySnapshot(input),
-  };
-}
-
-function conserveDependencyEvidence(
-  result: ProjectContextRequestExecutionResult,
-  request: {
-    repoId: string;
-    requestKind: ProjectContextDependencyResolutionV1['requestKind'];
-  }
-): ProjectContextRequestExecutionResult {
-  const byIdentity = new Map<string, ProjectContextDependencyResolutionV1>();
-  for (const resolution of result.dependencyResolutions ?? []) {
-    byIdentity.set(hashCanonicalJson(resolution), resolution);
-  }
-  for (const diagnostic of result.errors ?? []) {
-    const dependencyName = readExternalDependencyName(diagnostic.message);
-    if (!dependencyName) {
-      continue;
-    }
-    const resolution: ProjectContextDependencyResolutionV1 = {
-      classification:
-        diagnostic.classification === 'confirmed-defect' ? 'confirmed-defect' : 'expected-external',
-      dependencyName,
-      importerRepoId: request.repoId,
-      requestKind: request.requestKind,
-      typedReason:
-        diagnostic.classification === 'confirmed-defect'
-          ? diagnostic.typedReason
-          : 'core-host-port-diagnostic-has-no-canonical-ownership-binding',
-    };
-    byIdentity.set(hashCanonicalJson(resolution), resolution);
-  }
-  const dependencyResolutions = [...byIdentity.values()].sort(
-    (left, right) =>
-      left.classification.localeCompare(right.classification) ||
-      left.dependencyName.localeCompare(right.dependencyName) ||
-      left.importerRepoId.localeCompare(right.importerRepoId)
-  );
-  if (dependencyResolutions.length === 0) {
-    return result;
-  }
-  const namesFor = (...classifications: ProjectContextDependencyResolutionV1['classification'][]) =>
-    [
-      ...new Set(
-        dependencyResolutions
-          .filter((resolution) => classifications.includes(resolution.classification))
-          .map((resolution) => resolution.dependencyName)
-      ),
-    ].sort();
-  const internalResolvedDependencyNames = namesFor('internal-resolved');
-  const approvedSiblingDependencyNames = namesFor('approved-sibling');
-  const remainingExternalDependencyNames = namesFor('expected-external', 'confirmed-defect');
-  const originalExternalDependencyNames = [
-    ...new Set([
-      ...internalResolvedDependencyNames,
-      ...approvedSiblingDependencyNames,
-      ...remainingExternalDependencyNames,
-    ]),
-  ].sort();
-  return {
-    ...result,
-    dependencyResolutions,
-    dependencyObservationCount: dependencyResolutions.length,
-    dependencyGraphReconciliation: {
-      approvedSiblingDependencyNames,
-      approvedSiblingHotspotCount: approvedSiblingDependencyNames.length,
-      internalResolvedDependencyNames,
-      internalResolvedHotspotCount: internalResolvedDependencyNames.length,
-      originalExternalDependencyNames,
-      originalExternalHotspotCount: originalExternalDependencyNames.length,
-      remainingExternalDependencyNames,
-      remainingExternalHotspotCount: remainingExternalDependencyNames.length,
-    },
-  };
-}
-
-function readExternalDependencyName(message: string): string | null {
-  const marker = 'map external dependency is not owned by module seeds:';
-  const markerIndex = message.indexOf(marker);
-  if (markerIndex < 0) {
-    return null;
-  }
-  const dependencyName = message.slice(markerIndex + marker.length).trim();
-  return dependencyName || null;
 }
 
 function createPluginScopeBinding(projectRoot: string) {
