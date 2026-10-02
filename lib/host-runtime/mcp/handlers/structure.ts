@@ -10,6 +10,7 @@ import {
   type AlembicGraphOutput,
   createAlembicGraphMcpResult,
   defaultProjectGraphProvider,
+  openProjectIndexRelations,
   type ProjectGraphInput,
   ProjectGraphInputSchema,
 } from '#service/project-knowledge-context/index.js';
@@ -227,11 +228,19 @@ export async function graph(ctx: McpContext, args: GraphArgs = {}) {
     return createAlembicGraphMcpResult(materializeGraphContinuation(page));
   }
   const input = normalizeProjectGraphInput(ctx, args);
-  const providerOptions = await resolveCertifiedGraphExecutionOptions(
-    ctx,
-    input.projectRoot,
-    execution
-  );
+  const identity = requireRequestProjectRuntime(ctx).identity;
+  const providerOptions = {
+    ...(await resolveCertifiedGraphExecutionOptions(ctx, input.projectRoot, execution)),
+    // 跨文件与反向的关系来自源码索引；索引库在宿主私有数据目录下，与知识库的主库是两个文件。
+    ...(identity.dataRoot
+      ? {
+          indexRelations: openProjectIndexRelations({
+            projectRoot: input.projectRoot ?? acceptedGraphControlRoot(identity),
+            dataRoot: identity.dataRoot,
+          }),
+        }
+      : {}),
+  };
   if (execution) {
     const progressive = await defaultProjectGraphProvider.resolveAlembicGraphProgressively(
       input,

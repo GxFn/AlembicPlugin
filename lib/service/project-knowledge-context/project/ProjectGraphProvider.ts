@@ -14,6 +14,9 @@ import type {
   ProjectContextRequestKind,
   ProjectContextResult,
   ProjectMap,
+  ProjectRelationEnvelope,
+  ProjectRelationKind,
+  RelationSummary,
   RepoContext,
   SourceSliceContext,
   SpaceContext,
@@ -71,6 +74,7 @@ import type {
 } from '../session/ProjectContextBuildSessionManager.js';
 import { defaultRefRegistry, stableRefSegment } from '../support/index.js';
 import { discoverInitializedGitSubmoduleRepoFolders } from './GitSubmoduleRepoDiscovery.js';
+import type { ProjectIndexRelations } from './ProjectIndexRelations.js';
 
 export interface ProjectGraphNode {
   detailRefId?: string;
@@ -103,6 +107,11 @@ export interface ProjectGraphProvider {
 export interface ProjectGraphExecutionOptions {
   /** 宿主请求身份给出的私有数据目录；独立 provider 调用保持 projectRoot 默认。 */
   dataRoot?: string;
+  /**
+   * 源码索引上的关系查询。宿主给出时，带文件锚点的 impact / neighborhood 把跨文件与反向的
+   * 关系并进图里；不给时图里只有按文件现算的事实（这个文件自己的出边）。
+   */
+  indexRelations?: ProjectIndexRelations;
   buildSessions?: ProjectContextBuildSessionManager;
   certifiedEnvelopes?: ProjectContextEnvelope<ProjectContextResult>[];
   certifiedRequestOutcomes?: ProjectContextRequestOutcomeV1[];
@@ -198,6 +207,11 @@ const ALLOWED_RELATION_TYPES = [
 const MAX_PROJECT_CONTEXT_DETAIL_REFS = 14;
 const GRAPH_REPO_CONCURRENCY = 4;
 const GRAPH_REPO_TIMEOUT_MS = 10_000;
+// 沿同一种关系最多走几跳、一种关系最多取多少条边。
+const GRAPH_INDEX_RELATION_MAX_DEPTH = 4;
+const GRAPH_INDEX_RELATION_LIMIT = 200;
+// 一次查询最多把多少条关系引用放进输出的引用清单。
+const GRAPH_INDEX_RELATION_REF_LIMIT = 40;
 const GRAPH_REPO_CLEANUP_ACK_TIMEOUT_MS = 1_000;
 const GRAPH_MODULE_QUERY_PROBE_LIMIT = 12;
 const GRAPH_MODULE_SCOPE_PROBE_WIDTH = 2;
@@ -265,6 +279,8 @@ interface ProjectContextGraphFacts {
   diagnostics: ToolDiagnostic[];
   fileFlows: FileFlowContext[];
   fileSymbols: FileSymbolContext[];
+  /** 源码索引给出的关系：跨文件、可反向，是按文件现算的事实给不出的那部分。 */
+  indexRelations: RelationSummary[];
   maps: ProjectMap[];
   moduleLayers: ModuleLayerContext[];
   modules: ModuleContext[];
@@ -333,7 +349,12 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     const engineHash = await graphBuildEngineHash(buildInput, options);
     const buildLease = await options.buildSessions.acquireProgressive({
       projectRoot,
-      scope: projectContextBuildScope(buildInput, options.certifiedProbe, engineHash),
+      scope: projectContextBuildScope(
+        buildInput,
+        options.certifiedProbe,
+        engineHash,
+        options.indexRelations !== undefined
+      ),
       signal: options.signal,
       build: (signal, publish) =>
         this.buildGraphUncached(projectRoot, buildInput, options, engineHash, signal, publish),
@@ -404,7 +425,12 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
     }
     const lease = await options.buildSessions.acquire({
       projectRoot,
-      scope: projectContextBuildScope(buildInput, options.certifiedProbe, engineHash),
+      scope: projectContextBuildScope(
+        buildInput,
+        options.certifiedProbe,
+        engineHash,
+        options.indexRelations !== undefined
+      ),
       signal: options.signal,
       build: (signal) =>
         this.buildGraphUncached(projectRoot, buildInput, options, engineHash, signal),
@@ -438,6 +464,7 @@ export class ProjectContextProjectGraphProvider implements ProjectGraphProvider 
         options.certifiedProbe?.repositories,
         options.certifiedEnvelopes,
         options.certifiedRequestOutcomes,
+        options.indexRelations,
         publish
           ? (facts, repoOutcomeId) =>
               publish(
@@ -537,6 +564,7 @@ function projectGraphBuildFromFacts(
   }
 
   addProjectContextFileFlowEdges(projectContextFacts.fileFlows, nodes, relations);
+  addProjectIndexRelations(projectContextFacts.indexRelations, nodes, relations);
   addFileSymbolContextNodes(projectContextFacts.fileSymbols, nodes, relations, input.symbolName);
   addAnchorRangeContextNodes(projectContextFacts.anchorRanges, nodes, relations, projectId);
   addProjectContextPathOwnershipRelations(projectContextFacts, nodes, relations, projectId);
@@ -621,7 +649,8 @@ async function graphBuildEngineHash(
 function projectContextBuildScope(
   input: ProjectGraphInput,
   certifiedProbe?: ProjectGraphExecutionOptions['certifiedProbe'],
-  engineHash?: string
+  engineHash?: string,
+  sourceIndexed = false
 ): ProjectContextBuildScope {
   const certificationScope = certifiedProbe
     ? {
@@ -637,6 +666,8 @@ function projectContextBuildScope(
     return {
       ...certificationScope,
       ...(engineHash ? { engineHash } : {}),
+      // 并入了索引关系的构建与没有并入的不是同一份事实，不能互相复用。
+      ...(sourceIndexed ? { sourceIndexed: true } : {}),
       kind: resolveGraphQueryKind(input),
       filePath: normalizeRelativePath(filePath),
       ...(input.line === undefined ? {} : { line: input.line }),
@@ -811,6 +842,7 @@ async function buildProjectContextGraphFacts(
   certifiedRepositories?: Array<{ repoId: string; relativeRoot: string }>,
   certifiedEnvelopes?: ProjectContextEnvelope<ProjectContextResult>[],
   certifiedRequestOutcomes?: ProjectContextRequestOutcomeV1[],
+  indexRelations?: ProjectIndexRelations,
   onProgress?: (facts: ProjectContextGraphFacts, repoOutcomeId: string) => void
 ): Promise<ProjectContextGraphFacts> {
   const facts: ProjectContextGraphFacts = {
@@ -819,6 +851,7 @@ async function buildProjectContextGraphFacts(
     diagnostics: [],
     fileFlows: [],
     fileSymbols: [],
+    indexRelations: [],
     maps: [],
     moduleLayers: [],
     modules: [],
@@ -850,7 +883,14 @@ async function buildProjectContextGraphFacts(
       if (!projectContext) {
         throw new TypeError('Live Graph requires its build-owned ProjectContext session.');
       }
-      await collectNarrowGraphFileContexts(projectContext, facts, projectRoot, input, signal);
+      await collectNarrowGraphFileContexts(
+        projectContext,
+        facts,
+        projectRoot,
+        input,
+        signal,
+        indexRelations
+      );
     } else if (certifiedEnvelopes && certifiedRepositories) {
       collectCertifiedGraphEnvelopes(
         facts,
@@ -1073,7 +1113,8 @@ async function collectNarrowGraphFileContexts(
   facts: ProjectContextGraphFacts,
   projectRoot: string,
   input: ProjectGraphInput,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  indexRelations?: ProjectIndexRelations
 ): Promise<void> {
   const filePath = explicitProjectGraphPath(input);
   if (!filePath) {
@@ -1107,6 +1148,9 @@ async function collectNarrowGraphFileContexts(
     collectGraphEnvelope(facts, envelope, 'project-context-file-flow', input);
     if (isFileFlowContext(envelope.data)) {
       facts.fileFlows.push(envelope.data);
+    }
+    if (indexRelations && (queryKind === 'impact' || queryKind === 'neighborhood')) {
+      await collectGraphIndexRelations(indexRelations, facts, filePath, input, queryKind, signal);
     }
     return;
   }
@@ -1168,6 +1212,205 @@ async function collectNarrowGraphFileContexts(
       facts.anchorRanges.push(envelope.data);
     }
   }
+}
+
+/**
+ * 带文件锚点的遍历：把源码索引里与这个文件有关的关系并进来。
+ *
+ * file-flow 只有这个文件自己的出边。谁调用了它的声明、谁导入了它、它又依赖谁，
+ * 要问整个项目的索引。impact 问的是"依赖它的一方"（反向、可隔着几层）；
+ * neighborhood 两个方向都要，可以用 direction 与 relationType 收窄。
+ */
+async function collectGraphIndexRelations(
+  indexRelations: ProjectIndexRelations,
+  facts: ProjectContextGraphFacts,
+  filePath: string,
+  input: ProjectGraphInput,
+  queryKind: 'impact' | 'neighborhood',
+  signal?: AbortSignal
+): Promise<void> {
+  const depth = Math.min(Math.max(input.maxDepth ?? 2, 1), GRAPH_INDEX_RELATION_MAX_DEPTH);
+  for (const kind of graphIndexRelationKinds(queryKind, input)) {
+    signal?.throwIfAborted();
+    let envelope: ProjectRelationEnvelope;
+    try {
+      // 第一次查询要建整份索引，可能要等。等多久由请求方的取消信号决定：请求取消时这里立刻
+      // 放手，索引在后台建完，下一次查询就用得上。
+      envelope = await waitForGraphIndex(
+        indexRelations.query(
+          {
+            kind,
+            ...(kind === 'impact' ? { changedFiles: [filePath] } : { target: { filePath } }),
+            depth,
+            limit: GRAPH_INDEX_RELATION_LIMIT,
+          },
+          { signal }
+        ),
+        signal
+      );
+    } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
+      facts.trace.partial = true;
+      facts.diagnostics.push({
+        code: 'project-index-unavailable',
+        domain: 'project',
+        message: `Source index query ${kind} failed for ${filePath}; cross-file relations are missing from this graph: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        retryable: true,
+        severity: 'warning',
+      });
+      return;
+    }
+    if (!collectGraphIndexEnvelope(facts, envelope, filePath, input)) {
+      return;
+    }
+  }
+}
+
+/** 这次遍历要向索引问哪几种关系。 */
+function graphIndexRelationKinds(
+  queryKind: 'impact' | 'neighborhood',
+  input: ProjectGraphInput
+): ProjectRelationKind[] {
+  if (queryKind === 'impact') {
+    return ['impact'];
+  }
+  // 调用方只要某一种关系时，只问索引里能画出这种关系的那几类；
+  // 其余种类（definesSymbol、ownsFile 等）与索引无关，一类都不问。
+  const type = input.relationType;
+  const wantsCalls = !type || type === 'calls' || type === 'dependsOn';
+  const wantsImports = !type || type === 'imports';
+  const wantsHierarchy = !type || type === 'dependsOn';
+  const inbound: ProjectRelationKind[] = [];
+  const outbound: ProjectRelationKind[] = [];
+  if (wantsCalls) {
+    inbound.push('callers');
+    outbound.push('callees');
+  }
+  if (wantsImports) {
+    inbound.push('importers');
+    outbound.push('imports');
+  }
+  if (wantsHierarchy) {
+    inbound.push('subtypes');
+    outbound.push('supertypes');
+  }
+  if (input.direction === 'in') {
+    return inbound;
+  }
+  if (input.direction === 'out') {
+    return outbound;
+  }
+  return [...inbound, ...outbound];
+}
+
+/** 等索引的回答；请求取消时不再等，也不留下一个没人接的拒绝。 */
+function waitForGraphIndex(
+  pending: Promise<ProjectRelationEnvelope>,
+  signal?: AbortSignal
+): Promise<ProjectRelationEnvelope> {
+  if (!signal) {
+    return pending;
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('Graph request was aborted.'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    pending.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
+}
+
+/**
+ * 收下索引的一次回答；返回 false 表示索引给不出回答，后面的关系不必再问。
+ * 文件不在索引里（不是源码、被忽略）不算故障：这种文件本来就没有代码关系。
+ */
+function collectGraphIndexEnvelope(
+  facts: ProjectContextGraphFacts,
+  envelope: ProjectRelationEnvelope,
+  filePath: string,
+  input: ProjectGraphInput
+): boolean {
+  // 关系查询与影响面查询的回答都带 relations 与 truncated；给不出回答时是 available: false。
+  const data = envelope.data as {
+    available?: boolean;
+    relations?: RelationSummary[];
+    truncated?: boolean;
+  };
+  if (data.available === false) {
+    const error = envelope.errors?.[0];
+    if (error?.code === 'not-found') {
+      facts.diagnostics.push({
+        code: 'project-index-file-unindexed',
+        domain: 'project',
+        message: `${filePath} is not in the source index, so no cross-file relations are known for it.`,
+        retryable: false,
+        severity: 'info',
+      });
+      return false;
+    }
+    facts.trace.partial = true;
+    facts.diagnostics.push({
+      code: 'project-index-unavailable',
+      domain: 'project',
+      message: `Source index is unavailable; cross-file relations are missing from this graph: ${
+        error?.message ?? 'no index generation exists'
+      }`,
+      retryable: true,
+      severity: 'warning',
+    });
+    return false;
+  }
+  const relations = (data.relations ?? []).filter(
+    (relation) =>
+      includeProjectGraphPath(relation.from?.filePath, input) &&
+      includeProjectGraphPath(relation.to?.filePath, input)
+  );
+  facts.indexRelations.push(...relations);
+  // 每条关系的引用带发生位置与内容哈希；宿主可以原样拿去引用，也可以复核。
+  const refs = relations
+    .flatMap((relation) => relation.ref ?? [])
+    .filter((ref) => includeProjectContextRef(ref, input, facts.trace))
+    .slice(0, GRAPH_INDEX_RELATION_REF_LIMIT);
+  facts.trace.refCount += refs.length;
+  facts.projectContextRefs.push(...refs);
+  facts.detailRefs.push(
+    ...refs.map((ref) =>
+      detailRefFromProjectContextRef(ref, 'alembic_graph', 'project-index-relations')
+    )
+  );
+  facts.sources.push(
+    ...refs.slice(0, 12).map((ref) => sourceFromProjectContextRef(ref, 'project-index-relations'))
+  );
+  if (envelope.index.coverageGaps > 0) {
+    facts.diagnostics.push({
+      code: 'project-index-coverage-gaps',
+      domain: 'project',
+      message: `${envelope.index.coverageGaps} source file(s) could not be parsed for the index; relations through them may be missing.`,
+      retryable: false,
+      severity: 'info',
+    });
+  }
+  if (data.truncated) {
+    facts.diagnostics.push({
+      code: 'project-index-relations-truncated',
+      domain: 'project',
+      message: `The source index returned a bounded set of ${envelope.kind} relations for ${filePath}; narrow the question or lower maxDepth to see the rest.`,
+      retryable: false,
+      severity: 'info',
+    });
+  }
+  return true;
 }
 
 async function collectNarrowContainingRepoContext(
@@ -1393,6 +1636,7 @@ const PROJECT_CONTEXT_GRAPH_FACT_ARRAY_KEYS = [
   'diagnostics',
   'fileFlows',
   'fileSymbols',
+  'indexRelations',
   'maps',
   'moduleLayers',
   'modules',
@@ -1418,6 +1662,7 @@ function takeProjectContextGraphFactsDelta(
     diagnostics: facts.diagnostics.slice(offsets.diagnostics),
     fileFlows: facts.fileFlows.slice(offsets.fileFlows),
     fileSymbols: facts.fileSymbols.slice(offsets.fileSymbols),
+    indexRelations: facts.indexRelations.slice(offsets.indexRelations),
     maps: facts.maps.slice(offsets.maps),
     moduleLayers: facts.moduleLayers.slice(offsets.moduleLayers),
     modules: facts.modules.slice(offsets.modules),
@@ -2387,6 +2632,43 @@ function addProjectContextFileFlowEdges(
     }
     for (const relation of [...flow.callees, ...flow.outflow]) {
       addProjectContextRelation(nodes, relations, relation);
+    }
+  }
+}
+
+/**
+ * 索引的关系 → 图。
+ *
+ * 调用与导入是图里已有的关系种类，原样画出。继承、遵循等关系图的种类表里没有，
+ * 它们与跨文件的调用一起折成文件之间的 dependsOn：来源文件依赖目标文件。
+ * 关系两端的声明挂到各自的文件上，这样从文件出发的遍历走得到它们。
+ */
+function addProjectIndexRelations(
+  indexRelations: readonly RelationSummary[],
+  nodes: NodeStore,
+  relations: RelationStore
+) {
+  for (const relation of indexRelations) {
+    addProjectContextRelation(nodes, relations, relation);
+    for (const endpoint of [relation.from, relation.to]) {
+      if (endpoint?.symbol && endpoint.filePath) {
+        const symbolId = endpointNodeId(endpoint);
+        const ownerId = fileNodeId(endpoint.filePath);
+        if (symbolId) {
+          addEndpointNode(nodes, ownerId, { filePath: endpoint.filePath });
+          addEndpointNode(nodes, symbolId, endpoint);
+          relations.add(nodes, ownerId, 'definesSymbol', symbolId);
+        }
+      }
+    }
+    const fromFile = relation.from?.filePath;
+    const toFile = relation.to?.filePath;
+    if (fromFile && toFile && fromFile !== toFile && relation.kind !== 'imports') {
+      const fromId = fileNodeId(fromFile);
+      const toId = fileNodeId(toFile);
+      addEndpointNode(nodes, fromId, { filePath: fromFile });
+      addEndpointNode(nodes, toId, { filePath: toFile });
+      relations.add(nodes, fromId, 'dependsOn', toId);
     }
   }
 }
