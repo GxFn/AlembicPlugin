@@ -467,8 +467,15 @@ describe('Plugin certified empty-start loaded entrypoint', () => {
       relativePath: 'scripts/eligible-build.ts',
       repoId: 'BiliDili',
     });
-    expect(scriptInventory?.ownerModuleIds).toEqual([]);
-    expect(scriptInventory?.ownersV2).toEqual([]);
+    // 仓库的模块划分把每个源码文件归到所在目录的模块：scripts/ 也是一个模块，归属是"建议"（没有声明为证）。
+    expect(scriptInventory?.ownerModuleIds).toEqual(['module:scripts']);
+    expect(scriptInventory?.ownersV2).toEqual([
+      expect.objectContaining({
+        ownerModuleId: 'module:scripts',
+        origin: 'path-heuristic',
+        typedReason: 'repo-module-partition-is-advisory-only',
+      }),
+    ]);
     const frozenScript = artifact.facts.detail.frozenFiles?.find(
       (file) => file.repoId === 'BiliDili' && file.relativePath === 'scripts/eligible-build.ts'
     );
@@ -994,13 +1001,26 @@ function createNativeRootPlusFourProject(): {
   ];
   for (const repository of repositoryRoots) {
     fs.mkdirSync(path.join(controlRoot, repository.relativeRoot), { recursive: true });
+    // 模块来自仓库的模块划分，划分来自构建清单：主仓库把 25 个 Feature 目录各声明成一个 target，
+    // 子包各一个 target。
+    const targets =
+      repository.repoId === 'BiliDili'
+        ? Array.from(
+            { length: 25 },
+            (_, index) =>
+              `.target(name: "Feature${String(index).padStart(2, '0')}", path: "Sources/Core/Feature${String(index).padStart(2, '0')}")`
+          )
+        : [`.target(name: "${repository.repoId}", path: "Sources")`];
     writeProjectFile(
       controlRoot,
       `${repository.relativeRoot}/Package.swift`,
       [
         '// swift-tools-version: 5.9',
         'import PackageDescription',
-        `let package = Package(name: "${repository.repoId}", targets: [.target(name: "${repository.repoId}", path: "Sources")])`,
+        // 一行一个 target：清单行过长会被 file-flow 当成压缩/生成内容而跳过解析。
+        `let package = Package(name: "${repository.repoId}", targets: [`,
+        ...targets.map((target) => `  ${target},`),
+        '])',
         '',
       ].join('\n')
     );

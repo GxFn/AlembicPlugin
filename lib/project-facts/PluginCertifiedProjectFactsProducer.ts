@@ -6,6 +6,7 @@ import {
   withCodeGraphProjectContextSession,
 } from '@alembic/core/project-context';
 import {
+  buildProjectContextDependencyOwnershipV1,
   buildProjectContextRequestMatrixV2,
   buildProjectScopeManifestV1,
   captureCertifiedProjectFactsV2,
@@ -120,29 +121,51 @@ async function capturePluginFactsInSession(
     runtime.runtimeRoot,
     ...privateDirectories,
   ]);
-  // 依赖观测与决议的配平由 Core 的端口自己完成（没有归属目录时按名字归类并出决议），
-  // 宿主不再包一层去补造决议。
-  const ports = new NodeProjectContextFoundationHostPorts(projectContext, {
+  const portOptions = {
     privateDirectories,
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
       sourceRoot: repository.sourceRoot,
     })),
-  });
-  const inventoryRows: Array<{
-    files: ProjectContextFoundationFileDescriptor[];
-    repository: ProjectContextFoundationRepositoryInput;
-  }> = [];
-  for (const repository of scope.repositories) {
-    inventoryRows.push({
-      files: await ports.enumerateEligibleFiles({
-        policy: inventoryPolicy,
+  };
+  const enumerateInventory = async (hostPorts: NodeProjectContextFoundationHostPorts) => {
+    const rows: Array<{
+      files: ProjectContextFoundationFileDescriptor[];
+      repository: ProjectContextFoundationRepositoryInput;
+    }> = [];
+    for (const repository of scope.repositories) {
+      rows.push({
+        files: await hostPorts.enumerateEligibleFiles({
+          policy: inventoryPolicy,
+          repository,
+          signal: input.signal,
+        }),
         repository,
-        signal: input.signal,
-      }),
-      repository,
-    });
-  }
+      });
+    }
+    return rows;
+  };
+  // 依赖观测与决议的配平由 Core 的端口自己完成，宿主不再包一层去补造决议。
+  // 依赖归属目录来自清单里的包清单文件（Core 生成）：有了它，范围内别的仓库的包被认成兄弟依赖，
+  // 本仓库声明过的模块名被认成内部依赖，而不是按名字记成外部依赖。Plugin 的清单策略收 .json，
+  // package.json 与 Package.swift 都在清单里。没有任何条目时保持不带目录的端口，产物与之前相同。
+  const inventoryPorts = new NodeProjectContextFoundationHostPorts(projectContext, portOptions);
+  const plainInventoryRows = await enumerateInventory(inventoryPorts);
+  const ownership = await buildProjectContextDependencyOwnershipV1({
+    repositories: plainInventoryRows,
+    readFile: (request) => inventoryPorts.readFile(request),
+    signal: input.signal,
+  });
+  const dependencyOwnership =
+    ownership.ownership.entries.length > 0 ? ownership.ownership : undefined;
+  const ports = dependencyOwnership
+    ? new NodeProjectContextFoundationHostPorts(projectContext, {
+        ...portOptions,
+        dependencyOwnership,
+      })
+    : inventoryPorts;
+  // 带目录的端口会把被目录绑定的模块的归属证据升为"包声明"，清单行要用它重新枚举。
+  const inventoryRows = dependencyOwnership ? await enumerateInventory(ports) : plainInventoryRows;
   const plans = inventoryRows.flatMap(({ files, repository }) =>
     createProjectContextRequestAuditPlansV2({
       eligibleFiles: files,
@@ -157,7 +180,13 @@ async function capturePluginFactsInSession(
   const artifact = await captureCertifiedProjectFactsV2(
     {
       certification: {
-        acceptedConfigHash: hashCanonicalJson({ inventoryPolicy }),
+        acceptedConfigHash: hashCanonicalJson({
+          inventoryPolicy,
+          // 目录参与配置身份；没有目录时不加这个键，旧产物的绑定哈希不变。
+          ...(dependencyOwnership
+            ? { dependencyOwnershipHash: dependencyOwnership.ownershipHash }
+            : {}),
+        }),
         acceptedRuntimeHash: hashCanonicalJson({
           adapter: 'alembic-plugin',
           foundation: 'strict-v2',

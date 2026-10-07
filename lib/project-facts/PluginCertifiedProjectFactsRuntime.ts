@@ -7,6 +7,7 @@ import type {
   ProjectContextResult,
 } from '@alembic/core/project-context';
 import {
+  buildProjectContextDependencyOwnershipV1,
   buildSourceRevisionVectorV1,
   type CertifiedProjectFactsArtifactV1,
   CertifiedProjectFactsConsumerPort,
@@ -352,23 +353,52 @@ export async function observePluginCertifiedLiveProbe(input: {
     policyVersion: artifact.facts.inventory.includeExcludePolicy.version,
     revisionScope: privateDirectories.length ? 'declared-private-directories' : 'legacy-git-status',
   });
-  const ports = new NodeProjectContextFoundationHostPorts(undefined, {
+  const portOptions = {
     privateDirectories,
     portableRoots: scope.repositories.map((repository) => ({
       portableId: repository.repoId,
       sourceRoot: path.resolve(input.controlRoot, repository.relativeRoot),
     })),
+  };
+  const runtimeRepositories = scope.repositories.map((repository) => ({
+    ...repository,
+    sourceRoot: path.resolve(input.controlRoot, repository.relativeRoot),
+  }));
+  const inventoryPolicy = artifact.facts.inventory.includeExcludePolicy;
+  // 清单行的归属证据是清单身份的一部分。捕获时先按清单里的包清单文件生成归属目录，再带着目录枚举
+  // （被目录绑定的模块的证据从"路径形状"升为"包声明"）；实时复核必须走同一条路，否则带目录的产物
+  // 一定被判成仓库漂移。没有条目时两条路相同。
+  const plainPorts = new NodeProjectContextFoundationHostPorts(undefined, portOptions);
+  const ownership = await buildProjectContextDependencyOwnershipV1({
+    repositories: await Promise.all(
+      runtimeRepositories.map(async (repository) => ({
+        repository,
+        files: await plainPorts.enumerateEligibleFiles({
+          repository,
+          signal: input.signal,
+          policy: inventoryPolicy,
+        }),
+      }))
+    ),
+    readFile: (request) => plainPorts.readFile(request),
+    signal: input.signal,
   });
+  const ports =
+    ownership.ownership.entries.length > 0
+      ? new NodeProjectContextFoundationHostPorts(undefined, {
+          ...portOptions,
+          dependencyOwnership: ownership.ownership,
+        })
+      : plainPorts;
   const rows = await Promise.all(
-    scope.repositories.map(async (repository) => {
-      const sourceRoot = path.resolve(input.controlRoot, repository.relativeRoot);
-      const runtimeRepository = { ...repository, sourceRoot };
+    runtimeRepositories.map(async (runtimeRepository) => {
+      const repository = runtimeRepository;
       const [observation, descriptors] = await Promise.all([
         ports.observeRevision({ repository: runtimeRepository, signal: input.signal }),
         ports.enumerateEligibleFiles({
           repository: runtimeRepository,
           signal: input.signal,
-          policy: artifact.facts.inventory.includeExcludePolicy,
+          policy: inventoryPolicy,
         }),
       ]);
       const files = await mapWithConcurrency(descriptors, 32, async (descriptor) => {
