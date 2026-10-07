@@ -235,6 +235,8 @@ const PROJECT_CONTEXT_FLOW_SOURCE_EXTENSIONS = new Set([
   '.tsx',
   ...Object.keys(EXTENSION_PARSER_LANGUAGE),
 ]);
+// 与 Core 模块目录扫描的白名单对齐（Core 0ab564e 起 .json 不算模块文件）：只有 json 的目录不再
+// 作为模块种子，否则 Core 的 module 查询会因为目录里没有代码文件而报 invalid-scope、把图降级。
 const GRAPH_MODULE_SOURCE_EXTENSIONS = new Set([
   '.ts',
   '.tsx',
@@ -242,7 +244,6 @@ const GRAPH_MODULE_SOURCE_EXTENSIONS = new Set([
   '.jsx',
   '.mjs',
   '.cjs',
-  '.json',
   ...Object.keys(EXTENSION_PARSER_LANGUAGE),
 ]);
 

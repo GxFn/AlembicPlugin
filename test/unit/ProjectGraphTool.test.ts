@@ -793,9 +793,11 @@ describe('alembic_graph project graph tool (queryKind / AlembicGraphOutput)', ()
     expect(JSON.stringify(output.diagnostics)).not.toContain(
       'parser is unavailable for language json'
     );
+    // Core 自 0ab564e 起不再把 json 当模块文件，这个夹具里没有别的会被压掉的解析告警，
+    // 计数可以是 0；这里只要求它是一个合法的计数，不再要求"有东西被压掉"。
     expect(
       Number((output.meta.projectContext as { suppressedErrorCount?: number }).suppressedErrorCount)
-    ).toBeGreaterThan(0);
+    ).toBeGreaterThanOrEqual(0);
     expect(output.status).toBe('ready');
     const truthReceipt = (
       output.meta.projectContext as {
