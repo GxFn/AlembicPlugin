@@ -1,23 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type {
-  ProjectContextEnvelope,
-  ProjectContextRef,
-  ProjectContextRequestKind,
-  ProjectContextResult,
-} from '@alembic/core/project-context';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import type { SpaceContext } from '@alembic/core/project-context';
+import { afterEach, describe, expect, test } from 'vitest';
 import { buildHostAgentProjectContextAnalysis } from '../../lib/recipe-pipeline/generate/project-context-analysis.js';
 
-const projectContextExecuteMock = vi.hoisted(() => vi.fn());
-
-vi.mock('@alembic/core/project-context-capabilities', () => ({
-  ProjectContextCapabilities: {
-    execute: projectContextExecuteMock,
-  },
-}));
-
+// F6：采集在 Core 的共用采集器里，这里不再 mock 请求，直接对真实夹具验证范围的传递结果。
 const tempRoots: string[] = [];
 const ALEMBIC_MEMBER_FOLDERS = [
   'Alembic',
@@ -28,14 +16,7 @@ const ALEMBIC_MEMBER_FOLDERS = [
 ] as const;
 
 describe('Host Agent ProjectContext scoped production parity', () => {
-  beforeEach(() => {
-    projectContextExecuteMock.mockImplementation(async (request: unknown) =>
-      createProjectContextEnvelope(request)
-    );
-  });
-
   afterEach(async () => {
-    projectContextExecuteMock.mockReset();
     await Promise.all(tempRoots.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
   });
 
@@ -57,14 +38,26 @@ describe('Host Agent ProjectContext scoped production parity', () => {
       expect.arrayContaining(['AlembicCore/src/index.ts', 'AlembicPlugin/lib/index.ts'])
     );
     expect(JSON.stringify(analysis.presenterInput)).not.toContain('BiliDili');
+    // 范围文件夹原样到了 space（字符串被归一成文件夹对象），第一个文件夹是 repo 的主仓库，
+    // 其余文件夹各一个整体种子。
+    const space = analysis.presenterInput.space as SpaceContext;
+    expect(space.sourceFolders.map((folder) => folder.path)).toEqual([...ALEMBIC_MEMBER_FOLDERS]);
+    expect(analysis.presenterInput.repo?.repo.root).toBe('Alembic');
     expect(analysis.moduleSeeds).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          moduleName: 'lib',
+          modulePath: 'Alembic/lib',
+          ownedFiles: ['Alembic/lib/index.ts'],
+        }),
+        expect.objectContaining({
+          kind: 'project-scope-folder',
           moduleName: 'AlembicCore',
           modulePath: 'AlembicCore',
           ownedFiles: expect.arrayContaining(['AlembicCore/src/index.ts']),
         }),
         expect.objectContaining({
+          kind: 'project-scope-folder',
           moduleName: 'AlembicPlugin',
           modulePath: 'AlembicPlugin',
           ownedFiles: expect.arrayContaining(['AlembicPlugin/lib/index.ts']),
@@ -72,35 +65,13 @@ describe('Host Agent ProjectContext scoped production parity', () => {
       ])
     );
     expect(analysis.moduleCount).toBeGreaterThanOrEqual(5);
-
-    const requests = projectContextExecuteMock.mock.calls.map(([request]) =>
-      summarizeProjectContextRequest(request)
-    );
-    expect(requests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'space',
-          sourceFolders: [...ALEMBIC_MEMBER_FOLDERS],
-        }),
-        expect.objectContaining({
-          kind: 'repo',
-          repoRoot: 'Alembic',
-        }),
-        expect.objectContaining({
-          kind: 'map',
-          moduleSeeds: expect.arrayContaining([
-            expect.objectContaining({ modulePath: 'Alembic' }),
-            expect.objectContaining({ modulePath: 'AlembicCore' }),
-            expect.objectContaining({ modulePath: 'AlembicPlugin' }),
-            expect.objectContaining({ modulePath: 'AlembicDashboard' }),
-            expect.objectContaining({ modulePath: 'AlembicAgent' }),
-          ]),
-        }),
-      ])
-    );
-    expect(requests.filter((request) => request.kind === 'repo')).toEqual(
-      expect.arrayContaining([expect.objectContaining({ repoRoot: 'Alembic' })])
-    );
+    expect(analysis.presenterInput.map?.modules.map((module) => module.name).sort()).toEqual([
+      'AlembicAgent',
+      'AlembicCore',
+      'AlembicDashboard',
+      'AlembicPlugin',
+      'lib',
+    ]);
   });
 });
 
@@ -133,161 +104,4 @@ async function writeFixtureFile(
   const target = join(root, relativePath);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, content);
-}
-
-function createProjectContextEnvelope(
-  request: unknown
-): ProjectContextEnvelope<ProjectContextResult> {
-  const requestRecord = readRecord(request);
-  const kind = readString(requestRecord.kind) as ProjectContextRequestKind;
-  const payload = readRecord(requestRecord.payload);
-  const project = readRecord(requestRecord.project);
-  const scope = readRecord(requestRecord.scope);
-  const projectRoot = readString(project.projectRoot) ?? readString(scope.projectRoot) ?? '';
-  return {
-    contractVersion: 1,
-    data: createProjectContextData(kind, payload, projectRoot),
-    errors: [],
-    project: {
-      displayName: readString(project.displayName) ?? 'Scoped Workspace',
-      projectRoot,
-    },
-    queryLevel: kind,
-    refs: [],
-  };
-}
-
-function createProjectContextData(
-  kind: ProjectContextRequestKind,
-  payload: Record<string, unknown>,
-  projectRoot: string
-): ProjectContextResult {
-  if (kind === 'space') {
-    const sourceFolders = readStringArray(payload.sourceFolders);
-    return {
-      activeRepo: undefined,
-      boundaries: [],
-      nextRefs: [],
-      projectTree: undefined,
-      repos: sourceFolders.map((folder) => createRepoSummary(projectRoot, folder)),
-      sourceFolders: sourceFolders.map((folder) => ({
-        displayName: folder,
-        id: `folder-${folder}`,
-        path: folder,
-        repositoryId: folder,
-        role: 'source',
-      })),
-      space: { name: 'Scoped Workspace', repoCount: sourceFolders.length },
-      structuralHotspots: [],
-    } as unknown as ProjectContextResult;
-  }
-  if (kind === 'repo') {
-    const repoRoot = readString(payload.repoRoot);
-    const scoped = ALEMBIC_MEMBER_FOLDERS.some((folder) => folder === repoRoot);
-    return {
-      buildSystems: [],
-      commands: [],
-      configFiles: [],
-      entrypoints: [],
-      languages: scoped
-        ? [{ fileCount: 2, language: 'typescript' }]
-        : [{ fileCount: 10, language: 'swift' }],
-      localPackages: [],
-      nextRefs: [],
-      packageSystems: [],
-      repo: createRepoSummary(projectRoot, repoRoot ?? '.'),
-      sourceRoots: scoped
-        ? [{ path: 'src', role: 'source', ref: createRef(projectRoot, 'src', repoRoot) }]
-        : [],
-      targets: [],
-      topAreas: [],
-    } as unknown as ProjectContextResult;
-  }
-  if (kind === 'map') {
-    const moduleSeeds = readRecordArray(payload.moduleSeeds);
-    return {
-      cycles: [],
-      dependencySummary: { edgeCount: 0, notes: [] },
-      externalDependencyHotspots: [],
-      hotspots: [],
-      layers: [],
-      majorFlows: [],
-      modules: moduleSeeds.map((seed) => {
-        const modulePath = readString(seed.modulePath) ?? readString(seed.moduleName) ?? 'module';
-        const moduleName = readString(seed.moduleName) ?? modulePath;
-        return {
-          id: `module:${modulePath}`,
-          name: moduleName,
-          ownedFileCount: readStringArray(seed.ownedFiles).length,
-          ref: createRef(projectRoot, modulePath, modulePath.split('/')[0]),
-        };
-      }),
-      nextRefs: [],
-      repo: createRepoSummary(projectRoot, '.'),
-    } as unknown as ProjectContextResult;
-  }
-  throw new Error(`Unexpected ProjectContext kind in scoped parity test: ${kind}`);
-}
-
-function summarizeProjectContextRequest(request: unknown): {
-  kind?: string;
-  moduleSeeds?: Record<string, unknown>[];
-  repoRoot?: string;
-  sourceFolders?: string[];
-} {
-  const requestRecord = readRecord(request);
-  const payload = readRecord(requestRecord.payload);
-  return {
-    kind: readString(requestRecord.kind),
-    moduleSeeds: readRecordArray(payload.moduleSeeds),
-    repoRoot: readString(payload.repoRoot),
-    sourceFolders: readStringArray(payload.sourceFolders),
-  };
-}
-
-function createRepoSummary(projectRoot: string, sourceFolder: string): Record<string, unknown> {
-  return {
-    name: sourceFolder === '.' ? 'workspace-root' : sourceFolder,
-    ref: createRef(projectRoot, sourceFolder, sourceFolder === '.' ? undefined : sourceFolder),
-    root: sourceFolder,
-  };
-}
-
-function createRef(
-  projectRoot: string,
-  filePath: string,
-  sourceFolder: string | undefined
-): ProjectContextRef {
-  return {
-    id: `ref:${filePath}`,
-    kind: 'path',
-    label: filePath,
-    scope: {
-      filePath,
-      projectRoot,
-      ...(sourceFolder ? { sourceFolder } : {}),
-    },
-  };
-}
-
-function readRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function readRecordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.map(readRecord).filter((entry) => Object.keys(entry).length)
-    : [];
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string')
-    : [];
 }

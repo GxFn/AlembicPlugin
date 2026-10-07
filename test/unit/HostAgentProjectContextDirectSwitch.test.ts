@@ -63,7 +63,7 @@ describe('Host Agent ProjectContext direct switch', () => {
     const projectRoot = await createBiliDiliLikeSwiftProject();
     const analysis = await buildHostAgentProjectContextAnalysis({
       maxFileDetails: 2,
-      maxFiles: 4,
+      maxFiles: 40,
       maxModuleDetails: 4,
       maxModuleSeeds: 12,
       projectRoot,
@@ -80,26 +80,33 @@ describe('Host Agent ProjectContext direct switch', () => {
         'Packages/AOXNetworkKit/Sources/AOXNetworkKit/NetworkClient.swift',
       ])
     );
+    // F6：种子来自仓库的模块划分——每个 SPM target 一个模块，目录是它的文件的公共目录，
+    // Package.swift 是构建清单、不算模块源码。
     expect(analysis.moduleSeeds).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          kind: 'target',
           moduleName: 'AOXFoundationKit',
-          modulePath: 'Packages/AOXFoundationKit',
+          modulePath: 'Packages/AOXFoundationKit/Sources/AOXFoundationKit',
           ownedFiles: expect.arrayContaining([
-            'Packages/AOXFoundationKit/Package.swift',
             'Packages/AOXFoundationKit/Sources/AOXFoundationKit/FoundationClock.swift',
           ]),
         }),
         expect.objectContaining({
+          kind: 'target',
           moduleName: 'AOXNetworkKit',
-          modulePath: 'Packages/AOXNetworkKit',
+          modulePath: 'Packages/AOXNetworkKit/Sources/AOXNetworkKit',
           ownedFiles: expect.arrayContaining([
-            'Packages/AOXNetworkKit/Package.swift',
             'Packages/AOXNetworkKit/Sources/AOXNetworkKit/NetworkClient.swift',
           ]),
         }),
       ])
     );
+    expect(
+      analysis.moduleSeeds.every(
+        (seed) => !seed.ownedFiles?.some((file) => file.endsWith('Package.swift'))
+      )
+    ).toBe(true);
 
     const briefing = buildProjectContextMissionBriefing({
       activeDimensions: dimensions,
@@ -117,11 +124,12 @@ describe('Host Agent ProjectContext direct switch', () => {
       fileCount: analysis.fileCount,
       moduleCount: analysis.moduleCount,
     });
+    // 目标文件数按模块拥有的源码文件计（口径 A），不再把 Package.swift 算进去。
     expect(targets.find((target) => target.name === 'AOXFoundationKit')).toMatchObject({
-      fileCount: 3,
+      fileCount: 2,
     });
     expect(targets.find((target) => target.name === 'AOXNetworkKit')).toMatchObject({
-      fileCount: 4,
+      fileCount: 3,
     });
   });
 
@@ -129,7 +137,7 @@ describe('Host Agent ProjectContext direct switch', () => {
     const projectRoot = await createBiliDiliLikeSwiftProject();
     const analysis = await buildHostAgentProjectContextAnalysis({
       maxFileDetails: 2,
-      maxFiles: 4,
+      maxFiles: 40,
       maxModuleDetails: 4,
       maxModuleSeeds: 12,
       moduleScope: ['Packages/AOXFoundationKit', 'Packages/AOXNetworkKit', 'Sources'],
@@ -137,18 +145,22 @@ describe('Host Agent ProjectContext direct switch', () => {
       source: 'codex-host-bootstrap',
     });
 
+    // F6：moduleScope 选中落在这些目录下的划分模块；Networking 的目录是它自己的 target 目录，
+    // 不再是名字叫 Networking、目录却是整个 Sources 的粗种子。
     expect(analysis.moduleSeeds).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           moduleName: 'Networking',
-          modulePath: 'Sources',
+          modulePath: 'Sources/Infrastructure/Networking',
           ownedFiles: expect.arrayContaining([
             'Sources/Infrastructure/Networking/Endpoint/Endpoint+Video.swift',
             'Sources/Infrastructure/Networking/Repository/FeedRepository.swift',
           ]),
         }),
+        expect.objectContaining({ moduleName: 'Home', modulePath: 'Sources/Features/Home' }),
       ])
     );
+    expect(analysis.moduleSeeds.some((seed) => seed.modulePath === 'Sources')).toBe(false);
 
     const briefing = attachPlanScopeTargetCounts(
       buildProjectContextMissionBriefing({
