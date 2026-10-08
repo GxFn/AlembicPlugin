@@ -81,7 +81,8 @@ describe('Host Agent ProjectContext direct switch', () => {
       ])
     );
     // F6：种子来自仓库的模块划分——每个 SPM target 一个模块，目录是它的文件的公共目录，
-    // Package.swift 是构建清单、不算模块源码。
+    // Package.swift 是构建清单、不算模块源码。maxFiles 只是源码清单的预算，划分不受它约束；这里给 40，
+    // 让清单装得下夹具的全部文件（下面断言清单里有子包的文件）。
     expect(analysis.moduleSeeds).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
