@@ -31,9 +31,12 @@ describe('Host Agent ProjectContext direct switch', () => {
     });
     const dimensions = selectProjectContextDimensions(analysis.dimensions).slice(0, 2);
 
+    // 模块明细由 map 一次带回，不再有单独的 module 请求；presenterInput.modules 照样有明细。
     expect(analysis.requestKinds).toEqual(
-      expect.arrayContaining(['space', 'repo', 'map', 'module', 'file-flow', 'file-symbols'])
+      expect.arrayContaining(['space', 'repo', 'map', 'file-flow', 'file-symbols'])
     );
+    expect(analysis.requestKinds).not.toContain('module');
+    expect(analysis.presenterInput.modules.length).toBeGreaterThan(0);
     expect(analysis.presenterInput.project.projectRoot).toBe(projectRoot);
     expect(analysis.presenterInput.files.map((file) => file.filePath)).toContain('src/index.ts');
 

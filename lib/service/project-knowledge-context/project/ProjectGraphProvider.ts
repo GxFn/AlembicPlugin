@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import Logger from '@alembic/core/logging';
 import type {
   AnchorRangeContext,
   FileFlowContext,
@@ -2462,7 +2463,15 @@ function addRepoContextNodes(
       relations.add(nodes, fileId, 'entrypointFor', packageId);
     }
   }
-  for (const area of [...repo.sourceRoots, ...repo.topAreas]) {
+  // 模块节点同样来自 repo 的模块划分；旧结果不带划分时退回源码根与顶层目录。
+  const moduleAreas =
+    repo.modules && repo.modules.length > 0
+      ? repo.modules.map((module) => ({ label: module.name, path: module.path }))
+      : [...repo.sourceRoots, ...repo.topAreas].map((area) => ({
+          label: path.posix.basename(area.path),
+          path: area.path,
+        }));
+  for (const area of moduleAreas) {
     const areaPath = projectPathFromRepoPath(repo, area.path);
     if (!areaPath || areaPath === '.') {
       continue;
@@ -2470,7 +2479,7 @@ function addRepoContextNodes(
     const moduleId = repoScopedGraphNodeId('module', repo, areaPath);
     nodes.add({
       id: moduleId,
-      label: path.posix.basename(areaPath),
+      label: area.label,
       nodeType: 'module',
       path: areaPath,
     });
@@ -3296,45 +3305,69 @@ async function createGraphModuleSeedsFromRepoContexts(
     signal?.throwIfAborted();
     const repoName = repo.localPackages[0]?.name ?? repo.repo.name;
     const scope = scopeFromRepoContext(repo);
-    const candidatePaths = [
-      ...repo.sourceRoots.map((item) => ({
-        path: projectPathFromRepoPath(repo, item.path),
-        ref: item.ref,
-      })),
-      ...repo.topAreas.map((item) => ({
-        path: projectPathFromRepoPath(repo, item.path),
-        ref: item.ref,
-      })),
-      ...repo.targets.flatMap((target) =>
-        target.refs.map((ref) => ({
-          path: projectPathFromRepoPath(repo, ref.scope.filePath ?? ''),
-          ref,
-        }))
-      ),
-      ...repo.localPackages.flatMap((localPackage) =>
-        localPackage.path
-          ? [
-              {
-                path: projectPathFromRepoPath(repo, localPackage.path),
-                ref: localPackage.ref,
-              },
-            ]
-          : []
-      ),
-      ...repo.entrypoints.flatMap((entrypoint) =>
-        entrypoint.refs.flatMap((ref) => {
-          const filePath = ref.scope.filePath;
-          return isNonEmptyString(filePath)
-            ? [
-                {
-                  path: path.posix.dirname(normalizeRelativePath(filePath)),
-                  ref,
-                },
-              ]
-            : [];
-        })
-      ),
-    ];
+    // 种子只有一个来源：repo 的模块划分（每个模块一个种子，引用原样可作 map / module 的种子）。
+    // 旧结果不带划分时才退回从源码根 / 顶层目录 / 目标 / 本地包 / 入口自己推（与 Core F6 之前的宿主一样）。
+    const partitionCandidates = (repo.modules ?? [])
+      .filter((module) => module.path !== '.')
+      .map((module) => ({
+        moduleName: module.name,
+        path: projectPathFromRepoPath(repo, module.path),
+        ref: module.ref,
+      }));
+    if (partitionCandidates.length === 0 && (repo.modules?.length ?? 0) > 0) {
+      // 划分只有仓库根一个模块：没有可以单独当种子的目录。
+      continue;
+    }
+    const candidatePaths: Array<{ moduleName?: string; path: string; ref?: ProjectContextRef }> =
+      partitionCandidates.length > 0
+        ? partitionCandidates
+        : [
+            ...repo.sourceRoots.map((item) => ({
+              path: projectPathFromRepoPath(repo, item.path),
+              ref: item.ref,
+            })),
+            ...repo.topAreas.map((item) => ({
+              path: projectPathFromRepoPath(repo, item.path),
+              ref: item.ref,
+            })),
+            ...repo.targets.flatMap((target) =>
+              target.refs.map((ref) => ({
+                path: projectPathFromRepoPath(repo, ref.scope.filePath ?? ''),
+                ref,
+              }))
+            ),
+            ...repo.localPackages.flatMap((localPackage) =>
+              localPackage.path
+                ? [
+                    {
+                      path: projectPathFromRepoPath(repo, localPackage.path),
+                      ref: localPackage.ref,
+                    },
+                  ]
+                : []
+            ),
+            ...repo.entrypoints.flatMap((entrypoint) =>
+              entrypoint.refs.flatMap((ref) => {
+                const filePath = ref.scope.filePath;
+                return isNonEmptyString(filePath)
+                  ? [
+                      {
+                        path: path.posix.dirname(normalizeRelativePath(filePath)),
+                        ref,
+                      },
+                    ]
+                  : [];
+              })
+            ),
+          ];
+    if (partitionCandidates.length === 0) {
+      Logger.debug(
+        '[ProjectGraph] repo has no module partition; module seeds derived from roots, areas, targets and entrypoints',
+        {
+          repoId: repo.repo.id,
+        }
+      );
+    }
     for (const candidate of candidatePaths) {
       signal?.throwIfAborted();
       const refPath = candidate.ref?.scope.filePath;
@@ -3369,7 +3402,7 @@ async function createGraphModuleSeedsFromRepoContexts(
       if (!seeds.has(key)) {
         seeds.set(key, {
           payload: {
-            moduleName: path.posix.basename(modulePath),
+            moduleName: candidate.moduleName ?? path.posix.basename(modulePath),
             modulePath,
             ...(candidate.ref === undefined ? {} : { ref: candidate.ref }),
           },

@@ -226,8 +226,10 @@ export async function buildHostAgentProjectContextAnalysis(
     return certified;
   }
   // F6（2026-10-06）：非认证分支的采集交给 Core 的共用采集器——请求顺序、种子（仓库的模块划分）、
-  // 源码清单、语言统计都在 Core；这里只留 Plugin 自己的上限（25 / 3 / 8、不取正文）与范围
+  // 源码清单、语言统计都在 Core；这里只留 Plugin 自己的上限（模块明细 3、文件明细 8、不取正文）与范围
   // （sourceFolders 原样作为 space 的文件夹，第一个是 repo 的主仓库；moduleScope 过滤模块）。
+  // 模块种子默认不设上限（2026-10-07，与主体一致）：划分出的模块数本身有界，旧上限 25 在大项目上会按
+  // 文件数挤掉模块；调用方仍可显式传 maxModuleSeeds。
   const maxFiles = readPositiveInteger(input.maxFiles);
   const sourceFolders = normalizeProjectContextSourceFolders(input.sourceFolders);
   const moduleScope = (input.moduleScope ?? []).map(normalizeProjectContextPath).filter(isPresent);
@@ -236,7 +238,7 @@ export async function buildHostAgentProjectContextAnalysis(
       ...(maxFiles !== undefined ? { maxFiles } : {}),
       maxFileDetails: input.maxFileDetails ?? 8,
       maxModuleDetails: input.maxModuleDetails ?? 3,
-      maxModuleSeeds: input.maxModuleSeeds ?? 25,
+      ...(input.maxModuleSeeds !== undefined ? { maxModuleSeeds: input.maxModuleSeeds } : {}),
       sourceSliceLines: 0,
     },
     scope: {
