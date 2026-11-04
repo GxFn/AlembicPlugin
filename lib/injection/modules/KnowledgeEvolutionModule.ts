@@ -18,6 +18,7 @@ import {
   RecipeProductionGateway,
   SourceRefReconciler,
 } from '@alembic/core/knowledge';
+import Logger from '@alembic/core/logging';
 import { findSimilarRecipes } from '@alembic/core/service/candidate';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import {
@@ -107,7 +108,10 @@ function registerEvolutionAnalysisServices(c: ServiceContainer) {
     const vectorStore = ct.services.vectorStore ? ct.get('vectorStore') : null;
     return createRecipeEmbeddingSimProvider({
       vectorStore,
-      logger: (ct.singletons.logger as SimProviderLogger | undefined) ?? null,
+      // singletons.logger 在 lib 内从不赋值；过去这里恒为 null，降级原因（无 vectorStore /
+      // 预热失败回退 Jaccard）被静默丢弃。未显式注入时使用 Core Logger（MCP 模式下不写
+      // stdout，避免污染 JSON-RPC 通道），不得改用 console。
+      logger: (ct.singletons.logger as SimProviderLogger | undefined) ?? Logger.getInstance(),
     });
   });
 

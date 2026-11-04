@@ -9,6 +9,7 @@
  * 依赖 InfraModule 先注册: eventBus, database
  */
 
+import Logger from '@alembic/core/logging';
 import type { EmbedLaneSelection, FetchLike } from '@alembic/core/vector';
 import { VectorService } from '@alembic/core/vector';
 import type { ContextualEnricher } from '#recipe-pipeline/vector/ContextualEnricher.js';
@@ -26,6 +27,81 @@ import type { ServiceContainer } from '../ServiceContainer.js';
 // populated by prepareLocalEmbedProvider() (async probe) before the vectorService
 // factory first runs, so the sync factory can read the selected provider.
 const LOCAL_EMBED_SELECTION_KEY = '_localEmbedSelection';
+
+interface VectorModuleLogger {
+  info?: (...args: unknown[]) => void;
+  warn?: (...args: unknown[]) => void;
+  error?: (...args: unknown[]) => void;
+}
+
+/**
+ * 解析本模块日志端口。
+ *
+ * MCP stdio 模式下 stdout 是 JSON-RPC 协议通道：绝不能回退到 `console`（console.info/log
+ * 写 stdout，会把非 JSON 行混进协议流）。singletons.logger 仅作为显式注入的测试/宿主接缝；
+ * 未注入时（生产路径，lib 内从不赋值）统一走 Core Logger —— MCP 模式下它不挂 Console
+ * transport，非 MCP 模式下 Console transport 的所有级别都走 stderr。
+ *
+ * MCP 模式下宿主只能通过 server stderr 看到诊断，因此 warn/error 在 Core Logger 之外再
+ * 镜像一行到 process.stderr（info 只留在 Core Logger，避免噪音）；Core Logger 已挂 Console
+ * transport 时不镜像，避免同一条警告在 stderr 出现两次。
+ */
+function resolveVectorModuleLogger(c: ServiceContainer): VectorModuleLogger {
+  const injected = c.singletons.logger as VectorModuleLogger | undefined;
+  if (injected) {
+    return injected;
+  }
+  const core = Logger.getInstance();
+  return {
+    info: (...args: unknown[]) => {
+      (core.info as (...a: unknown[]) => unknown)(...args);
+    },
+    warn: (...args: unknown[]) => {
+      (core.warn as (...a: unknown[]) => unknown)(...args);
+      mirrorToStderr(core, 'warn', args);
+    },
+    error: (...args: unknown[]) => {
+      (core.error as (...a: unknown[]) => unknown)(...args);
+      mirrorToStderr(core, 'error', args);
+    },
+  };
+}
+
+/** 把 warn/error 以单行文本写到 stderr（绝不写 stdout）；已有 Console transport 时跳过。 */
+function mirrorToStderr(
+  core: ReturnType<typeof Logger.getInstance>,
+  level: 'warn' | 'error',
+  args: unknown[]
+): void {
+  // winston Console transport 运行时带 name='console'，但 TransportStream 类型未声明 name。
+  const hasConsoleTransport = core.transports.some(
+    (transport) => (transport as { name?: unknown }).name === 'console'
+  );
+  if (hasConsoleTransport) {
+    return;
+  }
+  const text = args
+    .map((arg) => {
+      if (typeof arg === 'string') {
+        return arg;
+      }
+      try {
+        return JSON.stringify(arg);
+      } catch (err: unknown) {
+        // meta 无法序列化（循环引用等）时退回 String()，保证警告本身仍能输出。
+        return `${String(arg)} (unserializable: ${err instanceof Error ? err.message : String(err)})`;
+      }
+    })
+    .join(' ');
+  try {
+    process.stderr.write(`[alembic] ${level.toUpperCase()} ${text}\n`);
+  } catch (err: unknown) {
+    // stderr 已关闭（宿主断开）时无处可写；原始警告已进 Core Logger，这里只补一条 debug 诊断。
+    core.debug(
+      `[VectorModule] stderr mirror skipped: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
 
 function selectedEmbedProvider(c: ServiceContainer): EmbedLaneSelection['provider'] {
   const selection = (c.singletons as Record<string, unknown>)[LOCAL_EMBED_SELECTION_KEY] as
@@ -113,10 +189,9 @@ export async function initializeVectorService(c: ServiceContainer): Promise<void
       const vectorService = c.get('vectorService') as InstanceType<typeof VectorService>;
       await vectorService.initialize();
     } catch (err: unknown) {
-      const logger = c.singletons.logger || console;
-      (logger as { warn?: (...args: unknown[]) => void }).warn?.(
+      resolveVectorModuleLogger(c).warn?.(
         '[VectorModule] VectorService initialization failed (non-blocking)',
-        { error: (err as Error).message }
+        { error: err instanceof Error ? err.message : String(err) }
       );
     }
   }
@@ -133,8 +208,7 @@ export async function initializeVectorService(c: ServiceContainer): Promise<void
       await embeddingSimProvider.preheat();
     }
   } catch (err: unknown) {
-    const logger = c.singletons.logger || console;
-    (logger as { warn?: (...args: unknown[]) => void }).warn?.(
+    resolveVectorModuleLogger(c).warn?.(
       '[VectorModule] embedding-sim provider preheat failed (non-blocking, Jaccard fallback)',
       { error: err instanceof Error ? err.message : String(err) }
     );
@@ -154,10 +228,8 @@ export async function prepareLocalEmbedProvider(
 ): Promise<void> {
   const vectorConfig = (c.singletons._config as Record<string, unknown> | undefined)?.vector;
   const localConfig = resolveLocalEmbeddingConfig(vectorConfig);
-  const logger =
-    (c.singletons.logger as
-      | { info?: (...a: unknown[]) => void; warn?: (...a: unknown[]) => void }
-      | undefined) ?? console;
+  // 不得回退 console：该函数在 MCP 容器初始化期间运行，console.info 会污染 stdout 协议通道。
+  const logger = resolveVectorModuleLogger(c);
   const singletons = c.singletons as Record<string, unknown>;
 
   if (!localConfig.enabled) {
@@ -185,7 +257,7 @@ export async function prepareLocalEmbedProvider(
     singletons[LOCAL_EMBED_SELECTION_KEY] = undefined;
     logger.warn?.(
       '[VectorModule] local embedding selection failed (non-blocking); using keyword baseline.',
-      { error: (err as Error).message }
+      { error: err instanceof Error ? err.message : String(err) }
     );
   }
 }
