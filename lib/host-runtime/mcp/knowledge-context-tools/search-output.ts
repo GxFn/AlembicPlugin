@@ -6,17 +6,24 @@
  * CallToolResult, so this projector advertises the AlembicSearchOutput schema in
  * tools/list and provides a typed fallback projection.
  */
-import { z } from 'zod';
-import { AlembicSearchOutputSchema } from '#service/project-knowledge-context/index.js';
-import { isStrictPublicationErrorCode } from '../../context/StrictPublicationError.js';
-import { HOST_NEUTRAL_INTERNAL_ERROR_CODE, normalizeHostMcpErrorCode } from '../error-taxonomy.js';
+import type { z } from 'zod';
+import {
+  AlembicSearchOutputSchema,
+  SearchNextActionSchema,
+} from '#service/project-knowledge-context/index.js';
+import {
+  type KnowledgeUnavailableProjection,
+  readKnowledgeUnavailableResult,
+} from '../host/knowledge-unavailable-result.js';
 import {
   CleanMcpErrorSchema,
   type CleanMcpResponse,
   createCleanMcpError,
+  type McpClassifiedFailure,
+  readMcpCleanErrorFailure,
+  readMcpProducerFailure,
   registerMcpOutputProjector,
 } from '../output-contract.js';
-import { ProjectRuntimeContextV3Schema } from '../project-runtime-output-schema.js';
 
 export const SEARCH_CLEAN_OUTPUT_TOOL_NAMES = ['alembic_search'] as const;
 
@@ -24,42 +31,36 @@ const AlembicSearchCleanOutputSchema = AlembicSearchOutputSchema.extend({
   error: CleanMcpErrorSchema.optional(),
 }) as unknown as z.ZodType<CleanMcpResponse>;
 
-const SearchProducerFailureSchema = z
-  .object({
-    success: z.literal(false),
-    data: z
-      .object({
-        projectRuntime: ProjectRuntimeContextV3Schema,
-        retryable: z.boolean().optional(),
-      })
-      .strict(),
-    errorCode: z.string().min(1).max(120),
-    message: z.string().min(1).max(4000),
-    tool: z.literal('alembic_search'),
-  })
-  .strict();
-
 function projectAlembicSearchCleanOutput(input: unknown): CleanMcpResponse {
   const parsed = AlembicSearchCleanOutputSchema.safeParse(input);
   if (parsed.success) {
     return parsed.data as unknown as CleanMcpResponse;
   }
-  const producerFailure = SearchProducerFailureSchema.safeParse(input);
-  if (producerFailure.success) {
-    const errorCode = normalizeHostMcpErrorCode(producerFailure.data.errorCode);
-    if (isPreservedSearchProducerFailureCode(errorCode)) {
-      return buildAlembicSearchProducerFailure(producerFailure.data, errorCode);
-    }
+  // 只读 producer 的知识不可用结果（无数据库 / strict route 缺失）投影为原生 unavailable，
+  // 而不是契约不匹配失败。
+  const unavailable = readKnowledgeUnavailableResult(input, 'alembic_search');
+  if (unavailable) {
+    return buildAlembicSearchUnavailableOutput(unavailable);
+  }
+  // 通用 clean 错误（PROJECT_ROOT_REQUIRED / wrapHandler 错误）与 failureResult 形态的
+  // producer 失败（任意错误码，含续页 CURSOR_EXPIRED / FACTS_CHANGED）都已分类：保留
+  // 原始 error（code/message/retryable/details），不能退化成泛化的 output-contract-mismatch。
+  const failure =
+    readMcpCleanErrorFailure(input, 'alembic_search') ??
+    readMcpProducerFailure(input, 'alembic_search');
+  if (failure) {
+    process.stderr.write(
+      `[MCP/alembic_search] projected producer error ${failure.error.code} (retryable=${failure.error.retryable}) into AlembicSearchOutput\n`
+    );
+    return buildAlembicSearchProducerFailure(failure);
   }
   return buildAlembicSearchProjectionFailure();
 }
 
-function buildAlembicSearchProducerFailure(
-  input: z.infer<typeof SearchProducerFailureSchema>,
-  errorCode: string
-): CleanMcpResponse {
-  const summary = input.message.slice(0, 2000);
-  const retryable = input.data.retryable ?? errorCode === 'TOOL_TIMEOUT';
+function buildAlembicSearchProducerFailure(failure: McpClassifiedFailure): CleanMcpResponse {
+  const errorCode = failure.error.code;
+  const summary = failure.summary.slice(0, 2000);
+  const retryable = failure.error.retryable;
   return AlembicSearchCleanOutputSchema.parse({
     ok: false,
     status: 'failed',
@@ -78,12 +79,8 @@ function buildAlembicSearchProducerFailure(
         severity: 'error',
       },
     ],
-    nextActions: [],
-    error: createCleanMcpError({
-      code: errorCode,
-      message: summary,
-      status: 'failed',
-    }),
+    nextActions: projectSearchNextActions(failure.nextActions),
+    error: failure.error,
     meta: {
       contractVersion: 1,
       outputSchema: 'AlembicSearchOutput',
@@ -92,12 +89,69 @@ function buildAlembicSearchProducerFailure(
   }) as unknown as CleanMcpResponse;
 }
 
-function isPreservedSearchProducerFailureCode(errorCode: string): boolean {
-  return (
-    errorCode === HOST_NEUTRAL_INTERNAL_ERROR_CODE ||
-    errorCode === 'TOOL_TIMEOUT' ||
-    isStrictPublicationErrorCode(errorCode)
+/**
+ * 知识不可用的原生 search 输出。
+ * - legacy（无数据库，项目未初始化）：不是工具失败——ok=true、isError 不置位，status 取
+ *   search 状态词表中的 'degraded'（工具可用但知识层缺席），并给出 alembic_init 指引；
+ *   投影绝不触发初始化。
+ * - strict route 缺失：已初始化项目的发布故障，保持 ok=false/isError（既有 strict 传输契约），
+ *   status 取 'blocked'（发布修复之前无法提供知识），error.code 保留原因码。
+ */
+function buildAlembicSearchUnavailableOutput(
+  unavailable: KnowledgeUnavailableProjection
+): CleanMcpResponse {
+  const summary = unavailable.summary.slice(0, 2000);
+  process.stderr.write(
+    `[MCP/alembic_search] knowledge unavailable (${unavailable.reasonCode}); returning native ${unavailable.strictRouteUnavailable ? 'blocked' : 'degraded'} output without initializing\n`
   );
+  return AlembicSearchCleanOutputSchema.parse({
+    ok: !unavailable.strictRouteUnavailable,
+    status: unavailable.strictRouteUnavailable ? 'blocked' : 'degraded',
+    tool: 'alembic_search',
+    toolName: 'alembic_search',
+    operation: 'search',
+    summary,
+    items: [],
+    detailRefs: [],
+    sources: [],
+    diagnostics: [
+      {
+        code: unavailable.reasonCode,
+        domain: 'knowledge',
+        message: summary.slice(0, 800),
+        retryable: false,
+        severity: 'info',
+      },
+    ],
+    nextActions: projectSearchNextActions(unavailable.nextActions),
+    ...(unavailable.strictRouteUnavailable
+      ? {
+          error: createCleanMcpError({
+            code: unavailable.reasonCode,
+            failureKind: 'unavailable',
+            message: summary,
+            retryable: false,
+            status: 'blocked',
+          }),
+        }
+      : {}),
+    meta: {
+      contractVersion: 1,
+      outputSchema: 'AlembicSearchOutput',
+      producer: 'alembic-search-clean-output-projector',
+    },
+  }) as unknown as CleanMcpResponse;
+}
+
+/** producer 指引中满足 SearchNextAction 契约的条目（字符串指引已在 error.details 中保留）。 */
+function projectSearchNextActions(value: unknown): z.infer<typeof SearchNextActionSchema>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.slice(0, 20).flatMap((entry) => {
+    const parsed = SearchNextActionSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
 }
 
 function buildAlembicSearchProjectionFailure(): CleanMcpResponse {

@@ -1,26 +1,36 @@
 import type { CoreFieldFailureKind } from '@alembic/core/shared';
 import { z } from 'zod';
+import { resolveHostRuntimeContext } from '#host-runtime/context/RuntimeContext.js';
 import {
   CollectionCoverageSchema,
   ConclusionDispositionSchema,
 } from '#service/project-knowledge-context/contracts/ToolOutputPrimitives.js';
 import { normalizeHostMcpErrorCode } from '../error-taxonomy.js';
 import {
+  type KnowledgeUnavailableProjection,
+  KnowledgeUnavailableResultSchema,
+  toKnowledgeUnavailableProjection,
+} from '../host/knowledge-unavailable-result.js';
+import {
+  type CleanMcpError,
+  type CleanMcpErrorResponse,
   CleanMcpResponseBaseSchema,
   createCleanMcpError,
   createCleanMcpResponse,
+  logProducerFailureMessageTruncation,
+  ProducerFailureMessageSchema,
+  ProducerNextActionsSchema,
+  ProducerRequiredActionsSchema,
+  readCleanMcpErrorResponse,
   registerMcpOutputProjector,
 } from '../output-contract.js';
-import {
-  ProjectRuntimeContextV3Schema,
-  StrictUnavailableProjectRuntimeContextV3Schema,
-  StrictUnavailablePublicationProvenanceSchema,
-} from '../project-runtime-output-schema.js';
+import { ProjectRuntimeContextV3Schema } from '../project-runtime-output-schema.js';
 import {
   AGENT_PUBLIC_TOOL_ACTION_BY_NAME,
   AGENT_PUBLIC_TOOL_NAMES,
   AgentActionKindSchema,
   AgentDetailRefSchema,
+  type AgentHost,
   AgentHostSchema,
   AgentInputSourceSchema,
   type AgentPublicToolName,
@@ -971,91 +981,24 @@ function describePayloadType(
     : 'object';
 }
 
-const StrictRouteUnavailableDiagnosticSchema = PrimeDiagnosticSchema.safeExtend({
-  code: z.literal('strict-publication-route-unavailable'),
-  severity: z.literal('info'),
-  retryable: z.literal(false),
-}).strict();
-
-// 这是只读 host producer 的已知 route-unavailable v3 形态。最外层与 data 都
-// strict；projectRuntime 是显式版本化 carrier，不能再用 data.status 的单字段
-// 猜测把任意对象吞进 fallback。
-const AgentPublicKnownUnavailableResultSchema = z
-  .object({
-    success: z.literal(true),
-    data: z
-      .object({
-        status: z.literal('unavailable'),
-        summary: PublicStringSchema,
-        items: z.array(z.never()).max(0),
-        results: z.array(z.never()).max(0),
-        relations: z.array(z.never()).max(0),
-        diagnostics: z.tuple([StrictRouteUnavailableDiagnosticSchema]),
-        nextActions: z.array(z.never()).max(0),
-        project: z
-          .object({
-            projectRoot: z.string().min(1).max(1200),
-            projectId: z.string().nullable(),
-            dataRoot: z.string().min(1).max(1200),
-            databasePath: z.string().min(1).max(1200),
-            databaseExists: z.literal(false),
-            publication: StrictUnavailablePublicationProvenanceSchema,
-          })
-          .strict(),
-        projectRuntime: StrictUnavailableProjectRuntimeContextV3Schema,
-      })
-      .strict(),
-    message: PublicStringSchema,
-    toolName: z.enum(['alembic_prime', 'alembic_code_guard']),
-  })
-  .strict()
-  .superRefine((output, ctx) => {
-    if (output.message !== output.data.summary) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['message'],
-        message: 'message must match data.summary for the known unavailable result',
-      });
-    }
-    if (output.message !== output.data.diagnostics[0].message) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['data', 'diagnostics', 0, 'message'],
-        message: 'diagnostic message must match the known unavailable summary',
-      });
-    }
-    const identity = output.data.projectRuntime.identity;
-    const project = output.data.project;
-    for (const [field, expected, actual] of [
-      ['projectRoot', identity.projectRoot, project.projectRoot],
-      ['projectId', identity.projectId, project.projectId],
-      ['dataRoot', identity.dataRoot, project.dataRoot],
-      ['databasePath', identity.databasePath, project.databasePath],
-    ] as const) {
-      if (expected !== actual) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['data', 'project', field],
-          message: `${field} must match projectRuntime.identity`,
-        });
-      }
-    }
-  });
-
 // EmbeddedToolExecutor 的 producer failure 只允许既有、封闭的字段集合。额外
 // 字段必须变成带 Zod 诊断的显式 projection-rejected failure，禁止静默删除后
-// 伪装成一个合法 handler-error。
+// 伪装成一个合法 handler-error。projectRuntime 可缺省：执行上下文建立之前的
+// failureResult（如未初始化项目）同样必须保留原始错误码。
 const AgentPublicProducerFailureSchema = z
   .object({
     success: z.literal(false),
     data: z
       .object({
-        projectRuntime: ProjectRuntimeContextV3Schema,
+        nextActions: ProducerNextActionsSchema.optional(),
+        projectRuntime: ProjectRuntimeContextV3Schema.optional(),
+        requiredActions: ProducerRequiredActionsSchema.optional(),
         retryable: z.boolean().optional(),
       })
       .strict(),
     errorCode: z.string().min(1).max(120),
-    message: z.string().min(1).max(4000),
+    // 超长消息截断而非拒绝，见 ProducerFailureMessageSchema。
+    message: ProducerFailureMessageSchema,
     tool: AgentPublicToolNameSchema,
   })
   .strict();
@@ -1067,9 +1010,20 @@ function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolN
     return parsed.data;
   }
 
-  const unavailable = AgentPublicKnownUnavailableResultSchema.safeParse(input);
+  // 通用 clean 错误（HostMcpServer 的 PROJECT_ROOT_REQUIRED、wrapHandler 的
+  // VALIDATION_ERROR/业务异常）已带分类：投影为合规失败输出并保留原始 error。
+  const cleanError = readCleanMcpErrorResponse(input, toolName);
+  if (cleanError) {
+    return projectCleanErrorAgentOutput(cleanError, toolName);
+  }
+
+  // 只读 producer 的知识不可用结果（legacy 无数据库 / strict route 缺失）→ 原生 unavailable。
+  const unavailable = KnowledgeUnavailableResultSchema.safeParse(input);
   if (unavailable.success && unavailable.data.toolName === toolName) {
-    return projectKnownUnavailableAgentOutput(unavailable.data, toolName);
+    return projectKnownUnavailableAgentOutput(
+      toKnowledgeUnavailableProjection(unavailable.data),
+      toolName
+    );
   }
 
   const producerFailure = AgentPublicProducerFailureSchema.safeParse(input);
@@ -1087,21 +1041,41 @@ function projectAgentPublicToolOutput(input: unknown, toolName: AgentPublicToolN
   );
 }
 
+/**
+ * 知识不可用的 agent-public 原生输出（status 取 AGENT_RESULT_STATUSES 的 'degraded'，
+ * reason=optional-service-unavailable：工具本身可用，知识层缺席）。
+ * - legacy（无数据库，项目未初始化）：不是工具失败——ok=true、无 error、isError 不置位；
+ *   诊断码 knowledge-database-unavailable，prime 的 nextActions 指向 alembic_init（code_guard
+ *   契约没有 nextActions，指引在 summary/诊断消息中）。投影绝不触发初始化。
+ * - strict route 缺失：已初始化项目的发布故障，保持既有 strict 契约 ok=false/isError，
+ *   error.code=strict-publication-route-unavailable。
+ */
 function projectKnownUnavailableAgentOutput(
-  input: z.infer<typeof AgentPublicKnownUnavailableResultSchema>,
+  input: KnowledgeUnavailableProjection,
   toolName: AgentPublicToolName
 ) {
-  const diagnostic = input.data.diagnostics[0];
-  const summary = input.message.slice(0, 600);
+  const summary = input.summary.slice(0, 600);
+  const diagnostic = {
+    code: input.reasonCode,
+    severity: 'info' as const,
+    message: input.summary.slice(0, 800),
+    retryable: false,
+  };
+  if (toolName === 'alembic_code_guard' && !input.strictRouteUnavailable) {
+    return projectGuardSkippedForUninitializedProject(input, diagnostic);
+  }
+  process.stderr.write(
+    `[MCP/PublicTools] ${toolName} knowledge unavailable (${input.reasonCode}); returning native degraded output (ok=${!input.strictRouteUnavailable}) without initializing\n`
+  );
   const result = createAgentPublicToolResultEnvelope({
     actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
-    agentHost: 'codex',
+    agentHost: resolveRuntimeAgentHost(),
     inputSource: 'tool-result',
     reason: {
       kind: 'degraded',
       code: 'optional-service-unavailable',
       message: summary,
-      retryable: diagnostic.retryable,
+      retryable: false,
     },
     refs: { detailRefs: [] },
     status: 'degraded',
@@ -1110,7 +1084,52 @@ function projectKnownUnavailableAgentOutput(
   });
   return createAgentPublicFailureOutput({
     diagnostic,
-    errorCode: diagnostic.code,
+    errorCode: input.reasonCode,
+    nextActions: input.nextActions,
+    ok: !input.strictRouteUnavailable,
+    result,
+    toolName,
+  });
+}
+
+const GUARD_NOT_RUN_SUMMARY =
+  'Guard did not run: this project has no Alembic knowledge database, so no rules were checked and this is not a pass. Call alembic_init to initialize the project, then re-run alembic_code_guard.';
+
+/**
+ * 未初始化项目（legacy 无数据库）上的 code_guard：没有知识库就没有 Guard 引擎，Guard
+ * 根本没有运行。degraded+ok=true 容易被误读为"已检查且干净"，因此投影为 status=skipped。
+ * skip 原因码用专用的 'project-not-initialized'：'no-code-scope' 在 Guard 技能里表示"请提供
+ * files/code"，复用它会把智能体引向重发文件而不是调用 alembic_init。真实原因同时由诊断
+ * knowledge-database-unavailable 与 summary 明示。不附 guard /
+ * guardResultRef / 覆盖等任何结论字段；ok=true、无 error（不是工具失败），绝不自动初始化。
+ */
+function projectGuardSkippedForUninitializedProject(
+  input: KnowledgeUnavailableProjection,
+  diagnostic: z.infer<typeof PrimeDiagnosticSchema>
+) {
+  const toolName = 'alembic_code_guard';
+  process.stderr.write(
+    `[MCP/PublicTools] ${toolName} knowledge unavailable (${input.reasonCode}); Guard did not run, returning skipped (reason=project-not-initialized) without initializing\n`
+  );
+  const result = createAgentPublicToolResultEnvelope({
+    actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
+    agentHost: resolveRuntimeAgentHost(),
+    inputSource: 'tool-result',
+    reason: {
+      kind: 'skip',
+      code: 'project-not-initialized',
+      message: GUARD_NOT_RUN_SUMMARY,
+      retryable: false,
+    },
+    refs: { detailRefs: [] },
+    status: 'skipped',
+    summary: GUARD_NOT_RUN_SUMMARY,
+    toolName,
+  });
+  return createAgentPublicFailureOutput({
+    diagnostic,
+    errorCode: input.reasonCode,
+    ok: true,
     result,
     toolName,
   });
@@ -1120,17 +1139,60 @@ function projectProducerFailureAgentOutput(
   input: z.infer<typeof AgentPublicProducerFailureSchema>,
   toolName: AgentPublicToolName
 ) {
-  const summary = input.message.slice(0, 600);
   const errorCode = normalizeHostMcpErrorCode(input.errorCode);
+  // 截断诊断在此（投影构建处）写一次；schema transform 本身无副作用。
+  logProducerFailureMessageTruncation(toolName, errorCode, input.message);
+  // 分类由原始错误码决定（TOOL_TIMEOUT→timeout、CANCELLED→cancelled…），不再被
+  // 'handler-error' 原因强制成 internal-error；producer 显式 retryable 优先于分类默认。
+  const error = createCleanMcpError({
+    code: errorCode,
+    details: {
+      producerReasonCode: 'handler-error',
+      ...(input.data.requiredActions ? { requiredActions: input.data.requiredActions } : {}),
+      ...(input.data.nextActions ? { nextActions: input.data.nextActions } : {}),
+    },
+    message: input.message.text,
+    ...(typeof input.data.retryable === 'boolean' ? { retryable: input.data.retryable } : {}),
+    status: 'failed',
+  });
+  return projectClassifiedFailureAgentOutput({
+    error,
+    nextActions: input.data.nextActions,
+    summary: input.message.text,
+    toolName,
+  });
+}
+
+function projectCleanErrorAgentOutput(input: CleanMcpErrorResponse, toolName: AgentPublicToolName) {
+  process.stderr.write(
+    `[MCP/PublicTools] ${toolName} projected clean error ${input.error.code} (status=${input.status}, reasonCode=${input.error.reasonCode}) into the agent-public failure output\n`
+  );
+  return projectClassifiedFailureAgentOutput({
+    error: input.error,
+    nextActions: readRecordField(input.error.details, 'nextActions'),
+    summary: input.summary,
+    toolName,
+  });
+}
+
+/** 已分类错误 → agent-public 失败输出：原始 error（code/message/分类/details）原样保留。 */
+function projectClassifiedFailureAgentOutput(input: {
+  error: CleanMcpError;
+  nextActions?: unknown;
+  summary: string;
+  toolName: AgentPublicToolName;
+}) {
+  const { error, toolName } = input;
+  const summary = input.summary.slice(0, 600);
   const result = createAgentPublicToolResultEnvelope({
     actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
-    agentHost: 'codex',
+    agentHost: resolveRuntimeAgentHost(),
     inputSource: 'tool-result',
     reason: {
       kind: 'failure',
       code: 'handler-error',
       message: summary,
-      retryable: input.data.retryable ?? false,
+      retryable: error.retryable,
     },
     refs: { detailRefs: [] },
     status: 'failed',
@@ -1139,15 +1201,41 @@ function projectProducerFailureAgentOutput(
   });
   return createAgentPublicFailureOutput({
     diagnostic: {
-      code: errorCode,
+      code: error.code.slice(0, 160),
       severity: 'error',
       message: summary,
-      retryable: input.data.retryable ?? false,
+      retryable: error.retryable,
     },
-    errorCode,
+    error,
+    errorCode: error.code,
+    nextActions: input.nextActions,
     result,
     toolName,
   });
+}
+
+function readRecordField(value: unknown, key: string): unknown {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/**
+ * 投影层合成失败的 agentHost 取运行时 host（与 status.runtimeIdentity.pluginHost
+ * 同源），不再硬编码 codex；非 AGENT_HOSTS 值时按 shell 形态回退并记录诊断。
+ */
+function resolveRuntimeAgentHost(): AgentHost {
+  const context = resolveHostRuntimeContext();
+  const declared = AgentHostSchema.safeParse(context.pluginHost);
+  if (declared.success) {
+    return declared.data;
+  }
+  const expected = AgentHostSchema.safeParse(context.expectedPluginHost);
+  const fallback: AgentHost = expected.success ? expected.data : 'codex';
+  process.stderr.write(
+    `[MCP/PublicTools] runtime pluginHost "${context.pluginHost}" is not an agent host; synthesized failure uses ${fallback}\n`
+  );
+  return fallback;
 }
 
 function projectRejectedAgentOutput(errors: readonly z.ZodError[], toolName: AgentPublicToolName) {
@@ -1165,7 +1253,7 @@ function projectRejectedAgentOutput(errors: readonly z.ZodError[], toolName: Age
   process.stderr.write(`[MCP/PublicTools] ${summary}\n`);
   const result = createAgentPublicToolResultEnvelope({
     actionKind: AGENT_PUBLIC_TOOL_ACTION_BY_NAME[toolName],
-    agentHost: 'codex',
+    agentHost: resolveRuntimeAgentHost(),
     inputSource: 'tool-result',
     reason: {
       kind: 'failure',
@@ -1193,16 +1281,22 @@ function projectRejectedAgentOutput(errors: readonly z.ZodError[], toolName: Age
 
 function createAgentPublicFailureOutput(input: {
   diagnostic: z.infer<typeof PrimeDiagnosticSchema>;
+  /** 已按原始错误码分类的错误；缺省时按投影原因（unavailable / rejected）合成。 */
+  error?: CleanMcpError;
   errorCode: string;
+  nextActions?: unknown;
+  /** 默认 false（失败）；legacy 知识不可用是非失败的原生 unavailable，传 true 且不附 error。 */
+  ok?: boolean;
   result: AgentPublicToolResultEnvelope;
   toolName: AgentPublicToolName;
 }) {
   const { diagnostic, errorCode, result, toolName } = input;
+  const ok = input.ok ?? false;
   const payload: Record<string, unknown> = { diagnostics: [diagnostic] };
   if (toolName === 'alembic_prime') {
     Object.assign(payload, {
       detailRefs: [],
-      nextActions: [],
+      nextActions: projectPrimeFailureNextActions(input.nextActions),
       primePackage: createPrimePublicPackage({
         compactPackage: {
           acceptedGuards: [],
@@ -1234,21 +1328,37 @@ function createAgentPublicFailureOutput(input: {
       }),
     });
   }
-  const projected = createAgentPublicToolOutput(result, payload, { ok: false });
+  const projected = createAgentPublicToolOutput(result, payload, { ok });
+  if (ok) {
+    return AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[toolName].parse(projected);
+  }
   return AGENT_PUBLIC_TOOL_OUTPUT_SCHEMAS[toolName].parse({
     ...projected,
-    error: createCleanMcpError({
-      code: errorCode,
-      details: {
-        producerReasonCode: result.reason?.code,
-      },
-      message: result.summary,
-      source: {
-        reasonCode: mapAgentPublicReasonFailureKind(result.reason?.code ?? 'handler-error'),
-        retryable: result.reason?.retryable ?? false,
-      },
-      status: result.status,
-    }),
+    error:
+      input.error ??
+      createCleanMcpError({
+        code: errorCode,
+        details: {
+          producerReasonCode: result.reason?.code,
+        },
+        message: result.summary,
+        source: {
+          reasonCode: mapAgentPublicReasonFailureKind(result.reason?.code ?? 'handler-error'),
+          retryable: result.reason?.retryable ?? false,
+        },
+        status: result.status,
+      }),
+  });
+}
+
+/** prime 失败输出的 nextActions：仅保留满足公开 PrimeNextAction 形态的 producer 指引。 */
+function projectPrimeFailureNextActions(value: unknown): z.infer<typeof PrimeNextActionSchema>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.slice(0, 20).flatMap((entry) => {
+    const parsed = PrimeNextActionSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
   });
 }
 

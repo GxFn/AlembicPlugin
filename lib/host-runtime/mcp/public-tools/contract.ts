@@ -44,6 +44,9 @@ export const AGENT_SKIP_REASON_CODES = [
   'mechanical-envelope-only',
   'no-work-scope',
   'no-code-scope',
+  // 项目尚未 alembic_init（没有知识库）时工具未执行；与 no-code-scope（缺少检查范围）区分，
+  // 避免智能体误以为应重发 files/code。增量枚举值，对既有输出向后兼容。
+  'project-not-initialized',
 ] as const;
 
 export const AGENT_DEGRADED_REASON_CODES = [

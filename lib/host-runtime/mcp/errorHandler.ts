@@ -20,9 +20,26 @@ import {
 } from '@alembic/core/shared';
 import { z } from 'zod';
 import { TOOL_SCHEMAS } from '#shared/schemas/mcp-tools.js';
-import { createCleanMcpErrorResponse, createMcpStructuredToolResult } from './output-contract.js';
+import {
+  createCleanMcpErrorResponse,
+  createProjectedMcpErrorToolResult,
+} from './output-contract.js';
 
 const logger = Logger.getInstance();
+
+/** 所有 Zod 入参校验失败共用的消息前缀（wrapHandler / 只读执行器 / alembic_job 预校验）。 */
+export const VALIDATION_ERROR_MESSAGE_PREFIX = '输入校验失败: ';
+
+/**
+ * Zod 校验失败的唯一格式化来源：`输入校验失败: <path>: <message>[; ...]`。
+ * 三个入口必须共用它，保证同一坏入参无论从哪个工具进入都得到同一线路消息。
+ */
+export function formatZodValidationMessage(error: z.ZodError): string {
+  const details = error.issues
+    .map((issue: z.core.$ZodIssue) => `${issue.path.join('.')}: ${issue.message}`)
+    .join('; ');
+  return `${VALIDATION_ERROR_MESSAGE_PREFIX}${details}`;
+}
 
 /** Error-like object with optional code and details */
 interface ErrorWithDetails extends Error {
@@ -117,12 +134,12 @@ export function wrapHandler(toolName: string, handlerFn: McpHandlerFn, schema?: 
 
       // Zod 校验错误 → 结构化 VALIDATION_ERROR
       if (err instanceof z.ZodError) {
-        const details = err.issues
-          .map((e: z.core.$ZodIssue) => `${e.path.join('.')}: ${e.message}`)
-          .join('; ');
-        const msg = `输入校验失败: ${details}`;
+        const msg = formatZodValidationMessage(err);
         logger.warn(`[MCP:${toolName}] VALIDATION_ERROR: ${msg}`);
-        return createMcpStructuredToolResult(
+        // 错误也必须满足该工具已发布的 outputSchema（SDK 客户端对 isError 结果同样校验），
+        // 有投影器的工具（如 agent-public）在这里投影为其合规失败形态。
+        return createProjectedMcpErrorToolResult(
+          toolName,
           createCleanMcpErrorResponse({
             code: 'VALIDATION_ERROR',
             message: msg,
@@ -144,7 +161,8 @@ export function wrapHandler(toolName: string, handlerFn: McpHandlerFn, schema?: 
         ...(errDetails ? { details: errDetails } : {}),
       });
 
-      return createMcpStructuredToolResult(
+      return createProjectedMcpErrorToolResult(
+        toolName,
         createCleanMcpErrorResponse({
           code: errorCode,
           ...(errDetails ? { details: errDetails } : {}),

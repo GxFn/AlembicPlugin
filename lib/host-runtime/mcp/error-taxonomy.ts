@@ -47,6 +47,11 @@ export interface CreateCleanMcpFailureTaxonomyInput {
   code?: string;
   details?: unknown;
   failureKind?: CoreFieldFailureKind;
+  /**
+   * producer 显式声明的可重试性（如 failureResult data.retryable）。优先于
+   * provider problem 与分类默认值：分类只决定失败种类，不得吞掉 producer 已知的重试事实。
+   */
+  retryable?: boolean;
   source?: unknown;
   status?: string;
 }
@@ -80,6 +85,8 @@ const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   CODEX_HOST_PROJECT_DISCONNECTED: 'unavailable',
   CODEX_HOST_PROJECT_MISMATCH: 'conflict',
   CODEX_INVALID_PROJECT_ROOT_ARGUMENT: 'invalid-input',
+  // alembic_runtime 缺少 action='cleanup'：调用方可修复的输入问题。
+  CODEX_RUNTIME_ACTION_REQUIRED: 'invalid-input',
   // Deprecated compatibility alias. New runtime producers emit INTERNAL_ERROR.
   [DEPRECATED_CODEX_MCP_ERROR_CODE]: 'internal-error',
   CODEX_TOOL_NOT_AVAILABLE: 'capability-mismatch',
@@ -106,6 +113,30 @@ const LEGACY_ERROR_CODE_FAILURE_KINDS: Record<string, CoreFieldFailureKind> = {
   NOTHING_TO_UPDATE: 'invalid-input',
   PERMISSION_DENIED: 'permission-denied',
   PLACEHOLDER_EVIDENCE: 'invalid-input',
+  // Plan 生成门：未确认 Plan 需要 draft→confirm（确认类）；并发生成是状态冲突；
+  // 载荷缺失/非法是调用方可修复输入；get 已随无状态契约移除（能力不匹配）；
+  // ProjectContext 无文件/模块与认证模块轴阻断都要求项目状态先改变。
+  PLAN_CERTIFIED_MODULE_AXIS_BLOCKED: 'conflict',
+  PLAN_CONFIRM_PAYLOAD_INVALID: 'invalid-input',
+  PLAN_CONFIRM_PAYLOAD_REQUIRED: 'invalid-input',
+  PLAN_GENERATION_IN_PROGRESS: 'conflict',
+  PLAN_GET_REMOVED: 'capability-mismatch',
+  PLAN_PROJECT_CONTEXT_EMPTY: 'not-found',
+  PLAN_REQUIRED: 'needs-confirmation',
+  // ProjectContext 续页：分类按失败语义取——事实在翻页间变化是与当前状态冲突（conflict），
+  // 过期游标指向的续页资源已不存在（not-found）；二者都不是部分结果或宿主不可用。
+  // 可重试性不靠分类默认值：embedded-executor 总是把 producer 的 retryable 显式传入
+  // （createCleanMcpError 的 retryable 覆盖优先）。未知游标/会话是输入问题；
+  // 跨项目游标是隔离边界拒绝。
+  PROJECT_CONTEXT_CURSOR_CONFINED: 'permission-denied',
+  PROJECT_CONTEXT_CURSOR_EXPIRED: 'not-found',
+  PROJECT_CONTEXT_CURSOR_INVALID: 'invalid-input',
+  PROJECT_CONTEXT_FACT_SESSION_INVALID: 'invalid-input',
+  PROJECT_CONTEXT_FACTS_CHANGED: 'conflict',
+  // 项目未初始化：Alembic 工作区资源不存在，初始化（状态变化）后重试。
+  PROJECT_NOT_INITIALIZED: 'not-found',
+  // 项目根无法解析：调用方需提供绝对 projectRoot 参数（输入修复）。
+  PROJECT_ROOT_REQUIRED: 'invalid-input',
   PROVIDER_ERROR: 'provider-error',
   QUALITY_GATE_FAILED: 'invalid-input',
   RATE_LIMIT: 'unavailable',
@@ -184,9 +215,11 @@ export function createCleanMcpFailureTaxonomy(
     refPolicy: taxonomy.refPolicy satisfies CoreFailureRefPolicy,
     retryPolicy: taxonomy.retryPolicy satisfies CoreFailureRetryPolicy,
     retryable:
-      typeof providerProblem?.retryable === 'boolean'
-        ? providerProblem.retryable
-        : taxonomy.retryable,
+      typeof input.retryable === 'boolean'
+        ? input.retryable
+        : typeof providerProblem?.retryable === 'boolean'
+          ? providerProblem.retryable
+          : taxonomy.retryable,
     taxonomyVersion: CORE_FAILURE_TAXONOMY_VERSION,
   });
 }
