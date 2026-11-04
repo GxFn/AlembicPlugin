@@ -56,6 +56,50 @@ const logger = Logger.getInstance();
 
 const BOOTSTRAP_COMPLETE_ACTIONS: Array<{ action: string; prompt: string; tool: string }> = [];
 
+/**
+ * 进程内记录：哪些 session 的末维度 knowledge-skill auto-sync 已成功执行过。
+ * 不能用 Core markDimensionComplete 的 per-dimension updated 判定——Core 在插件质量检查前就把维度
+ * 标记为完成，首次提交质量不合格时重试必然 updated=true，会永久跳过 auto-sync。
+ * refresh 是幂等的，进程重启丢失记录后重跑一次无害；容量有上限，按插入顺序淘汰最旧记录。
+ */
+const KNOWLEDGE_SKILL_AUTO_SYNC_LEDGER_LIMIT = 256;
+// 采用 doctrine lint 认可的 null-slot 惰性槽（managed lifecycle）：首次使用时创建，测试可整体重置。
+let knowledgeSkillAutoSyncLedgerSlot: Set<string> | null = null;
+
+function knowledgeSkillAutoSyncLedger(): Set<string> {
+  if (knowledgeSkillAutoSyncLedgerSlot === null) {
+    knowledgeSkillAutoSyncLedgerSlot = new Set<string>();
+  }
+  return knowledgeSkillAutoSyncLedgerSlot;
+}
+
+function knowledgeSkillAutoSyncLedgerKey(session: HostAgentWorkflowSession): string {
+  return `${session.projectRoot}\u0000${session.id}`;
+}
+
+function hasKnowledgeSkillAutoSyncSucceeded(session: HostAgentWorkflowSession): boolean {
+  return knowledgeSkillAutoSyncLedger().has(knowledgeSkillAutoSyncLedgerKey(session));
+}
+
+function recordKnowledgeSkillAutoSyncSuccess(session: HostAgentWorkflowSession): void {
+  const ledger = knowledgeSkillAutoSyncLedger();
+  const key = knowledgeSkillAutoSyncLedgerKey(session);
+  ledger.delete(key);
+  ledger.add(key);
+  while (ledger.size > KNOWLEDGE_SKILL_AUTO_SYNC_LEDGER_LIMIT) {
+    const oldest = ledger.values().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    ledger.delete(oldest);
+  }
+}
+
+/** 测试专用：清空进程内 auto-sync 成功记录，避免用例间共享 session id 互相影响。 */
+export function _resetKnowledgeSkillAutoSyncLedgerForTesting(): void {
+  knowledgeSkillAutoSyncLedgerSlot = null;
+}
+
 export interface HostAgentDimensionCompleteArgs {
   sessionId?: unknown;
   dimensionId?: unknown;
@@ -188,6 +232,7 @@ export interface HostAgentWorkflowSession {
       candidateCount: number;
     }
   ): {
+    /** Core 语义：true 表示该维度此前已完成、本次为覆盖；首次完成为 false。 */
     updated: boolean;
     qualityReport?: {
       totalScore: number;
@@ -684,6 +729,7 @@ async function persistAndBroadcastDimensionCompletion({
     knowledgeSkillAutoSync = await refreshKnowledgeSkillsAfterFinalCompletion({
       ctx,
       dependencies,
+      session,
       updated,
     });
   }
@@ -1277,20 +1323,31 @@ function buildDimensionCompletionSuccessResponse({
 async function refreshKnowledgeSkillsAfterFinalCompletion({
   ctx,
   dependencies,
+  session,
   updated,
 }: {
   ctx: HostAgentDimensionCompletionContext;
   dependencies: HostAgentDimensionCompletionDependencies;
+  session: HostAgentWorkflowSession;
   updated: boolean;
 }): Promise<Record<string, unknown>> {
-  if (!updated) {
+  // 只在本 session 的 auto-sync 已成功执行过时跳过（真正的重复提交）。updated=true 仅作诊断：
+  // 首次提交被插件质量门禁拒绝后的重试同样是 updated=true，但此时 auto-sync 从未运行，必须执行。
+  if (hasKnowledgeSkillAutoSyncSucceeded(session)) {
     logger.info(
-      '[DimensionComplete] Knowledge skill auto-sync skipped: final completion was already persisted'
+      '[DimensionComplete] Knowledge skill auto-sync skipped: already synced for this session (already-complete)',
+      { sessionId: session.id, updated }
     );
     return {
       attempted: false,
       reason: 'already-complete',
     };
+  }
+  if (updated) {
+    logger.info(
+      '[DimensionComplete] Knowledge skill auto-sync running on a re-completed final dimension: no successful sync recorded for this session',
+      { sessionId: session.id }
+    );
   }
 
   try {
@@ -1298,6 +1355,7 @@ async function refreshKnowledgeSkillsAfterFinalCompletion({
     const result = await refresh(ctx);
     const summary = summarizeKnowledgeSkillRefresh(result);
     if (result.success) {
+      recordKnowledgeSkillAutoSyncSuccess(session);
       logger.info('[DimensionComplete] Knowledge skill auto-sync completed after final dimension', {
         hasKnowledgeBase: summary.hasKnowledgeBase,
         hostGuidance: summary.hostGuidance,

@@ -4,9 +4,10 @@
  * 保留已审核 Recipe，清理衍生缓存，全量/指定维度重新扫描。
  *
  * 流程:
- *   1. snapshotRecipes — 快照保留知识
- *   2. rescanClean — 清理衍生缓存
- *   3. ProjectContext 直接读取项目结构/源码/符号事实
+ *   1. ProjectContext 读取项目结构/源码/符号事实（严格模式重开 certified carrier；失败即中止，
+ *      此时尚未做任何清理）
+ *   2. snapshotRecipes — 快照保留知识
+ *   3. rescanClean — 清理衍生缓存 + 索引重建
  *   4. 构建 Mission Briefing（含 allRecipes + evolutionGuide）
  *   5. 返回给宿主 Agent 按维度执行: evolve → gap-fill → dimension_complete
  */
@@ -236,6 +237,26 @@ async function prepareRescanState(
       'Confirmed moduleScope does not match any registered ProjectScope folder; refusing an unscoped control-root rescan.'
     );
   }
+  // 与 cold-start 同序：先完成 ProjectContext 分析（严格模式下即 Plan-created certified carrier
+  // 的重开与校验），再做破坏性清理与索引重建。分析只读源码/认证事实，不依赖 rescanClean
+  // 清掉的派生表或 rebuild 产物；这样 carrier 缺失/过期等严格前置失败不会留下半清理的知识库。
+  const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
+    certifiedSession: {
+      container: ctx.container,
+      dataRoot,
+      strict: Boolean(ctx.projectRuntime?.identity.projectRoot),
+    },
+    maxFiles: plan.projectAnalysis.scan.maxFiles,
+    moduleScope: planGate.moduleScope,
+    projectRoot: projectContextScope.analysisProjectRoot,
+    source: 'codex-host-rescan',
+    sourceFolders: projectContextScope.sourceFolders ?? plan.projectAnalysis.scan.sourceFolders,
+  });
+  ctx.logger.info('[Rescan] ProjectContext analysis ready before cleanup', {
+    cleanupPolicy: intent.cleanupPolicy,
+    fileCount: projectContextAnalysis.fileCount,
+    moduleCount: projectContextAnalysis.moduleCount,
+  });
   const { cleanResult, recipeSnapshot } = await runRescanCleanup({
     dataRoot,
     db,
@@ -255,18 +276,6 @@ async function prepareRescanState(
     indexRebuild = await rebuildRescanIndexes(ctx, db);
   }
 
-  const projectContextAnalysis = await buildHostAgentProjectContextAnalysis({
-    certifiedSession: {
-      container: ctx.container,
-      dataRoot,
-      strict: Boolean(ctx.projectRuntime?.identity.projectRoot),
-    },
-    maxFiles: plan.projectAnalysis.scan.maxFiles,
-    moduleScope: planGate.moduleScope,
-    projectRoot: projectContextScope.analysisProjectRoot,
-    source: 'codex-host-rescan',
-    sourceFolders: projectContextScope.sourceFolders ?? plan.projectAnalysis.scan.sourceFolders,
-  });
   const coverageLedgerSeed = seedRescanCoverageLedgerFromSnapshot(ctx, {
     planGate,
     projectContextAnalysis,
@@ -1059,17 +1068,34 @@ function releaseNoWorkRescanSession(
     source: 'alembic_rescan',
   });
   const closedRounds = closeOpenHostAgentRescanRounds(ctx, state.projectRoot, Date.now());
+  // 严格模式下 Plan 创建的 certified session 受保护不会被释放（protectedReason）。它仍然存在且是后续
+  // 严格生成唯一的 carrier，因此必须保留 session 与 id，并明确标注为保留的认证 session；
+  // 只有真正释放或因其他原因未释放时才沿用 session=null / sessionId=null 的旧语义。
+  const retainedCertifiedSession = !release.released && Boolean(release.protectedReason);
+  if (retainedCertifiedSession) {
+    ctx.logger.info('[Rescan] No actionable host-agent work; retained Plugin-certified session', {
+      generationStage: state.planGate.generationStage,
+      protectedReason: release.protectedReason,
+      sessionId,
+      stopReason: coverageAdvisory.stopReason,
+    });
+  }
 
   const data = readRecord(response.data);
   if (data) {
-    data.session = null;
+    if (!retainedCertifiedSession) {
+      data.session = null;
+    }
     data.noActionableHostAgentWork = {
       generationStage: state.planGate.generationStage,
       closedOpenRound: closedRounds.count > 0,
       closedOpenRounds: closedRounds.count,
       releasedEmptySession: release.released,
-      sessionId: release.released ? sessionId : null,
+      sessionId: release.released || retainedCertifiedSession ? sessionId : null,
       stopReason: coverageAdvisory.stopReason,
+      ...(retainedCertifiedSession
+        ? { retainedCertifiedSession: true, retainedReason: release.protectedReason }
+        : {}),
     };
   }
   const meta =
@@ -1083,8 +1109,17 @@ function releaseNoWorkRescanSession(
     closedOpenRounds: closedRounds.count,
     releasedEmptySession: release.released,
     stopReason: coverageAdvisory.stopReason,
+    ...(retainedCertifiedSession
+      ? {
+          retainedCertifiedSession: true,
+          retainedReason: release.protectedReason,
+          sessionId,
+        }
+      : {}),
   };
-  response.message = `${response.message ?? ''} coverageAdvisory=${coverageAdvisory.stopReason}，本次 ${state.planGate.generationStage} 不保留空 host-agent session。`;
+  response.message = retainedCertifiedSession
+    ? `${response.message ?? ''} coverageAdvisory=${coverageAdvisory.stopReason}，本次 ${state.planGate.generationStage} 无可执行产出；保留 Plugin-certified host-agent session（retained certified session, sessionId=${sessionId}），供后续严格生成复用。`
+    : `${response.message ?? ''} coverageAdvisory=${coverageAdvisory.stopReason}，本次 ${state.planGate.generationStage} 不保留空 host-agent session。`;
 }
 
 function attachActionRequiredRescanLifecycle(

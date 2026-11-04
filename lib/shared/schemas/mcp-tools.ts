@@ -883,9 +883,20 @@ const PlanSelectedDimensionInput = z
   })
   .strict();
 
+// H2：draft checklist（Core renderPlanScaleChecklistEn）要求 Agent 按 dimensionEvidenceDensity
+// 输出 scale.dimensionBudgets（入选维度 → 正整数预算），totalRecipeBudget 为其和。
+// 这里只收形状；「键必须是入选维度」「和必须等于 totalRecipeBudget」由 plan-confirm 与
+// plan-generation-gate 运行时校验（与 Core applyPlanSelection 的透传语义对齐），字段可选保持向后兼容。
+const PlanDimensionBudgetsInput = z
+  .record(z.string().min(1).max(120), z.number().int().min(1).max(500))
+  .describe(
+    'Optional per-dimension Recipe budgets sized from dimensionEvidenceDensity: keys must be selected dimension ids, values positive integers, and their sum must equal totalRecipeBudget.'
+  );
+
 const PlanScaleInput = z
   .object({
     totalRecipeBudget: z.number().int().min(1).max(500).optional(),
+    dimensionBudgets: PlanDimensionBudgetsInput.optional(),
     maxFiles: z.number().int().min(1).max(20000).optional(),
     contentMaxLines: z.number().int().min(1).max(2000).optional(),
     depthLevels: z.array(z.string().min(1).max(80)).max(12).optional(),
@@ -939,6 +950,7 @@ const PlanSelectionInput = z
     scale: z
       .object({
         totalRecipeBudget: z.number().int().min(1).max(500),
+        dimensionBudgets: PlanDimensionBudgetsInput.optional(),
         maxFiles: z.number().int().min(1).max(20000).optional(),
         contentMaxLines: z.number().int().min(1).max(2000).optional(),
         depthLevels: z.array(z.string().min(1).max(80)).max(12).optional(),

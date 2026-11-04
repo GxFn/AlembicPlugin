@@ -6,6 +6,7 @@ import {
   type HostAgentSessionContainer,
   resolvePlanDimensionDefinitions,
 } from '@alembic/core/host-agent-workflows';
+import Logger from '@alembic/core/logging';
 import {
   buildProjectContextPresenterInput,
   type ProjectContextEnvelope,
@@ -77,6 +78,13 @@ export interface HostAgentProjectContextAnalysis {
   sourceFileFacts: ProjectSourceFileFact[];
 }
 
+export interface HostAgentSessionLeaseRelease {
+  released: boolean;
+  sessionId?: string;
+  /** 加性字段：session 因承载有效的 Plugin certified carrier 而被保留（未释放）时给出原因。 */
+  protectedReason?: 'plugin-certified-carrier';
+}
+
 export function createProjectContextHostAgentSession(input: {
   container: HostAgentSessionContainer;
   dimensions: DimensionDef[];
@@ -121,13 +129,23 @@ export function releaseEmptyHostAgentSessionLeaseForProject(input: {
   projectRoot: string;
   reason?: string;
   source: 'alembic_bootstrap' | 'alembic_rescan';
-}): { released: boolean; sessionId?: string } {
+}): HostAgentSessionLeaseRelease {
   const sessionManager = getOrCreateSessionManager(input.container);
   const release = releaseEmptyHostAgentSessionLease({
     projectRoot: input.projectRoot,
     sessionManager,
     staleAfterMs: input.allowFreshEmpty === true ? 0 : undefined,
   });
+  if (release.protectedReason) {
+    input.logger?.info?.('[GenerateSession] Kept Plugin-certified host-agent session lease', {
+      allowFreshEmpty: input.allowFreshEmpty === true,
+      projectRoot: input.projectRoot,
+      protectedReason: release.protectedReason,
+      reason: input.reason ?? 'stale-empty-host-agent-session',
+      sessionId: release.sessionId,
+      source: input.source,
+    });
+  }
   if (release.released) {
     input.logger?.info?.('[GenerateSession] Released stale empty host-agent lease', {
       allowFreshEmpty: input.allowFreshEmpty === true,
@@ -147,11 +165,24 @@ export function releaseEmptyHostAgentSessionLeaseById(input: {
   reason: string;
   sessionId: string;
   source: 'alembic_bootstrap' | 'alembic_rescan';
-}): { released: boolean; sessionId?: string } {
+}): HostAgentSessionLeaseRelease {
   const sessionManager = getOrCreateSessionManager(input.container);
   const session = readProjectSessionById(sessionManager, input.sessionId, input.projectRoot);
   if (!isRecord(session) || !isEmptyHostAgentSession(session)) {
     return { released: false };
+  }
+  // Plan 创建的认证 session 没有维度/提交，看起来是“空”的，但它承载严格模式唯一的 certified
+  // carrier；释放它会让后续严格生成 fail closed，所以按 id 释放也必须保留它。
+  const protectedReason = readHostAgentSessionReleaseProtection(session, input.sessionId);
+  if (protectedReason) {
+    input.logger?.info?.('[GenerateSession] Kept Plugin-certified host-agent session lease by id', {
+      projectRoot: input.projectRoot,
+      protectedReason,
+      reason: input.reason,
+      sessionId: input.sessionId,
+      source: input.source,
+    });
+    return { protectedReason, released: false, sessionId: input.sessionId };
   }
   if (typeof sessionManager.clearSession !== 'function') {
     return { released: false };
@@ -203,7 +234,7 @@ export function releaseEmptyHostAgentSessionLease(input: {
   };
   now?: number;
   staleAfterMs?: number;
-}): { released: boolean; sessionId?: string } {
+}): HostAgentSessionLeaseRelease {
   const staleAfterMs = input.staleAfterMs ?? 5 * 60 * 1000;
   const session = readProjectSession(input.sessionManager, input.projectRoot);
   if (!session || !isEmptyStaleHostAgentSession(session, input.now ?? Date.now(), staleAfterMs)) {
@@ -211,6 +242,16 @@ export function releaseEmptyHostAgentSessionLease(input: {
   }
 
   const sessionId = readStringValue((session as Record<string, unknown>).id);
+  // 所有 releaseEmpty* 入口（rescan 入口 allowFreshEmpty、bootstrap、
+  // createProjectContextHostAgentSession 的重试）都经过这里：携带 Plugin certified carrier 的
+  // session 不是可回收的空租约，必须保留给严格生成读取。
+  const protectedReason = readHostAgentSessionReleaseProtection(
+    session as Record<string, unknown>,
+    sessionId
+  );
+  if (protectedReason) {
+    return { protectedReason, released: false, ...(sessionId ? { sessionId } : {}) };
+  }
   if (!sessionId || typeof input.sessionManager.clearSession !== 'function') {
     return { released: false };
   }
@@ -434,6 +475,48 @@ function isEmptyHostAgentSession(session: Record<string, unknown>): boolean {
     !sessionStoreHasEvidence(session.sessionStore) &&
     !submissionTrackerHasEvidence(session.submissionTracker)
   );
+}
+
+/**
+ * 判断一个“空” HostAgent session 是否因承载有效的 Plugin certified carrier 而禁止释放。
+ * 只保护通过 readPluginCertifiedCarrierFromProjectContext 校验的 carrier：校验失败的 carrier
+ * （例如插件升级后残留的旧格式 preparationId）会让 Plan draft、严格 rescan、cold start 读取时同样抛错，
+ * 若保留该 session 则在 TTL 过期前无路可恢复；因此照旧释放，并用 warn 保留校验错误作为诊断依据，
+ * 之后重新运行 alembic_plan 即可重新捕获 carrier。
+ */
+function readHostAgentSessionReleaseProtection(
+  session: Record<string, unknown>,
+  sessionId: string | undefined
+): HostAgentSessionLeaseRelease['protectedReason'] {
+  const projectContext = readHostAgentSessionProjectContext(session);
+  try {
+    if (!readPluginCertifiedCarrierFromProjectContext(projectContext)) {
+      return undefined;
+    }
+  } catch (err: unknown) {
+    Logger.warn(
+      '[GenerateSession] Empty host-agent session has an invalid certified carrier; not protected, releasing as empty lease',
+      {
+        error: err instanceof Error ? err.message : String(err),
+        sessionId,
+      }
+    );
+    return undefined;
+  }
+  Logger.info('[GenerateSession] Kept Plugin-certified host-agent session instead of releasing', {
+    sessionId,
+  });
+  return 'plugin-certified-carrier';
+}
+
+function readHostAgentSessionProjectContext(session: Record<string, unknown>): unknown {
+  // GenerateSession 的 projectContext 是私有字段，只能通过 toSnapshot() 读取；
+  // 其他形状（测试替身、旧快照）退回可枚举的 projectContext 字段。
+  const snapshot = readCallableRecord(session, 'toSnapshot');
+  if (snapshot && 'projectContext' in snapshot) {
+    return snapshot.projectContext;
+  }
+  return session.projectContext;
 }
 
 function readProjectSessionById(

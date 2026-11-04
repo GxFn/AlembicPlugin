@@ -11,11 +11,13 @@ import type { CoverageLedgerRecord, CoverageLedgerRepository } from '@alembic/co
 import {
   buildCandidateDimensions,
   buildCompleteProjectInfoTree,
+  buildDimensionEvidenceDensity,
   buildProjectInfoTree,
   buildProjectProfileFromAnalysis,
   type CandidateDimension,
   collectPlanProjectContext,
   countDeliveredProjectInfoNodes,
+  type DimensionEvidenceDensity,
   hasProjectInfoTreeOmissions,
   PLAN_FACTS_PROJECTION_BUDGET_BYTES,
   type PlanProjectContextAnalysis,
@@ -94,6 +96,9 @@ interface PlanDraftContext {
   projectRoot: string;
   projectInfoTree: ProjectInfoTreeRoot;
   candidateDimensions: CandidateDimension[];
+  // H2：agentDecisionChecklist（Core renderPlanScaleChecklistEn）要求按每维证据密度分配
+  // scale.dimensionBudgets；密度由 Core buildDimensionEvidenceDensity 在同一份 analysis 上确定性计算。
+  dimensionEvidenceDensity: DimensionEvidenceDensity[];
   // U2b：deepMining 草稿才有的覆盖账本信号；coldStart/moduleMining 留 undefined（coldStart 仍从零）。
   coverageSeed?: CoverageSeed;
   // U2b：把请求的 generationStage 透传进来，让 confirm next-action 不再硬编码 coldStart。
@@ -376,6 +381,7 @@ async function buildPlanDraftContext(
     projectRoot,
     projectInfoTree,
     candidateDimensions: buildCandidateDimensions(analysis),
+    dimensionEvidenceDensity: buildDimensionEvidenceDensity(analysis),
     ...(coverageSeed ? { coverageSeed } : {}),
     // requestedStage 透传：confirm next-action 据此回填 generationStage（不再硬编码 coldStart）。
     ...(args.generationStage ? { requestedStage: args.generationStage } : {}),
@@ -419,6 +425,8 @@ function planDraftResponse(draftContext: PlanDraftContext): PlanToolResponse {
       projectRoot: draftContext.projectRoot,
       projectInfoTree: draftContext.projectInfoTree,
       candidateDimensions: draftContext.candidateDimensions,
+      // H2：checklist 的规模条目引用 dimensionEvidenceDensity，draft 必须真的给出它。
+      dimensionEvidenceDensity: draftContext.dimensionEvidenceDensity,
       agentDecisionChecklist: buildAgentDecisionChecklist(),
       // U2b：deepMining 草稿带覆盖信号（gap 候选/现存计数/评级/单轮上限）。no-guess：是 SIGNAL，由 Agent 决定。
       ...(draftContext.coverageSeed ? { coverageSeed: draftContext.coverageSeed } : {}),

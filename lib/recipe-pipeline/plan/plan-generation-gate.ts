@@ -21,7 +21,11 @@ export interface PlanSelectionInput {
   dimensions?: readonly string[];
   generationStage?: PlanGenerationStage;
   moduleBindings?: readonly PlanSelectionModuleBinding[];
-  scale?: PlanScaleOverride & { depthLevels?: readonly string[] };
+  scale?: PlanScaleOverride & {
+    depthLevels?: readonly string[];
+    // H2：Agent 按 draft 的 dimensionEvidenceDensity 给出的每维预算（可选），透传给 Core applyPlanSelection。
+    dimensionBudgets?: Readonly<Record<string, number>>;
+  };
 }
 
 export interface PlanGenerationGateInput {
@@ -117,6 +121,16 @@ export async function resolvePlanGenerationGate(
   }
   const planSelection = validatePlanSelection(input?.planSelection, generationStage);
   if (!planSelection.ok) {
+    if (planSelection.dimensionBudgetsRejected) {
+      // H2：dimensionBudgets 违反 Core checklist 规则（键越界 / 和≠totalRecipeBudget）→ 归类为 PLAN_REQUIRED，
+      // 让 Agent 回 alembic_plan confirm 重做规模；日志走 logger（stderr），不碰 stdout。
+      ctx.logger?.warn?.('[PlanGenerationGate] planSelection.scale.dimensionBudgets rejected', {
+        generationStage,
+        projectRoot,
+        reason: planSelection.reason,
+        toolName: options.toolName,
+      });
+    }
     return {
       ok: false,
       response: buildPlanGateBlockedResponse({
@@ -192,7 +206,9 @@ function resolveExecutorGenerationStage(
 function validatePlanSelection(
   selection: PlanSelectionInput | undefined,
   generationStage: PlanGenerationStage
-): { ok: true; value: NormalizedPlanSelection } | { ok: false; reason: string } {
+):
+  | { ok: true; value: NormalizedPlanSelection }
+  | { ok: false; reason: string; dimensionBudgetsRejected?: boolean } {
   if (!selection) {
     return {
       ok: false,
@@ -238,6 +254,15 @@ function validatePlanSelection(
       }
     }
   }
+  const budgetIssues = findPlanDimensionBudgetIssues({
+    dimensionBudgets: scale.dimensionBudgets,
+    dimensionIds: dimensions,
+    fieldPrefix: 'planSelection.scale',
+    totalRecipeBudget: scale.totalRecipeBudget,
+  });
+  if (budgetIssues.length > 0) {
+    return { ok: false, reason: `${budgetIssues[0]}.`, dimensionBudgetsRejected: true };
+  }
   return {
     ok: true,
     value: {
@@ -247,6 +272,55 @@ function validatePlanSelection(
       scale,
     },
   };
+}
+
+/**
+ * H2：校验 scale.dimensionBudgets 是否符合 Core PlanAuthoringSpec checklist 的规则
+ * （renderPlanScaleChecklistEn：「Set scale.dimensionBudgets per selected dimension and make
+ * scale.totalRecipeBudget their sum」）。Core applyPlanSelection 只透传不校验，所以宿主侧在
+ * confirm 与 gate 两个入口用同一函数把关：
+ *   - 键必须是本次入选维度（防止预算挂到未执行维度上）；
+ *   - 值必须是正整数（schema 已约束，这里兜住绕过 schema 的直接调用）；
+ *   - 各维之和必须等于 totalRecipeBudget。
+ * 缺省或空对象视为未提供（与 Core 的 `Object.keys(...).length > 0` 透传条件一致），返回空数组。
+ */
+export function findPlanDimensionBudgetIssues(input: {
+  dimensionBudgets: Readonly<Record<string, number>> | undefined;
+  dimensionIds: readonly string[];
+  fieldPrefix: string;
+  totalRecipeBudget: number | undefined;
+}): string[] {
+  const budgets = input.dimensionBudgets;
+  if (!budgets || Object.keys(budgets).length === 0) {
+    return [];
+  }
+  const issues: string[] = [];
+  const selected = new Set(input.dimensionIds);
+  let sum = 0;
+  for (const [dimensionId, budget] of Object.entries(budgets)) {
+    if (!selected.has(dimensionId)) {
+      issues.push(
+        `${input.fieldPrefix}.dimensionBudgets references unselected dimension ${dimensionId}`
+      );
+    }
+    if (typeof budget !== 'number' || !Number.isInteger(budget) || budget <= 0) {
+      issues.push(
+        `${input.fieldPrefix}.dimensionBudgets.${dimensionId} must be a positive integer`
+      );
+      continue;
+    }
+    sum += budget;
+  }
+  if (
+    issues.length === 0 &&
+    typeof input.totalRecipeBudget === 'number' &&
+    input.totalRecipeBudget !== sum
+  ) {
+    issues.push(
+      `${input.fieldPrefix}.totalRecipeBudget (${input.totalRecipeBudget}) must equal the sum of ${input.fieldPrefix}.dimensionBudgets (${sum})`
+    );
+  }
+  return issues;
 }
 
 function isPlanGenerationStage(value: string): value is PlanGenerationStage {
@@ -543,6 +617,11 @@ function toCorePlanSelection(selection: NormalizedPlanSelection): CorePlanSelect
     }),
     scale: {
       totalRecipeBudget: selection.scale.totalRecipeBudget,
+      // H2：已校验的每维预算透传给 Core；Core 投影进 budget.dimensionBudgets（planGate.scale 可见）。
+      ...(selection.scale.dimensionBudgets &&
+      Object.keys(selection.scale.dimensionBudgets).length > 0
+        ? { dimensionBudgets: { ...selection.scale.dimensionBudgets } }
+        : {}),
       ...(typeof selection.scale.contentMaxLines === 'number'
         ? { contentMaxLines: selection.scale.contentMaxLines }
         : {}),

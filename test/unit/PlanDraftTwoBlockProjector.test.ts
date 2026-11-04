@@ -15,6 +15,8 @@ interface PlanToolResponse {
 const allowedDraftFields = [
   'agentDecisionChecklist',
   'candidateDimensions',
+  // H2：checklist 规模条目引用的每维证据密度。
+  'dimensionEvidenceDensity',
   'nextActions',
   'operation',
   'projectInfoTree',

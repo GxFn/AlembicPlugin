@@ -14,6 +14,7 @@ import type { CoverageLedgerRepository } from '@alembic/core/repositories';
 import { resolveProjectRoot } from '@alembic/core/workspace';
 import type { PlanInput } from '#shared/schemas/mcp-tools.js';
 import { readPluginCertifiedCarrierFromProjectContext } from '../../project-facts/PluginCertifiedProjectFactsRuntime.js';
+import { findPlanDimensionBudgetIssues } from './plan-generation-gate.js';
 
 export interface PlanConfirmContext {
   actor?: { role?: string; user?: string };
@@ -235,7 +236,7 @@ function buildConfirmedPlanIntent(args: PlanArgs): BuildConfirmIntentResult {
   for (const dimensionId of missingDimensionIds) {
     issues.push(`selectedDimensions references unknown dimension ${dimensionId}`);
   }
-  const scale = normalizeRequiredPlanScale(args.scale, issues);
+  const scale = normalizeRequiredPlanScale(args.scale, dimensionIds, issues);
   const moduleBindings = normalizeRequiredModuleBindings(args.moduleBindings, dimensionIds, issues);
   const plannedNextActions = normalizeRequiredNextActions(args.plannedNextActions, issues);
   const evidenceRefs = normalizeRequiredEvidenceRefs(args.evidenceRefs, issues);
@@ -343,7 +344,11 @@ function normalizeConfirmedDimensions(
     .filter((dimension) => dimension.dimensionId.length > 0);
 }
 
-function normalizeRequiredPlanScale(input: PlanArgs['scale'], issues: string[]): PlanScaleDecision {
+function normalizeRequiredPlanScale(
+  input: PlanArgs['scale'],
+  dimensionIds: readonly string[],
+  issues: string[]
+): PlanScaleDecision {
   if (!input) {
     issues.push('scale is required');
   }
@@ -353,9 +358,24 @@ function normalizeRequiredPlanScale(input: PlanArgs['scale'], issues: string[]):
   if (!input?.depthLevels?.length) {
     issues.push('scale.depthLevels are required');
   }
+  // H2：draft checklist 让 Agent 输出 scale.dimensionBudgets；这里按 Core 规则（键∈入选维度、
+  // 和=totalRecipeBudget）校验，违规进 planDiagnostics（PLAN_CONFIRM_PAYLOAD_REQUIRED），不静默丢弃。
+  const dimensionBudgets = input?.dimensionBudgets;
+  const hasDimensionBudgets = !!dimensionBudgets && Object.keys(dimensionBudgets).length > 0;
+  if (hasDimensionBudgets) {
+    issues.push(
+      ...findPlanDimensionBudgetIssues({
+        dimensionBudgets,
+        dimensionIds,
+        fieldPrefix: 'scale',
+        totalRecipeBudget: input?.totalRecipeBudget,
+      })
+    );
+  }
   return {
     totalRecipeBudget: input?.totalRecipeBudget ?? 0,
     depthLevels: input?.depthLevels ?? [],
+    ...(hasDimensionBudgets ? { dimensionBudgets: { ...dimensionBudgets } } : {}),
     ...(input?.maxFiles ? { maxFiles: input.maxFiles } : {}),
     ...(input?.contentMaxLines ? { contentMaxLines: input.contentMaxLines } : {}),
   };
@@ -470,6 +490,10 @@ function buildPlanSelection(intent: PlanIntent): PlanSelection {
     dimensions: intent.dimensions.map((dimension) => dimension.dimensionId),
     scale: {
       totalRecipeBudget: intent.scale.totalRecipeBudget,
+      // H2：每维预算随 planSelection 交给 bootstrap/rescan，再经 gate 透传 Core applyPlanSelection。
+      ...(intent.scale.dimensionBudgets
+        ? { dimensionBudgets: { ...intent.scale.dimensionBudgets } }
+        : {}),
       ...(intent.scale.maxFiles ? { maxFiles: intent.scale.maxFiles } : {}),
       ...(intent.scale.contentMaxLines ? { contentMaxLines: intent.scale.contentMaxLines } : {}),
       ...(intent.scale.depthLevels.length > 0 ? { depthLevels: intent.scale.depthLevels } : {}),

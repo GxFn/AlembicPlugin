@@ -58,6 +58,8 @@ const _RescanSchema =
         dimensions: z.array(z.string()).min(1),
         scale: z.object({
           totalRecipeBudget: z.number().int().positive(),
+          // H2：与 RescanInput 同步的可选每维预算（键=入选维度，和=totalRecipeBudget，由 gate 运行时校验）。
+          dimensionBudgets: z.record(z.string(), z.number().int().positive()).optional(),
           maxFiles: z.number().int().positive().optional(),
           contentMaxLines: z.number().int().positive().optional(),
           depthLevels: z.array(z.string()).optional(),
@@ -196,7 +198,7 @@ export const TOOLS = [
   {
     name: 'alembic_status',
     description:
-      'Check Alembic runtime status, diagnostics, and knowledge base stats. Optional aspect narrows the view: runtime = runtime/diagnostics, knowledge = knowledge base stats (recipes/candidates/index). Omit aspect for the full status. When knowledge is empty, cold-start is needed (call alembic_bootstrap).',
+      'Check Alembic runtime status, diagnostics, and knowledge base stats. Optional aspect narrows the view: runtime = runtime/diagnostics, knowledge = knowledge base stats (recipes/candidates/index). Omit aspect for the full status. Cold-start order: when the project is not initialized (no knowledge database), call alembic_init first; when it is initialized but knowledge is empty, run alembic_plan (draft, then confirm) and pass the returned planSelection to alembic_bootstrap.',
     inputSchema: zodToMcpSchema(StatusInput),
   },
 
@@ -230,9 +232,9 @@ export const TOOLS = [
   {
     name: 'alembic_plan',
     description:
-      'Prepare the stateless planSelection required immediately before Alembic Recipe generation.\n' +
-      '• draft — collect bounded real ProjectContext as projectInfoTree plus the full candidate dimension catalog and Agent decision checklist for one generation stage\n' +
-      '• confirm — validate the Agent-authored single-stage selection and return planSelection {generationStage, dimensions, scale, moduleBindings}; it is not persisted\n' +
+      'Prepare the stateless planSelection required immediately before Alembic Recipe generation. Requires an initialized project (call alembic_init first when alembic_status reports it is not initialized).\n' +
+      '• draft — collect bounded real ProjectContext as projectInfoTree plus the full candidate dimension catalog, per-dimension dimensionEvidenceDensity, and Agent decision checklist for one generation stage\n' +
+      '• confirm — validate the Agent-authored single-stage selection and return planSelection {generationStage, dimensions, scale, moduleBindings}; optional scale.dimensionBudgets (selected dimension id → positive integer) must sum to scale.totalRecipeBudget; it is not persisted\n' +
       '• get — removed compatibility route; run draft + confirm again for the next cold-start/deep/module execution\n' +
       'Non-goal: does not start generation, bootstrap, rescan, vector jobs, or any durable Plan ledger write.',
     inputSchema: zodToMcpSchema(PlanInput),
@@ -273,11 +275,11 @@ export const TOOLS = [
   {
     name: 'alembic_bootstrap',
     description:
-      'Plan-selection-driven cold-start — requires planSelection from a just-run alembic_plan confirm before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded planSelection dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
+      'Plan-selection-driven cold-start — requires an initialized project (call alembic_init first) and planSelection from a just-run alembic_plan confirm before any generation or cleanup. DESTRUCTIVE on an existing knowledge base unless testMode:true: all current knowledge is archived to .asd/.trash/<timestamp>/ and rebuilt from zero, so when a usable knowledge base exists this tool refuses unless called with rebuild:true (prefer alembic_rescan to refresh while preserving Recipes). testMode:true skips fullReset and uses bounded planSelection dimensions/scale. Auto-analyzes the project and returns a Mission Briefing:\n' +
       '• Project metadata and language statistics\n' +
       '• planSelection dimension task list and scale\n' +
       '• hostAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed (ideAgentAnalysis remains a compatibility alias)\n' +
-      '• planGate/planState projection showing execution dimensions, gaps, cleanupPolicy, and module scope\n' +
+      '• planGate projection plus generationStage, cleanupPolicy, moduleScope, and testMode for the confirmed planSelection\n' +
       '• Execution plan and submission examples\n' +
       'After receiving the Briefing, complete all dimension analyses per the executionPlan.',
     inputSchema: zodToMcpSchema(GenerateInput),
@@ -291,9 +293,9 @@ export const TOOLS = [
       '• deepMining snapshots approved Recipes → cleans derived caches → planSelection ProjectContext analysis\n' +
       '• moduleMining or testMode uses cleanupPolicy:none and scoped ProjectContext module analysis, preserving candidates/wiki/cache\n' +
       '• Runs relevance audit (evidence check, auto-decay stale Recipes)\n' +
-      '\u2022 Returns Mission Briefing with allRecipes (full content + auditHint per recipe)\n' +
+      '\u2022 Returns Mission Briefing with evidenceHints (allRecipes with bounded content + auditHint per recipe, dimensionGaps with executionMode/createBudget, evolutionPrescreen, constraints.occupiedTriggers); when the briefing exceeds the inline budget, meta.fullBriefingRef points at the full JSON and evidenceHints is a bounded projection described by evidenceHints.inlineProjection\n' +
       '\u2022 Includes hostAgentAnalysis packet summary, next units, retrieval hints, and unit progress seed (ideAgentAnalysis remains a compatibility alias)\n' +
-      '\u2022 Includes planGate/planState projection with coverage gaps, execution dimensions, moduleScope, cleanupPolicy, and scale\n' +
+      '\u2022 Includes planGate projection plus generationStage, moduleScope, cleanupPolicy, and testMode; coverage gaps live in evidenceHints.dimensionGaps and coverageAdvisory\n' +
       '\u2022 Per-dimension workflow: evolve (alembic_evolve) \u2192 gap-fill (submit_knowledge) \u2192 dimension_complete\n' +
       '\u2022 Optional: dimensions/reason/generationStage/moduleScope/testMode/scaleOverride plus controller-authorized produceSession fields for session-bound ASQ publication',
     inputSchema: zodToMcpSchema(_RescanSchema),

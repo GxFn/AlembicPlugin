@@ -8,6 +8,7 @@ import {
 import { ALEMBIC_MANAGED_GUIDANCE_BEGIN, pathGuard } from '@alembic/core/io';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  _resetKnowledgeSkillAutoSyncLedgerForTesting,
   type HostAgentDimensionCompletionContext,
   type HostAgentWorkflowSession,
   runHostAgentDimensionCompletionWorkflow,
@@ -24,6 +25,7 @@ const ORIGINAL_PLUGIN_ROOT_ENV = process.env[CODEX_PLUGIN_ROOT_ENV];
 
 afterEach(() => {
   _resetGenerateSessionManagersForTesting();
+  _resetKnowledgeSkillAutoSyncLedgerForTesting();
   restoreHostEnv();
   pathGuard._reset();
   for (const root of tempRoots.splice(0)) {
@@ -1239,7 +1241,8 @@ function createSession({
       const wasCompleted = completed;
       completed = true;
       return {
-        updated: !wasCompleted,
+        // 与 Core GenerateSession 一致：写入前取值，true 表示覆盖已完成维度（重复提交）。
+        updated: wasCompleted,
         qualityReport: {
           totalScore: 72,
           pass: true,
