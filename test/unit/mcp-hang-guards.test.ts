@@ -2,7 +2,8 @@
  * MCP 挂死防线单测(2026-07-10 事故配套):
  *   - raceToolCallDeadline:async 挂死 → ToolCallDeadlineError;正常完成/失败原样透传;
  *   - EventLoopWatchdog:主线程被同步计算钉死时,worker 旁路检测到停摆并在主循环
- *     恢复后投递 stall 报告(exit 路径破坏性,不在单测覆盖,由 exitMs=0 禁用)。
+ *     恢复后投递 stall 报告(本文件用 exitMs=0 禁用终结;SIGKILL 终结路径破坏性,
+ *     在子进程里由 FixWatchdogTermination.test.ts 覆盖)。
  */
 import { describe, expect, it } from 'vitest';
 import { startEventLoopWatchdog } from '../../lib/host-runtime/mcp/EventLoopWatchdog.js';
