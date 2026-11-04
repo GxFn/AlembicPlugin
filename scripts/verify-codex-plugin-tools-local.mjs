@@ -64,15 +64,26 @@ try {
     server,
   };
 
-  const knowledge = await runStatusCases(context);
+  await runStatusCases(context);
+  // 项目是否已初始化（知识库数据库存在）决定知识类工具应满足哪份契约：
+  // 已初始化 → 完整生命周期 / 检索断言；未初始化 → 写工具拒绝（PROJECT_NOT_INITIALIZED，指向
+  // alembic_init）且只读知识工具返回原生 unavailable（ok=true、status=degraded），探针不替用户初始化。
+  context.projectState = await readProjectState(context);
+  report.projectState = context.projectState;
+  if (!context.projectState.initialized) {
+    process.stderr.write(
+      `[tools-local] project is not initialized (${projectRoot}); asserting the uninitialized contracts instead of the knowledge lifecycle.\n`
+    );
+  }
   await runAgentLifecycleCases(context);
   await runSearchAndMapCases(context);
-  await runHostGraphCases(context, knowledge);
+  await runHostGraphCases(context);
   if (!options.skipHandlerFixture) {
-    const { routeGraphTool } = await importModule(
-      'dist/lib/host-runtime/mcp/handlers/tool-router.js'
-    );
-    await runGraphHandlerFixtureCases({ ...context, routeGraphTool });
+    const [{ routeGraphTool }, { buildProjectRuntimeContext }] = await Promise.all([
+      importModule('dist/lib/host-runtime/mcp/handlers/tool-router.js'),
+      importModule('dist/lib/host-runtime/context/ProjectRuntimeContext.js'),
+    ]);
+    await runGraphHandlerFixtureCases({ ...context, buildProjectRuntimeContext, routeGraphTool });
   }
 
   report.ok = report.issues.length === 0 && report.cases.every((entry) => entry.ok !== false);
@@ -135,13 +146,17 @@ async function runStatusCases(context) {
     assert({ structured }) {
       expect(structured.ok === true, 'knowledge status should be ok');
       expect(structured.knowledge && typeof structured.knowledge === 'object', 'missing knowledge');
+      // aspect=knowledge 只报告请求项目的知识库是否存在：{available, initialized, status, note}。
+      expect(
+        typeof structured.knowledge.available === 'boolean',
+        'knowledge status should report knowledge.available'
+      );
       return {
-        databaseEntryCount: structured.knowledge.databaseEntryCount ?? null,
-        dbRecipeCount: structured.knowledge.dbRecipeCount ?? null,
-        hasKnowledge: structured.knowledge.hasKnowledge === true,
-        materializedRecipeCount: structured.knowledge.materializedRecipeCount ?? null,
-        recipeCount: structured.knowledge.recipeCount ?? null,
-        usable: structured.knowledge.usable === true,
+        available: structured.knowledge.available === true,
+        hasKnowledge: structured.knowledge.available === true,
+        initialized: structured.knowledge.initialized === true,
+        knowledgeStatus: structured.knowledge.status ?? null,
+        usable: structured.knowledge.available === true,
       };
     },
   });
@@ -151,12 +166,31 @@ async function runStatusCases(context) {
     toolName: 'alembic_status',
     args: { aspect: 'runtime' },
     assert({ structured }) {
+      // aspect=runtime 输出 {project, runtime}；runtime 即 HostRuntimeContext
+      // （pluginHost / expectedPluginHost / runtimeMode / expectedRuntimeMode ...）。
+      const runtime = structured.runtime;
+      const configuredHost = process.env.ALEMBIC_PLUGIN_HOST;
       expect(structured.ok === true, 'runtime status should be ok');
-      expect(structured.plugin?.ok === true, 'plugin runtime checks should pass');
-      expect(structured.codex?.pluginHost === 'codex', 'runtime should identify codex host');
+      expect(runtime && typeof runtime === 'object', 'runtime status missing runtime');
+      expect(
+        runtime.pluginHost === configuredHost,
+        `runtime should identify the configured plugin host ${configuredHost}, got ${runtime.pluginHost}`
+      );
+      expect(
+        runtime.pluginHost === runtime.expectedPluginHost,
+        `runtime pluginHost ${runtime.pluginHost} does not match the plugin shell host ${runtime.expectedPluginHost}`
+      );
+      expect(
+        runtime.runtimeMode === runtime.expectedRuntimeMode,
+        `runtime mode ${runtime.runtimeMode} does not match expected ${runtime.expectedRuntimeMode}`
+      );
+      expect(
+        structured.project?.projectRoot === projectRoot,
+        `runtime status project.projectRoot mismatch: ${structured.project?.projectRoot}`
+      );
       return {
-        pluginOk: structured.plugin?.ok === true,
-        runtimeMode: structured.runtimeIdentity?.mode ?? null,
+        pluginHost: runtime.pluginHost ?? null,
+        runtimeMode: runtime.runtimeMode ?? null,
       };
     },
   });
@@ -175,7 +209,10 @@ async function runAgentLifecycleCases(context) {
       query: 'validate AlembicPlugin tools without real MCP transport',
       context: 'in-process HostMcpServer tool call',
     },
-    assert({ structured }) {
+    assert({ normalized, structured }) {
+      if (!context.projectState.initialized) {
+        return assertKnowledgeUnavailable(normalized, 'alembic_prime');
+      }
       expect(structured.ok === true, 'prime should return a clean ok response');
       expect(
         ['ready', 'degraded'].includes(structured.status),
@@ -209,14 +246,18 @@ async function runAgentLifecycleCases(context) {
     id: 'host/work-start-finish',
     toolName: 'alembic_work',
     async execute() {
-      const start = await callHostTool(context, 'alembic_work', {
+      const startArgs = {
         phase: 'start',
         title: 'local plugin tool validation',
         workScope: {
           goal: 'exercise the in-process AlembicPlugin work lifecycle',
           files: [options.graphFile],
         },
-      });
+      };
+      if (!context.projectState.initialized) {
+        return assertWorkRefusedUninitialized(context, startArgs);
+      }
+      const start = await callHostTool(context, 'alembic_work', startArgs);
       assertCleanToolResult(start, 'alembic_work');
       expect(start.structured.status === 'ready', 'work start should be ready');
       const workRef = start.structured.workRef ?? start.structured.refs?.workRef?.id;
@@ -254,6 +295,10 @@ async function runAgentLifecycleCases(context) {
     toolName: 'alembic_code_guard',
     args: {},
     assert({ normalized, structured }) {
+      if (!context.projectState.initialized) {
+        // 入参校验先于知识库判定；无知识库时 guard 不评估 scope，返回原生 unavailable。
+        return assertKnowledgeUnavailable(normalized, 'alembic_code_guard');
+      }
       expect(structured.ok === false, 'no-scope code guard should fail closed');
       expect(structured.status === 'blocked', `code guard should block, got ${structured.status}`);
       expect(normalized.result.isError === true, 'blocked guard should serialize as isError');
@@ -271,7 +316,10 @@ async function runSearchAndMapCases(context) {
     id: 'host/search',
     toolName: 'alembic_search',
     args: { query: 'MCP tool validation', limit: 3 },
-    assert({ structured }) {
+    assert({ normalized, structured }) {
+      if (!context.projectState.initialized) {
+        return assertKnowledgeUnavailable(normalized, 'alembic_search');
+      }
       expect(structured.ok === true, 'search should return a clean ok response');
       expect(structured.toolName === 'alembic_search', 'search toolName mismatch');
       expect(Array.isArray(structured.items), 'search should expose bounded items');
@@ -292,7 +340,10 @@ async function runSearchAndMapCases(context) {
       query:
         'definitely-missing ProjectContext handler fixture file-symbols source-slice anchor-range',
     },
-    assert({ structured }) {
+    assert({ normalized, structured }) {
+      if (!context.projectState.initialized) {
+        return assertKnowledgeUnavailable(normalized, 'alembic_search');
+      }
       expect(structured.ok === true, 'project-context zero search should return clean ok');
       expect(structured.inventory?.zeroMatch === true, 'search should record zeroMatch=true');
       expect(structured.items.length === 0, 'zero direct match search should not leak candidates');
@@ -326,7 +377,10 @@ async function runSearchAndMapCases(context) {
       includeRollups: true,
       nodeLimit: 25,
     },
-    assert({ structured }) {
+    assert({ normalized, structured }) {
+      if (!context.projectState.initialized) {
+        return assertKnowledgeUnavailable(normalized, 'alembic_recipe_map');
+      }
       expect(structured.ok === true, 'recipe map should return a clean ok response');
       expect(structured.status === 'ready', `recipe map should be ready, got ${structured.status}`);
       expect(structured.focus?.kind === 'file', 'recipe map focus should stay file-scoped');
@@ -349,7 +403,10 @@ async function runSearchAndMapCases(context) {
       nodeLimit: 25,
       recipeMountLimit: 50,
     },
-    assert({ structured }) {
+    assert({ normalized, structured }) {
+      if (!context.projectState.initialized) {
+        return assertKnowledgeUnavailable(normalized, 'alembic_recipe_map');
+      }
       expect(structured.ok === true, 'recipe map with recipes should return clean ok');
       expect(structured.focus?.kind === 'file', 'recipe map focus should stay file-scoped');
       const rootNodeId = structured.region?.rootNode?.nodeId;
@@ -375,24 +432,13 @@ async function runSearchAndMapCases(context) {
   });
 }
 
-async function runHostGraphCases(context, knowledge) {
-  if (!knowledge.usable) {
-    const message =
-      'host graph cases require usable project knowledge; run alembic_status/alembic_bootstrap for this project or pass --allow-knowledge-skip.';
-    if (options.allowKnowledgeSkip) {
-      for (const id of [
-        'host/graph-file-symbols',
-        'host/graph-source-slice',
-        'host/graph-anchor-range',
-        'host/graph-missing-anchor',
-        'host/graph-path-missing-endpoint',
-        'host/graph-missing-file-anchor',
-      ]) {
-        report.skipped.push({ id, reason: message });
-      }
-      return;
-    }
-    throw new Error(message);
+async function runHostGraphCases(context) {
+  // alembic_graph 不依赖知识库：未初始化项目上它照常回答（运行数据落在仓库外的按用户临时根），
+  // 因此 host graph 用例不再以 knowledge.usable 为前提，未初始化项目同样执行全部断言。
+  if (!context.projectState.initialized) {
+    process.stderr.write(
+      '[tools-local] host graph cases run on an uninitialized project: alembic_graph needs no knowledge database (its runtime data stays outside the repository); call alembic_init only to enable the knowledge tools.\n'
+    );
   }
 
   const anchorLine = findLine(
@@ -406,10 +452,13 @@ async function runHostGraphCases(context, knowledge) {
       filePath: options.graphFile,
       budget: { itemLimit: 80, relationHopLimit: 4 },
     },
+    // 默认 graph 文件（HostMcpServer.ts）的事实数超过单页上限，生产者按续页返回 partial + hasMore；
+    // 只接受这种纯分页 partial，其余 partial（缺锚点、错误诊断）仍判失败。
+    acceptPagedPartial: true,
     assertGraph(structured) {
       expect(
-        structured.status === 'ready',
-        `file-symbols should be ready, got ${structured.status}`
+        structured.status === 'ready' || structured.continuation?.hasMore === true,
+        `file-symbols should be ready (or a paged first page), got ${structured.status}`
       );
       expect(
         structured.nodes.some(
@@ -495,11 +544,15 @@ async function runHostGraphCases(context, knowledge) {
 
 async function runGraphHandlerFixtureCases(context) {
   const fixtureRoot = createGraphFixtureProject(tmpRoot);
+  // graph handler 通过 requireRequestProjectRuntime 读取请求级项目身份；直接调用 handler 时
+  // 必须像 HostMcpServer 一样附带 projectRuntime，否则抛 "ProjectRuntimeContext is required"。
+  // fixture 位于本次 tmpRoot 内，Graph 运行数据随 tmpRoot 一起清理。
   const handlerContext = {
     container: {
       get: () => undefined,
       singletons: { _projectRoot: fixtureRoot },
     },
+    projectRuntime: context.buildProjectRuntimeContext({ projectRoot: fixtureRoot }),
   };
 
   await runCase(context, {
@@ -569,7 +622,14 @@ async function runGraphHandlerFixtureCases(context) {
 
 async function runGraphCase(
   context,
-  { args, assertGraph, expectedDiagnostic, expectedStatus = 'ready', id }
+  {
+    acceptPagedPartial = false,
+    args,
+    assertGraph,
+    expectedDiagnostic,
+    expectedStatus = 'ready',
+    id,
+  }
 ) {
   await runCase(context, {
     id,
@@ -579,12 +639,34 @@ async function runGraphCase(
       assertGraphBase(structured, {
         expectedDiagnostic,
         expectedQueryKind: args.queryKind,
-        expectedStatus,
+        expectedStatus:
+          acceptPagedPartial && expectedStatus === 'ready' && isPagedOnlyPartial(structured, id)
+            ? 'partial'
+            : expectedStatus,
       });
       assertGraph?.(structured);
       return graphMetrics(structured);
     },
   });
+}
+
+/**
+ * 判断 partial 是否只是分页截断：还有续页（continuation.hasMore）、limits.truncated、且无任何诊断。
+ * 命中时写一条 stderr 诊断，说明为何把期望从 ready 放宽为 partial。
+ */
+function isPagedOnlyPartial(structured, id) {
+  const paged =
+    structured?.status === 'partial' &&
+    structured.continuation?.hasMore === true &&
+    structured.limits?.truncated === true &&
+    Array.isArray(structured.diagnostics) &&
+    structured.diagnostics.length === 0;
+  if (paged) {
+    process.stderr.write(
+      `[tools-local] ${id}: partial is pagination only (page ${structured.continuation.page}, hasMore=true, ${structured.continuation.accumulatedCounts?.items ?? '?'} items); accepting it as a complete first page.\n`
+    );
+  }
+  return paged;
 }
 
 function assertGraphBase(structured, { expectedDiagnostic, expectedQueryKind, expectedStatus }) {
@@ -671,6 +753,76 @@ async function callHostTool(context, toolName, args) {
     `${toolName} timed out after ${options.timeoutMs}ms`
   );
   return normalizeToolResult(toolName, raw, context.serializeMcpToolResult);
+}
+
+// 直接读取请求项目状态（不计入 case，--case 过滤时同样可用）。initialized 与写工具门禁同口径：
+// 知识库数据库是否存在（alembic_status.initialized = location.databaseExists）。
+async function readProjectState(context) {
+  const status = await callHostTool(context, 'alembic_status', {});
+  assertCleanToolResult(status, 'alembic_status');
+  expect(status.structured.ok === true, 'project state probe: alembic_status should be ok');
+  expect(
+    typeof status.structured.initialized === 'boolean',
+    'project state probe: alembic_status should report initialized'
+  );
+  return {
+    initialized: status.structured.initialized === true,
+    knowledgeAvailable: status.structured.knowledge?.available === true,
+  };
+}
+
+// 未初始化项目上的只读知识工具（prime / search / recipe_map / code_guard）：原生 unavailable，
+// 不是工具失败——ok=true、无 error，诊断 knowledge-database-unavailable 并指向 alembic_init。
+// prime / search / recipe_map 为 status=degraded；code_guard 没有知识库就没有 Guard 引擎，
+// Guard 根本没有运行，投影为 status=skipped（不能读作"已检查且干净"）。
+function assertKnowledgeUnavailable(normalized, toolName) {
+  const { result, structured } = normalized;
+  const text = JSON.stringify(structured);
+  const expectedStatus = toolName === 'alembic_code_guard' ? 'skipped' : 'degraded';
+  expect(structured.ok === true, `${toolName} unavailable knowledge should stay ok=true`);
+  expect(result.isError !== true, `${toolName} unavailable knowledge must not serialize isError`);
+  expect(
+    structured.status === expectedStatus,
+    `${toolName} unavailable knowledge should be ${expectedStatus}, got ${structured.status}`
+  );
+  expect(structured.error === undefined, `${toolName} unavailable knowledge must not carry error`);
+  expect(
+    text.includes('knowledge-database-unavailable'),
+    `${toolName} unavailable knowledge missing knowledge-database-unavailable diagnostic`
+  );
+  expect(
+    text.includes('alembic_init'),
+    `${toolName} unavailable knowledge should point to alembic_init`
+  );
+  return { contract: 'knowledge-unavailable', status: structured.status };
+}
+
+// 未初始化项目上的 alembic_work：在打开插件容器（Bootstrap）之前拒绝，PROJECT_NOT_INITIALIZED
+// 指向 alembic_init，且不得顺带创建知识库（拒绝后项目仍未初始化）。
+async function assertWorkRefusedUninitialized(context, startArgs) {
+  const start = await callHostTool(context, 'alembic_work', startArgs);
+  assertCleanToolResult(start, 'alembic_work');
+  const { result, structured } = start;
+  expect(structured.ok === false, 'uninitialized work start should be refused');
+  expect(result.isError === true, 'uninitialized work refusal should serialize as isError');
+  expect(
+    structured.error?.code === 'PROJECT_NOT_INITIALIZED',
+    `uninitialized work start should return PROJECT_NOT_INITIALIZED, got ${structured.error?.code}`
+  );
+  expect(
+    JSON.stringify(structured.error ?? {}).includes('alembic_init'),
+    'uninitialized work refusal should direct the agent to alembic_init'
+  );
+  const after = await readProjectState(context);
+  expect(
+    after.initialized === false,
+    'uninitialized work refusal must not create the knowledge database'
+  );
+  return {
+    normalized: start,
+    metrics: { contract: 'project-not-initialized', errorCode: structured.error.code },
+    summary: structured.summary,
+  };
 }
 
 function normalizeToolResult(toolName, raw, serializeMcpToolResult) {
@@ -881,7 +1033,11 @@ function defaultOptions() {
 function booleanOptionHandlers() {
   return {
     '--allow-knowledge-skip': (parsed) => {
+      // 兼容旧调用方：保留参数但不再跳过任何用例（graph 用例不依赖知识库）。
       parsed.allowKnowledgeSkip = true;
+      process.stderr.write(
+        '[tools-local] --allow-knowledge-skip is deprecated and ignored: graph cases run without project knowledge; call alembic_init to enable the knowledge tools.\n'
+      );
     },
     '--json': (parsed) => {
       parsed.json = true;
@@ -961,12 +1117,18 @@ function printUsage() {
 
 Runs AlembicPlugin tool validation in the current Node process. It does not
 open a real MCP stdio transport and does not require restarting Codex.
+It never initializes the project: on a project without a knowledge database it
+asserts the uninitialized contracts (alembic_work refuses with
+PROJECT_NOT_INITIALIZED; prime/search/recipe_map return a degraded and
+code_guard a skipped knowledge-database-unavailable result) instead of the
+knowledge lifecycle. Graph cases run either way: alembic_graph needs no
+knowledge database.
 
 Options:
   --project-root <path>       Project root to validate. Defaults to this repo.
   --graph-file <path>         Relative file used by graph cases.
   --case <id>                 Run one case id. Repeatable.
-  --allow-knowledge-skip      Skip host graph cases when project knowledge is unavailable.
+  --allow-knowledge-skip      Deprecated no-op: graph cases no longer need project knowledge.
   --sandbox-home              Use a temporary ALEMBIC_HOME for local-tool checks.
   --alembic-home <path>       Use an explicit ALEMBIC_HOME.
   --skip-handler-fixture      Skip direct handler fixture graph cases.

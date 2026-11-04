@@ -126,13 +126,21 @@ function buildLifecyclePlaybookLine(lifecycleTools: string[]): string {
 }
 
 function buildOnboardingPlaybookLine(visibleToolNameSet: Set<string>): string {
-  const statusTool = visibleToolNameSet.has('alembic_status')
-    ? '`alembic_status`'
-    : 'status output when available';
-  const bootstrapTool = visibleToolNameSet.has('alembic_bootstrap')
-    ? '`alembic_bootstrap`'
-    : 'bootstrap output when available';
-  return `Onboarding: read ${statusTool}/${bootstrapTool} fields \`bootstrapState\`, \`toolCapabilities\`, \`currentDimensionGuidance\`, \`hostAgentContract\`, \`gates\`, and \`repairState\` before choosing the next tool.`;
+  // 冷启动顺序与工具说明保持一致：status → 未初始化时 init → plan draft/confirm → bootstrap。
+  // 只点名实际可见的工具，避免引导宿主调用不存在的工具。
+  const has = (name: string) => visibleToolNameSet.has(name);
+  const steps: string[] = [
+    has('alembic_status') ? 'call `alembic_status` first' : 'check status output when available',
+  ];
+  if (has('alembic_init')) {
+    steps.push('run `alembic_init` if the project is uninitialized');
+  }
+  if (has('alembic_plan') && has('alembic_bootstrap')) {
+    steps.push('then `alembic_plan` draft -> confirm before `alembic_bootstrap`');
+  } else if (has('alembic_bootstrap')) {
+    steps.push('then `alembic_bootstrap`');
+  }
+  return `Onboarding: ${steps.join('; ')}. Read status/bootstrap fields \`bootstrapState\`, \`toolCapabilities\`, \`currentDimensionGuidance\`, \`hostAgentContract\`, \`gates\`, and \`repairState\` before choosing the next tool.`;
 }
 
 function buildFallbackPlaybookLine(visibleToolNameSet: Set<string>): string {
