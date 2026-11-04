@@ -9,6 +9,7 @@ import {
   upsertAlembicManagedBlock,
   type WriteZone,
 } from '@alembic/core/io';
+import Logger from '@alembic/core/logging';
 import { HOST_AGENT_SOURCE } from '@alembic/core/shared';
 import { resolveDataRoot, resolveProjectRoot } from '@alembic/core/workspace';
 import {
@@ -16,6 +17,8 @@ import {
   buildPluginProjectSkillDeliveryReceipt,
   exportProjectSkillReceiptToRuntime,
   getProjectSkillRoot,
+  isSkillDirInsideRoot,
+  isValidProjectSkillName,
   PROJECT_SKILL_MARKER_FILE,
   type ProjectSkillRuntimeExportResult,
 } from '#service/skills/ProjectSkillDelivery.js';
@@ -158,6 +161,11 @@ export class ProjectSkillService {
     if (!name) {
       return failure('MISSING_PARAM', 'name is required for load.');
     }
+    // load 只读：允许 list 能枚举到的历史 runtime 目录名（如 "ui" / "My_Skill"），见 guardSkillName。
+    const invalid = this.guardSkillName(name, 'load', 'read');
+    if (invalid) {
+      return invalid;
+    }
 
     const location = this.effectiveLocation(name);
     if (!location.exists) {
@@ -187,7 +195,7 @@ export class ProjectSkillService {
 
   upsert(args: ProjectSkillServiceInput): ProjectSkillServiceResult {
     const name = normalizeSkillName(args);
-    const validation = validateSkillName(name);
+    const validation = this.guardSkillName(name, 'upsert');
     if (validation) {
       return validation;
     }
@@ -278,6 +286,11 @@ export class ProjectSkillService {
     if (!name) {
       return failure('MISSING_PARAM', 'name is required.');
     }
+    // delete 会递归删除 source 目录：名称必须先过校验，否则 '..' 会删掉整个 Alembic/。
+    const invalid = this.guardSkillName(name, 'delete');
+    if (invalid) {
+      return invalid;
+    }
     const source = this.projectSourceLocation(name);
     const runtime = this.runtimeLocation(name);
     const sourceExists = fs.existsSync(source.path);
@@ -309,6 +322,12 @@ export class ProjectSkillService {
 
   export(args: ProjectSkillServiceInput): ProjectSkillServiceResult {
     const name = normalizeSkillName(args);
+    if (name) {
+      const invalidName = this.guardSkillName(name, 'export');
+      if (invalidName) {
+        return invalidName;
+      }
+    }
     const receipt =
       normalizeReceiptInput(args.receipt) ??
       (name ? this.readStoredReceipt(name) : null) ??
@@ -318,6 +337,15 @@ export class ProjectSkillService {
         'PROJECT_SKILL_RECEIPT_NOT_FOUND',
         'ProjectSkillDeliveryReceipt was not provided and no matching source skill receipt was found.'
       );
+    }
+    // receipt（MCP 入参或磁盘上存储的 receipt）里的 skillName 同样不可信，
+    // 它决定 runtime 导出目录和 delivery-receipt.json 的写入位置。
+    const invalidReceiptName = this.guardSkillName(
+      (receipt as { skillName?: unknown }).skillName,
+      'export-receipt'
+    );
+    if (invalidReceiptName) {
+      return invalidReceiptName;
     }
 
     const result = exportProjectSkillReceiptToRuntime(this.ctx, {
@@ -451,6 +479,58 @@ export class ProjectSkillService {
       projectRoot,
       reasons,
     };
+  }
+
+  /**
+   * 所有按名称寻址的操作（load / export / delete / upsert 及 receipt 路径）共用的名称闸门：
+   * 1. 写操作（默认 mode='write'）使用严格 kebab-case 3-64 规则；只读 load（mode='read'）
+   *    只要求是单个安全路径段，使 list 枚举出的历史 runtime 目录名（用户手工创建的
+   *    "ui" / "My_Skill"）仍可加载。非法返回 INVALID_NAME（空名称保持 MISSING_PARAM）；
+   * 2. 纵深防御：source / runtime / builtin 三个解析后的目录都必须严格位于各自根目录内。
+   * 返回 null 表示可以继续触碰文件系统。
+   */
+  private guardSkillName(
+    name: unknown,
+    operation: string,
+    mode: 'read' | 'write' = 'write'
+  ): ProjectSkillServiceResult | null {
+    const validation = mode === 'read' ? validateReadableSkillName(name) : validateSkillName(name);
+    if (validation) {
+      if (validation.errorCode === 'INVALID_NAME') {
+        const legacyReadable = mode === 'write' && validateReadableSkillName(name) === null;
+        logRejectedSkillName(
+          operation,
+          name,
+          legacyReadable ? 'legacy-name-read-only' : `invalid-name:${mode}`
+        );
+        if (legacyReadable) {
+          // 历史名称可 list/load，但写操作（含 delete）仍拒绝：明确告诉调用方原因与处理方式。
+          return failure(
+            'INVALID_NAME',
+            `Skill name "${String(name)}" is a legacy name that can only be listed and loaded (read-only); ` +
+              `${operation} is a write operation and requires a kebab-case name (a-z, 0-9, -), 3-64 chars. ` +
+              'Rename or remove that skill directory manually, or recreate it under a kebab-case name.'
+          );
+        }
+      }
+      return validation;
+    }
+    const skillName = name as string;
+    const roots: Array<[string, string]> = [
+      ['project-source', this.sourceRoot()],
+      ['codex-runtime', getProjectSkillRoot(this.projectRoot())],
+      ['builtin', PACKAGE_SKILLS_DIR],
+    ];
+    for (const [kind, root] of roots) {
+      if (!isSkillDirInsideRoot(root, path.join(root, skillName))) {
+        logRejectedSkillName(operation, name, `outside-${kind}-root:${root}`);
+        return failure(
+          'INVALID_NAME',
+          `Skill name "${skillName}" resolves outside the ${kind} skill root and was refused.`
+        );
+      }
+    }
+    return null;
   }
 
   private effectiveLocation(name: string): SkillLocation {
@@ -827,17 +907,52 @@ function extractHeadingTitle(content: string): string | null {
   return match ? match[1].trim() : null;
 }
 
-function validateSkillName(name: string | null): ProjectSkillServiceResult | null {
-  if (!name) {
+function validateSkillName(name: unknown): ProjectSkillServiceResult | null {
+  if (name === null || name === undefined || name === '') {
     return failure('MISSING_PARAM', 'name is required.');
   }
-  if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(name) || name.length < 3 || name.length > 64) {
+  if (!isValidProjectSkillName(name)) {
     return failure(
       'INVALID_NAME',
-      `Skill name must be kebab-case (a-z, 0-9, -), 3-64 chars. Got: "${name}"`
+      `Skill name must be kebab-case (a-z, 0-9, -), 3-64 chars. Got: "${String(name)}"`
     );
   }
   return null;
+}
+
+/** 只读 load 允许的最大名称长度：足够容纳手工创建的目录名，同时保持有界。 */
+const READABLE_SKILL_NAME_MAX_LENGTH = 128;
+
+/**
+ * 只读名称规则：单个安全路径段 —— 无路径分隔符、不是 "." / ".."、无 NUL / 控制字符、长度有界。
+ * 解析后的目录仍要再过 guardSkillName 里的根目录约束检查。
+ */
+function validateReadableSkillName(name: unknown): ProjectSkillServiceResult | null {
+  if (name === null || name === undefined || name === '') {
+    return failure('MISSING_PARAM', 'name is required.');
+  }
+  const safeSegment =
+    typeof name === 'string' &&
+    name.length <= READABLE_SKILL_NAME_MAX_LENGTH &&
+    name !== '.' &&
+    name !== '..' &&
+    !name.includes('/') &&
+    !name.includes('\\') &&
+    ![...name].some((char) => (char.codePointAt(0) ?? 0) < 0x20);
+  if (!safeSegment) {
+    return failure(
+      'INVALID_NAME',
+      `Skill name must be a single path segment without separators, "." / "..", or control characters, at most ${READABLE_SKILL_NAME_MAX_LENGTH} chars. Got: ${JSON.stringify(String(name))}`
+    );
+  }
+  return null;
+}
+
+function logRejectedSkillName(operation: string, name: unknown, reason: string): void {
+  // 走 Core Logger（MCP 模式下无 Console transport，仅进文件日志），不能写 stdout 污染 JSON-RPC 通道。
+  Logger.getInstance().warn(
+    `[ProjectSkill] rejected skill name: operation=${operation} name=${JSON.stringify(name)} reason=${reason}`
+  );
 }
 
 function normalizeSkillName(args: ProjectSkillServiceInput): string | null {
