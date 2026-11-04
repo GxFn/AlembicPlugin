@@ -105,13 +105,29 @@ describe('StagingAccessSweep', () => {
     }
   });
 
+  // alembic_status 已改为不建插件自有容器的本地工具，sweep 调用点移到 EmbeddedToolExecutor
+  // （写类工具 handler 之前），因此成员只剩三个写类工具；下方用例的 toolName 随之改为
+  // alembic_submit_knowledge，被测的节流/cap/超时/驱动语义不变。
   test('enables the required MCP access tools', () => {
     expect([...STAGING_ACCESS_SWEEP_TOOL_NAMES].sort()).toEqual([
       'alembic_dimension_complete',
       'alembic_rescan',
-      'alembic_status',
       'alembic_submit_knowledge',
     ]);
+  });
+
+  test('alembic_status no longer triggers the sweep', async () => {
+    let called = false;
+    const result = await maybeRunStagingAccessSweep({
+      getContainer: async () => {
+        called = true;
+        throw new Error('container must not be opened for alembic_status');
+      },
+      projectRoot: '/tmp/project-status',
+      toolName: 'alembic_status',
+    });
+    expect(result).toMatchObject({ reason: 'tool-not-enabled', skipped: true });
+    expect(called).toBe(false);
   });
 
   test('runs only for enabled access tools and throttles repeated project ticks', async () => {
@@ -159,13 +175,13 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 10_000,
       projectRoot: '/tmp/project-a',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
     const second = await maybeRunStagingAccessSweep({
       getContainer,
       now: 10_500,
       projectRoot: '/tmp/project-a',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
     const third = await maybeRunStagingAccessSweep({
       getContainer,
@@ -212,7 +228,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 10_000,
       projectRoot: '/tmp/project-cap-default',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     expect(result.skipped).toBe(false);
@@ -236,7 +252,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 10_000,
       projectRoot: '/tmp/project-pending-review',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     expect(result.skipped).toBe(false);
@@ -258,7 +274,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 20_000,
       projectRoot: '/tmp/project-cap-env',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     expect(result.skipped).toBe(false);
@@ -310,7 +326,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 30_000,
       projectRoot: '/tmp/project-checktimeouts',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     expect(result.skipped).toBe(false);
@@ -336,7 +352,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 40_000,
       projectRoot: '/tmp/project-checktimeouts-throw',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     // checkTimeouts 抛错 → 整 sweep 走既有 try/catch skipped 兜底（inFlight/throttle/2s 信封不变）。
@@ -370,7 +386,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 50_000,
       projectRoot: '/tmp/project-checkandexecute',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     expect(result.skipped).toBe(false);
@@ -396,7 +412,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 60_000,
       projectRoot: '/tmp/project-checkandexecute-throw',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     // checkAndExecute 抛错 → 整 sweep 走既有 try/catch skipped 兜底（信封不变）。
@@ -432,7 +448,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 70_000,
       projectRoot: '/tmp/project-decay',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     expect(result.skipped).toBe(false);
@@ -456,7 +472,7 @@ describe('StagingAccessSweep', () => {
       getContainer,
       now: 80_000,
       projectRoot: '/tmp/project-decay-throw',
-      toolName: 'alembic_status',
+      toolName: 'alembic_submit_knowledge',
     });
 
     // scanAll 抛错 → 整 sweep 走既有 try/catch skipped 兜底（inFlight/throttle/2s 信封不变）。

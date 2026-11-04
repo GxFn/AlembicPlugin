@@ -82,6 +82,10 @@ describe('strict-publication-v1 formal five-tool compatibility', () => {
 
   test('transports all five formal tools and Work with legal publication metadata', async () => {
     const fixture = installFixture();
+    // 主仓库产出的真实 strict-publication 项目在 dataRoot 下同时保有 live 知识库（publication 快照
+    // 由它发布而来）。alembic_work 等写工具对没有 live 库的项目会按设计返回 PROJECT_NOT_INITIALIZED，
+    // 因此这里补齐 live 库；五个只读工具仍必须按 strict publication 快照路由（下方元数据断言）。
+    installLiveKnowledgeDatabase(fixture.dataRoot);
     const transport = await openHostTransport(fixture.projectRoot);
     try {
       const calls: Array<[string, Record<string, unknown>]> = [
@@ -638,6 +642,16 @@ function installFixture(): { dataRoot: string; projectRoot: string } {
     recursive: true,
   });
   return { dataRoot, projectRoot };
+}
+
+/**
+ * 模拟主仓库 strict-publication 项目的 live 知识库：以已发布快照的数据库作为 dataRoot/.asd/alembic.db。
+ * fixture 文件可能是只读权限，写工具的容器需要以读写方式打开 live 库，因此复制后放开写权限。
+ */
+function installLiveKnowledgeDatabase(dataRoot: string): void {
+  const liveDatabasePath = path.join(dataRoot, '.asd/alembic.db');
+  fs.copyFileSync(path.join(FIXTURE_ROOT, SNAPSHOT_PATH, 'data/.asd/alembic.db'), liveDatabasePath);
+  fs.chmodSync(liveDatabasePath, 0o600);
 }
 
 /**

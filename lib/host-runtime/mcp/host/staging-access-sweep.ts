@@ -8,10 +8,11 @@ const DEFAULT_TIMEOUT_MS = 2_000;
 const DEFAULT_STAGING_ACCESS_SWEEP_CAP = 50;
 const DEFAULT_VECTOR_RECONCILE_MIN_INTERVAL_MS = 300_000;
 
+// 只保留会打开请求项目可写插件自有容器的写类 embedded 工具（调用点：EmbeddedToolExecutor.execute，
+// handler 之前）。alembic_status 已是不建容器的本地工具，不再触发 sweep。
 export const STAGING_ACCESS_SWEEP_TOOL_NAMES = new Set([
   'alembic_submit_knowledge',
   'alembic_dimension_complete',
-  'alembic_status',
   'alembic_rescan',
 ]);
 

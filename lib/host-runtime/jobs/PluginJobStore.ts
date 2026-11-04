@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
+import Logger from '@alembic/core/logging';
 import { projectLocationService } from '../context/ProjectLocationService.js';
 
 export type PluginJobKind = 'bootstrap' | 'rescan';
@@ -37,8 +38,9 @@ export class PluginJobStore {
 
   constructor(projectRoot: string) {
     this.location = projectLocationService.resolve(projectRoot);
+    // 构造与读路径不落盘：未初始化项目的 runtimeDir 就在仓库里（dataRoot == projectRoot），
+    // alembic_job op=status 只读也不能在用户仓库里留下 .asd/jobs；目录只在真正写 job 记录时创建。
     this.jobsDir = join(this.location.runtimeDir, 'jobs');
-    mkdirSync(this.jobsDir, { recursive: true, mode: 0o700 });
   }
 
   create(input: {
@@ -83,6 +85,20 @@ export class PluginJobStore {
 
   list(options: { kind?: PluginJobKind; status?: PluginJobStatus; limit?: number } = {}) {
     const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    if (!existsSync(this.jobsDir)) {
+      // 从未写过 job：等价于空列表，不为读取而创建目录。诊断走 Core Logger（stderr / 日志文件），
+      // 便于区分"该项目从未建过 job"与"job 目录被清理/指向了别的 dataRoot"。
+      Logger.getInstance().debug(
+        '[PluginJobStore] jobs directory does not exist; listing no jobs (directory not created)',
+        {
+          dataRoot: this.location.dataRoot,
+          jobsDir: this.jobsDir,
+          kind: options.kind ?? null,
+          status: options.status ?? null,
+        }
+      );
+      return [];
+    }
     return readdirSync(this.jobsDir)
       .filter((name) => name.endsWith('.json'))
       .map((name) => this.get(basename(name, '.json')))
@@ -105,10 +121,15 @@ export class PluginJobStore {
     });
   }
 
-  fail(id: string, error: unknown) {
+  /**
+   * 标记失败。result 可选：workflow 以结构化失败返回（如 Plan gate 阻断）时一并保存其
+   * 业务数据，便于 op=status 回读 nextActions / blockedReason，而不只剩一行 message。
+   */
+  fail(id: string, error: unknown, result?: unknown) {
     return this.update(id, {
       status: 'failed',
       error: { message: error instanceof Error ? error.message : String(error) },
+      ...(result === undefined ? {} : { result }),
       completedAt: new Date().toISOString(),
     });
   }
@@ -124,6 +145,7 @@ export class PluginJobStore {
   }
 
   private write(record: PluginJobRecord) {
+    mkdirSync(this.jobsDir, { recursive: true, mode: 0o700 });
     const path = join(this.jobsDir, `${record.id}.json`);
     const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });

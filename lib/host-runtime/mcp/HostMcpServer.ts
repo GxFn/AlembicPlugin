@@ -10,7 +10,7 @@ import {
 } from '#service/task/host-turn-meta.js';
 import { SetupService } from '../../cli/SetupService.js';
 import { getPackageVersion } from '../../shared/package-assets.js';
-import type { GenerateInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
+import { GenerateInput, RescanInput } from '../../shared/schemas/mcp-tools.js';
 import {
   buildProjectRootRequiredActions,
   buildProjectRootRequiredMessage,
@@ -25,9 +25,13 @@ import {
   summarizeProjectRootResolution,
 } from '../index.js';
 import { PluginJobStore } from '../jobs/PluginJobStore.js';
+import { projectCoreToolOutput } from './core-tools/output.js';
 import { type EventLoopWatchdogHandle, startEventLoopWatchdog } from './EventLoopWatchdog.js';
+import { formatZodValidationMessage } from './errorHandler.js';
 import {
   EmbeddedToolExecutor,
+  isRequestProjectInitialized,
+  projectNotInitializedResult,
   resetPluginOwnedMcpServer,
   resetPluginOwnedMcpServerForTests,
   type ToolExecutionContext,
@@ -75,6 +79,19 @@ const HEAVY_TOOL_DEADLINE_TOOLS = new Set([
   'alembic_plan',
   'alembic_submit_knowledge',
 ]);
+// alembic_job 的 op=bootstrap|rescan 跑的就是 alembic_bootstrap / alembic_rescan 同一 workflow，
+// 必须拿重档；op=status 只读 job 文件，保持轻档。
+const HEAVY_JOB_OPS = new Set(['bootstrap', 'rescan']);
+// 仅属于 alembic_job 的控制字段；转发给 workflow 之前剥离，避免进入 Zod 校验与 job.request 以外的语义。
+const JOB_CONTROL_ARG_KEYS = new Set(['op', 'jobId', 'kind', 'status', 'limit']);
+
+/** 判断一次工具调用是否应使用重档软超时(bootstrap/rescan 类 workflow)。 */
+export function isHeavyToolCall(name: string, args: Record<string, unknown> | undefined): boolean {
+  if (HEAVY_TOOL_DEADLINE_TOOLS.has(name)) {
+    return true;
+  }
+  return name === 'alembic_job' && typeof args?.op === 'string' && HEAVY_JOB_OPS.has(args.op);
+}
 
 function readPositiveIntEnv(name: string): number | undefined {
   const parsed = Number(process.env[name]);
@@ -229,7 +246,7 @@ export class HostMcpServer {
       Logger.getInstance().info(`[MCP] ${name} start`);
       try {
         const result = await withMcpRequestSignal(extra.signal, (senderSignal) =>
-          this.#withToolCallDeadline(name, (deadlineSignal) =>
+          this.#withToolCallDeadline(name, args, (deadlineSignal) =>
             this.handleToolCall(name, args || {}, {
               hostTurnMeta: readHostTurnMetaFromMcpRequest(request),
               // 两种取消共享清理链；sender 无权覆盖内部 TOOL_TIMEOUT 的错误类型。
@@ -246,9 +263,6 @@ export class HostMcpServer {
         const message = err instanceof Error ? err.message : String(err);
         const timedOut = err instanceof ToolCallDeadlineError;
         const cancelled = err instanceof Error && err.name === 'AbortError';
-        const projectRuntime = buildProjectRuntimeContext({
-          projectRoot: this.projectRoot,
-        });
         Logger.getInstance().warn(
           `[MCP] ${name} ${timedOut ? 'timeout' : cancelled ? 'cancelled' : 'error'}`,
           {
@@ -256,19 +270,22 @@ export class HostMcpServer {
             message,
           }
         );
+        // catch 路径自身绝不能再抛：只附加本次请求实际项目的 projectRuntime；
+        // 请求项目不可解析（顶层根被拒、显式根被拒）时省略，仍返回结构化失败。
+        const projectRuntime = this.#buildFailureProjectRuntime(name, args || {});
         return serializeMcpToolResult(
           name,
           {
             ...failureResult(name, message, {
               code: timedOut ? 'TOOL_TIMEOUT' : cancelled ? 'CANCELLED' : 'INTERNAL_ERROR',
               data: {
-                projectRuntime,
+                ...(projectRuntime ? { projectRuntime } : {}),
                 retryable: timedOut,
               },
             }),
-            _meta: {
-              alembicPublication: projectRuntime.publication,
-            },
+            ...(projectRuntime
+              ? { _meta: { alembicPublication: projectRuntime.publication } }
+              : {}),
           },
           { isErrorResult }
         );
@@ -277,8 +294,12 @@ export class HostMcpServer {
   }
 
   /** 按工具档位计算软超时并委托 raceToolCallDeadline(逻辑在 tool-call-deadline.ts,可直测)。 */
-  #withToolCallDeadline<T>(name: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    const heavy = HEAVY_TOOL_DEADLINE_TOOLS.has(name);
+  #withToolCallDeadline<T>(
+    name: string,
+    args: Record<string, unknown> | undefined,
+    work: (signal: AbortSignal) => Promise<T>
+  ): Promise<T> {
+    const heavy = isHeavyToolCall(name, args);
     const deadlineMs =
       readPositiveIntEnv('ALEMBIC_MCP_TOOL_DEADLINE_MS') ??
       (heavy ? HEAVY_TOOL_DEADLINE_MS : DEFAULT_TOOL_DEADLINE_MS);
@@ -294,41 +315,93 @@ export class HostMcpServer {
     args: Record<string, unknown>,
     options: ToolCallOptions = {}
   ): Promise<unknown> {
-    const requestedRoot = typeof args.projectRoot === 'string' ? args.projectRoot : undefined;
-    const resolvedRequestedRoot = requestedRoot ? resolve(requestedRoot) : undefined;
+    const requestedRoot = readRequestedProjectRoot(args);
+    const resolvedRequestedRoot = requestedRoot !== undefined ? resolve(requestedRoot) : undefined;
     const canonicalRequestedRoot = resolvedRequestedRoot
       ? canonicalProjectPath(resolvedRequestedRoot)
       : undefined;
     const canonicalCurrentRoot = this.projectRoot ? canonicalProjectPath(this.projectRoot) : '';
-    if (canonicalRequestedRoot && canonicalRequestedRoot !== canonicalCurrentRoot) {
+    if (
+      requestedRoot !== undefined &&
+      canonicalRequestedRoot &&
+      canonicalRequestedRoot !== canonicalCurrentRoot
+    ) {
+      // 显式 projectRoot 必须自身被信任；被拒绝时返回与顶层门禁相同的 PROJECT_ROOT_REQUIRED，
+      // 不能交给 scoped server（其 projectRoot='' 会让 buildProjectRuntimeContext 回落到 PWD/cwd）。
+      const explicitResolution = resolveExplicitRequestRoot(requestedRoot);
+      if (!isTrustedProjectRoot(explicitResolution)) {
+        Logger.getInstance().warn(
+          `[MCP/HostMcpServer] ${name} explicit projectRoot rejected; returning PROJECT_ROOT_REQUIRED without env fallback`,
+          { reason: explicitResolution.reason, requestedRoot }
+        );
+        return projectRootRequiredResponse(name, explicitResolution);
+      }
       let scopedServer = this.#scopedProjectServers.get(canonicalRequestedRoot);
       if (!scopedServer) {
-        scopedServer = new HostMcpServer({
+        const candidate = new HostMcpServer({
           // Key sessions by canonical identity, but preserve the caller's logical
           // path in public projectRoot outputs (/var must not become /private/var).
           projectRoot: resolvedRequestedRoot ?? canonicalRequestedRoot,
           waitUntilReadyMs: this.waitUntilReadyMs,
         });
+        if (!candidate.projectRoot) {
+          // 校验与构造之间目录被删除等竞态：同样拒绝，且不缓存被拒绝的 scoped server。
+          Logger.getInstance().warn(
+            `[MCP/HostMcpServer] ${name} explicit projectRoot rejected while creating its scoped server`,
+            { reason: candidate.projectRootResolution.reason, requestedRoot }
+          );
+          return projectRootRequiredResponse(
+            name,
+            restrictToExplicitCandidate(candidate.projectRootResolution, requestedRoot)
+          );
+        }
+        scopedServer = candidate;
         this.#scopedProjectServers.set(canonicalRequestedRoot, scopedServer);
       }
       const { projectRoot: _projectRoot, ...scopedArgs } = args;
       return scopedServer.handleToolCallInCurrentProject(name, scopedArgs, options);
     }
     if (!this.projectRoot) {
-      const message = buildProjectRootRequiredMessage(this.projectRootResolution);
-      return createCleanMcpErrorResponse({
-        code: 'PROJECT_ROOT_REQUIRED',
-        details: {
-          projectRootResolution: summarizeProjectRootResolution(this.projectRootResolution),
-          requiredActions: buildProjectRootRequiredActions(),
-        },
-        message,
-        status: 'project-root-required',
-        toolName: name,
-      });
+      return projectRootRequiredResponse(name, this.projectRootResolution);
     }
     const { projectRoot: _projectRoot, ...localArgs } = args;
     return this.handleToolCallInCurrentProject(name, localArgs, options);
+  }
+
+  /**
+   * CallTool catch 路径的 projectRuntime：按与 handleToolCall 相同的规则确定请求实际项目
+   * （显式 projectRoot 优先，且必须自身被信任；否则用顶层根），只做解析不建 scoped server。
+   * 不可解析或构建失败时返回 undefined 并记录诊断，调用方据此省略 projectRuntime。
+   */
+  #buildFailureProjectRuntime(
+    name: string,
+    args: Record<string, unknown>
+  ): ReturnType<typeof buildProjectRuntimeContext> | undefined {
+    const requestedRoot = readRequestedProjectRoot(args);
+    let effectiveRoot = this.projectRoot;
+    if (requestedRoot !== undefined) {
+      const explicitResolution = resolveExplicitRequestRoot(requestedRoot);
+      effectiveRoot =
+        isTrustedProjectRoot(explicitResolution) && explicitResolution.path
+          ? explicitResolution.path
+          : '';
+    }
+    if (!effectiveRoot) {
+      Logger.getInstance().warn(
+        `[MCP] ${name} failure has no resolvable request project; projectRuntime omitted`,
+        { requestedRoot: requestedRoot ?? null }
+      );
+      return undefined;
+    }
+    try {
+      return buildProjectRuntimeContext({ projectRoot: effectiveRoot });
+    } catch (err: unknown) {
+      Logger.getInstance().warn(
+        `[MCP] ${name} failure projectRuntime could not be built; projectRuntime omitted`,
+        { message: err instanceof Error ? err.message : String(err), projectRoot: effectiveRoot }
+      );
+      return undefined;
+    }
   }
 
   private async handleToolCallInCurrentProject(
@@ -344,7 +417,7 @@ export class HostMcpServer {
       buildStatus: () => this.buildStatus(),
       cleanupRuntime: (nextArgs) => this.cleanupRuntime(nextArgs),
       initializeWorkspace: (nextArgs) => this.initializeWorkspace(nextArgs),
-      enqueueJob: async (kind, nextArgs) => this.enqueueJob(kind, nextArgs),
+      enqueueJob: async (kind, nextArgs) => this.enqueueJob(kind, nextArgs, options),
       readJob: async (nextArgs) => this.readJob(nextArgs),
     });
     if (localDispatch.handled) {
@@ -688,14 +761,59 @@ export class HostMcpServer {
     };
   }
 
-  async enqueueJob(kind: 'bootstrap' | 'rescan', args: Record<string, unknown>): Promise<unknown> {
+  /**
+   * alembic_job op=bootstrap|rescan：以 Plugin 自有 job 记录包裹 alembic_bootstrap / alembic_rescan
+   * 的同一条执行链——请求级 projectRuntime（dataRoot 来源）+ 请求项目的插件自有容器
+   * （EmbeddedToolExecutor 内的 embedded McpServer）+ wrapHandler 的同一 Zod schema。
+   * 不能再用全局 getServiceContainer()：它不属于请求项目，且缺 projectRuntime 时
+   * cold-start / rescan 首步就会抛 "Request-scoped project runtime dataRoot is required."。
+   */
+  async enqueueJob(
+    kind: 'bootstrap' | 'rescan',
+    args: Record<string, unknown>,
+    options: ToolCallOptions = {}
+  ): Promise<unknown> {
     const toolName = 'alembic_job';
-    const { getServiceContainer } = await import('#inject/ServiceContainer.js');
-    const container = getServiceContainer();
-    const logger = Logger.getInstance();
-    const projectRuntime = buildProjectRuntimeContext({
-      projectRoot: this.projectRoot,
-    });
+    const workflowTool = kind === 'bootstrap' ? 'alembic_bootstrap' : 'alembic_rescan';
+    const jobRoute = { selected: 'plugin-owned-local-jobstore', workflowTool };
+    const executionContext = await this.resolveToolExecutionContext(workflowTool);
+    const projectRuntime =
+      executionContext.projectRuntime ??
+      buildProjectRuntimeContext({ projectRoot: this.projectRoot });
+    const workflowArgs = Object.fromEntries(
+      Object.entries(args).filter(([key]) => !JOB_CONTROL_ARG_KEYS.has(key))
+    );
+
+    // 与 alembic_bootstrap / alembic_rescan 直调同一未初始化门禁，且排在输入校验与 job 创建之前：
+    // 未初始化项目的 runtimeDir 在仓库内，任何 job 记录都会在用户仓库落盘。
+    if (!isRequestProjectInitialized(executionContext.projectRoot)) {
+      return attachProjectRuntimeContext(
+        projectNotInitializedResult(toolName, executionContext.projectRoot),
+        projectRuntime
+      );
+    }
+
+    // 先用与 alembic_bootstrap / alembic_rescan 相同的 Zod schema 预校验：坏输入返回结构化
+    // VALIDATION_ERROR，不创建 job、不进入 workflow（与直接调用工具时 wrapHandler 的行为一致）。
+    const schema = kind === 'bootstrap' ? GenerateInput : RescanInput;
+    const parsed = schema.safeParse(workflowArgs);
+    if (!parsed.success) {
+      // 线路消息与直调 alembic_bootstrap / alembic_rescan（wrapHandler）逐字一致，同一格式化来源；
+      // job 入口身份由 data.jobRoute 与日志里的 op 表达，不再靠消息前缀。
+      const message = formatZodValidationMessage(parsed.error);
+      Logger.getInstance().warn(`[MCP:${toolName}] op=${kind} VALIDATION_ERROR: ${message}`, {
+        workflowTool,
+      });
+      return failureResult(toolName, message, {
+        code: 'VALIDATION_ERROR',
+        data: { jobRoute, projectRuntime },
+      });
+    }
+
+    if (kind === 'rescan' && workflowArgs.reason === undefined) {
+      // 沿用旧 job 路由的默认触发原因，保证 rescan 报告里能区分 job 入口。
+      workflowArgs.reason = 'host-rescan';
+    }
 
     const store = new PluginJobStore(this.projectRoot);
     const job = store.create({
@@ -706,27 +824,46 @@ export class HostMcpServer {
     });
     store.markRunning(job.id);
     try {
-      let raw: unknown;
-      if (kind === 'bootstrap') {
-        const { generateForHostAgent } = await import('./handlers/host-agent/generate.js');
-        raw = await generateForHostAgent({ container, logger }, normalizeBootstrapJobArgs(args));
-      } else {
-        const { rescanForHostAgent } = await import('./handlers/host-agent/rescan.js');
-        raw = await rescanForHostAgent({ container, logger }, normalizeRescanJobArgs(args));
+      // 走 EmbeddedToolExecutor.execute：与 alembic_bootstrap / alembic_rescan 共用插件自有
+      // embedded McpServer（容器、actor、signal、hostTurnMeta 与 wrapHandler 错误归一）。
+      const raw = await this.embeddedToolExecutor().execute(
+        workflowTool,
+        workflowArgs,
+        executionContext,
+        options
+      );
+      const outcome = readJobWorkflowOutcome(raw, workflowTool);
+      if (outcome.failed) {
+        // workflow 返回的结构化失败（Plan gate 阻断、校验失败、取消等）必须让 job 记 failed，
+        // 不能再被包装成 success + completed。
+        Logger.getInstance().warn(
+          `[MCP:${toolName}] op=${kind} job ${job.id} failed: ${outcome.errorCode}`,
+          { message: outcome.message, workflowTool }
+        );
+        const failedJob = store.fail(job.id, new Error(outcome.message), outcome.result);
+        return failureResult(toolName, outcome.message, {
+          code: outcome.errorCode,
+          data: {
+            job: failedJob,
+            jobRoute,
+            projectRuntime,
+            ...outcome.userInput,
+          },
+        });
       }
-      const result =
-        raw && typeof raw === 'object' && 'data' in raw
-          ? ((raw as { data?: unknown }).data ?? raw)
-          : raw;
-      const completedJob = store.complete(job.id, result);
+      const completedJob = store.complete(job.id, outcome.result);
       return attachProjectRuntimeContext(
-        { success: true, data: { job: completedJob } },
+        { success: true, data: { job: completedJob, jobRoute } },
         projectRuntime
       );
     } catch (err: unknown) {
-      store.fail(job.id, err);
-      return failureResult(toolName, err instanceof Error ? err.message : String(err), {
-        data: { projectRuntime },
+      const message = err instanceof Error ? err.message : String(err);
+      Logger.getInstance().warn(`[MCP:${toolName}] op=${kind} job ${job.id} threw: ${message}`, {
+        workflowTool,
+      });
+      const failedJob = store.fail(job.id, err);
+      return failureResult(toolName, message, {
+        data: { job: failedJob, jobRoute, projectRuntime },
       });
     }
   }
@@ -823,50 +960,6 @@ export class HostMcpServer {
   }
 }
 
-function normalizeBootstrapJobArgs(args: Record<string, unknown>): GenerateInput {
-  return {
-    rebuild: readOptionalBoolean(args.rebuild),
-    generationStage: args.generationStage === 'coldStart' ? 'coldStart' : undefined,
-    planSelection: args.planSelection as GenerateInput['planSelection'],
-    testMode: readOptionalBoolean(args.testMode),
-    dimensions: readStringArray(args.dimensions),
-    scaleOverride: readScaleOverride(args.scaleOverride),
-    rescanId: readOptionalString(args.rescanId),
-  };
-}
-
-function normalizeRescanJobArgs(args: Record<string, unknown>): RescanInput {
-  return {
-    dimensions: readStringArray(args.dimensions),
-    reason: readOptionalString(args.reason) ?? 'host-rescan',
-    force: readOptionalBoolean(args.force),
-    produceSession: readOptionalRecord(args.produceSession) as RescanInput['produceSession'],
-    controllerAuthorizedGaps: readRecordArray(
-      args.controllerAuthorizedGaps
-    ) as RescanInput['controllerAuthorizedGaps'],
-    produceSessionDimensions: readStringArray(args.produceSessionDimensions),
-    controllerAuthorized: readOptionalBoolean(args.controllerAuthorized),
-    generationStage: readRescanGenerationStage(args.generationStage),
-    planSelection: args.planSelection as RescanInput['planSelection'],
-    testMode: readOptionalBoolean(args.testMode),
-    moduleScope: readStringArray(args.moduleScope),
-    scaleOverride: readScaleOverride(args.scaleOverride),
-    rescanId: readOptionalString(args.rescanId),
-  };
-}
-
-function readRescanGenerationStage(value: unknown): RescanInput['generationStage'] {
-  return value === 'deepMining' || value === 'moduleMining' ? value : undefined;
-}
-
-function readOptionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function readOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
 function readOptionalRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -919,44 +1012,184 @@ function sameResolvedPath(left: unknown, right: unknown): boolean {
   return typeof left === 'string' && typeof right === 'string' && resolve(left) === resolve(right);
 }
 
+/** 请求参数里的显式 projectRoot；空串沿用“未提供”的旧语义，由顶层根处理。 */
+function readRequestedProjectRoot(args: Record<string, unknown>): string | undefined {
+  return typeof args.projectRoot === 'string' && args.projectRoot !== ''
+    ? args.projectRoot
+    : undefined;
+}
+
+/**
+ * 只按显式 projectRoot 自身判定信任，结果要么是 trusted 的 explicit-option，要么是 rejected。
+ * resolveProjectRootFromEnv 会 trim 候选并在显式值为空白时退回环境候选（PWD / cwd），
+ * 这里把这两类情况都强制归为拒绝，保证显式根永远不会静默换成环境项目。
+ */
+function resolveExplicitRequestRoot(requestedRoot: string): ProjectRootResolution {
+  if (!requestedRoot.trim()) {
+    return {
+      candidates: [],
+      path: null,
+      reason: 'Explicit projectRoot is blank.',
+      rejected: true,
+      source: 'explicit-option',
+      trust: 'rejected',
+    };
+  }
+  const resolution = resolveProjectRootFromEnv({ projectRoot: resolve(requestedRoot) });
+  if (resolution.source !== 'explicit-option') {
+    return restrictToExplicitCandidate(
+      {
+        ...resolution,
+        path: resolve(requestedRoot),
+        reason: `Explicit projectRoot could not be resolved on its own: ${requestedRoot}`,
+        rejected: true,
+        source: 'explicit-option',
+        trust: 'rejected',
+      },
+      requestedRoot
+    );
+  }
+  return isTrustedProjectRoot(resolution)
+    ? resolution
+    : restrictToExplicitCandidate(resolution, requestedRoot);
+}
+
+/**
+ * 显式根被拒绝时的诊断只保留显式候选本身：resolveProjectRootFromEnv 总会把服务器环境候选
+ * （CODEX_WORKSPACE_DIR / PWD / process.cwd 等）追加在后面，若原样回给调用方，就会把 MCP 服务器
+ * 所在的项目路径泄露给一个与之无关的请求。顶层（省略 projectRoot）门禁不走这里，保留完整候选列表。
+ */
+function restrictToExplicitCandidate(
+  resolution: ProjectRootResolution,
+  requestedRoot: string
+): ProjectRootResolution {
+  const explicitPath = resolve(requestedRoot);
+  const candidates = resolution.candidates.filter(
+    (candidate) => candidate.source === 'explicit-option'
+  );
+  if (candidates.length !== resolution.candidates.length) {
+    Logger.getInstance().debug(
+      '[MCP/HostMcpServer] explicit projectRoot rejected; environment candidates withheld from diagnostics',
+      {
+        requestedRoot,
+        withheldCandidateCount: resolution.candidates.length - candidates.length,
+      }
+    );
+  }
+  return {
+    ...resolution,
+    candidates:
+      candidates.length > 0
+        ? candidates
+        : [{ path: explicitPath, source: 'explicit-option', trust: 'trusted' }],
+  };
+}
+
+/** 与顶层门禁同形的 PROJECT_ROOT_REQUIRED clean error（拒绝原因、候选摘要与 requiredActions）。 */
+function projectRootRequiredResponse(toolName: string, resolution: ProjectRootResolution) {
+  return createCleanMcpErrorResponse({
+    code: 'PROJECT_ROOT_REQUIRED',
+    details: {
+      projectRootResolution: summarizeProjectRootResolution(resolution),
+      requiredActions: buildProjectRootRequiredActions(),
+    },
+    message: buildProjectRootRequiredMessage(resolution),
+    status: 'project-root-required',
+    toolName,
+  });
+}
+
 function canonicalProjectPath(projectRoot: string): string {
   const resolved = resolve(projectRoot);
   return existsSync(resolved) ? realpathSync(resolved) : resolved;
 }
 
-function readRecordArray(value: unknown): Record<string, unknown>[] | undefined {
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is Record<string, unknown> =>
-          !!item && typeof item === 'object' && !Array.isArray(item)
-      )
-    : undefined;
+interface JobWorkflowOutcome {
+  errorCode: string;
+  failed: boolean;
+  message: string;
+  result: unknown;
+  userInput: Record<string, unknown>;
 }
 
-function readStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
+/**
+ * 把 alembic_bootstrap / alembic_rescan 的执行结果归一成 job 结果。
+ * 三种形态：wrapHandler 的 CallToolResult（structuredContent，含 VALIDATION_ERROR / 抛错归一），
+ * EmbeddedToolExecutor 的 failureResult，以及 workflow 自身的 { success, data } 信封
+ * （Plan gate 阻断即 success:false + errorCode）。
+ */
+function readJobWorkflowOutcome(
+  raw: unknown,
+  workflowTool: 'alembic_bootstrap' | 'alembic_rescan'
+): JobWorkflowOutcome {
+  const record = readOptionalRecord(raw) ?? {};
+  const structured = readOptionalRecord(record.structuredContent);
+  if (structured) {
+    const error = readOptionalRecord(structured.error);
+    const failed = record.isError === true || structured.ok === false;
+    return {
+      errorCode: typeof error?.code === 'string' ? error.code : 'INTERNAL_ERROR',
+      failed,
+      message:
+        (typeof error?.message === 'string' && error.message) ||
+        (typeof structured.summary === 'string' && structured.summary) ||
+        'Alembic job workflow failed.',
+      result: structured,
+      userInput: {},
+    };
   }
-  const strings = value
-    .map((item) => (typeof item === 'string' ? item.trim() : ''))
-    .filter((item) => item.length > 0);
-  return strings.length > 0 ? strings : undefined;
-}
-
-function readScaleOverride(value: unknown): GenerateInput['scaleOverride'] {
-  const record = readOptionalRecord(value);
-  if (!record) {
-    return undefined;
-  }
+  const data = readOptionalRecord(record.data);
+  // attachExecutionContext 会把 projectRuntime 塞进 data；job 响应顶层已带 projectRuntime，
+  // job.result 只保留 workflow 业务数据，避免同一份运行时上下文重复落盘。
+  const { projectRuntime: _projectRuntime, ...businessData } = data ?? {};
+  const failed = isErrorResult(record);
+  const result = data ? projectJobWorkflowResult(record, businessData, workflowTool, failed) : raw;
+  const planGate = readOptionalRecord(businessData.planGate);
+  const errorCode =
+    (typeof record.errorCode === 'string' && record.errorCode) ||
+    (typeof planGate?.errorCode === 'string' && planGate.errorCode) ||
+    'INTERNAL_ERROR';
+  const message =
+    [record.message, businessData.blockedReason]
+      .filter((part): part is string => typeof part === 'string' && part.length > 0)
+      .join(' ') || 'Alembic job workflow failed.';
   return {
-    contentMaxLines: readPositiveNumber(record.contentMaxLines),
-    maxFiles: readPositiveNumber(record.maxFiles),
-    totalRecipeBudget: readPositiveNumber(record.totalRecipeBudget),
+    errorCode,
+    failed,
+    message,
+    result,
+    userInput: failed
+      ? {
+          ...(businessData.needsUserInput === true ? { needsUserInput: true } : {}),
+          ...(Array.isArray(businessData.nextActions)
+            ? { nextActions: businessData.nextActions }
+            : {}),
+        }
+      : {},
   };
 }
 
-function readPositiveNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+/**
+ * job.result 必须与直调 alembic_bootstrap / alembic_rescan 返回给智能体的内容一致：走同一个
+ * core clean-output 投影（业务白名单、敏感键剥离、rescan trash 路径相对化与超预算收敛）。
+ * 否则 job 路由会把直调时被过滤的原始字段（绝对路径、内部 meta 等）原样存入并回传。
+ * 投影异常时回退为去掉 projectRuntime 的原始业务数据，并写诊断日志，不让 job 因投影失败而丢结果。
+ */
+function projectJobWorkflowResult(
+  record: Record<string, unknown>,
+  businessData: Record<string, unknown>,
+  workflowTool: 'alembic_bootstrap' | 'alembic_rescan',
+  failed: boolean
+): unknown {
+  try {
+    return projectCoreToolOutput(record, workflowTool);
+  } catch (err: unknown) {
+    Logger.getInstance().warn(
+      `[MCP:alembic_job] ${workflowTool} result projection failed; storing unprojected business data`,
+      { error: err instanceof Error ? err.message : String(err), failed }
+    );
+    return businessData;
+  }
 }
 
 export { getToolCatalog, resetPluginOwnedMcpServerForTests };
